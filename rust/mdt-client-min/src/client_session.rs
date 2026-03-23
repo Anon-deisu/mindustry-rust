@@ -226,8 +226,10 @@ pub struct ClientSession {
     set_items_packet_id: Option<u8>,
     set_hud_text_packet_id: Option<u8>,
     set_hud_text_reliable_packet_id: Option<u8>,
+    set_floor_packet_id: Option<u8>,
     set_liquid_packet_id: Option<u8>,
     set_liquids_packet_id: Option<u8>,
+    set_overlay_packet_id: Option<u8>,
     set_tile_packet_id: Option<u8>,
     set_tile_overlays_packet_id: Option<u8>,
     set_tile_items_packet_id: Option<u8>,
@@ -644,6 +646,11 @@ impl ClientSession {
             .iter()
             .find(|entry| entry.method == "setHudTextReliable")
             .map(|entry| entry.packet_id);
+        let set_floor_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setFloor")
+            .map(|entry| entry.packet_id);
         let set_liquid_packet_id = manifest
             .remote_packets
             .iter()
@@ -653,6 +660,11 @@ impl ClientSession {
             .remote_packets
             .iter()
             .find(|entry| entry.method == "setLiquids")
+            .map(|entry| entry.packet_id);
+        let set_overlay_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setOverlay")
             .map(|entry| entry.packet_id);
         let set_tile_packet_id = manifest
             .remote_packets
@@ -1188,8 +1200,10 @@ impl ClientSession {
             set_items_packet_id,
             set_hud_text_packet_id,
             set_hud_text_reliable_packet_id,
+            set_floor_packet_id,
             set_liquid_packet_id,
             set_liquids_packet_id,
+            set_overlay_packet_id,
             set_tile_packet_id,
             set_tile_overlays_packet_id,
             set_tile_items_packet_id,
@@ -2736,6 +2750,25 @@ impl ClientSession {
                     })
                 }
             }
+            packet_id if Some(packet_id) == self.set_floor_packet_id => {
+                if let Some(summary) = decode_set_floor_payload(&packet.payload) {
+                    self.state.received_set_floor_count =
+                        self.state.received_set_floor_count.saturating_add(1);
+                    self.state.last_set_floor_tile_pos = summary.tile_pos;
+                    self.state.last_set_floor_floor_id = summary.floor_id;
+                    self.state.last_set_floor_overlay_id = summary.overlay_id;
+                    Ok(ClientSessionEvent::SetFloor {
+                        tile_pos: summary.tile_pos,
+                        floor_id: summary.floor_id,
+                        overlay_id: summary.overlay_id,
+                    })
+                } else {
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
             packet_id if Some(packet_id) == self.set_liquid_packet_id => {
                 if let Some(summary) = decode_set_liquid_payload(&packet.payload) {
                     self.state.received_set_liquid_count =
@@ -2768,6 +2801,23 @@ impl ClientSession {
                         stack_count: summary.stack_count,
                         first_liquid_id: summary.first_liquid_id,
                         first_amount_bits: summary.first_amount_bits,
+                    })
+                } else {
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
+            packet_id if Some(packet_id) == self.set_overlay_packet_id => {
+                if let Some(summary) = decode_set_overlay_payload(&packet.payload) {
+                    self.state.received_set_overlay_count =
+                        self.state.received_set_overlay_count.saturating_add(1);
+                    self.state.last_set_overlay_tile_pos = summary.tile_pos;
+                    self.state.last_set_overlay_block_id = summary.overlay_id;
+                    Ok(ClientSessionEvent::SetOverlay {
+                        tile_pos: summary.tile_pos,
+                        overlay_id: summary.overlay_id,
                     })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -6282,6 +6332,15 @@ pub enum ClientSessionEvent {
         first_liquid_id: Option<i16>,
         first_amount_bits: Option<u32>,
     },
+    SetFloor {
+        tile_pos: Option<i32>,
+        floor_id: Option<i16>,
+        overlay_id: Option<i16>,
+    },
+    SetOverlay {
+        tile_pos: Option<i32>,
+        overlay_id: Option<i16>,
+    },
     SetTileItems {
         item_id: Option<i16>,
         amount: i32,
@@ -7191,6 +7250,28 @@ fn decode_set_liquids_payload(payload: &[u8]) -> Option<SetLiquidsSummary> {
         stack_count,
         first_liquid_id,
         first_amount_bits,
+    })
+}
+
+fn decode_set_floor_payload(payload: &[u8]) -> Option<SetFloorSummary> {
+    let mut cursor = 0usize;
+    let tile_pos = read_optional_tile_pos(payload, &mut cursor)?;
+    let raw_floor_id = read_i16(payload, &mut cursor)?;
+    let raw_overlay_id = read_i16(payload, &mut cursor)?;
+    (cursor == payload.len()).then_some(SetFloorSummary {
+        tile_pos,
+        floor_id: (raw_floor_id != -1).then_some(raw_floor_id),
+        overlay_id: (raw_overlay_id != -1).then_some(raw_overlay_id),
+    })
+}
+
+fn decode_set_overlay_payload(payload: &[u8]) -> Option<SetOverlaySummary> {
+    let mut cursor = 0usize;
+    let tile_pos = read_optional_tile_pos(payload, &mut cursor)?;
+    let raw_overlay_id = read_i16(payload, &mut cursor)?;
+    (cursor == payload.len()).then_some(SetOverlaySummary {
+        tile_pos,
+        overlay_id: (raw_overlay_id != -1).then_some(raw_overlay_id),
     })
 }
 
@@ -8378,6 +8459,19 @@ struct SetLiquidsSummary {
     stack_count: usize,
     first_liquid_id: Option<i16>,
     first_amount_bits: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SetFloorSummary {
+    tile_pos: Option<i32>,
+    floor_id: Option<i16>,
+    overlay_id: Option<i16>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SetOverlaySummary {
+    tile_pos: Option<i32>,
+    overlay_id: Option<i16>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -10433,6 +10527,25 @@ fn encode_set_tile_payload(
     payload.extend_from_slice(&block_id.unwrap_or(-1).to_be_bytes());
     payload.push(team_id);
     payload.extend_from_slice(&rotation.to_be_bytes());
+    payload
+}
+
+#[cfg(test)]
+fn encode_set_floor_payload(
+    tile_pos: Option<i32>,
+    floor_id: Option<i16>,
+    overlay_id: Option<i16>,
+) -> Vec<u8> {
+    let mut payload = encode_tile_payload(tile_pos);
+    payload.extend_from_slice(&floor_id.unwrap_or(-1).to_be_bytes());
+    payload.extend_from_slice(&overlay_id.unwrap_or(-1).to_be_bytes());
+    payload
+}
+
+#[cfg(test)]
+fn encode_set_overlay_payload(tile_pos: Option<i32>, overlay_id: Option<i16>) -> Vec<u8> {
+    let mut payload = encode_tile_payload(tile_pos);
+    payload.extend_from_slice(&overlay_id.unwrap_or(-1).to_be_bytes());
     payload
 }
 
@@ -18538,6 +18651,122 @@ mod tests {
         assert_eq!(session.state().last_set_tile_block_id, None);
         assert_eq!(session.state().last_set_tile_team_id, None);
         assert_eq!(session.state().last_set_tile_rotation, None);
+    }
+
+    #[test]
+    fn tile_surface_packets_emit_observability_events() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let set_floor_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setFloor")
+            .unwrap()
+            .packet_id;
+        let set_overlay_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setOverlay")
+            .unwrap()
+            .packet_id;
+
+        let set_floor_event = session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    set_floor_packet_id,
+                    &encode_set_floor_payload(Some(pack_point2(6, 7)), Some(8), Some(9)),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            set_floor_event,
+            ClientSessionEvent::SetFloor {
+                tile_pos: Some(pack_point2(6, 7)),
+                floor_id: Some(8),
+                overlay_id: Some(9),
+            }
+        );
+        assert_eq!(session.state().received_set_floor_count, 1);
+        assert_eq!(
+            session.state().last_set_floor_tile_pos,
+            Some(pack_point2(6, 7))
+        );
+        assert_eq!(session.state().last_set_floor_floor_id, Some(8));
+        assert_eq!(session.state().last_set_floor_overlay_id, Some(9));
+
+        let set_overlay_event = session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    set_overlay_packet_id,
+                    &encode_set_overlay_payload(Some(pack_point2(8, 9)), Some(10)),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            set_overlay_event,
+            ClientSessionEvent::SetOverlay {
+                tile_pos: Some(pack_point2(8, 9)),
+                overlay_id: Some(10),
+            }
+        );
+        assert_eq!(session.state().received_set_overlay_count, 1);
+        assert_eq!(
+            session.state().last_set_overlay_tile_pos,
+            Some(pack_point2(8, 9))
+        );
+        assert_eq!(session.state().last_set_overlay_block_id, Some(10));
+    }
+
+    #[test]
+    fn tile_surface_packets_with_invalid_payloads_are_ignored() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let set_floor_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setFloor")
+            .unwrap()
+            .packet_id;
+        let set_overlay_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setOverlay")
+            .unwrap()
+            .packet_id;
+
+        for (packet_id, payload) in [
+            (
+                set_floor_packet_id,
+                encode_set_floor_payload(Some(pack_point2(6, 7)), Some(8), Some(9))[..7].to_vec(),
+            ),
+            (
+                set_overlay_packet_id,
+                encode_set_overlay_payload(Some(pack_point2(8, 9)), Some(10))[..5].to_vec(),
+            ),
+        ] {
+            let event = session
+                .ingest_packet_bytes(&encode_packet(packet_id, &payload, false).unwrap())
+                .unwrap();
+            assert!(matches!(
+                event,
+                ClientSessionEvent::IgnoredPacket {
+                    packet_id: ignored_id,
+                    ..
+                } if ignored_id == packet_id
+            ));
+        }
+
+        assert_eq!(session.state().received_set_floor_count, 0);
+        assert_eq!(session.state().last_set_floor_tile_pos, None);
+        assert_eq!(session.state().last_set_floor_floor_id, None);
+        assert_eq!(session.state().last_set_floor_overlay_id, None);
+        assert_eq!(session.state().received_set_overlay_count, 0);
+        assert_eq!(session.state().last_set_overlay_tile_pos, None);
+        assert_eq!(session.state().last_set_overlay_block_id, None);
     }
 
     #[test]

@@ -4340,6 +4340,19 @@ fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<String> 
             } => Some(format!(
                 "set_liquids: build_pos={build_pos:?} count={stack_count} first_liquid_id={first_liquid_id:?} first_amount_bits={first_amount_bits:?}"
             )),
+            ClientSessionEvent::SetFloor {
+                tile_pos,
+                floor_id,
+                overlay_id,
+            } => Some(format!(
+                "set_floor: tile_pos={tile_pos:?} floor_id={floor_id:?} overlay_id={overlay_id:?}"
+            )),
+            ClientSessionEvent::SetOverlay {
+                tile_pos,
+                overlay_id,
+            } => Some(format!(
+                "set_overlay: tile_pos={tile_pos:?} overlay_id={overlay_id:?}"
+            )),
             ClientSessionEvent::SetTileItems {
                 item_id,
                 amount,
@@ -7095,6 +7108,15 @@ mod tests {
                 team_id: 2,
                 rotation: 3,
             },
+            ClientSessionEvent::SetFloor {
+                tile_pos: Some(pack_point2(6, 7)),
+                floor_id: Some(8),
+                overlay_id: Some(9),
+            },
+            ClientSessionEvent::SetOverlay {
+                tile_pos: Some(pack_point2(8, 9)),
+                overlay_id: Some(10),
+            },
             ClientSessionEvent::SetTileOverlays {
                 block_id: Some(17),
                 position_count: 2,
@@ -7108,7 +7130,7 @@ mod tests {
             },
         ]);
 
-        assert_eq!(lines.len(), 4);
+        assert_eq!(lines.len(), 6);
         assert!(lines[0].contains("remove_tile:"));
         assert!(lines[0].contains(&format!("tile_pos=Some({})", pack_point2(2, 3))));
         assert!(lines[1].contains("set_tile:"));
@@ -7116,13 +7138,20 @@ mod tests {
         assert!(lines[1].contains("block_id=Some(29)"));
         assert!(lines[1].contains("team_id=2"));
         assert!(lines[1].contains("rotation=3"));
-        assert!(lines[2].contains("set_tile_overlays:"));
-        assert!(lines[2].contains("block_id=Some(17)"));
-        assert!(lines[2].contains("count=2"));
-        assert!(lines[3].contains("sync_variable:"));
-        assert!(lines[3].contains("variable=4"));
-        assert!(lines[3].contains("value_kind=4"));
-        assert!(lines[3].contains("\"string\""));
+        assert!(lines[2].contains("set_floor:"));
+        assert!(lines[2].contains(&format!("tile_pos=Some({})", pack_point2(6, 7))));
+        assert!(lines[2].contains("floor_id=Some(8)"));
+        assert!(lines[2].contains("overlay_id=Some(9)"));
+        assert!(lines[3].contains("set_overlay:"));
+        assert!(lines[3].contains(&format!("tile_pos=Some({})", pack_point2(8, 9))));
+        assert!(lines[3].contains("overlay_id=Some(10)"));
+        assert!(lines[4].contains("set_tile_overlays:"));
+        assert!(lines[4].contains("block_id=Some(17)"));
+        assert!(lines[4].contains("count=2"));
+        assert!(lines[5].contains("sync_variable:"));
+        assert!(lines[5].contains("variable=4"));
+        assert!(lines[5].contains("value_kind=4"));
+        assert!(lines[5].contains("\"string\""));
     }
 
     #[test]

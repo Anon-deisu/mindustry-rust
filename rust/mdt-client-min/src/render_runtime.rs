@@ -1388,7 +1388,11 @@ fn runtime_unit_lifecycle_label(session_state: &SessionState) -> String {
 
 fn runtime_resource_delta_label(session_state: &SessionState) -> String {
     format!(
-        "seti{}:setis{}:setl{}:setls{}:sti{}:stl{}",
+        "rmt{}:st{}:sf{}:so{}:seti{}:setis{}:setl{}:setls{}:sti{}:stl{}",
+        session_state.received_remove_tile_count,
+        session_state.received_set_tile_count,
+        session_state.received_set_floor_count,
+        session_state.received_set_overlay_count,
         session_state.received_set_item_count,
         session_state.received_set_items_count,
         session_state.received_set_liquid_count,
@@ -2910,6 +2914,10 @@ mod tests {
         state.received_set_liquids_count = 25;
         state.received_set_tile_items_count = 26;
         state.received_set_tile_liquids_count = 27;
+        state.received_remove_tile_count = 80;
+        state.received_set_tile_count = 81;
+        state.received_set_floor_count = 82;
+        state.received_set_overlay_count = 83;
         state.received_set_player_team_editor_count = 28;
         state.received_menu_choose_count = 29;
         state.received_text_input_result_count = 30;
@@ -3181,7 +3189,7 @@ mod tests {
         )));
         assert!(hud
             .status_text
-            .contains("runtime_resource_delta=seti22:setis23:setl24:setls25:sti26:stl27"));
+            .contains("runtime_resource_delta=rmt80:st81:sf82:so83:seti22:setis23:setl24:setls25:sti26:stl27"));
         assert!(hud
             .status_text
             .contains("runtime_command_ctrl=spte28:mc29:tir30:ri31:bcs32:ucl33:uct34:ubcs35:cb36:cu37:suc38:sus39:rot40:tinv41:rbp42:rdp46:rup43:drop44:dpl45:tap47"));
