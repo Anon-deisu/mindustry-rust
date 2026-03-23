@@ -29,7 +29,6 @@ use std::fmt;
 // Java `Packets.KickReason.serverRestarting` ordinal.
 pub const KICK_REASON_SERVER_RESTARTING_ORDINAL: i32 = 15;
 const BLOCK_CONTENT_TYPE: u8 = 1;
-const MAX_DEFERRED_INBOUND_PACKETS: usize = 256;
 
 #[derive(Debug)]
 pub struct ClientSession {
@@ -3963,22 +3962,6 @@ impl ClientSession {
 
         match self.known_remote_packet_priorities.get(&packet_id).copied() {
             Some(DeferredInboundPriority::Normal) => {
-                if self.deferred_inbound_packets.len() >= MAX_DEFERRED_INBOUND_PACKETS {
-                    self.state.dropped_loading_deferred_overflow_count = self
-                        .state
-                        .dropped_loading_deferred_overflow_count
-                        .saturating_add(1);
-                    self.state.last_dropped_loading_deferred_overflow_packet_id = Some(packet_id);
-                    self.state
-                        .last_dropped_loading_deferred_overflow_packet_method = self
-                        .known_remote_packets
-                        .get(&packet_id)
-                        .map(|meta| meta.method.clone());
-                    return Some(ClientSessionEvent::IgnoredPacket {
-                        packet_id,
-                        remote: self.known_remote_packets.get(&packet_id).cloned(),
-                    });
-                }
                 self.deferred_inbound_packets
                     .push_back(DeferredInboundPacket {
                         packet_id,
@@ -18206,7 +18189,7 @@ mod tests {
     }
 
     #[test]
-    fn normal_priority_packets_over_queue_cap_are_dropped_while_loading() {
+    fn normal_priority_packets_continue_to_queue_past_previous_cap_while_loading() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
         let compressed_world_stream = sample_world_stream_bytes();
@@ -18226,37 +18209,22 @@ mod tests {
         .unwrap();
 
         session.ingest_packet_bytes(&begin_packet).unwrap();
-        for _ in 0..MAX_DEFERRED_INBOUND_PACKETS {
+        const QUEUED_PACKET_COUNT: usize = 300;
+
+        for _ in 0..QUEUED_PACKET_COUNT {
             let deferred = session.ingest_packet_bytes(&packet).unwrap();
             assert!(matches!(
                 deferred,
                 ClientSessionEvent::DeferredPacketWhileLoading { .. }
             ));
         }
-
-        let dropped = session.ingest_packet_bytes(&packet).unwrap();
-        assert_eq!(
-            dropped,
-            ClientSessionEvent::IgnoredPacket {
-                packet_id,
-                remote: Some(IgnoredRemotePacketMeta {
-                    method: "sendMessage".to_string(),
-                    packet_class: "mindustry.gen.SendMessageCallPacket".to_string(),
-                }),
-            }
-        );
         assert_eq!(
             session.state().deferred_inbound_packet_count,
-            MAX_DEFERRED_INBOUND_PACKETS as u64
+            QUEUED_PACKET_COUNT as u64
         );
-        assert_eq!(session.state().dropped_loading_deferred_overflow_count, 1);
-        assert_eq!(
-            session
-                .state()
-                .last_dropped_loading_deferred_overflow_packet_method
-                .as_deref(),
-            Some("sendMessage")
-        );
+        assert_eq!(session.state().dropped_loading_deferred_overflow_count, 0);
+        assert_eq!(session.state().last_dropped_loading_deferred_overflow_packet_id, None);
+        assert_eq!(session.state().last_dropped_loading_deferred_overflow_packet_method, None);
 
         for chunk in &chunk_packets {
             session.ingest_packet_bytes(chunk).unwrap();
@@ -18265,15 +18233,15 @@ mod tests {
         assert!(session.state().client_loaded);
         assert_eq!(
             session.state().replayed_inbound_packet_count,
-            MAX_DEFERRED_INBOUND_PACKETS as u64
+            QUEUED_PACKET_COUNT as u64
         );
         assert_eq!(
             session.take_replayed_loading_events().len(),
-            MAX_DEFERRED_INBOUND_PACKETS
+            QUEUED_PACKET_COUNT
         );
         assert_eq!(
             session.state().received_server_message_count,
-            MAX_DEFERRED_INBOUND_PACKETS as u64
+            QUEUED_PACKET_COUNT as u64
         );
     }
 
