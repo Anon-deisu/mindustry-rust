@@ -21,8 +21,8 @@ use mdt_typeio::{
 };
 use mdt_world::{
     parse_building_sync_bytes, parse_entity_alpha_sync_bytes, parse_entity_mech_sync_bytes,
-    parse_entity_player_sync_bytes, parse_world_bundle, LoadedWorldBootstrap, LoadedWorldState,
-    WorldBundle,
+    parse_entity_missile_sync_bytes, parse_entity_player_sync_bytes, parse_world_bundle,
+    LoadedWorldBootstrap, LoadedWorldState, WorldBundle,
 };
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
@@ -34,6 +34,7 @@ const ALPHA_SHAPE_ENTITY_CLASS_IDS: [u8; 17] = [
     0, 2, 3, 16, 18, 20, 21, 24, 29, 30, 31, 33, 40, 43, 44, 45, 46,
 ];
 const MECH_SHAPE_ENTITY_CLASS_IDS: [u8; 4] = [4, 17, 19, 32];
+const MISSILE_SHAPE_ENTITY_CLASS_IDS: [u8; 1] = [39];
 
 #[derive(Debug)]
 pub struct ClientSession {
@@ -3862,6 +3863,13 @@ impl ClientSession {
                                                 self.apply_parseable_mech_rows_from_entity_snapshot(
                                                     &mech_rows,
                                                 );
+                                                let missile_rows =
+                                                    try_parse_missile_sync_rows_from_entity_snapshot_prefix(
+                                                        snapshot.payload,
+                                                    );
+                                                self.apply_parseable_missile_rows_from_entity_snapshot(
+                                                    &missile_rows,
+                                                );
                                                 let sync_result = self
                                                     .try_apply_local_player_sync_from_entity_snapshot(
                                                         &player_rows,
@@ -4369,6 +4377,33 @@ impl ClientSession {
 
     fn apply_parseable_mech_rows_from_entity_snapshot(&mut self, mech_rows: &[EntityMechSyncRow]) {
         for row in mech_rows {
+            if self
+                .state
+                .entity_snapshot_tombstone_blocks_upsert(row.entity_id)
+            {
+                self.state
+                    .record_entity_snapshot_tombstone_skip(row.entity_id);
+                continue;
+            }
+            self.state.entity_table_projection.upsert_entity(
+                row.entity_id,
+                row.class_id,
+                false,
+                2,
+                u32::try_from(row.entity_id).unwrap_or_default(),
+                row.sync.x_bits,
+                row.sync.y_bits,
+                false,
+                self.state.received_entity_snapshot_count,
+            );
+        }
+    }
+
+    fn apply_parseable_missile_rows_from_entity_snapshot(
+        &mut self,
+        missile_rows: &[EntityMissileSyncRow],
+    ) {
+        for row in missile_rows {
             if self
                 .state
                 .entity_snapshot_tombstone_blocks_upsert(row.entity_id)
@@ -7121,6 +7156,15 @@ struct EntityMechSyncRow {
     end: usize,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+struct EntityMissileSyncRow {
+    entity_id: i32,
+    class_id: u8,
+    sync: mdt_world::EntityMissileSyncSnapshot,
+    start: usize,
+    end: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum EntityPlayerSyncRowsParseError {
     ParseableRowsExceedAmount { rows: usize, amount: u16 },
@@ -7488,6 +7532,12 @@ fn try_parse_mech_sync_rows_from_entity_snapshot_prefix(payload: &[u8]) -> Vec<E
     parse_mech_sync_rows_from_entity_snapshot_prefix(payload).unwrap_or_default()
 }
 
+fn try_parse_missile_sync_rows_from_entity_snapshot_prefix(
+    payload: &[u8],
+) -> Vec<EntityMissileSyncRow> {
+    parse_missile_sync_rows_from_entity_snapshot_prefix(payload).unwrap_or_default()
+}
+
 fn parse_player_sync_rows_from_entity_snapshot(
     payload: &[u8],
 ) -> Result<Vec<EntityPlayerSyncRow>, EntityPlayerSyncRowsParseError> {
@@ -7638,6 +7688,68 @@ fn parse_mech_sync_rows_from_entity_snapshot_prefix(
                     .map_err(|error| format!("entity_snapshot_known_prefix_mech:{error}"))?;
                 let end = cursor.saturating_add(5).saturating_add(consumed);
                 rows.push(EntityMechSyncRow {
+                    entity_id,
+                    class_id,
+                    sync,
+                    start: cursor,
+                    end,
+                });
+                cursor = end;
+            }
+            _ => break,
+        }
+    }
+
+    Ok(rows)
+}
+
+fn parse_missile_sync_rows_from_entity_snapshot_prefix(
+    payload: &[u8],
+) -> Result<Vec<EntityMissileSyncRow>, String> {
+    if payload.len() < 4 {
+        return Ok(Vec::new());
+    }
+
+    let amount = u16::from_be_bytes([payload[0], payload[1]]);
+    if amount == 0 {
+        return Ok(Vec::new());
+    }
+
+    let Some(body_len_bytes) = payload.get(2..4) else {
+        return Ok(Vec::new());
+    };
+    let body_len = u16::from_be_bytes(body_len_bytes.try_into().unwrap()) as usize;
+    let Some(body) = payload.get(4..4 + body_len) else {
+        return Ok(Vec::new());
+    };
+
+    let mut rows = Vec::new();
+    let mut cursor = 0usize;
+    let max_rows = usize::from(amount);
+    while cursor.saturating_add(5) <= body.len() && rows.len() < max_rows {
+        let entity_id = i32::from_be_bytes(body[cursor..cursor + 4].try_into().unwrap());
+        let class_id = body[cursor + 4];
+        match class_id {
+            12 => {
+                let (_, consumed) = parse_entity_player_sync_bytes(&body[cursor + 5..])
+                    .map_err(|error| format!("entity_snapshot_known_prefix_player:{error}"))?;
+                cursor = cursor.saturating_add(5).saturating_add(consumed);
+            }
+            _ if ALPHA_SHAPE_ENTITY_CLASS_IDS.contains(&class_id) => {
+                let (_, consumed) = parse_entity_alpha_sync_bytes(&body[cursor + 5..])
+                    .map_err(|error| format!("entity_snapshot_known_prefix_alpha:{error}"))?;
+                cursor = cursor.saturating_add(5).saturating_add(consumed);
+            }
+            _ if MECH_SHAPE_ENTITY_CLASS_IDS.contains(&class_id) => {
+                let (_, consumed) = parse_entity_mech_sync_bytes(&body[cursor + 5..])
+                    .map_err(|error| format!("entity_snapshot_known_prefix_mech:{error}"))?;
+                cursor = cursor.saturating_add(5).saturating_add(consumed);
+            }
+            _ if MISSILE_SHAPE_ENTITY_CLASS_IDS.contains(&class_id) => {
+                let (sync, consumed) = parse_entity_missile_sync_bytes(&body[cursor + 5..])
+                    .map_err(|error| format!("entity_snapshot_known_prefix_missile:{error}"))?;
+                let end = cursor.saturating_add(5).saturating_add(consumed);
+                rows.push(EntityMissileSyncRow {
                     entity_id,
                     class_id,
                     sync,
@@ -8530,6 +8642,43 @@ mod tests {
         bytes.extend_from_slice(&0i32.to_be_bytes());
         bytes.push(1);
         bytes.extend_from_slice(&35i16.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&1.5f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&(-2.25f32).to_be_bytes());
+        bytes.extend_from_slice(&40.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&60.0f32.to_bits().to_be_bytes());
+        bytes
+    }
+
+    fn synthetic_missile_sync_bytes() -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.push(0);
+        bytes.extend_from_slice(&123.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&7i32.to_be_bytes());
+        bytes.extend_from_slice(&1.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f64.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&150.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&240.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&(-1i32).to_be_bytes());
+        bytes.push(2);
+        bytes.push(0);
+        bytes.extend_from_slice(&0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&90.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0i16.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&12.5f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&39i16.to_be_bytes());
         bytes.push(1);
         bytes.extend_from_slice(&1.5f32.to_bits().to_be_bytes());
         bytes.extend_from_slice(&(-2.25f32).to_be_bytes());
@@ -9842,6 +9991,92 @@ mod tests {
             assert_eq!(rows[0].sync.x_bits, 40.0f32.to_bits());
             assert_eq!(rows[0].sync.y_bits, 60.0f32.to_bits());
         }
+    }
+
+    #[test]
+    fn entity_snapshot_packet_applies_parseable_missile_rows_to_entity_table() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+
+        session.ingest_packet_bytes(&begin_packet).unwrap();
+        for chunk in chunk_packets {
+            session.ingest_packet_bytes(&chunk).unwrap();
+        }
+
+        let sample_payload = sample_snapshot_packet("entitySnapshot.packet");
+        let sample_body_len = u16::from_be_bytes([sample_payload[2], sample_payload[3]]) as usize;
+        let sample_body = &sample_payload[4..4 + sample_body_len];
+        let player_rows = try_parse_player_sync_rows_from_entity_snapshot(&sample_payload);
+        let alpha_rows = try_parse_alpha_sync_rows_from_entity_snapshot_prefix(&sample_payload);
+        assert_eq!(player_rows.len(), 1);
+        assert_eq!(alpha_rows.len(), 1);
+        let player_row = sample_body[player_rows[0].start..player_rows[0].end].to_vec();
+        let alpha_row = sample_body[alpha_rows[0].start..alpha_rows[0].end].to_vec();
+        let mech_row = build_entity_snapshot_row(321, 4, &synthetic_mech_sync_bytes());
+        let missile_row = build_entity_snapshot_row(654, 39, &synthetic_missile_sync_bytes());
+        let payload =
+            build_entity_snapshot_payload(&[player_row, alpha_row, mech_row, missile_row]);
+
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == HighFrequencyRemoteMethod::EntitySnapshot.method_name())
+            .unwrap()
+            .packet_id;
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        let event = session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            event,
+            ClientSessionEvent::SnapshotReceived(HighFrequencyRemoteMethod::EntitySnapshot)
+        );
+        assert_eq!(
+            try_parse_missile_sync_rows_from_entity_snapshot_prefix(&payload)
+                .iter()
+                .map(|row| row.entity_id)
+                .collect::<Vec<_>>(),
+            vec![654]
+        );
+        assert_eq!(
+            session
+                .state()
+                .entity_table_projection
+                .by_entity_id
+                .get(&654),
+            Some(&crate::session_state::EntityProjection {
+                class_id: 39,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 654,
+                x_bits: 40.0f32.to_bits(),
+                y_bits: 60.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 1,
+            })
+        );
+    }
+
+    #[test]
+    fn missile_shape_entity_snapshot_prefix_parser_accepts_missile_class_id() {
+        let payload = build_entity_snapshot_payload(&[build_entity_snapshot_row(
+            654,
+            39,
+            &synthetic_missile_sync_bytes(),
+        )]);
+
+        let rows = try_parse_missile_sync_rows_from_entity_snapshot_prefix(&payload);
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].entity_id, 654);
+        assert_eq!(rows[0].class_id, 39);
+        assert_eq!(rows[0].sync.lifetime_bits, 240.0f32.to_bits());
+        assert_eq!(rows[0].sync.time_bits, 12.5f32.to_bits());
+        assert_eq!(rows[0].sync.x_bits, 40.0f32.to_bits());
+        assert_eq!(rows[0].sync.y_bits, 60.0f32.to_bits());
     }
 
     #[test]
