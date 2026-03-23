@@ -4529,6 +4529,10 @@ impl ClientSession {
                     self.state.received_payload_dropped_count =
                         self.state.received_payload_dropped_count.saturating_add(1);
                     self.state.last_payload_dropped = Some(projection.clone());
+                    self.state.record_payload_lifecycle_drop(
+                        projection.unit,
+                        world_coords_to_tile_pos(projection.x_bits, projection.y_bits),
+                    );
                     Ok(ClientSessionEvent::PayloadDropped { projection })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -4544,6 +4548,11 @@ impl ClientSession {
                         .received_picked_build_payload_count
                         .saturating_add(1);
                     self.state.last_picked_build_payload = Some(projection.clone());
+                    self.state.record_picked_build_payload_lifecycle(
+                        projection.unit,
+                        projection.build_pos,
+                        projection.on_ground,
+                    );
                     Ok(ClientSessionEvent::PickedBuildPayload { projection })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -4559,6 +4568,10 @@ impl ClientSession {
                         .received_picked_unit_payload_count
                         .saturating_add(1);
                     self.state.last_picked_unit_payload = Some(projection.clone());
+                    self.state.record_picked_unit_payload_lifecycle(
+                        projection.unit,
+                        projection.target,
+                    );
                     Ok(ClientSessionEvent::PickedUnitPayload { projection })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -4605,6 +4618,7 @@ impl ClientSession {
                     self.state.received_unit_despawn_count =
                         self.state.received_unit_despawn_count.saturating_add(1);
                     self.state.last_unit_despawn = unit;
+                    self.state.mark_payload_lifecycle_unit_despawn(unit);
                     let removed_entity_projection =
                         remove_entity_projection_for_unit_ref(&mut self.state, unit);
                     Ok(ClientSessionEvent::UnitDespawned {
@@ -9455,6 +9469,15 @@ fn derive_effect_business_projection(
 fn world_coords_from_tile_pos(tile_pos: i32) -> (f32, f32) {
     let (tile_x, tile_y) = unpack_point2(tile_pos);
     point2_world_coords(i32::from(tile_x), i32::from(tile_y))
+}
+
+fn world_coords_to_tile_pos(x_bits: u32, y_bits: u32) -> Option<i32> {
+    let x = f32::from_bits(x_bits);
+    let y = f32::from_bits(y_bits);
+    if !x.is_finite() || !y.is_finite() {
+        return None;
+    }
+    Some(pack_point2((x / 8.0).floor() as i32, (y / 8.0).floor() as i32))
 }
 
 fn point2_world_coords(x: i32, y: i32) -> (f32, f32) {
@@ -25396,6 +25419,23 @@ mod tests {
             session.state().last_payload_dropped,
             Some(payload_dropped_projection)
         );
+        assert_eq!(
+            session
+                .state()
+                .payload_lifecycle_projection
+                .by_carrier
+                .get(&UnitRefProjection { kind: 2, value: 41 }),
+            Some(&crate::session_state::PayloadLifecycleCarrierProjection {
+                carrier: UnitRefProjection { kind: 2, value: 41 },
+                target_unit: None,
+                target_build: None,
+                drop_tile: Some(pack_point2(1, 2)),
+                on_ground: Some(true),
+                removed_target_unit: false,
+                removed_target_build: false,
+                removed_carrier: false,
+            })
+        );
 
         let picked_build_payload_packet_id = manifest
             .remote_packets
@@ -25435,6 +25475,29 @@ mod tests {
             session.state().last_picked_build_payload,
             Some(picked_build_payload_projection)
         );
+        assert_eq!(
+            session
+                .state()
+                .payload_lifecycle_projection
+                .by_carrier
+                .get(&UnitRefProjection {
+                    kind: 1,
+                    value: pack_point2(2, 3),
+                }),
+            Some(&crate::session_state::PayloadLifecycleCarrierProjection {
+                carrier: UnitRefProjection {
+                    kind: 1,
+                    value: pack_point2(2, 3),
+                },
+                target_unit: None,
+                target_build: Some(pack_point2(9, 12)),
+                drop_tile: None,
+                on_ground: Some(true),
+                removed_target_unit: false,
+                removed_target_build: true,
+                removed_carrier: false,
+            })
+        );
 
         let picked_unit_payload_packet_id = manifest
             .remote_packets
@@ -25465,6 +25528,67 @@ mod tests {
         assert_eq!(
             session.state().last_picked_unit_payload,
             Some(picked_unit_payload_projection)
+        );
+        assert_eq!(
+            session
+                .state()
+                .payload_lifecycle_projection
+                .by_carrier
+                .get(&UnitRefProjection { kind: 2, value: 5 }),
+            Some(&crate::session_state::PayloadLifecycleCarrierProjection {
+                carrier: UnitRefProjection { kind: 2, value: 5 },
+                target_unit: Some(UnitRefProjection { kind: 2, value: 6 }),
+                target_build: None,
+                drop_tile: None,
+                on_ground: Some(false),
+                removed_target_unit: true,
+                removed_target_build: false,
+                removed_carrier: false,
+            })
+        );
+
+        let second_payload_dropped_projection = PayloadDroppedProjection {
+            unit: Some(UnitRefProjection { kind: 2, value: 5 }),
+            x_bits: 24.0f32.to_bits(),
+            y_bits: 40.0f32.to_bits(),
+        };
+        let second_payload_dropped_event = session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    payload_dropped_packet_id,
+                    &encode_payload_dropped_payload(ClientUnitRef::Standard(5), 24.0, 40.0),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            second_payload_dropped_event,
+            ClientSessionEvent::PayloadDropped {
+                projection: second_payload_dropped_projection.clone(),
+            }
+        );
+        assert_eq!(session.state().received_payload_dropped_count, 2);
+        assert_eq!(
+            session.state().last_payload_dropped,
+            Some(second_payload_dropped_projection)
+        );
+        assert_eq!(
+            session
+                .state()
+                .payload_lifecycle_projection
+                .by_carrier
+                .get(&UnitRefProjection { kind: 2, value: 5 }),
+            Some(&crate::session_state::PayloadLifecycleCarrierProjection {
+                carrier: UnitRefProjection { kind: 2, value: 5 },
+                target_unit: Some(UnitRefProjection { kind: 2, value: 6 }),
+                target_build: None,
+                drop_tile: Some(pack_point2(3, 5)),
+                on_ground: Some(true),
+                removed_target_unit: false,
+                removed_target_build: false,
+                removed_carrier: false,
+            })
         );
     }
 
@@ -25518,6 +25642,128 @@ mod tests {
             .by_entity_id
             .contains_key(&77));
         assert!(session.state().entity_snapshot_tombstones.contains_key(&77));
+    }
+
+    #[test]
+    fn unit_despawn_marks_related_payload_lifecycle_entries() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let picked_unit_payload_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "pickedUnitPayload")
+            .unwrap()
+            .packet_id;
+        let picked_build_payload_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "pickedBuildPayload")
+            .unwrap()
+            .packet_id;
+        let unit_despawn_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "unitDespawn")
+            .unwrap()
+            .packet_id;
+
+        session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    picked_unit_payload_packet_id,
+                    &encode_picked_unit_payload(
+                        ClientUnitRef::Standard(5),
+                        ClientUnitRef::Standard(6),
+                    ),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    picked_build_payload_packet_id,
+                    &encode_picked_build_payload(
+                        ClientUnitRef::Standard(7),
+                        Some(pack_point2(9, 12)),
+                        true,
+                    ),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+        let target_despawn_event = session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    unit_despawn_packet_id,
+                    &encode_unit_payload(ClientUnitRef::Standard(6)),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            target_despawn_event,
+            ClientSessionEvent::UnitDespawned {
+                unit: Some(UnitRefProjection { kind: 2, value: 6 }),
+                removed_entity_projection: false,
+            }
+        );
+        assert_eq!(
+            session
+                .state()
+                .payload_lifecycle_projection
+                .by_carrier
+                .get(&UnitRefProjection { kind: 2, value: 5 }),
+            Some(&crate::session_state::PayloadLifecycleCarrierProjection {
+                carrier: UnitRefProjection { kind: 2, value: 5 },
+                target_unit: Some(UnitRefProjection { kind: 2, value: 6 }),
+                target_build: None,
+                drop_tile: None,
+                on_ground: Some(false),
+                removed_target_unit: true,
+                removed_target_build: false,
+                removed_carrier: false,
+            })
+        );
+
+        let carrier_despawn_event = session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    unit_despawn_packet_id,
+                    &encode_unit_payload(ClientUnitRef::Standard(7)),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            carrier_despawn_event,
+            ClientSessionEvent::UnitDespawned {
+                unit: Some(UnitRefProjection { kind: 2, value: 7 }),
+                removed_entity_projection: false,
+            }
+        );
+        assert_eq!(
+            session
+                .state()
+                .payload_lifecycle_projection
+                .by_carrier
+                .get(&UnitRefProjection { kind: 2, value: 7 }),
+            Some(&crate::session_state::PayloadLifecycleCarrierProjection {
+                carrier: UnitRefProjection { kind: 2, value: 7 },
+                target_unit: None,
+                target_build: Some(pack_point2(9, 12)),
+                drop_tile: None,
+                on_ground: Some(true),
+                removed_target_unit: false,
+                removed_target_build: true,
+                removed_carrier: true,
+            })
+        );
     }
 
     #[test]
