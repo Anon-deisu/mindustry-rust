@@ -768,41 +768,12 @@ impl BuildingTableProjection {
     pub fn apply_deconstruct_finish(&mut self, build_pos: i32, block_id: Option<i16>) {
         let previous = self.by_build_pos.remove(&build_pos);
         self.deconstruct_finish_apply_count = self.deconstruct_finish_apply_count.saturating_add(1);
-        self.last_build_pos = Some(build_pos);
-        self.last_block_id =
-            block_id.or_else(|| previous.as_ref().and_then(|building| building.block_id));
-        self.last_rotation = previous.as_ref().and_then(|building| building.rotation);
-        self.last_team_id = previous.as_ref().and_then(|building| building.team_id);
-        self.last_io_version = previous.as_ref().and_then(|building| building.io_version);
-        self.last_module_bitmask = previous
-            .as_ref()
-            .and_then(|building| building.module_bitmask);
-        self.last_time_scale_bits = previous
-            .as_ref()
-            .and_then(|building| building.time_scale_bits);
-        self.last_time_scale_duration_bits = previous
-            .as_ref()
-            .and_then(|building| building.time_scale_duration_bits);
-        self.last_last_disabler_pos = previous
-            .as_ref()
-            .and_then(|building| building.last_disabler_pos);
-        self.last_legacy_consume_connected = previous
-            .as_ref()
-            .and_then(|building| building.legacy_consume_connected);
-        self.last_config = previous
-            .as_ref()
-            .and_then(|building| building.config.clone());
-        self.last_health_bits = previous.as_ref().and_then(|building| building.health_bits);
-        self.last_enabled = previous.as_ref().and_then(|building| building.enabled);
-        self.last_efficiency = previous.as_ref().and_then(|building| building.efficiency);
-        self.last_optional_efficiency = previous
-            .as_ref()
-            .and_then(|building| building.optional_efficiency);
-        self.last_visible_flags = previous
-            .as_ref()
-            .and_then(|building| building.visible_flags);
-        self.last_update = Some(BuildingProjectionUpdateKind::DeconstructFinish);
-        self.last_removed = true;
+        self.sync_last_mirror_for_removed(
+            build_pos,
+            BuildingProjectionUpdateKind::DeconstructFinish,
+            block_id,
+            previous.as_ref(),
+        );
         self.recount();
     }
 
@@ -889,6 +860,36 @@ impl BuildingTableProjection {
         self.last_visible_flags = building.and_then(|building| building.visible_flags);
         self.last_update = Some(last_update);
         self.last_removed = false;
+    }
+
+    fn sync_last_mirror_for_removed(
+        &mut self,
+        build_pos: i32,
+        last_update: BuildingProjectionUpdateKind,
+        block_id_override: Option<i16>,
+        previous: Option<&BuildingProjection>,
+    ) {
+        self.last_build_pos = Some(build_pos);
+        self.last_block_id =
+            block_id_override.or_else(|| previous.and_then(|building| building.block_id));
+        self.last_rotation = previous.and_then(|building| building.rotation);
+        self.last_team_id = previous.and_then(|building| building.team_id);
+        self.last_io_version = previous.and_then(|building| building.io_version);
+        self.last_module_bitmask = previous.and_then(|building| building.module_bitmask);
+        self.last_time_scale_bits = previous.and_then(|building| building.time_scale_bits);
+        self.last_time_scale_duration_bits =
+            previous.and_then(|building| building.time_scale_duration_bits);
+        self.last_last_disabler_pos = previous.and_then(|building| building.last_disabler_pos);
+        self.last_legacy_consume_connected =
+            previous.and_then(|building| building.legacy_consume_connected);
+        self.last_config = previous.and_then(|building| building.config.clone());
+        self.last_health_bits = previous.and_then(|building| building.health_bits);
+        self.last_enabled = previous.and_then(|building| building.enabled);
+        self.last_efficiency = previous.and_then(|building| building.efficiency);
+        self.last_optional_efficiency = previous.and_then(|building| building.optional_efficiency);
+        self.last_visible_flags = previous.and_then(|building| building.visible_flags);
+        self.last_update = Some(last_update);
+        self.last_removed = true;
     }
 
     fn recount(&mut self) {
