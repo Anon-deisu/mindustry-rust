@@ -543,6 +543,13 @@ enum OutboundAction {
         queue_command: bool,
         final_batch: bool,
     },
+    CommandUnitsChunked {
+        unit_ids: Vec<i32>,
+        build_target: Option<i32>,
+        unit_target: ClientUnitRef,
+        pos_target: Option<(f32, f32)>,
+        queue_command: bool,
+    },
     SetUnitCommand {
         unit_ids: Vec<i32>,
         command_id: Option<u8>,
@@ -1189,16 +1196,7 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
                 let value = args
                     .get(i)
                     .ok_or("missing value for --action-command-units")?;
-                let (unit_ids, build_target, unit_target, pos_target, queue_command, final_batch) =
-                    parse_action_command_units_arg(value)?;
-                outbound_actions.push(OutboundAction::CommandUnits {
-                    unit_ids,
-                    build_target,
-                    unit_target,
-                    pos_target,
-                    queue_command,
-                    final_batch,
-                });
+                outbound_actions.push(parse_action_command_units_outbound_action(value)?);
             }
             "--action-set-unit-command" => {
                 i += 1;
@@ -1414,7 +1412,7 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
 
 fn usage() -> String {
     String::from(
-        "Usage: mdt-client-min-online --manifest <path> (--server <host:port> | --discover-host <host> [--discover-host <host> ...] [--discover-port <port>] [--discover-timeout-ms <ms>]) [--connect-hex <path> | --name <name> --uuid <base64> --usid <base64> --build <build> --version-type <type> --mobile --color-rgba <rgba> --mod <name:version> ...] [--locale <locale>] [--duration-ms <ms>] [--tick-ms <ms>] [--max-recv-packets <n>] [--snapshot-interval-ms <ms>] [--aim-x <f32> --aim-y <f32>] [--mine-tile <x:y>] [--snapshot-boosting|--snapshot-no-boosting] [--snapshot-shooting|--snapshot-no-shooting] [--snapshot-chatting|--snapshot-no-chatting] [--snapshot-building|--snapshot-no-building] [--view-size <w:h>] [--move-step-x <f32> --move-step-y <f32>] [--intent-snapshot <moveX:moveY:aimX:aimY:actions> ...] [--intent-live-sampling|--intent-edge-mapped] [--intent-delay-ms <ms>] [--intent-spacing-ms <ms>] [--plan-place <x:y:block[:rotation][;config]> ...] [--plan-break <x:y> ...] [--plan-place-relative <dx:dy:block[:rotation][;config]> ...] [--plan-break-relative <dx:dy> ...] config=<none|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|point2=<x:y>|point2-array=<x:y[,x:y...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|double=<f64>|building-pos=<i32>|laccess=<i16>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|vec2-array=<x:y[,x:y...]>|vec2=<x:y>|team=<u8>|int-array=<i32[,i32...]>|object-array=<value[|value...]>|unit-command=<u16>> [--plan-rotate <x:y:dir> ...] [--plan-flip-x <x:y> ...] [--plan-flip-y <x:y> ...] [--plan-break-near-player] [--plan-place-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--plan-place-conflict-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--render-ascii-on-world-ready] [--print-client-packets] [--watch-client-packet <type> ...] [--watch-client-binary-packet <type> ...] [--watch-client-logic-data <channel> ...] [--render-window-live] [--dump-world-stream-hex <path>] [--chat-delay-ms <ms>] [--chat-spacing-ms <ms>] [--chat-message <text> ...] [--action-delay-ms <ms>] [--action-spacing-ms <ms>] [--action-request-item <buildPos|none:itemId|none:amount> ...] [--action-request-unit-payload <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-clear ...] [--action-unit-control <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-building-control-select <none|unit:<id>|block:<pos>|<id>@buildPos|none> ...] [--action-building-control-select <buildPos|none> ...] [--action-clear-items <buildPos|none> ...] [--action-clear-liquids <buildPos|none> ...] [--action-transfer-inventory <buildPos|none> ...] [--action-request-build-payload <buildPos|none> ...] [--action-request-drop-payload <x:y> ...] [--action-rotate-block <buildPos|none:direction> ...] [--action-drop-item <angle> ...] [--action-tile-config <buildPos|none:value> ...] [--action-tile-tap <tilePos|none> ...] [--action-delete-plans <x:y[,x:y...]|none> ...] [--action-command-building <x:y[,x:y...]|none@x:y> ...] [--action-command-units <unitId[,unitId...]|none@buildPos|none@unitTarget@x:y|none@queueCommand@finalBatch> ...] [--action-set-unit-command <unitId[,unitId...]|none@commandId|none> ...] [--action-set-unit-stance <unitId[,unitId...]|none@stanceId|none@enable> ...] [--action-begin-break <none|unit:<id>|block:<pos>|<id>@teamId@x:y> ...] [--action-begin-place <none|unit:<id>|block:<pos>|<id>@blockId|none@teamId@x:y@rotation@value> ...] [--action-menu-choose <menuId@option> ...] [--action-text-input-result <textInputId@text|none> ...] [--action-client-packet <type@contents@reliable|unreliable> ...] [--action-client-binary-packet <type@hex@reliable|unreliable> ...] [--action-client-logic-data <channel@value@reliable|unreliable> ...] value=<null|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|point2=<x:y>|point2-array=<x:y[,x:y...]>|double=<f64>|building-pos=<i32>|laccess=<i16>|vec2=<x:y>|vec2-array=<x:y[,x:y...]>|team=<u8>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|int-array=<i32[,i32...]>|object-array=<value>|unit-command=<u16>|...>",
+        "Usage: mdt-client-min-online --manifest <path> (--server <host:port> | --discover-host <host> [--discover-host <host> ...] [--discover-port <port>] [--discover-timeout-ms <ms>]) [--connect-hex <path> | --name <name> --uuid <base64> --usid <base64> --build <build> --version-type <type> --mobile --color-rgba <rgba> --mod <name:version> ...] [--locale <locale>] [--duration-ms <ms>] [--tick-ms <ms>] [--max-recv-packets <n>] [--snapshot-interval-ms <ms>] [--aim-x <f32> --aim-y <f32>] [--mine-tile <x:y>] [--snapshot-boosting|--snapshot-no-boosting] [--snapshot-shooting|--snapshot-no-shooting] [--snapshot-chatting|--snapshot-no-chatting] [--snapshot-building|--snapshot-no-building] [--view-size <w:h>] [--move-step-x <f32> --move-step-y <f32>] [--intent-snapshot <moveX:moveY:aimX:aimY:actions> ...] [--intent-live-sampling|--intent-edge-mapped] [--intent-delay-ms <ms>] [--intent-spacing-ms <ms>] [--plan-place <x:y:block[:rotation][;config]> ...] [--plan-break <x:y> ...] [--plan-place-relative <dx:dy:block[:rotation][;config]> ...] [--plan-break-relative <dx:dy> ...] config=<none|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|point2=<x:y>|point2-array=<x:y[,x:y...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|double=<f64>|building-pos=<i32>|laccess=<i16>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|vec2-array=<x:y[,x:y...]>|vec2=<x:y>|team=<u8>|int-array=<i32[,i32...]>|object-array=<value[|value...]>|unit-command=<u16>> [--plan-rotate <x:y:dir> ...] [--plan-flip-x <x:y> ...] [--plan-flip-y <x:y> ...] [--plan-break-near-player] [--plan-place-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--plan-place-conflict-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--render-ascii-on-world-ready] [--print-client-packets] [--watch-client-packet <type> ...] [--watch-client-binary-packet <type> ...] [--watch-client-logic-data <channel> ...] [--render-window-live] [--dump-world-stream-hex <path>] [--chat-delay-ms <ms>] [--chat-spacing-ms <ms>] [--chat-message <text> ...] [--action-delay-ms <ms>] [--action-spacing-ms <ms>] [--action-request-item <buildPos|none:itemId|none:amount> ...] [--action-request-unit-payload <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-clear ...] [--action-unit-control <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-building-control-select <none|unit:<id>|block:<pos>|<id>@buildPos|none> ...] [--action-building-control-select <buildPos|none> ...] [--action-clear-items <buildPos|none> ...] [--action-clear-liquids <buildPos|none> ...] [--action-transfer-inventory <buildPos|none> ...] [--action-request-build-payload <buildPos|none> ...] [--action-request-drop-payload <x:y> ...] [--action-rotate-block <buildPos|none:direction> ...] [--action-drop-item <angle> ...] [--action-tile-config <buildPos|none:value> ...] [--action-tile-tap <tilePos|none> ...] [--action-delete-plans <x:y[,x:y...]|none> ...] [--action-command-building <x:y[,x:y...]|none@x:y> ...] [--action-command-units <unitId[,unitId...]|none@buildPos@unitTarget@x:y@queueCommand[@finalBatch]> ...] [--action-set-unit-command <unitId[,unitId...]|none@commandId|none> ...] [--action-set-unit-stance <unitId[,unitId...]|none@stanceId|none@enable> ...] [--action-begin-break <none|unit:<id>|block:<pos>|<id>@teamId@x:y> ...] [--action-begin-place <none|unit:<id>|block:<pos>|<id>@blockId|none@teamId@x:y@rotation@value> ...] [--action-menu-choose <menuId@option> ...] [--action-text-input-result <textInputId@text|none> ...] [--action-client-packet <type@contents@reliable|unreliable> ...] [--action-client-binary-packet <type@hex@reliable|unreliable> ...] [--action-client-logic-data <channel@value@reliable|unreliable> ...] value=<null|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|point2=<x:y>|point2-array=<x:y[,x:y...]>|double=<f64>|building-pos=<i32>|laccess=<i16>|vec2=<x:y>|vec2-array=<x:y[,x:y...]>|team=<u8>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|int-array=<i32[,i32...]>|object-array=<value>|unit-command=<u16>|...>",
     )
 }
 
@@ -2127,6 +2125,46 @@ fn parse_action_command_units_arg(
         queue_command,
         final_batch,
     ))
+}
+
+fn parse_action_command_units_outbound_action(value: &str) -> Result<OutboundAction, String> {
+    let parts = value.split('@').collect::<Vec<_>>();
+    match parts.len() {
+        5 => {
+            let unit_ids = parse_action_unit_ids_arg(parts[0])?;
+            let build_target =
+                parse_optional_build_pos_arg("--action-command-units buildTarget", parts[1])?;
+            let unit_target = parse_action_unit_ref_arg(
+                "--action-command-units unitTarget",
+                "<none|unit:<id>|block:<pos>|<id>>",
+                parts[2],
+            )?;
+            let pos_target =
+                parse_optional_f32_pair_colon_arg("--action-command-units posTarget", parts[3])?;
+            let queue_command =
+                parse_bool_arg("--action-command-units queueCommand", parts[4])?;
+            Ok(OutboundAction::CommandUnitsChunked {
+                unit_ids,
+                build_target,
+                unit_target,
+                pos_target,
+                queue_command,
+            })
+        }
+        6 => {
+            let (unit_ids, build_target, unit_target, pos_target, queue_command, final_batch) =
+                parse_action_command_units_arg(value)?;
+            Ok(OutboundAction::CommandUnits {
+                unit_ids,
+                build_target,
+                unit_target,
+                pos_target,
+                queue_command,
+                final_batch,
+            })
+        }
+        _ => Err("invalid --action-command-units, expected <unitId[,unitId...]|none@buildPos@unitTarget@x:y@queueCommand[@finalBatch]>".to_string()),
+    }
 }
 
 fn parse_optional_u8_token(flag: &str, value: &str) -> Result<Option<u8>, String> {
@@ -4463,13 +4501,38 @@ fn queue_outbound_action(
             queue_command,
             final_batch,
         } => {
-            session.queue_command_units(
+            if *final_batch && !unit_ids.is_empty() {
+                session.queue_command_units_chunked(
+                    unit_ids,
+                    *build_target,
+                    *unit_target,
+                    *pos_target,
+                    *queue_command,
+                )?;
+            } else {
+                session.queue_command_units(
+                    unit_ids,
+                    *build_target,
+                    *unit_target,
+                    *pos_target,
+                    *queue_command,
+                    *final_batch,
+                )?;
+            }
+        }
+        OutboundAction::CommandUnitsChunked {
+            unit_ids,
+            build_target,
+            unit_target,
+            pos_target,
+            queue_command,
+        } => {
+            session.queue_command_units_chunked(
                 unit_ids,
                 *build_target,
                 *unit_target,
                 *pos_target,
                 *queue_command,
-                *final_batch,
             )?;
         }
         OutboundAction::SetUnitCommand {
@@ -4579,6 +4642,7 @@ fn latest_build_plan_origin(events: &[ClientSessionEvent]) -> Option<(f32, f32)>
 mod tests {
     use super::*;
     use mdt_client_min::bootstrap_flow::encode_world_stream_packets;
+    use mdt_client_min::client_session::ClientSessionAction;
 
     fn decode_hex_text(text: &str) -> Vec<u8> {
         let cleaned = text
@@ -4798,7 +4862,7 @@ mod tests {
         assert!(text.contains("--action-tile-tap <tilePos|none>"));
         assert!(text.contains("--action-delete-plans <x:y[,x:y...]|none>"));
         assert!(text.contains("--action-command-building <x:y[,x:y...]|none@x:y>"));
-        assert!(text.contains("--action-command-units <unitId[,unitId...]|none@buildPos|none@unitTarget@x:y|none@queueCommand@finalBatch>"));
+        assert!(text.contains("--action-command-units <unitId[,unitId...]|none@buildPos@unitTarget@x:y@queueCommand[@finalBatch]>"));
         assert!(text.contains("--action-set-unit-command <unitId[,unitId...]|none@commandId|none>"));
         assert!(text
             .contains("--action-set-unit-stance <unitId[,unitId...]|none@stanceId|none@enable>"));
@@ -5698,6 +5762,29 @@ mod tests {
                     pos_target: None,
                     queue_command: true,
                     final_batch: false,
+                },
+            }]
+        );
+    }
+
+    #[test]
+    fn parse_args_accepts_action_command_units_chunked_form() {
+        let args = parse_args(sample_args(&[
+            "--action-command-units",
+            "1,2,3@none@none@48:96@1",
+        ]))
+        .unwrap();
+
+        assert_eq!(
+            args.outbound_action_schedule,
+            vec![ScheduledOutboundAction {
+                not_before_ms: 1_000,
+                action: OutboundAction::CommandUnitsChunked {
+                    unit_ids: vec![1, 2, 3],
+                    build_target: None,
+                    unit_target: ClientUnitRef::None,
+                    pos_target: Some((48.0, 96.0)),
+                    queue_command: true,
                 },
             }]
         );
@@ -6852,6 +6939,17 @@ mod tests {
         .unwrap();
         queue_outbound_action(
             &mut session,
+            &OutboundAction::CommandUnitsChunked {
+                unit_ids: vec![1, 2, 3],
+                build_target: None,
+                unit_target: ClientUnitRef::None,
+                pos_target: None,
+                queue_command: false,
+            },
+        )
+        .unwrap();
+        queue_outbound_action(
+            &mut session,
             &OutboundAction::SetUnitCommand {
                 unit_ids: vec![333, 444],
                 command_id: Some(12),
@@ -6906,6 +7004,50 @@ mod tests {
             },
         )
         .unwrap();
+    }
+
+    #[test]
+    fn queue_outbound_action_chunks_large_command_units_when_final_batch_true() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
+        ingest_sample_world(&mut session);
+        assert!(session.state().ready_to_enter_world);
+        assert!(session.prepare_connect_confirm_packet().unwrap().is_some());
+        assert!(session.state().connect_confirm_sent);
+
+        let command_units_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "commandUnits")
+            .unwrap()
+            .packet_id;
+
+        let unit_ids = (0..401).collect::<Vec<_>>();
+        queue_outbound_action(
+            &mut session,
+            &OutboundAction::CommandUnits {
+                unit_ids,
+                build_target: Some(pack_point2(6, 7)),
+                unit_target: ClientUnitRef::Standard(444),
+                pos_target: Some((48.0, 96.0)),
+                queue_command: true,
+                final_batch: true,
+            },
+        )
+        .unwrap();
+
+        let actions = session.advance_time(1).unwrap();
+        let command_units_packets = actions
+            .iter()
+            .filter(|action| {
+                matches!(
+                    action,
+                    ClientSessionAction::SendPacket { packet_id, .. }
+                        if *packet_id == command_units_packet_id
+                )
+            })
+            .count();
+        assert_eq!(command_units_packets, 3);
     }
 
     #[test]

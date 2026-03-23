@@ -72,6 +72,45 @@ fn kick_reason_name_from_ordinal(reason_ordinal: i32) -> Option<&'static str> {
         .and_then(|index| KICK_REASON_NAMES.get(index).copied())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KickReasonHintCategory {
+    ClientOutdated,
+    ServerOutdated,
+    CustomClientRejected,
+    TypeMismatch,
+    ServerRestarting,
+}
+
+fn kick_reason_hint_from(
+    reason_text: Option<&str>,
+    reason_ordinal: Option<i32>,
+) -> Option<(KickReasonHintCategory, &'static str)> {
+    let normalized = reason_text.or_else(|| reason_ordinal.and_then(kick_reason_name_from_ordinal));
+    match normalized {
+        Some("clientOutdated") => Some((
+            KickReasonHintCategory::ClientOutdated,
+            "client build is outdated; upgrade this client to the server version.",
+        )),
+        Some("serverOutdated") => Some((
+            KickReasonHintCategory::ServerOutdated,
+            "server build is older than this client; use a matching server or older client build.",
+        )),
+        Some("customClient") => Some((
+            KickReasonHintCategory::CustomClientRejected,
+            "server rejected custom clients; connect to a server that allows custom clients.",
+        )),
+        Some("typeMismatch") => Some((
+            KickReasonHintCategory::TypeMismatch,
+            "version type/protocol mismatch; align client/server version type and mod set.",
+        )),
+        Some("serverRestarting") => Some((
+            KickReasonHintCategory::ServerRestarting,
+            "server is restarting; retry connection shortly.",
+        )),
+        _ => None,
+    }
+}
+
 #[derive(Debug)]
 pub struct ClientSession {
     locale: String,
@@ -206,6 +245,8 @@ pub struct ClientSession {
     last_kick_reason_text: Option<String>,
     last_kick_reason_ordinal: Option<i32>,
     last_kick_duration_ms: Option<u64>,
+    last_kick_hint_category: Option<KickReasonHintCategory>,
+    last_kick_hint_text: Option<&'static str>,
     next_client_snapshot_id: i32,
     timed_out: bool,
     pending_world_stream: Option<WorldStreamAssembler>,
@@ -1046,6 +1087,8 @@ impl ClientSession {
             last_kick_reason_text: None,
             last_kick_reason_ordinal: None,
             last_kick_duration_ms: None,
+            last_kick_hint_category: None,
+            last_kick_hint_text: None,
             next_client_snapshot_id: 1,
             timed_out: false,
             pending_world_stream: None,
@@ -1089,6 +1132,14 @@ impl ClientSession {
 
     pub fn last_kick_duration_ms(&self) -> Option<u64> {
         self.last_kick_duration_ms
+    }
+
+    pub fn last_kick_hint_category(&self) -> Option<KickReasonHintCategory> {
+        self.last_kick_hint_category
+    }
+
+    pub fn last_kick_hint_text(&self) -> Option<&'static str> {
+        self.last_kick_hint_text
     }
 
     pub fn set_clock_ms(&mut self, now_ms: u64) {
@@ -4284,9 +4335,15 @@ impl ClientSession {
         self.replayed_loading_events.clear();
         self.loading_world_data = false;
         self.state.client_loaded = false;
+        let (hint_category, hint_text) =
+            kick_reason_hint_from(reason_text.as_deref(), reason_ordinal)
+                .map(|(category, text)| (Some(category), Some(text)))
+                .unwrap_or((None, None));
         self.last_kick_reason_text = reason_text;
         self.last_kick_reason_ordinal = reason_ordinal;
         self.last_kick_duration_ms = duration_ms;
+        self.last_kick_hint_category = hint_category;
+        self.last_kick_hint_text = hint_text;
         self.timed_out = false;
         self.state.connection_timed_out = false;
     }
@@ -5182,6 +5239,8 @@ impl ClientSession {
         self.last_kick_reason_text = None;
         self.last_kick_reason_ordinal = None;
         self.last_kick_duration_ms = None;
+        self.last_kick_hint_category = None;
+        self.last_kick_hint_text = None;
         self.snapshot_input.unit_id = None;
         self.snapshot_input.dead = true;
         self.snapshot_input.position = None;
@@ -21341,6 +21400,8 @@ mod tests {
         assert_eq!(session.last_kick_reason_text(), Some("bye"));
         assert_eq!(session.last_kick_reason_ordinal(), None);
         assert_eq!(session.last_kick_duration_ms(), None);
+        assert_eq!(session.last_kick_hint_category(), None);
+        assert_eq!(session.last_kick_hint_text(), None);
         let actions = session.advance_time(1_000).unwrap();
         assert!(actions.is_empty());
     }
@@ -21378,6 +21439,8 @@ mod tests {
         assert_eq!(session.last_kick_reason_text(), Some("idInUse"));
         assert_eq!(session.last_kick_reason_ordinal(), Some(7));
         assert_eq!(session.last_kick_duration_ms(), Some(30_000));
+        assert_eq!(session.last_kick_hint_category(), None);
+        assert_eq!(session.last_kick_hint_text(), None);
         let actions = session.advance_time(1_000).unwrap();
         assert!(actions.is_empty());
     }
@@ -21419,6 +21482,14 @@ mod tests {
             session.last_kick_reason_ordinal(),
             Some(KICK_REASON_SERVER_RESTARTING_ORDINAL)
         );
+        assert_eq!(
+            session.last_kick_hint_category(),
+            Some(KickReasonHintCategory::ServerRestarting)
+        );
+        assert_eq!(
+            session.last_kick_hint_text(),
+            Some("server is restarting; retry connection shortly.")
+        );
     }
 
     #[test]
@@ -21430,6 +21501,46 @@ mod tests {
         assert_eq!(kick_reason_name_from_ordinal(KICK_REASON_SERVER_RESTARTING_ORDINAL), Some("serverRestarting"));
         assert_eq!(kick_reason_name_from_ordinal(-1), None);
         assert_eq!(kick_reason_name_from_ordinal(99), None);
+    }
+
+    #[test]
+    fn kick_reason_hint_mapping_covers_high_signal_taxonomy() {
+        assert_eq!(
+            kick_reason_hint_from(Some("clientOutdated"), None),
+            Some((
+                KickReasonHintCategory::ClientOutdated,
+                "client build is outdated; upgrade this client to the server version.",
+            ))
+        );
+        assert_eq!(
+            kick_reason_hint_from(Some("serverOutdated"), None),
+            Some((
+                KickReasonHintCategory::ServerOutdated,
+                "server build is older than this client; use a matching server or older client build.",
+            ))
+        );
+        assert_eq!(
+            kick_reason_hint_from(Some("customClient"), None),
+            Some((
+                KickReasonHintCategory::CustomClientRejected,
+                "server rejected custom clients; connect to a server that allows custom clients.",
+            ))
+        );
+        assert_eq!(
+            kick_reason_hint_from(Some("typeMismatch"), None),
+            Some((
+                KickReasonHintCategory::TypeMismatch,
+                "version type/protocol mismatch; align client/server version type and mod set.",
+            ))
+        );
+        assert_eq!(
+            kick_reason_hint_from(None, Some(KICK_REASON_SERVER_RESTARTING_ORDINAL)),
+            Some((
+                KickReasonHintCategory::ServerRestarting,
+                "server is restarting; retry connection shortly.",
+            ))
+        );
+        assert_eq!(kick_reason_hint_from(Some("idInUse"), Some(7)), None);
     }
 
     #[test]
