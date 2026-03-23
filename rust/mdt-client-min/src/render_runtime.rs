@@ -716,7 +716,7 @@ fn runtime_state_business_projection_label(
 
 fn runtime_configured_block_projection_label(projection: &ConfiguredBlockProjection) -> String {
     format!(
-        "{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}",
+        "{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}",
         runtime_configured_content_family_label(
             "uc",
             &projection.unit_cargo_unload_point_item_by_build_pos,
@@ -732,9 +732,10 @@ fn runtime_configured_block_projection_label(projection: &ConfiguredBlockProject
             "iv",
             &projection.inverted_sorter_item_by_build_pos,
         ),
-        runtime_configured_link_family_label("ib", &projection.item_bridge_link_by_build_pos),
         runtime_configured_bool_family_label("sw", &projection.switch_enabled_by_build_pos),
         runtime_configured_bool_family_label("do", &projection.door_open_by_build_pos),
+        runtime_configured_string_family_label("mg", &projection.message_text_by_build_pos),
+        runtime_configured_link_family_label("ib", &projection.item_bridge_link_by_build_pos),
         runtime_configured_content_family_label("ul", &projection.unloader_item_by_build_pos),
         runtime_configured_content_family_label("du", &projection.duct_unloader_item_by_build_pos),
         runtime_configured_content_family_label("dr", &projection.duct_router_item_by_build_pos),
@@ -777,6 +778,21 @@ fn runtime_configured_bool_family_label(
         Some((build_pos, None)) => {
             let (x, y) = unpack_runtime_point2(*build_pos);
             format!("{prefix}{count}@{x}:{y}=clear")
+        }
+        None => format!("{prefix}{count}"),
+    }
+}
+
+fn runtime_configured_string_family_label(prefix: &str, values: &BTreeMap<i32, String>) -> String {
+    let count = values.len();
+    match values.last_key_value() {
+        Some((build_pos, text)) if text.is_empty() => {
+            let (x, y) = unpack_runtime_point2(*build_pos);
+            format!("{prefix}{count}@{x}:{y}=empty")
+        }
+        Some((build_pos, text)) => {
+            let (x, y) = unpack_runtime_point2(*build_pos);
+            format!("{prefix}{count}@{x}:{y}=len{}", text.chars().count())
         }
         None => format!("{prefix}{count}"),
     }
@@ -2893,12 +2909,17 @@ mod tests {
             .configured_block_projection
             .liquid_source_liquid_by_build_pos
             .insert(pack_runtime_point2(13, 35), Some(0));
+        state
+            .configured_block_projection
+            .message_text_by_build_pos
+            .insert(pack_runtime_point2(18, 40), "hello".to_string());
 
         adapter.apply(&mut scene, &mut hud, &input, &state);
 
         assert!(hud
             .status_text
             .contains("runtime_configured=uc1@14:36=clear:is1@12:34=0:ls1@13:35=0"));
+        assert!(hud.status_text.contains(":mg1@18:40=len5:"));
     }
 
     #[test]

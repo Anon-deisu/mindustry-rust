@@ -546,6 +546,7 @@ pub struct ConfiguredBlockProjection {
     pub inverted_sorter_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub switch_enabled_by_build_pos: BTreeMap<i32, Option<bool>>,
     pub door_open_by_build_pos: BTreeMap<i32, Option<bool>>,
+    pub message_text_by_build_pos: BTreeMap<i32, String>,
     pub item_bridge_link_by_build_pos: BTreeMap<i32, Option<i32>>,
     pub unloader_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub duct_unloader_item_by_build_pos: BTreeMap<i32, Option<i16>>,
@@ -592,6 +593,10 @@ impl ConfiguredBlockProjection {
         self.door_open_by_build_pos.insert(build_pos, open);
     }
 
+    pub fn apply_message_text(&mut self, build_pos: i32, text: String) {
+        self.message_text_by_build_pos.insert(build_pos, text);
+    }
+
     pub fn apply_item_bridge_link(&mut self, build_pos: i32, link: Option<i32>) {
         self.item_bridge_link_by_build_pos.insert(build_pos, link);
     }
@@ -629,6 +634,7 @@ impl ConfiguredBlockProjection {
         self.inverted_sorter_item_by_build_pos.remove(&build_pos);
         self.switch_enabled_by_build_pos.remove(&build_pos);
         self.door_open_by_build_pos.remove(&build_pos);
+        self.message_text_by_build_pos.remove(&build_pos);
         self.item_bridge_link_by_build_pos.remove(&build_pos);
         self.unloader_item_by_build_pos.remove(&build_pos);
         self.duct_unloader_item_by_build_pos.remove(&build_pos);

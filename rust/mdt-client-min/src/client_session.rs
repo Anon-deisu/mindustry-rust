@@ -97,12 +97,17 @@ const BLOCK_NAME_SWITCH: &str = "switch";
 const BLOCK_NAME_WORLD_SWITCH: &str = "world-switch";
 const BLOCK_NAME_DOOR: &str = "door";
 const BLOCK_NAME_DOOR_LARGE: &str = "door-large";
+const BLOCK_NAME_MESSAGE: &str = "message";
+const BLOCK_NAME_REINFORCED_MESSAGE: &str = "reinforced-message";
+const BLOCK_NAME_WORLD_MESSAGE: &str = "world-message";
 const BLOCK_NAME_UNLOADER: &str = "unloader";
 const BLOCK_NAME_DUCT_UNLOADER: &str = "duct-unloader";
 const BLOCK_NAME_DUCT_ROUTER: &str = "duct-router";
 const BLOCK_NAME_MASS_DRIVER: &str = "mass-driver";
 const BLOCK_NAME_PAYLOAD_MASS_DRIVER: &str = "payload-mass-driver";
 const BLOCK_NAME_LARGE_PAYLOAD_MASS_DRIVER: &str = "large-payload-mass-driver";
+const MESSAGE_BLOCK_MAX_TEXT_LENGTH: usize = 300;
+const MESSAGE_BLOCK_MAX_NEWLINES: usize = 24;
 const ALPHA_SHAPE_ENTITY_CLASS_IDS: [u8; 17] = [
     0, 2, 3, 16, 18, 20, 21, 24, 29, 30, 31, 33, 40, 43, 44, 45, 46,
 ];
@@ -1930,6 +1935,16 @@ impl ClientSession {
                     self.state
                         .configured_block_projection
                         .apply_door_open(build_pos, open);
+                    ConfiguredBlockOutcome::Applied
+                } else {
+                    ConfiguredBlockOutcome::RejectedUnsupportedConfigType
+                }
+            }
+            BLOCK_NAME_MESSAGE | BLOCK_NAME_REINFORCED_MESSAGE | BLOCK_NAME_WORLD_MESSAGE => {
+                if let Some(text) = configured_message_text(config_object) {
+                    self.state
+                        .configured_block_projection
+                        .apply_message_text(build_pos, text);
                     ConfiguredBlockOutcome::Applied
                 } else {
                     ConfiguredBlockOutcome::RejectedUnsupportedConfigType
@@ -7907,6 +7922,33 @@ fn configured_link_build_pos(build_pos: i32, config_object: &TypeIoObject) -> Op
         }
         _ => None,
     }
+}
+
+fn configured_message_text(config_object: &TypeIoObject) -> Option<String> {
+    match config_object {
+        TypeIoObject::String(Some(text)) => normalize_message_block_text(text),
+        _ => None,
+    }
+}
+
+fn normalize_message_block_text(text: &str) -> Option<String> {
+    if text.encode_utf16().count() > MESSAGE_BLOCK_MAX_TEXT_LENGTH {
+        return None;
+    }
+    let trimmed = text.trim_matches(|character: char| character <= ' ');
+    let mut normalized = String::with_capacity(trimmed.len());
+    let mut newline_count = 0usize;
+    for character in trimmed.chars() {
+        if character == '\n' {
+            if newline_count <= MESSAGE_BLOCK_MAX_NEWLINES {
+                normalized.push('\n');
+            }
+            newline_count = newline_count.saturating_add(1);
+        } else {
+            normalized.push(character);
+        }
+    }
+    Some(normalized)
 }
 
 fn decode_optional_typeio_string_payload(payload: &[u8]) -> Option<Option<String>> {
@@ -21405,6 +21447,132 @@ mod tests {
     }
 
     #[test]
+    fn message_config_business_dispatch_applies_trimmed_text_and_empty_string_clear() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+
+        for (build_pos, block_name, applied_text) in [
+            (
+                pack_point2(35, 57),
+                BLOCK_NAME_MESSAGE,
+                "alpha\nbeta".to_string(),
+            ),
+            (
+                pack_point2(36, 58),
+                BLOCK_NAME_REINFORCED_MESSAGE,
+                "gamma".to_string(),
+            ),
+            (
+                pack_point2(37, 59),
+                BLOCK_NAME_WORLD_MESSAGE,
+                "delta".to_string(),
+            ),
+        ] {
+            let block_id = loaded_world_block_id_for_name(&session, block_name);
+            let source_text = format!("  {applied_text}  ");
+            let empty = String::new();
+
+            ingest_construct_finish_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                block_id,
+                &TypeIoObject::String(Some(source_text)),
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .message_text_by_build_pos
+                    .get(&build_pos),
+                Some(&applied_text)
+            );
+
+            ingest_tile_config_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                &TypeIoObject::String(Some("   ".to_string())),
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .message_text_by_build_pos
+                    .get(&build_pos),
+                Some(&empty)
+            );
+        }
+    }
+
+    #[test]
+    fn message_config_business_dispatch_rejects_null_and_nullable_string() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(38, 60);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_MESSAGE);
+        let applied_text = "hello".to_string();
+
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+            &TypeIoObject::String(Some(applied_text.clone())),
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .message_text_by_build_pos
+                .get(&build_pos),
+            Some(&applied_text)
+        );
+
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &TypeIoObject::Null,
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_configured_block_outcome,
+            Some(crate::session_state::ConfiguredBlockOutcome::RejectedUnsupportedConfigType)
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .message_text_by_build_pos
+                .get(&build_pos),
+            Some(&applied_text)
+        );
+
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &TypeIoObject::String(None),
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_configured_block_outcome,
+            Some(crate::session_state::ConfiguredBlockOutcome::RejectedUnsupportedConfigType)
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .message_text_by_build_pos
+                .get(&build_pos),
+            Some(&applied_text)
+        );
+    }
+
+    #[test]
     fn unloader_and_duct_unloader_config_business_dispatch_apply_item_and_clear() {
         let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let item_id = loaded_world_content_id_for_name(&session, ITEM_CONTENT_TYPE, "copper");
@@ -21978,6 +22146,38 @@ mod tests {
             .state()
             .configured_block_projection
             .switch_enabled_by_build_pos
+            .contains_key(&build_pos));
+    }
+
+    #[test]
+    fn deconstruct_finish_clears_message_configured_block_projection_state() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(39, 61);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_MESSAGE);
+
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+            &TypeIoObject::String(Some("hello".to_string())),
+        );
+        assert!(session
+            .state()
+            .configured_block_projection
+            .message_text_by_build_pos
+            .contains_key(&build_pos));
+
+        ingest_deconstruct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+        );
+        assert!(!session
+            .state()
+            .configured_block_projection
+            .message_text_by_build_pos
             .contains_key(&build_pos));
     }
 
