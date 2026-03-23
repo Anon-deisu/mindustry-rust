@@ -20,6 +20,27 @@ pub struct ConnectPacketSpec {
     pub mods: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConnectCompatibilityWarningCode {
+    BuildUnknown,
+    VersionTypeCustomLike,
+}
+
+impl ConnectCompatibilityWarningCode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::BuildUnknown => "build_unknown",
+            Self::VersionTypeCustomLike => "version_type_custom_like",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConnectCompatibilityWarning {
+    pub code: ConnectCompatibilityWarningCode,
+    pub message: &'static str,
+}
+
 impl ConnectPacketSpec {
     pub fn new_default(locale: impl Into<String>) -> Self {
         Self {
@@ -66,6 +87,28 @@ impl ConnectPacketSpec {
         combined.extend_from_slice(&raw_uuid);
         combined.extend_from_slice(&(crc32(&raw_uuid) as u64).to_be_bytes());
         Ok(encode_base64(&combined))
+    }
+
+    pub fn compatibility_warnings(&self) -> Vec<ConnectCompatibilityWarning> {
+        let mut warnings = Vec::new();
+        if self.version < 0 {
+            warnings.push(ConnectCompatibilityWarning {
+                code: ConnectCompatibilityWarningCode::BuildUnknown,
+                message: "connect build is negative; strict servers may reject custom/non-release clients. Consider setting --build to a concrete release build number.",
+            });
+        }
+
+        let normalized_version_type = self.version_type.trim();
+        if normalized_version_type.eq_ignore_ascii_case("custom")
+            || normalized_version_type.eq_ignore_ascii_case("custom build")
+        {
+            warnings.push(ConnectCompatibilityWarning {
+                code: ConnectCompatibilityWarningCode::VersionTypeCustomLike,
+                message: "connect version-type is custom-like; strict servers may reject custom clients. Consider setting --version-type to the server-accepted value.",
+            });
+        }
+
+        warnings
     }
 
     fn preflight_and_decode_uuid(&self) -> Result<Vec<u8>, ConnectPacketEncodeError> {
@@ -460,5 +503,47 @@ mod tests {
                 reason: "must not be empty",
             }
         );
+    }
+
+    #[test]
+    fn compatibility_warnings_flag_negative_build() {
+        let mut spec = ConnectPacketSpec::new_default("en_US");
+        spec.version = -1;
+        spec.version_type = "official".to_string();
+
+        let warnings = spec
+            .compatibility_warnings()
+            .iter()
+            .map(|warning| warning.code)
+            .collect::<Vec<_>>();
+
+        assert_eq!(warnings, vec![ConnectCompatibilityWarningCode::BuildUnknown]);
+    }
+
+    #[test]
+    fn compatibility_warnings_flag_custom_version_type() {
+        let mut spec = ConnectPacketSpec::new_default("en_US");
+        spec.version = 123;
+        spec.version_type = "custom build".to_string();
+
+        let warnings = spec
+            .compatibility_warnings()
+            .iter()
+            .map(|warning| warning.code)
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            warnings,
+            vec![ConnectCompatibilityWarningCode::VersionTypeCustomLike]
+        );
+    }
+
+    #[test]
+    fn compatibility_warnings_are_empty_for_release_like_values() {
+        let mut spec = ConnectPacketSpec::new_default("en_US");
+        spec.version = 123;
+        spec.version_type = "official".to_string();
+
+        assert!(spec.compatibility_warnings().is_empty());
     }
 }

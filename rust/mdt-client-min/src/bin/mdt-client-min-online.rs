@@ -6,6 +6,7 @@ use mdt_client_min::client_session::{
 };
 use mdt_client_min::connect_packet::{
     default_connect_build, default_connect_version_type, ConnectPacketSpec,
+    ConnectCompatibilityWarning,
 };
 use mdt_client_min::render_runtime::RenderRuntimeAdapter;
 use mdt_input::{
@@ -1435,6 +1436,13 @@ fn load_connect_payload(source: &ConnectSource) -> Result<Vec<u8>, Box<dyn std::
     match source {
         ConnectSource::HexFile(path) => load_hex_file(path),
         ConnectSource::Generated(spec) => {
+            for ConnectCompatibilityWarning { code, message } in spec.compatibility_warnings() {
+                eprintln!(
+                    "connect_spec_warning: code={} message={}",
+                    code.as_str(),
+                    message
+                );
+            }
             println!(
                 "connect_spec: build={} version_type={} name={} locale={} uuid={} usid={} server_uuid={} mobile={} color=0x{:08x} mods={:?}",
                 spec.version,
@@ -5866,7 +5874,7 @@ mod tests {
     fn parse_args_rejects_invalid_action_command_units_flag() {
         let error = parse_args(sample_args(&[
             "--action-command-units",
-            "1,2@3@unit:4@5:6@true",
+            "1,2@3@unit:4@5:6",
         ]))
         .err()
         .expect("invalid command-units format should fail");

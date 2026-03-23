@@ -48,7 +48,7 @@ impl RenderRuntimeAdapter {
         let state_business_projection = session_state.state_snapshot_business_projection.as_ref();
         hud.runtime_ui = Some(runtime_ui_observability(session_state));
         hud.status_text = format!(
-            "{} runtime_selected={} runtime_plans={} runtime_cfg_int={} runtime_cfg_long={} runtime_cfg_float={} runtime_cfg_bool={} runtime_cfg_int_seq={} runtime_cfg_point2={} runtime_cfg_point2_array={} runtime_cfg_tech_node={} runtime_cfg_double={} runtime_cfg_building_pos={} runtime_cfg_laccess={} runtime_cfg_string={} runtime_cfg_bytes={} runtime_cfg_legacy_unit_command_null={} runtime_cfg_bool_array={} runtime_cfg_unit_id={} runtime_cfg_vec2_array={} runtime_cfg_vec2={} runtime_cfg_team={} runtime_cfg_int_array={} runtime_cfg_object_array={} runtime_cfg_content={} runtime_cfg_unit_command={} runtime_world_tiles={} runtime_health={} building={} runtime_builder={} runtime_builder_head={} runtime_entity_local={} runtime_entity_hidden={} runtime_entity_gate={} runtime_entity_sync={} runtime_snap_last={} runtime_snap_events={} runtime_wave={} runtime_enemies={} runtime_tps={} runtime_state_apply={} runtime_core_teams={} runtime_core_items={} runtime_buildings={} runtime_block={} runtime_block_fail={} runtime_hidden={} runtime_hidden_delta={} runtime_hidden_fail={} runtime_effects={} runtime_effect_data_kind={} runtime_effect_data_semantic={} runtime_effect_apply={} runtime_effect_path={} runtime_effect_data_fail={} bootstrap_rules={} bootstrap_tags={} bootstrap_locales={} bootstrap_teams={} bootstrap_markers={} bootstrap_chunks={} bootstrap_patches={} bootstrap_plans={} bootstrap_fog_teams={} runtime_view_center={} runtime_view_size={} runtime_position={} runtime_pointer={} runtime_selected_rotation={} runtime_input_flags={} runtime_snap_client={} runtime_snap_state={} runtime_snap_entity={} runtime_snap_block={} runtime_snap_hidden={} runtime_tilecfg_events={} runtime_tilecfg_parse_fail={} runtime_tilecfg_noapply={} runtime_tilecfg_rollback={} runtime_tilecfg_pending_mismatch={} runtime_take_items={} runtime_transfer_item={} runtime_transfer_item_unit={} runtime_payload_drop={} runtime_payload_pick_build={} runtime_payload_pick_unit={} runtime_unit_entered_payload={} runtime_unit_despawn={} runtime_audio={} runtime_admin={} runtime_loading={} runtime_rules={} runtime_ui_notice={} runtime_ui_menu={} runtime_world_label={} runtime_resource_delta={} runtime_command_ctrl={} runtime_gameplay_signal={}",
+            "{} runtime_selected={} runtime_plans={} runtime_cfg_int={} runtime_cfg_long={} runtime_cfg_float={} runtime_cfg_bool={} runtime_cfg_int_seq={} runtime_cfg_point2={} runtime_cfg_point2_array={} runtime_cfg_tech_node={} runtime_cfg_double={} runtime_cfg_building_pos={} runtime_cfg_laccess={} runtime_cfg_string={} runtime_cfg_bytes={} runtime_cfg_legacy_unit_command_null={} runtime_cfg_bool_array={} runtime_cfg_unit_id={} runtime_cfg_vec2_array={} runtime_cfg_vec2={} runtime_cfg_team={} runtime_cfg_int_array={} runtime_cfg_object_array={} runtime_cfg_content={} runtime_cfg_unit_command={} runtime_world_tiles={} runtime_health={} building={} runtime_builder={} runtime_builder_head={} runtime_entity_local={} runtime_entity_hidden={} runtime_entity_gate={} runtime_entity_sync={} runtime_snap_last={} runtime_snap_events={} runtime_wave={} runtime_enemies={} runtime_tps={} runtime_state_apply={} runtime_core_teams={} runtime_core_items={} runtime_buildings={} runtime_block={} runtime_block_fail={} runtime_hidden={} runtime_hidden_delta={} runtime_hidden_fail={} runtime_effects={} runtime_effect_data_kind={} runtime_effect_data_semantic={} runtime_effect_apply={} runtime_effect_path={} runtime_effect_data_fail={} bootstrap_rules={} bootstrap_tags={} bootstrap_locales={} bootstrap_teams={} bootstrap_markers={} bootstrap_chunks={} bootstrap_patches={} bootstrap_plans={} bootstrap_fog_teams={} runtime_view_center={} runtime_view_size={} runtime_position={} runtime_pointer={} runtime_selected_rotation={} runtime_input_flags={} runtime_snap_client={} runtime_snap_state={} runtime_snap_entity={} runtime_snap_block={} runtime_snap_hidden={} runtime_tilecfg_events={} runtime_tilecfg_parse_fail={} runtime_tilecfg_noapply={} runtime_tilecfg_rollback={} runtime_tilecfg_pending_mismatch={} runtime_take_items={} runtime_transfer_item={} runtime_transfer_item_unit={} runtime_payload_drop={} runtime_payload_pick_build={} runtime_payload_pick_unit={} runtime_unit_entered_payload={} runtime_unit_despawn={} runtime_audio={} runtime_admin={} runtime_kick={} runtime_loading={} runtime_rules={} runtime_ui_notice={} runtime_ui_menu={} runtime_world_label={} runtime_resource_delta={} runtime_command_ctrl={} runtime_gameplay_signal={}",
             hud.status_text,
             runtime_selected_block_label(snapshot_input.selected_block_id),
             snapshot_input.plans.as_ref().map_or(0, Vec::len),
@@ -198,6 +198,7 @@ impl RenderRuntimeAdapter {
             session_state.received_unit_despawn_count,
             runtime_audio_label(session_state),
             runtime_admin_label(session_state),
+            runtime_kick_label(&self.world_overlay),
             runtime_loading_label(session_state),
             runtime_rules_label(session_state),
             runtime_ui_notice_label(session_state),
@@ -230,6 +231,11 @@ pub struct RuntimeWorldOverlay {
     pub tile_config_business_not_applied_count: u64,
     pub tile_config_rollback_count: u64,
     pub tile_config_pending_mismatch_count: u64,
+    pub last_kick_reason_text: Option<String>,
+    pub last_kick_reason_ordinal: Option<i32>,
+    pub last_kick_duration_ms: Option<u64>,
+    pub last_kick_hint_category: Option<&'static str>,
+    pub last_kick_hint_text: Option<&'static str>,
 }
 
 impl RuntimeWorldOverlay {
@@ -244,6 +250,11 @@ impl RuntimeWorldOverlay {
         self.tile_config_business_not_applied_count = 0;
         self.tile_config_rollback_count = 0;
         self.tile_config_pending_mismatch_count = 0;
+        self.last_kick_reason_text = None;
+        self.last_kick_reason_ordinal = None;
+        self.last_kick_duration_ms = None;
+        self.last_kick_hint_category = None;
+        self.last_kick_hint_text = None;
     }
 
     pub fn health_overlay_count(&self) -> usize {
@@ -297,8 +308,22 @@ pub fn observe_runtime_world_events(
         match event {
             ClientSessionEvent::WorldDataBegin
             | ClientSessionEvent::WorldStreamStarted { .. }
-            | ClientSessionEvent::ConnectRedirectRequested { .. }
-            | ClientSessionEvent::Kicked { .. } => runtime_world_overlay.clear(),
+            | ClientSessionEvent::ConnectRedirectRequested { .. } => runtime_world_overlay.clear(),
+            ClientSessionEvent::Kicked {
+                reason_text,
+                reason_ordinal,
+                duration_ms,
+            } => {
+                runtime_world_overlay.clear();
+                runtime_world_overlay.last_kick_reason_text = reason_text.clone();
+                runtime_world_overlay.last_kick_reason_ordinal = *reason_ordinal;
+                runtime_world_overlay.last_kick_duration_ms = *duration_ms;
+                let (hint_category, hint_text) =
+                    runtime_kick_hint_from(reason_text.as_deref(), *reason_ordinal)
+                        .unwrap_or((None, None));
+                runtime_world_overlay.last_kick_hint_category = hint_category;
+                runtime_world_overlay.last_kick_hint_text = hint_text;
+            }
             ClientSessionEvent::ConstructFinish {
                 tile_pos, block_id, ..
             } => {
@@ -1047,6 +1072,69 @@ fn runtime_admin_label(session_state: &SessionState) -> String {
         runtime_optional_display_label(session_state.last_debug_status_value),
         session_state.failed_debug_status_client_unreliable_parse_count,
     )
+}
+
+fn runtime_kick_label(world_overlay: &RuntimeWorldOverlay) -> String {
+    format!(
+        "{}@{}:{}:{}",
+        runtime_compact_text_label(world_overlay.last_kick_reason_text.as_deref()),
+        runtime_optional_display_label(world_overlay.last_kick_reason_ordinal),
+        world_overlay.last_kick_hint_category.unwrap_or("none"),
+        runtime_compact_text_label(world_overlay.last_kick_hint_text),
+    )
+}
+
+fn runtime_kick_hint_from(
+    reason_text: Option<&str>,
+    reason_ordinal: Option<i32>,
+) -> Option<(Option<&'static str>, Option<&'static str>)> {
+    let normalized = match reason_text {
+        Some("clientOutdated") => Some("clientOutdated"),
+        Some("serverOutdated") => Some("serverOutdated"),
+        Some("customClient") => Some("customClient"),
+        Some("typeMismatch") => Some("typeMismatch"),
+        Some("serverRestarting") => Some("serverRestarting"),
+        _ => reason_ordinal.and_then(runtime_kick_reason_name_from_ordinal),
+    };
+
+    match normalized {
+        Some("clientOutdated") => Some((
+            Some("ClientOutdated"),
+            Some("client build is outdated; upgrade this client to the server version."),
+        )),
+        Some("serverOutdated") => Some((
+            Some("ServerOutdated"),
+            Some(
+                "server build is older than this client; use a matching server or older client build.",
+            ),
+        )),
+        Some("customClient") => Some((
+            Some("CustomClientRejected"),
+            Some(
+                "server rejected custom clients; connect to a server that allows custom clients.",
+            ),
+        )),
+        Some("typeMismatch") => Some((
+            Some("TypeMismatch"),
+            Some("version type/protocol mismatch; align client/server version type and mod set."),
+        )),
+        Some("serverRestarting") => Some((
+            Some("ServerRestarting"),
+            Some("server is restarting; retry connection shortly."),
+        )),
+        _ => None,
+    }
+}
+
+fn runtime_kick_reason_name_from_ordinal(reason_ordinal: i32) -> Option<&'static str> {
+    match reason_ordinal {
+        1 => Some("clientOutdated"),
+        2 => Some("serverOutdated"),
+        9 => Some("customClient"),
+        12 => Some("typeMismatch"),
+        15 => Some("serverRestarting"),
+        _ => None,
+    }
 }
 
 fn runtime_loading_label(session_state: &SessionState) -> String {
