@@ -238,6 +238,12 @@ pub enum EffectBusinessContentKind {
     TechNode,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConfiguredContentRef {
+    pub content_type: u8,
+    pub content_id: i16,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EffectBusinessProjection {
     ContentRef {
@@ -549,6 +555,8 @@ pub struct ConfiguredBlockProjection {
     pub message_text_by_build_pos: BTreeMap<i32, String>,
     pub constructor_recipe_block_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub light_color_by_build_pos: BTreeMap<i32, i32>,
+    pub payload_source_content_by_build_pos: BTreeMap<i32, Option<ConfiguredContentRef>>,
+    pub payload_router_sorted_content_by_build_pos: BTreeMap<i32, Option<ConfiguredContentRef>>,
     pub item_bridge_link_by_build_pos: BTreeMap<i32, Option<i32>>,
     pub unloader_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub duct_unloader_item_by_build_pos: BTreeMap<i32, Option<i16>>,
@@ -608,6 +616,24 @@ impl ConfiguredBlockProjection {
         self.light_color_by_build_pos.insert(build_pos, color);
     }
 
+    pub fn apply_payload_source_content(
+        &mut self,
+        build_pos: i32,
+        content: Option<ConfiguredContentRef>,
+    ) {
+        self.payload_source_content_by_build_pos
+            .insert(build_pos, content);
+    }
+
+    pub fn apply_payload_router_sorted_content(
+        &mut self,
+        build_pos: i32,
+        content: Option<ConfiguredContentRef>,
+    ) {
+        self.payload_router_sorted_content_by_build_pos
+            .insert(build_pos, content);
+    }
+
     pub fn apply_item_bridge_link(&mut self, build_pos: i32, link: Option<i32>) {
         self.item_bridge_link_by_build_pos.insert(build_pos, link);
     }
@@ -648,6 +674,9 @@ impl ConfiguredBlockProjection {
         self.message_text_by_build_pos.remove(&build_pos);
         self.constructor_recipe_block_by_build_pos.remove(&build_pos);
         self.light_color_by_build_pos.remove(&build_pos);
+        self.payload_source_content_by_build_pos.remove(&build_pos);
+        self.payload_router_sorted_content_by_build_pos
+            .remove(&build_pos);
         self.item_bridge_link_by_build_pos.remove(&build_pos);
         self.unloader_item_by_build_pos.remove(&build_pos);
         self.duct_unloader_item_by_build_pos.remove(&build_pos);

@@ -5,12 +5,13 @@ use crate::effect_runtime::effect_contract_name;
 use crate::net_loop::{ingest_inbound_packet, NetLoopStats};
 use crate::packet_registry::InboundSnapshotPacketRegistry;
 use crate::session_state::{
-    BuilderQueueEntryObservation, ConfiguredBlockOutcome, EffectBusinessContentKind,
-    EffectBusinessPositionSource, EffectBusinessProjection, EffectDataSemantic,
-    GameplayStateProjection, PayloadDroppedProjection, PickedBuildPayloadProjection,
-    PickedUnitPayloadProjection, SessionState, TakeItemsProjection, TileConfigAuthoritySource,
-    TileConfigBusinessApply, TransferItemToProjection, TransferItemToUnitProjection,
-    UnitEnteredPayloadProjection, UnitRefProjection,
+    BuilderQueueEntryObservation, ConfiguredBlockOutcome, ConfiguredContentRef,
+    EffectBusinessContentKind, EffectBusinessPositionSource, EffectBusinessProjection,
+    EffectDataSemantic, GameplayStateProjection, PayloadDroppedProjection,
+    PickedBuildPayloadProjection, PickedUnitPayloadProjection, SessionState,
+    TakeItemsProjection, TileConfigAuthoritySource, TileConfigBusinessApply,
+    TransferItemToProjection, TransferItemToUnitProjection, UnitEnteredPayloadProjection,
+    UnitRefProjection,
 };
 use mdt_protocol::{
     decode_packet, encode_framework_message, encode_packet, FrameworkMessage, PacketCodecError,
@@ -85,6 +86,7 @@ const MARKER_CONTROL_NAMES: [&str; 25] = [
 const BLOCK_CONTENT_TYPE: u8 = 1;
 const ITEM_CONTENT_TYPE: u8 = 0;
 const LIQUID_CONTENT_TYPE: u8 = 4;
+const UNIT_CONTENT_TYPE: u8 = 6;
 const BLOCK_NAME_UNIT_CARGO_UNLOAD_POINT: &str = "unit-cargo-unload-point";
 const BLOCK_NAME_LANDING_PAD: &str = "landing-pad";
 const BLOCK_NAME_ITEM_SOURCE: &str = "item-source";
@@ -103,6 +105,9 @@ const BLOCK_NAME_WORLD_MESSAGE: &str = "world-message";
 const BLOCK_NAME_CONSTRUCTOR: &str = "constructor";
 const BLOCK_NAME_LARGE_CONSTRUCTOR: &str = "large-constructor";
 const BLOCK_NAME_ILLUMINATOR: &str = "illuminator";
+const BLOCK_NAME_PAYLOAD_SOURCE: &str = "payload-source";
+const BLOCK_NAME_PAYLOAD_ROUTER: &str = "payload-router";
+const BLOCK_NAME_REINFORCED_PAYLOAD_ROUTER: &str = "reinforced-payload-router";
 const BLOCK_NAME_UNLOADER: &str = "unloader";
 const BLOCK_NAME_DUCT_UNLOADER: &str = "duct-unloader";
 const BLOCK_NAME_DUCT_ROUTER: &str = "duct-router";
@@ -1968,6 +1973,30 @@ impl ClientSession {
                     self.state
                         .configured_block_projection
                         .apply_light_color(build_pos, color);
+                    ConfiguredBlockOutcome::Applied
+                } else {
+                    ConfiguredBlockOutcome::RejectedUnsupportedConfigType
+                }
+            }
+            BLOCK_NAME_PAYLOAD_SOURCE => {
+                if let Some(content) =
+                    configured_content_ref(config_object, &[BLOCK_CONTENT_TYPE, UNIT_CONTENT_TYPE])
+                {
+                    self.state
+                        .configured_block_projection
+                        .apply_payload_source_content(build_pos, content);
+                    ConfiguredBlockOutcome::Applied
+                } else {
+                    ConfiguredBlockOutcome::RejectedUnsupportedConfigType
+                }
+            }
+            BLOCK_NAME_PAYLOAD_ROUTER | BLOCK_NAME_REINFORCED_PAYLOAD_ROUTER => {
+                if let Some(content) =
+                    configured_content_ref(config_object, &[BLOCK_CONTENT_TYPE, UNIT_CONTENT_TYPE])
+                {
+                    self.state
+                        .configured_block_projection
+                        .apply_payload_router_sorted_content(build_pos, content);
                     ConfiguredBlockOutcome::Applied
                 } else {
                     ConfiguredBlockOutcome::RejectedUnsupportedConfigType
@@ -7930,6 +7959,25 @@ fn configured_block_id(config_object: &TypeIoObject) -> Option<Option<i16>> {
             content_type,
             content_id,
         } if *content_type == BLOCK_CONTENT_TYPE => Some((*content_id >= 0).then_some(*content_id)),
+        _ => None,
+    }
+}
+
+fn configured_content_ref(
+    config_object: &TypeIoObject,
+    allowed_types: &[u8],
+) -> Option<Option<ConfiguredContentRef>> {
+    match config_object {
+        TypeIoObject::Null => Some(None),
+        TypeIoObject::ContentRaw {
+            content_type,
+            content_id,
+        } if *content_id >= 0 && allowed_types.contains(content_type) => {
+            Some(Some(ConfiguredContentRef {
+                content_type: *content_type,
+                content_id: *content_id,
+            }))
+        }
         _ => None,
     }
 }
@@ -21718,6 +21766,149 @@ mod tests {
                 .get(&build_pos),
             Some(&0x55667788)
         );
+    }
+
+    #[test]
+    fn payload_source_config_business_dispatch_applies_block_unit_and_clear() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(43, 65);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_PAYLOAD_SOURCE);
+        let payload_block_id =
+            loaded_world_content_id_for_name(&session, BLOCK_CONTENT_TYPE, "copper-wall");
+        let unit_id = loaded_world_content_id_for_name(&session, UNIT_CONTENT_TYPE, "dagger");
+
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+            &TypeIoObject::ContentRaw {
+                content_type: BLOCK_CONTENT_TYPE,
+                content_id: payload_block_id,
+            },
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .payload_source_content_by_build_pos
+                .get(&build_pos),
+            Some(&Some(ConfiguredContentRef {
+                content_type: BLOCK_CONTENT_TYPE,
+                content_id: payload_block_id,
+            }))
+        );
+
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &TypeIoObject::ContentRaw {
+                content_type: UNIT_CONTENT_TYPE,
+                content_id: unit_id,
+            },
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .payload_source_content_by_build_pos
+                .get(&build_pos),
+            Some(&Some(ConfiguredContentRef {
+                content_type: UNIT_CONTENT_TYPE,
+                content_id: unit_id,
+            }))
+        );
+
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &TypeIoObject::Null,
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .payload_source_content_by_build_pos
+                .get(&build_pos),
+            Some(&None)
+        );
+    }
+
+    #[test]
+    fn payload_router_config_business_dispatch_applies_block_unit_and_clear() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let payload_block_id =
+            loaded_world_content_id_for_name(&session, BLOCK_CONTENT_TYPE, "copper-wall");
+        let unit_id = loaded_world_content_id_for_name(&session, UNIT_CONTENT_TYPE, "dagger");
+
+        for (build_pos, block_name) in [
+            (pack_point2(44, 66), BLOCK_NAME_PAYLOAD_ROUTER),
+            (
+                pack_point2(45, 67),
+                BLOCK_NAME_REINFORCED_PAYLOAD_ROUTER,
+            ),
+        ] {
+            let block_id = loaded_world_block_id_for_name(&session, block_name);
+            ingest_construct_finish_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                block_id,
+                &TypeIoObject::ContentRaw {
+                    content_type: BLOCK_CONTENT_TYPE,
+                    content_id: payload_block_id,
+                },
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .payload_router_sorted_content_by_build_pos
+                    .get(&build_pos),
+                Some(&Some(ConfiguredContentRef {
+                    content_type: BLOCK_CONTENT_TYPE,
+                    content_id: payload_block_id,
+                }))
+            );
+
+            ingest_tile_config_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                &TypeIoObject::ContentRaw {
+                    content_type: UNIT_CONTENT_TYPE,
+                    content_id: unit_id,
+                },
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .payload_router_sorted_content_by_build_pos
+                    .get(&build_pos),
+                Some(&Some(ConfiguredContentRef {
+                    content_type: UNIT_CONTENT_TYPE,
+                    content_id: unit_id,
+                }))
+            );
+
+            ingest_tile_config_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                &TypeIoObject::Null,
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .payload_router_sorted_content_by_build_pos
+                    .get(&build_pos),
+                Some(&None)
+            );
+        }
     }
 
     #[test]

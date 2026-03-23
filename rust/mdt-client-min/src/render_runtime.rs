@@ -8,10 +8,11 @@ use crate::effect_runtime::{
 use crate::session_state::{
     AuthoritativeStateMirror, BuilderPlanStage, BuilderQueueProjection,
     BuildingProjectionUpdateKind, BuildingTableProjection, ConfiguredBlockOutcome,
-    ConfiguredBlockProjection, EffectBusinessContentKind, EffectBusinessPositionSource,
-    EffectBusinessProjection, EffectDataSemantic, HiddenSnapshotDeltaProjection, SessionState,
-    StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection, TileConfigAuthoritySource,
-    TileConfigProjection, UnitRefProjection, WorldBootstrapProjection,
+    ConfiguredBlockProjection, ConfiguredContentRef, EffectBusinessContentKind,
+    EffectBusinessPositionSource, EffectBusinessProjection, EffectDataSemantic,
+    HiddenSnapshotDeltaProjection, SessionState, StateSnapshotAuthorityProjection,
+    StateSnapshotBusinessProjection, TileConfigAuthoritySource, TileConfigProjection,
+    UnitRefProjection, WorldBootstrapProjection,
 };
 use mdt_remote::{HighFrequencyRemoteMethod, HIGH_FREQUENCY_REMOTE_METHOD_COUNT};
 use mdt_render_ui::{
@@ -716,7 +717,7 @@ fn runtime_state_business_projection_label(
 
 fn runtime_configured_block_projection_label(projection: &ConfiguredBlockProjection) -> String {
     format!(
-        "{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}",
+        "{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}",
         runtime_configured_content_family_label(
             "uc",
             &projection.unit_cargo_unload_point_item_by_build_pos,
@@ -737,6 +738,8 @@ fn runtime_configured_block_projection_label(projection: &ConfiguredBlockProject
         runtime_configured_string_family_label("mg", &projection.message_text_by_build_pos),
         runtime_configured_content_family_label("ct", &projection.constructor_recipe_block_by_build_pos),
         runtime_configured_int_family_label("il", &projection.light_color_by_build_pos),
+        runtime_configured_raw_content_family_label("ps", &projection.payload_source_content_by_build_pos),
+        runtime_configured_raw_content_family_label("pr", &projection.payload_router_sorted_content_by_build_pos),
         runtime_configured_link_family_label("ib", &projection.item_bridge_link_by_build_pos),
         runtime_configured_content_family_label("ul", &projection.unloader_item_by_build_pos),
         runtime_configured_content_family_label("du", &projection.duct_unloader_item_by_build_pos),
@@ -806,6 +809,29 @@ fn runtime_configured_int_family_label(prefix: &str, values: &BTreeMap<i32, i32>
         Some((build_pos, value)) => {
             let (x, y) = unpack_runtime_point2(*build_pos);
             format!("{prefix}{count}@{x}:{y}={value:08x}")
+        }
+        None => format!("{prefix}{count}"),
+    }
+}
+
+fn runtime_configured_raw_content_family_label(
+    prefix: &str,
+    values: &BTreeMap<i32, Option<ConfiguredContentRef>>,
+) -> String {
+    let count = values.len();
+    match values.last_key_value() {
+        Some((build_pos, Some(content))) => {
+            let (x, y) = unpack_runtime_point2(*build_pos);
+            let kind = match content.content_type {
+                1 => "b",
+                6 => "u",
+                _ => "c",
+            };
+            format!("{prefix}{count}@{x}:{y}={kind}:{}", content.content_id)
+        }
+        Some((build_pos, None)) => {
+            let (x, y) = unpack_runtime_point2(*build_pos);
+            format!("{prefix}{count}@{x}:{y}=clear")
         }
         None => format!("{prefix}{count}"),
     }
@@ -2934,6 +2960,26 @@ mod tests {
             .configured_block_projection
             .light_color_by_build_pos
             .insert(pack_runtime_point2(20, 42), 0x11223344);
+        state
+            .configured_block_projection
+            .payload_source_content_by_build_pos
+            .insert(
+                pack_runtime_point2(21, 43),
+                Some(ConfiguredContentRef {
+                    content_type: 1,
+                    content_id: 7,
+                }),
+            );
+        state
+            .configured_block_projection
+            .payload_router_sorted_content_by_build_pos
+            .insert(
+                pack_runtime_point2(22, 44),
+                Some(ConfiguredContentRef {
+                    content_type: 6,
+                    content_id: 9,
+                }),
+            );
 
         adapter.apply(&mut scene, &mut hud, &input, &state);
 
@@ -2943,6 +2989,8 @@ mod tests {
         assert!(hud.status_text.contains(":mg1@18:40=len5:"));
         assert!(hud.status_text.contains(":ct1@19:41=5:"));
         assert!(hud.status_text.contains(":il1@20:42=11223344:"));
+        assert!(hud.status_text.contains(":ps1@21:43=b:7:"));
+        assert!(hud.status_text.contains(":pr1@22:44=u:9:"));
     }
 
     #[test]
