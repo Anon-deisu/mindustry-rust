@@ -716,7 +716,7 @@ fn runtime_state_business_projection_label(
 
 fn runtime_configured_block_projection_label(projection: &ConfiguredBlockProjection) -> String {
     format!(
-        "{}:{}:{}",
+        "{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}",
         runtime_configured_content_family_label(
             "uc",
             &projection.unit_cargo_unload_point_item_by_build_pos,
@@ -726,6 +726,18 @@ fn runtime_configured_block_projection_label(projection: &ConfiguredBlockProject
             "ls",
             &projection.liquid_source_liquid_by_build_pos,
         ),
+        runtime_configured_content_family_label("lp", &projection.landing_pad_item_by_build_pos),
+        runtime_configured_content_family_label("so", &projection.sorter_item_by_build_pos),
+        runtime_configured_content_family_label(
+            "iv",
+            &projection.inverted_sorter_item_by_build_pos,
+        ),
+        runtime_configured_bool_family_label("sw", &projection.switch_enabled_by_build_pos),
+        runtime_configured_bool_family_label("do", &projection.door_open_by_build_pos),
+        runtime_configured_content_family_label("ul", &projection.unloader_item_by_build_pos),
+        runtime_configured_content_family_label("du", &projection.duct_unloader_item_by_build_pos),
+        runtime_configured_content_family_label("dr", &projection.duct_router_item_by_build_pos),
+        runtime_configured_link_family_label("md", &projection.mass_driver_link_by_build_pos),
     )
 }
 
@@ -738,6 +750,43 @@ fn runtime_configured_content_family_label(
         Some((build_pos, Some(content_id))) => {
             let (x, y) = unpack_runtime_point2(*build_pos);
             format!("{prefix}{count}@{x}:{y}={content_id}")
+        }
+        Some((build_pos, None)) => {
+            let (x, y) = unpack_runtime_point2(*build_pos);
+            format!("{prefix}{count}@{x}:{y}=clear")
+        }
+        None => format!("{prefix}{count}"),
+    }
+}
+
+fn runtime_configured_bool_family_label(
+    prefix: &str,
+    values: &BTreeMap<i32, Option<bool>>,
+) -> String {
+    let count = values.len();
+    match values.last_key_value() {
+        Some((build_pos, Some(value))) => {
+            let (x, y) = unpack_runtime_point2(*build_pos);
+            format!("{prefix}{count}@{x}:{y}={}", if *value { 1 } else { 0 })
+        }
+        Some((build_pos, None)) => {
+            let (x, y) = unpack_runtime_point2(*build_pos);
+            format!("{prefix}{count}@{x}:{y}=clear")
+        }
+        None => format!("{prefix}{count}"),
+    }
+}
+
+fn runtime_configured_link_family_label(
+    prefix: &str,
+    values: &BTreeMap<i32, Option<i32>>,
+) -> String {
+    let count = values.len();
+    match values.last_key_value() {
+        Some((build_pos, Some(link_pos))) => {
+            let (x, y) = unpack_runtime_point2(*build_pos);
+            let (target_x, target_y) = unpack_runtime_point2(*link_pos);
+            format!("{prefix}{count}@{x}:{y}={target_x}:{target_y}")
         }
         Some((build_pos, None)) => {
             let (x, y) = unpack_runtime_point2(*build_pos);

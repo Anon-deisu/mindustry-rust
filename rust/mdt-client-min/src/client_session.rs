@@ -86,15 +86,19 @@ const BLOCK_CONTENT_TYPE: u8 = 1;
 const ITEM_CONTENT_TYPE: u8 = 0;
 const LIQUID_CONTENT_TYPE: u8 = 4;
 const BLOCK_NAME_UNIT_CARGO_UNLOAD_POINT: &str = "unit-cargo-unload-point";
+const BLOCK_NAME_LANDING_PAD: &str = "landing-pad";
 const BLOCK_NAME_ITEM_SOURCE: &str = "item-source";
 const BLOCK_NAME_LIQUID_SOURCE: &str = "liquid-source";
 const BLOCK_NAME_SORTER: &str = "sorter";
 const BLOCK_NAME_INVERTED_SORTER: &str = "inverted-sorter";
 const BLOCK_NAME_SWITCH: &str = "switch";
 const BLOCK_NAME_WORLD_SWITCH: &str = "world-switch";
+const BLOCK_NAME_DOOR: &str = "door";
+const BLOCK_NAME_DOOR_LARGE: &str = "door-large";
 const BLOCK_NAME_UNLOADER: &str = "unloader";
 const BLOCK_NAME_DUCT_UNLOADER: &str = "duct-unloader";
 const BLOCK_NAME_DUCT_ROUTER: &str = "duct-router";
+const BLOCK_NAME_MASS_DRIVER: &str = "mass-driver";
 const ALPHA_SHAPE_ENTITY_CLASS_IDS: [u8; 17] = [
     0, 2, 3, 16, 18, 20, 21, 24, 29, 30, 31, 33, 40, 43, 44, 45, 46,
 ];
@@ -1867,6 +1871,16 @@ impl ClientSession {
                     ConfiguredBlockOutcome::RejectedUnsupportedConfigType
                 }
             }
+            BLOCK_NAME_LANDING_PAD => {
+                if let Some(item_id) = configured_item_id(config_object) {
+                    self.state
+                        .configured_block_projection
+                        .apply_landing_pad_item(build_pos, item_id);
+                    ConfiguredBlockOutcome::Applied
+                } else {
+                    ConfiguredBlockOutcome::RejectedUnsupportedConfigType
+                }
+            }
             BLOCK_NAME_SORTER => {
                 if let Some(item_id) = configured_item_id(config_object) {
                     self.state
@@ -1897,6 +1911,16 @@ impl ClientSession {
                     ConfiguredBlockOutcome::RejectedUnsupportedConfigType
                 }
             }
+            BLOCK_NAME_DOOR | BLOCK_NAME_DOOR_LARGE => {
+                if let Some(open) = configured_bool(config_object) {
+                    self.state
+                        .configured_block_projection
+                        .apply_door_open(build_pos, open);
+                    ConfiguredBlockOutcome::Applied
+                } else {
+                    ConfiguredBlockOutcome::RejectedUnsupportedConfigType
+                }
+            }
             BLOCK_NAME_UNLOADER => {
                 if let Some(item_id) = configured_item_id(config_object) {
                     self.state
@@ -1922,6 +1946,16 @@ impl ClientSession {
                     self.state
                         .configured_block_projection
                         .apply_duct_router_item(build_pos, item_id);
+                    ConfiguredBlockOutcome::Applied
+                } else {
+                    ConfiguredBlockOutcome::RejectedUnsupportedConfigType
+                }
+            }
+            BLOCK_NAME_MASS_DRIVER => {
+                if let Some(link) = configured_link_build_pos(build_pos, config_object) {
+                    self.state
+                        .configured_block_projection
+                        .apply_mass_driver_link(build_pos, link);
                     ConfiguredBlockOutcome::Applied
                 } else {
                     ConfiguredBlockOutcome::RejectedUnsupportedConfigType
@@ -7831,6 +7865,22 @@ fn configured_bool(config_object: &TypeIoObject) -> Option<Option<bool>> {
     match config_object {
         TypeIoObject::Null => Some(None),
         TypeIoObject::Bool(value) => Some(Some(*value)),
+        _ => None,
+    }
+}
+
+fn configured_link_build_pos(build_pos: i32, config_object: &TypeIoObject) -> Option<Option<i32>> {
+    match config_object {
+        TypeIoObject::Null => Some(None),
+        TypeIoObject::Int(value) => Some((*value >= 0).then_some(*value)),
+        TypeIoObject::BuildingPos(value) => Some((*value != pack_point2(-1, -1)).then_some(*value)),
+        TypeIoObject::Point2 { x, y } => {
+            let (tile_x, tile_y) = unpack_point2(build_pos);
+            Some(Some(pack_point2(
+                i32::from(tile_x) + *x,
+                i32::from(tile_y) + *y,
+            )))
+        }
         _ => None,
     }
 }
@@ -21054,6 +21104,48 @@ mod tests {
     }
 
     #[test]
+    fn landing_pad_config_business_dispatch_uses_construct_finish_and_tile_config() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(26, 48);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_LANDING_PAD);
+        let item_id = loaded_world_content_id_for_name(&session, ITEM_CONTENT_TYPE, "copper");
+
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+            &TypeIoObject::ContentRaw {
+                content_type: ITEM_CONTENT_TYPE,
+                content_id: item_id,
+            },
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .landing_pad_item_by_build_pos
+                .get(&build_pos),
+            Some(&Some(item_id))
+        );
+
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &TypeIoObject::Null,
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .landing_pad_item_by_build_pos
+                .get(&build_pos),
+            Some(&None)
+        );
+    }
+
+    #[test]
     fn sorter_and_inverted_sorter_config_business_dispatch_apply_item_and_clear() {
         let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let item_id = loaded_world_content_id_for_name(&session, ITEM_CONTENT_TYPE, "copper");
@@ -21168,6 +21260,55 @@ mod tests {
     }
 
     #[test]
+    fn door_config_business_dispatch_apply_bool_and_clear() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+
+        for (build_pos, block_name, open) in [
+            (pack_point2(27, 49), BLOCK_NAME_DOOR, true),
+            (pack_point2(28, 50), BLOCK_NAME_DOOR_LARGE, false),
+        ] {
+            let block_id = loaded_world_block_id_for_name(&session, block_name);
+            ingest_construct_finish_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                block_id,
+                &TypeIoObject::Null,
+            );
+            ingest_tile_config_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                &TypeIoObject::Bool(open),
+            );
+
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .door_open_by_build_pos
+                    .get(&build_pos),
+                Some(&Some(open))
+            );
+
+            ingest_tile_config_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                &TypeIoObject::Null,
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .door_open_by_build_pos
+                    .get(&build_pos),
+                Some(&None)
+            );
+        }
+    }
+
+    #[test]
     fn unloader_and_duct_unloader_config_business_dispatch_apply_item_and_clear() {
         let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let item_id = loaded_world_content_id_for_name(&session, ITEM_CONTENT_TYPE, "copper");
@@ -21275,6 +21416,74 @@ mod tests {
                 .state()
                 .configured_block_projection
                 .duct_router_item_by_build_pos
+                .get(&build_pos),
+            Some(&None)
+        );
+    }
+
+    #[test]
+    fn mass_driver_config_business_dispatch_applies_relative_and_absolute_links() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(29, 51);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_MASS_DRIVER);
+
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+            &TypeIoObject::Null,
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .mass_driver_link_by_build_pos
+                .get(&build_pos),
+            Some(&None)
+        );
+
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &TypeIoObject::Point2 { x: 3, y: -2 },
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .mass_driver_link_by_build_pos
+                .get(&build_pos),
+            Some(&Some(pack_point2(32, 49)))
+        );
+
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &TypeIoObject::Int(pack_point2(40, 60)),
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .mass_driver_link_by_build_pos
+                .get(&build_pos),
+            Some(&Some(pack_point2(40, 60)))
+        );
+
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &TypeIoObject::Null,
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .mass_driver_link_by_build_pos
                 .get(&build_pos),
             Some(&None)
         );
@@ -21428,6 +21637,57 @@ mod tests {
             .state()
             .configured_block_projection
             .duct_router_item_by_build_pos
+            .contains_key(&build_pos));
+    }
+
+    #[test]
+    fn configured_block_business_outcome_rejects_router_item_config_payload() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(30, 52);
+        let block_id = loaded_world_block_id_for_name(&session, "router");
+        let item_id = loaded_world_content_id_for_name(&session, ITEM_CONTENT_TYPE, "coal");
+
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+            &TypeIoObject::Null,
+        );
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &TypeIoObject::ContentRaw {
+                content_type: ITEM_CONTENT_TYPE,
+                content_id: item_id,
+            },
+        );
+
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_configured_block_outcome,
+            Some(crate::session_state::ConfiguredBlockOutcome::RejectedUnsupportedBlock)
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_configured_block_name
+                .as_deref(),
+            Some("router")
+        );
+        assert!(!session
+            .state()
+            .configured_block_projection
+            .item_source_item_by_build_pos
+            .contains_key(&build_pos));
+        assert!(!session
+            .state()
+            .configured_block_projection
+            .mass_driver_link_by_build_pos
             .contains_key(&build_pos));
     }
 

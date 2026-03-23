@@ -541,12 +541,15 @@ pub struct ConfiguredBlockProjection {
     pub unit_cargo_unload_point_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub item_source_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub liquid_source_liquid_by_build_pos: BTreeMap<i32, Option<i16>>,
+    pub landing_pad_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub sorter_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub inverted_sorter_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub switch_enabled_by_build_pos: BTreeMap<i32, Option<bool>>,
+    pub door_open_by_build_pos: BTreeMap<i32, Option<bool>>,
     pub unloader_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub duct_unloader_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub duct_router_item_by_build_pos: BTreeMap<i32, Option<i16>>,
+    pub mass_driver_link_by_build_pos: BTreeMap<i32, Option<i32>>,
 }
 
 impl ConfiguredBlockProjection {
@@ -565,6 +568,11 @@ impl ConfiguredBlockProjection {
             .insert(build_pos, liquid_id);
     }
 
+    pub fn apply_landing_pad_item(&mut self, build_pos: i32, item_id: Option<i16>) {
+        self.landing_pad_item_by_build_pos
+            .insert(build_pos, item_id);
+    }
+
     pub fn apply_sorter_item(&mut self, build_pos: i32, item_id: Option<i16>) {
         self.sorter_item_by_build_pos.insert(build_pos, item_id);
     }
@@ -576,6 +584,10 @@ impl ConfiguredBlockProjection {
 
     pub fn apply_switch_enabled(&mut self, build_pos: i32, enabled: Option<bool>) {
         self.switch_enabled_by_build_pos.insert(build_pos, enabled);
+    }
+
+    pub fn apply_door_open(&mut self, build_pos: i32, open: Option<bool>) {
+        self.door_open_by_build_pos.insert(build_pos, open);
     }
 
     pub fn apply_unloader_item(&mut self, build_pos: i32, item_id: Option<i16>) {
@@ -592,17 +604,24 @@ impl ConfiguredBlockProjection {
             .insert(build_pos, item_id);
     }
 
+    pub fn apply_mass_driver_link(&mut self, build_pos: i32, link: Option<i32>) {
+        self.mass_driver_link_by_build_pos.insert(build_pos, link);
+    }
+
     pub fn clear_building_state(&mut self, build_pos: i32) {
         self.unit_cargo_unload_point_item_by_build_pos
             .remove(&build_pos);
         self.item_source_item_by_build_pos.remove(&build_pos);
         self.liquid_source_liquid_by_build_pos.remove(&build_pos);
+        self.landing_pad_item_by_build_pos.remove(&build_pos);
         self.sorter_item_by_build_pos.remove(&build_pos);
         self.inverted_sorter_item_by_build_pos.remove(&build_pos);
         self.switch_enabled_by_build_pos.remove(&build_pos);
+        self.door_open_by_build_pos.remove(&build_pos);
         self.unloader_item_by_build_pos.remove(&build_pos);
         self.duct_unloader_item_by_build_pos.remove(&build_pos);
         self.duct_router_item_by_build_pos.remove(&build_pos);
+        self.mass_driver_link_by_build_pos.remove(&build_pos);
     }
 
     pub fn clear_for_world_reload(&mut self) {
