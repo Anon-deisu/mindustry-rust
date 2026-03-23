@@ -316,6 +316,7 @@ fn project_hud_model_with_visibility(
             map_width,
             map_height,
         }),
+        runtime_ui: None,
     }
 }
 

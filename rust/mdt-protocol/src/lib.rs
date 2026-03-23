@@ -459,7 +459,17 @@ mod tests {
 
     #[test]
     fn uncompressed_decode_uses_declared_raw_length() {
-        let encoded = vec![CONNECT_PACKET_ID, 0x00, 0x03, 0x00, 0x10, 0x20, 0x30, 0x40, 0x50];
+        let encoded = vec![
+            CONNECT_PACKET_ID,
+            0x00,
+            0x03,
+            0x00,
+            0x10,
+            0x20,
+            0x30,
+            0x40,
+            0x50,
+        ];
         let decoded = decode_packet(&encoded).unwrap();
 
         assert_eq!(decoded.packet_id, CONNECT_PACKET_ID);

@@ -26,14 +26,21 @@ fn main() -> Result<(), Box<dyn Error>> {
     })?;
 
     let repo_root = repo_root_from_manifest_dir()?;
-    let tests_resources = repo_root.join("tests").join("src").join("test").join("resources");
+    let tests_resources = repo_root
+        .join("tests")
+        .join("src")
+        .join("test")
+        .join("resources");
 
     let connect_payload_hex = read_text(
         &tests_resources.join("connect-packet.hex"),
         "connect packet golden",
     )?;
     let connect_payload = decode_hex(connect_payload_hex.trim())?;
-    let compressed_hex = read_text(&tests_resources.join("world-stream.hex"), "world stream hex")?;
+    let compressed_hex = read_text(
+        &tests_resources.join("world-stream.hex"),
+        "world stream hex",
+    )?;
     let compressed = decode_hex(compressed_hex.trim())?;
 
     write_text(

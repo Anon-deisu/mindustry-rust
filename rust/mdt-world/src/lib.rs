@@ -1,4 +1,5 @@
 use flate2::read::ZlibDecoder;
+use mdt_typeio::read_object_prefix;
 use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashSet};
@@ -13,6 +14,14 @@ const WEATHER_CONTENT_TYPE: u8 = 7;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorldLoadSummary {
     pub lines: Vec<(String, String)>,
+    pub unknown_coverage: WorldLoadUnknownCoverageSummary,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WorldLoadUnknownCoverageSummary {
+    pub building_tail_unknown_count: usize,
+    pub marker_unknown_count: usize,
+    pub custom_chunk_unknown_count: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -374,6 +383,44 @@ impl EntityPlayerSyncSnapshot {
 
     pub fn is_dead(&self) -> bool {
         self.unit_kind == 0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntityAlphaSyncSnapshot {
+    pub abilities_len: u8,
+    pub ammo_bits: u32,
+    pub controller_type: u8,
+    pub controller_value: Option<i32>,
+    pub elevation_bits: u32,
+    pub flag_bits: u64,
+    pub health_bits: u32,
+    pub is_shooting: bool,
+    pub mine_tile_pos: i32,
+    pub mount_count: u8,
+    pub plan_count: i32,
+    pub rotation_bits: u32,
+    pub shield_bits: u32,
+    pub spawned_by_core: bool,
+    pub stack_item_id: i16,
+    pub stack_amount: i32,
+    pub status_count: i32,
+    pub team_id: u8,
+    pub unit_type_id: i16,
+    pub update_building: bool,
+    pub vel_x_bits: u32,
+    pub vel_y_bits: u32,
+    pub x_bits: u32,
+    pub y_bits: u32,
+}
+
+impl EntityAlphaSyncSnapshot {
+    pub fn x(&self) -> f32 {
+        f32::from_bits(self.x_bits)
+    }
+
+    pub fn y(&self) -> f32 {
+        f32::from_bits(self.y_bits)
     }
 }
 
@@ -972,6 +1019,36 @@ impl WorldBundle {
 
     pub fn all_markers(&self) -> impl Iterator<Item = &MarkerEntry> {
         self.markers.iter()
+    }
+
+    pub fn unknown_building_tail_count(&self) -> usize {
+        self.world
+            .building_centers
+            .iter()
+            .filter(|center| matches!(center.building.parsed_tail, ParsedBuildingTail::Unknown))
+            .count()
+    }
+
+    pub fn unknown_marker_model_count(&self) -> usize {
+        self.markers
+            .iter()
+            .filter(|entry| matches!(entry.marker, MarkerModel::Unknown(_)))
+            .count()
+    }
+
+    pub fn unknown_custom_chunk_count(&self) -> usize {
+        self.custom_chunks
+            .iter()
+            .filter(|entry| matches!(entry.parsed, ParsedCustomChunk::Unknown))
+            .count()
+    }
+
+    pub fn unknown_coverage_summary(&self) -> WorldLoadUnknownCoverageSummary {
+        WorldLoadUnknownCoverageSummary {
+            building_tail_unknown_count: self.unknown_building_tail_count(),
+            marker_unknown_count: self.unknown_marker_model_count(),
+            custom_chunk_unknown_count: self.unknown_custom_chunk_count(),
+        }
     }
 
     pub fn static_fog_chunk(&self) -> Option<&StaticFogChunk> {
@@ -12483,6 +12560,148 @@ pub fn parse_entity_player_sync_bytes(
     Ok((snapshot, reader.position()))
 }
 
+pub fn parse_entity_alpha_sync_bytes(
+    bytes: &[u8],
+) -> Result<(EntityAlphaSyncSnapshot, usize), String> {
+    let mut reader = Reader::new(bytes);
+    let abilities_len = reader.read_u8()?;
+    reader.skip_bytes(usize::from(abilities_len).saturating_mul(4))?;
+    let ammo_bits = reader.read_u32()?;
+    let (controller_type, controller_value) = skip_entity_unit_controller(&mut reader)?;
+    let elevation_bits = reader.read_u32()?;
+    let flag_bits = reader.read_u64()?;
+    let health_bits = reader.read_u32()?;
+    let is_shooting = reader.read_bool()?;
+    let mine_tile_pos = reader.read_i32()?;
+    let mount_count = reader.read_u8()?;
+    reader.skip_bytes(usize::from(mount_count).saturating_mul(9))?;
+    let plan_count = reader.read_i32()?;
+    if plan_count < 0 {
+        return Err(format!(
+            "unsupported alpha sync negative plan count: {plan_count}"
+        ));
+    }
+    for _ in 0..plan_count {
+        skip_entity_build_plan(&mut reader)?;
+    }
+    let rotation_bits = reader.read_u32()?;
+    let shield_bits = reader.read_u32()?;
+    let spawned_by_core = reader.read_bool()?;
+    let stack_item_id = reader.read_i16()?;
+    let stack_amount = reader.read_i32()?;
+    let status_count = reader.read_i32()?;
+    if status_count < 0 {
+        return Err(format!(
+            "unsupported alpha sync negative status count: {status_count}"
+        ));
+    }
+    if status_count != 0 {
+        return Err(format!(
+            "unsupported alpha sync nonzero status count: {status_count}"
+        ));
+    }
+    let snapshot = EntityAlphaSyncSnapshot {
+        abilities_len,
+        ammo_bits,
+        controller_type,
+        controller_value,
+        elevation_bits,
+        flag_bits,
+        health_bits,
+        is_shooting,
+        mine_tile_pos,
+        mount_count,
+        plan_count,
+        rotation_bits,
+        shield_bits,
+        spawned_by_core,
+        stack_item_id,
+        stack_amount,
+        status_count,
+        team_id: reader.read_u8()?,
+        unit_type_id: reader.read_i16()?,
+        update_building: reader.read_bool()?,
+        vel_x_bits: reader.read_u32()?,
+        vel_y_bits: reader.read_u32()?,
+        x_bits: reader.read_u32()?,
+        y_bits: reader.read_u32()?,
+    };
+    if !snapshot.x().is_finite() || !snapshot.y().is_finite() {
+        return Err("entity alpha sync contained non-finite position".to_string());
+    }
+    Ok((snapshot, reader.position()))
+}
+
+fn skip_entity_unit_controller(reader: &mut Reader<'_>) -> Result<(u8, Option<i32>), String> {
+    let controller_type = reader.read_u8()?;
+    let mut controller_value = None;
+    match controller_type {
+        0 | 1 | 3 => {
+            controller_value = Some(reader.read_i32()?);
+        }
+        2 | 5 => {}
+        4 | 6 | 7 | 8 | 9 => {
+            let has_attack = reader.read_bool()?;
+            let has_pos = reader.read_bool()?;
+            if has_pos {
+                reader.skip_bytes(8)?;
+            }
+            if has_attack {
+                reader.skip_bytes(1)?;
+                reader.skip_bytes(4)?;
+            }
+            if matches!(controller_type, 6 | 7 | 8 | 9) {
+                reader.skip_bytes(1)?;
+            }
+            if matches!(controller_type, 7 | 8 | 9) {
+                let command_count = reader.read_u8()? as usize;
+                for _ in 0..command_count {
+                    match reader.read_u8()? {
+                        0 | 1 => reader.skip_bytes(4)?,
+                        2 => reader.skip_bytes(8)?,
+                        3 => {}
+                        value => {
+                            return Err(format!(
+                                "unsupported alpha sync controller command type: {value}"
+                            ));
+                        }
+                    }
+                }
+            }
+            if controller_type == 8 {
+                reader.skip_bytes(1)?;
+            } else if controller_type == 9 {
+                let stance_count = reader.read_u8()? as usize;
+                reader.skip_bytes(stance_count)?;
+            }
+        }
+        value => {
+            return Err(format!("unsupported alpha sync controller type: {value}"));
+        }
+    }
+    Ok((controller_type, controller_value))
+}
+
+fn skip_entity_build_plan(reader: &mut Reader<'_>) -> Result<(), String> {
+    let plan_type = reader.read_u8()?;
+    reader.read_i32()?;
+    match plan_type {
+        0 => {
+            reader.read_i16()?;
+            reader.read_u8()?;
+            reader.read_bool()?;
+            let (_, consumed) = read_object_prefix(&reader.remaining_bytes())
+                .map_err(|error| format!("unsupported alpha sync plan config: {error}"))?;
+            reader.skip_bytes(consumed)?;
+        }
+        1 => {}
+        value => {
+            return Err(format!("unsupported alpha sync build plan type: {value}"));
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildingSnapshot {
     pub revision: u8,
@@ -13101,6 +13320,7 @@ fn building_tail_kind(parsed_tail: &ParsedBuildingTail) -> &'static str {
 
 pub fn parse_world_load_goldens(compressed: &[u8]) -> Result<WorldLoadSummary, String> {
     let bundle = parse_world_bundle(compressed)?;
+    let unknown_coverage = bundle.unknown_coverage_summary();
     let mut tag_bytes = Vec::new();
     for (key, value) in &bundle.tag_pairs {
         write_java_utf(&mut tag_bytes, key)?;
@@ -13268,6 +13488,12 @@ pub fn parse_world_load_goldens(compressed: &[u8]) -> Result<WorldLoadSummary, S
     );
     push_hex(
         &mut lines,
+        "map.buildingCenters.unknownTailCount",
+        unknown_coverage.building_tail_unknown_count as u32,
+        8,
+    );
+    push_hex(
+        &mut lines,
         "map.dataTiles",
         bundle.world.data_tiles as u32,
         8,
@@ -13287,11 +13513,23 @@ pub fn parse_world_load_goldens(compressed: &[u8]) -> Result<WorldLoadSummary, S
     );
     push_str(&mut lines, "teamBlocks.sha256", &sha256_hex(&team_bytes));
     push_hex(&mut lines, "markers.count", bundle.marker_count as u32, 8);
+    push_hex(
+        &mut lines,
+        "markers.unknownModelCount",
+        unknown_coverage.marker_unknown_count as u32,
+        8,
+    );
     push_str(&mut lines, "markers.sha256", &sha256_hex(&marker_bytes));
     push_hex(
         &mut lines,
         "customChunks.count",
         bundle.custom_chunks.len() as u32,
+        8,
+    );
+    push_hex(
+        &mut lines,
+        "customChunks.unknownCount",
+        unknown_coverage.custom_chunk_unknown_count as u32,
         8,
     );
     push_str(
@@ -13302,7 +13540,10 @@ pub fn parse_world_load_goldens(compressed: &[u8]) -> Result<WorldLoadSummary, S
     push_hex(&mut lines, "tail.length", bundle.tail.len() as u32, 8);
     push_str(&mut lines, "tail.sha256", &sha256_hex(&bundle.tail));
 
-    Ok(WorldLoadSummary { lines })
+    Ok(WorldLoadSummary {
+        lines,
+        unknown_coverage,
+    })
 }
 
 pub fn parse_world_model(compressed: &[u8]) -> Result<WorldModel, String> {
@@ -22179,9 +22420,8 @@ fn parse_nested_build_payload_snapshot(
     build_revision: u8,
     bytes: &[u8],
 ) -> Result<(BuildingSnapshot, usize), String> {
-    parse_building_sync_bytes(content_header, block_name, build_revision, bytes).map_err(|error| {
-        error.replace("building sync boundary", "build payload boundary")
-    })
+    parse_building_sync_bytes(content_header, block_name, build_revision, bytes)
+        .map_err(|error| error.replace("building sync boundary", "build payload boundary"))
 }
 
 fn validate_tail_remainder<F>(tail_bytes: &[u8], parser: F) -> Result<(), String>
@@ -35534,7 +35774,68 @@ mod tests {
         assert!(text.contains("map.height=0008"));
         assert!(text.contains("player.revision=0002"));
         assert!(text.contains("markers.count=00000002"));
+        assert!(text.contains("markers.unknownModelCount=00000000"));
         assert!(text.contains("customChunks.count=00000001"));
+        assert!(text.contains("customChunks.unknownCount=00000000"));
+        assert!(text.contains("map.buildingCenters.unknownTailCount=00000000"));
+        assert_eq!(summary.unknown_coverage.building_tail_unknown_count, 0);
+        assert_eq!(summary.unknown_coverage.marker_unknown_count, 0);
+        assert_eq!(summary.unknown_coverage.custom_chunk_unknown_count, 0);
+    }
+
+    #[test]
+    fn tracks_unknown_counts_across_world_load_models() {
+        let mut bundle = sample_world_bundle();
+        let summary = bundle.unknown_coverage_summary();
+
+        assert_eq!(bundle.unknown_building_tail_count(), 0);
+        assert_eq!(bundle.unknown_marker_model_count(), 0);
+        assert_eq!(bundle.unknown_custom_chunk_count(), 0);
+        assert_eq!(summary.building_tail_unknown_count, 0);
+        assert_eq!(summary.marker_unknown_count, 0);
+        assert_eq!(summary.custom_chunk_unknown_count, 0);
+
+        bundle.world.building_centers[0].building.parsed_tail = ParsedBuildingTail::Unknown;
+        bundle.markers[0].marker = MarkerModel::Unknown(UnknownMarkerModel {
+            class_tag: Some("UnknownMarkerClass".to_string()),
+        });
+        bundle.custom_chunks[0].parsed = ParsedCustomChunk::Unknown;
+        let summary = bundle.unknown_coverage_summary();
+
+        assert_eq!(bundle.unknown_building_tail_count(), 1);
+        assert_eq!(bundle.unknown_marker_model_count(), 1);
+        assert_eq!(bundle.unknown_custom_chunk_count(), 1);
+        assert_eq!(summary.building_tail_unknown_count, 1);
+        assert_eq!(summary.marker_unknown_count, 1);
+        assert_eq!(summary.custom_chunk_unknown_count, 1);
+    }
+
+    #[test]
+    fn parses_unknown_building_tail_for_unmapped_block_name() {
+        let parsed = parse_building_tail(Some("not-a-known-block"), 1, &[0x2a]).unwrap();
+        assert!(matches!(parsed, ParsedBuildingTail::Unknown));
+    }
+
+    #[test]
+    fn parses_unknown_marker_model_for_unmapped_class() {
+        let marker = parse_marker_model(&UbjsonValue::Object(vec![(
+            "class".to_string(),
+            UbjsonValue::String("MysteryMarker".to_string()),
+        )]))
+        .unwrap();
+
+        match marker {
+            MarkerModel::Unknown(unknown) => {
+                assert_eq!(unknown.class_tag.as_deref(), Some("MysteryMarker"));
+            }
+            MarkerModel::Point(_) => panic!("expected unknown marker model"),
+        }
+    }
+
+    #[test]
+    fn parses_unknown_custom_chunk_for_unmapped_name() {
+        let parsed = parse_known_custom_chunk("modded-extra-chunk", &[0xde, 0xad]).unwrap();
+        assert!(matches!(parsed, ParsedCustomChunk::Unknown));
     }
 
     #[test]
@@ -35894,6 +36195,41 @@ mod tests {
         assert!(!snapshot.is_dead());
         assert_eq!(snapshot.x_bits, 16.0f32.to_bits());
         assert_eq!(snapshot.y_bits, 24.0f32.to_bits());
+    }
+
+    #[test]
+    fn parses_entity_alpha_sync_bytes_from_snapshot_golden_row() {
+        let bytes = decode_hex(
+            "0042f6000000000000073f80000000000000000000004316000000ffffffff020000000000000000000000000000000000000000000042b40000000000000000000000000000000000010023013fc00000c01000004220000042700000",
+        );
+
+        let (snapshot, consumed) = parse_entity_alpha_sync_bytes(&bytes).unwrap();
+
+        assert_eq!(consumed, bytes.len());
+        assert_eq!(snapshot.abilities_len, 0);
+        assert_eq!(snapshot.ammo_bits, 123.0f32.to_bits());
+        assert_eq!(snapshot.controller_type, 0);
+        assert_eq!(snapshot.controller_value, Some(7));
+        assert_eq!(snapshot.elevation_bits, 1.0f32.to_bits());
+        assert_eq!(snapshot.flag_bits, 0);
+        assert_eq!(snapshot.health_bits, 150.0f32.to_bits());
+        assert!(!snapshot.is_shooting);
+        assert_eq!(snapshot.mine_tile_pos, -1);
+        assert_eq!(snapshot.mount_count, 2);
+        assert_eq!(snapshot.plan_count, 0);
+        assert_eq!(snapshot.rotation_bits, 90.0f32.to_bits());
+        assert_eq!(snapshot.shield_bits, 0.0f32.to_bits());
+        assert!(!snapshot.spawned_by_core);
+        assert_eq!(snapshot.stack_item_id, 0);
+        assert_eq!(snapshot.stack_amount, 0);
+        assert_eq!(snapshot.status_count, 0);
+        assert_eq!(snapshot.team_id, 1);
+        assert_eq!(snapshot.unit_type_id, 35);
+        assert!(snapshot.update_building);
+        assert_eq!(snapshot.vel_x_bits, 1.5f32.to_bits());
+        assert_eq!(snapshot.vel_y_bits, (-2.25f32).to_bits());
+        assert_eq!(snapshot.x_bits, 40.0f32.to_bits());
+        assert_eq!(snapshot.y_bits, 60.0f32.to_bits());
     }
 
     #[test]

@@ -131,24 +131,22 @@ pub fn ingest_inbound_snapshot(state: &mut SessionState, snapshot: InboundSnapsh
                     state.block_snapshot_head_projection = parsed
                         .first_build_pos
                         .zip(parsed.first_block_id)
-                        .map(|(build_pos, block_id)| {
-                            BlockSnapshotHeadProjection {
-                                build_pos,
-                                block_id,
-                                health_bits: parsed.first_health_bits,
-                                rotation: parsed.first_rotation,
-                                team_id: parsed.first_team_id,
-                                io_version: parsed.first_io_version,
-                                enabled: parsed.first_enabled,
-                                module_bitmask: parsed.first_module_bitmask,
-                                time_scale_bits: parsed.first_time_scale_bits,
-                                time_scale_duration_bits: parsed.first_time_scale_duration_bits,
-                                last_disabler_pos: parsed.first_last_disabler_pos,
-                                legacy_consume_connected: parsed.first_legacy_consume_connected,
-                                efficiency: parsed.first_efficiency,
-                                optional_efficiency: parsed.first_optional_efficiency,
-                                visible_flags: parsed.first_visible_flags,
-                            }
+                        .map(|(build_pos, block_id)| BlockSnapshotHeadProjection {
+                            build_pos,
+                            block_id,
+                            health_bits: parsed.first_health_bits,
+                            rotation: parsed.first_rotation,
+                            team_id: parsed.first_team_id,
+                            io_version: parsed.first_io_version,
+                            enabled: parsed.first_enabled,
+                            module_bitmask: parsed.first_module_bitmask,
+                            time_scale_bits: parsed.first_time_scale_bits,
+                            time_scale_duration_bits: parsed.first_time_scale_duration_bits,
+                            last_disabler_pos: parsed.first_last_disabler_pos,
+                            legacy_consume_connected: parsed.first_legacy_consume_connected,
+                            efficiency: parsed.first_efficiency,
+                            optional_efficiency: parsed.first_optional_efficiency,
+                            visible_flags: parsed.first_visible_flags,
                         });
                     state.last_block_snapshot = Some(parsed);
                     state.last_block_snapshot_parse_error = None;
@@ -1182,13 +1180,15 @@ mod tests {
             })
         );
         assert_eq!(
-            state.authoritative_state_mirror
+            state
+                .authoritative_state_mirror
                 .as_ref()
                 .map(|mirror| mirror.last_core_sync_ok),
             Some(false)
         );
         assert_eq!(
-            state.authoritative_state_mirror
+            state
+                .authoritative_state_mirror
                 .as_ref()
                 .map(|mirror| mirror.wave),
             Some(7)

@@ -514,7 +514,8 @@ impl BuildingTableProjection {
                     .as_ref()
                     .and_then(|building| building.config.clone()),
                 health_bits: Some(health_bits),
-                enabled: enabled.or_else(|| previous.as_ref().and_then(|building| building.enabled)),
+                enabled: enabled
+                    .or_else(|| previous.as_ref().and_then(|building| building.enabled)),
                 efficiency: efficiency
                     .or_else(|| previous.as_ref().and_then(|building| building.efficiency)),
                 optional_efficiency: optional_efficiency.or_else(|| {
@@ -1655,6 +1656,42 @@ pub struct EntityTableProjection {
 impl EntityTableProjection {
     pub const LOCAL_PLAYER_CLASS_ID: u8 = 12;
 
+    pub fn upsert_entity(
+        &mut self,
+        entity_id: i32,
+        class_id: u8,
+        is_local_player: bool,
+        unit_kind: u8,
+        unit_value: u32,
+        x_bits: u32,
+        y_bits: u32,
+        hidden: bool,
+        last_seen_entity_snapshot_count: u64,
+    ) {
+        let is_local_player = is_local_player
+            || self
+                .by_entity_id
+                .get(&entity_id)
+                .is_some_and(|entity| entity.is_local_player);
+        self.by_entity_id.insert(
+            entity_id,
+            EntityProjection {
+                class_id,
+                hidden,
+                is_local_player,
+                unit_kind,
+                unit_value,
+                x_bits,
+                y_bits,
+                last_seen_entity_snapshot_count,
+            },
+        );
+        if is_local_player {
+            self.local_player_entity_id = Some(entity_id);
+        }
+        self.recount_hidden();
+    }
+
     pub fn upsert_player_entity(
         &mut self,
         entity_id: i32,
@@ -1666,8 +1703,9 @@ impl EntityTableProjection {
         hidden: bool,
         last_seen_entity_snapshot_count: u64,
     ) {
-        self.upsert_player_row(
+        self.upsert_entity(
             entity_id,
+            Self::LOCAL_PLAYER_CLASS_ID,
             is_local_player,
             unit_kind,
             unit_value,
@@ -1688,8 +1726,9 @@ impl EntityTableProjection {
         hidden: bool,
         last_seen_entity_snapshot_count: u64,
     ) {
-        self.upsert_player_row(
+        self.upsert_entity(
             entity_id,
+            Self::LOCAL_PLAYER_CLASS_ID,
             true,
             unit_kind,
             unit_value,
@@ -1710,8 +1749,16 @@ impl EntityTableProjection {
         y_bits: u32,
         hidden: bool,
     ) {
-        self.upsert_player_row(
-            entity_id, true, unit_kind, unit_value, x_bits, y_bits, hidden, 0,
+        self.upsert_entity(
+            entity_id,
+            Self::LOCAL_PLAYER_CLASS_ID,
+            true,
+            unit_kind,
+            unit_value,
+            x_bits,
+            y_bits,
+            hidden,
+            0,
         );
     }
 
@@ -1790,41 +1837,6 @@ impl EntityTableProjection {
             .values()
             .filter(|entity| entity.hidden)
             .count();
-    }
-
-    fn upsert_player_row(
-        &mut self,
-        entity_id: i32,
-        is_local_player: bool,
-        unit_kind: u8,
-        unit_value: u32,
-        x_bits: u32,
-        y_bits: u32,
-        hidden: bool,
-        last_seen_entity_snapshot_count: u64,
-    ) {
-        let is_local_player = is_local_player
-            || self
-                .by_entity_id
-                .get(&entity_id)
-                .is_some_and(|entity| entity.is_local_player);
-        self.by_entity_id.insert(
-            entity_id,
-            EntityProjection {
-                class_id: Self::LOCAL_PLAYER_CLASS_ID,
-                hidden,
-                is_local_player,
-                unit_kind,
-                unit_value,
-                x_bits,
-                y_bits,
-                last_seen_entity_snapshot_count,
-            },
-        );
-        if is_local_player {
-            self.local_player_entity_id = Some(entity_id);
-        }
-        self.recount_hidden();
     }
 }
 

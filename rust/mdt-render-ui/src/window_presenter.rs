@@ -1,5 +1,6 @@
 use crate::{
-    render_model::RenderObjectSemanticKind, HudModel, RenderModel, RenderObject, ScenePresenter,
+    render_model::RenderObjectSemanticKind, HudModel, RenderModel, RenderObject,
+    RuntimeUiObservability, ScenePresenter,
 };
 use minifb::{Scale, Window, WindowOptions};
 use std::fs;
@@ -302,7 +303,7 @@ fn compose_frame(
     WindowFrame {
         frame_id,
         title: hud.title.clone(),
-        status_text: hud.status_text.clone(),
+        status_text: compose_frame_status_text(hud),
         fps: hud.fps,
         zoom: scene.viewport.zoom,
         width: window_width,
@@ -425,6 +426,87 @@ fn compose_window_title(frame: &WindowFrame, title_prefix: &str) -> String {
     }
 }
 
+fn compose_frame_status_text(hud: &HudModel) -> String {
+    let Some(runtime_ui) = hud.runtime_ui.as_ref() else {
+        return hud.status_text.clone();
+    };
+
+    let runtime_ui_text = compose_runtime_ui_status_text(runtime_ui);
+    if runtime_ui_text.is_empty() {
+        return hud.status_text.clone();
+    }
+
+    if hud.status_text.is_empty() {
+        runtime_ui_text
+    } else {
+        format!("{} {}", hud.status_text, runtime_ui_text)
+    }
+}
+
+fn compose_runtime_ui_status_text(runtime_ui: &RuntimeUiObservability) -> String {
+    let hud_text = &runtime_ui.hud_text;
+    let toast = &runtime_ui.toast;
+    let text_input = &runtime_ui.text_input;
+    format!(
+        "ui:hud={}/{}/{}@{}/{}:toast={}/{}@{}/{}:tin={}@{}:{}/{}/{}#{}:n{}:e{}",
+        hud_text.set_count,
+        hud_text.set_reliable_count,
+        hud_text.hide_count,
+        compact_runtime_ui_text(hud_text.last_message.as_deref()),
+        compact_runtime_ui_text(hud_text.last_reliable_message.as_deref()),
+        toast.info_count,
+        toast.warning_count,
+        compact_runtime_ui_text(toast.last_info_message.as_deref()),
+        compact_runtime_ui_text(toast.last_warning_text.as_deref()),
+        text_input.open_count,
+        optional_i32_label(text_input.last_id),
+        compact_runtime_ui_text(text_input.last_title.as_deref()),
+        compact_runtime_ui_text(text_input.last_message.as_deref()),
+        compact_runtime_ui_text(text_input.last_default_text.as_deref()),
+        text_input.last_length.unwrap_or_default(),
+        optional_bool_label(text_input.last_numeric),
+        optional_bool_label(text_input.last_allow_empty),
+    )
+}
+
+fn compact_runtime_ui_text(value: Option<&str>) -> String {
+    match value {
+        Some(value) => {
+            let mut compact = String::new();
+            for (index, ch) in value.chars().enumerate() {
+                if index == 12 {
+                    compact.push('~');
+                    break;
+                }
+                compact.push(match ch {
+                    ':' | ' ' | '\t' | '\r' | '\n' => '_',
+                    _ => ch,
+                });
+            }
+            if compact.is_empty() {
+                "-".to_string()
+            } else {
+                compact
+            }
+        }
+        None => "none".to_string(),
+    }
+}
+
+fn optional_i32_label(value: Option<i32>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "none".to_string())
+}
+
+fn optional_bool_label(value: Option<bool>) -> char {
+    match value {
+        Some(true) => '1',
+        Some(false) => '0',
+        None => 'n',
+    }
+}
+
 fn scale_frame_pixels(frame: &WindowFrame, tile_pixels: usize) -> Vec<u32> {
     let tile_pixels = tile_pixels.max(1);
     let width = frame.width.max(1);
@@ -467,7 +549,10 @@ mod tests {
         WindowPresenter, COLOR_BLOCK, COLOR_EMPTY, COLOR_MARKER, COLOR_PLAN, COLOR_PLAYER,
         COLOR_TERRAIN, COLOR_UNKNOWN,
     };
-    use crate::{HudModel, RenderModel, RenderObject, Viewport};
+    use crate::{
+        HudModel, RenderModel, RenderObject, RuntimeHudTextObservability,
+        RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiObservability, Viewport,
+    };
 
     #[derive(Default)]
     struct RecordingBackend {
@@ -525,6 +610,7 @@ mod tests {
             status_text: "ok".to_string(),
             fps: Some(60.0),
             summary: None,
+            runtime_ui: None,
         };
 
         presenter.present_once(&scene, &hud).unwrap();
@@ -565,6 +651,7 @@ mod tests {
                         status_text: "loop".to_string(),
                         fps: None,
                         summary: None,
+                        runtime_ui: None,
                     },
                 )
             })
@@ -755,6 +842,64 @@ mod tests {
         let backend = presenter.into_backend();
         let frame = backend.frames.last().unwrap();
         assert_eq!((frame.width, frame.height), (8, 8));
+    }
+
+    #[test]
+    fn present_once_appends_runtime_ui_slice_to_frame_status_text() {
+        let backend = RecordingBackend::default();
+        let mut presenter = WindowPresenter::new(backend);
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 8.0,
+                height: 8.0,
+                zoom: 1.0,
+            },
+            objects: Vec::new(),
+        };
+        let hud = HudModel {
+            title: "demo".to_string(),
+            status_text: "base".to_string(),
+            fps: None,
+            summary: None,
+            runtime_ui: Some(RuntimeUiObservability {
+                hud_text: RuntimeHudTextObservability {
+                    set_count: 9,
+                    set_reliable_count: 10,
+                    hide_count: 11,
+                    last_message: Some("hud text".to_string()),
+                    last_reliable_message: Some("hud rel".to_string()),
+                },
+                toast: RuntimeToastObservability {
+                    info_count: 14,
+                    warning_count: 15,
+                    last_info_message: Some("toast".to_string()),
+                    last_warning_text: Some("warn".to_string()),
+                },
+                text_input: RuntimeTextInputObservability {
+                    open_count: 53,
+                    last_id: Some(404),
+                    last_title: Some("Digits".to_string()),
+                    last_message: Some("Only numbers".to_string()),
+                    last_default_text: Some("12345".to_string()),
+                    last_length: Some(16),
+                    last_numeric: Some(true),
+                    last_allow_empty: Some(true),
+                },
+            }),
+        };
+
+        presenter.present_once(&scene, &hud).unwrap();
+
+        let backend = presenter.into_backend();
+        let frame = backend.frames.last().unwrap();
+        assert!(frame.status_text.starts_with("base "));
+        assert!(frame
+            .status_text
+            .contains("ui:hud=9/10/11@hud_text/hud_rel"));
+        assert!(frame.status_text.contains("toast=14/15@toast/warn"));
+        assert!(frame
+            .status_text
+            .contains("tin=53@404:Digits/Only_numbers/12345#16:n1:e1"));
     }
 
     fn render_object(id: &str) -> RenderObject {

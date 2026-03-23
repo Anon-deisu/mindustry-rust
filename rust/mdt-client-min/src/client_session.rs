@@ -20,8 +20,8 @@ use mdt_typeio::{
     TypeIoEffectPositionHint, TypeIoObject, TypeIoSemanticRef,
 };
 use mdt_world::{
-    parse_building_sync_bytes, parse_entity_player_sync_bytes, parse_world_bundle,
-    LoadedWorldBootstrap, LoadedWorldState, WorldBundle,
+    parse_building_sync_bytes, parse_entity_alpha_sync_bytes, parse_entity_player_sync_bytes,
+    parse_world_bundle, LoadedWorldBootstrap, LoadedWorldState, WorldBundle,
 };
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
@@ -3843,6 +3843,13 @@ impl ClientSession {
                                                 self.apply_parseable_player_rows_from_entity_snapshot(
                                                     &player_rows,
                                                 );
+                                                let alpha_rows =
+                                                    try_parse_alpha_sync_rows_from_entity_snapshot_prefix(
+                                                        snapshot.payload,
+                                                    );
+                                                self.apply_parseable_alpha_rows_from_entity_snapshot(
+                                                    &alpha_rows,
+                                                );
                                                 let sync_result = self
                                                     .try_apply_local_player_sync_from_entity_snapshot(
                                                         &player_rows,
@@ -4321,6 +4328,33 @@ impl ClientSession {
         }
     }
 
+    fn apply_parseable_alpha_rows_from_entity_snapshot(
+        &mut self,
+        alpha_rows: &[EntityAlphaSyncRow],
+    ) {
+        for row in alpha_rows {
+            if self
+                .state
+                .entity_snapshot_tombstone_blocks_upsert(row.entity_id)
+            {
+                self.state
+                    .record_entity_snapshot_tombstone_skip(row.entity_id);
+                continue;
+            }
+            self.state.entity_table_projection.upsert_entity(
+                row.entity_id,
+                0,
+                false,
+                2,
+                u32::try_from(row.entity_id).unwrap_or_default(),
+                row.sync.x_bits,
+                row.sync.y_bits,
+                false,
+                self.state.received_entity_snapshot_count,
+            );
+        }
+    }
+
     fn apply_block_snapshot_entries_from_loaded_world(&mut self, payload: &[u8]) {
         if self.loaded_world_bundle().is_none() {
             return;
@@ -4424,8 +4458,9 @@ impl ClientSession {
             let tile_x = match usize::try_from(tile_x) {
                 Ok(value) => value,
                 Err(_) => {
-                    let error =
-                        format!("loaded_world_block_snapshot_entry_{index}_invalid_tile_x:{tile_x}");
+                    let error = format!(
+                        "loaded_world_block_snapshot_entry_{index}_invalid_tile_x:{tile_x}"
+                    );
                     if entries.is_empty() {
                         return Err(error);
                     }
@@ -4435,8 +4470,9 @@ impl ClientSession {
             let tile_y = match usize::try_from(tile_y) {
                 Ok(value) => value,
                 Err(_) => {
-                    let error =
-                        format!("loaded_world_block_snapshot_entry_{index}_invalid_tile_y:{tile_y}");
+                    let error = format!(
+                        "loaded_world_block_snapshot_entry_{index}_invalid_tile_y:{tile_y}"
+                    );
                     if entries.is_empty() {
                         return Err(error);
                     }
@@ -4490,8 +4526,7 @@ impl ClientSession {
             let (building, consumed) = match parsed {
                 Ok(value) => value,
                 Err(error) => {
-                    let error =
-                        format!("loaded_world_block_snapshot_entry_{index}_parse:{error}");
+                    let error = format!("loaded_world_block_snapshot_entry_{index}_parse:{error}");
                     if entries.is_empty() {
                         return Err(error);
                     }
@@ -4573,12 +4608,7 @@ impl ClientSession {
         self.state.world_player_y_bits = Some(y.to_bits());
         self.state
             .entity_table_projection
-            .update_local_player_position(
-                player_id,
-                x.to_bits(),
-                y.to_bits(),
-                false,
-            );
+            .update_local_player_position(player_id, x.to_bits(), y.to_bits(), false);
         self.snapshot_input.unit_id = None;
         self.snapshot_input.dead = false;
         self.snapshot_input.position = Some((x, y));
@@ -7037,6 +7067,14 @@ struct EntityPlayerSyncRow {
     end: usize,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+struct EntityAlphaSyncRow {
+    entity_id: i32,
+    sync: mdt_world::EntityAlphaSyncSnapshot,
+    start: usize,
+    end: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum EntityPlayerSyncRowsParseError {
     ParseableRowsExceedAmount { rows: usize, amount: u16 },
@@ -7394,6 +7432,12 @@ fn try_parse_player_sync_rows_from_entity_snapshot(payload: &[u8]) -> Vec<Entity
     parse_player_sync_rows_from_entity_snapshot(payload).unwrap_or_default()
 }
 
+fn try_parse_alpha_sync_rows_from_entity_snapshot_prefix(
+    payload: &[u8],
+) -> Vec<EntityAlphaSyncRow> {
+    parse_alpha_sync_rows_from_entity_snapshot_prefix(payload).unwrap_or_default()
+}
+
 fn parse_player_sync_rows_from_entity_snapshot(
     payload: &[u8],
 ) -> Result<Vec<EntityPlayerSyncRow>, EntityPlayerSyncRowsParseError> {
@@ -7447,6 +7491,56 @@ fn parse_player_sync_rows_from_entity_snapshot(
             last_end = end;
         }
     }
+    Ok(rows)
+}
+
+fn parse_alpha_sync_rows_from_entity_snapshot_prefix(
+    payload: &[u8],
+) -> Result<Vec<EntityAlphaSyncRow>, String> {
+    if payload.len() < 4 {
+        return Ok(Vec::new());
+    }
+
+    let amount = u16::from_be_bytes([payload[0], payload[1]]);
+    if amount == 0 {
+        return Ok(Vec::new());
+    }
+
+    let Some(body_len_bytes) = payload.get(2..4) else {
+        return Ok(Vec::new());
+    };
+    let body_len = u16::from_be_bytes(body_len_bytes.try_into().unwrap()) as usize;
+    let Some(body) = payload.get(4..4 + body_len) else {
+        return Ok(Vec::new());
+    };
+
+    let mut rows = Vec::new();
+    let mut cursor = 0usize;
+    let max_rows = usize::from(amount);
+    while cursor.saturating_add(5) <= body.len() && rows.len() < max_rows {
+        let entity_id = i32::from_be_bytes(body[cursor..cursor + 4].try_into().unwrap());
+        match body[cursor + 4] {
+            12 => {
+                let (_, consumed) = parse_entity_player_sync_bytes(&body[cursor + 5..])
+                    .map_err(|error| format!("entity_snapshot_known_prefix_player:{error}"))?;
+                cursor = cursor.saturating_add(5).saturating_add(consumed);
+            }
+            0 => {
+                let (sync, consumed) = parse_entity_alpha_sync_bytes(&body[cursor + 5..])
+                    .map_err(|error| format!("entity_snapshot_known_prefix_alpha:{error}"))?;
+                let end = cursor.saturating_add(5).saturating_add(consumed);
+                rows.push(EntityAlphaSyncRow {
+                    entity_id,
+                    sync,
+                    start: cursor,
+                    end,
+                });
+                cursor = end;
+            }
+            _ => break,
+        }
+    }
+
     Ok(rows)
 }
 
@@ -8378,7 +8472,10 @@ mod tests {
                 .map(|state| state.player().team_id),
             Some(1)
         );
-        assert_eq!(session.state().building_table_projection.by_build_pos.len(), 6);
+        assert_eq!(
+            session.state().building_table_projection.by_build_pos.len(),
+            6
+        );
         assert_eq!(
             session.state().building_table_projection.last_update,
             Some(crate::session_state::BuildingProjectionUpdateKind::WorldBaseline)
@@ -8427,9 +8524,15 @@ mod tests {
             projection.block_id,
             Some(i16::from_be_bytes(first_center.block_id.to_be_bytes()))
         );
-        assert_eq!(projection.rotation, Some(first_center.building.base.rotation));
+        assert_eq!(
+            projection.rotation,
+            Some(first_center.building.base.rotation)
+        );
         assert_eq!(projection.team_id, Some(first_center.building.base.team_id));
-        assert_eq!(projection.io_version, first_center.building.base.save_version);
+        assert_eq!(
+            projection.io_version,
+            first_center.building.base.save_version
+        );
         assert_eq!(
             projection.health_bits,
             Some(first_center.building.base.health_bits)
@@ -9420,6 +9523,60 @@ mod tests {
     }
 
     #[test]
+    fn entity_snapshot_packet_applies_parseable_alpha_rows_to_entity_table() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+
+        session.ingest_packet_bytes(&begin_packet).unwrap();
+        for chunk in chunk_packets {
+            session.ingest_packet_bytes(&chunk).unwrap();
+        }
+
+        let payload = sample_snapshot_packet("entitySnapshot.packet");
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == HighFrequencyRemoteMethod::EntitySnapshot.method_name())
+            .unwrap()
+            .packet_id;
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        let event = session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            event,
+            ClientSessionEvent::SnapshotReceived(HighFrequencyRemoteMethod::EntitySnapshot)
+        );
+        assert_eq!(
+            try_parse_alpha_sync_rows_from_entity_snapshot_prefix(&payload)
+                .iter()
+                .map(|row| row.entity_id)
+                .collect::<Vec<_>>(),
+            vec![100]
+        );
+        assert_eq!(
+            session
+                .state()
+                .entity_table_projection
+                .by_entity_id
+                .get(&100),
+            Some(&crate::session_state::EntityProjection {
+                class_id: 0,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 100,
+                x_bits: 40.0f32.to_bits(),
+                y_bits: 60.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 1,
+            })
+        );
+    }
+
+    #[test]
     fn entity_snapshot_rejects_parseable_player_rows_exceeding_declared_amount() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
@@ -9863,11 +10020,11 @@ mod tests {
         );
         assert_eq!(
             session
-            .state()
-            .building_table_projection
-            .by_build_pos
-            .get(&second_build_pos)
-            .cloned(),
+                .state()
+                .building_table_projection
+                .by_build_pos
+                .get(&second_build_pos)
+                .cloned(),
             second_before
         );
         assert_eq!(
@@ -9905,7 +10062,10 @@ mod tests {
         let (first_entry_len, second_center_block_id) = {
             let world = &session.loaded_world_bundle().unwrap().world;
             (
-                6 + world.building_centers[0].chunk_bytes.len().saturating_sub(1),
+                6 + world.building_centers[0]
+                    .chunk_bytes
+                    .len()
+                    .saturating_sub(1),
                 world.building_centers[1].block_id,
             )
         };
@@ -18387,8 +18547,18 @@ mod tests {
             QUEUED_PACKET_COUNT as u64
         );
         assert_eq!(session.state().dropped_loading_deferred_overflow_count, 0);
-        assert_eq!(session.state().last_dropped_loading_deferred_overflow_packet_id, None);
-        assert_eq!(session.state().last_dropped_loading_deferred_overflow_packet_method, None);
+        assert_eq!(
+            session
+                .state()
+                .last_dropped_loading_deferred_overflow_packet_id,
+            None
+        );
+        assert_eq!(
+            session
+                .state()
+                .last_dropped_loading_deferred_overflow_packet_method,
+            None
+        );
 
         for chunk in &chunk_packets {
             session.ingest_packet_bytes(chunk).unwrap();

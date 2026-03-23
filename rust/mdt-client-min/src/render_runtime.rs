@@ -9,7 +9,10 @@ use crate::session_state::{
     StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection, WorldBootstrapProjection,
 };
 use mdt_remote::{HighFrequencyRemoteMethod, HIGH_FREQUENCY_REMOTE_METHOD_COUNT};
-use mdt_render_ui::{HudModel, RenderModel, RenderObject};
+use mdt_render_ui::{
+    HudModel, RenderModel, RenderObject, RuntimeHudTextObservability,
+    RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiObservability,
+};
 use std::collections::BTreeMap;
 use std::fmt;
 
@@ -43,6 +46,7 @@ impl RenderRuntimeAdapter {
             .as_ref()
             .or(session_state.state_snapshot_authority_projection.as_ref());
         let state_business_projection = session_state.state_snapshot_business_projection.as_ref();
+        hud.runtime_ui = Some(runtime_ui_observability(session_state));
         hud.status_text = format!(
             "{} runtime_selected={} runtime_plans={} runtime_cfg_int={} runtime_cfg_long={} runtime_cfg_float={} runtime_cfg_bool={} runtime_cfg_int_seq={} runtime_cfg_point2={} runtime_cfg_point2_array={} runtime_cfg_tech_node={} runtime_cfg_double={} runtime_cfg_building_pos={} runtime_cfg_laccess={} runtime_cfg_string={} runtime_cfg_bytes={} runtime_cfg_legacy_unit_command_null={} runtime_cfg_bool_array={} runtime_cfg_unit_id={} runtime_cfg_vec2_array={} runtime_cfg_vec2={} runtime_cfg_team={} runtime_cfg_int_array={} runtime_cfg_object_array={} runtime_cfg_content={} runtime_cfg_unit_command={} runtime_world_tiles={} runtime_health={} building={} runtime_builder={} runtime_builder_head={} runtime_entity_local={} runtime_entity_hidden={} runtime_entity_gate={} runtime_entity_sync={} runtime_snap_last={} runtime_snap_events={} runtime_wave={} runtime_enemies={} runtime_tps={} runtime_state_apply={} runtime_core_teams={} runtime_core_items={} runtime_buildings={} runtime_block={} runtime_block_fail={} runtime_hidden={} runtime_hidden_delta={} runtime_hidden_fail={} runtime_effects={} runtime_effect_data_kind={} runtime_effect_data_semantic={} runtime_effect_apply={} runtime_effect_path={} runtime_effect_data_fail={} bootstrap_rules={} bootstrap_tags={} bootstrap_locales={} bootstrap_teams={} bootstrap_markers={} bootstrap_chunks={} bootstrap_patches={} bootstrap_plans={} bootstrap_fog_teams={} runtime_view_center={} runtime_view_size={} runtime_position={} runtime_pointer={} runtime_selected_rotation={} runtime_input_flags={} runtime_snap_client={} runtime_snap_state={} runtime_snap_entity={} runtime_snap_block={} runtime_snap_hidden={} runtime_tilecfg_events={} runtime_tilecfg_parse_fail={} runtime_tilecfg_noapply={} runtime_tilecfg_rollback={} runtime_tilecfg_pending_mismatch={} runtime_take_items={} runtime_transfer_item={} runtime_transfer_item_unit={} runtime_payload_drop={} runtime_payload_pick_build={} runtime_payload_pick_unit={} runtime_unit_entered_payload={} runtime_unit_despawn={} runtime_audio={} runtime_admin={} runtime_loading={} runtime_rules={} runtime_ui_notice={} runtime_ui_menu={} runtime_world_label={} runtime_resource_delta={} runtime_command_ctrl={} runtime_gameplay_signal={}",
             hud.status_text,
@@ -967,6 +971,34 @@ fn runtime_effect_data_error_label(error: Option<&str>) -> String {
     }
 }
 
+fn runtime_ui_observability(session_state: &SessionState) -> RuntimeUiObservability {
+    RuntimeUiObservability {
+        hud_text: RuntimeHudTextObservability {
+            set_count: session_state.received_set_hud_text_count,
+            set_reliable_count: session_state.received_set_hud_text_reliable_count,
+            hide_count: session_state.received_hide_hud_text_count,
+            last_message: session_state.last_set_hud_text_message.clone(),
+            last_reliable_message: session_state.last_set_hud_text_reliable_message.clone(),
+        },
+        toast: RuntimeToastObservability {
+            info_count: session_state.received_info_toast_count,
+            warning_count: session_state.received_warning_toast_count,
+            last_info_message: session_state.last_info_toast_message.clone(),
+            last_warning_text: session_state.last_warning_toast_text.clone(),
+        },
+        text_input: RuntimeTextInputObservability {
+            open_count: session_state.received_text_input_count,
+            last_id: session_state.last_text_input_id,
+            last_title: session_state.last_text_input_title.clone(),
+            last_message: session_state.last_text_input_message.clone(),
+            last_default_text: session_state.last_text_input_default_text.clone(),
+            last_length: session_state.last_text_input_length,
+            last_numeric: session_state.last_text_input_numeric,
+            last_allow_empty: session_state.last_text_input_allow_empty,
+        },
+    }
+}
+
 fn runtime_ui_notice_label(session_state: &SessionState) -> String {
     let last_clipboard = session_state.last_copy_to_clipboard_text.as_deref();
     let last_uri = session_state.last_open_uri.as_deref();
@@ -1058,14 +1090,13 @@ fn runtime_rules_label(session_state: &SessionState) -> String {
 
 fn runtime_ui_menu_label(session_state: &SessionState) -> String {
     format!(
-        "menu{}:fmenu{}:hfm{}:tin{}@{}:{}:{}:{}#{}:n{}:e{}",
+        "menu{}:fmenu{}:hfm{}:tin{}@{}:{}:{}#{}:n{}:e{}",
         session_state.received_menu_open_count,
         session_state.received_follow_up_menu_open_count,
         session_state.received_hide_follow_up_menu_count,
         session_state.received_text_input_count,
         runtime_optional_display_label(session_state.last_text_input_id),
         runtime_compact_text_label(session_state.last_text_input_title.as_deref()),
-        runtime_compact_text_label(session_state.last_text_input_message.as_deref()),
         runtime_compact_text_label(session_state.last_text_input_default_text.as_deref()),
         session_state.last_text_input_length.unwrap_or_default(),
         session_state.last_text_input_numeric.unwrap_or(false) as u8,
@@ -2536,10 +2567,14 @@ mod tests {
         state.received_set_hud_text_count = 9;
         state.received_set_hud_text_reliable_count = 10;
         state.received_hide_hud_text_count = 11;
+        state.last_set_hud_text_message = Some("hud".to_string());
+        state.last_set_hud_text_reliable_message = Some("hud reliable".to_string());
         state.received_announce_count = 12;
         state.received_info_message_count = 13;
         state.received_info_toast_count = 14;
         state.received_warning_toast_count = 15;
+        state.last_info_toast_message = Some("toast".to_string());
+        state.last_warning_toast_text = Some("warning".to_string());
         state.received_menu_open_count = 16;
         state.received_follow_up_menu_open_count = 17;
         state.received_hide_follow_up_menu_count = 18;
@@ -2759,9 +2794,45 @@ mod tests {
         assert!(hud.status_text.contains(
             "runtime_ui_notice=hud9:hudr10:hide11:ann12:info13:toast14:warn15:popup0:popr0:clip51@copied#6:uri52@https_//exam~#19:https"
         ));
-        assert!(hud.status_text.contains(
-            "runtime_ui_menu=menu16:fmenu17:hfm18:tin53@404:Digits:Only_numbers:12345#16:n1:e1"
-        ));
+        assert!(hud
+            .status_text
+            .contains("runtime_ui_menu=menu16:fmenu17:hfm18:tin53@404:Digits:12345#16:n1:e1"));
+        assert!(!hud
+            .status_text
+            .contains("runtime_ui_menu=menu16:fmenu17:hfm18:tin53@404:Digits:Only_numbers"));
+        let runtime_ui = hud
+            .runtime_ui
+            .as_ref()
+            .expect("runtime_ui observability should be present");
+        assert_eq!(runtime_ui.hud_text.set_count, 9);
+        assert_eq!(runtime_ui.hud_text.set_reliable_count, 10);
+        assert_eq!(runtime_ui.hud_text.hide_count, 11);
+        assert_eq!(runtime_ui.hud_text.last_message.as_deref(), Some("hud"));
+        assert_eq!(
+            runtime_ui.hud_text.last_reliable_message.as_deref(),
+            Some("hud reliable")
+        );
+        assert_eq!(runtime_ui.toast.info_count, 14);
+        assert_eq!(runtime_ui.toast.warning_count, 15);
+        assert_eq!(runtime_ui.toast.last_info_message.as_deref(), Some("toast"));
+        assert_eq!(
+            runtime_ui.toast.last_warning_text.as_deref(),
+            Some("warning")
+        );
+        assert_eq!(runtime_ui.text_input.open_count, 53);
+        assert_eq!(runtime_ui.text_input.last_id, Some(404));
+        assert_eq!(runtime_ui.text_input.last_title.as_deref(), Some("Digits"));
+        assert_eq!(
+            runtime_ui.text_input.last_message.as_deref(),
+            Some("Only numbers")
+        );
+        assert_eq!(
+            runtime_ui.text_input.last_default_text.as_deref(),
+            Some("12345")
+        );
+        assert_eq!(runtime_ui.text_input.last_length, Some(16));
+        assert_eq!(runtime_ui.text_input.last_numeric, Some(true));
+        assert_eq!(runtime_ui.text_input.last_allow_empty, Some(true));
         assert!(hud
             .status_text
             .contains("runtime_world_label=lbl19:lblr20:rml21"));

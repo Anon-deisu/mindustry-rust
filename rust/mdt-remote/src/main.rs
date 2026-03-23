@@ -1,8 +1,7 @@
 use std::{
     env,
     error::Error,
-    fs,
-    io,
+    fs, io,
     path::{Path, PathBuf},
 };
 
@@ -14,10 +13,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         "usage: mdt-remote <manifest-path> [registry-output-path] [high-frequency-output-path]",
     )?;
     let output_path = args.next().map(PathBuf::from);
-    let output_path = output_path
-        .as_deref()
-        .map(resolve_cli_path)
-        .transpose()?;
+    let output_path = output_path.as_deref().map(resolve_cli_path).transpose()?;
     let high_frequency_output_path = match args.next() {
         Some(path) => Some(resolve_cli_path(Path::new(&path))?),
         None => output_path
@@ -54,7 +50,10 @@ fn default_high_frequency_output_path(output_path: &Path) -> PathBuf {
 }
 
 fn write_output_file(path: &Path, contents: &str) -> io::Result<()> {
-    if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
         fs::create_dir_all(parent).map_err(|error| {
             io::Error::new(
                 error.kind(),

@@ -6,7 +6,10 @@ pub mod scene_present;
 pub mod window_presenter;
 
 pub use ascii_presenter::AsciiScenePresenter;
-pub use hud_model::HudModel;
+pub use hud_model::{
+    HudModel, RuntimeHudTextObservability, RuntimeTextInputObservability,
+    RuntimeToastObservability, RuntimeUiObservability,
+};
 pub use projection::{
     project_hud_model, project_render_model, project_render_model_with_player_position,
     project_render_model_with_view_window, project_scene_models,
