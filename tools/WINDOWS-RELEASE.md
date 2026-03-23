@@ -45,6 +45,7 @@ Without `-BenchWorldStreamHex`, the devtools package still passes release verifi
 The gate checks:
 
 - release preflight (`check-mdt-release-prereqs.ps1`) before packaging/smoke
+- remote freshness can be checked explicitly with `.\gradlew -PnoLocalArc verifyMdtRemoteFreshness` before packaging when you want to ensure Java remote generation, fixture mirrors, and Rust generated bindings are still in sync
 - `core/devtools` stage directories exist
 - both zip artifacts exist
 - `PACKAGE-MANIFEST.json` metadata is correct
@@ -57,6 +58,9 @@ is listening at the selected `-Server`, verification fails.
 
 Preflight enforcement is on by default for release-set verification. Use
 `-SkipPreflight` only for exceptional troubleshooting flows.
+
+If you want the same remote-freshness guard to be part of Gradle `check`, run
+Gradle with `-PremoteFreshnessOnCheck=true`.
 
 R+2 policy is canonical-only fixtures:
 

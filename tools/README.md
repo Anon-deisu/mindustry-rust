@@ -12,6 +12,7 @@
 ## 最常用脚本
 
 - [`check-mdt-release-prereqs.ps1`](check-mdt-release-prereqs.ps1)：发布前的非破坏性环境检查
+- `.\gradlew -PnoLocalArc verifyMdtRemoteFreshness`：校验 Java remote 生成物、fixture 镜像和 Rust 高频生成文件没有漂移
 - [`verify-rust-workspaces.ps1`](verify-rust-workspaces.ps1)：检查多个 Rust workspace 是否都能通过基础验证
 - [`package-mdt-client-min-release-set.ps1`](package-mdt-client-min-release-set.ps1)：生成发布用产物；加 `-Verify` 可直接带上默认校验流程
 - [`verify-mdt-client-min-release-set.ps1`](verify-mdt-client-min-release-set.ps1)：校验已生成的发布目录、清单和基础可运行性
@@ -34,3 +35,4 @@
 如果你在做发布治理、CI 审查或同步规则维护，还可以继续看：
 
 - [`../audit/ci-gate-plan.md`](../audit/ci-gate-plan.md)
+- `verifyMdtRemoteFreshness` 支持通过 `-PremoteFreshnessOnCheck=true` 挂到 Gradle `check`，适合在 CI 或正式发布前开启

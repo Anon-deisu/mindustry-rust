@@ -34,6 +34,24 @@ use std::fmt;
 
 // Java `Packets.KickReason.serverRestarting` ordinal.
 pub const KICK_REASON_SERVER_RESTARTING_ORDINAL: i32 = 15;
+const KICK_REASON_NAMES: [&str; 16] = [
+    "kick",
+    "clientOutdated",
+    "serverOutdated",
+    "banned",
+    "gameover",
+    "recentKick",
+    "nameInUse",
+    "idInUse",
+    "nameEmpty",
+    "customClient",
+    "serverClose",
+    "vote",
+    "typeMismatch",
+    "whitelist",
+    "playerLimit",
+    "serverRestarting",
+];
 const BLOCK_CONTENT_TYPE: u8 = 1;
 const ALPHA_SHAPE_ENTITY_CLASS_IDS: [u8; 17] = [
     0, 2, 3, 16, 18, 20, 21, 24, 29, 30, 31, 33, 40, 43, 44, 45, 46,
@@ -46,6 +64,12 @@ const FIRE_ENTITY_CLASS_IDS: [u8; 1] = [10];
 const PUDDLE_ENTITY_CLASS_IDS: [u8; 1] = [13];
 const WEATHER_STATE_ENTITY_CLASS_IDS: [u8; 1] = [14];
 const WORLD_LABEL_ENTITY_CLASS_IDS: [u8; 1] = [35];
+
+fn kick_reason_name_from_ordinal(reason_ordinal: i32) -> Option<&'static str> {
+    usize::try_from(reason_ordinal)
+        .ok()
+        .and_then(|index| KICK_REASON_NAMES.get(index).copied())
+}
 
 #[derive(Debug)]
 pub struct ClientSession {
@@ -3833,9 +3857,12 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.kick_reason_packet_id => {
                 let (reason_ordinal, duration_ms) = decode_kick_reason_payload(&packet.payload);
-                self.mark_kicked(None, reason_ordinal, duration_ms);
+                let reason_text = reason_ordinal
+                    .and_then(kick_reason_name_from_ordinal)
+                    .map(str::to_string);
+                self.mark_kicked(reason_text.clone(), reason_ordinal, duration_ms);
                 Ok(ClientSessionEvent::Kicked {
-                    reason_text: None,
+                    reason_text,
                     reason_ordinal,
                     duration_ms,
                 })
@@ -21172,13 +21199,13 @@ mod tests {
         assert_eq!(
             event,
             ClientSessionEvent::Kicked {
-                reason_text: None,
+                reason_text: Some("idInUse".to_string()),
                 reason_ordinal: Some(7),
                 duration_ms: Some(30_000),
             }
         );
         assert!(session.kicked());
-        assert_eq!(session.last_kick_reason_text(), None);
+        assert_eq!(session.last_kick_reason_text(), Some("idInUse"));
         assert_eq!(session.last_kick_reason_ordinal(), Some(7));
         assert_eq!(session.last_kick_duration_ms(), Some(30_000));
         let actions = session.advance_time(1_000).unwrap();
@@ -21211,16 +21238,28 @@ mod tests {
         assert_eq!(
             event,
             ClientSessionEvent::Kicked {
-                reason_text: None,
+                reason_text: Some("serverRestarting".to_string()),
                 reason_ordinal: Some(KICK_REASON_SERVER_RESTARTING_ORDINAL),
                 duration_ms: None,
             }
         );
         assert!(session.kicked());
+        assert_eq!(session.last_kick_reason_text(), Some("serverRestarting"));
         assert_eq!(
             session.last_kick_reason_ordinal(),
             Some(KICK_REASON_SERVER_RESTARTING_ORDINAL)
         );
+    }
+
+    #[test]
+    fn kick_reason_name_mapping_covers_java_handshake_taxonomy_ordinals() {
+        assert_eq!(kick_reason_name_from_ordinal(1), Some("clientOutdated"));
+        assert_eq!(kick_reason_name_from_ordinal(2), Some("serverOutdated"));
+        assert_eq!(kick_reason_name_from_ordinal(9), Some("customClient"));
+        assert_eq!(kick_reason_name_from_ordinal(12), Some("typeMismatch"));
+        assert_eq!(kick_reason_name_from_ordinal(KICK_REASON_SERVER_RESTARTING_ORDINAL), Some("serverRestarting"));
+        assert_eq!(kick_reason_name_from_ordinal(-1), None);
+        assert_eq!(kick_reason_name_from_ordinal(99), None);
     }
 
     #[test]
