@@ -4083,6 +4083,33 @@ fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<String> 
                 volume.to_bits(),
                 pitch.to_bits()
             )),
+            ClientSessionEvent::CreateWeather {
+                weather_id,
+                intensity,
+                duration,
+                wind_x,
+                wind_y,
+            } => Some(format!(
+                "create_weather: weather_id={weather_id:?} intensity_bits=0x{:08x} duration_bits=0x{:08x} wind_x_bits=0x{:08x} wind_y_bits=0x{:08x}",
+                intensity.to_bits(),
+                duration.to_bits(),
+                wind_x.to_bits(),
+                wind_y.to_bits()
+            )),
+            ClientSessionEvent::SpawnEffect {
+                x,
+                y,
+                rotation,
+                unit_type_id,
+            } => Some(format!(
+                "spawn_effect: x_bits=0x{:08x} y_bits=0x{:08x} rotation_bits=0x{:08x} unit_type_id={unit_type_id:?}",
+                x.to_bits(),
+                y.to_bits(),
+                rotation.to_bits()
+            )),
+            ClientSessionEvent::UnitBlockSpawn { tile_pos } => {
+                Some(format!("unit_block_spawn: tile_pos={tile_pos:?}"))
+            }
             ClientSessionEvent::TraceInfoReceived {
                 player_id,
                 ip,
@@ -6410,6 +6437,41 @@ mod tests {
         assert!(lines[4].contains("debug_status:"));
         assert!(lines[4].contains("reliable=false"));
         assert!(lines[4].contains("last_client_snapshot=404"));
+    }
+
+    #[test]
+    fn summarize_client_packet_events_includes_weather_and_spawn_observability() {
+        let lines = summarize_client_packet_events(&[
+            ClientSessionEvent::CreateWeather {
+                weather_id: Some(5),
+                intensity: 0.75,
+                duration: 120.0,
+                wind_x: -2.5,
+                wind_y: 6.0,
+            },
+            ClientSessionEvent::SpawnEffect {
+                x: 32.5,
+                y: 48.0,
+                rotation: 90.0,
+                unit_type_id: Some(19),
+            },
+            ClientSessionEvent::UnitBlockSpawn {
+                tile_pos: Some(pack_point2(4, 15)),
+            },
+        ]);
+
+        assert_eq!(lines.len(), 3);
+        assert!(lines[0].contains("create_weather:"));
+        assert!(lines[0].contains("weather_id=Some(5)"));
+        assert!(lines[0].contains("0x3f400000"));
+        assert!(lines[0].contains("0x42f00000"));
+        assert!(lines[1].contains("spawn_effect:"));
+        assert!(lines[1].contains("0x42020000"));
+        assert!(lines[1].contains("0x42400000"));
+        assert!(lines[1].contains("0x42b40000"));
+        assert!(lines[1].contains("unit_type_id=Some(19)"));
+        assert!(lines[2].contains("unit_block_spawn:"));
+        assert!(lines[2].contains(&format!("tile_pos=Some({})", pack_point2(4, 15))));
     }
 
     #[test]

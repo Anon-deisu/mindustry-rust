@@ -278,6 +278,9 @@ pub struct ClientSession {
     player_spawn_packet_id: Option<u8>,
     set_position_packet_id: Option<u8>,
     set_camera_position_packet_id: Option<u8>,
+    create_weather_packet_id: Option<u8>,
+    spawn_effect_packet_id: Option<u8>,
+    unit_block_spawn_packet_id: Option<u8>,
     sound_packet_id: Option<u8>,
     sound_at_packet_id: Option<u8>,
     effect_packet_id: Option<u8>,
@@ -891,6 +894,21 @@ impl ClientSession {
             .iter()
             .find(|entry| entry.method == "setCameraPosition")
             .map(|entry| entry.packet_id);
+        let create_weather_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "createWeather")
+            .map(|entry| entry.packet_id);
+        let spawn_effect_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "spawnEffect")
+            .map(|entry| entry.packet_id);
+        let unit_block_spawn_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "unitBlockSpawn")
+            .map(|entry| entry.packet_id);
         let sound_packet_id = manifest
             .remote_packets
             .iter()
@@ -1192,6 +1210,9 @@ impl ClientSession {
             player_spawn_packet_id,
             set_position_packet_id,
             set_camera_position_packet_id,
+            create_weather_packet_id,
+            spawn_effect_packet_id,
+            unit_block_spawn_packet_id,
             sound_packet_id,
             sound_at_packet_id,
             effect_packet_id,
@@ -4132,6 +4153,64 @@ impl ClientSession {
                     })
                 }
             }
+            packet_id if Some(packet_id) == self.create_weather_packet_id => {
+                if let Some(summary) = decode_create_weather_payload(&packet.payload) {
+                    self.state.received_create_weather_count =
+                        self.state.received_create_weather_count.saturating_add(1);
+                    self.state.last_create_weather_id = summary.weather_id;
+                    self.state.last_create_weather_intensity_bits =
+                        Some(summary.intensity.to_bits());
+                    self.state.last_create_weather_duration_bits = Some(summary.duration.to_bits());
+                    self.state.last_create_weather_wind_x_bits = Some(summary.wind_x.to_bits());
+                    self.state.last_create_weather_wind_y_bits = Some(summary.wind_y.to_bits());
+                    Ok(ClientSessionEvent::CreateWeather {
+                        weather_id: summary.weather_id,
+                        intensity: summary.intensity,
+                        duration: summary.duration,
+                        wind_x: summary.wind_x,
+                        wind_y: summary.wind_y,
+                    })
+                } else {
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
+            packet_id if Some(packet_id) == self.spawn_effect_packet_id => {
+                if let Some(summary) = decode_spawn_effect_payload(&packet.payload) {
+                    self.state.received_spawn_effect_count =
+                        self.state.received_spawn_effect_count.saturating_add(1);
+                    self.state.last_spawn_effect_x_bits = Some(summary.x.to_bits());
+                    self.state.last_spawn_effect_y_bits = Some(summary.y.to_bits());
+                    self.state.last_spawn_effect_rotation_bits = Some(summary.rotation.to_bits());
+                    self.state.last_spawn_effect_unit_type_id = summary.unit_type_id;
+                    Ok(ClientSessionEvent::SpawnEffect {
+                        x: summary.x,
+                        y: summary.y,
+                        rotation: summary.rotation,
+                        unit_type_id: summary.unit_type_id,
+                    })
+                } else {
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
+            packet_id if Some(packet_id) == self.unit_block_spawn_packet_id => {
+                if let Some(tile_pos) = decode_unit_block_spawn_payload(&packet.payload) {
+                    self.state.received_unit_block_spawn_count =
+                        self.state.received_unit_block_spawn_count.saturating_add(1);
+                    self.state.last_unit_block_spawn_tile_pos = tile_pos;
+                    Ok(ClientSessionEvent::UnitBlockSpawn { tile_pos })
+                } else {
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
             packet_id if Some(packet_id) == self.sound_packet_id => {
                 if let Some(sound) = decode_sound_payload(&packet.payload) {
                     self.state.received_sound_count =
@@ -5847,6 +5926,22 @@ pub enum ClientSessionEvent {
         unit: Option<UnitRefProjection>,
         removed_entity_projection: bool,
     },
+    CreateWeather {
+        weather_id: Option<i16>,
+        intensity: f32,
+        duration: f32,
+        wind_x: f32,
+        wind_y: f32,
+    },
+    SpawnEffect {
+        x: f32,
+        y: f32,
+        rotation: f32,
+        unit_type_id: Option<i16>,
+    },
+    UnitBlockSpawn {
+        tile_pos: Option<i32>,
+    },
     EffectRequested {
         effect_id: Option<i16>,
         x: f32,
@@ -6716,6 +6811,11 @@ fn read_optional_build_pos(payload: &[u8], cursor: &mut usize) -> Option<Option<
     Some((value != -1).then_some(value))
 }
 
+fn read_optional_tile_pos(payload: &[u8], cursor: &mut usize) -> Option<Option<i32>> {
+    let value = read_i32(payload, cursor)?;
+    Some((value != pack_point2(-1, -1)).then_some(value))
+}
+
 fn read_optional_item_id(payload: &[u8], cursor: &mut usize) -> Option<Option<i16>> {
     let value = read_i16(payload, cursor)?;
     Some((value != -1).then_some(value))
@@ -7160,6 +7260,36 @@ fn decode_request_item_inbound_payload(payload: &[u8]) -> Option<RequestItemSumm
     })
 }
 
+fn decode_create_weather_payload(payload: &[u8]) -> Option<CreateWeatherSummary> {
+    let mut cursor = 0usize;
+    let raw_weather_id = read_i16(payload, &mut cursor)?;
+    let intensity = read_f32(payload, &mut cursor)?;
+    let duration = read_f32(payload, &mut cursor)?;
+    let wind_x = read_f32(payload, &mut cursor)?;
+    let wind_y = read_f32(payload, &mut cursor)?;
+    (cursor == payload.len()).then_some(CreateWeatherSummary {
+        weather_id: (raw_weather_id != -1).then_some(raw_weather_id),
+        intensity,
+        duration,
+        wind_x,
+        wind_y,
+    })
+}
+
+fn decode_spawn_effect_payload(payload: &[u8]) -> Option<SpawnEffectSummary> {
+    let mut cursor = 0usize;
+    let x = read_f32(payload, &mut cursor)?;
+    let y = read_f32(payload, &mut cursor)?;
+    let rotation = read_f32(payload, &mut cursor)?;
+    let raw_unit_type_id = read_i16(payload, &mut cursor)?;
+    (cursor == payload.len()).then_some(SpawnEffectSummary {
+        x,
+        y,
+        rotation,
+        unit_type_id: (raw_unit_type_id != -1).then_some(raw_unit_type_id),
+    })
+}
+
 fn decode_building_control_select_payload(payload: &[u8]) -> Option<Option<i32>> {
     decode_with_optional_server_player_prefix(payload, 4, |payload, cursor| {
         read_optional_build_pos(payload, cursor)
@@ -7194,8 +7324,14 @@ fn decode_request_unit_payload_payload(payload: &[u8]) -> Option<Option<UnitRefP
 
 fn decode_tile_tap_payload(payload: &[u8]) -> Option<Option<i32>> {
     decode_with_optional_server_player_prefix(payload, 4, |payload, cursor| {
-        read_optional_build_pos(payload, cursor)
+        read_optional_tile_pos(payload, cursor)
     })
+}
+
+fn decode_unit_block_spawn_payload(payload: &[u8]) -> Option<Option<i32>> {
+    let mut cursor = 0usize;
+    let tile_pos = read_optional_tile_pos(payload, &mut cursor)?;
+    (cursor == payload.len()).then_some(tile_pos)
 }
 
 fn decode_transfer_inventory_payload(payload: &[u8]) -> Option<Option<i32>> {
@@ -7985,6 +8121,23 @@ struct RequestItemSummary {
     build_pos: Option<i32>,
     item_id: Option<i16>,
     amount: i32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct CreateWeatherSummary {
+    weather_id: Option<i16>,
+    intensity: f32,
+    duration: f32,
+    wind_x: f32,
+    wind_y: f32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct SpawnEffectSummary {
+    x: f32,
+    y: f32,
+    rotation: f32,
+    unit_type_id: Option<i16>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -10024,6 +10177,46 @@ fn encode_unit_entered_payload(unit: ClientUnitRef, build_pos: Option<i32>) -> V
     payload.extend_from_slice(&encode_unit_payload(unit));
     payload.extend_from_slice(&encode_building_payload(build_pos));
     payload
+}
+
+#[cfg(test)]
+fn encode_create_weather_payload(
+    weather_id: Option<i16>,
+    intensity: f32,
+    duration: f32,
+    wind_x: f32,
+    wind_y: f32,
+) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(18);
+    payload.extend_from_slice(&weather_id.unwrap_or(-1).to_be_bytes());
+    write_f32(&mut payload, intensity);
+    write_f32(&mut payload, duration);
+    write_f32(&mut payload, wind_x);
+    write_f32(&mut payload, wind_y);
+    payload
+}
+
+#[cfg(test)]
+fn encode_spawn_effect_payload(
+    x: f32,
+    y: f32,
+    rotation: f32,
+    unit_type_id: Option<i16>,
+) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(14);
+    write_f32(&mut payload, x);
+    write_f32(&mut payload, y);
+    write_f32(&mut payload, rotation);
+    payload.extend_from_slice(&unit_type_id.unwrap_or(-1).to_be_bytes());
+    payload
+}
+
+#[cfg(test)]
+fn encode_tile_payload(tile_pos: Option<i32>) -> Vec<u8> {
+    tile_pos
+        .unwrap_or_else(|| pack_point2(-1, -1))
+        .to_be_bytes()
+        .to_vec()
 }
 
 fn encode_tile_config_payload(build_pos: Option<i32>, value: &TypeIoObject) -> Vec<u8> {
@@ -21053,6 +21246,180 @@ mod tests {
         ));
         assert_eq!(session.state().received_transfer_item_to_count, 0);
         assert_eq!(session.state().last_transfer_item_to, None);
+    }
+
+    #[test]
+    fn weather_spawn_and_unit_block_packets_emit_observability_events() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let create_weather_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "createWeather")
+            .unwrap()
+            .packet_id;
+        let spawn_effect_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "spawnEffect")
+            .unwrap()
+            .packet_id;
+        let unit_block_spawn_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "unitBlockSpawn")
+            .unwrap()
+            .packet_id;
+
+        let create_weather_event = session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    create_weather_packet_id,
+                    &encode_create_weather_payload(Some(5), 0.75, 120.0, -2.5, 6.0),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            create_weather_event,
+            ClientSessionEvent::CreateWeather {
+                weather_id: Some(5),
+                intensity: 0.75,
+                duration: 120.0,
+                wind_x: -2.5,
+                wind_y: 6.0,
+            }
+        );
+        assert_eq!(session.state().received_create_weather_count, 1);
+        assert_eq!(session.state().last_create_weather_id, Some(5));
+        assert_eq!(
+            session.state().last_create_weather_intensity_bits,
+            Some(0.75f32.to_bits())
+        );
+        assert_eq!(
+            session.state().last_create_weather_duration_bits,
+            Some(120.0f32.to_bits())
+        );
+        assert_eq!(
+            session.state().last_create_weather_wind_x_bits,
+            Some((-2.5f32).to_bits())
+        );
+        assert_eq!(
+            session.state().last_create_weather_wind_y_bits,
+            Some(6.0f32.to_bits())
+        );
+
+        let spawn_effect_event = session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    spawn_effect_packet_id,
+                    &encode_spawn_effect_payload(32.5, 48.0, 90.0, Some(19)),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            spawn_effect_event,
+            ClientSessionEvent::SpawnEffect {
+                x: 32.5,
+                y: 48.0,
+                rotation: 90.0,
+                unit_type_id: Some(19),
+            }
+        );
+        assert_eq!(session.state().received_spawn_effect_count, 1);
+        assert_eq!(
+            session.state().last_spawn_effect_x_bits,
+            Some(32.5f32.to_bits())
+        );
+        assert_eq!(
+            session.state().last_spawn_effect_y_bits,
+            Some(48.0f32.to_bits())
+        );
+        assert_eq!(
+            session.state().last_spawn_effect_rotation_bits,
+            Some(90.0f32.to_bits())
+        );
+        assert_eq!(session.state().last_spawn_effect_unit_type_id, Some(19));
+
+        let unit_block_spawn_pos = Some(pack_point2(4, 15));
+        let unit_block_spawn_event = session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    unit_block_spawn_packet_id,
+                    &encode_tile_payload(unit_block_spawn_pos),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            unit_block_spawn_event,
+            ClientSessionEvent::UnitBlockSpawn {
+                tile_pos: unit_block_spawn_pos,
+            }
+        );
+        assert_eq!(session.state().received_unit_block_spawn_count, 1);
+        assert_eq!(
+            session.state().last_unit_block_spawn_tile_pos,
+            unit_block_spawn_pos
+        );
+    }
+
+    #[test]
+    fn weather_spawn_and_unit_block_packets_with_invalid_payloads_are_ignored() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let create_weather_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "createWeather")
+            .unwrap()
+            .packet_id;
+        let spawn_effect_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "spawnEffect")
+            .unwrap()
+            .packet_id;
+        let unit_block_spawn_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "unitBlockSpawn")
+            .unwrap()
+            .packet_id;
+
+        for (packet_id, payload) in [
+            (
+                create_weather_packet_id,
+                encode_create_weather_payload(Some(5), 0.75, 120.0, -2.5, 6.0)[..17].to_vec(),
+            ),
+            (
+                spawn_effect_packet_id,
+                encode_spawn_effect_payload(32.5, 48.0, 90.0, Some(19))[..13].to_vec(),
+            ),
+            (unit_block_spawn_packet_id, vec![0x00, 0x01, 0x02]),
+        ] {
+            let event = session
+                .ingest_packet_bytes(&encode_packet(packet_id, &payload, false).unwrap())
+                .unwrap();
+            assert!(matches!(
+                event,
+                ClientSessionEvent::IgnoredPacket {
+                    packet_id: ignored_id,
+                    ..
+                } if ignored_id == packet_id
+            ));
+        }
+
+        assert_eq!(session.state().received_create_weather_count, 0);
+        assert_eq!(session.state().last_create_weather_id, None);
+        assert_eq!(session.state().received_spawn_effect_count, 0);
+        assert_eq!(session.state().last_spawn_effect_unit_type_id, None);
+        assert_eq!(session.state().received_unit_block_spawn_count, 0);
+        assert_eq!(session.state().last_unit_block_spawn_tile_pos, None);
     }
 
     #[test]
