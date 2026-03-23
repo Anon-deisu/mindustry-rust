@@ -13123,7 +13123,9 @@ enum UnitPayloadShape {
     StandardCurrent,
     TankLikeCurrent,
     MechLegacy,
-    PayloadLegacy,
+    PayloadMegaLike,
+    PayloadOctLike,
+    PayloadQuadLike,
     BuildingTetherPayload,
     TimedKill,
 }
@@ -13165,7 +13167,9 @@ fn candidate_unit_payload_shapes(class_id: u8) -> &'static [UnitPayloadShape] {
         18 => &[UnitPayloadShape::PolyLegacy],
         21 => &[UnitPayloadShape::SpiroctLegacy],
         4 | 17 | 19 | 25 | 32 => &[UnitPayloadShape::MechLegacy],
-        5 | 23 | 26 => &[UnitPayloadShape::PayloadLegacy],
+        5 => &[UnitPayloadShape::PayloadMegaLike],
+        23 => &[UnitPayloadShape::PayloadQuadLike],
+        26 => &[UnitPayloadShape::PayloadOctLike],
         36 => &[UnitPayloadShape::BuildingTetherPayload],
         39 => &[UnitPayloadShape::TimedKill],
         40 => &[UnitPayloadShape::TankLikeCurrent],
@@ -13180,7 +13184,9 @@ fn candidate_unit_payload_shapes(class_id: u8) -> &'static [UnitPayloadShape] {
             UnitPayloadShape::StandardCurrent,
             UnitPayloadShape::TankLikeCurrent,
             UnitPayloadShape::MechLegacy,
-            UnitPayloadShape::PayloadLegacy,
+            UnitPayloadShape::PayloadMegaLike,
+            UnitPayloadShape::PayloadOctLike,
+            UnitPayloadShape::PayloadQuadLike,
             UnitPayloadShape::BuildingTetherPayload,
             UnitPayloadShape::TimedKill,
         ],
@@ -13640,23 +13646,70 @@ fn consume_mech_legacy_unit_payload_body(
     consume_finite_unit_position(reader, "mech legacy unit payload")
 }
 
-fn consume_payload_legacy_unit_payload_body(
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PayloadLegacyLikeShape {
+    Mega,
+    Oct,
+    Quad,
+}
+
+fn payload_legacy_like_shape_name(shape: PayloadLegacyLikeShape) -> &'static str {
+    match shape {
+        PayloadLegacyLikeShape::Mega => "payload mega-like",
+        PayloadLegacyLikeShape::Oct => "payload oct-like",
+        PayloadLegacyLikeShape::Quad => "payload quad-like",
+    }
+}
+
+fn consume_payload_legacy_like_unit_payload_body(
     reader: &mut Reader<'_>,
     content_header: &[ContentHeaderEntry],
     revision: i16,
     depth: usize,
+    shape: PayloadLegacyLikeShape,
 ) -> Result<(), String> {
-    if !(0..=5).contains(&revision) {
+    let max_revision = match shape {
+        PayloadLegacyLikeShape::Mega | PayloadLegacyLikeShape::Oct => 5,
+        PayloadLegacyLikeShape::Quad => 6,
+    };
+    if !(0..=max_revision).contains(&revision) {
         return Err(format!(
-            "unsupported payload legacy unit payload revision: {revision}"
+            "unsupported {} unit payload revision: {revision}",
+            payload_legacy_like_shape_name(shape)
         ));
     }
 
-    if revision >= 5 {
+    let has_abilities = match shape {
+        PayloadLegacyLikeShape::Mega | PayloadLegacyLikeShape::Oct => revision >= 5,
+        PayloadLegacyLikeShape::Quad => revision >= 6,
+    };
+    let has_armor = match shape {
+        PayloadLegacyLikeShape::Mega | PayloadLegacyLikeShape::Oct => revision <= 3,
+        PayloadLegacyLikeShape::Quad => revision <= 4,
+    };
+    let has_flag = match shape {
+        PayloadLegacyLikeShape::Mega | PayloadLegacyLikeShape::Quad => revision >= 2,
+        PayloadLegacyLikeShape::Oct => revision >= 1,
+    };
+    let has_mine_tile = match shape {
+        PayloadLegacyLikeShape::Mega => true,
+        PayloadLegacyLikeShape::Oct => revision >= 2,
+        PayloadLegacyLikeShape::Quad => revision >= 3,
+    };
+    let has_update_building = match shape {
+        PayloadLegacyLikeShape::Mega | PayloadLegacyLikeShape::Oct => revision >= 3,
+        PayloadLegacyLikeShape::Quad => revision >= 4,
+    };
+    let has_velocity = match shape {
+        PayloadLegacyLikeShape::Mega | PayloadLegacyLikeShape::Oct => revision >= 4,
+        PayloadLegacyLikeShape::Quad => revision >= 5,
+    };
+
+    if has_abilities {
         consume_unit_abilities(reader)?;
     }
     reader.skip_bytes(4)?;
-    if revision <= 3 {
+    if has_armor {
         reader.skip_bytes(4)?;
     }
     skip_entity_unit_controller(reader)?;
@@ -13664,12 +13717,14 @@ fn consume_payload_legacy_unit_payload_body(
         reader.read_bool()?;
     }
     reader.skip_bytes(4)?;
-    if revision >= 2 {
+    if has_flag {
         reader.skip_bytes(8)?;
     }
     reader.skip_bytes(4)?;
     reader.read_bool()?;
-    reader.skip_bytes(4)?;
+    if has_mine_tile {
+        reader.skip_bytes(4)?;
+    }
     consume_unit_mounts(reader)?;
     consume_unit_payload_sequence(reader, content_header, depth)?;
     consume_unit_build_plans(reader)?;
@@ -13680,13 +13735,13 @@ fn consume_payload_legacy_unit_payload_body(
     consume_unit_statuses(reader, content_header)?;
     reader.read_u8()?;
     reader.read_i16()?;
-    if revision >= 3 {
+    if has_update_building {
         reader.read_bool()?;
     }
-    if revision >= 4 {
+    if has_velocity {
         reader.skip_bytes(8)?;
     }
-    consume_finite_unit_position(reader, "payload legacy unit payload")
+    consume_finite_unit_position(reader, payload_legacy_like_shape_name(shape))
 }
 
 fn consume_building_tether_payload_unit_body(
@@ -13812,11 +13867,26 @@ fn parse_unit_payload_snapshot_bytes(
             UnitPayloadShape::MechLegacy => {
                 consume_mech_legacy_unit_payload_body(&mut reader, content_header, revision)
             }
-            UnitPayloadShape::PayloadLegacy => consume_payload_legacy_unit_payload_body(
+            UnitPayloadShape::PayloadMegaLike => consume_payload_legacy_like_unit_payload_body(
                 &mut reader,
                 content_header,
                 revision,
                 depth,
+                PayloadLegacyLikeShape::Mega,
+            ),
+            UnitPayloadShape::PayloadOctLike => consume_payload_legacy_like_unit_payload_body(
+                &mut reader,
+                content_header,
+                revision,
+                depth,
+                PayloadLegacyLikeShape::Oct,
+            ),
+            UnitPayloadShape::PayloadQuadLike => consume_payload_legacy_like_unit_payload_body(
+                &mut reader,
+                content_header,
+                revision,
+                depth,
+                PayloadLegacyLikeShape::Quad,
             ),
             UnitPayloadShape::BuildingTetherPayload => consume_building_tether_payload_unit_body(
                 &mut reader,
@@ -38075,6 +38145,102 @@ mod tests {
             PayloadSnapshot::Unit(UnitPayloadSnapshot {
                 class_id: 0,
                 revision: 3,
+                body_len: unit_body.len(),
+                body_sha256: sha256_hex(&unit_body),
+            })
+        );
+        assert_eq!(consumed, 1 + 1 + 1 + unit_body.len());
+    }
+
+    #[test]
+    fn parses_payload_snapshot_bytes_with_oct_revision_one_unit_payload() {
+        let mut unit_body = Vec::new();
+        unit_body.extend_from_slice(&1i16.to_be_bytes());
+        unit_body.extend_from_slice(&12.0f32.to_bits().to_be_bytes());
+        unit_body.extend_from_slice(&1.5f32.to_bits().to_be_bytes());
+        unit_body.push(0);
+        unit_body.extend_from_slice(&7i32.to_be_bytes());
+        unit_body.extend_from_slice(&3.0f32.to_bits().to_be_bytes());
+        unit_body.extend_from_slice(&5.0f64.to_bits().to_be_bytes());
+        unit_body.extend_from_slice(&90.0f32.to_bits().to_be_bytes());
+        unit_body.push(1);
+        unit_body.push(0);
+        unit_body.extend_from_slice(&0i32.to_be_bytes());
+        unit_body.extend_from_slice(&0i32.to_be_bytes());
+        unit_body.extend_from_slice(&180.0f32.to_bits().to_be_bytes());
+        unit_body.extend_from_slice(&10.0f32.to_bits().to_be_bytes());
+        unit_body.push(0);
+        unit_body.extend_from_slice(&0i16.to_be_bytes());
+        unit_body.extend_from_slice(&0i32.to_be_bytes());
+        unit_body.extend_from_slice(&0i32.to_be_bytes());
+        unit_body.push(2);
+        unit_body.extend_from_slice(&26i16.to_be_bytes());
+        unit_body.extend_from_slice(&64.0f32.to_bits().to_be_bytes());
+        unit_body.extend_from_slice(&96.0f32.to_bits().to_be_bytes());
+
+        let mut bytes = Vec::new();
+        bytes.push(1);
+        bytes.push(0);
+        bytes.push(26);
+        bytes.extend_from_slice(&unit_body);
+
+        let (snapshot, consumed) = parse_payload_snapshot_bytes(&[], &bytes).unwrap();
+
+        assert_eq!(
+            snapshot,
+            PayloadSnapshot::Unit(UnitPayloadSnapshot {
+                class_id: 26,
+                revision: 1,
+                body_len: unit_body.len(),
+                body_sha256: sha256_hex(&unit_body),
+            })
+        );
+        assert_eq!(consumed, 1 + 1 + 1 + unit_body.len());
+    }
+
+    #[test]
+    fn parses_payload_snapshot_bytes_with_quad_revision_six_unit_payload() {
+        let mut unit_body = Vec::new();
+        unit_body.extend_from_slice(&6i16.to_be_bytes());
+        unit_body.push(0);
+        unit_body.extend_from_slice(&27.0f32.to_bits().to_be_bytes());
+        unit_body.push(0);
+        unit_body.extend_from_slice(&11i32.to_be_bytes());
+        unit_body.extend_from_slice(&0.75f32.to_bits().to_be_bytes());
+        unit_body.extend_from_slice(&9.0f64.to_bits().to_be_bytes());
+        unit_body.extend_from_slice(&140.0f32.to_bits().to_be_bytes());
+        unit_body.push(0);
+        unit_body.extend_from_slice(&12345i32.to_be_bytes());
+        unit_body.push(0);
+        unit_body.extend_from_slice(&0i32.to_be_bytes());
+        unit_body.extend_from_slice(&0i32.to_be_bytes());
+        unit_body.extend_from_slice(&45.0f32.to_bits().to_be_bytes());
+        unit_body.extend_from_slice(&20.0f32.to_bits().to_be_bytes());
+        unit_body.push(1);
+        unit_body.extend_from_slice(&1i16.to_be_bytes());
+        unit_body.extend_from_slice(&30i32.to_be_bytes());
+        unit_body.extend_from_slice(&0i32.to_be_bytes());
+        unit_body.push(3);
+        unit_body.extend_from_slice(&23i16.to_be_bytes());
+        unit_body.push(1);
+        unit_body.extend_from_slice(&2.0f32.to_bits().to_be_bytes());
+        unit_body.extend_from_slice(&(-3.0f32).to_bits().to_be_bytes());
+        unit_body.extend_from_slice(&128.0f32.to_bits().to_be_bytes());
+        unit_body.extend_from_slice(&256.0f32.to_bits().to_be_bytes());
+
+        let mut bytes = Vec::new();
+        bytes.push(1);
+        bytes.push(0);
+        bytes.push(23);
+        bytes.extend_from_slice(&unit_body);
+
+        let (snapshot, consumed) = parse_payload_snapshot_bytes(&[], &bytes).unwrap();
+
+        assert_eq!(
+            snapshot,
+            PayloadSnapshot::Unit(UnitPayloadSnapshot {
+                class_id: 23,
+                revision: 6,
                 body_len: unit_body.len(),
                 body_sha256: sha256_hex(&unit_body),
             })
