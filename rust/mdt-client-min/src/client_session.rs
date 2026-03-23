@@ -1703,6 +1703,7 @@ impl ClientSession {
         payload: &[u8],
     ) -> Result<ConnectPacketEnvelope, ClientSessionError> {
         let connect = ConnectPacketEnvelope::from_payload(payload)?;
+        self.quiet_reset_for_reconnect();
         apply_connect_packet(&mut self.state, &connect);
         self.record_outbound_activity(self.clock_ms);
         Ok(connect)
@@ -5093,6 +5094,33 @@ impl ClientSession {
         self.snapshot_input.position = None;
         self.snapshot_input.view_center = None;
         true
+    }
+
+    fn quiet_reset_for_reconnect(&mut self) {
+        self.pending_packets.clear();
+        self.deferred_inbound_packets.clear();
+        self.replayed_loading_events.clear();
+        self.pending_world_stream = None;
+        self.loading_world_data = false;
+        self.loaded_world_bundle = None;
+        self.last_inbound_at_ms = None;
+        self.last_ready_inbound_liveness_at_ms = None;
+        self.last_snapshot_at_ms = None;
+        self.last_keepalive_at_ms = None;
+        self.last_client_snapshot_at_ms = None;
+        self.last_remote_ping_at_ms = None;
+        self.last_remote_ping_rtt_ms = None;
+        self.kicked = false;
+        self.last_kick_reason_text = None;
+        self.last_kick_reason_ordinal = None;
+        self.last_kick_duration_ms = None;
+        self.last_kick_hint_category = None;
+        self.last_kick_hint_text = None;
+        self.next_client_snapshot_id = 1;
+        self.timed_out = false;
+        self.snapshot_input = ClientSnapshotInputState::default();
+        self.state = SessionState::default();
+        self.stats = NetLoopStats::default();
     }
 
     fn begin_world_data_reload(&mut self) {
@@ -22253,5 +22281,78 @@ mod tests {
 
         assert_eq!(session.state().authoritative_state_mirror, None);
         assert_eq!(session.state().state_snapshot_authority_projection, None);
+    }
+
+    #[test]
+    fn prepare_connect_packet_quiet_resets_session_before_reconnect() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let connect_payload = sample_connect_payload();
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+        let state_snapshot_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == HighFrequencyRemoteMethod::StateSnapshot.method_name())
+            .unwrap()
+            .packet_id;
+        let state_snapshot = encode_packet(
+            state_snapshot_packet_id,
+            &sample_snapshot_packet("stateSnapshot.packet"),
+            false,
+        )
+        .unwrap();
+
+        session.prepare_connect_packet(&connect_payload).unwrap();
+        session.ingest_packet_bytes(&begin_packet).unwrap();
+        for chunk in &chunk_packets {
+            session.ingest_packet_bytes(chunk).unwrap();
+        }
+        assert!(session.prepare_connect_confirm_packet().unwrap().is_some());
+        session.ingest_packet_bytes(&state_snapshot).unwrap();
+        assert!(session.state().connect_confirm_sent);
+        assert!(session.state().world_stream_loaded);
+        assert!(session.state().authoritative_state_mirror.is_some());
+        session.state.connection_timed_out = true;
+        session.kicked = true;
+        session.timed_out = true;
+        session.last_inbound_at_ms = Some(123);
+        session.last_keepalive_at_ms = Some(456);
+        session.next_client_snapshot_id = 42;
+        session
+            .queue_tile_config(Some(321), TypeIoObject::Int(7))
+            .unwrap();
+        assert!(!session.pending_packets.is_empty());
+
+        let reconnect = session.prepare_connect_packet(&connect_payload).unwrap();
+        assert_eq!(reconnect.payload, connect_payload);
+        assert!(session.state().connect_packet_sent);
+        assert_eq!(session.state().connect_payload_len, connect_payload.len());
+        assert_eq!(session.state().connect_packet_len, reconnect.encoded_packet.len());
+        assert!(!session.state().world_stream_loaded);
+        assert!(!session.state().ready_to_enter_world);
+        assert!(!session.state().client_loaded);
+        assert!(!session.state().connect_confirm_sent);
+        assert!(!session.state().connection_timed_out);
+        assert_eq!(session.state().authoritative_state_mirror, None);
+        assert_eq!(session.state().state_snapshot_authority_projection, None);
+        assert!(session.pending_packets.is_empty());
+        assert!(session.deferred_inbound_packets.is_empty());
+        assert!(session.replayed_loading_events.is_empty());
+        assert_eq!(session.last_inbound_at_ms, None);
+        assert_eq!(session.last_keepalive_at_ms, None);
+        assert_eq!(session.next_client_snapshot_id, 1);
+        assert!(!session.kicked);
+        assert!(!session.timed_out);
+        assert!(!session.loading_world_data);
+        assert!(session.loaded_world_bundle().is_none());
+
+        session.ingest_packet_bytes(&begin_packet).unwrap();
+        for chunk in &chunk_packets {
+            session.ingest_packet_bytes(chunk).unwrap();
+        }
+        assert!(session.state().world_stream_loaded);
+        assert!(session.prepare_connect_confirm_packet().unwrap().is_some());
     }
 }

@@ -300,6 +300,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         session.state().connection_timed_out
     );
     println!(
+        "{}",
+        format_final_kick_summary(
+            session.kicked(),
+            session.last_kick_reason_text(),
+            session.last_kick_reason_ordinal(),
+            session.last_kick_duration_ms(),
+        )
+    );
+    println!(
         "final_input: unit_id={:?} dead={} position={:?} velocity=({:.3},{:.3}) pointer={:?}",
         final_input.unit_id,
         final_input.dead,
@@ -3854,6 +3863,73 @@ fn dedupe_packet_watch_types(packet_types: &[String]) -> Vec<String> {
     deduped
 }
 
+fn format_final_kick_summary(
+    kicked: bool,
+    reason_text: Option<&str>,
+    reason_ordinal: Option<i32>,
+    duration_ms: Option<u64>,
+) -> String {
+    let (hint_category, hint_text) = summarize_kick_hint_from(reason_text, reason_ordinal);
+    format!(
+        "final_kick: kicked={} reason_text={reason_text:?} reason_ordinal={reason_ordinal:?} duration_ms={duration_ms:?} hint_category={} hint_text={hint_text:?}",
+        kicked,
+        hint_category.unwrap_or("none"),
+    )
+}
+
+fn summarize_kick_hint_from(
+    reason_text: Option<&str>,
+    reason_ordinal: Option<i32>,
+) -> (Option<&'static str>, Option<&'static str>) {
+    let normalized_reason = match reason_text {
+        Some("clientOutdated") => Some("clientOutdated"),
+        Some("serverOutdated") => Some("serverOutdated"),
+        Some("customClient") => Some("customClient"),
+        Some("typeMismatch") => Some("typeMismatch"),
+        Some("serverRestarting") => Some("serverRestarting"),
+        _ => reason_ordinal.and_then(summarize_kick_reason_name_from_ordinal),
+    };
+
+    match normalized_reason {
+        Some("clientOutdated") => (
+            Some("ClientOutdated"),
+            Some("client build is outdated; upgrade this client to the server version."),
+        ),
+        Some("serverOutdated") => (
+            Some("ServerOutdated"),
+            Some(
+                "server build is older than this client; use a matching server or older client build.",
+            ),
+        ),
+        Some("customClient") => (
+            Some("CustomClientRejected"),
+            Some(
+                "server rejected custom clients; connect to a server that allows custom clients.",
+            ),
+        ),
+        Some("typeMismatch") => (
+            Some("TypeMismatch"),
+            Some("version type/protocol mismatch; align client/server version type and mod set."),
+        ),
+        Some("serverRestarting") => (
+            Some("ServerRestarting"),
+            Some("server is restarting; retry connection shortly."),
+        ),
+        _ => (None, None),
+    }
+}
+
+fn summarize_kick_reason_name_from_ordinal(reason_ordinal: i32) -> Option<&'static str> {
+    match reason_ordinal {
+        1 => Some("clientOutdated"),
+        2 => Some("serverOutdated"),
+        9 => Some("customClient"),
+        12 => Some("typeMismatch"),
+        15 => Some("serverRestarting"),
+        _ => None,
+    }
+}
+
 fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<String> {
     events
         .iter()
@@ -3998,9 +4074,14 @@ fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<String> 
                 reason_text,
                 reason_ordinal,
                 duration_ms,
-            } => Some(format!(
-                "kick: reason_text={reason_text:?} reason_ordinal={reason_ordinal:?} duration_ms={duration_ms:?}"
-            )),
+            } => {
+                let (hint_category, hint_text) =
+                    summarize_kick_hint_from(reason_text.as_deref(), *reason_ordinal);
+                Some(format!(
+                    "kick: reason_text={reason_text:?} reason_ordinal={reason_ordinal:?} duration_ms={duration_ms:?} hint_category={} hint_text={hint_text:?}",
+                    hint_category.unwrap_or("none")
+                ))
+            }
             ClientSessionEvent::Ping {
                 sent_at_ms,
                 response_queued,
@@ -6276,10 +6357,53 @@ mod tests {
         assert!(lines[6].contains("sender_entity_id=Some(99)"));
         assert!(lines[7].contains("kick:"));
         assert!(lines[7].contains("Some(15)"));
+        assert!(lines[7].contains("hint_category=ServerRestarting"));
+        assert!(lines[7].contains("retry connection shortly"));
         assert!(lines[8].contains("ping:"));
         assert!(lines[8].contains("response_queued=true"));
         assert!(lines[9].contains("ping_response:"));
         assert!(lines[9].contains("round_trip_ms=Some(56)"));
+    }
+
+    #[test]
+    fn summarize_client_packet_events_surfaces_kick_hint_for_high_signal_reason_text() {
+        let lines = summarize_client_packet_events(&[ClientSessionEvent::Kicked {
+            reason_text: Some("typeMismatch".to_string()),
+            reason_ordinal: None,
+            duration_ms: Some(1200),
+        }]);
+
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].contains("kick:"));
+        assert!(lines[0].contains("hint_category=TypeMismatch"));
+        assert!(lines[0].contains("version type/protocol mismatch"));
+    }
+
+    #[test]
+    fn format_final_kick_summary_defaults_to_none_without_kick() {
+        let line = format_final_kick_summary(false, None, None, None);
+
+        assert_eq!(
+            line,
+            "final_kick: kicked=false reason_text=None reason_ordinal=None duration_ms=None hint_category=none hint_text=None"
+        );
+    }
+
+    #[test]
+    fn format_final_kick_summary_surfaces_high_signal_hint() {
+        let line = format_final_kick_summary(
+            true,
+            Some("serverRestarting"),
+            Some(KICK_REASON_SERVER_RESTARTING_ORDINAL),
+            Some(1500),
+        );
+
+        assert!(line.contains("final_kick: kicked=true"));
+        assert!(line.contains("reason_text=Some(\"serverRestarting\")"));
+        assert!(line.contains("reason_ordinal=Some(15)"));
+        assert!(line.contains("duration_ms=Some(1500)"));
+        assert!(line.contains("hint_category=ServerRestarting"));
+        assert!(line.contains("retry connection shortly"));
     }
 
     #[test]

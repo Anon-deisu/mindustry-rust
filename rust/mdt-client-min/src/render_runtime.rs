@@ -1750,6 +1750,7 @@ mod tests {
             "runtime_builder=q0:i0:f0:r0:o0:none@none:none:local0 runtime_builder_head=none@none:none:bnone:rnone runtime_entity_local={} runtime_entity_hidden=0",
             runtime_local_entity_label(session.state())
         )));
+        assert!(hud.status_text.contains("runtime_kick=none@none:none:none"));
     }
 
     #[test]
@@ -1975,6 +1976,41 @@ mod tests {
         }]);
         assert!(adapter.world_overlay().tile_overlays.is_empty());
         assert_eq!(adapter.world_overlay().snapshot_refresh_count, 0);
+    }
+
+    #[test]
+    fn render_runtime_adapter_surfaces_kick_hint_in_overlay_and_hud() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        adapter.observe_events(&[ClientSessionEvent::Kicked {
+            reason_text: Some("server restart".to_string()),
+            reason_ordinal: Some(15),
+            duration_ms: Some(5_000),
+        }]);
+
+        assert_eq!(
+            adapter.world_overlay().last_kick_reason_text.as_deref(),
+            Some("server restart")
+        );
+        assert_eq!(adapter.world_overlay().last_kick_reason_ordinal, Some(15));
+        assert_eq!(adapter.world_overlay().last_kick_duration_ms, Some(5_000));
+        assert_eq!(
+            adapter.world_overlay().last_kick_hint_category,
+            Some("ServerRestarting")
+        );
+        assert_eq!(
+            adapter.world_overlay().last_kick_hint_text,
+            Some("server is restarting; retry connection shortly.")
+        );
+
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        assert!(hud.status_text.contains("runtime_kick="));
+        assert!(hud.status_text.contains(":ServerRestarting:"));
+        assert!(hud.status_text.contains("server_is_re~"));
     }
 
     #[test]
