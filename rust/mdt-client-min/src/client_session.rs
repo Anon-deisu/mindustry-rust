@@ -101,6 +101,8 @@ const BLOCK_NAME_DOOR_LARGE: &str = "door-large";
 const BLOCK_NAME_MESSAGE: &str = "message";
 const BLOCK_NAME_REINFORCED_MESSAGE: &str = "reinforced-message";
 const BLOCK_NAME_WORLD_MESSAGE: &str = "world-message";
+const BLOCK_NAME_CANVAS: &str = "canvas";
+const BLOCK_NAME_LARGE_CANVAS: &str = "large-canvas";
 const BLOCK_NAME_CONSTRUCTOR: &str = "constructor";
 const BLOCK_NAME_LARGE_CONSTRUCTOR: &str = "large-constructor";
 const BLOCK_NAME_ILLUMINATOR: &str = "illuminator";
@@ -121,6 +123,8 @@ const BLOCK_NAME_ADDITIVE_RECONSTRUCTOR: &str = "additive-reconstructor";
 const BLOCK_NAME_MULTIPLICATIVE_RECONSTRUCTOR: &str = "multiplicative-reconstructor";
 const BLOCK_NAME_EXPONENTIAL_RECONSTRUCTOR: &str = "exponential-reconstructor";
 const BLOCK_NAME_TETRATIVE_RECONSTRUCTOR: &str = "tetrative-reconstructor";
+const CANVAS_CONFIG_BYTES_LEN: usize = 54;
+const LARGE_CANVAS_CONFIG_BYTES_LEN: usize = 288;
 const MESSAGE_BLOCK_MAX_TEXT_LENGTH: usize = 300;
 const MESSAGE_BLOCK_MAX_NEWLINES: usize = 24;
 const ALPHA_SHAPE_ENTITY_CLASS_IDS: [u8; 17] = [
@@ -1960,6 +1964,29 @@ impl ClientSession {
                     self.state
                         .configured_block_projection
                         .apply_message_text(build_pos, text);
+                    ConfiguredBlockOutcome::Applied
+                } else {
+                    ConfiguredBlockOutcome::RejectedUnsupportedConfigType
+                }
+            }
+            BLOCK_NAME_CANVAS => {
+                if let Some(bytes) = configured_canvas_bytes(config_object, CANVAS_CONFIG_BYTES_LEN)
+                {
+                    self.state
+                        .configured_block_projection
+                        .apply_canvas_bytes(build_pos, bytes);
+                    ConfiguredBlockOutcome::Applied
+                } else {
+                    ConfiguredBlockOutcome::RejectedUnsupportedConfigType
+                }
+            }
+            BLOCK_NAME_LARGE_CANVAS => {
+                if let Some(bytes) =
+                    configured_canvas_bytes(config_object, LARGE_CANVAS_CONFIG_BYTES_LEN)
+                {
+                    self.state
+                        .configured_block_projection
+                        .apply_canvas_bytes(build_pos, bytes);
                     ConfiguredBlockOutcome::Applied
                 } else {
                     ConfiguredBlockOutcome::RejectedUnsupportedConfigType
@@ -8097,6 +8124,13 @@ fn configured_int(config_object: &TypeIoObject) -> Option<i32> {
 fn configured_message_text(config_object: &TypeIoObject) -> Option<String> {
     match config_object {
         TypeIoObject::String(Some(text)) => normalize_message_block_text(text),
+        _ => None,
+    }
+}
+
+fn configured_canvas_bytes(config_object: &TypeIoObject, expected_len: usize) -> Option<Vec<u8>> {
+    match config_object {
+        TypeIoObject::Bytes(bytes) if bytes.len() == expected_len => Some(bytes.clone()),
         _ => None,
     }
 }
@@ -15411,6 +15445,12 @@ mod tests {
         loaded_world_content_id_for_name(session, BLOCK_CONTENT_TYPE, block_name)
     }
 
+    fn canvas_config_bytes(len: usize, seed: u8) -> Vec<u8> {
+        (0..len)
+            .map(|index| seed.wrapping_add(u8::try_from(index % 251).unwrap()))
+            .collect()
+    }
+
     fn ingest_construct_finish_for_block_config_test(
         session: &mut ClientSession,
         manifest: &mdt_remote::RemoteManifest,
@@ -21743,6 +21783,214 @@ mod tests {
     }
 
     #[test]
+    fn canvas_config_business_dispatch_applies_valid_bytes_for_supported_blocks() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+
+        for (build_pos, block_name, data_len, seed) in [
+            (
+                pack_point2(38, 61),
+                BLOCK_NAME_CANVAS,
+                CANVAS_CONFIG_BYTES_LEN,
+                0x10,
+            ),
+            (
+                pack_point2(39, 62),
+                BLOCK_NAME_LARGE_CANVAS,
+                LARGE_CANVAS_CONFIG_BYTES_LEN,
+                0x40,
+            ),
+        ] {
+            let block_id = loaded_world_block_id_for_name(&session, block_name);
+            let initial = canvas_config_bytes(data_len, seed);
+            let updated = canvas_config_bytes(data_len, seed.wrapping_add(0x20));
+
+            ingest_construct_finish_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                block_id,
+                &TypeIoObject::Bytes(initial.clone()),
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .canvas_bytes_by_build_pos
+                    .get(&build_pos),
+                Some(&initial)
+            );
+
+            ingest_tile_config_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                &TypeIoObject::Bytes(updated.clone()),
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .canvas_bytes_by_build_pos
+                    .get(&build_pos),
+                Some(&updated)
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .tile_config_projection
+                    .last_configured_block_outcome,
+                Some(crate::session_state::ConfiguredBlockOutcome::Applied)
+            );
+        }
+    }
+
+    #[test]
+    fn canvas_config_business_dispatch_null_does_not_clear_existing_bytes() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+
+        for (build_pos, block_name, data_len, seed) in [
+            (
+                pack_point2(40, 63),
+                BLOCK_NAME_CANVAS,
+                CANVAS_CONFIG_BYTES_LEN,
+                0x21,
+            ),
+            (
+                pack_point2(41, 64),
+                BLOCK_NAME_LARGE_CANVAS,
+                LARGE_CANVAS_CONFIG_BYTES_LEN,
+                0x51,
+            ),
+        ] {
+            let block_id = loaded_world_block_id_for_name(&session, block_name);
+            let applied = canvas_config_bytes(data_len, seed);
+
+            ingest_construct_finish_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                block_id,
+                &TypeIoObject::Bytes(applied.clone()),
+            );
+            ingest_tile_config_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                &TypeIoObject::Null,
+            );
+
+            assert_eq!(
+                session
+                    .state()
+                    .tile_config_projection
+                    .last_configured_block_outcome,
+                Some(crate::session_state::ConfiguredBlockOutcome::RejectedUnsupportedConfigType)
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .canvas_bytes_by_build_pos
+                    .get(&build_pos),
+                Some(&applied)
+            );
+        }
+    }
+
+    #[test]
+    fn canvas_config_business_dispatch_wrong_length_does_not_clear_existing_bytes() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+
+        for (build_pos, block_name, data_len, wrong_len, seed) in [
+            (
+                pack_point2(42, 65),
+                BLOCK_NAME_CANVAS,
+                CANVAS_CONFIG_BYTES_LEN,
+                CANVAS_CONFIG_BYTES_LEN + 1,
+                0x31,
+            ),
+            (
+                pack_point2(43, 66),
+                BLOCK_NAME_LARGE_CANVAS,
+                LARGE_CANVAS_CONFIG_BYTES_LEN,
+                CANVAS_CONFIG_BYTES_LEN,
+                0x61,
+            ),
+        ] {
+            let block_id = loaded_world_block_id_for_name(&session, block_name);
+            let applied = canvas_config_bytes(data_len, seed);
+
+            ingest_construct_finish_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                block_id,
+                &TypeIoObject::Bytes(applied.clone()),
+            );
+            ingest_tile_config_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                &TypeIoObject::Bytes(canvas_config_bytes(wrong_len, seed.wrapping_add(0x10))),
+            );
+
+            assert_eq!(
+                session
+                    .state()
+                    .tile_config_projection
+                    .last_configured_block_outcome,
+                Some(crate::session_state::ConfiguredBlockOutcome::RejectedUnsupportedConfigType)
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .canvas_bytes_by_build_pos
+                    .get(&build_pos),
+                Some(&applied)
+            );
+        }
+    }
+
+    #[test]
+    fn canvas_config_business_dispatch_rejects_non_bytes_without_mutating_state() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(44, 67);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_CANVAS);
+        let applied = canvas_config_bytes(CANVAS_CONFIG_BYTES_LEN, 0x71);
+
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+            &TypeIoObject::Bytes(applied.clone()),
+        );
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &TypeIoObject::Int(7),
+        );
+
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_configured_block_outcome,
+            Some(crate::session_state::ConfiguredBlockOutcome::RejectedUnsupportedConfigType)
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .canvas_bytes_by_build_pos
+                .get(&build_pos),
+            Some(&applied)
+        );
+    }
+
+    #[test]
     fn constructor_config_business_dispatch_applies_block_and_clear() {
         let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let recipe_block_id =
@@ -23078,6 +23326,38 @@ mod tests {
             .state()
             .configured_block_projection
             .message_text_by_build_pos
+            .contains_key(&build_pos));
+    }
+
+    #[test]
+    fn deconstruct_finish_clears_canvas_configured_block_projection_state() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(40, 68);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_CANVAS);
+
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+            &TypeIoObject::Bytes(canvas_config_bytes(CANVAS_CONFIG_BYTES_LEN, 0x81)),
+        );
+        assert!(session
+            .state()
+            .configured_block_projection
+            .canvas_bytes_by_build_pos
+            .contains_key(&build_pos));
+
+        ingest_deconstruct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+        );
+        assert!(!session
+            .state()
+            .configured_block_projection
+            .canvas_bytes_by_build_pos
             .contains_key(&build_pos));
     }
 
@@ -28940,6 +29220,20 @@ mod tests {
                 .get(&999),
             Some(&TypeIoObject::Int(3))
         );
+        let canvas_build_pos = pack_point2(27, 18);
+        let canvas_block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_CANVAS);
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            canvas_build_pos,
+            canvas_block_id,
+            &TypeIoObject::Bytes(canvas_config_bytes(CANVAS_CONFIG_BYTES_LEN, 0x91)),
+        );
+        assert!(session
+            .state()
+            .configured_block_projection
+            .canvas_bytes_by_build_pos
+            .contains_key(&canvas_build_pos));
         let effect_packet_id = manifest
             .remote_packets
             .iter()
@@ -29103,6 +29397,11 @@ mod tests {
             session.state().entity_table_projection,
             crate::session_state::EntityTableProjection::default()
         );
+        assert!(session
+            .state()
+            .configured_block_projection
+            .canvas_bytes_by_build_pos
+            .is_empty());
 
         session.ingest_packet_bytes(&begin_packet).unwrap();
         for chunk in &chunk_packets {

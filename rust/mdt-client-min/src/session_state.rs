@@ -565,6 +565,7 @@ pub struct ConfiguredBlockProjection {
     pub payload_mass_driver_link_by_build_pos: BTreeMap<i32, Option<i32>>,
     pub power_node_links_by_build_pos: BTreeMap<i32, BTreeSet<i32>>,
     pub reconstructor_command_by_build_pos: BTreeMap<i32, Option<u16>>,
+    pub canvas_bytes_by_build_pos: BTreeMap<i32, Vec<u8>>,
 }
 
 impl ConfiguredBlockProjection {
@@ -686,6 +687,10 @@ impl ConfiguredBlockProjection {
             .insert(build_pos, command_id);
     }
 
+    pub fn apply_canvas_bytes(&mut self, build_pos: i32, bytes: Vec<u8>) {
+        self.canvas_bytes_by_build_pos.insert(build_pos, bytes);
+    }
+
     pub fn clear_building_state(&mut self, build_pos: i32) {
         self.unit_cargo_unload_point_item_by_build_pos
             .remove(&build_pos);
@@ -712,6 +717,7 @@ impl ConfiguredBlockProjection {
             .remove(&build_pos);
         self.power_node_links_by_build_pos.remove(&build_pos);
         self.reconstructor_command_by_build_pos.remove(&build_pos);
+        self.canvas_bytes_by_build_pos.remove(&build_pos);
     }
 
     pub fn clear_for_world_reload(&mut self) {
