@@ -12764,6 +12764,65 @@ pub fn parse_building_sync_bytes(
     ))
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuildPayloadSnapshot {
+    pub block_id: i16,
+    pub build_revision: u8,
+    pub building_sync: BuildingSnapshot,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PayloadSnapshot {
+    Null,
+    Build(BuildPayloadSnapshot),
+}
+
+pub fn parse_payload_snapshot_bytes(
+    content_header: &[ContentHeaderEntry],
+    bytes: &[u8],
+) -> Result<(PayloadSnapshot, usize), String> {
+    let mut reader = Reader::new(bytes);
+    if !reader.read_bool()? {
+        return Ok((PayloadSnapshot::Null, reader.position()));
+    }
+    match reader.read_u8()? {
+        1 => {
+            let block_id = reader.read_i16()?;
+            let build_revision = reader.read_u8()?;
+            let block_name = if block_id >= 0 {
+                resolve_content_name(content_header, BLOCK_CONTENT_TYPE, block_id as u16)
+            } else {
+                None
+            };
+            let remaining = reader.remaining_bytes();
+            let (building_sync, consumed) =
+                parse_building_sync_bytes(content_header, block_name, build_revision, &remaining)
+                    .map_err(|error| {
+                    error.replace("building sync boundary", "build payload boundary")
+                })?;
+            reader.skip_bytes(consumed)?;
+            Ok((
+                PayloadSnapshot::Build(BuildPayloadSnapshot {
+                    block_id,
+                    build_revision,
+                    building_sync,
+                }),
+                reader.position(),
+            ))
+        }
+        0 => {
+            let class_id = reader.read_u8()?;
+            let revision = reader.read_i16()?;
+            Err(format!(
+                "unsupported unit payload in payload snapshot parser: class_id={class_id}:revision={revision}"
+            ))
+        }
+        payload_type => Err(format!(
+            "unsupported payload type in payload snapshot parser: {payload_type}"
+        )),
+    }
+}
+
 pub fn parse_entity_player_sync_bytes(
     bytes: &[u8],
 ) -> Result<(EntityPlayerSyncSnapshot, usize), String> {
@@ -13061,7 +13120,53 @@ fn format_payload_entry_probe(probe: &PayloadEntryProbe) -> String {
     }
 }
 
+fn consume_entity_payload_entries(
+    reader: &mut Reader<'_>,
+    payload_count: i32,
+    content_header: Option<&[ContentHeaderEntry]>,
+    outer_kind: &str,
+) -> Result<(), String> {
+    if payload_count == 0 {
+        return Ok(());
+    }
+
+    let Some(content_header) = content_header else {
+        let first_payload = probe_payload_entry(reader)
+            .map(|probe| format_payload_entry_probe(&probe))
+            .unwrap_or_else(|error| format!("unavailable:{error}"));
+        return Err(format!(
+            "unsupported {outer_kind} nonzero payload count: {payload_count}:first_payload:{first_payload}"
+        ));
+    };
+
+    let payload_count = usize::try_from(payload_count).unwrap_or_default();
+    for payload_index in 0..payload_count {
+        let remaining = reader.remaining_bytes();
+        let (_, consumed) =
+            parse_payload_snapshot_bytes(content_header, &remaining).map_err(|error| {
+                format!("unsupported {outer_kind} payload[{payload_index}]:{error}")
+            })?;
+        reader.skip_bytes(consumed)?;
+    }
+
+    Ok(())
+}
+
 pub fn parse_entity_payload_sync_bytes(
+    bytes: &[u8],
+) -> Result<(EntityPayloadSyncSnapshot, usize), String> {
+    parse_entity_payload_sync_bytes_with_content_header_option(None, bytes)
+}
+
+pub fn parse_entity_payload_sync_bytes_with_content_header(
+    content_header: &[ContentHeaderEntry],
+    bytes: &[u8],
+) -> Result<(EntityPayloadSyncSnapshot, usize), String> {
+    parse_entity_payload_sync_bytes_with_content_header_option(Some(content_header), bytes)
+}
+
+fn parse_entity_payload_sync_bytes_with_content_header_option(
+    content_header: Option<&[ContentHeaderEntry]>,
     bytes: &[u8],
 ) -> Result<(EntityPayloadSyncSnapshot, usize), String> {
     let mut reader = Reader::new(bytes);
@@ -13082,14 +13187,7 @@ pub fn parse_entity_payload_sync_bytes(
             "unsupported payload sync negative payload count: {payload_count}"
         ));
     }
-    if payload_count != 0 {
-        let first_payload = probe_payload_entry(&mut reader)
-            .map(|probe| format_payload_entry_probe(&probe))
-            .unwrap_or_else(|error| format!("unavailable:{error}"));
-        return Err(format!(
-            "unsupported payload sync nonzero payload count: {payload_count}:first_payload:{first_payload}"
-        ));
-    }
+    consume_entity_payload_entries(&mut reader, payload_count, content_header, "payload sync")?;
     let plan_count = reader.read_i32()?;
     if plan_count < 0 {
         return Err(format!(
@@ -13151,6 +13249,23 @@ pub fn parse_entity_payload_sync_bytes(
 pub fn parse_entity_building_tether_payload_sync_bytes(
     bytes: &[u8],
 ) -> Result<(EntityBuildingTetherPayloadSyncSnapshot, usize), String> {
+    parse_entity_building_tether_payload_sync_bytes_with_content_header_option(None, bytes)
+}
+
+pub fn parse_entity_building_tether_payload_sync_bytes_with_content_header(
+    content_header: &[ContentHeaderEntry],
+    bytes: &[u8],
+) -> Result<(EntityBuildingTetherPayloadSyncSnapshot, usize), String> {
+    parse_entity_building_tether_payload_sync_bytes_with_content_header_option(
+        Some(content_header),
+        bytes,
+    )
+}
+
+fn parse_entity_building_tether_payload_sync_bytes_with_content_header_option(
+    content_header: Option<&[ContentHeaderEntry]>,
+    bytes: &[u8],
+) -> Result<(EntityBuildingTetherPayloadSyncSnapshot, usize), String> {
     let mut reader = Reader::new(bytes);
     let abilities_len = reader.read_u8()?;
     reader.skip_bytes(usize::from(abilities_len).saturating_mul(4))?;
@@ -13170,14 +13285,12 @@ pub fn parse_entity_building_tether_payload_sync_bytes(
             "unsupported tether payload sync negative payload count: {payload_count}"
         ));
     }
-    if payload_count != 0 {
-        let first_payload = probe_payload_entry(&mut reader)
-            .map(|probe| format_payload_entry_probe(&probe))
-            .unwrap_or_else(|error| format!("unavailable:{error}"));
-        return Err(format!(
-            "unsupported tether payload sync nonzero payload count: {payload_count}:first_payload:{first_payload}"
-        ));
-    }
+    consume_entity_payload_entries(
+        &mut reader,
+        payload_count,
+        content_header,
+        "tether payload sync",
+    )?;
     let plan_count = reader.read_i32()?;
     if plan_count < 0 {
         return Err(format!(
@@ -37147,6 +37260,68 @@ mod tests {
     }
 
     #[test]
+    fn parses_payload_snapshot_bytes_with_null_payload() {
+        let bytes = vec![0, 1, 2, 3];
+        let (snapshot, consumed) = parse_payload_snapshot_bytes(&[], &bytes).unwrap();
+
+        assert_eq!(snapshot, PayloadSnapshot::Null);
+        assert_eq!(consumed, 1);
+    }
+
+    #[test]
+    fn parses_payload_snapshot_bytes_with_build_payload() {
+        let compressed = sample_world_stream_bytes();
+        let world = parse_world_model(&compressed).unwrap();
+        let conveyor_chunk = world.building_center_at(1, 2).unwrap().chunk_bytes.clone();
+        let content_header = vec![ContentHeaderEntry {
+            content_type: BLOCK_CONTENT_TYPE,
+            names: vec!["air".into(), "conveyor".into()],
+        }];
+        let nested =
+            parse_building_snapshot(&content_header, Some("conveyor"), &conveyor_chunk).unwrap();
+
+        let (snapshot, consumed) = parse_payload_snapshot_bytes(&content_header, &{
+            let mut bytes = Vec::new();
+            bytes.push(1);
+            bytes.push(1);
+            bytes.extend_from_slice(&(1i16).to_be_bytes());
+            bytes.push(conveyor_chunk[0]);
+            bytes.extend_from_slice(&conveyor_chunk[1..]);
+            bytes
+        })
+        .unwrap();
+
+        assert_eq!(
+            snapshot,
+            PayloadSnapshot::Build(BuildPayloadSnapshot {
+                block_id: 1,
+                build_revision: conveyor_chunk[0],
+                building_sync: nested,
+            })
+        );
+        assert_eq!(
+            consumed,
+            1 + 1 + std::mem::size_of::<i16>() + 1 + conveyor_chunk.len() - 1
+        );
+    }
+
+    #[test]
+    fn payload_snapshot_bytes_rejects_unit_payload_fail_closed() {
+        let mut bytes = Vec::new();
+        bytes.push(1);
+        bytes.push(0);
+        bytes.push(12);
+        bytes.extend_from_slice(&6i16.to_be_bytes());
+        bytes.extend_from_slice(&[0xaa, 0xbb]);
+
+        let error = parse_payload_snapshot_bytes(&[], &bytes).unwrap_err();
+
+        assert!(error.contains("unsupported unit payload in payload snapshot parser"));
+        assert!(error.contains("class_id=12"));
+        assert!(error.contains("revision=6"));
+    }
+
+    #[test]
     fn payload_sync_nonzero_payload_count_reports_first_unit_payload_header() {
         let mut bytes = Vec::new();
         bytes.push(0);
@@ -37189,6 +37364,101 @@ mod tests {
 
         assert!(error.contains("unsupported payload sync nonzero payload count: 1"));
         assert!(error.contains("first_payload:unit:class_id=12:revision=6"));
+    }
+
+    #[test]
+    fn parses_entity_payload_sync_bytes_with_build_payload_when_content_header_is_known() {
+        let compressed = sample_world_stream_bytes();
+        let world = parse_world_model(&compressed).unwrap();
+        let conveyor_chunk = world.building_center_at(1, 2).unwrap().chunk_bytes.clone();
+        let content_header = vec![ContentHeaderEntry {
+            content_type: BLOCK_CONTENT_TYPE,
+            names: vec!["air".into(), "conveyor".into()],
+        }];
+
+        let mut bytes = Vec::new();
+        bytes.push(0);
+        bytes.extend_from_slice(&123.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&7i32.to_be_bytes());
+        bytes.extend_from_slice(&1.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f64.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&150.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&(-1i32).to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&1i32.to_be_bytes());
+        bytes.push(1);
+        bytes.push(1);
+        bytes.extend_from_slice(&(1i16).to_be_bytes());
+        bytes.push(conveyor_chunk[0]);
+        bytes.extend_from_slice(&conveyor_chunk[1..]);
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&90.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0i16.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&35i16.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&1.5f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&(-2.25f32).to_bits().to_be_bytes());
+        bytes.extend_from_slice(&40.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&60.0f32.to_bits().to_be_bytes());
+
+        let (snapshot, consumed) =
+            parse_entity_payload_sync_bytes_with_content_header(&content_header, &bytes).unwrap();
+
+        assert_eq!(consumed, bytes.len());
+        assert_eq!(snapshot.payload_count, 1);
+        assert_eq!(snapshot.plan_count, 0);
+        assert_eq!(snapshot.team_id, 1);
+        assert_eq!(snapshot.unit_type_id, 35);
+        assert_eq!(snapshot.x_bits, 40.0f32.to_bits());
+        assert_eq!(snapshot.y_bits, 60.0f32.to_bits());
+    }
+
+    #[test]
+    fn payload_sync_with_content_header_still_rejects_unit_payload_fail_closed() {
+        let mut bytes = Vec::new();
+        bytes.push(0);
+        bytes.extend_from_slice(&123.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&7i32.to_be_bytes());
+        bytes.extend_from_slice(&1.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f64.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&150.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&(-1i32).to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&1i32.to_be_bytes());
+        bytes.push(1);
+        bytes.push(0);
+        bytes.push(12);
+        bytes.extend_from_slice(&6i16.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&90.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0i16.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&35i16.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&1.5f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&(-2.25f32).to_bits().to_be_bytes());
+        bytes.extend_from_slice(&40.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&60.0f32.to_bits().to_be_bytes());
+
+        let error = parse_entity_payload_sync_bytes_with_content_header(&[], &bytes).unwrap_err();
+
+        assert!(error.contains("unsupported payload sync payload[0]"));
+        assert!(error.contains("unsupported unit payload in payload snapshot parser"));
+        assert!(error.contains("class_id=12"));
+        assert!(error.contains("revision=6"));
     }
 
     #[test]
@@ -37235,6 +37505,67 @@ mod tests {
 
         assert!(error.contains("unsupported tether payload sync nonzero payload count: 1"));
         assert!(error.contains("first_payload:block:block_id=42:build_version=3"));
+    }
+
+    #[test]
+    fn parses_entity_building_tether_payload_sync_bytes_with_build_payload_when_content_header_is_known(
+    ) {
+        let compressed = sample_world_stream_bytes();
+        let world = parse_world_model(&compressed).unwrap();
+        let conveyor_chunk = world.building_center_at(1, 2).unwrap().chunk_bytes.clone();
+        let content_header = vec![ContentHeaderEntry {
+            content_type: BLOCK_CONTENT_TYPE,
+            names: vec!["air".into(), "conveyor".into()],
+        }];
+
+        let mut bytes = Vec::new();
+        bytes.push(0);
+        bytes.extend_from_slice(&123.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&12345i32.to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&7i32.to_be_bytes());
+        bytes.extend_from_slice(&1.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f64.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&150.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&(-1i32).to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&1i32.to_be_bytes());
+        bytes.push(1);
+        bytes.push(1);
+        bytes.extend_from_slice(&(1i16).to_be_bytes());
+        bytes.push(conveyor_chunk[0]);
+        bytes.extend_from_slice(&conveyor_chunk[1..]);
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&90.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0i16.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&35i16.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&1.5f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&(-2.25f32).to_bits().to_be_bytes());
+        bytes.extend_from_slice(&40.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&60.0f32.to_bits().to_be_bytes());
+
+        let (snapshot, consumed) =
+            parse_entity_building_tether_payload_sync_bytes_with_content_header(
+                &content_header,
+                &bytes,
+            )
+            .unwrap();
+
+        assert_eq!(consumed, bytes.len());
+        assert_eq!(snapshot.payload_count, 1);
+        assert_eq!(snapshot.building_pos, 12345);
+        assert_eq!(snapshot.plan_count, 0);
+        assert_eq!(snapshot.team_id, 1);
+        assert_eq!(snapshot.unit_type_id, 35);
+        assert_eq!(snapshot.x_bits, 40.0f32.to_bits());
+        assert_eq!(snapshot.y_bits, 60.0f32.to_bits());
     }
 
     #[test]

@@ -21,11 +21,13 @@ use mdt_typeio::{
 };
 use mdt_world::{
     parse_building_sync_bytes, parse_entity_alpha_sync_bytes,
-    parse_entity_building_tether_payload_sync_bytes, parse_entity_fire_sync_bytes,
-    parse_entity_mech_sync_bytes, parse_entity_missile_sync_bytes, parse_entity_payload_sync_bytes,
+    parse_entity_building_tether_payload_sync_bytes,
+    parse_entity_building_tether_payload_sync_bytes_with_content_header,
+    parse_entity_fire_sync_bytes, parse_entity_mech_sync_bytes, parse_entity_missile_sync_bytes,
+    parse_entity_payload_sync_bytes, parse_entity_payload_sync_bytes_with_content_header,
     parse_entity_player_sync_bytes, parse_entity_puddle_sync_bytes,
     parse_entity_weather_state_sync_bytes, parse_entity_world_label_sync_bytes, parse_world_bundle,
-    LoadedWorldBootstrap, LoadedWorldState, WorldBundle,
+    ContentHeaderEntry, LoadedWorldBootstrap, LoadedWorldState, WorldBundle,
 };
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
@@ -3879,45 +3881,60 @@ impl ClientSession {
                                                 self.apply_parseable_missile_rows_from_entity_snapshot(
                                                     &missile_rows,
                                                 );
-                                                let payload_rows =
-                                                    try_parse_payload_sync_rows_from_entity_snapshot_prefix(
-                                                        snapshot.payload,
-                                                    );
+                                                let (
+                                                    payload_rows,
+                                                    tether_payload_rows,
+                                                    fire_rows,
+                                                    puddle_rows,
+                                                    weather_state_rows,
+                                                    world_label_rows,
+                                                ) = {
+                                                    let content_header =
+                                                        self.loaded_world_bundle().map(|bundle| {
+                                                            bundle.content_header.as_slice()
+                                                        });
+                                                    (
+                                                        try_parse_payload_sync_rows_from_entity_snapshot_prefix_with_content_header(
+                                                            snapshot.payload,
+                                                            content_header,
+                                                        ),
+                                                        try_parse_building_tether_payload_sync_rows_from_entity_snapshot_prefix_with_content_header(
+                                                            snapshot.payload,
+                                                            content_header,
+                                                        ),
+                                                        try_parse_fire_sync_rows_from_entity_snapshot_prefix_with_content_header(
+                                                            snapshot.payload,
+                                                            content_header,
+                                                        ),
+                                                        try_parse_puddle_sync_rows_from_entity_snapshot_prefix_with_content_header(
+                                                            snapshot.payload,
+                                                            content_header,
+                                                        ),
+                                                        try_parse_weather_state_sync_rows_from_entity_snapshot_prefix_with_content_header(
+                                                            snapshot.payload,
+                                                            content_header,
+                                                        ),
+                                                        try_parse_world_label_sync_rows_from_entity_snapshot_prefix_with_content_header(
+                                                            snapshot.payload,
+                                                            content_header,
+                                                        ),
+                                                    )
+                                                };
                                                 self.apply_parseable_payload_rows_from_entity_snapshot(
                                                     &payload_rows,
                                                 );
-                                                let tether_payload_rows =
-                                                    try_parse_building_tether_payload_sync_rows_from_entity_snapshot_prefix(
-                                                        snapshot.payload,
-                                                    );
                                                 self.apply_parseable_building_tether_payload_rows_from_entity_snapshot(
                                                     &tether_payload_rows,
                                                 );
-                                                let fire_rows =
-                                                    try_parse_fire_sync_rows_from_entity_snapshot_prefix(
-                                                        snapshot.payload,
-                                                    );
                                                 self.apply_parseable_fire_rows_from_entity_snapshot(
                                                     &fire_rows,
                                                 );
-                                                let puddle_rows =
-                                                    try_parse_puddle_sync_rows_from_entity_snapshot_prefix(
-                                                        snapshot.payload,
-                                                    );
                                                 self.apply_parseable_puddle_rows_from_entity_snapshot(
                                                     &puddle_rows,
                                                 );
-                                                let weather_state_rows =
-                                                    try_parse_weather_state_sync_rows_from_entity_snapshot_prefix(
-                                                        snapshot.payload,
-                                                    );
                                                 self.apply_parseable_weather_state_rows_from_entity_snapshot(
                                                     &weather_state_rows,
                                                 );
-                                                let world_label_rows =
-                                                    try_parse_world_label_sync_rows_from_entity_snapshot_prefix(
-                                                        snapshot.payload,
-                                                    );
                                                 self.apply_parseable_world_label_rows_from_entity_snapshot(
                                                     &world_label_rows,
                                                 );
@@ -7802,38 +7819,130 @@ fn try_parse_missile_sync_rows_from_entity_snapshot_prefix(
     parse_missile_sync_rows_from_entity_snapshot_prefix(payload).unwrap_or_default()
 }
 
+#[cfg(test)]
 fn try_parse_payload_sync_rows_from_entity_snapshot_prefix(
     payload: &[u8],
 ) -> Vec<EntityPayloadSyncRow> {
-    parse_payload_sync_rows_from_entity_snapshot_prefix(payload).unwrap_or_default()
+    try_parse_payload_sync_rows_from_entity_snapshot_prefix_with_content_header(payload, None)
 }
 
+fn try_parse_payload_sync_rows_from_entity_snapshot_prefix_with_content_header(
+    payload: &[u8],
+    content_header: Option<&[ContentHeaderEntry]>,
+) -> Vec<EntityPayloadSyncRow> {
+    parse_payload_sync_rows_from_entity_snapshot_prefix_with_content_header(payload, content_header)
+        .unwrap_or_default()
+}
+
+#[cfg(test)]
 fn try_parse_building_tether_payload_sync_rows_from_entity_snapshot_prefix(
     payload: &[u8],
 ) -> Vec<EntityBuildingTetherPayloadSyncRow> {
-    parse_building_tether_payload_sync_rows_from_entity_snapshot_prefix(payload).unwrap_or_default()
+    try_parse_building_tether_payload_sync_rows_from_entity_snapshot_prefix_with_content_header(
+        payload, None,
+    )
 }
 
+fn try_parse_building_tether_payload_sync_rows_from_entity_snapshot_prefix_with_content_header(
+    payload: &[u8],
+    content_header: Option<&[ContentHeaderEntry]>,
+) -> Vec<EntityBuildingTetherPayloadSyncRow> {
+    parse_building_tether_payload_sync_rows_from_entity_snapshot_prefix_with_content_header(
+        payload,
+        content_header,
+    )
+    .unwrap_or_default()
+}
+
+#[cfg(test)]
 fn try_parse_fire_sync_rows_from_entity_snapshot_prefix(payload: &[u8]) -> Vec<EntityFireSyncRow> {
-    parse_fire_sync_rows_from_entity_snapshot_prefix(payload).unwrap_or_default()
+    try_parse_fire_sync_rows_from_entity_snapshot_prefix_with_content_header(payload, None)
 }
 
+fn try_parse_fire_sync_rows_from_entity_snapshot_prefix_with_content_header(
+    payload: &[u8],
+    content_header: Option<&[ContentHeaderEntry]>,
+) -> Vec<EntityFireSyncRow> {
+    parse_fire_sync_rows_from_entity_snapshot_prefix_with_content_header(payload, content_header)
+        .unwrap_or_default()
+}
+
+#[cfg(test)]
 fn try_parse_puddle_sync_rows_from_entity_snapshot_prefix(
     payload: &[u8],
 ) -> Vec<EntityPuddleSyncRow> {
-    parse_puddle_sync_rows_from_entity_snapshot_prefix(payload).unwrap_or_default()
+    try_parse_puddle_sync_rows_from_entity_snapshot_prefix_with_content_header(payload, None)
 }
 
+fn try_parse_puddle_sync_rows_from_entity_snapshot_prefix_with_content_header(
+    payload: &[u8],
+    content_header: Option<&[ContentHeaderEntry]>,
+) -> Vec<EntityPuddleSyncRow> {
+    parse_puddle_sync_rows_from_entity_snapshot_prefix_with_content_header(payload, content_header)
+        .unwrap_or_default()
+}
+
+#[cfg(test)]
 fn try_parse_weather_state_sync_rows_from_entity_snapshot_prefix(
     payload: &[u8],
 ) -> Vec<EntityWeatherStateSyncRow> {
-    parse_weather_state_sync_rows_from_entity_snapshot_prefix(payload).unwrap_or_default()
+    try_parse_weather_state_sync_rows_from_entity_snapshot_prefix_with_content_header(payload, None)
 }
 
+fn try_parse_weather_state_sync_rows_from_entity_snapshot_prefix_with_content_header(
+    payload: &[u8],
+    content_header: Option<&[ContentHeaderEntry]>,
+) -> Vec<EntityWeatherStateSyncRow> {
+    parse_weather_state_sync_rows_from_entity_snapshot_prefix_with_content_header(
+        payload,
+        content_header,
+    )
+    .unwrap_or_default()
+}
+
+#[cfg(test)]
 fn try_parse_world_label_sync_rows_from_entity_snapshot_prefix(
     payload: &[u8],
 ) -> Vec<EntityWorldLabelSyncRow> {
-    parse_world_label_sync_rows_from_entity_snapshot_prefix(payload).unwrap_or_default()
+    try_parse_world_label_sync_rows_from_entity_snapshot_prefix_with_content_header(payload, None)
+}
+
+fn try_parse_world_label_sync_rows_from_entity_snapshot_prefix_with_content_header(
+    payload: &[u8],
+    content_header: Option<&[ContentHeaderEntry]>,
+) -> Vec<EntityWorldLabelSyncRow> {
+    parse_world_label_sync_rows_from_entity_snapshot_prefix_with_content_header(
+        payload,
+        content_header,
+    )
+    .unwrap_or_default()
+}
+
+fn parse_entity_payload_sync_bytes_with_optional_content_header(
+    bytes: &[u8],
+    content_header: Option<&[ContentHeaderEntry]>,
+) -> Result<(mdt_world::EntityPayloadSyncSnapshot, usize), String> {
+    match content_header {
+        Some(content_header) => {
+            parse_entity_payload_sync_bytes_with_content_header(content_header, bytes)
+        }
+        None => parse_entity_payload_sync_bytes(bytes),
+    }
+}
+
+fn parse_entity_building_tether_payload_sync_bytes_with_optional_content_header(
+    bytes: &[u8],
+    content_header: Option<&[ContentHeaderEntry]>,
+) -> Result<(mdt_world::EntityBuildingTetherPayloadSyncSnapshot, usize), String> {
+    match content_header {
+        Some(content_header) => {
+            parse_entity_building_tether_payload_sync_bytes_with_content_header(
+                content_header,
+                bytes,
+            )
+        }
+        None => parse_entity_building_tether_payload_sync_bytes(bytes),
+    }
 }
 
 fn parse_player_sync_rows_from_entity_snapshot(
@@ -8063,8 +8172,9 @@ fn parse_missile_sync_rows_from_entity_snapshot_prefix(
     Ok(rows)
 }
 
-fn parse_payload_sync_rows_from_entity_snapshot_prefix(
+fn parse_payload_sync_rows_from_entity_snapshot_prefix_with_content_header(
     payload: &[u8],
+    content_header: Option<&[ContentHeaderEntry]>,
 ) -> Result<Vec<EntityPayloadSyncRow>, String> {
     if payload.len() < 4 {
         return Ok(Vec::new());
@@ -8111,7 +8221,11 @@ fn parse_payload_sync_rows_from_entity_snapshot_prefix(
                 cursor = cursor.saturating_add(5).saturating_add(consumed);
             }
             _ if PAYLOAD_SHAPE_ENTITY_CLASS_IDS.contains(&class_id) => {
-                let (sync, consumed) = parse_entity_payload_sync_bytes(&body[cursor + 5..])
+                let (sync, consumed) =
+                    parse_entity_payload_sync_bytes_with_optional_content_header(
+                        &body[cursor + 5..],
+                        content_header,
+                    )
                     .map_err(|error| format!("entity_snapshot_known_prefix_payload:{error}"))?;
                 let end = cursor.saturating_add(5).saturating_add(consumed);
                 rows.push(EntityPayloadSyncRow {
@@ -8130,8 +8244,9 @@ fn parse_payload_sync_rows_from_entity_snapshot_prefix(
     Ok(rows)
 }
 
-fn parse_building_tether_payload_sync_rows_from_entity_snapshot_prefix(
+fn parse_building_tether_payload_sync_rows_from_entity_snapshot_prefix_with_content_header(
     payload: &[u8],
+    content_header: Option<&[ContentHeaderEntry]>,
 ) -> Result<Vec<EntityBuildingTetherPayloadSyncRow>, String> {
     if payload.len() < 4 {
         return Ok(Vec::new());
@@ -8178,15 +8293,22 @@ fn parse_building_tether_payload_sync_rows_from_entity_snapshot_prefix(
                 cursor = cursor.saturating_add(5).saturating_add(consumed);
             }
             _ if PAYLOAD_SHAPE_ENTITY_CLASS_IDS.contains(&class_id) => {
-                let (_, consumed) = parse_entity_payload_sync_bytes(&body[cursor + 5..])
-                    .map_err(|error| format!("entity_snapshot_known_prefix_payload:{error}"))?;
+                let (_, consumed) = parse_entity_payload_sync_bytes_with_optional_content_header(
+                    &body[cursor + 5..],
+                    content_header,
+                )
+                .map_err(|error| format!("entity_snapshot_known_prefix_payload:{error}"))?;
                 cursor = cursor.saturating_add(5).saturating_add(consumed);
             }
             _ if BUILDING_TETHER_PAYLOAD_ENTITY_CLASS_IDS.contains(&class_id) => {
-                let (sync, consumed) = parse_entity_building_tether_payload_sync_bytes(
-                    &body[cursor + 5..],
-                )
-                .map_err(|error| format!("entity_snapshot_known_prefix_tether_payload:{error}"))?;
+                let (sync, consumed) =
+                    parse_entity_building_tether_payload_sync_bytes_with_optional_content_header(
+                        &body[cursor + 5..],
+                        content_header,
+                    )
+                    .map_err(|error| {
+                        format!("entity_snapshot_known_prefix_tether_payload:{error}")
+                    })?;
                 let end = cursor.saturating_add(5).saturating_add(consumed);
                 rows.push(EntityBuildingTetherPayloadSyncRow {
                     entity_id,
@@ -8204,8 +8326,9 @@ fn parse_building_tether_payload_sync_rows_from_entity_snapshot_prefix(
     Ok(rows)
 }
 
-fn parse_fire_sync_rows_from_entity_snapshot_prefix(
+fn parse_fire_sync_rows_from_entity_snapshot_prefix_with_content_header(
     payload: &[u8],
+    content_header: Option<&[ContentHeaderEntry]>,
 ) -> Result<Vec<EntityFireSyncRow>, String> {
     if payload.len() < 4 {
         return Ok(Vec::new());
@@ -8252,15 +8375,22 @@ fn parse_fire_sync_rows_from_entity_snapshot_prefix(
                 cursor = cursor.saturating_add(5).saturating_add(consumed);
             }
             _ if PAYLOAD_SHAPE_ENTITY_CLASS_IDS.contains(&class_id) => {
-                let (_, consumed) = parse_entity_payload_sync_bytes(&body[cursor + 5..])
-                    .map_err(|error| format!("entity_snapshot_known_prefix_payload:{error}"))?;
+                let (_, consumed) = parse_entity_payload_sync_bytes_with_optional_content_header(
+                    &body[cursor + 5..],
+                    content_header,
+                )
+                .map_err(|error| format!("entity_snapshot_known_prefix_payload:{error}"))?;
                 cursor = cursor.saturating_add(5).saturating_add(consumed);
             }
             _ if BUILDING_TETHER_PAYLOAD_ENTITY_CLASS_IDS.contains(&class_id) => {
-                let (_, consumed) = parse_entity_building_tether_payload_sync_bytes(
-                    &body[cursor + 5..],
-                )
-                .map_err(|error| format!("entity_snapshot_known_prefix_tether_payload:{error}"))?;
+                let (_, consumed) =
+                    parse_entity_building_tether_payload_sync_bytes_with_optional_content_header(
+                        &body[cursor + 5..],
+                        content_header,
+                    )
+                    .map_err(|error| {
+                        format!("entity_snapshot_known_prefix_tether_payload:{error}")
+                    })?;
                 cursor = cursor.saturating_add(5).saturating_add(consumed);
             }
             _ if FIRE_ENTITY_CLASS_IDS.contains(&class_id) => {
@@ -8283,8 +8413,9 @@ fn parse_fire_sync_rows_from_entity_snapshot_prefix(
     Ok(rows)
 }
 
-fn parse_puddle_sync_rows_from_entity_snapshot_prefix(
+fn parse_puddle_sync_rows_from_entity_snapshot_prefix_with_content_header(
     payload: &[u8],
+    content_header: Option<&[ContentHeaderEntry]>,
 ) -> Result<Vec<EntityPuddleSyncRow>, String> {
     if payload.len() < 4 {
         return Ok(Vec::new());
@@ -8331,15 +8462,22 @@ fn parse_puddle_sync_rows_from_entity_snapshot_prefix(
                 cursor = cursor.saturating_add(5).saturating_add(consumed);
             }
             _ if PAYLOAD_SHAPE_ENTITY_CLASS_IDS.contains(&class_id) => {
-                let (_, consumed) = parse_entity_payload_sync_bytes(&body[cursor + 5..])
-                    .map_err(|error| format!("entity_snapshot_known_prefix_payload:{error}"))?;
+                let (_, consumed) = parse_entity_payload_sync_bytes_with_optional_content_header(
+                    &body[cursor + 5..],
+                    content_header,
+                )
+                .map_err(|error| format!("entity_snapshot_known_prefix_payload:{error}"))?;
                 cursor = cursor.saturating_add(5).saturating_add(consumed);
             }
             _ if BUILDING_TETHER_PAYLOAD_ENTITY_CLASS_IDS.contains(&class_id) => {
-                let (_, consumed) = parse_entity_building_tether_payload_sync_bytes(
-                    &body[cursor + 5..],
-                )
-                .map_err(|error| format!("entity_snapshot_known_prefix_tether_payload:{error}"))?;
+                let (_, consumed) =
+                    parse_entity_building_tether_payload_sync_bytes_with_optional_content_header(
+                        &body[cursor + 5..],
+                        content_header,
+                    )
+                    .map_err(|error| {
+                        format!("entity_snapshot_known_prefix_tether_payload:{error}")
+                    })?;
                 cursor = cursor.saturating_add(5).saturating_add(consumed);
             }
             _ if FIRE_ENTITY_CLASS_IDS.contains(&class_id) => {
@@ -8367,8 +8505,9 @@ fn parse_puddle_sync_rows_from_entity_snapshot_prefix(
     Ok(rows)
 }
 
-fn parse_weather_state_sync_rows_from_entity_snapshot_prefix(
+fn parse_weather_state_sync_rows_from_entity_snapshot_prefix_with_content_header(
     payload: &[u8],
+    content_header: Option<&[ContentHeaderEntry]>,
 ) -> Result<Vec<EntityWeatherStateSyncRow>, String> {
     if payload.len() < 4 {
         return Ok(Vec::new());
@@ -8415,15 +8554,22 @@ fn parse_weather_state_sync_rows_from_entity_snapshot_prefix(
                 cursor = cursor.saturating_add(5).saturating_add(consumed);
             }
             _ if PAYLOAD_SHAPE_ENTITY_CLASS_IDS.contains(&class_id) => {
-                let (_, consumed) = parse_entity_payload_sync_bytes(&body[cursor + 5..])
-                    .map_err(|error| format!("entity_snapshot_known_prefix_payload:{error}"))?;
+                let (_, consumed) = parse_entity_payload_sync_bytes_with_optional_content_header(
+                    &body[cursor + 5..],
+                    content_header,
+                )
+                .map_err(|error| format!("entity_snapshot_known_prefix_payload:{error}"))?;
                 cursor = cursor.saturating_add(5).saturating_add(consumed);
             }
             _ if BUILDING_TETHER_PAYLOAD_ENTITY_CLASS_IDS.contains(&class_id) => {
-                let (_, consumed) = parse_entity_building_tether_payload_sync_bytes(
-                    &body[cursor + 5..],
-                )
-                .map_err(|error| format!("entity_snapshot_known_prefix_tether_payload:{error}"))?;
+                let (_, consumed) =
+                    parse_entity_building_tether_payload_sync_bytes_with_optional_content_header(
+                        &body[cursor + 5..],
+                        content_header,
+                    )
+                    .map_err(|error| {
+                        format!("entity_snapshot_known_prefix_tether_payload:{error}")
+                    })?;
                 cursor = cursor.saturating_add(5).saturating_add(consumed);
             }
             _ if FIRE_ENTITY_CLASS_IDS.contains(&class_id) => {
@@ -8458,8 +8604,9 @@ fn parse_weather_state_sync_rows_from_entity_snapshot_prefix(
     Ok(rows)
 }
 
-fn parse_world_label_sync_rows_from_entity_snapshot_prefix(
+fn parse_world_label_sync_rows_from_entity_snapshot_prefix_with_content_header(
     payload: &[u8],
+    content_header: Option<&[ContentHeaderEntry]>,
 ) -> Result<Vec<EntityWorldLabelSyncRow>, String> {
     if payload.len() < 4 {
         return Ok(Vec::new());
@@ -8506,15 +8653,22 @@ fn parse_world_label_sync_rows_from_entity_snapshot_prefix(
                 cursor = cursor.saturating_add(5).saturating_add(consumed);
             }
             _ if PAYLOAD_SHAPE_ENTITY_CLASS_IDS.contains(&class_id) => {
-                let (_, consumed) = parse_entity_payload_sync_bytes(&body[cursor + 5..])
-                    .map_err(|error| format!("entity_snapshot_known_prefix_payload:{error}"))?;
+                let (_, consumed) = parse_entity_payload_sync_bytes_with_optional_content_header(
+                    &body[cursor + 5..],
+                    content_header,
+                )
+                .map_err(|error| format!("entity_snapshot_known_prefix_payload:{error}"))?;
                 cursor = cursor.saturating_add(5).saturating_add(consumed);
             }
             _ if BUILDING_TETHER_PAYLOAD_ENTITY_CLASS_IDS.contains(&class_id) => {
-                let (_, consumed) = parse_entity_building_tether_payload_sync_bytes(
-                    &body[cursor + 5..],
-                )
-                .map_err(|error| format!("entity_snapshot_known_prefix_tether_payload:{error}"))?;
+                let (_, consumed) =
+                    parse_entity_building_tether_payload_sync_bytes_with_optional_content_header(
+                        &body[cursor + 5..],
+                        content_header,
+                    )
+                    .map_err(|error| {
+                        format!("entity_snapshot_known_prefix_tether_payload:{error}")
+                    })?;
                 cursor = cursor.saturating_add(5).saturating_add(consumed);
             }
             _ if FIRE_ENTITY_CLASS_IDS.contains(&class_id) => {
@@ -9512,6 +9666,44 @@ mod tests {
         bytes
     }
 
+    fn synthetic_payload_sync_bytes_with_build_payload(
+        block_id: i16,
+        conveyor_chunk: &[u8],
+    ) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.push(0);
+        bytes.extend_from_slice(&123.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&7i32.to_be_bytes());
+        bytes.extend_from_slice(&1.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f64.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&150.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&(-1i32).to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&1i32.to_be_bytes());
+        bytes.push(1);
+        bytes.push(1);
+        bytes.extend_from_slice(&block_id.to_be_bytes());
+        bytes.push(conveyor_chunk[0]);
+        bytes.extend_from_slice(&conveyor_chunk[1..]);
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&90.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0i16.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&35i16.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&1.5f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&(-2.25f32).to_be_bytes());
+        bytes.extend_from_slice(&40.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&60.0f32.to_bits().to_be_bytes());
+        bytes
+    }
+
     fn synthetic_building_tether_payload_sync_bytes() -> Vec<u8> {
         let mut bytes = Vec::new();
         bytes.push(0);
@@ -9532,6 +9724,45 @@ mod tests {
         bytes.extend_from_slice(&0i32.to_be_bytes());
         bytes.extend_from_slice(&0i32.to_be_bytes());
         bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&90.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0i16.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&35i16.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&1.5f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&(-2.25f32).to_be_bytes());
+        bytes.extend_from_slice(&40.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&60.0f32.to_bits().to_be_bytes());
+        bytes
+    }
+
+    fn synthetic_building_tether_payload_sync_bytes_with_build_payload(
+        block_id: i16,
+        conveyor_chunk: &[u8],
+    ) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.push(0);
+        bytes.extend_from_slice(&123.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&12345i32.to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&7i32.to_be_bytes());
+        bytes.extend_from_slice(&1.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f64.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&150.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&(-1i32).to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&1i32.to_be_bytes());
+        bytes.push(1);
+        bytes.push(1);
+        bytes.extend_from_slice(&block_id.to_be_bytes());
+        bytes.push(conveyor_chunk[0]);
+        bytes.extend_from_slice(&conveyor_chunk[1..]);
         bytes.extend_from_slice(&0i32.to_be_bytes());
         bytes.extend_from_slice(&90.0f32.to_bits().to_be_bytes());
         bytes.extend_from_slice(&0.0f32.to_bits().to_be_bytes());
@@ -11081,6 +11312,62 @@ mod tests {
             assert_eq!(rows[0].sync.x_bits, 40.0f32.to_bits());
             assert_eq!(rows[0].sync.y_bits, 60.0f32.to_bits());
         }
+    }
+
+    #[test]
+    fn later_entity_snapshot_prefix_parsers_skip_build_payload_rows_when_content_header_is_loaded()
+    {
+        let world_bundle = parse_world_bundle(&sample_world_stream_bytes()).unwrap();
+        let conveyor = world_bundle.world.building_center_at(1, 2).unwrap();
+        let conveyor_chunk = conveyor.chunk_bytes.clone();
+        let block_id = i16::from_be_bytes(conveyor.block_id.to_be_bytes());
+        let content_header = Some(world_bundle.content_header.as_slice());
+        let payload_row = build_entity_snapshot_row(
+            777,
+            5,
+            &synthetic_payload_sync_bytes_with_build_payload(block_id, &conveyor_chunk),
+        );
+        let tether_row = build_entity_snapshot_row(
+            888,
+            36,
+            &synthetic_building_tether_payload_sync_bytes_with_build_payload(
+                block_id,
+                &conveyor_chunk,
+            ),
+        );
+        let fire_row = build_entity_snapshot_row(901, 10, &synthetic_fire_sync_bytes());
+        let payload = build_entity_snapshot_payload(&[payload_row, tether_row, fire_row]);
+
+        assert_eq!(
+            try_parse_payload_sync_rows_from_entity_snapshot_prefix_with_content_header(
+                &payload,
+                content_header,
+            )
+            .iter()
+            .map(|row| row.entity_id)
+            .collect::<Vec<_>>(),
+            vec![777]
+        );
+        assert_eq!(
+            try_parse_building_tether_payload_sync_rows_from_entity_snapshot_prefix_with_content_header(
+                &payload,
+                content_header,
+            )
+            .iter()
+            .map(|row| row.entity_id)
+            .collect::<Vec<_>>(),
+            vec![888]
+        );
+        assert_eq!(
+            try_parse_fire_sync_rows_from_entity_snapshot_prefix_with_content_header(
+                &payload,
+                content_header,
+            )
+            .iter()
+            .map(|row| row.entity_id)
+            .collect::<Vec<_>>(),
+            vec![901]
+        );
     }
 
     #[test]
