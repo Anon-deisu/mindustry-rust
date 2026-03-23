@@ -233,9 +233,12 @@ pub struct ClientSession {
     set_overlay_packet_id: Option<u8>,
     set_team_packet_id: Option<u8>,
     set_tile_packet_id: Option<u8>,
+    set_tile_blocks_packet_id: Option<u8>,
+    set_tile_floors_packet_id: Option<u8>,
     set_tile_overlays_packet_id: Option<u8>,
     set_tile_items_packet_id: Option<u8>,
     set_tile_liquids_packet_id: Option<u8>,
+    set_teams_packet_id: Option<u8>,
     sync_variable_packet_id: Option<u8>,
     text_input_packet_id: Option<u8>,
     text_input_allow_empty_packet_id: Option<u8>,
@@ -688,6 +691,16 @@ impl ClientSession {
             .iter()
             .find(|entry| entry.method == "setTile")
             .map(|entry| entry.packet_id);
+        let set_tile_blocks_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setTileBlocks")
+            .map(|entry| entry.packet_id);
+        let set_tile_floors_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setTileFloors")
+            .map(|entry| entry.packet_id);
         let set_tile_overlays_packet_id = manifest
             .remote_packets
             .iter()
@@ -702,6 +715,11 @@ impl ClientSession {
             .remote_packets
             .iter()
             .find(|entry| entry.method == "setTileLiquids")
+            .map(|entry| entry.packet_id);
+        let set_teams_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setTeams")
             .map(|entry| entry.packet_id);
         let sync_variable_packet_id = manifest
             .remote_packets
@@ -1249,9 +1267,12 @@ impl ClientSession {
             set_overlay_packet_id,
             set_team_packet_id,
             set_tile_packet_id,
+            set_tile_blocks_packet_id,
+            set_tile_floors_packet_id,
             set_tile_overlays_packet_id,
             set_tile_items_packet_id,
             set_tile_liquids_packet_id,
+            set_teams_packet_id,
             sync_variable_packet_id,
             text_input_packet_id,
             text_input_allow_empty_packet_id,
@@ -2913,6 +2934,25 @@ impl ClientSession {
                     })
                 }
             }
+            packet_id if Some(packet_id) == self.set_teams_packet_id => {
+                if let Some(summary) = decode_set_teams_payload(&packet.payload) {
+                    self.state.received_set_teams_count =
+                        self.state.received_set_teams_count.saturating_add(1);
+                    self.state.last_set_teams_team_id = Some(summary.team_id);
+                    self.state.last_set_teams_count = summary.position_count;
+                    self.state.last_set_teams_first_position = summary.first_position;
+                    Ok(ClientSessionEvent::SetTeams {
+                        team_id: summary.team_id,
+                        position_count: summary.position_count,
+                        first_position: summary.first_position,
+                    })
+                } else {
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
             packet_id if Some(packet_id) == self.set_tile_packet_id => {
                 if let Some(summary) = decode_set_tile_payload(&packet.payload) {
                     self.state.received_set_tile_count =
@@ -2926,6 +2966,50 @@ impl ClientSession {
                         block_id: summary.block_id,
                         team_id: summary.team_id,
                         rotation: summary.rotation,
+                    })
+                } else {
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
+            packet_id if Some(packet_id) == self.set_tile_blocks_packet_id => {
+                if let Some(summary) = decode_set_tile_blocks_payload(&packet.payload) {
+                    self.state.received_set_tile_blocks_count = self
+                        .state
+                        .received_set_tile_blocks_count
+                        .saturating_add(1);
+                    self.state.last_set_tile_blocks_block_id = summary.block_id;
+                    self.state.last_set_tile_blocks_team_id = Some(summary.team_id);
+                    self.state.last_set_tile_blocks_count = summary.position_count;
+                    self.state.last_set_tile_blocks_first_position = summary.first_position;
+                    Ok(ClientSessionEvent::SetTileBlocks {
+                        block_id: summary.block_id,
+                        team_id: summary.team_id,
+                        position_count: summary.position_count,
+                        first_position: summary.first_position,
+                    })
+                } else {
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
+            packet_id if Some(packet_id) == self.set_tile_floors_packet_id => {
+                if let Some(summary) = decode_set_tile_floors_payload(&packet.payload) {
+                    self.state.received_set_tile_floors_count = self
+                        .state
+                        .received_set_tile_floors_count
+                        .saturating_add(1);
+                    self.state.last_set_tile_floors_block_id = summary.block_id;
+                    self.state.last_set_tile_floors_count = summary.position_count;
+                    self.state.last_set_tile_floors_first_position = summary.first_position;
+                    Ok(ClientSessionEvent::SetTileFloors {
+                        block_id: summary.block_id,
+                        position_count: summary.position_count,
+                        first_position: summary.first_position,
                     })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -6556,6 +6640,22 @@ pub enum ClientSessionEvent {
         build_pos: Option<i32>,
         team_id: u8,
     },
+    SetTeams {
+        team_id: u8,
+        position_count: usize,
+        first_position: Option<i32>,
+    },
+    SetTileBlocks {
+        block_id: Option<i16>,
+        team_id: u8,
+        position_count: usize,
+        first_position: Option<i32>,
+    },
+    SetTileFloors {
+        block_id: Option<i16>,
+        position_count: usize,
+        first_position: Option<i32>,
+    },
     SetTileItems {
         item_id: Option<i16>,
         amount: i32,
@@ -7506,6 +7606,17 @@ fn decode_set_team_payload(payload: &[u8]) -> Option<SetTeamSummary> {
     (cursor == payload.len()).then_some(SetTeamSummary { build_pos, team_id })
 }
 
+fn decode_set_teams_payload(payload: &[u8]) -> Option<SetTeamsSummary> {
+    let mut cursor = 0usize;
+    let positions = read_i32_array_with_i16_len(payload, &mut cursor)?;
+    let team_id = read_u8(payload, &mut cursor)?;
+    (cursor == payload.len()).then_some(SetTeamsSummary {
+        team_id,
+        position_count: positions.len(),
+        first_position: positions.first().copied(),
+    })
+}
+
 fn decode_set_tile_items_payload(payload: &[u8]) -> Option<SetTileItemsSummary> {
     let mut cursor = 0usize;
     let item_id = read_optional_item_id(payload, &mut cursor)?;
@@ -7537,6 +7648,30 @@ fn decode_set_tile_overlays_payload(payload: &[u8]) -> Option<SetTileOverlaysSum
     let raw_block_id = read_i16(payload, &mut cursor)?;
     let positions = read_i32_array_with_i16_len(payload, &mut cursor)?;
     (cursor == payload.len()).then_some(SetTileOverlaysSummary {
+        block_id: (raw_block_id != -1).then_some(raw_block_id),
+        position_count: positions.len(),
+        first_position: positions.first().copied(),
+    })
+}
+
+fn decode_set_tile_blocks_payload(payload: &[u8]) -> Option<SetTileBlocksSummary> {
+    let mut cursor = 0usize;
+    let raw_block_id = read_i16(payload, &mut cursor)?;
+    let team_id = read_u8(payload, &mut cursor)?;
+    let positions = read_i32_array_with_i16_len(payload, &mut cursor)?;
+    (cursor == payload.len()).then_some(SetTileBlocksSummary {
+        block_id: (raw_block_id != -1).then_some(raw_block_id),
+        team_id,
+        position_count: positions.len(),
+        first_position: positions.first().copied(),
+    })
+}
+
+fn decode_set_tile_floors_payload(payload: &[u8]) -> Option<SetTileFloorsSummary> {
+    let mut cursor = 0usize;
+    let raw_block_id = read_i16(payload, &mut cursor)?;
+    let positions = read_i32_array_with_i16_len(payload, &mut cursor)?;
+    (cursor == payload.len()).then_some(SetTileFloorsSummary {
         block_id: (raw_block_id != -1).then_some(raw_block_id),
         position_count: positions.len(),
         first_position: positions.first().copied(),
@@ -8764,6 +8899,13 @@ struct SetTeamSummary {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+struct SetTeamsSummary {
+    team_id: u8,
+    position_count: usize,
+    first_position: Option<i32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct SetTileItemsSummary {
     item_id: Option<i16>,
     amount: i32,
@@ -8781,6 +8923,21 @@ struct SetTileLiquidsSummary {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SetTileOverlaysSummary {
+    block_id: Option<i16>,
+    position_count: usize,
+    first_position: Option<i32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SetTileBlocksSummary {
+    block_id: Option<i16>,
+    team_id: u8,
+    position_count: usize,
+    first_position: Option<i32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SetTileFloorsSummary {
     block_id: Option<i16>,
     position_count: usize,
     first_position: Option<i32>,
@@ -10883,6 +11040,34 @@ fn encode_set_map_area_payload(x: i32, y: i32, w: i32, h: i32) -> Vec<u8> {
 #[cfg(test)]
 fn encode_building_team_payload(build_pos: Option<i32>, team_id: u8) -> Vec<u8> {
     let mut payload = encode_building_payload(build_pos);
+    payload.push(team_id);
+    payload
+}
+
+#[cfg(test)]
+fn encode_set_tile_blocks_payload(
+    block_id: Option<i16>,
+    team_id: u8,
+    positions: &[i32],
+) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(5 + positions.len() * 4);
+    payload.extend_from_slice(&block_id.unwrap_or(-1).to_be_bytes());
+    payload.push(team_id);
+    payload.extend_from_slice(&encode_delete_plans_payload(positions));
+    payload
+}
+
+#[cfg(test)]
+fn encode_set_tile_floors_payload(block_id: Option<i16>, positions: &[i32]) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(4 + positions.len() * 4);
+    payload.extend_from_slice(&block_id.unwrap_or(-1).to_be_bytes());
+    payload.extend_from_slice(&encode_delete_plans_payload(positions));
+    payload
+}
+
+#[cfg(test)]
+fn encode_set_teams_payload(team_id: u8, positions: &[i32]) -> Vec<u8> {
+    let mut payload = encode_delete_plans_payload(positions);
     payload.push(team_id);
     payload
 }
@@ -22626,6 +22811,117 @@ mod tests {
     }
 
     #[test]
+    fn set_tile_blocks_floors_and_teams_packets_emit_observability_events() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let set_tile_blocks_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setTileBlocks")
+            .unwrap()
+            .packet_id;
+        let set_tile_floors_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setTileFloors")
+            .unwrap()
+            .packet_id;
+        let set_teams_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setTeams")
+            .unwrap()
+            .packet_id;
+
+        let set_tile_blocks_event = session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    set_tile_blocks_packet_id,
+                    &encode_set_tile_blocks_payload(
+                        Some(11),
+                        2,
+                        &[pack_point2(1, 2), pack_point2(3, 4)],
+                    ),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            set_tile_blocks_event,
+            ClientSessionEvent::SetTileBlocks {
+                block_id: Some(11),
+                team_id: 2,
+                position_count: 2,
+                first_position: Some(pack_point2(1, 2)),
+            }
+        );
+        assert_eq!(session.state().received_set_tile_blocks_count, 1);
+        assert_eq!(session.state().last_set_tile_blocks_block_id, Some(11));
+        assert_eq!(session.state().last_set_tile_blocks_team_id, Some(2));
+        assert_eq!(session.state().last_set_tile_blocks_count, 2);
+        assert_eq!(
+            session.state().last_set_tile_blocks_first_position,
+            Some(pack_point2(1, 2))
+        );
+
+        let set_tile_floors_event = session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    set_tile_floors_packet_id,
+                    &encode_set_tile_floors_payload(
+                        Some(12),
+                        &[pack_point2(5, 6), pack_point2(7, 8)],
+                    ),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            set_tile_floors_event,
+            ClientSessionEvent::SetTileFloors {
+                block_id: Some(12),
+                position_count: 2,
+                first_position: Some(pack_point2(5, 6)),
+            }
+        );
+        assert_eq!(session.state().received_set_tile_floors_count, 1);
+        assert_eq!(session.state().last_set_tile_floors_block_id, Some(12));
+        assert_eq!(session.state().last_set_tile_floors_count, 2);
+        assert_eq!(
+            session.state().last_set_tile_floors_first_position,
+            Some(pack_point2(5, 6))
+        );
+
+        let set_teams_event = session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    set_teams_packet_id,
+                    &encode_set_teams_payload(3, &[pack_point2(9, 10), pack_point2(11, 12)]),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            set_teams_event,
+            ClientSessionEvent::SetTeams {
+                team_id: 3,
+                position_count: 2,
+                first_position: Some(pack_point2(9, 10)),
+            }
+        );
+        assert_eq!(session.state().received_set_teams_count, 1);
+        assert_eq!(session.state().last_set_teams_team_id, Some(3));
+        assert_eq!(session.state().last_set_teams_count, 2);
+        assert_eq!(
+            session.state().last_set_teams_first_position,
+            Some(pack_point2(9, 10))
+        );
+    }
+
+    #[test]
     fn weather_spawn_and_unit_block_packets_with_invalid_payloads_are_ignored() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
@@ -22699,6 +22995,24 @@ mod tests {
             .remote_packets
             .iter()
             .find(|entry| entry.method == "setTeam")
+            .unwrap()
+            .packet_id;
+        let set_tile_blocks_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setTileBlocks")
+            .unwrap()
+            .packet_id;
+        let set_tile_floors_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setTileFloors")
+            .unwrap()
+            .packet_id;
+        let set_teams_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setTeams")
             .unwrap()
             .packet_id;
 
@@ -22775,6 +23089,57 @@ mod tests {
                 ]
                 .concat(),
             ),
+            (
+                set_tile_blocks_packet_id,
+                encode_set_tile_blocks_payload(
+                    Some(11),
+                    2,
+                    &[pack_point2(1, 2), pack_point2(3, 4)],
+                )[..4]
+                    .to_vec(),
+            ),
+            (
+                set_tile_blocks_packet_id,
+                [
+                    encode_set_tile_blocks_payload(
+                        Some(11),
+                        2,
+                        &[pack_point2(1, 2), pack_point2(3, 4)],
+                    ),
+                    vec![0x00],
+                ]
+                .concat(),
+            ),
+            (
+                set_tile_floors_packet_id,
+                encode_set_tile_floors_payload(Some(12), &[pack_point2(5, 6), pack_point2(7, 8)])
+                    [..3]
+                    .to_vec(),
+            ),
+            (
+                set_tile_floors_packet_id,
+                [
+                    encode_set_tile_floors_payload(
+                        Some(12),
+                        &[pack_point2(5, 6), pack_point2(7, 8)],
+                    ),
+                    vec![0x00],
+                ]
+                .concat(),
+            ),
+            (
+                set_teams_packet_id,
+                encode_set_teams_payload(3, &[pack_point2(9, 10), pack_point2(11, 12)])[..10]
+                    .to_vec(),
+            ),
+            (
+                set_teams_packet_id,
+                [
+                    encode_set_teams_payload(3, &[pack_point2(9, 10), pack_point2(11, 12)]),
+                    vec![0x00],
+                ]
+                .concat(),
+            ),
         ] {
             let event = session
                 .ingest_packet_bytes(&encode_packet(packet_id, &payload, false).unwrap())
@@ -22834,6 +23199,19 @@ mod tests {
         assert_eq!(session.state().received_set_team_count, 0);
         assert_eq!(session.state().last_set_team_build_pos, None);
         assert_eq!(session.state().last_set_team_id, None);
+        assert_eq!(session.state().received_set_teams_count, 0);
+        assert_eq!(session.state().last_set_teams_team_id, None);
+        assert_eq!(session.state().last_set_teams_count, 0);
+        assert_eq!(session.state().last_set_teams_first_position, None);
+        assert_eq!(session.state().received_set_tile_blocks_count, 0);
+        assert_eq!(session.state().last_set_tile_blocks_block_id, None);
+        assert_eq!(session.state().last_set_tile_blocks_team_id, None);
+        assert_eq!(session.state().last_set_tile_blocks_count, 0);
+        assert_eq!(session.state().last_set_tile_blocks_first_position, None);
+        assert_eq!(session.state().received_set_tile_floors_count, 0);
+        assert_eq!(session.state().last_set_tile_floors_block_id, None);
+        assert_eq!(session.state().last_set_tile_floors_count, 0);
+        assert_eq!(session.state().last_set_tile_floors_first_position, None);
     }
 
     #[test]

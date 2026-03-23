@@ -4388,6 +4388,28 @@ fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<String> 
             ClientSessionEvent::SetTeam { build_pos, team_id } => Some(format!(
                 "set_team: build_pos={build_pos:?} team_id={team_id}"
             )),
+            ClientSessionEvent::SetTeams {
+                team_id,
+                position_count,
+                first_position,
+            } => Some(format!(
+                "set_teams: team_id={team_id} count={position_count} first_position={first_position:?}"
+            )),
+            ClientSessionEvent::SetTileBlocks {
+                block_id,
+                team_id,
+                position_count,
+                first_position,
+            } => Some(format!(
+                "set_tile_blocks: block_id={block_id:?} team_id={team_id} count={position_count} first_position={first_position:?}"
+            )),
+            ClientSessionEvent::SetTileFloors {
+                block_id,
+                position_count,
+                first_position,
+            } => Some(format!(
+                "set_tile_floors: block_id={block_id:?} count={position_count} first_position={first_position:?}"
+            )),
             ClientSessionEvent::SetTileItems {
                 item_id,
                 amount,
@@ -6649,6 +6671,43 @@ mod tests {
         assert!(lines[1].contains("set_team:"));
         assert!(lines[1].contains(&format!("build_pos=Some({})", pack_point2(7, 8))));
         assert!(lines[1].contains("team_id=2"));
+    }
+
+    #[test]
+    fn summarize_client_packet_events_includes_set_tile_blocks_floors_and_teams_observability() {
+        let lines = summarize_client_packet_events(&[
+            ClientSessionEvent::SetTileBlocks {
+                block_id: Some(11),
+                team_id: 2,
+                position_count: 2,
+                first_position: Some(pack_point2(1, 2)),
+            },
+            ClientSessionEvent::SetTileFloors {
+                block_id: Some(12),
+                position_count: 2,
+                first_position: Some(pack_point2(5, 6)),
+            },
+            ClientSessionEvent::SetTeams {
+                team_id: 3,
+                position_count: 2,
+                first_position: Some(pack_point2(9, 10)),
+            },
+        ]);
+
+        assert_eq!(lines.len(), 3);
+        assert!(lines[0].contains("set_tile_blocks:"));
+        assert!(lines[0].contains("block_id=Some(11)"));
+        assert!(lines[0].contains("team_id=2"));
+        assert!(lines[0].contains("count=2"));
+        assert!(lines[0].contains(&format!("first_position=Some({})", pack_point2(1, 2))));
+        assert!(lines[1].contains("set_tile_floors:"));
+        assert!(lines[1].contains("block_id=Some(12)"));
+        assert!(lines[1].contains("count=2"));
+        assert!(lines[1].contains(&format!("first_position=Some({})", pack_point2(5, 6))));
+        assert!(lines[2].contains("set_teams:"));
+        assert!(lines[2].contains("team_id=3"));
+        assert!(lines[2].contains("count=2"));
+        assert!(lines[2].contains(&format!("first_position=Some({})", pack_point2(9, 10))));
     }
 
     #[test]
