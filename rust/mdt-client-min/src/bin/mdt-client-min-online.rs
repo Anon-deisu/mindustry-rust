@@ -4139,6 +4139,18 @@ fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<String> 
             ClientSessionEvent::UnitTetherBlockSpawned { tile_pos, unit_id } => Some(format!(
                 "unit_tether_block_spawned: tile_pos={tile_pos:?} unit_id={unit_id}"
             )),
+            ClientSessionEvent::AutoDoorToggle { tile_pos, open } => Some(format!(
+                "auto_door_toggle: tile_pos={tile_pos:?} open={open}"
+            )),
+            ClientSessionEvent::LandingPadLanded { tile_pos } => {
+                Some(format!("landing_pad_landed: tile_pos={tile_pos:?}"))
+            }
+            ClientSessionEvent::AssemblerDroneSpawned { tile_pos, unit_id } => Some(format!(
+                "assembler_drone_spawned: tile_pos={tile_pos:?} unit_id={unit_id}"
+            )),
+            ClientSessionEvent::AssemblerUnitSpawned { tile_pos } => {
+                Some(format!("assembler_unit_spawned: tile_pos={tile_pos:?}"))
+            }
             ClientSessionEvent::TraceInfoReceived {
                 player_id,
                 ip,
@@ -6575,6 +6587,36 @@ mod tests {
         assert!(lines[0].contains("ground=false"));
         assert!(lines[0].contains("pierce=true"));
         assert!(lines[0].contains("effect=true"));
+    }
+
+    #[test]
+    fn summarize_client_packet_events_includes_facility_world_action_observability() {
+        let lines = summarize_client_packet_events(&[
+            ClientSessionEvent::AutoDoorToggle {
+                tile_pos: Some(pack_point2(1, 2)),
+                open: true,
+            },
+            ClientSessionEvent::LandingPadLanded {
+                tile_pos: Some(pack_point2(3, 4)),
+            },
+            ClientSessionEvent::AssemblerDroneSpawned {
+                tile_pos: Some(pack_point2(5, 6)),
+                unit_id: 707,
+            },
+            ClientSessionEvent::AssemblerUnitSpawned { tile_pos: None },
+        ]);
+
+        assert_eq!(lines.len(), 4);
+        assert!(lines[0].contains("auto_door_toggle:"));
+        assert!(lines[0].contains(&format!("tile_pos=Some({})", pack_point2(1, 2))));
+        assert!(lines[0].contains("open=true"));
+        assert!(lines[1].contains("landing_pad_landed:"));
+        assert!(lines[1].contains(&format!("tile_pos=Some({})", pack_point2(3, 4))));
+        assert!(lines[2].contains("assembler_drone_spawned:"));
+        assert!(lines[2].contains(&format!("tile_pos=Some({})", pack_point2(5, 6))));
+        assert!(lines[2].contains("unit_id=707"));
+        assert!(lines[3].contains("assembler_unit_spawned:"));
+        assert!(lines[3].contains("tile_pos=None"));
     }
 
     #[test]

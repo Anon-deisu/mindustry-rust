@@ -286,6 +286,10 @@ pub struct ClientSession {
     create_weather_packet_id: Option<u8>,
     spawn_effect_packet_id: Option<u8>,
     logic_explosion_packet_id: Option<u8>,
+    auto_door_toggle_packet_id: Option<u8>,
+    landing_pad_landed_packet_id: Option<u8>,
+    assembler_drone_spawned_packet_id: Option<u8>,
+    assembler_unit_spawned_packet_id: Option<u8>,
     unit_spawn_packet_id: Option<u8>,
     unit_block_spawn_packet_id: Option<u8>,
     unit_tether_block_spawned_packet_id: Option<u8>,
@@ -942,6 +946,26 @@ impl ClientSession {
             .iter()
             .find(|entry| entry.method == "logicExplosion")
             .map(|entry| entry.packet_id);
+        let auto_door_toggle_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "autoDoorToggle")
+            .map(|entry| entry.packet_id);
+        let landing_pad_landed_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "landingPadLanded")
+            .map(|entry| entry.packet_id);
+        let assembler_drone_spawned_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "assemblerDroneSpawned")
+            .map(|entry| entry.packet_id);
+        let assembler_unit_spawned_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "assemblerUnitSpawned")
+            .map(|entry| entry.packet_id);
         let unit_spawn_packet_id = manifest
             .remote_packets
             .iter()
@@ -1266,6 +1290,10 @@ impl ClientSession {
             create_weather_packet_id,
             spawn_effect_packet_id,
             logic_explosion_packet_id,
+            auto_door_toggle_packet_id,
+            landing_pad_landed_packet_id,
+            assembler_drone_spawned_packet_id,
+            assembler_unit_spawned_packet_id,
             unit_spawn_packet_id,
             unit_block_spawn_packet_id,
             unit_tether_block_spawned_packet_id,
@@ -4368,6 +4396,68 @@ impl ClientSession {
                     })
                 }
             }
+            packet_id if Some(packet_id) == self.auto_door_toggle_packet_id => {
+                if let Some((tile_pos, open)) = decode_tile_bool_payload(&packet.payload) {
+                    self.state.received_auto_door_toggle_count =
+                        self.state.received_auto_door_toggle_count.saturating_add(1);
+                    self.state.last_auto_door_toggle_tile_pos = tile_pos;
+                    self.state.last_auto_door_toggle_open = Some(open);
+                    Ok(ClientSessionEvent::AutoDoorToggle { tile_pos, open })
+                } else {
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
+            packet_id if Some(packet_id) == self.landing_pad_landed_packet_id => {
+                if let Some(tile_pos) = decode_unit_block_spawn_payload(&packet.payload) {
+                    self.state.received_landing_pad_landed_count = self
+                        .state
+                        .received_landing_pad_landed_count
+                        .saturating_add(1);
+                    self.state.last_landing_pad_landed_tile_pos = tile_pos;
+                    Ok(ClientSessionEvent::LandingPadLanded { tile_pos })
+                } else {
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
+            packet_id if Some(packet_id) == self.assembler_drone_spawned_packet_id => {
+                if let Some((tile_pos, unit_id)) =
+                    decode_unit_tether_block_spawned_payload(&packet.payload)
+                {
+                    self.state.received_assembler_drone_spawned_count = self
+                        .state
+                        .received_assembler_drone_spawned_count
+                        .saturating_add(1);
+                    self.state.last_assembler_drone_spawned_tile_pos = tile_pos;
+                    self.state.last_assembler_drone_spawned_unit_id = Some(unit_id);
+                    Ok(ClientSessionEvent::AssemblerDroneSpawned { tile_pos, unit_id })
+                } else {
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
+            packet_id if Some(packet_id) == self.assembler_unit_spawned_packet_id => {
+                if let Some(tile_pos) = decode_unit_block_spawn_payload(&packet.payload) {
+                    self.state.received_assembler_unit_spawned_count = self
+                        .state
+                        .received_assembler_unit_spawned_count
+                        .saturating_add(1);
+                    self.state.last_assembler_unit_spawned_tile_pos = tile_pos;
+                    Ok(ClientSessionEvent::AssemblerUnitSpawned { tile_pos })
+                } else {
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
             packet_id if Some(packet_id) == self.unit_spawn_packet_id => {
                 if let Some(summary) = decode_unit_spawn_header_payload(&packet.payload) {
                     self.state.received_unit_spawn_count =
@@ -6178,6 +6268,20 @@ pub enum ClientSessionEvent {
         tile_pos: Option<i32>,
         unit_id: i32,
     },
+    AutoDoorToggle {
+        tile_pos: Option<i32>,
+        open: bool,
+    },
+    LandingPadLanded {
+        tile_pos: Option<i32>,
+    },
+    AssemblerDroneSpawned {
+        tile_pos: Option<i32>,
+        unit_id: i32,
+    },
+    AssemblerUnitSpawned {
+        tile_pos: Option<i32>,
+    },
     EffectRequested {
         effect_id: Option<i16>,
         x: f32,
@@ -7674,6 +7778,13 @@ fn decode_unit_block_spawn_payload(payload: &[u8]) -> Option<Option<i32>> {
     let mut cursor = 0usize;
     let tile_pos = read_optional_tile_pos(payload, &mut cursor)?;
     (cursor == payload.len()).then_some(tile_pos)
+}
+
+fn decode_tile_bool_payload(payload: &[u8]) -> Option<(Option<i32>, bool)> {
+    let mut cursor = 0usize;
+    let tile_pos = read_optional_tile_pos(payload, &mut cursor)?;
+    let value = read_u8(payload, &mut cursor)? != 0;
+    (cursor == payload.len()).then_some((tile_pos, value))
 }
 
 fn decode_unit_tether_block_spawned_payload(payload: &[u8]) -> Option<(Option<i32>, i32)> {
@@ -10616,6 +10727,13 @@ fn encode_logic_explosion_payload(
     payload.push(u8::from(ground));
     payload.push(u8::from(pierce));
     payload.push(u8::from(effect));
+    payload
+}
+
+#[cfg(test)]
+fn encode_tile_bool_payload(tile_pos: Option<i32>, value: bool) -> Vec<u8> {
+    let mut payload = encode_tile_payload(tile_pos);
+    payload.push(u8::from(value));
     payload
 }
 
@@ -22215,6 +22333,126 @@ mod tests {
     }
 
     #[test]
+    fn facility_world_action_packets_emit_observability_events() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let auto_door_toggle_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "autoDoorToggle")
+            .unwrap()
+            .packet_id;
+        let landing_pad_landed_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "landingPadLanded")
+            .unwrap()
+            .packet_id;
+        let assembler_drone_spawned_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "assemblerDroneSpawned")
+            .unwrap()
+            .packet_id;
+        let assembler_unit_spawned_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "assemblerUnitSpawned")
+            .unwrap()
+            .packet_id;
+
+        let auto_door_event = session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    auto_door_toggle_packet_id,
+                    &encode_tile_bool_payload(Some(pack_point2(1, 2)), true),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            auto_door_event,
+            ClientSessionEvent::AutoDoorToggle {
+                tile_pos: Some(pack_point2(1, 2)),
+                open: true,
+            }
+        );
+        assert_eq!(session.state().received_auto_door_toggle_count, 1);
+        assert_eq!(
+            session.state().last_auto_door_toggle_tile_pos,
+            Some(pack_point2(1, 2))
+        );
+        assert_eq!(session.state().last_auto_door_toggle_open, Some(true));
+
+        let landing_pad_event = session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    landing_pad_landed_packet_id,
+                    &encode_tile_payload(Some(pack_point2(3, 4))),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            landing_pad_event,
+            ClientSessionEvent::LandingPadLanded {
+                tile_pos: Some(pack_point2(3, 4)),
+            }
+        );
+        assert_eq!(session.state().received_landing_pad_landed_count, 1);
+        assert_eq!(
+            session.state().last_landing_pad_landed_tile_pos,
+            Some(pack_point2(3, 4))
+        );
+
+        let assembler_drone_event = session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    assembler_drone_spawned_packet_id,
+                    &encode_unit_tether_block_spawned_payload(Some(pack_point2(5, 6)), 707),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            assembler_drone_event,
+            ClientSessionEvent::AssemblerDroneSpawned {
+                tile_pos: Some(pack_point2(5, 6)),
+                unit_id: 707,
+            }
+        );
+        assert_eq!(session.state().received_assembler_drone_spawned_count, 1);
+        assert_eq!(
+            session.state().last_assembler_drone_spawned_tile_pos,
+            Some(pack_point2(5, 6))
+        );
+        assert_eq!(
+            session.state().last_assembler_drone_spawned_unit_id,
+            Some(707)
+        );
+
+        let assembler_unit_event = session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    assembler_unit_spawned_packet_id,
+                    &encode_tile_payload(None),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            assembler_unit_event,
+            ClientSessionEvent::AssemblerUnitSpawned { tile_pos: None }
+        );
+        assert_eq!(session.state().received_assembler_unit_spawned_count, 1);
+        assert_eq!(session.state().last_assembler_unit_spawned_tile_pos, None);
+    }
+
+    #[test]
     fn weather_spawn_and_unit_block_packets_with_invalid_payloads_are_ignored() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
@@ -22254,6 +22492,30 @@ mod tests {
             .find(|entry| entry.method == "logicExplosion")
             .unwrap()
             .packet_id;
+        let auto_door_toggle_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "autoDoorToggle")
+            .unwrap()
+            .packet_id;
+        let landing_pad_landed_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "landingPadLanded")
+            .unwrap()
+            .packet_id;
+        let assembler_drone_spawned_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "assemblerDroneSpawned")
+            .unwrap()
+            .packet_id;
+        let assembler_unit_spawned_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "assemblerUnitSpawned")
+            .unwrap()
+            .packet_id;
 
         for (packet_id, payload) in [
             (
@@ -22288,6 +22550,26 @@ mod tests {
                 ]
                 .concat(),
             ),
+            (auto_door_toggle_packet_id, vec![0x00, 0x01, 0x02]),
+            (
+                auto_door_toggle_packet_id,
+                encode_tile_payload(Some(pack_point2(1, 2))),
+            ),
+            (
+                auto_door_toggle_packet_id,
+                [encode_tile_bool_payload(Some(pack_point2(1, 2)), true), vec![0x00]].concat(),
+            ),
+            (landing_pad_landed_packet_id, vec![0x00, 0x01, 0x02]),
+            (
+                landing_pad_landed_packet_id,
+                [encode_tile_payload(Some(pack_point2(3, 4))), vec![0x00]].concat(),
+            ),
+            (
+                assembler_drone_spawned_packet_id,
+                encode_unit_tether_block_spawned_payload(Some(pack_point2(5, 6)), 707)[..7]
+                    .to_vec(),
+            ),
+            (assembler_unit_spawned_packet_id, vec![0x00, 0x01, 0x02]),
         ] {
             let event = session
                 .ingest_packet_bytes(&encode_packet(packet_id, &payload, false).unwrap())
@@ -22329,6 +22611,16 @@ mod tests {
         assert_eq!(session.state().last_logic_explosion_ground, None);
         assert_eq!(session.state().last_logic_explosion_pierce, None);
         assert_eq!(session.state().last_logic_explosion_effect, None);
+        assert_eq!(session.state().received_auto_door_toggle_count, 0);
+        assert_eq!(session.state().last_auto_door_toggle_tile_pos, None);
+        assert_eq!(session.state().last_auto_door_toggle_open, None);
+        assert_eq!(session.state().received_landing_pad_landed_count, 0);
+        assert_eq!(session.state().last_landing_pad_landed_tile_pos, None);
+        assert_eq!(session.state().received_assembler_drone_spawned_count, 0);
+        assert_eq!(session.state().last_assembler_drone_spawned_tile_pos, None);
+        assert_eq!(session.state().last_assembler_drone_spawned_unit_id, None);
+        assert_eq!(session.state().received_assembler_unit_spawned_count, 0);
+        assert_eq!(session.state().last_assembler_unit_spawned_tile_pos, None);
     }
 
     #[test]
