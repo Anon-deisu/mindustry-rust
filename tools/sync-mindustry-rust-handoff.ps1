@@ -12,11 +12,12 @@ or reassembling the sync list by hand.
 Source monorepo root. Defaults to the parent directory of `tools/`.
 
 .PARAMETER TargetCheckout
-Target repo checkout path. Defaults to the value from
-`tools/mindustry-rust-target.json`.
+Target repo checkout path. Resolution order is: explicit `-TargetCheckout`,
+source-repo local `git config mdt.targetcheckout`, then
+`$env:MDT_TARGET_CHECKOUT`.
 
 .PARAMETER Stage
-Runs `git add .` inside the target checkout after copying.
+Stages only the declared handoff paths inside the target checkout after copying.
 
 .EXAMPLE
 powershell -ExecutionPolicy Bypass -File .\tools\sync-mindustry-rust-handoff.ps1
@@ -36,6 +37,7 @@ $ErrorActionPreference = "Stop"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $configPath = Join-Path $scriptDir "mindustry-rust-target.json"
+$targetCheckoutResolutionOrder = "Target checkout resolution order: -TargetCheckout > git config --local mdt.targetcheckout (source workspace) > MDT_TARGET_CHECKOUT."
 
 if (!(Test-Path $configPath)) {
     throw "Missing target config: $configPath"
@@ -50,11 +52,25 @@ if ([string]::IsNullOrWhiteSpace($SourceRoot)) {
 }
 
 if ([string]::IsNullOrWhiteSpace($TargetCheckout)) {
-    $TargetCheckout = $config.default_checkout_path
+    $gitConfiguredCheckout = (& git -C $SourceRoot config --local --get mdt.targetcheckout 2>$null)
+    if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($gitConfiguredCheckout)) {
+        $TargetCheckout = $gitConfiguredCheckout
+    } elseif (-not [string]::IsNullOrWhiteSpace($env:MDT_TARGET_CHECKOUT)) {
+        $TargetCheckout = $env:MDT_TARGET_CHECKOUT
+    } else {
+        throw "TargetCheckout is not configured. Run this script from the source workspace (not the target repo), or pass -TargetCheckout explicitly. $targetCheckoutResolutionOrder"
+    }
 }
 
 if (!(Test-Path $TargetCheckout)) {
     throw "Target checkout does not exist: $TargetCheckout"
+}
+
+$normalizedSourceRoot = [System.IO.Path]::GetFullPath($SourceRoot).TrimEnd('\')
+$normalizedTargetCheckout = [System.IO.Path]::GetFullPath($TargetCheckout).TrimEnd('\')
+
+if ($normalizedSourceRoot.ToLowerInvariant() -eq $normalizedTargetCheckout.ToLowerInvariant()) {
+    throw "SourceRoot and TargetCheckout resolve to the same directory: $SourceRoot. This usually means the script is running in the target repo. Run it from the source workspace or pass -SourceRoot explicitly. $targetCheckoutResolutionOrder"
 }
 
 $originUrl = git -C $TargetCheckout remote get-url origin 2>$null
@@ -81,9 +97,9 @@ $files = @(
     "rust/mdt-input/Cargo.lock",
     "rust/mdt-client-min/Cargo.toml",
     "rust/mdt-client-min/Cargo.lock",
+    "rust/mdt-client-min/assets/version.properties",
     "rust/mdt-render-ui/Cargo.toml",
     "rust/mdt-render-ui/Cargo.lock",
-    "core/assets/version.properties",
     "tools/check-mdt-release-prereqs.ps1",
     "tools/package-mdt-client-min-online.ps1",
     "tools/package-mdt-client-min-release-set.ps1",
@@ -119,6 +135,10 @@ $dirs = @(
     "rust/mdt-input/src",
     "rust/mdt-client-min/src",
     "rust/mdt-render-ui/src"
+)
+
+$obsoletePaths = @(
+    "core/assets/version.properties"
 )
 
 function Copy-RelativeFile([string]$RelativePath) {
@@ -163,6 +183,13 @@ function Copy-MappedFile([string]$SourceRelativePath, [string]$TargetRelativePat
     Copy-Item -Path $sourcePath -Destination $targetPath -Force
 }
 
+function Remove-RelativePathIfPresent([string]$RelativePath) {
+    $targetPath = Join-Path $TargetCheckout $RelativePath
+    if (Test-Path $targetPath) {
+        Remove-Item -Path $targetPath -Force
+    }
+}
+
 foreach ($relativePath in $files) {
     Copy-RelativeFile $relativePath
 }
@@ -173,10 +200,38 @@ foreach ($relativePath in $dirs) {
 
 Copy-MappedFile -SourceRelativePath "tools/mindustry-rust-repo-README.md" -TargetRelativePath "README.md"
 
+foreach ($relativePath in $obsoletePaths) {
+    Remove-RelativePathIfPresent $relativePath
+}
+
 if ($Stage) {
-    git -C $TargetCheckout add .
-    if ($LASTEXITCODE -ne 0) {
-        throw "git add failed in target checkout: $TargetCheckout"
+    $stageExistingPaths = @()
+    foreach ($relativePath in @($files + $dirs + @("README.md"))) {
+        if (Test-Path (Join-Path $TargetCheckout $relativePath)) {
+            $stageExistingPaths += $relativePath
+        }
+    }
+
+    if ($stageExistingPaths.Count -gt 0) {
+        git -C $TargetCheckout add -- @stageExistingPaths
+        if ($LASTEXITCODE -ne 0) {
+            throw "git add failed for copied handoff paths in target checkout: $TargetCheckout"
+        }
+    }
+
+    $stageDeletedPaths = @()
+    foreach ($relativePath in $obsoletePaths) {
+        $trackedPath = (& git -C $TargetCheckout ls-files -- $relativePath 2>$null)
+        if (-not [string]::IsNullOrWhiteSpace(($trackedPath | Out-String))) {
+            $stageDeletedPaths += $relativePath
+        }
+    }
+
+    if ($stageDeletedPaths.Count -gt 0) {
+        git -C $TargetCheckout add -u -- @stageDeletedPaths
+        if ($LASTEXITCODE -ne 0) {
+            throw "git add failed for removed obsolete paths in target checkout: $TargetCheckout"
+        }
     }
 }
 

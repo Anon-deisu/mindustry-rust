@@ -33,7 +33,8 @@ but does not automatically imply the workflow is already wired there.
 
 - [`MINDUSTRY-RUST-HANDOFF.md`](MINDUSTRY-RUST-HANDOFF.md): current minimal sync surface for handing Rust client work to the target `mindustry-rust` repo
 - [`mindustry-rust-target.json`](mindustry-rust-target.json): machine-readable single upload target record for future sync/push work
-- [`get-mindustry-rust-target.ps1`](get-mindustry-rust-target.ps1): prints the fixed upload target, default checkout path, and sync strategy
+- [`get-mindustry-rust-target.ps1`](get-mindustry-rust-target.ps1): prints the fixed upload target, effective checkout resolution, and sync strategy
 - [`sync-mindustry-rust-handoff.ps1`](sync-mindustry-rust-handoff.ps1): copies the handoff include set into the fixed `mindustry-rust` checkout after verifying the checkout remote
 - [`mindustry-rust-repo-README.md`](mindustry-rust-repo-README.md): target-repo root README template synced as `README.md`
 - Handoff fixture rule: runtime fixtures are canonical under `fixtures/...`; Rust-consumed parity fixtures stay source-compatible under `tests/src/test/resources/...` for now
+- Sync guard: `sync-mindustry-rust-handoff.ps1` now hard-fails when `SourceRoot` and `TargetCheckout` resolve to the same directory, to avoid accidentally running it inside the target repo as a self-copy no-op

@@ -11,7 +11,10 @@ fn main() -> Result<(), String> {
     let args = parse_args(std::env::args().skip(1))?;
     let world_stream = match &args.world_stream_hex {
         Some(path) => fs::read_to_string(path).map_err(|err| err.to_string())?,
-        None => include_str!("../../../../tests/src/test/resources/world-stream.hex").to_string(),
+        None => {
+            include_str!("../../../../fixtures/world-streams/archipelago-6567-world-stream.hex")
+                .to_string()
+        }
     };
     let bytes = decode_hex(&world_stream)?;
     let bundle = parse_world_bundle(&bytes)?;

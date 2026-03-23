@@ -8,12 +8,15 @@ work to the target repository:
 - delivery scope: minimal compatibility client
 - not a claim of full parity with the Java desktop client
 - single upload target: `https://github.com/Anon-deisu/mindustry-rust`
+- this mirrored copy exists in the target repo for traceability; most target-repo
+  contributors do not run the sync command from this checkout
 
 - target repo: `https://github.com/Anon-deisu/mindustry-rust`
-- current source workspace: `<source_repo_root>` (example: `D:\MDT\mindustry`)
+- current source workspace: `<source_repo_root>`
 - machine-readable target anchor: `tools/mindustry-rust-target.json`
 - quick lookup command: `powershell -ExecutionPolicy Bypass -File .\tools\get-mindustry-rust-target.ps1`
 - sync command: `powershell -ExecutionPolicy Bypass -File .\tools\sync-mindustry-rust-handoff.ps1 -Stage`
+- sync guard: the sync script now rejects `SourceRoot == TargetCheckout`; if you run it outside the source workspace, pass `-SourceRoot` explicitly
 
 Canonical fixture layout (source + target):
 
@@ -57,6 +60,9 @@ Sync these areas first:
     - `mdt-client-min/Cargo.lock`
     - `mdt-render-ui/Cargo.lock`
 - `tools/`
+  - `mindustry-rust-target.json`
+  - `get-mindustry-rust-target.ps1`
+  - `sync-mindustry-rust-handoff.ps1`
   - `package-mdt-client-min-online.ps1`
   - `package-mdt-client-min-release-set.ps1`
   - `verify-mdt-client-min-release-set.ps1`
@@ -67,9 +73,9 @@ Sync these areas first:
   - `README.md`
   - `mindustry-rust-repo-README.md` (syncs to target-repo root `README.md`)
 - `audit/`
-  - `ci-gate-plan.md`
-- build-required shared metadata:
-  - `core/assets/version.properties`
+  - `ci-gate-plan.md` (reference-only source-monorepo governance snapshot; not proof that target-repo workflow wiring already exists)
+- build-required crate-local metadata:
+  - `rust/mdt-client-min/assets/version.properties`
 - Rust/Java parity fixtures still needed by the client work:
   - `tests/src/test/resources/connect-packet.hex`
   - `tests/src/test/resources/control-packet-goldens.txt`

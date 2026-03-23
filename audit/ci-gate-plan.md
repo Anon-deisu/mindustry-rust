@@ -1,12 +1,18 @@
 # CI Gate Plan (Track P3)
 
+Reference-only note for `mindustry-rust` handoff:
+
+- this document records the current source-monorepo release-gate design and governance
+- syncing this file into the target repo does not by itself mean `.github/workflows/rust-release-gate.yml` is already present there
+- treat workflow wiring, branch protection, and required-check setup in the target repo as separate follow-up work unless the workflow file is explicitly synced and enabled
+
 ## Source of Truth
 
 - Workflow file: `.github/workflows/rust-release-gate.yml`
 
-## Current CI Reality
+## Source Monorepo CI Snapshot
 
-- Existing workflow set in repo:
+- Existing workflow set in the source monorepo:
   - `.github/workflows/pr.yml`
   - `.github/workflows/push.yml`
   - `.github/workflows/deployment.yml`
@@ -15,7 +21,7 @@
 - `rust-release-gate.yml` is the only workflow that runs the Rust release gate chain on Windows.
 - Other workflows remain mostly Gradle/Ubuntu oriented and are not the release-gate source of truth.
 
-## Landed Gate (Implemented)
+## Source Monorepo Gate Snapshot (Implemented There)
 
 ### Trigger Policy
 

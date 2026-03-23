@@ -6,3 +6,4 @@ build/
 gradle-9.3.1-bin.zip
 tmp-maps-out.txt
 tmp-maps-err.txt
+rust/**/tmp-out/

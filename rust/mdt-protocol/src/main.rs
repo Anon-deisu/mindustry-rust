@@ -1,4 +1,9 @@
-use std::{env, error::Error, fs, path::Path};
+use std::{
+    env,
+    error::Error,
+    fs, io,
+    path::{Path, PathBuf},
+};
 
 use mdt_protocol::{
     generate_framework_message_goldens, generate_packet_serializer_goldens,
@@ -10,24 +15,41 @@ fn main() -> Result<(), Box<dyn Error>> {
         .nth(1)
         .ok_or("usage: mdt-protocol <output-dir>")?;
     let output_dir = Path::new(&output_dir);
-    fs::create_dir_all(output_dir)?;
+    fs::create_dir_all(output_dir).map_err(|err| {
+        io::Error::new(
+            err.kind(),
+            format!(
+                "failed to create output directory {}: {err}",
+                output_dir.display()
+            ),
+        )
+    })?;
 
-    let connect_payload_hex = fs::read_to_string("tests/src/test/resources/connect-packet.hex")?;
+    let repo_root = repo_root_from_manifest_dir()?;
+    let tests_resources = repo_root.join("tests").join("src").join("test").join("resources");
+
+    let connect_payload_hex = read_text(
+        &tests_resources.join("connect-packet.hex"),
+        "connect packet golden",
+    )?;
     let connect_payload = decode_hex(connect_payload_hex.trim())?;
-    let compressed_hex = fs::read_to_string("tests/src/test/resources/world-stream.hex")?;
+    let compressed_hex = read_text(&tests_resources.join("world-stream.hex"), "world stream hex")?;
     let compressed = decode_hex(compressed_hex.trim())?;
 
-    fs::write(
+    write_text(
         output_dir.join("packet-serializer-goldens.txt"),
         generate_packet_serializer_goldens(&connect_payload)?,
+        "packet serializer goldens",
     )?;
-    fs::write(
+    write_text(
         output_dir.join("framework-message-goldens.txt"),
         generate_framework_message_goldens()?,
+        "framework message goldens",
     )?;
-    fs::write(
+    write_text(
         output_dir.join("world-stream-transport-goldens.txt"),
         generate_world_stream_transport_goldens(&compressed)?,
+        "world stream transport goldens",
     )?;
     Ok(())
 }
@@ -48,4 +70,42 @@ fn decode_hex(text: &str) -> Result<Vec<u8>, Box<dyn Error>> {
         bytes.push(byte);
     }
     Ok(bytes)
+}
+
+fn repo_root_from_manifest_dir() -> Result<PathBuf, Box<dyn Error>> {
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    manifest_dir
+        .parent()
+        .and_then(Path::parent)
+        .map(Path::to_path_buf)
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!(
+                    "failed to resolve repo root from CARGO_MANIFEST_DIR={}",
+                    manifest_dir.display()
+                ),
+            )
+            .into()
+        })
+}
+
+fn read_text(path: &Path, label: &str) -> Result<String, Box<dyn Error>> {
+    fs::read_to_string(path).map_err(|err| {
+        io::Error::new(
+            err.kind(),
+            format!("failed to read {label} from {}: {err}", path.display()),
+        )
+        .into()
+    })
+}
+
+fn write_text(path: PathBuf, contents: String, label: &str) -> Result<(), Box<dyn Error>> {
+    fs::write(&path, contents).map_err(|err| {
+        io::Error::new(
+            err.kind(),
+            format!("failed to write {label} to {}: {err}", path.display()),
+        )
+        .into()
+    })
 }

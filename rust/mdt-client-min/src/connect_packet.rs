@@ -2,7 +2,7 @@ use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const VERSION_PROPERTIES: &[u8] = include_bytes!("../../../core/assets/version.properties");
+const VERSION_PROPERTIES: &[u8] = include_bytes!("../assets/version.properties");
 const BASE64_ENCODE: &[u8; 64] =
     b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 static GENERATED_ID_COUNTER: AtomicU64 = AtomicU64::new(0);

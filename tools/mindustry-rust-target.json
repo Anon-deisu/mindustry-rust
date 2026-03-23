@@ -1,8 +1,12 @@
 {
   "target_repo": "https://github.com/Anon-deisu/mindustry-rust",
   "default_branch": "main",
-  "default_checkout_path": "D:\\MDT\\mindustry-rust",
-  "source_workspace_path_example": "D:\\MDT\\mindustry",
+  "target_checkout_resolution_order": [
+    "explicit -TargetCheckout argument",
+    "source-repo local git config mdt.targetcheckout",
+    "MDT_TARGET_CHECKOUT environment variable"
+  ],
+  "target_checkout_hint": "Configure a machine-local target checkout path outside this tracked file.",
   "sync_strategy": "Copy the handoff include set into a separate checkout of the target repo, commit there, then push that repo.",
   "canonical_fixture_paths": [
     "fixtures/remote/remote-manifest-v1.json",
@@ -19,5 +23,5 @@
     "tests/src/test/resources/world-stream.hex"
   ],
   "parity_fixture_layout_decision": "Keep source-compatible tests/src/test/resources paths in the target repo until Rust code stops depending on those compile-time and CLI paths.",
-  "note": "This is the single upload target for the Rust Mindustry client work. Do not push source-monorepo history to the official upstream."
+  "note": "This is the single upload target for the Rust Mindustry client work. Do not store machine-local checkout paths in this tracked file."
 }
