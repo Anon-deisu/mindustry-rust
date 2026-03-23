@@ -29,6 +29,7 @@ use std::fmt;
 // Java `Packets.KickReason.serverRestarting` ordinal.
 pub const KICK_REASON_SERVER_RESTARTING_ORDINAL: i32 = 15;
 const BLOCK_CONTENT_TYPE: u8 = 1;
+const ALPHA_SHAPE_ENTITY_CLASS_IDS: [u8; 5] = [0, 29, 30, 31, 33];
 
 #[derive(Debug)]
 pub struct ClientSession {
@@ -4343,7 +4344,7 @@ impl ClientSession {
             }
             self.state.entity_table_projection.upsert_entity(
                 row.entity_id,
-                0,
+                row.class_id,
                 false,
                 2,
                 u32::try_from(row.entity_id).unwrap_or_default(),
@@ -7070,6 +7071,7 @@ struct EntityPlayerSyncRow {
 #[derive(Debug, Clone, PartialEq)]
 struct EntityAlphaSyncRow {
     entity_id: i32,
+    class_id: u8,
     sync: mdt_world::EntityAlphaSyncSnapshot,
     start: usize,
     end: usize,
@@ -7519,18 +7521,20 @@ fn parse_alpha_sync_rows_from_entity_snapshot_prefix(
     let max_rows = usize::from(amount);
     while cursor.saturating_add(5) <= body.len() && rows.len() < max_rows {
         let entity_id = i32::from_be_bytes(body[cursor..cursor + 4].try_into().unwrap());
-        match body[cursor + 4] {
+        let class_id = body[cursor + 4];
+        match class_id {
             12 => {
                 let (_, consumed) = parse_entity_player_sync_bytes(&body[cursor + 5..])
                     .map_err(|error| format!("entity_snapshot_known_prefix_player:{error}"))?;
                 cursor = cursor.saturating_add(5).saturating_add(consumed);
             }
-            0 => {
+            _ if ALPHA_SHAPE_ENTITY_CLASS_IDS.contains(&class_id) => {
                 let (sync, consumed) = parse_entity_alpha_sync_bytes(&body[cursor + 5..])
                     .map_err(|error| format!("entity_snapshot_known_prefix_alpha:{error}"))?;
                 let end = cursor.saturating_add(5).saturating_add(consumed);
                 rows.push(EntityAlphaSyncRow {
                     entity_id,
+                    class_id,
                     sync,
                     start: cursor,
                     end,
@@ -9574,6 +9578,22 @@ mod tests {
                 last_seen_entity_snapshot_count: 1,
             })
         );
+    }
+
+    #[test]
+    fn alpha_shape_entity_snapshot_prefix_parser_accepts_beta_class_id() {
+        let mut payload = sample_snapshot_packet("entitySnapshot.packet");
+        let body_len = u16::from_be_bytes([payload[2], payload[3]]) as usize;
+        let body = &mut payload[4..4 + body_len];
+        body[57 + 4] = 30;
+
+        let rows = try_parse_alpha_sync_rows_from_entity_snapshot_prefix(&payload);
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].entity_id, 100);
+        assert_eq!(rows[0].class_id, 30);
+        assert_eq!(rows[0].sync.x_bits, 40.0f32.to_bits());
+        assert_eq!(rows[0].sync.y_bits, 60.0f32.to_bits());
     }
 
     #[test]
