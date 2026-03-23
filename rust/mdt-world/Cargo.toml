@@ -1,0 +1,12 @@
+[package]
+name = "mdt-world"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+flate2 = "1"
+json5 = "0.4"
+mdt-protocol = { path = "../mdt-protocol" }
+mdt-typeio = { path = "../mdt-typeio" }
+serde_json = "1"
+sha2 = "0.10"

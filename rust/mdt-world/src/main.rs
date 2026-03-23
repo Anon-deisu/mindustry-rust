@@ -1,0 +1,656 @@
+use std::{
+    env,
+    error::Error,
+    fs, io,
+    path::{Path, PathBuf},
+};
+
+fn main() -> Result<(), Box<dyn Error>> {
+    let output_dir = env::args().nth(1).ok_or("usage: mdt-world <output-dir>")?;
+    let output_dir = Path::new(&output_dir);
+    fs::create_dir_all(output_dir)?;
+
+    let repo_root = repo_root_from_manifest_dir()?;
+    let tests_resources = repo_root
+        .join("tests")
+        .join("src")
+        .join("test")
+        .join("resources");
+
+    let connect_packet_hex = read_text_from_candidates(
+        "connect-packet.hex",
+        &[tests_resources.join("connect-packet.hex")],
+    )?;
+    fs::write(output_dir.join("connect-packet.hex"), &connect_packet_hex)?;
+
+    let snapshot_goldens = read_text_from_candidates(
+        "snapshot-goldens.txt",
+        &[tests_resources.join("snapshot-goldens.txt")],
+    )?;
+    fs::write(output_dir.join("snapshot-goldens.txt"), &snapshot_goldens)?;
+
+    let world_stream_hex = read_text_from_candidates(
+        "world-stream.hex",
+        &[
+            tests_resources.join("world-stream.hex"),
+            repo_root
+                .join("rust")
+                .join("fixtures")
+                .join("world-streams")
+                .join("archipelago-6567-world-stream.hex"),
+            repo_root
+                .join("fixtures")
+                .join("world-streams")
+                .join("archipelago-6567-world-stream.hex"),
+        ],
+    )?;
+    fs::write(output_dir.join("world-stream.hex"), &world_stream_hex)?;
+
+    let connect_payload = decode_hex_text(&connect_packet_hex)?;
+    let packet_serializer_text =
+        mdt_protocol::generate_packet_serializer_goldens(&connect_payload)?;
+    fs::write(
+        output_dir.join("packet-serializer-goldens.txt"),
+        packet_serializer_text,
+    )?;
+    fs::write(
+        output_dir.join("framework-message-goldens.txt"),
+        mdt_protocol::generate_framework_message_goldens()?,
+    )?;
+    fs::write(
+        output_dir.join("typeio-goldens.txt"),
+        mdt_typeio::generate_typeio_goldens(),
+    )?;
+
+    let compressed = decode_hex_text(&world_stream_hex)?;
+    fs::write(
+        output_dir.join("world-stream-transport-goldens.txt"),
+        mdt_protocol::generate_world_stream_transport_goldens(&compressed)?,
+    )?;
+
+    let summary = mdt_world::parse_world_load_goldens(&compressed)?;
+    let text = mdt_world::format_world_load_goldens(&summary);
+    fs::write(output_dir.join("world-load-goldens.txt"), text)?;
+
+    let model = mdt_world::parse_world_model(&compressed)?;
+    let model_text = mdt_world::format_world_model_goldens(&model);
+    fs::write(output_dir.join("world-model-goldens.txt"), model_text)?;
+
+    let team_plan_bytes = mdt_world::generate_team_plan_sample_bytes();
+    let team_plan_summary = mdt_world::parse_team_plan_goldens(&team_plan_bytes)?;
+    let team_plan_text = mdt_world::format_team_plan_goldens(&team_plan_summary);
+    fs::write(output_dir.join("team-plan-goldens.txt"), team_plan_text)?;
+
+    let static_fog_bytes = mdt_world::generate_static_fog_sample_bytes();
+    let static_fog_summary = mdt_world::parse_static_fog_goldens(&static_fog_bytes)?;
+    let static_fog_text = mdt_world::format_static_fog_goldens(&static_fog_summary);
+    fs::write(output_dir.join("static-fog-goldens.txt"), static_fog_text)?;
+
+    let marker_bytes = mdt_world::generate_marker_sample_bytes();
+    let marker_summary = mdt_world::parse_marker_goldens(&marker_bytes)?;
+    let marker_text = mdt_world::format_marker_goldens(&marker_summary);
+    fs::write(output_dir.join("marker-goldens.txt"), marker_text)?;
+
+    let payload_campaign_compound_summary =
+        mdt_world::generate_payload_campaign_compound_goldens()?;
+    let payload_campaign_compound_text =
+        mdt_world::format_payload_campaign_compound_goldens(&payload_campaign_compound_summary);
+    fs::write(
+        output_dir.join("payload-campaign-compound-goldens.txt"),
+        payload_campaign_compound_text,
+    )?;
+
+    let world_graph_summary = mdt_world::parse_world_graph_goldens(&compressed)?;
+    let world_graph_text = mdt_world::format_world_graph_goldens(&world_graph_summary);
+    fs::write(output_dir.join("world-graph-goldens.txt"), world_graph_text)?;
+
+    let world_session_summary = mdt_world::parse_world_session_goldens(&compressed)?;
+    let world_session_text = mdt_world::format_world_session_goldens(&world_session_summary);
+    fs::write(
+        output_dir.join("world-session-goldens.txt"),
+        world_session_text,
+    )?;
+
+    let world_bootstrap_summary = mdt_world::parse_world_bootstrap_goldens(&compressed)?;
+    let world_bootstrap_text = mdt_world::format_world_bootstrap_goldens(&world_bootstrap_summary);
+    fs::write(
+        output_dir.join("world-bootstrap-goldens.txt"),
+        world_bootstrap_text,
+    )?;
+
+    let world_enter_init_summary = mdt_world::parse_world_enter_init_goldens(&compressed)?;
+    let world_enter_init_text =
+        mdt_world::format_world_enter_init_goldens(&world_enter_init_summary);
+    fs::write(
+        output_dir.join("world-enter-init-goldens.txt"),
+        world_enter_init_text,
+    )?;
+
+    let world_enter_init_state_summary =
+        mdt_world::parse_world_enter_init_state_goldens(&compressed)?;
+    let world_enter_init_state_text =
+        mdt_world::format_world_enter_init_state_goldens(&world_enter_init_state_summary);
+    fs::write(
+        output_dir.join("world-enter-init-state-goldens.txt"),
+        world_enter_init_state_text,
+    )?;
+
+    let world_enter_component_summary =
+        mdt_world::parse_world_enter_component_goldens(&compressed)?;
+    let world_enter_component_text =
+        mdt_world::format_world_enter_component_goldens(&world_enter_component_summary);
+    fs::write(
+        output_dir.join("world-enter-component-goldens.txt"),
+        world_enter_component_text,
+    )?;
+
+    let world_enter_surface_summary = mdt_world::parse_world_enter_surface_goldens(&compressed)?;
+    let world_enter_surface_text =
+        mdt_world::format_world_enter_surface_goldens(&world_enter_surface_summary);
+    fs::write(
+        output_dir.join("world-enter-surface-goldens.txt"),
+        world_enter_surface_text,
+    )?;
+
+    let world_enter_layout_summary = mdt_world::parse_world_enter_layout_goldens(&compressed)?;
+    let world_enter_layout_text =
+        mdt_world::format_world_enter_layout_goldens(&world_enter_layout_summary);
+    fs::write(
+        output_dir.join("world-enter-layout-goldens.txt"),
+        world_enter_layout_text,
+    )?;
+
+    let world_enter_page_summary = mdt_world::parse_world_enter_page_goldens(&compressed)?;
+    let world_enter_page_text =
+        mdt_world::format_world_enter_page_goldens(&world_enter_page_summary);
+    fs::write(
+        output_dir.join("world-enter-page-goldens.txt"),
+        world_enter_page_text,
+    )?;
+
+    let world_enter_screen_summary = mdt_world::parse_world_enter_screen_goldens(&compressed)?;
+    let world_enter_screen_text =
+        mdt_world::format_world_enter_screen_goldens(&world_enter_screen_summary);
+    fs::write(
+        output_dir.join("world-enter-screen-goldens.txt"),
+        world_enter_screen_text,
+    )?;
+
+    let world_enter_transition_summary =
+        mdt_world::parse_world_enter_transition_goldens(&compressed)?;
+    let world_enter_transition_text =
+        mdt_world::format_world_enter_transition_goldens(&world_enter_transition_summary);
+    fs::write(
+        output_dir.join("world-enter-transition-goldens.txt"),
+        world_enter_transition_text,
+    )?;
+
+    let world_enter_world_ready_summary =
+        mdt_world::parse_world_enter_world_ready_goldens(&compressed)?;
+    let world_enter_world_ready_text =
+        mdt_world::format_world_enter_world_ready_goldens(&world_enter_world_ready_summary);
+    fs::write(
+        output_dir.join("world-enter-world-ready-goldens.txt"),
+        world_enter_world_ready_text,
+    )?;
+
+    let world_enter_play_summary = mdt_world::parse_world_enter_play_goldens(&compressed)?;
+    let world_enter_play_text =
+        mdt_world::format_world_enter_play_goldens(&world_enter_play_summary);
+    fs::write(
+        output_dir.join("world-enter-play-goldens.txt"),
+        world_enter_play_text,
+    )?;
+
+    let world_enter_runtime_summary = mdt_world::parse_world_enter_runtime_goldens(&compressed)?;
+    let world_enter_runtime_text =
+        mdt_world::format_world_enter_runtime_goldens(&world_enter_runtime_summary);
+    fs::write(
+        output_dir.join("world-enter-runtime-goldens.txt"),
+        world_enter_runtime_text,
+    )?;
+
+    let world_enter_frame_summary = mdt_world::parse_world_enter_frame_goldens(&compressed)?;
+    let world_enter_frame_text =
+        mdt_world::format_world_enter_frame_goldens(&world_enter_frame_summary);
+    fs::write(
+        output_dir.join("world-enter-frame-goldens.txt"),
+        world_enter_frame_text,
+    )?;
+
+    let world_enter_loop_summary = mdt_world::parse_world_enter_loop_goldens(&compressed)?;
+    let world_enter_loop_text =
+        mdt_world::format_world_enter_loop_goldens(&world_enter_loop_summary);
+    fs::write(
+        output_dir.join("world-enter-loop-goldens.txt"),
+        world_enter_loop_text,
+    )?;
+
+    let world_enter_render_summary = mdt_world::parse_world_enter_render_goldens(&compressed)?;
+    let world_enter_render_text =
+        mdt_world::format_world_enter_render_goldens(&world_enter_render_summary);
+    fs::write(
+        output_dir.join("world-enter-render-goldens.txt"),
+        world_enter_render_text,
+    )?;
+
+    let world_enter_scene_frame_summary =
+        mdt_world::parse_world_enter_scene_frame_goldens(&compressed)?;
+    let world_enter_scene_frame_text =
+        mdt_world::format_world_enter_scene_frame_goldens(&world_enter_scene_frame_summary);
+    fs::write(
+        output_dir.join("world-enter-scene-frame-goldens.txt"),
+        world_enter_scene_frame_text,
+    )?;
+
+    let world_enter_scene_present_summary =
+        mdt_world::parse_world_enter_scene_present_goldens(&compressed)?;
+    let world_enter_scene_present_text =
+        mdt_world::format_world_enter_scene_present_goldens(&world_enter_scene_present_summary);
+    fs::write(
+        output_dir.join("world-enter-scene-present-goldens.txt"),
+        world_enter_scene_present_text,
+    )?;
+
+    let world_enter_world_shell_summary =
+        mdt_world::parse_world_enter_world_shell_goldens(&compressed)?;
+    let world_enter_world_shell_text =
+        mdt_world::format_world_enter_world_shell_goldens(&world_enter_world_shell_summary);
+    fs::write(
+        output_dir.join("world-enter-world-shell-goldens.txt"),
+        world_enter_world_shell_text,
+    )?;
+
+    let world_enter_screen_activation_summary =
+        mdt_world::parse_world_enter_screen_activation_goldens(&compressed)?;
+    let world_enter_screen_activation_text =
+        mdt_world::format_world_enter_screen_activation_goldens(
+            &world_enter_screen_activation_summary,
+        );
+    fs::write(
+        output_dir.join("world-enter-screen-activation-goldens.txt"),
+        world_enter_screen_activation_text,
+    )?;
+
+    let world_enter_session_activation_summary =
+        mdt_world::parse_world_enter_session_activation_goldens(&compressed)?;
+    let world_enter_session_activation_text =
+        mdt_world::format_world_enter_session_activation_goldens(
+            &world_enter_session_activation_summary,
+        );
+    fs::write(
+        output_dir.join("world-enter-session-activation-goldens.txt"),
+        world_enter_session_activation_text,
+    )?;
+
+    let world_enter_connection_ready_summary =
+        mdt_world::parse_world_enter_connection_ready_goldens(&compressed)?;
+    let world_enter_connection_ready_text = mdt_world::format_world_enter_connection_ready_goldens(
+        &world_enter_connection_ready_summary,
+    );
+    fs::write(
+        output_dir.join("world-enter-connection-ready-goldens.txt"),
+        world_enter_connection_ready_text,
+    )?;
+
+    let world_enter_ready_proof_summary =
+        mdt_world::parse_world_enter_ready_proof_goldens(&compressed)?;
+    let world_enter_ready_proof_text =
+        mdt_world::format_world_enter_ready_proof_goldens(&world_enter_ready_proof_summary);
+    fs::write(
+        output_dir.join("world-enter-ready-proof-goldens.txt"),
+        world_enter_ready_proof_text,
+    )?;
+
+    let world_enter_room_entry_proof_summary =
+        mdt_world::parse_world_enter_room_entry_proof_goldens(&compressed)?;
+    let world_enter_room_entry_proof_text = mdt_world::format_world_enter_room_entry_proof_goldens(
+        &world_enter_room_entry_proof_summary,
+    );
+    fs::write(
+        output_dir.join("world-enter-room-entry-proof-goldens.txt"),
+        world_enter_room_entry_proof_text,
+    )?;
+
+    let world_enter_world_loop_proof_summary =
+        mdt_world::parse_world_enter_world_loop_proof_goldens(&compressed)?;
+    let world_enter_world_loop_proof_text = mdt_world::format_world_enter_world_loop_proof_goldens(
+        &world_enter_world_loop_proof_summary,
+    );
+    fs::write(
+        output_dir.join("world-enter-world-loop-proof-goldens.txt"),
+        world_enter_world_loop_proof_text,
+    )?;
+
+    let world_enter_stable_session_proof_summary =
+        mdt_world::parse_world_enter_stable_session_proof_goldens(&compressed)?;
+    let world_enter_stable_session_proof_text =
+        mdt_world::format_world_enter_stable_session_proof_goldens(
+            &world_enter_stable_session_proof_summary,
+        );
+    fs::write(
+        output_dir.join("world-enter-stable-session-proof-goldens.txt"),
+        world_enter_stable_session_proof_text,
+    )?;
+
+    let world_enter_stable_world_proof_summary =
+        mdt_world::parse_world_enter_stable_world_proof_goldens(&compressed)?;
+    let world_enter_stable_world_proof_text =
+        mdt_world::format_world_enter_stable_world_proof_goldens(
+            &world_enter_stable_world_proof_summary,
+        );
+    fs::write(
+        output_dir.join("world-enter-stable-world-proof-goldens.txt"),
+        world_enter_stable_world_proof_text,
+    )?;
+
+    let world_enter_stable_bootstrap_proof_summary =
+        mdt_world::parse_world_enter_stable_bootstrap_proof_goldens(&compressed)?;
+    let world_enter_stable_bootstrap_proof_text =
+        mdt_world::format_world_enter_stable_bootstrap_proof_goldens(
+            &world_enter_stable_bootstrap_proof_summary,
+        );
+    fs::write(
+        output_dir.join("world-enter-stable-bootstrap-proof-goldens.txt"),
+        world_enter_stable_bootstrap_proof_text,
+    )?;
+
+    let world_enter_stable_content_proof_summary =
+        mdt_world::parse_world_enter_stable_content_proof_goldens(&compressed)?;
+    let world_enter_stable_content_proof_text =
+        mdt_world::format_world_enter_stable_content_proof_goldens(
+            &world_enter_stable_content_proof_summary,
+        );
+    fs::write(
+        output_dir.join("world-enter-stable-content-proof-goldens.txt"),
+        world_enter_stable_content_proof_text,
+    )?;
+
+    let world_enter_stable_entry_proof_summary =
+        mdt_world::parse_world_enter_stable_entry_proof_goldens(&compressed)?;
+    let world_enter_stable_entry_proof_text =
+        mdt_world::format_world_enter_stable_entry_proof_goldens(
+            &world_enter_stable_entry_proof_summary,
+        );
+    fs::write(
+        output_dir.join("world-enter-stable-entry-proof-goldens.txt"),
+        world_enter_stable_entry_proof_text,
+    )?;
+
+    let world_enter_stable_stage_proof_summary =
+        mdt_world::parse_world_enter_stable_stage_proof_goldens(&compressed)?;
+    let world_enter_stable_stage_proof_text =
+        mdt_world::format_world_enter_stable_stage_proof_goldens(
+            &world_enter_stable_stage_proof_summary,
+        );
+    fs::write(
+        output_dir.join("world-enter-stable-stage-proof-goldens.txt"),
+        world_enter_stable_stage_proof_text,
+    )?;
+
+    let world_enter_stable_envelope_proof_summary =
+        mdt_world::parse_world_enter_stable_envelope_proof_goldens(&compressed)?;
+    let world_enter_stable_envelope_proof_text =
+        mdt_world::format_world_enter_stable_envelope_proof_goldens(
+            &world_enter_stable_envelope_proof_summary,
+        );
+    fs::write(
+        output_dir.join("world-enter-stable-envelope-proof-goldens.txt"),
+        world_enter_stable_envelope_proof_text,
+    )?;
+
+    let world_enter_stable_ready_proof_summary =
+        mdt_world::parse_world_enter_stable_ready_proof_goldens(&compressed)?;
+    let world_enter_stable_ready_proof_text =
+        mdt_world::format_world_enter_stable_ready_proof_goldens(
+            &world_enter_stable_ready_proof_summary,
+        );
+    fs::write(
+        output_dir.join("world-enter-stable-ready-proof-goldens.txt"),
+        world_enter_stable_ready_proof_text,
+    )?;
+
+    let world_enter_stable_room_entry_proof_summary =
+        mdt_world::parse_world_enter_stable_room_entry_proof_goldens(&compressed)?;
+    let world_enter_stable_room_entry_proof_text =
+        mdt_world::format_world_enter_stable_room_entry_proof_goldens(
+            &world_enter_stable_room_entry_proof_summary,
+        );
+    fs::write(
+        output_dir.join("world-enter-stable-room-entry-proof-goldens.txt"),
+        world_enter_stable_room_entry_proof_text,
+    )?;
+
+    let world_enter_stable_world_loop_proof_summary =
+        mdt_world::parse_world_enter_stable_world_loop_proof_goldens(&compressed)?;
+    let world_enter_stable_world_loop_proof_text =
+        mdt_world::format_world_enter_stable_world_loop_proof_goldens(
+            &world_enter_stable_world_loop_proof_summary,
+        );
+    fs::write(
+        output_dir.join("world-enter-stable-world-loop-proof-goldens.txt"),
+        world_enter_stable_world_loop_proof_text,
+    )?;
+
+    let world_enter_stable_playable_session_proof_summary =
+        mdt_world::parse_world_enter_stable_playable_session_proof_goldens(&compressed)?;
+    let world_enter_stable_playable_session_proof_text =
+        mdt_world::format_world_enter_stable_playable_session_proof_goldens(
+            &world_enter_stable_playable_session_proof_summary,
+        );
+    fs::write(
+        output_dir.join("world-enter-stable-playable-session-proof-goldens.txt"),
+        world_enter_stable_playable_session_proof_text,
+    )?;
+
+    let world_enter_connection_confirmed_summary =
+        mdt_world::parse_world_enter_connection_confirmed_goldens(&compressed)?;
+    let world_enter_connection_confirmed_text =
+        mdt_world::format_world_enter_connection_confirmed_goldens(
+            &world_enter_connection_confirmed_summary,
+        );
+    fs::write(
+        output_dir.join("world-enter-connection-confirmed-goldens.txt"),
+        world_enter_connection_confirmed_text,
+    )?;
+
+    let world_enter_player_join_summary =
+        mdt_world::parse_world_enter_player_join_goldens(&compressed)?;
+    let world_enter_player_join_text =
+        mdt_world::format_world_enter_player_join_goldens(&world_enter_player_join_summary);
+    fs::write(
+        output_dir.join("world-enter-player-join-goldens.txt"),
+        world_enter_player_join_text,
+    )?;
+
+    let world_enter_interaction_ready_summary =
+        mdt_world::parse_world_enter_interaction_ready_goldens(&compressed)?;
+    let world_enter_interaction_ready_text =
+        mdt_world::format_world_enter_interaction_ready_goldens(
+            &world_enter_interaction_ready_summary,
+        );
+    fs::write(
+        output_dir.join("world-enter-interaction-ready-goldens.txt"),
+        world_enter_interaction_ready_text,
+    )?;
+
+    let world_enter_snapshot_ready_summary =
+        mdt_world::parse_world_enter_snapshot_ready_goldens(&compressed)?;
+    let world_enter_snapshot_ready_text =
+        mdt_world::format_world_enter_snapshot_ready_goldens(&world_enter_snapshot_ready_summary);
+    fs::write(
+        output_dir.join("world-enter-snapshot-ready-goldens.txt"),
+        world_enter_snapshot_ready_text,
+    )?;
+
+    let world_enter_snapshot_live_summary =
+        mdt_world::parse_world_enter_snapshot_live_goldens(&compressed)?;
+    let world_enter_snapshot_live_text =
+        mdt_world::format_world_enter_snapshot_live_goldens(&world_enter_snapshot_live_summary);
+    fs::write(
+        output_dir.join("world-enter-snapshot-live-goldens.txt"),
+        world_enter_snapshot_live_text,
+    )?;
+
+    let world_enter_snapshot_apply_summary =
+        mdt_world::parse_world_enter_snapshot_apply_goldens(&compressed)?;
+    let world_enter_snapshot_apply_text =
+        mdt_world::format_world_enter_snapshot_apply_goldens(&world_enter_snapshot_apply_summary);
+    fs::write(
+        output_dir.join("world-enter-snapshot-apply-goldens.txt"),
+        world_enter_snapshot_apply_text,
+    )?;
+
+    let world_enter_world_sync_summary =
+        mdt_world::parse_world_enter_world_sync_goldens(&compressed)?;
+    let world_enter_world_sync_text =
+        mdt_world::format_world_enter_world_sync_goldens(&world_enter_world_sync_summary);
+    fs::write(
+        output_dir.join("world-enter-world-sync-goldens.txt"),
+        world_enter_world_sync_text,
+    )?;
+
+    let world_enter_sync_state_summary =
+        mdt_world::parse_world_enter_sync_state_goldens(&compressed)?;
+    let world_enter_sync_state_text =
+        mdt_world::format_world_enter_sync_state_goldens(&world_enter_sync_state_summary);
+    fs::write(
+        output_dir.join("world-enter-sync-state-goldens.txt"),
+        world_enter_sync_state_text,
+    )?;
+
+    let world_enter_sync_loop_summary =
+        mdt_world::parse_world_enter_sync_loop_goldens(&compressed)?;
+    let world_enter_sync_loop_text =
+        mdt_world::format_world_enter_sync_loop_goldens(&world_enter_sync_loop_summary);
+    fs::write(
+        output_dir.join("world-enter-sync-loop-goldens.txt"),
+        world_enter_sync_loop_text,
+    )?;
+
+    let world_enter_client_snapshot_summary =
+        mdt_world::parse_world_enter_client_snapshot_goldens(&compressed)?;
+    let world_enter_client_snapshot_text =
+        mdt_world::format_world_enter_client_snapshot_goldens(&world_enter_client_snapshot_summary);
+    fs::write(
+        output_dir.join("world-enter-client-snapshot-goldens.txt"),
+        world_enter_client_snapshot_text,
+    )?;
+
+    let world_enter_client_snapshot_apply_summary =
+        mdt_world::parse_world_enter_client_snapshot_apply_goldens(&compressed)?;
+    let world_enter_client_snapshot_apply_text =
+        mdt_world::format_world_enter_client_snapshot_apply_goldens(
+            &world_enter_client_snapshot_apply_summary,
+        );
+    fs::write(
+        output_dir.join("world-enter-client-snapshot-apply-goldens.txt"),
+        world_enter_client_snapshot_apply_text,
+    )?;
+
+    let world_enter_client_reconcile_summary =
+        mdt_world::parse_world_enter_client_reconcile_goldens(&compressed)?;
+    let world_enter_client_reconcile_text = mdt_world::format_world_enter_client_reconcile_goldens(
+        &world_enter_client_reconcile_summary,
+    );
+    fs::write(
+        output_dir.join("world-enter-client-reconcile-goldens.txt"),
+        world_enter_client_reconcile_text,
+    )?;
+
+    let world_enter_multiplayer_runtime_summary =
+        mdt_world::parse_world_enter_multiplayer_runtime_goldens(&compressed)?;
+    let world_enter_multiplayer_runtime_text =
+        mdt_world::format_world_enter_multiplayer_runtime_goldens(
+            &world_enter_multiplayer_runtime_summary,
+        );
+    fs::write(
+        output_dir.join("world-enter-multiplayer-runtime-goldens.txt"),
+        world_enter_multiplayer_runtime_text,
+    )?;
+
+    let world_enter_multiplayer_session_summary =
+        mdt_world::parse_world_enter_multiplayer_session_goldens(&compressed)?;
+    let world_enter_multiplayer_session_text =
+        mdt_world::format_world_enter_multiplayer_session_goldens(
+            &world_enter_multiplayer_session_summary,
+        );
+    fs::write(
+        output_dir.join("world-enter-multiplayer-session-goldens.txt"),
+        world_enter_multiplayer_session_text,
+    )?;
+
+    let world_enter_multiplayer_shell_summary =
+        mdt_world::parse_world_enter_multiplayer_shell_goldens(&compressed)?;
+    let world_enter_multiplayer_shell_text =
+        mdt_world::format_world_enter_multiplayer_shell_goldens(
+            &world_enter_multiplayer_shell_summary,
+        );
+    fs::write(
+        output_dir.join("world-enter-multiplayer-shell-goldens.txt"),
+        world_enter_multiplayer_shell_text,
+    )?;
+
+    let world_enter_playable_session_summary =
+        mdt_world::parse_world_enter_playable_session_goldens(&compressed)?;
+    let world_enter_playable_session_text = mdt_world::format_world_enter_playable_session_goldens(
+        &world_enter_playable_session_summary,
+    );
+    fs::write(
+        output_dir.join("world-enter-playable-session-goldens.txt"),
+        world_enter_playable_session_text,
+    )?;
+    Ok(())
+}
+
+fn decode_hex_text(text: &str) -> Result<Vec<u8>, Box<dyn Error>> {
+    let compact = text
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>();
+    let mut bytes = Vec::with_capacity(compact.len() / 2);
+    for i in (0..compact.len()).step_by(2) {
+        bytes.push(u8::from_str_radix(&compact[i..i + 2], 16)?);
+    }
+    Ok(bytes)
+}
+
+fn repo_root_from_manifest_dir() -> Result<PathBuf, Box<dyn Error>> {
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    manifest_dir
+        .parent()
+        .and_then(Path::parent)
+        .map(Path::to_path_buf)
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!(
+                    "failed to resolve repo root from CARGO_MANIFEST_DIR={}",
+                    manifest_dir.display()
+                ),
+            )
+            .into()
+        })
+}
+
+fn read_text_from_candidates(
+    label: &str,
+    candidates: &[PathBuf],
+) -> Result<String, Box<dyn Error>> {
+    for candidate in candidates {
+        if candidate.is_file() {
+            return Ok(fs::read_to_string(candidate)?);
+        }
+    }
+
+    let checked = candidates
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    Err(io::Error::new(
+        io::ErrorKind::NotFound,
+        format!("missing {label}; checked: {checked}"),
+    )
+    .into())
+}

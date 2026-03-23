@@ -1,0 +1,2699 @@
+{
+  "schema": "mdt.remote.manifest.v1",
+  "generator": {
+    "source": "mindustry.annotations.remote",
+    "callClass": "mindustry.gen.Call"
+  },
+  "basePackets": [
+    {"id": 0, "class": "mindustry.net.Packets$StreamBegin"},
+    {"id": 1, "class": "mindustry.net.Packets$StreamChunk"},
+    {"id": 2, "class": "mindustry.net.Packets$WorldStream"},
+    {"id": 3, "class": "mindustry.net.Packets$ConnectPacket"}
+  ],
+  "remotePackets": [
+    {
+      "remoteIndex": 0,
+      "packetId": 4,
+      "packetClass": "mindustry.gen.AdminRequestCallPacket",
+      "declaringType": "mindustry.core.NetServer",
+      "method": "adminRequest",
+      "targets": "client",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "player", "javaType": "Player", "networkIncludedWhenCallerIsClient": false, "networkIncludedWhenCallerIsServer": false},
+        {"name": "other", "javaType": "Player", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "action", "javaType": "mindustry.net.Packets.AdminAction", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "params", "javaType": "java.lang.Object", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 1,
+      "packetId": 5,
+      "packetClass": "mindustry.gen.AnnounceCallPacket",
+      "declaringType": "mindustry.ui.Menus",
+      "method": "announce",
+      "targets": "server",
+      "called": "none",
+      "variants": "both",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "message", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 2,
+      "packetId": 6,
+      "packetClass": "mindustry.gen.AssemblerDroneSpawnedCallPacket",
+      "declaringType": "mindustry.world.blocks.units.UnitAssembler",
+      "method": "assemblerDroneSpawned",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "tile", "javaType": "mindustry.world.Tile", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "id", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 3,
+      "packetId": 7,
+      "packetClass": "mindustry.gen.AssemblerUnitSpawnedCallPacket",
+      "declaringType": "mindustry.world.blocks.units.UnitAssembler",
+      "method": "assemblerUnitSpawned",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "tile", "javaType": "mindustry.world.Tile", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 4,
+      "packetId": 8,
+      "packetClass": "mindustry.gen.AutoDoorToggleCallPacket",
+      "declaringType": "mindustry.world.blocks.defense.AutoDoor",
+      "method": "autoDoorToggle",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "tile", "javaType": "mindustry.world.Tile", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "open", "javaType": "boolean", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 5,
+      "packetId": 9,
+      "packetClass": "mindustry.gen.BeginBreakCallPacket",
+      "declaringType": "mindustry.world.Build",
+      "method": "beginBreak",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "unit", "javaType": "Unit", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "team", "javaType": "mindustry.game.Team", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "x", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "y", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 6,
+      "packetId": 10,
+      "packetClass": "mindustry.gen.BeginPlaceCallPacket",
+      "declaringType": "mindustry.world.Build",
+      "method": "beginPlace",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "unit", "javaType": "Unit", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "result", "javaType": "mindustry.world.Block", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "team", "javaType": "mindustry.game.Team", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "x", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "y", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "rotation", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "placeConfig", "javaType": "java.lang.Object", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 7,
+      "packetId": 11,
+      "packetClass": "mindustry.gen.BlockSnapshotCallPacket",
+      "declaringType": "mindustry.core.NetClient",
+      "method": "blockSnapshot",
+      "targets": "server",
+      "called": "none",
+      "variants": "both",
+      "forward": false,
+      "unreliable": true,
+      "priority": "low",
+      "params": [
+        {"name": "amount", "javaType": "short", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "data", "javaType": "byte[]", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 8,
+      "packetId": 12,
+      "packetClass": "mindustry.gen.BuildDestroyedCallPacket",
+      "declaringType": "mindustry.world.Tile",
+      "method": "buildDestroyed",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "build", "javaType": "Building", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 9,
+      "packetId": 13,
+      "packetClass": "mindustry.gen.BuildHealthUpdateCallPacket",
+      "declaringType": "mindustry.world.Tile",
+      "method": "buildHealthUpdate",
+      "targets": "server",
+      "called": "none",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "buildings", "javaType": "arc.struct.IntSeq", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 10,
+      "packetId": 14,
+      "packetClass": "mindustry.gen.BuildingControlSelectCallPacket",
+      "declaringType": "mindustry.input.InputHandler",
+      "method": "buildingControlSelect",
+      "targets": "both",
+      "called": "server",
+      "variants": "all",
+      "forward": true,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "player", "javaType": "Player", "networkIncludedWhenCallerIsClient": false, "networkIncludedWhenCallerIsServer": true},
+        {"name": "build", "javaType": "Building", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 11,
+      "packetId": 15,
+      "packetClass": "mindustry.gen.ClearItemsCallPacket",
+      "declaringType": "mindustry.input.InputHandler",
+      "method": "clearItems",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "build", "javaType": "Building", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 12,
+      "packetId": 16,
+      "packetClass": "mindustry.gen.ClearLiquidsCallPacket",
+      "declaringType": "mindustry.input.InputHandler",
+      "method": "clearLiquids",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "build", "javaType": "Building", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 13,
+      "packetId": 17,
+      "packetClass": "mindustry.gen.ClearObjectivesCallPacket",
+      "declaringType": "mindustry.core.NetClient",
+      "method": "clearObjectives",
+      "targets": "server",
+      "called": "server",
+      "variants": "both",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+      ]
+    },
+    {
+      "remoteIndex": 14,
+      "packetId": 18,
+      "packetClass": "mindustry.gen.ClientBinaryPacketReliableCallPacket",
+      "declaringType": "mindustry.core.NetClient",
+      "method": "clientBinaryPacketReliable",
+      "targets": "server",
+      "called": "none",
+      "variants": "both",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "type", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "contents", "javaType": "byte[]", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 15,
+      "packetId": 19,
+      "packetClass": "mindustry.gen.ClientBinaryPacketUnreliableCallPacket",
+      "declaringType": "mindustry.core.NetClient",
+      "method": "clientBinaryPacketUnreliable",
+      "targets": "server",
+      "called": "none",
+      "variants": "both",
+      "forward": false,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "type", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "contents", "javaType": "byte[]", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 16,
+      "packetId": 20,
+      "packetClass": "mindustry.gen.ClientLogicDataReliableCallPacket",
+      "declaringType": "mindustry.core.NetServer",
+      "method": "clientLogicDataReliable",
+      "targets": "client",
+      "called": "none",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "player", "javaType": "Player", "networkIncludedWhenCallerIsClient": false, "networkIncludedWhenCallerIsServer": false},
+        {"name": "channel", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "value", "javaType": "java.lang.Object", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 17,
+      "packetId": 21,
+      "packetClass": "mindustry.gen.ClientLogicDataUnreliableCallPacket",
+      "declaringType": "mindustry.core.NetServer",
+      "method": "clientLogicDataUnreliable",
+      "targets": "client",
+      "called": "none",
+      "variants": "all",
+      "forward": false,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "player", "javaType": "Player", "networkIncludedWhenCallerIsClient": false, "networkIncludedWhenCallerIsServer": false},
+        {"name": "channel", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "value", "javaType": "java.lang.Object", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 18,
+      "packetId": 22,
+      "packetClass": "mindustry.gen.ClientPacketReliableCallPacket",
+      "declaringType": "mindustry.core.NetClient",
+      "method": "clientPacketReliable",
+      "targets": "server",
+      "called": "none",
+      "variants": "both",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "type", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "contents", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 19,
+      "packetId": 23,
+      "packetClass": "mindustry.gen.ClientPacketUnreliableCallPacket",
+      "declaringType": "mindustry.core.NetClient",
+      "method": "clientPacketUnreliable",
+      "targets": "server",
+      "called": "none",
+      "variants": "both",
+      "forward": false,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "type", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "contents", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 20,
+      "packetId": 24,
+      "packetClass": "mindustry.gen.ClientSnapshotCallPacket",
+      "declaringType": "mindustry.core.NetServer",
+      "method": "clientSnapshot",
+      "targets": "client",
+      "called": "none",
+      "variants": "all",
+      "forward": false,
+      "unreliable": true,
+      "priority": "high",
+      "params": [
+        {"name": "player", "javaType": "Player", "networkIncludedWhenCallerIsClient": false, "networkIncludedWhenCallerIsServer": false},
+        {"name": "snapshotID", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "unitID", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "dead", "javaType": "boolean", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "x", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "y", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "pointerX", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "pointerY", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "rotation", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "baseRotation", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "xVelocity", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "yVelocity", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "mining", "javaType": "mindustry.world.Tile", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "boosting", "javaType": "boolean", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "shooting", "javaType": "boolean", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "chatting", "javaType": "boolean", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "building", "javaType": "boolean", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "selectedBlock", "javaType": "mindustry.world.Block", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "selectedRotation", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "plans", "javaType": "arc.struct.Queue<mindustry.entities.units.BuildPlan>", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "viewX", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "viewY", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "viewWidth", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "viewHeight", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 21,
+      "packetId": 25,
+      "packetClass": "mindustry.gen.CommandBuildingCallPacket",
+      "declaringType": "mindustry.input.InputHandler",
+      "method": "commandBuilding",
+      "targets": "both",
+      "called": "server",
+      "variants": "all",
+      "forward": true,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "player", "javaType": "Player", "networkIncludedWhenCallerIsClient": false, "networkIncludedWhenCallerIsServer": true},
+        {"name": "buildings", "javaType": "int[]", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "target", "javaType": "arc.math.geom.Vec2", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 22,
+      "packetId": 26,
+      "packetClass": "mindustry.gen.CommandUnitsCallPacket",
+      "declaringType": "mindustry.input.InputHandler",
+      "method": "commandUnits",
+      "targets": "both",
+      "called": "server",
+      "variants": "all",
+      "forward": true,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "player", "javaType": "Player", "networkIncludedWhenCallerIsClient": false, "networkIncludedWhenCallerIsServer": true},
+        {"name": "unitIds", "javaType": "int[]", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "buildTarget", "javaType": "Building", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "unitTarget", "javaType": "Unit", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "posTarget", "javaType": "arc.math.geom.Vec2", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "queueCommand", "javaType": "boolean", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "finalBatch", "javaType": "boolean", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 23,
+      "packetId": 27,
+      "packetClass": "mindustry.gen.CompleteObjectiveCallPacket",
+      "declaringType": "mindustry.core.NetClient",
+      "method": "completeObjective",
+      "targets": "server",
+      "called": "server",
+      "variants": "both",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "index", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 24,
+      "packetId": 28,
+      "packetClass": "mindustry.gen.ConnectCallPacket",
+      "declaringType": "mindustry.core.NetClient",
+      "method": "connect",
+      "targets": "server",
+      "called": "client",
+      "variants": "one",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "ip", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "port", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 25,
+      "packetId": 29,
+      "packetClass": "mindustry.gen.ConnectConfirmCallPacket",
+      "declaringType": "mindustry.core.NetServer",
+      "method": "connectConfirm",
+      "targets": "client",
+      "called": "none",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "high",
+      "params": [
+        {"name": "player", "javaType": "Player", "networkIncludedWhenCallerIsClient": false, "networkIncludedWhenCallerIsServer": false}
+      ]
+    },
+    {
+      "remoteIndex": 26,
+      "packetId": 30,
+      "packetClass": "mindustry.gen.ConstructFinishCallPacket",
+      "declaringType": "mindustry.world.blocks.ConstructBlock",
+      "method": "constructFinish",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "tile", "javaType": "mindustry.world.Tile", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "block", "javaType": "mindustry.world.Block", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "builder", "javaType": "Unit", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "rotation", "javaType": "byte", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "team", "javaType": "mindustry.game.Team", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "config", "javaType": "java.lang.Object", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 27,
+      "packetId": 31,
+      "packetClass": "mindustry.gen.CopyToClipboardCallPacket",
+      "declaringType": "mindustry.ui.Menus",
+      "method": "copyToClipboard",
+      "targets": "server",
+      "called": "none",
+      "variants": "both",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "text", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 28,
+      "packetId": 32,
+      "packetClass": "mindustry.gen.CreateBulletCallPacket",
+      "declaringType": "mindustry.entities.bullet.BulletType",
+      "method": "createBullet",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "type", "javaType": "mindustry.entities.bullet.BulletType", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "team", "javaType": "mindustry.game.Team", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "x", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "y", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "angle", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "damage", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "velocityScl", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "lifetimeScl", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 29,
+      "packetId": 33,
+      "packetClass": "mindustry.gen.CreateMarkerCallPacket",
+      "declaringType": "mindustry.logic.LExecutor",
+      "method": "createMarker",
+      "targets": "server",
+      "called": "server",
+      "variants": "both",
+      "forward": false,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "id", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "marker", "javaType": "mindustry.game.MapObjectives.ObjectiveMarker", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 30,
+      "packetId": 34,
+      "packetClass": "mindustry.gen.CreateWeatherCallPacket",
+      "declaringType": "mindustry.type.Weather",
+      "method": "createWeather",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "weather", "javaType": "mindustry.type.Weather", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "intensity", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "duration", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "windX", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "windY", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 31,
+      "packetId": 35,
+      "packetClass": "mindustry.gen.DebugStatusClientCallPacket",
+      "declaringType": "mindustry.core.NetServer",
+      "method": "debugStatusClient",
+      "targets": "server",
+      "called": "none",
+      "variants": "both",
+      "forward": false,
+      "unreliable": false,
+      "priority": "high",
+      "params": [
+        {"name": "value", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "lastClientSnapshot", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "snapshotsSent", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 32,
+      "packetId": 36,
+      "packetClass": "mindustry.gen.DebugStatusClientUnreliableCallPacket",
+      "declaringType": "mindustry.core.NetServer",
+      "method": "debugStatusClientUnreliable",
+      "targets": "server",
+      "called": "none",
+      "variants": "both",
+      "forward": false,
+      "unreliable": true,
+      "priority": "high",
+      "params": [
+        {"name": "value", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "lastClientSnapshot", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "snapshotsSent", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 33,
+      "packetId": 37,
+      "packetClass": "mindustry.gen.DeconstructFinishCallPacket",
+      "declaringType": "mindustry.world.blocks.ConstructBlock",
+      "method": "deconstructFinish",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "tile", "javaType": "mindustry.world.Tile", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "block", "javaType": "mindustry.world.Block", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "builder", "javaType": "Unit", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 34,
+      "packetId": 38,
+      "packetClass": "mindustry.gen.DeletePlansCallPacket",
+      "declaringType": "mindustry.input.InputHandler",
+      "method": "deletePlans",
+      "targets": "both",
+      "called": "both",
+      "variants": "all",
+      "forward": true,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "player", "javaType": "Player", "networkIncludedWhenCallerIsClient": false, "networkIncludedWhenCallerIsServer": true},
+        {"name": "positions", "javaType": "int[]", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 35,
+      "packetId": 39,
+      "packetClass": "mindustry.gen.DestroyPayloadCallPacket",
+      "declaringType": "mindustry.game.Teams",
+      "method": "destroyPayload",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "build", "javaType": "Building", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 36,
+      "packetId": 40,
+      "packetClass": "mindustry.gen.DropItemCallPacket",
+      "declaringType": "mindustry.input.InputHandler",
+      "method": "dropItem",
+      "targets": "client",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "player", "javaType": "Player", "networkIncludedWhenCallerIsClient": false, "networkIncludedWhenCallerIsServer": false},
+        {"name": "angle", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 37,
+      "packetId": 41,
+      "packetClass": "mindustry.gen.EffectCallPacket",
+      "declaringType": "mindustry.core.NetClient",
+      "method": "effect",
+      "targets": "server",
+      "called": "none",
+      "variants": "both",
+      "forward": false,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "effect", "javaType": "mindustry.entities.Effect", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "x", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "y", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "rotation", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "color", "javaType": "arc.graphics.Color", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 38,
+      "packetId": 42,
+      "packetClass": "mindustry.gen.EffectCallPacket2",
+      "declaringType": "mindustry.core.NetClient",
+      "method": "effect",
+      "targets": "server",
+      "called": "none",
+      "variants": "both",
+      "forward": false,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "effect", "javaType": "mindustry.entities.Effect", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "x", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "y", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "rotation", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "color", "javaType": "arc.graphics.Color", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "data", "javaType": "java.lang.Object", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 39,
+      "packetId": 43,
+      "packetClass": "mindustry.gen.EffectReliableCallPacket",
+      "declaringType": "mindustry.core.NetClient",
+      "method": "effectReliable",
+      "targets": "server",
+      "called": "none",
+      "variants": "both",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "effect", "javaType": "mindustry.entities.Effect", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "x", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "y", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "rotation", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "color", "javaType": "arc.graphics.Color", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 40,
+      "packetId": 44,
+      "packetClass": "mindustry.gen.EntitySnapshotCallPacket",
+      "declaringType": "mindustry.core.NetClient",
+      "method": "entitySnapshot",
+      "targets": "server",
+      "called": "none",
+      "variants": "one",
+      "forward": false,
+      "unreliable": true,
+      "priority": "low",
+      "params": [
+        {"name": "amount", "javaType": "short", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "data", "javaType": "byte[]", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 41,
+      "packetId": 45,
+      "packetClass": "mindustry.gen.FollowUpMenuCallPacket",
+      "declaringType": "mindustry.ui.Menus",
+      "method": "followUpMenu",
+      "targets": "server",
+      "called": "none",
+      "variants": "both",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "menuId", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "title", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "message", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "options", "javaType": "java.lang.String[][]", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 42,
+      "packetId": 46,
+      "packetClass": "mindustry.gen.GameOverCallPacket",
+      "declaringType": "mindustry.core.Logic",
+      "method": "gameOver",
+      "targets": "server",
+      "called": "both",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "winner", "javaType": "mindustry.game.Team", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 43,
+      "packetId": 47,
+      "packetClass": "mindustry.gen.HiddenSnapshotCallPacket",
+      "declaringType": "mindustry.core.NetClient",
+      "method": "hiddenSnapshot",
+      "targets": "server",
+      "called": "none",
+      "variants": "one",
+      "forward": false,
+      "unreliable": true,
+      "priority": "low",
+      "params": [
+        {"name": "ids", "javaType": "arc.struct.IntSeq", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 44,
+      "packetId": 48,
+      "packetClass": "mindustry.gen.HideFollowUpMenuCallPacket",
+      "declaringType": "mindustry.ui.Menus",
+      "method": "hideFollowUpMenu",
+      "targets": "server",
+      "called": "none",
+      "variants": "both",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "menuId", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 45,
+      "packetId": 49,
+      "packetClass": "mindustry.gen.HideHudTextCallPacket",
+      "declaringType": "mindustry.ui.Menus",
+      "method": "hideHudText",
+      "targets": "server",
+      "called": "none",
+      "variants": "both",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+      ]
+    },
+    {
+      "remoteIndex": 46,
+      "packetId": 50,
+      "packetClass": "mindustry.gen.InfoMessageCallPacket",
+      "declaringType": "mindustry.ui.Menus",
+      "method": "infoMessage",
+      "targets": "server",
+      "called": "none",
+      "variants": "both",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "message", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 47,
+      "packetId": 51,
+      "packetClass": "mindustry.gen.InfoPopupCallPacket",
+      "declaringType": "mindustry.ui.Menus",
+      "method": "infoPopup",
+      "targets": "server",
+      "called": "none",
+      "variants": "both",
+      "forward": false,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "message", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "duration", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "align", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "top", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "left", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "bottom", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "right", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 48,
+      "packetId": 52,
+      "packetClass": "mindustry.gen.InfoPopupCallPacket2",
+      "declaringType": "mindustry.ui.Menus",
+      "method": "infoPopup",
+      "targets": "server",
+      "called": "none",
+      "variants": "both",
+      "forward": false,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "message", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "id", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "duration", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "align", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "top", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "left", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "bottom", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "right", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 49,
+      "packetId": 53,
+      "packetClass": "mindustry.gen.InfoPopupReliableCallPacket",
+      "declaringType": "mindustry.ui.Menus",
+      "method": "infoPopupReliable",
+      "targets": "server",
+      "called": "none",
+      "variants": "both",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "message", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "duration", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "align", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "top", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "left", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "bottom", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "right", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 50,
+      "packetId": 54,
+      "packetClass": "mindustry.gen.InfoPopupReliableCallPacket2",
+      "declaringType": "mindustry.ui.Menus",
+      "method": "infoPopupReliable",
+      "targets": "server",
+      "called": "none",
+      "variants": "both",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "message", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "id", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "duration", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "align", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "top", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "left", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "bottom", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "right", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 51,
+      "packetId": 55,
+      "packetClass": "mindustry.gen.InfoToastCallPacket",
+      "declaringType": "mindustry.ui.Menus",
+      "method": "infoToast",
+      "targets": "server",
+      "called": "none",
+      "variants": "both",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "message", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "duration", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 52,
+      "packetId": 56,
+      "packetClass": "mindustry.gen.KickCallPacket",
+      "declaringType": "mindustry.core.NetClient",
+      "method": "kick",
+      "targets": "server",
+      "called": "none",
+      "variants": "one",
+      "forward": false,
+      "unreliable": false,
+      "priority": "high",
+      "params": [
+        {"name": "reason", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 53,
+      "packetId": 57,
+      "packetClass": "mindustry.gen.KickCallPacket2",
+      "declaringType": "mindustry.core.NetClient",
+      "method": "kick",
+      "targets": "server",
+      "called": "none",
+      "variants": "one",
+      "forward": false,
+      "unreliable": false,
+      "priority": "high",
+      "params": [
+        {"name": "reason", "javaType": "mindustry.net.Packets.KickReason", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 54,
+      "packetId": 58,
+      "packetClass": "mindustry.gen.LabelCallPacket",
+      "declaringType": "mindustry.ui.Menus",
+      "method": "label",
+      "targets": "server",
+      "called": "none",
+      "variants": "both",
+      "forward": false,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "message", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "duration", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "worldx", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "worldy", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 55,
+      "packetId": 59,
+      "packetClass": "mindustry.gen.LabelCallPacket2",
+      "declaringType": "mindustry.ui.Menus",
+      "method": "label",
+      "targets": "server",
+      "called": "none",
+      "variants": "both",
+      "forward": false,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "message", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "id", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "duration", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "worldx", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "worldy", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 56,
+      "packetId": 60,
+      "packetClass": "mindustry.gen.LabelReliableCallPacket",
+      "declaringType": "mindustry.ui.Menus",
+      "method": "labelReliable",
+      "targets": "server",
+      "called": "none",
+      "variants": "both",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "message", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "duration", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "worldx", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "worldy", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 57,
+      "packetId": 61,
+      "packetClass": "mindustry.gen.LabelReliableCallPacket2",
+      "declaringType": "mindustry.ui.Menus",
+      "method": "labelReliable",
+      "targets": "server",
+      "called": "none",
+      "variants": "both",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "message", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "id", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "duration", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "worldx", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "worldy", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 58,
+      "packetId": 62,
+      "packetClass": "mindustry.gen.LandingPadLandedCallPacket",
+      "declaringType": "mindustry.world.blocks.campaign.LandingPad",
+      "method": "landingPadLanded",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "tile", "javaType": "mindustry.world.Tile", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 59,
+      "packetId": 63,
+      "packetClass": "mindustry.gen.LogicExplosionCallPacket",
+      "declaringType": "mindustry.logic.LExecutor",
+      "method": "logicExplosion",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "team", "javaType": "mindustry.game.Team", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "x", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "y", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "radius", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "damage", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "air", "javaType": "boolean", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "ground", "javaType": "boolean", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "pierce", "javaType": "boolean", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "effect", "javaType": "boolean", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 60,
+      "packetId": 64,
+      "packetClass": "mindustry.gen.MenuCallPacket",
+      "declaringType": "mindustry.ui.Menus",
+      "method": "menu",
+      "targets": "server",
+      "called": "none",
+      "variants": "both",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "menuId", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "title", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "message", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "options", "javaType": "java.lang.String[][]", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 61,
+      "packetId": 65,
+      "packetClass": "mindustry.gen.MenuChooseCallPacket",
+      "declaringType": "mindustry.ui.Menus",
+      "method": "menuChoose",
+      "targets": "both",
+      "called": "both",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "player", "javaType": "Player", "networkIncludedWhenCallerIsClient": false, "networkIncludedWhenCallerIsServer": true},
+        {"name": "menuId", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "option", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 62,
+      "packetId": 66,
+      "packetClass": "mindustry.gen.OpenURICallPacket",
+      "declaringType": "mindustry.ui.Menus",
+      "method": "openURI",
+      "targets": "server",
+      "called": "none",
+      "variants": "both",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "uri", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 63,
+      "packetId": 67,
+      "packetClass": "mindustry.gen.PayloadDroppedCallPacket",
+      "declaringType": "mindustry.input.InputHandler",
+      "method": "payloadDropped",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "unit", "javaType": "Unit", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "x", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "y", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 64,
+      "packetId": 68,
+      "packetClass": "mindustry.gen.PickedBuildPayloadCallPacket",
+      "declaringType": "mindustry.input.InputHandler",
+      "method": "pickedBuildPayload",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "unit", "javaType": "Unit", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "build", "javaType": "Building", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "onGround", "javaType": "boolean", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 65,
+      "packetId": 69,
+      "packetClass": "mindustry.gen.PickedUnitPayloadCallPacket",
+      "declaringType": "mindustry.input.InputHandler",
+      "method": "pickedUnitPayload",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "unit", "javaType": "Unit", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "target", "javaType": "Unit", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 66,
+      "packetId": 70,
+      "packetClass": "mindustry.gen.PingCallPacket",
+      "declaringType": "mindustry.core.NetClient",
+      "method": "ping",
+      "targets": "client",
+      "called": "none",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "high",
+      "params": [
+        {"name": "player", "javaType": "Player", "networkIncludedWhenCallerIsClient": false, "networkIncludedWhenCallerIsServer": false},
+        {"name": "time", "javaType": "long", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 67,
+      "packetId": 71,
+      "packetClass": "mindustry.gen.PingResponseCallPacket",
+      "declaringType": "mindustry.core.NetClient",
+      "method": "pingResponse",
+      "targets": "server",
+      "called": "none",
+      "variants": "one",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "time", "javaType": "long", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 68,
+      "packetId": 72,
+      "packetClass": "mindustry.gen.PlayerDisconnectCallPacket",
+      "declaringType": "mindustry.core.NetClient",
+      "method": "playerDisconnect",
+      "targets": "server",
+      "called": "none",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "playerid", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 69,
+      "packetId": 73,
+      "packetClass": "mindustry.gen.PlayerSpawnCallPacket",
+      "declaringType": "mindustry.world.blocks.storage.CoreBlock",
+      "method": "playerSpawn",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "tile", "javaType": "mindustry.world.Tile", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "player", "javaType": "Player", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 70,
+      "packetId": 74,
+      "packetClass": "mindustry.gen.RemoveMarkerCallPacket",
+      "declaringType": "mindustry.logic.LExecutor",
+      "method": "removeMarker",
+      "targets": "server",
+      "called": "server",
+      "variants": "both",
+      "forward": false,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "id", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 71,
+      "packetId": 75,
+      "packetClass": "mindustry.gen.RemoveQueueBlockCallPacket",
+      "declaringType": "mindustry.input.InputHandler",
+      "method": "removeQueueBlock",
+      "targets": "server",
+      "called": "none",
+      "variants": "one",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "x", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "y", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "breaking", "javaType": "boolean", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 72,
+      "packetId": 76,
+      "packetClass": "mindustry.gen.RemoveTileCallPacket",
+      "declaringType": "mindustry.world.Tile",
+      "method": "removeTile",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "tile", "javaType": "mindustry.world.Tile", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 73,
+      "packetId": 77,
+      "packetClass": "mindustry.gen.RemoveWorldLabelCallPacket",
+      "declaringType": "mindustry.ui.Menus",
+      "method": "removeWorldLabel",
+      "targets": "server",
+      "called": "none",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "id", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 74,
+      "packetId": 78,
+      "packetClass": "mindustry.gen.RequestBuildPayloadCallPacket",
+      "declaringType": "mindustry.input.InputHandler",
+      "method": "requestBuildPayload",
+      "targets": "both",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "player", "javaType": "Player", "networkIncludedWhenCallerIsClient": false, "networkIncludedWhenCallerIsServer": true},
+        {"name": "build", "javaType": "Building", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 75,
+      "packetId": 79,
+      "packetClass": "mindustry.gen.RequestDebugStatusCallPacket",
+      "declaringType": "mindustry.core.NetServer",
+      "method": "requestDebugStatus",
+      "targets": "client",
+      "called": "none",
+      "variants": "one",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "player", "javaType": "Player", "networkIncludedWhenCallerIsClient": false, "networkIncludedWhenCallerIsServer": false}
+      ]
+    },
+    {
+      "remoteIndex": 76,
+      "packetId": 80,
+      "packetClass": "mindustry.gen.RequestDropPayloadCallPacket",
+      "declaringType": "mindustry.input.InputHandler",
+      "method": "requestDropPayload",
+      "targets": "both",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "player", "javaType": "Player", "networkIncludedWhenCallerIsClient": false, "networkIncludedWhenCallerIsServer": true},
+        {"name": "x", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "y", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 77,
+      "packetId": 81,
+      "packetClass": "mindustry.gen.RequestItemCallPacket",
+      "declaringType": "mindustry.input.InputHandler",
+      "method": "requestItem",
+      "targets": "both",
+      "called": "server",
+      "variants": "all",
+      "forward": true,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "player", "javaType": "Player", "networkIncludedWhenCallerIsClient": false, "networkIncludedWhenCallerIsServer": true},
+        {"name": "build", "javaType": "Building", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "item", "javaType": "mindustry.type.Item", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "amount", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 78,
+      "packetId": 82,
+      "packetClass": "mindustry.gen.RequestUnitPayloadCallPacket",
+      "declaringType": "mindustry.input.InputHandler",
+      "method": "requestUnitPayload",
+      "targets": "both",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "player", "javaType": "Player", "networkIncludedWhenCallerIsClient": false, "networkIncludedWhenCallerIsServer": true},
+        {"name": "target", "javaType": "Unit", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 79,
+      "packetId": 83,
+      "packetClass": "mindustry.gen.ResearchedCallPacket",
+      "declaringType": "mindustry.core.Logic",
+      "method": "researched",
+      "targets": "server",
+      "called": "none",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "content", "javaType": "mindustry.ctype.Content", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 80,
+      "packetId": 84,
+      "packetClass": "mindustry.gen.RotateBlockCallPacket",
+      "declaringType": "mindustry.input.InputHandler",
+      "method": "rotateBlock",
+      "targets": "both",
+      "called": "server",
+      "variants": "all",
+      "forward": true,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "player", "javaType": "Player", "networkIncludedWhenCallerIsClient": false, "networkIncludedWhenCallerIsServer": true},
+        {"name": "build", "javaType": "Building", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "direction", "javaType": "boolean", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 81,
+      "packetId": 85,
+      "packetClass": "mindustry.gen.SectorCaptureCallPacket",
+      "declaringType": "mindustry.core.Logic",
+      "method": "sectorCapture",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+      ]
+    },
+    {
+      "remoteIndex": 82,
+      "packetId": 86,
+      "packetClass": "mindustry.gen.SendChatMessageCallPacket",
+      "declaringType": "mindustry.core.NetClient",
+      "method": "sendChatMessage",
+      "targets": "client",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "player", "javaType": "Player", "networkIncludedWhenCallerIsClient": false, "networkIncludedWhenCallerIsServer": false},
+        {"name": "message", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 83,
+      "packetId": 87,
+      "packetClass": "mindustry.gen.SendMessageCallPacket",
+      "declaringType": "mindustry.core.NetClient",
+      "method": "sendMessage",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "message", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 84,
+      "packetId": 88,
+      "packetClass": "mindustry.gen.SendMessageCallPacket2",
+      "declaringType": "mindustry.core.NetClient",
+      "method": "sendMessage",
+      "targets": "server",
+      "called": "none",
+      "variants": "both",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "message", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "unformatted", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "playersender", "javaType": "Player", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 85,
+      "packetId": 89,
+      "packetClass": "mindustry.gen.ServerBinaryPacketReliableCallPacket",
+      "declaringType": "mindustry.core.NetServer",
+      "method": "serverBinaryPacketReliable",
+      "targets": "client",
+      "called": "none",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "player", "javaType": "Player", "networkIncludedWhenCallerIsClient": false, "networkIncludedWhenCallerIsServer": false},
+        {"name": "type", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "contents", "javaType": "byte[]", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 86,
+      "packetId": 90,
+      "packetClass": "mindustry.gen.ServerBinaryPacketUnreliableCallPacket",
+      "declaringType": "mindustry.core.NetServer",
+      "method": "serverBinaryPacketUnreliable",
+      "targets": "client",
+      "called": "none",
+      "variants": "all",
+      "forward": false,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "player", "javaType": "Player", "networkIncludedWhenCallerIsClient": false, "networkIncludedWhenCallerIsServer": false},
+        {"name": "type", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "contents", "javaType": "byte[]", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 87,
+      "packetId": 91,
+      "packetClass": "mindustry.gen.ServerPacketReliableCallPacket",
+      "declaringType": "mindustry.core.NetServer",
+      "method": "serverPacketReliable",
+      "targets": "client",
+      "called": "none",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "player", "javaType": "Player", "networkIncludedWhenCallerIsClient": false, "networkIncludedWhenCallerIsServer": false},
+        {"name": "type", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "contents", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 88,
+      "packetId": 92,
+      "packetClass": "mindustry.gen.ServerPacketUnreliableCallPacket",
+      "declaringType": "mindustry.core.NetServer",
+      "method": "serverPacketUnreliable",
+      "targets": "client",
+      "called": "none",
+      "variants": "all",
+      "forward": false,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "player", "javaType": "Player", "networkIncludedWhenCallerIsClient": false, "networkIncludedWhenCallerIsServer": false},
+        {"name": "type", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "contents", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 89,
+      "packetId": 93,
+      "packetClass": "mindustry.gen.SetCameraPositionCallPacket",
+      "declaringType": "mindustry.core.NetClient",
+      "method": "setCameraPosition",
+      "targets": "server",
+      "called": "none",
+      "variants": "both",
+      "forward": false,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "x", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "y", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 90,
+      "packetId": 94,
+      "packetClass": "mindustry.gen.SetFlagCallPacket",
+      "declaringType": "mindustry.logic.LExecutor",
+      "method": "setFlag",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "flag", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "add", "javaType": "boolean", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 91,
+      "packetId": 95,
+      "packetClass": "mindustry.gen.SetFloorCallPacket",
+      "declaringType": "mindustry.world.Tile",
+      "method": "setFloor",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "tile", "javaType": "mindustry.world.Tile", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "floor", "javaType": "mindustry.world.Block", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "overlay", "javaType": "mindustry.world.Block", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 92,
+      "packetId": 96,
+      "packetClass": "mindustry.gen.SetHudTextCallPacket",
+      "declaringType": "mindustry.ui.Menus",
+      "method": "setHudText",
+      "targets": "server",
+      "called": "none",
+      "variants": "both",
+      "forward": false,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "message", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 93,
+      "packetId": 97,
+      "packetClass": "mindustry.gen.SetHudTextReliableCallPacket",
+      "declaringType": "mindustry.ui.Menus",
+      "method": "setHudTextReliable",
+      "targets": "server",
+      "called": "none",
+      "variants": "both",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "message", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 94,
+      "packetId": 98,
+      "packetClass": "mindustry.gen.SetItemCallPacket",
+      "declaringType": "mindustry.input.InputHandler",
+      "method": "setItem",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "build", "javaType": "Building", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "item", "javaType": "mindustry.type.Item", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "amount", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 95,
+      "packetId": 99,
+      "packetClass": "mindustry.gen.SetItemsCallPacket",
+      "declaringType": "mindustry.input.InputHandler",
+      "method": "setItems",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "build", "javaType": "Building", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "items", "javaType": "mindustry.type.ItemStack[]", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 96,
+      "packetId": 100,
+      "packetClass": "mindustry.gen.SetLiquidCallPacket",
+      "declaringType": "mindustry.input.InputHandler",
+      "method": "setLiquid",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "build", "javaType": "Building", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "liquid", "javaType": "mindustry.type.Liquid", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "amount", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 97,
+      "packetId": 101,
+      "packetClass": "mindustry.gen.SetLiquidsCallPacket",
+      "declaringType": "mindustry.input.InputHandler",
+      "method": "setLiquids",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "build", "javaType": "Building", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "liquids", "javaType": "mindustry.type.LiquidStack[]", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 98,
+      "packetId": 102,
+      "packetClass": "mindustry.gen.SetMapAreaCallPacket",
+      "declaringType": "mindustry.logic.LExecutor",
+      "method": "setMapArea",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "x", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "y", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "w", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "h", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 99,
+      "packetId": 103,
+      "packetClass": "mindustry.gen.SetObjectivesCallPacket",
+      "declaringType": "mindustry.core.NetClient",
+      "method": "setObjectives",
+      "targets": "server",
+      "called": "none",
+      "variants": "both",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "executor", "javaType": "mindustry.game.MapObjectives", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 100,
+      "packetId": 104,
+      "packetClass": "mindustry.gen.SetOverlayCallPacket",
+      "declaringType": "mindustry.world.Tile",
+      "method": "setOverlay",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "tile", "javaType": "mindustry.world.Tile", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "overlay", "javaType": "mindustry.world.Block", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 101,
+      "packetId": 105,
+      "packetClass": "mindustry.gen.SetPlayerTeamEditorCallPacket",
+      "declaringType": "mindustry.ui.fragments.HudFragment",
+      "method": "setPlayerTeamEditor",
+      "targets": "both",
+      "called": "both",
+      "variants": "all",
+      "forward": true,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "player", "javaType": "Player", "networkIncludedWhenCallerIsClient": false, "networkIncludedWhenCallerIsServer": true},
+        {"name": "team", "javaType": "mindustry.game.Team", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 102,
+      "packetId": 106,
+      "packetClass": "mindustry.gen.SetPositionCallPacket",
+      "declaringType": "mindustry.core.NetClient",
+      "method": "setPosition",
+      "targets": "server",
+      "called": "none",
+      "variants": "one",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "x", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "y", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 103,
+      "packetId": 107,
+      "packetClass": "mindustry.gen.SetRuleCallPacket",
+      "declaringType": "mindustry.core.NetClient",
+      "method": "setRule",
+      "targets": "server",
+      "called": "none",
+      "variants": "both",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "rule", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "jsonData", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 104,
+      "packetId": 108,
+      "packetClass": "mindustry.gen.SetRulesCallPacket",
+      "declaringType": "mindustry.core.NetClient",
+      "method": "setRules",
+      "targets": "server",
+      "called": "none",
+      "variants": "both",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "rules", "javaType": "mindustry.game.Rules", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 105,
+      "packetId": 109,
+      "packetClass": "mindustry.gen.SetTeamCallPacket",
+      "declaringType": "mindustry.world.Tile",
+      "method": "setTeam",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "build", "javaType": "Building", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "team", "javaType": "mindustry.game.Team", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 106,
+      "packetId": 110,
+      "packetClass": "mindustry.gen.SetTeamsCallPacket",
+      "declaringType": "mindustry.world.Tile",
+      "method": "setTeams",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "positions", "javaType": "int[]", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "team", "javaType": "mindustry.game.Team", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 107,
+      "packetId": 111,
+      "packetClass": "mindustry.gen.SetTileCallPacket",
+      "declaringType": "mindustry.world.Tile",
+      "method": "setTile",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "tile", "javaType": "mindustry.world.Tile", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "block", "javaType": "mindustry.world.Block", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "team", "javaType": "mindustry.game.Team", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "rotation", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 108,
+      "packetId": 112,
+      "packetClass": "mindustry.gen.SetTileBlocksCallPacket",
+      "declaringType": "mindustry.world.Tile",
+      "method": "setTileBlocks",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "block", "javaType": "mindustry.world.Block", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "team", "javaType": "mindustry.game.Team", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "positions", "javaType": "int[]", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 109,
+      "packetId": 113,
+      "packetClass": "mindustry.gen.SetTileFloorsCallPacket",
+      "declaringType": "mindustry.world.Tile",
+      "method": "setTileFloors",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "block", "javaType": "mindustry.world.Block", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "positions", "javaType": "int[]", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 110,
+      "packetId": 114,
+      "packetClass": "mindustry.gen.SetTileItemsCallPacket",
+      "declaringType": "mindustry.input.InputHandler",
+      "method": "setTileItems",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "item", "javaType": "mindustry.type.Item", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "amount", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "positions", "javaType": "int[]", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 111,
+      "packetId": 115,
+      "packetClass": "mindustry.gen.SetTileLiquidsCallPacket",
+      "declaringType": "mindustry.input.InputHandler",
+      "method": "setTileLiquids",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "liquid", "javaType": "mindustry.type.Liquid", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "amount", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "positions", "javaType": "int[]", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 112,
+      "packetId": 116,
+      "packetClass": "mindustry.gen.SetTileOverlaysCallPacket",
+      "declaringType": "mindustry.world.Tile",
+      "method": "setTileOverlays",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "block", "javaType": "mindustry.world.Block", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "positions", "javaType": "int[]", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 113,
+      "packetId": 117,
+      "packetClass": "mindustry.gen.SetUnitCommandCallPacket",
+      "declaringType": "mindustry.input.InputHandler",
+      "method": "setUnitCommand",
+      "targets": "both",
+      "called": "server",
+      "variants": "all",
+      "forward": true,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "player", "javaType": "Player", "networkIncludedWhenCallerIsClient": false, "networkIncludedWhenCallerIsServer": true},
+        {"name": "unitIds", "javaType": "int[]", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "command", "javaType": "mindustry.ai.UnitCommand", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 114,
+      "packetId": 118,
+      "packetClass": "mindustry.gen.SetUnitStanceCallPacket",
+      "declaringType": "mindustry.input.InputHandler",
+      "method": "setUnitStance",
+      "targets": "both",
+      "called": "server",
+      "variants": "all",
+      "forward": true,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "player", "javaType": "Player", "networkIncludedWhenCallerIsClient": false, "networkIncludedWhenCallerIsServer": true},
+        {"name": "unitIds", "javaType": "int[]", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "stance", "javaType": "mindustry.ai.UnitStance", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "enable", "javaType": "boolean", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 115,
+      "packetId": 119,
+      "packetClass": "mindustry.gen.SoundCallPacket",
+      "declaringType": "mindustry.core.NetClient",
+      "method": "sound",
+      "targets": "server",
+      "called": "server",
+      "variants": "both",
+      "forward": false,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "sound", "javaType": "arc.audio.Sound", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "volume", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "pitch", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "pan", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 116,
+      "packetId": 120,
+      "packetClass": "mindustry.gen.SoundAtCallPacket",
+      "declaringType": "mindustry.core.NetClient",
+      "method": "soundAt",
+      "targets": "server",
+      "called": "server",
+      "variants": "both",
+      "forward": false,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "sound", "javaType": "arc.audio.Sound", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "x", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "y", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "volume", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "pitch", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 117,
+      "packetId": 121,
+      "packetClass": "mindustry.gen.SpawnEffectCallPacket",
+      "declaringType": "mindustry.ai.WaveSpawner",
+      "method": "spawnEffect",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "x", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "y", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "rotation", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "u", "javaType": "mindustry.type.UnitType", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 118,
+      "packetId": 122,
+      "packetClass": "mindustry.gen.StateSnapshotCallPacket",
+      "declaringType": "mindustry.core.NetClient",
+      "method": "stateSnapshot",
+      "targets": "server",
+      "called": "none",
+      "variants": "one",
+      "forward": false,
+      "unreliable": true,
+      "priority": "low",
+      "params": [
+        {"name": "waveTime", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "wave", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "enemies", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "paused", "javaType": "boolean", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "gameOver", "javaType": "boolean", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "timeData", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "tps", "javaType": "byte", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "rand0", "javaType": "long", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "rand1", "javaType": "long", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "coreData", "javaType": "byte[]", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 119,
+      "packetId": 123,
+      "packetClass": "mindustry.gen.SyncVariableCallPacket",
+      "declaringType": "mindustry.logic.LExecutor",
+      "method": "syncVariable",
+      "targets": "server",
+      "called": "none",
+      "variants": "all",
+      "forward": false,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "building", "javaType": "Building", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "variable", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "value", "javaType": "java.lang.Object", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 120,
+      "packetId": 124,
+      "packetClass": "mindustry.gen.TakeItemsCallPacket",
+      "declaringType": "mindustry.input.InputHandler",
+      "method": "takeItems",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "build", "javaType": "Building", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "item", "javaType": "mindustry.type.Item", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "amount", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "to", "javaType": "Unit", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 121,
+      "packetId": 125,
+      "packetClass": "mindustry.gen.TextInputCallPacket",
+      "declaringType": "mindustry.ui.Menus",
+      "method": "textInput",
+      "targets": "server",
+      "called": "none",
+      "variants": "both",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "textInputId", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "title", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "message", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "textLength", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "def", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "numeric", "javaType": "boolean", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 122,
+      "packetId": 126,
+      "packetClass": "mindustry.gen.TextInputCallPacket2",
+      "declaringType": "mindustry.ui.Menus",
+      "method": "textInput",
+      "targets": "server",
+      "called": "none",
+      "variants": "both",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "textInputId", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "title", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "message", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "textLength", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "def", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "numeric", "javaType": "boolean", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "allowEmpty", "javaType": "boolean", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 123,
+      "packetId": 127,
+      "packetClass": "mindustry.gen.TextInputResultCallPacket",
+      "declaringType": "mindustry.ui.Menus",
+      "method": "textInputResult",
+      "targets": "both",
+      "called": "both",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "player", "javaType": "Player", "networkIncludedWhenCallerIsClient": false, "networkIncludedWhenCallerIsServer": true},
+        {"name": "textInputId", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "text", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 124,
+      "packetId": 128,
+      "packetClass": "mindustry.gen.TileConfigCallPacket",
+      "declaringType": "mindustry.input.InputHandler",
+      "method": "tileConfig",
+      "targets": "both",
+      "called": "both",
+      "variants": "all",
+      "forward": true,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "player", "javaType": "Player", "networkIncludedWhenCallerIsClient": false, "networkIncludedWhenCallerIsServer": true},
+        {"name": "build", "javaType": "Building", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "value", "javaType": "java.lang.Object", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 125,
+      "packetId": 129,
+      "packetClass": "mindustry.gen.TileTapCallPacket",
+      "declaringType": "mindustry.input.InputHandler",
+      "method": "tileTap",
+      "targets": "both",
+      "called": "both",
+      "variants": "all",
+      "forward": false,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "player", "javaType": "Player", "networkIncludedWhenCallerIsClient": false, "networkIncludedWhenCallerIsServer": true},
+        {"name": "tile", "javaType": "mindustry.world.Tile", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 126,
+      "packetId": 130,
+      "packetClass": "mindustry.gen.TraceInfoCallPacket",
+      "declaringType": "mindustry.core.NetClient",
+      "method": "traceInfo",
+      "targets": "server",
+      "called": "none",
+      "variants": "one",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "player", "javaType": "Player", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "info", "javaType": "mindustry.net.Administration.TraceInfo", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 127,
+      "packetId": 131,
+      "packetClass": "mindustry.gen.TransferInventoryCallPacket",
+      "declaringType": "mindustry.input.InputHandler",
+      "method": "transferInventory",
+      "targets": "both",
+      "called": "server",
+      "variants": "all",
+      "forward": true,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "player", "javaType": "Player", "networkIncludedWhenCallerIsClient": false, "networkIncludedWhenCallerIsServer": true},
+        {"name": "build", "javaType": "Building", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 128,
+      "packetId": 132,
+      "packetClass": "mindustry.gen.TransferItemEffectCallPacket",
+      "declaringType": "mindustry.input.InputHandler",
+      "method": "transferItemEffect",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "item", "javaType": "mindustry.type.Item", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "x", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "y", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "to", "javaType": "Itemsc", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 129,
+      "packetId": 133,
+      "packetClass": "mindustry.gen.TransferItemToCallPacket",
+      "declaringType": "mindustry.input.InputHandler",
+      "method": "transferItemTo",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "unit", "javaType": "Unit", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "item", "javaType": "mindustry.type.Item", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "amount", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "x", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "y", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "build", "javaType": "Building", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 130,
+      "packetId": 134,
+      "packetClass": "mindustry.gen.TransferItemToUnitCallPacket",
+      "declaringType": "mindustry.input.InputHandler",
+      "method": "transferItemToUnit",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "item", "javaType": "mindustry.type.Item", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "x", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "y", "javaType": "float", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "to", "javaType": "Itemsc", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 131,
+      "packetId": 135,
+      "packetClass": "mindustry.gen.UnitBlockSpawnCallPacket",
+      "declaringType": "mindustry.world.blocks.units.UnitBlock",
+      "method": "unitBlockSpawn",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "tile", "javaType": "mindustry.world.Tile", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 132,
+      "packetId": 136,
+      "packetClass": "mindustry.gen.UnitBuildingControlSelectCallPacket",
+      "declaringType": "mindustry.input.InputHandler",
+      "method": "unitBuildingControlSelect",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "unit", "javaType": "Unit", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "build", "javaType": "Building", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 133,
+      "packetId": 137,
+      "packetClass": "mindustry.gen.UnitCapDeathCallPacket",
+      "declaringType": "mindustry.entities.Units",
+      "method": "unitCapDeath",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "unit", "javaType": "Unit", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 134,
+      "packetId": 138,
+      "packetClass": "mindustry.gen.UnitClearCallPacket",
+      "declaringType": "mindustry.input.InputHandler",
+      "method": "unitClear",
+      "targets": "both",
+      "called": "server",
+      "variants": "all",
+      "forward": true,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "player", "javaType": "Player", "networkIncludedWhenCallerIsClient": false, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 135,
+      "packetId": 139,
+      "packetClass": "mindustry.gen.UnitControlCallPacket",
+      "declaringType": "mindustry.input.InputHandler",
+      "method": "unitControl",
+      "targets": "both",
+      "called": "both",
+      "variants": "all",
+      "forward": true,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "player", "javaType": "Player", "networkIncludedWhenCallerIsClient": false, "networkIncludedWhenCallerIsServer": true},
+        {"name": "unit", "javaType": "Unit", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 136,
+      "packetId": 140,
+      "packetClass": "mindustry.gen.UnitDeathCallPacket",
+      "declaringType": "mindustry.entities.Units",
+      "method": "unitDeath",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "uid", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 137,
+      "packetId": 141,
+      "packetClass": "mindustry.gen.UnitDespawnCallPacket",
+      "declaringType": "mindustry.entities.Units",
+      "method": "unitDespawn",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "unit", "javaType": "Unit", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 138,
+      "packetId": 142,
+      "packetClass": "mindustry.gen.UnitDestroyCallPacket",
+      "declaringType": "mindustry.entities.Units",
+      "method": "unitDestroy",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "uid", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 139,
+      "packetId": 143,
+      "packetClass": "mindustry.gen.UnitEnteredPayloadCallPacket",
+      "declaringType": "mindustry.input.InputHandler",
+      "method": "unitEnteredPayload",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "unit", "javaType": "Unit", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "build", "javaType": "Building", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 140,
+      "packetId": 144,
+      "packetClass": "mindustry.gen.UnitEnvDeathCallPacket",
+      "declaringType": "mindustry.entities.Units",
+      "method": "unitEnvDeath",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "unit", "javaType": "Unit", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 141,
+      "packetId": 145,
+      "packetClass": "mindustry.gen.UnitSafeDeathCallPacket",
+      "declaringType": "mindustry.entities.Units",
+      "method": "unitSafeDeath",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "unit", "javaType": "Unit", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 142,
+      "packetId": 146,
+      "packetClass": "mindustry.gen.UnitSpawnCallPacket",
+      "declaringType": "mindustry.entities.Units",
+      "method": "unitSpawn",
+      "targets": "server",
+      "called": "none",
+      "variants": "all",
+      "forward": false,
+      "unreliable": true,
+      "priority": "low",
+      "params": [
+        {"name": "container", "javaType": "mindustry.entities.Units.UnitSyncContainer", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 143,
+      "packetId": 147,
+      "packetClass": "mindustry.gen.UnitTetherBlockSpawnedCallPacket",
+      "declaringType": "mindustry.world.blocks.units.UnitCargoLoader",
+      "method": "unitTetherBlockSpawned",
+      "targets": "server",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "tile", "javaType": "mindustry.world.Tile", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "id", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 144,
+      "packetId": 148,
+      "packetClass": "mindustry.gen.UpdateGameOverCallPacket",
+      "declaringType": "mindustry.core.Logic",
+      "method": "updateGameOver",
+      "targets": "server",
+      "called": "both",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "winner", "javaType": "mindustry.game.Team", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 145,
+      "packetId": 149,
+      "packetClass": "mindustry.gen.UpdateMarkerCallPacket",
+      "declaringType": "mindustry.logic.LExecutor",
+      "method": "updateMarker",
+      "targets": "server",
+      "called": "server",
+      "variants": "both",
+      "forward": false,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "id", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "control", "javaType": "mindustry.logic.LMarkerControl", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "p1", "javaType": "double", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "p2", "javaType": "double", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "p3", "javaType": "double", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 146,
+      "packetId": 150,
+      "packetClass": "mindustry.gen.UpdateMarkerTextCallPacket",
+      "declaringType": "mindustry.logic.LExecutor",
+      "method": "updateMarkerText",
+      "targets": "server",
+      "called": "server",
+      "variants": "both",
+      "forward": false,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "id", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "type", "javaType": "mindustry.logic.LMarkerControl", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "fetch", "javaType": "boolean", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "text", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 147,
+      "packetId": 151,
+      "packetClass": "mindustry.gen.UpdateMarkerTextureCallPacket",
+      "declaringType": "mindustry.logic.LExecutor",
+      "method": "updateMarkerTexture",
+      "targets": "server",
+      "called": "server",
+      "variants": "both",
+      "forward": false,
+      "unreliable": true,
+      "priority": "normal",
+      "params": [
+        {"name": "id", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "texture", "javaType": "java.lang.Object", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 148,
+      "packetId": 152,
+      "packetClass": "mindustry.gen.WarningToastCallPacket",
+      "declaringType": "mindustry.ui.Menus",
+      "method": "warningToast",
+      "targets": "server",
+      "called": "none",
+      "variants": "both",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "unicode", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "text", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 149,
+      "packetId": 153,
+      "packetClass": "mindustry.gen.WorldDataBeginCallPacket",
+      "declaringType": "mindustry.core.NetClient",
+      "method": "worldDataBegin",
+      "targets": "server",
+      "called": "none",
+      "variants": "both",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+      ]
+    }
+  ],
+  "wire": {
+    "packetIdByte": "u8",
+    "lengthField": "u16be",
+    "compressionFlag": {"0": "none", "1": "lz4"},
+    "compressionThreshold": 36
+  }
+}

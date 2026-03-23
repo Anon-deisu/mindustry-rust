@@ -1,0 +1,3 @@
+[workspace]
+members = ["mdt-protocol", "mdt-remote", "mdt-typeio", "mdt-world"]
+resolver = "2"

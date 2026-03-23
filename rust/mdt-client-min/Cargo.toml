@@ -1,0 +1,17 @@
+[package]
+name = "mdt-client-min"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+mdt-input = { path = "../mdt-input" }
+mdt-protocol = { path = "../mdt-protocol" }
+mdt-remote = { path = "../mdt-remote" }
+mdt-render-ui = { path = "../mdt-render-ui" }
+mdt-typeio = { path = "../mdt-typeio" }
+mdt-world = { path = "../mdt-world" }
+
+[workspace]

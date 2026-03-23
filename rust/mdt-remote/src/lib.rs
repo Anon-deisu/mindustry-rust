@@ -1,0 +1,846 @@
+use serde::{Deserialize, Serialize};
+use std::{fmt, fs, path::Path};
+
+pub const REMOTE_MANIFEST_SCHEMA_V1: &str = "mdt.remote.manifest.v1";
+pub const HIGH_FREQUENCY_REMOTE_METHOD_COUNT: usize = 5;
+
+#[derive(Debug)]
+pub enum RemoteManifestError {
+    Io(std::io::Error),
+    Json(serde_json::Error),
+    UnsupportedSchema(String),
+    InvalidPacketSequence(String),
+    MissingHighFrequencyPacket(&'static str),
+}
+
+impl fmt::Display for RemoteManifestError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Io(error) => write!(f, "failed to read remote manifest: {error}"),
+            Self::Json(error) => write!(f, "failed to parse remote manifest JSON: {error}"),
+            Self::UnsupportedSchema(schema) => {
+                write!(f, "unsupported remote manifest schema: {schema}")
+            }
+            Self::InvalidPacketSequence(message) => write!(f, "{message}"),
+            Self::MissingHighFrequencyPacket(method) => {
+                write!(
+                    f,
+                    "missing high-frequency remote packet in manifest: {method}"
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for RemoteManifestError {}
+
+impl From<std::io::Error> for RemoteManifestError {
+    fn from(error: std::io::Error) -> Self {
+        Self::Io(error)
+    }
+}
+
+impl From<serde_json::Error> for RemoteManifestError {
+    fn from(error: serde_json::Error) -> Self {
+        Self::Json(error)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoteManifest {
+    pub schema: String,
+    pub generator: RemoteGeneratorInfo,
+    #[serde(rename = "basePackets")]
+    pub base_packets: Vec<BasePacketEntry>,
+    #[serde(rename = "remotePackets")]
+    pub remote_packets: Vec<RemotePacketEntry>,
+    pub wire: WireSpec,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoteGeneratorInfo {
+    pub source: String,
+    #[serde(rename = "callClass")]
+    pub call_class: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BasePacketEntry {
+    pub id: u8,
+    #[serde(rename = "class")]
+    pub class_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemotePacketEntry {
+    #[serde(rename = "remoteIndex")]
+    pub remote_index: usize,
+    #[serde(rename = "packetId")]
+    pub packet_id: u8,
+    #[serde(rename = "packetClass")]
+    pub packet_class: String,
+    #[serde(rename = "declaringType")]
+    pub declaring_type: String,
+    pub method: String,
+    pub targets: String,
+    pub called: String,
+    pub variants: String,
+    pub forward: bool,
+    pub unreliable: bool,
+    pub priority: String,
+    pub params: Vec<RemoteParamEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoteParamEntry {
+    pub name: String,
+    #[serde(rename = "javaType")]
+    pub java_type: String,
+    #[serde(rename = "networkIncludedWhenCallerIsClient")]
+    pub network_included_when_caller_is_client: bool,
+    #[serde(rename = "networkIncludedWhenCallerIsServer")]
+    pub network_included_when_caller_is_server: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WireSpec {
+    #[serde(rename = "packetIdByte")]
+    pub packet_id_byte: String,
+    #[serde(rename = "lengthField")]
+    pub length_field: String,
+    #[serde(rename = "compressionFlag")]
+    pub compression_flag: CompressionFlagSpec,
+    #[serde(rename = "compressionThreshold")]
+    pub compression_threshold: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CompressionFlagSpec {
+    #[serde(rename = "0")]
+    pub none: String,
+    #[serde(rename = "1")]
+    pub lz4: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemoteFlow {
+    ClientToServer,
+    ServerToClient,
+    Bidirectional,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HighFrequencyRemoteMethod {
+    ClientSnapshot,
+    StateSnapshot,
+    EntitySnapshot,
+    BlockSnapshot,
+    HiddenSnapshot,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemoteParamKind {
+    Bool,
+    Byte,
+    Short,
+    Int,
+    Long,
+    Float,
+    Bytes,
+    TileRef,
+    BlockRef,
+    BuildPlanQueue,
+    IntSeq,
+    Opaque,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypedRemoteParamSpec<'a> {
+    pub name: &'a str,
+    pub java_type: &'a str,
+    pub kind: RemoteParamKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypedRemotePacketSpec<'a> {
+    pub method: HighFrequencyRemoteMethod,
+    pub packet_id: u8,
+    pub packet_class: &'a str,
+    pub declaring_type: &'a str,
+    pub flow: RemoteFlow,
+    pub unreliable: bool,
+    pub priority: &'a str,
+    pub wire_params: Vec<TypedRemoteParamSpec<'a>>,
+}
+
+pub fn read_remote_manifest(path: impl AsRef<Path>) -> Result<RemoteManifest, RemoteManifestError> {
+    let text = fs::read_to_string(path)?;
+    parse_remote_manifest(&text)
+}
+
+pub fn parse_remote_manifest(text: &str) -> Result<RemoteManifest, RemoteManifestError> {
+    let manifest: RemoteManifest = serde_json::from_str(text)?;
+    validate_remote_manifest(&manifest)?;
+    Ok(manifest)
+}
+
+pub fn validate_remote_manifest(manifest: &RemoteManifest) -> Result<(), RemoteManifestError> {
+    if manifest.schema != REMOTE_MANIFEST_SCHEMA_V1 {
+        return Err(RemoteManifestError::UnsupportedSchema(
+            manifest.schema.clone(),
+        ));
+    }
+
+    for (index, packet) in manifest.base_packets.iter().enumerate() {
+        if packet.id != index as u8 {
+            return Err(RemoteManifestError::InvalidPacketSequence(format!(
+                "base packet {} has id {}, expected {}",
+                packet.class_name, packet.id, index
+            )));
+        }
+    }
+
+    let remote_id_offset = manifest.base_packets.len() as u8;
+    for (index, packet) in manifest.remote_packets.iter().enumerate() {
+        if packet.remote_index != index {
+            return Err(RemoteManifestError::InvalidPacketSequence(format!(
+                "remote packet {} has remoteIndex {}, expected {}",
+                packet.packet_class, packet.remote_index, index
+            )));
+        }
+
+        let expected_packet_id = remote_id_offset + index as u8;
+        if packet.packet_id != expected_packet_id {
+            return Err(RemoteManifestError::InvalidPacketSequence(format!(
+                "remote packet {} has packetId {}, expected {}",
+                packet.packet_class, packet.packet_id, expected_packet_id
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+pub fn high_frequency_remote_packets(
+    manifest: &RemoteManifest,
+) -> Result<Vec<TypedRemotePacketSpec<'_>>, RemoteManifestError> {
+    let mut packets = Vec::with_capacity(HIGH_FREQUENCY_REMOTE_METHOD_COUNT);
+    for method in HighFrequencyRemoteMethod::ordered() {
+        let entry = manifest
+            .remote_packets
+            .iter()
+            .find(|packet| packet.method == method.method_name())
+            .ok_or(RemoteManifestError::MissingHighFrequencyPacket(
+                method.method_name(),
+            ))?;
+        let flow = remote_flow_from_targets(&entry.targets);
+        let wire_params = entry
+            .params
+            .iter()
+            .filter(|param| param_is_wire_included(param, flow))
+            .map(|param| TypedRemoteParamSpec {
+                name: param.name.as_str(),
+                java_type: param.java_type.as_str(),
+                kind: remote_param_kind(&param.java_type),
+            })
+            .collect();
+
+        packets.push(TypedRemotePacketSpec {
+            method,
+            packet_id: entry.packet_id,
+            packet_class: entry.packet_class.as_str(),
+            declaring_type: entry.declaring_type.as_str(),
+            flow,
+            unreliable: entry.unreliable,
+            priority: entry.priority.as_str(),
+            wire_params,
+        });
+    }
+
+    Ok(packets)
+}
+
+pub fn generate_rust_registry(manifest: &RemoteManifest) -> String {
+    let mut out = StringBuilder::new();
+    out.push_line("// @generated by mdt-remote from remote-manifest-v1.json");
+    out.push_line(&format!(
+        "pub const REMOTE_MANIFEST_SCHEMA: &str = {:?};",
+        manifest.schema
+    ));
+    out.push_line(&format!(
+        "pub const REMOTE_BASE_PACKET_COUNT: usize = {};",
+        manifest.base_packets.len()
+    ));
+    out.push_line("");
+    out.push_line("#[derive(Debug, Clone, Copy, PartialEq, Eq)]");
+    out.push_line("pub struct RemotePacketSpec {");
+    out.push_line("    pub packet_id: u8,");
+    out.push_line("    pub packet_class: &'static str,");
+    out.push_line("    pub declaring_type: &'static str,");
+    out.push_line("    pub method: &'static str,");
+    out.push_line("    pub targets: &'static str,");
+    out.push_line("    pub called: &'static str,");
+    out.push_line("    pub variants: &'static str,");
+    out.push_line("    pub unreliable: bool,");
+    out.push_line("    pub forward: bool,");
+    out.push_line("    pub priority: &'static str,");
+    out.push_line("    pub param_count: usize,");
+    out.push_line("}");
+    out.push_line("");
+    for packet in &manifest.remote_packets {
+        out.push_line(&format!(
+            "pub const {}_ID: u8 = {};",
+            remote_packet_const_name(&packet.packet_class),
+            packet.packet_id
+        ));
+    }
+    out.push_line("");
+    out.push_line("pub const REMOTE_PACKET_SPECS: &[RemotePacketSpec] = &[");
+    for packet in &manifest.remote_packets {
+        out.push_line("    RemotePacketSpec {");
+        out.push_line(&format!("        packet_id: {},", packet.packet_id));
+        out.push_line(&format!("        packet_class: {:?},", packet.packet_class));
+        out.push_line(&format!(
+            "        declaring_type: {:?},",
+            packet.declaring_type
+        ));
+        out.push_line(&format!("        method: {:?},", packet.method));
+        out.push_line(&format!("        targets: {:?},", packet.targets));
+        out.push_line(&format!("        called: {:?},", packet.called));
+        out.push_line(&format!("        variants: {:?},", packet.variants));
+        out.push_line(&format!("        unreliable: {},", packet.unreliable));
+        out.push_line(&format!("        forward: {},", packet.forward));
+        out.push_line(&format!("        priority: {:?},", packet.priority));
+        out.push_line(&format!("        param_count: {},", packet.params.len()));
+        out.push_line("    },");
+    }
+    out.push_line("];");
+    out.finish()
+}
+
+pub fn generate_high_frequency_rust_module(
+    manifest: &RemoteManifest,
+) -> Result<String, RemoteManifestError> {
+    let packets = high_frequency_remote_packets(manifest)?;
+    let mut out = StringBuilder::new();
+    out.push_line("// @generated by mdt-remote from remote-manifest-v1.json");
+    out.push_line("#[derive(Debug, Clone, Copy, PartialEq, Eq)]");
+    out.push_line("pub enum RemoteFlow {");
+    out.push_line("    ClientToServer,");
+    out.push_line("    ServerToClient,");
+    out.push_line("    Bidirectional,");
+    out.push_line("}");
+    out.push_line("");
+    out.push_line("#[derive(Debug, Clone, Copy, PartialEq, Eq)]");
+    out.push_line("pub enum HighFrequencyRemoteMethod {");
+    for method in HighFrequencyRemoteMethod::ordered() {
+        out.push_line(&format!("    {},", method.variant_name()));
+    }
+    out.push_line("}");
+    out.push_line("");
+    out.push_line("#[derive(Debug, Clone, Copy, PartialEq, Eq)]");
+    out.push_line("pub enum RemoteParamKind {");
+    out.push_line("    Bool,");
+    out.push_line("    Byte,");
+    out.push_line("    Short,");
+    out.push_line("    Int,");
+    out.push_line("    Long,");
+    out.push_line("    Float,");
+    out.push_line("    Bytes,");
+    out.push_line("    TileRef,");
+    out.push_line("    BlockRef,");
+    out.push_line("    BuildPlanQueue,");
+    out.push_line("    IntSeq,");
+    out.push_line("    Opaque,");
+    out.push_line("}");
+    out.push_line("");
+    out.push_line("#[derive(Debug, Clone, Copy, PartialEq, Eq)]");
+    out.push_line("pub struct HighFrequencyRemoteParamSpec {");
+    out.push_line("    pub name: &'static str,");
+    out.push_line("    pub java_type: &'static str,");
+    out.push_line("    pub kind: RemoteParamKind,");
+    out.push_line("}");
+    out.push_line("");
+    out.push_line("#[derive(Debug, Clone, Copy, PartialEq, Eq)]");
+    out.push_line("pub struct HighFrequencyRemotePacketSpec {");
+    out.push_line("    pub method: HighFrequencyRemoteMethod,");
+    out.push_line("    pub packet_id: u8,");
+    out.push_line("    pub packet_class: &'static str,");
+    out.push_line("    pub declaring_type: &'static str,");
+    out.push_line("    pub flow: RemoteFlow,");
+    out.push_line("    pub unreliable: bool,");
+    out.push_line("    pub priority: &'static str,");
+    out.push_line("    pub wire_params: &'static [HighFrequencyRemoteParamSpec],");
+    out.push_line("}");
+    out.push_line("");
+
+    for packet in &packets {
+        let const_prefix = packet.method.const_prefix();
+        out.push_line(&format!(
+            "pub const {const_prefix}_PACKET_ID: u8 = {};",
+            packet.packet_id
+        ));
+    }
+    out.push_line("");
+
+    for packet in &packets {
+        let const_prefix = packet.method.const_prefix();
+        out.push_line(&format!(
+            "pub const {const_prefix}_WIRE_PARAMS: &[HighFrequencyRemoteParamSpec] = &["
+        ));
+        for param in &packet.wire_params {
+            out.push_line("    HighFrequencyRemoteParamSpec {");
+            out.push_line(&format!("        name: {:?},", param.name));
+            out.push_line(&format!("        java_type: {:?},", param.java_type));
+            out.push_line(&format!(
+                "        kind: RemoteParamKind::{},",
+                remote_param_kind_name(param.kind)
+            ));
+            out.push_line("    },");
+        }
+        out.push_line("];");
+        out.push_line("");
+    }
+
+    out.push_line(
+        "pub const HIGH_FREQUENCY_REMOTE_PACKET_SPECS: &[HighFrequencyRemotePacketSpec] = &[",
+    );
+    for packet in &packets {
+        let const_prefix = packet.method.const_prefix();
+        out.push_line("    HighFrequencyRemotePacketSpec {");
+        out.push_line(&format!(
+            "        method: HighFrequencyRemoteMethod::{},",
+            packet.method.variant_name()
+        ));
+        out.push_line(&format!("        packet_id: {},", packet.packet_id));
+        out.push_line(&format!("        packet_class: {:?},", packet.packet_class));
+        out.push_line(&format!(
+            "        declaring_type: {:?},",
+            packet.declaring_type
+        ));
+        out.push_line(&format!(
+            "        flow: RemoteFlow::{},",
+            remote_flow_name(packet.flow)
+        ));
+        out.push_line(&format!("        unreliable: {},", packet.unreliable));
+        out.push_line(&format!("        priority: {:?},", packet.priority));
+        out.push_line(&format!("        wire_params: {const_prefix}_WIRE_PARAMS,"));
+        out.push_line("    },");
+    }
+    out.push_line("];");
+    Ok(out.finish())
+}
+
+pub fn remote_packet_const_name(packet_class: &str) -> String {
+    let simple_name = packet_class
+        .rsplit(['.', '$'])
+        .next()
+        .unwrap_or(packet_class);
+    let mut out = String::with_capacity(simple_name.len() + 8);
+    let mut previous_is_lower_or_digit = false;
+    for ch in simple_name.chars() {
+        if ch.is_ascii_alphanumeric() {
+            if ch.is_ascii_uppercase() && previous_is_lower_or_digit && !out.ends_with('_') {
+                out.push('_');
+            }
+            out.push(ch.to_ascii_uppercase());
+            previous_is_lower_or_digit = ch.is_ascii_lowercase() || ch.is_ascii_digit();
+        } else {
+            if !out.ends_with('_') {
+                out.push('_');
+            }
+            previous_is_lower_or_digit = false;
+        }
+    }
+    out.trim_end_matches('_').to_string()
+}
+
+fn remote_flow_from_targets(targets: &str) -> RemoteFlow {
+    match targets {
+        "client" => RemoteFlow::ClientToServer,
+        "server" => RemoteFlow::ServerToClient,
+        _ => RemoteFlow::Bidirectional,
+    }
+}
+
+fn param_is_wire_included(param: &RemoteParamEntry, flow: RemoteFlow) -> bool {
+    match flow {
+        RemoteFlow::ClientToServer => param.network_included_when_caller_is_client,
+        RemoteFlow::ServerToClient => param.network_included_when_caller_is_server,
+        RemoteFlow::Bidirectional => {
+            param.network_included_when_caller_is_client
+                || param.network_included_when_caller_is_server
+        }
+    }
+}
+
+fn remote_param_kind(java_type: &str) -> RemoteParamKind {
+    match java_type {
+        "boolean" => RemoteParamKind::Bool,
+        "byte" => RemoteParamKind::Byte,
+        "short" => RemoteParamKind::Short,
+        "int" => RemoteParamKind::Int,
+        "long" => RemoteParamKind::Long,
+        "float" => RemoteParamKind::Float,
+        "byte[]" => RemoteParamKind::Bytes,
+        "mindustry.world.Tile" => RemoteParamKind::TileRef,
+        "mindustry.world.Block" => RemoteParamKind::BlockRef,
+        "arc.struct.Queue<mindustry.entities.units.BuildPlan>" => RemoteParamKind::BuildPlanQueue,
+        "arc.struct.IntSeq" => RemoteParamKind::IntSeq,
+        _ => RemoteParamKind::Opaque,
+    }
+}
+
+fn remote_flow_name(flow: RemoteFlow) -> &'static str {
+    match flow {
+        RemoteFlow::ClientToServer => "ClientToServer",
+        RemoteFlow::ServerToClient => "ServerToClient",
+        RemoteFlow::Bidirectional => "Bidirectional",
+    }
+}
+
+fn remote_param_kind_name(kind: RemoteParamKind) -> &'static str {
+    match kind {
+        RemoteParamKind::Bool => "Bool",
+        RemoteParamKind::Byte => "Byte",
+        RemoteParamKind::Short => "Short",
+        RemoteParamKind::Int => "Int",
+        RemoteParamKind::Long => "Long",
+        RemoteParamKind::Float => "Float",
+        RemoteParamKind::Bytes => "Bytes",
+        RemoteParamKind::TileRef => "TileRef",
+        RemoteParamKind::BlockRef => "BlockRef",
+        RemoteParamKind::BuildPlanQueue => "BuildPlanQueue",
+        RemoteParamKind::IntSeq => "IntSeq",
+        RemoteParamKind::Opaque => "Opaque",
+    }
+}
+
+impl HighFrequencyRemoteMethod {
+    pub fn ordered() -> [Self; HIGH_FREQUENCY_REMOTE_METHOD_COUNT] {
+        [
+            Self::ClientSnapshot,
+            Self::StateSnapshot,
+            Self::EntitySnapshot,
+            Self::BlockSnapshot,
+            Self::HiddenSnapshot,
+        ]
+    }
+
+    pub fn method_name(self) -> &'static str {
+        match self {
+            Self::ClientSnapshot => "clientSnapshot",
+            Self::StateSnapshot => "stateSnapshot",
+            Self::EntitySnapshot => "entitySnapshot",
+            Self::BlockSnapshot => "blockSnapshot",
+            Self::HiddenSnapshot => "hiddenSnapshot",
+        }
+    }
+
+    fn variant_name(self) -> &'static str {
+        match self {
+            Self::ClientSnapshot => "ClientSnapshot",
+            Self::StateSnapshot => "StateSnapshot",
+            Self::EntitySnapshot => "EntitySnapshot",
+            Self::BlockSnapshot => "BlockSnapshot",
+            Self::HiddenSnapshot => "HiddenSnapshot",
+        }
+    }
+
+    fn const_prefix(self) -> &'static str {
+        match self {
+            Self::ClientSnapshot => "CLIENT_SNAPSHOT",
+            Self::StateSnapshot => "STATE_SNAPSHOT",
+            Self::EntitySnapshot => "ENTITY_SNAPSHOT",
+            Self::BlockSnapshot => "BLOCK_SNAPSHOT",
+            Self::HiddenSnapshot => "HIDDEN_SNAPSHOT",
+        }
+    }
+}
+
+struct StringBuilder {
+    inner: String,
+}
+
+impl StringBuilder {
+    fn new() -> Self {
+        Self {
+            inner: String::with_capacity(8192),
+        }
+    }
+
+    fn push_line(&mut self, line: &str) {
+        self.inner.push_str(line);
+        self.inner.push('\n');
+    }
+
+    fn finish(self) -> String {
+        self.inner
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SAMPLE_MANIFEST: &str = r#"{
+  "schema": "mdt.remote.manifest.v1",
+  "generator": {
+    "source": "mindustry.annotations.remote",
+    "callClass": "mindustry.gen.Call"
+  },
+  "basePackets": [
+    {"id": 0, "class": "mindustry.net.Packets$StreamBegin"},
+    {"id": 1, "class": "mindustry.net.Packets$StreamChunk"},
+    {"id": 2, "class": "mindustry.net.Packets$WorldStream"},
+    {"id": 3, "class": "mindustry.net.Packets$ConnectPacket"}
+  ],
+  "remotePackets": [
+    {
+      "remoteIndex": 0,
+      "packetId": 4,
+      "packetClass": "mindustry.gen.TestCallPacket",
+      "declaringType": "mindustry.core.NetServer",
+      "method": "test",
+      "targets": "client",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": true,
+      "priority": "high",
+      "params": [
+        {"name": "player", "javaType": "Player", "networkIncludedWhenCallerIsClient": false, "networkIncludedWhenCallerIsServer": false},
+        {"name": "value", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    }
+  ],
+  "wire": {
+    "packetIdByte": "u8",
+    "lengthField": "u16be",
+    "compressionFlag": {"0": "none", "1": "lz4"},
+    "compressionThreshold": 36
+  }
+}"#;
+
+    #[test]
+    fn parses_remote_manifest_sample() {
+        let manifest = parse_remote_manifest(SAMPLE_MANIFEST).unwrap();
+        assert_eq!(manifest.schema, REMOTE_MANIFEST_SCHEMA_V1);
+        assert_eq!(manifest.base_packets.len(), 4);
+        assert_eq!(manifest.remote_packets[0].packet_id, 4);
+        assert_eq!(manifest.remote_packets[0].params.len(), 2);
+    }
+
+    #[test]
+    fn generates_rust_registry_from_manifest_sample() {
+        let manifest = parse_remote_manifest(SAMPLE_MANIFEST).unwrap();
+        let registry = generate_rust_registry(&manifest);
+        assert!(registry.contains("pub const TEST_CALL_PACKET_ID: u8 = 4;"));
+        assert!(registry.contains("pub const REMOTE_PACKET_SPECS: &[RemotePacketSpec] = &["));
+        assert!(registry.contains("priority: \"high\""));
+    }
+
+    #[test]
+    fn extracts_high_frequency_remote_subset_from_manifest() {
+        let manifest = RemoteManifest {
+            schema: REMOTE_MANIFEST_SCHEMA_V1.to_string(),
+            generator: RemoteGeneratorInfo {
+                source: "mindustry.annotations.remote".into(),
+                call_class: "mindustry.gen.Call".into(),
+            },
+            base_packets: vec![
+                BasePacketEntry {
+                    id: 0,
+                    class_name: "mindustry.net.Packets$StreamBegin".into(),
+                },
+                BasePacketEntry {
+                    id: 1,
+                    class_name: "mindustry.net.Packets$StreamChunk".into(),
+                },
+                BasePacketEntry {
+                    id: 2,
+                    class_name: "mindustry.net.Packets$WorldStream".into(),
+                },
+                BasePacketEntry {
+                    id: 3,
+                    class_name: "mindustry.net.Packets$ConnectPacket".into(),
+                },
+            ],
+            remote_packets: vec![
+                test_remote_packet(
+                    0,
+                    4,
+                    "mindustry.gen.ClientSnapshotCallPacket",
+                    "mindustry.core.NetServer",
+                    "clientSnapshot",
+                    "client",
+                    "high",
+                    true,
+                    vec![
+                        test_param("player", "Player", false, false),
+                        test_param("snapshotID", "int", true, true),
+                        test_param(
+                            "plans",
+                            "arc.struct.Queue<mindustry.entities.units.BuildPlan>",
+                            true,
+                            true,
+                        ),
+                    ],
+                ),
+                test_remote_packet(
+                    1,
+                    5,
+                    "mindustry.gen.StateSnapshotCallPacket",
+                    "mindustry.core.NetClient",
+                    "stateSnapshot",
+                    "server",
+                    "low",
+                    true,
+                    vec![
+                        test_param("waveTime", "float", true, true),
+                        test_param("coreData", "byte[]", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    2,
+                    6,
+                    "mindustry.gen.EntitySnapshotCallPacket",
+                    "mindustry.core.NetClient",
+                    "entitySnapshot",
+                    "server",
+                    "low",
+                    true,
+                    vec![
+                        test_param("amount", "short", true, true),
+                        test_param("data", "byte[]", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    3,
+                    7,
+                    "mindustry.gen.BlockSnapshotCallPacket",
+                    "mindustry.core.NetClient",
+                    "blockSnapshot",
+                    "server",
+                    "low",
+                    true,
+                    vec![
+                        test_param("amount", "short", true, true),
+                        test_param("data", "byte[]", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    4,
+                    8,
+                    "mindustry.gen.HiddenSnapshotCallPacket",
+                    "mindustry.core.NetClient",
+                    "hiddenSnapshot",
+                    "server",
+                    "low",
+                    true,
+                    vec![test_param("ids", "arc.struct.IntSeq", true, true)],
+                ),
+            ],
+            wire: WireSpec {
+                packet_id_byte: "u8".into(),
+                length_field: "u16be".into(),
+                compression_flag: CompressionFlagSpec {
+                    none: "none".into(),
+                    lz4: "lz4".into(),
+                },
+                compression_threshold: 36,
+            },
+        };
+
+        let packets = high_frequency_remote_packets(&manifest).unwrap();
+        assert_eq!(packets.len(), 5);
+        assert_eq!(packets[0].method, HighFrequencyRemoteMethod::ClientSnapshot);
+        assert_eq!(packets[0].flow, RemoteFlow::ClientToServer);
+        assert_eq!(packets[0].wire_params.len(), 2);
+        assert_eq!(packets[0].wire_params[0].name, "snapshotID");
+        assert_eq!(
+            packets[0].wire_params[1].kind,
+            RemoteParamKind::BuildPlanQueue
+        );
+        assert_eq!(packets[4].wire_params[0].kind, RemoteParamKind::IntSeq);
+    }
+
+    #[test]
+    fn generates_high_frequency_rust_module() {
+        let manifest = parse_remote_manifest(
+            r#"{
+  "schema": "mdt.remote.manifest.v1",
+  "generator": {
+    "source": "mindustry.annotations.remote",
+    "callClass": "mindustry.gen.Call"
+  },
+  "basePackets": [
+    {"id": 0, "class": "mindustry.net.Packets$StreamBegin"},
+    {"id": 1, "class": "mindustry.net.Packets$StreamChunk"},
+    {"id": 2, "class": "mindustry.net.Packets$WorldStream"},
+    {"id": 3, "class": "mindustry.net.Packets$ConnectPacket"}
+  ],
+  "remotePackets": [
+    {"remoteIndex": 0, "packetId": 4, "packetClass": "mindustry.gen.ClientSnapshotCallPacket", "declaringType": "mindustry.core.NetServer", "method": "clientSnapshot", "targets": "client", "called": "none", "variants": "all", "forward": false, "unreliable": true, "priority": "high", "params": [{"name": "player", "javaType": "Player", "networkIncludedWhenCallerIsClient": false, "networkIncludedWhenCallerIsServer": false}, {"name": "snapshotID", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}]},
+    {"remoteIndex": 1, "packetId": 5, "packetClass": "mindustry.gen.StateSnapshotCallPacket", "declaringType": "mindustry.core.NetClient", "method": "stateSnapshot", "targets": "server", "called": "none", "variants": "one", "forward": false, "unreliable": true, "priority": "low", "params": [{"name": "coreData", "javaType": "byte[]", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}]},
+    {"remoteIndex": 2, "packetId": 6, "packetClass": "mindustry.gen.EntitySnapshotCallPacket", "declaringType": "mindustry.core.NetClient", "method": "entitySnapshot", "targets": "server", "called": "none", "variants": "one", "forward": false, "unreliable": true, "priority": "low", "params": [{"name": "amount", "javaType": "short", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}]},
+    {"remoteIndex": 3, "packetId": 7, "packetClass": "mindustry.gen.BlockSnapshotCallPacket", "declaringType": "mindustry.core.NetClient", "method": "blockSnapshot", "targets": "server", "called": "none", "variants": "both", "forward": false, "unreliable": true, "priority": "low", "params": [{"name": "data", "javaType": "byte[]", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}]},
+    {"remoteIndex": 4, "packetId": 8, "packetClass": "mindustry.gen.HiddenSnapshotCallPacket", "declaringType": "mindustry.core.NetClient", "method": "hiddenSnapshot", "targets": "server", "called": "none", "variants": "one", "forward": false, "unreliable": true, "priority": "low", "params": [{"name": "ids", "javaType": "arc.struct.IntSeq", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}]}
+  ],
+  "wire": {
+    "packetIdByte": "u8",
+    "lengthField": "u16be",
+    "compressionFlag": {"0": "none", "1": "lz4"},
+    "compressionThreshold": 36
+  }
+}"#,
+        )
+        .unwrap();
+
+        let generated = generate_high_frequency_rust_module(&manifest).unwrap();
+        assert!(generated.contains("pub const CLIENT_SNAPSHOT_PACKET_ID: u8 = 4;"));
+        assert!(generated.contains(
+            "pub const HIGH_FREQUENCY_REMOTE_PACKET_SPECS: &[HighFrequencyRemotePacketSpec] = &["
+        ));
+        assert!(generated.contains("kind: RemoteParamKind::IntSeq"));
+        assert!(generated.contains("name: \"snapshotID\""));
+        assert!(!generated.contains("name: \"player\""));
+        assert!(!generated.contains("wire_included"));
+    }
+
+    fn test_remote_packet(
+        remote_index: usize,
+        packet_id: u8,
+        packet_class: &str,
+        declaring_type: &str,
+        method: &str,
+        targets: &str,
+        priority: &str,
+        unreliable: bool,
+        params: Vec<RemoteParamEntry>,
+    ) -> RemotePacketEntry {
+        RemotePacketEntry {
+            remote_index,
+            packet_id,
+            packet_class: packet_class.into(),
+            declaring_type: declaring_type.into(),
+            method: method.into(),
+            targets: targets.into(),
+            called: "none".into(),
+            variants: "all".into(),
+            forward: false,
+            unreliable,
+            priority: priority.into(),
+            params,
+        }
+    }
+
+    fn test_param(name: &str, java_type: &str, client: bool, server: bool) -> RemoteParamEntry {
+        RemoteParamEntry {
+            name: name.into(),
+            java_type: java_type.into(),
+            network_included_when_caller_is_client: client,
+            network_included_when_caller_is_server: server,
+        }
+    }
+}

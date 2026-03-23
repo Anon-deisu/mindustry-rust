@@ -1,0 +1,8 @@
+**/target/
+.gradle/
+.gradle-project-cache/
+.gradle-user/
+build/
+gradle-9.3.1-bin.zip
+tmp-maps-out.txt
+tmp-maps-err.txt
