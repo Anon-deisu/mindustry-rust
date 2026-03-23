@@ -86,6 +86,11 @@ const LIQUID_CONTENT_TYPE: u8 = 4;
 const BLOCK_NAME_UNIT_CARGO_UNLOAD_POINT: &str = "unit-cargo-unload-point";
 const BLOCK_NAME_ITEM_SOURCE: &str = "item-source";
 const BLOCK_NAME_LIQUID_SOURCE: &str = "liquid-source";
+const BLOCK_NAME_SORTER: &str = "sorter";
+const BLOCK_NAME_INVERTED_SORTER: &str = "inverted-sorter";
+const BLOCK_NAME_UNLOADER: &str = "unloader";
+const BLOCK_NAME_DUCT_UNLOADER: &str = "duct-unloader";
+const BLOCK_NAME_DUCT_ROUTER: &str = "duct-router";
 const ALPHA_SHAPE_ENTITY_CLASS_IDS: [u8; 17] = [
     0, 2, 3, 16, 18, 20, 21, 24, 29, 30, 31, 33, 40, 43, 44, 45, 46,
 ];
@@ -1834,6 +1839,41 @@ impl ClientSession {
                     self.state
                         .configured_block_projection
                         .apply_liquid_source_liquid(build_pos, liquid_id);
+                }
+            }
+            BLOCK_NAME_SORTER => {
+                if let Some(item_id) = configured_item_id(config_object) {
+                    self.state
+                        .configured_block_projection
+                        .apply_sorter_item(build_pos, item_id);
+                }
+            }
+            BLOCK_NAME_INVERTED_SORTER => {
+                if let Some(item_id) = configured_item_id(config_object) {
+                    self.state
+                        .configured_block_projection
+                        .apply_inverted_sorter_item(build_pos, item_id);
+                }
+            }
+            BLOCK_NAME_UNLOADER => {
+                if let Some(item_id) = configured_item_id(config_object) {
+                    self.state
+                        .configured_block_projection
+                        .apply_unloader_item(build_pos, item_id);
+                }
+            }
+            BLOCK_NAME_DUCT_UNLOADER => {
+                if let Some(item_id) = configured_item_id(config_object) {
+                    self.state
+                        .configured_block_projection
+                        .apply_duct_unloader_item(build_pos, item_id);
+                }
+            }
+            BLOCK_NAME_DUCT_ROUTER => {
+                if let Some(item_id) = configured_item_id(config_object) {
+                    self.state
+                        .configured_block_projection
+                        .apply_duct_router_item(build_pos, item_id);
                 }
             }
             _ => {}
@@ -5593,6 +5633,20 @@ impl ClientSession {
         self.snapshot_input.dead = sync.is_dead();
         self.snapshot_input.position = Some((x, y));
         self.snapshot_input.view_center = Some((x, y));
+        let pointer = (
+            f32::from_bits(sync.mouse_x_bits),
+            f32::from_bits(sync.mouse_y_bits),
+        );
+        self.snapshot_input.pointer = (pointer.0.is_finite() && pointer.1.is_finite())
+            .then_some(pointer);
+        self.snapshot_input.boosting = sync.boosting;
+        self.snapshot_input.shooting = sync.shooting;
+        self.snapshot_input.chatting = sync.typing;
+        self.snapshot_input.selected_block_id = i16::try_from(sync.selected_block_id)
+            .ok()
+            .filter(|id| *id >= 0);
+        self.snapshot_input.selected_rotation =
+            i32::try_from(sync.selected_rotation).unwrap_or(0);
         LocalPlayerSyncApplicationResult {
             applied: true,
             target_player_id: Some(player_id),
@@ -13111,14 +13165,19 @@ mod tests {
             session.ingest_packet_bytes(&chunk).unwrap();
         }
         let local_player_id = session.state().world_player_id.unwrap();
+        let entity_snapshot_payload = sample_snapshot_packet("entitySnapshot.packet");
+        let expected_sync = try_parse_player_sync_rows_from_entity_snapshot(&entity_snapshot_payload)
+            .into_iter()
+            .find(|row| row.entity_id == local_player_id)
+            .expect("entity snapshot payload should contain local player sync row")
+            .sync;
 
         let input = session.snapshot_input_mut();
         input.unit_id = Some(999);
         input.position = Some((999.0, 999.0));
         input.view_center = Some((999.0, 999.0));
 
-        let entity_snapshot_wire =
-            encode_packet(44, &sample_snapshot_packet("entitySnapshot.packet"), false).unwrap();
+        let entity_snapshot_wire = encode_packet(44, &entity_snapshot_payload, false).unwrap();
         let event = session.ingest_packet_bytes(&entity_snapshot_wire).unwrap();
 
         assert_eq!(
@@ -13204,6 +13263,26 @@ mod tests {
         assert!(!input.dead);
         assert_eq!(input.position, Some((0.0, 0.0)));
         assert_eq!(input.view_center, Some((0.0, 0.0)));
+        assert_eq!(
+            input.pointer,
+            Some((
+                f32::from_bits(expected_sync.mouse_x_bits),
+                f32::from_bits(expected_sync.mouse_y_bits),
+            ))
+        );
+        assert_eq!(input.boosting, expected_sync.boosting);
+        assert_eq!(input.shooting, expected_sync.shooting);
+        assert_eq!(input.chatting, expected_sync.typing);
+        assert_eq!(
+            input.selected_block_id,
+            i16::try_from(expected_sync.selected_block_id)
+                .ok()
+                .filter(|id| *id >= 0)
+        );
+        assert_eq!(
+            input.selected_rotation,
+            i32::try_from(expected_sync.selected_rotation).unwrap_or(0)
+        );
     }
 
     #[test]
@@ -20299,6 +20378,360 @@ mod tests {
                 .tile_config_projection
                 .last_cleared_pending_local
         );
+    }
+
+    #[test]
+    fn item_source_config_business_dispatch_applies_item_and_clear() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(12, 34);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_ITEM_SOURCE);
+        let item_id = loaded_world_content_id_for_name(&session, ITEM_CONTENT_TYPE, "copper");
+
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+            &TypeIoObject::Null,
+        );
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &TypeIoObject::ContentRaw {
+                content_type: ITEM_CONTENT_TYPE,
+                content_id: item_id,
+            },
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .item_source_item_by_build_pos
+                .get(&build_pos),
+            Some(&Some(item_id))
+        );
+
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &TypeIoObject::Null,
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .item_source_item_by_build_pos
+                .get(&build_pos),
+            Some(&None)
+        );
+    }
+
+    #[test]
+    fn liquid_source_config_business_dispatch_applies_liquid_and_clear() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(13, 35);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_LIQUID_SOURCE);
+        let liquid_id = loaded_world_content_id_for_name(&session, LIQUID_CONTENT_TYPE, "water");
+
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+            &TypeIoObject::Null,
+        );
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &TypeIoObject::ContentRaw {
+                content_type: LIQUID_CONTENT_TYPE,
+                content_id: liquid_id,
+            },
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .liquid_source_liquid_by_build_pos
+                .get(&build_pos),
+            Some(&Some(liquid_id))
+        );
+
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &TypeIoObject::Null,
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .liquid_source_liquid_by_build_pos
+                .get(&build_pos),
+            Some(&None)
+        );
+    }
+
+    #[test]
+    fn sorter_and_inverted_sorter_config_business_dispatch_apply_item_and_clear() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let item_id = loaded_world_content_id_for_name(&session, ITEM_CONTENT_TYPE, "copper");
+
+        for (build_pos, block_name) in [
+            (pack_point2(16, 38), BLOCK_NAME_SORTER),
+            (pack_point2(17, 39), BLOCK_NAME_INVERTED_SORTER),
+        ] {
+            let block_id = loaded_world_block_id_for_name(&session, block_name);
+            ingest_construct_finish_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                block_id,
+                &TypeIoObject::Null,
+            );
+            ingest_tile_config_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                &TypeIoObject::ContentRaw {
+                    content_type: ITEM_CONTENT_TYPE,
+                    content_id: item_id,
+                },
+            );
+
+            let applied = if block_name == BLOCK_NAME_SORTER {
+                session
+                    .state()
+                    .configured_block_projection
+                    .sorter_item_by_build_pos
+                    .get(&build_pos)
+            } else {
+                session
+                    .state()
+                    .configured_block_projection
+                    .inverted_sorter_item_by_build_pos
+                    .get(&build_pos)
+            };
+            assert_eq!(applied, Some(&Some(item_id)));
+
+            ingest_tile_config_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                &TypeIoObject::Null,
+            );
+            let cleared = if block_name == BLOCK_NAME_SORTER {
+                session
+                    .state()
+                    .configured_block_projection
+                    .sorter_item_by_build_pos
+                    .get(&build_pos)
+            } else {
+                session
+                    .state()
+                    .configured_block_projection
+                    .inverted_sorter_item_by_build_pos
+                    .get(&build_pos)
+            };
+            assert_eq!(cleared, Some(&None));
+        }
+    }
+
+    #[test]
+    fn unloader_and_duct_unloader_config_business_dispatch_apply_item_and_clear() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let item_id = loaded_world_content_id_for_name(&session, ITEM_CONTENT_TYPE, "copper");
+
+        for (build_pos, block_name) in [
+            (pack_point2(18, 40), BLOCK_NAME_UNLOADER),
+            (pack_point2(19, 41), BLOCK_NAME_DUCT_UNLOADER),
+        ] {
+            let block_id = loaded_world_block_id_for_name(&session, block_name);
+            ingest_construct_finish_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                block_id,
+                &TypeIoObject::Null,
+            );
+            ingest_tile_config_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                &TypeIoObject::ContentRaw {
+                    content_type: ITEM_CONTENT_TYPE,
+                    content_id: item_id,
+                },
+            );
+
+            let applied = if block_name == BLOCK_NAME_UNLOADER {
+                session
+                    .state()
+                    .configured_block_projection
+                    .unloader_item_by_build_pos
+                    .get(&build_pos)
+            } else {
+                session
+                    .state()
+                    .configured_block_projection
+                    .duct_unloader_item_by_build_pos
+                    .get(&build_pos)
+            };
+            assert_eq!(applied, Some(&Some(item_id)));
+
+            ingest_tile_config_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                &TypeIoObject::Null,
+            );
+            let cleared = if block_name == BLOCK_NAME_UNLOADER {
+                session
+                    .state()
+                    .configured_block_projection
+                    .unloader_item_by_build_pos
+                    .get(&build_pos)
+            } else {
+                session
+                    .state()
+                    .configured_block_projection
+                    .duct_unloader_item_by_build_pos
+                    .get(&build_pos)
+            };
+            assert_eq!(cleared, Some(&None));
+        }
+    }
+
+    #[test]
+    fn duct_router_config_business_dispatch_applies_item_and_clear() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(20, 42);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_DUCT_ROUTER);
+        let item_id = loaded_world_content_id_for_name(&session, ITEM_CONTENT_TYPE, "copper");
+
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+            &TypeIoObject::Null,
+        );
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &TypeIoObject::ContentRaw {
+                content_type: ITEM_CONTENT_TYPE,
+                content_id: item_id,
+            },
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .duct_router_item_by_build_pos
+                .get(&build_pos),
+            Some(&Some(item_id))
+        );
+
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &TypeIoObject::Null,
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .duct_router_item_by_build_pos
+                .get(&build_pos),
+            Some(&None)
+        );
+    }
+
+    #[test]
+    fn unit_cargo_unload_point_config_business_dispatch_uses_construct_finish_and_tile_config() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(14, 36);
+        let block_id =
+            loaded_world_block_id_for_name(&session, BLOCK_NAME_UNIT_CARGO_UNLOAD_POINT);
+        let item_id = loaded_world_content_id_for_name(&session, ITEM_CONTENT_TYPE, "copper");
+
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+            &TypeIoObject::ContentRaw {
+                content_type: ITEM_CONTENT_TYPE,
+                content_id: item_id,
+            },
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .unit_cargo_unload_point_item_by_build_pos
+                .get(&build_pos),
+            Some(&Some(item_id))
+        );
+
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &TypeIoObject::Null,
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .unit_cargo_unload_point_item_by_build_pos
+                .get(&build_pos),
+            Some(&None)
+        );
+    }
+
+    #[test]
+    fn deconstruct_finish_clears_configured_block_projection_state() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(15, 37);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_ITEM_SOURCE);
+        let item_id = loaded_world_content_id_for_name(&session, ITEM_CONTENT_TYPE, "copper");
+
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+            &TypeIoObject::Null,
+        );
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &TypeIoObject::ContentRaw {
+                content_type: ITEM_CONTENT_TYPE,
+                content_id: item_id,
+            },
+        );
+        assert!(session
+            .state()
+            .configured_block_projection
+            .item_source_item_by_build_pos
+            .contains_key(&build_pos));
+
+        ingest_deconstruct_finish_for_block_config_test(&mut session, &manifest, build_pos, block_id);
+        assert!(!session
+            .state()
+            .configured_block_projection
+            .item_source_item_by_build_pos
+            .contains_key(&build_pos));
     }
 
     #[test]

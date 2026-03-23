@@ -4,11 +4,12 @@ use crate::client_session::{
 };
 use crate::session_state::{
     AuthoritativeStateMirror, BuilderPlanStage, BuilderQueueProjection,
-    BuildingProjectionUpdateKind, BuildingTableProjection, EffectBusinessContentKind,
-    EffectBusinessPositionSource, EffectBusinessProjection, EffectDataSemantic,
-    HiddenSnapshotDeltaProjection, SessionState, StateSnapshotAuthorityProjection,
-    StateSnapshotBusinessProjection, TileConfigAuthoritySource, TileConfigProjection,
-    UnitRefProjection, WorldBootstrapProjection,
+    BuildingProjectionUpdateKind, BuildingTableProjection, ConfiguredBlockProjection,
+    EffectBusinessContentKind, EffectBusinessPositionSource, EffectBusinessProjection,
+    EffectDataSemantic, HiddenSnapshotDeltaProjection, SessionState,
+    StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection,
+    TileConfigAuthoritySource, TileConfigProjection, UnitRefProjection,
+    WorldBootstrapProjection,
 };
 use mdt_remote::{HighFrequencyRemoteMethod, HIGH_FREQUENCY_REMOTE_METHOD_COUNT};
 use mdt_render_ui::{
@@ -50,7 +51,7 @@ impl RenderRuntimeAdapter {
         let state_business_projection = session_state.state_snapshot_business_projection.as_ref();
         hud.runtime_ui = Some(runtime_ui_observability(session_state));
         hud.status_text = format!(
-            "{} runtime_selected={} runtime_plans={} runtime_cfg_int={} runtime_cfg_long={} runtime_cfg_float={} runtime_cfg_bool={} runtime_cfg_int_seq={} runtime_cfg_point2={} runtime_cfg_point2_array={} runtime_cfg_tech_node={} runtime_cfg_double={} runtime_cfg_building_pos={} runtime_cfg_laccess={} runtime_cfg_string={} runtime_cfg_bytes={} runtime_cfg_legacy_unit_command_null={} runtime_cfg_bool_array={} runtime_cfg_unit_id={} runtime_cfg_vec2_array={} runtime_cfg_vec2={} runtime_cfg_team={} runtime_cfg_int_array={} runtime_cfg_object_array={} runtime_cfg_content={} runtime_cfg_unit_command={} runtime_world_tiles={} runtime_health={} building={} runtime_builder={} runtime_builder_head={} runtime_entity_local={} runtime_entity_hidden={} runtime_entity_gate={} runtime_entity_sync={} runtime_snap_last={} runtime_snap_events={} runtime_wave={} runtime_enemies={} runtime_tps={} runtime_state_apply={} runtime_core_teams={} runtime_core_items={} runtime_buildings={} runtime_block={} runtime_block_fail={} runtime_hidden={} runtime_hidden_delta={} runtime_hidden_fail={} runtime_effects={} runtime_effect_data_kind={} runtime_effect_data_semantic={} runtime_effect_apply={} runtime_effect_path={} runtime_effect_data_fail={} bootstrap_rules={} bootstrap_tags={} bootstrap_locales={} bootstrap_teams={} bootstrap_markers={} bootstrap_chunks={} bootstrap_patches={} bootstrap_plans={} bootstrap_fog_teams={} runtime_view_center={} runtime_view_size={} runtime_position={} runtime_pointer={} runtime_selected_rotation={} runtime_input_flags={} runtime_snap_client={} runtime_snap_state={} runtime_snap_entity={} runtime_snap_block={} runtime_snap_hidden={} runtime_tilecfg_events={} runtime_tilecfg_parse_fail={} runtime_tilecfg_noapply={} runtime_tilecfg_rollback={} runtime_tilecfg_pending_mismatch={} runtime_tilecfg_apply={} runtime_take_items={} runtime_transfer_item={} runtime_transfer_item_unit={} runtime_payload_drop={} runtime_payload_pick_build={} runtime_payload_pick_unit={} runtime_unit_entered_payload={} runtime_unit_despawn={} runtime_unit_lifecycle={} runtime_spawn_fx={} runtime_audio={} runtime_admin={} runtime_kick={} runtime_loading={} runtime_rules={} runtime_ui_notice={} runtime_ui_menu={} runtime_world_label={} runtime_marker={} runtime_logic_sync={} runtime_resource_delta={} runtime_command_ctrl={} runtime_gameplay_signal={}",
+            "{} runtime_selected={} runtime_plans={} runtime_cfg_int={} runtime_cfg_long={} runtime_cfg_float={} runtime_cfg_bool={} runtime_cfg_int_seq={} runtime_cfg_point2={} runtime_cfg_point2_array={} runtime_cfg_tech_node={} runtime_cfg_double={} runtime_cfg_building_pos={} runtime_cfg_laccess={} runtime_cfg_string={} runtime_cfg_bytes={} runtime_cfg_legacy_unit_command_null={} runtime_cfg_bool_array={} runtime_cfg_unit_id={} runtime_cfg_vec2_array={} runtime_cfg_vec2={} runtime_cfg_team={} runtime_cfg_int_array={} runtime_cfg_object_array={} runtime_cfg_content={} runtime_cfg_unit_command={} runtime_world_tiles={} runtime_health={} building={} runtime_builder={} runtime_builder_head={} runtime_entity_local={} runtime_entity_hidden={} runtime_entity_gate={} runtime_entity_sync={} runtime_snap_last={} runtime_snap_events={} runtime_wave={} runtime_enemies={} runtime_tps={} runtime_state_apply={} runtime_core_teams={} runtime_core_items={} runtime_buildings={} runtime_block={} runtime_block_fail={} runtime_hidden={} runtime_hidden_delta={} runtime_hidden_fail={} runtime_effects={} runtime_effect_data_kind={} runtime_effect_data_semantic={} runtime_effect_apply={} runtime_effect_path={} runtime_effect_data_fail={} bootstrap_rules={} bootstrap_tags={} bootstrap_locales={} bootstrap_teams={} bootstrap_markers={} bootstrap_chunks={} bootstrap_patches={} bootstrap_plans={} bootstrap_fog_teams={} runtime_view_center={} runtime_view_size={} runtime_position={} runtime_pointer={} runtime_selected_rotation={} runtime_input_flags={} runtime_snap_client={} runtime_snap_state={} runtime_snap_entity={} runtime_snap_block={} runtime_snap_hidden={} runtime_tilecfg_events={} runtime_tilecfg_parse_fail={} runtime_tilecfg_noapply={} runtime_tilecfg_rollback={} runtime_tilecfg_pending_mismatch={} runtime_tilecfg_apply={} runtime_configured={} runtime_take_items={} runtime_transfer_item={} runtime_transfer_item_unit={} runtime_payload_drop={} runtime_payload_pick_build={} runtime_payload_pick_unit={} runtime_unit_entered_payload={} runtime_unit_despawn={} runtime_unit_lifecycle={} runtime_spawn_fx={} runtime_audio={} runtime_admin={} runtime_kick={} runtime_loading={} runtime_rules={} runtime_ui_notice={} runtime_ui_menu={} runtime_world_label={} runtime_marker={} runtime_logic_sync={} runtime_resource_delta={} runtime_command_ctrl={} runtime_gameplay_signal={}",
             hud.status_text,
             runtime_selected_block_label(snapshot_input.selected_block_id),
             snapshot_input.plans.as_ref().map_or(0, Vec::len),
@@ -205,6 +206,7 @@ impl RenderRuntimeAdapter {
             self.world_overlay.tile_config_rollback_count,
             self.world_overlay.tile_config_pending_mismatch_count,
             runtime_tile_config_business_label(&session_state.tile_config_projection),
+            runtime_configured_block_projection_label(&session_state.configured_block_projection),
             session_state.received_take_items_count,
             session_state.received_transfer_item_to_count,
             session_state.received_transfer_item_to_unit_count,
@@ -652,6 +654,39 @@ fn runtime_state_business_projection_label(
             )
         })
         .unwrap_or_else(|| "none".to_string())
+}
+
+fn runtime_configured_block_projection_label(projection: &ConfiguredBlockProjection) -> String {
+    format!(
+        "{}:{}:{}",
+        runtime_configured_content_family_label(
+            "uc",
+            &projection.unit_cargo_unload_point_item_by_build_pos,
+        ),
+        runtime_configured_content_family_label("is", &projection.item_source_item_by_build_pos),
+        runtime_configured_content_family_label(
+            "ls",
+            &projection.liquid_source_liquid_by_build_pos,
+        ),
+    )
+}
+
+fn runtime_configured_content_family_label(
+    prefix: &str,
+    values: &BTreeMap<i32, Option<i16>>,
+) -> String {
+    let count = values.len();
+    match values.last_key_value() {
+        Some((build_pos, Some(content_id))) => {
+            let (x, y) = unpack_runtime_point2(*build_pos);
+            format!("{prefix}{count}@{x}:{y}={content_id}")
+        }
+        Some((build_pos, None)) => {
+            let (x, y) = unpack_runtime_point2(*build_pos);
+            format!("{prefix}{count}@{x}:{y}=clear")
+        }
+        None => format!("{prefix}{count}"),
+    }
 }
 
 fn runtime_state_projection_label(
@@ -2667,6 +2702,33 @@ mod tests {
         assert!(hud
             .status_text
             .contains("runtime_tilecfg_apply=a3:p2:c1:construct@9:4:cl1:rb1:pm0"));
+    }
+
+    #[test]
+    fn render_runtime_adapter_reports_configured_block_projection_in_hud() {
+        let adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        state
+            .configured_block_projection
+            .unit_cargo_unload_point_item_by_build_pos
+            .insert(pack_runtime_point2(14, 36), None);
+        state
+            .configured_block_projection
+            .item_source_item_by_build_pos
+            .insert(pack_runtime_point2(12, 34), Some(0));
+        state
+            .configured_block_projection
+            .liquid_source_liquid_by_build_pos
+            .insert(pack_runtime_point2(13, 35), Some(0));
+
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        assert!(hud
+            .status_text
+            .contains("runtime_configured=uc1@14:36=clear:is1@12:34=0:ls1@13:35=0"));
     }
 
     #[test]

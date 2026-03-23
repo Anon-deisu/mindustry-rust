@@ -485,6 +485,11 @@ pub struct ConfiguredBlockProjection {
     pub unit_cargo_unload_point_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub item_source_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub liquid_source_liquid_by_build_pos: BTreeMap<i32, Option<i16>>,
+    pub sorter_item_by_build_pos: BTreeMap<i32, Option<i16>>,
+    pub inverted_sorter_item_by_build_pos: BTreeMap<i32, Option<i16>>,
+    pub unloader_item_by_build_pos: BTreeMap<i32, Option<i16>>,
+    pub duct_unloader_item_by_build_pos: BTreeMap<i32, Option<i16>>,
+    pub duct_router_item_by_build_pos: BTreeMap<i32, Option<i16>>,
 }
 
 impl ConfiguredBlockProjection {
@@ -503,11 +508,38 @@ impl ConfiguredBlockProjection {
             .insert(build_pos, liquid_id);
     }
 
+    pub fn apply_sorter_item(&mut self, build_pos: i32, item_id: Option<i16>) {
+        self.sorter_item_by_build_pos.insert(build_pos, item_id);
+    }
+
+    pub fn apply_inverted_sorter_item(&mut self, build_pos: i32, item_id: Option<i16>) {
+        self.inverted_sorter_item_by_build_pos
+            .insert(build_pos, item_id);
+    }
+
+    pub fn apply_unloader_item(&mut self, build_pos: i32, item_id: Option<i16>) {
+        self.unloader_item_by_build_pos.insert(build_pos, item_id);
+    }
+
+    pub fn apply_duct_unloader_item(&mut self, build_pos: i32, item_id: Option<i16>) {
+        self.duct_unloader_item_by_build_pos
+            .insert(build_pos, item_id);
+    }
+
+    pub fn apply_duct_router_item(&mut self, build_pos: i32, item_id: Option<i16>) {
+        self.duct_router_item_by_build_pos.insert(build_pos, item_id);
+    }
+
     pub fn clear_building_state(&mut self, build_pos: i32) {
         self.unit_cargo_unload_point_item_by_build_pos
             .remove(&build_pos);
         self.item_source_item_by_build_pos.remove(&build_pos);
         self.liquid_source_liquid_by_build_pos.remove(&build_pos);
+        self.sorter_item_by_build_pos.remove(&build_pos);
+        self.inverted_sorter_item_by_build_pos.remove(&build_pos);
+        self.unloader_item_by_build_pos.remove(&build_pos);
+        self.duct_unloader_item_by_build_pos.remove(&build_pos);
+        self.duct_router_item_by_build_pos.remove(&build_pos);
     }
 
     pub fn clear_for_world_reload(&mut self) {
