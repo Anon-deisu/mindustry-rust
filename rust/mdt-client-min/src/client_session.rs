@@ -1,6 +1,7 @@
 use crate::bootstrap_flow::{
     apply_connect_packet, apply_world_bootstrap, ConnectPacketEnvelope, WorldStreamAssembler,
 };
+use crate::effect_runtime::effect_contract_name;
 use crate::net_loop::{ingest_inbound_packet, NetLoopStats};
 use crate::packet_registry::InboundSnapshotPacketRegistry;
 use crate::session_state::{
@@ -8807,16 +8808,6 @@ fn decode_effect_payload(payload: &[u8], allow_trailing: bool) -> Option<EffectS
 
 fn effect_data_kind_label(object: &TypeIoObject) -> String {
     object.effect_summary().kind
-}
-
-fn effect_contract_name(effect_id: Option<i16>) -> Option<&'static str> {
-    match effect_id {
-        Some(8 | 9 | 10 | 178 | 261 | 262) => Some("position_target"),
-        Some(142) => Some("item_content"),
-        Some(200) => Some("float_length"),
-        Some(257 | 260) => Some("unit_parent"),
-        _ => None,
-    }
 }
 
 fn derive_effect_data_semantic(

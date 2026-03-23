@@ -2,6 +2,9 @@ use crate::client_session::{
     BuildHealthPair, ClientBuildPlan, ClientBuildPlanConfig, ClientSessionEvent,
     ClientSnapshotInputState, StateSnapshotAppliedProjection,
 };
+use crate::effect_runtime::{
+    resolve_runtime_effect_overlay_position, spawn_runtime_effect_overlay, RuntimeEffectOverlay,
+};
 use crate::session_state::{
     AuthoritativeStateMirror, BuilderPlanStage, BuilderQueueProjection,
     BuildingProjectionUpdateKind, BuildingTableProjection, ConfiguredBlockOutcome,
@@ -41,7 +44,12 @@ impl RenderRuntimeAdapter {
     ) {
         let config_stats = runtime_build_plan_config_stats(snapshot_input.plans.as_deref());
         append_runtime_build_plan_objects(scene, snapshot_input.plans.as_deref());
-        append_runtime_world_overlay_objects(scene, &self.world_overlay);
+        append_runtime_world_overlay_objects(
+            scene,
+            &self.world_overlay,
+            snapshot_input,
+            session_state,
+        );
         append_building_table_projection_objects(scene, session_state);
         append_block_snapshot_projection_objects(scene, session_state);
         let bootstrap_projection = session_state.world_bootstrap_projection.as_ref();
@@ -300,18 +308,6 @@ impl RuntimeWorldOverlay {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RuntimeEffectOverlay {
-    pub effect_id: Option<i16>,
-    pub x_bits: u32,
-    pub y_bits: u32,
-    pub rotation_bits: u32,
-    pub color_rgba: u32,
-    pub reliable: bool,
-    pub has_data: bool,
-    pub remaining_ticks: u8,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeTileOverlay {
     pub kind: RuntimeTileOverlayKind,
     pub block_id: Option<i16>,
@@ -452,16 +448,16 @@ pub fn observe_runtime_world_events(
             } => {
                 push_runtime_effect_overlay(
                     runtime_world_overlay,
-                    RuntimeEffectOverlay {
-                        effect_id: *effect_id,
-                        x_bits: x.to_bits(),
-                        y_bits: y.to_bits(),
-                        rotation_bits: rotation.to_bits(),
-                        color_rgba: *color_rgba,
-                        reliable: false,
-                        has_data: data_object.is_some(),
-                        remaining_ticks: EFFECT_OVERLAY_TTL_TICKS,
-                    },
+                    spawn_runtime_effect_overlay(
+                        *effect_id,
+                        *x,
+                        *y,
+                        *rotation,
+                        *color_rgba,
+                        false,
+                        data_object.as_ref(),
+                        EFFECT_OVERLAY_TTL_TICKS,
+                    ),
                 );
             }
             ClientSessionEvent::EffectReliableRequested {
@@ -473,16 +469,16 @@ pub fn observe_runtime_world_events(
             } => {
                 push_runtime_effect_overlay(
                     runtime_world_overlay,
-                    RuntimeEffectOverlay {
-                        effect_id: *effect_id,
-                        x_bits: x.to_bits(),
-                        y_bits: y.to_bits(),
-                        rotation_bits: rotation.to_bits(),
-                        color_rgba: *color_rgba,
-                        reliable: true,
-                        has_data: false,
-                        remaining_ticks: EFFECT_OVERLAY_TTL_TICKS,
-                    },
+                    spawn_runtime_effect_overlay(
+                        *effect_id,
+                        *x,
+                        *y,
+                        *rotation,
+                        *color_rgba,
+                        true,
+                        None,
+                        EFFECT_OVERLAY_TTL_TICKS,
+                    ),
                 );
             }
             ClientSessionEvent::SnapshotReceived(method) => {
@@ -1833,6 +1829,8 @@ fn runtime_build_plan_config_stats(
 fn append_runtime_world_overlay_objects(
     scene: &mut RenderModel,
     runtime_world_overlay: &RuntimeWorldOverlay,
+    snapshot_input: &ClientSnapshotInputState,
+    session_state: &SessionState,
 ) {
     const TILE_SIZE: f32 = 8.0;
 
@@ -1890,6 +1888,8 @@ fn append_runtime_world_overlay_objects(
     }
 
     for overlay in &runtime_world_overlay.effect_overlays {
+        let (x_bits, y_bits) =
+            resolve_runtime_effect_overlay_position(overlay, session_state, snapshot_input);
         let reliable = if overlay.reliable {
             "reliable"
         } else {
@@ -1900,13 +1900,13 @@ fn append_runtime_world_overlay_objects(
             id: format!(
                 "marker:runtime-effect:{reliable}:{}:0x{:08x}:0x{:08x}:{}",
                 overlay.effect_id.unwrap_or(-1),
-                overlay.x_bits,
-                overlay.y_bits,
+                x_bits,
+                y_bits,
                 data
             ),
             layer: 26,
-            x: f32::from_bits(overlay.x_bits),
-            y: f32::from_bits(overlay.y_bits),
+            x: f32::from_bits(x_bits),
+            y: f32::from_bits(y_bits),
         });
     }
 }
@@ -2019,6 +2019,14 @@ mod tests {
     fn real_manifest_path() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../fixtures/remote/remote-manifest-v1.json")
+    }
+
+    fn first_runtime_effect_marker(scene: &RenderModel) -> &RenderObject {
+        scene
+            .objects
+            .iter()
+            .find(|object| object.id.starts_with("marker:runtime-effect:"))
+            .expect("expected runtime effect marker")
     }
 
     #[test]
@@ -2901,6 +2909,234 @@ mod tests {
             .objects
             .iter()
             .any(|object| object.id.starts_with("marker:runtime-effect:")));
+    }
+
+    #[test]
+    fn render_runtime_adapter_projects_point2_effect_payload_to_world_position() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
+
+        adapter.observe_events(&[ClientSessionEvent::EffectRequested {
+            effect_id: Some(8),
+            x: 1.0,
+            y: 2.0,
+            rotation: 0.0,
+            color_rgba: 0x11223344,
+            data_object: Some(mdt_typeio::TypeIoObject::Point2 { x: 10, y: 20 }),
+        }]);
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let marker = first_runtime_effect_marker(&scene);
+        assert_eq!(
+            marker.id,
+            "marker:runtime-effect:normal:8:0x42a00000:0x43200000:1"
+        );
+        assert_eq!(marker.x, 80.0);
+        assert_eq!(marker.y, 160.0);
+    }
+
+    #[test]
+    fn render_runtime_adapter_projects_building_pos_effect_payload_to_tile_world_position() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
+
+        adapter.observe_events(&[ClientSessionEvent::EffectRequested {
+            effect_id: Some(13),
+            x: 1.0,
+            y: 2.0,
+            rotation: 0.0,
+            color_rgba: 0x11223344,
+            data_object: Some(mdt_typeio::TypeIoObject::BuildingPos(pack_runtime_point2(
+                1, 2,
+            ))),
+        }]);
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let marker = first_runtime_effect_marker(&scene);
+        assert_eq!(
+            marker.id,
+            "marker:runtime-effect:normal:13:0x41000000:0x41800000:1"
+        );
+        assert_eq!(marker.x, 8.0);
+        assert_eq!(marker.y, 16.0);
+    }
+
+    #[test]
+    fn render_runtime_adapter_recomputes_unit_parent_effect_marker_position_each_apply() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        state.entity_table_projection.by_entity_id.insert(
+            404,
+            crate::session_state::EntityProjection {
+                class_id: 12,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 88,
+                x_bits: 12.0f32.to_bits(),
+                y_bits: 16.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 3,
+            },
+        );
+
+        adapter.observe_events(&[ClientSessionEvent::EffectRequested {
+            effect_id: Some(257),
+            x: 1.0,
+            y: 2.0,
+            rotation: 0.0,
+            color_rgba: 0x11223344,
+            data_object: Some(mdt_typeio::TypeIoObject::UnitId(404)),
+        }]);
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let marker = first_runtime_effect_marker(&scene);
+        assert_eq!(
+            marker.id,
+            "marker:runtime-effect:normal:257:0x41400000:0x41800000:1"
+        );
+        assert_eq!(marker.x, 12.0);
+        assert_eq!(marker.y, 16.0);
+
+        state
+            .entity_table_projection
+            .by_entity_id
+            .get_mut(&404)
+            .expect("missing entity 404")
+            .x_bits = 24.0f32.to_bits();
+        state
+            .entity_table_projection
+            .by_entity_id
+            .get_mut(&404)
+            .expect("missing entity 404")
+            .y_bits = 28.0f32.to_bits();
+
+        let mut updated_scene = RenderModel::default();
+        let mut updated_hud = HudModel::default();
+        adapter.apply(&mut updated_scene, &mut updated_hud, &input, &state);
+
+        let updated_marker = first_runtime_effect_marker(&updated_scene);
+        assert_eq!(
+            updated_marker.id,
+            "marker:runtime-effect:normal:257:0x41c00000:0x41e00000:1"
+        );
+        assert_eq!(updated_marker.x, 24.0);
+        assert_eq!(updated_marker.y, 28.0);
+    }
+
+    #[test]
+    fn render_runtime_adapter_falls_back_to_snapshot_input_position_for_missing_parent_unit() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState {
+            unit_id: Some(404),
+            dead: false,
+            position: Some((44.0, 60.0)),
+            ..Default::default()
+        };
+        let state = SessionState::default();
+
+        adapter.observe_events(&[ClientSessionEvent::EffectRequested {
+            effect_id: Some(257),
+            x: 1.0,
+            y: 2.0,
+            rotation: 0.0,
+            color_rgba: 0x11223344,
+            data_object: Some(mdt_typeio::TypeIoObject::UnitId(404)),
+        }]);
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let marker = first_runtime_effect_marker(&scene);
+        assert_eq!(
+            marker.id,
+            format!(
+                "marker:runtime-effect:normal:257:0x{:08x}:0x{:08x}:1",
+                44.0f32.to_bits(),
+                60.0f32.to_bits()
+            )
+        );
+        assert_eq!(marker.x, 44.0);
+        assert_eq!(marker.y, 60.0);
+    }
+
+    #[test]
+    fn render_runtime_adapter_falls_back_to_world_player_position_for_missing_parent_unit() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState {
+            unit_id: Some(404),
+            dead: false,
+            ..Default::default()
+        };
+        let mut state = SessionState::default();
+        state.world_player_x_bits = Some(52.0f32.to_bits());
+        state.world_player_y_bits = Some(68.0f32.to_bits());
+
+        adapter.observe_events(&[ClientSessionEvent::EffectRequested {
+            effect_id: Some(260),
+            x: 1.0,
+            y: 2.0,
+            rotation: 0.0,
+            color_rgba: 0x11223344,
+            data_object: Some(mdt_typeio::TypeIoObject::UnitId(404)),
+        }]);
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let marker = first_runtime_effect_marker(&scene);
+        assert_eq!(
+            marker.id,
+            format!(
+                "marker:runtime-effect:normal:260:0x{:08x}:0x{:08x}:1",
+                52.0f32.to_bits(),
+                68.0f32.to_bits()
+            )
+        );
+        assert_eq!(marker.x, 52.0);
+        assert_eq!(marker.y, 68.0);
+    }
+
+    #[test]
+    fn render_runtime_adapter_projects_packed_point2_array_first_effect_payload() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
+
+        adapter.observe_events(&[ClientSessionEvent::EffectRequested {
+            effect_id: Some(13),
+            x: 1.0,
+            y: 2.0,
+            rotation: 0.0,
+            color_rgba: 0x11223344,
+            data_object: Some(mdt_typeio::TypeIoObject::PackedPoint2Array(vec![
+                pack_runtime_point2(9, 6),
+                pack_runtime_point2(1, 2),
+            ])),
+        }]);
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let marker = first_runtime_effect_marker(&scene);
+        assert_eq!(
+            marker.id,
+            format!(
+                "marker:runtime-effect:normal:13:0x{:08x}:0x{:08x}:1",
+                72.0f32.to_bits(),
+                48.0f32.to_bits()
+            )
+        );
+        assert_eq!(marker.x, 72.0);
+        assert_eq!(marker.y, 48.0);
     }
 
     #[test]
