@@ -7,9 +7,12 @@ work to the target repository:
 
 - delivery scope: minimal compatibility client
 - not a claim of full parity with the Java desktop client
+- single upload target: `https://github.com/Anon-deisu/mindustry-rust`
 
 - target repo: `https://github.com/Anon-deisu/mindustry-rust`
 - current source workspace: `<source_repo_root>` (example: `D:\MDT\mindustry`)
+- machine-readable target anchor: `tools/mindustry-rust-target.json`
+- quick lookup command: `powershell -ExecutionPolicy Bypass -File .\tools\get-mindustry-rust-target.ps1`
 
 Canonical fixture layout (source + target):
 

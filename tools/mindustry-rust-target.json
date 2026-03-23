@@ -1,0 +1,12 @@
+{
+  "target_repo": "https://github.com/Anon-deisu/mindustry-rust",
+  "default_branch": "main",
+  "default_checkout_path": "D:\\MDT\\mindustry-rust",
+  "source_workspace_path_example": "D:\\MDT\\mindustry",
+  "sync_strategy": "Copy the handoff include set into a separate checkout of the target repo, commit there, then push that repo.",
+  "canonical_fixture_paths": [
+    "fixtures/remote/remote-manifest-v1.json",
+    "fixtures/world-streams/archipelago-6567-world-stream.hex"
+  ],
+  "note": "This is the single upload target for the Rust Mindustry client work. Do not push source-monorepo history to the official upstream."
+}

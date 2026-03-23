@@ -28,3 +28,5 @@ desktop-client parity.
 ## Handoff
 
 - [`MINDUSTRY-RUST-HANDOFF.md`](MINDUSTRY-RUST-HANDOFF.md): current minimal sync surface for handing Rust client work to the target `mindustry-rust` repo
+- [`mindustry-rust-target.json`](mindustry-rust-target.json): machine-readable single upload target record for future sync/push work
+- [`get-mindustry-rust-target.ps1`](get-mindustry-rust-target.ps1): prints the fixed upload target, default checkout path, and sync strategy
