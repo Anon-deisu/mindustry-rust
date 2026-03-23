@@ -9710,6 +9710,64 @@ mod tests {
         )
     }
 
+    fn synthetic_oct_revision_one_unit_payload_body() -> Vec<u8> {
+        let mut unit_body = Vec::new();
+        unit_body.extend_from_slice(&1i16.to_be_bytes());
+        unit_body.extend_from_slice(&12.0f32.to_bits().to_be_bytes());
+        unit_body.extend_from_slice(&1.5f32.to_bits().to_be_bytes());
+        unit_body.push(0);
+        unit_body.extend_from_slice(&7i32.to_be_bytes());
+        unit_body.extend_from_slice(&3.0f32.to_bits().to_be_bytes());
+        unit_body.extend_from_slice(&5.0f64.to_bits().to_be_bytes());
+        unit_body.extend_from_slice(&90.0f32.to_bits().to_be_bytes());
+        unit_body.push(1);
+        unit_body.push(0);
+        unit_body.extend_from_slice(&0i32.to_be_bytes());
+        unit_body.extend_from_slice(&0i32.to_be_bytes());
+        unit_body.extend_from_slice(&180.0f32.to_bits().to_be_bytes());
+        unit_body.extend_from_slice(&10.0f32.to_bits().to_be_bytes());
+        unit_body.push(0);
+        unit_body.extend_from_slice(&0i16.to_be_bytes());
+        unit_body.extend_from_slice(&0i32.to_be_bytes());
+        unit_body.extend_from_slice(&0i32.to_be_bytes());
+        unit_body.push(2);
+        unit_body.extend_from_slice(&26i16.to_be_bytes());
+        unit_body.extend_from_slice(&64.0f32.to_bits().to_be_bytes());
+        unit_body.extend_from_slice(&96.0f32.to_bits().to_be_bytes());
+        unit_body
+    }
+
+    fn synthetic_quad_revision_six_unit_payload_body() -> Vec<u8> {
+        let mut unit_body = Vec::new();
+        unit_body.extend_from_slice(&6i16.to_be_bytes());
+        unit_body.push(0);
+        unit_body.extend_from_slice(&27.0f32.to_bits().to_be_bytes());
+        unit_body.push(0);
+        unit_body.extend_from_slice(&11i32.to_be_bytes());
+        unit_body.extend_from_slice(&0.75f32.to_bits().to_be_bytes());
+        unit_body.extend_from_slice(&9.0f64.to_bits().to_be_bytes());
+        unit_body.extend_from_slice(&140.0f32.to_bits().to_be_bytes());
+        unit_body.push(0);
+        unit_body.extend_from_slice(&12345i32.to_be_bytes());
+        unit_body.push(0);
+        unit_body.extend_from_slice(&0i32.to_be_bytes());
+        unit_body.extend_from_slice(&0i32.to_be_bytes());
+        unit_body.extend_from_slice(&45.0f32.to_bits().to_be_bytes());
+        unit_body.extend_from_slice(&20.0f32.to_bits().to_be_bytes());
+        unit_body.push(1);
+        unit_body.extend_from_slice(&1i16.to_be_bytes());
+        unit_body.extend_from_slice(&30i32.to_be_bytes());
+        unit_body.extend_from_slice(&0i32.to_be_bytes());
+        unit_body.push(3);
+        unit_body.extend_from_slice(&23i16.to_be_bytes());
+        unit_body.push(1);
+        unit_body.extend_from_slice(&2.0f32.to_bits().to_be_bytes());
+        unit_body.extend_from_slice(&(-3.0f32).to_bits().to_be_bytes());
+        unit_body.extend_from_slice(&128.0f32.to_bits().to_be_bytes());
+        unit_body.extend_from_slice(&256.0f32.to_bits().to_be_bytes());
+        unit_body
+    }
+
     fn synthetic_payload_sync_bytes_with_unit_payload(
         unit_class_id: u8,
         unit_body: &[u8],
@@ -11454,20 +11512,38 @@ mod tests {
     #[test]
     fn later_entity_snapshot_prefix_parsers_skip_unit_payload_rows_when_content_header_is_loaded() {
         let world_bundle = parse_world_bundle(&sample_world_stream_bytes()).unwrap();
-        let unit_body = synthetic_payload_campaign_unit_payload_body();
+        let alpha_unit_body = synthetic_payload_campaign_unit_payload_body();
+        let oct_unit_body = synthetic_oct_revision_one_unit_payload_body();
+        let quad_unit_body = synthetic_quad_revision_six_unit_payload_body();
         let content_header = Some(world_bundle.content_header.as_slice());
-        let payload_row = build_entity_snapshot_row(
+        let alpha_payload_row = build_entity_snapshot_row(
             777,
             5,
-            &synthetic_payload_sync_bytes_with_unit_payload(0, &unit_body),
+            &synthetic_payload_sync_bytes_with_unit_payload(0, &alpha_unit_body),
+        );
+        let quad_payload_row = build_entity_snapshot_row(
+            778,
+            23,
+            &synthetic_payload_sync_bytes_with_unit_payload(23, &quad_unit_body),
+        );
+        let oct_payload_row = build_entity_snapshot_row(
+            779,
+            26,
+            &synthetic_payload_sync_bytes_with_unit_payload(26, &oct_unit_body),
         );
         let tether_row = build_entity_snapshot_row(
             888,
             36,
-            &synthetic_building_tether_payload_sync_bytes_with_unit_payload(0, &unit_body),
+            &synthetic_building_tether_payload_sync_bytes_with_unit_payload(23, &quad_unit_body),
         );
         let fire_row = build_entity_snapshot_row(901, 10, &synthetic_fire_sync_bytes());
-        let payload = build_entity_snapshot_payload(&[payload_row, tether_row, fire_row]);
+        let payload = build_entity_snapshot_payload(&[
+            alpha_payload_row,
+            quad_payload_row,
+            oct_payload_row,
+            tether_row,
+            fire_row,
+        ]);
 
         assert_eq!(
             try_parse_payload_sync_rows_from_entity_snapshot_prefix_with_content_header(
@@ -11477,7 +11553,7 @@ mod tests {
             .iter()
             .map(|row| row.entity_id)
             .collect::<Vec<_>>(),
-            vec![777]
+            vec![777, 778, 779]
         );
         assert_eq!(
             try_parse_building_tether_payload_sync_rows_from_entity_snapshot_prefix_with_content_header(
