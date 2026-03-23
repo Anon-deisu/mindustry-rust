@@ -4485,6 +4485,9 @@ fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<String> 
             } => Some(format!(
                 "unit_safe_death: unit={unit:?} removed_entity_projection={removed_entity_projection}"
             )),
+            ClientSessionEvent::UnitCapDeath { unit } => {
+                Some(format!("unit_cap_death: unit={unit:?}"))
+            }
             ClientSessionEvent::UnitClear => Some("unit_clear".to_string()),
             ClientSessionEvent::UnitControl { target } => {
                 Some(format!("unit_control: target={target:?}"))
@@ -7123,9 +7126,15 @@ mod tests {
                 }),
                 removed_entity_projection: false,
             },
+            ClientSessionEvent::UnitCapDeath {
+                unit: Some(mdt_client_min::session_state::UnitRefProjection {
+                    kind: 2,
+                    value: 704,
+                }),
+            },
         ]);
 
-        assert_eq!(lines.len(), 5);
+        assert_eq!(lines.len(), 6);
         assert!(lines[0].contains("build_destroyed:"));
         assert!(lines[0].contains(&format!("Some({})", pack_point2(3, 12))));
         assert!(lines[1].contains("unit_death:"));
@@ -7140,6 +7149,9 @@ mod tests {
         assert!(lines[4].contains("unit_safe_death:"));
         assert!(lines[4].contains("kind: 1"));
         assert!(lines[4].contains(&format!("value: {}", pack_point2(11, 12))));
+        assert!(lines[5].contains("unit_cap_death:"));
+        assert!(lines[5].contains("kind: 2"));
+        assert!(lines[5].contains("value: 704"));
     }
 
     #[test]

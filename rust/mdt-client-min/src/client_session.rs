@@ -253,6 +253,7 @@ pub struct ClientSession {
     unit_destroy_packet_id: Option<u8>,
     unit_env_death_packet_id: Option<u8>,
     unit_safe_death_packet_id: Option<u8>,
+    unit_cap_death_packet_id: Option<u8>,
     building_control_select_packet_id: Option<u8>,
     clear_items_packet_id: Option<u8>,
     clear_liquids_packet_id: Option<u8>,
@@ -776,6 +777,11 @@ impl ClientSession {
             .iter()
             .find(|entry| entry.method == "unitSafeDeath")
             .map(|entry| entry.packet_id);
+        let unit_cap_death_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "unitCapDeath")
+            .map(|entry| entry.packet_id);
         let building_control_select_packet_id = manifest
             .remote_packets
             .iter()
@@ -1197,6 +1203,7 @@ impl ClientSession {
             unit_destroy_packet_id,
             unit_env_death_packet_id,
             unit_safe_death_packet_id,
+            unit_cap_death_packet_id,
             building_control_select_packet_id,
             clear_items_packet_id,
             clear_liquids_packet_id,
@@ -4167,6 +4174,19 @@ impl ClientSession {
                     })
                 }
             }
+            packet_id if Some(packet_id) == self.unit_cap_death_packet_id => {
+                if let Some(unit) = decode_unit_removed_ref_payload(&packet.payload) {
+                    self.state.received_unit_cap_death_count =
+                        self.state.received_unit_cap_death_count.saturating_add(1);
+                    self.state.last_unit_cap_death = unit;
+                    Ok(ClientSessionEvent::UnitCapDeath { unit })
+                } else {
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
             packet_id if Some(packet_id) == self.create_weather_packet_id => {
                 if let Some(summary) = decode_create_weather_payload(&packet.payload) {
                     self.state.received_create_weather_count =
@@ -5980,6 +6000,9 @@ pub enum ClientSessionEvent {
     UnitSafeDeath {
         unit: Option<UnitRefProjection>,
         removed_entity_projection: bool,
+    },
+    UnitCapDeath {
+        unit: Option<UnitRefProjection>,
     },
     CreateWeather {
         weather_id: Option<i16>,
@@ -21128,6 +21151,12 @@ mod tests {
             .find(|entry| entry.method == "unitSafeDeath")
             .unwrap()
             .packet_id;
+        let unit_cap_death_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "unitCapDeath")
+            .unwrap()
+            .packet_id;
 
         let build_destroyed_event = session
             .ingest_packet_bytes(
@@ -21214,6 +21243,26 @@ mod tests {
             }
         );
 
+        let unit_cap_death_event = session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    unit_cap_death_packet_id,
+                    &encode_unit_payload(ClientUnitRef::Standard(704)),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            unit_cap_death_event,
+            ClientSessionEvent::UnitCapDeath {
+                unit: Some(UnitRefProjection {
+                    kind: 2,
+                    value: 704,
+                }),
+            }
+        );
+
         assert_eq!(session.state().received_build_destroyed_count, 1);
         assert_eq!(
             session.state().last_build_destroyed_build_pos,
@@ -21237,6 +21286,14 @@ mod tests {
             Some(UnitRefProjection {
                 kind: 1,
                 value: pack_point2(11, 12),
+            })
+        );
+        assert_eq!(session.state().received_unit_cap_death_count, 1);
+        assert_eq!(
+            session.state().last_unit_cap_death,
+            Some(UnitRefProjection {
+                kind: 2,
+                value: 704,
             })
         );
         assert!(!session
@@ -21302,6 +21359,12 @@ mod tests {
             .find(|entry| entry.method == "unitSafeDeath")
             .unwrap()
             .packet_id;
+        let unit_cap_death_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "unitCapDeath")
+            .unwrap()
+            .packet_id;
 
         for (packet_id, payload) in [
             (build_destroyed_packet_id, vec![0x00, 0x01, 0x02]),
@@ -21309,6 +21372,7 @@ mod tests {
             (unit_destroy_packet_id, vec![0x00, 0x01, 0x02]),
             (unit_env_death_packet_id, vec![9, 0, 0, 0, 1]),
             (unit_safe_death_packet_id, vec![2, 0, 0, 0]),
+            (unit_cap_death_packet_id, vec![2, 0, 0, 0]),
         ] {
             let event = session
                 .ingest_packet_bytes(&encode_packet(packet_id, &payload, false).unwrap())
@@ -21332,6 +21396,8 @@ mod tests {
         assert_eq!(session.state().last_unit_env_death, None);
         assert_eq!(session.state().received_unit_safe_death_count, 0);
         assert_eq!(session.state().last_unit_safe_death, None);
+        assert_eq!(session.state().received_unit_cap_death_count, 0);
+        assert_eq!(session.state().last_unit_cap_death, None);
     }
 
     #[test]

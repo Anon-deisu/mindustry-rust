@@ -1370,7 +1370,7 @@ fn runtime_logic_sync_label(session_state: &SessionState) -> String {
 
 fn runtime_unit_lifecycle_label(session_state: &SessionState) -> String {
     format!(
-        "bd{}@{}:ud{}@{}:ux{}@{}:uy{}@{}:us{}@{}",
+        "bd{}@{}:ud{}@{}:ux{}@{}:uy{}@{}:us{}@{}:uc{}@{}",
         session_state.received_build_destroyed_count,
         runtime_optional_display_label(session_state.last_build_destroyed_build_pos),
         session_state.received_unit_death_count,
@@ -1381,6 +1381,8 @@ fn runtime_unit_lifecycle_label(session_state: &SessionState) -> String {
         runtime_optional_unit_ref_label(session_state.last_unit_env_death),
         session_state.received_unit_safe_death_count,
         runtime_optional_unit_ref_label(session_state.last_unit_safe_death),
+        session_state.received_unit_cap_death_count,
+        runtime_optional_unit_ref_label(session_state.last_unit_cap_death),
     )
 }
 
@@ -2811,17 +2813,22 @@ mod tests {
             kind: 1,
             value: pack_runtime_point2(11, 12),
         });
-        state.received_create_weather_count = 71;
+        state.received_unit_cap_death_count = 71;
+        state.last_unit_cap_death = Some(crate::session_state::UnitRefProjection {
+            kind: 2,
+            value: 704,
+        });
+        state.received_create_weather_count = 72;
         state.last_create_weather_id = Some(5);
-        state.received_spawn_effect_count = 72;
+        state.received_spawn_effect_count = 73;
         state.last_spawn_effect_unit_type_id = Some(19);
-        state.received_unit_spawn_count = 73;
+        state.received_unit_spawn_count = 74;
         state.last_unit_spawn_id = Some(404);
         state.last_unit_spawn_class_id = Some(36);
         state.last_unit_spawn_trailing_bytes = Some(3);
-        state.received_unit_block_spawn_count = 74;
+        state.received_unit_block_spawn_count = 75;
         state.last_unit_block_spawn_tile_pos = Some(pack_runtime_point2(4, 15));
-        state.received_unit_tether_block_spawned_count = 75;
+        state.received_unit_tether_block_spawned_count = 76;
         state.last_unit_tether_block_spawned_tile_pos = Some(pack_runtime_point2(8, 3));
         state.last_unit_tether_block_spawned_id = Some(404);
         state.received_sound_count = 54;
@@ -3098,12 +3105,12 @@ mod tests {
         assert!(hud.status_text.contains("runtime_unit_entered_payload=7"));
         assert!(hud.status_text.contains("runtime_unit_despawn=8"));
         assert!(hud.status_text.contains(&format!(
-            "runtime_unit_lifecycle=bd66@{}:ud67@701:ux68@702:uy69@2:703:us70@1:{}",
+            "runtime_unit_lifecycle=bd66@{}:ud67@701:ux68@702:uy69@2:703:us70@1:{}:uc71@2:704",
             pack_runtime_point2(3, 12),
             pack_runtime_point2(11, 12),
         )));
         assert!(hud.status_text.contains(&format!(
-            "runtime_spawn_fx=cw71@5:se72@19:us73@404/36#3:ubs74@{}:utbs75@{}#404",
+            "runtime_spawn_fx=cw72@5:se73@19:us74@404/36#3:ubs75@{}:utbs76@{}#404",
             pack_runtime_point2(4, 15),
             pack_runtime_point2(8, 3),
         )));

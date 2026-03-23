@@ -1961,6 +1961,8 @@ pub struct SessionState {
     pub last_unit_env_death: Option<UnitRefProjection>,
     pub received_unit_safe_death_count: u64,
     pub last_unit_safe_death: Option<UnitRefProjection>,
+    pub received_unit_cap_death_count: u64,
+    pub last_unit_cap_death: Option<UnitRefProjection>,
     pub received_create_weather_count: u64,
     pub last_create_weather_id: Option<i16>,
     pub last_create_weather_intensity_bits: Option<u32>,
