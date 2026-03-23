@@ -19,7 +19,7 @@ use mdt_render_ui::{
     HudModel, RenderModel, RenderObject, RuntimeHudTextObservability,
     RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiObservability,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 const EFFECT_OVERLAY_LIMIT: usize = 8;
@@ -716,8 +716,7 @@ fn runtime_state_business_projection_label(
 }
 
 fn runtime_configured_block_projection_label(projection: &ConfiguredBlockProjection) -> String {
-    format!(
-        "{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}",
+    [
         runtime_configured_content_family_label(
             "uc",
             &projection.unit_cargo_unload_point_item_by_build_pos,
@@ -758,11 +757,16 @@ fn runtime_configured_block_projection_label(projection: &ConfiguredBlockProject
             "pm",
             &projection.payload_mass_driver_link_by_build_pos,
         ),
+        runtime_configured_power_node_family_label(
+            "pn",
+            &projection.power_node_links_by_build_pos,
+        ),
         runtime_configured_unit_command_family_label(
             "rc",
             &projection.reconstructor_command_by_build_pos,
         ),
-    )
+    ]
+    .join(":")
 }
 
 fn runtime_configured_content_family_label(
@@ -864,6 +868,32 @@ fn runtime_configured_link_family_label(
         Some((build_pos, None)) => {
             let (x, y) = unpack_runtime_point2(*build_pos);
             format!("{prefix}{count}@{x}:{y}=clear")
+        }
+        None => format!("{prefix}{count}"),
+    }
+}
+
+fn runtime_configured_power_node_family_label(
+    prefix: &str,
+    values: &BTreeMap<i32, BTreeSet<i32>>,
+) -> String {
+    let count = values.len();
+    match values.last_key_value() {
+        Some((build_pos, targets)) if targets.is_empty() => {
+            let (x, y) = unpack_runtime_point2(*build_pos);
+            format!("{prefix}{count}@{x}:{y}=clear")
+        }
+        Some((build_pos, targets)) => {
+            let (x, y) = unpack_runtime_point2(*build_pos);
+            let target_label = targets
+                .iter()
+                .map(|target_pos| {
+                    let (target_x, target_y) = unpack_runtime_point2(*target_pos);
+                    format!("{target_x}:{target_y}")
+                })
+                .collect::<Vec<_>>()
+                .join("|");
+            format!("{prefix}{count}@{x}:{y}=n{}:{target_label}", targets.len())
         }
         None => format!("{prefix}{count}"),
     }
@@ -3013,8 +3043,17 @@ mod tests {
             );
         state
             .configured_block_projection
+            .power_node_links_by_build_pos
+            .insert(
+                pack_runtime_point2(23, 45),
+                [pack_runtime_point2(24, 46), pack_runtime_point2(25, 47)]
+                    .into_iter()
+                    .collect(),
+            );
+        state
+            .configured_block_projection
             .reconstructor_command_by_build_pos
-            .insert(pack_runtime_point2(23, 45), Some(12));
+            .insert(pack_runtime_point2(26, 48), Some(12));
 
         adapter.apply(&mut scene, &mut hud, &input, &state);
 
@@ -3026,7 +3065,19 @@ mod tests {
         assert!(hud.status_text.contains(":il1@20:42=11223344:"));
         assert!(hud.status_text.contains(":ps1@21:43=b:7:"));
         assert!(hud.status_text.contains(":pr1@22:44=u:9:"));
-        assert!(hud.status_text.contains(":rc1@23:45=12"));
+        assert!(hud.status_text.contains(":pn1@23:45=n2:24:46|25:47:"));
+        assert!(hud.status_text.contains(":rc1@26:48=12"));
+    }
+
+    #[test]
+    fn runtime_configured_power_node_family_label_renders_clear_for_empty_set() {
+        let mut values = BTreeMap::new();
+        values.insert(pack_runtime_point2(12, 34), BTreeSet::new());
+
+        assert_eq!(
+            runtime_configured_power_node_family_label("pn", &values),
+            "pn1@12:34=clear"
+        );
     }
 
     #[test]

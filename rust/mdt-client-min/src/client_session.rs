@@ -31,7 +31,7 @@ use mdt_world::{
     parse_entity_weather_state_sync_bytes, parse_entity_world_label_sync_bytes, parse_world_bundle,
     ContentHeaderEntry, LoadedWorldBootstrap, LoadedWorldState, WorldBundle,
 };
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
 
 // Java `Packets.KickReason.serverRestarting` ordinal.
@@ -113,6 +113,10 @@ const BLOCK_NAME_DUCT_ROUTER: &str = "duct-router";
 const BLOCK_NAME_MASS_DRIVER: &str = "mass-driver";
 const BLOCK_NAME_PAYLOAD_MASS_DRIVER: &str = "payload-mass-driver";
 const BLOCK_NAME_LARGE_PAYLOAD_MASS_DRIVER: &str = "large-payload-mass-driver";
+const BLOCK_NAME_POWER_NODE: &str = "power-node";
+const BLOCK_NAME_POWER_NODE_LARGE: &str = "power-node-large";
+const BLOCK_NAME_SURGE_TOWER: &str = "surge-tower";
+const BLOCK_NAME_BEAM_LINK: &str = "beam-link";
 const BLOCK_NAME_ADDITIVE_RECONSTRUCTOR: &str = "additive-reconstructor";
 const BLOCK_NAME_MULTIPLICATIVE_RECONSTRUCTOR: &str = "multiplicative-reconstructor";
 const BLOCK_NAME_EXPONENTIAL_RECONSTRUCTOR: &str = "exponential-reconstructor";
@@ -2050,6 +2054,26 @@ impl ClientSession {
                     self.state
                         .configured_block_projection
                         .apply_payload_mass_driver_link(build_pos, link);
+                    ConfiguredBlockOutcome::Applied
+                } else {
+                    ConfiguredBlockOutcome::RejectedUnsupportedConfigType
+                }
+            }
+            BLOCK_NAME_POWER_NODE
+            | BLOCK_NAME_POWER_NODE_LARGE
+            | BLOCK_NAME_SURGE_TOWER
+            | BLOCK_NAME_BEAM_LINK => {
+                if let Some(operation) = configured_power_node_op(build_pos, config_object) {
+                    match operation {
+                        ConfiguredPowerNodeOp::Toggle(target_pos) => self
+                            .state
+                            .configured_block_projection
+                            .apply_power_node_link_toggle(build_pos, target_pos),
+                        ConfiguredPowerNodeOp::FullReplace(targets) => self
+                            .state
+                            .configured_block_projection
+                            .apply_power_node_links_full_replace(build_pos, targets),
+                    }
                     ConfiguredBlockOutcome::Applied
                 } else {
                     ConfiguredBlockOutcome::RejectedUnsupportedConfigType
@@ -8017,6 +8041,39 @@ fn configured_link_build_pos(build_pos: i32, config_object: &TypeIoObject) -> Op
                 i32::from(tile_x) + *x,
                 i32::from(tile_y) + *y,
             )))
+        }
+        _ => None,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ConfiguredPowerNodeOp {
+    Toggle(i32),
+    FullReplace(BTreeSet<i32>),
+}
+
+fn configured_power_node_op(
+    build_pos: i32,
+    config_object: &TypeIoObject,
+) -> Option<ConfiguredPowerNodeOp> {
+    match config_object {
+        TypeIoObject::Int(value) if *value >= 0 => Some(ConfiguredPowerNodeOp::Toggle(*value)),
+        TypeIoObject::BuildingPos(value) if *value != pack_point2(-1, -1) => {
+            Some(ConfiguredPowerNodeOp::Toggle(*value))
+        }
+        TypeIoObject::PackedPoint2Array(values) => {
+            let (tile_x, tile_y) = unpack_point2(build_pos);
+            let targets = values
+                .iter()
+                .map(|packed| {
+                    let (dx, dy) = unpack_point2(*packed);
+                    pack_point2(
+                        i32::from(tile_x) + i32::from(dx),
+                        i32::from(tile_y) + i32::from(dy),
+                    )
+                })
+                .collect();
+            Some(ConfiguredPowerNodeOp::FullReplace(targets))
         }
         _ => None,
     }
@@ -22186,6 +22243,321 @@ mod tests {
     }
 
     #[test]
+    fn power_node_config_business_dispatch_applies_toggle_full_replace_and_clear() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+
+        for (build_pos, block_name, first_target, second_target, replace_targets) in [
+            (
+                pack_point2(52, 74),
+                BLOCK_NAME_POWER_NODE,
+                pack_point2(53, 74),
+                pack_point2(52, 75),
+                [pack_point2(51, 74), pack_point2(54, 76)],
+            ),
+            (
+                pack_point2(53, 75),
+                BLOCK_NAME_POWER_NODE_LARGE,
+                pack_point2(55, 75),
+                pack_point2(53, 77),
+                [pack_point2(52, 74), pack_point2(56, 77)],
+            ),
+            (
+                pack_point2(54, 76),
+                BLOCK_NAME_SURGE_TOWER,
+                pack_point2(55, 77),
+                pack_point2(54, 78),
+                [pack_point2(53, 76), pack_point2(57, 79)],
+            ),
+            (
+                pack_point2(55, 77),
+                BLOCK_NAME_BEAM_LINK,
+                pack_point2(56, 78),
+                pack_point2(55, 79),
+                [pack_point2(54, 77), pack_point2(58, 80)],
+            ),
+        ] {
+            let block_id = loaded_world_block_id_for_name(&session, block_name);
+            ingest_construct_finish_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                block_id,
+                &TypeIoObject::PackedPoint2Array(Vec::new()),
+            );
+            assert!(session
+                .state()
+                .configured_block_projection
+                .power_node_links_by_build_pos
+                .get(&build_pos)
+                .is_some_and(BTreeSet::is_empty));
+            assert_eq!(
+                session
+                    .state()
+                    .tile_config_projection
+                    .last_configured_block_outcome,
+                Some(crate::session_state::ConfiguredBlockOutcome::Applied)
+            );
+
+            ingest_tile_config_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                &TypeIoObject::Int(first_target),
+            );
+            let expected_toggle = [first_target].into_iter().collect::<BTreeSet<_>>();
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .power_node_links_by_build_pos
+                    .get(&build_pos),
+                Some(&expected_toggle)
+            );
+
+            ingest_tile_config_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                &TypeIoObject::BuildingPos(second_target),
+            );
+            let expected_two_links = [first_target, second_target]
+                .into_iter()
+                .collect::<BTreeSet<_>>();
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .power_node_links_by_build_pos
+                    .get(&build_pos),
+                Some(&expected_two_links)
+            );
+
+            ingest_tile_config_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                &TypeIoObject::Int(first_target),
+            );
+            let expected_removed = [second_target].into_iter().collect::<BTreeSet<_>>();
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .power_node_links_by_build_pos
+                    .get(&build_pos),
+                Some(&expected_removed)
+            );
+
+            let (build_x, build_y) = unpack_point2(build_pos);
+            let replace_payload = replace_targets
+                .into_iter()
+                .map(|target_pos| {
+                    let (target_x, target_y) = unpack_point2(target_pos);
+                    pack_point2(
+                        i32::from(target_x) - i32::from(build_x),
+                        i32::from(target_y) - i32::from(build_y),
+                    )
+                })
+                .collect();
+            ingest_tile_config_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                &TypeIoObject::PackedPoint2Array(replace_payload),
+            );
+            let expected_replace = replace_targets.into_iter().collect::<BTreeSet<_>>();
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .power_node_links_by_build_pos
+                    .get(&build_pos),
+                Some(&expected_replace)
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .tile_config_projection
+                    .last_configured_block_outcome,
+                Some(crate::session_state::ConfiguredBlockOutcome::Applied)
+            );
+
+            ingest_tile_config_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                &TypeIoObject::PackedPoint2Array(Vec::new()),
+            );
+            assert!(session
+                .state()
+                .configured_block_projection
+                .power_node_links_by_build_pos
+                .get(&build_pos)
+                .is_some_and(BTreeSet::is_empty));
+        }
+    }
+
+    #[test]
+    fn power_node_config_business_dispatch_rejects_unsupported_payloads() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(56, 78);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_POWER_NODE);
+        let initial_target = pack_point2(57, 78);
+
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+            &TypeIoObject::PackedPoint2Array(vec![pack_point2(1, 0)]),
+        );
+        let expected_links = [initial_target].into_iter().collect::<BTreeSet<_>>();
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .power_node_links_by_build_pos
+                .get(&build_pos),
+            Some(&expected_links)
+        );
+
+        for rejected_value in [TypeIoObject::Null, TypeIoObject::Point2 { x: 1, y: 0 }] {
+            ingest_tile_config_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                &rejected_value,
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .tile_config_projection
+                    .last_configured_block_outcome,
+                Some(crate::session_state::ConfiguredBlockOutcome::RejectedUnsupportedConfigType)
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .tile_config_projection
+                    .last_configured_block_name
+                    .as_deref(),
+                Some(BLOCK_NAME_POWER_NODE)
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .power_node_links_by_build_pos
+                    .get(&build_pos),
+                Some(&expected_links)
+            );
+        }
+    }
+
+    #[test]
+    fn power_node_tile_config_authoritative_full_replace_rolls_back_pending_toggle_intent() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(57, 79);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_POWER_NODE_LARGE);
+        let initial_target = pack_point2(58, 79);
+        let pending_target = pack_point2(59, 80);
+        let authoritative_value =
+            TypeIoObject::PackedPoint2Array(vec![pack_point2(-1, 0), pack_point2(0, 2)]);
+
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+            &TypeIoObject::PackedPoint2Array(vec![pack_point2(1, 0)]),
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .power_node_links_by_build_pos
+                .get(&build_pos),
+            Some(&[initial_target].into_iter().collect::<BTreeSet<_>>())
+        );
+
+        session
+            .queue_tile_config(Some(build_pos), TypeIoObject::Int(pending_target))
+            .unwrap();
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .pending_local_by_build_pos
+                .get(&build_pos),
+            Some(&TypeIoObject::Int(pending_target))
+        );
+
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &authoritative_value,
+        );
+
+        let expected_targets = [pack_point2(56, 79), pack_point2(57, 81)]
+            .into_iter()
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .power_node_links_by_build_pos
+                .get(&build_pos),
+            Some(&expected_targets)
+        );
+        assert!(!session
+            .state()
+            .tile_config_projection
+            .pending_local_by_build_pos
+            .contains_key(&build_pos));
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .authoritative_by_build_pos
+                .get(&build_pos),
+            Some(&authoritative_value)
+        );
+        assert_eq!(
+            session.state().tile_config_projection.last_business_source,
+            Some(crate::session_state::TileConfigAuthoritySource::TileConfigPacket)
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_replaced_local_value,
+            Some(TypeIoObject::Int(pending_target))
+        );
+        assert_eq!(
+            session.state().tile_config_projection.last_business_value,
+            Some(authoritative_value.clone())
+        );
+        assert!(session.state().tile_config_projection.last_business_applied);
+        assert!(session.state().tile_config_projection.last_was_rollback);
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_pending_local_match,
+            Some(false)
+        );
+        assert_eq!(session.state().tile_config_projection.rollback_count, 1);
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_configured_block_outcome,
+            Some(crate::session_state::ConfiguredBlockOutcome::Applied)
+        );
+    }
+
+    #[test]
     fn reconstructor_config_business_dispatch_applies_command_and_clear() {
         let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
 
@@ -22739,6 +23111,38 @@ mod tests {
             .state()
             .configured_block_projection
             .reconstructor_command_by_build_pos
+            .contains_key(&build_pos));
+    }
+
+    #[test]
+    fn deconstruct_finish_clears_power_node_configured_block_projection_state() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(58, 80);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_SURGE_TOWER);
+
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+            &TypeIoObject::PackedPoint2Array(vec![pack_point2(1, 0)]),
+        );
+        assert!(session
+            .state()
+            .configured_block_projection
+            .power_node_links_by_build_pos
+            .contains_key(&build_pos));
+
+        ingest_deconstruct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+        );
+        assert!(!session
+            .state()
+            .configured_block_projection
+            .power_node_links_by_build_pos
             .contains_key(&build_pos));
     }
 

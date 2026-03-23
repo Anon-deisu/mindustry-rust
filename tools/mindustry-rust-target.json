@@ -1,6 +1,7 @@
 {
   "target_repo": "https://github.com/Anon-deisu/mindustry-rust",
   "default_branch": "main",
+  "handoff_manifest": "tools/mindustry-rust-handoff-manifest.json",
   "target_checkout_resolution_order": [
     "explicit -TargetCheckout argument",
     "source-repo local git config mdt.targetcheckout",
@@ -20,6 +21,7 @@
     "tests/src/test/resources/payload-campaign-compound-goldens.txt",
     "tests/src/test/resources/snapshot-goldens.txt",
     "tests/src/test/resources/typeio-goldens.txt",
+    "tests/src/test/resources/unit-payload-goldens.txt",
     "tests/src/test/resources/world-stream.hex"
   ],
   "parity_fixture_layout_decision": "Keep source-compatible tests/src/test/resources paths in the target repo until Rust code stops depending on those compile-time and CLI paths.",

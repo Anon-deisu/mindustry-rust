@@ -24,8 +24,10 @@ Architecture boundary source of truth:
 - target repo: `https://github.com/Anon-deisu/mindustry-rust`
 - current source workspace: `<source_repo_root>`
 - machine-readable target anchor: `tools/mindustry-rust-target.json`
+- machine-readable handoff include manifest: `tools/mindustry-rust-handoff-manifest.json`
 - quick lookup command: `powershell -ExecutionPolicy Bypass -File .\tools\get-mindustry-rust-target.ps1`
 - sync command: `powershell -ExecutionPolicy Bypass -File .\tools\sync-mindustry-rust-handoff.ps1 -Stage`
+- manifest self-check: `powershell -ExecutionPolicy Bypass -File .\tools\sync-mindustry-rust-handoff.ps1 -ValidateManifest`
 - sync guard: the sync script now rejects `SourceRoot == TargetCheckout`; if you run it outside the source workspace, pass `-SourceRoot` explicitly
 
 Canonical fixture layout (source + target):
@@ -52,59 +54,22 @@ Resolved target-repo parity-fixture rule:
 
 ## Include
 
-Sync these areas first:
+The canonical include list now lives only in
+`tools/mindustry-rust-handoff-manifest.json`, consumed directly by
+`tools/sync-mindustry-rust-handoff.ps1`.
 
-- `rust/`
-  - root workspace `Cargo.toml`
-  - root workspace `Cargo.lock`
-  - `README.md`
-  - `ARCHITECTURE.md`
-  - `WORKSPACES.md`
-  - `WORKSPACE_RUNBOOK.md`
-  - `FIXTURE_PATHS.md`
-  - crate manifests and `src/` trees for:
-    - `mdt-protocol`
-    - `mdt-typeio`
-    - `mdt-world`
-    - `mdt-input`
-    - `mdt-remote`
-    - `mdt-client-min`
-    - `mdt-render-ui`
-  - split-workspace lockfiles still needed by current release scripts:
-    - `mdt-input/Cargo.lock`
-    - `mdt-client-min/Cargo.lock`
-    - `mdt-render-ui/Cargo.lock`
-- `tools/`
-  - `mindustry-rust-target.json`
-  - `get-mindustry-rust-target.ps1`
-  - `sync-mindustry-rust-handoff.ps1`
-  - `package-mdt-client-min-online.ps1`
-  - `package-mdt-client-min-release-set.ps1`
-  - `verify-mdt-client-min-release-set.ps1`
-  - `check-mdt-release-prereqs.ps1`
-  - `verify-rust-workspaces.ps1`
-  - `clean-legacy-mdt-package-dirs.ps1`
-  - `WINDOWS-RELEASE.md`
-  - `README.md`
-  - `mindustry-rust-repo-README.md` (syncs to target-repo root `README.md`)
-- `audit/`
-  - `ci-gate-plan.md` (reference-only source-monorepo governance snapshot; not proof that target-repo workflow wiring already exists)
-- build-required crate-local metadata:
-  - `rust/mdt-client-min/assets/version.properties`
-- Rust/Java parity fixtures still needed by the client work:
-  - `tests/src/test/resources/connect-packet.hex`
-  - `tests/src/test/resources/control-packet-goldens.txt`
-  - `tests/src/test/resources/framework-message-goldens.txt`
-  - `tests/src/test/resources/payload-campaign-compound-goldens.txt`
-  - `tests/src/test/resources/snapshot-goldens.txt`
-  - `tests/src/test/resources/typeio-goldens.txt`
-  - `tests/src/test/resources/world-stream.hex`
-- Repo-owned runtime fixtures (canonical primary path):
-  - `fixtures/remote/remote-manifest-v1.json`
-  - `fixtures/world-streams/archipelago-6567-world-stream.hex`
-- Transitional fixture mirror (non-canonical, not used by current release scripts):
-  - `rust/fixtures/remote/remote-manifest-v1.json`
-  - `rust/fixtures/world-streams/archipelago-6567-world-stream.hex`
+The manifest currently covers these categories:
+
+- Rust workspace roots, crate manifests, split-workspace lockfiles, and selected `src/` trees
+- handoff/release tooling and the target-repo root `README.md` mapping
+- reference-only `audit/ci-gate-plan.md`
+- build-required crate-local metadata
+- parity fixtures under `tests/src/test/resources/...`
+- canonical runtime fixtures under `fixtures/...`
+- transitional fixture mirrors under `rust/fixtures/...`
+
+If the sync surface changes, update the manifest first; the script and stage set
+will follow it automatically.
 
 ## Do Not Sync As-Is
 

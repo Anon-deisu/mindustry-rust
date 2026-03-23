@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "description": "Machine-readable handoff sync surface for the mindustry-rust target repository.",
+  "files": [
+    "rust/Cargo.toml",
+    "rust/Cargo.lock",
+    "rust/README.md",
+    "rust/ARCHITECTURE.md",
+    "rust/WORKSPACES.md",
+    "rust/WORKSPACE_RUNBOOK.md",
+    "rust/FIXTURE_PATHS.md",
+    "rust/mdt-protocol/Cargo.toml",
+    "rust/mdt-typeio/Cargo.toml",
+    "rust/mdt-world/Cargo.toml",
+    "rust/mdt-remote/Cargo.toml",
+    "rust/mdt-input/Cargo.toml",
+    "rust/mdt-input/Cargo.lock",
+    "rust/mdt-client-min/Cargo.toml",
+    "rust/mdt-client-min/Cargo.lock",
+    "rust/mdt-client-min/assets/version.properties",
+    "rust/mdt-render-ui/Cargo.toml",
+    "rust/mdt-render-ui/Cargo.lock",
+    "tools/check-mdt-release-prereqs.ps1",
+    "tools/package-mdt-client-min-online.ps1",
+    "tools/package-mdt-client-min-release-set.ps1",
+    "tools/verify-mdt-client-min-release-set.ps1",
+    "tools/verify-rust-workspaces.ps1",
+    "tools/clean-legacy-mdt-package-dirs.ps1",
+    "tools/WINDOWS-RELEASE.md",
+    "tools/README.md",
+    "tools/MINDUSTRY-RUST-HANDOFF.md",
+    "tools/mindustry-rust-target.json",
+    "tools/mindustry-rust-handoff-manifest.json",
+    "tools/get-mindustry-rust-target.ps1",
+    "tools/mindustry-rust-repo-README.md",
+    "tools/sync-mindustry-rust-handoff.ps1",
+    "audit/ci-gate-plan.md",
+    "tests/src/test/resources/connect-packet.hex",
+    "tests/src/test/resources/control-packet-goldens.txt",
+    "tests/src/test/resources/framework-message-goldens.txt",
+    "tests/src/test/resources/payload-campaign-compound-goldens.txt",
+    "tests/src/test/resources/snapshot-goldens.txt",
+    "tests/src/test/resources/typeio-goldens.txt",
+    "tests/src/test/resources/unit-payload-goldens.txt",
+    "tests/src/test/resources/world-stream.hex",
+    "fixtures/remote/remote-manifest-v1.json",
+    "fixtures/world-streams/archipelago-6567-world-stream.hex",
+    "rust/fixtures/remote/remote-manifest-v1.json",
+    "rust/fixtures/world-streams/archipelago-6567-world-stream.hex"
+  ],
+  "directories": [
+    "rust/mdt-protocol/src",
+    "rust/mdt-typeio/src",
+    "rust/mdt-world/src",
+    "rust/mdt-remote/src",
+    "rust/mdt-input/src",
+    "rust/mdt-client-min/src",
+    "rust/mdt-render-ui/src"
+  ],
+  "mapped_files": [
+    {
+      "source": "tools/mindustry-rust-repo-README.md",
+      "target": "README.md"
+    }
+  ],
+  "obsolete_paths": [
+    "core/assets/version.properties"
+  ]
+}

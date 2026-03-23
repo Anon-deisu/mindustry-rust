@@ -563,6 +563,7 @@ pub struct ConfiguredBlockProjection {
     pub duct_router_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub mass_driver_link_by_build_pos: BTreeMap<i32, Option<i32>>,
     pub payload_mass_driver_link_by_build_pos: BTreeMap<i32, Option<i32>>,
+    pub power_node_links_by_build_pos: BTreeMap<i32, BTreeSet<i32>>,
     pub reconstructor_command_by_build_pos: BTreeMap<i32, Option<u16>>,
 }
 
@@ -662,6 +663,24 @@ impl ConfiguredBlockProjection {
             .insert(build_pos, link);
     }
 
+    pub fn apply_power_node_link_toggle(&mut self, build_pos: i32, target_pos: i32) {
+        let links = self
+            .power_node_links_by_build_pos
+            .entry(build_pos)
+            .or_default();
+        if !links.remove(&target_pos) {
+            links.insert(target_pos);
+        }
+    }
+
+    pub fn apply_power_node_links_full_replace(
+        &mut self,
+        build_pos: i32,
+        targets: BTreeSet<i32>,
+    ) {
+        self.power_node_links_by_build_pos.insert(build_pos, targets);
+    }
+
     pub fn apply_reconstructor_command(&mut self, build_pos: i32, command_id: Option<u16>) {
         self.reconstructor_command_by_build_pos
             .insert(build_pos, command_id);
@@ -691,6 +710,7 @@ impl ConfiguredBlockProjection {
         self.mass_driver_link_by_build_pos.remove(&build_pos);
         self.payload_mass_driver_link_by_build_pos
             .remove(&build_pos);
+        self.power_node_links_by_build_pos.remove(&build_pos);
         self.reconstructor_command_by_build_pos.remove(&build_pos);
     }
 

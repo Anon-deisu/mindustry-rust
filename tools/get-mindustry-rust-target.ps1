@@ -51,6 +51,7 @@ if ($Json) {
 [pscustomobject]@{
     TargetRepo              = $config.target_repo
     DefaultBranch           = $config.default_branch
+    HandoffManifest         = $config.handoff_manifest
     EffectiveCheckoutPath   = $effectiveCheckout
     CheckoutResolutionOrder = ($config.target_checkout_resolution_order -join " -> ")
     CheckoutHint            = $config.target_checkout_hint
