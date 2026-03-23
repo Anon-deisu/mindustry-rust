@@ -2,14 +2,16 @@ use flate2::read::ZlibDecoder;
 use mdt_typeio::read_object_prefix;
 use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::io::{Cursor, Read};
 
 const BLOCK_CONTENT_TYPE: u8 = 1;
 const ITEM_CONTENT_TYPE: u8 = 0;
 const LIQUID_CONTENT_TYPE: u8 = 4;
+const STATUS_CONTENT_TYPE: u8 = 5;
 const UNIT_CONTENT_TYPE: u8 = 6;
 const WEATHER_CONTENT_TYPE: u8 = 7;
+const MAX_UNIT_PAYLOAD_DEPTH: usize = 8;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorldLoadSummary {
@@ -12772,14 +12774,31 @@ pub struct BuildPayloadSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnitPayloadSnapshot {
+    pub class_id: u8,
+    pub revision: i16,
+    pub body_len: usize,
+    pub body_sha256: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PayloadSnapshot {
     Null,
     Build(BuildPayloadSnapshot),
+    Unit(UnitPayloadSnapshot),
 }
 
 pub fn parse_payload_snapshot_bytes(
     content_header: &[ContentHeaderEntry],
     bytes: &[u8],
+) -> Result<(PayloadSnapshot, usize), String> {
+    parse_payload_snapshot_bytes_with_depth(content_header, bytes, 0)
+}
+
+fn parse_payload_snapshot_bytes_with_depth(
+    content_header: &[ContentHeaderEntry],
+    bytes: &[u8],
+    depth: usize,
 ) -> Result<(PayloadSnapshot, usize), String> {
     let mut reader = Reader::new(bytes);
     if !reader.read_bool()? {
@@ -12812,10 +12831,14 @@ pub fn parse_payload_snapshot_bytes(
         }
         0 => {
             let class_id = reader.read_u8()?;
-            let revision = reader.read_i16()?;
-            Err(format!(
-                "unsupported unit payload in payload snapshot parser: class_id={class_id}:revision={revision}"
-            ))
+            let unit_payload = parse_unit_payload_snapshot_bytes(
+                content_header,
+                class_id,
+                &reader.remaining_bytes(),
+                depth,
+            )?;
+            reader.skip_bytes(unit_payload.body_len)?;
+            Ok((PayloadSnapshot::Unit(unit_payload), reader.position()))
         }
         payload_type => Err(format!(
             "unsupported payload type in payload snapshot parser: {payload_type}"
@@ -13090,6 +13113,21 @@ enum PayloadEntryProbe {
     Block { block_id: i16, build_version: u8 },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UnitPayloadShape {
+    AlphaLegacy,
+    StandardLegacy,
+    MonoLegacy,
+    PolyLegacy,
+    SpiroctLegacy,
+    StandardCurrent,
+    TankLikeCurrent,
+    MechLegacy,
+    PayloadLegacy,
+    BuildingTetherPayload,
+    TimedKill,
+}
+
 fn probe_payload_entry(reader: &mut Reader<'_>) -> Result<PayloadEntryProbe, String> {
     if !reader.read_bool()? {
         return Ok(PayloadEntryProbe::Null);
@@ -13118,6 +13156,709 @@ fn format_payload_entry_probe(probe: &PayloadEntryProbe) -> String {
             build_version,
         } => format!("block:block_id={block_id}:build_version={build_version}"),
     }
+}
+
+fn candidate_unit_payload_shapes(class_id: u8) -> &'static [UnitPayloadShape] {
+    match class_id {
+        0 | 29 | 30 | 31 | 33 => &[UnitPayloadShape::AlphaLegacy],
+        16 => &[UnitPayloadShape::MonoLegacy],
+        18 => &[UnitPayloadShape::PolyLegacy],
+        21 => &[UnitPayloadShape::SpiroctLegacy],
+        4 | 17 | 19 | 25 | 32 => &[UnitPayloadShape::MechLegacy],
+        5 | 23 | 26 => &[UnitPayloadShape::PayloadLegacy],
+        36 => &[UnitPayloadShape::BuildingTetherPayload],
+        39 => &[UnitPayloadShape::TimedKill],
+        40 => &[UnitPayloadShape::TankLikeCurrent],
+        43 | 45 | 46 | 47 => &[UnitPayloadShape::StandardCurrent],
+        1 | 2 | 3 | 20 | 24 => &[UnitPayloadShape::StandardLegacy],
+        _ => &[
+            UnitPayloadShape::AlphaLegacy,
+            UnitPayloadShape::StandardLegacy,
+            UnitPayloadShape::MonoLegacy,
+            UnitPayloadShape::PolyLegacy,
+            UnitPayloadShape::SpiroctLegacy,
+            UnitPayloadShape::StandardCurrent,
+            UnitPayloadShape::TankLikeCurrent,
+            UnitPayloadShape::MechLegacy,
+            UnitPayloadShape::PayloadLegacy,
+            UnitPayloadShape::BuildingTetherPayload,
+            UnitPayloadShape::TimedKill,
+        ],
+    }
+}
+
+fn consume_unit_abilities(reader: &mut Reader<'_>) -> Result<(), String> {
+    let abilities_len = reader.read_u8()? as usize;
+    reader.skip_bytes(abilities_len.saturating_mul(4))
+}
+
+fn consume_unit_mounts(reader: &mut Reader<'_>) -> Result<(), String> {
+    let mount_count = reader.read_u8()? as usize;
+    reader.skip_bytes(mount_count.saturating_mul(9))
+}
+
+fn consume_unit_build_plans(reader: &mut Reader<'_>) -> Result<(), String> {
+    let plan_count = reader.read_i32()?;
+    if plan_count == -1 {
+        return Ok(());
+    }
+    if plan_count < -1 {
+        return Err(format!(
+            "unsupported unit payload negative build plan count: {plan_count}"
+        ));
+    }
+    for _ in 0..plan_count {
+        skip_entity_build_plan(reader)?;
+    }
+    Ok(())
+}
+
+fn consume_unit_item_stack(reader: &mut Reader<'_>) -> Result<(), String> {
+    reader.skip_bytes(std::mem::size_of::<i16>() + std::mem::size_of::<i32>())
+}
+
+fn is_dynamic_status_effect(content_header: &[ContentHeaderEntry], status_id: i16) -> bool {
+    (status_id >= 0)
+        .then_some(status_id as u16)
+        .and_then(|status_id| resolve_content_name(content_header, STATUS_CONTENT_TYPE, status_id))
+        == Some("dynamic")
+}
+
+fn consume_unit_statuses(
+    reader: &mut Reader<'_>,
+    content_header: &[ContentHeaderEntry],
+) -> Result<(), String> {
+    let status_count = reader.read_i32()?;
+    if status_count < 0 {
+        return Err(format!(
+            "unsupported unit payload negative status count: {status_count}"
+        ));
+    }
+
+    for _ in 0..status_count {
+        let status_id = reader.read_i16()?;
+        reader.skip_bytes(std::mem::size_of::<f32>())?;
+        if is_dynamic_status_effect(content_header, status_id) {
+            let flags = reader.read_u8()?;
+            reader.skip_bytes((flags.count_ones() as usize).saturating_mul(4))?;
+        }
+    }
+
+    Ok(())
+}
+
+fn consume_unit_payload_sequence(
+    reader: &mut Reader<'_>,
+    content_header: &[ContentHeaderEntry],
+    depth: usize,
+) -> Result<(), String> {
+    let payload_count = reader.read_i32()?;
+    if payload_count < 0 {
+        return Err(format!(
+            "unsupported unit payload negative nested payload count: {payload_count}"
+        ));
+    }
+
+    for payload_index in 0..payload_count {
+        let remaining = reader.remaining_bytes();
+        let (_, consumed) =
+            parse_payload_snapshot_bytes_with_depth(content_header, &remaining, depth + 1)
+                .map_err(|error| {
+                    format!("unsupported nested unit payload[{payload_index}]:{error}")
+                })?;
+        reader.skip_bytes(consumed)?;
+    }
+
+    Ok(())
+}
+
+fn consume_finite_unit_position(reader: &mut Reader<'_>, context: &str) -> Result<(), String> {
+    let x_bits = reader.read_u32()?;
+    let y_bits = reader.read_u32()?;
+    if !f32::from_bits(x_bits).is_finite() || !f32::from_bits(y_bits).is_finite() {
+        return Err(format!("{context} contained non-finite position"));
+    }
+    Ok(())
+}
+
+fn consume_standard_legacy_unit_payload_body(
+    reader: &mut Reader<'_>,
+    content_header: &[ContentHeaderEntry],
+    revision: i16,
+) -> Result<(), String> {
+    if !(0..=7).contains(&revision) {
+        return Err(format!(
+            "unsupported standard legacy unit payload revision: {revision}"
+        ));
+    }
+
+    if revision >= 7 {
+        consume_unit_abilities(reader)?;
+    }
+    reader.skip_bytes(4)?;
+    if revision <= 5 {
+        reader.skip_bytes(4)?;
+    }
+    skip_entity_unit_controller(reader)?;
+    if revision == 0 {
+        reader.read_bool()?;
+    }
+    reader.skip_bytes(4)?;
+    if revision >= 2 {
+        reader.skip_bytes(8)?;
+    }
+    reader.skip_bytes(4)?;
+    reader.read_bool()?;
+    if revision >= 3 {
+        reader.skip_bytes(4)?;
+    }
+    consume_unit_mounts(reader)?;
+    if revision >= 4 {
+        consume_unit_build_plans(reader)?;
+    }
+    reader.skip_bytes(4)?;
+    reader.skip_bytes(4)?;
+    reader.read_bool()?;
+    consume_unit_item_stack(reader)?;
+    consume_unit_statuses(reader, content_header)?;
+    reader.read_u8()?;
+    reader.read_i16()?;
+    if revision >= 5 {
+        reader.read_bool()?;
+    }
+    if revision >= 6 {
+        reader.skip_bytes(8)?;
+    }
+    consume_finite_unit_position(reader, "standard legacy unit payload")
+}
+
+fn consume_alpha_legacy_unit_payload_body(
+    reader: &mut Reader<'_>,
+    content_header: &[ContentHeaderEntry],
+    revision: i16,
+) -> Result<(), String> {
+    if !(0..=3).contains(&revision) {
+        return Err(format!(
+            "unsupported alpha legacy unit payload revision: {revision}"
+        ));
+    }
+
+    if revision >= 3 {
+        consume_unit_abilities(reader)?;
+    }
+    reader.skip_bytes(4)?;
+    if revision <= 1 {
+        reader.skip_bytes(4)?;
+    }
+    skip_entity_unit_controller(reader)?;
+    reader.skip_bytes(4)?;
+    reader.skip_bytes(8)?;
+    reader.skip_bytes(4)?;
+    reader.read_bool()?;
+    reader.skip_bytes(4)?;
+    consume_unit_mounts(reader)?;
+    consume_unit_build_plans(reader)?;
+    reader.skip_bytes(4)?;
+    reader.skip_bytes(4)?;
+    reader.read_bool()?;
+    consume_unit_item_stack(reader)?;
+    consume_unit_statuses(reader, content_header)?;
+    reader.read_u8()?;
+    reader.read_i16()?;
+    if revision >= 1 {
+        reader.read_bool()?;
+    }
+    if revision >= 2 {
+        reader.skip_bytes(8)?;
+    }
+    consume_finite_unit_position(reader, "alpha legacy unit payload")
+}
+
+fn consume_standard_current_unit_payload_body(
+    reader: &mut Reader<'_>,
+    content_header: &[ContentHeaderEntry],
+    revision: i16,
+) -> Result<(), String> {
+    if revision != 0 {
+        return Err(format!(
+            "unsupported standard current unit payload revision: {revision}"
+        ));
+    }
+
+    consume_unit_abilities(reader)?;
+    reader.skip_bytes(4)?;
+    skip_entity_unit_controller(reader)?;
+    reader.skip_bytes(4)?;
+    reader.skip_bytes(8)?;
+    reader.skip_bytes(4)?;
+    reader.read_bool()?;
+    reader.skip_bytes(4)?;
+    consume_unit_mounts(reader)?;
+    consume_unit_build_plans(reader)?;
+    reader.skip_bytes(4)?;
+    reader.skip_bytes(4)?;
+    reader.read_bool()?;
+    consume_unit_item_stack(reader)?;
+    consume_unit_statuses(reader, content_header)?;
+    reader.read_u8()?;
+    reader.read_i16()?;
+    reader.read_bool()?;
+    reader.skip_bytes(8)?;
+    consume_finite_unit_position(reader, "standard current unit payload")
+}
+
+fn consume_mono_legacy_unit_payload_body(
+    reader: &mut Reader<'_>,
+    content_header: &[ContentHeaderEntry],
+    revision: i16,
+) -> Result<(), String> {
+    if !(0..=6).contains(&revision) {
+        return Err(format!(
+            "unsupported mono legacy unit payload revision: {revision}"
+        ));
+    }
+
+    if revision >= 6 {
+        consume_unit_abilities(reader)?;
+    }
+    reader.skip_bytes(4)?;
+    if revision <= 4 {
+        reader.skip_bytes(4)?;
+    }
+    skip_entity_unit_controller(reader)?;
+    if revision == 0 {
+        reader.read_bool()?;
+    }
+    reader.skip_bytes(4)?;
+    if revision >= 2 {
+        reader.skip_bytes(8)?;
+    }
+    reader.skip_bytes(4)?;
+    reader.read_bool()?;
+    reader.skip_bytes(4)?;
+    consume_unit_mounts(reader)?;
+    if revision >= 3 {
+        consume_unit_build_plans(reader)?;
+    }
+    reader.skip_bytes(4)?;
+    reader.skip_bytes(4)?;
+    reader.read_bool()?;
+    consume_unit_item_stack(reader)?;
+    consume_unit_statuses(reader, content_header)?;
+    reader.read_u8()?;
+    reader.read_i16()?;
+    if revision >= 4 {
+        reader.read_bool()?;
+    }
+    if revision >= 5 {
+        reader.skip_bytes(8)?;
+    }
+    consume_finite_unit_position(reader, "mono legacy unit payload")
+}
+
+fn consume_poly_legacy_unit_payload_body(
+    reader: &mut Reader<'_>,
+    content_header: &[ContentHeaderEntry],
+    revision: i16,
+) -> Result<(), String> {
+    if !(0..=5).contains(&revision) {
+        return Err(format!(
+            "unsupported poly legacy unit payload revision: {revision}"
+        ));
+    }
+
+    if revision >= 5 {
+        consume_unit_abilities(reader)?;
+    }
+    reader.skip_bytes(4)?;
+    if revision <= 3 {
+        reader.skip_bytes(4)?;
+    }
+    skip_entity_unit_controller(reader)?;
+    if revision == 0 {
+        reader.read_bool()?;
+    }
+    reader.skip_bytes(4)?;
+    if revision >= 2 {
+        reader.skip_bytes(8)?;
+    }
+    reader.skip_bytes(4)?;
+    reader.read_bool()?;
+    reader.skip_bytes(4)?;
+    consume_unit_mounts(reader)?;
+    consume_unit_build_plans(reader)?;
+    reader.skip_bytes(4)?;
+    reader.skip_bytes(4)?;
+    reader.read_bool()?;
+    consume_unit_item_stack(reader)?;
+    consume_unit_statuses(reader, content_header)?;
+    reader.read_u8()?;
+    reader.read_i16()?;
+    if revision >= 3 {
+        reader.read_bool()?;
+    }
+    if revision >= 4 {
+        reader.skip_bytes(8)?;
+    }
+    consume_finite_unit_position(reader, "poly legacy unit payload")
+}
+
+fn consume_spiroct_legacy_unit_payload_body(
+    reader: &mut Reader<'_>,
+    content_header: &[ContentHeaderEntry],
+    revision: i16,
+) -> Result<(), String> {
+    if !(0..=6).contains(&revision) {
+        return Err(format!(
+            "unsupported spiroct legacy unit payload revision: {revision}"
+        ));
+    }
+
+    if revision >= 6 {
+        consume_unit_abilities(reader)?;
+    }
+    reader.skip_bytes(4)?;
+    if revision <= 4 {
+        reader.skip_bytes(4)?;
+    }
+    skip_entity_unit_controller(reader)?;
+    if revision == 0 {
+        reader.read_bool()?;
+    }
+    reader.skip_bytes(4)?;
+    if revision >= 2 {
+        reader.skip_bytes(8)?;
+    }
+    reader.skip_bytes(4)?;
+    reader.read_bool()?;
+    if revision >= 3 {
+        reader.skip_bytes(4)?;
+    }
+    consume_unit_mounts(reader)?;
+    consume_unit_build_plans(reader)?;
+    reader.skip_bytes(4)?;
+    reader.skip_bytes(4)?;
+    reader.read_bool()?;
+    consume_unit_item_stack(reader)?;
+    consume_unit_statuses(reader, content_header)?;
+    reader.read_u8()?;
+    reader.read_i16()?;
+    if revision >= 4 {
+        reader.read_bool()?;
+    }
+    if revision >= 5 {
+        reader.skip_bytes(8)?;
+    }
+    consume_finite_unit_position(reader, "spiroct legacy unit payload")
+}
+
+fn consume_tank_like_current_unit_payload_body(
+    reader: &mut Reader<'_>,
+    content_header: &[ContentHeaderEntry],
+    revision: i16,
+) -> Result<(), String> {
+    match revision {
+        0 => {}
+        1 => consume_unit_abilities(reader)?,
+        _ => {
+            return Err(format!(
+                "unsupported tank-like current unit payload revision: {revision}"
+            ))
+        }
+    }
+
+    reader.skip_bytes(4)?;
+    skip_entity_unit_controller(reader)?;
+    reader.skip_bytes(4)?;
+    reader.skip_bytes(8)?;
+    reader.skip_bytes(4)?;
+    reader.read_bool()?;
+    reader.skip_bytes(4)?;
+    consume_unit_mounts(reader)?;
+    consume_unit_build_plans(reader)?;
+    reader.skip_bytes(4)?;
+    reader.skip_bytes(4)?;
+    reader.read_bool()?;
+    consume_unit_item_stack(reader)?;
+    consume_unit_statuses(reader, content_header)?;
+    reader.read_u8()?;
+    reader.read_i16()?;
+    reader.read_bool()?;
+    reader.skip_bytes(8)?;
+    consume_finite_unit_position(reader, "tank-like current unit payload")
+}
+
+fn consume_mech_legacy_unit_payload_body(
+    reader: &mut Reader<'_>,
+    content_header: &[ContentHeaderEntry],
+    revision: i16,
+) -> Result<(), String> {
+    if !(0..=7).contains(&revision) {
+        return Err(format!(
+            "unsupported mech legacy unit payload revision: {revision}"
+        ));
+    }
+
+    if revision >= 7 {
+        consume_unit_abilities(reader)?;
+    }
+    reader.skip_bytes(4)?;
+    if revision <= 5 {
+        reader.skip_bytes(4)?;
+    }
+    reader.skip_bytes(4)?;
+    skip_entity_unit_controller(reader)?;
+    if revision == 0 {
+        reader.read_bool()?;
+    }
+    reader.skip_bytes(4)?;
+    if revision >= 2 {
+        reader.skip_bytes(8)?;
+    }
+    reader.skip_bytes(4)?;
+    reader.read_bool()?;
+    if revision >= 3 {
+        reader.skip_bytes(4)?;
+    }
+    consume_unit_mounts(reader)?;
+    if revision >= 4 {
+        consume_unit_build_plans(reader)?;
+    }
+    reader.skip_bytes(4)?;
+    reader.skip_bytes(4)?;
+    reader.read_bool()?;
+    consume_unit_item_stack(reader)?;
+    consume_unit_statuses(reader, content_header)?;
+    reader.read_u8()?;
+    reader.read_i16()?;
+    if revision >= 5 {
+        reader.read_bool()?;
+    }
+    if revision >= 6 {
+        reader.skip_bytes(8)?;
+    }
+    consume_finite_unit_position(reader, "mech legacy unit payload")
+}
+
+fn consume_payload_legacy_unit_payload_body(
+    reader: &mut Reader<'_>,
+    content_header: &[ContentHeaderEntry],
+    revision: i16,
+    depth: usize,
+) -> Result<(), String> {
+    if !(0..=5).contains(&revision) {
+        return Err(format!(
+            "unsupported payload legacy unit payload revision: {revision}"
+        ));
+    }
+
+    if revision >= 5 {
+        consume_unit_abilities(reader)?;
+    }
+    reader.skip_bytes(4)?;
+    if revision <= 3 {
+        reader.skip_bytes(4)?;
+    }
+    skip_entity_unit_controller(reader)?;
+    if revision == 0 {
+        reader.read_bool()?;
+    }
+    reader.skip_bytes(4)?;
+    if revision >= 2 {
+        reader.skip_bytes(8)?;
+    }
+    reader.skip_bytes(4)?;
+    reader.read_bool()?;
+    reader.skip_bytes(4)?;
+    consume_unit_mounts(reader)?;
+    consume_unit_payload_sequence(reader, content_header, depth)?;
+    consume_unit_build_plans(reader)?;
+    reader.skip_bytes(4)?;
+    reader.skip_bytes(4)?;
+    reader.read_bool()?;
+    consume_unit_item_stack(reader)?;
+    consume_unit_statuses(reader, content_header)?;
+    reader.read_u8()?;
+    reader.read_i16()?;
+    if revision >= 3 {
+        reader.read_bool()?;
+    }
+    if revision >= 4 {
+        reader.skip_bytes(8)?;
+    }
+    consume_finite_unit_position(reader, "payload legacy unit payload")
+}
+
+fn consume_building_tether_payload_unit_body(
+    reader: &mut Reader<'_>,
+    content_header: &[ContentHeaderEntry],
+    revision: i16,
+    depth: usize,
+) -> Result<(), String> {
+    if !(0..=1).contains(&revision) {
+        return Err(format!(
+            "unsupported building tether payload unit revision: {revision}"
+        ));
+    }
+
+    if revision >= 1 {
+        consume_unit_abilities(reader)?;
+    }
+    reader.skip_bytes(4)?;
+    reader.skip_bytes(4)?;
+    skip_entity_unit_controller(reader)?;
+    reader.skip_bytes(4)?;
+    reader.skip_bytes(8)?;
+    reader.skip_bytes(4)?;
+    reader.read_bool()?;
+    reader.skip_bytes(4)?;
+    consume_unit_mounts(reader)?;
+    consume_unit_payload_sequence(reader, content_header, depth)?;
+    consume_unit_build_plans(reader)?;
+    reader.skip_bytes(4)?;
+    reader.skip_bytes(4)?;
+    reader.read_bool()?;
+    consume_unit_item_stack(reader)?;
+    consume_unit_statuses(reader, content_header)?;
+    reader.read_u8()?;
+    reader.read_i16()?;
+    reader.read_bool()?;
+    reader.skip_bytes(8)?;
+    consume_finite_unit_position(reader, "building tether payload unit")
+}
+
+fn consume_timed_kill_unit_payload_body(
+    reader: &mut Reader<'_>,
+    content_header: &[ContentHeaderEntry],
+    revision: i16,
+) -> Result<(), String> {
+    if !(0..=1).contains(&revision) {
+        return Err(format!(
+            "unsupported timed-kill unit payload revision: {revision}"
+        ));
+    }
+
+    if revision >= 1 {
+        consume_unit_abilities(reader)?;
+    }
+    reader.skip_bytes(4)?;
+    skip_entity_unit_controller(reader)?;
+    reader.skip_bytes(4)?;
+    reader.skip_bytes(8)?;
+    reader.skip_bytes(4)?;
+    reader.read_bool()?;
+    reader.skip_bytes(4)?;
+    reader.skip_bytes(4)?;
+    consume_unit_mounts(reader)?;
+    consume_unit_build_plans(reader)?;
+    reader.skip_bytes(4)?;
+    reader.skip_bytes(4)?;
+    reader.read_bool()?;
+    consume_unit_item_stack(reader)?;
+    consume_unit_statuses(reader, content_header)?;
+    reader.read_u8()?;
+    reader.skip_bytes(4)?;
+    reader.read_i16()?;
+    reader.read_bool()?;
+    reader.skip_bytes(8)?;
+    consume_finite_unit_position(reader, "timed-kill unit payload")
+}
+
+fn parse_unit_payload_snapshot_bytes(
+    content_header: &[ContentHeaderEntry],
+    class_id: u8,
+    bytes: &[u8],
+    depth: usize,
+) -> Result<UnitPayloadSnapshot, String> {
+    if depth >= MAX_UNIT_PAYLOAD_DEPTH {
+        return Err(format!(
+            "unit payload recursion depth limit exceeded: depth={depth}"
+        ));
+    }
+
+    let mut successes = Vec::new();
+    let mut errors = Vec::new();
+    for shape in candidate_unit_payload_shapes(class_id) {
+        let mut reader = Reader::new(bytes);
+        let revision = match reader.read_i16() {
+            Ok(revision) => revision,
+            Err(error) => {
+                errors.push(error);
+                break;
+            }
+        };
+        let result = match shape {
+            UnitPayloadShape::AlphaLegacy => {
+                consume_alpha_legacy_unit_payload_body(&mut reader, content_header, revision)
+            }
+            UnitPayloadShape::StandardLegacy => {
+                consume_standard_legacy_unit_payload_body(&mut reader, content_header, revision)
+            }
+            UnitPayloadShape::MonoLegacy => {
+                consume_mono_legacy_unit_payload_body(&mut reader, content_header, revision)
+            }
+            UnitPayloadShape::PolyLegacy => {
+                consume_poly_legacy_unit_payload_body(&mut reader, content_header, revision)
+            }
+            UnitPayloadShape::SpiroctLegacy => {
+                consume_spiroct_legacy_unit_payload_body(&mut reader, content_header, revision)
+            }
+            UnitPayloadShape::StandardCurrent => {
+                consume_standard_current_unit_payload_body(&mut reader, content_header, revision)
+            }
+            UnitPayloadShape::TankLikeCurrent => {
+                consume_tank_like_current_unit_payload_body(&mut reader, content_header, revision)
+            }
+            UnitPayloadShape::MechLegacy => {
+                consume_mech_legacy_unit_payload_body(&mut reader, content_header, revision)
+            }
+            UnitPayloadShape::PayloadLegacy => consume_payload_legacy_unit_payload_body(
+                &mut reader,
+                content_header,
+                revision,
+                depth,
+            ),
+            UnitPayloadShape::BuildingTetherPayload => consume_building_tether_payload_unit_body(
+                &mut reader,
+                content_header,
+                revision,
+                depth,
+            ),
+            UnitPayloadShape::TimedKill => {
+                consume_timed_kill_unit_payload_body(&mut reader, content_header, revision)
+            }
+        };
+
+        match result {
+            Ok(()) => successes.push((revision, reader.position())),
+            Err(error) => errors.push(error),
+        }
+    }
+
+    let Some((revision, body_len)) = successes.first().copied() else {
+        return Err(format!(
+            "unsupported unit payload parser body: class_id={class_id}:{}",
+            errors.join(" | ")
+        ));
+    };
+
+    let distinct_lengths = successes
+        .iter()
+        .map(|(_, consumed)| *consumed)
+        .collect::<BTreeSet<_>>();
+    if distinct_lengths.len() > 1 {
+        return Err(format!(
+            "ambiguous unit payload boundary: class_id={class_id}:lengths={:?}",
+            distinct_lengths
+        ));
+    }
+
+    Ok(UnitPayloadSnapshot {
+        class_id,
+        revision,
+        body_len,
+        body_sha256: sha256_hex(&bytes[..body_len]),
+    })
 }
 
 fn consume_entity_payload_entries(
@@ -23389,8 +24130,19 @@ where
             0 => {
                 let class_id = reader.read_u8()?;
                 let remaining = reader.remaining_bytes();
-                let consumed =
-                    parse_unit_payload_body_len(outer_kind, &remaining, &validate_outer_remainder)?;
+                let consumed = match parse_unit_payload_snapshot_bytes(
+                    content_header,
+                    class_id,
+                    &remaining,
+                    0,
+                ) {
+                    Ok(snapshot) => snapshot.body_len,
+                    Err(_) => parse_unit_payload_body_len(
+                        outer_kind,
+                        &remaining,
+                        &validate_outer_remainder,
+                    )?,
+                };
                 let unit_body = &remaining[..consumed];
                 reader.skip_bytes(consumed)?;
                 unit_class_id = Some(class_id);
@@ -37306,7 +38058,32 @@ mod tests {
     }
 
     #[test]
-    fn payload_snapshot_bytes_rejects_unit_payload_fail_closed() {
+    fn parses_payload_snapshot_bytes_with_unit_payload() {
+        let unit_body = decode_hex(
+            "00030042f600000900000000003f80000000000000000000004316000000ffffffff0200000000000000000000000000000000000000000000000000000000000000000000000000000000000100230100000000000000000000000000000000",
+        );
+        let mut bytes = Vec::new();
+        bytes.push(1);
+        bytes.push(0);
+        bytes.push(0);
+        bytes.extend_from_slice(&unit_body);
+
+        let (snapshot, consumed) = parse_payload_snapshot_bytes(&[], &bytes).unwrap();
+
+        assert_eq!(
+            snapshot,
+            PayloadSnapshot::Unit(UnitPayloadSnapshot {
+                class_id: 0,
+                revision: 3,
+                body_len: unit_body.len(),
+                body_sha256: sha256_hex(&unit_body),
+            })
+        );
+        assert_eq!(consumed, 1 + 1 + 1 + unit_body.len());
+    }
+
+    #[test]
+    fn payload_snapshot_bytes_rejects_unknown_unit_payload_shape() {
         let mut bytes = Vec::new();
         bytes.push(1);
         bytes.push(0);
@@ -37316,9 +38093,8 @@ mod tests {
 
         let error = parse_payload_snapshot_bytes(&[], &bytes).unwrap_err();
 
-        assert!(error.contains("unsupported unit payload in payload snapshot parser"));
+        assert!(error.contains("unsupported unit payload parser body"));
         assert!(error.contains("class_id=12"));
-        assert!(error.contains("revision=6"));
     }
 
     #[test]
@@ -37421,7 +38197,10 @@ mod tests {
     }
 
     #[test]
-    fn payload_sync_with_content_header_still_rejects_unit_payload_fail_closed() {
+    fn parses_entity_payload_sync_bytes_with_unit_payload_when_content_header_is_known() {
+        let unit_body = decode_hex(
+            "00030042f600000900000000003f80000000000000000000004316000000ffffffff0200000000000000000000000000000000000000000000000000000000000000000000000000000000000100230100000000000000000000000000000000",
+        );
         let mut bytes = Vec::new();
         bytes.push(0);
         bytes.extend_from_slice(&123.0f32.to_bits().to_be_bytes());
@@ -37436,8 +38215,8 @@ mod tests {
         bytes.extend_from_slice(&1i32.to_be_bytes());
         bytes.push(1);
         bytes.push(0);
-        bytes.push(12);
-        bytes.extend_from_slice(&6i16.to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&unit_body);
         bytes.extend_from_slice(&0i32.to_be_bytes());
         bytes.extend_from_slice(&90.0f32.to_bits().to_be_bytes());
         bytes.extend_from_slice(&0.0f32.to_bits().to_be_bytes());
@@ -37453,12 +38232,16 @@ mod tests {
         bytes.extend_from_slice(&40.0f32.to_bits().to_be_bytes());
         bytes.extend_from_slice(&60.0f32.to_bits().to_be_bytes());
 
-        let error = parse_entity_payload_sync_bytes_with_content_header(&[], &bytes).unwrap_err();
+        let (snapshot, consumed) =
+            parse_entity_payload_sync_bytes_with_content_header(&[], &bytes).unwrap();
 
-        assert!(error.contains("unsupported payload sync payload[0]"));
-        assert!(error.contains("unsupported unit payload in payload snapshot parser"));
-        assert!(error.contains("class_id=12"));
-        assert!(error.contains("revision=6"));
+        assert_eq!(consumed, bytes.len());
+        assert_eq!(snapshot.payload_count, 1);
+        assert_eq!(snapshot.plan_count, 0);
+        assert_eq!(snapshot.team_id, 1);
+        assert_eq!(snapshot.unit_type_id, 35);
+        assert_eq!(snapshot.x_bits, 40.0f32.to_bits());
+        assert_eq!(snapshot.y_bits, 60.0f32.to_bits());
     }
 
     #[test]

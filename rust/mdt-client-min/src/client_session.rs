@@ -9704,6 +9704,49 @@ mod tests {
         bytes
     }
 
+    fn synthetic_payload_campaign_unit_payload_body() -> Vec<u8> {
+        decode_hex_text(
+            "00030042f600000900000000003f80000000000000000000004316000000ffffffff0200000000000000000000000000000000000000000000000000000000000000000000000000000000000100230100000000000000000000000000000000",
+        )
+    }
+
+    fn synthetic_payload_sync_bytes_with_unit_payload(
+        unit_class_id: u8,
+        unit_body: &[u8],
+    ) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.push(0);
+        bytes.extend_from_slice(&123.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&7i32.to_be_bytes());
+        bytes.extend_from_slice(&1.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f64.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&150.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&(-1i32).to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&1i32.to_be_bytes());
+        bytes.push(1);
+        bytes.push(0);
+        bytes.push(unit_class_id);
+        bytes.extend_from_slice(unit_body);
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&90.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0i16.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&35i16.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&1.5f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&(-2.25f32).to_be_bytes());
+        bytes.extend_from_slice(&40.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&60.0f32.to_bits().to_be_bytes());
+        bytes
+    }
+
     fn synthetic_building_tether_payload_sync_bytes() -> Vec<u8> {
         let mut bytes = Vec::new();
         bytes.push(0);
@@ -9763,6 +9806,44 @@ mod tests {
         bytes.extend_from_slice(&block_id.to_be_bytes());
         bytes.push(conveyor_chunk[0]);
         bytes.extend_from_slice(&conveyor_chunk[1..]);
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&90.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0i16.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&35i16.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&1.5f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&(-2.25f32).to_be_bytes());
+        bytes.extend_from_slice(&40.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&60.0f32.to_bits().to_be_bytes());
+        bytes
+    }
+
+    fn synthetic_building_tether_payload_sync_bytes_with_unit_payload(
+        unit_class_id: u8,
+        unit_body: &[u8],
+    ) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.push(0);
+        bytes.extend_from_slice(&123.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&12345i32.to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&7i32.to_be_bytes());
+        bytes.extend_from_slice(&1.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f64.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&150.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&(-1i32).to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&1i32.to_be_bytes());
+        bytes.push(1);
+        bytes.push(0);
+        bytes.push(unit_class_id);
+        bytes.extend_from_slice(unit_body);
         bytes.extend_from_slice(&0i32.to_be_bytes());
         bytes.extend_from_slice(&90.0f32.to_bits().to_be_bytes());
         bytes.extend_from_slice(&0.0f32.to_bits().to_be_bytes());
@@ -11334,6 +11415,56 @@ mod tests {
                 block_id,
                 &conveyor_chunk,
             ),
+        );
+        let fire_row = build_entity_snapshot_row(901, 10, &synthetic_fire_sync_bytes());
+        let payload = build_entity_snapshot_payload(&[payload_row, tether_row, fire_row]);
+
+        assert_eq!(
+            try_parse_payload_sync_rows_from_entity_snapshot_prefix_with_content_header(
+                &payload,
+                content_header,
+            )
+            .iter()
+            .map(|row| row.entity_id)
+            .collect::<Vec<_>>(),
+            vec![777]
+        );
+        assert_eq!(
+            try_parse_building_tether_payload_sync_rows_from_entity_snapshot_prefix_with_content_header(
+                &payload,
+                content_header,
+            )
+            .iter()
+            .map(|row| row.entity_id)
+            .collect::<Vec<_>>(),
+            vec![888]
+        );
+        assert_eq!(
+            try_parse_fire_sync_rows_from_entity_snapshot_prefix_with_content_header(
+                &payload,
+                content_header,
+            )
+            .iter()
+            .map(|row| row.entity_id)
+            .collect::<Vec<_>>(),
+            vec![901]
+        );
+    }
+
+    #[test]
+    fn later_entity_snapshot_prefix_parsers_skip_unit_payload_rows_when_content_header_is_loaded() {
+        let world_bundle = parse_world_bundle(&sample_world_stream_bytes()).unwrap();
+        let unit_body = synthetic_payload_campaign_unit_payload_body();
+        let content_header = Some(world_bundle.content_header.as_slice());
+        let payload_row = build_entity_snapshot_row(
+            777,
+            5,
+            &synthetic_payload_sync_bytes_with_unit_payload(0, &unit_body),
+        );
+        let tether_row = build_entity_snapshot_row(
+            888,
+            36,
+            &synthetic_building_tether_payload_sync_bytes_with_unit_payload(0, &unit_body),
         );
         let fire_row = build_entity_snapshot_row(901, 10, &synthetic_fire_sync_bytes());
         let payload = build_entity_snapshot_payload(&[payload_row, tether_row, fire_row]);
