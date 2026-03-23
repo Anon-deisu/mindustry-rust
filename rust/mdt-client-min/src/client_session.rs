@@ -9801,6 +9801,54 @@ mod tests {
         )
     }
 
+    fn real_java_payload_entity_rows() -> Vec<(i32, u8, Vec<u8>)> {
+        [
+            (777, 5u8, "alpha"),
+            (778, 23u8, "quad"),
+            (779, 26u8, "oct"),
+            (780, 5u8, "mega"),
+            (781, 23u8, "quell-missile"),
+            (782, 26u8, "flare"),
+            (783, 5u8, "mono"),
+            (784, 23u8, "poly"),
+            (785, 26u8, "mace"),
+            (786, 5u8, "stell"),
+            (787, 23u8, "elude"),
+            (788, 26u8, "latum"),
+            (789, 5u8, "spiroct"),
+        ]
+        .into_iter()
+        .map(|(entity_id, outer_class_id, sample_name)| {
+            let (inner_class_id, unit_body) = java_unit_payload_golden_body(sample_name);
+            (
+                entity_id,
+                outer_class_id,
+                build_entity_snapshot_row(
+                    entity_id,
+                    outer_class_id,
+                    &synthetic_payload_sync_bytes_with_unit_payload(inner_class_id, &unit_body),
+                ),
+            )
+        })
+        .collect()
+    }
+
+    fn real_java_building_tether_payload_entity_row() -> (i32, u8, Vec<u8>) {
+        let (inner_class_id, unit_body) = java_unit_payload_golden_body("manifold");
+        (
+            888,
+            36,
+            build_entity_snapshot_row(
+                888,
+                36,
+                &synthetic_building_tether_payload_sync_bytes_with_unit_payload(
+                    inner_class_id,
+                    &unit_body,
+                ),
+            ),
+        )
+    }
+
     fn synthetic_payload_sync_bytes_with_unit_payload(
         unit_class_id: u8,
         unit_body: &[u8],
@@ -11487,52 +11535,13 @@ mod tests {
         assert_eq!(alpha_rows.len(), 1);
         let player_row = sample_body[player_rows[0].start..player_rows[0].end].to_vec();
         let alpha_row = sample_body[alpha_rows[0].start..alpha_rows[0].end].to_vec();
-        let (alpha_class_id, alpha_unit_body) = java_unit_payload_golden_body("alpha");
-        let (mega_class_id, mega_unit_body) = java_unit_payload_golden_body("mega");
-        let (oct_class_id, oct_unit_body) = java_unit_payload_golden_body("oct");
-        let (quad_class_id, quad_unit_body) = java_unit_payload_golden_body("quad");
-        let (manifold_class_id, manifold_unit_body) = java_unit_payload_golden_body("manifold");
-        let (missile_class_id, missile_unit_body) = java_unit_payload_golden_body("quell-missile");
-        let payload = build_entity_snapshot_payload(&[
-            player_row,
-            alpha_row,
-            build_entity_snapshot_row(
-                777,
-                5,
-                &synthetic_payload_sync_bytes_with_unit_payload(alpha_class_id, &alpha_unit_body),
-            ),
-            build_entity_snapshot_row(
-                778,
-                23,
-                &synthetic_payload_sync_bytes_with_unit_payload(quad_class_id, &quad_unit_body),
-            ),
-            build_entity_snapshot_row(
-                779,
-                26,
-                &synthetic_payload_sync_bytes_with_unit_payload(oct_class_id, &oct_unit_body),
-            ),
-            build_entity_snapshot_row(
-                780,
-                5,
-                &synthetic_payload_sync_bytes_with_unit_payload(mega_class_id, &mega_unit_body),
-            ),
-            build_entity_snapshot_row(
-                781,
-                23,
-                &synthetic_payload_sync_bytes_with_unit_payload(
-                    missile_class_id,
-                    &missile_unit_body,
-                ),
-            ),
-            build_entity_snapshot_row(
-                888,
-                36,
-                &synthetic_building_tether_payload_sync_bytes_with_unit_payload(
-                    manifold_class_id,
-                    &manifold_unit_body,
-                ),
-            ),
-        ]);
+        let payload_rows = real_java_payload_entity_rows();
+        let (tether_entity_id, tether_class_id, tether_row) =
+            real_java_building_tether_payload_entity_row();
+        let mut rows = vec![player_row, alpha_row];
+        rows.extend(payload_rows.iter().map(|(_, _, row)| row.clone()));
+        rows.push(tether_row);
+        let payload = build_entity_snapshot_payload(&rows);
 
         let packet_id = manifest
             .remote_packets
@@ -11561,17 +11570,17 @@ mod tests {
             .iter()
             .map(|row| row.entity_id)
             .collect::<Vec<_>>(),
-            vec![777, 778, 779, 780, 781]
+            payload_rows
+                .iter()
+                .map(|(entity_id, _, _)| *entity_id)
+                .collect::<Vec<_>>()
         );
 
-        for (entity_id, class_id) in [
-            (777, 5u8),
-            (778, 23u8),
-            (779, 26u8),
-            (780, 5u8),
-            (781, 23u8),
-            (888, 36u8),
-        ] {
+        for (entity_id, class_id) in payload_rows
+            .iter()
+            .map(|(entity_id, class_id, _)| (*entity_id, *class_id))
+            .chain(std::iter::once((tether_entity_id, tether_class_id)))
+        {
             assert_eq!(
                 session
                     .state()
@@ -11743,51 +11752,19 @@ mod tests {
     ) {
         let world_bundle = parse_world_bundle(&sample_world_stream_bytes()).unwrap();
         let content_header = Some(world_bundle.content_header.as_slice());
-        let (alpha_class_id, alpha_unit_body) = java_unit_payload_golden_body("alpha");
-        let (mega_class_id, mega_unit_body) = java_unit_payload_golden_body("mega");
-        let (oct_class_id, oct_unit_body) = java_unit_payload_golden_body("oct");
-        let (quad_class_id, quad_unit_body) = java_unit_payload_golden_body("quad");
-        let (manifold_class_id, manifold_unit_body) = java_unit_payload_golden_body("manifold");
-        let (missile_class_id, missile_unit_body) = java_unit_payload_golden_body("quell-missile");
-        let payload = build_entity_snapshot_payload(&[
-            build_entity_snapshot_row(
-                777,
-                5,
-                &synthetic_payload_sync_bytes_with_unit_payload(alpha_class_id, &alpha_unit_body),
-            ),
-            build_entity_snapshot_row(
-                778,
-                23,
-                &synthetic_payload_sync_bytes_with_unit_payload(quad_class_id, &quad_unit_body),
-            ),
-            build_entity_snapshot_row(
-                779,
-                26,
-                &synthetic_payload_sync_bytes_with_unit_payload(oct_class_id, &oct_unit_body),
-            ),
-            build_entity_snapshot_row(
-                780,
-                5,
-                &synthetic_payload_sync_bytes_with_unit_payload(mega_class_id, &mega_unit_body),
-            ),
-            build_entity_snapshot_row(
-                781,
-                23,
-                &synthetic_payload_sync_bytes_with_unit_payload(
-                    missile_class_id,
-                    &missile_unit_body,
-                ),
-            ),
-            build_entity_snapshot_row(
-                888,
-                36,
-                &synthetic_building_tether_payload_sync_bytes_with_unit_payload(
-                    manifold_class_id,
-                    &manifold_unit_body,
-                ),
-            ),
-            build_entity_snapshot_row(901, 10, &synthetic_fire_sync_bytes()),
-        ]);
+        let payload_rows = real_java_payload_entity_rows();
+        let (tether_entity_id, _, tether_row) = real_java_building_tether_payload_entity_row();
+        let mut rows = payload_rows
+            .iter()
+            .map(|(_, _, row)| row.clone())
+            .collect::<Vec<_>>();
+        rows.push(tether_row);
+        rows.push(build_entity_snapshot_row(
+            901,
+            10,
+            &synthetic_fire_sync_bytes(),
+        ));
+        let payload = build_entity_snapshot_payload(&rows);
 
         assert_eq!(
             try_parse_payload_sync_rows_from_entity_snapshot_prefix_with_content_header(
@@ -11797,7 +11774,10 @@ mod tests {
             .iter()
             .map(|row| row.entity_id)
             .collect::<Vec<_>>(),
-            vec![777, 778, 779, 780, 781]
+            payload_rows
+                .iter()
+                .map(|(entity_id, _, _)| *entity_id)
+                .collect::<Vec<_>>()
         );
         assert_eq!(
             try_parse_building_tether_payload_sync_rows_from_entity_snapshot_prefix_with_content_header(
@@ -11807,7 +11787,7 @@ mod tests {
             .iter()
             .map(|row| row.entity_id)
             .collect::<Vec<_>>(),
-            vec![888]
+            vec![tether_entity_id]
         );
         assert_eq!(
             try_parse_fire_sync_rows_from_entity_snapshot_prefix_with_content_header(

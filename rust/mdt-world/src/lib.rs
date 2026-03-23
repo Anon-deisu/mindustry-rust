@@ -38263,7 +38263,10 @@ mod tests {
             .filter_map(|key| key.strip_suffix(".classId"))
             .collect::<BTreeSet<_>>();
 
-        assert_eq!(sample_names.len(), 6);
+        assert!(sample_names.len() >= 6);
+        for required in ["alpha", "mega", "oct", "quad", "manifold", "quell-missile"] {
+            assert!(sample_names.contains(required), "missing sample={required}");
+        }
 
         for sample_name in sample_names {
             let class_id =
