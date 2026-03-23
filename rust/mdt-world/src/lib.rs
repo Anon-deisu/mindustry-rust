@@ -583,6 +583,44 @@ impl EntityBuildingTetherPayloadSyncSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntityFireSyncSnapshot {
+    pub lifetime_bits: u32,
+    pub tile_pos: i32,
+    pub time_bits: u32,
+    pub x_bits: u32,
+    pub y_bits: u32,
+}
+
+impl EntityFireSyncSnapshot {
+    pub fn x(&self) -> f32 {
+        f32::from_bits(self.x_bits)
+    }
+
+    pub fn y(&self) -> f32 {
+        f32::from_bits(self.y_bits)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntityPuddleSyncSnapshot {
+    pub amount_bits: u32,
+    pub liquid_id: i16,
+    pub tile_pos: i32,
+    pub x_bits: u32,
+    pub y_bits: u32,
+}
+
+impl EntityPuddleSyncSnapshot {
+    pub fn x(&self) -> f32 {
+        f32::from_bits(self.x_bits)
+    }
+
+    pub fn y(&self) -> f32 {
+        f32::from_bits(self.y_bits)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ContentHeaderEntry {
     pub content_type: u8,
     pub names: Vec<String>,
@@ -13105,6 +13143,40 @@ pub fn parse_entity_building_tether_payload_sync_bytes(
     };
     if !snapshot.x().is_finite() || !snapshot.y().is_finite() {
         return Err("entity tether payload sync contained non-finite position".to_string());
+    }
+    Ok((snapshot, reader.position()))
+}
+
+pub fn parse_entity_fire_sync_bytes(
+    bytes: &[u8],
+) -> Result<(EntityFireSyncSnapshot, usize), String> {
+    let mut reader = Reader::new(bytes);
+    let snapshot = EntityFireSyncSnapshot {
+        lifetime_bits: reader.read_u32()?,
+        tile_pos: reader.read_i32()?,
+        time_bits: reader.read_u32()?,
+        x_bits: reader.read_u32()?,
+        y_bits: reader.read_u32()?,
+    };
+    if !snapshot.x().is_finite() || !snapshot.y().is_finite() {
+        return Err("entity fire sync contained non-finite position".to_string());
+    }
+    Ok((snapshot, reader.position()))
+}
+
+pub fn parse_entity_puddle_sync_bytes(
+    bytes: &[u8],
+) -> Result<(EntityPuddleSyncSnapshot, usize), String> {
+    let mut reader = Reader::new(bytes);
+    let snapshot = EntityPuddleSyncSnapshot {
+        amount_bits: reader.read_u32()?,
+        liquid_id: reader.read_i16()?,
+        tile_pos: reader.read_i32()?,
+        x_bits: reader.read_u32()?,
+        y_bits: reader.read_u32()?,
+    };
+    if !snapshot.x().is_finite() || !snapshot.y().is_finite() {
+        return Err("entity puddle sync contained non-finite position".to_string());
     }
     Ok((snapshot, reader.position()))
 }
@@ -36941,6 +37013,44 @@ mod tests {
         assert_eq!(snapshot.team_id, 1);
         assert_eq!(snapshot.unit_type_id, 35);
         assert!(snapshot.update_building);
+        assert_eq!(snapshot.x_bits, 40.0f32.to_bits());
+        assert_eq!(snapshot.y_bits, 60.0f32.to_bits());
+    }
+
+    #[test]
+    fn parses_entity_fire_sync_bytes() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&240.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&12345i32.to_be_bytes());
+        bytes.extend_from_slice(&12.5f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&40.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&60.0f32.to_bits().to_be_bytes());
+
+        let (snapshot, consumed) = parse_entity_fire_sync_bytes(&bytes).unwrap();
+
+        assert_eq!(consumed, bytes.len());
+        assert_eq!(snapshot.lifetime_bits, 240.0f32.to_bits());
+        assert_eq!(snapshot.tile_pos, 12345);
+        assert_eq!(snapshot.time_bits, 12.5f32.to_bits());
+        assert_eq!(snapshot.x_bits, 40.0f32.to_bits());
+        assert_eq!(snapshot.y_bits, 60.0f32.to_bits());
+    }
+
+    #[test]
+    fn parses_entity_puddle_sync_bytes() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&6.5f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&3i16.to_be_bytes());
+        bytes.extend_from_slice(&12345i32.to_be_bytes());
+        bytes.extend_from_slice(&40.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&60.0f32.to_bits().to_be_bytes());
+
+        let (snapshot, consumed) = parse_entity_puddle_sync_bytes(&bytes).unwrap();
+
+        assert_eq!(consumed, bytes.len());
+        assert_eq!(snapshot.amount_bits, 6.5f32.to_bits());
+        assert_eq!(snapshot.liquid_id, 3);
+        assert_eq!(snapshot.tile_pos, 12345);
         assert_eq!(snapshot.x_bits, 40.0f32.to_bits());
         assert_eq!(snapshot.y_bits, 60.0f32.to_bits());
     }

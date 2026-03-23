@@ -21,10 +21,10 @@ use mdt_typeio::{
 };
 use mdt_world::{
     parse_building_sync_bytes, parse_entity_alpha_sync_bytes,
-    parse_entity_building_tether_payload_sync_bytes, parse_entity_mech_sync_bytes,
-    parse_entity_missile_sync_bytes, parse_entity_payload_sync_bytes,
-    parse_entity_player_sync_bytes, parse_world_bundle, LoadedWorldBootstrap, LoadedWorldState,
-    WorldBundle,
+    parse_entity_building_tether_payload_sync_bytes, parse_entity_fire_sync_bytes,
+    parse_entity_mech_sync_bytes, parse_entity_missile_sync_bytes, parse_entity_payload_sync_bytes,
+    parse_entity_player_sync_bytes, parse_entity_puddle_sync_bytes, parse_world_bundle,
+    LoadedWorldBootstrap, LoadedWorldState, WorldBundle,
 };
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
@@ -39,6 +39,8 @@ const MECH_SHAPE_ENTITY_CLASS_IDS: [u8; 4] = [4, 17, 19, 32];
 const MISSILE_SHAPE_ENTITY_CLASS_IDS: [u8; 1] = [39];
 const PAYLOAD_SHAPE_ENTITY_CLASS_IDS: [u8; 3] = [5, 23, 26];
 const BUILDING_TETHER_PAYLOAD_ENTITY_CLASS_IDS: [u8; 1] = [36];
+const FIRE_ENTITY_CLASS_IDS: [u8; 1] = [10];
+const PUDDLE_ENTITY_CLASS_IDS: [u8; 1] = [13];
 
 #[derive(Debug)]
 pub struct ClientSession {
@@ -3888,6 +3890,20 @@ impl ClientSession {
                                                 self.apply_parseable_building_tether_payload_rows_from_entity_snapshot(
                                                     &tether_payload_rows,
                                                 );
+                                                let fire_rows =
+                                                    try_parse_fire_sync_rows_from_entity_snapshot_prefix(
+                                                        snapshot.payload,
+                                                    );
+                                                self.apply_parseable_fire_rows_from_entity_snapshot(
+                                                    &fire_rows,
+                                                );
+                                                let puddle_rows =
+                                                    try_parse_puddle_sync_rows_from_entity_snapshot_prefix(
+                                                        snapshot.payload,
+                                                    );
+                                                self.apply_parseable_puddle_rows_from_entity_snapshot(
+                                                    &puddle_rows,
+                                                );
                                                 let sync_result = self
                                                     .try_apply_local_player_sync_from_entity_snapshot(
                                                         &player_rows,
@@ -4490,6 +4506,57 @@ impl ClientSession {
                 false,
                 2,
                 u32::try_from(row.entity_id).unwrap_or_default(),
+                row.sync.x_bits,
+                row.sync.y_bits,
+                false,
+                self.state.received_entity_snapshot_count,
+            );
+        }
+    }
+
+    fn apply_parseable_fire_rows_from_entity_snapshot(&mut self, fire_rows: &[EntityFireSyncRow]) {
+        for row in fire_rows {
+            if self
+                .state
+                .entity_snapshot_tombstone_blocks_upsert(row.entity_id)
+            {
+                self.state
+                    .record_entity_snapshot_tombstone_skip(row.entity_id);
+                continue;
+            }
+            self.state.entity_table_projection.upsert_entity(
+                row.entity_id,
+                row.class_id,
+                false,
+                0,
+                0,
+                row.sync.x_bits,
+                row.sync.y_bits,
+                false,
+                self.state.received_entity_snapshot_count,
+            );
+        }
+    }
+
+    fn apply_parseable_puddle_rows_from_entity_snapshot(
+        &mut self,
+        puddle_rows: &[EntityPuddleSyncRow],
+    ) {
+        for row in puddle_rows {
+            if self
+                .state
+                .entity_snapshot_tombstone_blocks_upsert(row.entity_id)
+            {
+                self.state
+                    .record_entity_snapshot_tombstone_skip(row.entity_id);
+                continue;
+            }
+            self.state.entity_table_projection.upsert_entity(
+                row.entity_id,
+                row.class_id,
+                false,
+                0,
+                0,
                 row.sync.x_bits,
                 row.sync.y_bits,
                 false,
@@ -7255,6 +7322,24 @@ struct EntityBuildingTetherPayloadSyncRow {
     end: usize,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+struct EntityFireSyncRow {
+    entity_id: i32,
+    class_id: u8,
+    sync: mdt_world::EntityFireSyncSnapshot,
+    start: usize,
+    end: usize,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct EntityPuddleSyncRow {
+    entity_id: i32,
+    class_id: u8,
+    sync: mdt_world::EntityPuddleSyncSnapshot,
+    start: usize,
+    end: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum EntityPlayerSyncRowsParseError {
     ParseableRowsExceedAmount { rows: usize, amount: u16 },
@@ -7640,6 +7725,16 @@ fn try_parse_building_tether_payload_sync_rows_from_entity_snapshot_prefix(
     parse_building_tether_payload_sync_rows_from_entity_snapshot_prefix(payload).unwrap_or_default()
 }
 
+fn try_parse_fire_sync_rows_from_entity_snapshot_prefix(payload: &[u8]) -> Vec<EntityFireSyncRow> {
+    parse_fire_sync_rows_from_entity_snapshot_prefix(payload).unwrap_or_default()
+}
+
+fn try_parse_puddle_sync_rows_from_entity_snapshot_prefix(
+    payload: &[u8],
+) -> Vec<EntityPuddleSyncRow> {
+    parse_puddle_sync_rows_from_entity_snapshot_prefix(payload).unwrap_or_default()
+}
+
 fn parse_player_sync_rows_from_entity_snapshot(
     payload: &[u8],
 ) -> Result<Vec<EntityPlayerSyncRow>, EntityPlayerSyncRowsParseError> {
@@ -7993,6 +8088,169 @@ fn parse_building_tether_payload_sync_rows_from_entity_snapshot_prefix(
                 .map_err(|error| format!("entity_snapshot_known_prefix_tether_payload:{error}"))?;
                 let end = cursor.saturating_add(5).saturating_add(consumed);
                 rows.push(EntityBuildingTetherPayloadSyncRow {
+                    entity_id,
+                    class_id,
+                    sync,
+                    start: cursor,
+                    end,
+                });
+                cursor = end;
+            }
+            _ => break,
+        }
+    }
+
+    Ok(rows)
+}
+
+fn parse_fire_sync_rows_from_entity_snapshot_prefix(
+    payload: &[u8],
+) -> Result<Vec<EntityFireSyncRow>, String> {
+    if payload.len() < 4 {
+        return Ok(Vec::new());
+    }
+
+    let amount = u16::from_be_bytes([payload[0], payload[1]]);
+    if amount == 0 {
+        return Ok(Vec::new());
+    }
+
+    let Some(body_len_bytes) = payload.get(2..4) else {
+        return Ok(Vec::new());
+    };
+    let body_len = u16::from_be_bytes(body_len_bytes.try_into().unwrap()) as usize;
+    let Some(body) = payload.get(4..4 + body_len) else {
+        return Ok(Vec::new());
+    };
+
+    let mut rows = Vec::new();
+    let mut cursor = 0usize;
+    let max_rows = usize::from(amount);
+    while cursor.saturating_add(5) <= body.len() && rows.len() < max_rows {
+        let entity_id = i32::from_be_bytes(body[cursor..cursor + 4].try_into().unwrap());
+        let class_id = body[cursor + 4];
+        match class_id {
+            12 => {
+                let (_, consumed) = parse_entity_player_sync_bytes(&body[cursor + 5..])
+                    .map_err(|error| format!("entity_snapshot_known_prefix_player:{error}"))?;
+                cursor = cursor.saturating_add(5).saturating_add(consumed);
+            }
+            _ if ALPHA_SHAPE_ENTITY_CLASS_IDS.contains(&class_id) => {
+                let (_, consumed) = parse_entity_alpha_sync_bytes(&body[cursor + 5..])
+                    .map_err(|error| format!("entity_snapshot_known_prefix_alpha:{error}"))?;
+                cursor = cursor.saturating_add(5).saturating_add(consumed);
+            }
+            _ if MECH_SHAPE_ENTITY_CLASS_IDS.contains(&class_id) => {
+                let (_, consumed) = parse_entity_mech_sync_bytes(&body[cursor + 5..])
+                    .map_err(|error| format!("entity_snapshot_known_prefix_mech:{error}"))?;
+                cursor = cursor.saturating_add(5).saturating_add(consumed);
+            }
+            _ if MISSILE_SHAPE_ENTITY_CLASS_IDS.contains(&class_id) => {
+                let (_, consumed) = parse_entity_missile_sync_bytes(&body[cursor + 5..])
+                    .map_err(|error| format!("entity_snapshot_known_prefix_missile:{error}"))?;
+                cursor = cursor.saturating_add(5).saturating_add(consumed);
+            }
+            _ if PAYLOAD_SHAPE_ENTITY_CLASS_IDS.contains(&class_id) => {
+                let (_, consumed) = parse_entity_payload_sync_bytes(&body[cursor + 5..])
+                    .map_err(|error| format!("entity_snapshot_known_prefix_payload:{error}"))?;
+                cursor = cursor.saturating_add(5).saturating_add(consumed);
+            }
+            _ if BUILDING_TETHER_PAYLOAD_ENTITY_CLASS_IDS.contains(&class_id) => {
+                let (_, consumed) = parse_entity_building_tether_payload_sync_bytes(
+                    &body[cursor + 5..],
+                )
+                .map_err(|error| format!("entity_snapshot_known_prefix_tether_payload:{error}"))?;
+                cursor = cursor.saturating_add(5).saturating_add(consumed);
+            }
+            _ if FIRE_ENTITY_CLASS_IDS.contains(&class_id) => {
+                let (sync, consumed) = parse_entity_fire_sync_bytes(&body[cursor + 5..])
+                    .map_err(|error| format!("entity_snapshot_known_prefix_fire:{error}"))?;
+                let end = cursor.saturating_add(5).saturating_add(consumed);
+                rows.push(EntityFireSyncRow {
+                    entity_id,
+                    class_id,
+                    sync,
+                    start: cursor,
+                    end,
+                });
+                cursor = end;
+            }
+            _ => break,
+        }
+    }
+
+    Ok(rows)
+}
+
+fn parse_puddle_sync_rows_from_entity_snapshot_prefix(
+    payload: &[u8],
+) -> Result<Vec<EntityPuddleSyncRow>, String> {
+    if payload.len() < 4 {
+        return Ok(Vec::new());
+    }
+
+    let amount = u16::from_be_bytes([payload[0], payload[1]]);
+    if amount == 0 {
+        return Ok(Vec::new());
+    }
+
+    let Some(body_len_bytes) = payload.get(2..4) else {
+        return Ok(Vec::new());
+    };
+    let body_len = u16::from_be_bytes(body_len_bytes.try_into().unwrap()) as usize;
+    let Some(body) = payload.get(4..4 + body_len) else {
+        return Ok(Vec::new());
+    };
+
+    let mut rows = Vec::new();
+    let mut cursor = 0usize;
+    let max_rows = usize::from(amount);
+    while cursor.saturating_add(5) <= body.len() && rows.len() < max_rows {
+        let entity_id = i32::from_be_bytes(body[cursor..cursor + 4].try_into().unwrap());
+        let class_id = body[cursor + 4];
+        match class_id {
+            12 => {
+                let (_, consumed) = parse_entity_player_sync_bytes(&body[cursor + 5..])
+                    .map_err(|error| format!("entity_snapshot_known_prefix_player:{error}"))?;
+                cursor = cursor.saturating_add(5).saturating_add(consumed);
+            }
+            _ if ALPHA_SHAPE_ENTITY_CLASS_IDS.contains(&class_id) => {
+                let (_, consumed) = parse_entity_alpha_sync_bytes(&body[cursor + 5..])
+                    .map_err(|error| format!("entity_snapshot_known_prefix_alpha:{error}"))?;
+                cursor = cursor.saturating_add(5).saturating_add(consumed);
+            }
+            _ if MECH_SHAPE_ENTITY_CLASS_IDS.contains(&class_id) => {
+                let (_, consumed) = parse_entity_mech_sync_bytes(&body[cursor + 5..])
+                    .map_err(|error| format!("entity_snapshot_known_prefix_mech:{error}"))?;
+                cursor = cursor.saturating_add(5).saturating_add(consumed);
+            }
+            _ if MISSILE_SHAPE_ENTITY_CLASS_IDS.contains(&class_id) => {
+                let (_, consumed) = parse_entity_missile_sync_bytes(&body[cursor + 5..])
+                    .map_err(|error| format!("entity_snapshot_known_prefix_missile:{error}"))?;
+                cursor = cursor.saturating_add(5).saturating_add(consumed);
+            }
+            _ if PAYLOAD_SHAPE_ENTITY_CLASS_IDS.contains(&class_id) => {
+                let (_, consumed) = parse_entity_payload_sync_bytes(&body[cursor + 5..])
+                    .map_err(|error| format!("entity_snapshot_known_prefix_payload:{error}"))?;
+                cursor = cursor.saturating_add(5).saturating_add(consumed);
+            }
+            _ if BUILDING_TETHER_PAYLOAD_ENTITY_CLASS_IDS.contains(&class_id) => {
+                let (_, consumed) = parse_entity_building_tether_payload_sync_bytes(
+                    &body[cursor + 5..],
+                )
+                .map_err(|error| format!("entity_snapshot_known_prefix_tether_payload:{error}"))?;
+                cursor = cursor.saturating_add(5).saturating_add(consumed);
+            }
+            _ if FIRE_ENTITY_CLASS_IDS.contains(&class_id) => {
+                let (_, consumed) = parse_entity_fire_sync_bytes(&body[cursor + 5..])
+                    .map_err(|error| format!("entity_snapshot_known_prefix_fire:{error}"))?;
+                cursor = cursor.saturating_add(5).saturating_add(consumed);
+            }
+            _ if PUDDLE_ENTITY_CLASS_IDS.contains(&class_id) => {
+                let (sync, consumed) = parse_entity_puddle_sync_bytes(&body[cursor + 5..])
+                    .map_err(|error| format!("entity_snapshot_known_prefix_puddle:{error}"))?;
+                let end = cursor.saturating_add(5).saturating_add(consumed);
+                rows.push(EntityPuddleSyncRow {
                     entity_id,
                     class_id,
                     sync,
@@ -8998,6 +9256,26 @@ mod tests {
         bytes.push(1);
         bytes.extend_from_slice(&1.5f32.to_bits().to_be_bytes());
         bytes.extend_from_slice(&(-2.25f32).to_be_bytes());
+        bytes.extend_from_slice(&40.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&60.0f32.to_bits().to_be_bytes());
+        bytes
+    }
+
+    fn synthetic_fire_sync_bytes() -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&240.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&12345i32.to_be_bytes());
+        bytes.extend_from_slice(&12.5f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&40.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&60.0f32.to_bits().to_be_bytes());
+        bytes
+    }
+
+    fn synthetic_puddle_sync_bytes() -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&6.5f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&3i16.to_be_bytes());
+        bytes.extend_from_slice(&12345i32.to_be_bytes());
         bytes.extend_from_slice(&40.0f32.to_bits().to_be_bytes());
         bytes.extend_from_slice(&60.0f32.to_bits().to_be_bytes());
         bytes
@@ -10581,6 +10859,202 @@ mod tests {
         assert_eq!(rows[0].class_id, 36);
         assert_eq!(rows[0].sync.building_pos, 12345);
         assert_eq!(rows[0].sync.payload_count, 0);
+        assert_eq!(rows[0].sync.x_bits, 40.0f32.to_bits());
+        assert_eq!(rows[0].sync.y_bits, 60.0f32.to_bits());
+    }
+
+    #[test]
+    fn entity_snapshot_packet_applies_parseable_fire_rows_to_entity_table() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+
+        session.ingest_packet_bytes(&begin_packet).unwrap();
+        for chunk in chunk_packets {
+            session.ingest_packet_bytes(&chunk).unwrap();
+        }
+
+        let sample_payload = sample_snapshot_packet("entitySnapshot.packet");
+        let sample_body_len = u16::from_be_bytes([sample_payload[2], sample_payload[3]]) as usize;
+        let sample_body = &sample_payload[4..4 + sample_body_len];
+        let player_rows = try_parse_player_sync_rows_from_entity_snapshot(&sample_payload);
+        let alpha_rows = try_parse_alpha_sync_rows_from_entity_snapshot_prefix(&sample_payload);
+        assert_eq!(player_rows.len(), 1);
+        assert_eq!(alpha_rows.len(), 1);
+        let player_row = sample_body[player_rows[0].start..player_rows[0].end].to_vec();
+        let alpha_row = sample_body[alpha_rows[0].start..alpha_rows[0].end].to_vec();
+        let mech_row = build_entity_snapshot_row(321, 4, &synthetic_mech_sync_bytes());
+        let missile_row = build_entity_snapshot_row(654, 39, &synthetic_missile_sync_bytes());
+        let payload_row = build_entity_snapshot_row(777, 5, &synthetic_payload_sync_bytes());
+        let tether_payload_row =
+            build_entity_snapshot_row(888, 36, &synthetic_building_tether_payload_sync_bytes());
+        let fire_row = build_entity_snapshot_row(901, 10, &synthetic_fire_sync_bytes());
+        let payload = build_entity_snapshot_payload(&[
+            player_row,
+            alpha_row,
+            mech_row,
+            missile_row,
+            payload_row,
+            tether_payload_row,
+            fire_row,
+        ]);
+
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == HighFrequencyRemoteMethod::EntitySnapshot.method_name())
+            .unwrap()
+            .packet_id;
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        let event = session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            event,
+            ClientSessionEvent::SnapshotReceived(HighFrequencyRemoteMethod::EntitySnapshot)
+        );
+        assert_eq!(
+            try_parse_fire_sync_rows_from_entity_snapshot_prefix(&payload)
+                .iter()
+                .map(|row| row.entity_id)
+                .collect::<Vec<_>>(),
+            vec![901]
+        );
+        assert_eq!(
+            session
+                .state()
+                .entity_table_projection
+                .by_entity_id
+                .get(&901),
+            Some(&crate::session_state::EntityProjection {
+                class_id: 10,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 0,
+                unit_value: 0,
+                x_bits: 40.0f32.to_bits(),
+                y_bits: 60.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 1,
+            })
+        );
+    }
+
+    #[test]
+    fn fire_shape_entity_snapshot_prefix_parser_accepts_class_id_10() {
+        let payload = build_entity_snapshot_payload(&[build_entity_snapshot_row(
+            901,
+            10,
+            &synthetic_fire_sync_bytes(),
+        )]);
+
+        let rows = try_parse_fire_sync_rows_from_entity_snapshot_prefix(&payload);
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].entity_id, 901);
+        assert_eq!(rows[0].class_id, 10);
+        assert_eq!(rows[0].sync.lifetime_bits, 240.0f32.to_bits());
+        assert_eq!(rows[0].sync.tile_pos, 12345);
+        assert_eq!(rows[0].sync.time_bits, 12.5f32.to_bits());
+        assert_eq!(rows[0].sync.x_bits, 40.0f32.to_bits());
+        assert_eq!(rows[0].sync.y_bits, 60.0f32.to_bits());
+    }
+
+    #[test]
+    fn entity_snapshot_packet_applies_parseable_puddle_rows_to_entity_table() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+
+        session.ingest_packet_bytes(&begin_packet).unwrap();
+        for chunk in chunk_packets {
+            session.ingest_packet_bytes(&chunk).unwrap();
+        }
+
+        let sample_payload = sample_snapshot_packet("entitySnapshot.packet");
+        let sample_body_len = u16::from_be_bytes([sample_payload[2], sample_payload[3]]) as usize;
+        let sample_body = &sample_payload[4..4 + sample_body_len];
+        let player_rows = try_parse_player_sync_rows_from_entity_snapshot(&sample_payload);
+        let alpha_rows = try_parse_alpha_sync_rows_from_entity_snapshot_prefix(&sample_payload);
+        assert_eq!(player_rows.len(), 1);
+        assert_eq!(alpha_rows.len(), 1);
+        let player_row = sample_body[player_rows[0].start..player_rows[0].end].to_vec();
+        let alpha_row = sample_body[alpha_rows[0].start..alpha_rows[0].end].to_vec();
+        let mech_row = build_entity_snapshot_row(321, 4, &synthetic_mech_sync_bytes());
+        let missile_row = build_entity_snapshot_row(654, 39, &synthetic_missile_sync_bytes());
+        let payload_row = build_entity_snapshot_row(777, 5, &synthetic_payload_sync_bytes());
+        let tether_payload_row =
+            build_entity_snapshot_row(888, 36, &synthetic_building_tether_payload_sync_bytes());
+        let fire_row = build_entity_snapshot_row(901, 10, &synthetic_fire_sync_bytes());
+        let puddle_row = build_entity_snapshot_row(902, 13, &synthetic_puddle_sync_bytes());
+        let payload = build_entity_snapshot_payload(&[
+            player_row,
+            alpha_row,
+            mech_row,
+            missile_row,
+            payload_row,
+            tether_payload_row,
+            fire_row,
+            puddle_row,
+        ]);
+
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == HighFrequencyRemoteMethod::EntitySnapshot.method_name())
+            .unwrap()
+            .packet_id;
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        let event = session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            event,
+            ClientSessionEvent::SnapshotReceived(HighFrequencyRemoteMethod::EntitySnapshot)
+        );
+        assert_eq!(
+            try_parse_puddle_sync_rows_from_entity_snapshot_prefix(&payload)
+                .iter()
+                .map(|row| row.entity_id)
+                .collect::<Vec<_>>(),
+            vec![902]
+        );
+        assert_eq!(
+            session
+                .state()
+                .entity_table_projection
+                .by_entity_id
+                .get(&902),
+            Some(&crate::session_state::EntityProjection {
+                class_id: 13,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 0,
+                unit_value: 0,
+                x_bits: 40.0f32.to_bits(),
+                y_bits: 60.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 1,
+            })
+        );
+    }
+
+    #[test]
+    fn puddle_shape_entity_snapshot_prefix_parser_accepts_class_id_13() {
+        let fire_row = build_entity_snapshot_row(901, 10, &synthetic_fire_sync_bytes());
+        let puddle_row = build_entity_snapshot_row(902, 13, &synthetic_puddle_sync_bytes());
+        let payload = build_entity_snapshot_payload(&[fire_row, puddle_row]);
+
+        let rows = try_parse_puddle_sync_rows_from_entity_snapshot_prefix(&payload);
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].entity_id, 902);
+        assert_eq!(rows[0].class_id, 13);
+        assert_eq!(rows[0].sync.amount_bits, 6.5f32.to_bits());
+        assert_eq!(rows[0].sync.liquid_id, 3);
+        assert_eq!(rows[0].sync.tile_pos, 12345);
         assert_eq!(rows[0].sync.x_bits, 40.0f32.to_bits());
         assert_eq!(rows[0].sync.y_bits, 60.0f32.to_bits());
     }
