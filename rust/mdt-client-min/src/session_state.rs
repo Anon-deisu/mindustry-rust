@@ -328,6 +328,361 @@ pub struct ResourceDeltaProjection {
     pub last_changed_amount: Option<i32>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResourceDeltaOutcome {
+    Applied,
+    Skipped,
+    Conflicted,
+}
+
+impl ResourceDeltaProjection {
+    pub fn build_count(&self) -> usize {
+        self.building_items_by_build.len()
+    }
+
+    pub fn build_stack_count(&self) -> usize {
+        self.building_items_by_build
+            .values()
+            .map(BTreeMap::len)
+            .sum()
+    }
+
+    pub fn entity_count(&self) -> usize {
+        self.entity_item_stack_by_entity_id.len()
+    }
+
+    pub fn clear_for_world_reload(&mut self) {
+        *self = Self::default();
+    }
+
+    pub fn apply_set_item(&mut self, build_pos: Option<i32>, item_id: Option<i16>, amount: i32) {
+        let (Some(build_pos), Some(item_id)) = (build_pos, item_id) else {
+            return;
+        };
+        self.set_build_item_exact(build_pos, item_id, amount);
+        self.authoritative_build_update_count =
+            self.authoritative_build_update_count.saturating_add(1);
+        self.mark_build_change(build_pos, item_id, amount);
+    }
+
+    pub fn apply_set_items(&mut self, build_pos: Option<i32>, stacks: &[(Option<i16>, i32)]) {
+        let Some(build_pos) = build_pos else {
+            return;
+        };
+        let mut applied = false;
+        for &(item_id, amount) in stacks {
+            let Some(item_id) = item_id else {
+                continue;
+            };
+            self.set_build_item_exact(build_pos, item_id, amount);
+            self.mark_build_change(build_pos, item_id, amount);
+            applied = true;
+        }
+        if applied {
+            self.authoritative_build_update_count =
+                self.authoritative_build_update_count.saturating_add(1);
+        }
+    }
+
+    pub fn apply_set_tile_items(&mut self, item_id: Option<i16>, amount: i32, positions: &[i32]) {
+        let Some(item_id) = item_id else {
+            return;
+        };
+        let mut applied = false;
+        for &build_pos in positions {
+            self.set_build_item_exact(build_pos, item_id, amount);
+            self.mark_build_change(build_pos, item_id, amount);
+            applied = true;
+        }
+        if applied {
+            self.authoritative_build_update_count =
+                self.authoritative_build_update_count.saturating_add(1);
+        }
+    }
+
+    pub fn clear_build_items(&mut self, build_pos: Option<i32>) {
+        let Some(build_pos) = build_pos else {
+            return;
+        };
+        self.building_items_by_build.remove(&build_pos);
+        self.authoritative_build_update_count =
+            self.authoritative_build_update_count.saturating_add(1);
+        self.last_changed_build_pos = Some(build_pos);
+        self.last_changed_entity_id = None;
+        self.last_changed_item_id = None;
+        self.last_changed_amount = Some(0);
+    }
+
+    pub fn remove_building(&mut self, build_pos: Option<i32>) {
+        self.clear_build_items(build_pos);
+    }
+
+    pub fn remove_standard_entity_item(&mut self, unit: Option<UnitRefProjection>) {
+        let Some(entity_id) = resource_delta_standard_entity_id(unit) else {
+            return;
+        };
+        self.entity_item_stack_by_entity_id.remove(&entity_id);
+    }
+
+    pub fn remove_entity_item_by_id(&mut self, entity_id: Option<i32>) {
+        let Some(entity_id) = entity_id else {
+            return;
+        };
+        self.entity_item_stack_by_entity_id.remove(&entity_id);
+    }
+
+    pub fn apply_take_items(&mut self, projection: &TakeItemsProjection) {
+        let Some(item_id) = projection.item_id else {
+            self.delta_skip_count = self.delta_skip_count.saturating_add(1);
+            return;
+        };
+
+        let mut applied = false;
+        let mut skipped = false;
+        let mut conflicted = false;
+
+        match projection.build_pos {
+            Some(build_pos) => {
+                if self.subtract_known_build_item(build_pos, item_id, projection.amount) {
+                    self.mark_build_change(build_pos, item_id, projection.amount);
+                    applied = true;
+                } else {
+                    skipped = true;
+                }
+            }
+            None => skipped = true,
+        }
+
+        match projection.to {
+            Some(unit_ref) => match resource_delta_standard_entity_id(Some(unit_ref)) {
+                Some(entity_id) => match self.add_entity_item(entity_id, item_id, projection.amount)
+                {
+                    ResourceDeltaOutcome::Applied => applied = true,
+                    ResourceDeltaOutcome::Skipped => skipped = true,
+                    ResourceDeltaOutcome::Conflicted => conflicted = true,
+                },
+                None => skipped = true,
+            },
+            None => skipped = true,
+        }
+
+        self.record_delta_outcome(applied, skipped, conflicted);
+    }
+
+    pub fn apply_transfer_item_to(&mut self, projection: &TransferItemToProjection) {
+        let Some(item_id) = projection.item_id else {
+            self.delta_skip_count = self.delta_skip_count.saturating_add(1);
+            return;
+        };
+
+        let mut applied = false;
+        let mut skipped = false;
+        let mut conflicted = false;
+
+        match projection.build_pos {
+            Some(build_pos) => {
+                if self.add_known_build_item(build_pos, item_id, projection.amount) {
+                    self.mark_build_change(build_pos, item_id, projection.amount);
+                    applied = true;
+                } else {
+                    skipped = true;
+                }
+            }
+            None => skipped = true,
+        }
+
+        match projection.unit {
+            Some(unit_ref) => match resource_delta_standard_entity_id(Some(unit_ref)) {
+                Some(entity_id) => {
+                    match self.subtract_entity_item(entity_id, item_id, projection.amount) {
+                        ResourceDeltaOutcome::Applied => applied = true,
+                        ResourceDeltaOutcome::Skipped => skipped = true,
+                        ResourceDeltaOutcome::Conflicted => conflicted = true,
+                    }
+                }
+                None => skipped = true,
+            },
+            None => skipped = true,
+        }
+
+        self.record_delta_outcome(applied, skipped, conflicted);
+    }
+
+    pub fn apply_transfer_item_to_unit(&mut self, projection: &TransferItemToUnitProjection) {
+        let (Some(item_id), Some(entity_id)) = (projection.item_id, projection.to_entity_id) else {
+            self.delta_skip_count = self.delta_skip_count.saturating_add(1);
+            return;
+        };
+
+        let outcome = self.add_entity_item(entity_id, item_id, 1);
+        self.record_delta_outcome(
+            outcome == ResourceDeltaOutcome::Applied,
+            outcome == ResourceDeltaOutcome::Skipped,
+            outcome == ResourceDeltaOutcome::Conflicted,
+        );
+    }
+
+    fn record_delta_outcome(&mut self, applied: bool, skipped: bool, conflicted: bool) {
+        if applied {
+            self.delta_apply_count = self.delta_apply_count.saturating_add(1);
+        }
+        if skipped {
+            self.delta_skip_count = self.delta_skip_count.saturating_add(1);
+        }
+        if conflicted {
+            self.delta_conflict_count = self.delta_conflict_count.saturating_add(1);
+        }
+    }
+
+    fn set_build_item_exact(&mut self, build_pos: i32, item_id: i16, amount: i32) {
+        if amount == 0 {
+            let mut remove_build = false;
+            if let Some(build_items) = self.building_items_by_build.get_mut(&build_pos) {
+                build_items.remove(&item_id);
+                remove_build = build_items.is_empty();
+            }
+            if remove_build {
+                self.building_items_by_build.remove(&build_pos);
+            }
+            return;
+        }
+
+        self.building_items_by_build
+            .entry(build_pos)
+            .or_default()
+            .insert(item_id, amount);
+    }
+
+    fn add_known_build_item(&mut self, build_pos: i32, item_id: i16, amount: i32) -> bool {
+        let mut applied = false;
+        let mut remove_build = false;
+        if let Some(build_items) = self.building_items_by_build.get_mut(&build_pos) {
+            if let Some(current) = build_items.get_mut(&item_id) {
+                *current = current.saturating_add(amount);
+                applied = true;
+                if *current == 0 {
+                    build_items.remove(&item_id);
+                    remove_build = build_items.is_empty();
+                }
+            }
+        }
+        if remove_build {
+            self.building_items_by_build.remove(&build_pos);
+        }
+        applied
+    }
+
+    fn subtract_known_build_item(&mut self, build_pos: i32, item_id: i16, amount: i32) -> bool {
+        let mut applied = false;
+        let mut remove_build = false;
+        if let Some(build_items) = self.building_items_by_build.get_mut(&build_pos) {
+            if let Some(current) = build_items.get_mut(&item_id) {
+                *current = current.saturating_sub(amount);
+                applied = true;
+                if *current == 0 {
+                    build_items.remove(&item_id);
+                    remove_build = build_items.is_empty();
+                }
+            }
+        }
+        if remove_build {
+            self.building_items_by_build.remove(&build_pos);
+        }
+        applied
+    }
+
+    fn add_entity_item(
+        &mut self,
+        entity_id: i32,
+        item_id: i16,
+        amount: i32,
+    ) -> ResourceDeltaOutcome {
+        if amount <= 0 {
+            return ResourceDeltaOutcome::Skipped;
+        }
+
+        let Some(entry) = self.entity_item_stack_by_entity_id.get(&entity_id).cloned() else {
+            self.entity_item_stack_by_entity_id.insert(
+                entity_id,
+                ResourceUnitItemStack {
+                    item_id: Some(item_id),
+                    amount,
+                },
+            );
+            self.mark_entity_change(entity_id, item_id, amount);
+            return ResourceDeltaOutcome::Applied;
+        };
+
+        if entry.amount == 0 || entry.item_id.is_none() || entry.item_id == Some(item_id) {
+            self.entity_item_stack_by_entity_id.insert(
+                entity_id,
+                ResourceUnitItemStack {
+                    item_id: Some(item_id),
+                    amount: entry.amount.saturating_add(amount),
+                },
+            );
+            self.mark_entity_change(entity_id, item_id, amount);
+            return ResourceDeltaOutcome::Applied;
+        }
+
+        ResourceDeltaOutcome::Conflicted
+    }
+
+    fn subtract_entity_item(
+        &mut self,
+        entity_id: i32,
+        item_id: i16,
+        amount: i32,
+    ) -> ResourceDeltaOutcome {
+        if amount <= 0 {
+            return ResourceDeltaOutcome::Skipped;
+        }
+
+        let Some(entry) = self.entity_item_stack_by_entity_id.get(&entity_id).cloned() else {
+            return ResourceDeltaOutcome::Skipped;
+        };
+        if entry.item_id != Some(item_id) {
+            return ResourceDeltaOutcome::Conflicted;
+        }
+
+        let next_amount = entry.amount.saturating_sub(amount);
+        if next_amount == 0 {
+            self.entity_item_stack_by_entity_id.remove(&entity_id);
+        } else {
+            self.entity_item_stack_by_entity_id.insert(
+                entity_id,
+                ResourceUnitItemStack {
+                    item_id: Some(item_id),
+                    amount: next_amount,
+                },
+            );
+        }
+        self.mark_entity_change(entity_id, item_id, amount);
+        ResourceDeltaOutcome::Applied
+    }
+
+    fn mark_build_change(&mut self, build_pos: i32, item_id: i16, amount: i32) {
+        self.last_changed_build_pos = Some(build_pos);
+        self.last_changed_entity_id = None;
+        self.last_changed_item_id = Some(item_id);
+        self.last_changed_amount = Some(amount);
+    }
+
+    fn mark_entity_change(&mut self, entity_id: i32, item_id: i16, amount: i32) {
+        self.last_changed_build_pos = None;
+        self.last_changed_entity_id = Some(entity_id);
+        self.last_changed_item_id = Some(item_id);
+        self.last_changed_amount = Some(amount);
+    }
+}
+
+fn resource_delta_standard_entity_id(unit: Option<UnitRefProjection>) -> Option<i32> {
+    match unit {
+        Some(UnitRefProjection { kind: 2, value }) => Some(value),
+        _ => None,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PayloadDroppedProjection {
     pub unit: Option<UnitRefProjection>,
@@ -2890,6 +3245,52 @@ impl SessionState {
         }
     }
 
+    pub fn record_set_item_resource_delta(
+        &mut self,
+        build_pos: Option<i32>,
+        item_id: Option<i16>,
+        amount: i32,
+    ) {
+        self.resource_delta_projection
+            .apply_set_item(build_pos, item_id, amount);
+    }
+
+    pub fn record_set_items_resource_delta(
+        &mut self,
+        build_pos: Option<i32>,
+        stacks: &[(Option<i16>, i32)],
+    ) {
+        self.resource_delta_projection
+            .apply_set_items(build_pos, stacks);
+    }
+
+    pub fn record_set_tile_items_resource_delta(
+        &mut self,
+        item_id: Option<i16>,
+        amount: i32,
+        positions: &[i32],
+    ) {
+        self.resource_delta_projection
+            .apply_set_tile_items(item_id, amount, positions);
+    }
+
+    pub fn record_clear_items_resource_delta(&mut self, build_pos: Option<i32>) {
+        self.resource_delta_projection.clear_build_items(build_pos);
+    }
+
+    pub fn record_remove_building_resource_delta(&mut self, build_pos: Option<i32>) {
+        self.resource_delta_projection.remove_building(build_pos);
+    }
+
+    pub fn record_remove_resource_delta_entity(&mut self, unit: Option<UnitRefProjection>) {
+        self.resource_delta_projection.remove_standard_entity_item(unit);
+    }
+
+    pub fn record_remove_resource_delta_entity_by_id(&mut self, entity_id: Option<i32>) {
+        self.resource_delta_projection
+            .remove_entity_item_by_id(entity_id);
+    }
+
     pub fn record_take_items_resource_delta(&mut self, projection: &TakeItemsProjection) {
         self.resource_delta_projection.take_items_count = self
             .resource_delta_projection
@@ -2903,6 +3304,7 @@ impl SessionState {
         self.resource_delta_projection.last_to_entity_id = None;
         self.resource_delta_projection.last_x_bits = None;
         self.resource_delta_projection.last_y_bits = None;
+        self.resource_delta_projection.apply_take_items(projection);
     }
 
     pub fn record_transfer_item_to_resource_delta(
@@ -2921,6 +3323,7 @@ impl SessionState {
         self.resource_delta_projection.last_to_entity_id = None;
         self.resource_delta_projection.last_x_bits = Some(projection.x_bits);
         self.resource_delta_projection.last_y_bits = Some(projection.y_bits);
+        self.resource_delta_projection.apply_transfer_item_to(projection);
     }
 
     pub fn record_transfer_item_to_unit_resource_delta(
@@ -2939,6 +3342,8 @@ impl SessionState {
         self.resource_delta_projection.last_to_entity_id = projection.to_entity_id;
         self.resource_delta_projection.last_x_bits = Some(projection.x_bits);
         self.resource_delta_projection.last_y_bits = Some(projection.y_bits);
+        self.resource_delta_projection
+            .apply_transfer_item_to_unit(projection);
     }
 }
 

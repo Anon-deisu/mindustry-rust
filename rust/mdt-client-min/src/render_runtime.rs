@@ -1778,7 +1778,7 @@ fn runtime_unit_lifecycle_label(session_state: &SessionState) -> String {
 
 fn runtime_resource_delta_label(session_state: &SessionState) -> String {
     format!(
-        "rmt{}:st{}:sf{}:so{}:seti{}:setis{}:setl{}:setls{}:cli{}:cll{}:sti{}:stl{}:tk{}:tb{}:tu{}:{}@{}#{}:bp{}:u{}:eid{}",
+        "rmt{}:st{}:sf{}:so{}:seti{}:setis{}:setl{}:setls{}:cli{}:cll{}:sti{}:stl{}:tk{}:tb{}:tu{}:{}@{}#{}:bp{}:u{}:eid{}:b{}:bs{}:e{}:au{}:da{}:sk{}:cf{}:lb{}:le{}:li{}:la{}",
         session_state.received_remove_tile_count,
         session_state.received_set_tile_count,
         session_state.received_set_floor_count,
@@ -1803,6 +1803,19 @@ fn runtime_resource_delta_label(session_state: &SessionState) -> String {
         runtime_optional_display_label(session_state.resource_delta_projection.last_build_pos),
         runtime_optional_unit_ref_label(session_state.resource_delta_projection.last_unit),
         runtime_optional_display_label(session_state.resource_delta_projection.last_to_entity_id),
+        session_state.resource_delta_projection.build_count(),
+        session_state.resource_delta_projection.build_stack_count(),
+        session_state.resource_delta_projection.entity_count(),
+        session_state
+            .resource_delta_projection
+            .authoritative_build_update_count,
+        session_state.resource_delta_projection.delta_apply_count,
+        session_state.resource_delta_projection.delta_skip_count,
+        session_state.resource_delta_projection.delta_conflict_count,
+        runtime_optional_display_label(session_state.resource_delta_projection.last_changed_build_pos),
+        runtime_optional_display_label(session_state.resource_delta_projection.last_changed_entity_id),
+        runtime_optional_display_label(session_state.resource_delta_projection.last_changed_item_id),
+        runtime_optional_display_label(session_state.resource_delta_projection.last_changed_amount),
     )
 }
 
@@ -3743,6 +3756,29 @@ mod tests {
         state.resource_delta_projection.last_build_pos = None;
         state.resource_delta_projection.last_unit = None;
         state.resource_delta_projection.last_to_entity_id = Some(404);
+        state
+            .resource_delta_projection
+            .building_items_by_build
+            .insert(pack_runtime_point2(1, 1), std::collections::BTreeMap::from([(4, 6), (7, 8)]));
+        state
+            .resource_delta_projection
+            .building_items_by_build
+            .insert(pack_runtime_point2(2, 2), std::collections::BTreeMap::from([(9, 10)]));
+        state.resource_delta_projection.entity_item_stack_by_entity_id.insert(
+            900,
+            crate::session_state::ResourceUnitItemStack {
+                item_id: Some(6),
+                amount: 3,
+            },
+        );
+        state.resource_delta_projection.authoritative_build_update_count = 4;
+        state.resource_delta_projection.delta_apply_count = 5;
+        state.resource_delta_projection.delta_skip_count = 6;
+        state.resource_delta_projection.delta_conflict_count = 7;
+        state.resource_delta_projection.last_changed_build_pos = Some(pack_runtime_point2(9, 9));
+        state.resource_delta_projection.last_changed_entity_id = Some(900);
+        state.resource_delta_projection.last_changed_item_id = Some(6);
+        state.resource_delta_projection.last_changed_amount = Some(1);
         state.received_remove_tile_count = 80;
         state.received_set_tile_count = 81;
         state.received_set_floor_count = 82;
@@ -4053,9 +4089,10 @@ mod tests {
             pack_runtime_point2(5, 6),
             pack_runtime_point2(9, 10),
         )));
-        assert!(hud.status_text.contains(
-            "runtime_resource_delta=rmt80:st81:sf82:so83:seti22:setis23:setl24:setls25:cli84:cll85:sti26:stl27:tk1:tb2:tu3:to_unit@6#none:bpnone:unone:eid404"
-        ));
+        assert!(hud.status_text.contains(&format!(
+            "runtime_resource_delta=rmt80:st81:sf82:so83:seti22:setis23:setl24:setls25:cli84:cll85:sti26:stl27:tk1:tb2:tu3:to_unit@6#none:bpnone:unone:eid404:b2:bs3:e1:au4:da5:sk6:cf7:lb{}:le900:li6:la1",
+            pack_runtime_point2(9, 9),
+        )));
         assert!(hud
             .status_text
             .contains("runtime_command_ctrl=spte28:mc29:tir30:ri31:bcs32:ucl33:uct34:ubcs35:cb36:cu37:suc38:sus39:rot40:tinv41:rbp42:rdp46:rup43:drop44:dpl45:tap47"));

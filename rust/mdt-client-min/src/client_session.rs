@@ -2888,6 +2888,7 @@ impl ClientSession {
                         self.state
                             .building_table_projection
                             .apply_deconstruct_finish(build_pos, None);
+                        self.state.record_remove_building_resource_delta(Some(build_pos));
                     }
                     Ok(ClientSessionEvent::RemoveTile { tile_pos })
                 } else {
@@ -3154,6 +3155,11 @@ impl ClientSession {
                     self.state.last_set_item_build_pos = summary.build_pos;
                     self.state.last_set_item_item_id = summary.item_id;
                     self.state.last_set_item_amount = Some(summary.amount);
+                    self.state.record_set_item_resource_delta(
+                        summary.build_pos,
+                        summary.item_id,
+                        summary.amount,
+                    );
                     Ok(ClientSessionEvent::SetItem {
                         build_pos: summary.build_pos,
                         item_id: summary.item_id,
@@ -3174,6 +3180,8 @@ impl ClientSession {
                     self.state.last_set_items_count = summary.stack_count;
                     self.state.last_set_items_first_item_id = summary.first_item_id;
                     self.state.last_set_items_first_amount = summary.first_amount;
+                    self.state
+                        .record_set_items_resource_delta(summary.build_pos, &summary.stacks);
                     Ok(ClientSessionEvent::SetItems {
                         build_pos: summary.build_pos,
                         stack_count: summary.stack_count,
@@ -3389,6 +3397,11 @@ impl ClientSession {
                     self.state.last_set_tile_items_amount = Some(summary.amount);
                     self.state.last_set_tile_items_count = summary.position_count;
                     self.state.last_set_tile_items_first_position = summary.first_position;
+                    self.state.record_set_tile_items_resource_delta(
+                        summary.item_id,
+                        summary.amount,
+                        &summary.positions,
+                    );
                     Ok(ClientSessionEvent::SetTileItems {
                         item_id: summary.item_id,
                         amount: summary.amount,
@@ -3777,6 +3790,7 @@ impl ClientSession {
                     self.state.received_clear_items_count =
                         self.state.received_clear_items_count.saturating_add(1);
                     self.state.last_clear_items_build_pos = build_pos;
+                    self.state.record_clear_items_resource_delta(build_pos);
                     Ok(ClientSessionEvent::ClearItems { build_pos })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -4268,6 +4282,8 @@ impl ClientSession {
                     self.state
                         .building_table_projection
                         .apply_deconstruct_finish(summary.tile_pos, summary.block_id);
+                    self.state
+                        .record_remove_building_resource_delta(Some(summary.tile_pos));
                     self.state.last_deconstruct_finish_removed_local_plan = removed_local_plan;
                     self.state.builder_queue_projection.mark_deconstruct_finish(
                         i32::from(tile_x),
@@ -4611,6 +4627,7 @@ impl ClientSession {
                     self.state.received_build_destroyed_count =
                         self.state.received_build_destroyed_count.saturating_add(1);
                     self.state.last_build_destroyed_build_pos = build_pos;
+                    self.state.record_remove_building_resource_delta(build_pos);
                     Ok(ClientSessionEvent::BuildDestroyed { build_pos })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -4625,6 +4642,7 @@ impl ClientSession {
                         self.state.received_unit_despawn_count.saturating_add(1);
                     self.state.last_unit_despawn = unit;
                     self.state.mark_payload_lifecycle_unit_despawn(unit);
+                    self.state.record_remove_resource_delta_entity(unit);
                     let removed_entity_projection =
                         remove_entity_projection_for_unit_ref(&mut self.state, unit);
                     Ok(ClientSessionEvent::UnitDespawned {
@@ -4643,6 +4661,8 @@ impl ClientSession {
                     self.state.received_unit_death_count =
                         self.state.received_unit_death_count.saturating_add(1);
                     self.state.last_unit_death_id = Some(unit_id);
+                    self.state
+                        .record_remove_resource_delta_entity_by_id(Some(unit_id));
                     let removed_entity_projection =
                         remove_entity_projection_for_entity_id(&mut self.state, unit_id);
                     Ok(ClientSessionEvent::UnitDeath {
@@ -4661,6 +4681,8 @@ impl ClientSession {
                     self.state.received_unit_destroy_count =
                         self.state.received_unit_destroy_count.saturating_add(1);
                     self.state.last_unit_destroy_id = Some(unit_id);
+                    self.state
+                        .record_remove_resource_delta_entity_by_id(Some(unit_id));
                     let removed_entity_projection =
                         remove_entity_projection_for_entity_id(&mut self.state, unit_id);
                     Ok(ClientSessionEvent::UnitDestroy {
@@ -4679,6 +4701,7 @@ impl ClientSession {
                     self.state.received_unit_env_death_count =
                         self.state.received_unit_env_death_count.saturating_add(1);
                     self.state.last_unit_env_death = unit;
+                    self.state.record_remove_resource_delta_entity(unit);
                     let removed_entity_projection =
                         remove_entity_projection_for_unit_ref(&mut self.state, unit);
                     Ok(ClientSessionEvent::UnitEnvDeath {
@@ -4697,6 +4720,7 @@ impl ClientSession {
                     self.state.received_unit_safe_death_count =
                         self.state.received_unit_safe_death_count.saturating_add(1);
                     self.state.last_unit_safe_death = unit;
+                    self.state.record_remove_resource_delta_entity(unit);
                     let removed_entity_projection =
                         remove_entity_projection_for_unit_ref(&mut self.state, unit);
                     Ok(ClientSessionEvent::UnitSafeDeath {
@@ -8279,6 +8303,7 @@ fn decode_set_items_payload(payload: &[u8]) -> Option<SetItemsSummary> {
     let stack_count = usize::try_from(stack_count).ok()?;
     let mut first_item_id = None;
     let mut first_amount = None;
+    let mut stacks = Vec::with_capacity(stack_count);
     for index in 0..stack_count {
         let item_id = read_optional_item_id(payload, &mut cursor)?;
         let amount = read_i32(payload, &mut cursor)?;
@@ -8286,12 +8311,14 @@ fn decode_set_items_payload(payload: &[u8]) -> Option<SetItemsSummary> {
             first_item_id = item_id;
             first_amount = Some(amount);
         }
+        stacks.push((item_id, amount));
     }
     (cursor == payload.len()).then_some(SetItemsSummary {
         build_pos,
         stack_count,
         first_item_id,
         first_amount,
+        stacks,
     })
 }
 
@@ -8380,6 +8407,7 @@ fn decode_set_tile_items_payload(payload: &[u8]) -> Option<SetTileItemsSummary> 
         amount,
         position_count: positions.len(),
         first_position: positions.first().copied(),
+        positions,
     })
 }
 
@@ -9638,6 +9666,7 @@ struct SetItemsSummary {
     stack_count: usize,
     first_item_id: Option<i16>,
     first_amount: Option<i32>,
+    stacks: Vec<(Option<i16>, i32)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -9688,6 +9717,7 @@ struct SetTileItemsSummary {
     amount: i32,
     position_count: usize,
     first_position: Option<i32>,
+    positions: Vec<i32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25506,6 +25536,401 @@ mod tests {
         assert_eq!(
             session.state().resource_delta_projection.last_to_entity_id,
             Some(1234)
+        );
+    }
+
+    #[test]
+    fn resource_delta_projection_tracks_authoritative_item_updates_and_clears() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let set_item_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setItem")
+            .unwrap()
+            .packet_id;
+        let set_items_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setItems")
+            .unwrap()
+            .packet_id;
+        let set_tile_items_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setTileItems")
+            .unwrap()
+            .packet_id;
+        let clear_items_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "clearItems")
+            .unwrap()
+            .packet_id;
+
+        let build_pos = pack_point2(2, 3);
+        let mut set_item_payload = encode_building_payload(Some(build_pos));
+        set_item_payload.extend_from_slice(&7i16.to_be_bytes());
+        set_item_payload.extend_from_slice(&25i32.to_be_bytes());
+        session
+            .ingest_packet_bytes(&encode_packet(set_item_packet_id, &set_item_payload, false).unwrap())
+            .unwrap();
+
+        let mut set_items_payload = encode_building_payload(Some(build_pos));
+        set_items_payload.extend_from_slice(&2i16.to_be_bytes());
+        set_items_payload.extend_from_slice(&7i16.to_be_bytes());
+        set_items_payload.extend_from_slice(&11i32.to_be_bytes());
+        set_items_payload.extend_from_slice(&4i16.to_be_bytes());
+        set_items_payload.extend_from_slice(&3i32.to_be_bytes());
+        session
+            .ingest_packet_bytes(
+                &encode_packet(set_items_packet_id, &set_items_payload, false).unwrap(),
+            )
+            .unwrap();
+
+        let mut set_tile_items_payload = Vec::new();
+        set_tile_items_payload.extend_from_slice(&6i16.to_be_bytes());
+        set_tile_items_payload.extend_from_slice(&13i32.to_be_bytes());
+        set_tile_items_payload.extend_from_slice(&2i16.to_be_bytes());
+        set_tile_items_payload.extend_from_slice(&pack_point2(1, 2).to_be_bytes());
+        set_tile_items_payload.extend_from_slice(&pack_point2(3, 4).to_be_bytes());
+        session
+            .ingest_packet_bytes(
+                &encode_packet(set_tile_items_packet_id, &set_tile_items_payload, false).unwrap(),
+            )
+            .unwrap();
+
+        session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    clear_items_packet_id,
+                    &encode_building_payload(Some(build_pos)),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .building_items_by_build
+                .get(&build_pos),
+            None
+        );
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .building_items_by_build
+                .get(&pack_point2(1, 2))
+                .cloned(),
+            Some(std::collections::BTreeMap::from([(6, 13)]))
+        );
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .building_items_by_build
+                .get(&pack_point2(3, 4))
+                .cloned(),
+            Some(std::collections::BTreeMap::from([(6, 13)]))
+        );
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .authoritative_build_update_count,
+            4
+        );
+        assert_eq!(session.state().resource_delta_projection.build_count(), 2);
+        assert_eq!(session.state().resource_delta_projection.build_stack_count(), 2);
+        assert_eq!(
+            session.state().resource_delta_projection.last_changed_build_pos,
+            Some(build_pos)
+        );
+        assert_eq!(
+            session.state().resource_delta_projection.last_changed_amount,
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn resource_delta_projection_applies_take_and_transfer_item_business_flow() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let set_item_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setItem")
+            .unwrap()
+            .packet_id;
+        let take_items_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "takeItems")
+            .unwrap()
+            .packet_id;
+        let transfer_item_to_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "transferItemTo")
+            .unwrap()
+            .packet_id;
+        let transfer_item_to_unit_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "transferItemToUnit")
+            .unwrap()
+            .packet_id;
+
+        let build_pos = pack_point2(9, 10);
+        let mut set_item_payload = encode_building_payload(Some(build_pos));
+        set_item_payload.extend_from_slice(&4i16.to_be_bytes());
+        set_item_payload.extend_from_slice(&10i32.to_be_bytes());
+        session
+            .ingest_packet_bytes(&encode_packet(set_item_packet_id, &set_item_payload, false).unwrap())
+            .unwrap();
+
+        session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    take_items_packet_id,
+                    &encode_take_items_payload(Some(build_pos), Some(4), 6, ClientUnitRef::Standard(99)),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    transfer_item_to_packet_id,
+                    &encode_transfer_item_to_payload(
+                        ClientUnitRef::Standard(99),
+                        Some(4),
+                        2,
+                        12.5,
+                        -4.0,
+                        Some(build_pos),
+                    ),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    transfer_item_to_unit_packet_id,
+                    &encode_transfer_item_to_unit_payload(Some(4), 3.25, 4.5, Some(88)),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .building_items_by_build
+                .get(&build_pos)
+                .cloned(),
+            Some(std::collections::BTreeMap::from([(4, 6)]))
+        );
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .entity_item_stack_by_entity_id
+                .get(&99)
+                .cloned(),
+            Some(crate::session_state::ResourceUnitItemStack {
+                item_id: Some(4),
+                amount: 4,
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .entity_item_stack_by_entity_id
+                .get(&88)
+                .cloned(),
+            Some(crate::session_state::ResourceUnitItemStack {
+                item_id: Some(4),
+                amount: 1,
+            })
+        );
+        assert_eq!(session.state().resource_delta_projection.delta_apply_count, 3);
+        assert_eq!(session.state().resource_delta_projection.delta_skip_count, 0);
+        assert_eq!(session.state().resource_delta_projection.delta_conflict_count, 0);
+        assert_eq!(session.state().resource_delta_projection.entity_count(), 2);
+        assert_eq!(
+            session.state().resource_delta_projection.last_changed_entity_id,
+            Some(88)
+        );
+        assert_eq!(
+            session.state().resource_delta_projection.last_changed_amount,
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn resource_delta_projection_fail_closes_and_cleans_up_on_lifecycle_packets() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let set_item_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setItem")
+            .unwrap()
+            .packet_id;
+        let transfer_item_to_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "transferItemTo")
+            .unwrap()
+            .packet_id;
+        let transfer_item_to_unit_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "transferItemToUnit")
+            .unwrap()
+            .packet_id;
+        let take_items_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "takeItems")
+            .unwrap()
+            .packet_id;
+        let build_destroyed_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "buildDestroyed")
+            .unwrap()
+            .packet_id;
+        let unit_despawn_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "unitDespawn")
+            .unwrap()
+            .packet_id;
+
+        let build_pos = pack_point2(4, 7);
+        let mut set_item_payload = encode_building_payload(Some(build_pos));
+        set_item_payload.extend_from_slice(&4i16.to_be_bytes());
+        set_item_payload.extend_from_slice(&10i32.to_be_bytes());
+        session
+            .ingest_packet_bytes(&encode_packet(set_item_packet_id, &set_item_payload, false).unwrap())
+            .unwrap();
+        session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    transfer_item_to_unit_packet_id,
+                    &encode_transfer_item_to_unit_payload(Some(4), 1.0, 2.0, Some(88)),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+        session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    transfer_item_to_packet_id,
+                    &encode_transfer_item_to_payload(
+                        ClientUnitRef::Standard(88),
+                        Some(6),
+                        1,
+                        0.0,
+                        0.0,
+                        Some(build_pos),
+                    ),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    take_items_packet_id,
+                    &encode_take_items_payload(
+                        Some(pack_point2(8, 8)),
+                        Some(4),
+                        1,
+                        ClientUnitRef::Block(pack_point2(1, 1)),
+                    ),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+        assert_eq!(session.state().resource_delta_projection.delta_apply_count, 1);
+        assert_eq!(session.state().resource_delta_projection.delta_skip_count, 2);
+        assert_eq!(session.state().resource_delta_projection.delta_conflict_count, 1);
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .building_items_by_build
+                .get(&build_pos)
+                .cloned(),
+            Some(std::collections::BTreeMap::from([(4, 10)]))
+        );
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .entity_item_stack_by_entity_id
+                .get(&88)
+                .cloned(),
+            Some(crate::session_state::ResourceUnitItemStack {
+                item_id: Some(4),
+                amount: 1,
+            })
+        );
+
+        session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    build_destroyed_packet_id,
+                    &encode_building_payload(Some(build_pos)),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    unit_despawn_packet_id,
+                    &encode_unit_payload(ClientUnitRef::Standard(88)),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .building_items_by_build
+                .get(&build_pos),
+            None
+        );
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .entity_item_stack_by_entity_id
+                .get(&88),
+            None
         );
     }
 
