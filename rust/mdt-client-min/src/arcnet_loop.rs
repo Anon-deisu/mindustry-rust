@@ -445,13 +445,17 @@ mod tests {
             .join("../../fixtures/remote/remote-manifest-v1.json")
     }
 
+    const LOCAL_ARCNET_BIND_ATTEMPTS: usize = 512;
+
     fn bind_local_arcnet_server() -> (TcpListener, UdpSocket, SocketAddr) {
-        for _ in 0..64 {
+        for _ in 0..LOCAL_ARCNET_BIND_ATTEMPTS {
             let tcp_listener = TcpListener::bind("127.0.0.1:0").unwrap();
             let server_addr = tcp_listener.local_addr().unwrap();
             if let Ok(udp_socket) = UdpSocket::bind(server_addr) {
                 return (tcp_listener, udp_socket, server_addr);
             }
+            drop(tcp_listener);
+            thread::sleep(Duration::from_millis(1));
         }
         panic!("failed to bind local TCP+UDP sockets on the same port");
     }

@@ -19,6 +19,8 @@ Architecture boundary source of truth:
 - `rust/WORKSPACES.md` owns the split-workspace topology summary
 - `rust/WORKSPACE_RUNBOOK.md` owns day-to-day command entry points for the split workspaces
 - `rust/FIXTURE_PATHS.md` owns canonical-vs-test-vs-mirror fixture path policy
+- `rust/mdt-client-min/INTERNAL_BOUNDARIES.md` owns the current low-risk placement guide for
+  new `mdt-client-min` work
 - this handoff note only owns sync/upload policy
 
 - target repo: `https://github.com/Anon-deisu/mindustry-rust`

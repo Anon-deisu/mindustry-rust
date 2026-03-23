@@ -265,7 +265,7 @@ pub enum EffectBusinessProjection {
     FloatValue(u32),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UnitRefProjection {
     pub kind: u8,
     pub value: i32,
@@ -302,6 +302,23 @@ pub struct PayloadDroppedProjection {
     pub unit: Option<UnitRefProjection>,
     pub x_bits: u32,
     pub y_bits: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PayloadLifecycleCarrierProjection {
+    pub carrier: UnitRefProjection,
+    pub target_unit: Option<UnitRefProjection>,
+    pub target_build: Option<i32>,
+    pub drop_tile: Option<i32>,
+    pub on_ground: Option<bool>,
+    pub removed_target_unit: bool,
+    pub removed_target_build: bool,
+    pub removed_carrier: bool,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct PayloadLifecycleProjection {
+    pub by_carrier: BTreeMap<UnitRefProjection, PayloadLifecycleCarrierProjection>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2133,6 +2150,7 @@ pub struct SessionState {
     pub last_picked_build_payload: Option<PickedBuildPayloadProjection>,
     pub received_picked_unit_payload_count: u64,
     pub last_picked_unit_payload: Option<PickedUnitPayloadProjection>,
+    pub payload_lifecycle_projection: PayloadLifecycleProjection,
     pub received_unit_entered_payload_count: u64,
     pub last_unit_entered_payload: Option<UnitEnteredPayloadProjection>,
     pub received_build_destroyed_count: u64,
@@ -2770,6 +2788,97 @@ impl SessionState {
             self.last_entity_snapshot_tombstone_skipped_ids_sample
                 .push(entity_id);
         }
+    }
+
+    pub fn record_payload_lifecycle_drop(
+        &mut self,
+        carrier: Option<UnitRefProjection>,
+        drop_tile: Option<i32>,
+    ) {
+        let Some(carrier) = carrier else {
+            return;
+        };
+        let entry = self.payload_lifecycle_projection.entry_mut(carrier);
+        entry.drop_tile = drop_tile;
+        entry.on_ground = Some(true);
+        entry.removed_carrier = false;
+        if entry.target_unit.is_some() {
+            entry.removed_target_unit = false;
+        }
+        if entry.target_build.is_some() {
+            entry.removed_target_build = false;
+        }
+    }
+
+    pub fn record_picked_build_payload_lifecycle(
+        &mut self,
+        carrier: Option<UnitRefProjection>,
+        target_build: Option<i32>,
+        on_ground: bool,
+    ) {
+        let Some(carrier) = carrier else {
+            return;
+        };
+        let entry = self.payload_lifecycle_projection.entry_mut(carrier);
+        entry.target_unit = None;
+        entry.target_build = target_build;
+        entry.drop_tile = None;
+        entry.on_ground = Some(on_ground);
+        entry.removed_target_unit = false;
+        entry.removed_target_build = target_build.is_some();
+        entry.removed_carrier = false;
+    }
+
+    pub fn record_picked_unit_payload_lifecycle(
+        &mut self,
+        carrier: Option<UnitRefProjection>,
+        target_unit: Option<UnitRefProjection>,
+    ) {
+        let Some(carrier) = carrier else {
+            return;
+        };
+        let entry = self.payload_lifecycle_projection.entry_mut(carrier);
+        entry.target_unit = target_unit;
+        entry.target_build = None;
+        entry.drop_tile = None;
+        entry.on_ground = Some(false);
+        entry.removed_target_unit = target_unit.is_some();
+        entry.removed_target_build = false;
+        entry.removed_carrier = false;
+    }
+
+    pub fn mark_payload_lifecycle_unit_despawn(&mut self, unit: Option<UnitRefProjection>) {
+        let Some(unit) = unit else {
+            return;
+        };
+        for entry in self.payload_lifecycle_projection.by_carrier.values_mut() {
+            if entry.carrier == unit {
+                entry.removed_carrier = true;
+            }
+            if entry.target_unit == Some(unit) {
+                entry.removed_target_unit = true;
+            }
+        }
+    }
+}
+
+impl PayloadLifecycleProjection {
+    fn entry_mut(
+        &mut self,
+        carrier: UnitRefProjection,
+    ) -> &mut PayloadLifecycleCarrierProjection {
+        self.by_carrier
+            .entry(carrier)
+            .or_insert_with(|| PayloadLifecycleCarrierProjection {
+                carrier,
+                target_unit: None,
+                target_build: None,
+                drop_tile: None,
+                on_ground: None,
+                removed_target_unit: false,
+                removed_target_build: false,
+                removed_carrier: false,
+            })
     }
 }
 

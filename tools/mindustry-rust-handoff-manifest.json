@@ -17,6 +17,7 @@
     "rust/mdt-input/Cargo.lock",
     "rust/mdt-client-min/Cargo.toml",
     "rust/mdt-client-min/Cargo.lock",
+    "rust/mdt-client-min/INTERNAL_BOUNDARIES.md",
     "rust/mdt-client-min/assets/version.properties",
     "rust/mdt-render-ui/Cargo.toml",
     "rust/mdt-render-ui/Cargo.lock",

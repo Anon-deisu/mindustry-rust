@@ -18,6 +18,7 @@ Current non-goal:
 - [WORKSPACES.md](WORKSPACES.md): split-workspace map and the right command for each workspace
 - [WORKSPACE_RUNBOOK.md](WORKSPACE_RUNBOOK.md): day-to-day verification entry points
 - [FIXTURE_PATHS.md](FIXTURE_PATHS.md): canonical fixture policy
+- [mdt-client-min/INTERNAL_BOUNDARIES.md](mdt-client-min/INTERNAL_BOUNDARIES.md): current internal placement guide for `mdt-client-min` work
 
 ## Crates
 
