@@ -35,7 +35,7 @@ used. Default behavior keeps preflight enforcement on.
 powershell -ExecutionPolicy Bypass -File .\tools\package-mdt-client-min-release-set.ps1 -Verify -AnimatePlayer
 
 .EXAMPLE
-powershell -ExecutionPolicy Bypass -File .\tools\package-mdt-client-min-release-set.ps1 -CleanLegacyStage -BenchWorldStreamHex .\build\archipelago-6567-world-stream.hex -Verify -AnimatePlayer
+powershell -ExecutionPolicy Bypass -File .\tools\package-mdt-client-min-release-set.ps1 -CleanLegacyStage -BenchWorldStreamHex .\fixtures\world-streams\archipelago-6567-world-stream.hex -Verify -AnimatePlayer
 #>
 param(
     [string]$BenchWorldStreamHex = '',

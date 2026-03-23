@@ -28,6 +28,15 @@ Current monorepo rule:
 - current release-facing scripts are `canonical_only`; they do not consume
   transitional fallback paths anymore
 
+Resolved target-repo parity-fixture rule:
+
+- keep Rust-consumed parity fixtures under source-compatible
+  `tests/src/test/resources/...` paths in `mindustry-rust`
+- reason: current Rust crates still hardcode those paths through
+  `include_str!(...)`, `fs::read_to_string(...)`, and CLI/demo defaults
+- do not migrate parity fixtures into a Rust-owned fixture root until those
+  code paths are first abstracted away
+
 ## Include
 
 Sync these areas first:
@@ -51,11 +60,20 @@ Sync these areas first:
   - `package-mdt-client-min-online.ps1`
   - `package-mdt-client-min-release-set.ps1`
   - `verify-mdt-client-min-release-set.ps1`
+  - `check-mdt-release-prereqs.ps1`
+  - `verify-rust-workspaces.ps1`
   - `clean-legacy-mdt-package-dirs.ps1`
   - `WINDOWS-RELEASE.md`
   - `README.md`
+  - `mindustry-rust-repo-README.md` (syncs to target-repo root `README.md`)
+- `audit/`
+  - `ci-gate-plan.md`
+- build-required shared metadata:
+  - `core/assets/version.properties`
 - Rust/Java parity fixtures still needed by the client work:
   - `tests/src/test/resources/connect-packet.hex`
+  - `tests/src/test/resources/control-packet-goldens.txt`
+  - `tests/src/test/resources/framework-message-goldens.txt`
   - `tests/src/test/resources/payload-campaign-compound-goldens.txt`
   - `tests/src/test/resources/snapshot-goldens.txt`
   - `tests/src/test/resources/typeio-goldens.txt`
@@ -129,7 +147,11 @@ powershell -ExecutionPolicy Bypass -File .\tools\package-mdt-client-min-release-
 powershell -ExecutionPolicy Bypass -File .\tools\package-mdt-client-min-release-set.ps1 -BenchWorldStreamHex .\fixtures\world-streams\archipelago-6567-world-stream.hex -Verify -AnimatePlayer
 ```
 
-## Open Decisions Before Upload
+## Upload Layout Decision
 
-- Decide whether the target repo keeps Java parity fixtures under the same paths or moves them into a Rust-owned fixture directory.
-- Decide whether the target repo wants the same `tools/README.md` and `WINDOWS-RELEASE.md` layout or a repo-root delivery doc.
+Target repo layout is now fixed as:
+
+- keep `tools/README.md` and `tools/WINDOWS-RELEASE.md` as the detailed entry
+  points
+- sync `tools/mindustry-rust-repo-README.md` to target-repo root `README.md`
+  as the top-level entry point

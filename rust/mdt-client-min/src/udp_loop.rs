@@ -182,7 +182,7 @@ mod tests {
 
     fn real_manifest_path() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../build/mdt-remote/remote-manifest-v1.json")
+            .join("../../fixtures/remote/remote-manifest-v1.json")
     }
 
     #[test]

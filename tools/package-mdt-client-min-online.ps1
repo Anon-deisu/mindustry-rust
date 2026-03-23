@@ -23,7 +23,7 @@ Also writes a zip artifact for the staged package.
 powershell -ExecutionPolicy Bypass -File .\tools\package-mdt-client-min-online.ps1
 
 .EXAMPLE
-powershell -ExecutionPolicy Bypass -File .\tools\package-mdt-client-min-online.ps1 -IncludeBenchTools -BenchWorldStreamHex .\build\archipelago-6567-world-stream.hex
+powershell -ExecutionPolicy Bypass -File .\tools\package-mdt-client-min-online.ps1 -IncludeBenchTools -BenchWorldStreamHex .\fixtures\world-streams\archipelago-6567-world-stream.hex
 #>
 param(
     [string]$StageDir = '',
@@ -100,9 +100,10 @@ $renderUiDevtoolBins = @(
 )
 $transitionalRemoteManifestPath = Join-Path $repoRoot 'rust\fixtures\remote\remote-manifest-v1.json'
 $transitionalWorldStreamFixturePath = Join-Path $repoRoot 'rust\fixtures\world-streams\archipelago-6567-world-stream.hex'
+$legacyBuildRemoteManifestPath = Join-Path $repoRoot 'build\mdt-remote\remote-manifest-v1.json'
+$legacyBuildWorldStreamPath = Join-Path $repoRoot 'build\archipelago-6567-world-stream.hex'
 $defaultManifestCandidates = @(
-    (Join-Path $repoRoot 'fixtures\remote\remote-manifest-v1.json'),
-    (Join-Path $repoRoot 'build\mdt-remote\remote-manifest-v1.json')
+    (Join-Path $repoRoot 'fixtures\remote\remote-manifest-v1.json')
 )
 
 if ([string]::IsNullOrWhiteSpace($StageDir)) {
@@ -117,13 +118,15 @@ if ([string]::IsNullOrWhiteSpace($ManifestPath)) {
     $ManifestPath = Select-FirstExistingPath -Candidates $defaultManifestCandidates
 }
 
-if ((Normalize-PathForComparison -Path $ManifestPath) -eq (Normalize-PathForComparison -Path $transitionalRemoteManifestPath)) {
-    throw "transitional fixture path is not allowed at R+2: $ManifestPath; use fixtures\\remote\\remote-manifest-v1.json"
+if (((Normalize-PathForComparison -Path $ManifestPath) -eq (Normalize-PathForComparison -Path $transitionalRemoteManifestPath)) -or
+    ((Normalize-PathForComparison -Path $ManifestPath) -eq (Normalize-PathForComparison -Path $legacyBuildRemoteManifestPath))) {
+    throw "non-canonical manifest path is not allowed at R+2: $ManifestPath; use fixtures\\remote\\remote-manifest-v1.json"
 }
 
 if ((-not [string]::IsNullOrWhiteSpace($BenchWorldStreamHex)) -and `
-    ((Normalize-PathForComparison -Path $BenchWorldStreamHex) -eq (Normalize-PathForComparison -Path $transitionalWorldStreamFixturePath))) {
-    throw "transitional fixture path is not allowed at R+2: $BenchWorldStreamHex; use fixtures\\world-streams\\archipelago-6567-world-stream.hex"
+    (((Normalize-PathForComparison -Path $BenchWorldStreamHex) -eq (Normalize-PathForComparison -Path $transitionalWorldStreamFixturePath)) -or
+     ((Normalize-PathForComparison -Path $BenchWorldStreamHex) -eq (Normalize-PathForComparison -Path $legacyBuildWorldStreamPath)))) {
+    throw "non-canonical fixture path is not allowed at R+2: $BenchWorldStreamHex; use fixtures\\world-streams\\archipelago-6567-world-stream.hex"
 }
 
 if (-not (Test-Path $crateManifest)) {

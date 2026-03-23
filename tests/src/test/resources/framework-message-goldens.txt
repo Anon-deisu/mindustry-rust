@@ -1,0 +1,5 @@
+ping.packet=fe00075bcd1501
+discoverHost.packet=fe01
+keepAlive.packet=fe02
+registerUdp.packet=fe03132c10cb
+registerTcp.packet=fe0408180754

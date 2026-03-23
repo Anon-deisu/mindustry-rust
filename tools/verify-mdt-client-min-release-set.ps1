@@ -69,6 +69,7 @@ $cleanupScript = Join-Path $PSScriptRoot 'clean-legacy-mdt-package-dirs.ps1'
 $preflightScript = Join-Path $PSScriptRoot 'check-mdt-release-prereqs.ps1'
 $workspaceVerifyScript = Join-Path $PSScriptRoot 'verify-rust-workspaces.ps1'
 $transitionalWorldStreamFixturePath = Join-Path $repoRoot 'rust\fixtures\world-streams\archipelago-6567-world-stream.hex'
+$legacyBuildWorldStreamPath = Join-Path $repoRoot 'build\archipelago-6567-world-stream.hex'
 $legacyStageDirs = @(
     (Join-Path $repoRoot 'build\windows\mdt-client-min-online'),
     (Join-Path $repoRoot '-StageDir')
@@ -127,14 +128,14 @@ function Normalize-PathForComparison {
 
 if ([string]::IsNullOrWhiteSpace($BenchWorldStreamHex)) {
     $BenchWorldStreamHex = Select-FirstExistingPath -Candidates @(
-        (Join-Path $repoRoot 'fixtures\world-streams\archipelago-6567-world-stream.hex'),
-        (Join-Path $repoRoot 'build\archipelago-6567-world-stream.hex')
+        (Join-Path $repoRoot 'fixtures\world-streams\archipelago-6567-world-stream.hex')
     )
 }
 
 if ((-not [string]::IsNullOrWhiteSpace($BenchWorldStreamHex)) -and `
-    ((Normalize-PathForComparison -Path $BenchWorldStreamHex) -eq (Normalize-PathForComparison -Path $transitionalWorldStreamFixturePath))) {
-    throw "transitional fixture path is not allowed at R+2: $BenchWorldStreamHex; use fixtures\\world-streams\\archipelago-6567-world-stream.hex"
+    (((Normalize-PathForComparison -Path $BenchWorldStreamHex) -eq (Normalize-PathForComparison -Path $transitionalWorldStreamFixturePath)) -or
+     ((Normalize-PathForComparison -Path $BenchWorldStreamHex) -eq (Normalize-PathForComparison -Path $legacyBuildWorldStreamPath)))) {
+    throw "non-canonical fixture path is not allowed at R+2: $BenchWorldStreamHex; use fixtures\\world-streams\\archipelago-6567-world-stream.hex"
 }
 
 if (-not $SkipPreflight) {

@@ -15,6 +15,10 @@ desktop-client parity.
 
 ## CI Release Gate Governance
 
+Reference-only note: this section documents the current source-monorepo gate
+policy and runbook. The target `mindustry-rust` repo tracks these documents,
+but does not automatically imply the workflow is already wired there.
+
 - Required protected-branch check context: `Rust Release Gate / rust-release-gate`
 - Owner roles:
   - Primary: `ReleaseOperator`
@@ -31,3 +35,5 @@ desktop-client parity.
 - [`mindustry-rust-target.json`](mindustry-rust-target.json): machine-readable single upload target record for future sync/push work
 - [`get-mindustry-rust-target.ps1`](get-mindustry-rust-target.ps1): prints the fixed upload target, default checkout path, and sync strategy
 - [`sync-mindustry-rust-handoff.ps1`](sync-mindustry-rust-handoff.ps1): copies the handoff include set into the fixed `mindustry-rust` checkout after verifying the checkout remote
+- [`mindustry-rust-repo-README.md`](mindustry-rust-repo-README.md): target-repo root README template synced as `README.md`
+- Handoff fixture rule: runtime fixtures are canonical under `fixtures/...`; Rust-consumed parity fixtures stay source-compatible under `tests/src/test/resources/...` for now

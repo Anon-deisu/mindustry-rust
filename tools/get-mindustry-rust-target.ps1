@@ -41,4 +41,5 @@ if ($Json) {
     DefaultCheckoutPath = $config.default_checkout_path
     SyncStrategy        = $config.sync_strategy
     CanonicalFixtures   = ($config.canonical_fixture_paths -join ", ")
+    ParityFixtureRoot   = $config.canonical_parity_fixture_root
 }

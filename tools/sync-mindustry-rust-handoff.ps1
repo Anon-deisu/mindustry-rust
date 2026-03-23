@@ -83,17 +83,24 @@ $files = @(
     "rust/mdt-client-min/Cargo.lock",
     "rust/mdt-render-ui/Cargo.toml",
     "rust/mdt-render-ui/Cargo.lock",
+    "core/assets/version.properties",
+    "tools/check-mdt-release-prereqs.ps1",
     "tools/package-mdt-client-min-online.ps1",
     "tools/package-mdt-client-min-release-set.ps1",
     "tools/verify-mdt-client-min-release-set.ps1",
+    "tools/verify-rust-workspaces.ps1",
     "tools/clean-legacy-mdt-package-dirs.ps1",
     "tools/WINDOWS-RELEASE.md",
     "tools/README.md",
     "tools/MINDUSTRY-RUST-HANDOFF.md",
     "tools/mindustry-rust-target.json",
     "tools/get-mindustry-rust-target.ps1",
+    "tools/mindustry-rust-repo-README.md",
     "tools/sync-mindustry-rust-handoff.ps1",
+    "audit/ci-gate-plan.md",
     "tests/src/test/resources/connect-packet.hex",
+    "tests/src/test/resources/control-packet-goldens.txt",
+    "tests/src/test/resources/framework-message-goldens.txt",
     "tests/src/test/resources/payload-campaign-compound-goldens.txt",
     "tests/src/test/resources/snapshot-goldens.txt",
     "tests/src/test/resources/typeio-goldens.txt",
@@ -143,6 +150,19 @@ function Copy-RelativeDirectory([string]$RelativePath) {
     Copy-Item -Path (Join-Path $sourcePath "*") -Destination $targetPath -Recurse -Force
 }
 
+function Copy-MappedFile([string]$SourceRelativePath, [string]$TargetRelativePath) {
+    $sourcePath = Join-Path $SourceRoot $SourceRelativePath
+    $targetPath = Join-Path $TargetCheckout $TargetRelativePath
+    if (!(Test-Path $sourcePath)) {
+        throw "Missing source file: $sourcePath"
+    }
+    $parent = Split-Path -Parent $targetPath
+    if (!(Test-Path $parent)) {
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    }
+    Copy-Item -Path $sourcePath -Destination $targetPath -Force
+}
+
 foreach ($relativePath in $files) {
     Copy-RelativeFile $relativePath
 }
@@ -150,6 +170,8 @@ foreach ($relativePath in $files) {
 foreach ($relativePath in $dirs) {
     Copy-RelativeDirectory $relativePath
 }
+
+Copy-MappedFile -SourceRelativePath "tools/mindustry-rust-repo-README.md" -TargetRelativePath "README.md"
 
 if ($Stage) {
     git -C $TargetCheckout add .

@@ -8,5 +8,16 @@
     "fixtures/remote/remote-manifest-v1.json",
     "fixtures/world-streams/archipelago-6567-world-stream.hex"
   ],
+  "canonical_parity_fixture_root": "tests/src/test/resources",
+  "canonical_parity_fixture_paths": [
+    "tests/src/test/resources/connect-packet.hex",
+    "tests/src/test/resources/control-packet-goldens.txt",
+    "tests/src/test/resources/framework-message-goldens.txt",
+    "tests/src/test/resources/payload-campaign-compound-goldens.txt",
+    "tests/src/test/resources/snapshot-goldens.txt",
+    "tests/src/test/resources/typeio-goldens.txt",
+    "tests/src/test/resources/world-stream.hex"
+  ],
+  "parity_fixture_layout_decision": "Keep source-compatible tests/src/test/resources paths in the target repo until Rust code stops depending on those compile-time and CLI paths.",
   "note": "This is the single upload target for the Rust Mindustry client work. Do not push source-monorepo history to the official upstream."
 }
