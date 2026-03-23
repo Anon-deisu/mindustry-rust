@@ -217,6 +217,7 @@ pub struct ClientSession {
     open_uri_packet_id: Option<u8>,
     create_marker_packet_id: Option<u8>,
     remove_marker_packet_id: Option<u8>,
+    remove_tile_packet_id: Option<u8>,
     remove_world_label_packet_id: Option<u8>,
     update_marker_packet_id: Option<u8>,
     update_marker_text_packet_id: Option<u8>,
@@ -227,6 +228,7 @@ pub struct ClientSession {
     set_hud_text_reliable_packet_id: Option<u8>,
     set_liquid_packet_id: Option<u8>,
     set_liquids_packet_id: Option<u8>,
+    set_tile_packet_id: Option<u8>,
     set_tile_overlays_packet_id: Option<u8>,
     set_tile_items_packet_id: Option<u8>,
     set_tile_liquids_packet_id: Option<u8>,
@@ -597,6 +599,11 @@ impl ClientSession {
             .iter()
             .find(|entry| entry.method == "removeMarker")
             .map(|entry| entry.packet_id);
+        let remove_tile_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "removeTile")
+            .map(|entry| entry.packet_id);
         let remove_world_label_packet_id = manifest
             .remote_packets
             .iter()
@@ -646,6 +653,11 @@ impl ClientSession {
             .remote_packets
             .iter()
             .find(|entry| entry.method == "setLiquids")
+            .map(|entry| entry.packet_id);
+        let set_tile_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setTile")
             .map(|entry| entry.packet_id);
         let set_tile_overlays_packet_id = manifest
             .remote_packets
@@ -1167,6 +1179,7 @@ impl ClientSession {
             open_uri_packet_id,
             create_marker_packet_id,
             remove_marker_packet_id,
+            remove_tile_packet_id,
             remove_world_label_packet_id,
             update_marker_packet_id,
             update_marker_text_packet_id,
@@ -1177,6 +1190,7 @@ impl ClientSession {
             set_hud_text_reliable_packet_id,
             set_liquid_packet_id,
             set_liquids_packet_id,
+            set_tile_packet_id,
             set_tile_overlays_packet_id,
             set_tile_items_packet_id,
             set_tile_liquids_packet_id,
@@ -2419,6 +2433,19 @@ impl ClientSession {
                     })
                 }
             }
+            packet_id if Some(packet_id) == self.remove_tile_packet_id => {
+                if let Some(tile_pos) = decode_remove_tile_payload(&packet.payload) {
+                    self.state.received_remove_tile_count =
+                        self.state.received_remove_tile_count.saturating_add(1);
+                    self.state.last_remove_tile_pos = tile_pos;
+                    Ok(ClientSessionEvent::RemoveTile { tile_pos })
+                } else {
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
             packet_id if Some(packet_id) == self.update_marker_packet_id => {
                 if let Some(summary) = decode_update_marker_payload(&packet.payload) {
                     self.state.received_update_marker_count =
@@ -2741,6 +2768,27 @@ impl ClientSession {
                         stack_count: summary.stack_count,
                         first_liquid_id: summary.first_liquid_id,
                         first_amount_bits: summary.first_amount_bits,
+                    })
+                } else {
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
+            packet_id if Some(packet_id) == self.set_tile_packet_id => {
+                if let Some(summary) = decode_set_tile_payload(&packet.payload) {
+                    self.state.received_set_tile_count =
+                        self.state.received_set_tile_count.saturating_add(1);
+                    self.state.last_set_tile_pos = summary.tile_pos;
+                    self.state.last_set_tile_block_id = summary.block_id;
+                    self.state.last_set_tile_team_id = Some(summary.team_id);
+                    self.state.last_set_tile_rotation = Some(summary.rotation);
+                    Ok(ClientSessionEvent::SetTile {
+                        tile_pos: summary.tile_pos,
+                        block_id: summary.block_id,
+                        team_id: summary.team_id,
+                        rotation: summary.rotation,
                     })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -6157,6 +6205,9 @@ pub enum ClientSessionEvent {
     RemoveMarker {
         marker_id: i32,
     },
+    RemoveTile {
+        tile_pos: Option<i32>,
+    },
     UpdateMarker {
         marker_id: i32,
         control: u8,
@@ -6247,6 +6298,12 @@ pub enum ClientSessionEvent {
         block_id: Option<i16>,
         position_count: usize,
         first_position: Option<i32>,
+    },
+    SetTile {
+        tile_pos: Option<i32>,
+        block_id: Option<i16>,
+        team_id: u8,
+        rotation: i32,
     },
     SyncVariable {
         build_pos: Option<i32>,
@@ -7171,6 +7228,26 @@ fn decode_set_tile_overlays_payload(payload: &[u8]) -> Option<SetTileOverlaysSum
         block_id: (raw_block_id != -1).then_some(raw_block_id),
         position_count: positions.len(),
         first_position: positions.first().copied(),
+    })
+}
+
+fn decode_remove_tile_payload(payload: &[u8]) -> Option<Option<i32>> {
+    let mut cursor = 0usize;
+    let tile_pos = read_optional_tile_pos(payload, &mut cursor)?;
+    (cursor == payload.len()).then_some(tile_pos)
+}
+
+fn decode_set_tile_payload(payload: &[u8]) -> Option<SetTileSummary> {
+    let mut cursor = 0usize;
+    let tile_pos = read_optional_tile_pos(payload, &mut cursor)?;
+    let raw_block_id = read_i16(payload, &mut cursor)?;
+    let team_id = read_u8(payload, &mut cursor)?;
+    let rotation = read_i32(payload, &mut cursor)?;
+    (cursor == payload.len()).then_some(SetTileSummary {
+        tile_pos,
+        block_id: (raw_block_id != -1).then_some(raw_block_id),
+        team_id,
+        rotation,
     })
 }
 
@@ -8324,6 +8401,14 @@ struct SetTileOverlaysSummary {
     block_id: Option<i16>,
     position_count: usize,
     first_position: Option<i32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SetTileSummary {
+    tile_pos: Option<i32>,
+    block_id: Option<i16>,
+    team_id: u8,
+    rotation: i32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -10335,6 +10420,20 @@ fn encode_tile_payload(tile_pos: Option<i32>) -> Vec<u8> {
         .unwrap_or_else(|| pack_point2(-1, -1))
         .to_be_bytes()
         .to_vec()
+}
+
+#[cfg(test)]
+fn encode_set_tile_payload(
+    tile_pos: Option<i32>,
+    block_id: Option<i16>,
+    team_id: u8,
+    rotation: i32,
+) -> Vec<u8> {
+    let mut payload = encode_tile_payload(tile_pos);
+    payload.extend_from_slice(&block_id.unwrap_or(-1).to_be_bytes());
+    payload.push(team_id);
+    payload.extend_from_slice(&rotation.to_be_bytes());
+    payload
 }
 
 #[cfg(test)]
@@ -18329,6 +18428,116 @@ mod tests {
                 .as_deref(),
             Some("string")
         );
+    }
+
+    #[test]
+    fn tile_authority_packets_emit_observability_events() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let remove_tile_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "removeTile")
+            .unwrap()
+            .packet_id;
+        let set_tile_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setTile")
+            .unwrap()
+            .packet_id;
+
+        let remove_tile_event = session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    remove_tile_packet_id,
+                    &encode_tile_payload(Some(pack_point2(2, 3))),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            remove_tile_event,
+            ClientSessionEvent::RemoveTile {
+                tile_pos: Some(pack_point2(2, 3)),
+            }
+        );
+        assert_eq!(session.state().received_remove_tile_count, 1);
+        assert_eq!(
+            session.state().last_remove_tile_pos,
+            Some(pack_point2(2, 3))
+        );
+
+        let set_tile_event = session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    set_tile_packet_id,
+                    &encode_set_tile_payload(Some(pack_point2(4, 5)), Some(29), 2, 3),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            set_tile_event,
+            ClientSessionEvent::SetTile {
+                tile_pos: Some(pack_point2(4, 5)),
+                block_id: Some(29),
+                team_id: 2,
+                rotation: 3,
+            }
+        );
+        assert_eq!(session.state().received_set_tile_count, 1);
+        assert_eq!(session.state().last_set_tile_pos, Some(pack_point2(4, 5)));
+        assert_eq!(session.state().last_set_tile_block_id, Some(29));
+        assert_eq!(session.state().last_set_tile_team_id, Some(2));
+        assert_eq!(session.state().last_set_tile_rotation, Some(3));
+    }
+
+    #[test]
+    fn tile_authority_packets_with_invalid_payloads_are_ignored() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let remove_tile_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "removeTile")
+            .unwrap()
+            .packet_id;
+        let set_tile_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setTile")
+            .unwrap()
+            .packet_id;
+
+        for (packet_id, payload) in [
+            (remove_tile_packet_id, vec![0x00, 0x01, 0x02]),
+            (
+                set_tile_packet_id,
+                encode_set_tile_payload(Some(pack_point2(4, 5)), Some(29), 2, 3)[..10].to_vec(),
+            ),
+        ] {
+            let event = session
+                .ingest_packet_bytes(&encode_packet(packet_id, &payload, false).unwrap())
+                .unwrap();
+            assert!(matches!(
+                event,
+                ClientSessionEvent::IgnoredPacket {
+                    packet_id: ignored_id,
+                    ..
+                } if ignored_id == packet_id
+            ));
+        }
+
+        assert_eq!(session.state().received_remove_tile_count, 0);
+        assert_eq!(session.state().last_remove_tile_pos, None);
+        assert_eq!(session.state().received_set_tile_count, 0);
+        assert_eq!(session.state().last_set_tile_pos, None);
+        assert_eq!(session.state().last_set_tile_block_id, None);
+        assert_eq!(session.state().last_set_tile_team_id, None);
+        assert_eq!(session.state().last_set_tile_rotation, None);
     }
 
     #[test]

@@ -4363,6 +4363,17 @@ fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<String> 
             } => Some(format!(
                 "set_tile_overlays: block_id={block_id:?} count={position_count} first_position={first_position:?}"
             )),
+            ClientSessionEvent::RemoveTile { tile_pos } => {
+                Some(format!("remove_tile: tile_pos={tile_pos:?}"))
+            }
+            ClientSessionEvent::SetTile {
+                tile_pos,
+                block_id,
+                team_id,
+                rotation,
+            } => Some(format!(
+                "set_tile: tile_pos={tile_pos:?} block_id={block_id:?} team_id={team_id} rotation={rotation}"
+            )),
             ClientSessionEvent::SyncVariable {
                 build_pos,
                 variable,
@@ -7075,6 +7086,15 @@ mod tests {
     #[test]
     fn summarize_client_packet_events_includes_tile_overlay_and_logic_sync_observability() {
         let lines = summarize_client_packet_events(&[
+            ClientSessionEvent::RemoveTile {
+                tile_pos: Some(pack_point2(2, 3)),
+            },
+            ClientSessionEvent::SetTile {
+                tile_pos: Some(pack_point2(4, 5)),
+                block_id: Some(29),
+                team_id: 2,
+                rotation: 3,
+            },
             ClientSessionEvent::SetTileOverlays {
                 block_id: Some(17),
                 position_count: 2,
@@ -7088,14 +7108,21 @@ mod tests {
             },
         ]);
 
-        assert_eq!(lines.len(), 2);
-        assert!(lines[0].contains("set_tile_overlays:"));
-        assert!(lines[0].contains("block_id=Some(17)"));
-        assert!(lines[0].contains("count=2"));
-        assert!(lines[1].contains("sync_variable:"));
-        assert!(lines[1].contains("variable=4"));
-        assert!(lines[1].contains("value_kind=4"));
-        assert!(lines[1].contains("\"string\""));
+        assert_eq!(lines.len(), 4);
+        assert!(lines[0].contains("remove_tile:"));
+        assert!(lines[0].contains(&format!("tile_pos=Some({})", pack_point2(2, 3))));
+        assert!(lines[1].contains("set_tile:"));
+        assert!(lines[1].contains(&format!("tile_pos=Some({})", pack_point2(4, 5))));
+        assert!(lines[1].contains("block_id=Some(29)"));
+        assert!(lines[1].contains("team_id=2"));
+        assert!(lines[1].contains("rotation=3"));
+        assert!(lines[2].contains("set_tile_overlays:"));
+        assert!(lines[2].contains("block_id=Some(17)"));
+        assert!(lines[2].contains("count=2"));
+        assert!(lines[3].contains("sync_variable:"));
+        assert!(lines[3].contains("variable=4"));
+        assert!(lines[3].contains("value_kind=4"));
+        assert!(lines[3].contains("\"string\""));
     }
 
     #[test]
