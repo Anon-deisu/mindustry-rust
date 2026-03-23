@@ -4382,6 +4382,12 @@ fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<String> 
             } => Some(format!(
                 "set_overlay: tile_pos={tile_pos:?} overlay_id={overlay_id:?}"
             )),
+            ClientSessionEvent::SetMapArea { x, y, w, h } => {
+                Some(format!("set_map_area: x={x} y={y} w={w} h={h}"))
+            }
+            ClientSessionEvent::SetTeam { build_pos, team_id } => Some(format!(
+                "set_team: build_pos={build_pos:?} team_id={team_id}"
+            )),
             ClientSessionEvent::SetTileItems {
                 item_id,
                 amount,
@@ -6617,6 +6623,32 @@ mod tests {
         assert!(lines[2].contains("unit_id=707"));
         assert!(lines[3].contains("assembler_unit_spawned:"));
         assert!(lines[3].contains("tile_pos=None"));
+    }
+
+    #[test]
+    fn summarize_client_packet_events_includes_set_map_area_and_set_team_observability() {
+        let lines = summarize_client_packet_events(&[
+            ClientSessionEvent::SetMapArea {
+                x: 10,
+                y: 20,
+                w: 30,
+                h: 40,
+            },
+            ClientSessionEvent::SetTeam {
+                build_pos: Some(pack_point2(7, 8)),
+                team_id: 2,
+            },
+        ]);
+
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].contains("set_map_area:"));
+        assert!(lines[0].contains("x=10"));
+        assert!(lines[0].contains("y=20"));
+        assert!(lines[0].contains("w=30"));
+        assert!(lines[0].contains("h=40"));
+        assert!(lines[1].contains("set_team:"));
+        assert!(lines[1].contains(&format!("build_pos=Some({})", pack_point2(7, 8))));
+        assert!(lines[1].contains("team_id=2"));
     }
 
     #[test]

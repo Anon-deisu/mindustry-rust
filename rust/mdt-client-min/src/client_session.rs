@@ -229,7 +229,9 @@ pub struct ClientSession {
     set_floor_packet_id: Option<u8>,
     set_liquid_packet_id: Option<u8>,
     set_liquids_packet_id: Option<u8>,
+    set_map_area_packet_id: Option<u8>,
     set_overlay_packet_id: Option<u8>,
+    set_team_packet_id: Option<u8>,
     set_tile_packet_id: Option<u8>,
     set_tile_overlays_packet_id: Option<u8>,
     set_tile_items_packet_id: Option<u8>,
@@ -666,10 +668,20 @@ impl ClientSession {
             .iter()
             .find(|entry| entry.method == "setLiquids")
             .map(|entry| entry.packet_id);
+        let set_map_area_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setMapArea")
+            .map(|entry| entry.packet_id);
         let set_overlay_packet_id = manifest
             .remote_packets
             .iter()
             .find(|entry| entry.method == "setOverlay")
+            .map(|entry| entry.packet_id);
+        let set_team_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setTeam")
             .map(|entry| entry.packet_id);
         let set_tile_packet_id = manifest
             .remote_packets
@@ -1233,7 +1245,9 @@ impl ClientSession {
             set_floor_packet_id,
             set_liquid_packet_id,
             set_liquids_packet_id,
+            set_map_area_packet_id,
             set_overlay_packet_id,
+            set_team_packet_id,
             set_tile_packet_id,
             set_tile_overlays_packet_id,
             set_tile_items_packet_id,
@@ -2853,6 +2867,44 @@ impl ClientSession {
                     Ok(ClientSessionEvent::SetOverlay {
                         tile_pos: summary.tile_pos,
                         overlay_id: summary.overlay_id,
+                    })
+                } else {
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
+            packet_id if Some(packet_id) == self.set_map_area_packet_id => {
+                if let Some(summary) = decode_set_map_area_payload(&packet.payload) {
+                    self.state.received_set_map_area_count =
+                        self.state.received_set_map_area_count.saturating_add(1);
+                    self.state.last_set_map_area_x = Some(summary.x);
+                    self.state.last_set_map_area_y = Some(summary.y);
+                    self.state.last_set_map_area_w = Some(summary.w);
+                    self.state.last_set_map_area_h = Some(summary.h);
+                    Ok(ClientSessionEvent::SetMapArea {
+                        x: summary.x,
+                        y: summary.y,
+                        w: summary.w,
+                        h: summary.h,
+                    })
+                } else {
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
+            packet_id if Some(packet_id) == self.set_team_packet_id => {
+                if let Some(summary) = decode_set_team_payload(&packet.payload) {
+                    self.state.received_set_team_count =
+                        self.state.received_set_team_count.saturating_add(1);
+                    self.state.last_set_team_build_pos = summary.build_pos;
+                    self.state.last_set_team_id = Some(summary.team_id);
+                    Ok(ClientSessionEvent::SetTeam {
+                        build_pos: summary.build_pos,
+                        team_id: summary.team_id,
                     })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -6494,6 +6546,16 @@ pub enum ClientSessionEvent {
         tile_pos: Option<i32>,
         overlay_id: Option<i16>,
     },
+    SetMapArea {
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+    },
+    SetTeam {
+        build_pos: Option<i32>,
+        team_id: u8,
+    },
     SetTileItems {
         item_id: Option<i16>,
         amount: i32,
@@ -7426,6 +7488,22 @@ fn decode_set_overlay_payload(payload: &[u8]) -> Option<SetOverlaySummary> {
         tile_pos,
         overlay_id: (raw_overlay_id != -1).then_some(raw_overlay_id),
     })
+}
+
+fn decode_set_map_area_payload(payload: &[u8]) -> Option<SetMapAreaSummary> {
+    let mut cursor = 0usize;
+    let x = read_i32(payload, &mut cursor)?;
+    let y = read_i32(payload, &mut cursor)?;
+    let w = read_i32(payload, &mut cursor)?;
+    let h = read_i32(payload, &mut cursor)?;
+    (cursor == payload.len()).then_some(SetMapAreaSummary { x, y, w, h })
+}
+
+fn decode_set_team_payload(payload: &[u8]) -> Option<SetTeamSummary> {
+    let mut cursor = 0usize;
+    let build_pos = read_optional_build_pos(payload, &mut cursor)?;
+    let team_id = read_u8(payload, &mut cursor)?;
+    (cursor == payload.len()).then_some(SetTeamSummary { build_pos, team_id })
 }
 
 fn decode_set_tile_items_payload(payload: &[u8]) -> Option<SetTileItemsSummary> {
@@ -8669,6 +8747,20 @@ struct SetFloorSummary {
 struct SetOverlaySummary {
     tile_pos: Option<i32>,
     overlay_id: Option<i16>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SetMapAreaSummary {
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SetTeamSummary {
+    build_pos: Option<i32>,
+    team_id: u8,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -10775,6 +10867,23 @@ fn encode_set_floor_payload(
 fn encode_set_overlay_payload(tile_pos: Option<i32>, overlay_id: Option<i16>) -> Vec<u8> {
     let mut payload = encode_tile_payload(tile_pos);
     payload.extend_from_slice(&overlay_id.unwrap_or(-1).to_be_bytes());
+    payload
+}
+
+#[cfg(test)]
+fn encode_set_map_area_payload(x: i32, y: i32, w: i32, h: i32) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(16);
+    payload.extend_from_slice(&x.to_be_bytes());
+    payload.extend_from_slice(&y.to_be_bytes());
+    payload.extend_from_slice(&w.to_be_bytes());
+    payload.extend_from_slice(&h.to_be_bytes());
+    payload
+}
+
+#[cfg(test)]
+fn encode_building_team_payload(build_pos: Option<i32>, team_id: u8) -> Vec<u8> {
+    let mut payload = encode_building_payload(build_pos);
+    payload.push(team_id);
     payload
 }
 
@@ -22453,6 +22562,70 @@ mod tests {
     }
 
     #[test]
+    fn set_map_area_and_set_team_packets_emit_observability_events() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let set_map_area_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setMapArea")
+            .unwrap()
+            .packet_id;
+        let set_team_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setTeam")
+            .unwrap()
+            .packet_id;
+
+        let set_map_area_event = session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    set_map_area_packet_id,
+                    &encode_set_map_area_payload(10, 20, 30, 40),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            set_map_area_event,
+            ClientSessionEvent::SetMapArea {
+                x: 10,
+                y: 20,
+                w: 30,
+                h: 40,
+            }
+        );
+        assert_eq!(session.state().received_set_map_area_count, 1);
+        assert_eq!(session.state().last_set_map_area_x, Some(10));
+        assert_eq!(session.state().last_set_map_area_y, Some(20));
+        assert_eq!(session.state().last_set_map_area_w, Some(30));
+        assert_eq!(session.state().last_set_map_area_h, Some(40));
+
+        let set_team_event = session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    set_team_packet_id,
+                    &encode_building_team_payload(Some(pack_point2(7, 8)), 2),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            set_team_event,
+            ClientSessionEvent::SetTeam {
+                build_pos: Some(pack_point2(7, 8)),
+                team_id: 2,
+            }
+        );
+        assert_eq!(session.state().received_set_team_count, 1);
+        assert_eq!(session.state().last_set_team_build_pos, Some(pack_point2(7, 8)));
+        assert_eq!(session.state().last_set_team_id, Some(2));
+    }
+
+    #[test]
     fn weather_spawn_and_unit_block_packets_with_invalid_payloads_are_ignored() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
@@ -22516,6 +22689,18 @@ mod tests {
             .find(|entry| entry.method == "assemblerUnitSpawned")
             .unwrap()
             .packet_id;
+        let set_map_area_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setMapArea")
+            .unwrap()
+            .packet_id;
+        let set_team_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setTeam")
+            .unwrap()
+            .packet_id;
 
         for (packet_id, payload) in [
             (
@@ -22570,6 +22755,26 @@ mod tests {
                     .to_vec(),
             ),
             (assembler_unit_spawned_packet_id, vec![0x00, 0x01, 0x02]),
+            (
+                set_map_area_packet_id,
+                encode_set_map_area_payload(10, 20, 30, 40)[..15].to_vec(),
+            ),
+            (
+                set_map_area_packet_id,
+                [encode_set_map_area_payload(10, 20, 30, 40), vec![0x00]].concat(),
+            ),
+            (
+                set_team_packet_id,
+                encode_building_team_payload(Some(pack_point2(7, 8)), 2)[..4].to_vec(),
+            ),
+            (
+                set_team_packet_id,
+                [
+                    encode_building_team_payload(Some(pack_point2(7, 8)), 2),
+                    vec![0x00],
+                ]
+                .concat(),
+            ),
         ] {
             let event = session
                 .ingest_packet_bytes(&encode_packet(packet_id, &payload, false).unwrap())
@@ -22621,6 +22826,14 @@ mod tests {
         assert_eq!(session.state().last_assembler_drone_spawned_unit_id, None);
         assert_eq!(session.state().received_assembler_unit_spawned_count, 0);
         assert_eq!(session.state().last_assembler_unit_spawned_tile_pos, None);
+        assert_eq!(session.state().received_set_map_area_count, 0);
+        assert_eq!(session.state().last_set_map_area_x, None);
+        assert_eq!(session.state().last_set_map_area_y, None);
+        assert_eq!(session.state().last_set_map_area_w, None);
+        assert_eq!(session.state().last_set_map_area_h, None);
+        assert_eq!(session.state().received_set_team_count, 0);
+        assert_eq!(session.state().last_set_team_build_pos, None);
+        assert_eq!(session.state().last_set_team_id, None);
     }
 
     #[test]
