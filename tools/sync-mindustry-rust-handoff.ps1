@@ -120,6 +120,7 @@ $files = @(
     "tests/src/test/resources/payload-campaign-compound-goldens.txt",
     "tests/src/test/resources/snapshot-goldens.txt",
     "tests/src/test/resources/typeio-goldens.txt",
+    "tests/src/test/resources/unit-payload-goldens.txt",
     "tests/src/test/resources/world-stream.hex",
     "fixtures/remote/remote-manifest-v1.json",
     "fixtures/world-streams/archipelago-6567-world-stream.hex",

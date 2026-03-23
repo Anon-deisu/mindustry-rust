@@ -11466,6 +11466,134 @@ mod tests {
     }
 
     #[test]
+    fn entity_snapshot_packet_applies_real_java_payload_rows_to_entity_table() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+
+        session.ingest_packet_bytes(&begin_packet).unwrap();
+        for chunk in chunk_packets {
+            session.ingest_packet_bytes(&chunk).unwrap();
+        }
+
+        let sample_payload = sample_snapshot_packet("entitySnapshot.packet");
+        let sample_body_len = u16::from_be_bytes([sample_payload[2], sample_payload[3]]) as usize;
+        let sample_body = &sample_payload[4..4 + sample_body_len];
+        let player_rows = try_parse_player_sync_rows_from_entity_snapshot(&sample_payload);
+        let alpha_rows = try_parse_alpha_sync_rows_from_entity_snapshot_prefix(&sample_payload);
+        assert_eq!(player_rows.len(), 1);
+        assert_eq!(alpha_rows.len(), 1);
+        let player_row = sample_body[player_rows[0].start..player_rows[0].end].to_vec();
+        let alpha_row = sample_body[alpha_rows[0].start..alpha_rows[0].end].to_vec();
+        let (alpha_class_id, alpha_unit_body) = java_unit_payload_golden_body("alpha");
+        let (mega_class_id, mega_unit_body) = java_unit_payload_golden_body("mega");
+        let (oct_class_id, oct_unit_body) = java_unit_payload_golden_body("oct");
+        let (quad_class_id, quad_unit_body) = java_unit_payload_golden_body("quad");
+        let (manifold_class_id, manifold_unit_body) = java_unit_payload_golden_body("manifold");
+        let (missile_class_id, missile_unit_body) = java_unit_payload_golden_body("quell-missile");
+        let payload = build_entity_snapshot_payload(&[
+            player_row,
+            alpha_row,
+            build_entity_snapshot_row(
+                777,
+                5,
+                &synthetic_payload_sync_bytes_with_unit_payload(alpha_class_id, &alpha_unit_body),
+            ),
+            build_entity_snapshot_row(
+                778,
+                23,
+                &synthetic_payload_sync_bytes_with_unit_payload(quad_class_id, &quad_unit_body),
+            ),
+            build_entity_snapshot_row(
+                779,
+                26,
+                &synthetic_payload_sync_bytes_with_unit_payload(oct_class_id, &oct_unit_body),
+            ),
+            build_entity_snapshot_row(
+                780,
+                5,
+                &synthetic_payload_sync_bytes_with_unit_payload(mega_class_id, &mega_unit_body),
+            ),
+            build_entity_snapshot_row(
+                781,
+                23,
+                &synthetic_payload_sync_bytes_with_unit_payload(
+                    missile_class_id,
+                    &missile_unit_body,
+                ),
+            ),
+            build_entity_snapshot_row(
+                888,
+                36,
+                &synthetic_building_tether_payload_sync_bytes_with_unit_payload(
+                    manifold_class_id,
+                    &manifold_unit_body,
+                ),
+            ),
+        ]);
+
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == HighFrequencyRemoteMethod::EntitySnapshot.method_name())
+            .unwrap()
+            .packet_id;
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        let event = session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            event,
+            ClientSessionEvent::SnapshotReceived(HighFrequencyRemoteMethod::EntitySnapshot)
+        );
+        assert_eq!(
+            try_parse_payload_sync_rows_from_entity_snapshot_prefix_with_content_header(
+                &payload,
+                Some(
+                    parse_world_bundle(&compressed_world_stream)
+                        .unwrap()
+                        .content_header
+                        .as_slice()
+                ),
+            )
+            .iter()
+            .map(|row| row.entity_id)
+            .collect::<Vec<_>>(),
+            vec![777, 778, 779, 780, 781]
+        );
+
+        for (entity_id, class_id) in [
+            (777, 5u8),
+            (778, 23u8),
+            (779, 26u8),
+            (780, 5u8),
+            (781, 23u8),
+            (888, 36u8),
+        ] {
+            assert_eq!(
+                session
+                    .state()
+                    .entity_table_projection
+                    .by_entity_id
+                    .get(&entity_id),
+                Some(&crate::session_state::EntityProjection {
+                    class_id,
+                    hidden: false,
+                    is_local_player: false,
+                    unit_kind: 2,
+                    unit_value: entity_id as u32,
+                    x_bits: 40.0f32.to_bits(),
+                    y_bits: 60.0f32.to_bits(),
+                    last_seen_entity_snapshot_count: 1,
+                }),
+                "entity_id={entity_id}"
+            );
+        }
+    }
+
+    #[test]
     fn payload_shape_entity_snapshot_prefix_parser_accepts_same_revision_family_class_ids() {
         let payload_bytes = synthetic_payload_sync_bytes();
         for class_id in [5u8, 23u8, 26u8] {
@@ -11749,6 +11877,72 @@ mod tests {
                 .map(|row| row.entity_id)
                 .collect::<Vec<_>>(),
             vec![888]
+        );
+        assert_eq!(
+            session
+                .state()
+                .entity_table_projection
+                .by_entity_id
+                .get(&888),
+            Some(&crate::session_state::EntityProjection {
+                class_id: 36,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 888,
+                x_bits: 40.0f32.to_bits(),
+                y_bits: 60.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 1,
+            })
+        );
+    }
+
+    #[test]
+    fn entity_snapshot_packet_applies_real_java_building_tether_payload_rows_to_entity_table() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+
+        session.ingest_packet_bytes(&begin_packet).unwrap();
+        for chunk in chunk_packets {
+            session.ingest_packet_bytes(&chunk).unwrap();
+        }
+
+        let sample_payload = sample_snapshot_packet("entitySnapshot.packet");
+        let sample_body_len = u16::from_be_bytes([sample_payload[2], sample_payload[3]]) as usize;
+        let sample_body = &sample_payload[4..4 + sample_body_len];
+        let player_rows = try_parse_player_sync_rows_from_entity_snapshot(&sample_payload);
+        let alpha_rows = try_parse_alpha_sync_rows_from_entity_snapshot_prefix(&sample_payload);
+        assert_eq!(player_rows.len(), 1);
+        assert_eq!(alpha_rows.len(), 1);
+        let player_row = sample_body[player_rows[0].start..player_rows[0].end].to_vec();
+        let alpha_row = sample_body[alpha_rows[0].start..alpha_rows[0].end].to_vec();
+        let (manifold_class_id, manifold_unit_body) = java_unit_payload_golden_body("manifold");
+        let tether_payload_row = build_entity_snapshot_row(
+            888,
+            36,
+            &synthetic_building_tether_payload_sync_bytes_with_unit_payload(
+                manifold_class_id,
+                &manifold_unit_body,
+            ),
+        );
+        let payload = build_entity_snapshot_payload(&[player_row, alpha_row, tether_payload_row]);
+
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == HighFrequencyRemoteMethod::EntitySnapshot.method_name())
+            .unwrap()
+            .packet_id;
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        let event = session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            event,
+            ClientSessionEvent::SnapshotReceived(HighFrequencyRemoteMethod::EntitySnapshot)
         );
         assert_eq!(
             session
