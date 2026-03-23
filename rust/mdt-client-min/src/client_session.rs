@@ -244,10 +244,15 @@ pub struct ClientSession {
     picked_build_payload_packet_id: Option<u8>,
     picked_unit_payload_packet_id: Option<u8>,
     unit_entered_payload_packet_id: Option<u8>,
+    build_destroyed_packet_id: Option<u8>,
     take_items_packet_id: Option<u8>,
     transfer_item_to_packet_id: Option<u8>,
     transfer_item_to_unit_packet_id: Option<u8>,
     unit_despawn_packet_id: Option<u8>,
+    unit_death_packet_id: Option<u8>,
+    unit_destroy_packet_id: Option<u8>,
+    unit_env_death_packet_id: Option<u8>,
+    unit_safe_death_packet_id: Option<u8>,
     building_control_select_packet_id: Option<u8>,
     clear_items_packet_id: Option<u8>,
     clear_liquids_packet_id: Option<u8>,
@@ -721,6 +726,11 @@ impl ClientSession {
             .iter()
             .find(|entry| entry.method == "unitEnteredPayload")
             .map(|entry| entry.packet_id);
+        let build_destroyed_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "buildDestroyed")
+            .map(|entry| entry.packet_id);
         let take_items_packet_id = manifest
             .remote_packets
             .iter()
@@ -740,6 +750,26 @@ impl ClientSession {
             .remote_packets
             .iter()
             .find(|entry| entry.method == "unitDespawn")
+            .map(|entry| entry.packet_id);
+        let unit_death_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "unitDeath")
+            .map(|entry| entry.packet_id);
+        let unit_destroy_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "unitDestroy")
+            .map(|entry| entry.packet_id);
+        let unit_env_death_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "unitEnvDeath")
+            .map(|entry| entry.packet_id);
+        let unit_safe_death_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "unitSafeDeath")
             .map(|entry| entry.packet_id);
         let building_control_select_packet_id = manifest
             .remote_packets
@@ -1128,10 +1158,15 @@ impl ClientSession {
             picked_build_payload_packet_id,
             picked_unit_payload_packet_id,
             unit_entered_payload_packet_id,
+            build_destroyed_packet_id,
             take_items_packet_id,
             transfer_item_to_packet_id,
             transfer_item_to_unit_packet_id,
             unit_despawn_packet_id,
+            unit_death_packet_id,
+            unit_destroy_packet_id,
+            unit_env_death_packet_id,
+            unit_safe_death_packet_id,
             building_control_select_packet_id,
             clear_items_packet_id,
             clear_liquids_packet_id,
@@ -2287,10 +2322,8 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.create_marker_packet_id => {
                 if let Some(summary) = decode_create_marker_payload(&packet.payload) {
-                    self.state.received_create_marker_count = self
-                        .state
-                        .received_create_marker_count
-                        .saturating_add(1);
+                    self.state.received_create_marker_count =
+                        self.state.received_create_marker_count.saturating_add(1);
                     self.state.last_marker_id = Some(summary.marker_id);
                     self.state.last_marker_json_len = Some(summary.json_len);
                     self.state.last_marker_control = None;
@@ -2307,10 +2340,8 @@ impl ClientSession {
                         json_len: summary.json_len,
                     })
                 } else {
-                    self.state.failed_marker_decode_count = self
-                        .state
-                        .failed_marker_decode_count
-                        .saturating_add(1);
+                    self.state.failed_marker_decode_count =
+                        self.state.failed_marker_decode_count.saturating_add(1);
                     self.state.last_failed_marker_method = Some("createMarker".to_string());
                     self.state.last_failed_marker_payload_len = Some(packet.payload.len());
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -2321,10 +2352,8 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.remove_marker_packet_id => {
                 if let Some(marker_id) = decode_remove_marker_payload(&packet.payload) {
-                    self.state.received_remove_marker_count = self
-                        .state
-                        .received_remove_marker_count
-                        .saturating_add(1);
+                    self.state.received_remove_marker_count =
+                        self.state.received_remove_marker_count.saturating_add(1);
                     self.state.last_marker_id = Some(marker_id);
                     self.state.last_marker_json_len = None;
                     self.state.last_marker_control = None;
@@ -2338,10 +2367,8 @@ impl ClientSession {
                     self.state.last_marker_texture_kind_name = None;
                     Ok(ClientSessionEvent::RemoveMarker { marker_id })
                 } else {
-                    self.state.failed_marker_decode_count = self
-                        .state
-                        .failed_marker_decode_count
-                        .saturating_add(1);
+                    self.state.failed_marker_decode_count =
+                        self.state.failed_marker_decode_count.saturating_add(1);
                     self.state.last_failed_marker_method = Some("removeMarker".to_string());
                     self.state.last_failed_marker_payload_len = Some(packet.payload.len());
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -2352,10 +2379,8 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.update_marker_packet_id => {
                 if let Some(summary) = decode_update_marker_payload(&packet.payload) {
-                    self.state.received_update_marker_count = self
-                        .state
-                        .received_update_marker_count
-                        .saturating_add(1);
+                    self.state.received_update_marker_count =
+                        self.state.received_update_marker_count.saturating_add(1);
                     self.state.last_marker_id = Some(summary.marker_id);
                     self.state.last_marker_json_len = None;
                     self.state.last_marker_control = Some(summary.control);
@@ -2377,10 +2402,8 @@ impl ClientSession {
                         p3_bits: summary.p3_bits,
                     })
                 } else {
-                    self.state.failed_marker_decode_count = self
-                        .state
-                        .failed_marker_decode_count
-                        .saturating_add(1);
+                    self.state.failed_marker_decode_count =
+                        self.state.failed_marker_decode_count.saturating_add(1);
                     self.state.last_failed_marker_method = Some("updateMarker".to_string());
                     self.state.last_failed_marker_payload_len = Some(packet.payload.len());
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -2415,10 +2438,8 @@ impl ClientSession {
                         text: summary.text,
                     })
                 } else {
-                    self.state.failed_marker_decode_count = self
-                        .state
-                        .failed_marker_decode_count
-                        .saturating_add(1);
+                    self.state.failed_marker_decode_count =
+                        self.state.failed_marker_decode_count.saturating_add(1);
                     self.state.last_failed_marker_method = Some("updateMarkerText".to_string());
                     self.state.last_failed_marker_payload_len = Some(packet.payload.len());
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -2451,12 +2472,9 @@ impl ClientSession {
                         texture_kind_name: summary.texture_kind_name,
                     })
                 } else {
-                    self.state.failed_marker_decode_count = self
-                        .state
-                        .failed_marker_decode_count
-                        .saturating_add(1);
-                    self.state.last_failed_marker_method =
-                        Some("updateMarkerTexture".to_string());
+                    self.state.failed_marker_decode_count =
+                        self.state.failed_marker_decode_count.saturating_add(1);
+                    self.state.last_failed_marker_method = Some("updateMarkerTexture".to_string());
                     self.state.last_failed_marker_payload_len = Some(packet.payload.len());
                     Ok(ClientSessionEvent::IgnoredPacket {
                         packet_id: packet.packet_id,
@@ -2754,10 +2772,8 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.sync_variable_packet_id => {
                 if let Some(summary) = decode_sync_variable_payload(&packet.payload) {
-                    self.state.received_sync_variable_count = self
-                        .state
-                        .received_sync_variable_count
-                        .saturating_add(1);
+                    self.state.received_sync_variable_count =
+                        self.state.received_sync_variable_count.saturating_add(1);
                     self.state.last_sync_variable_build_pos = summary.build_pos;
                     self.state.last_sync_variable_index = Some(summary.variable);
                     self.state.last_sync_variable_value_kind = Some(summary.value_kind);
@@ -3971,17 +3987,25 @@ impl ClientSession {
                         .received_unit_entered_payload_count
                         .saturating_add(1);
                     self.state.last_unit_entered_payload = Some(projection.clone());
-                    let removed_entity_projection = projection
-                        .unit
-                        .filter(|unit| unit.kind == 2)
-                        .is_some_and(|unit| {
-                            self.state.record_entity_snapshot_tombstone(unit.value);
-                            self.state.entity_table_projection.remove_entity(unit.value)
-                        });
+                    let removed_entity_projection =
+                        remove_entity_projection_for_unit_ref(&mut self.state, projection.unit);
                     Ok(ClientSessionEvent::UnitEnteredPayload {
                         projection,
                         removed_entity_projection,
                     })
+                } else {
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
+            packet_id if Some(packet_id) == self.build_destroyed_packet_id => {
+                if let Some(build_pos) = decode_build_destroyed_payload(&packet.payload) {
+                    self.state.received_build_destroyed_count =
+                        self.state.received_build_destroyed_count.saturating_add(1);
+                    self.state.last_build_destroyed_build_pos = build_pos;
+                    Ok(ClientSessionEvent::BuildDestroyed { build_pos })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
                         packet_id: packet.packet_id,
@@ -3995,11 +4019,80 @@ impl ClientSession {
                         self.state.received_unit_despawn_count.saturating_add(1);
                     self.state.last_unit_despawn = unit;
                     let removed_entity_projection =
-                        unit.filter(|unit| unit.kind == 2).is_some_and(|unit| {
-                            self.state.record_entity_snapshot_tombstone(unit.value);
-                            self.state.entity_table_projection.remove_entity(unit.value)
-                        });
+                        remove_entity_projection_for_unit_ref(&mut self.state, unit);
                     Ok(ClientSessionEvent::UnitDespawned {
+                        unit,
+                        removed_entity_projection,
+                    })
+                } else {
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
+            packet_id if Some(packet_id) == self.unit_death_packet_id => {
+                if let Some(unit_id) = decode_unit_removed_entity_id_payload(&packet.payload) {
+                    self.state.received_unit_death_count =
+                        self.state.received_unit_death_count.saturating_add(1);
+                    self.state.last_unit_death_id = Some(unit_id);
+                    let removed_entity_projection =
+                        remove_entity_projection_for_entity_id(&mut self.state, unit_id);
+                    Ok(ClientSessionEvent::UnitDeath {
+                        unit_id,
+                        removed_entity_projection,
+                    })
+                } else {
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
+            packet_id if Some(packet_id) == self.unit_destroy_packet_id => {
+                if let Some(unit_id) = decode_unit_removed_entity_id_payload(&packet.payload) {
+                    self.state.received_unit_destroy_count =
+                        self.state.received_unit_destroy_count.saturating_add(1);
+                    self.state.last_unit_destroy_id = Some(unit_id);
+                    let removed_entity_projection =
+                        remove_entity_projection_for_entity_id(&mut self.state, unit_id);
+                    Ok(ClientSessionEvent::UnitDestroy {
+                        unit_id,
+                        removed_entity_projection,
+                    })
+                } else {
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
+            packet_id if Some(packet_id) == self.unit_env_death_packet_id => {
+                if let Some(unit) = decode_unit_removed_ref_payload(&packet.payload) {
+                    self.state.received_unit_env_death_count =
+                        self.state.received_unit_env_death_count.saturating_add(1);
+                    self.state.last_unit_env_death = unit;
+                    let removed_entity_projection =
+                        remove_entity_projection_for_unit_ref(&mut self.state, unit);
+                    Ok(ClientSessionEvent::UnitEnvDeath {
+                        unit,
+                        removed_entity_projection,
+                    })
+                } else {
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
+            packet_id if Some(packet_id) == self.unit_safe_death_packet_id => {
+                if let Some(unit) = decode_unit_removed_ref_payload(&packet.payload) {
+                    self.state.received_unit_safe_death_count =
+                        self.state.received_unit_safe_death_count.saturating_add(1);
+                    self.state.last_unit_safe_death = unit;
+                    let removed_entity_projection =
+                        remove_entity_projection_for_unit_ref(&mut self.state, unit);
+                    Ok(ClientSessionEvent::UnitSafeDeath {
                         unit,
                         removed_entity_projection,
                     })
@@ -5702,7 +5795,26 @@ pub enum ClientSessionEvent {
         projection: UnitEnteredPayloadProjection,
         removed_entity_projection: bool,
     },
+    BuildDestroyed {
+        build_pos: Option<i32>,
+    },
     UnitDespawned {
+        unit: Option<UnitRefProjection>,
+        removed_entity_projection: bool,
+    },
+    UnitDeath {
+        unit_id: i32,
+        removed_entity_projection: bool,
+    },
+    UnitDestroy {
+        unit_id: i32,
+        removed_entity_projection: bool,
+    },
+    UnitEnvDeath {
+        unit: Option<UnitRefProjection>,
+        removed_entity_projection: bool,
+    },
+    UnitSafeDeath {
         unit: Option<UnitRefProjection>,
         removed_entity_projection: bool,
     },
@@ -6551,6 +6663,18 @@ fn decode_player_disconnect_payload(payload: &[u8]) -> Option<i32> {
     (cursor == payload.len()).then_some(player_id)
 }
 
+fn decode_build_destroyed_payload(payload: &[u8]) -> Option<Option<i32>> {
+    let mut cursor = 0usize;
+    let build_pos = read_optional_build_pos(payload, &mut cursor)?;
+    (cursor == payload.len()).then_some(build_pos)
+}
+
+fn decode_unit_removed_entity_id_payload(payload: &[u8]) -> Option<i32> {
+    let mut cursor = 0usize;
+    let unit_id = read_i32(payload, &mut cursor)?;
+    (cursor == payload.len()).then_some(unit_id)
+}
+
 fn read_optional_build_pos(payload: &[u8], cursor: &mut usize) -> Option<Option<i32>> {
     let value = read_i32(payload, cursor)?;
     Some((value != -1).then_some(value))
@@ -6873,7 +6997,9 @@ fn decode_create_marker_payload(payload: &[u8]) -> Option<CreateMarkerSummary> {
         return None;
     }
     let marker_id = i32::from_be_bytes(payload[0..4].try_into().ok()?);
-    let json_len = decode_length_prefixed_json_payload(&payload[4..]).ok()?.len();
+    let json_len = decode_length_prefixed_json_payload(&payload[4..])
+        .ok()?
+        .len();
     Some(CreateMarkerSummary {
         marker_id,
         json_len,
@@ -7201,6 +7327,25 @@ fn decode_unit_despawn_payload(payload: &[u8]) -> Option<Option<UnitRefProjectio
     let mut cursor = 0usize;
     let unit = read_optional_unit_ref(payload, &mut cursor)?;
     (cursor == payload.len()).then_some(unit)
+}
+
+fn decode_unit_removed_ref_payload(payload: &[u8]) -> Option<Option<UnitRefProjection>> {
+    let mut cursor = 0usize;
+    let unit = read_optional_unit_ref(payload, &mut cursor)?;
+    (cursor == payload.len()).then_some(unit)
+}
+
+fn remove_entity_projection_for_entity_id(state: &mut SessionState, entity_id: i32) -> bool {
+    state.record_entity_snapshot_tombstone(entity_id);
+    state.entity_table_projection.remove_entity(entity_id)
+}
+
+fn remove_entity_projection_for_unit_ref(
+    state: &mut SessionState,
+    unit: Option<UnitRefProjection>,
+) -> bool {
+    unit.filter(|unit| unit.kind == 2)
+        .is_some_and(|unit| remove_entity_projection_for_entity_id(state, unit.value))
 }
 
 fn decode_client_packet_payload(payload: &[u8]) -> Option<(String, String)> {
@@ -17747,7 +17892,10 @@ mod tests {
         assert_eq!(session.state().last_sync_variable_index, Some(4));
         assert_eq!(session.state().last_sync_variable_value_kind, Some(4));
         assert_eq!(
-            session.state().last_sync_variable_value_kind_name.as_deref(),
+            session
+                .state()
+                .last_sync_variable_value_kind_name
+                .as_deref(),
             Some("string")
         );
     }
@@ -19918,7 +20066,10 @@ mod tests {
             let decoded = decode_packet(bytes).unwrap();
             let summary = decode_command_units_payload(&decoded.payload).unwrap();
             assert_eq!(summary.unit_ids.len(), expected_lengths[index]);
-            assert_eq!(summary.unit_ids.first().copied(), Some(expected_first_ids[index]));
+            assert_eq!(
+                summary.unit_ids.first().copied(),
+                Some(expected_first_ids[index])
+            );
             assert_eq!(summary.build_target, build_target);
             assert_eq!(
                 summary.unit_target,
@@ -20494,6 +20645,285 @@ mod tests {
             .by_entity_id
             .contains_key(&77));
         assert!(session.state().entity_snapshot_tombstones.contains_key(&77));
+    }
+
+    #[test]
+    fn unit_lifecycle_packets_emit_observability_events() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        session.state.entity_table_projection.by_entity_id.insert(
+            701,
+            crate::session_state::EntityProjection {
+                class_id: 5,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 701,
+                x_bits: 1.0f32.to_bits(),
+                y_bits: 2.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
+        session.state.entity_table_projection.by_entity_id.insert(
+            702,
+            crate::session_state::EntityProjection {
+                class_id: 5,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 702,
+                x_bits: 3.0f32.to_bits(),
+                y_bits: 4.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
+        session.state.entity_table_projection.by_entity_id.insert(
+            703,
+            crate::session_state::EntityProjection {
+                class_id: 5,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 703,
+                x_bits: 5.0f32.to_bits(),
+                y_bits: 6.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
+        let build_destroyed_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "buildDestroyed")
+            .unwrap()
+            .packet_id;
+        let unit_death_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "unitDeath")
+            .unwrap()
+            .packet_id;
+        let unit_destroy_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "unitDestroy")
+            .unwrap()
+            .packet_id;
+        let unit_env_death_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "unitEnvDeath")
+            .unwrap()
+            .packet_id;
+        let unit_safe_death_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "unitSafeDeath")
+            .unwrap()
+            .packet_id;
+
+        let build_destroyed_event = session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    build_destroyed_packet_id,
+                    &encode_building_payload(Some(pack_point2(3, 12))),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            build_destroyed_event,
+            ClientSessionEvent::BuildDestroyed {
+                build_pos: Some(pack_point2(3, 12)),
+            }
+        );
+
+        let unit_death_event = session
+            .ingest_packet_bytes(
+                &encode_packet(unit_death_packet_id, &701i32.to_be_bytes(), false).unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            unit_death_event,
+            ClientSessionEvent::UnitDeath {
+                unit_id: 701,
+                removed_entity_projection: true,
+            }
+        );
+
+        let unit_destroy_event = session
+            .ingest_packet_bytes(
+                &encode_packet(unit_destroy_packet_id, &702i32.to_be_bytes(), false).unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            unit_destroy_event,
+            ClientSessionEvent::UnitDestroy {
+                unit_id: 702,
+                removed_entity_projection: true,
+            }
+        );
+
+        let unit_env_death_event = session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    unit_env_death_packet_id,
+                    &encode_unit_payload(ClientUnitRef::Standard(703)),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            unit_env_death_event,
+            ClientSessionEvent::UnitEnvDeath {
+                unit: Some(UnitRefProjection {
+                    kind: 2,
+                    value: 703
+                }),
+                removed_entity_projection: true,
+            }
+        );
+
+        let unit_safe_death_event = session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    unit_safe_death_packet_id,
+                    &encode_unit_payload(ClientUnitRef::Block(pack_point2(11, 12))),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            unit_safe_death_event,
+            ClientSessionEvent::UnitSafeDeath {
+                unit: Some(UnitRefProjection {
+                    kind: 1,
+                    value: pack_point2(11, 12),
+                }),
+                removed_entity_projection: false,
+            }
+        );
+
+        assert_eq!(session.state().received_build_destroyed_count, 1);
+        assert_eq!(
+            session.state().last_build_destroyed_build_pos,
+            Some(pack_point2(3, 12))
+        );
+        assert_eq!(session.state().received_unit_death_count, 1);
+        assert_eq!(session.state().last_unit_death_id, Some(701));
+        assert_eq!(session.state().received_unit_destroy_count, 1);
+        assert_eq!(session.state().last_unit_destroy_id, Some(702));
+        assert_eq!(session.state().received_unit_env_death_count, 1);
+        assert_eq!(
+            session.state().last_unit_env_death,
+            Some(UnitRefProjection {
+                kind: 2,
+                value: 703
+            })
+        );
+        assert_eq!(session.state().received_unit_safe_death_count, 1);
+        assert_eq!(
+            session.state().last_unit_safe_death,
+            Some(UnitRefProjection {
+                kind: 1,
+                value: pack_point2(11, 12),
+            })
+        );
+        assert!(!session
+            .state()
+            .entity_table_projection
+            .by_entity_id
+            .contains_key(&701));
+        assert!(!session
+            .state()
+            .entity_table_projection
+            .by_entity_id
+            .contains_key(&702));
+        assert!(!session
+            .state()
+            .entity_table_projection
+            .by_entity_id
+            .contains_key(&703));
+        assert!(session
+            .state()
+            .entity_snapshot_tombstones
+            .contains_key(&701));
+        assert!(session
+            .state()
+            .entity_snapshot_tombstones
+            .contains_key(&702));
+        assert!(session
+            .state()
+            .entity_snapshot_tombstones
+            .contains_key(&703));
+    }
+
+    #[test]
+    fn unit_lifecycle_packets_with_invalid_payloads_are_ignored() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let build_destroyed_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "buildDestroyed")
+            .unwrap()
+            .packet_id;
+        let unit_death_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "unitDeath")
+            .unwrap()
+            .packet_id;
+        let unit_destroy_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "unitDestroy")
+            .unwrap()
+            .packet_id;
+        let unit_env_death_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "unitEnvDeath")
+            .unwrap()
+            .packet_id;
+        let unit_safe_death_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "unitSafeDeath")
+            .unwrap()
+            .packet_id;
+
+        for (packet_id, payload) in [
+            (build_destroyed_packet_id, vec![0x00, 0x01, 0x02]),
+            (unit_death_packet_id, vec![0x00, 0x01]),
+            (unit_destroy_packet_id, vec![0x00, 0x01, 0x02]),
+            (unit_env_death_packet_id, vec![9, 0, 0, 0, 1]),
+            (unit_safe_death_packet_id, vec![2, 0, 0, 0]),
+        ] {
+            let event = session
+                .ingest_packet_bytes(&encode_packet(packet_id, &payload, false).unwrap())
+                .unwrap();
+            assert!(matches!(
+                event,
+                ClientSessionEvent::IgnoredPacket {
+                    packet_id: ignored_id,
+                    ..
+                } if ignored_id == packet_id
+            ));
+        }
+
+        assert_eq!(session.state().received_build_destroyed_count, 0);
+        assert_eq!(session.state().last_build_destroyed_build_pos, None);
+        assert_eq!(session.state().received_unit_death_count, 0);
+        assert_eq!(session.state().last_unit_death_id, None);
+        assert_eq!(session.state().received_unit_destroy_count, 0);
+        assert_eq!(session.state().last_unit_destroy_id, None);
+        assert_eq!(session.state().received_unit_env_death_count, 0);
+        assert_eq!(session.state().last_unit_env_death, None);
+        assert_eq!(session.state().received_unit_safe_death_count, 0);
+        assert_eq!(session.state().last_unit_safe_death, None);
     }
 
     #[test]
@@ -22274,7 +22704,10 @@ mod tests {
         assert_eq!(kick_reason_name_from_ordinal(2), Some("serverOutdated"));
         assert_eq!(kick_reason_name_from_ordinal(9), Some("customClient"));
         assert_eq!(kick_reason_name_from_ordinal(12), Some("typeMismatch"));
-        assert_eq!(kick_reason_name_from_ordinal(KICK_REASON_SERVER_RESTARTING_ORDINAL), Some("serverRestarting"));
+        assert_eq!(
+            kick_reason_name_from_ordinal(KICK_REASON_SERVER_RESTARTING_ORDINAL),
+            Some("serverRestarting")
+        );
         assert_eq!(kick_reason_name_from_ordinal(-1), None);
         assert_eq!(kick_reason_name_from_ordinal(99), None);
     }
@@ -23126,7 +23559,10 @@ mod tests {
         assert_eq!(reconnect.payload, connect_payload);
         assert!(session.state().connect_packet_sent);
         assert_eq!(session.state().connect_payload_len, connect_payload.len());
-        assert_eq!(session.state().connect_packet_len, reconnect.encoded_packet.len());
+        assert_eq!(
+            session.state().connect_packet_len,
+            reconnect.encoded_packet.len()
+        );
         assert!(!session.state().world_stream_loaded);
         assert!(!session.state().ready_to_enter_world);
         assert!(!session.state().client_loaded);

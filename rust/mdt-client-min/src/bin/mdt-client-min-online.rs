@@ -5,8 +5,8 @@ use mdt_client_min::client_session::{
     KICK_REASON_SERVER_RESTARTING_ORDINAL,
 };
 use mdt_client_min::connect_packet::{
-    default_connect_build, default_connect_version_type, ConnectPacketSpec,
-    ConnectCompatibilityWarning,
+    default_connect_build, default_connect_version_type, ConnectCompatibilityWarning,
+    ConnectPacketSpec,
 };
 use mdt_client_min::render_runtime::RenderRuntimeAdapter;
 use mdt_input::{
@@ -1275,7 +1275,10 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
                     .get(i)
                     .ok_or("missing value for --action-text-input-result")?;
                 let (text_input_id, text) = parse_action_text_input_result_arg(value)?;
-                outbound_actions.push(OutboundAction::TextInputResult { text_input_id, text });
+                outbound_actions.push(OutboundAction::TextInputResult {
+                    text_input_id,
+                    text,
+                });
             }
             "--action-client-packet" => {
                 i += 1;
@@ -4408,6 +4411,33 @@ fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<String> 
             ClientSessionEvent::BuildingControlSelect { build_pos } => {
                 Some(format!("building_control_select: build_pos={build_pos:?}"))
             }
+            ClientSessionEvent::BuildDestroyed { build_pos } => {
+                Some(format!("build_destroyed: build_pos={build_pos:?}"))
+            }
+            ClientSessionEvent::UnitDeath {
+                unit_id,
+                removed_entity_projection,
+            } => Some(format!(
+                "unit_death: unit_id={unit_id} removed_entity_projection={removed_entity_projection}"
+            )),
+            ClientSessionEvent::UnitDestroy {
+                unit_id,
+                removed_entity_projection,
+            } => Some(format!(
+                "unit_destroy: unit_id={unit_id} removed_entity_projection={removed_entity_projection}"
+            )),
+            ClientSessionEvent::UnitEnvDeath {
+                unit,
+                removed_entity_projection,
+            } => Some(format!(
+                "unit_env_death: unit={unit:?} removed_entity_projection={removed_entity_projection}"
+            )),
+            ClientSessionEvent::UnitSafeDeath {
+                unit,
+                removed_entity_projection,
+            } => Some(format!(
+                "unit_safe_death: unit={unit:?} removed_entity_projection={removed_entity_projection}"
+            )),
             ClientSessionEvent::UnitClear => Some("unit_clear".to_string()),
             ClientSessionEvent::UnitControl { target } => {
                 Some(format!("unit_control: target={target:?}"))
@@ -6060,12 +6090,9 @@ mod tests {
 
     #[test]
     fn parse_args_rejects_invalid_action_command_units_flag() {
-        let error = parse_args(sample_args(&[
-            "--action-command-units",
-            "1,2@3@unit:4@5:6",
-        ]))
-        .err()
-        .expect("invalid command-units format should fail");
+        let error = parse_args(sample_args(&["--action-command-units", "1,2@3@unit:4@5:6"]))
+            .err()
+            .expect("invalid command-units format should fail");
 
         assert!(error.contains("invalid --action-command-units"));
     }
@@ -6955,6 +6982,53 @@ mod tests {
         assert!(lines[1].contains("variable=4"));
         assert!(lines[1].contains("value_kind=4"));
         assert!(lines[1].contains("\"string\""));
+    }
+
+    #[test]
+    fn summarize_client_packet_events_includes_unit_lifecycle_observability() {
+        let lines = summarize_client_packet_events(&[
+            ClientSessionEvent::BuildDestroyed {
+                build_pos: Some(pack_point2(3, 12)),
+            },
+            ClientSessionEvent::UnitDeath {
+                unit_id: 701,
+                removed_entity_projection: true,
+            },
+            ClientSessionEvent::UnitDestroy {
+                unit_id: 702,
+                removed_entity_projection: false,
+            },
+            ClientSessionEvent::UnitEnvDeath {
+                unit: Some(mdt_client_min::session_state::UnitRefProjection {
+                    kind: 2,
+                    value: 703,
+                }),
+                removed_entity_projection: true,
+            },
+            ClientSessionEvent::UnitSafeDeath {
+                unit: Some(mdt_client_min::session_state::UnitRefProjection {
+                    kind: 1,
+                    value: pack_point2(11, 12),
+                }),
+                removed_entity_projection: false,
+            },
+        ]);
+
+        assert_eq!(lines.len(), 5);
+        assert!(lines[0].contains("build_destroyed:"));
+        assert!(lines[0].contains(&format!("Some({})", pack_point2(3, 12))));
+        assert!(lines[1].contains("unit_death:"));
+        assert!(lines[1].contains("unit_id=701"));
+        assert!(lines[1].contains("removed_entity_projection=true"));
+        assert!(lines[2].contains("unit_destroy:"));
+        assert!(lines[2].contains("unit_id=702"));
+        assert!(lines[2].contains("removed_entity_projection=false"));
+        assert!(lines[3].contains("unit_env_death:"));
+        assert!(lines[3].contains("kind: 2"));
+        assert!(lines[3].contains("value: 703"));
+        assert!(lines[4].contains("unit_safe_death:"));
+        assert!(lines[4].contains("kind: 1"));
+        assert!(lines[4].contains(&format!("value: {}", pack_point2(11, 12))));
     }
 
     #[test]
