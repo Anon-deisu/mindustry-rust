@@ -13139,13 +13139,18 @@ fn candidate_unit_payload_shapes(class_id: u8) -> &'static [UnitPayloadShape] {
         16 => &[UnitPayloadShape::MonoLegacy],
         18 => &[UnitPayloadShape::PolyLegacy],
         21 => &[UnitPayloadShape::SpiroctLegacy],
-        4 | 17 | 19 | 25 | 32 => &[UnitPayloadShape::MechLegacy],
+        // Current vanilla mappings for the mech-like family include 4/17/19/32.
+        // Keep 25 as an explicit legacy-compatibility alias from classids.properties.
+        4 | 17 | 19 | 32 | 25 => &[UnitPayloadShape::MechLegacy],
         5 => &[UnitPayloadShape::PayloadMegaLike],
         23 => &[UnitPayloadShape::PayloadQuadLike],
         26 => &[UnitPayloadShape::PayloadOctLike],
         36 => &[UnitPayloadShape::BuildingTetherPayload],
         39 => &[UnitPayloadShape::TimedKill],
+        // `classId=40` remains the tank-like payload compatibility path.
         40 => &[UnitPayloadShape::TankLikeCurrent],
+        // Runtime entity mapping and payload wire shape do not always align 1:1.
+        // Keep 43/45/46/47 on the proven current standard payload parser path.
         43 | 45 | 46 | 47 => &[UnitPayloadShape::StandardCurrent],
         1 | 2 | 3 | 20 | 24 => &[UnitPayloadShape::StandardLegacy],
         _ => &[
@@ -49484,6 +49489,34 @@ mod tests {
             &parse_world_enter_playable_session_goldens(&compressed)
                 .unwrap()
                 .lines,
+        );
+    }
+
+    #[test]
+    fn payload_shape_candidates_keep_current_and_legacy_compatibility_ids_explicit() {
+        assert_eq!(
+            candidate_unit_payload_shapes(4),
+            &[UnitPayloadShape::MechLegacy]
+        );
+        assert_eq!(
+            candidate_unit_payload_shapes(25),
+            &[UnitPayloadShape::MechLegacy]
+        );
+        assert_eq!(
+            candidate_unit_payload_shapes(43),
+            &[UnitPayloadShape::StandardCurrent]
+        );
+        assert_eq!(
+            candidate_unit_payload_shapes(40),
+            &[UnitPayloadShape::TankLikeCurrent]
+        );
+        assert_eq!(
+            candidate_unit_payload_shapes(46),
+            &[UnitPayloadShape::StandardCurrent]
+        );
+        assert_eq!(
+            candidate_unit_payload_shapes(47),
+            &[UnitPayloadShape::StandardCurrent]
         );
     }
 }

@@ -2202,12 +2202,9 @@ fn parse_action_begin_place_arg(
     Ok((builder, block_id, team_id, x, y, rotation, place_config))
 }
 
-fn parse_optional_text_token(flag: &str, value: &str) -> Result<Option<String>, String> {
+fn parse_optional_text_token(_flag: &str, value: &str) -> Result<Option<String>, String> {
     if value.eq_ignore_ascii_case("none") || value.eq_ignore_ascii_case("null") {
         return Ok(None);
-    }
-    if value.is_empty() {
-        return Err(format!("invalid {flag}, text token must not be empty"));
     }
     Ok(Some(value.to_string()))
 }
@@ -5614,7 +5611,7 @@ mod tests {
 
     #[test]
     fn parse_args_rejects_invalid_action_text_input_result_flag() {
-        let error = parse_args(sample_args(&["--action-text-input-result", "9@"]))
+        let error = parse_args(sample_args(&["--action-text-input-result", "9"]))
             .err()
             .expect("invalid text-input-result format should fail");
 
@@ -6890,6 +6887,22 @@ mod tests {
                 y: -55,
                 rotation: 2,
                 place_config: TypeIoObject::Point2 { x: 7, y: -8 },
+            },
+        )
+        .unwrap();
+        queue_outbound_action(
+            &mut session,
+            &OutboundAction::MenuChoose {
+                menu_id: 12,
+                option: -1,
+            },
+        )
+        .unwrap();
+        queue_outbound_action(
+            &mut session,
+            &OutboundAction::TextInputResult {
+                text_input_id: 9,
+                text: Some("router".to_string()),
             },
         )
         .unwrap();
