@@ -4144,6 +4144,16 @@ fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<String> 
             } => Some(format!(
                 "ping_response: sent_at_ms={sent_at_ms:?} round_trip_ms={round_trip_ms:?}"
             )),
+            ClientSessionEvent::DeferredPacketWhileLoading { packet_id, remote } => Some(format!(
+                "deferred_packet_while_loading: packet_id={packet_id} method={:?} packet_class={:?}",
+                remote.as_ref().map(|meta| meta.method.as_str()),
+                remote.as_ref().map(|meta| meta.packet_class.as_str()),
+            )),
+            ClientSessionEvent::IgnoredPacket { packet_id, remote } => Some(format!(
+                "ignored_packet: packet_id={packet_id} method={:?} packet_class={:?}",
+                remote.as_ref().map(|meta| meta.method.as_str()),
+                remote.as_ref().map(|meta| meta.packet_class.as_str()),
+            )),
             ClientSessionEvent::TileConfig {
                 build_pos,
                 config_kind,
@@ -4189,6 +4199,38 @@ fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<String> 
             ClientSessionEvent::RemoveWorldLabel { label_id } => {
                 Some(format!("remove_world_label: label_id={label_id}"))
             }
+            ClientSessionEvent::CreateMarker { marker_id, json_len } => {
+                Some(format!("create_marker: marker_id={marker_id} json_len={json_len}"))
+            }
+            ClientSessionEvent::RemoveMarker { marker_id } => {
+                Some(format!("remove_marker: marker_id={marker_id}"))
+            }
+            ClientSessionEvent::UpdateMarker {
+                marker_id,
+                control,
+                control_name,
+                p1_bits,
+                p2_bits,
+                p3_bits,
+            } => Some(format!(
+                "update_marker: marker_id={marker_id} control={control} control_name={control_name:?} p1_bits=0x{p1_bits:016x} p2_bits=0x{p2_bits:016x} p3_bits=0x{p3_bits:016x}"
+            )),
+            ClientSessionEvent::UpdateMarkerText {
+                marker_id,
+                control,
+                control_name,
+                fetch,
+                text,
+            } => Some(format!(
+                "update_marker_text: marker_id={marker_id} control={control} control_name={control_name:?} fetch={fetch} text={text:?}"
+            )),
+            ClientSessionEvent::UpdateMarkerTexture {
+                marker_id,
+                texture_kind,
+                texture_kind_name,
+            } => Some(format!(
+                "update_marker_texture: marker_id={marker_id} texture_kind={texture_kind} texture_kind_name={texture_kind_name:?}"
+            )),
             ClientSessionEvent::MenuShown {
                 menu_id,
                 title,
@@ -6809,6 +6851,69 @@ mod tests {
         assert!(lines[44].contains("Some(\"123\")"));
         assert!(lines[44].contains("numeric=true"));
         assert!(lines[44].contains("allow_empty=true"));
+    }
+
+    #[test]
+    fn summarize_client_packet_events_includes_marker_and_ignored_observability() {
+        let lines = summarize_client_packet_events(&[
+            ClientSessionEvent::CreateMarker {
+                marker_id: 77,
+                json_len: 16,
+            },
+            ClientSessionEvent::UpdateMarker {
+                marker_id: 77,
+                control: 4,
+                control_name: Some("pos".to_string()),
+                p1_bits: 12.5f64.to_bits(),
+                p2_bits: (-3.0f64).to_bits(),
+                p3_bits: 2.25f64.to_bits(),
+            },
+            ClientSessionEvent::UpdateMarkerText {
+                marker_id: 77,
+                control: 14,
+                control_name: Some("flushText".to_string()),
+                fetch: true,
+                text: Some("logic-text".to_string()),
+            },
+            ClientSessionEvent::UpdateMarkerTexture {
+                marker_id: 77,
+                texture_kind: 4,
+                texture_kind_name: "string".to_string(),
+            },
+            ClientSessionEvent::RemoveMarker { marker_id: 77 },
+            ClientSessionEvent::DeferredPacketWhileLoading {
+                packet_id: 146,
+                remote: Some(mdt_client_min::client_session::IgnoredRemotePacketMeta {
+                    method: "unitSpawn".to_string(),
+                    packet_class: "mindustry.gen.UnitSpawnCallPacket".to_string(),
+                }),
+            },
+            ClientSessionEvent::IgnoredPacket {
+                packet_id: 147,
+                remote: Some(mdt_client_min::client_session::IgnoredRemotePacketMeta {
+                    method: "unitTetherBlockSpawned".to_string(),
+                    packet_class: "mindustry.gen.UnitTetherBlockSpawnedCallPacket".to_string(),
+                }),
+            },
+        ]);
+
+        assert_eq!(lines.len(), 7);
+        assert!(lines[0].contains("create_marker:"));
+        assert!(lines[0].contains("marker_id=77"));
+        assert!(lines[0].contains("json_len=16"));
+        assert!(lines[1].contains("update_marker:"));
+        assert!(lines[1].contains("control_name=Some(\"pos\")"));
+        assert!(lines[2].contains("update_marker_text:"));
+        assert!(lines[2].contains("fetch=true"));
+        assert!(lines[2].contains("Some(\"logic-text\")"));
+        assert!(lines[3].contains("update_marker_texture:"));
+        assert!(lines[3].contains("texture_kind=4"));
+        assert!(lines[3].contains("\"string\""));
+        assert!(lines[4].contains("remove_marker:"));
+        assert!(lines[5].contains("deferred_packet_while_loading:"));
+        assert!(lines[5].contains("Some(\"unitSpawn\")"));
+        assert!(lines[6].contains("ignored_packet:"));
+        assert!(lines[6].contains("Some(\"unitTetherBlockSpawned\")"));
     }
 
     #[test]

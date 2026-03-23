@@ -53,6 +53,33 @@ const KICK_REASON_NAMES: [&str; 16] = [
     "playerLimit",
     "serverRestarting",
 ];
+const MARKER_CONTROL_NAMES: [&str; 25] = [
+    "remove",
+    "world",
+    "minimap",
+    "autoscale",
+    "pos",
+    "endPos",
+    "drawLayer",
+    "color",
+    "radius",
+    "stroke",
+    "outline",
+    "rotation",
+    "shape",
+    "arc",
+    "flushText",
+    "fontSize",
+    "textHeight",
+    "textAlign",
+    "lineAlign",
+    "labelFlags",
+    "texture",
+    "textureSize",
+    "posi",
+    "uvi",
+    "colori",
+];
 const BLOCK_CONTENT_TYPE: u8 = 1;
 const ALPHA_SHAPE_ENTITY_CLASS_IDS: [u8; 17] = [
     0, 2, 3, 16, 18, 20, 21, 24, 29, 30, 31, 33, 40, 43, 44, 45, 46,
@@ -188,7 +215,12 @@ pub struct ClientSession {
     menu_choose_packet_id: Option<u8>,
     menu_packet_id: Option<u8>,
     open_uri_packet_id: Option<u8>,
+    create_marker_packet_id: Option<u8>,
+    remove_marker_packet_id: Option<u8>,
     remove_world_label_packet_id: Option<u8>,
+    update_marker_packet_id: Option<u8>,
+    update_marker_text_packet_id: Option<u8>,
+    update_marker_texture_packet_id: Option<u8>,
     set_item_packet_id: Option<u8>,
     set_items_packet_id: Option<u8>,
     set_hud_text_packet_id: Option<u8>,
@@ -542,10 +574,35 @@ impl ClientSession {
             .iter()
             .find(|entry| entry.method == "openURI")
             .map(|entry| entry.packet_id);
+        let create_marker_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "createMarker")
+            .map(|entry| entry.packet_id);
+        let remove_marker_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "removeMarker")
+            .map(|entry| entry.packet_id);
         let remove_world_label_packet_id = manifest
             .remote_packets
             .iter()
             .find(|entry| entry.method == "removeWorldLabel")
+            .map(|entry| entry.packet_id);
+        let update_marker_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "updateMarker")
+            .map(|entry| entry.packet_id);
+        let update_marker_text_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "updateMarkerText")
+            .map(|entry| entry.packet_id);
+        let update_marker_texture_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "updateMarkerTexture")
             .map(|entry| entry.packet_id);
         let set_item_packet_id = manifest
             .remote_packets
@@ -1030,7 +1087,12 @@ impl ClientSession {
             menu_choose_packet_id,
             menu_packet_id,
             open_uri_packet_id,
+            create_marker_packet_id,
+            remove_marker_packet_id,
             remove_world_label_packet_id,
+            update_marker_packet_id,
+            update_marker_text_packet_id,
+            update_marker_texture_packet_id,
             set_item_packet_id,
             set_items_packet_id,
             set_hud_text_packet_id,
@@ -2203,6 +2265,185 @@ impl ClientSession {
                     self.state.last_remove_world_label_id = Some(label_id);
                     Ok(ClientSessionEvent::RemoveWorldLabel { label_id })
                 } else {
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
+            packet_id if Some(packet_id) == self.create_marker_packet_id => {
+                if let Some(summary) = decode_create_marker_payload(&packet.payload) {
+                    self.state.received_create_marker_count = self
+                        .state
+                        .received_create_marker_count
+                        .saturating_add(1);
+                    self.state.last_marker_id = Some(summary.marker_id);
+                    self.state.last_marker_json_len = Some(summary.json_len);
+                    self.state.last_marker_control = None;
+                    self.state.last_marker_control_name = None;
+                    self.state.last_marker_p1_bits = None;
+                    self.state.last_marker_p2_bits = None;
+                    self.state.last_marker_p3_bits = None;
+                    self.state.last_marker_fetch = None;
+                    self.state.last_marker_text = None;
+                    self.state.last_marker_texture_kind = None;
+                    self.state.last_marker_texture_kind_name = None;
+                    Ok(ClientSessionEvent::CreateMarker {
+                        marker_id: summary.marker_id,
+                        json_len: summary.json_len,
+                    })
+                } else {
+                    self.state.failed_marker_decode_count = self
+                        .state
+                        .failed_marker_decode_count
+                        .saturating_add(1);
+                    self.state.last_failed_marker_method = Some("createMarker".to_string());
+                    self.state.last_failed_marker_payload_len = Some(packet.payload.len());
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
+            packet_id if Some(packet_id) == self.remove_marker_packet_id => {
+                if let Some(marker_id) = decode_remove_marker_payload(&packet.payload) {
+                    self.state.received_remove_marker_count = self
+                        .state
+                        .received_remove_marker_count
+                        .saturating_add(1);
+                    self.state.last_marker_id = Some(marker_id);
+                    self.state.last_marker_json_len = None;
+                    self.state.last_marker_control = None;
+                    self.state.last_marker_control_name = None;
+                    self.state.last_marker_p1_bits = None;
+                    self.state.last_marker_p2_bits = None;
+                    self.state.last_marker_p3_bits = None;
+                    self.state.last_marker_fetch = None;
+                    self.state.last_marker_text = None;
+                    self.state.last_marker_texture_kind = None;
+                    self.state.last_marker_texture_kind_name = None;
+                    Ok(ClientSessionEvent::RemoveMarker { marker_id })
+                } else {
+                    self.state.failed_marker_decode_count = self
+                        .state
+                        .failed_marker_decode_count
+                        .saturating_add(1);
+                    self.state.last_failed_marker_method = Some("removeMarker".to_string());
+                    self.state.last_failed_marker_payload_len = Some(packet.payload.len());
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
+            packet_id if Some(packet_id) == self.update_marker_packet_id => {
+                if let Some(summary) = decode_update_marker_payload(&packet.payload) {
+                    self.state.received_update_marker_count = self
+                        .state
+                        .received_update_marker_count
+                        .saturating_add(1);
+                    self.state.last_marker_id = Some(summary.marker_id);
+                    self.state.last_marker_json_len = None;
+                    self.state.last_marker_control = Some(summary.control);
+                    self.state.last_marker_control_name =
+                        marker_control_name(summary.control).map(str::to_string);
+                    self.state.last_marker_p1_bits = Some(summary.p1_bits);
+                    self.state.last_marker_p2_bits = Some(summary.p2_bits);
+                    self.state.last_marker_p3_bits = Some(summary.p3_bits);
+                    self.state.last_marker_fetch = None;
+                    self.state.last_marker_text = None;
+                    self.state.last_marker_texture_kind = None;
+                    self.state.last_marker_texture_kind_name = None;
+                    Ok(ClientSessionEvent::UpdateMarker {
+                        marker_id: summary.marker_id,
+                        control: summary.control,
+                        control_name: marker_control_name(summary.control).map(str::to_string),
+                        p1_bits: summary.p1_bits,
+                        p2_bits: summary.p2_bits,
+                        p3_bits: summary.p3_bits,
+                    })
+                } else {
+                    self.state.failed_marker_decode_count = self
+                        .state
+                        .failed_marker_decode_count
+                        .saturating_add(1);
+                    self.state.last_failed_marker_method = Some("updateMarker".to_string());
+                    self.state.last_failed_marker_payload_len = Some(packet.payload.len());
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
+            packet_id if Some(packet_id) == self.update_marker_text_packet_id => {
+                if let Some(summary) = decode_update_marker_text_payload(&packet.payload) {
+                    self.state.received_update_marker_text_count = self
+                        .state
+                        .received_update_marker_text_count
+                        .saturating_add(1);
+                    self.state.last_marker_id = Some(summary.marker_id);
+                    self.state.last_marker_json_len = None;
+                    self.state.last_marker_control = Some(summary.control);
+                    self.state.last_marker_control_name =
+                        marker_control_name(summary.control).map(str::to_string);
+                    self.state.last_marker_p1_bits = None;
+                    self.state.last_marker_p2_bits = None;
+                    self.state.last_marker_p3_bits = None;
+                    self.state.last_marker_fetch = Some(summary.fetch);
+                    self.state.last_marker_text = summary.text.clone();
+                    self.state.last_marker_texture_kind = None;
+                    self.state.last_marker_texture_kind_name = None;
+                    Ok(ClientSessionEvent::UpdateMarkerText {
+                        marker_id: summary.marker_id,
+                        control: summary.control,
+                        control_name: marker_control_name(summary.control).map(str::to_string),
+                        fetch: summary.fetch,
+                        text: summary.text,
+                    })
+                } else {
+                    self.state.failed_marker_decode_count = self
+                        .state
+                        .failed_marker_decode_count
+                        .saturating_add(1);
+                    self.state.last_failed_marker_method = Some("updateMarkerText".to_string());
+                    self.state.last_failed_marker_payload_len = Some(packet.payload.len());
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
+            packet_id if Some(packet_id) == self.update_marker_texture_packet_id => {
+                if let Some(summary) = decode_update_marker_texture_payload(&packet.payload) {
+                    self.state.received_update_marker_texture_count = self
+                        .state
+                        .received_update_marker_texture_count
+                        .saturating_add(1);
+                    self.state.last_marker_id = Some(summary.marker_id);
+                    self.state.last_marker_json_len = None;
+                    self.state.last_marker_control = None;
+                    self.state.last_marker_control_name = None;
+                    self.state.last_marker_p1_bits = None;
+                    self.state.last_marker_p2_bits = None;
+                    self.state.last_marker_p3_bits = None;
+                    self.state.last_marker_fetch = None;
+                    self.state.last_marker_text = None;
+                    self.state.last_marker_texture_kind = Some(summary.texture_kind);
+                    self.state.last_marker_texture_kind_name =
+                        Some(summary.texture_kind_name.clone());
+                    Ok(ClientSessionEvent::UpdateMarkerTexture {
+                        marker_id: summary.marker_id,
+                        texture_kind: summary.texture_kind,
+                        texture_kind_name: summary.texture_kind_name,
+                    })
+                } else {
+                    self.state.failed_marker_decode_count = self
+                        .state
+                        .failed_marker_decode_count
+                        .saturating_add(1);
+                    self.state.last_failed_marker_method =
+                        Some("updateMarkerTexture".to_string());
+                    self.state.last_failed_marker_payload_len = Some(packet.payload.len());
                     Ok(ClientSessionEvent::IgnoredPacket {
                         packet_id: packet.packet_id,
                         remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
@@ -5525,6 +5766,33 @@ pub enum ClientSessionEvent {
     RemoveWorldLabel {
         label_id: i32,
     },
+    CreateMarker {
+        marker_id: i32,
+        json_len: usize,
+    },
+    RemoveMarker {
+        marker_id: i32,
+    },
+    UpdateMarker {
+        marker_id: i32,
+        control: u8,
+        control_name: Option<String>,
+        p1_bits: u64,
+        p2_bits: u64,
+        p3_bits: u64,
+    },
+    UpdateMarkerText {
+        marker_id: i32,
+        control: u8,
+        control_name: Option<String>,
+        fetch: bool,
+        text: Option<String>,
+    },
+    UpdateMarkerTexture {
+        marker_id: i32,
+        texture_kind: u8,
+        texture_kind_name: String,
+    },
     MenuShown {
         menu_id: i32,
         title: Option<String>,
@@ -6502,6 +6770,64 @@ fn decode_remove_world_label_payload(payload: &[u8]) -> Option<i32> {
     (cursor == payload.len()).then_some(label_id)
 }
 
+fn decode_create_marker_payload(payload: &[u8]) -> Option<CreateMarkerSummary> {
+    if payload.len() < 8 {
+        return None;
+    }
+    let marker_id = i32::from_be_bytes(payload[0..4].try_into().ok()?);
+    let json_len = decode_length_prefixed_json_payload(&payload[4..]).ok()?.len();
+    Some(CreateMarkerSummary {
+        marker_id,
+        json_len,
+    })
+}
+
+fn decode_remove_marker_payload(payload: &[u8]) -> Option<i32> {
+    (payload.len() == 4).then_some(i32::from_be_bytes(payload.try_into().ok()?))
+}
+
+fn decode_update_marker_payload(payload: &[u8]) -> Option<UpdateMarkerSummary> {
+    if payload.len() != 29 {
+        return None;
+    }
+    Some(UpdateMarkerSummary {
+        marker_id: i32::from_be_bytes(payload[0..4].try_into().ok()?),
+        control: payload[4],
+        p1_bits: u64::from_be_bytes(payload[5..13].try_into().ok()?),
+        p2_bits: u64::from_be_bytes(payload[13..21].try_into().ok()?),
+        p3_bits: u64::from_be_bytes(payload[21..29].try_into().ok()?),
+    })
+}
+
+fn decode_update_marker_text_payload(payload: &[u8]) -> Option<UpdateMarkerTextSummary> {
+    if payload.len() < 6 {
+        return None;
+    }
+    Some(UpdateMarkerTextSummary {
+        marker_id: i32::from_be_bytes(payload[0..4].try_into().ok()?),
+        control: payload[4],
+        fetch: payload[5] != 0,
+        text: decode_optional_typeio_string_payload(&payload[6..])?,
+    })
+}
+
+fn decode_update_marker_texture_payload(payload: &[u8]) -> Option<UpdateMarkerTextureSummary> {
+    if payload.len() < 6 {
+        return None;
+    }
+    let marker_id = i32::from_be_bytes(payload[0..4].try_into().ok()?);
+    let texture_payload = &payload[4..];
+    let (texture_object, consumed_len) = read_object_prefix(texture_payload).ok()?;
+    if consumed_len != texture_payload.len() {
+        return None;
+    }
+    Some(UpdateMarkerTextureSummary {
+        marker_id,
+        texture_kind: texture_payload[0],
+        texture_kind_name: texture_object.kind().to_string(),
+    })
+}
+
 fn decode_info_toast_payload(payload: &[u8]) -> Option<InfoToastSummary> {
     let mut cursor = 0usize;
     let message = read_typeio_string_at(payload, &mut cursor)?;
@@ -7440,6 +7766,36 @@ struct WorldLabelSummary {
     world_y: f32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CreateMarkerSummary {
+    marker_id: i32,
+    json_len: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct UpdateMarkerSummary {
+    marker_id: i32,
+    control: u8,
+    p1_bits: u64,
+    p2_bits: u64,
+    p3_bits: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct UpdateMarkerTextSummary {
+    marker_id: i32,
+    control: u8,
+    fetch: bool,
+    text: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct UpdateMarkerTextureSummary {
+    marker_id: i32,
+    texture_kind: u8,
+    texture_kind_name: String,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 struct InfoToastSummary {
     message: Option<String>,
@@ -7913,6 +8269,10 @@ fn typeio_kind_name_for_type_id(type_id: u8) -> String {
         23 => "UnitCommand".to_string(),
         _ => format!("unsupported({type_id})"),
     }
+}
+
+fn marker_control_name(control: u8) -> Option<&'static str> {
+    MARKER_CONTROL_NAMES.get(control as usize).copied()
 }
 
 fn decode_construct_finish_payload(payload: &[u8]) -> Option<ConstructFinishSummary> {
@@ -17333,6 +17693,157 @@ mod tests {
         );
         assert_eq!(session.state().received_remove_world_label_count, 1);
         assert_eq!(session.state().last_remove_world_label_id, Some(99));
+    }
+
+    #[test]
+    fn marker_packets_emit_observability_events() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let create_marker_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "createMarker")
+            .unwrap()
+            .packet_id;
+        let remove_marker_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "removeMarker")
+            .unwrap()
+            .packet_id;
+        let update_marker_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "updateMarker")
+            .unwrap()
+            .packet_id;
+        let update_marker_text_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "updateMarkerText")
+            .unwrap()
+            .packet_id;
+        let update_marker_texture_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "updateMarkerTexture")
+            .unwrap()
+            .packet_id;
+
+        let marker_json = r#"{"type":"shape"}"#;
+        let mut create_marker_payload = Vec::new();
+        write_typeio_int(&mut create_marker_payload, 77);
+        write_typeio_int(&mut create_marker_payload, marker_json.len() as i32);
+        create_marker_payload.extend_from_slice(marker_json.as_bytes());
+        let create_event = session
+            .ingest_packet_bytes(
+                &encode_packet(create_marker_packet_id, &create_marker_payload, false).unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            create_event,
+            ClientSessionEvent::CreateMarker {
+                marker_id: 77,
+                json_len: marker_json.len(),
+            }
+        );
+
+        let mut update_marker_payload = Vec::new();
+        update_marker_payload.extend_from_slice(&77i32.to_be_bytes());
+        update_marker_payload.push(4);
+        update_marker_payload.extend_from_slice(&12.5f64.to_bits().to_be_bytes());
+        update_marker_payload.extend_from_slice(&(-3.0f64).to_bits().to_be_bytes());
+        update_marker_payload.extend_from_slice(&2.25f64.to_bits().to_be_bytes());
+        let update_event = session
+            .ingest_packet_bytes(
+                &encode_packet(update_marker_packet_id, &update_marker_payload, false).unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            update_event,
+            ClientSessionEvent::UpdateMarker {
+                marker_id: 77,
+                control: 4,
+                control_name: Some("pos".to_string()),
+                p1_bits: 12.5f64.to_bits(),
+                p2_bits: (-3.0f64).to_bits(),
+                p3_bits: 2.25f64.to_bits(),
+            }
+        );
+
+        let mut update_marker_text_payload = Vec::new();
+        update_marker_text_payload.extend_from_slice(&77i32.to_be_bytes());
+        update_marker_text_payload.push(14);
+        update_marker_text_payload.push(1);
+        mdt_typeio::write_string(&mut update_marker_text_payload, Some("logic-text"));
+        let update_text_event = session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    update_marker_text_packet_id,
+                    &update_marker_text_payload,
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            update_text_event,
+            ClientSessionEvent::UpdateMarkerText {
+                marker_id: 77,
+                control: 14,
+                control_name: Some("flushText".to_string()),
+                fetch: true,
+                text: Some("logic-text".to_string()),
+            }
+        );
+
+        let mut update_marker_texture_payload = Vec::new();
+        update_marker_texture_payload.extend_from_slice(&77i32.to_be_bytes());
+        write_typeio_object(
+            &mut update_marker_texture_payload,
+            &TypeIoObject::String(Some("atlas-region".to_string())),
+        );
+        let update_texture_event = session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    update_marker_texture_packet_id,
+                    &update_marker_texture_payload,
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            update_texture_event,
+            ClientSessionEvent::UpdateMarkerTexture {
+                marker_id: 77,
+                texture_kind: 4,
+                texture_kind_name: "string".to_string(),
+            }
+        );
+
+        let remove_event = session
+            .ingest_packet_bytes(
+                &encode_packet(remove_marker_packet_id, &77i32.to_be_bytes(), false).unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            remove_event,
+            ClientSessionEvent::RemoveMarker { marker_id: 77 }
+        );
+
+        assert_eq!(session.state().received_create_marker_count, 1);
+        assert_eq!(session.state().received_remove_marker_count, 1);
+        assert_eq!(session.state().received_update_marker_count, 1);
+        assert_eq!(session.state().received_update_marker_text_count, 1);
+        assert_eq!(session.state().received_update_marker_texture_count, 1);
+        assert_eq!(session.state().failed_marker_decode_count, 0);
+        assert_eq!(session.state().last_marker_id, Some(77));
+        assert_eq!(session.state().last_marker_json_len, None);
+        assert_eq!(session.state().last_marker_control, None);
+        assert_eq!(session.state().last_marker_text, None);
+        assert_eq!(session.state().last_marker_texture_kind, None);
+        assert_eq!(session.state().last_marker_texture_kind_name, None);
     }
 
     #[test]
