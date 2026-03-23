@@ -33,6 +33,8 @@ use std::time::{Duration, Instant};
 
 const LIVE_VIEW_TILES: (usize, usize) = (64, 32);
 const SERVER_RESTART_RETRY_BACKOFF_MS: u64 = 1_000;
+const DEFAULT_DISCOVER_PORT: u16 = 6567;
+const DEFAULT_DISCOVER_TIMEOUT_MS: u64 = 1_500;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let raw_args = env::args().collect::<Vec<_>>();
@@ -50,7 +52,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let connect_payload = load_connect_payload(&args.connect)?;
     let connect = session.prepare_connect_packet(&connect_payload)?;
 
-    let mut current_server_addr = args.server_addr;
+    let mut current_server_addr = resolve_initial_server_addr(&args)?;
     let mut driver = ArcNetSessionDriver::connect(current_server_addr)?;
     let mut movement_probe = args.movement_probe.map(MovementProbeController::new);
     let mut live_intent_mapper = (!args.live_intent_schedule.is_empty()).then(|| {
@@ -80,7 +82,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "connected: tcp_local={}, udp_local={}, server={}, connect_packet_len={}",
         tcp_local_addr,
         udp_local_addr,
-        args.server_addr,
+        current_server_addr,
         connect.encoded_packet.len()
     );
 
@@ -331,6 +333,66 @@ fn resolve_redirect_server_addr(ip: &str, port: i32) -> Option<SocketAddr> {
     (ip, port).to_socket_addrs().ok()?.next()
 }
 
+fn resolve_initial_server_addr(args: &CliArgs) -> Result<SocketAddr, String> {
+    match &args.server_target {
+        ServerTarget::Direct(server_addr) => Ok(*server_addr),
+        ServerTarget::Discover(config) => {
+            let targets = resolve_discovery_targets(&config.hosts, config.port)?;
+            let discovered =
+                ArcNetSessionDriver::discover_first_server(&targets, config.timeout)
+                    .map_err(|error| format!("failed to probe discovery targets: {error}"))?;
+            let Some(server_addr) = discovered else {
+                return Err(format!(
+                    "host discovery timed out after {}ms for targets: {}",
+                    config.timeout.as_millis(),
+                    format_socket_addrs(&targets)
+                ));
+            };
+            println!(
+                "discover_selected: server={} timeout_ms={} candidates={}",
+                server_addr,
+                config.timeout.as_millis(),
+                targets.len()
+            );
+            Ok(server_addr)
+        }
+    }
+}
+
+fn resolve_discovery_targets(hosts: &[String], port: u16) -> Result<Vec<SocketAddr>, String> {
+    let mut targets = Vec::new();
+    for host in hosts {
+        let mut resolved_count = 0usize;
+        let resolved = (host.as_str(), port)
+            .to_socket_addrs()
+            .map_err(|error| format!("failed to resolve --discover-host {host}: {error}"))?;
+        for addr in resolved {
+            resolved_count += 1;
+            if !targets.contains(&addr) {
+                targets.push(addr);
+            }
+        }
+        if resolved_count == 0 {
+            return Err(format!(
+                "failed to resolve --discover-host {host}: no addresses returned"
+            ));
+        }
+    }
+
+    if targets.is_empty() {
+        return Err("no discovery targets resolved".to_string());
+    }
+    Ok(targets)
+}
+
+fn format_socket_addrs(addrs: &[SocketAddr]) -> String {
+    addrs
+        .iter()
+        .map(|addr| addr.to_string())
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
 fn reconnect_runtime_session(
     driver: &mut ArcNetSessionDriver,
     manifest: &RemoteManifest,
@@ -350,7 +412,7 @@ fn reconnect_runtime_session(
 
 struct CliArgs {
     manifest_path: PathBuf,
-    server_addr: SocketAddr,
+    server_target: ServerTarget,
     locale: String,
     duration: Duration,
     tick: Duration,
@@ -381,6 +443,19 @@ struct CliArgs {
     chat_schedule: Vec<ScheduledChatEntry>,
     outbound_action_schedule: Vec<ScheduledOutboundAction>,
     connect: ConnectSource,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum ServerTarget {
+    Direct(SocketAddr),
+    Discover(DiscoveryConfig),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct DiscoveryConfig {
+    hosts: Vec<String>,
+    port: u16,
+    timeout: Duration,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -579,6 +654,9 @@ enum ConnectSource {
 fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
     let mut manifest_path: Option<PathBuf> = None;
     let mut server_addr: Option<SocketAddr> = None;
+    let mut discover_hosts = Vec::new();
+    let mut discover_port = DEFAULT_DISCOVER_PORT;
+    let mut discover_timeout_ms = DEFAULT_DISCOVER_TIMEOUT_MS;
     let mut locale = String::from("en_US");
     let mut duration = Duration::from_secs(30);
     let mut tick = Duration::from_millis(50);
@@ -686,6 +764,31 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
                         .parse::<SocketAddr>()
                         .map_err(|e| format!("invalid --server address: {e}"))?,
                 );
+            }
+            "--discover-host" => {
+                i += 1;
+                discover_hosts.push(
+                    args.get(i)
+                        .ok_or("missing value for --discover-host")?
+                        .to_string(),
+                );
+            }
+            "--discover-port" => {
+                i += 1;
+                let value = args.get(i).ok_or("missing value for --discover-port")?;
+                discover_port = value
+                    .parse::<u16>()
+                    .map_err(|e| format!("invalid --discover-port: {e}"))?;
+            }
+            "--discover-timeout-ms" => {
+                i += 1;
+                let value = args
+                    .get(i)
+                    .ok_or("missing value for --discover-timeout-ms")?;
+                discover_timeout_ms = parse_u64_arg("--discover-timeout-ms", value)?;
+                if discover_timeout_ms == 0 {
+                    return Err("invalid --discover-timeout-ms, expected integer >= 1".to_string());
+                }
             }
             "--locale" => {
                 i += 1;
@@ -1231,9 +1334,19 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
         }
     };
 
+    let server_target = match server_addr {
+        Some(addr) => ServerTarget::Direct(addr),
+        None if !discover_hosts.is_empty() => ServerTarget::Discover(DiscoveryConfig {
+            hosts: discover_hosts,
+            port: discover_port,
+            timeout: Duration::from_millis(discover_timeout_ms),
+        }),
+        None => return Err(format!("missing --server or --discover-host\n{}", usage())),
+    };
+
     Ok(CliArgs {
         manifest_path: manifest_path.ok_or(format!("missing --manifest\n{}", usage()))?,
-        server_addr: server_addr.ok_or(format!("missing --server\n{}", usage()))?,
+        server_target,
         locale: locale_for_session(&connect, &locale),
         duration,
         tick,
@@ -1277,7 +1390,7 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
 
 fn usage() -> String {
     String::from(
-        "Usage: mdt-client-min-online --manifest <path> --server <host:port> [--connect-hex <path> | --name <name> --uuid <base64> --usid <base64> --build <build> --version-type <type> --mobile --color-rgba <rgba> --mod <name:version> ...] [--locale <locale>] [--duration-ms <ms>] [--tick-ms <ms>] [--max-recv-packets <n>] [--snapshot-interval-ms <ms>] [--aim-x <f32> --aim-y <f32>] [--mine-tile <x:y>] [--snapshot-boosting|--snapshot-no-boosting] [--snapshot-shooting|--snapshot-no-shooting] [--snapshot-chatting|--snapshot-no-chatting] [--snapshot-building|--snapshot-no-building] [--view-size <w:h>] [--move-step-x <f32> --move-step-y <f32>] [--intent-snapshot <moveX:moveY:aimX:aimY:actions> ...] [--intent-live-sampling|--intent-edge-mapped] [--intent-delay-ms <ms>] [--intent-spacing-ms <ms>] [--plan-place <x:y:block[:rotation][;config]> ...] [--plan-break <x:y> ...] [--plan-place-relative <dx:dy:block[:rotation][;config]> ...] [--plan-break-relative <dx:dy> ...] config=<none|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|point2=<x:y>|point2-array=<x:y[,x:y...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|double=<f64>|building-pos=<i32>|laccess=<i16>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|vec2-array=<x:y[,x:y...]>|vec2=<x:y>|team=<u8>|int-array=<i32[,i32...]>|object-array=<value[|value...]>|unit-command=<u16>> [--plan-rotate <x:y:dir> ...] [--plan-flip-x <x:y> ...] [--plan-flip-y <x:y> ...] [--plan-break-near-player] [--plan-place-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--plan-place-conflict-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--render-ascii-on-world-ready] [--print-client-packets] [--watch-client-packet <type> ...] [--watch-client-binary-packet <type> ...] [--watch-client-logic-data <channel> ...] [--render-window-live] [--dump-world-stream-hex <path>] [--chat-delay-ms <ms>] [--chat-spacing-ms <ms>] [--chat-message <text> ...] [--action-delay-ms <ms>] [--action-spacing-ms <ms>] [--action-request-item <buildPos|none:itemId|none:amount> ...] [--action-request-unit-payload <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-clear ...] [--action-unit-control <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-building-control-select <none|unit:<id>|block:<pos>|<id>@buildPos|none> ...] [--action-building-control-select <buildPos|none> ...] [--action-clear-items <buildPos|none> ...] [--action-clear-liquids <buildPos|none> ...] [--action-transfer-inventory <buildPos|none> ...] [--action-request-build-payload <buildPos|none> ...] [--action-request-drop-payload <x:y> ...] [--action-rotate-block <buildPos|none:direction> ...] [--action-drop-item <angle> ...] [--action-tile-config <buildPos|none:value> ...] [--action-tile-tap <tilePos|none> ...] [--action-delete-plans <x:y[,x:y...]|none> ...] [--action-command-building <x:y[,x:y...]|none@x:y> ...] [--action-command-units <unitId[,unitId...]|none@buildPos|none@unitTarget@x:y|none@queueCommand@finalBatch> ...] [--action-set-unit-command <unitId[,unitId...]|none@commandId|none> ...] [--action-set-unit-stance <unitId[,unitId...]|none@stanceId|none@enable> ...] [--action-begin-break <none|unit:<id>|block:<pos>|<id>@teamId@x:y> ...] [--action-begin-place <none|unit:<id>|block:<pos>|<id>@blockId|none@teamId@x:y@rotation@value> ...] [--action-client-packet <type@contents@reliable|unreliable> ...] [--action-client-binary-packet <type@hex@reliable|unreliable> ...] [--action-client-logic-data <channel@value@reliable|unreliable> ...] value=<null|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|point2=<x:y>|point2-array=<x:y[,x:y...]>|double=<f64>|building-pos=<i32>|laccess=<i16>|vec2=<x:y>|vec2-array=<x:y[,x:y...]>|team=<u8>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|int-array=<i32[,i32...]>|object-array=<value>|unit-command=<u16>|...>",
+        "Usage: mdt-client-min-online --manifest <path> (--server <host:port> | --discover-host <host> [--discover-host <host> ...] [--discover-port <port>] [--discover-timeout-ms <ms>]) [--connect-hex <path> | --name <name> --uuid <base64> --usid <base64> --build <build> --version-type <type> --mobile --color-rgba <rgba> --mod <name:version> ...] [--locale <locale>] [--duration-ms <ms>] [--tick-ms <ms>] [--max-recv-packets <n>] [--snapshot-interval-ms <ms>] [--aim-x <f32> --aim-y <f32>] [--mine-tile <x:y>] [--snapshot-boosting|--snapshot-no-boosting] [--snapshot-shooting|--snapshot-no-shooting] [--snapshot-chatting|--snapshot-no-chatting] [--snapshot-building|--snapshot-no-building] [--view-size <w:h>] [--move-step-x <f32> --move-step-y <f32>] [--intent-snapshot <moveX:moveY:aimX:aimY:actions> ...] [--intent-live-sampling|--intent-edge-mapped] [--intent-delay-ms <ms>] [--intent-spacing-ms <ms>] [--plan-place <x:y:block[:rotation][;config]> ...] [--plan-break <x:y> ...] [--plan-place-relative <dx:dy:block[:rotation][;config]> ...] [--plan-break-relative <dx:dy> ...] config=<none|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|point2=<x:y>|point2-array=<x:y[,x:y...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|double=<f64>|building-pos=<i32>|laccess=<i16>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|vec2-array=<x:y[,x:y...]>|vec2=<x:y>|team=<u8>|int-array=<i32[,i32...]>|object-array=<value[|value...]>|unit-command=<u16>> [--plan-rotate <x:y:dir> ...] [--plan-flip-x <x:y> ...] [--plan-flip-y <x:y> ...] [--plan-break-near-player] [--plan-place-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--plan-place-conflict-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--render-ascii-on-world-ready] [--print-client-packets] [--watch-client-packet <type> ...] [--watch-client-binary-packet <type> ...] [--watch-client-logic-data <channel> ...] [--render-window-live] [--dump-world-stream-hex <path>] [--chat-delay-ms <ms>] [--chat-spacing-ms <ms>] [--chat-message <text> ...] [--action-delay-ms <ms>] [--action-spacing-ms <ms>] [--action-request-item <buildPos|none:itemId|none:amount> ...] [--action-request-unit-payload <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-clear ...] [--action-unit-control <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-building-control-select <none|unit:<id>|block:<pos>|<id>@buildPos|none> ...] [--action-building-control-select <buildPos|none> ...] [--action-clear-items <buildPos|none> ...] [--action-clear-liquids <buildPos|none> ...] [--action-transfer-inventory <buildPos|none> ...] [--action-request-build-payload <buildPos|none> ...] [--action-request-drop-payload <x:y> ...] [--action-rotate-block <buildPos|none:direction> ...] [--action-drop-item <angle> ...] [--action-tile-config <buildPos|none:value> ...] [--action-tile-tap <tilePos|none> ...] [--action-delete-plans <x:y[,x:y...]|none> ...] [--action-command-building <x:y[,x:y...]|none@x:y> ...] [--action-command-units <unitId[,unitId...]|none@buildPos|none@unitTarget@x:y|none@queueCommand@finalBatch> ...] [--action-set-unit-command <unitId[,unitId...]|none@commandId|none> ...] [--action-set-unit-stance <unitId[,unitId...]|none@stanceId|none@enable> ...] [--action-begin-break <none|unit:<id>|block:<pos>|<id>@teamId@x:y> ...] [--action-begin-place <none|unit:<id>|block:<pos>|<id>@blockId|none@teamId@x:y@rotation@value> ...] [--action-client-packet <type@contents@reliable|unreliable> ...] [--action-client-binary-packet <type@hex@reliable|unreliable> ...] [--action-client-logic-data <channel@value@reliable|unreliable> ...] value=<null|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|point2=<x:y>|point2-array=<x:y[,x:y...]>|double=<f64>|building-pos=<i32>|laccess=<i16>|vec2=<x:y>|vec2-array=<x:y[,x:y...]>|team=<u8>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|int-array=<i32[,i32...]>|object-array=<value>|unit-command=<u16>|...>",
     )
 }
 
@@ -4449,6 +4562,18 @@ mod tests {
         args
     }
 
+    fn sample_discover_args(extra: &[&str]) -> Vec<String> {
+        let mut args = vec![
+            "mdt-client-min-online".to_string(),
+            "--manifest".to_string(),
+            real_manifest_path().display().to_string(),
+            "--discover-host".to_string(),
+            "127.0.0.1".to_string(),
+        ];
+        args.extend(extra.iter().map(|value| (*value).to_string()));
+        args
+    }
+
     #[test]
     fn parse_args_accepts_aim_pointer_pair() {
         let args = parse_args(sample_args(&[
@@ -4531,8 +4656,49 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_accepts_discovery_host_without_server() {
+        let args = parse_args(sample_discover_args(&[])).unwrap();
+
+        assert_eq!(
+            args.server_target,
+            ServerTarget::Discover(DiscoveryConfig {
+                hosts: vec!["127.0.0.1".to_string()],
+                port: DEFAULT_DISCOVER_PORT,
+                timeout: Duration::from_millis(DEFAULT_DISCOVER_TIMEOUT_MS),
+            })
+        );
+    }
+
+    #[test]
+    fn parse_args_rejects_missing_server_and_discovery() {
+        let args = vec![
+            "mdt-client-min-online".to_string(),
+            "--manifest".to_string(),
+            real_manifest_path().display().to_string(),
+        ];
+
+        let error = parse_args(args)
+            .err()
+            .expect("missing server/discovery should fail");
+
+        assert!(error.contains("missing --server or --discover-host"));
+    }
+
+    #[test]
+    fn parse_args_rejects_zero_discovery_timeout() {
+        let error = parse_args(sample_discover_args(&["--discover-timeout-ms", "0"]))
+            .err()
+            .expect("zero discovery timeout should fail");
+
+        assert!(error.contains("invalid --discover-timeout-ms"));
+    }
+
+    #[test]
     fn usage_mentions_snapshot_building_and_snapshot_interval_flags() {
         let text = usage();
+        assert!(text.contains("--server <host:port> | --discover-host <host>"));
+        assert!(text.contains("--discover-port <port>"));
+        assert!(text.contains("--discover-timeout-ms <ms>"));
         assert!(text.contains("--snapshot-building|--snapshot-no-building"));
         assert!(text.contains("--snapshot-interval-ms <ms>"));
         assert!(text.contains("--intent-snapshot <moveX:moveY:aimX:aimY:actions> ..."));

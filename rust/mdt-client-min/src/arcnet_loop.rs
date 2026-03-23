@@ -9,6 +9,7 @@ use mdt_protocol::{
 use std::fmt;
 use std::io::{self, Read, Write};
 use std::net::{SocketAddr, TcpStream, UdpSocket};
+use std::time::Duration;
 
 #[derive(Debug)]
 pub struct ArcNetSessionDriver {
@@ -22,6 +23,53 @@ pub struct ArcNetSessionDriver {
 }
 
 impl ArcNetSessionDriver {
+    pub fn discover_first_server(
+        probe_targets: &[SocketAddr],
+        probe_timeout: Duration,
+    ) -> Result<Option<SocketAddr>, ArcNetLoopError> {
+        let discover_payload = encode_framework_message(&FrameworkMessage::DiscoverHost);
+        for target in probe_targets {
+            if let Some(found) =
+                Self::probe_discover_target(*target, probe_timeout, &discover_payload)?
+            {
+                return Ok(Some(found));
+            }
+        }
+        Ok(None)
+    }
+
+    fn probe_discover_target(
+        target: SocketAddr,
+        probe_timeout: Duration,
+        discover_payload: &[u8],
+    ) -> Result<Option<SocketAddr>, ArcNetLoopError> {
+        let bind_addr = if target.is_ipv4() {
+            "0.0.0.0:0"
+        } else {
+            "[::]:0"
+        };
+        let socket = UdpSocket::bind(bind_addr)?;
+        if target.is_ipv4() {
+            socket.set_broadcast(true)?;
+        }
+        socket.set_read_timeout(Some(probe_timeout))?;
+        socket.send_to(discover_payload, target)?;
+
+        let mut response = [0u8; 65_536];
+        match socket.recv_from(&mut response) {
+            Ok((_, responder)) => Ok(Some(responder)),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
+                ) =>
+            {
+                Ok(None)
+            }
+            Err(error) => Err(ArcNetLoopError::Io(error)),
+        }
+    }
+
     pub fn connect(server_addr: SocketAddr) -> Result<Self, ArcNetLoopError> {
         let tcp = TcpStream::connect(server_addr)?;
         tcp.set_nodelay(true)?;
@@ -411,6 +459,40 @@ mod tests {
         let mut payload = vec![0u8; payload_len];
         stream.read_exact(&mut payload).unwrap();
         payload
+    }
+
+    #[test]
+    fn discover_first_server_returns_udp_responder_addr() {
+        let server = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let server_addr = server.local_addr().unwrap();
+        let handle = thread::spawn(move || {
+            let mut packet = [0u8; 64];
+            let (len, from) = server.recv_from(&mut packet).unwrap();
+            assert_eq!(
+                decode_framework_message(&packet[..len]).unwrap(),
+                FrameworkMessage::DiscoverHost
+            );
+            server.send_to(b"mdt-discovery-ok", from).unwrap();
+        });
+
+        let found =
+            ArcNetSessionDriver::discover_first_server(&[server_addr], Duration::from_millis(250))
+                .unwrap();
+
+        assert_eq!(found, Some(server_addr));
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn discover_first_server_returns_none_on_timeout() {
+        let _silent = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let target = _silent.local_addr().unwrap();
+
+        let found =
+            ArcNetSessionDriver::discover_first_server(&[target], Duration::from_millis(50))
+                .unwrap();
+
+        assert_eq!(found, None);
     }
 
     #[test]

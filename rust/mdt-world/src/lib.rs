@@ -504,6 +504,45 @@ impl EntityMissileSyncSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntityPayloadSyncSnapshot {
+    pub abilities_len: u8,
+    pub ammo_bits: u32,
+    pub controller_type: u8,
+    pub controller_value: Option<i32>,
+    pub elevation_bits: u32,
+    pub flag_bits: u64,
+    pub health_bits: u32,
+    pub is_shooting: bool,
+    pub mine_tile_pos: i32,
+    pub mount_count: u8,
+    pub payload_count: i32,
+    pub plan_count: i32,
+    pub rotation_bits: u32,
+    pub shield_bits: u32,
+    pub spawned_by_core: bool,
+    pub stack_item_id: i16,
+    pub stack_amount: i32,
+    pub status_count: i32,
+    pub team_id: u8,
+    pub unit_type_id: i16,
+    pub update_building: bool,
+    pub vel_x_bits: u32,
+    pub vel_y_bits: u32,
+    pub x_bits: u32,
+    pub y_bits: u32,
+}
+
+impl EntityPayloadSyncSnapshot {
+    pub fn x(&self) -> f32 {
+        f32::from_bits(self.x_bits)
+    }
+
+    pub fn y(&self) -> f32 {
+        f32::from_bits(self.y_bits)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ContentHeaderEntry {
     pub content_type: u8,
     pub names: Vec<String>,
@@ -12856,6 +12895,90 @@ pub fn parse_entity_missile_sync_bytes(
     };
     if !snapshot.x().is_finite() || !snapshot.y().is_finite() {
         return Err("entity missile sync contained non-finite position".to_string());
+    }
+    Ok((snapshot, reader.position()))
+}
+
+pub fn parse_entity_payload_sync_bytes(
+    bytes: &[u8],
+) -> Result<(EntityPayloadSyncSnapshot, usize), String> {
+    let mut reader = Reader::new(bytes);
+    let abilities_len = reader.read_u8()?;
+    reader.skip_bytes(usize::from(abilities_len).saturating_mul(4))?;
+    let ammo_bits = reader.read_u32()?;
+    let (controller_type, controller_value) = skip_entity_unit_controller(&mut reader)?;
+    let elevation_bits = reader.read_u32()?;
+    let flag_bits = reader.read_u64()?;
+    let health_bits = reader.read_u32()?;
+    let is_shooting = reader.read_bool()?;
+    let mine_tile_pos = reader.read_i32()?;
+    let mount_count = reader.read_u8()?;
+    reader.skip_bytes(usize::from(mount_count).saturating_mul(9))?;
+    let payload_count = reader.read_i32()?;
+    if payload_count < 0 {
+        return Err(format!(
+            "unsupported payload sync negative payload count: {payload_count}"
+        ));
+    }
+    if payload_count != 0 {
+        return Err(format!(
+            "unsupported payload sync nonzero payload count: {payload_count}"
+        ));
+    }
+    let plan_count = reader.read_i32()?;
+    if plan_count < 0 {
+        return Err(format!(
+            "unsupported payload sync negative plan count: {plan_count}"
+        ));
+    }
+    for _ in 0..plan_count {
+        skip_entity_build_plan(&mut reader)?;
+    }
+    let rotation_bits = reader.read_u32()?;
+    let shield_bits = reader.read_u32()?;
+    let spawned_by_core = reader.read_bool()?;
+    let stack_item_id = reader.read_i16()?;
+    let stack_amount = reader.read_i32()?;
+    let status_count = reader.read_i32()?;
+    if status_count < 0 {
+        return Err(format!(
+            "unsupported payload sync negative status count: {status_count}"
+        ));
+    }
+    if status_count != 0 {
+        return Err(format!(
+            "unsupported payload sync nonzero status count: {status_count}"
+        ));
+    }
+    let snapshot = EntityPayloadSyncSnapshot {
+        abilities_len,
+        ammo_bits,
+        controller_type,
+        controller_value,
+        elevation_bits,
+        flag_bits,
+        health_bits,
+        is_shooting,
+        mine_tile_pos,
+        mount_count,
+        payload_count,
+        plan_count,
+        rotation_bits,
+        shield_bits,
+        spawned_by_core,
+        stack_item_id,
+        stack_amount,
+        status_count,
+        team_id: reader.read_u8()?,
+        unit_type_id: reader.read_i16()?,
+        update_building: reader.read_bool()?,
+        vel_x_bits: reader.read_u32()?,
+        vel_y_bits: reader.read_u32()?,
+        x_bits: reader.read_u32()?,
+        y_bits: reader.read_u32()?,
+    };
+    if !snapshot.x().is_finite() || !snapshot.y().is_finite() {
+        return Err("entity payload sync contained non-finite position".to_string());
     }
     Ok((snapshot, reader.position()))
 }
@@ -36573,6 +36696,64 @@ mod tests {
         assert_eq!(snapshot.team_id, 1);
         assert_eq!(snapshot.time_bits, 12.5f32.to_bits());
         assert_eq!(snapshot.unit_type_id, 39);
+        assert!(snapshot.update_building);
+        assert_eq!(snapshot.x_bits, 40.0f32.to_bits());
+        assert_eq!(snapshot.y_bits, 60.0f32.to_bits());
+    }
+
+    #[test]
+    fn parses_entity_payload_sync_bytes() {
+        let mut bytes = Vec::new();
+        bytes.push(0);
+        bytes.extend_from_slice(&123.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&7i32.to_be_bytes());
+        bytes.extend_from_slice(&1.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f64.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&150.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&(-1i32).to_be_bytes());
+        bytes.push(2);
+        bytes.push(0);
+        bytes.extend_from_slice(&0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&90.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0i16.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&35i16.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&1.5f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&(-2.25f32).to_bits().to_be_bytes());
+        bytes.extend_from_slice(&40.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&60.0f32.to_bits().to_be_bytes());
+
+        let (snapshot, consumed) = parse_entity_payload_sync_bytes(&bytes).unwrap();
+
+        assert_eq!(consumed, bytes.len());
+        assert_eq!(snapshot.abilities_len, 0);
+        assert_eq!(snapshot.ammo_bits, 123.0f32.to_bits());
+        assert_eq!(snapshot.controller_type, 0);
+        assert_eq!(snapshot.controller_value, Some(7));
+        assert_eq!(snapshot.elevation_bits, 1.0f32.to_bits());
+        assert_eq!(snapshot.flag_bits, 0);
+        assert_eq!(snapshot.health_bits, 150.0f32.to_bits());
+        assert!(!snapshot.is_shooting);
+        assert_eq!(snapshot.mine_tile_pos, -1);
+        assert_eq!(snapshot.mount_count, 2);
+        assert_eq!(snapshot.payload_count, 0);
+        assert_eq!(snapshot.plan_count, 0);
+        assert_eq!(snapshot.rotation_bits, 90.0f32.to_bits());
+        assert_eq!(snapshot.team_id, 1);
+        assert_eq!(snapshot.unit_type_id, 35);
         assert!(snapshot.update_building);
         assert_eq!(snapshot.x_bits, 40.0f32.to_bits());
         assert_eq!(snapshot.y_bits, 60.0f32.to_bits());
