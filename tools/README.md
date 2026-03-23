@@ -35,4 +35,4 @@
 如果你在做发布治理、CI 审查或同步规则维护，还可以继续看：
 
 - [`../audit/ci-gate-plan.md`](../audit/ci-gate-plan.md)
-- `verifyMdtRemoteFreshness` 支持通过 `-PremoteFreshnessOnCheck=true` 挂到 Gradle `check`，适合在 CI 或正式发布前开启
+- `verifyMdtRemoteFreshness` 现在默认挂到 Gradle `check`；只有在排障或临时提速时才用 `-PremoteFreshnessOnCheck=false` 显式跳过
