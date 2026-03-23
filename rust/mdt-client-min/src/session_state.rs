@@ -546,10 +546,12 @@ pub struct ConfiguredBlockProjection {
     pub inverted_sorter_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub switch_enabled_by_build_pos: BTreeMap<i32, Option<bool>>,
     pub door_open_by_build_pos: BTreeMap<i32, Option<bool>>,
+    pub item_bridge_link_by_build_pos: BTreeMap<i32, Option<i32>>,
     pub unloader_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub duct_unloader_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub duct_router_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub mass_driver_link_by_build_pos: BTreeMap<i32, Option<i32>>,
+    pub payload_mass_driver_link_by_build_pos: BTreeMap<i32, Option<i32>>,
 }
 
 impl ConfiguredBlockProjection {
@@ -590,6 +592,10 @@ impl ConfiguredBlockProjection {
         self.door_open_by_build_pos.insert(build_pos, open);
     }
 
+    pub fn apply_item_bridge_link(&mut self, build_pos: i32, link: Option<i32>) {
+        self.item_bridge_link_by_build_pos.insert(build_pos, link);
+    }
+
     pub fn apply_unloader_item(&mut self, build_pos: i32, item_id: Option<i16>) {
         self.unloader_item_by_build_pos.insert(build_pos, item_id);
     }
@@ -608,6 +614,11 @@ impl ConfiguredBlockProjection {
         self.mass_driver_link_by_build_pos.insert(build_pos, link);
     }
 
+    pub fn apply_payload_mass_driver_link(&mut self, build_pos: i32, link: Option<i32>) {
+        self.payload_mass_driver_link_by_build_pos
+            .insert(build_pos, link);
+    }
+
     pub fn clear_building_state(&mut self, build_pos: i32) {
         self.unit_cargo_unload_point_item_by_build_pos
             .remove(&build_pos);
@@ -618,10 +629,13 @@ impl ConfiguredBlockProjection {
         self.inverted_sorter_item_by_build_pos.remove(&build_pos);
         self.switch_enabled_by_build_pos.remove(&build_pos);
         self.door_open_by_build_pos.remove(&build_pos);
+        self.item_bridge_link_by_build_pos.remove(&build_pos);
         self.unloader_item_by_build_pos.remove(&build_pos);
         self.duct_unloader_item_by_build_pos.remove(&build_pos);
         self.duct_router_item_by_build_pos.remove(&build_pos);
         self.mass_driver_link_by_build_pos.remove(&build_pos);
+        self.payload_mass_driver_link_by_build_pos
+            .remove(&build_pos);
     }
 
     pub fn clear_for_world_reload(&mut self) {

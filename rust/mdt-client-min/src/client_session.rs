@@ -91,6 +91,8 @@ const BLOCK_NAME_ITEM_SOURCE: &str = "item-source";
 const BLOCK_NAME_LIQUID_SOURCE: &str = "liquid-source";
 const BLOCK_NAME_SORTER: &str = "sorter";
 const BLOCK_NAME_INVERTED_SORTER: &str = "inverted-sorter";
+const BLOCK_NAME_BRIDGE_CONVEYOR: &str = "bridge-conveyor";
+const BLOCK_NAME_PHASE_CONVEYOR: &str = "phase-conveyor";
 const BLOCK_NAME_SWITCH: &str = "switch";
 const BLOCK_NAME_WORLD_SWITCH: &str = "world-switch";
 const BLOCK_NAME_DOOR: &str = "door";
@@ -99,6 +101,8 @@ const BLOCK_NAME_UNLOADER: &str = "unloader";
 const BLOCK_NAME_DUCT_UNLOADER: &str = "duct-unloader";
 const BLOCK_NAME_DUCT_ROUTER: &str = "duct-router";
 const BLOCK_NAME_MASS_DRIVER: &str = "mass-driver";
+const BLOCK_NAME_PAYLOAD_MASS_DRIVER: &str = "payload-mass-driver";
+const BLOCK_NAME_LARGE_PAYLOAD_MASS_DRIVER: &str = "large-payload-mass-driver";
 const ALPHA_SHAPE_ENTITY_CLASS_IDS: [u8; 17] = [
     0, 2, 3, 16, 18, 20, 21, 24, 29, 30, 31, 33, 40, 43, 44, 45, 46,
 ];
@@ -1901,6 +1905,16 @@ impl ClientSession {
                     ConfiguredBlockOutcome::RejectedUnsupportedConfigType
                 }
             }
+            BLOCK_NAME_BRIDGE_CONVEYOR | BLOCK_NAME_PHASE_CONVEYOR => {
+                if let Some(link) = configured_link_build_pos(build_pos, config_object) {
+                    self.state
+                        .configured_block_projection
+                        .apply_item_bridge_link(build_pos, link);
+                    ConfiguredBlockOutcome::Applied
+                } else {
+                    ConfiguredBlockOutcome::RejectedUnsupportedConfigType
+                }
+            }
             BLOCK_NAME_SWITCH | BLOCK_NAME_WORLD_SWITCH => {
                 if let Some(enabled) = configured_bool(config_object) {
                     self.state
@@ -1956,6 +1970,16 @@ impl ClientSession {
                     self.state
                         .configured_block_projection
                         .apply_mass_driver_link(build_pos, link);
+                    ConfiguredBlockOutcome::Applied
+                } else {
+                    ConfiguredBlockOutcome::RejectedUnsupportedConfigType
+                }
+            }
+            BLOCK_NAME_PAYLOAD_MASS_DRIVER | BLOCK_NAME_LARGE_PAYLOAD_MASS_DRIVER => {
+                if let Some(link) = configured_link_build_pos(build_pos, config_object) {
+                    self.state
+                        .configured_block_projection
+                        .apply_payload_mass_driver_link(build_pos, link);
                     ConfiguredBlockOutcome::Applied
                 } else {
                     ConfiguredBlockOutcome::RejectedUnsupportedConfigType
@@ -21211,6 +21235,78 @@ mod tests {
     }
 
     #[test]
+    fn item_bridge_config_business_dispatch_applies_relative_and_absolute_links() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+
+        for (build_pos, block_name, relative_target, absolute_target) in [
+            (
+                pack_point2(31, 53),
+                BLOCK_NAME_BRIDGE_CONVEYOR,
+                pack_point2(34, 51),
+                pack_point2(41, 61),
+            ),
+            (
+                pack_point2(32, 54),
+                BLOCK_NAME_PHASE_CONVEYOR,
+                pack_point2(30, 59),
+                pack_point2(42, 62),
+            ),
+        ] {
+            let block_id = loaded_world_block_id_for_name(&session, block_name);
+            ingest_construct_finish_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                block_id,
+                &TypeIoObject::Null,
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .item_bridge_link_by_build_pos
+                    .get(&build_pos),
+                Some(&None)
+            );
+
+            let (build_x, build_y) = unpack_point2(build_pos);
+            let (relative_x, relative_y) = unpack_point2(relative_target);
+            ingest_tile_config_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                &TypeIoObject::Point2 {
+                    x: i32::from(relative_x) - i32::from(build_x),
+                    y: i32::from(relative_y) - i32::from(build_y),
+                },
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .item_bridge_link_by_build_pos
+                    .get(&build_pos),
+                Some(&Some(relative_target))
+            );
+
+            ingest_tile_config_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                &TypeIoObject::Int(absolute_target),
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .item_bridge_link_by_build_pos
+                    .get(&build_pos),
+                Some(&Some(absolute_target))
+            );
+        }
+    }
+
+    #[test]
     fn switch_and_world_switch_config_business_dispatch_apply_bool_and_clear() {
         let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
 
@@ -21487,6 +21583,78 @@ mod tests {
                 .get(&build_pos),
             Some(&None)
         );
+    }
+
+    #[test]
+    fn payload_mass_driver_config_business_dispatch_applies_relative_and_absolute_links() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+
+        for (build_pos, block_name, relative_target, absolute_target) in [
+            (
+                pack_point2(33, 55),
+                BLOCK_NAME_PAYLOAD_MASS_DRIVER,
+                pack_point2(35, 56),
+                pack_point2(43, 63),
+            ),
+            (
+                pack_point2(34, 56),
+                BLOCK_NAME_LARGE_PAYLOAD_MASS_DRIVER,
+                pack_point2(36, 58),
+                pack_point2(44, 64),
+            ),
+        ] {
+            let block_id = loaded_world_block_id_for_name(&session, block_name);
+            ingest_construct_finish_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                block_id,
+                &TypeIoObject::Null,
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .payload_mass_driver_link_by_build_pos
+                    .get(&build_pos),
+                Some(&None)
+            );
+
+            let (build_x, build_y) = unpack_point2(build_pos);
+            let (relative_x, relative_y) = unpack_point2(relative_target);
+            ingest_tile_config_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                &TypeIoObject::Point2 {
+                    x: i32::from(relative_x) - i32::from(build_x),
+                    y: i32::from(relative_y) - i32::from(build_y),
+                },
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .payload_mass_driver_link_by_build_pos
+                    .get(&build_pos),
+                Some(&Some(relative_target))
+            );
+
+            ingest_tile_config_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                &TypeIoObject::Int(absolute_target),
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .payload_mass_driver_link_by_build_pos
+                    .get(&build_pos),
+                Some(&Some(absolute_target))
+            );
+        }
     }
 
     #[test]

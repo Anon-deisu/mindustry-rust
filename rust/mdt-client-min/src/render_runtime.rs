@@ -716,7 +716,7 @@ fn runtime_state_business_projection_label(
 
 fn runtime_configured_block_projection_label(projection: &ConfiguredBlockProjection) -> String {
     format!(
-        "{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}",
+        "{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}",
         runtime_configured_content_family_label(
             "uc",
             &projection.unit_cargo_unload_point_item_by_build_pos,
@@ -732,12 +732,17 @@ fn runtime_configured_block_projection_label(projection: &ConfiguredBlockProject
             "iv",
             &projection.inverted_sorter_item_by_build_pos,
         ),
+        runtime_configured_link_family_label("ib", &projection.item_bridge_link_by_build_pos),
         runtime_configured_bool_family_label("sw", &projection.switch_enabled_by_build_pos),
         runtime_configured_bool_family_label("do", &projection.door_open_by_build_pos),
         runtime_configured_content_family_label("ul", &projection.unloader_item_by_build_pos),
         runtime_configured_content_family_label("du", &projection.duct_unloader_item_by_build_pos),
         runtime_configured_content_family_label("dr", &projection.duct_router_item_by_build_pos),
         runtime_configured_link_family_label("md", &projection.mass_driver_link_by_build_pos),
+        runtime_configured_link_family_label(
+            "pm",
+            &projection.payload_mass_driver_link_by_build_pos,
+        ),
     )
 }
 
