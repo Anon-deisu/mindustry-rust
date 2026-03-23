@@ -4107,6 +4107,15 @@ fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<String> 
                 y.to_bits(),
                 rotation.to_bits()
             )),
+            ClientSessionEvent::UnitSpawnObserved {
+                unit_id,
+                unit_class_id,
+                payload_len,
+                consumed_bytes,
+                trailing_bytes,
+            } => Some(format!(
+                "unit_spawn: unit_id={unit_id} unit_class_id={unit_class_id} payload_len={payload_len} consumed_bytes={consumed_bytes} trailing_bytes={trailing_bytes}"
+            )),
             ClientSessionEvent::UnitBlockSpawn { tile_pos } => {
                 Some(format!("unit_block_spawn: tile_pos={tile_pos:?}"))
             }
@@ -6458,6 +6467,13 @@ mod tests {
                 rotation: 90.0,
                 unit_type_id: Some(19),
             },
+            ClientSessionEvent::UnitSpawnObserved {
+                unit_id: 404,
+                unit_class_id: 36,
+                payload_len: 8,
+                consumed_bytes: 5,
+                trailing_bytes: 3,
+            },
             ClientSessionEvent::UnitBlockSpawn {
                 tile_pos: Some(pack_point2(4, 15)),
             },
@@ -6467,7 +6483,7 @@ mod tests {
             },
         ]);
 
-        assert_eq!(lines.len(), 4);
+        assert_eq!(lines.len(), 5);
         assert!(lines[0].contains("create_weather:"));
         assert!(lines[0].contains("weather_id=Some(5)"));
         assert!(lines[0].contains("0x3f400000"));
@@ -6477,11 +6493,17 @@ mod tests {
         assert!(lines[1].contains("0x42400000"));
         assert!(lines[1].contains("0x42b40000"));
         assert!(lines[1].contains("unit_type_id=Some(19)"));
-        assert!(lines[2].contains("unit_block_spawn:"));
-        assert!(lines[2].contains(&format!("tile_pos=Some({})", pack_point2(4, 15))));
-        assert!(lines[3].contains("unit_tether_block_spawned:"));
-        assert!(lines[3].contains(&format!("tile_pos=Some({})", pack_point2(8, 3))));
-        assert!(lines[3].contains("unit_id=404"));
+        assert!(lines[2].contains("unit_spawn:"));
+        assert!(lines[2].contains("unit_id=404"));
+        assert!(lines[2].contains("unit_class_id=36"));
+        assert!(lines[2].contains("payload_len=8"));
+        assert!(lines[2].contains("consumed_bytes=5"));
+        assert!(lines[2].contains("trailing_bytes=3"));
+        assert!(lines[3].contains("unit_block_spawn:"));
+        assert!(lines[3].contains(&format!("tile_pos=Some({})", pack_point2(4, 15))));
+        assert!(lines[4].contains("unit_tether_block_spawned:"));
+        assert!(lines[4].contains(&format!("tile_pos=Some({})", pack_point2(8, 3))));
+        assert!(lines[4].contains("unit_id=404"));
     }
 
     #[test]

@@ -280,6 +280,7 @@ pub struct ClientSession {
     set_camera_position_packet_id: Option<u8>,
     create_weather_packet_id: Option<u8>,
     spawn_effect_packet_id: Option<u8>,
+    unit_spawn_packet_id: Option<u8>,
     unit_block_spawn_packet_id: Option<u8>,
     unit_tether_block_spawned_packet_id: Option<u8>,
     sound_packet_id: Option<u8>,
@@ -905,6 +906,11 @@ impl ClientSession {
             .iter()
             .find(|entry| entry.method == "spawnEffect")
             .map(|entry| entry.packet_id);
+        let unit_spawn_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "unitSpawn")
+            .map(|entry| entry.packet_id);
         let unit_block_spawn_packet_id = manifest
             .remote_packets
             .iter()
@@ -1218,6 +1224,7 @@ impl ClientSession {
             set_camera_position_packet_id,
             create_weather_packet_id,
             spawn_effect_packet_id,
+            unit_spawn_packet_id,
             unit_block_spawn_packet_id,
             unit_tether_block_spawned_packet_id,
             sound_packet_id,
@@ -4205,6 +4212,29 @@ impl ClientSession {
                     })
                 }
             }
+            packet_id if Some(packet_id) == self.unit_spawn_packet_id => {
+                if let Some(summary) = decode_unit_spawn_header_payload(&packet.payload) {
+                    self.state.received_unit_spawn_count =
+                        self.state.received_unit_spawn_count.saturating_add(1);
+                    self.state.last_unit_spawn_id = Some(summary.unit_id);
+                    self.state.last_unit_spawn_class_id = Some(summary.unit_class_id);
+                    self.state.last_unit_spawn_payload_len = Some(summary.payload_len);
+                    self.state.last_unit_spawn_consumed_bytes = Some(summary.consumed_bytes);
+                    self.state.last_unit_spawn_trailing_bytes = Some(summary.trailing_bytes);
+                    Ok(ClientSessionEvent::UnitSpawnObserved {
+                        unit_id: summary.unit_id,
+                        unit_class_id: summary.unit_class_id,
+                        payload_len: summary.payload_len,
+                        consumed_bytes: summary.consumed_bytes,
+                        trailing_bytes: summary.trailing_bytes,
+                    })
+                } else {
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
             packet_id if Some(packet_id) == self.unit_block_spawn_packet_id => {
                 if let Some(tile_pos) = decode_unit_block_spawn_payload(&packet.payload) {
                     self.state.received_unit_block_spawn_count =
@@ -5964,6 +5994,13 @@ pub enum ClientSessionEvent {
         rotation: f32,
         unit_type_id: Option<i16>,
     },
+    UnitSpawnObserved {
+        unit_id: i32,
+        unit_class_id: u8,
+        payload_len: usize,
+        consumed_bytes: usize,
+        trailing_bytes: usize,
+    },
     UnitBlockSpawn {
         tile_pos: Option<i32>,
     },
@@ -7316,6 +7353,28 @@ fn decode_spawn_effect_payload(payload: &[u8]) -> Option<SpawnEffectSummary> {
         y,
         rotation,
         unit_type_id: (raw_unit_type_id != -1).then_some(raw_unit_type_id),
+    })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct UnitSpawnHeaderSummary {
+    unit_id: i32,
+    unit_class_id: u8,
+    payload_len: usize,
+    consumed_bytes: usize,
+    trailing_bytes: usize,
+}
+
+fn decode_unit_spawn_header_payload(payload: &[u8]) -> Option<UnitSpawnHeaderSummary> {
+    let mut cursor = 0usize;
+    let unit_id = read_i32(payload, &mut cursor)?;
+    let unit_class_id = read_u8(payload, &mut cursor)?;
+    Some(UnitSpawnHeaderSummary {
+        unit_id,
+        unit_class_id,
+        payload_len: payload.len(),
+        consumed_bytes: cursor,
+        trailing_bytes: payload.len().saturating_sub(cursor),
     })
 }
 
@@ -10253,6 +10312,15 @@ fn encode_tile_payload(tile_pos: Option<i32>) -> Vec<u8> {
         .unwrap_or_else(|| pack_point2(-1, -1))
         .to_be_bytes()
         .to_vec()
+}
+
+#[cfg(test)]
+fn encode_unit_spawn_payload(unit_id: i32, unit_class_id: u8, sync_bytes: &[u8]) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(5 + sync_bytes.len());
+    payload.extend_from_slice(&unit_id.to_be_bytes());
+    payload.push(unit_class_id);
+    payload.extend_from_slice(sync_bytes);
+    payload
 }
 
 #[cfg(test)]
@@ -21307,6 +21375,12 @@ mod tests {
             .find(|entry| entry.method == "spawnEffect")
             .unwrap()
             .packet_id;
+        let unit_spawn_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "unitSpawn")
+            .unwrap()
+            .packet_id;
         let unit_block_spawn_packet_id = manifest
             .remote_packets
             .iter()
@@ -21393,6 +21467,33 @@ mod tests {
         );
         assert_eq!(session.state().last_spawn_effect_unit_type_id, Some(19));
 
+        let unit_spawn_event = session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    unit_spawn_packet_id,
+                    &encode_unit_spawn_payload(404, 36, &[0xAA, 0xBB, 0xCC]),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            unit_spawn_event,
+            ClientSessionEvent::UnitSpawnObserved {
+                unit_id: 404,
+                unit_class_id: 36,
+                payload_len: 8,
+                consumed_bytes: 5,
+                trailing_bytes: 3,
+            }
+        );
+        assert_eq!(session.state().received_unit_spawn_count, 1);
+        assert_eq!(session.state().last_unit_spawn_id, Some(404));
+        assert_eq!(session.state().last_unit_spawn_class_id, Some(36));
+        assert_eq!(session.state().last_unit_spawn_payload_len, Some(8));
+        assert_eq!(session.state().last_unit_spawn_consumed_bytes, Some(5));
+        assert_eq!(session.state().last_unit_spawn_trailing_bytes, Some(3));
+
         let unit_block_spawn_pos = Some(pack_point2(4, 15));
         let unit_block_spawn_event = session
             .ingest_packet_bytes(
@@ -21458,6 +21559,12 @@ mod tests {
             .find(|entry| entry.method == "spawnEffect")
             .unwrap()
             .packet_id;
+        let unit_spawn_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "unitSpawn")
+            .unwrap()
+            .packet_id;
         let unit_block_spawn_packet_id = manifest
             .remote_packets
             .iter()
@@ -21480,6 +21587,7 @@ mod tests {
                 spawn_effect_packet_id,
                 encode_spawn_effect_payload(32.5, 48.0, 90.0, Some(19))[..13].to_vec(),
             ),
+            (unit_spawn_packet_id, vec![0x00, 0x01, 0x02, 0x03]),
             (unit_block_spawn_packet_id, vec![0x00, 0x01, 0x02]),
             (
                 unit_tether_block_spawned_packet_id,
@@ -21503,6 +21611,12 @@ mod tests {
         assert_eq!(session.state().last_create_weather_id, None);
         assert_eq!(session.state().received_spawn_effect_count, 0);
         assert_eq!(session.state().last_spawn_effect_unit_type_id, None);
+        assert_eq!(session.state().received_unit_spawn_count, 0);
+        assert_eq!(session.state().last_unit_spawn_id, None);
+        assert_eq!(session.state().last_unit_spawn_class_id, None);
+        assert_eq!(session.state().last_unit_spawn_payload_len, None);
+        assert_eq!(session.state().last_unit_spawn_consumed_bytes, None);
+        assert_eq!(session.state().last_unit_spawn_trailing_bytes, None);
         assert_eq!(session.state().received_unit_block_spawn_count, 0);
         assert_eq!(session.state().last_unit_block_spawn_tile_pos, None);
         assert_eq!(session.state().received_unit_tether_block_spawned_count, 0);
@@ -21511,6 +21625,57 @@ mod tests {
             None
         );
         assert_eq!(session.state().last_unit_tether_block_spawned_id, None);
+    }
+
+    #[test]
+    fn unit_spawn_packets_are_ignored_while_loading_and_not_replayed() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "unitSpawn")
+            .unwrap()
+            .packet_id;
+        let packet = encode_packet(
+            packet_id,
+            &encode_unit_spawn_payload(404, 36, &[0xAA, 0xBB]),
+            false,
+        )
+        .unwrap();
+
+        session.ingest_packet_bytes(&begin_packet).unwrap();
+        let event = session.ingest_packet_bytes(&packet).unwrap();
+        assert_eq!(
+            event,
+            ClientSessionEvent::IgnoredPacket {
+                packet_id,
+                remote: Some(IgnoredRemotePacketMeta {
+                    method: "unitSpawn".to_string(),
+                    packet_class: "mindustry.gen.UnitSpawnCallPacket".to_string(),
+                }),
+            }
+        );
+        assert_eq!(session.state().received_unit_spawn_count, 0);
+        assert_eq!(session.state().dropped_loading_low_priority_packet_count, 1);
+        assert_eq!(
+            session
+                .state()
+                .last_dropped_loading_packet_method
+                .as_deref(),
+            Some("unitSpawn")
+        );
+
+        for chunk in &chunk_packets {
+            session.ingest_packet_bytes(chunk).unwrap();
+        }
+
+        assert!(session.state().client_loaded);
+        assert!(session.take_replayed_loading_events().is_empty());
+        assert_eq!(session.state().received_unit_spawn_count, 0);
     }
 
     #[test]

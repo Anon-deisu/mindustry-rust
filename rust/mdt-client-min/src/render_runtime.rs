@@ -1067,11 +1067,15 @@ fn runtime_audio_label(session_state: &SessionState) -> String {
 
 fn runtime_spawn_fx_label(session_state: &SessionState) -> String {
     format!(
-        "cw{}@{}:se{}@{}:ubs{}@{}:utbs{}@{}#{}",
+        "cw{}@{}:se{}@{}:us{}@{}/{}#{}:ubs{}@{}:utbs{}@{}#{}",
         session_state.received_create_weather_count,
         runtime_optional_display_label(session_state.last_create_weather_id),
         session_state.received_spawn_effect_count,
         runtime_optional_display_label(session_state.last_spawn_effect_unit_type_id),
+        session_state.received_unit_spawn_count,
+        runtime_optional_display_label(session_state.last_unit_spawn_id),
+        runtime_optional_display_label(session_state.last_unit_spawn_class_id),
+        runtime_optional_display_label(session_state.last_unit_spawn_trailing_bytes),
         session_state.received_unit_block_spawn_count,
         runtime_optional_display_label(session_state.last_unit_block_spawn_tile_pos),
         session_state.received_unit_tether_block_spawned_count,
@@ -2811,9 +2815,13 @@ mod tests {
         state.last_create_weather_id = Some(5);
         state.received_spawn_effect_count = 72;
         state.last_spawn_effect_unit_type_id = Some(19);
-        state.received_unit_block_spawn_count = 73;
+        state.received_unit_spawn_count = 73;
+        state.last_unit_spawn_id = Some(404);
+        state.last_unit_spawn_class_id = Some(36);
+        state.last_unit_spawn_trailing_bytes = Some(3);
+        state.received_unit_block_spawn_count = 74;
         state.last_unit_block_spawn_tile_pos = Some(pack_runtime_point2(4, 15));
-        state.received_unit_tether_block_spawned_count = 74;
+        state.received_unit_tether_block_spawned_count = 75;
         state.last_unit_tether_block_spawned_tile_pos = Some(pack_runtime_point2(8, 3));
         state.last_unit_tether_block_spawned_id = Some(404);
         state.received_sound_count = 54;
@@ -3095,7 +3103,7 @@ mod tests {
             pack_runtime_point2(11, 12),
         )));
         assert!(hud.status_text.contains(&format!(
-            "runtime_spawn_fx=cw71@5:se72@19:ubs73@{}:utbs74@{}#404",
+            "runtime_spawn_fx=cw71@5:se72@19:us73@404/36#3:ubs74@{}:utbs75@{}#404",
             pack_runtime_point2(4, 15),
             pack_runtime_point2(8, 3),
         )));
