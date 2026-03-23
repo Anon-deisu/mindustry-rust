@@ -621,6 +621,29 @@ impl EntityPuddleSyncSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntityWeatherStateSyncSnapshot {
+    pub effect_timer_bits: u32,
+    pub intensity_bits: u32,
+    pub life_bits: u32,
+    pub opacity_bits: u32,
+    pub weather_id: i16,
+    pub wind_x_bits: u32,
+    pub wind_y_bits: u32,
+    pub x_bits: u32,
+    pub y_bits: u32,
+}
+
+impl EntityWeatherStateSyncSnapshot {
+    pub fn x(&self) -> f32 {
+        f32::from_bits(self.x_bits)
+    }
+
+    pub fn y(&self) -> f32 {
+        f32::from_bits(self.y_bits)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ContentHeaderEntry {
     pub content_type: u8,
     pub names: Vec<String>,
@@ -13177,6 +13200,27 @@ pub fn parse_entity_puddle_sync_bytes(
     };
     if !snapshot.x().is_finite() || !snapshot.y().is_finite() {
         return Err("entity puddle sync contained non-finite position".to_string());
+    }
+    Ok((snapshot, reader.position()))
+}
+
+pub fn parse_entity_weather_state_sync_bytes(
+    bytes: &[u8],
+) -> Result<(EntityWeatherStateSyncSnapshot, usize), String> {
+    let mut reader = Reader::new(bytes);
+    let snapshot = EntityWeatherStateSyncSnapshot {
+        effect_timer_bits: reader.read_u32()?,
+        intensity_bits: reader.read_u32()?,
+        life_bits: reader.read_u32()?,
+        opacity_bits: reader.read_u32()?,
+        weather_id: reader.read_i16()?,
+        wind_x_bits: reader.read_u32()?,
+        wind_y_bits: reader.read_u32()?,
+        x_bits: reader.read_u32()?,
+        y_bits: reader.read_u32()?,
+    };
+    if !snapshot.x().is_finite() || !snapshot.y().is_finite() {
+        return Err("entity weather state sync contained non-finite position".to_string());
     }
     Ok((snapshot, reader.position()))
 }
@@ -37051,6 +37095,33 @@ mod tests {
         assert_eq!(snapshot.amount_bits, 6.5f32.to_bits());
         assert_eq!(snapshot.liquid_id, 3);
         assert_eq!(snapshot.tile_pos, 12345);
+        assert_eq!(snapshot.x_bits, 40.0f32.to_bits());
+        assert_eq!(snapshot.y_bits, 60.0f32.to_bits());
+    }
+
+    #[test]
+    fn parses_entity_weather_state_sync_bytes() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1.25f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0.75f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&600.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0.5f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&2i16.to_be_bytes());
+        bytes.extend_from_slice(&3.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&(-4.0f32).to_bits().to_be_bytes());
+        bytes.extend_from_slice(&40.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&60.0f32.to_bits().to_be_bytes());
+
+        let (snapshot, consumed) = parse_entity_weather_state_sync_bytes(&bytes).unwrap();
+
+        assert_eq!(consumed, bytes.len());
+        assert_eq!(snapshot.effect_timer_bits, 1.25f32.to_bits());
+        assert_eq!(snapshot.intensity_bits, 0.75f32.to_bits());
+        assert_eq!(snapshot.life_bits, 600.0f32.to_bits());
+        assert_eq!(snapshot.opacity_bits, 0.5f32.to_bits());
+        assert_eq!(snapshot.weather_id, 2);
+        assert_eq!(snapshot.wind_x_bits, 3.0f32.to_bits());
+        assert_eq!(snapshot.wind_y_bits, (-4.0f32).to_bits());
         assert_eq!(snapshot.x_bits, 40.0f32.to_bits());
         assert_eq!(snapshot.y_bits, 60.0f32.to_bits());
     }
