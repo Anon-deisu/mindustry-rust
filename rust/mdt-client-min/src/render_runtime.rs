@@ -4,12 +4,11 @@ use crate::client_session::{
 };
 use crate::session_state::{
     AuthoritativeStateMirror, BuilderPlanStage, BuilderQueueProjection,
-    BuildingProjectionUpdateKind, BuildingTableProjection, ConfiguredBlockProjection,
-    EffectBusinessContentKind, EffectBusinessPositionSource, EffectBusinessProjection,
-    EffectDataSemantic, HiddenSnapshotDeltaProjection, SessionState,
-    StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection,
-    TileConfigAuthoritySource, TileConfigProjection, UnitRefProjection,
-    WorldBootstrapProjection,
+    BuildingProjectionUpdateKind, BuildingTableProjection, ConfiguredBlockOutcome,
+    ConfiguredBlockProjection, EffectBusinessContentKind, EffectBusinessPositionSource,
+    EffectBusinessProjection, EffectDataSemantic, HiddenSnapshotDeltaProjection, SessionState,
+    StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection, TileConfigAuthoritySource,
+    TileConfigProjection, UnitRefProjection, WorldBootstrapProjection,
 };
 use mdt_remote::{HighFrequencyRemoteMethod, HIGH_FREQUENCY_REMOTE_METHOD_COUNT};
 use mdt_render_ui::{
@@ -51,7 +50,7 @@ impl RenderRuntimeAdapter {
         let state_business_projection = session_state.state_snapshot_business_projection.as_ref();
         hud.runtime_ui = Some(runtime_ui_observability(session_state));
         hud.status_text = format!(
-            "{} runtime_selected={} runtime_plans={} runtime_cfg_int={} runtime_cfg_long={} runtime_cfg_float={} runtime_cfg_bool={} runtime_cfg_int_seq={} runtime_cfg_point2={} runtime_cfg_point2_array={} runtime_cfg_tech_node={} runtime_cfg_double={} runtime_cfg_building_pos={} runtime_cfg_laccess={} runtime_cfg_string={} runtime_cfg_bytes={} runtime_cfg_legacy_unit_command_null={} runtime_cfg_bool_array={} runtime_cfg_unit_id={} runtime_cfg_vec2_array={} runtime_cfg_vec2={} runtime_cfg_team={} runtime_cfg_int_array={} runtime_cfg_object_array={} runtime_cfg_content={} runtime_cfg_unit_command={} runtime_world_tiles={} runtime_health={} building={} runtime_builder={} runtime_builder_head={} runtime_entity_local={} runtime_entity_hidden={} runtime_entity_gate={} runtime_entity_sync={} runtime_snap_last={} runtime_snap_events={} runtime_snap_apply={} runtime_wave={} runtime_enemies={} runtime_tps={} runtime_state_apply={} runtime_core_teams={} runtime_core_items={} runtime_buildings={} runtime_block={} runtime_block_fail={} runtime_hidden={} runtime_hidden_delta={} runtime_hidden_fail={} runtime_effects={} runtime_effect_data_kind={} runtime_effect_data_semantic={} runtime_effect_apply={} runtime_effect_path={} runtime_effect_data_fail={} bootstrap_rules={} bootstrap_tags={} bootstrap_locales={} bootstrap_teams={} bootstrap_markers={} bootstrap_chunks={} bootstrap_patches={} bootstrap_plans={} bootstrap_fog_teams={} runtime_view_center={} runtime_view_size={} runtime_position={} runtime_pointer={} runtime_selected_rotation={} runtime_input_flags={} runtime_snap_client={} runtime_snap_state={} runtime_snap_entity={} runtime_snap_block={} runtime_snap_hidden={} runtime_tilecfg_events={} runtime_tilecfg_parse_fail={} runtime_tilecfg_noapply={} runtime_tilecfg_rollback={} runtime_tilecfg_pending_mismatch={} runtime_tilecfg_apply={} runtime_configured={} runtime_take_items={} runtime_transfer_item={} runtime_transfer_item_unit={} runtime_payload_drop={} runtime_payload_pick_build={} runtime_payload_pick_unit={} runtime_unit_entered_payload={} runtime_unit_despawn={} runtime_unit_lifecycle={} runtime_spawn_fx={} runtime_audio={} runtime_admin={} runtime_kick={} runtime_loading={} runtime_rules={} runtime_ui_notice={} runtime_ui_menu={} runtime_world_label={} runtime_marker={} runtime_logic_sync={} runtime_resource_delta={} runtime_command_ctrl={} runtime_gameplay_signal={}",
+            "{} runtime_selected={} runtime_plans={} runtime_cfg_int={} runtime_cfg_long={} runtime_cfg_float={} runtime_cfg_bool={} runtime_cfg_int_seq={} runtime_cfg_point2={} runtime_cfg_point2_array={} runtime_cfg_tech_node={} runtime_cfg_double={} runtime_cfg_building_pos={} runtime_cfg_laccess={} runtime_cfg_string={} runtime_cfg_bytes={} runtime_cfg_legacy_unit_command_null={} runtime_cfg_bool_array={} runtime_cfg_unit_id={} runtime_cfg_vec2_array={} runtime_cfg_vec2={} runtime_cfg_team={} runtime_cfg_int_array={} runtime_cfg_object_array={} runtime_cfg_content={} runtime_cfg_unit_command={} runtime_world_tiles={} runtime_health={} building={} runtime_builder={} runtime_builder_head={} runtime_entity_local={} runtime_entity_hidden={} runtime_entity_gate={} runtime_entity_sync={} runtime_snap_last={} runtime_snap_events={} runtime_snap_apply={} runtime_wave={} runtime_enemies={} runtime_tps={} runtime_state_apply={} runtime_core_teams={} runtime_core_items={} runtime_buildings={} runtime_block={} runtime_block_fail={} runtime_hidden={} runtime_hidden_delta={} runtime_hidden_fail={} runtime_effects={} runtime_effect_data_kind={} runtime_effect_contract={} runtime_effect_data_semantic={} runtime_effect_apply={} runtime_effect_path={} runtime_effect_data_fail={} bootstrap_rules={} bootstrap_tags={} bootstrap_locales={} bootstrap_teams={} bootstrap_markers={} bootstrap_chunks={} bootstrap_patches={} bootstrap_plans={} bootstrap_fog_teams={} runtime_view_center={} runtime_view_size={} runtime_position={} runtime_pointer={} runtime_selected_rotation={} runtime_input_flags={} runtime_snap_client={} runtime_snap_state={} runtime_snap_entity={} runtime_snap_block={} runtime_snap_hidden={} runtime_tilecfg_events={} runtime_tilecfg_parse_fail={} runtime_tilecfg_noapply={} runtime_tilecfg_rollback={} runtime_tilecfg_pending_mismatch={} runtime_tilecfg_apply={} runtime_configured={} runtime_take_items={} runtime_transfer_item={} runtime_transfer_item_unit={} runtime_payload_drop={} runtime_payload_pick_build={} runtime_payload_pick_unit={} runtime_unit_entered_payload={} runtime_unit_despawn={} runtime_unit_lifecycle={} runtime_spawn_fx={} runtime_audio={} runtime_admin={} runtime_kick={} runtime_loading={} runtime_rules={} runtime_ui_notice={} runtime_ui_menu={} runtime_world_label={} runtime_marker={} runtime_logic_sync={} runtime_resource_delta={} runtime_command_ctrl={} runtime_gameplay_signal={}",
             hud.status_text,
             runtime_selected_block_label(snapshot_input.selected_block_id),
             snapshot_input.plans.as_ref().map_or(0, Vec::len),
@@ -166,6 +165,7 @@ impl RenderRuntimeAdapter {
             session_state.failed_hidden_snapshot_parse_count,
             session_state.received_effect_count,
             runtime_effect_data_kind_label(session_state.last_effect_data_kind.as_deref()),
+            runtime_effect_contract_label(session_state),
             runtime_effect_data_semantic_label(session_state.last_effect_data_semantic.as_ref()),
             runtime_effect_business_projection_label(
                 session_state.last_effect_business_projection.as_ref(),
@@ -573,7 +573,11 @@ fn runtime_state_snapshot_applied_event_label(
                 wave_window,
                 projection.apply_count,
                 projection.net_seconds_delta,
-                if projection.net_seconds_rollback { 1 } else { 0 },
+                if projection.net_seconds_rollback {
+                    1
+                } else {
+                    0
+                },
                 projection.time_regress_count,
                 projection.wave_regress_count,
                 projection.core_parse_fail_count,
@@ -963,11 +967,21 @@ fn runtime_tile_config_business_label(projection: &TileConfigProjection) -> Stri
         Some(false) => 0,
         None => -1,
     };
+    let configured_outcome = projection
+        .last_configured_block_outcome
+        .map(ConfiguredBlockOutcome::as_str)
+        .unwrap_or("none");
+    let configured_block = projection
+        .last_configured_block_name
+        .as_deref()
+        .unwrap_or("none");
     format!(
-        "a{}:p{}:c{}:{}@{}:cl{}:rb{}:pm{}",
+        "a{}:p{}:c{}:ca{}:cr{}:{}@{}:cl{}:rb{}:pm{}:co{}:cb{}",
         projection.applied_authoritative_count,
         projection.applied_tile_config_packet_count,
         projection.applied_construct_finish_count,
+        projection.configured_applied_count,
+        projection.configured_rejected_count,
         source,
         tile,
         if projection.last_cleared_pending_local {
@@ -977,6 +991,8 @@ fn runtime_tile_config_business_label(projection: &TileConfigProjection) -> Stri
         },
         if projection.last_was_rollback { 1 } else { 0 },
         pending_match,
+        configured_outcome,
+        configured_block,
     )
 }
 
@@ -1071,6 +1087,18 @@ fn runtime_effect_data_kind_label(data_kind: Option<&str>) -> String {
         .filter(|kind| !kind.is_empty())
         .map(ToString::to_string)
         .unwrap_or_else(|| "none".to_string())
+}
+
+fn runtime_effect_contract_label(session_state: &SessionState) -> String {
+    let last = session_state
+        .last_effect_contract_name
+        .as_deref()
+        .unwrap_or("none");
+    let reliable = session_state
+        .last_effect_reliable_contract_name
+        .as_deref()
+        .unwrap_or("none");
+    format!("{last}/{reliable}")
 }
 
 fn runtime_effect_data_semantic_label(semantic: Option<&EffectDataSemantic>) -> String {
@@ -2551,6 +2579,8 @@ mod tests {
             cleared_pending_local: false,
             was_rollback: false,
             pending_local_match: None,
+            configured_block_outcome: None,
+            configured_block_name: None,
         }]);
         adapter.apply(&mut scene, &mut hud, &input, &state);
 
@@ -2577,6 +2607,8 @@ mod tests {
             cleared_pending_local: true,
             was_rollback: true,
             pending_local_match: Some(false),
+            configured_block_outcome: None,
+            configured_block_name: None,
         }]);
         adapter.apply(&mut scene, &mut hud, &input, &state);
 
@@ -2603,6 +2635,8 @@ mod tests {
             cleared_pending_local: false,
             was_rollback: false,
             pending_local_match: Some(false),
+            configured_block_outcome: None,
+            configured_block_name: None,
         }]);
         adapter.apply(&mut scene, &mut hud, &input, &state);
 
@@ -2629,6 +2663,8 @@ mod tests {
             cleared_pending_local: false,
             was_rollback: false,
             pending_local_match: None,
+            configured_block_outcome: None,
+            configured_block_name: None,
         }]);
         assert_eq!(
             adapter.world_overlay().tile_overlays.get(&(4, 1)),
@@ -2653,6 +2689,8 @@ mod tests {
             cleared_pending_local: false,
             was_rollback: true,
             pending_local_match: Some(false),
+            configured_block_outcome: None,
+            configured_block_name: None,
         }]);
         assert_eq!(adapter.world_overlay().tile_overlays.len(), 1);
         assert_eq!(adapter.world_overlay().tile_config_event_count, 2);
@@ -2754,6 +2792,8 @@ mod tests {
             .tile_config_projection
             .applied_tile_config_packet_count = 2;
         state.tile_config_projection.applied_construct_finish_count = 1;
+        state.tile_config_projection.configured_applied_count = 1;
+        state.tile_config_projection.configured_rejected_count = 2;
         state.tile_config_projection.last_business_build_pos = Some(pack_runtime_point2(9, 4));
         state.tile_config_projection.last_business_applied = true;
         state.tile_config_projection.last_cleared_pending_local = true;
@@ -2761,12 +2801,15 @@ mod tests {
         state.tile_config_projection.last_pending_local_match = Some(false);
         state.tile_config_projection.last_business_source =
             Some(TileConfigAuthoritySource::ConstructFinish);
+        state.tile_config_projection.last_configured_block_outcome =
+            Some(ConfiguredBlockOutcome::Applied);
+        state.tile_config_projection.last_configured_block_name = Some("item-source".to_string());
 
         adapter.apply(&mut scene, &mut hud, &input, &state);
 
         assert!(hud
             .status_text
-            .contains("runtime_tilecfg_apply=a3:p2:c1:construct@9:4:cl1:rb1:pm0"));
+            .contains("runtime_tilecfg_apply=a3:p2:c1:ca1:cr2:construct@9:4:cl1:rb1:pm0:coapplied:cbitem-source"));
     }
 
     #[test]
@@ -3058,6 +3101,8 @@ mod tests {
         state.failed_hidden_snapshot_parse_count = 1;
         state.received_effect_count = 11;
         state.last_effect_data_kind = Some("Point2".to_string());
+        state.last_effect_contract_name = Some("position_target".to_string());
+        state.last_effect_reliable_contract_name = Some("unit_parent".to_string());
         state.last_effect_data_semantic =
             Some(crate::session_state::EffectDataSemantic::Point2 { x: 3, y: 4 });
         state.last_effect_business_projection = Some(EffectBusinessProjection::WorldPosition {
@@ -3398,6 +3443,9 @@ mod tests {
             .contains("runtime_entity_sync=lt6:tp404:ok0:amb1@2:miss7:fail64"));
         assert!(hud.status_text.contains("runtime_effects=11"));
         assert!(hud.status_text.contains("runtime_effect_data_kind=Point2"));
+        assert!(hud
+            .status_text
+            .contains("runtime_effect_contract=position_target/unit_parent"));
         assert!(hud
             .status_text
             .contains("runtime_effect_data_semantic=point2:3:4"));

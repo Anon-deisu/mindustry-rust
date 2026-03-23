@@ -339,12 +339,43 @@ pub struct TileConfigBusinessApply {
     pub source: Option<TileConfigAuthoritySource>,
     pub authoritative_value: Option<TypeIoObject>,
     pub replaced_local_value: Option<TypeIoObject>,
+    pub configured_block_outcome: Option<ConfiguredBlockOutcome>,
+    pub configured_block_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TileConfigAuthoritySource {
     TileConfigPacket,
     ConstructFinish,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfiguredBlockOutcome {
+    Applied,
+    RejectedMissingBuilding,
+    RejectedMissingBlockMetadata,
+    RejectedUnsupportedBlock,
+    RejectedUnsupportedConfigType,
+}
+
+impl ConfiguredBlockOutcome {
+    pub fn is_applied(self) -> bool {
+        matches!(self, Self::Applied)
+    }
+
+    pub fn is_rejected(self) -> bool {
+        !self.is_applied()
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Applied => "applied",
+            Self::RejectedMissingBuilding => "missing_building",
+            Self::RejectedMissingBlockMetadata => "missing_block_metadata",
+            Self::RejectedUnsupportedBlock => "unsupported_block",
+            Self::RejectedUnsupportedConfigType => "unsupported_config_type",
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -356,6 +387,8 @@ pub struct TileConfigProjection {
     pub applied_tile_config_packet_count: u64,
     pub applied_construct_finish_count: u64,
     pub rollback_count: u64,
+    pub configured_applied_count: u64,
+    pub configured_rejected_count: u64,
     pub last_queued_build_pos: Option<i32>,
     pub last_queued_value: Option<TypeIoObject>,
     pub last_business_build_pos: Option<i32>,
@@ -366,6 +399,8 @@ pub struct TileConfigProjection {
     pub last_pending_local_match: Option<bool>,
     pub last_business_source: Option<TileConfigAuthoritySource>,
     pub last_replaced_local_value: Option<TypeIoObject>,
+    pub last_configured_block_outcome: Option<ConfiguredBlockOutcome>,
+    pub last_configured_block_name: Option<String>,
 }
 
 impl TileConfigProjection {
@@ -381,6 +416,8 @@ impl TileConfigProjection {
         build_pos: i32,
         value: TypeIoObject,
         source: TileConfigAuthoritySource,
+        configured_block_outcome: Option<ConfiguredBlockOutcome>,
+        configured_block_name: Option<String>,
     ) -> TileConfigBusinessApply {
         self.applied_authoritative_count = self.applied_authoritative_count.saturating_add(1);
         match source {
@@ -412,6 +449,17 @@ impl TileConfigProjection {
         self.last_pending_local_match = pending_local_match;
         self.last_business_source = Some(source);
         self.last_replaced_local_value = pending_local.clone();
+        self.last_configured_block_outcome = configured_block_outcome;
+        self.last_configured_block_name = configured_block_name.clone();
+        match configured_block_outcome {
+            Some(outcome) if outcome.is_applied() => {
+                self.configured_applied_count = self.configured_applied_count.saturating_add(1);
+            }
+            Some(outcome) if outcome.is_rejected() => {
+                self.configured_rejected_count = self.configured_rejected_count.saturating_add(1);
+            }
+            _ => {}
+        }
 
         TileConfigBusinessApply {
             business_applied: true,
@@ -421,6 +469,8 @@ impl TileConfigProjection {
             source: Some(source),
             authoritative_value: Some(value),
             replaced_local_value: pending_local,
+            configured_block_outcome,
+            configured_block_name,
         }
     }
 
@@ -433,6 +483,8 @@ impl TileConfigProjection {
         self.last_pending_local_match = None;
         self.last_business_source = None;
         self.last_replaced_local_value = None;
+        self.last_configured_block_outcome = None;
+        self.last_configured_block_name = None;
     }
 
     pub fn seed_authoritative_state(&mut self, build_pos: i32, value: TypeIoObject) {
@@ -455,6 +507,8 @@ impl TileConfigProjection {
         self.last_pending_local_match = None;
         self.last_business_source = None;
         self.last_replaced_local_value = pending_local.clone();
+        self.last_configured_block_outcome = None;
+        self.last_configured_block_name = None;
         TileConfigBusinessApply {
             business_applied: false,
             cleared_pending_local,
@@ -463,6 +517,8 @@ impl TileConfigProjection {
             source: None,
             authoritative_value: None,
             replaced_local_value: pending_local,
+            configured_block_outcome: None,
+            configured_block_name: None,
         }
     }
 
@@ -532,7 +588,8 @@ impl ConfiguredBlockProjection {
     }
 
     pub fn apply_duct_router_item(&mut self, build_pos: i32, item_id: Option<i16>) {
-        self.duct_router_item_by_build_pos.insert(build_pos, item_id);
+        self.duct_router_item_by_build_pos
+            .insert(build_pos, item_id);
     }
 
     pub fn clear_building_state(&mut self, build_pos: i32) {
@@ -2028,6 +2085,7 @@ pub struct SessionState {
     pub last_effect_data_len: Option<usize>,
     pub last_effect_data_type_tag: Option<u8>,
     pub last_effect_data_kind: Option<String>,
+    pub last_effect_contract_name: Option<String>,
     pub last_effect_data_consumed_len: Option<usize>,
     pub last_effect_data_object: Option<TypeIoObject>,
     pub last_effect_data_semantic: Option<EffectDataSemantic>,
@@ -2038,6 +2096,7 @@ pub struct SessionState {
     pub last_effect_data_parse_error: Option<String>,
     pub received_effect_reliable_count: u64,
     pub last_effect_reliable_id: Option<i16>,
+    pub last_effect_reliable_contract_name: Option<String>,
     pub last_effect_reliable_x_bits: Option<u32>,
     pub last_effect_reliable_y_bits: Option<u32>,
     pub last_effect_reliable_rotation_bits: Option<u32>,

@@ -1,5 +1,5 @@
 use crate::client_session::ClientSessionEvent;
-use crate::session_state::UnitRefProjection;
+use crate::session_state::{ConfiguredBlockOutcome, UnitRefProjection};
 use mdt_typeio::TypeIoObject;
 
 pub fn format_final_kick_summary(
@@ -277,6 +277,8 @@ pub fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<Stri
                 cleared_pending_local,
                 was_rollback,
                 pending_local_match,
+                configured_block_outcome,
+                configured_block_name,
             } => Some(format_tile_config_summary(
                 *build_pos,
                 *config_kind,
@@ -286,6 +288,8 @@ pub fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<Stri
                 *cleared_pending_local,
                 *was_rollback,
                 *pending_local_match,
+                *configured_block_outcome,
+                configured_block_name.as_deref(),
             )),
             ClientSessionEvent::SetHudText { message } => {
                 Some(format!("set_hud_text: message={message:?}"))
@@ -799,9 +803,12 @@ fn format_tile_config_summary(
     cleared_pending_local: bool,
     was_rollback: bool,
     pending_local_match: Option<bool>,
+    configured_block_outcome: Option<ConfiguredBlockOutcome>,
+    configured_block_name: Option<&str>,
 ) -> String {
+    let configured_block_outcome = configured_block_outcome.map(ConfiguredBlockOutcome::as_str);
     format!(
-        "tile_config: build_pos={build_pos:?} kind={config_kind:?} kind_name={config_kind_name:?} parse_failed={parse_failed} business_applied={business_applied} cleared_pending_local={cleared_pending_local} rollback={was_rollback} pending_local_match={pending_local_match:?}"
+        "tile_config: build_pos={build_pos:?} kind={config_kind:?} kind_name={config_kind_name:?} parse_failed={parse_failed} business_applied={business_applied} cleared_pending_local={cleared_pending_local} rollback={was_rollback} pending_local_match={pending_local_match:?} configured_outcome={configured_block_outcome:?} configured_block={configured_block_name:?}"
     )
 }
 

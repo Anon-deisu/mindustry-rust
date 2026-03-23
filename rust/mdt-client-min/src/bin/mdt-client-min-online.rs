@@ -2,8 +2,7 @@ use mdt_client_min::arcnet_loop::ArcNetSessionDriver;
 use mdt_client_min::client_session::{
     ClientBuildPlan, ClientBuildPlanConfig, ClientLogicDataTransport, ClientPacketTransport,
     ClientSession, ClientSessionEvent, ClientSessionTiming, ClientUnitRef,
-    KICK_REASON_SERVER_RESTARTING_ORDINAL,
-    StateSnapshotAppliedProjection,
+    StateSnapshotAppliedProjection, KICK_REASON_SERVER_RESTARTING_ORDINAL,
 };
 use mdt_client_min::connect_packet::{
     default_connect_build, default_connect_version_type, ConnectCompatibilityWarning,
@@ -5584,6 +5583,8 @@ mod tests {
             cleared_pending_local: false,
             was_rollback: false,
             pending_local_match: None,
+            configured_block_outcome: None,
+            configured_block_name: None,
         }]);
 
         assert_eq!(lines.len(), 1);
@@ -5596,6 +5597,8 @@ mod tests {
         assert!(lines[0].contains("cleared_pending_local=false"));
         assert!(lines[0].contains("rollback=false"));
         assert!(lines[0].contains("pending_local_match=None"));
+        assert!(lines[0].contains("configured_outcome=None"));
+        assert!(lines[0].contains("configured_block=None"));
     }
 
     #[test]

@@ -4,12 +4,12 @@ use crate::bootstrap_flow::{
 use crate::net_loop::{ingest_inbound_packet, NetLoopStats};
 use crate::packet_registry::InboundSnapshotPacketRegistry;
 use crate::session_state::{
-    BuilderQueueEntryObservation, EffectBusinessContentKind, EffectBusinessPositionSource,
-    EffectBusinessProjection, EffectDataSemantic, GameplayStateProjection,
-    PayloadDroppedProjection,
-    PickedBuildPayloadProjection, PickedUnitPayloadProjection, SessionState, TakeItemsProjection,
-    TileConfigAuthoritySource, TileConfigBusinessApply, TransferItemToProjection,
-    TransferItemToUnitProjection, UnitEnteredPayloadProjection, UnitRefProjection,
+    BuilderQueueEntryObservation, ConfiguredBlockOutcome, EffectBusinessContentKind,
+    EffectBusinessPositionSource, EffectBusinessProjection, EffectDataSemantic,
+    GameplayStateProjection, PayloadDroppedProjection, PickedBuildPayloadProjection,
+    PickedUnitPayloadProjection, SessionState, TakeItemsProjection, TileConfigAuthoritySource,
+    TileConfigBusinessApply, TransferItemToProjection, TransferItemToUnitProjection,
+    UnitEnteredPayloadProjection, UnitRefProjection,
 };
 use mdt_protocol::{
     decode_packet, encode_framework_message, encode_packet, FrameworkMessage, PacketCodecError,
@@ -1795,39 +1795,55 @@ impl ClientSession {
                 .building_table_projection
                 .apply_tile_config(build_pos, config_object.clone());
         }
-        self.apply_configured_block_business(build_pos, &config_object);
+        let (configured_block_outcome, configured_block_name) =
+            self.apply_configured_block_business(build_pos, &config_object);
         self.state
             .tile_config_projection
-            .apply_authoritative_update(build_pos, config_object, source)
+            .apply_authoritative_update(
+                build_pos,
+                config_object,
+                source,
+                Some(configured_block_outcome),
+                configured_block_name,
+            )
     }
 
-    fn apply_configured_block_business(&mut self, build_pos: i32, config_object: &TypeIoObject) {
-        let block_id = self
+    fn apply_configured_block_business(
+        &mut self,
+        build_pos: i32,
+        config_object: &TypeIoObject,
+    ) -> (ConfiguredBlockOutcome, Option<String>) {
+        let building = self
             .state
             .building_table_projection
             .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.block_id);
-        let Some(block_id) = block_id else {
-            return;
+            .get(&build_pos);
+        let Some(building) = building else {
+            return (ConfiguredBlockOutcome::RejectedMissingBuilding, None);
+        };
+        let Some(block_id) = building.block_id else {
+            return (ConfiguredBlockOutcome::RejectedMissingBlockMetadata, None);
         };
         let Ok(block_content_id) = usize::try_from(block_id) else {
-            return;
+            return (ConfiguredBlockOutcome::RejectedMissingBlockMetadata, None);
         };
         let block_name = self
             .loaded_world_state()
             .and_then(|loaded| loaded.content_name(BLOCK_CONTENT_TYPE, block_content_id))
             .map(str::to_string);
         let Some(block_name) = block_name else {
-            return;
+            return (ConfiguredBlockOutcome::RejectedMissingBlockMetadata, None);
         };
 
-        match block_name.as_str() {
+        let outcome = match block_name.as_str() {
             BLOCK_NAME_UNIT_CARGO_UNLOAD_POINT => {
                 if let Some(item_id) = configured_item_id(config_object) {
                     self.state
                         .configured_block_projection
                         .apply_unit_cargo_unload_point_item(build_pos, item_id);
+                    ConfiguredBlockOutcome::Applied
+                } else {
+                    ConfiguredBlockOutcome::RejectedUnsupportedConfigType
                 }
             }
             BLOCK_NAME_ITEM_SOURCE => {
@@ -1835,6 +1851,9 @@ impl ClientSession {
                     self.state
                         .configured_block_projection
                         .apply_item_source_item(build_pos, item_id);
+                    ConfiguredBlockOutcome::Applied
+                } else {
+                    ConfiguredBlockOutcome::RejectedUnsupportedConfigType
                 }
             }
             BLOCK_NAME_LIQUID_SOURCE => {
@@ -1842,6 +1861,9 @@ impl ClientSession {
                     self.state
                         .configured_block_projection
                         .apply_liquid_source_liquid(build_pos, liquid_id);
+                    ConfiguredBlockOutcome::Applied
+                } else {
+                    ConfiguredBlockOutcome::RejectedUnsupportedConfigType
                 }
             }
             BLOCK_NAME_SORTER => {
@@ -1849,6 +1871,9 @@ impl ClientSession {
                     self.state
                         .configured_block_projection
                         .apply_sorter_item(build_pos, item_id);
+                    ConfiguredBlockOutcome::Applied
+                } else {
+                    ConfiguredBlockOutcome::RejectedUnsupportedConfigType
                 }
             }
             BLOCK_NAME_INVERTED_SORTER => {
@@ -1856,6 +1881,9 @@ impl ClientSession {
                     self.state
                         .configured_block_projection
                         .apply_inverted_sorter_item(build_pos, item_id);
+                    ConfiguredBlockOutcome::Applied
+                } else {
+                    ConfiguredBlockOutcome::RejectedUnsupportedConfigType
                 }
             }
             BLOCK_NAME_SWITCH | BLOCK_NAME_WORLD_SWITCH => {
@@ -1863,6 +1891,9 @@ impl ClientSession {
                     self.state
                         .configured_block_projection
                         .apply_switch_enabled(build_pos, enabled);
+                    ConfiguredBlockOutcome::Applied
+                } else {
+                    ConfiguredBlockOutcome::RejectedUnsupportedConfigType
                 }
             }
             BLOCK_NAME_UNLOADER => {
@@ -1870,6 +1901,9 @@ impl ClientSession {
                     self.state
                         .configured_block_projection
                         .apply_unloader_item(build_pos, item_id);
+                    ConfiguredBlockOutcome::Applied
+                } else {
+                    ConfiguredBlockOutcome::RejectedUnsupportedConfigType
                 }
             }
             BLOCK_NAME_DUCT_UNLOADER => {
@@ -1877,6 +1911,9 @@ impl ClientSession {
                     self.state
                         .configured_block_projection
                         .apply_duct_unloader_item(build_pos, item_id);
+                    ConfiguredBlockOutcome::Applied
+                } else {
+                    ConfiguredBlockOutcome::RejectedUnsupportedConfigType
                 }
             }
             BLOCK_NAME_DUCT_ROUTER => {
@@ -1884,10 +1921,14 @@ impl ClientSession {
                     self.state
                         .configured_block_projection
                         .apply_duct_router_item(build_pos, item_id);
+                    ConfiguredBlockOutcome::Applied
+                } else {
+                    ConfiguredBlockOutcome::RejectedUnsupportedConfigType
                 }
             }
-            _ => {}
-        }
+            _ => ConfiguredBlockOutcome::RejectedUnsupportedBlock,
+        };
+        (outcome, Some(block_name))
     }
 
     pub fn queue_tile_tap(&mut self, tile_pos: Option<i32>) -> Result<(), ClientSessionError> {
@@ -3852,6 +3893,8 @@ impl ClientSession {
                         cleared_pending_local: business_apply.cleared_pending_local,
                         was_rollback: business_apply.was_rollback,
                         pending_local_match: business_apply.pending_local_match,
+                        configured_block_outcome: business_apply.configured_block_outcome,
+                        configured_block_name: business_apply.configured_block_name,
                     })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -4723,6 +4766,8 @@ impl ClientSession {
                     self.state.last_effect_data_len = None;
                     self.state.last_effect_data_type_tag = None;
                     self.state.last_effect_data_kind = None;
+                    self.state.last_effect_contract_name =
+                        effect_contract_name(effect.effect_id).map(str::to_string);
                     self.state.last_effect_data_consumed_len = None;
                     self.state.last_effect_data_object = None;
                     self.state.last_effect_data_semantic = None;
@@ -4758,6 +4803,8 @@ impl ClientSession {
                     self.state.last_effect_data_type_tag = effect.data_type_tag;
                     self.state.last_effect_data_kind =
                         effect.data_kind.map(|kind| kind.to_string());
+                    self.state.last_effect_contract_name =
+                        effect_contract_name(effect.effect_id).map(str::to_string);
                     self.state.last_effect_data_consumed_len = effect.data_consumed_len;
                     self.state.last_effect_data_object = effect.data_object.clone();
                     self.state.last_effect_data_semantic = derive_effect_data_semantic(
@@ -4798,6 +4845,8 @@ impl ClientSession {
                     self.state.received_effect_reliable_count =
                         self.state.received_effect_reliable_count.saturating_add(1);
                     self.state.last_effect_reliable_id = effect.effect_id;
+                    self.state.last_effect_reliable_contract_name =
+                        effect_contract_name(effect.effect_id).map(str::to_string);
                     self.state.last_effect_reliable_x_bits = Some(effect.x.to_bits());
                     self.state.last_effect_reliable_y_bits = Some(effect.y.to_bits());
                     self.state.last_effect_reliable_rotation_bits = Some(effect.rotation.to_bits());
@@ -4968,8 +5017,7 @@ impl ClientSession {
                 })
             }
             _ => {
-                let previous_applied_state_snapshot_count =
-                    self.state.applied_state_snapshot_count;
+                let previous_applied_state_snapshot_count = self.state.applied_state_snapshot_count;
                 if let Some(snapshot) = ingest_inbound_packet(
                     &mut self.stats,
                     &mut self.state,
@@ -5252,7 +5300,9 @@ impl ClientSession {
             time_regress_count: business.state_snapshot_time_regress_count,
             wave_regress_count: runtime
                 .map(|projection| projection.wave_regress_count)
-                .or_else(|| authority.map(|projection| projection.state_snapshot_wave_regress_count))
+                .or_else(|| {
+                    authority.map(|projection| projection.state_snapshot_wave_regress_count)
+                })
                 .unwrap_or(business.state_snapshot_wave_regress_count),
             core_inventory_team_count: runtime
                 .map(|projection| projection.core_inventory_team_count)
@@ -5268,12 +5318,15 @@ impl ClientSession {
                 .unwrap_or(business.core_inventory_total_amount),
             core_inventory_changed_team_count: runtime
                 .map(|projection| projection.core_inventory_changed_team_count)
-                .or_else(|| authority.map(|projection| projection.core_inventory_changed_team_count))
+                .or_else(|| {
+                    authority.map(|projection| projection.core_inventory_changed_team_count)
+                })
                 .unwrap_or(business.core_inventory_changed_team_count),
             core_inventory_changed_team_sample: runtime
                 .map(|projection| projection.core_inventory_changed_team_sample.clone())
                 .or_else(|| {
-                    authority.map(|projection| projection.core_inventory_changed_team_sample.clone())
+                    authority
+                        .map(|projection| projection.core_inventory_changed_team_sample.clone())
                 })
                 .unwrap_or_else(|| business.core_inventory_changed_team_sample.clone()),
             core_parse_failed,
@@ -5776,16 +5829,15 @@ impl ClientSession {
             f32::from_bits(sync.mouse_x_bits),
             f32::from_bits(sync.mouse_y_bits),
         );
-        self.snapshot_input.pointer = (pointer.0.is_finite() && pointer.1.is_finite())
-            .then_some(pointer);
+        self.snapshot_input.pointer =
+            (pointer.0.is_finite() && pointer.1.is_finite()).then_some(pointer);
         self.snapshot_input.boosting = sync.boosting;
         self.snapshot_input.shooting = sync.shooting;
         self.snapshot_input.chatting = sync.typing;
         self.snapshot_input.selected_block_id = i16::try_from(sync.selected_block_id)
             .ok()
             .filter(|id| *id >= 0);
-        self.snapshot_input.selected_rotation =
-            i32::try_from(sync.selected_rotation).unwrap_or(0);
+        self.snapshot_input.selected_rotation = i32::try_from(sync.selected_rotation).unwrap_or(0);
         LocalPlayerSyncApplicationResult {
             applied: true,
             target_player_id: Some(player_id),
@@ -6084,18 +6136,12 @@ impl ClientSession {
                 self.state
                     .last_loaded_world_block_snapshot_extra_entry_count = entries.len();
                 self.state
-                    .applied_loaded_world_block_snapshot_extra_entry_count = self
-                    .state
-                    .applied_loaded_world_block_snapshot_extra_entry_count
-                    .saturating_add(entries.len() as u64);
-                self.state
                     .failed_loaded_world_block_snapshot_extra_entry_parse_count = self
                     .state
                     .failed_loaded_world_block_snapshot_extra_entry_parse_count
                     .saturating_add(1);
                 self.state
                     .last_loaded_world_block_snapshot_extra_entry_parse_error = Some(error);
-                self.apply_block_snapshot_entries_from_loaded_world_entries(entries);
             }
             Err(error) => {
                 self.state
@@ -6241,11 +6287,8 @@ impl ClientSession {
                 }
             };
             data_cursor = data_cursor.saturating_add(consumed);
-            let (
-                build_turret_rotation_bits,
-                build_turret_plans_present,
-                build_turret_plan_count,
-            ) = summarize_build_turret_tail_fields(&building.parsed_tail);
+            let (build_turret_rotation_bits, build_turret_plans_present, build_turret_plan_count) =
+                summarize_build_turret_tail_fields(&building.parsed_tail);
 
             let entry = BlockSnapshotExtraEntrySummary {
                 build_pos,
@@ -7143,6 +7186,8 @@ pub enum ClientSessionEvent {
         cleared_pending_local: bool,
         was_rollback: bool,
         pending_local_match: Option<bool>,
+        configured_block_outcome: Option<ConfiguredBlockOutcome>,
+        configured_block_name: Option<String>,
     },
     ConstructFinish {
         tile_pos: i32,
@@ -7763,9 +7808,7 @@ fn configured_item_id(config_object: &TypeIoObject) -> Option<Option<i16>> {
         TypeIoObject::ContentRaw {
             content_type,
             content_id,
-        } if *content_type == ITEM_CONTENT_TYPE => {
-            Some((*content_id >= 0).then_some(*content_id))
-        }
+        } if *content_type == ITEM_CONTENT_TYPE => Some((*content_id >= 0).then_some(*content_id)),
         _ => None,
     }
 }
@@ -8764,6 +8807,16 @@ fn decode_effect_payload(payload: &[u8], allow_trailing: bool) -> Option<EffectS
 
 fn effect_data_kind_label(object: &TypeIoObject) -> String {
     object.effect_summary().kind
+}
+
+fn effect_contract_name(effect_id: Option<i16>) -> Option<&'static str> {
+    match effect_id {
+        Some(8 | 9 | 10 | 178 | 261 | 262) => Some("position_target"),
+        Some(142) => Some("item_content"),
+        Some(200) => Some("float_length"),
+        Some(257 | 260) => Some("unit_parent"),
+        _ => None,
+    }
 }
 
 fn derive_effect_data_semantic(
@@ -13380,11 +13433,12 @@ mod tests {
         }
         let local_player_id = session.state().world_player_id.unwrap();
         let entity_snapshot_payload = sample_snapshot_packet("entitySnapshot.packet");
-        let expected_sync = try_parse_player_sync_rows_from_entity_snapshot(&entity_snapshot_payload)
-            .into_iter()
-            .find(|row| row.entity_id == local_player_id)
-            .expect("entity snapshot payload should contain local player sync row")
-            .sync;
+        let expected_sync =
+            try_parse_player_sync_rows_from_entity_snapshot(&entity_snapshot_payload)
+                .into_iter()
+                .find(|row| row.entity_id == local_player_id)
+                .expect("entity snapshot payload should contain local player sync row")
+                .sync;
 
         let input = session.snapshot_input_mut();
         input.unit_id = Some(999);
@@ -15070,7 +15124,9 @@ mod tests {
         let content_id = names
             .iter()
             .position(|name| name == content_name)
-            .unwrap_or_else(|| panic!("missing content name {content_name} for type {content_type}"));
+            .unwrap_or_else(|| {
+                panic!("missing content name {content_name} for type {content_type}")
+            });
         i16::try_from(content_id).unwrap()
     }
 
@@ -15418,10 +15474,10 @@ mod tests {
     }
 
     #[test]
-    fn loaded_world_block_snapshot_keeps_applied_prefix_before_later_entry_parse_failure() {
+    fn loaded_world_block_snapshot_does_not_apply_prefix_before_later_entry_parse_failure() {
         let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let (mut payload, entries) = build_loaded_world_block_snapshot_payload(&session, 2);
-        let (first_build_pos, first_block_id, _) = entries[0];
+        let (first_build_pos, _, _) = entries[0];
         let (second_build_pos, second_block_id, _) = entries[1];
         let (first_entry_len, second_center_block_id) = {
             let world = &session.loaded_world_bundle().unwrap().world;
@@ -15438,6 +15494,12 @@ mod tests {
         let second_block_id_offset = 4 + first_entry_len + 4;
         payload[second_block_id_offset..second_block_id_offset + 2]
             .copy_from_slice(&second_block_id.wrapping_add(1).to_be_bytes());
+        let first_before = session
+            .state()
+            .building_table_projection
+            .by_build_pos
+            .get(&first_build_pos)
+            .cloned();
         let second_before = session
             .state()
             .building_table_projection
@@ -15464,17 +15526,8 @@ mod tests {
                 .building_table_projection
                 .by_build_pos
                 .get(&first_build_pos)
-                .and_then(|building| building.block_id),
-            Some(first_block_id)
-        );
-        assert_eq!(
-            session
-                .state()
-                .building_table_projection
-                .by_build_pos
-                .get(&first_build_pos)
-                .and_then(|building| building.health_bits),
-            Some(first_health_bits)
+                .cloned(),
+            first_before
         );
         assert_eq!(
             session
@@ -15489,7 +15542,7 @@ mod tests {
             session
                 .state()
                 .applied_loaded_world_block_snapshot_extra_entry_count,
-            1
+            0
         );
         assert_eq!(
             session
@@ -15643,8 +15696,14 @@ mod tests {
         assert_eq!(expected_projection.wave_advance_from, Some(7));
         assert_eq!(expected_projection.wave_advance_to, Some(8));
         assert_eq!(expected_projection.apply_count, 2);
-        assert_eq!(expected_projection.gameplay_state, GameplayStateProjection::Paused);
-        assert_eq!(session.state().failed_state_snapshot_core_data_parse_count, 1);
+        assert_eq!(
+            expected_projection.gameplay_state,
+            GameplayStateProjection::Paused
+        );
+        assert_eq!(
+            session.state().failed_state_snapshot_core_data_parse_count,
+            1
+        );
         assert_eq!(session.state().last_state_snapshot_core_data, None);
         assert!(session.state().last_good_state_snapshot_core_data.is_some());
     }
@@ -18543,7 +18602,10 @@ mod tests {
             .ingest_packet_bytes(
                 &encode_packet(
                     clear_items_packet_id,
-                    &encode_player_prefixed_payload(42, &encode_building_payload(clear_items_build_pos)),
+                    &encode_player_prefixed_payload(
+                        42,
+                        &encode_building_payload(clear_items_build_pos),
+                    ),
                     false,
                 )
                 .unwrap(),
@@ -18556,7 +18618,10 @@ mod tests {
             }
         );
         assert_eq!(session.state().received_clear_items_count, 1);
-        assert_eq!(session.state().last_clear_items_build_pos, clear_items_build_pos);
+        assert_eq!(
+            session.state().last_clear_items_build_pos,
+            clear_items_build_pos
+        );
 
         let clear_liquids_build_pos = Some(pack_point2(4, 9));
         let clear_liquids_event = session
@@ -19893,13 +19958,10 @@ mod tests {
             .state
             .configured_block_projection
             .apply_item_source_item(build_pos, Some(42));
-        session.state.building_table_projection.apply_construct_finish(
-            build_pos,
-            Some(29),
-            1,
-            2,
-            TypeIoObject::Int(7),
-        );
+        session
+            .state
+            .building_table_projection
+            .apply_construct_finish(build_pos, Some(29), 1, 2, TypeIoObject::Int(7));
         assert!(session
             .state()
             .tile_config_projection
@@ -20434,6 +20496,10 @@ mod tests {
                 cleared_pending_local: false,
                 was_rollback: false,
                 pending_local_match: None,
+                configured_block_outcome: Some(
+                    crate::session_state::ConfiguredBlockOutcome::RejectedMissingBlockMetadata,
+                ),
+                configured_block_name: None,
             }
         );
         assert_eq!(session.state().received_tile_config_count, 1);
@@ -20486,6 +20552,34 @@ mod tests {
                 .state()
                 .tile_config_projection
                 .last_pending_local_match,
+            None
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .configured_applied_count,
+            0
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .configured_rejected_count,
+            1
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_configured_block_outcome,
+            Some(crate::session_state::ConfiguredBlockOutcome::RejectedMissingBlockMetadata)
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_configured_block_name,
             None
         );
         assert_eq!(
@@ -20575,6 +20669,10 @@ mod tests {
                 cleared_pending_local: true,
                 was_rollback: false,
                 pending_local_match: Some(true),
+                configured_block_outcome: Some(
+                    crate::session_state::ConfiguredBlockOutcome::RejectedMissingBlockMetadata,
+                ),
+                configured_block_name: None,
             }
         );
 
@@ -20622,6 +20720,20 @@ mod tests {
                 .last_pending_local_match,
             Some(true)
         );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .configured_applied_count,
+            0
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .configured_rejected_count,
+            1
+        );
     }
 
     #[test]
@@ -20653,6 +20765,10 @@ mod tests {
                 cleared_pending_local: true,
                 was_rollback: true,
                 pending_local_match: Some(false),
+                configured_block_outcome: Some(
+                    crate::session_state::ConfiguredBlockOutcome::RejectedMissingBlockMetadata,
+                ),
+                configured_block_name: None,
             }
         );
 
@@ -20687,6 +20803,20 @@ mod tests {
                 .last_pending_local_match,
             Some(false)
         );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .configured_applied_count,
+            0
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .configured_rejected_count,
+            1
+        );
     }
 
     #[test]
@@ -20717,6 +20847,8 @@ mod tests {
                 cleared_pending_local: false,
                 was_rollback: false,
                 pending_local_match: None,
+                configured_block_outcome: None,
+                configured_block_name: None,
             }
         );
         assert_eq!(session.state().received_tile_config_count, 1);
@@ -20781,6 +20913,8 @@ mod tests {
                 cleared_pending_local: true,
                 was_rollback: false,
                 pending_local_match: None,
+                configured_block_outcome: None,
+                configured_block_name: None,
             }
         );
         assert_eq!(session.state().received_tile_config_count, 1);
@@ -21156,11 +21290,161 @@ mod tests {
     }
 
     #[test]
+    fn configured_block_business_outcome_tracks_applied_and_rejected_type_paths() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(24, 46);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_ITEM_SOURCE);
+
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+            &TypeIoObject::Null,
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_configured_block_outcome,
+            Some(crate::session_state::ConfiguredBlockOutcome::Applied)
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_configured_block_name
+                .as_deref(),
+            Some(BLOCK_NAME_ITEM_SOURCE)
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .configured_applied_count,
+            1
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .configured_rejected_count,
+            0
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .item_source_item_by_build_pos
+                .get(&build_pos),
+            Some(&None)
+        );
+
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &TypeIoObject::Bool(true),
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_configured_block_outcome,
+            Some(crate::session_state::ConfiguredBlockOutcome::RejectedUnsupportedConfigType)
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_configured_block_name
+                .as_deref(),
+            Some(BLOCK_NAME_ITEM_SOURCE)
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .configured_applied_count,
+            1
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .configured_rejected_count,
+            1
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .item_source_item_by_build_pos
+                .get(&build_pos),
+            Some(&None)
+        );
+    }
+
+    #[test]
+    fn configured_block_business_outcome_tracks_unsupported_block_names() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(25, 47);
+        let block_id = loaded_world_block_id_for_name(&session, "router");
+
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+            &TypeIoObject::Null,
+        );
+
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_configured_block_outcome,
+            Some(crate::session_state::ConfiguredBlockOutcome::RejectedUnsupportedBlock)
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_configured_block_name
+                .as_deref(),
+            Some("router")
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .configured_applied_count,
+            0
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .configured_rejected_count,
+            1
+        );
+        assert!(!session
+            .state()
+            .configured_block_projection
+            .item_source_item_by_build_pos
+            .contains_key(&build_pos));
+        assert!(!session
+            .state()
+            .configured_block_projection
+            .duct_router_item_by_build_pos
+            .contains_key(&build_pos));
+    }
+
+    #[test]
     fn unit_cargo_unload_point_config_business_dispatch_uses_construct_finish_and_tile_config() {
         let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let build_pos = pack_point2(14, 36);
-        let block_id =
-            loaded_world_block_id_for_name(&session, BLOCK_NAME_UNIT_CARGO_UNLOAD_POINT);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_UNIT_CARGO_UNLOAD_POINT);
         let item_id = loaded_world_content_id_for_name(&session, ITEM_CONTENT_TYPE, "copper");
 
         ingest_construct_finish_for_block_config_test(
@@ -21227,7 +21511,12 @@ mod tests {
             .item_source_item_by_build_pos
             .contains_key(&build_pos));
 
-        ingest_deconstruct_finish_for_block_config_test(&mut session, &manifest, build_pos, block_id);
+        ingest_deconstruct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+        );
         assert!(!session
             .state()
             .configured_block_projection
@@ -21260,7 +21549,12 @@ mod tests {
             .switch_enabled_by_build_pos
             .contains_key(&build_pos));
 
-        ingest_deconstruct_finish_for_block_config_test(&mut session, &manifest, build_pos, block_id);
+        ingest_deconstruct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+        );
         assert!(!session
             .state()
             .configured_block_projection
@@ -24854,6 +25148,7 @@ mod tests {
         assert_eq!(session.state().last_effect_data_len, None);
         assert_eq!(session.state().last_effect_data_type_tag, None);
         assert_eq!(session.state().last_effect_data_kind, None);
+        assert_eq!(session.state().last_effect_contract_name, None);
         assert_eq!(session.state().last_effect_data_consumed_len, None);
         assert_eq!(session.state().last_effect_data_object, None);
         assert_eq!(session.state().last_effect_data_semantic, None);
@@ -24908,6 +25203,58 @@ mod tests {
         assert_eq!(
             session.state().last_effect_reliable_color_rgba,
             Some(0xaabbccdd)
+        );
+        assert_eq!(session.state().last_effect_reliable_contract_name, None);
+    }
+
+    #[test]
+    fn known_effect_ids_record_contract_names() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let effect_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "effect" && entry.params.len() == 5)
+            .unwrap()
+            .packet_id;
+        let effect_reliable_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "effectReliable" && entry.params.len() == 5)
+            .unwrap()
+            .packet_id;
+
+        session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    effect_packet_id,
+                    &encode_effect_payload(9, 1.0, 2.0, 3.0, 0x01020304),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    effect_reliable_packet_id,
+                    &encode_effect_payload(260, 4.0, 5.0, 6.0, 0xaabbccdd),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+        assert_eq!(
+            session.state().last_effect_contract_name.as_deref(),
+            Some("position_target")
+        );
+        assert_eq!(
+            session
+                .state()
+                .last_effect_reliable_contract_name
+                .as_deref(),
+            Some("unit_parent")
         );
     }
 
