@@ -11,6 +11,12 @@ work to the target repository:
 - this mirrored copy exists in the target repo for traceability; most target-repo
   contributors do not run the sync command from this checkout
 
+Architecture boundary source of truth:
+
+- `rust/ARCHITECTURE.md` owns crate responsibilities, dependency direction, fixture policy,
+  and split-workspace rules
+- this handoff note only owns sync/upload policy
+
 - target repo: `https://github.com/Anon-deisu/mindustry-rust`
 - current source workspace: `<source_repo_root>`
 - machine-readable target anchor: `tools/mindustry-rust-target.json`
