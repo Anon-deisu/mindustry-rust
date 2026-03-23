@@ -73,6 +73,7 @@ pub fn ingest_inbound_snapshot(state: &mut SessionState, snapshot: InboundSnapsh
                     state.applied_state_snapshot_count =
                         state.applied_state_snapshot_count.saturating_add(1);
                     state.last_state_snapshot = Some(parsed);
+                    state.authoritative_state_mirror = Some(authority_projection.clone());
                     state.state_snapshot_authority_projection = Some(authority_projection);
                     state.state_snapshot_business_projection = Some(business_projection);
                     match parsed_core_data {
@@ -131,23 +132,6 @@ pub fn ingest_inbound_snapshot(state: &mut SessionState, snapshot: InboundSnapsh
                         .first_build_pos
                         .zip(parsed.first_block_id)
                         .map(|(build_pos, block_id)| {
-                            state.building_table_projection.apply_block_snapshot_head(
-                                build_pos,
-                                block_id,
-                                parsed.first_rotation,
-                                parsed.first_team_id,
-                                parsed.first_io_version,
-                                parsed.first_module_bitmask,
-                                parsed.first_time_scale_bits,
-                                parsed.first_time_scale_duration_bits,
-                                parsed.first_last_disabler_pos,
-                                parsed.first_legacy_consume_connected,
-                                parsed.first_health_bits,
-                                parsed.first_enabled,
-                                parsed.first_efficiency,
-                                parsed.first_optional_efficiency,
-                                parsed.first_visible_flags,
-                            );
                             BlockSnapshotHeadProjection {
                                 build_pos,
                                 block_id,
@@ -1033,6 +1017,10 @@ mod tests {
         assert_eq!(state.state_snapshot_core_data_duplicate_team_count_total, 0);
         assert_eq!(state.state_snapshot_core_data_duplicate_item_count_total, 0);
         assert_eq!(
+            state.authoritative_state_mirror,
+            state.state_snapshot_authority_projection
+        );
+        assert_eq!(
             state.state_snapshot_business_projection,
             Some(StateSnapshotBusinessProjection {
                 wave_time_bits: 123.5f32.to_bits(),
@@ -1193,6 +1181,18 @@ mod tests {
                 core_inventory_by_team: BTreeMap::new(),
             })
         );
+        assert_eq!(
+            state.authoritative_state_mirror
+                .as_ref()
+                .map(|mirror| mirror.last_core_sync_ok),
+            Some(false)
+        );
+        assert_eq!(
+            state.authoritative_state_mirror
+                .as_ref()
+                .map(|mirror| mirror.wave),
+            Some(7)
+        );
     }
 
     #[test]
@@ -1281,6 +1281,10 @@ mod tests {
                 last_core_sync_ok: false,
                 core_parse_fail_count: 1,
             })
+        );
+        assert_eq!(
+            state.authoritative_state_mirror,
+            state.state_snapshot_authority_projection
         );
     }
 
@@ -1832,67 +1836,8 @@ mod tests {
         );
         assert_eq!(state.failed_block_snapshot_parse_count, 0);
         assert_eq!(state.last_block_snapshot_parse_error, None);
-        assert_eq!(state.building_table_projection.by_build_pos.len(), 1);
-        assert_eq!(
-            state
-                .building_table_projection
-                .by_build_pos
-                .get(&0x0064_0063)
-                .and_then(|building| building.block_id),
-            Some(301)
-        );
-        assert_eq!(
-            state
-                .building_table_projection
-                .by_build_pos
-                .get(&0x0064_0063)
-                .and_then(|building| building.rotation),
-            Some(2)
-        );
-        assert_eq!(
-            state
-                .building_table_projection
-                .by_build_pos
-                .get(&0x0064_0063)
-                .and_then(|building| building.team_id),
-            Some(5)
-        );
-        assert_eq!(
-            state
-                .building_table_projection
-                .by_build_pos
-                .get(&0x0064_0063)
-                .and_then(|building| building.health_bits),
-            Some(0x3f800000)
-        );
-        assert_eq!(
-            state
-                .building_table_projection
-                .by_build_pos
-                .get(&0x0064_0063)
-                .and_then(|building| building.enabled),
-            Some(true)
-        );
-        assert_eq!(
-            state
-                .building_table_projection
-                .by_build_pos
-                .get(&0x0064_0063)
-                .and_then(|building| building.efficiency),
-            Some(0x80)
-        );
-        assert_eq!(
-            state
-                .building_table_projection
-                .by_build_pos
-                .get(&0x0064_0063)
-                .and_then(|building| building.optional_efficiency),
-            Some(0x40)
-        );
-        assert_eq!(
-            state.building_table_projection.last_update,
-            Some(crate::session_state::BuildingProjectionUpdateKind::BlockSnapshotHead)
-        );
+        assert_eq!(state.building_table_projection.by_build_pos.len(), 0);
+        assert_eq!(state.building_table_projection.last_update, None);
     }
 
     #[test]
@@ -1970,11 +1915,11 @@ mod tests {
             InboundSnapshot::new(HighFrequencyRemoteMethod::BlockSnapshot, 47, &clear_payload),
         );
         assert_eq!(state.block_snapshot_head_projection, None);
-        assert_eq!(state.building_table_projection.by_build_pos.len(), 1);
+        assert_eq!(state.building_table_projection.by_build_pos.len(), 0);
     }
 
     #[test]
-    fn block_snapshot_ingest_skips_conflicting_head_over_existing_building_projection() {
+    fn block_snapshot_ingest_keeps_conflicting_existing_building_projection_untouched() {
         let payload = [
             0x00, 0x01, // amount
             0x00, 0x11, // data len
@@ -2045,10 +1990,10 @@ mod tests {
             state
                 .building_table_projection
                 .block_snapshot_head_conflict_skip_count,
-            1
+            0
         );
         assert!(
-            state
+            !state
                 .building_table_projection
                 .last_block_snapshot_head_conflict
         );

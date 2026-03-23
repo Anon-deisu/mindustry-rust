@@ -3931,9 +3931,7 @@ impl ClientSession {
                             }
                         }
                     } else if snapshot.method == HighFrequencyRemoteMethod::BlockSnapshot {
-                        self.apply_additional_block_snapshot_entries_from_loaded_world(
-                            snapshot.payload,
-                        );
+                        self.apply_block_snapshot_entries_from_loaded_world(snapshot.payload);
                     }
                     Ok(ClientSessionEvent::SnapshotReceived(snapshot.method))
                 } else {
@@ -4323,25 +4321,40 @@ impl ClientSession {
         }
     }
 
-    fn apply_additional_block_snapshot_entries_from_loaded_world(&mut self, payload: &[u8]) {
+    fn apply_block_snapshot_entries_from_loaded_world(&mut self, payload: &[u8]) {
         if self.loaded_world_bundle().is_none() {
             return;
         }
 
-        match self.collect_additional_block_snapshot_entries_from_loaded_world(payload) {
-            Ok(extra_entries) => {
+        match self.collect_block_snapshot_entries_from_loaded_world(payload) {
+            Ok(LoadedWorldBlockSnapshotEntryCollection::Complete(entries)) => {
                 self.state
-                    .last_loaded_world_block_snapshot_extra_entry_count = extra_entries.len();
+                    .last_loaded_world_block_snapshot_extra_entry_count = entries.len();
                 self.state
                     .last_loaded_world_block_snapshot_extra_entry_parse_error = None;
                 self.state
                     .applied_loaded_world_block_snapshot_extra_entry_count = self
                     .state
                     .applied_loaded_world_block_snapshot_extra_entry_count
-                    .saturating_add(extra_entries.len() as u64);
-                self.apply_additional_block_snapshot_entries_from_loaded_world_entries(
-                    extra_entries,
-                );
+                    .saturating_add(entries.len() as u64);
+                self.apply_block_snapshot_entries_from_loaded_world_entries(entries);
+            }
+            Ok(LoadedWorldBlockSnapshotEntryCollection::Partial { entries, error }) => {
+                self.state
+                    .last_loaded_world_block_snapshot_extra_entry_count = entries.len();
+                self.state
+                    .applied_loaded_world_block_snapshot_extra_entry_count = self
+                    .state
+                    .applied_loaded_world_block_snapshot_extra_entry_count
+                    .saturating_add(entries.len() as u64);
+                self.state
+                    .failed_loaded_world_block_snapshot_extra_entry_parse_count = self
+                    .state
+                    .failed_loaded_world_block_snapshot_extra_entry_parse_count
+                    .saturating_add(1);
+                self.state
+                    .last_loaded_world_block_snapshot_extra_entry_parse_error = Some(error);
+                self.apply_block_snapshot_entries_from_loaded_world_entries(entries);
             }
             Err(error) => {
                 self.state
@@ -4357,10 +4370,10 @@ impl ClientSession {
         }
     }
 
-    fn collect_additional_block_snapshot_entries_from_loaded_world(
+    fn collect_block_snapshot_entries_from_loaded_world(
         &self,
         payload: &[u8],
-    ) -> Result<Vec<BlockSnapshotExtraEntrySummary>, String> {
+    ) -> Result<LoadedWorldBlockSnapshotEntryCollection, String> {
         let loaded_world = self
             .loaded_world_state()
             .ok_or_else(|| "loaded_world_state_unavailable".to_string())?;
@@ -4369,9 +4382,6 @@ impl ClientSession {
             .ok_or_else(|| "truncated_block_snapshot_payload".to_string())?;
         if amount < 0 {
             return Err(format!("negative_block_snapshot_amount:{amount}"));
-        }
-        if amount <= 1 {
-            return Ok(Vec::new());
         }
         let data = read_typeio_bytes_at(payload, &mut cursor)
             .ok_or_else(|| "truncated_block_snapshot_payload".to_string())?;
@@ -4385,46 +4395,109 @@ impl ClientSession {
         let entry_count = usize::try_from(amount)
             .map_err(|_| format!("negative_block_snapshot_amount:{amount}"))?;
         let mut data_cursor = 0usize;
-        let mut first_entry = None;
-        let mut extra_entries = Vec::new();
+        let mut entries = Vec::with_capacity(entry_count);
 
         for index in 0..entry_count {
-            let build_pos = read_i32(&data, &mut data_cursor).ok_or_else(|| {
-                format!("loaded_world_block_snapshot_entry_{index}_truncated_header")
-            })?;
-            let block_id = read_i16(&data, &mut data_cursor).ok_or_else(|| {
-                format!("loaded_world_block_snapshot_entry_{index}_truncated_header")
-            })?;
+            let build_pos = match read_i32(&data, &mut data_cursor) {
+                Some(value) => value,
+                None => {
+                    let error =
+                        format!("loaded_world_block_snapshot_entry_{index}_truncated_header");
+                    if entries.is_empty() {
+                        return Err(error);
+                    }
+                    return Ok(LoadedWorldBlockSnapshotEntryCollection::Partial { entries, error });
+                }
+            };
+            let block_id = match read_i16(&data, &mut data_cursor) {
+                Some(value) => value,
+                None => {
+                    let error =
+                        format!("loaded_world_block_snapshot_entry_{index}_truncated_header");
+                    if entries.is_empty() {
+                        return Err(error);
+                    }
+                    return Ok(LoadedWorldBlockSnapshotEntryCollection::Partial { entries, error });
+                }
+            };
             let (tile_x, tile_y) = unpack_point2(build_pos);
-            let tile_x = usize::try_from(tile_x).map_err(|_| {
-                format!("loaded_world_block_snapshot_entry_{index}_invalid_tile_x:{tile_x}")
-            })?;
-            let tile_y = usize::try_from(tile_y).map_err(|_| {
-                format!("loaded_world_block_snapshot_entry_{index}_invalid_tile_y:{tile_y}")
-            })?;
+            let tile_x = match usize::try_from(tile_x) {
+                Ok(value) => value,
+                Err(_) => {
+                    let error =
+                        format!("loaded_world_block_snapshot_entry_{index}_invalid_tile_x:{tile_x}");
+                    if entries.is_empty() {
+                        return Err(error);
+                    }
+                    return Ok(LoadedWorldBlockSnapshotEntryCollection::Partial { entries, error });
+                }
+            };
+            let tile_y = match usize::try_from(tile_y) {
+                Ok(value) => value,
+                Err(_) => {
+                    let error =
+                        format!("loaded_world_block_snapshot_entry_{index}_invalid_tile_y:{tile_y}");
+                    if entries.is_empty() {
+                        return Err(error);
+                    }
+                    return Ok(LoadedWorldBlockSnapshotEntryCollection::Partial { entries, error });
+                }
+            };
             let center = loaded_world
                 .graph()
                 .building_center_at(tile_x, tile_y)
                 .ok_or_else(|| {
                     format!("loaded_world_block_snapshot_entry_{index}_missing_center:{build_pos}")
-                })?;
+                });
+            let center = match center {
+                Ok(value) => value,
+                Err(error) => {
+                    if entries.is_empty() {
+                        return Err(error);
+                    }
+                    return Ok(LoadedWorldBlockSnapshotEntryCollection::Partial { entries, error });
+                }
+            };
             if center.block_id != block_id as u16 {
-                return Err(format!(
+                let error = format!(
                     "loaded_world_block_snapshot_entry_{index}_block_id_mismatch:{}/{}",
                     center.block_id, block_id
-                ));
+                );
+                if entries.is_empty() {
+                    return Err(error);
+                }
+                return Ok(LoadedWorldBlockSnapshotEntryCollection::Partial { entries, error });
             }
-            let block_content_id = usize::try_from(block_id).map_err(|_| {
-                format!("loaded_world_block_snapshot_entry_{index}_negative_block_id:{block_id}")
-            })?;
+            let block_content_id = match usize::try_from(block_id) {
+                Ok(value) => value,
+                Err(_) => {
+                    let error = format!(
+                        "loaded_world_block_snapshot_entry_{index}_negative_block_id:{block_id}"
+                    );
+                    if entries.is_empty() {
+                        return Err(error);
+                    }
+                    return Ok(LoadedWorldBlockSnapshotEntryCollection::Partial { entries, error });
+                }
+            };
             let block_name = loaded_world.content_name(BLOCK_CONTENT_TYPE, block_content_id);
-            let (building, consumed) = parse_building_sync_bytes(
+            let parsed = parse_building_sync_bytes(
                 loaded_world.content_headers(),
                 block_name,
                 center.building.revision,
                 &data[data_cursor..],
-            )
-            .map_err(|error| format!("loaded_world_block_snapshot_entry_{index}_parse:{error}"))?;
+            );
+            let (building, consumed) = match parsed {
+                Ok(value) => value,
+                Err(error) => {
+                    let error =
+                        format!("loaded_world_block_snapshot_entry_{index}_parse:{error}");
+                    if entries.is_empty() {
+                        return Err(error);
+                    }
+                    return Ok(LoadedWorldBlockSnapshotEntryCollection::Partial { entries, error });
+                }
+            };
             data_cursor = data_cursor.saturating_add(consumed);
 
             let entry = BlockSnapshotExtraEntrySummary {
@@ -4444,12 +4517,7 @@ impl ClientSession {
                 optional_efficiency: building.base.optional_efficiency,
                 visible_flags: building.base.visible_flags,
             };
-
-            if index == 0 {
-                first_entry = Some(entry);
-            } else {
-                extra_entries.push(entry);
-            }
+            entries.push(entry);
         }
 
         if data_cursor != data.len() {
@@ -4459,21 +4527,10 @@ impl ClientSession {
             ));
         }
 
-        let first_entry = first_entry
-            .ok_or_else(|| "loaded_world_block_snapshot_missing_first_entry".to_string())?;
-        let head = self
-            .state
-            .block_snapshot_head_projection
-            .as_ref()
-            .ok_or_else(|| "block_snapshot_head_projection_missing".to_string())?;
-        if !block_snapshot_head_matches_loaded_world_entry(head, &first_entry) {
-            return Err("loaded_world_block_snapshot_first_entry_mismatch".to_string());
-        }
-
-        Ok(extra_entries)
+        Ok(LoadedWorldBlockSnapshotEntryCollection::Complete(entries))
     }
 
-    fn apply_additional_block_snapshot_entries_from_loaded_world_entries(
+    fn apply_block_snapshot_entries_from_loaded_world_entries(
         &mut self,
         entries: Vec<BlockSnapshotExtraEntrySummary>,
     ) {
@@ -4609,6 +4666,7 @@ impl ClientSession {
             .state_snapshot_core_data_duplicate_team_count_total = 0;
         self.state
             .state_snapshot_core_data_duplicate_item_count_total = 0;
+        self.state.authoritative_state_mirror = None;
         self.state.state_snapshot_authority_projection = None;
         self.state.state_snapshot_business_projection = None;
         self.state.failed_state_snapshot_core_data_parse_count = 0;
@@ -7016,6 +7074,15 @@ struct BlockSnapshotExtraEntrySummary {
     visible_flags: Option<u64>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum LoadedWorldBlockSnapshotEntryCollection {
+    Complete(Vec<BlockSnapshotExtraEntrySummary>),
+    Partial {
+        entries: Vec<BlockSnapshotExtraEntrySummary>,
+        error: String,
+    },
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct SoundSummary {
     sound_id: Option<i16>,
@@ -7293,43 +7360,6 @@ fn unpack_point2(value: i32) -> (i16, i16) {
     let x = ((raw >> 16) as u16) as i16;
     let y = (raw as u16) as i16;
     (x, y)
-}
-
-fn block_snapshot_head_matches_loaded_world_entry(
-    head: &crate::session_state::BlockSnapshotHeadProjection,
-    entry: &BlockSnapshotExtraEntrySummary,
-) -> bool {
-    head.build_pos == entry.build_pos
-        && head.block_id == entry.block_id
-        && option_values_match(head.health_bits, entry.health_bits)
-        && option_values_match(head.rotation, entry.rotation)
-        && option_values_match(head.team_id, entry.team_id)
-        && option_values_match(head.io_version, entry.io_version)
-        && option_values_match(head.enabled, entry.enabled)
-        && option_values_match(head.module_bitmask, entry.module_bitmask)
-        && option_values_match(head.time_scale_bits, entry.time_scale_bits)
-        && option_values_match(
-            head.time_scale_duration_bits,
-            entry.time_scale_duration_bits,
-        )
-        && option_values_match(head.last_disabler_pos, entry.last_disabler_pos)
-        && option_values_match(
-            head.legacy_consume_connected,
-            entry.legacy_consume_connected,
-        )
-        && option_values_match(head.efficiency, entry.efficiency)
-        && option_values_match(head.optional_efficiency, entry.optional_efficiency)
-        && option_values_match(head.visible_flags, entry.visible_flags)
-}
-
-fn option_values_match<T>(left: Option<T>, right: Option<T>) -> bool
-where
-    T: PartialEq,
-{
-    match (left, right) {
-        (Some(left), Some(right)) => left == right,
-        _ => true,
-    }
 }
 
 fn try_parse_local_player_sync_from_entity_snapshot(
@@ -9770,13 +9800,13 @@ mod tests {
             session
                 .state()
                 .applied_loaded_world_block_snapshot_extra_entry_count,
-            1
+            2
         );
         assert_eq!(
             session
                 .state()
                 .last_loaded_world_block_snapshot_extra_entry_count,
-            1
+            2
         );
         assert_eq!(
             session
@@ -9867,53 +9897,81 @@ mod tests {
     }
 
     #[test]
-    fn loaded_world_block_snapshot_extra_entries_require_first_entry_consistency_gate() {
-        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
-        let (payload, entries) = build_loaded_world_block_snapshot_payload(&session, 2);
-        let (first_build_pos, first_block_id, first_health_bits) = entries[0];
-        let (second_build_pos, _, _) = entries[1];
+    fn loaded_world_block_snapshot_keeps_applied_prefix_before_later_entry_parse_failure() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let (mut payload, entries) = build_loaded_world_block_snapshot_payload(&session, 2);
+        let (first_build_pos, first_block_id, _) = entries[0];
+        let (second_build_pos, second_block_id, _) = entries[1];
+        let (first_entry_len, second_center_block_id) = {
+            let world = &session.loaded_world_bundle().unwrap().world;
+            (
+                6 + world.building_centers[0].chunk_bytes.len().saturating_sub(1),
+                world.building_centers[1].block_id,
+            )
+        };
+        let first_health_bits = 0x4000_0000u32;
+        payload[10..14].copy_from_slice(&first_health_bits.to_be_bytes());
+        let second_block_id_offset = 4 + first_entry_len + 4;
+        payload[second_block_id_offset..second_block_id_offset + 2]
+            .copy_from_slice(&second_block_id.wrapping_add(1).to_be_bytes());
         let second_before = session
             .state()
             .building_table_projection
             .by_build_pos
             .get(&second_build_pos)
             .cloned();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == HighFrequencyRemoteMethod::BlockSnapshot.method_name())
+            .unwrap()
+            .packet_id;
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
 
-        session.state.block_snapshot_head_projection =
-            Some(crate::session_state::BlockSnapshotHeadProjection {
-                build_pos: first_build_pos.saturating_add(1),
-                block_id: first_block_id,
-                health_bits: Some(first_health_bits),
-                rotation: None,
-                team_id: None,
-                io_version: None,
-                enabled: None,
-                module_bitmask: None,
-                time_scale_bits: None,
-                time_scale_duration_bits: None,
-                last_disabler_pos: None,
-                legacy_consume_connected: None,
-                efficiency: None,
-                optional_efficiency: None,
-                visible_flags: None,
-            });
-
-        session.apply_additional_block_snapshot_entries_from_loaded_world(&payload);
+        let event = session.ingest_packet_bytes(&packet).unwrap();
 
         assert_eq!(
+            event,
+            ClientSessionEvent::SnapshotReceived(HighFrequencyRemoteMethod::BlockSnapshot)
+        );
+        assert_eq!(
             session
-            .state()
-            .building_table_projection
-            .by_build_pos
-            .get(&second_build_pos)
-            .cloned(),
+                .state()
+                .building_table_projection
+                .by_build_pos
+                .get(&first_build_pos)
+                .and_then(|building| building.block_id),
+            Some(first_block_id)
+        );
+        assert_eq!(
+            session
+                .state()
+                .building_table_projection
+                .by_build_pos
+                .get(&first_build_pos)
+                .and_then(|building| building.health_bits),
+            Some(first_health_bits)
+        );
+        assert_eq!(
+            session
+                .state()
+                .building_table_projection
+                .by_build_pos
+                .get(&second_build_pos)
+                .cloned(),
             second_before
         );
         assert_eq!(
             session
                 .state()
                 .applied_loaded_world_block_snapshot_extra_entry_count,
-            0
+            1
+        );
+        assert_eq!(
+            session
+                .state()
+                .last_loaded_world_block_snapshot_extra_entry_count,
+            1
         );
         assert_eq!(
             session
@@ -9921,12 +9979,17 @@ mod tests {
                 .failed_loaded_world_block_snapshot_extra_entry_parse_count,
             1
         );
+        let expected_error = format!(
+            "loaded_world_block_snapshot_entry_1_block_id_mismatch:{}/{}",
+            second_center_block_id,
+            second_block_id.wrapping_add(1)
+        );
         assert_eq!(
             session
                 .state()
                 .last_loaded_world_block_snapshot_extra_entry_parse_error
                 .as_deref(),
-            Some("loaded_world_block_snapshot_first_entry_mismatch")
+            Some(expected_error.as_str())
         );
     }
 
@@ -18649,6 +18712,7 @@ mod tests {
         assert_eq!(session.state().last_state_snapshot, None);
         assert_eq!(session.state().last_state_snapshot_core_data, None);
         assert_eq!(session.state().last_good_state_snapshot_core_data, None);
+        assert_eq!(session.state().authoritative_state_mirror, None);
         assert_eq!(session.state().state_snapshot_authority_projection, None);
         assert_eq!(session.state().state_snapshot_business_projection, None);
         assert_eq!(session.state().world_player_unit_value, None);
@@ -18748,6 +18812,7 @@ mod tests {
         )
         .unwrap();
         session.ingest_packet_bytes(&state_snapshot).unwrap();
+        assert!(session.state().authoritative_state_mirror.is_some());
         assert!(session
             .state()
             .state_snapshot_authority_projection
@@ -18763,6 +18828,7 @@ mod tests {
 
         session.ingest_packet_bytes(&world_data_begin).unwrap();
 
+        assert_eq!(session.state().authoritative_state_mirror, None);
         assert_eq!(session.state().state_snapshot_authority_projection, None);
     }
 }

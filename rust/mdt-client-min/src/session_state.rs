@@ -94,6 +94,8 @@ pub struct StateSnapshotAuthorityProjection {
     pub core_parse_fail_count: u64,
 }
 
+pub type AuthoritativeStateMirror = StateSnapshotAuthorityProjection;
+
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct AppliedStateSnapshot {
     pub wave_time_bits: u32,
@@ -1891,6 +1893,7 @@ pub struct SessionState {
     pub last_state_snapshot_core_data_duplicate_item_count: usize,
     pub state_snapshot_core_data_duplicate_team_count_total: u64,
     pub state_snapshot_core_data_duplicate_item_count_total: u64,
+    pub authoritative_state_mirror: Option<AuthoritativeStateMirror>,
     pub state_snapshot_authority_projection: Option<StateSnapshotAuthorityProjection>,
     pub state_snapshot_business_projection: Option<StateSnapshotBusinessProjection>,
     pub failed_state_snapshot_core_data_parse_count: u64,
