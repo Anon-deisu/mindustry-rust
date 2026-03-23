@@ -644,6 +644,30 @@ impl EntityWeatherStateSyncSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntityWorldLabelSyncSnapshot {
+    pub flags: u8,
+    pub font_size_bits: u32,
+    pub text: Option<String>,
+    pub x_bits: u32,
+    pub y_bits: u32,
+    pub z_bits: u32,
+}
+
+impl EntityWorldLabelSyncSnapshot {
+    pub fn x(&self) -> f32 {
+        f32::from_bits(self.x_bits)
+    }
+
+    pub fn y(&self) -> f32 {
+        f32::from_bits(self.y_bits)
+    }
+
+    pub fn z(&self) -> f32 {
+        f32::from_bits(self.z_bits)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ContentHeaderEntry {
     pub content_type: u8,
     pub names: Vec<String>,
@@ -13221,6 +13245,24 @@ pub fn parse_entity_weather_state_sync_bytes(
     };
     if !snapshot.x().is_finite() || !snapshot.y().is_finite() {
         return Err("entity weather state sync contained non-finite position".to_string());
+    }
+    Ok((snapshot, reader.position()))
+}
+
+pub fn parse_entity_world_label_sync_bytes(
+    bytes: &[u8],
+) -> Result<(EntityWorldLabelSyncSnapshot, usize), String> {
+    let mut reader = Reader::new(bytes);
+    let snapshot = EntityWorldLabelSyncSnapshot {
+        flags: reader.read_u8()?,
+        font_size_bits: reader.read_u32()?,
+        text: reader.read_nullable_typeio_string()?,
+        x_bits: reader.read_u32()?,
+        y_bits: reader.read_u32()?,
+        z_bits: reader.read_u32()?,
+    };
+    if !snapshot.x().is_finite() || !snapshot.y().is_finite() || !snapshot.z().is_finite() {
+        return Err("entity world label sync contained non-finite position".to_string());
     }
     Ok((snapshot, reader.position()))
 }
@@ -37124,6 +37166,50 @@ mod tests {
         assert_eq!(snapshot.wind_y_bits, (-4.0f32).to_bits());
         assert_eq!(snapshot.x_bits, 40.0f32.to_bits());
         assert_eq!(snapshot.y_bits, 60.0f32.to_bits());
+    }
+
+    #[test]
+    fn parses_entity_world_label_sync_bytes() {
+        let mut bytes = Vec::new();
+        bytes.push(3);
+        bytes.extend_from_slice(&2.5f32.to_bits().to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&5u16.to_be_bytes());
+        bytes.extend_from_slice(b"hello");
+        bytes.extend_from_slice(&40.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&60.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&7.0f32.to_bits().to_be_bytes());
+
+        let (snapshot, consumed) = parse_entity_world_label_sync_bytes(&bytes).unwrap();
+
+        assert_eq!(consumed, bytes.len());
+        assert_eq!(snapshot.flags, 3);
+        assert_eq!(snapshot.font_size_bits, 2.5f32.to_bits());
+        assert_eq!(snapshot.text.as_deref(), Some("hello"));
+        assert_eq!(snapshot.x_bits, 40.0f32.to_bits());
+        assert_eq!(snapshot.y_bits, 60.0f32.to_bits());
+        assert_eq!(snapshot.z_bits, 7.0f32.to_bits());
+    }
+
+    #[test]
+    fn parses_entity_world_label_sync_bytes_with_null_text() {
+        let mut bytes = Vec::new();
+        bytes.push(7);
+        bytes.extend_from_slice(&1.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&40.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&60.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0.0f32.to_bits().to_be_bytes());
+
+        let (snapshot, consumed) = parse_entity_world_label_sync_bytes(&bytes).unwrap();
+
+        assert_eq!(consumed, bytes.len());
+        assert_eq!(snapshot.flags, 7);
+        assert_eq!(snapshot.font_size_bits, 1.0f32.to_bits());
+        assert_eq!(snapshot.text, None);
+        assert_eq!(snapshot.x_bits, 40.0f32.to_bits());
+        assert_eq!(snapshot.y_bits, 60.0f32.to_bits());
+        assert_eq!(snapshot.z_bits, 0.0f32.to_bits());
     }
 
     #[test]
