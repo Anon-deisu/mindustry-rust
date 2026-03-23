@@ -3052,6 +3052,22 @@ impl ClientSession {
                     })
                 }
             }
+            packet_id if Some(packet_id) == self.request_drop_payload_packet_id => {
+                if let Some((x, y)) = decode_request_drop_payload_payload(&packet.payload) {
+                    self.state.received_request_drop_payload_count = self
+                        .state
+                        .received_request_drop_payload_count
+                        .saturating_add(1);
+                    self.state.last_request_drop_payload_x_bits = Some(x.to_bits());
+                    self.state.last_request_drop_payload_y_bits = Some(y.to_bits());
+                    Ok(ClientSessionEvent::RequestDropPayload { x, y })
+                } else {
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
             packet_id if Some(packet_id) == self.request_unit_payload_packet_id => {
                 if let Some(target) = decode_request_unit_payload_payload(&packet.payload) {
                     self.state.received_request_unit_payload_count = self
@@ -3119,6 +3135,19 @@ impl ClientSession {
                     self.state.last_delete_plans_count = positions.len();
                     self.state.last_delete_plans_first_pos = positions.first().copied();
                     Ok(ClientSessionEvent::DeletePlans { positions })
+                } else {
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
+            packet_id if Some(packet_id) == self.tile_tap_packet_id => {
+                if let Some(tile_pos) = decode_tile_tap_payload(&packet.payload) {
+                    self.state.received_tile_tap_count =
+                        self.state.received_tile_tap_count.saturating_add(1);
+                    self.state.last_tile_tap_pos = tile_pos;
+                    Ok(ClientSessionEvent::TileTap { tile_pos })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
                         packet_id: packet.packet_id,
@@ -6082,6 +6111,10 @@ pub enum ClientSessionEvent {
     RequestBuildPayload {
         build_pos: Option<i32>,
     },
+    RequestDropPayload {
+        x: f32,
+        y: f32,
+    },
     RequestUnitPayload {
         target: Option<UnitRefProjection>,
     },
@@ -6097,6 +6130,9 @@ pub enum ClientSessionEvent {
     },
     DeletePlans {
         positions: Vec<i32>,
+    },
+    TileTap {
+        tile_pos: Option<i32>,
     },
     BuildingControlSelect {
         build_pos: Option<i32>,
@@ -7144,9 +7180,21 @@ fn decode_request_build_payload_payload(payload: &[u8]) -> Option<Option<i32>> {
     })
 }
 
+fn decode_request_drop_payload_payload(payload: &[u8]) -> Option<(f32, f32)> {
+    decode_with_optional_server_player_prefix(payload, 8, |payload, cursor| {
+        Some((read_f32(payload, cursor)?, read_f32(payload, cursor)?))
+    })
+}
+
 fn decode_request_unit_payload_payload(payload: &[u8]) -> Option<Option<UnitRefProjection>> {
     decode_with_optional_server_player_prefix(payload, 5, |payload, cursor| {
         read_optional_unit_ref(payload, cursor)
+    })
+}
+
+fn decode_tile_tap_payload(payload: &[u8]) -> Option<Option<i32>> {
+    decode_with_optional_server_player_prefix(payload, 4, |payload, cursor| {
+        read_optional_build_pos(payload, cursor)
     })
 }
 
@@ -16564,6 +16612,12 @@ mod tests {
             .find(|entry| entry.method == "requestBuildPayload")
             .unwrap()
             .packet_id;
+        let request_drop_payload_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "requestDropPayload")
+            .unwrap()
+            .packet_id;
         let request_unit_payload_packet_id = manifest
             .remote_packets
             .iter()
@@ -16592,6 +16646,12 @@ mod tests {
             .remote_packets
             .iter()
             .find(|entry| entry.method == "deletePlans")
+            .unwrap()
+            .packet_id;
+        let tile_tap_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "tileTap")
             .unwrap()
             .packet_id;
 
@@ -16648,6 +16708,30 @@ mod tests {
         assert_eq!(
             session.state().last_request_build_payload_build_pos,
             request_build_pos
+        );
+
+        let request_drop_event = session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    request_drop_payload_packet_id,
+                    &encode_player_prefixed_payload(42, &encode_two_f32_payload(12.5, 48.0)),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            request_drop_event,
+            ClientSessionEvent::RequestDropPayload { x: 12.5, y: 48.0 }
+        );
+        assert_eq!(session.state().received_request_drop_payload_count, 1);
+        assert_eq!(
+            session.state().last_request_drop_payload_x_bits,
+            Some(12.5f32.to_bits())
+        );
+        assert_eq!(
+            session.state().last_request_drop_payload_y_bits,
+            Some(48.0f32.to_bits())
         );
 
         let request_unit_target = Some(UnitRefProjection {
@@ -16771,6 +16855,26 @@ mod tests {
             session.state().last_delete_plans_first_pos,
             delete_positions.first().copied()
         );
+
+        let tile_tap_pos = Some(pack_point2(9, 9));
+        let tile_tap_event = session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    tile_tap_packet_id,
+                    &encode_player_prefixed_payload(42, &encode_building_payload(tile_tap_pos)),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            tile_tap_event,
+            ClientSessionEvent::TileTap {
+                tile_pos: tile_tap_pos
+            }
+        );
+        assert_eq!(session.state().received_tile_tap_count, 1);
+        assert_eq!(session.state().last_tile_tap_pos, tile_tap_pos);
     }
 
     #[test]

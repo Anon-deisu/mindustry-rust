@@ -4394,6 +4394,11 @@ fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<String> 
             ClientSessionEvent::RequestBuildPayload { build_pos } => {
                 Some(format!("request_build_payload: build_pos={build_pos:?}"))
             }
+            ClientSessionEvent::RequestDropPayload { x, y } => Some(format!(
+                "request_drop_payload: x_bits=0x{:08x} y_bits=0x{:08x}",
+                x.to_bits(),
+                y.to_bits()
+            )),
             ClientSessionEvent::RequestUnitPayload { target } => {
                 Some(format!("request_unit_payload: target={target:?}"))
             }
@@ -4407,6 +4412,9 @@ fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<String> 
             ClientSessionEvent::DropItem { angle } => Some(format_drop_item_summary(*angle)),
             ClientSessionEvent::DeletePlans { positions } => {
                 Some(format_delete_plans_summary(positions))
+            }
+            ClientSessionEvent::TileTap { tile_pos } => {
+                Some(format!("tile_tap: tile_pos={tile_pos:?}"))
             }
             ClientSessionEvent::BuildingControlSelect { build_pos } => {
                 Some(format!("building_control_select: build_pos={build_pos:?}"))
@@ -6686,6 +6694,7 @@ mod tests {
             ClientSessionEvent::RequestBuildPayload {
                 build_pos: Some(111),
             },
+            ClientSessionEvent::RequestDropPayload { x: 12.5, y: 48.0 },
             ClientSessionEvent::RequestUnitPayload {
                 target: Some(mdt_client_min::session_state::UnitRefProjection {
                     kind: 2,
@@ -6695,6 +6704,9 @@ mod tests {
             ClientSessionEvent::DropItem { angle: 135.0 },
             ClientSessionEvent::DeletePlans {
                 positions: vec![7, 8],
+            },
+            ClientSessionEvent::TileTap {
+                tile_pos: Some(909),
             },
             ClientSessionEvent::BuildingControlSelect {
                 build_pos: Some(123),
@@ -6756,7 +6768,7 @@ mod tests {
             },
         ]);
 
-        assert_eq!(lines.len(), 45);
+        assert_eq!(lines.len(), 47);
         assert!(lines[0].contains("set_hud_text:"));
         assert!(lines[0].contains("Some(\"hud-u\")"));
         assert!(lines[1].contains("set_hud_text_reliable:"));
@@ -6850,49 +6862,54 @@ mod tests {
         assert!(lines[29].contains("build_pos=Some(222)"));
         assert!(lines[30].contains("request_build_payload:"));
         assert!(lines[30].contains("build_pos=Some(111)"));
-        assert!(lines[31].contains("request_unit_payload:"));
-        assert!(lines[31].contains("kind: 2"));
-        assert!(lines[31].contains("value: 99"));
-        assert!(lines[32].contains("drop_item:"));
-        assert!(lines[32].contains("0x43070000"));
-        assert!(lines[33].contains("delete_plans:"));
-        assert!(lines[33].contains("count=2"));
-        assert!(lines[33].contains("first_pos=Some(7)"));
-        assert!(lines[34].contains("building_control_select:"));
-        assert!(lines[34].contains("build_pos=Some(123)"));
-        assert_eq!(lines[35], "unit_clear");
-        assert!(lines[36].contains("unit_control:"));
-        assert!(lines[36].contains("kind: 2"));
-        assert!(lines[36].contains("value: 77"));
-        assert!(lines[37].contains("unit_building_control_select:"));
-        assert!(lines[37].contains("kind: 1"));
-        assert!(lines[37].contains("value: 88"));
-        assert!(lines[37].contains("build_pos=Some(66)"));
-        assert!(lines[38].contains("command_building:"));
-        assert!(lines[38].contains("count=2"));
-        assert!(lines[38].contains("first_build_pos=Some(11)"));
-        assert!(lines[39].contains("command_units:"));
-        assert!(lines[39].contains("count=2"));
-        assert!(lines[39].contains("first_unit_id=Some(333)"));
-        assert!(lines[39].contains("build_target=Some(55)"));
-        assert!(lines[39].contains("queue=true"));
-        assert!(lines[39].contains("final_batch=false"));
-        assert!(lines[40].contains("set_unit_command:"));
-        assert!(lines[40].contains("command_id=Some(12)"));
-        assert!(lines[41].contains("set_unit_stance:"));
-        assert!(lines[41].contains("stance_id=Some(7)"));
-        assert!(lines[41].contains("enable=false"));
-        assert!(lines[42].contains("copy_to_clipboard:"));
-        assert!(lines[42].contains("Some(\"copied\")"));
-        assert!(lines[43].contains("open_uri:"));
-        assert!(lines[43].contains("Some(\"https://example.com\")"));
-        assert!(lines[44].contains("text_input:"));
-        assert!(lines[44].contains("text_input_id=10"));
-        assert!(lines[44].contains("Some(\"Digits\")"));
-        assert!(lines[44].contains("text_length=16"));
-        assert!(lines[44].contains("Some(\"123\")"));
-        assert!(lines[44].contains("numeric=true"));
-        assert!(lines[44].contains("allow_empty=true"));
+        assert!(lines[31].contains("request_drop_payload:"));
+        assert!(lines[31].contains("0x41480000"));
+        assert!(lines[31].contains("0x42400000"));
+        assert!(lines[32].contains("request_unit_payload:"));
+        assert!(lines[32].contains("kind: 2"));
+        assert!(lines[32].contains("value: 99"));
+        assert!(lines[33].contains("drop_item:"));
+        assert!(lines[33].contains("0x43070000"));
+        assert!(lines[34].contains("delete_plans:"));
+        assert!(lines[34].contains("count=2"));
+        assert!(lines[34].contains("first_pos=Some(7)"));
+        assert!(lines[35].contains("tile_tap:"));
+        assert!(lines[35].contains("tile_pos=Some(909)"));
+        assert!(lines[36].contains("building_control_select:"));
+        assert!(lines[36].contains("build_pos=Some(123)"));
+        assert_eq!(lines[37], "unit_clear");
+        assert!(lines[38].contains("unit_control:"));
+        assert!(lines[38].contains("kind: 2"));
+        assert!(lines[38].contains("value: 77"));
+        assert!(lines[39].contains("unit_building_control_select:"));
+        assert!(lines[39].contains("kind: 1"));
+        assert!(lines[39].contains("value: 88"));
+        assert!(lines[39].contains("build_pos=Some(66)"));
+        assert!(lines[40].contains("command_building:"));
+        assert!(lines[40].contains("count=2"));
+        assert!(lines[40].contains("first_build_pos=Some(11)"));
+        assert!(lines[41].contains("command_units:"));
+        assert!(lines[41].contains("count=2"));
+        assert!(lines[41].contains("first_unit_id=Some(333)"));
+        assert!(lines[41].contains("build_target=Some(55)"));
+        assert!(lines[41].contains("queue=true"));
+        assert!(lines[41].contains("final_batch=false"));
+        assert!(lines[42].contains("set_unit_command:"));
+        assert!(lines[42].contains("command_id=Some(12)"));
+        assert!(lines[43].contains("set_unit_stance:"));
+        assert!(lines[43].contains("stance_id=Some(7)"));
+        assert!(lines[43].contains("enable=false"));
+        assert!(lines[44].contains("copy_to_clipboard:"));
+        assert!(lines[44].contains("Some(\"copied\")"));
+        assert!(lines[45].contains("open_uri:"));
+        assert!(lines[45].contains("Some(\"https://example.com\")"));
+        assert!(lines[46].contains("text_input:"));
+        assert!(lines[46].contains("text_input_id=10"));
+        assert!(lines[46].contains("Some(\"Digits\")"));
+        assert!(lines[46].contains("text_length=16"));
+        assert!(lines[46].contains("Some(\"123\")"));
+        assert!(lines[46].contains("numeric=true"));
+        assert!(lines[46].contains("allow_empty=true"));
     }
 
     #[test]

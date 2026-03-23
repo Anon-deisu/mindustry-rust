@@ -1378,7 +1378,7 @@ fn runtime_resource_delta_label(session_state: &SessionState) -> String {
 
 fn runtime_command_control_label(session_state: &SessionState) -> String {
     format!(
-        "spte{}:mc{}:tir{}:ri{}:bcs{}:ucl{}:uct{}:ubcs{}:cb{}:cu{}:suc{}:sus{}:rot{}:tinv{}:rbp{}:rup{}:drop{}:dpl{}",
+        "spte{}:mc{}:tir{}:ri{}:bcs{}:ucl{}:uct{}:ubcs{}:cb{}:cu{}:suc{}:sus{}:rot{}:tinv{}:rbp{}:rdp{}:rup{}:drop{}:dpl{}:tap{}",
         session_state.received_set_player_team_editor_count,
         session_state.received_menu_choose_count,
         session_state.received_text_input_result_count,
@@ -1394,9 +1394,11 @@ fn runtime_command_control_label(session_state: &SessionState) -> String {
         session_state.received_rotate_block_count,
         session_state.received_transfer_inventory_count,
         session_state.received_request_build_payload_count,
+        session_state.received_request_drop_payload_count,
         session_state.received_request_unit_payload_count,
         session_state.received_drop_item_count,
         session_state.received_delete_plans_count,
+        session_state.received_tile_tap_count,
     )
 }
 
@@ -2898,6 +2900,8 @@ mod tests {
         state.received_request_unit_payload_count = 43;
         state.received_drop_item_count = 44;
         state.received_delete_plans_count = 45;
+        state.received_request_drop_payload_count = 46;
+        state.received_tile_tap_count = 47;
         state.received_set_flag_count = 46;
         state.received_game_over_count = 47;
         state.received_update_game_over_count = 48;
@@ -3135,7 +3139,7 @@ mod tests {
             .contains("runtime_resource_delta=seti22:setis23:setl24:setls25:sti26:stl27"));
         assert!(hud
             .status_text
-            .contains("runtime_command_ctrl=spte28:mc29:tir30:ri31:bcs32:ucl33:uct34:ubcs35:cb36:cu37:suc38:sus39:rot40:tinv41:rbp42:rup43:drop44:dpl45"));
+            .contains("runtime_command_ctrl=spte28:mc29:tir30:ri31:bcs32:ucl33:uct34:ubcs35:cb36:cu37:suc38:sus39:rot40:tinv41:rbp42:rdp46:rup43:drop44:dpl45:tap47"));
         assert!(hud
             .status_text
             .contains("runtime_gameplay_signal=flag46:go47:ugo48:sc49:res50"));
