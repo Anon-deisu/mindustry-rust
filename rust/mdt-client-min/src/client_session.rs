@@ -7,7 +7,8 @@ use crate::session_state::{
     BuilderQueueEntryObservation, EffectBusinessContentKind, EffectBusinessPositionSource,
     EffectBusinessProjection, EffectDataSemantic, PayloadDroppedProjection,
     PickedBuildPayloadProjection, PickedUnitPayloadProjection, SessionState, TakeItemsProjection,
-    TileConfigBusinessApply, TransferItemToProjection, TransferItemToUnitProjection,
+    TileConfigAuthoritySource, TileConfigBusinessApply, TransferItemToProjection,
+    TransferItemToUnitProjection,
     UnitEnteredPayloadProjection, UnitRefProjection,
 };
 use mdt_protocol::{
@@ -1769,6 +1770,22 @@ impl ClientSession {
                 .record_local_intent(build_pos, value);
         }
         Ok(())
+    }
+
+    fn apply_authoritative_config_business(
+        &mut self,
+        build_pos: i32,
+        config_object: TypeIoObject,
+        source: TileConfigAuthoritySource,
+    ) -> TileConfigBusinessApply {
+        if matches!(source, TileConfigAuthoritySource::TileConfigPacket) {
+            self.state
+                .building_table_projection
+                .apply_tile_config(build_pos, config_object.clone());
+        }
+        self.state
+            .tile_config_projection
+            .apply_authoritative_update(build_pos, config_object, source)
     }
 
     pub fn queue_tile_tap(&mut self, tile_pos: Option<i32>) -> Result<(), ClientSessionError> {
@@ -3658,12 +3675,11 @@ impl ClientSession {
                         if let (Some(build_pos), Some(config_object)) =
                             (build_pos, config_object.clone())
                         {
-                            self.state
-                                .building_table_projection
-                                .apply_tile_config(build_pos, config_object.clone());
-                            self.state
-                                .tile_config_projection
-                                .apply_authoritative_update(build_pos, config_object)
+                            self.apply_authoritative_config_business(
+                                build_pos,
+                                config_object,
+                                TileConfigAuthoritySource::TileConfigPacket,
+                            )
                         } else {
                             self.state
                                 .tile_config_projection
@@ -3806,13 +3822,6 @@ impl ClientSession {
                     self.state.last_construct_finish_config_consumed_len =
                         Some(config_consumed_len);
                     self.state.last_construct_finish_config_object = Some(config_object);
-                    self.state.tile_config_projection.seed_authoritative_state(
-                        tile_pos,
-                        self.state
-                            .last_construct_finish_config_object
-                            .clone()
-                            .unwrap_or(TypeIoObject::Null),
-                    );
                     self.state.building_table_projection.apply_construct_finish(
                         tile_pos,
                         block_id,
@@ -3822,6 +3831,14 @@ impl ClientSession {
                             .last_construct_finish_config_object
                             .clone()
                             .unwrap_or(TypeIoObject::Null),
+                    );
+                    self.apply_authoritative_config_business(
+                        tile_pos,
+                        self.state
+                            .last_construct_finish_config_object
+                            .clone()
+                            .unwrap_or(TypeIoObject::Null),
+                        TileConfigAuthoritySource::ConstructFinish,
                     );
                     self.state.last_construct_finish_removed_local_plan = removed_local_plan;
                     self.state.builder_queue_projection.mark_construct_finish(
@@ -20464,6 +20481,30 @@ mod tests {
                 TypeIoObject::Bool(true),
             ]))
         );
+        assert_eq!(
+            session.state().tile_config_projection.last_business_build_pos,
+            Some(pack_point2(120, 75))
+        );
+        assert_eq!(
+            session.state().tile_config_projection.last_business_value,
+            Some(TypeIoObject::ObjectArray(vec![
+                TypeIoObject::Int(7),
+                TypeIoObject::String(Some("router".to_string())),
+                TypeIoObject::Bool(true),
+            ]))
+        );
+        assert!(session.state().tile_config_projection.last_business_applied);
+        assert_eq!(
+            session.state().tile_config_projection.last_business_source,
+            Some(crate::session_state::TileConfigAuthoritySource::ConstructFinish)
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .applied_construct_finish_count,
+            1
+        );
         assert_eq!(session.state().builder_queue_projection.finished_count, 1);
         assert_eq!(
             session
@@ -20515,6 +20556,87 @@ mod tests {
         assert_eq!(session.state().received_construct_finish_count, 0);
         assert_eq!(session.state().last_construct_finish_config_kind, None);
         assert_eq!(session.state().last_construct_finish_config_object, None);
+    }
+
+    #[test]
+    fn construct_finish_packet_reconciles_pending_tile_config_intent() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "constructFinish")
+            .unwrap()
+            .packet_id;
+        let pending_value = TypeIoObject::Int(3);
+        let authoritative_value = TypeIoObject::Int(9);
+        session
+            .queue_tile_config(Some(pack_point2(100, 99)), pending_value.clone())
+            .unwrap();
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&pack_point2(100, 99).to_be_bytes());
+        payload.extend_from_slice(&0x0101i16.to_be_bytes());
+        payload.push(2);
+        payload.extend_from_slice(&42i32.to_be_bytes());
+        payload.push(0);
+        payload.push(1);
+        write_typeio_object(&mut payload, &authoritative_value);
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        let event = session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            event,
+            ClientSessionEvent::ConstructFinish {
+                tile_pos: pack_point2(100, 99),
+                block_id: Some(0x0101),
+                builder_kind: 2,
+                builder_value: 42,
+                rotation: 0,
+                team_id: 1,
+                config_kind: 1,
+                removed_local_plan: false,
+            }
+        );
+        assert!(session
+            .state()
+            .tile_config_projection
+            .pending_local_by_build_pos
+            .is_empty());
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .authoritative_by_build_pos
+                .get(&pack_point2(100, 99)),
+            Some(&authoritative_value)
+        );
+        assert_eq!(
+            session.state().tile_config_projection.last_business_source,
+            Some(crate::session_state::TileConfigAuthoritySource::ConstructFinish)
+        );
+        assert_eq!(
+            session.state().tile_config_projection.last_replaced_local_value,
+            Some(pending_value)
+        );
+        assert_eq!(
+            session.state().tile_config_projection.last_business_value,
+            Some(authoritative_value)
+        );
+        assert!(session.state().tile_config_projection.last_business_applied);
+        assert!(session.state().tile_config_projection.last_was_rollback);
+        assert_eq!(
+            session.state().tile_config_projection.last_pending_local_match,
+            Some(false)
+        );
+        assert_eq!(session.state().tile_config_projection.rollback_count, 1);
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .applied_construct_finish_count,
+            1
+        );
     }
 
     #[test]
@@ -25781,6 +25903,17 @@ mod tests {
             None
         );
         assert!(!session.state().tile_config_projection.last_business_applied);
+        assert_eq!(
+            session.state().tile_config_projection.last_business_source,
+            None
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_replaced_local_value,
+            None
+        );
         assert_eq!(
             session.state().building_table_projection,
             crate::session_state::BuildingTableProjection::default()

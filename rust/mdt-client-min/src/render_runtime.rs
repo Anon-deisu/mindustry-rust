@@ -18,6 +18,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 const EFFECT_OVERLAY_LIMIT: usize = 8;
+const EFFECT_OVERLAY_TTL_TICKS: u8 = 3;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct RenderRuntimeAdapter {
@@ -26,6 +27,7 @@ pub struct RenderRuntimeAdapter {
 
 impl RenderRuntimeAdapter {
     pub fn observe_events(&mut self, events: &[ClientSessionEvent]) {
+        advance_runtime_effect_overlays(&mut self.world_overlay);
         observe_runtime_world_events(&mut self.world_overlay, events);
     }
 
@@ -283,6 +285,7 @@ pub struct RuntimeEffectOverlay {
     pub color_rgba: u32,
     pub reliable: bool,
     pub has_data: bool,
+    pub remaining_ticks: u8,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -434,6 +437,7 @@ pub fn observe_runtime_world_events(
                         color_rgba: *color_rgba,
                         reliable: false,
                         has_data: data_object.is_some(),
+                        remaining_ticks: EFFECT_OVERLAY_TTL_TICKS,
                     },
                 );
             }
@@ -454,6 +458,7 @@ pub fn observe_runtime_world_events(
                         color_rgba: *color_rgba,
                         reliable: true,
                         has_data: false,
+                        remaining_ticks: EFFECT_OVERLAY_TTL_TICKS,
                     },
                 );
             }
@@ -490,6 +495,15 @@ fn push_runtime_effect_overlay(
         let overflow = runtime_world_overlay.effect_overlays.len() - EFFECT_OVERLAY_LIMIT;
         runtime_world_overlay.effect_overlays.drain(0..overflow);
     }
+}
+
+fn advance_runtime_effect_overlays(runtime_world_overlay: &mut RuntimeWorldOverlay) {
+    for overlay in &mut runtime_world_overlay.effect_overlays {
+        overlay.remaining_ticks = overlay.remaining_ticks.saturating_sub(1);
+    }
+    runtime_world_overlay
+        .effect_overlays
+        .retain(|overlay| overlay.remaining_ticks > 0);
 }
 
 fn runtime_snapshot_method_label(method: Option<HighFrequencyRemoteMethod>) -> &'static str {
@@ -2579,6 +2593,26 @@ mod tests {
         assert!(scene.objects.iter().any(|object| {
             object.id == "marker:runtime-effect:reliable:21:0x41400000:0x41800000:0"
         }));
+
+        for _ in 0..(EFFECT_OVERLAY_TTL_TICKS - 1) {
+            adapter.observe_events(&[]);
+            let mut decayed_scene = RenderModel::default();
+            let mut decayed_hud = HudModel::default();
+            adapter.apply(&mut decayed_scene, &mut decayed_hud, &input, &state);
+            assert!(decayed_scene
+                .objects
+                .iter()
+                .any(|object| object.id.starts_with("marker:runtime-effect:")));
+        }
+
+        adapter.observe_events(&[]);
+        let mut expired_scene = RenderModel::default();
+        let mut expired_hud = HudModel::default();
+        adapter.apply(&mut expired_scene, &mut expired_hud, &input, &state);
+        assert!(!expired_scene
+            .objects
+            .iter()
+            .any(|object| object.id.starts_with("marker:runtime-effect:")));
 
         adapter.observe_events(&[ClientSessionEvent::WorldDataBegin]);
         let mut cleared_scene = RenderModel::default();

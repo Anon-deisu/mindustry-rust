@@ -308,6 +308,15 @@ pub struct TileConfigBusinessApply {
     pub cleared_pending_local: bool,
     pub was_rollback: bool,
     pub pending_local_match: Option<bool>,
+    pub source: Option<TileConfigAuthoritySource>,
+    pub authoritative_value: Option<TypeIoObject>,
+    pub replaced_local_value: Option<TypeIoObject>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TileConfigAuthoritySource {
+    TileConfigPacket,
+    ConstructFinish,
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -316,6 +325,8 @@ pub struct TileConfigProjection {
     pub authoritative_by_build_pos: BTreeMap<i32, TypeIoObject>,
     pub queued_local_count: u64,
     pub applied_authoritative_count: u64,
+    pub applied_tile_config_packet_count: u64,
+    pub applied_construct_finish_count: u64,
     pub rollback_count: u64,
     pub last_queued_build_pos: Option<i32>,
     pub last_queued_value: Option<TypeIoObject>,
@@ -325,6 +336,8 @@ pub struct TileConfigProjection {
     pub last_cleared_pending_local: bool,
     pub last_was_rollback: bool,
     pub last_pending_local_match: Option<bool>,
+    pub last_business_source: Option<TileConfigAuthoritySource>,
+    pub last_replaced_local_value: Option<TypeIoObject>,
 }
 
 impl TileConfigProjection {
@@ -339,8 +352,19 @@ impl TileConfigProjection {
         &mut self,
         build_pos: i32,
         value: TypeIoObject,
+        source: TileConfigAuthoritySource,
     ) -> TileConfigBusinessApply {
         self.applied_authoritative_count = self.applied_authoritative_count.saturating_add(1);
+        match source {
+            TileConfigAuthoritySource::TileConfigPacket => {
+                self.applied_tile_config_packet_count =
+                    self.applied_tile_config_packet_count.saturating_add(1);
+            }
+            TileConfigAuthoritySource::ConstructFinish => {
+                self.applied_construct_finish_count =
+                    self.applied_construct_finish_count.saturating_add(1);
+            }
+        }
 
         let pending_local = self.pending_local_by_build_pos.remove(&build_pos);
         let pending_local_match = pending_local.as_ref().map(|pending| pending == &value);
@@ -353,17 +377,22 @@ impl TileConfigProjection {
         self.authoritative_by_build_pos
             .insert(build_pos, value.clone());
         self.last_business_build_pos = Some(build_pos);
-        self.last_business_value = Some(value);
+        self.last_business_value = Some(value.clone());
         self.last_business_applied = true;
         self.last_cleared_pending_local = cleared_pending_local;
         self.last_was_rollback = was_rollback;
         self.last_pending_local_match = pending_local_match;
+        self.last_business_source = Some(source);
+        self.last_replaced_local_value = pending_local.clone();
 
         TileConfigBusinessApply {
             business_applied: true,
             cleared_pending_local,
             was_rollback,
             pending_local_match,
+            source: Some(source),
+            authoritative_value: Some(value),
+            replaced_local_value: pending_local,
         }
     }
 
@@ -374,6 +403,8 @@ impl TileConfigProjection {
         self.last_cleared_pending_local = false;
         self.last_was_rollback = false;
         self.last_pending_local_match = None;
+        self.last_business_source = None;
+        self.last_replaced_local_value = None;
     }
 
     pub fn seed_authoritative_state(&mut self, build_pos: i32, value: TypeIoObject) {
@@ -385,20 +416,24 @@ impl TileConfigProjection {
         &mut self,
         build_pos: Option<i32>,
     ) -> TileConfigBusinessApply {
-        let cleared_pending_local = build_pos
-            .and_then(|value| self.pending_local_by_build_pos.remove(&value))
-            .is_some();
+        let pending_local = build_pos.and_then(|value| self.pending_local_by_build_pos.remove(&value));
+        let cleared_pending_local = pending_local.is_some();
         self.last_business_build_pos = None;
         self.last_business_value = None;
         self.last_business_applied = false;
         self.last_cleared_pending_local = cleared_pending_local;
         self.last_was_rollback = false;
         self.last_pending_local_match = None;
+        self.last_business_source = None;
+        self.last_replaced_local_value = pending_local.clone();
         TileConfigBusinessApply {
             business_applied: false,
             cleared_pending_local,
             was_rollback: false,
             pending_local_match: None,
+            source: None,
+            authoritative_value: None,
+            replaced_local_value: pending_local,
         }
     }
 
