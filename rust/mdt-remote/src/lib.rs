@@ -3,6 +3,11 @@ use std::{fmt, fs, path::Path};
 
 pub const REMOTE_MANIFEST_SCHEMA_V1: &str = "mdt.remote.manifest.v1";
 pub const HIGH_FREQUENCY_REMOTE_METHOD_COUNT: usize = 5;
+pub const REMOTE_WIRE_PACKET_ID_BYTE_U8: &str = "u8";
+pub const REMOTE_WIRE_LENGTH_FIELD_U16BE: &str = "u16be";
+pub const REMOTE_WIRE_COMPRESSION_NONE: &str = "none";
+pub const REMOTE_WIRE_COMPRESSION_LZ4: &str = "lz4";
+pub const REMOTE_WIRE_COMPRESSION_THRESHOLD: u16 = 36;
 
 #[derive(Debug)]
 pub enum RemoteManifestError {
@@ -10,6 +15,7 @@ pub enum RemoteManifestError {
     Json(serde_json::Error),
     UnsupportedSchema(String),
     InvalidPacketSequence(String),
+    InvalidWireSpec(String),
     MissingHighFrequencyPacket(&'static str),
 }
 
@@ -22,6 +28,7 @@ impl fmt::Display for RemoteManifestError {
                 write!(f, "unsupported remote manifest schema: {schema}")
             }
             Self::InvalidPacketSequence(message) => write!(f, "{message}"),
+            Self::InvalidWireSpec(message) => write!(f, "{message}"),
             Self::MissingHighFrequencyPacket(method) => {
                 write!(
                     f,
@@ -191,6 +198,8 @@ pub fn validate_remote_manifest(manifest: &RemoteManifest) -> Result<(), RemoteM
         ));
     }
 
+    validate_wire_spec(&manifest.wire)?;
+
     for (index, packet) in manifest.base_packets.iter().enumerate() {
         if packet.id != index as u8 {
             return Err(RemoteManifestError::InvalidPacketSequence(format!(
@@ -216,6 +225,45 @@ pub fn validate_remote_manifest(manifest: &RemoteManifest) -> Result<(), RemoteM
                 packet.packet_class, packet.packet_id, expected_packet_id
             )));
         }
+    }
+
+    Ok(())
+}
+
+fn validate_wire_spec(wire: &WireSpec) -> Result<(), RemoteManifestError> {
+    if wire.packet_id_byte != REMOTE_WIRE_PACKET_ID_BYTE_U8 {
+        return Err(RemoteManifestError::InvalidWireSpec(format!(
+            "unsupported wire packetIdByte: {}, expected {}",
+            wire.packet_id_byte, REMOTE_WIRE_PACKET_ID_BYTE_U8
+        )));
+    }
+
+    if wire.length_field != REMOTE_WIRE_LENGTH_FIELD_U16BE {
+        return Err(RemoteManifestError::InvalidWireSpec(format!(
+            "unsupported wire lengthField: {}, expected {}",
+            wire.length_field, REMOTE_WIRE_LENGTH_FIELD_U16BE
+        )));
+    }
+
+    if wire.compression_flag.none != REMOTE_WIRE_COMPRESSION_NONE {
+        return Err(RemoteManifestError::InvalidWireSpec(format!(
+            "unsupported wire compressionFlag[0]: {}, expected {}",
+            wire.compression_flag.none, REMOTE_WIRE_COMPRESSION_NONE
+        )));
+    }
+
+    if wire.compression_flag.lz4 != REMOTE_WIRE_COMPRESSION_LZ4 {
+        return Err(RemoteManifestError::InvalidWireSpec(format!(
+            "unsupported wire compressionFlag[1]: {}, expected {}",
+            wire.compression_flag.lz4, REMOTE_WIRE_COMPRESSION_LZ4
+        )));
+    }
+
+    if wire.compression_threshold != REMOTE_WIRE_COMPRESSION_THRESHOLD {
+        return Err(RemoteManifestError::InvalidWireSpec(format!(
+            "unsupported wire compressionThreshold: {}, expected {}",
+            wire.compression_threshold, REMOTE_WIRE_COMPRESSION_THRESHOLD
+        )));
     }
 
     Ok(())
@@ -629,6 +677,51 @@ mod tests {
         assert_eq!(manifest.base_packets.len(), 4);
         assert_eq!(manifest.remote_packets[0].packet_id, 4);
         assert_eq!(manifest.remote_packets[0].params.len(), 2);
+    }
+
+    #[test]
+    fn rejects_wire_packet_id_byte_drift() {
+        let manifest = SAMPLE_MANIFEST.replace("\"packetIdByte\": \"u8\"", "\"packetIdByte\": \"u16\"");
+        let error = parse_remote_manifest(&manifest).unwrap_err();
+        assert!(matches!(error, RemoteManifestError::InvalidWireSpec(_)));
+        assert_eq!(
+            error.to_string(),
+            "unsupported wire packetIdByte: u16, expected u8"
+        );
+    }
+
+    #[test]
+    fn rejects_wire_length_field_drift() {
+        let manifest = SAMPLE_MANIFEST.replace("\"lengthField\": \"u16be\"", "\"lengthField\": \"u32be\"");
+        let error = parse_remote_manifest(&manifest).unwrap_err();
+        assert!(matches!(error, RemoteManifestError::InvalidWireSpec(_)));
+        assert_eq!(
+            error.to_string(),
+            "unsupported wire lengthField: u32be, expected u16be"
+        );
+    }
+
+    #[test]
+    fn rejects_wire_compression_flag_drift() {
+        let manifest =
+            SAMPLE_MANIFEST.replace("\"compressionFlag\": {\"0\": \"none\", \"1\": \"lz4\"}", "\"compressionFlag\": {\"0\": \"raw\", \"1\": \"lz4\"}");
+        let error = parse_remote_manifest(&manifest).unwrap_err();
+        assert!(matches!(error, RemoteManifestError::InvalidWireSpec(_)));
+        assert_eq!(
+            error.to_string(),
+            "unsupported wire compressionFlag[0]: raw, expected none"
+        );
+    }
+
+    #[test]
+    fn rejects_wire_compression_threshold_drift() {
+        let manifest = SAMPLE_MANIFEST.replace("\"compressionThreshold\": 36", "\"compressionThreshold\": 35");
+        let error = parse_remote_manifest(&manifest).unwrap_err();
+        assert!(matches!(error, RemoteManifestError::InvalidWireSpec(_)));
+        assert_eq!(
+            error.to_string(),
+            "unsupported wire compressionThreshold: 35, expected 36"
+        );
     }
 
     #[test]
