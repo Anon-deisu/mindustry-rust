@@ -1067,11 +1067,17 @@ fn runtime_audio_label(session_state: &SessionState) -> String {
 
 fn runtime_spawn_fx_label(session_state: &SessionState) -> String {
     format!(
-        "cw{}@{}:se{}@{}:us{}@{}/{}#{}:ubs{}@{}:utbs{}@{}#{}",
+        "cw{}@{}:se{}@{}:lx{}@{}:{}{}{}{}:us{}@{}/{}#{}:ubs{}@{}:utbs{}@{}#{}",
         session_state.received_create_weather_count,
         runtime_optional_display_label(session_state.last_create_weather_id),
         session_state.received_spawn_effect_count,
         runtime_optional_display_label(session_state.last_spawn_effect_unit_type_id),
+        session_state.received_logic_explosion_count,
+        runtime_optional_display_label(session_state.last_logic_explosion_team_id),
+        runtime_optional_bool_label(session_state.last_logic_explosion_air),
+        runtime_optional_bool_label(session_state.last_logic_explosion_ground),
+        runtime_optional_bool_label(session_state.last_logic_explosion_pierce),
+        runtime_optional_bool_label(session_state.last_logic_explosion_effect),
         session_state.received_unit_spawn_count,
         runtime_optional_display_label(session_state.last_unit_spawn_id),
         runtime_optional_display_label(session_state.last_unit_spawn_class_id),
@@ -2826,6 +2832,12 @@ mod tests {
         state.last_create_weather_id = Some(5);
         state.received_spawn_effect_count = 73;
         state.last_spawn_effect_unit_type_id = Some(19);
+        state.received_logic_explosion_count = 79;
+        state.last_logic_explosion_team_id = Some(2);
+        state.last_logic_explosion_air = Some(true);
+        state.last_logic_explosion_ground = Some(false);
+        state.last_logic_explosion_pierce = Some(true);
+        state.last_logic_explosion_effect = Some(true);
         state.received_unit_spawn_count = 74;
         state.last_unit_spawn_id = Some(404);
         state.last_unit_spawn_class_id = Some(36);
@@ -3118,7 +3130,7 @@ mod tests {
             pack_runtime_point2(11, 12),
         )));
         assert!(hud.status_text.contains(&format!(
-            "runtime_spawn_fx=cw72@5:se73@19:us74@404/36#3:ubs75@{}:utbs76@{}#404",
+            "runtime_spawn_fx=cw72@5:se73@19:lx79@2:1011:us74@404/36#3:ubs75@{}:utbs76@{}#404",
             pack_runtime_point2(4, 15),
             pack_runtime_point2(8, 3),
         )));

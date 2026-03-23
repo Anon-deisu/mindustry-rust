@@ -4107,6 +4107,23 @@ fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<String> 
                 y.to_bits(),
                 rotation.to_bits()
             )),
+            ClientSessionEvent::LogicExplosionObserved {
+                team_id,
+                x,
+                y,
+                radius,
+                damage,
+                air,
+                ground,
+                pierce,
+                effect,
+            } => Some(format!(
+                "logic_explosion: team_id={team_id} x_bits=0x{:08x} y_bits=0x{:08x} radius_bits=0x{:08x} damage_bits=0x{:08x} air={air} ground={ground} pierce={pierce} effect={effect}",
+                x.to_bits(),
+                y.to_bits(),
+                radius.to_bits(),
+                damage.to_bits()
+            )),
             ClientSessionEvent::UnitSpawnObserved {
                 unit_id,
                 unit_class_id,
@@ -6531,6 +6548,33 @@ mod tests {
         assert!(lines[4].contains("unit_tether_block_spawned:"));
         assert!(lines[4].contains(&format!("tile_pos=Some({})", pack_point2(8, 3))));
         assert!(lines[4].contains("unit_id=404"));
+    }
+
+    #[test]
+    fn summarize_client_packet_events_includes_logic_explosion_observability() {
+        let lines = summarize_client_packet_events(&[ClientSessionEvent::LogicExplosionObserved {
+            team_id: 2,
+            x: 16.0,
+            y: 24.0,
+            radius: 64.0,
+            damage: 96.0,
+            air: true,
+            ground: false,
+            pierce: true,
+            effect: true,
+        }]);
+
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].contains("logic_explosion:"));
+        assert!(lines[0].contains("team_id=2"));
+        assert!(lines[0].contains("x_bits=0x41800000"));
+        assert!(lines[0].contains("y_bits=0x41c00000"));
+        assert!(lines[0].contains("radius_bits=0x42800000"));
+        assert!(lines[0].contains("damage_bits=0x42c00000"));
+        assert!(lines[0].contains("air=true"));
+        assert!(lines[0].contains("ground=false"));
+        assert!(lines[0].contains("pierce=true"));
+        assert!(lines[0].contains("effect=true"));
     }
 
     #[test]

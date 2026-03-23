@@ -285,6 +285,7 @@ pub struct ClientSession {
     set_camera_position_packet_id: Option<u8>,
     create_weather_packet_id: Option<u8>,
     spawn_effect_packet_id: Option<u8>,
+    logic_explosion_packet_id: Option<u8>,
     unit_spawn_packet_id: Option<u8>,
     unit_block_spawn_packet_id: Option<u8>,
     unit_tether_block_spawned_packet_id: Option<u8>,
@@ -936,6 +937,11 @@ impl ClientSession {
             .iter()
             .find(|entry| entry.method == "spawnEffect")
             .map(|entry| entry.packet_id);
+        let logic_explosion_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "logicExplosion")
+            .map(|entry| entry.packet_id);
         let unit_spawn_packet_id = manifest
             .remote_packets
             .iter()
@@ -1259,6 +1265,7 @@ impl ClientSession {
             set_camera_position_packet_id,
             create_weather_packet_id,
             spawn_effect_packet_id,
+            logic_explosion_packet_id,
             unit_spawn_packet_id,
             unit_block_spawn_packet_id,
             unit_tether_block_spawned_packet_id,
@@ -4330,6 +4337,37 @@ impl ClientSession {
                     })
                 }
             }
+            packet_id if Some(packet_id) == self.logic_explosion_packet_id => {
+                if let Some(summary) = decode_logic_explosion_payload(&packet.payload) {
+                    self.state.received_logic_explosion_count =
+                        self.state.received_logic_explosion_count.saturating_add(1);
+                    self.state.last_logic_explosion_team_id = Some(summary.team_id);
+                    self.state.last_logic_explosion_x_bits = Some(summary.x.to_bits());
+                    self.state.last_logic_explosion_y_bits = Some(summary.y.to_bits());
+                    self.state.last_logic_explosion_radius_bits = Some(summary.radius.to_bits());
+                    self.state.last_logic_explosion_damage_bits = Some(summary.damage.to_bits());
+                    self.state.last_logic_explosion_air = Some(summary.air);
+                    self.state.last_logic_explosion_ground = Some(summary.ground);
+                    self.state.last_logic_explosion_pierce = Some(summary.pierce);
+                    self.state.last_logic_explosion_effect = Some(summary.effect);
+                    Ok(ClientSessionEvent::LogicExplosionObserved {
+                        team_id: summary.team_id,
+                        x: summary.x,
+                        y: summary.y,
+                        radius: summary.radius,
+                        damage: summary.damage,
+                        air: summary.air,
+                        ground: summary.ground,
+                        pierce: summary.pierce,
+                        effect: summary.effect,
+                    })
+                } else {
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
             packet_id if Some(packet_id) == self.unit_spawn_packet_id => {
                 if let Some(summary) = decode_unit_spawn_header_payload(&packet.payload) {
                     self.state.received_unit_spawn_count =
@@ -6115,6 +6153,17 @@ pub enum ClientSessionEvent {
         rotation: f32,
         unit_type_id: Option<i16>,
     },
+    LogicExplosionObserved {
+        team_id: u8,
+        x: f32,
+        y: f32,
+        radius: f32,
+        damage: f32,
+        air: bool,
+        ground: bool,
+        pierce: bool,
+        effect: bool,
+    },
     UnitSpawnObserved {
         unit_id: i32,
         unit_class_id: u8,
@@ -7537,6 +7586,30 @@ fn decode_spawn_effect_payload(payload: &[u8]) -> Option<SpawnEffectSummary> {
     })
 }
 
+fn decode_logic_explosion_payload(payload: &[u8]) -> Option<LogicExplosionSummary> {
+    let mut cursor = 0usize;
+    let team_id = read_u8(payload, &mut cursor)?;
+    let x = read_f32(payload, &mut cursor)?;
+    let y = read_f32(payload, &mut cursor)?;
+    let radius = read_f32(payload, &mut cursor)?;
+    let damage = read_f32(payload, &mut cursor)?;
+    let air = read_u8(payload, &mut cursor)? != 0;
+    let ground = read_u8(payload, &mut cursor)? != 0;
+    let pierce = read_u8(payload, &mut cursor)? != 0;
+    let effect = read_u8(payload, &mut cursor)? != 0;
+    (cursor == payload.len()).then_some(LogicExplosionSummary {
+        team_id,
+        x,
+        y,
+        radius,
+        damage,
+        air,
+        ground,
+        pierce,
+        effect,
+    })
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct UnitSpawnHeaderSummary {
     unit_id: i32,
@@ -8414,6 +8487,19 @@ struct SpawnEffectSummary {
     y: f32,
     rotation: f32,
     unit_type_id: Option<i16>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct LogicExplosionSummary {
+    team_id: u8,
+    x: f32,
+    y: f32,
+    radius: f32,
+    damage: f32,
+    air: bool,
+    ground: bool,
+    pierce: bool,
+    effect: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -10505,6 +10591,31 @@ fn encode_spawn_effect_payload(
     write_f32(&mut payload, y);
     write_f32(&mut payload, rotation);
     payload.extend_from_slice(&unit_type_id.unwrap_or(-1).to_be_bytes());
+    payload
+}
+
+#[cfg(test)]
+fn encode_logic_explosion_payload(
+    team_id: u8,
+    x: f32,
+    y: f32,
+    radius: f32,
+    damage: f32,
+    air: bool,
+    ground: bool,
+    pierce: bool,
+    effect: bool,
+) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(21);
+    payload.push(team_id);
+    write_f32(&mut payload, x);
+    write_f32(&mut payload, y);
+    write_f32(&mut payload, radius);
+    write_f32(&mut payload, damage);
+    payload.push(u8::from(air));
+    payload.push(u8::from(ground));
+    payload.push(u8::from(pierce));
+    payload.push(u8::from(effect));
     payload
 }
 
@@ -22048,6 +22159,62 @@ mod tests {
     }
 
     #[test]
+    fn logic_explosion_packets_emit_observability_events() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let logic_explosion_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "logicExplosion")
+            .unwrap()
+            .packet_id;
+
+        let event = session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    logic_explosion_packet_id,
+                    &encode_logic_explosion_payload(
+                        2, 16.0, 24.0, 64.0, 96.0, true, false, true, true,
+                    ),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+        assert_eq!(
+            event,
+            ClientSessionEvent::LogicExplosionObserved {
+                team_id: 2,
+                x: 16.0,
+                y: 24.0,
+                radius: 64.0,
+                damage: 96.0,
+                air: true,
+                ground: false,
+                pierce: true,
+                effect: true,
+            }
+        );
+        assert_eq!(session.state().received_logic_explosion_count, 1);
+        assert_eq!(session.state().last_logic_explosion_team_id, Some(2));
+        assert_eq!(session.state().last_logic_explosion_x_bits, Some(16.0f32.to_bits()));
+        assert_eq!(session.state().last_logic_explosion_y_bits, Some(24.0f32.to_bits()));
+        assert_eq!(
+            session.state().last_logic_explosion_radius_bits,
+            Some(64.0f32.to_bits())
+        );
+        assert_eq!(
+            session.state().last_logic_explosion_damage_bits,
+            Some(96.0f32.to_bits())
+        );
+        assert_eq!(session.state().last_logic_explosion_air, Some(true));
+        assert_eq!(session.state().last_logic_explosion_ground, Some(false));
+        assert_eq!(session.state().last_logic_explosion_pierce, Some(true));
+        assert_eq!(session.state().last_logic_explosion_effect, Some(true));
+    }
+
+    #[test]
     fn weather_spawn_and_unit_block_packets_with_invalid_payloads_are_ignored() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
@@ -22081,6 +22248,12 @@ mod tests {
             .find(|entry| entry.method == "unitTetherBlockSpawned")
             .unwrap()
             .packet_id;
+        let logic_explosion_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "logicExplosion")
+            .unwrap()
+            .packet_id;
 
         for (packet_id, payload) in [
             (
@@ -22097,6 +22270,23 @@ mod tests {
                 unit_tether_block_spawned_packet_id,
                 encode_unit_tether_block_spawned_payload(Some(pack_point2(8, 3)), 404)[..7]
                     .to_vec(),
+            ),
+            (
+                logic_explosion_packet_id,
+                encode_logic_explosion_payload(
+                    2, 16.0, 24.0, 64.0, 96.0, true, false, true, true,
+                )[..20]
+                    .to_vec(),
+            ),
+            (
+                logic_explosion_packet_id,
+                [
+                    encode_logic_explosion_payload(
+                        2, 16.0, 24.0, 64.0, 96.0, true, false, true, true,
+                    ),
+                    vec![0x00],
+                ]
+                .concat(),
             ),
         ] {
             let event = session
@@ -22129,6 +22319,16 @@ mod tests {
             None
         );
         assert_eq!(session.state().last_unit_tether_block_spawned_id, None);
+        assert_eq!(session.state().received_logic_explosion_count, 0);
+        assert_eq!(session.state().last_logic_explosion_team_id, None);
+        assert_eq!(session.state().last_logic_explosion_x_bits, None);
+        assert_eq!(session.state().last_logic_explosion_y_bits, None);
+        assert_eq!(session.state().last_logic_explosion_radius_bits, None);
+        assert_eq!(session.state().last_logic_explosion_damage_bits, None);
+        assert_eq!(session.state().last_logic_explosion_air, None);
+        assert_eq!(session.state().last_logic_explosion_ground, None);
+        assert_eq!(session.state().last_logic_explosion_pierce, None);
+        assert_eq!(session.state().last_logic_explosion_effect, None);
     }
 
     #[test]
