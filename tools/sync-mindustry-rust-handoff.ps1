@@ -89,7 +89,9 @@ if ($normalizedOrigin -ne $normalizedExpected -and $normalizedOrigin -ne "$norma
 $files = @(
     "rust/Cargo.toml",
     "rust/Cargo.lock",
+    "rust/README.md",
     "rust/ARCHITECTURE.md",
+    "rust/WORKSPACES.md",
     "rust/WORKSPACE_RUNBOOK.md",
     "rust/FIXTURE_PATHS.md",
     "rust/mdt-protocol/Cargo.toml",

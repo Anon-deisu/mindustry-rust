@@ -8,10 +8,9 @@ use crate::session_state::{
     BuilderQueueEntryObservation, ConfiguredBlockOutcome, ConfiguredContentRef,
     EffectBusinessContentKind, EffectBusinessPositionSource, EffectBusinessProjection,
     EffectDataSemantic, GameplayStateProjection, PayloadDroppedProjection,
-    PickedBuildPayloadProjection, PickedUnitPayloadProjection, SessionState,
-    TakeItemsProjection, TileConfigAuthoritySource, TileConfigBusinessApply,
-    TransferItemToProjection, TransferItemToUnitProjection, UnitEnteredPayloadProjection,
-    UnitRefProjection,
+    PickedBuildPayloadProjection, PickedUnitPayloadProjection, SessionState, TakeItemsProjection,
+    TileConfigAuthoritySource, TileConfigBusinessApply, TransferItemToProjection,
+    TransferItemToUnitProjection, UnitEnteredPayloadProjection, UnitRefProjection,
 };
 use mdt_protocol::{
     decode_packet, encode_framework_message, encode_packet, FrameworkMessage, PacketCodecError,
@@ -114,6 +113,10 @@ const BLOCK_NAME_DUCT_ROUTER: &str = "duct-router";
 const BLOCK_NAME_MASS_DRIVER: &str = "mass-driver";
 const BLOCK_NAME_PAYLOAD_MASS_DRIVER: &str = "payload-mass-driver";
 const BLOCK_NAME_LARGE_PAYLOAD_MASS_DRIVER: &str = "large-payload-mass-driver";
+const BLOCK_NAME_ADDITIVE_RECONSTRUCTOR: &str = "additive-reconstructor";
+const BLOCK_NAME_MULTIPLICATIVE_RECONSTRUCTOR: &str = "multiplicative-reconstructor";
+const BLOCK_NAME_EXPONENTIAL_RECONSTRUCTOR: &str = "exponential-reconstructor";
+const BLOCK_NAME_TETRATIVE_RECONSTRUCTOR: &str = "tetrative-reconstructor";
 const MESSAGE_BLOCK_MAX_TEXT_LENGTH: usize = 300;
 const MESSAGE_BLOCK_MAX_NEWLINES: usize = 24;
 const ALPHA_SHAPE_ENTITY_CLASS_IDS: [u8; 17] = [
@@ -2047,6 +2050,19 @@ impl ClientSession {
                     self.state
                         .configured_block_projection
                         .apply_payload_mass_driver_link(build_pos, link);
+                    ConfiguredBlockOutcome::Applied
+                } else {
+                    ConfiguredBlockOutcome::RejectedUnsupportedConfigType
+                }
+            }
+            BLOCK_NAME_ADDITIVE_RECONSTRUCTOR
+            | BLOCK_NAME_MULTIPLICATIVE_RECONSTRUCTOR
+            | BLOCK_NAME_EXPONENTIAL_RECONSTRUCTOR
+            | BLOCK_NAME_TETRATIVE_RECONSTRUCTOR => {
+                if let Some(command_id) = configured_reconstructor_command(config_object) {
+                    self.state
+                        .configured_block_projection
+                        .apply_reconstructor_command(build_pos, command_id);
                     ConfiguredBlockOutcome::Applied
                 } else {
                     ConfiguredBlockOutcome::RejectedUnsupportedConfigType
@@ -8002,6 +8018,14 @@ fn configured_link_build_pos(build_pos: i32, config_object: &TypeIoObject) -> Op
                 i32::from(tile_y) + *y,
             )))
         }
+        _ => None,
+    }
+}
+
+fn configured_reconstructor_command(config_object: &TypeIoObject) -> Option<Option<u16>> {
+    match config_object {
+        TypeIoObject::Null | TypeIoObject::LegacyUnitCommandNull(_) => Some(None),
+        TypeIoObject::UnitCommand(command_id) => Some(Some(*command_id)),
         _ => None,
     }
 }
@@ -21845,10 +21869,7 @@ mod tests {
 
         for (build_pos, block_name) in [
             (pack_point2(44, 66), BLOCK_NAME_PAYLOAD_ROUTER),
-            (
-                pack_point2(45, 67),
-                BLOCK_NAME_REINFORCED_PAYLOAD_ROUTER,
-            ),
+            (pack_point2(45, 67), BLOCK_NAME_REINFORCED_PAYLOAD_ROUTER),
         ] {
             let block_id = loaded_world_block_id_for_name(&session, block_name);
             ingest_construct_finish_for_block_config_test(
@@ -22162,6 +22183,174 @@ mod tests {
                 Some(&Some(absolute_target))
             );
         }
+    }
+
+    #[test]
+    fn reconstructor_config_business_dispatch_applies_command_and_clear() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+
+        for (build_pos, block_name, initial_command, updated_command) in [
+            (
+                pack_point2(46, 68),
+                BLOCK_NAME_ADDITIVE_RECONSTRUCTOR,
+                3u16,
+                4u16,
+            ),
+            (
+                pack_point2(47, 69),
+                BLOCK_NAME_MULTIPLICATIVE_RECONSTRUCTOR,
+                5u16,
+                6u16,
+            ),
+            (
+                pack_point2(48, 70),
+                BLOCK_NAME_EXPONENTIAL_RECONSTRUCTOR,
+                7u16,
+                8u16,
+            ),
+            (
+                pack_point2(49, 71),
+                BLOCK_NAME_TETRATIVE_RECONSTRUCTOR,
+                9u16,
+                10u16,
+            ),
+        ] {
+            let block_id = loaded_world_block_id_for_name(&session, block_name);
+
+            ingest_construct_finish_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                block_id,
+                &TypeIoObject::UnitCommand(initial_command),
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .reconstructor_command_by_build_pos
+                    .get(&build_pos),
+                Some(&Some(initial_command))
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .tile_config_projection
+                    .last_configured_block_outcome,
+                Some(crate::session_state::ConfiguredBlockOutcome::Applied)
+            );
+
+            ingest_tile_config_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                &TypeIoObject::UnitCommand(updated_command),
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .reconstructor_command_by_build_pos
+                    .get(&build_pos),
+                Some(&Some(updated_command))
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .tile_config_projection
+                    .last_configured_block_outcome,
+                Some(crate::session_state::ConfiguredBlockOutcome::Applied)
+            );
+
+            ingest_tile_config_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                &TypeIoObject::Null,
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .reconstructor_command_by_build_pos
+                    .get(&build_pos),
+                Some(&None)
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .tile_config_projection
+                    .last_configured_block_outcome,
+                Some(crate::session_state::ConfiguredBlockOutcome::Applied)
+            );
+        }
+    }
+
+    #[test]
+    fn reconstructor_config_business_accepts_legacy_clear_and_rejects_non_command_payloads() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(50, 72);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_ADDITIVE_RECONSTRUCTOR);
+
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+            &TypeIoObject::UnitCommand(11),
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .reconstructor_command_by_build_pos
+                .get(&build_pos),
+            Some(&Some(11))
+        );
+
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &TypeIoObject::LegacyUnitCommandNull(0xff),
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .reconstructor_command_by_build_pos
+                .get(&build_pos),
+            Some(&None)
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_configured_block_outcome,
+            Some(crate::session_state::ConfiguredBlockOutcome::Applied)
+        );
+
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &TypeIoObject::Int(7),
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_configured_block_outcome,
+            Some(crate::session_state::ConfiguredBlockOutcome::RejectedUnsupportedConfigType)
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .reconstructor_command_by_build_pos
+                .get(&build_pos),
+            Some(&None)
+        );
     }
 
     #[test]
@@ -22517,6 +22706,39 @@ mod tests {
             .state()
             .configured_block_projection
             .message_text_by_build_pos
+            .contains_key(&build_pos));
+    }
+
+    #[test]
+    fn deconstruct_finish_clears_reconstructor_configured_block_projection_state() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(51, 73);
+        let block_id =
+            loaded_world_block_id_for_name(&session, BLOCK_NAME_MULTIPLICATIVE_RECONSTRUCTOR);
+
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+            &TypeIoObject::UnitCommand(13),
+        );
+        assert!(session
+            .state()
+            .configured_block_projection
+            .reconstructor_command_by_build_pos
+            .contains_key(&build_pos));
+
+        ingest_deconstruct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+        );
+        assert!(!session
+            .state()
+            .configured_block_projection
+            .reconstructor_command_by_build_pos
             .contains_key(&build_pos));
     }
 

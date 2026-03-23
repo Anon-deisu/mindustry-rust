@@ -14495,6 +14495,25 @@ pub struct PayloadSourceTailSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MixedContentRefTailSnapshot {
+    pub content_type: Option<u8>,
+    pub content_id: Option<u16>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PayloadRouterTailSnapshot {
+    pub progress_bits: u32,
+    pub item_rotation_bits: u32,
+    pub payload_present: bool,
+    pub payload_type: Option<u8>,
+    pub payload_serialized_len: usize,
+    pub payload_serialized_sha256: String,
+    pub parsed_payload: Option<Box<PayloadSnapshot>>,
+    pub sorted: MixedContentRefTailSnapshot,
+    pub rec_dir: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PayloadMassDriverTailSnapshot {
     pub payload_block: PayloadBlockTailSnapshot,
     pub link: i32,
@@ -14615,6 +14634,7 @@ pub enum ParsedBuildingTail {
     BuildTurret(BuildTurretTailSnapshot),
     PayloadLoader(PayloadLoaderTailSnapshot),
     PayloadSource(PayloadSourceTailSnapshot),
+    PayloadRouter(PayloadRouterTailSnapshot),
     PayloadMassDriver(PayloadMassDriverTailSnapshot),
     BlockProducer(BlockProducerTailSnapshot),
     Constructor(ConstructorTailSnapshot),
@@ -14885,6 +14905,27 @@ fn format_optional_sha256(value: Option<&str>) -> String {
         .unwrap_or_else(|| "none".to_string())
 }
 
+fn format_mixed_content_ref(value: &MixedContentRefTailSnapshot) -> String {
+    match (value.content_type, value.content_id) {
+        (Some(content_type), Some(content_id)) => format!("{content_type:02x}:{content_id:04x}"),
+        (Some(content_type), None) => format!("{content_type:02x}:none"),
+        (None, _) => "none".to_string(),
+    }
+}
+
+fn payload_snapshot_kind(
+    snapshot: Option<&PayloadSnapshot>,
+    payload_present: bool,
+) -> &'static str {
+    match snapshot {
+        Some(PayloadSnapshot::Null) => "null",
+        Some(PayloadSnapshot::Build(_)) => "build",
+        Some(PayloadSnapshot::Unit(_)) => "unit",
+        None if payload_present => "unknown",
+        None => "null",
+    }
+}
+
 fn building_tail_kind(parsed_tail: &ParsedBuildingTail) -> &'static str {
     match parsed_tail {
         ParsedBuildingTail::Empty => "empty",
@@ -14903,6 +14944,7 @@ fn building_tail_kind(parsed_tail: &ParsedBuildingTail) -> &'static str {
         ParsedBuildingTail::BuildTurret(_) => "buildTurret",
         ParsedBuildingTail::PayloadLoader(_) => "payloadLoader",
         ParsedBuildingTail::PayloadSource(_) => "payloadSource",
+        ParsedBuildingTail::PayloadRouter(_) => "payloadRouter",
         ParsedBuildingTail::PayloadMassDriver(_) => "payloadMassDriver",
         ParsedBuildingTail::BlockProducer(_) => "blockProducer",
         ParsedBuildingTail::Constructor(_) => "constructor",
@@ -23519,6 +23561,11 @@ fn parse_building_tail_with_context(
         Some("payload-source") => Ok(ParsedBuildingTail::PayloadSource(
             parse_payload_source_tail_snapshot(content_header, revision, tail_bytes)?,
         )),
+        Some("payload-router") | Some("reinforced-payload-router") => {
+            Ok(ParsedBuildingTail::PayloadRouter(
+                parse_payload_router_tail_snapshot(content_header, tail_bytes)?,
+            ))
+        }
         Some("payload-mass-driver") | Some("large-payload-mass-driver") => {
             Ok(ParsedBuildingTail::PayloadMassDriver(
                 parse_payload_mass_driver_tail_snapshot(content_header, revision, tail_bytes)?,
@@ -24061,6 +24108,14 @@ fn validate_payload_source_remainder(tail_bytes: &[u8], revision: u8) -> Result<
     })
 }
 
+fn validate_payload_router_remainder(tail_bytes: &[u8]) -> Result<(), String> {
+    validate_tail_remainder(tail_bytes, |reader| {
+        parse_mixed_content_ref_tail_snapshot(reader)?;
+        reader.read_u8()?;
+        Ok(())
+    })
+}
+
 fn validate_payload_mass_driver_remainder(tail_bytes: &[u8], revision: u8) -> Result<(), String> {
     validate_tail_remainder(tail_bytes, |reader| {
         reader.read_i32()?;
@@ -24156,6 +24211,90 @@ where
             outer_kind
         )
     })
+}
+
+fn parse_mixed_content_ref_tail_snapshot(
+    reader: &mut Reader<'_>,
+) -> Result<MixedContentRefTailSnapshot, String> {
+    let content_type_raw = reader.read_i8()?;
+    let content_id_raw = reader.read_i16()?;
+    let content_type = (content_type_raw >= 0).then_some(content_type_raw as u8);
+    let content_id = if content_type.is_some() && content_id_raw >= 0 {
+        Some(content_id_raw as u16)
+    } else {
+        None
+    };
+    Ok(MixedContentRefTailSnapshot {
+        content_type,
+        content_id,
+    })
+}
+
+fn inspect_payload_router_payload_prefix(bytes: &[u8]) -> Option<(bool, Option<u8>)> {
+    let mut reader = Reader::new(bytes);
+    let payload_present = reader.read_bool().ok()?;
+    if !payload_present {
+        return reader.remaining_bytes().is_empty().then_some((false, None));
+    }
+
+    let payload_type = reader.read_u8().ok()?;
+    match payload_type {
+        0 => {
+            reader.read_u8().ok()?;
+        }
+        1 => {
+            reader.read_i16().ok()?;
+            reader.read_u8().ok()?;
+        }
+        _ => return None,
+    }
+    Some((true, Some(payload_type)))
+}
+
+fn parse_payload_router_payload_segment(
+    content_header: &[ContentHeaderEntry],
+    bytes: &[u8],
+) -> Result<(bool, Option<u8>, usize, Option<Box<PayloadSnapshot>>), String> {
+    if let Ok((parsed_payload, consumed)) = parse_payload_snapshot_bytes(content_header, bytes) {
+        if validate_payload_router_remainder(&bytes[consumed..]).is_ok() {
+            let mut reader = Reader::new(&bytes[..consumed]);
+            let payload_present = reader.read_bool()?;
+            let payload_type = if payload_present {
+                Some(reader.read_u8()?)
+            } else {
+                None
+            };
+            return Ok((
+                payload_present,
+                payload_type,
+                consumed,
+                Some(Box::new(parsed_payload)),
+            ));
+        }
+    }
+
+    let mut best_match = None;
+    for consumed in 0..=bytes.len() {
+        if validate_payload_router_remainder(&bytes[consumed..]).is_err() {
+            continue;
+        }
+        if let Some((payload_present, payload_type)) =
+            inspect_payload_router_payload_prefix(&bytes[..consumed])
+        {
+            best_match = Some((payload_present, payload_type, consumed));
+        }
+    }
+
+    let Some((payload_present, payload_type, consumed)) = best_match else {
+        return Err("unable to determine payload-router payload boundary".to_string());
+    };
+
+    let parsed_payload = if payload_present {
+        None
+    } else {
+        Some(Box::new(PayloadSnapshot::Null))
+    };
+    Ok((payload_present, payload_type, consumed, parsed_payload))
 }
 
 fn parse_payload_block_tail_snapshot<F>(
@@ -24302,6 +24441,39 @@ fn parse_payload_source_tail_snapshot(
         unit_id,
         config_block_id,
         command_pos,
+    })
+}
+
+fn parse_payload_router_tail_snapshot(
+    content_header: &[ContentHeaderEntry],
+    tail_bytes: &[u8],
+) -> Result<PayloadRouterTailSnapshot, String> {
+    let mut reader = Reader::new(tail_bytes);
+    let progress_bits = reader.read_u32()?;
+    let item_rotation_bits = reader.read_u32()?;
+    let remaining = reader.remaining_bytes();
+    let (payload_present, payload_type, payload_serialized_len, parsed_payload) =
+        parse_payload_router_payload_segment(content_header, &remaining)?;
+    let payload_serialized_sha256 = sha256_hex(&remaining[..payload_serialized_len]);
+    reader.skip_bytes(payload_serialized_len)?;
+    let sorted = parse_mixed_content_ref_tail_snapshot(&mut reader)?;
+    let rec_dir = reader.read_u8()?;
+    if !reader.remaining_bytes().is_empty() {
+        return Err(format!(
+            "unexpected payload router tail remainder: {} bytes",
+            reader.remaining_bytes().len()
+        ));
+    }
+    Ok(PayloadRouterTailSnapshot {
+        progress_bits,
+        item_rotation_bits,
+        payload_present,
+        payload_type,
+        payload_serialized_len,
+        payload_serialized_sha256,
+        parsed_payload,
+        sorted,
+        rec_dir,
     })
 }
 
@@ -25340,6 +25512,7 @@ pub fn format_world_model_goldens(model: &WorldModel) -> String {
                 ParsedBuildingTail::BuildTurret(_) => "buildTurret",
                 ParsedBuildingTail::PayloadLoader(_) => "payloadLoader",
                 ParsedBuildingTail::PayloadSource(_) => "payloadSource",
+                ParsedBuildingTail::PayloadRouter(_) => "payloadRouter",
                 ParsedBuildingTail::PayloadMassDriver(_) => "payloadMassDriver",
                 ParsedBuildingTail::BlockProducer(_) => "blockProducer",
                 ParsedBuildingTail::Constructor(_) => "constructor",
@@ -25872,6 +26045,112 @@ pub fn format_world_model_goldens(model: &WorldModel) -> String {
                     &format!("{prefix}.tail.payloadSource.commandPosPresent"),
                     if source.command_pos.present { "1" } else { "0" },
                 );
+            }
+            ParsedBuildingTail::PayloadRouter(router) => {
+                push_str(
+                    &mut lines,
+                    &format!("{prefix}.tail.payloadRouter.progressBits"),
+                    &format!("{:08x}", router.progress_bits),
+                );
+                push_str(
+                    &mut lines,
+                    &format!("{prefix}.tail.payloadRouter.itemRotationBits"),
+                    &format!("{:08x}", router.item_rotation_bits),
+                );
+                push_str(
+                    &mut lines,
+                    &format!("{prefix}.tail.payloadRouter.payloadPresent"),
+                    if router.payload_present { "1" } else { "0" },
+                );
+                push_str(
+                    &mut lines,
+                    &format!("{prefix}.tail.payloadRouter.payloadType"),
+                    &format_optional_byte(router.payload_type),
+                );
+                push_str(
+                    &mut lines,
+                    &format!("{prefix}.tail.payloadRouter.payloadKind"),
+                    payload_snapshot_kind(router.parsed_payload.as_deref(), router.payload_present),
+                );
+                push_hex(
+                    &mut lines,
+                    &format!("{prefix}.tail.payloadRouter.payloadSerializedLen"),
+                    router.payload_serialized_len as u32,
+                    8,
+                );
+                push_str(
+                    &mut lines,
+                    &format!("{prefix}.tail.payloadRouter.payloadSerializedSha256"),
+                    &router.payload_serialized_sha256,
+                );
+                push_str(
+                    &mut lines,
+                    &format!("{prefix}.tail.payloadRouter.sorted"),
+                    &format_mixed_content_ref(&router.sorted),
+                );
+                push_str(
+                    &mut lines,
+                    &format!("{prefix}.tail.payloadRouter.sortedContentType"),
+                    &format_optional_byte(router.sorted.content_type),
+                );
+                push_str(
+                    &mut lines,
+                    &format!("{prefix}.tail.payloadRouter.sortedContentId"),
+                    &format_optional_item_id(router.sorted.content_id),
+                );
+                push_str(
+                    &mut lines,
+                    &format!("{prefix}.tail.payloadRouter.recDir"),
+                    &format!("{:02x}", router.rec_dir),
+                );
+                match router.parsed_payload.as_deref() {
+                    Some(PayloadSnapshot::Build(build)) => {
+                        let payload_build_block_id = if build.block_id >= 0 {
+                            format!("{:04x}", build.block_id as u16)
+                        } else {
+                            "none".to_string()
+                        };
+                        push_str(
+                            &mut lines,
+                            &format!("{prefix}.tail.payloadRouter.payloadBuildBlockId"),
+                            &payload_build_block_id,
+                        );
+                        push_str(
+                            &mut lines,
+                            &format!("{prefix}.tail.payloadRouter.payloadBuildRevision"),
+                            &format!("{:02x}", build.build_revision),
+                        );
+                        push_str(
+                            &mut lines,
+                            &format!("{prefix}.tail.payloadRouter.payloadBuildTailKind"),
+                            building_tail_kind(&build.building_sync.parsed_tail),
+                        );
+                    }
+                    Some(PayloadSnapshot::Unit(unit)) => {
+                        push_str(
+                            &mut lines,
+                            &format!("{prefix}.tail.payloadRouter.payloadUnitClassId"),
+                            &format!("{:02x}", unit.class_id),
+                        );
+                        push_str(
+                            &mut lines,
+                            &format!("{prefix}.tail.payloadRouter.payloadUnitRevision"),
+                            &format!("{:04x}", unit.revision as u16),
+                        );
+                        push_hex(
+                            &mut lines,
+                            &format!("{prefix}.tail.payloadRouter.payloadUnitBodyLen"),
+                            unit.body_len as u32,
+                            8,
+                        );
+                        push_str(
+                            &mut lines,
+                            &format!("{prefix}.tail.payloadRouter.payloadUnitBodySha256"),
+                            &unit.body_sha256,
+                        );
+                    }
+                    Some(PayloadSnapshot::Null) | None => {}
+                }
             }
             ParsedBuildingTail::PayloadMassDriver(driver) => {
                 push_world_model_payload_block_lines(&mut lines, &prefix, &driver.payload_block);
@@ -37667,6 +37946,54 @@ mod tests {
     }
 
     #[test]
+    fn formats_world_model_with_payload_router_tail_details() {
+        let tail_bytes = {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&0x3f800000u32.to_be_bytes());
+            bytes.extend_from_slice(&0x40000000u32.to_be_bytes());
+            bytes.push(0);
+            bytes.push(UNIT_CONTENT_TYPE);
+            bytes.extend_from_slice(&(0x0011i16).to_be_bytes());
+            bytes.push(2);
+            bytes
+        };
+        let parsed_tail =
+            parse_building_tail(Some("reinforced-payload-router"), 1, &tail_bytes).unwrap();
+        let center = test_building_center(0, 0, 0, 0x0202, tail_bytes, parsed_tail);
+        let model = WorldModel {
+            width: 1,
+            height: 1,
+            floors: vec![0],
+            overlays: vec![0],
+            blocks: vec![0x0202],
+            tiles: vec![TileModel {
+                tile_index: 0,
+                x: 0,
+                y: 0,
+                floor_id: 0,
+                overlay_id: 0,
+                block_id: 0x0202,
+                building_center_index: Some(0),
+            }],
+            building_centers: vec![center],
+            data_tiles: 0,
+            team_count: 0,
+            total_plans: 0,
+            team_ids: Vec::new(),
+            team_plan_counts: Vec::new(),
+        };
+
+        let text = format_world_model_goldens(&model);
+        assert!(text.contains("buildingCenters.0.tail.kind=payloadRouter"));
+        assert!(text.contains("buildingCenters.0.tail.payloadRouter.progressBits=3f800000"));
+        assert!(text.contains("buildingCenters.0.tail.payloadRouter.payloadKind=null"));
+        assert!(text.contains("buildingCenters.0.tail.payloadRouter.sorted=06:0011"));
+        assert!(text.contains("buildingCenters.0.tail.payloadRouter.sortedContentType=06"));
+        assert!(text.contains("buildingCenters.0.tail.payloadRouter.sortedContentId=0011"));
+        assert!(text.contains("buildingCenters.0.tail.payloadRouter.recDir=02"));
+    }
+
+    #[test]
     fn formats_payload_campaign_compound_goldens_for_custom_model() {
         let payload_prefix = |x_bits: u32, y_bits: u32, rot_bits: u32| {
             let mut bytes = Vec::new();
@@ -38716,9 +39043,11 @@ mod tests {
         }
 
         for sample_name in sample_names {
-            let class_id =
-                u8::from_str_radix(entries[&format!("unitPayload.{sample_name}.classId")].as_str(), 16)
-                    .unwrap();
+            let class_id = u8::from_str_radix(
+                entries[&format!("unitPayload.{sample_name}.classId")].as_str(),
+                16,
+            )
+            .unwrap();
             let unit_body =
                 decode_hex(entries[&format!("unitPayload.{sample_name}.bodyHex")].as_str());
             let revision = i16::from_be_bytes([unit_body[0], unit_body[1]]);
@@ -38740,7 +39069,11 @@ mod tests {
                 }),
                 "sample={sample_name}"
             );
-            assert_eq!(consumed, 1 + 1 + 1 + unit_body.len(), "sample={sample_name}");
+            assert_eq!(
+                consumed,
+                1 + 1 + 1 + unit_body.len(),
+                "sample={sample_name}"
+            );
         }
     }
 
@@ -39953,6 +40286,75 @@ mod tests {
                 arriving_item_id: Some(2),
                 arriving_timer_bits: 0x41400000,
                 liquid_removed_bits: 0x3e800000,
+            })
+        );
+    }
+
+    #[test]
+    fn parses_payload_router_tails() {
+        let tail_bytes = {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&0x3f800000u32.to_be_bytes());
+            bytes.extend_from_slice(&0x40000000u32.to_be_bytes());
+            bytes.push(0);
+            bytes.push(BLOCK_CONTENT_TYPE);
+            bytes.extend_from_slice(&(0x0123i16).to_be_bytes());
+            bytes.push(2);
+            bytes
+        };
+        let expected = ParsedBuildingTail::PayloadRouter(PayloadRouterTailSnapshot {
+            progress_bits: 0x3f800000,
+            item_rotation_bits: 0x40000000,
+            payload_present: false,
+            payload_type: None,
+            payload_serialized_len: 1,
+            payload_serialized_sha256: sha256_hex(&[0u8]),
+            parsed_payload: Some(Box::new(PayloadSnapshot::Null)),
+            sorted: MixedContentRefTailSnapshot {
+                content_type: Some(BLOCK_CONTENT_TYPE),
+                content_id: Some(0x0123),
+            },
+            rec_dir: 2,
+        });
+
+        for block_name in ["payload-router", "reinforced-payload-router"] {
+            let parsed = parse_building_tail(Some(block_name), 1, &tail_bytes).unwrap();
+            assert_eq!(parsed, expected);
+        }
+    }
+
+    #[test]
+    fn parses_payload_router_tail_with_unknown_payload_body_but_keeps_sorted_ref() {
+        let tail_bytes = {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&0x3f400000u32.to_be_bytes());
+            bytes.extend_from_slice(&0x40400000u32.to_be_bytes());
+            bytes.push(1);
+            bytes.push(0);
+            bytes.push(0x7f);
+            bytes.extend_from_slice(&[0xaa, 0xbb]);
+            bytes.push(BLOCK_CONTENT_TYPE);
+            bytes.extend_from_slice(&(5i16).to_be_bytes());
+            bytes.push(3);
+            bytes
+        };
+
+        let parsed = parse_building_tail(Some("payload-router"), 1, &tail_bytes).unwrap();
+        assert_eq!(
+            parsed,
+            ParsedBuildingTail::PayloadRouter(PayloadRouterTailSnapshot {
+                progress_bits: 0x3f400000,
+                item_rotation_bits: 0x40400000,
+                payload_present: true,
+                payload_type: Some(0),
+                payload_serialized_len: 5,
+                payload_serialized_sha256: sha256_hex(&[1u8, 0, 0x7f, 0xaa, 0xbb]),
+                parsed_payload: None,
+                sorted: MixedContentRefTailSnapshot {
+                    content_type: Some(BLOCK_CONTENT_TYPE),
+                    content_id: Some(5),
+                },
+                rec_dir: 3,
             })
         );
     }

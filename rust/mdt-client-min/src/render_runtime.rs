@@ -717,7 +717,7 @@ fn runtime_state_business_projection_label(
 
 fn runtime_configured_block_projection_label(projection: &ConfiguredBlockProjection) -> String {
     format!(
-        "{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}",
+        "{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}",
         runtime_configured_content_family_label(
             "uc",
             &projection.unit_cargo_unload_point_item_by_build_pos,
@@ -736,10 +736,19 @@ fn runtime_configured_block_projection_label(projection: &ConfiguredBlockProject
         runtime_configured_bool_family_label("sw", &projection.switch_enabled_by_build_pos),
         runtime_configured_bool_family_label("do", &projection.door_open_by_build_pos),
         runtime_configured_string_family_label("mg", &projection.message_text_by_build_pos),
-        runtime_configured_content_family_label("ct", &projection.constructor_recipe_block_by_build_pos),
+        runtime_configured_content_family_label(
+            "ct",
+            &projection.constructor_recipe_block_by_build_pos
+        ),
         runtime_configured_int_family_label("il", &projection.light_color_by_build_pos),
-        runtime_configured_raw_content_family_label("ps", &projection.payload_source_content_by_build_pos),
-        runtime_configured_raw_content_family_label("pr", &projection.payload_router_sorted_content_by_build_pos),
+        runtime_configured_raw_content_family_label(
+            "ps",
+            &projection.payload_source_content_by_build_pos
+        ),
+        runtime_configured_raw_content_family_label(
+            "pr",
+            &projection.payload_router_sorted_content_by_build_pos
+        ),
         runtime_configured_link_family_label("ib", &projection.item_bridge_link_by_build_pos),
         runtime_configured_content_family_label("ul", &projection.unloader_item_by_build_pos),
         runtime_configured_content_family_label("du", &projection.duct_unloader_item_by_build_pos),
@@ -748,6 +757,10 @@ fn runtime_configured_block_projection_label(projection: &ConfiguredBlockProject
         runtime_configured_link_family_label(
             "pm",
             &projection.payload_mass_driver_link_by_build_pos,
+        ),
+        runtime_configured_unit_command_family_label(
+            "rc",
+            &projection.reconstructor_command_by_build_pos,
         ),
     )
 }
@@ -847,6 +860,24 @@ fn runtime_configured_link_family_label(
             let (x, y) = unpack_runtime_point2(*build_pos);
             let (target_x, target_y) = unpack_runtime_point2(*link_pos);
             format!("{prefix}{count}@{x}:{y}={target_x}:{target_y}")
+        }
+        Some((build_pos, None)) => {
+            let (x, y) = unpack_runtime_point2(*build_pos);
+            format!("{prefix}{count}@{x}:{y}=clear")
+        }
+        None => format!("{prefix}{count}"),
+    }
+}
+
+fn runtime_configured_unit_command_family_label(
+    prefix: &str,
+    values: &BTreeMap<i32, Option<u16>>,
+) -> String {
+    let count = values.len();
+    match values.last_key_value() {
+        Some((build_pos, Some(command_id))) => {
+            let (x, y) = unpack_runtime_point2(*build_pos);
+            format!("{prefix}{count}@{x}:{y}={command_id}")
         }
         Some((build_pos, None)) => {
             let (x, y) = unpack_runtime_point2(*build_pos);
@@ -2980,6 +3011,10 @@ mod tests {
                     content_id: 9,
                 }),
             );
+        state
+            .configured_block_projection
+            .reconstructor_command_by_build_pos
+            .insert(pack_runtime_point2(23, 45), Some(12));
 
         adapter.apply(&mut scene, &mut hud, &input, &state);
 
@@ -2991,6 +3026,7 @@ mod tests {
         assert!(hud.status_text.contains(":il1@20:42=11223344:"));
         assert!(hud.status_text.contains(":ps1@21:43=b:7:"));
         assert!(hud.status_text.contains(":pr1@22:44=u:9:"));
+        assert!(hud.status_text.contains(":rc1@23:45=12"));
     }
 
     #[test]

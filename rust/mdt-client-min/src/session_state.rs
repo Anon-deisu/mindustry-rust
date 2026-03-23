@@ -563,6 +563,7 @@ pub struct ConfiguredBlockProjection {
     pub duct_router_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub mass_driver_link_by_build_pos: BTreeMap<i32, Option<i32>>,
     pub payload_mass_driver_link_by_build_pos: BTreeMap<i32, Option<i32>>,
+    pub reconstructor_command_by_build_pos: BTreeMap<i32, Option<u16>>,
 }
 
 impl ConfiguredBlockProjection {
@@ -661,6 +662,11 @@ impl ConfiguredBlockProjection {
             .insert(build_pos, link);
     }
 
+    pub fn apply_reconstructor_command(&mut self, build_pos: i32, command_id: Option<u16>) {
+        self.reconstructor_command_by_build_pos
+            .insert(build_pos, command_id);
+    }
+
     pub fn clear_building_state(&mut self, build_pos: i32) {
         self.unit_cargo_unload_point_item_by_build_pos
             .remove(&build_pos);
@@ -672,7 +678,8 @@ impl ConfiguredBlockProjection {
         self.switch_enabled_by_build_pos.remove(&build_pos);
         self.door_open_by_build_pos.remove(&build_pos);
         self.message_text_by_build_pos.remove(&build_pos);
-        self.constructor_recipe_block_by_build_pos.remove(&build_pos);
+        self.constructor_recipe_block_by_build_pos
+            .remove(&build_pos);
         self.light_color_by_build_pos.remove(&build_pos);
         self.payload_source_content_by_build_pos.remove(&build_pos);
         self.payload_router_sorted_content_by_build_pos
@@ -684,6 +691,7 @@ impl ConfiguredBlockProjection {
         self.mass_driver_link_by_build_pos.remove(&build_pos);
         self.payload_mass_driver_link_by_build_pos
             .remove(&build_pos);
+        self.reconstructor_command_by_build_pos.remove(&build_pos);
     }
 
     pub fn clear_for_world_reload(&mut self) {

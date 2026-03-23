@@ -15,6 +15,8 @@ Architecture boundary source of truth:
 
 - `rust/ARCHITECTURE.md` owns crate responsibilities, dependency direction, fixture policy,
   and split-workspace rules
+- `rust/README.md` owns the Rust docs entry point
+- `rust/WORKSPACES.md` owns the split-workspace topology summary
 - `rust/WORKSPACE_RUNBOOK.md` owns day-to-day command entry points for the split workspaces
 - `rust/FIXTURE_PATHS.md` owns canonical-vs-test-vs-mirror fixture path policy
 - this handoff note only owns sync/upload policy
@@ -55,7 +57,9 @@ Sync these areas first:
 - `rust/`
   - root workspace `Cargo.toml`
   - root workspace `Cargo.lock`
+  - `README.md`
   - `ARCHITECTURE.md`
+  - `WORKSPACES.md`
   - `WORKSPACE_RUNBOOK.md`
   - `FIXTURE_PATHS.md`
   - crate manifests and `src/` trees for:
