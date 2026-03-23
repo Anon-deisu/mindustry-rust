@@ -1711,6 +1711,7 @@ impl ClientSession {
                         .map_err(ClientSessionError::WorldBundleParse)?
                         .bootstrap(&self.locale);
                     apply_world_bootstrap(&mut self.state, stream_id, &bootstrap);
+                    self.apply_world_baseline_from_bundle(&world_bundle);
                     self.apply_snapshot_input_from_bootstrap(&bootstrap);
                     self.loaded_world_bundle = Some(world_bundle);
                     self.mark_client_loaded()?;
@@ -4183,8 +4184,39 @@ impl ClientSession {
                     bootstrap.player_unit_value,
                     position.0.to_bits(),
                     position.1.to_bits(),
-                    self.state.hidden_snapshot_ids.contains(&player_id),
+                    false,
                 );
+        }
+    }
+
+    fn apply_world_baseline_from_bundle(&mut self, world_bundle: &WorldBundle) {
+        for center in &world_bundle.world.building_centers {
+            let Ok(x) = i32::try_from(center.x) else {
+                continue;
+            };
+            let Ok(y) = i32::try_from(center.y) else {
+                continue;
+            };
+            let build_pos = pack_point2(x, y);
+            let block_id = i16::from_be_bytes(center.block_id.to_be_bytes());
+            let base = &center.building.base;
+            self.state.building_table_projection.seed_world_baseline(
+                build_pos,
+                block_id,
+                base.rotation,
+                base.team_id,
+                base.save_version,
+                base.module_bitmask,
+                base.time_scale_bits,
+                base.time_scale_duration_bits,
+                base.last_disabler_pos,
+                base.legacy_consume_connected,
+                base.health_bits,
+                base.enabled,
+                base.efficiency,
+                base.optional_efficiency,
+                base.visible_flags,
+            );
         }
     }
 
@@ -4245,7 +4277,7 @@ impl ClientSession {
             sync.unit_value,
             sync.x_bits,
             sync.y_bits,
-            self.state.hidden_snapshot_ids.contains(&player_id),
+            false,
             self.state.received_entity_snapshot_count,
         );
         self.snapshot_input.unit_id = sync.snapshot_unit_id();
@@ -4270,11 +4302,6 @@ impl ClientSession {
             if Some(row.entity_id) == local_player_id {
                 continue;
             }
-            if self.state.hidden_snapshot_ids.contains(&row.entity_id) {
-                self.state
-                    .record_entity_snapshot_tombstone_skip(row.entity_id);
-                continue;
-            }
             if self
                 .state
                 .entity_snapshot_tombstone_blocks_upsert(row.entity_id)
@@ -4290,7 +4317,7 @@ impl ClientSession {
                 row.sync.unit_value,
                 row.sync.x_bits,
                 row.sync.y_bits,
-                self.state.hidden_snapshot_ids.contains(&row.entity_id),
+                false,
                 self.state.received_entity_snapshot_count,
             );
         }
@@ -4493,7 +4520,7 @@ impl ClientSession {
                 player_id,
                 x.to_bits(),
                 y.to_bits(),
-                self.state.hidden_snapshot_ids.contains(&player_id),
+                false,
             );
         self.snapshot_input.unit_id = None;
         self.snapshot_input.dead = false;
@@ -8321,6 +8348,11 @@ mod tests {
                 .map(|state| state.player().team_id),
             Some(1)
         );
+        assert_eq!(session.state().building_table_projection.by_build_pos.len(), 6);
+        assert_eq!(
+            session.state().building_table_projection.last_update,
+            Some(crate::session_state::BuildingProjectionUpdateKind::WorldBaseline)
+        );
 
         let snapshot_packet = encode_packet(122, &[1, 2, 3, 4], false).unwrap();
         let snapshot_event = session.ingest_packet_bytes(&snapshot_packet).unwrap();
@@ -8331,6 +8363,52 @@ mod tests {
         assert_eq!(session.stats().packets_seen, 1);
         assert_eq!(session.stats().snapshot_packets_seen, 1);
         assert!(session.state().seen_state_snapshot);
+    }
+
+    #[test]
+    fn world_stream_ready_seeds_building_table_projection_from_world_bundle() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+
+        session.ingest_packet_bytes(&begin_packet).unwrap();
+        for chunk in chunk_packets {
+            session.ingest_packet_bytes(&chunk).unwrap();
+        }
+
+        let bundle = session.loaded_world_bundle().unwrap();
+        assert_eq!(
+            session.state().building_table_projection.by_build_pos.len(),
+            bundle.world.building_centers.len()
+        );
+
+        let first_center = &bundle.world.building_centers[0];
+        let first_build_pos = pack_point2(first_center.x as i32, first_center.y as i32);
+        let projection = session
+            .state()
+            .building_table_projection
+            .by_build_pos
+            .get(&first_build_pos)
+            .unwrap();
+
+        assert_eq!(
+            projection.block_id,
+            Some(i16::from_be_bytes(first_center.block_id.to_be_bytes()))
+        );
+        assert_eq!(projection.rotation, Some(first_center.building.base.rotation));
+        assert_eq!(projection.team_id, Some(first_center.building.base.team_id));
+        assert_eq!(projection.io_version, first_center.building.base.save_version);
+        assert_eq!(
+            projection.health_bits,
+            Some(first_center.building.base.health_bits)
+        );
+        assert_eq!(projection.enabled, first_center.building.base.enabled);
+        assert_eq!(
+            projection.last_update,
+            crate::session_state::BuildingProjectionUpdateKind::WorldBaseline
+        );
     }
 
     #[test]
@@ -9494,7 +9572,7 @@ mod tests {
     }
 
     #[test]
-    fn hidden_snapshot_blocks_non_local_entity_snapshot_revival_while_id_stays_hidden() {
+    fn hidden_snapshot_does_not_block_non_local_entity_snapshot_revival() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
         let compressed_world_stream = sample_world_stream_bytes();
@@ -9552,7 +9630,6 @@ mod tests {
         session.ingest_packet_bytes(&hidden_packet).unwrap();
 
         assert!(session.state().hidden_snapshot_ids.contains(&99));
-        assert!(session.state().entity_snapshot_tombstones.contains_key(&99));
         assert!(!session
             .state()
             .entity_table_projection
@@ -9560,25 +9637,29 @@ mod tests {
             .contains_key(&99));
 
         session.ingest_packet_bytes(&entity_packet).unwrap();
-        assert!(!session
+        assert!(session
             .state()
             .entity_table_projection
             .by_entity_id
             .contains_key(&99));
-
-        session.ingest_packet_bytes(&entity_packet).unwrap();
-        assert!(!session
-            .state()
-            .entity_table_projection
-            .by_entity_id
-            .contains_key(&99));
-        assert_eq!(session.state().entity_snapshot_tombstone_skip_count, 2);
         assert_eq!(
             session
                 .state()
-                .last_entity_snapshot_tombstone_skipped_ids_sample,
-            vec![99]
+                .entity_table_projection
+                .by_entity_id
+                .get(&99)
+                .map(|entity| entity.hidden),
+            Some(false)
         );
+
+        session.ingest_packet_bytes(&entity_packet).unwrap();
+        assert!(session
+            .state()
+            .entity_table_projection
+            .by_entity_id
+            .contains_key(&99));
+        assert!(session.state().entity_snapshot_tombstones.is_empty());
+        assert_eq!(session.state().entity_snapshot_tombstone_skip_count, 0);
     }
 
     fn pack_build_pos_for_block_snapshot_test(x: usize, y: usize) -> i32 {
@@ -9717,6 +9798,12 @@ mod tests {
         let (mut payload, entries) = build_loaded_world_block_snapshot_payload(&session, 2);
         let (first_build_pos, first_block_id, _) = entries[0];
         let (second_build_pos, _, _) = entries[1];
+        let second_before = session
+            .state()
+            .building_table_projection
+            .by_build_pos
+            .get(&second_build_pos)
+            .cloned();
         let original_data_len = u16::from_be_bytes([payload[2], payload[3]]);
         payload.push(0x7f);
         payload[2..4].copy_from_slice(&original_data_len.saturating_add(1).to_be_bytes());
@@ -9744,11 +9831,15 @@ mod tests {
                 .and_then(|building| building.block_id),
             Some(first_block_id)
         );
-        assert!(!session
+        assert_eq!(
+            session
             .state()
             .building_table_projection
             .by_build_pos
-            .contains_key(&second_build_pos));
+            .get(&second_build_pos)
+            .cloned(),
+            second_before
+        );
         assert_eq!(
             session
                 .state()
@@ -9781,6 +9872,12 @@ mod tests {
         let (payload, entries) = build_loaded_world_block_snapshot_payload(&session, 2);
         let (first_build_pos, first_block_id, first_health_bits) = entries[0];
         let (second_build_pos, _, _) = entries[1];
+        let second_before = session
+            .state()
+            .building_table_projection
+            .by_build_pos
+            .get(&second_build_pos)
+            .cloned();
 
         session.state.block_snapshot_head_projection =
             Some(crate::session_state::BlockSnapshotHeadProjection {
@@ -9803,11 +9900,15 @@ mod tests {
 
         session.apply_additional_block_snapshot_entries_from_loaded_world(&payload);
 
-        assert!(!session
+        assert_eq!(
+            session
             .state()
             .building_table_projection
             .by_build_pos
-            .contains_key(&second_build_pos));
+            .get(&second_build_pos)
+            .cloned(),
+            second_before
+        );
         assert_eq!(
             session
                 .state()

@@ -395,6 +395,7 @@ impl TileConfigProjection {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuildingProjectionUpdateKind {
+    WorldBaseline,
     BlockSnapshotHead,
     ConstructFinish,
     TileConfig,
@@ -455,6 +456,133 @@ pub struct BuildingTableProjection {
 }
 
 impl BuildingTableProjection {
+    pub fn seed_world_baseline(
+        &mut self,
+        build_pos: i32,
+        block_id: i16,
+        rotation: u8,
+        team_id: u8,
+        io_version: Option<u8>,
+        module_bitmask: Option<u8>,
+        time_scale_bits: Option<u32>,
+        time_scale_duration_bits: Option<u32>,
+        last_disabler_pos: Option<i32>,
+        legacy_consume_connected: Option<bool>,
+        health_bits: u32,
+        enabled: Option<bool>,
+        efficiency: Option<u8>,
+        optional_efficiency: Option<u8>,
+        visible_flags: Option<u64>,
+    ) {
+        let previous = self.by_build_pos.get(&build_pos).cloned();
+        self.by_build_pos.insert(
+            build_pos,
+            BuildingProjection {
+                block_id: Some(block_id),
+                rotation: Some(rotation),
+                team_id: Some(team_id),
+                io_version: io_version
+                    .or_else(|| previous.as_ref().and_then(|building| building.io_version)),
+                module_bitmask: module_bitmask.or_else(|| {
+                    previous
+                        .as_ref()
+                        .and_then(|building| building.module_bitmask)
+                }),
+                time_scale_bits: time_scale_bits.or_else(|| {
+                    previous
+                        .as_ref()
+                        .and_then(|building| building.time_scale_bits)
+                }),
+                time_scale_duration_bits: time_scale_duration_bits.or_else(|| {
+                    previous
+                        .as_ref()
+                        .and_then(|building| building.time_scale_duration_bits)
+                }),
+                last_disabler_pos: last_disabler_pos.or_else(|| {
+                    previous
+                        .as_ref()
+                        .and_then(|building| building.last_disabler_pos)
+                }),
+                legacy_consume_connected: legacy_consume_connected.or_else(|| {
+                    previous
+                        .as_ref()
+                        .and_then(|building| building.legacy_consume_connected)
+                }),
+                config: previous
+                    .as_ref()
+                    .and_then(|building| building.config.clone()),
+                health_bits: Some(health_bits),
+                enabled: enabled.or_else(|| previous.as_ref().and_then(|building| building.enabled)),
+                efficiency: efficiency
+                    .or_else(|| previous.as_ref().and_then(|building| building.efficiency)),
+                optional_efficiency: optional_efficiency.or_else(|| {
+                    previous
+                        .as_ref()
+                        .and_then(|building| building.optional_efficiency)
+                }),
+                visible_flags: visible_flags.or_else(|| {
+                    previous
+                        .as_ref()
+                        .and_then(|building| building.visible_flags)
+                }),
+                last_update: BuildingProjectionUpdateKind::WorldBaseline,
+            },
+        );
+        self.last_block_snapshot_head_conflict = false;
+        self.last_build_pos = Some(build_pos);
+        self.last_block_id = Some(block_id);
+        self.last_rotation = Some(rotation);
+        self.last_team_id = Some(team_id);
+        self.last_io_version = self
+            .by_build_pos
+            .get(&build_pos)
+            .and_then(|building| building.io_version);
+        self.last_module_bitmask = self
+            .by_build_pos
+            .get(&build_pos)
+            .and_then(|building| building.module_bitmask);
+        self.last_time_scale_bits = self
+            .by_build_pos
+            .get(&build_pos)
+            .and_then(|building| building.time_scale_bits);
+        self.last_time_scale_duration_bits = self
+            .by_build_pos
+            .get(&build_pos)
+            .and_then(|building| building.time_scale_duration_bits);
+        self.last_last_disabler_pos = self
+            .by_build_pos
+            .get(&build_pos)
+            .and_then(|building| building.last_disabler_pos);
+        self.last_legacy_consume_connected = self
+            .by_build_pos
+            .get(&build_pos)
+            .and_then(|building| building.legacy_consume_connected);
+        self.last_config = self
+            .by_build_pos
+            .get(&build_pos)
+            .and_then(|building| building.config.clone());
+        self.last_health_bits = Some(health_bits);
+        self.last_enabled = self
+            .by_build_pos
+            .get(&build_pos)
+            .and_then(|building| building.enabled);
+        self.last_efficiency = self
+            .by_build_pos
+            .get(&build_pos)
+            .and_then(|building| building.efficiency);
+        self.last_optional_efficiency = self
+            .by_build_pos
+            .get(&build_pos)
+            .and_then(|building| building.optional_efficiency);
+        self.last_visible_flags = self
+            .by_build_pos
+            .get(&build_pos)
+            .and_then(|building| building.visible_flags);
+        self.last_update = Some(BuildingProjectionUpdateKind::WorldBaseline);
+        self.last_removed = false;
+        self.recount();
+    }
+
     pub fn apply_block_snapshot_head(
         &mut self,
         build_pos: i32,
@@ -1613,8 +1741,10 @@ impl EntityTableProjection {
     }
 
     pub fn apply_hidden_ids(&mut self, hidden_ids: &BTreeSet<i32>) {
-        for (&entity_id, entity) in &mut self.by_entity_id {
-            entity.hidden = hidden_ids.contains(&entity_id);
+        for entity_id in hidden_ids {
+            if let Some(entity) = self.by_entity_id.get_mut(entity_id) {
+                entity.hidden = true;
+            }
         }
         self.hidden_apply_count = self.hidden_apply_count.saturating_add(1);
         self.recount_hidden();

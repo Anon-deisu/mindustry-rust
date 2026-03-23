@@ -707,6 +707,7 @@ fn runtime_builder_queue_head_label(projection: &BuilderQueueProjection) -> Stri
 
 fn runtime_building_table_label(projection: &BuildingTableProjection) -> String {
     let update = match projection.last_update {
+        Some(BuildingProjectionUpdateKind::WorldBaseline) => "bootstrap",
         Some(BuildingProjectionUpdateKind::BlockSnapshotHead) => "head",
         Some(BuildingProjectionUpdateKind::ConstructFinish) => "construct",
         Some(BuildingProjectionUpdateKind::TileConfig) => "config",

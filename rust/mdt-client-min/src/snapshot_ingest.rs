@@ -216,9 +216,6 @@ pub fn ingest_inbound_snapshot(state: &mut SessionState, snapshot: InboundSnapsh
                     let hidden_removed_ids = state
                         .entity_table_projection
                         .remove_hidden_entities(&trigger_hidden_ids);
-                    for entity_id in &hidden_removed_ids {
-                        state.record_entity_snapshot_tombstone(*entity_id);
-                    }
                     state.hidden_lifecycle_remove_count = state
                         .hidden_lifecycle_remove_count
                         .saturating_add(hidden_removed_ids.len() as u64);
@@ -2277,7 +2274,7 @@ mod tests {
     }
 
     #[test]
-    fn hidden_snapshot_clears_stale_hidden_flag_for_tracked_local_entity() {
+    fn hidden_snapshot_keeps_prior_local_hidden_flag_until_entity_sync_updates_it() {
         let initial_payload = [
             0x00, 0x00, 0x00, 0x01, // count
             0x00, 0x00, 0x00, 0x65, // 101
@@ -2316,9 +2313,9 @@ mod tests {
             InboundSnapshot::new(HighFrequencyRemoteMethod::HiddenSnapshot, 11, &next_payload),
         );
 
-        assert!(!state.entity_table_projection.by_entity_id[&101].hidden);
+        assert!(state.entity_table_projection.by_entity_id[&101].hidden);
         assert_eq!(state.entity_table_projection.hidden_apply_count, 2);
-        assert_eq!(state.entity_table_projection.hidden_count, 0);
+        assert_eq!(state.entity_table_projection.hidden_count, 1);
     }
 
     #[test]
