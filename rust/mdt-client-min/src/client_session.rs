@@ -9816,6 +9816,7 @@ mod tests {
             (787, 23u8, "elude"),
             (788, 26u8, "latum"),
             (789, 5u8, "spiroct"),
+            (790, 23u8, "vanquish"),
         ]
         .into_iter()
         .map(|(entity_id, outer_class_id, sample_name)| {

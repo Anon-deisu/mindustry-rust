@@ -100,6 +100,7 @@ impl ArcNetSessionDriver {
         server_addr: SocketAddr,
         connect: &ConnectPacketEnvelope,
     ) -> Result<(), ArcNetLoopError> {
+        self.quiet_reset_transport_state();
         let mut replacement = Self::connect(server_addr)?;
         replacement.send_connect(connect)?;
         *self = replacement;
@@ -115,6 +116,7 @@ impl ArcNetSessionDriver {
     }
 
     pub fn send_connect(&mut self, connect: &ConnectPacketEnvelope) -> Result<(), ArcNetLoopError> {
+        self.connect_sent = false;
         self.pending_connect = Some(connect.encoded_packet.clone());
         Ok(())
     }
@@ -329,6 +331,14 @@ impl ArcNetSessionDriver {
         self.tcp.write_all(payload)?;
         Ok(())
     }
+
+    fn quiet_reset_transport_state(&mut self) {
+        self.tcp_read_buffer.clear();
+        self.connection_id = None;
+        self.udp_registered = false;
+        self.connect_sent = false;
+        self.pending_connect = None;
+    }
 }
 
 #[derive(Debug, Default)]
@@ -461,6 +471,21 @@ mod tests {
         payload
     }
 
+    fn sample_connect_envelope() -> ConnectPacketEnvelope {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let timing = ClientSessionTiming {
+            keepalive_interval_ms: 60_000,
+            client_snapshot_interval_ms: 60_000,
+            connect_timeout_ms: 60_000,
+            timeout_ms: 60_000,
+        };
+        let mut session =
+            ClientSession::from_remote_manifest_with_timing(&manifest, "fr", timing).unwrap();
+        session
+            .prepare_connect_packet(&sample_connect_payload())
+            .unwrap()
+    }
+
     #[test]
     fn discover_first_server_returns_udp_responder_addr() {
         let server = UdpSocket::bind("127.0.0.1:0").unwrap();
@@ -493,6 +518,53 @@ mod tests {
                 .unwrap();
 
         assert_eq!(found, None);
+    }
+
+    #[test]
+    fn send_connect_resets_connect_sent_gate() {
+        let (tcp_listener, _udp_socket, server_addr) = bind_local_arcnet_server();
+        let _accept = thread::spawn(move || {
+            let _ = tcp_listener.accept();
+        });
+
+        let mut driver = ArcNetSessionDriver::connect(server_addr).unwrap();
+        driver.connect_sent = true;
+        let connect = sample_connect_envelope();
+        driver.send_connect(&connect).unwrap();
+
+        assert!(!driver.connect_sent);
+        assert_eq!(
+            driver.pending_connect.as_deref(),
+            Some(connect.encoded_packet.as_slice())
+        );
+    }
+
+    #[test]
+    fn reconnect_failure_quiet_resets_transport_state() {
+        let (tcp_listener, _udp_socket, server_addr) = bind_local_arcnet_server();
+        let _accept = thread::spawn(move || {
+            let _ = tcp_listener.accept();
+        });
+
+        let mut driver = ArcNetSessionDriver::connect(server_addr).unwrap();
+        driver.connection_id = Some(777);
+        driver.udp_registered = true;
+        driver.connect_sent = true;
+        driver.pending_connect = Some(vec![1, 2, 3]);
+        driver.tcp_read_buffer.extend_from_slice(&[0, 3, 9, 9, 9]);
+
+        let connect = sample_connect_envelope();
+        let probe = TcpListener::bind("127.0.0.1:0").unwrap();
+        let unreachable_addr = probe.local_addr().unwrap();
+        drop(probe);
+
+        let reconnect = driver.reconnect(unreachable_addr, &connect);
+        assert!(reconnect.is_err());
+        assert_eq!(driver.connection_id, None);
+        assert!(!driver.udp_registered);
+        assert!(!driver.connect_sent);
+        assert!(driver.pending_connect.is_none());
+        assert!(driver.tcp_read_buffer.is_empty());
     }
 
     #[test]

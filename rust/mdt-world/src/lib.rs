@@ -12915,16 +12915,7 @@ pub fn parse_entity_alpha_sync_bytes(
     let stack_item_id = reader.read_i16()?;
     let stack_amount = reader.read_i32()?;
     let status_count = reader.read_i32()?;
-    if status_count < 0 {
-        return Err(format!(
-            "unsupported alpha sync negative status count: {status_count}"
-        ));
-    }
-    if status_count != 0 {
-        return Err(format!(
-            "unsupported alpha sync nonzero status count: {status_count}"
-        ));
-    }
+    consume_entity_status_entries(&mut reader, status_count, None, "alpha sync")?;
     let snapshot = EntityAlphaSyncSnapshot {
         abilities_len,
         ammo_bits,
@@ -12988,16 +12979,7 @@ pub fn parse_entity_mech_sync_bytes(
     let stack_item_id = reader.read_i16()?;
     let stack_amount = reader.read_i32()?;
     let status_count = reader.read_i32()?;
-    if status_count < 0 {
-        return Err(format!(
-            "unsupported mech sync negative status count: {status_count}"
-        ));
-    }
-    if status_count != 0 {
-        return Err(format!(
-            "unsupported mech sync nonzero status count: {status_count}"
-        ));
-    }
+    consume_entity_status_entries(&mut reader, status_count, None, "mech sync")?;
     let snapshot = EntityMechSyncSnapshot {
         abilities_len,
         ammo_bits,
@@ -13062,16 +13044,7 @@ pub fn parse_entity_missile_sync_bytes(
     let stack_item_id = reader.read_i16()?;
     let stack_amount = reader.read_i32()?;
     let status_count = reader.read_i32()?;
-    if status_count < 0 {
-        return Err(format!(
-            "unsupported missile sync negative status count: {status_count}"
-        ));
-    }
-    if status_count != 0 {
-        return Err(format!(
-            "unsupported missile sync nonzero status count: {status_count}"
-        ));
-    }
+    consume_entity_status_entries(&mut reader, status_count, None, "missile sync")?;
     let snapshot = EntityMissileSyncSnapshot {
         abilities_len,
         ammo_bits,
@@ -13221,6 +13194,33 @@ fn consume_unit_build_plans(reader: &mut Reader<'_>) -> Result<(), String> {
 
 fn consume_unit_item_stack(reader: &mut Reader<'_>) -> Result<(), String> {
     reader.skip_bytes(std::mem::size_of::<i16>() + std::mem::size_of::<i32>())
+}
+
+fn consume_entity_status_entries(
+    reader: &mut Reader<'_>,
+    status_count: i32,
+    content_header: Option<&[ContentHeaderEntry]>,
+    context: &str,
+) -> Result<(), String> {
+    if status_count < 0 {
+        return Err(format!(
+            "unsupported {context} negative status count: {status_count}"
+        ));
+    }
+
+    for _ in 0..status_count {
+        let status_id = reader.read_i16()?;
+        reader.skip_bytes(std::mem::size_of::<f32>())?;
+        if content_header
+            .map(|header| is_dynamic_status_effect(header, status_id))
+            .unwrap_or(false)
+        {
+            let flags = reader.read_u8()?;
+            reader.skip_bytes((flags.count_ones() as usize).saturating_mul(4))?;
+        }
+    }
+
+    Ok(())
 }
 
 fn is_dynamic_status_effect(content_header: &[ContentHeaderEntry], status_id: i16) -> bool {
@@ -14014,16 +14014,7 @@ fn parse_entity_payload_sync_bytes_with_content_header_option(
     let stack_item_id = reader.read_i16()?;
     let stack_amount = reader.read_i32()?;
     let status_count = reader.read_i32()?;
-    if status_count < 0 {
-        return Err(format!(
-            "unsupported payload sync negative status count: {status_count}"
-        ));
-    }
-    if status_count != 0 {
-        return Err(format!(
-            "unsupported payload sync nonzero status count: {status_count}"
-        ));
-    }
+    consume_entity_status_entries(&mut reader, status_count, content_header, "payload sync")?;
     let snapshot = EntityPayloadSyncSnapshot {
         abilities_len,
         ammo_bits,
@@ -14117,16 +14108,12 @@ fn parse_entity_building_tether_payload_sync_bytes_with_content_header_option(
     let stack_item_id = reader.read_i16()?;
     let stack_amount = reader.read_i32()?;
     let status_count = reader.read_i32()?;
-    if status_count < 0 {
-        return Err(format!(
-            "unsupported tether payload sync negative status count: {status_count}"
-        ));
-    }
-    if status_count != 0 {
-        return Err(format!(
-            "unsupported tether payload sync nonzero status count: {status_count}"
-        ));
-    }
+    consume_entity_status_entries(
+        &mut reader,
+        status_count,
+        content_header,
+        "tether payload sync",
+    )?;
     let snapshot = EntityBuildingTetherPayloadSyncSnapshot {
         abilities_len,
         ammo_bits,
@@ -37847,6 +37834,52 @@ mod tests {
     }
 
     #[test]
+    fn parses_entity_alpha_sync_bytes_with_nonzero_status_count() {
+        let mut bytes = Vec::new();
+        bytes.push(0);
+        bytes.extend_from_slice(&123.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&7i32.to_be_bytes());
+        bytes.extend_from_slice(&1.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f64.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&150.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&(-1i32).to_be_bytes());
+        bytes.push(2);
+        bytes.push(0);
+        bytes.extend_from_slice(&0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&90.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0i16.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&1i32.to_be_bytes());
+        bytes.extend_from_slice(&2i16.to_be_bytes());
+        bytes.extend_from_slice(&8.0f32.to_bits().to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&35i16.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&1.5f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&(-2.25f32).to_bits().to_be_bytes());
+        bytes.extend_from_slice(&40.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&60.0f32.to_bits().to_be_bytes());
+
+        let (snapshot, consumed) = parse_entity_alpha_sync_bytes(&bytes).unwrap();
+
+        assert_eq!(consumed, bytes.len());
+        assert_eq!(snapshot.status_count, 1);
+        assert_eq!(snapshot.team_id, 1);
+        assert_eq!(snapshot.unit_type_id, 35);
+        assert_eq!(snapshot.x_bits, 40.0f32.to_bits());
+        assert_eq!(snapshot.y_bits, 60.0f32.to_bits());
+    }
+
+    #[test]
     fn parses_entity_mech_sync_bytes() {
         let mut bytes = Vec::new();
         bytes.push(0);
@@ -37900,6 +37933,53 @@ mod tests {
         assert_eq!(snapshot.team_id, 1);
         assert_eq!(snapshot.unit_type_id, 35);
         assert!(snapshot.update_building);
+        assert_eq!(snapshot.x_bits, 40.0f32.to_bits());
+        assert_eq!(snapshot.y_bits, 60.0f32.to_bits());
+    }
+
+    #[test]
+    fn parses_entity_mech_sync_bytes_with_nonzero_status_count() {
+        let mut bytes = Vec::new();
+        bytes.push(0);
+        bytes.extend_from_slice(&123.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&15.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&7i32.to_be_bytes());
+        bytes.extend_from_slice(&1.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f64.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&150.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&(-1i32).to_be_bytes());
+        bytes.push(2);
+        bytes.push(0);
+        bytes.extend_from_slice(&0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&90.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0i16.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&1i32.to_be_bytes());
+        bytes.extend_from_slice(&3i16.to_be_bytes());
+        bytes.extend_from_slice(&6.0f32.to_bits().to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&35i16.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&1.5f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&(-2.25f32).to_bits().to_be_bytes());
+        bytes.extend_from_slice(&40.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&60.0f32.to_bits().to_be_bytes());
+
+        let (snapshot, consumed) = parse_entity_mech_sync_bytes(&bytes).unwrap();
+
+        assert_eq!(consumed, bytes.len());
+        assert_eq!(snapshot.status_count, 1);
+        assert_eq!(snapshot.team_id, 1);
+        assert_eq!(snapshot.unit_type_id, 35);
         assert_eq!(snapshot.x_bits, 40.0f32.to_bits());
         assert_eq!(snapshot.y_bits, 60.0f32.to_bits());
     }
@@ -37965,6 +38045,54 @@ mod tests {
     }
 
     #[test]
+    fn parses_entity_missile_sync_bytes_with_nonzero_status_count() {
+        let mut bytes = Vec::new();
+        bytes.push(0);
+        bytes.extend_from_slice(&123.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&7i32.to_be_bytes());
+        bytes.extend_from_slice(&1.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f64.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&150.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&240.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&(-1i32).to_be_bytes());
+        bytes.push(2);
+        bytes.push(0);
+        bytes.extend_from_slice(&0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&90.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0i16.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&1i32.to_be_bytes());
+        bytes.extend_from_slice(&5i16.to_be_bytes());
+        bytes.extend_from_slice(&2.0f32.to_bits().to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&12.5f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&39i16.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&1.5f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&(-2.25f32).to_bits().to_be_bytes());
+        bytes.extend_from_slice(&40.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&60.0f32.to_bits().to_be_bytes());
+
+        let (snapshot, consumed) = parse_entity_missile_sync_bytes(&bytes).unwrap();
+
+        assert_eq!(consumed, bytes.len());
+        assert_eq!(snapshot.status_count, 1);
+        assert_eq!(snapshot.team_id, 1);
+        assert_eq!(snapshot.unit_type_id, 39);
+        assert_eq!(snapshot.x_bits, 40.0f32.to_bits());
+        assert_eq!(snapshot.y_bits, 60.0f32.to_bits());
+    }
+
+    #[test]
     fn parses_entity_payload_sync_bytes() {
         let mut bytes = Vec::new();
         bytes.push(0);
@@ -38018,6 +38146,53 @@ mod tests {
         assert_eq!(snapshot.team_id, 1);
         assert_eq!(snapshot.unit_type_id, 35);
         assert!(snapshot.update_building);
+        assert_eq!(snapshot.x_bits, 40.0f32.to_bits());
+        assert_eq!(snapshot.y_bits, 60.0f32.to_bits());
+    }
+
+    #[test]
+    fn parses_entity_payload_sync_bytes_with_nonzero_status_count() {
+        let mut bytes = Vec::new();
+        bytes.push(0);
+        bytes.extend_from_slice(&123.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&7i32.to_be_bytes());
+        bytes.extend_from_slice(&1.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f64.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&150.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&(-1i32).to_be_bytes());
+        bytes.push(2);
+        bytes.push(0);
+        bytes.extend_from_slice(&0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&90.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0i16.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&1i32.to_be_bytes());
+        bytes.extend_from_slice(&7i16.to_be_bytes());
+        bytes.extend_from_slice(&5.5f32.to_bits().to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&35i16.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&1.5f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&(-2.25f32).to_bits().to_be_bytes());
+        bytes.extend_from_slice(&40.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&60.0f32.to_bits().to_be_bytes());
+
+        let (snapshot, consumed) = parse_entity_payload_sync_bytes(&bytes).unwrap();
+
+        assert_eq!(consumed, bytes.len());
+        assert_eq!(snapshot.status_count, 1);
+        assert_eq!(snapshot.team_id, 1);
+        assert_eq!(snapshot.unit_type_id, 35);
         assert_eq!(snapshot.x_bits, 40.0f32.to_bits());
         assert_eq!(snapshot.y_bits, 60.0f32.to_bits());
     }
@@ -38078,6 +38253,55 @@ mod tests {
         assert_eq!(snapshot.team_id, 1);
         assert_eq!(snapshot.unit_type_id, 35);
         assert!(snapshot.update_building);
+        assert_eq!(snapshot.x_bits, 40.0f32.to_bits());
+        assert_eq!(snapshot.y_bits, 60.0f32.to_bits());
+    }
+
+    #[test]
+    fn parses_entity_building_tether_payload_sync_bytes_with_nonzero_status_count() {
+        let mut bytes = Vec::new();
+        bytes.push(0);
+        bytes.extend_from_slice(&123.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&12345i32.to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&7i32.to_be_bytes());
+        bytes.extend_from_slice(&1.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f64.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&150.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&(-1i32).to_be_bytes());
+        bytes.push(2);
+        bytes.push(0);
+        bytes.extend_from_slice(&0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&90.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0i16.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&1i32.to_be_bytes());
+        bytes.extend_from_slice(&4i16.to_be_bytes());
+        bytes.extend_from_slice(&4.5f32.to_bits().to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&35i16.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&1.5f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&(-2.25f32).to_bits().to_be_bytes());
+        bytes.extend_from_slice(&40.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&60.0f32.to_bits().to_be_bytes());
+
+        let (snapshot, consumed) = parse_entity_building_tether_payload_sync_bytes(&bytes).unwrap();
+
+        assert_eq!(consumed, bytes.len());
+        assert_eq!(snapshot.status_count, 1);
+        assert_eq!(snapshot.building_pos, 12345);
+        assert_eq!(snapshot.team_id, 1);
+        assert_eq!(snapshot.unit_type_id, 35);
         assert_eq!(snapshot.x_bits, 40.0f32.to_bits());
         assert_eq!(snapshot.y_bits, 60.0f32.to_bits());
     }
