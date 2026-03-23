@@ -297,6 +297,37 @@ pub struct TransferItemToUnitProjection {
     pub to_entity_id: Option<i32>,
 }
 
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct ResourceUnitItemStack {
+    pub item_id: Option<i16>,
+    pub amount: i32,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct ResourceDeltaProjection {
+    pub take_items_count: u64,
+    pub transfer_item_to_count: u64,
+    pub transfer_item_to_unit_count: u64,
+    pub last_kind: Option<&'static str>,
+    pub last_item_id: Option<i16>,
+    pub last_amount: Option<i32>,
+    pub last_build_pos: Option<i32>,
+    pub last_unit: Option<UnitRefProjection>,
+    pub last_to_entity_id: Option<i32>,
+    pub last_x_bits: Option<u32>,
+    pub last_y_bits: Option<u32>,
+    pub building_items_by_build: BTreeMap<i32, BTreeMap<i16, i32>>,
+    pub entity_item_stack_by_entity_id: BTreeMap<i32, ResourceUnitItemStack>,
+    pub authoritative_build_update_count: u64,
+    pub delta_apply_count: u64,
+    pub delta_skip_count: u64,
+    pub delta_conflict_count: u64,
+    pub last_changed_build_pos: Option<i32>,
+    pub last_changed_entity_id: Option<i32>,
+    pub last_changed_item_id: Option<i16>,
+    pub last_changed_amount: Option<i32>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PayloadDroppedProjection {
     pub unit: Option<UnitRefProjection>,
@@ -691,12 +722,9 @@ impl ConfiguredBlockProjection {
         }
     }
 
-    pub fn apply_power_node_links_full_replace(
-        &mut self,
-        build_pos: i32,
-        targets: BTreeSet<i32>,
-    ) {
-        self.power_node_links_by_build_pos.insert(build_pos, targets);
+    pub fn apply_power_node_links_full_replace(&mut self, build_pos: i32, targets: BTreeSet<i32>) {
+        self.power_node_links_by_build_pos
+            .insert(build_pos, targets);
     }
 
     pub fn apply_reconstructor_command(&mut self, build_pos: i32, command_id: Option<u16>) {
@@ -2144,6 +2172,7 @@ pub struct SessionState {
     pub last_transfer_item_to: Option<TransferItemToProjection>,
     pub received_transfer_item_to_unit_count: u64,
     pub last_transfer_item_to_unit: Option<TransferItemToUnitProjection>,
+    pub resource_delta_projection: ResourceDeltaProjection,
     pub received_payload_dropped_count: u64,
     pub last_payload_dropped: Option<PayloadDroppedProjection>,
     pub received_picked_build_payload_count: u64,
@@ -2860,13 +2889,61 @@ impl SessionState {
             }
         }
     }
+
+    pub fn record_take_items_resource_delta(&mut self, projection: &TakeItemsProjection) {
+        self.resource_delta_projection.take_items_count = self
+            .resource_delta_projection
+            .take_items_count
+            .saturating_add(1);
+        self.resource_delta_projection.last_kind = Some("take");
+        self.resource_delta_projection.last_item_id = projection.item_id;
+        self.resource_delta_projection.last_amount = Some(projection.amount);
+        self.resource_delta_projection.last_build_pos = projection.build_pos;
+        self.resource_delta_projection.last_unit = projection.to;
+        self.resource_delta_projection.last_to_entity_id = None;
+        self.resource_delta_projection.last_x_bits = None;
+        self.resource_delta_projection.last_y_bits = None;
+    }
+
+    pub fn record_transfer_item_to_resource_delta(
+        &mut self,
+        projection: &TransferItemToProjection,
+    ) {
+        self.resource_delta_projection.transfer_item_to_count = self
+            .resource_delta_projection
+            .transfer_item_to_count
+            .saturating_add(1);
+        self.resource_delta_projection.last_kind = Some("to_build");
+        self.resource_delta_projection.last_item_id = projection.item_id;
+        self.resource_delta_projection.last_amount = Some(projection.amount);
+        self.resource_delta_projection.last_build_pos = projection.build_pos;
+        self.resource_delta_projection.last_unit = projection.unit;
+        self.resource_delta_projection.last_to_entity_id = None;
+        self.resource_delta_projection.last_x_bits = Some(projection.x_bits);
+        self.resource_delta_projection.last_y_bits = Some(projection.y_bits);
+    }
+
+    pub fn record_transfer_item_to_unit_resource_delta(
+        &mut self,
+        projection: &TransferItemToUnitProjection,
+    ) {
+        self.resource_delta_projection.transfer_item_to_unit_count = self
+            .resource_delta_projection
+            .transfer_item_to_unit_count
+            .saturating_add(1);
+        self.resource_delta_projection.last_kind = Some("to_unit");
+        self.resource_delta_projection.last_item_id = projection.item_id;
+        self.resource_delta_projection.last_amount = None;
+        self.resource_delta_projection.last_build_pos = None;
+        self.resource_delta_projection.last_unit = None;
+        self.resource_delta_projection.last_to_entity_id = projection.to_entity_id;
+        self.resource_delta_projection.last_x_bits = Some(projection.x_bits);
+        self.resource_delta_projection.last_y_bits = Some(projection.y_bits);
+    }
 }
 
 impl PayloadLifecycleProjection {
-    fn entry_mut(
-        &mut self,
-        carrier: UnitRefProjection,
-    ) -> &mut PayloadLifecycleCarrierProjection {
+    fn entry_mut(&mut self, carrier: UnitRefProjection) -> &mut PayloadLifecycleCarrierProjection {
         self.by_carrier
             .entry(carrier)
             .or_insert_with(|| PayloadLifecycleCarrierProjection {

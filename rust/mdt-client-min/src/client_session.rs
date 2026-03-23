@@ -2578,6 +2578,9 @@ impl ClientSession {
                         self.state.received_set_flag_count.saturating_add(1);
                     self.state.last_set_flag = flag.clone();
                     self.state.last_set_flag_add = Some(add);
+                    self.state
+                        .objectives_projection
+                        .apply_set_flag(flag.as_deref(), add);
                     Ok(ClientSessionEvent::SetFlag { flag, add })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -4488,6 +4491,7 @@ impl ClientSession {
                     self.state.received_take_items_count =
                         self.state.received_take_items_count.saturating_add(1);
                     self.state.last_take_items = Some(projection.clone());
+                    self.state.record_take_items_resource_delta(&projection);
                     Ok(ClientSessionEvent::TakeItems { projection })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -4501,6 +4505,8 @@ impl ClientSession {
                     self.state.received_transfer_item_to_count =
                         self.state.received_transfer_item_to_count.saturating_add(1);
                     self.state.last_transfer_item_to = Some(projection.clone());
+                    self.state
+                        .record_transfer_item_to_resource_delta(&projection);
                     Ok(ClientSessionEvent::TransferItemTo { projection })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -4516,6 +4522,8 @@ impl ClientSession {
                         .received_transfer_item_to_unit_count
                         .saturating_add(1);
                     self.state.last_transfer_item_to_unit = Some(projection.clone());
+                    self.state
+                        .record_transfer_item_to_unit_resource_delta(&projection);
                     Ok(ClientSessionEvent::TransferItemToUnit { projection })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -4568,10 +4576,8 @@ impl ClientSession {
                         .received_picked_unit_payload_count
                         .saturating_add(1);
                     self.state.last_picked_unit_payload = Some(projection.clone());
-                    self.state.record_picked_unit_payload_lifecycle(
-                        projection.unit,
-                        projection.target,
-                    );
+                    self.state
+                        .record_picked_unit_payload_lifecycle(projection.unit, projection.target);
                     Ok(ClientSessionEvent::PickedUnitPayload { projection })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -6757,6 +6763,7 @@ impl ClientSession {
         self.state.entity_table_projection.clear_for_world_reload();
         self.state.rules_projection = Default::default();
         self.state.objectives_projection = Default::default();
+        self.state.resource_delta_projection = Default::default();
         self.state.last_effect_business_projection = None;
         self.state.last_effect_business_path = None;
         self.state.tile_config_projection.clear_for_world_reload();
@@ -9477,7 +9484,10 @@ fn world_coords_to_tile_pos(x_bits: u32, y_bits: u32) -> Option<i32> {
     if !x.is_finite() || !y.is_finite() {
         return None;
     }
-    Some(pack_point2((x / 8.0).floor() as i32, (y / 8.0).floor() as i32))
+    Some(pack_point2(
+        (x / 8.0).floor() as i32,
+        (y / 8.0).floor() as i32,
+    ))
 }
 
 fn point2_world_coords(x: i32, y: i32) -> (f32, f32) {
@@ -18186,6 +18196,12 @@ mod tests {
     fn objectives_projection_tracks_replace_complete_and_clear_transitions() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let set_flag_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setFlag")
+            .unwrap()
+            .packet_id;
         let set_objectives_packet_id = manifest
             .remote_packets
             .iter()
@@ -18205,14 +18221,30 @@ mod tests {
             .unwrap()
             .packet_id;
 
-        let set_payload =
-            encode_length_prefixed_utf8_payload("[{\"type\":\"Timer\"},{\"type\":\"Destroy\"}]");
+        let set_payload = encode_length_prefixed_utf8_payload(
+            "[{\"type\":\"Timer\"},{\"type\":\"Destroy\",\"parents\":[0],\"flagsAdded\":[\"alpha\"],\"flagsRemoved\":[\"beta\"]}]",
+        );
         let set_packet = encode_packet(set_objectives_packet_id, &set_payload, false).unwrap();
         session.ingest_packet_bytes(&set_packet).unwrap();
 
         assert_eq!(session.state().objectives_projection.objectives.len(), 2);
         assert!(!session.state().objectives_projection.objectives[0].completed);
         assert!(!session.state().objectives_projection.objectives[1].completed);
+        assert!(session.state().objectives_projection.objectives[0].qualified);
+        assert!(!session.state().objectives_projection.objectives[1].qualified);
+
+        let mut set_flag_payload = encode_typeio_string_payload("beta");
+        set_flag_payload.push(1);
+        session
+            .ingest_packet_bytes(
+                &encode_packet(set_flag_packet_id, &set_flag_payload, false).unwrap(),
+            )
+            .unwrap();
+        assert!(session
+            .state()
+            .objectives_projection
+            .objective_flags
+            .contains("beta"));
 
         let complete_packet =
             encode_packet(complete_objective_packet_id, &1i32.to_be_bytes(), false).unwrap();
@@ -18220,6 +18252,16 @@ mod tests {
 
         assert!(!session.state().objectives_projection.objectives[0].completed);
         assert!(session.state().objectives_projection.objectives[1].completed);
+        assert!(session
+            .state()
+            .objectives_projection
+            .objective_flags
+            .contains("alpha"));
+        assert!(!session
+            .state()
+            .objectives_projection
+            .objective_flags
+            .contains("beta"));
         assert_eq!(
             session
                 .state()
@@ -18239,6 +18281,11 @@ mod tests {
         session.ingest_packet_bytes(&clear_packet).unwrap();
 
         assert!(session.state().objectives_projection.objectives.is_empty());
+        assert!(session
+            .state()
+            .objectives_projection
+            .objective_flags
+            .contains("alpha"));
         assert_eq!(session.state().objectives_projection.cleared_count, 1);
         assert_eq!(session.state().received_set_objectives_count, 1);
         assert_eq!(session.state().received_complete_objective_count, 1);
@@ -19394,6 +19441,11 @@ mod tests {
         assert_eq!(session.state().received_set_flag_count, 1);
         assert_eq!(session.state().last_set_flag.as_deref(), Some("wave-start"));
         assert_eq!(session.state().last_set_flag_add, Some(true));
+        assert!(session
+            .state()
+            .objectives_projection
+            .objective_flags
+            .contains("wave-start"));
 
         let game_over_event = session
             .ingest_packet_bytes(
@@ -25289,6 +25341,30 @@ mod tests {
         );
         assert_eq!(session.state().received_take_items_count, 1);
         assert_eq!(session.state().last_take_items, Some(projection));
+        assert_eq!(
+            session.state().resource_delta_projection.take_items_count,
+            1
+        );
+        assert_eq!(
+            session.state().resource_delta_projection.last_kind,
+            Some("take")
+        );
+        assert_eq!(
+            session.state().resource_delta_projection.last_item_id,
+            Some(9)
+        );
+        assert_eq!(
+            session.state().resource_delta_projection.last_amount,
+            Some(13)
+        );
+        assert_eq!(
+            session.state().resource_delta_projection.last_build_pos,
+            Some(pack_point2(7, 11))
+        );
+        assert_eq!(
+            session.state().resource_delta_projection.last_unit,
+            Some(UnitRefProjection { kind: 2, value: 77 })
+        );
     }
 
     #[test]
@@ -25341,6 +25417,36 @@ mod tests {
             session.state().last_transfer_item_to,
             Some(transfer_item_to_projection)
         );
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .transfer_item_to_count,
+            1
+        );
+        assert_eq!(
+            session.state().resource_delta_projection.last_kind,
+            Some("to_build")
+        );
+        assert_eq!(
+            session.state().resource_delta_projection.last_item_id,
+            Some(4)
+        );
+        assert_eq!(
+            session.state().resource_delta_projection.last_amount,
+            Some(22)
+        );
+        assert_eq!(
+            session.state().resource_delta_projection.last_build_pos,
+            Some(pack_point2(9, 10))
+        );
+        assert_eq!(
+            session.state().resource_delta_projection.last_unit,
+            Some(UnitRefProjection {
+                kind: 1,
+                value: pack_point2(5, 6),
+            })
+        );
 
         let transfer_item_to_unit_packet_id = manifest
             .remote_packets
@@ -25380,6 +25486,26 @@ mod tests {
         assert_eq!(
             session.state().last_transfer_item_to_unit,
             Some(transfer_item_to_unit_projection)
+        );
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .transfer_item_to_unit_count,
+            1
+        );
+        assert_eq!(
+            session.state().resource_delta_projection.last_kind,
+            Some("to_unit")
+        );
+        assert_eq!(
+            session.state().resource_delta_projection.last_item_id,
+            Some(15)
+        );
+        assert_eq!(session.state().resource_delta_projection.last_amount, None);
+        assert_eq!(
+            session.state().resource_delta_projection.last_to_entity_id,
+            Some(1234)
         );
     }
 
@@ -29538,6 +29664,9 @@ mod tests {
         session.state.builder_queue_projection.last_x = Some(100);
         session.state.builder_queue_projection.last_y = Some(99);
         session.state.builder_queue_projection.last_breaking = Some(false);
+        session.state.resource_delta_projection.take_items_count = 5;
+        session.state.resource_delta_projection.last_kind = Some("take");
+        session.state.resource_delta_projection.last_item_id = Some(6);
         session.state.entity_table_projection.upsert_local_player(
             777,
             2,
@@ -29588,6 +29717,10 @@ mod tests {
         assert_eq!(
             session.state().objectives_projection,
             crate::rules_objectives_semantics::ObjectivesProjection::default()
+        );
+        assert_eq!(
+            session.state().resource_delta_projection,
+            crate::session_state::ResourceDeltaProjection::default()
         );
         assert_eq!(session.state().last_effect_business_projection, None);
         assert!(session.loaded_world_bundle().is_none());

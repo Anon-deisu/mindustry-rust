@@ -737,16 +737,16 @@ fn runtime_configured_block_projection_label(projection: &ConfiguredBlockProject
         runtime_configured_string_family_label("mg", &projection.message_text_by_build_pos),
         runtime_configured_content_family_label(
             "ct",
-            &projection.constructor_recipe_block_by_build_pos
+            &projection.constructor_recipe_block_by_build_pos,
         ),
         runtime_configured_int_family_label("il", &projection.light_color_by_build_pos),
         runtime_configured_raw_content_family_label(
             "ps",
-            &projection.payload_source_content_by_build_pos
+            &projection.payload_source_content_by_build_pos,
         ),
         runtime_configured_raw_content_family_label(
             "pr",
-            &projection.payload_router_sorted_content_by_build_pos
+            &projection.payload_router_sorted_content_by_build_pos,
         ),
         runtime_configured_link_family_label("ib", &projection.item_bridge_link_by_build_pos),
         runtime_configured_content_family_label("ul", &projection.unloader_item_by_build_pos),
@@ -757,10 +757,7 @@ fn runtime_configured_block_projection_label(projection: &ConfiguredBlockProject
             "pm",
             &projection.payload_mass_driver_link_by_build_pos,
         ),
-        runtime_configured_power_node_family_label(
-            "pn",
-            &projection.power_node_links_by_build_pos,
-        ),
+        runtime_configured_power_node_family_label("pn", &projection.power_node_links_by_build_pos),
         runtime_configured_unit_command_family_label(
             "rc",
             &projection.reconstructor_command_by_build_pos,
@@ -1618,7 +1615,7 @@ fn runtime_loading_label(session_state: &SessionState) -> String {
 
 fn runtime_rules_label(session_state: &SessionState) -> String {
     format!(
-        "sr{}:srf{}:so{}:sof{}:rule{}:rf{}:clr{}:cmp{}:wv{}:pvp{}:obj{}:oor{}:last{}",
+        "sr{}:srf{}:so{}:sof{}:rule{}:rf{}:clr{}:cmp{}:wv{}:pvp{}:obj{}:q{}:par{}:fg{}:oor{}:last{}",
         session_state.received_set_rules_count,
         session_state.failed_set_rules_parse_count,
         session_state.received_set_objectives_count,
@@ -1630,6 +1627,9 @@ fn runtime_rules_label(session_state: &SessionState) -> String {
         runtime_optional_bool_label(session_state.rules_projection.waves),
         runtime_optional_bool_label(session_state.rules_projection.pvp),
         session_state.objectives_projection.objectives.len(),
+        session_state.objectives_projection.qualified_count(),
+        session_state.objectives_projection.parent_edge_count(),
+        session_state.objectives_projection.objective_flags.len(),
         session_state
             .objectives_projection
             .complete_out_of_range_count,
@@ -1778,7 +1778,7 @@ fn runtime_unit_lifecycle_label(session_state: &SessionState) -> String {
 
 fn runtime_resource_delta_label(session_state: &SessionState) -> String {
     format!(
-        "rmt{}:st{}:sf{}:so{}:seti{}:setis{}:setl{}:setls{}:cli{}:cll{}:sti{}:stl{}",
+        "rmt{}:st{}:sf{}:so{}:seti{}:setis{}:setl{}:setls{}:cli{}:cll{}:sti{}:stl{}:tk{}:tb{}:tu{}:{}@{}#{}:bp{}:u{}:eid{}",
         session_state.received_remove_tile_count,
         session_state.received_set_tile_count,
         session_state.received_set_floor_count,
@@ -1791,6 +1791,18 @@ fn runtime_resource_delta_label(session_state: &SessionState) -> String {
         session_state.received_clear_liquids_count,
         session_state.received_set_tile_items_count,
         session_state.received_set_tile_liquids_count,
+        session_state.resource_delta_projection.take_items_count,
+        session_state.resource_delta_projection.transfer_item_to_count,
+        session_state.resource_delta_projection.transfer_item_to_unit_count,
+        session_state
+            .resource_delta_projection
+            .last_kind
+            .unwrap_or("none"),
+        runtime_optional_display_label(session_state.resource_delta_projection.last_item_id),
+        runtime_optional_display_label(session_state.resource_delta_projection.last_amount),
+        runtime_optional_display_label(session_state.resource_delta_projection.last_build_pos),
+        runtime_optional_unit_ref_label(session_state.resource_delta_projection.last_unit),
+        runtime_optional_display_label(session_state.resource_delta_projection.last_to_entity_id),
     )
 }
 
@@ -3668,6 +3680,16 @@ mod tests {
             crate::rules_objectives_semantics::ObjectiveProjection::default(),
             crate::rules_objectives_semantics::ObjectiveProjection::default(),
         ];
+        state.objectives_projection.objectives[0].qualified = true;
+        state.objectives_projection.objectives[0].parents = vec![1];
+        state
+            .objectives_projection
+            .objective_flags
+            .insert("alpha".to_string());
+        state
+            .objectives_projection
+            .objective_flags
+            .insert("beta".to_string());
         state.objectives_projection.complete_out_of_range_count = 75;
         state.objectives_projection.last_completed_index = Some(9);
         state.received_set_hud_text_count = 9;
@@ -3712,6 +3734,15 @@ mod tests {
         state.received_clear_liquids_count = 85;
         state.received_set_tile_items_count = 26;
         state.received_set_tile_liquids_count = 27;
+        state.resource_delta_projection.take_items_count = 1;
+        state.resource_delta_projection.transfer_item_to_count = 2;
+        state.resource_delta_projection.transfer_item_to_unit_count = 3;
+        state.resource_delta_projection.last_kind = Some("to_unit");
+        state.resource_delta_projection.last_item_id = Some(6);
+        state.resource_delta_projection.last_amount = None;
+        state.resource_delta_projection.last_build_pos = None;
+        state.resource_delta_projection.last_unit = None;
+        state.resource_delta_projection.last_to_entity_id = Some(404);
         state.received_remove_tile_count = 80;
         state.received_set_tile_count = 81;
         state.received_set_floor_count = 82;
@@ -3967,7 +3998,7 @@ mod tests {
             "runtime_loading=defer59:replay60:drop61:qdrop0:sfail62:scfail63:efail64:rdy65@66"
         ));
         assert!(hud.status_text.contains(
-            "runtime_rules=sr67:srf68:so69:sof70:rule71:rf72:clr73:cmp74:wv1:pvp0:obj2:oor75:last9"
+            "runtime_rules=sr67:srf68:so69:sof70:rule71:rf72:clr73:cmp74:wv1:pvp0:obj2:q1:par1:fg2:oor75:last9"
         ));
         assert!(hud.status_text.contains(
             "runtime_ui_notice=hud9:hudr10:hide11:ann12:info13:toast14:warn15:popup0:popr0:clip51@copied#6:uri52@https_//exam~#19:https"
@@ -4023,7 +4054,7 @@ mod tests {
             pack_runtime_point2(9, 10),
         )));
         assert!(hud.status_text.contains(
-            "runtime_resource_delta=rmt80:st81:sf82:so83:seti22:setis23:setl24:setls25:cli84:cll85:sti26:stl27"
+            "runtime_resource_delta=rmt80:st81:sf82:so83:seti22:setis23:setl24:setls25:cli84:cll85:sti26:stl27:tk1:tb2:tu3:to_unit@6#none:bpnone:unone:eid404"
         ));
         assert!(hud
             .status_text

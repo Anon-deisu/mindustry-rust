@@ -288,6 +288,7 @@ impl RulesProjection {
 pub struct ObjectiveProjection {
     pub objective_type: Option<String>,
     pub completed: bool,
+    pub qualified: bool,
     pub hidden: bool,
     pub target_name: Option<String>,
     pub amount: Option<i32>,
@@ -297,15 +298,19 @@ pub struct ObjectiveProjection {
     pub flag: Option<String>,
     pub team: Option<String>,
     pub team_id: Option<i32>,
+    pub parents: Vec<usize>,
     pub has_position: bool,
     pub positions_count: Option<usize>,
+    pub flags_added: Vec<String>,
     pub flags_added_count: Option<usize>,
+    pub flags_removed: Vec<String>,
     pub flags_removed_count: Option<usize>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ObjectivesProjection {
     pub objectives: Vec<ObjectiveProjection>,
+    pub objective_flags: std::collections::BTreeSet<String>,
     pub replaced_from_set_objectives_count: u64,
     pub cleared_count: u64,
     pub complete_by_index_count: u64,
@@ -318,6 +323,8 @@ impl ObjectivesProjection {
         self.replaced_from_set_objectives_count =
             self.replaced_from_set_objectives_count.saturating_add(1);
         self.objectives = parse_objective_list(json_data);
+        self.normalize_parent_indices();
+        self.recompute_qualified();
         self.last_completed_index = None;
     }
 
@@ -331,12 +338,81 @@ impl ObjectivesProjection {
         self.complete_by_index_count = self.complete_by_index_count.saturating_add(1);
         self.last_completed_index = Some(index);
         if let Ok(index_usize) = usize::try_from(index) {
-            if let Some(objective) = self.objectives.get_mut(index_usize) {
-                objective.completed = true;
+            if let Some((flags_removed, flags_added, already_completed)) =
+                self.objectives.get_mut(index_usize).map(|objective| {
+                    let flags_removed = objective.flags_removed.clone();
+                    let flags_added = objective.flags_added.clone();
+                    let already_completed = objective.completed;
+                    objective.completed = true;
+                    (flags_removed, flags_added, already_completed)
+                })
+            {
+                if !already_completed {
+                    self.apply_flag_delta(&flags_removed, &flags_added);
+                }
+                self.recompute_qualified();
                 return;
             }
         }
         self.complete_out_of_range_count = self.complete_out_of_range_count.saturating_add(1);
+    }
+
+    pub fn apply_set_flag(&mut self, flag: Option<&str>, add: bool) {
+        let Some(flag) = flag.map(str::trim).filter(|flag| !flag.is_empty()) else {
+            return;
+        };
+        if add {
+            self.objective_flags.insert(flag.to_string());
+        } else {
+            self.objective_flags.remove(flag);
+        }
+    }
+
+    pub fn qualified_count(&self) -> usize {
+        self.objectives
+            .iter()
+            .filter(|objective| objective.qualified)
+            .count()
+    }
+
+    pub fn parent_edge_count(&self) -> usize {
+        self.objectives
+            .iter()
+            .map(|objective| objective.parents.len())
+            .sum()
+    }
+
+    fn apply_flag_delta(&mut self, removed: &[String], added: &[String]) {
+        for flag in removed {
+            self.objective_flags.remove(flag);
+        }
+        for flag in added {
+            self.objective_flags.insert(flag.clone());
+        }
+    }
+
+    fn normalize_parent_indices(&mut self) {
+        let objective_count = self.objectives.len();
+        for objective in &mut self.objectives {
+            objective.parents.retain(|&index| index < objective_count);
+            objective.parents.sort_unstable();
+            objective.parents.dedup();
+        }
+    }
+
+    fn recompute_qualified(&mut self) {
+        let completed = self
+            .objectives
+            .iter()
+            .map(|objective| objective.completed)
+            .collect::<Vec<_>>();
+        for objective in &mut self.objectives {
+            let dependency_finished = objective
+                .parents
+                .iter()
+                .all(|&index| completed.get(index).copied().unwrap_or(false));
+            objective.qualified = !objective.completed && dependency_finished;
+        }
     }
 }
 
@@ -353,6 +429,7 @@ fn parse_objective_list(json_data: &str) -> Vec<ObjectiveProjection> {
                 completed: object_field_bool(entry, "completed")
                     .or_else(|| object_field_bool(entry, "complete"))
                     .unwrap_or(false),
+                qualified: false,
                 hidden: object_field_bool(entry, "hidden").unwrap_or(false),
                 target_name,
                 amount: object_field_i32(entry, "amount")
@@ -363,9 +440,12 @@ fn parse_objective_list(json_data: &str) -> Vec<ObjectiveProjection> {
                 flag: object_field_string(entry, "flag"),
                 team: object_field_string(entry, "team"),
                 team_id: object_field_i32(entry, "team"),
+                parents: object_field_usize_array(entry, "parents"),
                 has_position: object_field_value(entry, "pos").is_some(),
                 positions_count: object_field_array_len(entry, "positions"),
+                flags_added: object_field_string_array(entry, "flagsAdded"),
                 flags_added_count: object_field_array_len(entry, "flagsAdded"),
+                flags_removed: object_field_string_array(entry, "flagsRemoved"),
                 flags_removed_count: object_field_array_len(entry, "flagsRemoved"),
             }
         })
@@ -392,6 +472,31 @@ fn object_field_array_len(json: &str, key: &str) -> Option<usize> {
 
 fn object_field_string(json: &str, key: &str) -> Option<String> {
     object_field_value(json, key).and_then(parse_json_string_literal)
+}
+
+fn object_field_string_array(json: &str, key: &str) -> Vec<String> {
+    object_field_value(json, key)
+        .and_then(array_value_slices)
+        .map(|values| {
+            values
+                .into_iter()
+                .filter_map(parse_json_string_literal)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn object_field_usize_array(json: &str, key: &str) -> Vec<usize> {
+    object_field_value(json, key)
+        .and_then(array_value_slices)
+        .map(|values| {
+            values
+                .into_iter()
+                .filter_map(parse_json_i32_literal)
+                .filter_map(|value| usize::try_from(value).ok())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn parse_json_bool_literal(raw: &str) -> Option<bool> {
@@ -829,7 +934,7 @@ mod tests {
     fn objectives_projection_replaces_completes_and_clears() {
         let mut projection = ObjectivesProjection::default();
         projection.replace_from_json(
-            r#"[{"type":"Timer","text":"@wave","count":90,"hidden":true,"details":"Hold out","completionLogicCode":"sensor @unit @dead"},{"type":"Item","item":"lead","amount":15,"flagsAdded":["a","b"],"flagsRemoved":["c"]},{"type":"DestroyBlocks","block":"router","team":2,"positions":[{"x":1,"y":2},{"x":3,"y":4}],"details":"Break routers"},{"type":"DestroyBlock","block":"duo","team":"malis","pos":{"x":8,"y":9},"completed":true,"completionLogicCode":"print 1"},{"type":"Flag","flag":"boss","text":"@boss"},42]"#,
+            r#"[{"type":"Timer","text":"@wave","count":90,"hidden":true,"details":"Hold out","completionLogicCode":"sensor @unit @dead"},{"type":"Item","item":"lead","amount":15,"flagsAdded":["a","b"],"flagsRemoved":["c"],"parents":[0]},{"type":"DestroyBlocks","block":"router","team":2,"positions":[{"x":1,"y":2},{"x":3,"y":4}],"details":"Break routers","parents":[0,9,0]},{"type":"DestroyBlock","block":"duo","team":"malis","pos":{"x":8,"y":9},"completed":true,"completionLogicCode":"print 1"},{"type":"Flag","flag":"boss","text":"@boss","parents":[1]},42]"#,
         );
 
         assert_eq!(projection.objectives.len(), 6);
@@ -857,6 +962,10 @@ mod tests {
             Some("lead")
         );
         assert_eq!(projection.objectives[1].amount, Some(15));
+        assert_eq!(projection.objectives[1].parents, vec![0]);
+        assert!(!projection.objectives[1].qualified);
+        assert_eq!(projection.objectives[1].flags_added, vec!["a", "b"]);
+        assert_eq!(projection.objectives[1].flags_removed, vec!["c"]);
         assert_eq!(projection.objectives[1].flags_added_count, Some(2));
         assert_eq!(projection.objectives[1].flags_removed_count, Some(1));
         assert_eq!(
@@ -869,6 +978,8 @@ mod tests {
             projection.objectives[2].details.as_deref(),
             Some("Break routers")
         );
+        assert_eq!(projection.objectives[2].parents, vec![0]);
+        assert!(!projection.objectives[2].qualified);
         assert_eq!(projection.objectives[2].positions_count, Some(2));
         assert_eq!(projection.objectives[3].target_name.as_deref(), Some("duo"));
         assert_eq!(projection.objectives[3].team.as_deref(), Some("malis"));
@@ -880,21 +991,53 @@ mod tests {
         );
         assert_eq!(projection.objectives[4].flag.as_deref(), Some("boss"));
         assert_eq!(projection.objectives[4].text.as_deref(), Some("@boss"));
+        assert_eq!(projection.objectives[4].parents, vec![1]);
+        assert!(!projection.objectives[4].qualified);
         assert!(!projection.objectives[0].completed);
+        assert!(projection.objectives[0].qualified);
         assert!(projection.objectives[3].completed);
+        assert!(!projection.objectives[3].qualified);
+        assert_eq!(projection.qualified_count(), 2);
+        assert_eq!(projection.parent_edge_count(), 3);
         assert_eq!(projection.replaced_from_set_objectives_count, 1);
 
+        projection.apply_set_flag(Some("c"), true);
         projection.complete_by_index(0);
+        projection.complete_by_index(1);
         projection.complete_by_index(9);
         assert!(projection.objectives[0].completed);
-        assert_eq!(projection.complete_by_index_count, 2);
+        assert!(projection.objectives[1].completed);
+        assert!(projection.objectives[2].qualified);
+        assert!(projection.objectives[4].qualified);
+        assert_eq!(projection.qualified_count(), 3);
+        assert!(projection.objective_flags.contains("a"));
+        assert!(projection.objective_flags.contains("b"));
+        assert!(!projection.objective_flags.contains("c"));
+        assert_eq!(projection.complete_by_index_count, 3);
         assert_eq!(projection.complete_out_of_range_count, 1);
         assert_eq!(projection.last_completed_index, Some(9));
 
         projection.clear();
         assert!(projection.objectives.is_empty());
         assert_eq!(projection.cleared_count, 1);
+        assert!(projection.objective_flags.contains("a"));
+        assert!(projection.objective_flags.contains("b"));
         assert_eq!(projection.last_completed_index, None);
+    }
+
+    #[test]
+    fn objectives_projection_set_flag_updates_flag_projection() {
+        let mut projection = ObjectivesProjection::default();
+
+        projection.apply_set_flag(Some("wave-start"), true);
+        projection.apply_set_flag(Some("boss"), true);
+        projection.apply_set_flag(Some("boss"), false);
+        projection.apply_set_flag(Some(""), true);
+        projection.apply_set_flag(None, true);
+
+        assert!(projection.objective_flags.contains("wave-start"));
+        assert!(!projection.objective_flags.contains("boss"));
+        assert_eq!(projection.objective_flags.len(), 1);
     }
 
     #[test]
