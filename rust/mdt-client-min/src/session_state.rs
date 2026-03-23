@@ -381,6 +381,27 @@ impl TileConfigProjection {
         self.authoritative_by_build_pos.insert(build_pos, value);
     }
 
+    pub fn clear_pending_local_without_business_apply(
+        &mut self,
+        build_pos: Option<i32>,
+    ) -> TileConfigBusinessApply {
+        let cleared_pending_local = build_pos
+            .and_then(|value| self.pending_local_by_build_pos.remove(&value))
+            .is_some();
+        self.last_business_build_pos = None;
+        self.last_business_value = None;
+        self.last_business_applied = false;
+        self.last_cleared_pending_local = cleared_pending_local;
+        self.last_was_rollback = false;
+        self.last_pending_local_match = None;
+        TileConfigBusinessApply {
+            business_applied: false,
+            cleared_pending_local,
+            was_rollback: false,
+            pending_local_match: None,
+        }
+    }
+
     pub fn remove_building_state(&mut self, build_pos: i32) {
         self.pending_local_by_build_pos.remove(&build_pos);
         self.authoritative_by_build_pos.remove(&build_pos);

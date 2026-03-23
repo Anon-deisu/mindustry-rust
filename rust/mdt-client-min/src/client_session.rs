@@ -3673,8 +3673,7 @@ impl ClientSession {
                     } else {
                         self.state
                             .tile_config_projection
-                            .mark_packet_without_business_apply();
-                        TileConfigBusinessApply::default()
+                            .clear_pending_local_without_business_apply(build_pos)
                     };
                     self.state.received_tile_config_count =
                         self.state.received_tile_config_count.saturating_add(1);
@@ -19963,7 +19962,7 @@ mod tests {
                 config_kind_name: Some("int".to_string()),
                 parse_failed: true,
                 business_applied: false,
-                cleared_pending_local: false,
+                cleared_pending_local: true,
                 was_rollback: false,
                 pending_local_match: None,
             }
@@ -20002,13 +20001,19 @@ mod tests {
                 .tile_config_projection
                 .pending_local_by_build_pos
                 .get(&777),
-            Some(&TypeIoObject::Int(7))
+            None
         );
         assert!(session
             .state()
             .tile_config_projection
             .authoritative_by_build_pos
             .is_empty());
+        assert!(
+            session
+                .state()
+                .tile_config_projection
+                .last_cleared_pending_local
+        );
     }
 
     #[test]
