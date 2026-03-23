@@ -29,7 +29,9 @@ use std::fmt;
 // Java `Packets.KickReason.serverRestarting` ordinal.
 pub const KICK_REASON_SERVER_RESTARTING_ORDINAL: i32 = 15;
 const BLOCK_CONTENT_TYPE: u8 = 1;
-const ALPHA_SHAPE_ENTITY_CLASS_IDS: [u8; 5] = [0, 29, 30, 31, 33];
+const ALPHA_SHAPE_ENTITY_CLASS_IDS: [u8; 17] = [
+    0, 2, 3, 16, 18, 20, 21, 24, 29, 30, 31, 33, 40, 43, 44, 45, 46,
+];
 
 #[derive(Debug)]
 pub struct ClientSession {
@@ -9581,19 +9583,21 @@ mod tests {
     }
 
     #[test]
-    fn alpha_shape_entity_snapshot_prefix_parser_accepts_beta_class_id() {
-        let mut payload = sample_snapshot_packet("entitySnapshot.packet");
-        let body_len = u16::from_be_bytes([payload[2], payload[3]]) as usize;
-        let body = &mut payload[4..4 + body_len];
-        body[57 + 4] = 30;
+    fn alpha_shape_entity_snapshot_prefix_parser_accepts_same_revision_family_class_ids() {
+        for class_id in [30u8, 45u8, 24u8, 2u8] {
+            let mut payload = sample_snapshot_packet("entitySnapshot.packet");
+            let body_len = u16::from_be_bytes([payload[2], payload[3]]) as usize;
+            let body = &mut payload[4..4 + body_len];
+            body[57 + 4] = class_id;
 
-        let rows = try_parse_alpha_sync_rows_from_entity_snapshot_prefix(&payload);
+            let rows = try_parse_alpha_sync_rows_from_entity_snapshot_prefix(&payload);
 
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].entity_id, 100);
-        assert_eq!(rows[0].class_id, 30);
-        assert_eq!(rows[0].sync.x_bits, 40.0f32.to_bits());
-        assert_eq!(rows[0].sync.y_bits, 60.0f32.to_bits());
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].entity_id, 100);
+            assert_eq!(rows[0].class_id, class_id);
+            assert_eq!(rows[0].sync.x_bits, 40.0f32.to_bits());
+            assert_eq!(rows[0].sync.y_bits, 60.0f32.to_bits());
+        }
     }
 
     #[test]
