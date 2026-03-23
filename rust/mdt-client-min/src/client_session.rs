@@ -1218,6 +1218,36 @@ impl ClientSession {
         self.queue_outbound_packet(packet_id, ClientPacketTransport::Tcp, Vec::new())
     }
 
+    pub fn queue_menu_choose(
+        &mut self,
+        menu_id: i32,
+        option: i32,
+    ) -> Result<(), ClientSessionError> {
+        let packet_id = self
+            .menu_choose_packet_id
+            .ok_or(ClientSessionError::MissingRemotePacket("menuChoose"))?;
+        self.queue_outbound_packet(
+            packet_id,
+            ClientPacketTransport::Tcp,
+            encode_menu_choose_payload(menu_id, option),
+        )
+    }
+
+    pub fn queue_text_input_result(
+        &mut self,
+        text_input_id: i32,
+        text: Option<&str>,
+    ) -> Result<(), ClientSessionError> {
+        let packet_id = self
+            .text_input_result_packet_id
+            .ok_or(ClientSessionError::MissingRemotePacket("textInputResult"))?;
+        self.queue_outbound_packet(
+            packet_id,
+            ClientPacketTransport::Tcp,
+            encode_text_input_result_payload(text_input_id, text),
+        )
+    }
+
     pub fn queue_request_build_payload(
         &mut self,
         build_pos: Option<i32>,
@@ -8883,6 +8913,16 @@ fn encode_building_payload(build_pos: Option<i32>) -> Vec<u8> {
     build_pos.unwrap_or(-1).to_be_bytes().to_vec()
 }
 
+fn encode_menu_choose_payload(menu_id: i32, option: i32) -> Vec<u8> {
+    [menu_id.to_be_bytes(), option.to_be_bytes()].concat()
+}
+
+fn encode_text_input_result_payload(text_input_id: i32, text: Option<&str>) -> Vec<u8> {
+    let mut payload = text_input_id.to_be_bytes().to_vec();
+    payload.extend_from_slice(&encode_optional_typeio_string_payload(text));
+    payload
+}
+
 fn encode_request_item_payload(
     build_pos: Option<i32>,
     item_id: Option<i16>,
@@ -9263,7 +9303,6 @@ fn encode_effect_payload(
     payload
 }
 
-#[cfg(test)]
 fn encode_optional_typeio_string_payload(text: Option<&str>) -> Vec<u8> {
     match text {
         Some(text) => encode_typeio_string_payload(text),
@@ -18328,6 +18367,95 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn queued_menu_choose_and_text_input_result_use_expected_payloads() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let timing = ClientSessionTiming {
+            keepalive_interval_ms: 60_000,
+            client_snapshot_interval_ms: 60_000,
+            connect_timeout_ms: 10_000,
+            timeout_ms: 10_000,
+        };
+        let mut session =
+            ClientSession::from_remote_manifest_with_timing(&manifest, "fr", timing).unwrap();
+
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+        session.ingest_packet_bytes(&begin_packet).unwrap();
+        for chunk in chunk_packets {
+            session.ingest_packet_bytes(&chunk).unwrap();
+        }
+        session.prepare_connect_confirm_packet().unwrap();
+
+        let menu_choose_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "menuChoose")
+            .unwrap()
+            .packet_id;
+        let text_input_result_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "textInputResult")
+            .unwrap()
+            .packet_id;
+
+        session.queue_menu_choose(12, -1).unwrap();
+        session.queue_text_input_result(9, Some("router")).unwrap();
+        session.queue_text_input_result(10, None).unwrap();
+
+        let actions = session.advance_time(1).unwrap();
+        let expected = vec![
+            (
+                menu_choose_packet_id,
+                ClientPacketTransport::Tcp,
+                encode_menu_choose_payload(12, -1),
+            ),
+            (
+                text_input_result_packet_id,
+                ClientPacketTransport::Tcp,
+                encode_text_input_result_payload(9, Some("router")),
+            ),
+            (
+                text_input_result_packet_id,
+                ClientPacketTransport::Tcp,
+                encode_text_input_result_payload(10, None),
+            ),
+        ];
+        let relevant_actions = actions
+            .iter()
+            .filter(|action| {
+                matches!(
+                    action,
+                    ClientSessionAction::SendPacket { packet_id, .. }
+                        if *packet_id == menu_choose_packet_id
+                            || *packet_id == text_input_result_packet_id
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(relevant_actions.len(), 3);
+
+        for (action, (expected_packet_id, expected_transport, expected_payload)) in
+            relevant_actions.into_iter().zip(expected.into_iter())
+        {
+            match action {
+                ClientSessionAction::SendPacket {
+                    packet_id,
+                    transport,
+                    bytes,
+                } => {
+                    assert_eq!(*packet_id, expected_packet_id);
+                    assert_eq!(*transport, expected_transport);
+                    let decoded = decode_packet(bytes).unwrap();
+                    assert_eq!(decoded.packet_id, expected_packet_id);
+                    assert_eq!(decoded.payload, expected_payload);
+                }
+                other => panic!("expected queued menu/text packet action, got {other:?}"),
+            }
+        }
     }
 
     #[test]

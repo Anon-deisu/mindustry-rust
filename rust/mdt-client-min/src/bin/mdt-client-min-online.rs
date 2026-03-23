@@ -567,6 +567,14 @@ enum OutboundAction {
         rotation: i32,
         place_config: TypeIoObject,
     },
+    MenuChoose {
+        menu_id: i32,
+        option: i32,
+    },
+    TextInputResult {
+        text_input_id: i32,
+        text: Option<String>,
+    },
     ClientPacket {
         packet_type: String,
         contents: String,
@@ -1245,6 +1253,22 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
                     place_config,
                 });
             }
+            "--action-menu-choose" => {
+                i += 1;
+                let value = args
+                    .get(i)
+                    .ok_or("missing value for --action-menu-choose")?;
+                let (menu_id, option) = parse_action_menu_choose_arg(value)?;
+                outbound_actions.push(OutboundAction::MenuChoose { menu_id, option });
+            }
+            "--action-text-input-result" => {
+                i += 1;
+                let value = args
+                    .get(i)
+                    .ok_or("missing value for --action-text-input-result")?;
+                let (text_input_id, text) = parse_action_text_input_result_arg(value)?;
+                outbound_actions.push(OutboundAction::TextInputResult { text_input_id, text });
+            }
             "--action-client-packet" => {
                 i += 1;
                 let value = args
@@ -1390,7 +1414,7 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
 
 fn usage() -> String {
     String::from(
-        "Usage: mdt-client-min-online --manifest <path> (--server <host:port> | --discover-host <host> [--discover-host <host> ...] [--discover-port <port>] [--discover-timeout-ms <ms>]) [--connect-hex <path> | --name <name> --uuid <base64> --usid <base64> --build <build> --version-type <type> --mobile --color-rgba <rgba> --mod <name:version> ...] [--locale <locale>] [--duration-ms <ms>] [--tick-ms <ms>] [--max-recv-packets <n>] [--snapshot-interval-ms <ms>] [--aim-x <f32> --aim-y <f32>] [--mine-tile <x:y>] [--snapshot-boosting|--snapshot-no-boosting] [--snapshot-shooting|--snapshot-no-shooting] [--snapshot-chatting|--snapshot-no-chatting] [--snapshot-building|--snapshot-no-building] [--view-size <w:h>] [--move-step-x <f32> --move-step-y <f32>] [--intent-snapshot <moveX:moveY:aimX:aimY:actions> ...] [--intent-live-sampling|--intent-edge-mapped] [--intent-delay-ms <ms>] [--intent-spacing-ms <ms>] [--plan-place <x:y:block[:rotation][;config]> ...] [--plan-break <x:y> ...] [--plan-place-relative <dx:dy:block[:rotation][;config]> ...] [--plan-break-relative <dx:dy> ...] config=<none|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|point2=<x:y>|point2-array=<x:y[,x:y...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|double=<f64>|building-pos=<i32>|laccess=<i16>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|vec2-array=<x:y[,x:y...]>|vec2=<x:y>|team=<u8>|int-array=<i32[,i32...]>|object-array=<value[|value...]>|unit-command=<u16>> [--plan-rotate <x:y:dir> ...] [--plan-flip-x <x:y> ...] [--plan-flip-y <x:y> ...] [--plan-break-near-player] [--plan-place-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--plan-place-conflict-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--render-ascii-on-world-ready] [--print-client-packets] [--watch-client-packet <type> ...] [--watch-client-binary-packet <type> ...] [--watch-client-logic-data <channel> ...] [--render-window-live] [--dump-world-stream-hex <path>] [--chat-delay-ms <ms>] [--chat-spacing-ms <ms>] [--chat-message <text> ...] [--action-delay-ms <ms>] [--action-spacing-ms <ms>] [--action-request-item <buildPos|none:itemId|none:amount> ...] [--action-request-unit-payload <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-clear ...] [--action-unit-control <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-building-control-select <none|unit:<id>|block:<pos>|<id>@buildPos|none> ...] [--action-building-control-select <buildPos|none> ...] [--action-clear-items <buildPos|none> ...] [--action-clear-liquids <buildPos|none> ...] [--action-transfer-inventory <buildPos|none> ...] [--action-request-build-payload <buildPos|none> ...] [--action-request-drop-payload <x:y> ...] [--action-rotate-block <buildPos|none:direction> ...] [--action-drop-item <angle> ...] [--action-tile-config <buildPos|none:value> ...] [--action-tile-tap <tilePos|none> ...] [--action-delete-plans <x:y[,x:y...]|none> ...] [--action-command-building <x:y[,x:y...]|none@x:y> ...] [--action-command-units <unitId[,unitId...]|none@buildPos|none@unitTarget@x:y|none@queueCommand@finalBatch> ...] [--action-set-unit-command <unitId[,unitId...]|none@commandId|none> ...] [--action-set-unit-stance <unitId[,unitId...]|none@stanceId|none@enable> ...] [--action-begin-break <none|unit:<id>|block:<pos>|<id>@teamId@x:y> ...] [--action-begin-place <none|unit:<id>|block:<pos>|<id>@blockId|none@teamId@x:y@rotation@value> ...] [--action-client-packet <type@contents@reliable|unreliable> ...] [--action-client-binary-packet <type@hex@reliable|unreliable> ...] [--action-client-logic-data <channel@value@reliable|unreliable> ...] value=<null|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|point2=<x:y>|point2-array=<x:y[,x:y...]>|double=<f64>|building-pos=<i32>|laccess=<i16>|vec2=<x:y>|vec2-array=<x:y[,x:y...]>|team=<u8>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|int-array=<i32[,i32...]>|object-array=<value>|unit-command=<u16>|...>",
+        "Usage: mdt-client-min-online --manifest <path> (--server <host:port> | --discover-host <host> [--discover-host <host> ...] [--discover-port <port>] [--discover-timeout-ms <ms>]) [--connect-hex <path> | --name <name> --uuid <base64> --usid <base64> --build <build> --version-type <type> --mobile --color-rgba <rgba> --mod <name:version> ...] [--locale <locale>] [--duration-ms <ms>] [--tick-ms <ms>] [--max-recv-packets <n>] [--snapshot-interval-ms <ms>] [--aim-x <f32> --aim-y <f32>] [--mine-tile <x:y>] [--snapshot-boosting|--snapshot-no-boosting] [--snapshot-shooting|--snapshot-no-shooting] [--snapshot-chatting|--snapshot-no-chatting] [--snapshot-building|--snapshot-no-building] [--view-size <w:h>] [--move-step-x <f32> --move-step-y <f32>] [--intent-snapshot <moveX:moveY:aimX:aimY:actions> ...] [--intent-live-sampling|--intent-edge-mapped] [--intent-delay-ms <ms>] [--intent-spacing-ms <ms>] [--plan-place <x:y:block[:rotation][;config]> ...] [--plan-break <x:y> ...] [--plan-place-relative <dx:dy:block[:rotation][;config]> ...] [--plan-break-relative <dx:dy> ...] config=<none|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|point2=<x:y>|point2-array=<x:y[,x:y...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|double=<f64>|building-pos=<i32>|laccess=<i16>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|vec2-array=<x:y[,x:y...]>|vec2=<x:y>|team=<u8>|int-array=<i32[,i32...]>|object-array=<value[|value...]>|unit-command=<u16>> [--plan-rotate <x:y:dir> ...] [--plan-flip-x <x:y> ...] [--plan-flip-y <x:y> ...] [--plan-break-near-player] [--plan-place-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--plan-place-conflict-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--render-ascii-on-world-ready] [--print-client-packets] [--watch-client-packet <type> ...] [--watch-client-binary-packet <type> ...] [--watch-client-logic-data <channel> ...] [--render-window-live] [--dump-world-stream-hex <path>] [--chat-delay-ms <ms>] [--chat-spacing-ms <ms>] [--chat-message <text> ...] [--action-delay-ms <ms>] [--action-spacing-ms <ms>] [--action-request-item <buildPos|none:itemId|none:amount> ...] [--action-request-unit-payload <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-clear ...] [--action-unit-control <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-building-control-select <none|unit:<id>|block:<pos>|<id>@buildPos|none> ...] [--action-building-control-select <buildPos|none> ...] [--action-clear-items <buildPos|none> ...] [--action-clear-liquids <buildPos|none> ...] [--action-transfer-inventory <buildPos|none> ...] [--action-request-build-payload <buildPos|none> ...] [--action-request-drop-payload <x:y> ...] [--action-rotate-block <buildPos|none:direction> ...] [--action-drop-item <angle> ...] [--action-tile-config <buildPos|none:value> ...] [--action-tile-tap <tilePos|none> ...] [--action-delete-plans <x:y[,x:y...]|none> ...] [--action-command-building <x:y[,x:y...]|none@x:y> ...] [--action-command-units <unitId[,unitId...]|none@buildPos|none@unitTarget@x:y|none@queueCommand@finalBatch> ...] [--action-set-unit-command <unitId[,unitId...]|none@commandId|none> ...] [--action-set-unit-stance <unitId[,unitId...]|none@stanceId|none@enable> ...] [--action-begin-break <none|unit:<id>|block:<pos>|<id>@teamId@x:y> ...] [--action-begin-place <none|unit:<id>|block:<pos>|<id>@blockId|none@teamId@x:y@rotation@value> ...] [--action-menu-choose <menuId@option> ...] [--action-text-input-result <textInputId@text|none> ...] [--action-client-packet <type@contents@reliable|unreliable> ...] [--action-client-binary-packet <type@hex@reliable|unreliable> ...] [--action-client-logic-data <channel@value@reliable|unreliable> ...] value=<null|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|point2=<x:y>|point2-array=<x:y[,x:y...]>|double=<f64>|building-pos=<i32>|laccess=<i16>|vec2=<x:y>|vec2-array=<x:y[,x:y...]>|team=<u8>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|int-array=<i32[,i32...]>|object-array=<value>|unit-command=<u16>|...>",
     )
 }
 
@@ -2176,6 +2200,38 @@ fn parse_action_begin_place_arg(
     let rotation = parse_i32_arg("--action-begin-place rotation", parts[4])?;
     let place_config = parse_typeio_object_subset_arg("--action-begin-place value", parts[5])?;
     Ok((builder, block_id, team_id, x, y, rotation, place_config))
+}
+
+fn parse_optional_text_token(flag: &str, value: &str) -> Result<Option<String>, String> {
+    if value.eq_ignore_ascii_case("none") || value.eq_ignore_ascii_case("null") {
+        return Ok(None);
+    }
+    if value.is_empty() {
+        return Err(format!("invalid {flag}, text token must not be empty"));
+    }
+    Ok(Some(value.to_string()))
+}
+
+fn parse_action_menu_choose_arg(value: &str) -> Result<(i32, i32), String> {
+    let Some((menu_id, option)) = value.split_once('@') else {
+        return Err("invalid --action-menu-choose, expected <menuId@option>".to_string());
+    };
+    Ok((
+        parse_i32_arg("--action-menu-choose menuId", menu_id)?,
+        parse_i32_arg("--action-menu-choose option", option)?,
+    ))
+}
+
+fn parse_action_text_input_result_arg(value: &str) -> Result<(i32, Option<String>), String> {
+    let Some((text_input_id, text)) = value.split_once('@') else {
+        return Err(
+            "invalid --action-text-input-result, expected <textInputId@text|none>".to_string(),
+        );
+    };
+    Ok((
+        parse_i32_arg("--action-text-input-result textInputId", text_input_id)?,
+        parse_optional_text_token("--action-text-input-result text", text)?,
+    ))
 }
 
 fn parse_action_unit_ids_arg(value: &str) -> Result<Vec<i32>, String> {
@@ -4459,6 +4515,15 @@ fn queue_outbound_action(
                 place_config,
             )?;
         }
+        OutboundAction::MenuChoose { menu_id, option } => {
+            session.queue_menu_choose(*menu_id, *option)?;
+        }
+        OutboundAction::TextInputResult {
+            text_input_id,
+            text,
+        } => {
+            session.queue_text_input_result(*text_input_id, text.as_deref())?;
+        }
         OutboundAction::ClientPacket {
             packet_type,
             contents,
@@ -4742,6 +4807,8 @@ mod tests {
             .contains("--action-set-unit-stance <unitId[,unitId...]|none@stanceId|none@enable>"));
         assert!(text.contains("--action-begin-break <none|unit:<id>|block:<pos>|<id>@teamId@x:y>"));
         assert!(text.contains("--action-begin-place <none|unit:<id>|block:<pos>|<id>@blockId|none@teamId@x:y@rotation@value>"));
+        assert!(text.contains("--action-menu-choose <menuId@option>"));
+        assert!(text.contains("--action-text-input-result <textInputId@text|none>"));
         assert!(text.contains("--action-client-packet <type@contents@reliable|unreliable>"));
         assert!(text.contains("--action-client-binary-packet <type@hex@reliable|unreliable>"));
         assert!(text.contains("--action-client-logic-data <channel@value@reliable|unreliable>"));
@@ -5257,6 +5324,10 @@ mod tests {
             "unit:777@8@-11:22",
             "--action-begin-place",
             "block:888@999@3@44:-55@2@point2=7:-8",
+            "--action-menu-choose",
+            "12@-1",
+            "--action-text-input-result",
+            "9@router",
         ]))
         .unwrap();
 
@@ -5417,6 +5488,20 @@ mod tests {
                         place_config: TypeIoObject::Point2 { x: 7, y: -8 },
                     },
                 },
+                ScheduledOutboundAction {
+                    not_before_ms: 4_900,
+                    action: OutboundAction::MenuChoose {
+                        menu_id: 12,
+                        option: -1,
+                    },
+                },
+                ScheduledOutboundAction {
+                    not_before_ms: 5_100,
+                    action: OutboundAction::TextInputResult {
+                        text_input_id: 9,
+                        text: Some("router".to_string()),
+                    },
+                },
             ]
         );
     }
@@ -5516,6 +5601,24 @@ mod tests {
             .expect("invalid begin-place format should fail");
 
         assert!(error.contains("invalid --action-begin-place"));
+    }
+
+    #[test]
+    fn parse_args_rejects_invalid_action_menu_choose_flag() {
+        let error = parse_args(sample_args(&["--action-menu-choose", "12"]))
+            .err()
+            .expect("invalid menu-choose format should fail");
+
+        assert!(error.contains("invalid --action-menu-choose"));
+    }
+
+    #[test]
+    fn parse_args_rejects_invalid_action_text_input_result_flag() {
+        let error = parse_args(sample_args(&["--action-text-input-result", "9@"]))
+            .err()
+            .expect("invalid text-input-result format should fail");
+
+        assert!(error.contains("invalid --action-text-input-result"));
     }
 
     #[test]
