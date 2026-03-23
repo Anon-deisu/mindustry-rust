@@ -1,6 +1,6 @@
 use crate::client_session::{
     BuildHealthPair, ClientBuildPlan, ClientBuildPlanConfig, ClientSessionEvent,
-    ClientSnapshotInputState,
+    ClientSnapshotInputState, StateSnapshotAppliedProjection,
 };
 use crate::session_state::{
     AuthoritativeStateMirror, BuilderPlanStage, BuilderQueueProjection,
@@ -51,7 +51,7 @@ impl RenderRuntimeAdapter {
         let state_business_projection = session_state.state_snapshot_business_projection.as_ref();
         hud.runtime_ui = Some(runtime_ui_observability(session_state));
         hud.status_text = format!(
-            "{} runtime_selected={} runtime_plans={} runtime_cfg_int={} runtime_cfg_long={} runtime_cfg_float={} runtime_cfg_bool={} runtime_cfg_int_seq={} runtime_cfg_point2={} runtime_cfg_point2_array={} runtime_cfg_tech_node={} runtime_cfg_double={} runtime_cfg_building_pos={} runtime_cfg_laccess={} runtime_cfg_string={} runtime_cfg_bytes={} runtime_cfg_legacy_unit_command_null={} runtime_cfg_bool_array={} runtime_cfg_unit_id={} runtime_cfg_vec2_array={} runtime_cfg_vec2={} runtime_cfg_team={} runtime_cfg_int_array={} runtime_cfg_object_array={} runtime_cfg_content={} runtime_cfg_unit_command={} runtime_world_tiles={} runtime_health={} building={} runtime_builder={} runtime_builder_head={} runtime_entity_local={} runtime_entity_hidden={} runtime_entity_gate={} runtime_entity_sync={} runtime_snap_last={} runtime_snap_events={} runtime_wave={} runtime_enemies={} runtime_tps={} runtime_state_apply={} runtime_core_teams={} runtime_core_items={} runtime_buildings={} runtime_block={} runtime_block_fail={} runtime_hidden={} runtime_hidden_delta={} runtime_hidden_fail={} runtime_effects={} runtime_effect_data_kind={} runtime_effect_data_semantic={} runtime_effect_apply={} runtime_effect_path={} runtime_effect_data_fail={} bootstrap_rules={} bootstrap_tags={} bootstrap_locales={} bootstrap_teams={} bootstrap_markers={} bootstrap_chunks={} bootstrap_patches={} bootstrap_plans={} bootstrap_fog_teams={} runtime_view_center={} runtime_view_size={} runtime_position={} runtime_pointer={} runtime_selected_rotation={} runtime_input_flags={} runtime_snap_client={} runtime_snap_state={} runtime_snap_entity={} runtime_snap_block={} runtime_snap_hidden={} runtime_tilecfg_events={} runtime_tilecfg_parse_fail={} runtime_tilecfg_noapply={} runtime_tilecfg_rollback={} runtime_tilecfg_pending_mismatch={} runtime_tilecfg_apply={} runtime_configured={} runtime_take_items={} runtime_transfer_item={} runtime_transfer_item_unit={} runtime_payload_drop={} runtime_payload_pick_build={} runtime_payload_pick_unit={} runtime_unit_entered_payload={} runtime_unit_despawn={} runtime_unit_lifecycle={} runtime_spawn_fx={} runtime_audio={} runtime_admin={} runtime_kick={} runtime_loading={} runtime_rules={} runtime_ui_notice={} runtime_ui_menu={} runtime_world_label={} runtime_marker={} runtime_logic_sync={} runtime_resource_delta={} runtime_command_ctrl={} runtime_gameplay_signal={}",
+            "{} runtime_selected={} runtime_plans={} runtime_cfg_int={} runtime_cfg_long={} runtime_cfg_float={} runtime_cfg_bool={} runtime_cfg_int_seq={} runtime_cfg_point2={} runtime_cfg_point2_array={} runtime_cfg_tech_node={} runtime_cfg_double={} runtime_cfg_building_pos={} runtime_cfg_laccess={} runtime_cfg_string={} runtime_cfg_bytes={} runtime_cfg_legacy_unit_command_null={} runtime_cfg_bool_array={} runtime_cfg_unit_id={} runtime_cfg_vec2_array={} runtime_cfg_vec2={} runtime_cfg_team={} runtime_cfg_int_array={} runtime_cfg_object_array={} runtime_cfg_content={} runtime_cfg_unit_command={} runtime_world_tiles={} runtime_health={} building={} runtime_builder={} runtime_builder_head={} runtime_entity_local={} runtime_entity_hidden={} runtime_entity_gate={} runtime_entity_sync={} runtime_snap_last={} runtime_snap_events={} runtime_snap_apply={} runtime_wave={} runtime_enemies={} runtime_tps={} runtime_state_apply={} runtime_core_teams={} runtime_core_items={} runtime_buildings={} runtime_block={} runtime_block_fail={} runtime_hidden={} runtime_hidden_delta={} runtime_hidden_fail={} runtime_effects={} runtime_effect_data_kind={} runtime_effect_data_semantic={} runtime_effect_apply={} runtime_effect_path={} runtime_effect_data_fail={} bootstrap_rules={} bootstrap_tags={} bootstrap_locales={} bootstrap_teams={} bootstrap_markers={} bootstrap_chunks={} bootstrap_patches={} bootstrap_plans={} bootstrap_fog_teams={} runtime_view_center={} runtime_view_size={} runtime_position={} runtime_pointer={} runtime_selected_rotation={} runtime_input_flags={} runtime_snap_client={} runtime_snap_state={} runtime_snap_entity={} runtime_snap_block={} runtime_snap_hidden={} runtime_tilecfg_events={} runtime_tilecfg_parse_fail={} runtime_tilecfg_noapply={} runtime_tilecfg_rollback={} runtime_tilecfg_pending_mismatch={} runtime_tilecfg_apply={} runtime_configured={} runtime_take_items={} runtime_transfer_item={} runtime_transfer_item_unit={} runtime_payload_drop={} runtime_payload_pick_build={} runtime_payload_pick_unit={} runtime_unit_entered_payload={} runtime_unit_despawn={} runtime_unit_lifecycle={} runtime_spawn_fx={} runtime_audio={} runtime_admin={} runtime_kick={} runtime_loading={} runtime_rules={} runtime_ui_notice={} runtime_ui_menu={} runtime_world_label={} runtime_marker={} runtime_logic_sync={} runtime_resource_delta={} runtime_command_ctrl={} runtime_gameplay_signal={}",
             hud.status_text,
             runtime_selected_block_label(snapshot_input.selected_block_id),
             snapshot_input.plans.as_ref().map_or(0, Vec::len),
@@ -89,6 +89,9 @@ impl RenderRuntimeAdapter {
             runtime_entity_sync_label(session_state),
             runtime_snapshot_method_label(self.world_overlay.last_snapshot_method),
             self.world_overlay.snapshot_refresh_count,
+            runtime_state_snapshot_applied_event_label(
+                self.world_overlay.last_state_snapshot_applied.as_ref(),
+            ),
             runtime_state_mirror
                 .map(|projection| projection.wave)
                 .or_else(|| state_authority_projection.map(|projection| projection.wave))
@@ -249,6 +252,8 @@ pub struct RuntimeWorldOverlay {
     pub snapshot_refresh_count: u64,
     pub last_snapshot_method: Option<HighFrequencyRemoteMethod>,
     pub snapshot_method_counts: [u64; HIGH_FREQUENCY_REMOTE_METHOD_COUNT],
+    pub state_snapshot_applied_count: u64,
+    pub last_state_snapshot_applied: Option<StateSnapshotAppliedProjection>,
     pub tile_config_event_count: u64,
     pub tile_config_parse_failed_count: u64,
     pub tile_config_business_not_applied_count: u64,
@@ -268,6 +273,8 @@ impl RuntimeWorldOverlay {
         self.snapshot_refresh_count = 0;
         self.last_snapshot_method = None;
         self.snapshot_method_counts = [0; HIGH_FREQUENCY_REMOTE_METHOD_COUNT];
+        self.state_snapshot_applied_count = 0;
+        self.last_state_snapshot_applied = None;
         self.tile_config_event_count = 0;
         self.tile_config_parse_failed_count = 0;
         self.tile_config_business_not_applied_count = 0;
@@ -487,6 +494,25 @@ pub fn observe_runtime_world_events(
                 runtime_world_overlay.snapshot_method_counts[bucket] =
                     runtime_world_overlay.snapshot_method_counts[bucket].saturating_add(1);
             }
+            ClientSessionEvent::StateSnapshotApplied { projection } => {
+                runtime_world_overlay.snapshot_refresh_count = runtime_world_overlay
+                    .snapshot_refresh_count
+                    .saturating_add(1);
+                runtime_world_overlay.last_snapshot_method =
+                    Some(HighFrequencyRemoteMethod::StateSnapshot);
+                runtime_world_overlay.snapshot_method_counts
+                    [runtime_snapshot_method_bucket_index(
+                        HighFrequencyRemoteMethod::StateSnapshot,
+                    )] = runtime_world_overlay.snapshot_method_counts
+                    [runtime_snapshot_method_bucket_index(
+                        HighFrequencyRemoteMethod::StateSnapshot,
+                    )]
+                .saturating_add(1);
+                runtime_world_overlay.state_snapshot_applied_count = runtime_world_overlay
+                    .state_snapshot_applied_count
+                    .saturating_add(1);
+                runtime_world_overlay.last_state_snapshot_applied = Some(projection.clone());
+            }
             _ => {}
         }
     }
@@ -527,6 +553,38 @@ fn runtime_snapshot_method_label(method: Option<HighFrequencyRemoteMethod>) -> &
         Some(method) => method.method_name(),
         None => "none",
     }
+}
+
+fn runtime_state_snapshot_applied_event_label(
+    projection: Option<&StateSnapshotAppliedProjection>,
+) -> String {
+    projection
+        .map(|projection| {
+            let wave_window = match (projection.wave_advance_from, projection.wave_advance_to) {
+                (Some(from), Some(to)) => format!("{from}->{to}"),
+                _ => "none".to_string(),
+            };
+            format!(
+                "w{}:s{}:gt{}:adv{}@{}:app{}:nd{}:rb{}:tr{}:wr{}:cpf{}:fb{}",
+                projection.wave,
+                projection.gameplay_state_name(),
+                projection.gameplay_state_transition_count,
+                if projection.wave_advanced { 1 } else { 0 },
+                wave_window,
+                projection.apply_count,
+                projection.net_seconds_delta,
+                if projection.net_seconds_rollback { 1 } else { 0 },
+                projection.time_regress_count,
+                projection.wave_regress_count,
+                projection.core_parse_fail_count,
+                if projection.used_last_good_core_fallback {
+                    1
+                } else {
+                    0
+                },
+            )
+        })
+        .unwrap_or_else(|| "none".to_string())
 }
 
 fn runtime_block_snapshot_label(session_state: &SessionState) -> String {
@@ -3264,7 +3322,31 @@ mod tests {
             last_block_snapshot_head_conflict: false,
         };
         adapter.observe_events(&[
-            ClientSessionEvent::SnapshotReceived(HighFrequencyRemoteMethod::StateSnapshot),
+            ClientSessionEvent::StateSnapshotApplied {
+                projection: StateSnapshotAppliedProjection {
+                    wave: 7,
+                    enemies: 3,
+                    tps: 60,
+                    gameplay_state: crate::session_state::GameplayStateProjection::Playing,
+                    gameplay_state_transition_count: 2,
+                    wave_advanced: true,
+                    wave_advance_from: Some(6),
+                    wave_advance_to: Some(7),
+                    apply_count: 4,
+                    net_seconds_delta: 9,
+                    net_seconds_rollback: false,
+                    time_regress_count: 1,
+                    wave_regress_count: 0,
+                    core_inventory_team_count: 1,
+                    core_inventory_item_entry_count: 2,
+                    core_inventory_total_amount: 20,
+                    core_inventory_changed_team_count: 1,
+                    core_inventory_changed_team_sample: vec![1],
+                    core_parse_failed: false,
+                    core_parse_fail_count: 0,
+                    used_last_good_core_fallback: false,
+                },
+            },
             ClientSessionEvent::SnapshotReceived(HighFrequencyRemoteMethod::BlockSnapshot),
         ]);
 
@@ -3272,6 +3354,9 @@ mod tests {
 
         assert!(hud.status_text.contains("runtime_snap_last=blockSnapshot"));
         assert!(hud.status_text.contains("runtime_snap_events=2"));
+        assert!(hud
+            .status_text
+            .contains("runtime_snap_apply=w7:splay:gt2:adv1@6->7:app4:nd9:rb0:tr1:wr0:cpf0:fb0"));
         assert!(hud.status_text.contains("runtime_snap_client=0"));
         assert!(hud.status_text.contains("runtime_snap_state=1"));
         assert!(hud.status_text.contains("runtime_snap_entity=0"));

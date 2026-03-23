@@ -39,7 +39,7 @@ pub fn project_scene_models_with_player_position(
             player_position,
             visibility.overlay_visible,
         ),
-        project_hud_model_with_visibility(session, locale, visibility.hud_visible),
+        project_hud_model_with_visibility(session, locale, visibility),
     )
 }
 
@@ -57,7 +57,7 @@ pub fn project_scene_models_with_view_window(
             max_view_tiles,
             visibility.overlay_visible,
         ),
-        project_hud_model_with_visibility(session, locale, visibility.hud_visible),
+        project_hud_model_with_visibility(session, locale, visibility),
     )
 }
 
@@ -274,19 +274,21 @@ fn project_render_model_with_view_window_visibility(
 
 pub fn project_hud_model(session: &LoadedWorldSession<'_>, locale: &str) -> HudModel {
     let visibility = scene_visibility(session, locale);
-    project_hud_model_with_visibility(session, locale, visibility.hud_visible)
+    project_hud_model_with_visibility(session, locale, visibility)
 }
 
 fn project_hud_model_with_visibility(
     session: &LoadedWorldSession<'_>,
     locale: &str,
-    hud_visible: bool,
+    visibility: SceneVisibility,
 ) -> HudModel {
-    if !hud_visible {
+    if !visibility.hud_visible {
         return HudModel::hidden();
     }
 
     let graph = session.graph();
+    let fog_visibility = fog_visibility(session);
+    let (visible_tile_count, hidden_tile_count) = fog_tile_counts(session, fog_visibility);
     let title = session
         .display_title(locale)
         .unwrap_or(session.player().name.as_str())
@@ -299,8 +301,18 @@ fn project_hud_model_with_visibility(
     let map_width = graph.width();
     let map_height = graph.height();
     let status_text = format!(
-        "player={} team={} selected={} plans={} markers={} map={}x{}",
-        player_name, team_id, selected_block, plan_count, marker_count, map_width, map_height
+        "player={} team={} selected={} plans={} markers={} map={}x{} overlay={} fog={} vis={} hid={}",
+        player_name,
+        team_id,
+        selected_block,
+        plan_count,
+        marker_count,
+        map_width,
+        map_height,
+        if visibility.overlay_visible { 1 } else { 0 },
+        if fog_visibility.enabled { 1 } else { 0 },
+        visible_tile_count,
+        hidden_tile_count
     );
 
     HudModel {
@@ -315,6 +327,10 @@ fn project_hud_model_with_visibility(
             marker_count,
             map_width,
             map_height,
+            overlay_visible: visibility.overlay_visible,
+            fog_enabled: fog_visibility.enabled,
+            visible_tile_count,
+            hidden_tile_count,
         }),
         runtime_ui: None,
     }
@@ -347,6 +363,25 @@ fn tile_visible_under_fog(
             .graph()
             .fog_revealed(fog_visibility.team_id, tile_x, tile_y)
             .unwrap_or(true)
+}
+
+fn fog_tile_counts(session: &LoadedWorldSession<'_>, fog_visibility: FogVisibility) -> (usize, usize) {
+    let grid = session.graph().grid();
+    if !fog_visibility.enabled {
+        return (grid.tile_count(), 0);
+    }
+
+    grid.iter_tiles().fold((0usize, 0usize), |(visible, hidden), tile| {
+        if session
+            .graph()
+            .fog_revealed(fog_visibility.team_id, tile.x as usize, tile.y as usize)
+            .unwrap_or(true)
+        {
+            (visible + 1, hidden)
+        } else {
+            (visible, hidden + 1)
+        }
+    })
 }
 
 fn project_team_plan(plan: TeamPlanRef<'_>) -> RenderObject {
@@ -468,6 +503,8 @@ mod tests {
         assert!(hud.status_text.contains("plans=1"));
         assert!(hud.status_text.contains("markers=2"));
         assert!(hud.status_text.contains("map=8x8"));
+        assert!(hud.status_text.contains("overlay=1"));
+        assert!(hud.status_text.contains("fog=1"));
     }
 
     #[test]
@@ -548,6 +585,16 @@ mod tests {
         assert_eq!(summary.marker_count, session.graph().markers().count());
         assert_eq!(summary.map_width, session.graph().width());
         assert_eq!(summary.map_height, session.graph().height());
+        assert_eq!(
+            summary.overlay_visible,
+            session.enter_render_contract("fr").overlay.visible
+        );
+        assert_eq!(summary.fog_enabled, true);
+        assert_eq!(
+            summary.visible_tile_count + summary.hidden_tile_count,
+            session.graph().grid().tile_count()
+        );
+        assert!(summary.hidden_tile_count > 0);
     }
 
     #[test]

@@ -18,6 +18,10 @@ pub struct HudSummary {
     pub marker_count: usize,
     pub map_width: usize,
     pub map_height: usize,
+    pub overlay_visible: bool,
+    pub fog_enabled: bool,
+    pub visible_tile_count: usize,
+    pub hidden_tile_count: usize,
 }
 
 /// Structured runtime UI observability projection.

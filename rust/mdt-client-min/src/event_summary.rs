@@ -248,11 +248,21 @@ pub fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<Stri
             } => Some(format!(
                 "ping_response: sent_at_ms={sent_at_ms:?} round_trip_ms={round_trip_ms:?}"
             )),
+            ClientSessionEvent::StateSnapshotApplied { projection } => {
+                Some(format_state_snapshot_applied_summary(projection))
+            }
             ClientSessionEvent::DeferredPacketWhileLoading { packet_id, remote } => Some(format!(
                 "deferred_packet_while_loading: packet_id={packet_id} method={:?} packet_class={:?}",
                 remote.as_ref().map(|meta| meta.method.as_str()),
                 remote.as_ref().map(|meta| meta.packet_class.as_str()),
             )),
+            ClientSessionEvent::DroppedLowPriorityPacketWhileLoading { packet_id, remote } => {
+                Some(format!(
+                    "dropped_low_priority_packet_while_loading: packet_id={packet_id} method={:?} packet_class={:?}",
+                    remote.as_ref().map(|meta| meta.method.as_str()),
+                    remote.as_ref().map(|meta| meta.packet_class.as_str()),
+                ))
+            }
             ClientSessionEvent::IgnoredPacket { packet_id, remote } => Some(format!(
                 "ignored_packet: packet_id={packet_id} method={:?} packet_class={:?}",
                 remote.as_ref().map(|meta| meta.method.as_str()),
@@ -793,6 +803,46 @@ fn format_tile_config_summary(
     format!(
         "tile_config: build_pos={build_pos:?} kind={config_kind:?} kind_name={config_kind_name:?} parse_failed={parse_failed} business_applied={business_applied} cleared_pending_local={cleared_pending_local} rollback={was_rollback} pending_local_match={pending_local_match:?}"
     )
+}
+
+fn format_state_snapshot_applied_summary(
+    projection: &crate::client_session::StateSnapshotAppliedProjection,
+) -> String {
+    format!(
+        "state_snapshot_applied: wave={} enemies={} tps={} gameplay_state={} transitions={} wave_advanced={} wave_from={:?} wave_to={:?} apply_count={} net_seconds_delta={} rollback={} time_regress_count={} wave_regress_count={} core_parse_failed={} core_parse_fail_count={} used_last_good_core_fallback={} core_teams={} core_items={} core_total={} core_changed={} core_changed_sample={}",
+        projection.wave,
+        projection.enemies,
+        projection.tps,
+        projection.gameplay_state_name(),
+        projection.gameplay_state_transition_count,
+        projection.wave_advanced,
+        projection.wave_advance_from,
+        projection.wave_advance_to,
+        projection.apply_count,
+        projection.net_seconds_delta,
+        projection.net_seconds_rollback,
+        projection.time_regress_count,
+        projection.wave_regress_count,
+        projection.core_parse_failed,
+        projection.core_parse_fail_count,
+        projection.used_last_good_core_fallback,
+        projection.core_inventory_team_count,
+        projection.core_inventory_item_entry_count,
+        projection.core_inventory_total_amount,
+        projection.core_inventory_changed_team_count,
+        format_u8_sample(&projection.core_inventory_changed_team_sample),
+    )
+}
+
+fn format_u8_sample(values: &[u8]) -> String {
+    if values.is_empty() {
+        return "none".to_string();
+    }
+    values
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 fn format_command_building_summary(buildings: &[i32], x: f32, y: f32) -> String {

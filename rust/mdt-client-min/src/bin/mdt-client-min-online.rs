@@ -3,6 +3,7 @@ use mdt_client_min::client_session::{
     ClientBuildPlan, ClientBuildPlanConfig, ClientLogicDataTransport, ClientPacketTransport,
     ClientSession, ClientSessionEvent, ClientSessionTiming, ClientUnitRef,
     KICK_REASON_SERVER_RESTARTING_ORDINAL,
+    StateSnapshotAppliedProjection,
 };
 use mdt_client_min::connect_packet::{
     default_connect_build, default_connect_version_type, ConnectCompatibilityWarning,
@@ -5970,6 +5971,44 @@ mod tests {
     }
 
     #[test]
+    fn summarize_client_packet_events_includes_state_snapshot_applied_summary() {
+        let lines = summarize_client_packet_events(&[ClientSessionEvent::StateSnapshotApplied {
+            projection: StateSnapshotAppliedProjection {
+                wave: 8,
+                enemies: 2,
+                tps: 60,
+                gameplay_state: mdt_client_min::session_state::GameplayStateProjection::Paused,
+                gameplay_state_transition_count: 3,
+                wave_advanced: true,
+                wave_advance_from: Some(7),
+                wave_advance_to: Some(8),
+                apply_count: 2,
+                net_seconds_delta: -1,
+                net_seconds_rollback: true,
+                time_regress_count: 1,
+                wave_regress_count: 0,
+                core_inventory_team_count: 2,
+                core_inventory_item_entry_count: 5,
+                core_inventory_total_amount: 77,
+                core_inventory_changed_team_count: 2,
+                core_inventory_changed_team_sample: vec![2, 7],
+                core_parse_failed: true,
+                core_parse_fail_count: 1,
+                used_last_good_core_fallback: true,
+            },
+        }]);
+
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].contains("state_snapshot_applied:"));
+        assert!(lines[0].contains("gameplay_state=pause"));
+        assert!(lines[0].contains("wave_from=Some(7)"));
+        assert!(lines[0].contains("rollback=true"));
+        assert!(lines[0].contains("core_parse_failed=true"));
+        assert!(lines[0].contains("used_last_good_core_fallback=true"));
+        assert!(lines[0].contains("core_changed_sample=2,7"));
+    }
+
+    #[test]
     fn summarize_client_packet_events_surfaces_kick_hint_for_high_signal_reason_text() {
         let lines = summarize_client_packet_events(&[ClientSessionEvent::Kicked {
             reason_text: Some("typeMismatch".to_string()),
@@ -6419,8 +6458,15 @@ mod tests {
                     packet_class: "mindustry.gen.UnitSpawnCallPacket".to_string(),
                 }),
             },
-            ClientSessionEvent::IgnoredPacket {
+            ClientSessionEvent::DroppedLowPriorityPacketWhileLoading {
                 packet_id: 147,
+                remote: Some(mdt_client_min::client_session::IgnoredRemotePacketMeta {
+                    method: "stateSnapshot".to_string(),
+                    packet_class: "mindustry.gen.StateSnapshotCallPacket".to_string(),
+                }),
+            },
+            ClientSessionEvent::IgnoredPacket {
+                packet_id: 148,
                 remote: Some(mdt_client_min::client_session::IgnoredRemotePacketMeta {
                     method: "unitTetherBlockSpawned".to_string(),
                     packet_class: "mindustry.gen.UnitTetherBlockSpawnedCallPacket".to_string(),
@@ -6428,7 +6474,7 @@ mod tests {
             },
         ]);
 
-        assert_eq!(lines.len(), 7);
+        assert_eq!(lines.len(), 8);
         assert!(lines[0].contains("create_marker:"));
         assert!(lines[0].contains("marker_id=77"));
         assert!(lines[0].contains("json_len=16"));
@@ -6443,8 +6489,10 @@ mod tests {
         assert!(lines[4].contains("remove_marker:"));
         assert!(lines[5].contains("deferred_packet_while_loading:"));
         assert!(lines[5].contains("Some(\"unitSpawn\")"));
-        assert!(lines[6].contains("ignored_packet:"));
-        assert!(lines[6].contains("Some(\"unitTetherBlockSpawned\")"));
+        assert!(lines[6].contains("dropped_low_priority_packet_while_loading:"));
+        assert!(lines[6].contains("Some(\"stateSnapshot\")"));
+        assert!(lines[7].contains("ignored_packet:"));
+        assert!(lines[7].contains("Some(\"unitTetherBlockSpawned\")"));
     }
 
     #[test]

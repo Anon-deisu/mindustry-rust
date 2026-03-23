@@ -5,7 +5,8 @@ use crate::net_loop::{ingest_inbound_packet, NetLoopStats};
 use crate::packet_registry::InboundSnapshotPacketRegistry;
 use crate::session_state::{
     BuilderQueueEntryObservation, EffectBusinessContentKind, EffectBusinessPositionSource,
-    EffectBusinessProjection, EffectDataSemantic, PayloadDroppedProjection,
+    EffectBusinessProjection, EffectDataSemantic, GameplayStateProjection,
+    PayloadDroppedProjection,
     PickedBuildPayloadProjection, PickedUnitPayloadProjection, SessionState, TakeItemsProjection,
     TileConfigAuthoritySource, TileConfigBusinessApply, TransferItemToProjection,
     TransferItemToUnitProjection, UnitEnteredPayloadProjection, UnitRefProjection,
@@ -2640,6 +2641,17 @@ impl ClientSession {
                     self.state.received_remove_tile_count =
                         self.state.received_remove_tile_count.saturating_add(1);
                     self.state.last_remove_tile_pos = tile_pos;
+                    if let Some(build_pos) = tile_pos {
+                        self.state
+                            .tile_config_projection
+                            .remove_building_state(build_pos);
+                        self.state
+                            .configured_block_projection
+                            .clear_building_state(build_pos);
+                        self.state
+                            .building_table_projection
+                            .apply_deconstruct_finish(build_pos, None);
+                    }
                     Ok(ClientSessionEvent::RemoveTile { tile_pos })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -4956,6 +4968,8 @@ impl ClientSession {
                 })
             }
             _ => {
+                let previous_applied_state_snapshot_count =
+                    self.state.applied_state_snapshot_count;
                 if let Some(snapshot) = ingest_inbound_packet(
                     &mut self.stats,
                     &mut self.state,
@@ -5158,6 +5172,14 @@ impl ClientSession {
                     } else if snapshot.method == HighFrequencyRemoteMethod::BlockSnapshot {
                         self.apply_block_snapshot_entries_from_loaded_world(snapshot.payload);
                     }
+                    if snapshot.method == HighFrequencyRemoteMethod::StateSnapshot
+                        && self.state.applied_state_snapshot_count
+                            > previous_applied_state_snapshot_count
+                    {
+                        if let Some(projection) = self.build_state_snapshot_applied_projection() {
+                            return Ok(ClientSessionEvent::StateSnapshotApplied { projection });
+                        }
+                    }
                     Ok(ClientSessionEvent::SnapshotReceived(snapshot.method))
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -5180,6 +5202,88 @@ impl ClientSession {
             || Some(packet_id) == self.server_binary_packet_unreliable_packet_id
             || Some(packet_id) == self.client_logic_data_reliable_packet_id
             || Some(packet_id) == self.client_logic_data_unreliable_packet_id
+    }
+
+    fn build_state_snapshot_applied_projection(&self) -> Option<StateSnapshotAppliedProjection> {
+        let business = self.state.state_snapshot_business_projection.as_ref()?;
+        let authority = self.state.state_snapshot_authority_projection.as_ref();
+        let runtime = self.state.authoritative_state_mirror.as_ref();
+        let core_parse_failed = runtime
+            .map(|projection| !projection.last_core_sync_ok)
+            .or_else(|| authority.map(|projection| !projection.last_core_sync_ok))
+            .unwrap_or(!business.core_inventory_synced);
+
+        Some(StateSnapshotAppliedProjection {
+            wave: runtime
+                .map(|projection| projection.wave)
+                .or_else(|| authority.map(|projection| projection.wave))
+                .unwrap_or(business.wave),
+            enemies: runtime
+                .map(|projection| projection.enemies)
+                .or_else(|| authority.map(|projection| projection.enemies))
+                .unwrap_or(business.enemies),
+            tps: runtime
+                .map(|projection| projection.tps)
+                .or_else(|| authority.map(|projection| projection.tps))
+                .unwrap_or(business.tps),
+            gameplay_state: runtime
+                .map(|projection| projection.gameplay_state)
+                .or_else(|| authority.map(|projection| projection.gameplay_state))
+                .unwrap_or(business.gameplay_state),
+            gameplay_state_transition_count: business.gameplay_state_transition_count,
+            wave_advanced: runtime
+                .map(|projection| projection.last_wave_advanced)
+                .or_else(|| authority.map(|projection| projection.last_wave_advanced))
+                .unwrap_or(business.last_wave_advanced),
+            wave_advance_from: business.last_wave_advance_from,
+            wave_advance_to: business.last_wave_advance_to,
+            apply_count: runtime
+                .map(|projection| projection.apply_count)
+                .or_else(|| authority.map(|projection| projection.state_snapshot_apply_count))
+                .unwrap_or(business.state_snapshot_apply_count),
+            net_seconds_delta: runtime
+                .map(|projection| projection.net_seconds_delta)
+                .or_else(|| authority.map(|projection| projection.net_seconds_delta))
+                .unwrap_or(business.net_seconds_delta),
+            net_seconds_rollback: runtime
+                .map(|projection| projection.last_net_seconds_rollback)
+                .or_else(|| authority.map(|projection| projection.last_net_seconds_rollback))
+                .unwrap_or(business.last_net_seconds_rollback),
+            time_regress_count: business.state_snapshot_time_regress_count,
+            wave_regress_count: runtime
+                .map(|projection| projection.wave_regress_count)
+                .or_else(|| authority.map(|projection| projection.state_snapshot_wave_regress_count))
+                .unwrap_or(business.state_snapshot_wave_regress_count),
+            core_inventory_team_count: runtime
+                .map(|projection| projection.core_inventory_team_count)
+                .or_else(|| authority.map(|projection| projection.core_inventory_team_count))
+                .unwrap_or(business.core_inventory_team_count),
+            core_inventory_item_entry_count: runtime
+                .map(|projection| projection.core_inventory_item_entry_count)
+                .or_else(|| authority.map(|projection| projection.core_inventory_item_entry_count))
+                .unwrap_or(business.core_inventory_item_entry_count),
+            core_inventory_total_amount: runtime
+                .map(|projection| projection.core_inventory_total_amount)
+                .or_else(|| authority.map(|projection| projection.core_inventory_total_amount))
+                .unwrap_or(business.core_inventory_total_amount),
+            core_inventory_changed_team_count: runtime
+                .map(|projection| projection.core_inventory_changed_team_count)
+                .or_else(|| authority.map(|projection| projection.core_inventory_changed_team_count))
+                .unwrap_or(business.core_inventory_changed_team_count),
+            core_inventory_changed_team_sample: runtime
+                .map(|projection| projection.core_inventory_changed_team_sample.clone())
+                .or_else(|| {
+                    authority.map(|projection| projection.core_inventory_changed_team_sample.clone())
+                })
+                .unwrap_or_else(|| business.core_inventory_changed_team_sample.clone()),
+            core_parse_failed,
+            core_parse_fail_count: runtime
+                .map(|projection| projection.core_parse_fail_count)
+                .or_else(|| authority.map(|projection| projection.core_parse_fail_count))
+                .unwrap_or_default(),
+            used_last_good_core_fallback: core_parse_failed
+                && self.state.last_good_state_snapshot_core_data.is_some(),
+        })
     }
 
     fn handle_custom_channel_packet(
@@ -5368,7 +5472,7 @@ impl ClientSession {
                     .known_remote_packets
                     .get(&packet_id)
                     .map(|meta| meta.method.clone());
-                Some(ClientSessionEvent::IgnoredPacket {
+                Some(ClientSessionEvent::DroppedLowPriorityPacketWhileLoading {
                     packet_id,
                     remote: self.known_remote_packets.get(&packet_id).cloned(),
                 })
@@ -6451,6 +6555,41 @@ impl ClientSession {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StateSnapshotAppliedProjection {
+    pub wave: i32,
+    pub enemies: i32,
+    pub tps: u8,
+    pub gameplay_state: GameplayStateProjection,
+    pub gameplay_state_transition_count: u64,
+    pub wave_advanced: bool,
+    pub wave_advance_from: Option<i32>,
+    pub wave_advance_to: Option<i32>,
+    pub apply_count: u64,
+    pub net_seconds_delta: i32,
+    pub net_seconds_rollback: bool,
+    pub time_regress_count: u64,
+    pub wave_regress_count: u64,
+    pub core_inventory_team_count: usize,
+    pub core_inventory_item_entry_count: usize,
+    pub core_inventory_total_amount: i64,
+    pub core_inventory_changed_team_count: usize,
+    pub core_inventory_changed_team_sample: Vec<u8>,
+    pub core_parse_failed: bool,
+    pub core_parse_fail_count: u64,
+    pub used_last_good_core_fallback: bool,
+}
+
+impl StateSnapshotAppliedProjection {
+    pub const fn gameplay_state_name(&self) -> &'static str {
+        match self.gameplay_state {
+            GameplayStateProjection::Playing => "play",
+            GameplayStateProjection::Paused => "pause",
+            GameplayStateProjection::GameOver => "gameover",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum ClientSessionEvent {
     WorldStreamStarted {
@@ -7042,7 +7181,14 @@ pub enum ClientSessionEvent {
         round_trip_ms: Option<u64>,
     },
     SnapshotReceived(HighFrequencyRemoteMethod),
+    StateSnapshotApplied {
+        projection: StateSnapshotAppliedProjection,
+    },
     DeferredPacketWhileLoading {
+        packet_id: u8,
+        remote: Option<IgnoredRemotePacketMeta>,
+    },
+    DroppedLowPriorityPacketWhileLoading {
         packet_id: u8,
         remote: Option<IgnoredRemotePacketMeta>,
     },
@@ -15389,10 +15535,13 @@ mod tests {
         .unwrap();
 
         let event = session.ingest_packet_bytes(&packet).unwrap();
+        let expected_projection = session.build_state_snapshot_applied_projection().unwrap();
 
         assert_eq!(
             event,
-            ClientSessionEvent::SnapshotReceived(HighFrequencyRemoteMethod::StateSnapshot)
+            ClientSessionEvent::StateSnapshotApplied {
+                projection: expected_projection,
+            }
         );
         assert!(session.state().seen_state_snapshot);
         assert_eq!(session.state().applied_state_snapshot_count, 1);
@@ -15411,6 +15560,93 @@ mod tests {
                 core_data: sample_snapshot_packet("stateSnapshot.coreData"),
             })
         );
+    }
+
+    #[test]
+    fn state_snapshot_packet_emits_applied_event_when_core_data_parse_failed() {
+        fn encode_state_snapshot_payload(
+            wave_time_bits: u32,
+            wave: i32,
+            enemies: i32,
+            paused: bool,
+            game_over: bool,
+            time_data: i32,
+            tps: u8,
+            rand0: i64,
+            rand1: i64,
+            core_data: &[u8],
+        ) -> Vec<u8> {
+            let mut payload = Vec::new();
+            payload.extend_from_slice(&wave_time_bits.to_be_bytes());
+            payload.extend_from_slice(&wave.to_be_bytes());
+            payload.extend_from_slice(&enemies.to_be_bytes());
+            payload.push(u8::from(paused));
+            payload.push(u8::from(game_over));
+            payload.extend_from_slice(&time_data.to_be_bytes());
+            payload.push(tps);
+            payload.extend_from_slice(&rand0.to_be_bytes());
+            payload.extend_from_slice(&rand1.to_be_bytes());
+            payload.extend_from_slice(&(core_data.len() as u16).to_be_bytes());
+            payload.extend_from_slice(core_data);
+            payload
+        }
+
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == HighFrequencyRemoteMethod::StateSnapshot.method_name())
+            .unwrap()
+            .packet_id;
+
+        let baseline_packet = encode_packet(
+            packet_id,
+            &sample_snapshot_packet("stateSnapshot.packet"),
+            false,
+        )
+        .unwrap();
+        session.ingest_packet_bytes(&baseline_packet).unwrap();
+
+        let malformed_core_data = [0x02, 0x01, 0x00, 0x01, 0x00];
+        let malformed_packet = encode_packet(
+            packet_id,
+            &encode_state_snapshot_payload(
+                222.0f32.to_bits(),
+                8,
+                2,
+                true,
+                false,
+                654_320,
+                60,
+                333_333_333,
+                444_444_444,
+                &malformed_core_data,
+            ),
+            false,
+        )
+        .unwrap();
+
+        let event = session.ingest_packet_bytes(&malformed_packet).unwrap();
+        let expected_projection = session.build_state_snapshot_applied_projection().unwrap();
+
+        assert_eq!(
+            event,
+            ClientSessionEvent::StateSnapshotApplied {
+                projection: expected_projection.clone(),
+            }
+        );
+        assert!(expected_projection.core_parse_failed);
+        assert_eq!(expected_projection.core_parse_fail_count, 1);
+        assert!(expected_projection.used_last_good_core_fallback);
+        assert_eq!(expected_projection.wave, 8);
+        assert_eq!(expected_projection.wave_advance_from, Some(7));
+        assert_eq!(expected_projection.wave_advance_to, Some(8));
+        assert_eq!(expected_projection.apply_count, 2);
+        assert_eq!(expected_projection.gameplay_state, GameplayStateProjection::Paused);
+        assert_eq!(session.state().failed_state_snapshot_core_data_parse_count, 1);
+        assert_eq!(session.state().last_state_snapshot_core_data, None);
+        assert!(session.state().last_good_state_snapshot_core_data.is_some());
     }
 
     #[test]
@@ -19635,6 +19871,87 @@ mod tests {
         assert_eq!(session.state().last_set_tile_block_id, Some(29));
         assert_eq!(session.state().last_set_tile_team_id, Some(2));
         assert_eq!(session.state().last_set_tile_rotation, Some(3));
+    }
+
+    #[test]
+    fn remove_tile_clears_authoritative_tile_and_building_projection_state() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let remove_tile_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "removeTile")
+            .unwrap()
+            .packet_id;
+        let build_pos = pack_point2(2, 3);
+
+        session
+            .state
+            .tile_config_projection
+            .seed_authoritative_state(build_pos, TypeIoObject::Int(7));
+        session
+            .state
+            .configured_block_projection
+            .apply_item_source_item(build_pos, Some(42));
+        session.state.building_table_projection.apply_construct_finish(
+            build_pos,
+            Some(29),
+            1,
+            2,
+            TypeIoObject::Int(7),
+        );
+        assert!(session
+            .state()
+            .tile_config_projection
+            .authoritative_by_build_pos
+            .contains_key(&build_pos));
+        assert!(session
+            .state()
+            .configured_block_projection
+            .item_source_item_by_build_pos
+            .contains_key(&build_pos));
+        assert!(session
+            .state()
+            .building_table_projection
+            .by_build_pos
+            .contains_key(&build_pos));
+
+        let remove_tile_event = session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    remove_tile_packet_id,
+                    &encode_tile_payload(Some(build_pos)),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            remove_tile_event,
+            ClientSessionEvent::RemoveTile {
+                tile_pos: Some(build_pos),
+            }
+        );
+        assert!(!session
+            .state()
+            .tile_config_projection
+            .authoritative_by_build_pos
+            .contains_key(&build_pos));
+        assert!(!session
+            .state()
+            .configured_block_projection
+            .item_source_item_by_build_pos
+            .contains_key(&build_pos));
+        assert!(!session
+            .state()
+            .building_table_projection
+            .by_build_pos
+            .contains_key(&build_pos));
+        assert_eq!(
+            session.state().building_table_projection.last_update,
+            Some(crate::session_state::BuildingProjectionUpdateKind::DeconstructFinish)
+        );
+        assert!(session.state().building_table_projection.last_removed);
     }
 
     #[test]
@@ -24312,7 +24629,7 @@ mod tests {
         let event = session.ingest_packet_bytes(&packet).unwrap();
         assert_eq!(
             event,
-            ClientSessionEvent::IgnoredPacket {
+            ClientSessionEvent::DroppedLowPriorityPacketWhileLoading {
                 packet_id,
                 remote: Some(IgnoredRemotePacketMeta {
                     method: "unitSpawn".to_string(),
@@ -25841,7 +26158,9 @@ mod tests {
         let event = session.ingest_packet_bytes(&state_packet).unwrap();
         assert_eq!(
             event,
-            ClientSessionEvent::SnapshotReceived(HighFrequencyRemoteMethod::StateSnapshot)
+            ClientSessionEvent::StateSnapshotApplied {
+                projection: session.build_state_snapshot_applied_projection().unwrap(),
+            }
         );
         assert_eq!(session.state().ready_inbound_liveness_anchor_count, 1);
         assert_eq!(
@@ -25942,7 +26261,7 @@ mod tests {
 
         assert_eq!(
             event,
-            ClientSessionEvent::IgnoredPacket {
+            ClientSessionEvent::DroppedLowPriorityPacketWhileLoading {
                 packet_id,
                 remote: Some(IgnoredRemotePacketMeta {
                     method: "stateSnapshot".to_string(),
@@ -26502,7 +26821,7 @@ mod tests {
         let event = session.ingest_packet_bytes(&packet).unwrap();
         assert_eq!(
             event,
-            ClientSessionEvent::IgnoredPacket {
+            ClientSessionEvent::DroppedLowPriorityPacketWhileLoading {
                 packet_id,
                 remote: Some(IgnoredRemotePacketMeta {
                     method: "stateSnapshot".to_string(),
