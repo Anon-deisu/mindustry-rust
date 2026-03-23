@@ -34,6 +34,7 @@ use std::fmt;
 
 // Java `Packets.KickReason.serverRestarting` ordinal.
 pub const KICK_REASON_SERVER_RESTARTING_ORDINAL: i32 = 15;
+const COMMAND_UNITS_DEFAULT_CHUNK_SIZE: usize = 200;
 const KICK_REASON_NAMES: [&str; 16] = [
     "kick",
     "clientOutdated",
@@ -1528,6 +1529,54 @@ impl ClientSession {
                 final_batch,
             ),
         )
+    }
+
+    pub fn queue_command_units_chunked(
+        &mut self,
+        unit_ids: &[i32],
+        build_target: Option<i32>,
+        unit_target: ClientUnitRef,
+        pos_target: Option<(f32, f32)>,
+        queue_command: bool,
+    ) -> Result<usize, ClientSessionError> {
+        self.queue_command_units_chunked_with_max_chunk(
+            unit_ids,
+            build_target,
+            unit_target,
+            pos_target,
+            queue_command,
+            COMMAND_UNITS_DEFAULT_CHUNK_SIZE,
+        )
+    }
+
+    pub fn queue_command_units_chunked_with_max_chunk(
+        &mut self,
+        unit_ids: &[i32],
+        build_target: Option<i32>,
+        unit_target: ClientUnitRef,
+        pos_target: Option<(f32, f32)>,
+        queue_command: bool,
+        max_chunk_size: usize,
+    ) -> Result<usize, ClientSessionError> {
+        if unit_ids.is_empty() {
+            return Ok(0);
+        }
+
+        let chunk_size = max_chunk_size.max(1);
+        let chunk_count = unit_ids.len().saturating_add(chunk_size - 1) / chunk_size;
+        for (index, chunk) in unit_ids.chunks(chunk_size).enumerate() {
+            let final_batch = index + 1 == chunk_count;
+            self.queue_command_units(
+                chunk,
+                build_target,
+                unit_target,
+                pos_target,
+                queue_command,
+                final_batch,
+            )?;
+        }
+
+        Ok(chunk_count)
     }
 
     pub fn queue_set_unit_command(
@@ -18982,6 +19031,127 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn queued_command_units_chunked_uses_java_like_default_chunk_and_final_batch() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let timing = ClientSessionTiming {
+            keepalive_interval_ms: 60_000,
+            client_snapshot_interval_ms: 60_000,
+            connect_timeout_ms: 10_000,
+            timeout_ms: 10_000,
+        };
+        let mut session =
+            ClientSession::from_remote_manifest_with_timing(&manifest, "fr", timing).unwrap();
+
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+        session.ingest_packet_bytes(&begin_packet).unwrap();
+        for chunk in chunk_packets {
+            session.ingest_packet_bytes(&chunk).unwrap();
+        }
+        session.prepare_connect_confirm_packet().unwrap();
+
+        let unit_ids = (1..=401).collect::<Vec<i32>>();
+        let build_target = Some(pack_point2(9, 10));
+        let unit_target = ClientUnitRef::Standard(333);
+        let pos_target = Some((48.0, 96.0));
+        let queued = session
+            .queue_command_units_chunked(&unit_ids, build_target, unit_target, pos_target, true)
+            .unwrap();
+        assert_eq!(queued, 3);
+
+        let command_units_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "commandUnits")
+            .unwrap()
+            .packet_id;
+
+        let actions = session.advance_time(1).unwrap();
+        let command_actions = actions
+            .iter()
+            .filter_map(|action| match action {
+                ClientSessionAction::SendPacket {
+                    packet_id,
+                    transport: ClientPacketTransport::Tcp,
+                    bytes,
+                } if *packet_id == command_units_packet_id => Some(bytes),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(command_actions.len(), 3);
+
+        let expected_lengths = [200usize, 200usize, 1usize];
+        let expected_final_batch = [false, false, true];
+        let expected_first_ids = [1i32, 201i32, 401i32];
+        for (index, bytes) in command_actions.iter().enumerate() {
+            let decoded = decode_packet(bytes).unwrap();
+            let summary = decode_command_units_payload(&decoded.payload).unwrap();
+            assert_eq!(summary.unit_ids.len(), expected_lengths[index]);
+            assert_eq!(summary.unit_ids.first().copied(), Some(expected_first_ids[index]));
+            assert_eq!(summary.build_target, build_target);
+            assert_eq!(
+                summary.unit_target,
+                Some(UnitRefProjection {
+                    kind: 2,
+                    value: 333,
+                })
+            );
+            assert_eq!(summary.x, 48.0);
+            assert_eq!(summary.y, 96.0);
+            assert!(summary.queue_command);
+            assert_eq!(summary.final_batch, expected_final_batch[index]);
+        }
+    }
+
+    #[test]
+    fn queued_command_units_chunked_with_empty_units_is_noop() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let timing = ClientSessionTiming {
+            keepalive_interval_ms: 60_000,
+            client_snapshot_interval_ms: 60_000,
+            connect_timeout_ms: 10_000,
+            timeout_ms: 10_000,
+        };
+        let mut session =
+            ClientSession::from_remote_manifest_with_timing(&manifest, "fr", timing).unwrap();
+
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+        session.ingest_packet_bytes(&begin_packet).unwrap();
+        for chunk in chunk_packets {
+            session.ingest_packet_bytes(&chunk).unwrap();
+        }
+        session.prepare_connect_confirm_packet().unwrap();
+
+        let queued = session
+            .queue_command_units_chunked(
+                &[],
+                Some(pack_point2(9, 10)),
+                ClientUnitRef::Standard(333),
+                Some((48.0, 96.0)),
+                true,
+            )
+            .unwrap();
+        assert_eq!(queued, 0);
+
+        let command_units_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "commandUnits")
+            .unwrap()
+            .packet_id;
+        let actions = session.advance_time(1).unwrap();
+        assert!(!actions.iter().any(|action| {
+            matches!(
+                action,
+                ClientSessionAction::SendPacket { packet_id, .. } if *packet_id == command_units_packet_id
+            )
+        }));
     }
 
     #[test]
