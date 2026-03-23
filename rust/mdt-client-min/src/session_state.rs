@@ -547,6 +547,8 @@ pub struct ConfiguredBlockProjection {
     pub switch_enabled_by_build_pos: BTreeMap<i32, Option<bool>>,
     pub door_open_by_build_pos: BTreeMap<i32, Option<bool>>,
     pub message_text_by_build_pos: BTreeMap<i32, String>,
+    pub constructor_recipe_block_by_build_pos: BTreeMap<i32, Option<i16>>,
+    pub light_color_by_build_pos: BTreeMap<i32, i32>,
     pub item_bridge_link_by_build_pos: BTreeMap<i32, Option<i32>>,
     pub unloader_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub duct_unloader_item_by_build_pos: BTreeMap<i32, Option<i16>>,
@@ -597,6 +599,15 @@ impl ConfiguredBlockProjection {
         self.message_text_by_build_pos.insert(build_pos, text);
     }
 
+    pub fn apply_constructor_recipe_block(&mut self, build_pos: i32, block_id: Option<i16>) {
+        self.constructor_recipe_block_by_build_pos
+            .insert(build_pos, block_id);
+    }
+
+    pub fn apply_light_color(&mut self, build_pos: i32, color: i32) {
+        self.light_color_by_build_pos.insert(build_pos, color);
+    }
+
     pub fn apply_item_bridge_link(&mut self, build_pos: i32, link: Option<i32>) {
         self.item_bridge_link_by_build_pos.insert(build_pos, link);
     }
@@ -635,6 +646,8 @@ impl ConfiguredBlockProjection {
         self.switch_enabled_by_build_pos.remove(&build_pos);
         self.door_open_by_build_pos.remove(&build_pos);
         self.message_text_by_build_pos.remove(&build_pos);
+        self.constructor_recipe_block_by_build_pos.remove(&build_pos);
+        self.light_color_by_build_pos.remove(&build_pos);
         self.item_bridge_link_by_build_pos.remove(&build_pos);
         self.unloader_item_by_build_pos.remove(&build_pos);
         self.duct_unloader_item_by_build_pos.remove(&build_pos);

@@ -716,7 +716,7 @@ fn runtime_state_business_projection_label(
 
 fn runtime_configured_block_projection_label(projection: &ConfiguredBlockProjection) -> String {
     format!(
-        "{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}",
+        "{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}:{}",
         runtime_configured_content_family_label(
             "uc",
             &projection.unit_cargo_unload_point_item_by_build_pos,
@@ -735,6 +735,8 @@ fn runtime_configured_block_projection_label(projection: &ConfiguredBlockProject
         runtime_configured_bool_family_label("sw", &projection.switch_enabled_by_build_pos),
         runtime_configured_bool_family_label("do", &projection.door_open_by_build_pos),
         runtime_configured_string_family_label("mg", &projection.message_text_by_build_pos),
+        runtime_configured_content_family_label("ct", &projection.constructor_recipe_block_by_build_pos),
+        runtime_configured_int_family_label("il", &projection.light_color_by_build_pos),
         runtime_configured_link_family_label("ib", &projection.item_bridge_link_by_build_pos),
         runtime_configured_content_family_label("ul", &projection.unloader_item_by_build_pos),
         runtime_configured_content_family_label("du", &projection.duct_unloader_item_by_build_pos),
@@ -793,6 +795,17 @@ fn runtime_configured_string_family_label(prefix: &str, values: &BTreeMap<i32, S
         Some((build_pos, text)) => {
             let (x, y) = unpack_runtime_point2(*build_pos);
             format!("{prefix}{count}@{x}:{y}=len{}", text.chars().count())
+        }
+        None => format!("{prefix}{count}"),
+    }
+}
+
+fn runtime_configured_int_family_label(prefix: &str, values: &BTreeMap<i32, i32>) -> String {
+    let count = values.len();
+    match values.last_key_value() {
+        Some((build_pos, value)) => {
+            let (x, y) = unpack_runtime_point2(*build_pos);
+            format!("{prefix}{count}@{x}:{y}={value:08x}")
         }
         None => format!("{prefix}{count}"),
     }
@@ -2913,6 +2926,14 @@ mod tests {
             .configured_block_projection
             .message_text_by_build_pos
             .insert(pack_runtime_point2(18, 40), "hello".to_string());
+        state
+            .configured_block_projection
+            .constructor_recipe_block_by_build_pos
+            .insert(pack_runtime_point2(19, 41), Some(5));
+        state
+            .configured_block_projection
+            .light_color_by_build_pos
+            .insert(pack_runtime_point2(20, 42), 0x11223344);
 
         adapter.apply(&mut scene, &mut hud, &input, &state);
 
@@ -2920,6 +2941,8 @@ mod tests {
             .status_text
             .contains("runtime_configured=uc1@14:36=clear:is1@12:34=0:ls1@13:35=0"));
         assert!(hud.status_text.contains(":mg1@18:40=len5:"));
+        assert!(hud.status_text.contains(":ct1@19:41=5:"));
+        assert!(hud.status_text.contains(":il1@20:42=11223344:"));
     }
 
     #[test]

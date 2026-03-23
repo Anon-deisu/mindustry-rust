@@ -100,6 +100,9 @@ const BLOCK_NAME_DOOR_LARGE: &str = "door-large";
 const BLOCK_NAME_MESSAGE: &str = "message";
 const BLOCK_NAME_REINFORCED_MESSAGE: &str = "reinforced-message";
 const BLOCK_NAME_WORLD_MESSAGE: &str = "world-message";
+const BLOCK_NAME_CONSTRUCTOR: &str = "constructor";
+const BLOCK_NAME_LARGE_CONSTRUCTOR: &str = "large-constructor";
+const BLOCK_NAME_ILLUMINATOR: &str = "illuminator";
 const BLOCK_NAME_UNLOADER: &str = "unloader";
 const BLOCK_NAME_DUCT_UNLOADER: &str = "duct-unloader";
 const BLOCK_NAME_DUCT_ROUTER: &str = "duct-router";
@@ -1945,6 +1948,26 @@ impl ClientSession {
                     self.state
                         .configured_block_projection
                         .apply_message_text(build_pos, text);
+                    ConfiguredBlockOutcome::Applied
+                } else {
+                    ConfiguredBlockOutcome::RejectedUnsupportedConfigType
+                }
+            }
+            BLOCK_NAME_CONSTRUCTOR | BLOCK_NAME_LARGE_CONSTRUCTOR => {
+                if let Some(block_id) = configured_block_id(config_object) {
+                    self.state
+                        .configured_block_projection
+                        .apply_constructor_recipe_block(build_pos, block_id);
+                    ConfiguredBlockOutcome::Applied
+                } else {
+                    ConfiguredBlockOutcome::RejectedUnsupportedConfigType
+                }
+            }
+            BLOCK_NAME_ILLUMINATOR => {
+                if let Some(color) = configured_int(config_object) {
+                    self.state
+                        .configured_block_projection
+                        .apply_light_color(build_pos, color);
                     ConfiguredBlockOutcome::Applied
                 } else {
                     ConfiguredBlockOutcome::RejectedUnsupportedConfigType
@@ -7900,6 +7923,17 @@ fn configured_liquid_id(config_object: &TypeIoObject) -> Option<Option<i16>> {
     }
 }
 
+fn configured_block_id(config_object: &TypeIoObject) -> Option<Option<i16>> {
+    match config_object {
+        TypeIoObject::Null => Some(None),
+        TypeIoObject::ContentRaw {
+            content_type,
+            content_id,
+        } if *content_type == BLOCK_CONTENT_TYPE => Some((*content_id >= 0).then_some(*content_id)),
+        _ => None,
+    }
+}
+
 fn configured_bool(config_object: &TypeIoObject) -> Option<Option<bool>> {
     match config_object {
         TypeIoObject::Null => Some(None),
@@ -7920,6 +7954,13 @@ fn configured_link_build_pos(build_pos: i32, config_object: &TypeIoObject) -> Op
                 i32::from(tile_y) + *y,
             )))
         }
+        _ => None,
+    }
+}
+
+fn configured_int(config_object: &TypeIoObject) -> Option<i32> {
+    match config_object {
+        TypeIoObject::Int(value) => Some(*value),
         _ => None,
     }
 }
@@ -21569,6 +21610,113 @@ mod tests {
                 .message_text_by_build_pos
                 .get(&build_pos),
             Some(&applied_text)
+        );
+    }
+
+    #[test]
+    fn constructor_config_business_dispatch_applies_block_and_clear() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let recipe_block_id =
+            loaded_world_content_id_for_name(&session, BLOCK_CONTENT_TYPE, "copper-wall");
+
+        for (build_pos, block_name) in [
+            (pack_point2(40, 62), BLOCK_NAME_CONSTRUCTOR),
+            (pack_point2(41, 63), BLOCK_NAME_LARGE_CONSTRUCTOR),
+        ] {
+            let block_id = loaded_world_block_id_for_name(&session, block_name);
+            ingest_construct_finish_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                block_id,
+                &TypeIoObject::ContentRaw {
+                    content_type: BLOCK_CONTENT_TYPE,
+                    content_id: recipe_block_id,
+                },
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .constructor_recipe_block_by_build_pos
+                    .get(&build_pos),
+                Some(&Some(recipe_block_id))
+            );
+
+            ingest_tile_config_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                &TypeIoObject::Null,
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .constructor_recipe_block_by_build_pos
+                    .get(&build_pos),
+                Some(&None)
+            );
+        }
+    }
+
+    #[test]
+    fn illuminator_config_business_dispatch_applies_color_and_rejects_null() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(42, 64);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_ILLUMINATOR);
+
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+            &TypeIoObject::Int(0x11223344),
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .light_color_by_build_pos
+                .get(&build_pos),
+            Some(&0x11223344)
+        );
+
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &TypeIoObject::Int(0x55667788),
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .light_color_by_build_pos
+                .get(&build_pos),
+            Some(&0x55667788)
+        );
+
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &TypeIoObject::Null,
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_configured_block_outcome,
+            Some(crate::session_state::ConfiguredBlockOutcome::RejectedUnsupportedConfigType)
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .light_color_by_build_pos
+                .get(&build_pos),
+            Some(&0x55667788)
         );
     }
 

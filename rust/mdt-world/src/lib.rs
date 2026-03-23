@@ -14593,6 +14593,11 @@ pub struct LandingPadTailSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MessageTailSnapshot {
+    pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParsedBuildingTail {
     Empty,
     Conveyor(ConveyorTailSnapshot),
@@ -14621,6 +14626,7 @@ pub enum ParsedBuildingTail {
     ThreeF32(ThreeF32TailSnapshot),
     FiveF32(FiveF32TailSnapshot),
     LandingPad(LandingPadTailSnapshot),
+    Message(MessageTailSnapshot),
     Unknown,
 }
 
@@ -14908,6 +14914,7 @@ fn building_tail_kind(parsed_tail: &ParsedBuildingTail) -> &'static str {
         ParsedBuildingTail::ThreeF32(_) => "threeF32",
         ParsedBuildingTail::FiveF32(_) => "fiveF32",
         ParsedBuildingTail::LandingPad(_) => "landingPad",
+        ParsedBuildingTail::Message(_) => "message",
         ParsedBuildingTail::Unknown => "unknown",
     }
 }
@@ -23523,6 +23530,9 @@ fn parse_building_tail_with_context(
         Some("landing-pad") => Ok(ParsedBuildingTail::LandingPad(
             parse_landing_pad_tail_snapshot(revision, tail_bytes)?,
         )),
+        Some("message") | Some("reinforced-message") | Some("world-message") => Ok(
+            ParsedBuildingTail::Message(parse_message_tail_snapshot(tail_bytes)?),
+        ),
         Some("tank-assembler") | Some("ship-assembler") | Some("mech-assembler") => {
             Ok(ParsedBuildingTail::UnitAssembler(
                 parse_unit_assembler_tail_snapshot(content_header, revision, tail_bytes)?,
@@ -24453,6 +24463,18 @@ fn parse_payload_seq_snapshot(reader: &mut Reader<'_>) -> Result<PayloadSeqSnaps
     })
 }
 
+fn parse_message_tail_snapshot(tail_bytes: &[u8]) -> Result<MessageTailSnapshot, String> {
+    let mut reader = Reader::new(tail_bytes);
+    let message = reader.read_java_utf()?;
+    if !reader.remaining_bytes().is_empty() {
+        return Err(format!(
+            "unexpected message tail remainder: {} bytes",
+            reader.remaining_bytes().len()
+        ));
+    }
+    Ok(MessageTailSnapshot { message })
+}
+
 fn parse_unit_assembler_tail_snapshot(
     content_header: &[ContentHeaderEntry],
     revision: u8,
@@ -25329,6 +25351,7 @@ pub fn format_world_model_goldens(model: &WorldModel) -> String {
                 ParsedBuildingTail::ThreeF32(_) => "threeF32",
                 ParsedBuildingTail::FiveF32(_) => "fiveF32",
                 ParsedBuildingTail::LandingPad(_) => "landingPad",
+                ParsedBuildingTail::Message(_) => "message",
                 ParsedBuildingTail::Unknown => "unknown",
             },
         );
@@ -26052,6 +26075,24 @@ pub fn format_world_model_goldens(model: &WorldModel) -> String {
                     &mut lines,
                     &format!("{prefix}.tail.landingPad.liquidRemoved"),
                     &format!("{:08x}", landing_pad.liquid_removed_bits),
+                );
+            }
+            ParsedBuildingTail::Message(message) => {
+                push_hex(
+                    &mut lines,
+                    &format!("{prefix}.tail.message.byteLength"),
+                    message.message.len() as u32,
+                    8,
+                );
+                push_str(
+                    &mut lines,
+                    &format!("{prefix}.tail.message.sha256"),
+                    &sha256_hex(message.message.as_bytes()),
+                );
+                push_str(
+                    &mut lines,
+                    &format!("{prefix}.tail.message.textEscaped"),
+                    &message.message.escape_default().to_string(),
                 );
             }
             ParsedBuildingTail::NullableItemRef(item_ref) => {
@@ -37371,6 +37412,22 @@ mod tests {
         }
     }
 
+    fn encode_legacy_building_chunk(tail_bytes: &[u8]) -> Vec<u8> {
+        let mut chunk = Vec::new();
+        chunk.push(1);
+        chunk.extend_from_slice(&1.0f32.to_bits().to_be_bytes());
+        chunk.push(0);
+        chunk.push(1);
+        chunk.extend_from_slice(tail_bytes);
+        chunk
+    }
+
+    fn encode_message_tail_bytes(message: &str) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        write_java_utf(&mut bytes, message).expect("message tail should fit java utf encoding");
+        bytes
+    }
+
     #[test]
     fn parses_known_world_stream() {
         let compressed = sample_world_stream_bytes();
@@ -37420,6 +37477,44 @@ mod tests {
     fn parses_unknown_building_tail_for_unmapped_block_name() {
         let parsed = parse_building_tail(Some("not-a-known-block"), 1, &[0x2a]).unwrap();
         assert!(matches!(parsed, ParsedBuildingTail::Unknown));
+    }
+
+    #[test]
+    fn parses_message_building_tails() {
+        let message = "line 1\nline 2";
+        let tail_bytes = encode_message_tail_bytes(message);
+
+        for block_name in ["message", "reinforced-message", "world-message"] {
+            let parsed = parse_building_tail(Some(block_name), 1, &tail_bytes).unwrap();
+            assert_eq!(
+                parsed,
+                ParsedBuildingTail::Message(MessageTailSnapshot {
+                    message: message.to_string(),
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn parses_message_building_snapshots_from_world_chunks() {
+        let message = "sector briefing";
+        let tail_bytes = encode_message_tail_bytes(message);
+        let chunk = encode_legacy_building_chunk(&tail_bytes);
+
+        for block_name in ["message", "reinforced-message", "world-message"] {
+            let snapshot = parse_building_snapshot(&[], Some(block_name), &chunk).unwrap();
+            assert_eq!(snapshot.revision, 1);
+            assert_eq!(snapshot.base.health_bits, 1.0f32.to_bits());
+            assert_eq!(snapshot.base.rotation, 0);
+            assert_eq!(snapshot.base.team_id, 1);
+            assert_eq!(snapshot.tail_bytes, tail_bytes);
+            assert_eq!(
+                snapshot.parsed_tail,
+                ParsedBuildingTail::Message(MessageTailSnapshot {
+                    message: message.to_string(),
+                })
+            );
+        }
     }
 
     #[test]
