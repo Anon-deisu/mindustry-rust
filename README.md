@@ -1,23 +1,63 @@
 # mindustry-rust
 
-Tracked delivery repository for the Rust Mindustry client work.
+这是一个 Rust 版 Mindustry 客户端项目仓库。
 
-Current delivery scope:
+目前仓库的主要作用，是提供这个项目的可追踪交付内容、运行脚本、测试资源和阶段性实现结果。  
+如果你只是想了解项目是什么、现在能不能用、应该先看哪里，这份 README 就是给你准备的。
 
-- Rust minimal compatibility client
-- release/runtime fixtures under `fixtures/...`
-- Rust-consumed parity fixtures kept under `tests/src/test/resources/...`
-- not a claim of full Java desktop parity
+## 这是什么
 
-Primary entry points:
+`mindustry-rust` 的目标，是把 Mindustry 的客户端能力逐步迁移到 Rust 实现中。
 
-- `tools/README.md`
-- `tools/WINDOWS-RELEASE.md`
-- `tools/MINDUSTRY-RUST-HANDOFF.md`
-- `tools/get-mindustry-rust-target.ps1`
+当前仓库已经包含：
 
-Repository policy:
+- Rust 最小兼容客户端相关代码
+- 运行和发布时需要用到的脚本与资源
+- 用于校验兼容性的测试与样例数据
 
-- this repository is the tracked upload target
-- detailed release and handoff rules live under `tools/`
-- only if you also maintain an upstream source workspace: run the handoff sync helper there with an explicit source root or configured `mdt.targetcheckout`; in this target repo it is normally not a self-update command
+## 当前状态
+
+这个项目还在持续推进中。
+
+现阶段更适合把它理解为：
+
+- 已经可以持续交付和跟踪的 Rust 客户端工程
+- 正在逐步补齐与原版 Mindustry 的功能一致性
+- 还**不是**“已经完全等同于原版 Java 桌面客户端”的最终成品
+
+如果你希望直接使用，请先按文档说明确认当前可运行范围，不要默认它已经覆盖原版全部功能。
+
+## 快速开始
+
+如果你是普通使用者，建议按这个顺序看：
+
+1. 先看 [`tools/README.md`](tools/README.md)
+2. 如果你在 Windows 上使用，重点看 [`tools/WINDOWS-RELEASE.md`](tools/WINDOWS-RELEASE.md)
+3. 如果你需要了解当前交付目标、同步方式或仓库用途，再看 [`tools/MINDUSTRY-RUST-HANDOFF.md`](tools/MINDUSTRY-RUST-HANDOFF.md)
+
+## 仓库里这些目录是做什么的
+
+- `tools/`
+  运行、打包、发布、检查环境时最常用的脚本和说明文档。
+- `rust/`
+  Rust 侧的主要实现代码。
+- `fixtures/`
+  运行、测试或交付过程中会用到的资源与样例数据。
+- `tests/`
+  测试代码和测试资源。
+- `core/`
+  当前项目中保留和使用的核心部分。
+- `audit/`
+  审计记录、阶段性结论和跟踪文档。
+- `build/`
+  构建过程相关目录。
+
+## 适合谁看
+
+- 想直接上手运行的人：先看 `tools/`
+- 想了解 Rust 实现进展的人：看 `rust/` 和 `audit/`
+- 想跟踪阶段性交付内容的人：看仓库提交记录和 `tools/` 文档
+
+## 说明
+
+这个仓库会持续更新。README 会尽量保持面向使用者，但某些更细的发布规则、测试要求和交付约束，仍然会放在 `tools/` 或审计文档里。
