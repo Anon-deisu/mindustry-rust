@@ -487,6 +487,7 @@ pub struct ConfiguredBlockProjection {
     pub liquid_source_liquid_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub sorter_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub inverted_sorter_item_by_build_pos: BTreeMap<i32, Option<i16>>,
+    pub switch_enabled_by_build_pos: BTreeMap<i32, Option<bool>>,
     pub unloader_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub duct_unloader_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub duct_router_item_by_build_pos: BTreeMap<i32, Option<i16>>,
@@ -517,6 +518,10 @@ impl ConfiguredBlockProjection {
             .insert(build_pos, item_id);
     }
 
+    pub fn apply_switch_enabled(&mut self, build_pos: i32, enabled: Option<bool>) {
+        self.switch_enabled_by_build_pos.insert(build_pos, enabled);
+    }
+
     pub fn apply_unloader_item(&mut self, build_pos: i32, item_id: Option<i16>) {
         self.unloader_item_by_build_pos.insert(build_pos, item_id);
     }
@@ -537,6 +542,7 @@ impl ConfiguredBlockProjection {
         self.liquid_source_liquid_by_build_pos.remove(&build_pos);
         self.sorter_item_by_build_pos.remove(&build_pos);
         self.inverted_sorter_item_by_build_pos.remove(&build_pos);
+        self.switch_enabled_by_build_pos.remove(&build_pos);
         self.unloader_item_by_build_pos.remove(&build_pos);
         self.duct_unloader_item_by_build_pos.remove(&build_pos);
         self.duct_router_item_by_build_pos.remove(&build_pos);
@@ -574,6 +580,7 @@ pub struct BuildingProjection {
     pub efficiency: Option<u8>,
     pub optional_efficiency: Option<u8>,
     pub visible_flags: Option<u64>,
+    pub build_turret_rotation_bits: Option<u32>,
     pub build_turret_plans_present: Option<bool>,
     pub build_turret_plan_count: Option<u16>,
     pub last_update: BuildingProjectionUpdateKind,
@@ -606,6 +613,7 @@ pub struct BuildingTableProjection {
     pub last_efficiency: Option<u8>,
     pub last_optional_efficiency: Option<u8>,
     pub last_visible_flags: Option<u64>,
+    pub last_build_turret_rotation_bits: Option<u32>,
     pub last_build_turret_plans_present: Option<bool>,
     pub last_build_turret_plan_count: Option<u16>,
     pub last_update: Option<BuildingProjectionUpdateKind>,
@@ -684,6 +692,9 @@ impl BuildingTableProjection {
                         .as_ref()
                         .and_then(|building| building.visible_flags)
                 }),
+                build_turret_rotation_bits: previous
+                    .as_ref()
+                    .and_then(|building| building.build_turret_rotation_bits),
                 build_turret_plans_present: previous
                     .as_ref()
                     .and_then(|building| building.build_turret_plans_present),
@@ -720,6 +731,7 @@ impl BuildingTableProjection {
         efficiency: Option<u8>,
         optional_efficiency: Option<u8>,
         visible_flags: Option<u64>,
+        build_turret_rotation_bits: Option<u32>,
         build_turret_plans_present: Option<bool>,
         build_turret_plan_count: Option<u16>,
     ) {
@@ -755,6 +767,7 @@ impl BuildingTableProjection {
             self.last_efficiency = efficiency;
             self.last_optional_efficiency = optional_efficiency;
             self.last_visible_flags = visible_flags;
+            self.last_build_turret_rotation_bits = build_turret_rotation_bits;
             self.last_build_turret_plans_present = build_turret_plans_present;
             self.last_build_turret_plan_count = build_turret_plan_count;
             self.last_removed = false;
@@ -814,6 +827,11 @@ impl BuildingTableProjection {
                     previous
                         .as_ref()
                         .and_then(|building| building.visible_flags)
+                }),
+                build_turret_rotation_bits: build_turret_rotation_bits.or_else(|| {
+                    previous
+                        .as_ref()
+                        .and_then(|building| building.build_turret_rotation_bits)
                 }),
                 build_turret_plans_present: build_turret_plans_present.or_else(|| {
                     previous
@@ -881,6 +899,9 @@ impl BuildingTableProjection {
                 visible_flags: previous
                     .as_ref()
                     .and_then(|building| building.visible_flags),
+                build_turret_rotation_bits: previous
+                    .as_ref()
+                    .and_then(|building| building.build_turret_rotation_bits),
                 build_turret_plans_present: previous
                     .as_ref()
                     .and_then(|building| building.build_turret_plans_present),
@@ -934,6 +955,9 @@ impl BuildingTableProjection {
                 visible_flags: previous
                     .as_ref()
                     .and_then(|building| building.visible_flags),
+                build_turret_rotation_bits: previous
+                    .as_ref()
+                    .and_then(|building| building.build_turret_rotation_bits),
                 build_turret_plans_present: previous
                     .as_ref()
                     .and_then(|building| building.build_turret_plans_present),
@@ -1001,6 +1025,9 @@ impl BuildingTableProjection {
                 visible_flags: previous
                     .as_ref()
                     .and_then(|building| building.visible_flags),
+                build_turret_rotation_bits: previous
+                    .as_ref()
+                    .and_then(|building| building.build_turret_rotation_bits),
                 build_turret_plans_present: previous
                     .as_ref()
                     .and_then(|building| building.build_turret_plans_present),
@@ -1052,6 +1079,8 @@ impl BuildingTableProjection {
         self.last_efficiency = building.and_then(|building| building.efficiency);
         self.last_optional_efficiency = building.and_then(|building| building.optional_efficiency);
         self.last_visible_flags = building.and_then(|building| building.visible_flags);
+        self.last_build_turret_rotation_bits =
+            building.and_then(|building| building.build_turret_rotation_bits);
         self.last_build_turret_plans_present =
             building.and_then(|building| building.build_turret_plans_present);
         self.last_build_turret_plan_count =
@@ -1086,6 +1115,8 @@ impl BuildingTableProjection {
         self.last_efficiency = previous.and_then(|building| building.efficiency);
         self.last_optional_efficiency = previous.and_then(|building| building.optional_efficiency);
         self.last_visible_flags = previous.and_then(|building| building.visible_flags);
+        self.last_build_turret_rotation_bits =
+            previous.and_then(|building| building.build_turret_rotation_bits);
         self.last_build_turret_plans_present =
             previous.and_then(|building| building.build_turret_plans_present);
         self.last_build_turret_plan_count =
@@ -2184,6 +2215,10 @@ pub struct SessionState {
     pub last_set_liquids_count: usize,
     pub last_set_liquids_first_liquid_id: Option<i16>,
     pub last_set_liquids_first_amount_bits: Option<u32>,
+    pub received_clear_items_count: u64,
+    pub last_clear_items_build_pos: Option<i32>,
+    pub received_clear_liquids_count: u64,
+    pub last_clear_liquids_build_pos: Option<i32>,
     pub received_set_floor_count: u64,
     pub last_set_floor_tile_pos: Option<i32>,
     pub last_set_floor_floor_id: Option<i16>,
@@ -2588,18 +2623,25 @@ mod tests {
             Some(0x40),
             Some(0x20),
             Some(99),
+            Some(0x4260_0000),
             Some(true),
             Some(7),
         );
 
         let building = table.by_build_pos.get(&build_pos).unwrap();
+        assert_eq!(building.build_turret_rotation_bits, Some(0x4260_0000));
         assert_eq!(building.build_turret_plans_present, Some(true));
         assert_eq!(building.build_turret_plan_count, Some(7));
+        assert_eq!(table.last_build_turret_rotation_bits, Some(0x4260_0000));
         assert_eq!(table.last_build_turret_plans_present, Some(true));
         assert_eq!(table.last_build_turret_plan_count, Some(7));
 
         table.apply_construct_finish(build_pos, Some(300), 1, 2, TypeIoObject::Int(9));
         let building_after_construct = table.by_build_pos.get(&build_pos).unwrap();
+        assert_eq!(
+            building_after_construct.build_turret_rotation_bits,
+            Some(0x4260_0000)
+        );
         assert_eq!(
             building_after_construct.build_turret_plans_present,
             Some(true)

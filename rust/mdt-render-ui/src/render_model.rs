@@ -35,6 +35,7 @@ pub struct RenderObject {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RenderObjectSemanticKind {
     Player,
+    Runtime,
     Marker,
     Plan,
     Block,
@@ -50,6 +51,14 @@ impl RenderObject {
 
 impl RenderObjectSemanticKind {
     pub fn from_id(id: &str) -> Self {
+        if id
+            .split(':')
+            .nth(1)
+            .is_some_and(|segment| segment.starts_with("runtime"))
+        {
+            return Self::Runtime;
+        }
+
         let prefix = id.split_once(':').map(|(head, _)| head).unwrap_or(id);
         match prefix {
             "player" | "unit" => Self::Player,
@@ -75,6 +84,18 @@ mod tests {
         assert_eq!(
             RenderObjectSemanticKind::from_id("unit:7"),
             RenderObjectSemanticKind::Player
+        );
+        assert_eq!(
+            RenderObjectSemanticKind::from_id("marker:runtime-config:3:2:string"),
+            RenderObjectSemanticKind::Runtime
+        );
+        assert_eq!(
+            RenderObjectSemanticKind::from_id("block:runtime-building:12:6:258"),
+            RenderObjectSemanticKind::Runtime
+        );
+        assert_eq!(
+            RenderObjectSemanticKind::from_id("terrain:runtime-deconstruct:9:4"),
+            RenderObjectSemanticKind::Runtime
         );
         assert_eq!(
             RenderObjectSemanticKind::from_id("marker:1"),
@@ -123,5 +144,13 @@ mod tests {
             y: 0.0,
         };
         assert_eq!(marker.semantic_kind(), RenderObjectSemanticKind::Marker);
+
+        let runtime_marker = RenderObject {
+            id: "marker:runtime-health:1:2".to_string(),
+            layer: 30,
+            x: 0.0,
+            y: 0.0,
+        };
+        assert_eq!(runtime_marker.semantic_kind(), RenderObjectSemanticKind::Runtime);
     }
 }

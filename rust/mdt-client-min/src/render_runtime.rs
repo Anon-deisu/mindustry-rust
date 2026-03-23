@@ -857,7 +857,7 @@ fn runtime_building_table_label(projection: &BuildingTableProjection) -> String 
         .map(|block_id| block_id.to_string())
         .unwrap_or_else(|| "none".to_string());
     format!(
-        "{}:b{}:c{}:{}@{}#{}:rm{}:on{}:e{}:oe{}:v{}:m{}:vf{}",
+        "{}:b{}:c{}:{}@{}#{}:rm{}:on{}:e{}:oe{}:v{}:m{}:vf{}:trb{}",
         projection.by_build_pos.len(),
         projection.block_known_count,
         projection.configured_count,
@@ -880,6 +880,10 @@ fn runtime_building_table_label(projection: &BuildingTableProjection) -> String 
             .last_visible_flags
             .map(|flags| flags.to_string())
             .unwrap_or_else(|| "-1".to_string()),
+        projection
+            .last_build_turret_rotation_bits
+            .map(|bits| format!("0x{bits:08x}"))
+            .unwrap_or_else(|| "none".to_string()),
     )
 }
 
@@ -1522,7 +1526,7 @@ fn runtime_unit_lifecycle_label(session_state: &SessionState) -> String {
 
 fn runtime_resource_delta_label(session_state: &SessionState) -> String {
     format!(
-        "rmt{}:st{}:sf{}:so{}:seti{}:setis{}:setl{}:setls{}:sti{}:stl{}",
+        "rmt{}:st{}:sf{}:so{}:seti{}:setis{}:setl{}:setls{}:cli{}:cll{}:sti{}:stl{}",
         session_state.received_remove_tile_count,
         session_state.received_set_tile_count,
         session_state.received_set_floor_count,
@@ -1531,6 +1535,8 @@ fn runtime_resource_delta_label(session_state: &SessionState) -> String {
         session_state.received_set_items_count,
         session_state.received_set_liquid_count,
         session_state.received_set_liquids_count,
+        session_state.received_clear_items_count,
+        session_state.received_clear_liquids_count,
         session_state.received_set_tile_items_count,
         session_state.received_set_tile_liquids_count,
     )
@@ -2441,6 +2447,7 @@ mod tests {
                 efficiency: Some(0x80),
                 optional_efficiency: Some(0x40),
                 visible_flags: None,
+                build_turret_rotation_bits: None,
                 build_turret_plans_present: None,
                 build_turret_plan_count: None,
                 last_update: crate::session_state::BuildingProjectionUpdateKind::ConstructFinish,
@@ -3129,6 +3136,8 @@ mod tests {
         state.received_set_items_count = 23;
         state.received_set_liquid_count = 24;
         state.received_set_liquids_count = 25;
+        state.received_clear_items_count = 84;
+        state.received_clear_liquids_count = 85;
         state.received_set_tile_items_count = 26;
         state.received_set_tile_liquids_count = 27;
         state.received_remove_tile_count = 80;
@@ -3217,6 +3226,7 @@ mod tests {
                     efficiency: Some(0x80),
                     optional_efficiency: Some(0x40),
                     visible_flags: None,
+                    build_turret_rotation_bits: Some(0x4210_0000),
                     build_turret_plans_present: None,
                     build_turret_plan_count: None,
                     last_update: crate::session_state::BuildingProjectionUpdateKind::TileConfig,
@@ -3246,6 +3256,7 @@ mod tests {
             last_efficiency: Some(0x80),
             last_optional_efficiency: Some(0x40),
             last_visible_flags: None,
+            last_build_turret_rotation_bits: Some(0x4210_0000),
             last_build_turret_plans_present: None,
             last_build_turret_plan_count: None,
             last_update: Some(crate::session_state::BuildingProjectionUpdateKind::TileConfig),
@@ -3284,6 +3295,7 @@ mod tests {
         assert!(hud
             .status_text
             .contains("runtime_buildings=1:b1:c1:config@100:99#301:rm0:on1:e128:oe64"));
+        assert!(hud.status_text.contains(":trb0x42100000"));
         assert!(hud
             .status_text
             .contains("runtime_block=1x39@100:99#301:r0:t1:v3:on1:e0:oe0"));
@@ -3409,7 +3421,7 @@ mod tests {
             pack_runtime_point2(9, 10),
         )));
         assert!(hud.status_text.contains(
-            "runtime_resource_delta=rmt80:st81:sf82:so83:seti22:setis23:setl24:setls25:sti26:stl27"
+            "runtime_resource_delta=rmt80:st81:sf82:so83:seti22:setis23:setl24:setls25:cli84:cll85:sti26:stl27"
         ));
         assert!(hud
             .status_text

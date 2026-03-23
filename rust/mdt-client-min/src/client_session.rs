@@ -88,6 +88,8 @@ const BLOCK_NAME_ITEM_SOURCE: &str = "item-source";
 const BLOCK_NAME_LIQUID_SOURCE: &str = "liquid-source";
 const BLOCK_NAME_SORTER: &str = "sorter";
 const BLOCK_NAME_INVERTED_SORTER: &str = "inverted-sorter";
+const BLOCK_NAME_SWITCH: &str = "switch";
+const BLOCK_NAME_WORLD_SWITCH: &str = "world-switch";
 const BLOCK_NAME_UNLOADER: &str = "unloader";
 const BLOCK_NAME_DUCT_UNLOADER: &str = "duct-unloader";
 const BLOCK_NAME_DUCT_ROUTER: &str = "duct-router";
@@ -1855,6 +1857,13 @@ impl ClientSession {
                         .apply_inverted_sorter_item(build_pos, item_id);
                 }
             }
+            BLOCK_NAME_SWITCH | BLOCK_NAME_WORLD_SWITCH => {
+                if let Some(enabled) = configured_bool(config_object) {
+                    self.state
+                        .configured_block_projection
+                        .apply_switch_enabled(build_pos, enabled);
+                }
+            }
             BLOCK_NAME_UNLOADER => {
                 if let Some(item_id) = configured_item_id(config_object) {
                     self.state
@@ -3507,6 +3516,32 @@ impl ClientSession {
                         .saturating_add(1);
                     self.state.last_transfer_inventory_build_pos = build_pos;
                     Ok(ClientSessionEvent::TransferInventory { build_pos })
+                } else {
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
+            packet_id if Some(packet_id) == self.clear_items_packet_id => {
+                if let Some(build_pos) = decode_clear_items_payload(&packet.payload) {
+                    self.state.received_clear_items_count =
+                        self.state.received_clear_items_count.saturating_add(1);
+                    self.state.last_clear_items_build_pos = build_pos;
+                    Ok(ClientSessionEvent::ClearItems { build_pos })
+                } else {
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
+            packet_id if Some(packet_id) == self.clear_liquids_packet_id => {
+                if let Some(build_pos) = decode_clear_liquids_payload(&packet.payload) {
+                    self.state.received_clear_liquids_count =
+                        self.state.received_clear_liquids_count.saturating_add(1);
+                    self.state.last_clear_liquids_build_pos = build_pos;
+                    Ok(ClientSessionEvent::ClearLiquids { build_pos })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
                         packet_id: packet.packet_id,
@@ -6102,8 +6137,11 @@ impl ClientSession {
                 }
             };
             data_cursor = data_cursor.saturating_add(consumed);
-            let (build_turret_plans_present, build_turret_plan_count) =
-                summarize_build_turret_plan_fields(&building.parsed_tail);
+            let (
+                build_turret_rotation_bits,
+                build_turret_plans_present,
+                build_turret_plan_count,
+            ) = summarize_build_turret_tail_fields(&building.parsed_tail);
 
             let entry = BlockSnapshotExtraEntrySummary {
                 build_pos,
@@ -6121,6 +6159,7 @@ impl ClientSession {
                 efficiency: building.base.efficiency,
                 optional_efficiency: building.base.optional_efficiency,
                 visible_flags: building.base.visible_flags,
+                build_turret_rotation_bits,
                 build_turret_plans_present,
                 build_turret_plan_count,
             };
@@ -6160,6 +6199,7 @@ impl ClientSession {
                     entry.efficiency,
                     entry.optional_efficiency,
                     entry.visible_flags,
+                    entry.build_turret_rotation_bits,
                     entry.build_turret_plans_present,
                     entry.build_turret_plan_count,
                 );
@@ -6878,6 +6918,12 @@ pub enum ClientSessionEvent {
     TransferInventory {
         build_pos: Option<i32>,
     },
+    ClearItems {
+        build_pos: Option<i32>,
+    },
+    ClearLiquids {
+        build_pos: Option<i32>,
+    },
     RotateBlock {
         build_pos: Option<i32>,
         direction: bool,
@@ -7591,6 +7637,14 @@ fn configured_liquid_id(config_object: &TypeIoObject) -> Option<Option<i16>> {
     }
 }
 
+fn configured_bool(config_object: &TypeIoObject) -> Option<Option<bool>> {
+    match config_object {
+        TypeIoObject::Null => Some(None),
+        TypeIoObject::Bool(value) => Some(Some(*value)),
+        _ => None,
+    }
+}
+
 fn decode_optional_typeio_string_payload(payload: &[u8]) -> Option<Option<String>> {
     let mut cursor = 0usize;
     let value = read_typeio_string_at(payload, &mut cursor)?;
@@ -8132,6 +8186,18 @@ fn decode_rotate_block_payload(payload: &[u8]) -> Option<(Option<i32>, bool)> {
 }
 
 fn decode_request_build_payload_payload(payload: &[u8]) -> Option<Option<i32>> {
+    decode_with_optional_server_player_prefix(payload, 4, |payload, cursor| {
+        read_optional_build_pos(payload, cursor)
+    })
+}
+
+fn decode_clear_items_payload(payload: &[u8]) -> Option<Option<i32>> {
+    decode_with_optional_server_player_prefix(payload, 4, |payload, cursor| {
+        read_optional_build_pos(payload, cursor)
+    })
+}
+
+fn decode_clear_liquids_payload(payload: &[u8]) -> Option<Option<i32>> {
     decode_with_optional_server_player_prefix(payload, 4, |payload, cursor| {
         read_optional_build_pos(payload, cursor)
     })
@@ -9435,19 +9501,21 @@ struct BlockSnapshotExtraEntrySummary {
     efficiency: Option<u8>,
     optional_efficiency: Option<u8>,
     visible_flags: Option<u64>,
+    build_turret_rotation_bits: Option<u32>,
     build_turret_plans_present: Option<bool>,
     build_turret_plan_count: Option<u16>,
 }
 
-fn summarize_build_turret_plan_fields(
+fn summarize_build_turret_tail_fields(
     parsed_tail: &mdt_world::ParsedBuildingTail,
-) -> (Option<bool>, Option<u16>) {
+) -> (Option<u32>, Option<bool>, Option<u16>) {
     match parsed_tail {
         mdt_world::ParsedBuildingTail::BuildTurret(turret) => (
+            Some(turret.rotation_bits),
             Some(turret.plans_present),
             u16::try_from(turret.plan_count).ok(),
         ),
-        _ => (None, None),
+        _ => (None, None, None),
     }
 }
 
@@ -14956,38 +15024,38 @@ mod tests {
     }
 
     #[test]
-    fn summarize_build_turret_plan_fields_extracts_presence_and_uses_safe_count_conversion() {
+    fn summarize_build_turret_tail_fields_extracts_rotation_presence_and_safe_count_conversion() {
         let tail = mdt_world::ParsedBuildingTail::BuildTurret(mdt_world::BuildTurretTailSnapshot {
-            rotation_bits: 0,
+            rotation_bits: 0x4234_0000,
             plans_present: true,
             plan_count: 2,
             plans: Vec::new(),
         });
         assert_eq!(
-            summarize_build_turret_plan_fields(&tail),
-            (Some(true), Some(2))
+            summarize_build_turret_tail_fields(&tail),
+            (Some(0x4234_0000), Some(true), Some(2))
         );
 
         let overflowing_tail =
             mdt_world::ParsedBuildingTail::BuildTurret(mdt_world::BuildTurretTailSnapshot {
-                rotation_bits: 0,
+                rotation_bits: 0x4270_0000,
                 plans_present: true,
                 plan_count: usize::from(u16::MAX).saturating_add(1),
                 plans: Vec::new(),
             });
         assert_eq!(
-            summarize_build_turret_plan_fields(&overflowing_tail),
-            (Some(true), None)
+            summarize_build_turret_tail_fields(&overflowing_tail),
+            (Some(0x4270_0000), Some(true), None)
         );
 
         assert_eq!(
-            summarize_build_turret_plan_fields(&mdt_world::ParsedBuildingTail::Empty),
-            (None, None)
+            summarize_build_turret_tail_fields(&mdt_world::ParsedBuildingTail::Empty),
+            (None, None, None)
         );
     }
 
     #[test]
-    fn apply_loaded_world_block_snapshot_entries_forwards_build_turret_plan_summary() {
+    fn apply_loaded_world_block_snapshot_entries_forwards_build_turret_tail_summary() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
         let build_pos = pack_build_pos_for_block_snapshot_test(2, 3);
@@ -15009,6 +15077,7 @@ mod tests {
                 efficiency: Some(0x40),
                 optional_efficiency: Some(0x20),
                 visible_flags: Some(9),
+                build_turret_rotation_bits: Some(0x4210_0000),
                 build_turret_plans_present: Some(true),
                 build_turret_plan_count: Some(5),
             },
@@ -15020,8 +15089,16 @@ mod tests {
             .by_build_pos
             .get(&build_pos)
             .unwrap();
+        assert_eq!(building.build_turret_rotation_bits, Some(0x4210_0000));
         assert_eq!(building.build_turret_plans_present, Some(true));
         assert_eq!(building.build_turret_plan_count, Some(5));
+        assert_eq!(
+            session
+                .state()
+                .building_table_projection
+                .last_build_turret_rotation_bits,
+            Some(0x4210_0000)
+        );
         assert_eq!(
             session
                 .state()
@@ -18063,6 +18140,18 @@ mod tests {
             .find(|entry| entry.method == "transferInventory")
             .unwrap()
             .packet_id;
+        let clear_items_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "clearItems")
+            .unwrap()
+            .packet_id;
+        let clear_liquids_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "clearLiquids")
+            .unwrap()
+            .packet_id;
         let rotate_block_packet_id = manifest
             .remote_packets
             .iter()
@@ -18212,6 +18301,52 @@ mod tests {
         );
         assert_eq!(session.state().received_transfer_inventory_count, 1);
         assert_eq!(session.state().last_transfer_inventory_build_pos, None);
+
+        let clear_items_build_pos = Some(pack_point2(6, 5));
+        let clear_items_event = session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    clear_items_packet_id,
+                    &encode_player_prefixed_payload(42, &encode_building_payload(clear_items_build_pos)),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            clear_items_event,
+            ClientSessionEvent::ClearItems {
+                build_pos: clear_items_build_pos,
+            }
+        );
+        assert_eq!(session.state().received_clear_items_count, 1);
+        assert_eq!(session.state().last_clear_items_build_pos, clear_items_build_pos);
+
+        let clear_liquids_build_pos = Some(pack_point2(4, 9));
+        let clear_liquids_event = session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    clear_liquids_packet_id,
+                    &encode_player_prefixed_payload(
+                        42,
+                        &encode_building_payload(clear_liquids_build_pos),
+                    ),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            clear_liquids_event,
+            ClientSessionEvent::ClearLiquids {
+                build_pos: clear_liquids_build_pos,
+            }
+        );
+        assert_eq!(session.state().received_clear_liquids_count, 1);
+        assert_eq!(
+            session.state().last_clear_liquids_build_pos,
+            clear_liquids_build_pos
+        );
 
         let rotate_build_pos = Some(pack_point2(7, 8));
         let rotate_event = session
@@ -20542,13 +20677,62 @@ mod tests {
     }
 
     #[test]
+    fn switch_and_world_switch_config_business_dispatch_apply_bool_and_clear() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+
+        for (build_pos, block_name, enabled) in [
+            (pack_point2(18, 40), BLOCK_NAME_SWITCH, true),
+            (pack_point2(19, 41), BLOCK_NAME_WORLD_SWITCH, false),
+        ] {
+            let block_id = loaded_world_block_id_for_name(&session, block_name);
+            ingest_construct_finish_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                block_id,
+                &TypeIoObject::Null,
+            );
+            ingest_tile_config_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                &TypeIoObject::Bool(enabled),
+            );
+
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .switch_enabled_by_build_pos
+                    .get(&build_pos),
+                Some(&Some(enabled))
+            );
+
+            ingest_tile_config_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                &TypeIoObject::Null,
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .switch_enabled_by_build_pos
+                    .get(&build_pos),
+                Some(&None)
+            );
+        }
+    }
+
+    #[test]
     fn unloader_and_duct_unloader_config_business_dispatch_apply_item_and_clear() {
         let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let item_id = loaded_world_content_id_for_name(&session, ITEM_CONTENT_TYPE, "copper");
 
         for (build_pos, block_name) in [
-            (pack_point2(18, 40), BLOCK_NAME_UNLOADER),
-            (pack_point2(19, 41), BLOCK_NAME_DUCT_UNLOADER),
+            (pack_point2(20, 42), BLOCK_NAME_UNLOADER),
+            (pack_point2(21, 43), BLOCK_NAME_DUCT_UNLOADER),
         ] {
             let block_id = loaded_world_block_id_for_name(&session, block_name);
             ingest_construct_finish_for_block_config_test(
@@ -20609,7 +20793,7 @@ mod tests {
     #[test]
     fn duct_router_config_business_dispatch_applies_item_and_clear() {
         let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
-        let build_pos = pack_point2(20, 42);
+        let build_pos = pack_point2(22, 44);
         let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_DUCT_ROUTER);
         let item_id = loaded_world_content_id_for_name(&session, ITEM_CONTENT_TYPE, "copper");
 
@@ -20731,6 +20915,39 @@ mod tests {
             .state()
             .configured_block_projection
             .item_source_item_by_build_pos
+            .contains_key(&build_pos));
+    }
+
+    #[test]
+    fn deconstruct_finish_clears_switch_configured_block_projection_state() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(23, 45);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_SWITCH);
+
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+            &TypeIoObject::Null,
+        );
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &TypeIoObject::Bool(true),
+        );
+        assert!(session
+            .state()
+            .configured_block_projection
+            .switch_enabled_by_build_pos
+            .contains_key(&build_pos));
+
+        ingest_deconstruct_finish_for_block_config_test(&mut session, &manifest, build_pos, block_id);
+        assert!(!session
+            .state()
+            .configured_block_projection
+            .switch_enabled_by_build_pos
             .contains_key(&build_pos));
     }
 

@@ -517,7 +517,10 @@ mod tests {
             .map(|warning| warning.code)
             .collect::<Vec<_>>();
 
-        assert_eq!(warnings, vec![ConnectCompatibilityWarningCode::BuildUnknown]);
+        assert_eq!(
+            warnings,
+            vec![ConnectCompatibilityWarningCode::BuildUnknown]
+        );
     }
 
     #[test]

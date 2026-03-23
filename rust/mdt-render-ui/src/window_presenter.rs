@@ -15,6 +15,7 @@ const COLOR_BLOCK: u32 = 0x6D6D6D;
 const COLOR_PLAN: u32 = 0x00BCD4;
 const COLOR_MARKER: u32 = 0xFFC107;
 const COLOR_PLAYER: u32 = 0x66BB6A;
+const COLOR_RUNTIME: u32 = 0xFF7043;
 const COLOR_UNKNOWN: u32 = 0xEF5350;
 const WINDOW_TARGET_FPS: usize = 60;
 
@@ -410,6 +411,7 @@ fn color_for_object(object: &RenderObject) -> u32 {
 fn color_for_semantic_kind(kind: RenderObjectSemanticKind) -> u32 {
     match kind {
         RenderObjectSemanticKind::Player => COLOR_PLAYER,
+        RenderObjectSemanticKind::Runtime => COLOR_RUNTIME,
         RenderObjectSemanticKind::Marker => COLOR_MARKER,
         RenderObjectSemanticKind::Plan => COLOR_PLAN,
         RenderObjectSemanticKind::Block => COLOR_BLOCK,
@@ -547,7 +549,7 @@ mod tests {
     use super::{
         color_for_object, scale_frame_pixels, BackendSignal, WindowBackend, WindowFrame,
         WindowPresenter, COLOR_BLOCK, COLOR_EMPTY, COLOR_MARKER, COLOR_PLAN, COLOR_PLAYER,
-        COLOR_TERRAIN, COLOR_UNKNOWN,
+        COLOR_RUNTIME, COLOR_TERRAIN, COLOR_UNKNOWN,
     };
     use crate::{
         HudModel, RenderModel, RenderObject, RuntimeHudTextObservability,
@@ -730,6 +732,14 @@ mod tests {
     fn color_for_object_uses_semantic_prefix_mapping() {
         assert_eq!(color_for_object(&render_object("player:7")), COLOR_PLAYER);
         assert_eq!(color_for_object(&render_object("unit:7")), COLOR_PLAYER);
+        assert_eq!(
+            color_for_object(&render_object("marker:runtime-health:1:2")),
+            COLOR_RUNTIME
+        );
+        assert_eq!(
+            color_for_object(&render_object("block:runtime-building:1:2:3")),
+            COLOR_RUNTIME
+        );
         assert_eq!(color_for_object(&render_object("marker:1")), COLOR_MARKER);
         assert_eq!(color_for_object(&render_object("hint:1")), COLOR_MARKER);
         assert_eq!(color_for_object(&render_object("plan:99")), COLOR_PLAN);

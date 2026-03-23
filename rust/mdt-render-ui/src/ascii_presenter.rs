@@ -153,6 +153,7 @@ fn world_to_tile_index_clamped(world_position: f32, bound: usize) -> usize {
 fn sprite_for_id(id: &str) -> char {
     match RenderObjectSemanticKind::from_id(id) {
         RenderObjectSemanticKind::Player => '@',
+        RenderObjectSemanticKind::Runtime => 'R',
         RenderObjectSemanticKind::Marker => 'M',
         RenderObjectSemanticKind::Plan => 'P',
         RenderObjectSemanticKind::Block => '#',
@@ -220,6 +221,12 @@ mod tests {
                     y: 56.0,
                 },
                 RenderObject {
+                    id: "marker:runtime-health:1:2".to_string(),
+                    layer: 35,
+                    x: 48.0,
+                    y: 40.0,
+                },
+                RenderObject {
                     id: "hint:marker".to_string(),
                     layer: 30,
                     x: 40.0,
@@ -253,6 +260,7 @@ mod tests {
         let frame = presenter.last_frame();
         assert!(frame.contains("WINDOW: origin=(4, 4) size=4x4"));
         assert!(frame.contains("@"));
+        assert!(frame.contains("R"));
         assert!(frame.contains("M"));
         assert!(frame.contains("P"));
         assert!(frame.contains("#"));
@@ -302,6 +310,7 @@ mod tests {
     #[test]
     fn sprite_for_id_supports_alias_prefixes() {
         assert_eq!(super::sprite_for_id("unit:1"), '@');
+        assert_eq!(super::sprite_for_id("marker:runtime-health:1:2"), 'R');
         assert_eq!(super::sprite_for_id("hint:1"), 'M');
         assert_eq!(super::sprite_for_id("build-plan:1"), 'P');
         assert_eq!(super::sprite_for_id("building:1:2"), '#');

@@ -1,4 +1,5 @@
 pub mod ascii_presenter;
+pub mod bin_support;
 pub mod hud_model;
 pub mod projection;
 pub mod render_model;
@@ -6,6 +7,7 @@ pub mod scene_present;
 pub mod window_presenter;
 
 pub use ascii_presenter::AsciiScenePresenter;
+pub use bin_support::{decode_hex, read_world_stream_bytes};
 pub use hud_model::{
     HudModel, RuntimeHudTextObservability, RuntimeTextInputObservability,
     RuntimeToastObservability, RuntimeUiObservability,

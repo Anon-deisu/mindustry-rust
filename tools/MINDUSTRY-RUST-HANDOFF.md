@@ -15,6 +15,8 @@ Architecture boundary source of truth:
 
 - `rust/ARCHITECTURE.md` owns crate responsibilities, dependency direction, fixture policy,
   and split-workspace rules
+- `rust/WORKSPACE_RUNBOOK.md` owns day-to-day command entry points for the split workspaces
+- `rust/FIXTURE_PATHS.md` owns canonical-vs-test-vs-mirror fixture path policy
 - this handoff note only owns sync/upload policy
 
 - target repo: `https://github.com/Anon-deisu/mindustry-rust`
@@ -53,6 +55,9 @@ Sync these areas first:
 - `rust/`
   - root workspace `Cargo.toml`
   - root workspace `Cargo.lock`
+  - `ARCHITECTURE.md`
+  - `WORKSPACE_RUNBOOK.md`
+  - `FIXTURE_PATHS.md`
   - crate manifests and `src/` trees for:
     - `mdt-protocol`
     - `mdt-typeio`

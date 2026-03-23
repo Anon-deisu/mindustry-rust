@@ -1,18 +1,12 @@
-use mdt_render_ui::{project_scene_models, AsciiScenePresenter, ScenePresenter};
+use mdt_render_ui::{
+    project_scene_models, read_world_stream_bytes, AsciiScenePresenter, ScenePresenter,
+};
 use mdt_world::parse_world_bundle;
-use std::fs;
 use std::path::PathBuf;
 
 fn main() -> Result<(), String> {
     let args = parse_args(std::env::args().skip(1))?;
-    let world_stream = match args.world_stream_hex {
-        Some(path) => fs::read_to_string(path).map_err(|err| err.to_string())?,
-        None => {
-            include_str!("../../../../fixtures/world-streams/archipelago-6567-world-stream.hex")
-                .to_string()
-        }
-    };
-    let bytes = decode_hex(&world_stream)?;
+    let bytes = read_world_stream_bytes(args.world_stream_hex.as_deref())?;
     let bundle = parse_world_bundle(&bytes)?;
     let session = bundle.loaded_session()?;
     let (scene, hud) = project_scene_models(&session, &args.locale);
@@ -61,25 +55,6 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Args, String> {
         locale,
         world_stream_hex,
     })
-}
-
-fn decode_hex(text: &str) -> Result<Vec<u8>, String> {
-    let cleaned = text
-        .chars()
-        .filter(|ch| !ch.is_ascii_whitespace())
-        .collect::<String>();
-    if cleaned.len() % 2 != 0 {
-        return Err("hex input length must be even".to_string());
-    }
-
-    cleaned
-        .as_bytes()
-        .chunks(2)
-        .map(|chunk| {
-            let pair = std::str::from_utf8(chunk).map_err(|err| err.to_string())?;
-            u8::from_str_radix(pair, 16).map_err(|err| err.to_string())
-        })
-        .collect()
 }
 
 #[cfg(test)]

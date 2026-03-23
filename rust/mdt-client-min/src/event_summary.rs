@@ -558,6 +558,12 @@ pub fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<Stri
             ClientSessionEvent::TransferInventory { build_pos } => {
                 Some(format!("transfer_inventory: build_pos={build_pos:?}"))
             }
+            ClientSessionEvent::ClearItems { build_pos } => {
+                Some(format!("clear_items: build_pos={build_pos:?}"))
+            }
+            ClientSessionEvent::ClearLiquids { build_pos } => {
+                Some(format!("clear_liquids: build_pos={build_pos:?}"))
+            }
             ClientSessionEvent::RotateBlock {
                 build_pos,
                 direction,
