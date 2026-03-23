@@ -9768,6 +9768,39 @@ mod tests {
         unit_body
     }
 
+    fn java_unit_payload_golden_body(sample_name: &str) -> (u8, Vec<u8>) {
+        let class_id_key = format!("unitPayload.{sample_name}.classId");
+        let body_hex_key = format!("unitPayload.{sample_name}.bodyHex");
+        let mut class_id = None;
+        let mut body_hex = None;
+
+        for line in
+            include_str!("../../../tests/src/test/resources/unit-payload-goldens.txt").lines()
+        {
+            let Some((key, value)) = line.split_once('=') else {
+                continue;
+            };
+            match key {
+                _ if key == class_id_key => {
+                    class_id = Some(u8::from_str_radix(value.trim(), 16).unwrap());
+                }
+                _ if key == body_hex_key => {
+                    body_hex = Some(value.trim().to_string());
+                }
+                _ => {}
+            }
+        }
+
+        (
+            class_id.unwrap_or_else(|| panic!("missing classId for {sample_name}")),
+            decode_hex_text(
+                body_hex
+                    .unwrap_or_else(|| panic!("missing bodyHex for {sample_name}"))
+                    .as_str(),
+            ),
+        )
+    }
+
     fn synthetic_payload_sync_bytes_with_unit_payload(
         unit_class_id: u8,
         unit_body: &[u8],
@@ -11554,6 +11587,89 @@ mod tests {
             .map(|row| row.entity_id)
             .collect::<Vec<_>>(),
             vec![777, 778, 779]
+        );
+        assert_eq!(
+            try_parse_building_tether_payload_sync_rows_from_entity_snapshot_prefix_with_content_header(
+                &payload,
+                content_header,
+            )
+            .iter()
+            .map(|row| row.entity_id)
+            .collect::<Vec<_>>(),
+            vec![888]
+        );
+        assert_eq!(
+            try_parse_fire_sync_rows_from_entity_snapshot_prefix_with_content_header(
+                &payload,
+                content_header,
+            )
+            .iter()
+            .map(|row| row.entity_id)
+            .collect::<Vec<_>>(),
+            vec![901]
+        );
+    }
+
+    #[test]
+    fn later_entity_snapshot_prefix_parsers_skip_real_java_unit_payload_rows_when_content_header_is_loaded(
+    ) {
+        let world_bundle = parse_world_bundle(&sample_world_stream_bytes()).unwrap();
+        let content_header = Some(world_bundle.content_header.as_slice());
+        let (alpha_class_id, alpha_unit_body) = java_unit_payload_golden_body("alpha");
+        let (mega_class_id, mega_unit_body) = java_unit_payload_golden_body("mega");
+        let (oct_class_id, oct_unit_body) = java_unit_payload_golden_body("oct");
+        let (quad_class_id, quad_unit_body) = java_unit_payload_golden_body("quad");
+        let (manifold_class_id, manifold_unit_body) = java_unit_payload_golden_body("manifold");
+        let (missile_class_id, missile_unit_body) = java_unit_payload_golden_body("quell-missile");
+        let payload = build_entity_snapshot_payload(&[
+            build_entity_snapshot_row(
+                777,
+                5,
+                &synthetic_payload_sync_bytes_with_unit_payload(alpha_class_id, &alpha_unit_body),
+            ),
+            build_entity_snapshot_row(
+                778,
+                23,
+                &synthetic_payload_sync_bytes_with_unit_payload(quad_class_id, &quad_unit_body),
+            ),
+            build_entity_snapshot_row(
+                779,
+                26,
+                &synthetic_payload_sync_bytes_with_unit_payload(oct_class_id, &oct_unit_body),
+            ),
+            build_entity_snapshot_row(
+                780,
+                5,
+                &synthetic_payload_sync_bytes_with_unit_payload(mega_class_id, &mega_unit_body),
+            ),
+            build_entity_snapshot_row(
+                781,
+                23,
+                &synthetic_payload_sync_bytes_with_unit_payload(
+                    missile_class_id,
+                    &missile_unit_body,
+                ),
+            ),
+            build_entity_snapshot_row(
+                888,
+                36,
+                &synthetic_building_tether_payload_sync_bytes_with_unit_payload(
+                    manifold_class_id,
+                    &manifold_unit_body,
+                ),
+            ),
+            build_entity_snapshot_row(901, 10, &synthetic_fire_sync_bytes()),
+        ]);
+
+        assert_eq!(
+            try_parse_payload_sync_rows_from_entity_snapshot_prefix_with_content_header(
+                &payload,
+                content_header,
+            )
+            .iter()
+            .map(|row| row.entity_id)
+            .collect::<Vec<_>>(),
+            vec![777, 778, 779, 780, 781]
         );
         assert_eq!(
             try_parse_building_tether_payload_sync_rows_from_entity_snapshot_prefix_with_content_header(

@@ -37267,6 +37267,7 @@ impl<'a> Reader<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
 
     fn sample_world_stream_bytes() -> Vec<u8> {
         let hex = include_str!("../../../tests/src/test/resources/world-stream.hex")
@@ -38246,6 +38247,51 @@ mod tests {
             })
         );
         assert_eq!(consumed, 1 + 1 + 1 + unit_body.len());
+    }
+
+    #[test]
+    fn parses_real_java_unit_payload_goldens() {
+        let entries = include_str!("../../../tests/src/test/resources/unit-payload-goldens.txt")
+            .lines()
+            .filter_map(|line| line.split_once('='))
+            .map(|(key, value)| (key.trim().to_string(), value.trim().to_string()))
+            .collect::<HashMap<_, _>>();
+
+        let sample_names = entries
+            .keys()
+            .filter_map(|key| key.strip_prefix("unitPayload."))
+            .filter_map(|key| key.strip_suffix(".classId"))
+            .collect::<BTreeSet<_>>();
+
+        assert_eq!(sample_names.len(), 6);
+
+        for sample_name in sample_names {
+            let class_id =
+                u8::from_str_radix(entries[&format!("unitPayload.{sample_name}.classId")].as_str(), 16)
+                    .unwrap();
+            let unit_body =
+                decode_hex(entries[&format!("unitPayload.{sample_name}.bodyHex")].as_str());
+            let revision = i16::from_be_bytes([unit_body[0], unit_body[1]]);
+            let mut bytes = Vec::new();
+            bytes.push(1);
+            bytes.push(0);
+            bytes.push(class_id);
+            bytes.extend_from_slice(&unit_body);
+
+            let (snapshot, consumed) = parse_payload_snapshot_bytes(&[], &bytes).unwrap();
+
+            assert_eq!(
+                snapshot,
+                PayloadSnapshot::Unit(UnitPayloadSnapshot {
+                    class_id,
+                    revision,
+                    body_len: unit_body.len(),
+                    body_sha256: sha256_hex(&unit_body),
+                }),
+                "sample={sample_name}"
+            );
+            assert_eq!(consumed, 1 + 1 + 1 + unit_body.len(), "sample={sample_name}");
+        }
     }
 
     #[test]
