@@ -109,10 +109,16 @@ pub fn decode_packet(bytes: &[u8]) -> Result<EncodedPacket, PacketCodecError> {
     let raw_length = u16::from_be_bytes([bytes[1], bytes[2]]);
     let compression = bytes[3];
     let remaining = &bytes[4..];
+    let raw_length_usize = raw_length as usize;
 
     let payload = match compression {
-        0 => remaining.to_vec(),
-        1 => lz4_flex::block::decompress(remaining, raw_length as usize)?,
+        0 => {
+            if remaining.len() < raw_length_usize {
+                return Err(PacketCodecError::TooShort);
+            }
+            remaining[..raw_length_usize].to_vec()
+        }
+        1 => lz4_flex::block::decompress(remaining, raw_length_usize)?,
         value => return Err(PacketCodecError::UnsupportedCompression(value)),
     };
 
@@ -449,6 +455,27 @@ mod tests {
         assert_eq!(decoded.packet_id, STREAM_CHUNK_PACKET_ID);
         assert_eq!(decoded.compression, 0);
         assert_eq!(decoded.payload, payload);
+    }
+
+    #[test]
+    fn uncompressed_decode_uses_declared_raw_length() {
+        let encoded = vec![CONNECT_PACKET_ID, 0x00, 0x03, 0x00, 0x10, 0x20, 0x30, 0x40, 0x50];
+        let decoded = decode_packet(&encoded).unwrap();
+
+        assert_eq!(decoded.packet_id, CONNECT_PACKET_ID);
+        assert_eq!(decoded.raw_length, 3);
+        assert_eq!(decoded.compression, 0);
+        assert_eq!(decoded.payload, vec![0x10, 0x20, 0x30]);
+    }
+
+    #[test]
+    fn uncompressed_decode_rejects_truncated_declared_raw_length() {
+        let encoded = vec![CONNECT_PACKET_ID, 0x00, 0x05, 0x00, 0x10, 0x20, 0x30];
+
+        assert!(matches!(
+            decode_packet(&encoded),
+            Err(PacketCodecError::TooShort)
+        ));
     }
 
     #[test]
