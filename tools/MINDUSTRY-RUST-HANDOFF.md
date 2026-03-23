@@ -13,6 +13,7 @@ work to the target repository:
 - current source workspace: `<source_repo_root>` (example: `D:\MDT\mindustry`)
 - machine-readable target anchor: `tools/mindustry-rust-target.json`
 - quick lookup command: `powershell -ExecutionPolicy Bypass -File .\tools\get-mindustry-rust-target.ps1`
+- sync command: `powershell -ExecutionPolicy Bypass -File .\tools\sync-mindustry-rust-handoff.ps1 -Stage`
 
 Canonical fixture layout (source + target):
 
