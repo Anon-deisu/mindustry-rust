@@ -38492,8 +38492,17 @@ mod tests {
             .filter_map(|key| key.strip_suffix(".classId"))
             .collect::<BTreeSet<_>>();
 
-        assert!(sample_names.len() >= 6);
-        for required in ["alpha", "mega", "oct", "quad", "manifold", "quell-missile"] {
+        assert!(sample_names.len() >= 8);
+        for required in [
+            "alpha",
+            "mega",
+            "oct",
+            "quad",
+            "manifold",
+            "quell-missile",
+            "spiroct",
+            "vanquish",
+        ] {
             assert!(sample_names.contains(required), "missing sample={required}");
         }
 
