@@ -6,8 +6,8 @@ use crate::session_state::{
     BuilderPlanStage, BuilderQueueProjection, BuildingProjectionUpdateKind,
     BuildingTableProjection, EffectBusinessContentKind, EffectBusinessPositionSource,
     EffectBusinessProjection, EffectDataSemantic, HiddenSnapshotDeltaProjection, SessionState,
-    StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection, UnitRefProjection,
-    WorldBootstrapProjection,
+    StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection,
+    TileConfigAuthoritySource, TileConfigProjection, UnitRefProjection, WorldBootstrapProjection,
 };
 use mdt_remote::{HighFrequencyRemoteMethod, HIGH_FREQUENCY_REMOTE_METHOD_COUNT};
 use mdt_render_ui::{
@@ -51,7 +51,7 @@ impl RenderRuntimeAdapter {
         let state_business_projection = session_state.state_snapshot_business_projection.as_ref();
         hud.runtime_ui = Some(runtime_ui_observability(session_state));
         hud.status_text = format!(
-            "{} runtime_selected={} runtime_plans={} runtime_cfg_int={} runtime_cfg_long={} runtime_cfg_float={} runtime_cfg_bool={} runtime_cfg_int_seq={} runtime_cfg_point2={} runtime_cfg_point2_array={} runtime_cfg_tech_node={} runtime_cfg_double={} runtime_cfg_building_pos={} runtime_cfg_laccess={} runtime_cfg_string={} runtime_cfg_bytes={} runtime_cfg_legacy_unit_command_null={} runtime_cfg_bool_array={} runtime_cfg_unit_id={} runtime_cfg_vec2_array={} runtime_cfg_vec2={} runtime_cfg_team={} runtime_cfg_int_array={} runtime_cfg_object_array={} runtime_cfg_content={} runtime_cfg_unit_command={} runtime_world_tiles={} runtime_health={} building={} runtime_builder={} runtime_builder_head={} runtime_entity_local={} runtime_entity_hidden={} runtime_entity_gate={} runtime_entity_sync={} runtime_snap_last={} runtime_snap_events={} runtime_wave={} runtime_enemies={} runtime_tps={} runtime_state_apply={} runtime_core_teams={} runtime_core_items={} runtime_buildings={} runtime_block={} runtime_block_fail={} runtime_hidden={} runtime_hidden_delta={} runtime_hidden_fail={} runtime_effects={} runtime_effect_data_kind={} runtime_effect_data_semantic={} runtime_effect_apply={} runtime_effect_path={} runtime_effect_data_fail={} bootstrap_rules={} bootstrap_tags={} bootstrap_locales={} bootstrap_teams={} bootstrap_markers={} bootstrap_chunks={} bootstrap_patches={} bootstrap_plans={} bootstrap_fog_teams={} runtime_view_center={} runtime_view_size={} runtime_position={} runtime_pointer={} runtime_selected_rotation={} runtime_input_flags={} runtime_snap_client={} runtime_snap_state={} runtime_snap_entity={} runtime_snap_block={} runtime_snap_hidden={} runtime_tilecfg_events={} runtime_tilecfg_parse_fail={} runtime_tilecfg_noapply={} runtime_tilecfg_rollback={} runtime_tilecfg_pending_mismatch={} runtime_take_items={} runtime_transfer_item={} runtime_transfer_item_unit={} runtime_payload_drop={} runtime_payload_pick_build={} runtime_payload_pick_unit={} runtime_unit_entered_payload={} runtime_unit_despawn={} runtime_unit_lifecycle={} runtime_spawn_fx={} runtime_audio={} runtime_admin={} runtime_kick={} runtime_loading={} runtime_rules={} runtime_ui_notice={} runtime_ui_menu={} runtime_world_label={} runtime_marker={} runtime_logic_sync={} runtime_resource_delta={} runtime_command_ctrl={} runtime_gameplay_signal={}",
+            "{} runtime_selected={} runtime_plans={} runtime_cfg_int={} runtime_cfg_long={} runtime_cfg_float={} runtime_cfg_bool={} runtime_cfg_int_seq={} runtime_cfg_point2={} runtime_cfg_point2_array={} runtime_cfg_tech_node={} runtime_cfg_double={} runtime_cfg_building_pos={} runtime_cfg_laccess={} runtime_cfg_string={} runtime_cfg_bytes={} runtime_cfg_legacy_unit_command_null={} runtime_cfg_bool_array={} runtime_cfg_unit_id={} runtime_cfg_vec2_array={} runtime_cfg_vec2={} runtime_cfg_team={} runtime_cfg_int_array={} runtime_cfg_object_array={} runtime_cfg_content={} runtime_cfg_unit_command={} runtime_world_tiles={} runtime_health={} building={} runtime_builder={} runtime_builder_head={} runtime_entity_local={} runtime_entity_hidden={} runtime_entity_gate={} runtime_entity_sync={} runtime_snap_last={} runtime_snap_events={} runtime_wave={} runtime_enemies={} runtime_tps={} runtime_state_apply={} runtime_core_teams={} runtime_core_items={} runtime_buildings={} runtime_block={} runtime_block_fail={} runtime_hidden={} runtime_hidden_delta={} runtime_hidden_fail={} runtime_effects={} runtime_effect_data_kind={} runtime_effect_data_semantic={} runtime_effect_apply={} runtime_effect_path={} runtime_effect_data_fail={} bootstrap_rules={} bootstrap_tags={} bootstrap_locales={} bootstrap_teams={} bootstrap_markers={} bootstrap_chunks={} bootstrap_patches={} bootstrap_plans={} bootstrap_fog_teams={} runtime_view_center={} runtime_view_size={} runtime_position={} runtime_pointer={} runtime_selected_rotation={} runtime_input_flags={} runtime_snap_client={} runtime_snap_state={} runtime_snap_entity={} runtime_snap_block={} runtime_snap_hidden={} runtime_tilecfg_events={} runtime_tilecfg_parse_fail={} runtime_tilecfg_noapply={} runtime_tilecfg_rollback={} runtime_tilecfg_pending_mismatch={} runtime_tilecfg_apply={} runtime_take_items={} runtime_transfer_item={} runtime_transfer_item_unit={} runtime_payload_drop={} runtime_payload_pick_build={} runtime_payload_pick_unit={} runtime_unit_entered_payload={} runtime_unit_despawn={} runtime_unit_lifecycle={} runtime_spawn_fx={} runtime_audio={} runtime_admin={} runtime_kick={} runtime_loading={} runtime_rules={} runtime_ui_notice={} runtime_ui_menu={} runtime_world_label={} runtime_marker={} runtime_logic_sync={} runtime_resource_delta={} runtime_command_ctrl={} runtime_gameplay_signal={}",
             hud.status_text,
             runtime_selected_block_label(snapshot_input.selected_block_id),
             snapshot_input.plans.as_ref().map_or(0, Vec::len),
@@ -191,6 +191,7 @@ impl RenderRuntimeAdapter {
             self.world_overlay.tile_config_business_not_applied_count,
             self.world_overlay.tile_config_rollback_count,
             self.world_overlay.tile_config_pending_mismatch_count,
+            runtime_tile_config_business_label(&session_state.tile_config_projection),
             session_state.received_take_items_count,
             session_state.received_transfer_item_to_count,
             session_state.received_transfer_item_to_unit_count,
@@ -801,6 +802,41 @@ fn runtime_building_table_label(projection: &BuildingTableProjection) -> String 
             .last_visible_flags
             .map(|flags| flags.to_string())
             .unwrap_or_else(|| "-1".to_string()),
+    )
+}
+
+fn runtime_tile_config_business_label(projection: &TileConfigProjection) -> String {
+    let source = match projection.last_business_source {
+        Some(TileConfigAuthoritySource::TileConfigPacket) => "packet",
+        Some(TileConfigAuthoritySource::ConstructFinish) => "construct",
+        None => "none",
+    };
+    let tile = projection
+        .last_business_build_pos
+        .map(|build_pos| {
+            let (x, y) = unpack_runtime_point2(build_pos);
+            format!("{x}:{y}")
+        })
+        .unwrap_or_else(|| "none".to_string());
+    let pending_match = match projection.last_pending_local_match {
+        Some(true) => 1,
+        Some(false) => 0,
+        None => -1,
+    };
+    format!(
+        "a{}:p{}:c{}:{}@{}:cl{}:rb{}:pm{}",
+        projection.applied_authoritative_count,
+        projection.applied_tile_config_packet_count,
+        projection.applied_construct_finish_count,
+        source,
+        tile,
+        if projection.last_cleared_pending_local {
+            1
+        } else {
+            0
+        },
+        if projection.last_was_rollback { 1 } else { 0 },
+        pending_match,
     )
 }
 
@@ -2557,6 +2593,33 @@ mod tests {
                 .world_overlay()
                 .snapshot_method_count(HighFrequencyRemoteMethod::HiddenSnapshot),
             1
+        );
+    }
+
+    #[test]
+    fn render_runtime_adapter_reports_unified_tile_config_business_chain_in_hud() {
+        let adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+
+        state.tile_config_projection.applied_authoritative_count = 3;
+        state.tile_config_projection.applied_tile_config_packet_count = 2;
+        state.tile_config_projection.applied_construct_finish_count = 1;
+        state.tile_config_projection.last_business_build_pos = Some(pack_runtime_point2(9, 4));
+        state.tile_config_projection.last_business_applied = true;
+        state.tile_config_projection.last_cleared_pending_local = true;
+        state.tile_config_projection.last_was_rollback = true;
+        state.tile_config_projection.last_pending_local_match = Some(false);
+        state.tile_config_projection.last_business_source =
+            Some(TileConfigAuthoritySource::ConstructFinish);
+
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        assert!(
+            hud.status_text
+                .contains("runtime_tilecfg_apply=a3:p2:c1:construct@9:4:cl1:rb1:pm0")
         );
     }
 
