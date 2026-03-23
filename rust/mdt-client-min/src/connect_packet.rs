@@ -36,14 +36,13 @@ impl ConnectPacketSpec {
     }
 
     pub fn encode_payload(&self) -> Result<Vec<u8>, ConnectPacketEncodeError> {
+        let raw_uuid = self.preflight_and_decode_uuid()?;
         let mut out = Vec::new();
         out.extend_from_slice(&self.version.to_be_bytes());
         write_typeio_string(&mut out, "versionType", &self.version_type)?;
         write_typeio_string(&mut out, "name", &self.name)?;
         write_typeio_string(&mut out, "locale", &self.locale)?;
         write_typeio_string(&mut out, "usid", &self.usid)?;
-
-        let raw_uuid = decode_base64(&self.uuid)?;
         out.extend_from_slice(&raw_uuid);
         let crc = crc32(&raw_uuid) as u64;
         out.extend_from_slice(&crc.to_be_bytes());
@@ -62,11 +61,30 @@ impl ConnectPacketSpec {
     }
 
     pub fn server_observed_uuid(&self) -> Result<String, ConnectPacketEncodeError> {
-        let raw_uuid = decode_base64(&self.uuid)?;
+        let raw_uuid = self.preflight_and_decode_uuid()?;
         let mut combined = Vec::with_capacity(raw_uuid.len() + 8);
         combined.extend_from_slice(&raw_uuid);
         combined.extend_from_slice(&(crc32(&raw_uuid) as u64).to_be_bytes());
         Ok(encode_base64(&combined))
+    }
+
+    fn preflight_and_decode_uuid(&self) -> Result<Vec<u8>, ConnectPacketEncodeError> {
+        require_non_empty_connect_field("usid", &self.usid)?;
+        require_non_empty_connect_field("uuid", &self.uuid)?;
+        for (index, entry) in self.mods.iter().enumerate() {
+            if entry.trim().is_empty() {
+                return Err(ConnectPacketEncodeError::InvalidModEntry {
+                    index,
+                    reason: "must not be empty",
+                });
+            }
+        }
+
+        let raw_uuid = decode_base64(&self.uuid)?;
+        if raw_uuid.is_empty() {
+            return Err(ConnectPacketEncodeError::InvalidUuidLength(0));
+        }
+        Ok(raw_uuid)
     }
 }
 
@@ -103,6 +121,9 @@ pub fn generate_connect_identity_base64() -> String {
 pub enum ConnectPacketEncodeError {
     InvalidBase64Length(usize),
     InvalidBase64Char { ch: char, index: usize },
+    EmptyField(&'static str),
+    InvalidUuidLength(usize),
+    InvalidModEntry { index: usize, reason: &'static str },
     StringTooLong { field: &'static str, utf_len: usize },
     TooManyMods(usize),
 }
@@ -116,6 +137,13 @@ impl fmt::Display for ConnectPacketEncodeError {
             Self::InvalidBase64Char { ch, index } => {
                 write!(f, "invalid base64 character '{ch}' at index {index}")
             }
+            Self::EmptyField(field) => write!(f, "connect field {field} must not be empty"),
+            Self::InvalidUuidLength(len) => {
+                write!(f, "decoded connect uuid must not be empty, got {len} bytes")
+            }
+            Self::InvalidModEntry { index, reason } => {
+                write!(f, "invalid connect mod entry at index {index}: {reason}")
+            }
             Self::StringTooLong { field, utf_len } => {
                 write!(
                     f,
@@ -128,6 +156,16 @@ impl fmt::Display for ConnectPacketEncodeError {
 }
 
 impl std::error::Error for ConnectPacketEncodeError {}
+
+fn require_non_empty_connect_field(
+    field: &'static str,
+    value: &str,
+) -> Result<(), ConnectPacketEncodeError> {
+    if value.trim().is_empty() {
+        return Err(ConnectPacketEncodeError::EmptyField(field));
+    }
+    Ok(())
+}
 
 fn version_properties_value(key: &str) -> Option<&'static str> {
     let key_bytes = key.as_bytes();
@@ -380,5 +418,47 @@ mod tests {
 
         assert_eq!(&observed[..raw_uuid.len()], raw_uuid.as_slice());
         assert_eq!(observed.len(), raw_uuid.len() + 8);
+    }
+
+    #[test]
+    fn encode_payload_rejects_empty_usid_preflight() {
+        let mut spec = ConnectPacketSpec::new_default("en_US");
+        spec.usid = "   ".to_string();
+
+        let err = spec.encode_payload().unwrap_err();
+        assert_eq!(err, ConnectPacketEncodeError::EmptyField("usid"));
+    }
+
+    #[test]
+    fn encode_payload_rejects_empty_uuid_preflight() {
+        let mut spec = ConnectPacketSpec::new_default("en_US");
+        spec.uuid = "".to_string();
+
+        let err = spec.encode_payload().unwrap_err();
+        assert_eq!(err, ConnectPacketEncodeError::EmptyField("uuid"));
+    }
+
+    #[test]
+    fn encode_payload_rejects_empty_uuid_bytes_preflight() {
+        let mut spec = ConnectPacketSpec::new_default("en_US");
+        spec.uuid = "====".to_string();
+
+        let err = spec.encode_payload().unwrap_err();
+        assert_eq!(err, ConnectPacketEncodeError::InvalidUuidLength(0));
+    }
+
+    #[test]
+    fn encode_payload_rejects_empty_mod_entry_preflight() {
+        let mut spec = ConnectPacketSpec::new_default("en_US");
+        spec.mods = vec!["mod-a:1".to_string(), "  ".to_string()];
+
+        let err = spec.encode_payload().unwrap_err();
+        assert_eq!(
+            err,
+            ConnectPacketEncodeError::InvalidModEntry {
+                index: 1,
+                reason: "must not be empty",
+            }
+        );
     }
 }

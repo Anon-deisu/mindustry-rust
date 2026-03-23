@@ -45,6 +45,7 @@ Reference-only note for `mindustry-rust` handoff:
    - `powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\check-mdt-release-prereqs.ps1`
 5. Run split-workspace gate:
    - `powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\verify-rust-workspaces.ps1`
+   - `.\gradlew.bat -PnoLocalArc verifyMdtRemoteFreshness --stacktrace`
 6. Build local server jar:
    - `.\gradlew.bat -PnoLocalArc server:dist --stacktrace`
 7. Start local server and wait for `127.0.0.1:6567`
@@ -72,7 +73,7 @@ Frozen on: `2026-03-22`
 | Scope | Primary | Backup | Responsibility |
 | --- | --- | --- | --- |
 | CI workflow (`.github/workflows/rust-release-gate.yml`) | `ReleaseOperator` | `ReleaseManager` | Keep trigger paths, gate order, runtime, and artifact upload policy stable. |
-| Gate scripts (`tools/check-mdt-release-prereqs.ps1`, `tools/verify-rust-workspaces.ps1`, `tools/verify-mdt-client-min-release-set.ps1`) | `ReleaseOperator` | `ReleaseManager` | Maintain deterministic pass/fail markers used by CI gate decisions. |
+| Gate scripts (`tools/check-mdt-release-prereqs.ps1`, `tools/verify-rust-workspaces.ps1`, `verifyMdtRemoteFreshness`, `tools/verify-mdt-client-min-release-set.ps1`) | `ReleaseOperator` | `ReleaseManager` | Maintain deterministic pass/fail markers used by CI gate decisions. |
 | Localhost server smoke reliability (`127.0.0.1:6567`) | `QA` | `ReleaseManager` | Triage readiness failures, classify infra flake vs product regression, and decide rerun vs escalation. |
 
 Repository binding:
