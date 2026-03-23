@@ -1089,18 +1089,53 @@ fn runtime_kick_hint_from(
     reason_ordinal: Option<i32>,
 ) -> Option<(Option<&'static str>, Option<&'static str>)> {
     let normalized = match reason_text {
+        Some("banned") => Some("banned"),
         Some("clientOutdated") => Some("clientOutdated"),
+        Some("recentKick") => Some("recentKick"),
+        Some("nameInUse") => Some("nameInUse"),
+        Some("idInUse") => Some("idInUse"),
+        Some("nameEmpty") => Some("nameEmpty"),
         Some("serverOutdated") => Some("serverOutdated"),
         Some("customClient") => Some("customClient"),
         Some("typeMismatch") => Some("typeMismatch"),
+        Some("whitelist") => Some("whitelist"),
+        Some("playerLimit") => Some("playerLimit"),
         Some("serverRestarting") => Some("serverRestarting"),
         _ => reason_ordinal.and_then(runtime_kick_reason_name_from_ordinal),
     };
 
     match normalized {
+        Some("banned") => Some((
+            Some("Banned"),
+            Some(
+                "server reports this identity or name is banned; use a different account or ask the server admin to review the ban.",
+            ),
+        )),
         Some("clientOutdated") => Some((
             Some("ClientOutdated"),
             Some("client build is outdated; upgrade this client to the server version."),
+        )),
+        Some("recentKick") => Some((
+            Some("RecentKick"),
+            Some(
+                "server still remembers a recent kick; wait for the cooldown to expire before reconnecting.",
+            ),
+        )),
+        Some("nameInUse") => Some((
+            Some("NameInUse"),
+            Some("player name is already in use; retry with a different --name value."),
+        )),
+        Some("idInUse") => Some((
+            Some("IdInUse"),
+            Some(
+                "uuid or usid is already in use; wait for the old session to clear or regenerate the connect identity.",
+            ),
+        )),
+        Some("nameEmpty") => Some((
+            Some("NameEmpty"),
+            Some(
+                "player name is empty or invalid; set --name to a non-empty value accepted by the server.",
+            ),
         )),
         Some("serverOutdated") => Some((
             Some("ServerOutdated"),
@@ -1118,6 +1153,14 @@ fn runtime_kick_hint_from(
             Some("TypeMismatch"),
             Some("version type/protocol mismatch; align client/server version type and mod set."),
         )),
+        Some("whitelist") => Some((
+            Some("WhitelistRequired"),
+            Some("server requires whitelist access; ask the server admin to whitelist this identity."),
+        )),
+        Some("playerLimit") => Some((
+            Some("PlayerLimit"),
+            Some("server is full; wait for an open slot or use an identity with reserved access."),
+        )),
         Some("serverRestarting") => Some((
             Some("ServerRestarting"),
             Some("server is restarting; retry connection shortly."),
@@ -1128,10 +1171,17 @@ fn runtime_kick_hint_from(
 
 fn runtime_kick_reason_name_from_ordinal(reason_ordinal: i32) -> Option<&'static str> {
     match reason_ordinal {
+        3 => Some("banned"),
         1 => Some("clientOutdated"),
         2 => Some("serverOutdated"),
+        5 => Some("recentKick"),
+        6 => Some("nameInUse"),
+        7 => Some("idInUse"),
+        8 => Some("nameEmpty"),
         9 => Some("customClient"),
         12 => Some("typeMismatch"),
+        13 => Some("whitelist"),
+        14 => Some("playerLimit"),
         15 => Some("serverRestarting"),
         _ => None,
     }
@@ -2011,6 +2061,19 @@ mod tests {
         assert!(hud.status_text.contains("runtime_kick="));
         assert!(hud.status_text.contains(":ServerRestarting:"));
         assert!(hud.status_text.contains("server_is_re~"));
+    }
+
+    #[test]
+    fn runtime_kick_hint_from_surfaces_identity_conflict_reason() {
+        assert_eq!(
+            runtime_kick_hint_from(Some("idInUse"), Some(7)),
+            Some((
+                Some("IdInUse"),
+                Some(
+                    "uuid or usid is already in use; wait for the old session to clear or regenerate the connect identity.",
+                ),
+            ))
+        );
     }
 
     #[test]

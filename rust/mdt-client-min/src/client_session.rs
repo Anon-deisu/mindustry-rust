@@ -74,9 +74,16 @@ fn kick_reason_name_from_ordinal(reason_ordinal: i32) -> Option<&'static str> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KickReasonHintCategory {
+    Banned,
     ClientOutdated,
-    ServerOutdated,
     CustomClientRejected,
+    IdInUse,
+    NameEmpty,
+    NameInUse,
+    PlayerLimit,
+    RecentKick,
+    ServerOutdated,
+    WhitelistRequired,
     TypeMismatch,
     ServerRestarting,
 }
@@ -87,9 +94,29 @@ fn kick_reason_hint_from(
 ) -> Option<(KickReasonHintCategory, &'static str)> {
     let normalized = reason_text.or_else(|| reason_ordinal.and_then(kick_reason_name_from_ordinal));
     match normalized {
+        Some("banned") => Some((
+            KickReasonHintCategory::Banned,
+            "server reports this identity or name is banned; use a different account or ask the server admin to review the ban.",
+        )),
         Some("clientOutdated") => Some((
             KickReasonHintCategory::ClientOutdated,
             "client build is outdated; upgrade this client to the server version.",
+        )),
+        Some("recentKick") => Some((
+            KickReasonHintCategory::RecentKick,
+            "server still remembers a recent kick; wait for the cooldown to expire before reconnecting.",
+        )),
+        Some("nameInUse") => Some((
+            KickReasonHintCategory::NameInUse,
+            "player name is already in use; retry with a different --name value.",
+        )),
+        Some("idInUse") => Some((
+            KickReasonHintCategory::IdInUse,
+            "uuid or usid is already in use; wait for the old session to clear or regenerate the connect identity.",
+        )),
+        Some("nameEmpty") => Some((
+            KickReasonHintCategory::NameEmpty,
+            "player name is empty or invalid; set --name to a non-empty value accepted by the server.",
         )),
         Some("serverOutdated") => Some((
             KickReasonHintCategory::ServerOutdated,
@@ -102,6 +129,14 @@ fn kick_reason_hint_from(
         Some("typeMismatch") => Some((
             KickReasonHintCategory::TypeMismatch,
             "version type/protocol mismatch; align client/server version type and mod set.",
+        )),
+        Some("whitelist") => Some((
+            KickReasonHintCategory::WhitelistRequired,
+            "server requires whitelist access; ask the server admin to whitelist this identity.",
+        )),
+        Some("playerLimit") => Some((
+            KickReasonHintCategory::PlayerLimit,
+            "server is full; wait for an open slot or use an identity with reserved access.",
         )),
         Some("serverRestarting") => Some((
             KickReasonHintCategory::ServerRestarting,
@@ -21467,8 +21502,16 @@ mod tests {
         assert_eq!(session.last_kick_reason_text(), Some("idInUse"));
         assert_eq!(session.last_kick_reason_ordinal(), Some(7));
         assert_eq!(session.last_kick_duration_ms(), Some(30_000));
-        assert_eq!(session.last_kick_hint_category(), None);
-        assert_eq!(session.last_kick_hint_text(), None);
+        assert_eq!(
+            session.last_kick_hint_category(),
+            Some(KickReasonHintCategory::IdInUse)
+        );
+        assert_eq!(
+            session.last_kick_hint_text(),
+            Some(
+                "uuid or usid is already in use; wait for the old session to clear or regenerate the connect identity.",
+            )
+        );
         let actions = session.advance_time(1_000).unwrap();
         assert!(actions.is_empty());
     }
@@ -21534,10 +21577,45 @@ mod tests {
     #[test]
     fn kick_reason_hint_mapping_covers_high_signal_taxonomy() {
         assert_eq!(
+            kick_reason_hint_from(Some("banned"), None),
+            Some((
+                KickReasonHintCategory::Banned,
+                "server reports this identity or name is banned; use a different account or ask the server admin to review the ban.",
+            ))
+        );
+        assert_eq!(
             kick_reason_hint_from(Some("clientOutdated"), None),
             Some((
                 KickReasonHintCategory::ClientOutdated,
                 "client build is outdated; upgrade this client to the server version.",
+            ))
+        );
+        assert_eq!(
+            kick_reason_hint_from(Some("recentKick"), None),
+            Some((
+                KickReasonHintCategory::RecentKick,
+                "server still remembers a recent kick; wait for the cooldown to expire before reconnecting.",
+            ))
+        );
+        assert_eq!(
+            kick_reason_hint_from(Some("nameInUse"), None),
+            Some((
+                KickReasonHintCategory::NameInUse,
+                "player name is already in use; retry with a different --name value.",
+            ))
+        );
+        assert_eq!(
+            kick_reason_hint_from(Some("idInUse"), None),
+            Some((
+                KickReasonHintCategory::IdInUse,
+                "uuid or usid is already in use; wait for the old session to clear or regenerate the connect identity.",
+            ))
+        );
+        assert_eq!(
+            kick_reason_hint_from(Some("nameEmpty"), None),
+            Some((
+                KickReasonHintCategory::NameEmpty,
+                "player name is empty or invalid; set --name to a non-empty value accepted by the server.",
             ))
         );
         assert_eq!(
@@ -21562,13 +21640,27 @@ mod tests {
             ))
         );
         assert_eq!(
+            kick_reason_hint_from(Some("whitelist"), None),
+            Some((
+                KickReasonHintCategory::WhitelistRequired,
+                "server requires whitelist access; ask the server admin to whitelist this identity.",
+            ))
+        );
+        assert_eq!(
+            kick_reason_hint_from(Some("playerLimit"), None),
+            Some((
+                KickReasonHintCategory::PlayerLimit,
+                "server is full; wait for an open slot or use an identity with reserved access.",
+            ))
+        );
+        assert_eq!(
             kick_reason_hint_from(None, Some(KICK_REASON_SERVER_RESTARTING_ORDINAL)),
             Some((
                 KickReasonHintCategory::ServerRestarting,
                 "server is restarting; retry connection shortly.",
             ))
         );
-        assert_eq!(kick_reason_hint_from(Some("idInUse"), Some(7)), None);
+        assert_eq!(kick_reason_hint_from(Some("gameover"), Some(4)), None);
     }
 
     #[test]

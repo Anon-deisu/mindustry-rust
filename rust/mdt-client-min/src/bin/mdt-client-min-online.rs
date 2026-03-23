@@ -3882,18 +3882,53 @@ fn summarize_kick_hint_from(
     reason_ordinal: Option<i32>,
 ) -> (Option<&'static str>, Option<&'static str>) {
     let normalized_reason = match reason_text {
+        Some("banned") => Some("banned"),
         Some("clientOutdated") => Some("clientOutdated"),
+        Some("recentKick") => Some("recentKick"),
+        Some("nameInUse") => Some("nameInUse"),
+        Some("idInUse") => Some("idInUse"),
+        Some("nameEmpty") => Some("nameEmpty"),
         Some("serverOutdated") => Some("serverOutdated"),
         Some("customClient") => Some("customClient"),
         Some("typeMismatch") => Some("typeMismatch"),
+        Some("whitelist") => Some("whitelist"),
+        Some("playerLimit") => Some("playerLimit"),
         Some("serverRestarting") => Some("serverRestarting"),
         _ => reason_ordinal.and_then(summarize_kick_reason_name_from_ordinal),
     };
 
     match normalized_reason {
+        Some("banned") => (
+            Some("Banned"),
+            Some(
+                "server reports this identity or name is banned; use a different account or ask the server admin to review the ban.",
+            ),
+        ),
         Some("clientOutdated") => (
             Some("ClientOutdated"),
             Some("client build is outdated; upgrade this client to the server version."),
+        ),
+        Some("recentKick") => (
+            Some("RecentKick"),
+            Some(
+                "server still remembers a recent kick; wait for the cooldown to expire before reconnecting.",
+            ),
+        ),
+        Some("nameInUse") => (
+            Some("NameInUse"),
+            Some("player name is already in use; retry with a different --name value."),
+        ),
+        Some("idInUse") => (
+            Some("IdInUse"),
+            Some(
+                "uuid or usid is already in use; wait for the old session to clear or regenerate the connect identity.",
+            ),
+        ),
+        Some("nameEmpty") => (
+            Some("NameEmpty"),
+            Some(
+                "player name is empty or invalid; set --name to a non-empty value accepted by the server.",
+            ),
         ),
         Some("serverOutdated") => (
             Some("ServerOutdated"),
@@ -3911,6 +3946,14 @@ fn summarize_kick_hint_from(
             Some("TypeMismatch"),
             Some("version type/protocol mismatch; align client/server version type and mod set."),
         ),
+        Some("whitelist") => (
+            Some("WhitelistRequired"),
+            Some("server requires whitelist access; ask the server admin to whitelist this identity."),
+        ),
+        Some("playerLimit") => (
+            Some("PlayerLimit"),
+            Some("server is full; wait for an open slot or use an identity with reserved access."),
+        ),
         Some("serverRestarting") => (
             Some("ServerRestarting"),
             Some("server is restarting; retry connection shortly."),
@@ -3921,10 +3964,17 @@ fn summarize_kick_hint_from(
 
 fn summarize_kick_reason_name_from_ordinal(reason_ordinal: i32) -> Option<&'static str> {
     match reason_ordinal {
+        3 => Some("banned"),
         1 => Some("clientOutdated"),
         2 => Some("serverOutdated"),
+        5 => Some("recentKick"),
+        6 => Some("nameInUse"),
+        7 => Some("idInUse"),
+        8 => Some("nameEmpty"),
         9 => Some("customClient"),
         12 => Some("typeMismatch"),
+        13 => Some("whitelist"),
+        14 => Some("playerLimit"),
         15 => Some("serverRestarting"),
         _ => None,
     }
@@ -6380,6 +6430,19 @@ mod tests {
     }
 
     #[test]
+    fn summarize_client_packet_events_surfaces_identity_conflict_hint() {
+        let lines = summarize_client_packet_events(&[ClientSessionEvent::Kicked {
+            reason_text: Some("idInUse".to_string()),
+            reason_ordinal: Some(7),
+            duration_ms: Some(30_000),
+        }]);
+
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].contains("hint_category=IdInUse"));
+        assert!(lines[0].contains("old session to clear"));
+    }
+
+    #[test]
     fn format_final_kick_summary_defaults_to_none_without_kick() {
         let line = format_final_kick_summary(false, None, None, None);
 
@@ -6404,6 +6467,14 @@ mod tests {
         assert!(line.contains("duration_ms=Some(1500)"));
         assert!(line.contains("hint_category=ServerRestarting"));
         assert!(line.contains("retry connection shortly"));
+    }
+
+    #[test]
+    fn format_final_kick_summary_surfaces_player_limit_hint() {
+        let line = format_final_kick_summary(true, Some("playerLimit"), Some(14), Some(0));
+
+        assert!(line.contains("hint_category=PlayerLimit"));
+        assert!(line.contains("server is full"));
     }
 
     #[test]

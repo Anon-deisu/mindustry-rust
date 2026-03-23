@@ -37803,6 +37803,34 @@ mod tests {
         assert_eq!(snapshot.y_bits, 24.0f32.to_bits());
     }
 
+    fn build_entity_alpha_sync_bytes_with_controller(controller_bytes: &[u8]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.push(0);
+        bytes.extend_from_slice(&123.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(controller_bytes);
+        bytes.extend_from_slice(&1.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f64.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&150.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&(-1i32).to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&90.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0i16.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&35i16.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&1.5f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&(-2.25f32).to_bits().to_be_bytes());
+        bytes.extend_from_slice(&40.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&60.0f32.to_bits().to_be_bytes());
+        bytes
+    }
+
     #[test]
     fn parses_entity_alpha_sync_bytes_from_snapshot_golden_row() {
         let bytes = decode_hex(
@@ -37836,6 +37864,92 @@ mod tests {
         assert_eq!(snapshot.vel_y_bits, (-2.25f32).to_bits());
         assert_eq!(snapshot.x_bits, 40.0f32.to_bits());
         assert_eq!(snapshot.y_bits, 60.0f32.to_bits());
+    }
+
+    #[test]
+    fn parses_entity_alpha_sync_bytes_with_legacy_controller_skip_types() {
+        let mut controller_type_4 = Vec::new();
+        controller_type_4.push(4);
+        controller_type_4.push(1);
+        controller_type_4.push(1);
+        controller_type_4.extend_from_slice(&10.0f32.to_bits().to_be_bytes());
+        controller_type_4.extend_from_slice(&20.0f32.to_bits().to_be_bytes());
+        controller_type_4.push(3);
+        controller_type_4.extend_from_slice(&321i32.to_be_bytes());
+
+        let mut controller_type_6 = Vec::new();
+        controller_type_6.push(6);
+        controller_type_6.push(0);
+        controller_type_6.push(1);
+        controller_type_6.extend_from_slice(&11.0f32.to_bits().to_be_bytes());
+        controller_type_6.extend_from_slice(&22.0f32.to_bits().to_be_bytes());
+        controller_type_6.push(9);
+
+        let mut controller_type_7 = Vec::new();
+        controller_type_7.push(7);
+        controller_type_7.push(1);
+        controller_type_7.push(0);
+        controller_type_7.push(5);
+        controller_type_7.extend_from_slice(&456i32.to_be_bytes());
+        controller_type_7.push(2);
+        controller_type_7.push(4);
+        controller_type_7.push(0);
+        controller_type_7.extend_from_slice(&0xaaaa_5555u32.to_be_bytes());
+        controller_type_7.push(1);
+        controller_type_7.extend_from_slice(&0x0102_0304u32.to_be_bytes());
+        controller_type_7.push(2);
+        controller_type_7.extend_from_slice(&0x1111_2222_3333_4444u64.to_be_bytes());
+        controller_type_7.push(3);
+
+        let mut controller_type_8 = Vec::new();
+        controller_type_8.push(8);
+        controller_type_8.push(0);
+        controller_type_8.push(1);
+        controller_type_8.extend_from_slice(&30.0f32.to_bits().to_be_bytes());
+        controller_type_8.extend_from_slice(&45.0f32.to_bits().to_be_bytes());
+        controller_type_8.push(7);
+        controller_type_8.push(1);
+        controller_type_8.push(2);
+        controller_type_8.extend_from_slice(&0x0102_0304_0506_0708u64.to_be_bytes());
+        controller_type_8.push(1);
+
+        let mut controller_type_9 = Vec::new();
+        controller_type_9.push(9);
+        controller_type_9.push(1);
+        controller_type_9.push(1);
+        controller_type_9.extend_from_slice(&12.0f32.to_bits().to_be_bytes());
+        controller_type_9.extend_from_slice(&24.0f32.to_bits().to_be_bytes());
+        controller_type_9.push(6);
+        controller_type_9.extend_from_slice(&789i32.to_be_bytes());
+        controller_type_9.push(4);
+        controller_type_9.push(2);
+        controller_type_9.push(3);
+        controller_type_9.push(0);
+        controller_type_9.extend_from_slice(&0x0bad_cafeu32.to_be_bytes());
+        controller_type_9.push(3);
+        controller_type_9.extend_from_slice(&[1, 5, 9]);
+
+        let cases = vec![
+            ("controller-4", 4u8, controller_type_4),
+            ("controller-6", 6u8, controller_type_6),
+            ("controller-7", 7u8, controller_type_7),
+            ("controller-8", 8u8, controller_type_8),
+            ("controller-9", 9u8, controller_type_9),
+        ];
+
+        for (label, expected_type, controller) in cases {
+            let bytes = build_entity_alpha_sync_bytes_with_controller(&controller);
+            let (snapshot, consumed) = parse_entity_alpha_sync_bytes(&bytes)
+                .unwrap_or_else(|error| panic!("{label} parse failed: {error}"));
+
+            assert_eq!(consumed, bytes.len(), "{label}");
+            assert_eq!(snapshot.controller_type, expected_type, "{label}");
+            assert_eq!(snapshot.controller_value, None, "{label}");
+            assert_eq!(snapshot.team_id, 1, "{label}");
+            assert_eq!(snapshot.unit_type_id, 35, "{label}");
+            assert_eq!(snapshot.x_bits, 40.0f32.to_bits(), "{label}");
+            assert_eq!(snapshot.y_bits, 60.0f32.to_bits(), "{label}");
+        }
     }
 
     #[test]
