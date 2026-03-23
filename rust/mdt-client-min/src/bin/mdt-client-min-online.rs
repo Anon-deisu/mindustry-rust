@@ -4110,6 +4110,9 @@ fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<String> 
             ClientSessionEvent::UnitBlockSpawn { tile_pos } => {
                 Some(format!("unit_block_spawn: tile_pos={tile_pos:?}"))
             }
+            ClientSessionEvent::UnitTetherBlockSpawned { tile_pos, unit_id } => Some(format!(
+                "unit_tether_block_spawned: tile_pos={tile_pos:?} unit_id={unit_id}"
+            )),
             ClientSessionEvent::TraceInfoReceived {
                 player_id,
                 ip,
@@ -6458,9 +6461,13 @@ mod tests {
             ClientSessionEvent::UnitBlockSpawn {
                 tile_pos: Some(pack_point2(4, 15)),
             },
+            ClientSessionEvent::UnitTetherBlockSpawned {
+                tile_pos: Some(pack_point2(8, 3)),
+                unit_id: 404,
+            },
         ]);
 
-        assert_eq!(lines.len(), 3);
+        assert_eq!(lines.len(), 4);
         assert!(lines[0].contains("create_weather:"));
         assert!(lines[0].contains("weather_id=Some(5)"));
         assert!(lines[0].contains("0x3f400000"));
@@ -6472,6 +6479,9 @@ mod tests {
         assert!(lines[1].contains("unit_type_id=Some(19)"));
         assert!(lines[2].contains("unit_block_spawn:"));
         assert!(lines[2].contains(&format!("tile_pos=Some({})", pack_point2(4, 15))));
+        assert!(lines[3].contains("unit_tether_block_spawned:"));
+        assert!(lines[3].contains(&format!("tile_pos=Some({})", pack_point2(8, 3))));
+        assert!(lines[3].contains("unit_id=404"));
     }
 
     #[test]

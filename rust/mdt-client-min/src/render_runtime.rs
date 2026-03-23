@@ -1067,13 +1067,16 @@ fn runtime_audio_label(session_state: &SessionState) -> String {
 
 fn runtime_spawn_fx_label(session_state: &SessionState) -> String {
     format!(
-        "cw{}@{}:se{}@{}:ubs{}@{}",
+        "cw{}@{}:se{}@{}:ubs{}@{}:utbs{}@{}#{}",
         session_state.received_create_weather_count,
         runtime_optional_display_label(session_state.last_create_weather_id),
         session_state.received_spawn_effect_count,
         runtime_optional_display_label(session_state.last_spawn_effect_unit_type_id),
         session_state.received_unit_block_spawn_count,
         runtime_optional_display_label(session_state.last_unit_block_spawn_tile_pos),
+        session_state.received_unit_tether_block_spawned_count,
+        runtime_optional_display_label(session_state.last_unit_tether_block_spawned_tile_pos),
+        runtime_optional_display_label(session_state.last_unit_tether_block_spawned_id),
     )
 }
 
@@ -2810,6 +2813,9 @@ mod tests {
         state.last_spawn_effect_unit_type_id = Some(19);
         state.received_unit_block_spawn_count = 73;
         state.last_unit_block_spawn_tile_pos = Some(pack_runtime_point2(4, 15));
+        state.received_unit_tether_block_spawned_count = 74;
+        state.last_unit_tether_block_spawned_tile_pos = Some(pack_runtime_point2(8, 3));
+        state.last_unit_tether_block_spawned_id = Some(404);
         state.received_sound_count = 54;
         state.received_sound_at_count = 55;
         state.received_trace_info_count = 56;
@@ -3089,8 +3095,9 @@ mod tests {
             pack_runtime_point2(11, 12),
         )));
         assert!(hud.status_text.contains(&format!(
-            "runtime_spawn_fx=cw71@5:se72@19:ubs73@{}",
+            "runtime_spawn_fx=cw71@5:se72@19:ubs73@{}:utbs74@{}#404",
             pack_runtime_point2(4, 15),
+            pack_runtime_point2(8, 3),
         )));
         assert!(hud
             .status_text

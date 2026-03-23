@@ -281,6 +281,7 @@ pub struct ClientSession {
     create_weather_packet_id: Option<u8>,
     spawn_effect_packet_id: Option<u8>,
     unit_block_spawn_packet_id: Option<u8>,
+    unit_tether_block_spawned_packet_id: Option<u8>,
     sound_packet_id: Option<u8>,
     sound_at_packet_id: Option<u8>,
     effect_packet_id: Option<u8>,
@@ -909,6 +910,11 @@ impl ClientSession {
             .iter()
             .find(|entry| entry.method == "unitBlockSpawn")
             .map(|entry| entry.packet_id);
+        let unit_tether_block_spawned_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "unitTetherBlockSpawned")
+            .map(|entry| entry.packet_id);
         let sound_packet_id = manifest
             .remote_packets
             .iter()
@@ -1213,6 +1219,7 @@ impl ClientSession {
             create_weather_packet_id,
             spawn_effect_packet_id,
             unit_block_spawn_packet_id,
+            unit_tether_block_spawned_packet_id,
             sound_packet_id,
             sound_at_packet_id,
             effect_packet_id,
@@ -4211,6 +4218,24 @@ impl ClientSession {
                     })
                 }
             }
+            packet_id if Some(packet_id) == self.unit_tether_block_spawned_packet_id => {
+                if let Some((tile_pos, unit_id)) =
+                    decode_unit_tether_block_spawned_payload(&packet.payload)
+                {
+                    self.state.received_unit_tether_block_spawned_count = self
+                        .state
+                        .received_unit_tether_block_spawned_count
+                        .saturating_add(1);
+                    self.state.last_unit_tether_block_spawned_tile_pos = tile_pos;
+                    self.state.last_unit_tether_block_spawned_id = Some(unit_id);
+                    Ok(ClientSessionEvent::UnitTetherBlockSpawned { tile_pos, unit_id })
+                } else {
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
             packet_id if Some(packet_id) == self.sound_packet_id => {
                 if let Some(sound) = decode_sound_payload(&packet.payload) {
                     self.state.received_sound_count =
@@ -5942,6 +5967,10 @@ pub enum ClientSessionEvent {
     UnitBlockSpawn {
         tile_pos: Option<i32>,
     },
+    UnitTetherBlockSpawned {
+        tile_pos: Option<i32>,
+        unit_id: i32,
+    },
     EffectRequested {
         effect_id: Option<i16>,
         x: f32,
@@ -7332,6 +7361,13 @@ fn decode_unit_block_spawn_payload(payload: &[u8]) -> Option<Option<i32>> {
     let mut cursor = 0usize;
     let tile_pos = read_optional_tile_pos(payload, &mut cursor)?;
     (cursor == payload.len()).then_some(tile_pos)
+}
+
+fn decode_unit_tether_block_spawned_payload(payload: &[u8]) -> Option<(Option<i32>, i32)> {
+    let mut cursor = 0usize;
+    let tile_pos = read_optional_tile_pos(payload, &mut cursor)?;
+    let unit_id = read_i32(payload, &mut cursor)?;
+    (cursor == payload.len()).then_some((tile_pos, unit_id))
 }
 
 fn decode_transfer_inventory_payload(payload: &[u8]) -> Option<Option<i32>> {
@@ -10217,6 +10253,13 @@ fn encode_tile_payload(tile_pos: Option<i32>) -> Vec<u8> {
         .unwrap_or_else(|| pack_point2(-1, -1))
         .to_be_bytes()
         .to_vec()
+}
+
+#[cfg(test)]
+fn encode_unit_tether_block_spawned_payload(tile_pos: Option<i32>, unit_id: i32) -> Vec<u8> {
+    let mut payload = encode_tile_payload(tile_pos);
+    payload.extend_from_slice(&unit_id.to_be_bytes());
+    payload
 }
 
 fn encode_tile_config_payload(build_pos: Option<i32>, value: &TypeIoObject) -> Vec<u8> {
@@ -21270,6 +21313,12 @@ mod tests {
             .find(|entry| entry.method == "unitBlockSpawn")
             .unwrap()
             .packet_id;
+        let unit_tether_block_spawned_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "unitTetherBlockSpawned")
+            .unwrap()
+            .packet_id;
 
         let create_weather_event = session
             .ingest_packet_bytes(
@@ -21366,6 +21415,31 @@ mod tests {
             session.state().last_unit_block_spawn_tile_pos,
             unit_block_spawn_pos
         );
+
+        let unit_tether_block_spawned_pos = Some(pack_point2(8, 3));
+        let unit_tether_block_spawned_event = session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    unit_tether_block_spawned_packet_id,
+                    &encode_unit_tether_block_spawned_payload(unit_tether_block_spawned_pos, 404),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            unit_tether_block_spawned_event,
+            ClientSessionEvent::UnitTetherBlockSpawned {
+                tile_pos: unit_tether_block_spawned_pos,
+                unit_id: 404,
+            }
+        );
+        assert_eq!(session.state().received_unit_tether_block_spawned_count, 1);
+        assert_eq!(
+            session.state().last_unit_tether_block_spawned_tile_pos,
+            unit_tether_block_spawned_pos
+        );
+        assert_eq!(session.state().last_unit_tether_block_spawned_id, Some(404));
     }
 
     #[test]
@@ -21390,6 +21464,12 @@ mod tests {
             .find(|entry| entry.method == "unitBlockSpawn")
             .unwrap()
             .packet_id;
+        let unit_tether_block_spawned_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "unitTetherBlockSpawned")
+            .unwrap()
+            .packet_id;
 
         for (packet_id, payload) in [
             (
@@ -21401,6 +21481,11 @@ mod tests {
                 encode_spawn_effect_payload(32.5, 48.0, 90.0, Some(19))[..13].to_vec(),
             ),
             (unit_block_spawn_packet_id, vec![0x00, 0x01, 0x02]),
+            (
+                unit_tether_block_spawned_packet_id,
+                encode_unit_tether_block_spawned_payload(Some(pack_point2(8, 3)), 404)[..7]
+                    .to_vec(),
+            ),
         ] {
             let event = session
                 .ingest_packet_bytes(&encode_packet(packet_id, &payload, false).unwrap())
@@ -21420,6 +21505,12 @@ mod tests {
         assert_eq!(session.state().last_spawn_effect_unit_type_id, None);
         assert_eq!(session.state().received_unit_block_spawn_count, 0);
         assert_eq!(session.state().last_unit_block_spawn_tile_pos, None);
+        assert_eq!(session.state().received_unit_tether_block_spawned_count, 0);
+        assert_eq!(
+            session.state().last_unit_tether_block_spawned_tile_pos,
+            None
+        );
+        assert_eq!(session.state().last_unit_tether_block_spawned_id, None);
     }
 
     #[test]
