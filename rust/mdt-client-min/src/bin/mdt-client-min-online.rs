@@ -4314,6 +4314,21 @@ fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<String> 
             } => Some(format!(
                 "set_tile_liquids: liquid_id={liquid_id:?} amount_bits=0x{amount_bits:08x} count={position_count} first_position={first_position:?}"
             )),
+            ClientSessionEvent::SetTileOverlays {
+                block_id,
+                position_count,
+                first_position,
+            } => Some(format!(
+                "set_tile_overlays: block_id={block_id:?} count={position_count} first_position={first_position:?}"
+            )),
+            ClientSessionEvent::SyncVariable {
+                build_pos,
+                variable,
+                value_kind,
+                value_kind_name,
+            } => Some(format!(
+                "sync_variable: build_pos={build_pos:?} variable={variable} value_kind={value_kind} value_kind_name={value_kind_name:?}"
+            )),
             ClientSessionEvent::InfoMessage { message } => {
                 Some(format!("info_message: message={message:?}"))
             }
@@ -6914,6 +6929,32 @@ mod tests {
         assert!(lines[5].contains("Some(\"unitSpawn\")"));
         assert!(lines[6].contains("ignored_packet:"));
         assert!(lines[6].contains("Some(\"unitTetherBlockSpawned\")"));
+    }
+
+    #[test]
+    fn summarize_client_packet_events_includes_tile_overlay_and_logic_sync_observability() {
+        let lines = summarize_client_packet_events(&[
+            ClientSessionEvent::SetTileOverlays {
+                block_id: Some(17),
+                position_count: 2,
+                first_position: Some(pack_point2(5, 6)),
+            },
+            ClientSessionEvent::SyncVariable {
+                build_pos: Some(pack_point2(9, 10)),
+                variable: 4,
+                value_kind: 4,
+                value_kind_name: "string".to_string(),
+            },
+        ]);
+
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].contains("set_tile_overlays:"));
+        assert!(lines[0].contains("block_id=Some(17)"));
+        assert!(lines[0].contains("count=2"));
+        assert!(lines[1].contains("sync_variable:"));
+        assert!(lines[1].contains("variable=4"));
+        assert!(lines[1].contains("value_kind=4"));
+        assert!(lines[1].contains("\"string\""));
     }
 
     #[test]

@@ -227,8 +227,10 @@ pub struct ClientSession {
     set_hud_text_reliable_packet_id: Option<u8>,
     set_liquid_packet_id: Option<u8>,
     set_liquids_packet_id: Option<u8>,
+    set_tile_overlays_packet_id: Option<u8>,
     set_tile_items_packet_id: Option<u8>,
     set_tile_liquids_packet_id: Option<u8>,
+    sync_variable_packet_id: Option<u8>,
     text_input_packet_id: Option<u8>,
     text_input_allow_empty_packet_id: Option<u8>,
     text_input_result_packet_id: Option<u8>,
@@ -634,6 +636,11 @@ impl ClientSession {
             .iter()
             .find(|entry| entry.method == "setLiquids")
             .map(|entry| entry.packet_id);
+        let set_tile_overlays_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setTileOverlays")
+            .map(|entry| entry.packet_id);
         let set_tile_items_packet_id = manifest
             .remote_packets
             .iter()
@@ -643,6 +650,11 @@ impl ClientSession {
             .remote_packets
             .iter()
             .find(|entry| entry.method == "setTileLiquids")
+            .map(|entry| entry.packet_id);
+        let sync_variable_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "syncVariable")
             .map(|entry| entry.packet_id);
         let text_input_packet_id = manifest
             .remote_packets
@@ -1099,8 +1111,10 @@ impl ClientSession {
             set_hud_text_reliable_packet_id,
             set_liquid_packet_id,
             set_liquids_packet_id,
+            set_tile_overlays_packet_id,
             set_tile_items_packet_id,
             set_tile_liquids_packet_id,
+            sync_variable_packet_id,
             text_input_packet_id,
             text_input_allow_empty_packet_id,
             text_input_result_packet_id,
@@ -2709,6 +2723,51 @@ impl ClientSession {
                         amount_bits: summary.amount_bits,
                         position_count: summary.position_count,
                         first_position: summary.first_position,
+                    })
+                } else {
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
+            packet_id if Some(packet_id) == self.set_tile_overlays_packet_id => {
+                if let Some(summary) = decode_set_tile_overlays_payload(&packet.payload) {
+                    self.state.received_set_tile_overlays_count = self
+                        .state
+                        .received_set_tile_overlays_count
+                        .saturating_add(1);
+                    self.state.last_set_tile_overlays_block_id = summary.block_id;
+                    self.state.last_set_tile_overlays_count = summary.position_count;
+                    self.state.last_set_tile_overlays_first_position = summary.first_position;
+                    Ok(ClientSessionEvent::SetTileOverlays {
+                        block_id: summary.block_id,
+                        position_count: summary.position_count,
+                        first_position: summary.first_position,
+                    })
+                } else {
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
+            packet_id if Some(packet_id) == self.sync_variable_packet_id => {
+                if let Some(summary) = decode_sync_variable_payload(&packet.payload) {
+                    self.state.received_sync_variable_count = self
+                        .state
+                        .received_sync_variable_count
+                        .saturating_add(1);
+                    self.state.last_sync_variable_build_pos = summary.build_pos;
+                    self.state.last_sync_variable_index = Some(summary.variable);
+                    self.state.last_sync_variable_value_kind = Some(summary.value_kind);
+                    self.state.last_sync_variable_value_kind_name =
+                        Some(summary.value_kind_name.clone());
+                    Ok(ClientSessionEvent::SyncVariable {
+                        build_pos: summary.build_pos,
+                        variable: summary.variable,
+                        value_kind: summary.value_kind,
+                        value_kind_name: summary.value_kind_name,
                     })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -5859,6 +5918,17 @@ pub enum ClientSessionEvent {
         position_count: usize,
         first_position: Option<i32>,
     },
+    SetTileOverlays {
+        block_id: Option<i16>,
+        position_count: usize,
+        first_position: Option<i32>,
+    },
+    SyncVariable {
+        build_pos: Option<i32>,
+        variable: i32,
+        value_kind: u8,
+        value_kind_name: String,
+    },
     InfoMessage {
         message: Option<String>,
     },
@@ -6741,6 +6811,34 @@ fn decode_set_tile_liquids_payload(payload: &[u8]) -> Option<SetTileLiquidsSumma
         amount_bits: amount.to_bits(),
         position_count: positions.len(),
         first_position: positions.first().copied(),
+    })
+}
+
+fn decode_set_tile_overlays_payload(payload: &[u8]) -> Option<SetTileOverlaysSummary> {
+    let mut cursor = 0usize;
+    let raw_block_id = read_i16(payload, &mut cursor)?;
+    let positions = read_i32_array_with_i16_len(payload, &mut cursor)?;
+    (cursor == payload.len()).then_some(SetTileOverlaysSummary {
+        block_id: (raw_block_id != -1).then_some(raw_block_id),
+        position_count: positions.len(),
+        first_position: positions.first().copied(),
+    })
+}
+
+fn decode_sync_variable_payload(payload: &[u8]) -> Option<SyncVariableSummary> {
+    let mut cursor = 0usize;
+    let build_pos = read_optional_build_pos(payload, &mut cursor)?;
+    let variable = read_i32(payload, &mut cursor)?;
+    let value_payload = &payload[cursor..];
+    let (value, consumed_len) = read_object_prefix(value_payload).ok()?;
+    if consumed_len != value_payload.len() {
+        return None;
+    }
+    Some(SyncVariableSummary {
+        build_pos,
+        variable,
+        value_kind: value_payload[0],
+        value_kind_name: value.kind().to_string(),
     })
 }
 
@@ -7755,6 +7853,21 @@ struct SetTileLiquidsSummary {
     amount_bits: u32,
     position_count: usize,
     first_position: Option<i32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SetTileOverlaysSummary {
+    block_id: Option<i16>,
+    position_count: usize,
+    first_position: Option<i32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SyncVariableSummary {
+    build_pos: Option<i32>,
+    variable: i32,
+    value_kind: u8,
+    value_kind_name: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -17555,6 +17668,87 @@ mod tests {
         assert_eq!(
             session.state().last_set_tile_liquids_first_position,
             Some(pack_point2(5, 6))
+        );
+    }
+
+    #[test]
+    fn tile_overlay_and_logic_sync_packets_emit_observability_events() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let set_tile_overlays_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setTileOverlays")
+            .unwrap()
+            .packet_id;
+        let sync_variable_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "syncVariable")
+            .unwrap()
+            .packet_id;
+
+        let mut set_tile_overlays_payload = Vec::new();
+        set_tile_overlays_payload.extend_from_slice(&17i16.to_be_bytes());
+        set_tile_overlays_payload.extend_from_slice(&2i16.to_be_bytes());
+        set_tile_overlays_payload.extend_from_slice(&pack_point2(5, 6).to_be_bytes());
+        set_tile_overlays_payload.extend_from_slice(&pack_point2(7, 8).to_be_bytes());
+        let set_tile_overlays_event = session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    set_tile_overlays_packet_id,
+                    &set_tile_overlays_payload,
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            set_tile_overlays_event,
+            ClientSessionEvent::SetTileOverlays {
+                block_id: Some(17),
+                position_count: 2,
+                first_position: Some(pack_point2(5, 6)),
+            }
+        );
+        assert_eq!(session.state().received_set_tile_overlays_count, 1);
+        assert_eq!(session.state().last_set_tile_overlays_block_id, Some(17));
+        assert_eq!(session.state().last_set_tile_overlays_count, 2);
+        assert_eq!(
+            session.state().last_set_tile_overlays_first_position,
+            Some(pack_point2(5, 6))
+        );
+
+        let mut sync_variable_payload = encode_building_payload(Some(pack_point2(9, 10)));
+        sync_variable_payload.extend_from_slice(&4i32.to_be_bytes());
+        write_typeio_object(
+            &mut sync_variable_payload,
+            &TypeIoObject::String(Some("logic-text".to_string())),
+        );
+        let sync_variable_event = session
+            .ingest_packet_bytes(
+                &encode_packet(sync_variable_packet_id, &sync_variable_payload, false).unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            sync_variable_event,
+            ClientSessionEvent::SyncVariable {
+                build_pos: Some(pack_point2(9, 10)),
+                variable: 4,
+                value_kind: 4,
+                value_kind_name: "string".to_string(),
+            }
+        );
+        assert_eq!(session.state().received_sync_variable_count, 1);
+        assert_eq!(
+            session.state().last_sync_variable_build_pos,
+            Some(pack_point2(9, 10))
+        );
+        assert_eq!(session.state().last_sync_variable_index, Some(4));
+        assert_eq!(session.state().last_sync_variable_value_kind, Some(4));
+        assert_eq!(
+            session.state().last_sync_variable_value_kind_name.as_deref(),
+            Some("string")
         );
     }
 

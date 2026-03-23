@@ -48,7 +48,7 @@ impl RenderRuntimeAdapter {
         let state_business_projection = session_state.state_snapshot_business_projection.as_ref();
         hud.runtime_ui = Some(runtime_ui_observability(session_state));
         hud.status_text = format!(
-            "{} runtime_selected={} runtime_plans={} runtime_cfg_int={} runtime_cfg_long={} runtime_cfg_float={} runtime_cfg_bool={} runtime_cfg_int_seq={} runtime_cfg_point2={} runtime_cfg_point2_array={} runtime_cfg_tech_node={} runtime_cfg_double={} runtime_cfg_building_pos={} runtime_cfg_laccess={} runtime_cfg_string={} runtime_cfg_bytes={} runtime_cfg_legacy_unit_command_null={} runtime_cfg_bool_array={} runtime_cfg_unit_id={} runtime_cfg_vec2_array={} runtime_cfg_vec2={} runtime_cfg_team={} runtime_cfg_int_array={} runtime_cfg_object_array={} runtime_cfg_content={} runtime_cfg_unit_command={} runtime_world_tiles={} runtime_health={} building={} runtime_builder={} runtime_builder_head={} runtime_entity_local={} runtime_entity_hidden={} runtime_entity_gate={} runtime_entity_sync={} runtime_snap_last={} runtime_snap_events={} runtime_wave={} runtime_enemies={} runtime_tps={} runtime_state_apply={} runtime_core_teams={} runtime_core_items={} runtime_buildings={} runtime_block={} runtime_block_fail={} runtime_hidden={} runtime_hidden_delta={} runtime_hidden_fail={} runtime_effects={} runtime_effect_data_kind={} runtime_effect_data_semantic={} runtime_effect_apply={} runtime_effect_path={} runtime_effect_data_fail={} bootstrap_rules={} bootstrap_tags={} bootstrap_locales={} bootstrap_teams={} bootstrap_markers={} bootstrap_chunks={} bootstrap_patches={} bootstrap_plans={} bootstrap_fog_teams={} runtime_view_center={} runtime_view_size={} runtime_position={} runtime_pointer={} runtime_selected_rotation={} runtime_input_flags={} runtime_snap_client={} runtime_snap_state={} runtime_snap_entity={} runtime_snap_block={} runtime_snap_hidden={} runtime_tilecfg_events={} runtime_tilecfg_parse_fail={} runtime_tilecfg_noapply={} runtime_tilecfg_rollback={} runtime_tilecfg_pending_mismatch={} runtime_take_items={} runtime_transfer_item={} runtime_transfer_item_unit={} runtime_payload_drop={} runtime_payload_pick_build={} runtime_payload_pick_unit={} runtime_unit_entered_payload={} runtime_unit_despawn={} runtime_audio={} runtime_admin={} runtime_kick={} runtime_loading={} runtime_rules={} runtime_ui_notice={} runtime_ui_menu={} runtime_world_label={} runtime_marker={} runtime_resource_delta={} runtime_command_ctrl={} runtime_gameplay_signal={}",
+            "{} runtime_selected={} runtime_plans={} runtime_cfg_int={} runtime_cfg_long={} runtime_cfg_float={} runtime_cfg_bool={} runtime_cfg_int_seq={} runtime_cfg_point2={} runtime_cfg_point2_array={} runtime_cfg_tech_node={} runtime_cfg_double={} runtime_cfg_building_pos={} runtime_cfg_laccess={} runtime_cfg_string={} runtime_cfg_bytes={} runtime_cfg_legacy_unit_command_null={} runtime_cfg_bool_array={} runtime_cfg_unit_id={} runtime_cfg_vec2_array={} runtime_cfg_vec2={} runtime_cfg_team={} runtime_cfg_int_array={} runtime_cfg_object_array={} runtime_cfg_content={} runtime_cfg_unit_command={} runtime_world_tiles={} runtime_health={} building={} runtime_builder={} runtime_builder_head={} runtime_entity_local={} runtime_entity_hidden={} runtime_entity_gate={} runtime_entity_sync={} runtime_snap_last={} runtime_snap_events={} runtime_wave={} runtime_enemies={} runtime_tps={} runtime_state_apply={} runtime_core_teams={} runtime_core_items={} runtime_buildings={} runtime_block={} runtime_block_fail={} runtime_hidden={} runtime_hidden_delta={} runtime_hidden_fail={} runtime_effects={} runtime_effect_data_kind={} runtime_effect_data_semantic={} runtime_effect_apply={} runtime_effect_path={} runtime_effect_data_fail={} bootstrap_rules={} bootstrap_tags={} bootstrap_locales={} bootstrap_teams={} bootstrap_markers={} bootstrap_chunks={} bootstrap_patches={} bootstrap_plans={} bootstrap_fog_teams={} runtime_view_center={} runtime_view_size={} runtime_position={} runtime_pointer={} runtime_selected_rotation={} runtime_input_flags={} runtime_snap_client={} runtime_snap_state={} runtime_snap_entity={} runtime_snap_block={} runtime_snap_hidden={} runtime_tilecfg_events={} runtime_tilecfg_parse_fail={} runtime_tilecfg_noapply={} runtime_tilecfg_rollback={} runtime_tilecfg_pending_mismatch={} runtime_take_items={} runtime_transfer_item={} runtime_transfer_item_unit={} runtime_payload_drop={} runtime_payload_pick_build={} runtime_payload_pick_unit={} runtime_unit_entered_payload={} runtime_unit_despawn={} runtime_audio={} runtime_admin={} runtime_kick={} runtime_loading={} runtime_rules={} runtime_ui_notice={} runtime_ui_menu={} runtime_world_label={} runtime_marker={} runtime_logic_sync={} runtime_resource_delta={} runtime_command_ctrl={} runtime_gameplay_signal={}",
             hud.status_text,
             runtime_selected_block_label(snapshot_input.selected_block_id),
             snapshot_input.plans.as_ref().map_or(0, Vec::len),
@@ -205,6 +205,7 @@ impl RenderRuntimeAdapter {
             runtime_ui_menu_label(session_state),
             runtime_world_label_label(session_state),
             runtime_marker_label(session_state),
+            runtime_logic_sync_label(session_state),
             runtime_resource_delta_label(session_state),
             runtime_command_control_label(session_state),
             runtime_gameplay_signal_label(session_state),
@@ -1316,6 +1317,23 @@ fn runtime_marker_label(session_state: &SessionState) -> String {
         runtime_optional_display_label(session_state.last_marker_id),
         session_state
             .last_marker_control_name
+            .as_deref()
+            .unwrap_or("none"),
+    )
+}
+
+fn runtime_logic_sync_label(session_state: &SessionState) -> String {
+    format!(
+        "ov{}@{}:{}:{}:sv{}@{}:{}:{}",
+        session_state.received_set_tile_overlays_count,
+        runtime_optional_display_label(session_state.last_set_tile_overlays_block_id),
+        session_state.last_set_tile_overlays_count,
+        runtime_optional_display_label(session_state.last_set_tile_overlays_first_position),
+        session_state.received_sync_variable_count,
+        runtime_optional_display_label(session_state.last_sync_variable_build_pos),
+        runtime_optional_display_label(session_state.last_sync_variable_index),
+        session_state
+            .last_sync_variable_value_kind_name
             .as_deref()
             .unwrap_or("none"),
     )
@@ -2794,6 +2812,15 @@ mod tests {
         state.failed_marker_decode_count = 2;
         state.last_marker_id = Some(808);
         state.last_marker_control_name = Some("flushText".to_string());
+        state.received_set_tile_overlays_count = 59;
+        state.last_set_tile_overlays_block_id = Some(17);
+        state.last_set_tile_overlays_count = 2;
+        state.last_set_tile_overlays_first_position = Some(pack_runtime_point2(5, 6));
+        state.received_sync_variable_count = 60;
+        state.last_sync_variable_build_pos = Some(pack_runtime_point2(9, 10));
+        state.last_sync_variable_index = Some(4);
+        state.last_sync_variable_value_kind = Some(4);
+        state.last_sync_variable_value_kind_name = Some("string".to_string());
         state.received_set_item_count = 22;
         state.received_set_items_count = 23;
         state.received_set_liquid_count = 24;
@@ -3052,6 +3079,11 @@ mod tests {
         assert!(hud
             .status_text
             .contains("runtime_marker=cr54:rm55:up56:txt57:tex58:fail2:last808:flushText"));
+        assert!(hud.status_text.contains(&format!(
+            "runtime_logic_sync=ov59@17:2:{}:sv60@{}:4:string",
+            pack_runtime_point2(5, 6),
+            pack_runtime_point2(9, 10),
+        )));
         assert!(hud
             .status_text
             .contains("runtime_resource_delta=seti22:setis23:setl24:setls25:sti26:stl27"));
