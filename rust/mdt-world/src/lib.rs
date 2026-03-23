@@ -13024,6 +13024,43 @@ pub fn parse_entity_missile_sync_bytes(
     Ok((snapshot, reader.position()))
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum PayloadEntryProbe {
+    Null,
+    Unit { class_id: u8, revision: i16 },
+    Block { block_id: i16, build_version: u8 },
+}
+
+fn probe_payload_entry(reader: &mut Reader<'_>) -> Result<PayloadEntryProbe, String> {
+    if !reader.read_bool()? {
+        return Ok(PayloadEntryProbe::Null);
+    }
+    match reader.read_u8()? {
+        0 => Ok(PayloadEntryProbe::Unit {
+            class_id: reader.read_u8()?,
+            revision: reader.read_i16()?,
+        }),
+        1 => Ok(PayloadEntryProbe::Block {
+            block_id: reader.read_i16()?,
+            build_version: reader.read_u8()?,
+        }),
+        payload_type => Err(format!("unsupported payload type: {payload_type}")),
+    }
+}
+
+fn format_payload_entry_probe(probe: &PayloadEntryProbe) -> String {
+    match probe {
+        PayloadEntryProbe::Null => "null".to_string(),
+        PayloadEntryProbe::Unit { class_id, revision } => {
+            format!("unit:class_id={class_id}:revision={revision}")
+        }
+        PayloadEntryProbe::Block {
+            block_id,
+            build_version,
+        } => format!("block:block_id={block_id}:build_version={build_version}"),
+    }
+}
+
 pub fn parse_entity_payload_sync_bytes(
     bytes: &[u8],
 ) -> Result<(EntityPayloadSyncSnapshot, usize), String> {
@@ -13046,8 +13083,11 @@ pub fn parse_entity_payload_sync_bytes(
         ));
     }
     if payload_count != 0 {
+        let first_payload = probe_payload_entry(&mut reader)
+            .map(|probe| format_payload_entry_probe(&probe))
+            .unwrap_or_else(|error| format!("unavailable:{error}"));
         return Err(format!(
-            "unsupported payload sync nonzero payload count: {payload_count}"
+            "unsupported payload sync nonzero payload count: {payload_count}:first_payload:{first_payload}"
         ));
     }
     let plan_count = reader.read_i32()?;
@@ -13131,8 +13171,11 @@ pub fn parse_entity_building_tether_payload_sync_bytes(
         ));
     }
     if payload_count != 0 {
+        let first_payload = probe_payload_entry(&mut reader)
+            .map(|probe| format_payload_entry_probe(&probe))
+            .unwrap_or_else(|error| format!("unavailable:{error}"));
         return Err(format!(
-            "unsupported tether payload sync nonzero payload count: {payload_count}"
+            "unsupported tether payload sync nonzero payload count: {payload_count}:first_payload:{first_payload}"
         ));
     }
     let plan_count = reader.read_i32()?;
@@ -37101,6 +37144,97 @@ mod tests {
         assert!(snapshot.update_building);
         assert_eq!(snapshot.x_bits, 40.0f32.to_bits());
         assert_eq!(snapshot.y_bits, 60.0f32.to_bits());
+    }
+
+    #[test]
+    fn payload_sync_nonzero_payload_count_reports_first_unit_payload_header() {
+        let mut bytes = Vec::new();
+        bytes.push(0);
+        bytes.extend_from_slice(&123.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&7i32.to_be_bytes());
+        bytes.extend_from_slice(&1.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f64.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&150.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&(-1i32).to_be_bytes());
+        bytes.push(2);
+        bytes.push(0);
+        bytes.extend_from_slice(&0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&1i32.to_be_bytes());
+        bytes.push(1);
+        bytes.push(0);
+        bytes.push(12);
+        bytes.extend_from_slice(&6i16.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&90.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0i16.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&35i16.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&1.5f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&(-2.25f32).to_bits().to_be_bytes());
+        bytes.extend_from_slice(&40.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&60.0f32.to_bits().to_be_bytes());
+
+        let error = parse_entity_payload_sync_bytes(&bytes).unwrap_err();
+
+        assert!(error.contains("unsupported payload sync nonzero payload count: 1"));
+        assert!(error.contains("first_payload:unit:class_id=12:revision=6"));
+    }
+
+    #[test]
+    fn tether_payload_sync_nonzero_payload_count_reports_first_block_payload_header() {
+        let mut bytes = Vec::new();
+        bytes.push(0);
+        bytes.extend_from_slice(&123.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&12345i32.to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&7i32.to_be_bytes());
+        bytes.extend_from_slice(&1.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f64.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&150.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&(-1i32).to_be_bytes());
+        bytes.push(2);
+        bytes.push(0);
+        bytes.extend_from_slice(&0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&1i32.to_be_bytes());
+        bytes.push(1);
+        bytes.push(1);
+        bytes.extend_from_slice(&42i16.to_be_bytes());
+        bytes.push(3);
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&90.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0i16.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.extend_from_slice(&0i32.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&35i16.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&1.5f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&(-2.25f32).to_bits().to_be_bytes());
+        bytes.extend_from_slice(&40.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&60.0f32.to_bits().to_be_bytes());
+
+        let error = parse_entity_building_tether_payload_sync_bytes(&bytes).unwrap_err();
+
+        assert!(error.contains("unsupported tether payload sync nonzero payload count: 1"));
+        assert!(error.contains("first_payload:block:block_id=42:build_version=3"));
     }
 
     #[test]
