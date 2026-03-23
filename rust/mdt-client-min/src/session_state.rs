@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 const ENTITY_SNAPSHOT_TOMBSTONE_TTL_SNAPSHOTS: u64 = 1;
 const ENTITY_SNAPSHOT_TOMBSTONE_SKIP_SAMPLE_LIMIT: usize = 4;
+const CORE_INVENTORY_CHANGED_TEAM_SAMPLE_LIMIT: usize = 4;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct AppliedStateSnapshotCoreDataItem {
@@ -94,7 +95,34 @@ pub struct StateSnapshotAuthorityProjection {
     pub core_parse_fail_count: u64,
 }
 
-pub type AuthoritativeStateMirror = StateSnapshotAuthorityProjection;
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct AuthoritativeStateMirror {
+    pub wave_time_bits: u32,
+    pub wave: i32,
+    pub enemies: i32,
+    pub paused: bool,
+    pub game_over: bool,
+    pub net_seconds: i32,
+    pub tps: u8,
+    pub rand0: i64,
+    pub rand1: i64,
+    pub gameplay_state: GameplayStateProjection,
+    pub last_wave_advanced: bool,
+    pub wave_advance_count: u64,
+    pub apply_count: u64,
+    pub last_net_seconds_rollback: bool,
+    pub net_seconds_delta: i32,
+    pub wave_regress_count: u64,
+    pub core_inventory_team_count: usize,
+    pub core_inventory_item_entry_count: usize,
+    pub core_inventory_total_amount: i64,
+    pub core_inventory_nonzero_item_count: usize,
+    pub core_inventory_changed_team_count: usize,
+    pub core_inventory_changed_team_sample: Vec<u8>,
+    pub core_inventory_by_team: BTreeMap<u8, BTreeMap<u16, i32>>,
+    pub last_core_sync_ok: bool,
+    pub core_parse_fail_count: u64,
+}
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct AppliedStateSnapshot {
@@ -416,7 +444,8 @@ impl TileConfigProjection {
         &mut self,
         build_pos: Option<i32>,
     ) -> TileConfigBusinessApply {
-        let pending_local = build_pos.and_then(|value| self.pending_local_by_build_pos.remove(&value));
+        let pending_local =
+            build_pos.and_then(|value| self.pending_local_by_build_pos.remove(&value));
         let cleared_pending_local = pending_local.is_some();
         self.last_business_build_pos = None;
         self.last_business_value = None;
@@ -451,6 +480,41 @@ impl TileConfigProjection {
     }
 }
 
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct ConfiguredBlockProjection {
+    pub unit_cargo_unload_point_item_by_build_pos: BTreeMap<i32, Option<i16>>,
+    pub item_source_item_by_build_pos: BTreeMap<i32, Option<i16>>,
+    pub liquid_source_liquid_by_build_pos: BTreeMap<i32, Option<i16>>,
+}
+
+impl ConfiguredBlockProjection {
+    pub fn apply_unit_cargo_unload_point_item(&mut self, build_pos: i32, item_id: Option<i16>) {
+        self.unit_cargo_unload_point_item_by_build_pos
+            .insert(build_pos, item_id);
+    }
+
+    pub fn apply_item_source_item(&mut self, build_pos: i32, item_id: Option<i16>) {
+        self.item_source_item_by_build_pos
+            .insert(build_pos, item_id);
+    }
+
+    pub fn apply_liquid_source_liquid(&mut self, build_pos: i32, liquid_id: Option<i16>) {
+        self.liquid_source_liquid_by_build_pos
+            .insert(build_pos, liquid_id);
+    }
+
+    pub fn clear_building_state(&mut self, build_pos: i32) {
+        self.unit_cargo_unload_point_item_by_build_pos
+            .remove(&build_pos);
+        self.item_source_item_by_build_pos.remove(&build_pos);
+        self.liquid_source_liquid_by_build_pos.remove(&build_pos);
+    }
+
+    pub fn clear_for_world_reload(&mut self) {
+        *self = Self::default();
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuildingProjectionUpdateKind {
     WorldBaseline,
@@ -478,6 +542,8 @@ pub struct BuildingProjection {
     pub efficiency: Option<u8>,
     pub optional_efficiency: Option<u8>,
     pub visible_flags: Option<u64>,
+    pub build_turret_plans_present: Option<bool>,
+    pub build_turret_plan_count: Option<u16>,
     pub last_update: BuildingProjectionUpdateKind,
 }
 
@@ -508,6 +574,8 @@ pub struct BuildingTableProjection {
     pub last_efficiency: Option<u8>,
     pub last_optional_efficiency: Option<u8>,
     pub last_visible_flags: Option<u64>,
+    pub last_build_turret_plans_present: Option<bool>,
+    pub last_build_turret_plan_count: Option<u16>,
     pub last_update: Option<BuildingProjectionUpdateKind>,
     pub last_removed: bool,
     pub last_block_snapshot_head_conflict: bool,
@@ -584,6 +652,12 @@ impl BuildingTableProjection {
                         .as_ref()
                         .and_then(|building| building.visible_flags)
                 }),
+                build_turret_plans_present: previous
+                    .as_ref()
+                    .and_then(|building| building.build_turret_plans_present),
+                build_turret_plan_count: previous
+                    .as_ref()
+                    .and_then(|building| building.build_turret_plan_count),
                 last_update: BuildingProjectionUpdateKind::WorldBaseline,
             },
         );
@@ -614,6 +688,8 @@ impl BuildingTableProjection {
         efficiency: Option<u8>,
         optional_efficiency: Option<u8>,
         visible_flags: Option<u64>,
+        build_turret_plans_present: Option<bool>,
+        build_turret_plan_count: Option<u16>,
     ) {
         if self.by_build_pos.get(&build_pos).is_some_and(|existing| {
             existing
@@ -647,6 +723,8 @@ impl BuildingTableProjection {
             self.last_efficiency = efficiency;
             self.last_optional_efficiency = optional_efficiency;
             self.last_visible_flags = visible_flags;
+            self.last_build_turret_plans_present = build_turret_plans_present;
+            self.last_build_turret_plan_count = build_turret_plan_count;
             self.last_removed = false;
             return;
         }
@@ -705,6 +783,16 @@ impl BuildingTableProjection {
                         .as_ref()
                         .and_then(|building| building.visible_flags)
                 }),
+                build_turret_plans_present: build_turret_plans_present.or_else(|| {
+                    previous
+                        .as_ref()
+                        .and_then(|building| building.build_turret_plans_present)
+                }),
+                build_turret_plan_count: build_turret_plan_count.or_else(|| {
+                    previous
+                        .as_ref()
+                        .and_then(|building| building.build_turret_plan_count)
+                }),
                 last_update: BuildingProjectionUpdateKind::BlockSnapshotHead,
             },
         );
@@ -761,6 +849,12 @@ impl BuildingTableProjection {
                 visible_flags: previous
                     .as_ref()
                     .and_then(|building| building.visible_flags),
+                build_turret_plans_present: previous
+                    .as_ref()
+                    .and_then(|building| building.build_turret_plans_present),
+                build_turret_plan_count: previous
+                    .as_ref()
+                    .and_then(|building| building.build_turret_plan_count),
                 last_update: BuildingProjectionUpdateKind::ConstructFinish,
             },
         );
@@ -808,6 +902,12 @@ impl BuildingTableProjection {
                 visible_flags: previous
                     .as_ref()
                     .and_then(|building| building.visible_flags),
+                build_turret_plans_present: previous
+                    .as_ref()
+                    .and_then(|building| building.build_turret_plans_present),
+                build_turret_plan_count: previous
+                    .as_ref()
+                    .and_then(|building| building.build_turret_plan_count),
                 last_update: BuildingProjectionUpdateKind::TileConfig,
             },
         );
@@ -869,6 +969,12 @@ impl BuildingTableProjection {
                 visible_flags: previous
                     .as_ref()
                     .and_then(|building| building.visible_flags),
+                build_turret_plans_present: previous
+                    .as_ref()
+                    .and_then(|building| building.build_turret_plans_present),
+                build_turret_plan_count: previous
+                    .as_ref()
+                    .and_then(|building| building.build_turret_plan_count),
                 last_update: BuildingProjectionUpdateKind::BuildHealthUpdate,
             },
         );
@@ -914,6 +1020,10 @@ impl BuildingTableProjection {
         self.last_efficiency = building.and_then(|building| building.efficiency);
         self.last_optional_efficiency = building.and_then(|building| building.optional_efficiency);
         self.last_visible_flags = building.and_then(|building| building.visible_flags);
+        self.last_build_turret_plans_present =
+            building.and_then(|building| building.build_turret_plans_present);
+        self.last_build_turret_plan_count =
+            building.and_then(|building| building.build_turret_plan_count);
         self.last_update = Some(last_update);
         self.last_removed = false;
     }
@@ -944,6 +1054,10 @@ impl BuildingTableProjection {
         self.last_efficiency = previous.and_then(|building| building.efficiency);
         self.last_optional_efficiency = previous.and_then(|building| building.optional_efficiency);
         self.last_visible_flags = previous.and_then(|building| building.visible_flags);
+        self.last_build_turret_plans_present =
+            previous.and_then(|building| building.build_turret_plans_present);
+        self.last_build_turret_plan_count =
+            previous.and_then(|building| building.build_turret_plan_count);
         self.last_update = Some(last_update);
         self.last_removed = true;
     }
@@ -2183,6 +2297,7 @@ pub struct SessionState {
     pub failed_tile_config_parse_count: u64,
     pub last_tile_config_parse_error: Option<String>,
     pub tile_config_projection: TileConfigProjection,
+    pub configured_block_projection: ConfiguredBlockProjection,
     pub building_table_projection: BuildingTableProjection,
     pub received_construct_finish_count: u64,
     pub last_construct_finish_tile_pos: Option<i32>,
@@ -2255,6 +2370,123 @@ impl SessionState {
         *self = Self::default();
     }
 
+    pub fn apply_state_snapshot_runtime(
+        &mut self,
+        snapshot: &AppliedStateSnapshot,
+        core_data: Option<&AppliedStateSnapshotCoreData>,
+        core_data_parse_failed: bool,
+    ) {
+        let previous = self.authoritative_state_mirror.as_ref();
+        let previous_wave = previous.map(|mirror| mirror.wave).unwrap_or_default();
+        let previous_net_seconds = previous
+            .map(|mirror| mirror.net_seconds)
+            .unwrap_or_default();
+        let last_wave_advanced = snapshot.wave > previous_wave;
+        let wave_advance_count = previous
+            .map(|mirror| mirror.wave_advance_count)
+            .unwrap_or_default()
+            .saturating_add(u64::from(last_wave_advanced));
+        let last_net_seconds_rollback = snapshot.time_data < previous_net_seconds;
+        let net_seconds_delta_i64 = i64::from(snapshot.time_data) - i64::from(previous_net_seconds);
+        let net_seconds_delta =
+            net_seconds_delta_i64.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32;
+        let gameplay_state = if snapshot.game_over {
+            GameplayStateProjection::GameOver
+        } else if snapshot.paused {
+            GameplayStateProjection::Paused
+        } else {
+            GameplayStateProjection::Playing
+        };
+        let mut next_core_inventory_by_team = BTreeMap::new();
+        let mut next_core_inventory_item_entry_count = 0usize;
+        let mut next_core_inventory_total_amount = 0i64;
+        let mut next_core_inventory_nonzero_item_count = 0usize;
+
+        if let Some(core_data) = core_data {
+            for team in &core_data.teams {
+                let mut items = BTreeMap::new();
+                for item in &team.items {
+                    items.insert(item.item_id, item.amount);
+                    next_core_inventory_total_amount =
+                        next_core_inventory_total_amount.saturating_add(i64::from(item.amount));
+                    if item.amount != 0 {
+                        next_core_inventory_nonzero_item_count =
+                            next_core_inventory_nonzero_item_count.saturating_add(1);
+                    }
+                }
+                next_core_inventory_item_entry_count =
+                    next_core_inventory_item_entry_count.saturating_add(items.len());
+                next_core_inventory_by_team.insert(team.team_id, items);
+            }
+        } else if let Some(previous) = previous {
+            next_core_inventory_by_team = previous.core_inventory_by_team.clone();
+            next_core_inventory_item_entry_count = previous.core_inventory_item_entry_count;
+            next_core_inventory_total_amount = previous.core_inventory_total_amount;
+            next_core_inventory_nonzero_item_count = previous.core_inventory_nonzero_item_count;
+        }
+
+        let mut changed_team_ids = BTreeSet::new();
+        if core_data.is_some() {
+            if let Some(previous) = previous {
+                for team_id in previous
+                    .core_inventory_by_team
+                    .keys()
+                    .chain(next_core_inventory_by_team.keys())
+                {
+                    if previous.core_inventory_by_team.get(team_id)
+                        != next_core_inventory_by_team.get(team_id)
+                    {
+                        changed_team_ids.insert(*team_id);
+                    }
+                }
+            } else {
+                changed_team_ids.extend(next_core_inventory_by_team.keys().copied());
+            }
+        }
+        let core_inventory_changed_team_sample = changed_team_ids
+            .iter()
+            .take(CORE_INVENTORY_CHANGED_TEAM_SAMPLE_LIMIT)
+            .copied()
+            .collect();
+
+        self.authoritative_state_mirror = Some(AuthoritativeStateMirror {
+            wave_time_bits: snapshot.wave_time_bits,
+            wave: snapshot.wave,
+            enemies: snapshot.enemies,
+            paused: snapshot.paused,
+            game_over: snapshot.game_over,
+            net_seconds: snapshot.time_data,
+            tps: snapshot.tps,
+            rand0: snapshot.rand0,
+            rand1: snapshot.rand1,
+            gameplay_state,
+            last_wave_advanced,
+            wave_advance_count,
+            apply_count: previous
+                .map(|mirror| mirror.apply_count)
+                .unwrap_or_default()
+                .saturating_add(1),
+            last_net_seconds_rollback,
+            net_seconds_delta,
+            wave_regress_count: previous
+                .map(|mirror| mirror.wave_regress_count)
+                .unwrap_or_default()
+                .saturating_add(u64::from(snapshot.wave < previous_wave)),
+            core_inventory_team_count: next_core_inventory_by_team.len(),
+            core_inventory_item_entry_count: next_core_inventory_item_entry_count,
+            core_inventory_total_amount: next_core_inventory_total_amount,
+            core_inventory_nonzero_item_count: next_core_inventory_nonzero_item_count,
+            core_inventory_changed_team_count: changed_team_ids.len(),
+            core_inventory_changed_team_sample,
+            core_inventory_by_team: next_core_inventory_by_team,
+            last_core_sync_ok: core_data.is_some(),
+            core_parse_fail_count: previous
+                .map(|mirror| mirror.core_parse_fail_count)
+                .unwrap_or_default()
+                .saturating_add(u64::from(core_data_parse_failed)),
+        });
+    }
+
     pub fn prune_entity_snapshot_tombstones(&mut self) {
         let current_snapshot_count = self.received_entity_snapshot_count;
         self.entity_snapshot_tombstones
@@ -2297,5 +2529,49 @@ impl SessionState {
             self.last_entity_snapshot_tombstone_skipped_ids_sample
                 .push(entity_id);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn block_snapshot_head_stores_build_turret_plan_summary_and_construct_finish_preserves_it() {
+        let mut table = BuildingTableProjection::default();
+        let build_pos = 0x0012_0034i32;
+        table.apply_block_snapshot_head(
+            build_pos,
+            300,
+            Some(1),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(0x3f80_0000),
+            Some(0x3f00_0000),
+            Some(123),
+            Some(true),
+            Some(0x4000_0000),
+            Some(true),
+            Some(0x40),
+            Some(0x20),
+            Some(99),
+            Some(true),
+            Some(7),
+        );
+
+        let building = table.by_build_pos.get(&build_pos).unwrap();
+        assert_eq!(building.build_turret_plans_present, Some(true));
+        assert_eq!(building.build_turret_plan_count, Some(7));
+        assert_eq!(table.last_build_turret_plans_present, Some(true));
+        assert_eq!(table.last_build_turret_plan_count, Some(7));
+
+        table.apply_construct_finish(build_pos, Some(300), 1, 2, TypeIoObject::Int(9));
+        let building_after_construct = table.by_build_pos.get(&build_pos).unwrap();
+        assert_eq!(
+            building_after_construct.build_turret_plans_present,
+            Some(true)
+        );
+        assert_eq!(building_after_construct.build_turret_plan_count, Some(7));
     }
 }

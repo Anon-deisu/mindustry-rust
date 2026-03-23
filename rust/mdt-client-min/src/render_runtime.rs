@@ -3,11 +3,12 @@ use crate::client_session::{
     ClientSnapshotInputState,
 };
 use crate::session_state::{
-    BuilderPlanStage, BuilderQueueProjection, BuildingProjectionUpdateKind,
-    BuildingTableProjection, EffectBusinessContentKind, EffectBusinessPositionSource,
-    EffectBusinessProjection, EffectDataSemantic, HiddenSnapshotDeltaProjection, SessionState,
-    StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection,
-    TileConfigAuthoritySource, TileConfigProjection, UnitRefProjection, WorldBootstrapProjection,
+    AuthoritativeStateMirror, BuilderPlanStage, BuilderQueueProjection,
+    BuildingProjectionUpdateKind, BuildingTableProjection, EffectBusinessContentKind,
+    EffectBusinessPositionSource, EffectBusinessProjection, EffectDataSemantic,
+    HiddenSnapshotDeltaProjection, SessionState, StateSnapshotAuthorityProjection,
+    StateSnapshotBusinessProjection, TileConfigAuthoritySource, TileConfigProjection,
+    UnitRefProjection, WorldBootstrapProjection,
 };
 use mdt_remote::{HighFrequencyRemoteMethod, HIGH_FREQUENCY_REMOTE_METHOD_COUNT};
 use mdt_render_ui::{
@@ -44,10 +45,8 @@ impl RenderRuntimeAdapter {
         append_building_table_projection_objects(scene, session_state);
         append_block_snapshot_projection_objects(scene, session_state);
         let bootstrap_projection = session_state.world_bootstrap_projection.as_ref();
-        let state_authority_projection = session_state
-            .authoritative_state_mirror
-            .as_ref()
-            .or(session_state.state_snapshot_authority_projection.as_ref());
+        let runtime_state_mirror = session_state.authoritative_state_mirror.as_ref();
+        let state_authority_projection = session_state.state_snapshot_authority_projection.as_ref();
         let state_business_projection = session_state.state_snapshot_business_projection.as_ref();
         hud.runtime_ui = Some(runtime_ui_observability(session_state));
         hud.status_text = format!(
@@ -89,13 +88,15 @@ impl RenderRuntimeAdapter {
             runtime_entity_sync_label(session_state),
             runtime_snapshot_method_label(self.world_overlay.last_snapshot_method),
             self.world_overlay.snapshot_refresh_count,
-            state_authority_projection
+            runtime_state_mirror
                 .map(|projection| projection.wave)
+                .or_else(|| state_authority_projection.map(|projection| projection.wave))
                 .or_else(|| state_business_projection.map(|projection| projection.wave))
                 .or_else(|| session_state.last_state_snapshot.as_ref().map(|snapshot| snapshot.wave))
                 .unwrap_or_default(),
-            state_authority_projection
+            runtime_state_mirror
                 .map(|projection| projection.enemies)
+                .or_else(|| state_authority_projection.map(|projection| projection.enemies))
                 .or_else(|| state_business_projection.map(|projection| projection.enemies))
                 .or_else(|| {
                     session_state
@@ -104,14 +105,22 @@ impl RenderRuntimeAdapter {
                         .map(|snapshot| snapshot.enemies)
                 })
                 .unwrap_or_default(),
-            state_authority_projection
+            runtime_state_mirror
                 .map(|projection| projection.tps)
+                .or_else(|| state_authority_projection.map(|projection| projection.tps))
                 .or_else(|| state_business_projection.map(|projection| projection.tps))
                 .or_else(|| session_state.last_state_snapshot.as_ref().map(|snapshot| snapshot.tps))
                 .unwrap_or_default(),
-            runtime_state_projection_label(state_authority_projection, state_business_projection),
-            state_authority_projection
+            runtime_state_projection_label(
+                runtime_state_mirror,
+                state_authority_projection,
+                state_business_projection,
+            ),
+            runtime_state_mirror
                 .map(|projection| projection.core_inventory_team_count)
+                .or_else(|| {
+                    state_authority_projection.map(|projection| projection.core_inventory_team_count)
+                })
                 .or_else(|| {
                     state_business_projection.map(|projection| projection.core_inventory_team_count)
                 })
@@ -122,8 +131,12 @@ impl RenderRuntimeAdapter {
                         .map(|core_data| usize::from(core_data.team_count))
                 })
                 .unwrap_or_default(),
-            state_authority_projection
+            runtime_state_mirror
                 .map(|projection| projection.core_inventory_item_entry_count)
+                .or_else(|| {
+                    state_authority_projection
+                        .map(|projection| projection.core_inventory_item_entry_count)
+                })
                 .or_else(|| {
                     state_business_projection
                         .map(|projection| projection.core_inventory_item_entry_count)
@@ -642,9 +655,39 @@ fn runtime_state_business_projection_label(
 }
 
 fn runtime_state_projection_label(
+    runtime: Option<&AuthoritativeStateMirror>,
     authority: Option<&StateSnapshotAuthorityProjection>,
     business: Option<&StateSnapshotBusinessProjection>,
 ) -> String {
+    if let Some(projection) = runtime {
+        return format!(
+            "w{}:e{}:t{}:c{}/{}:adv{}:core{}:s{}:nd{}:tr{}:wreg{}:ca{}:cas{}",
+            projection.wave,
+            projection.enemies,
+            projection.tps,
+            projection.core_inventory_team_count,
+            projection.core_inventory_item_entry_count,
+            if projection.last_wave_advanced { 1 } else { 0 },
+            if projection.last_core_sync_ok { 1 } else { 0 },
+            match projection.gameplay_state {
+                crate::session_state::GameplayStateProjection::Playing => "play",
+                crate::session_state::GameplayStateProjection::Paused => "pause",
+                crate::session_state::GameplayStateProjection::GameOver => "gameover",
+            },
+            projection.net_seconds_delta,
+            if projection.last_net_seconds_rollback {
+                1
+            } else {
+                0
+            },
+            projection.wave_regress_count,
+            projection.core_inventory_changed_team_count,
+            runtime_core_inventory_changed_team_sample_label(
+                &projection.core_inventory_changed_team_sample,
+                projection.core_inventory_changed_team_count,
+            ),
+        );
+    }
     if let Some(projection) = authority {
         return format!(
             "w{}:e{}:t{}:c{}/{}:adv{}:core{}:s{}:nd{}:tr{}:wreg{}:ca{}:cas{}",
@@ -2363,6 +2406,8 @@ mod tests {
                 efficiency: Some(0x80),
                 optional_efficiency: Some(0x40),
                 visible_flags: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
                 last_update: crate::session_state::BuildingProjectionUpdateKind::ConstructFinish,
             },
         );
@@ -2605,7 +2650,9 @@ mod tests {
         let mut state = SessionState::default();
 
         state.tile_config_projection.applied_authoritative_count = 3;
-        state.tile_config_projection.applied_tile_config_packet_count = 2;
+        state
+            .tile_config_projection
+            .applied_tile_config_packet_count = 2;
         state.tile_config_projection.applied_construct_finish_count = 1;
         state.tile_config_projection.last_business_build_pos = Some(pack_runtime_point2(9, 4));
         state.tile_config_projection.last_business_applied = true;
@@ -2617,10 +2664,9 @@ mod tests {
 
         adapter.apply(&mut scene, &mut hud, &input, &state);
 
-        assert!(
-            hud.status_text
-                .contains("runtime_tilecfg_apply=a3:p2:c1:construct@9:4:cl1:rb1:pm0")
-        );
+        assert!(hud
+            .status_text
+            .contains("runtime_tilecfg_apply=a3:p2:c1:construct@9:4:cl1:rb1:pm0"));
     }
 
     #[test]
@@ -3109,6 +3155,8 @@ mod tests {
                     efficiency: Some(0x80),
                     optional_efficiency: Some(0x40),
                     visible_flags: None,
+                    build_turret_plans_present: None,
+                    build_turret_plan_count: None,
                     last_update: crate::session_state::BuildingProjectionUpdateKind::TileConfig,
                 },
             )]),
@@ -3136,6 +3184,8 @@ mod tests {
             last_efficiency: Some(0x80),
             last_optional_efficiency: Some(0x40),
             last_visible_flags: None,
+            last_build_turret_plans_present: None,
+            last_build_turret_plan_count: None,
             last_update: Some(crate::session_state::BuildingProjectionUpdateKind::TileConfig),
             last_removed: false,
             last_block_snapshot_head_conflict: false,
@@ -3308,7 +3358,7 @@ mod tests {
     }
 
     #[test]
-    fn render_runtime_adapter_prefers_state_snapshot_authority_in_hud() {
+    fn render_runtime_adapter_prefers_authoritative_state_mirror_in_hud() {
         let adapter = RenderRuntimeAdapter::default();
         let mut scene = RenderModel::default();
         let mut hud = HudModel::default();
@@ -3409,6 +3459,37 @@ mod tests {
                     BTreeMap::from([(0u16, 10), (1u16, 10)]),
                 )]),
             });
+        state.authoritative_state_mirror = Some(crate::session_state::AuthoritativeStateMirror {
+            wave_time_bits: 0,
+            wave: 11,
+            enemies: 6,
+            paused: false,
+            game_over: true,
+            net_seconds: 120,
+            tps: 24,
+            rand0: 30,
+            rand1: 40,
+            gameplay_state: crate::session_state::GameplayStateProjection::GameOver,
+            last_wave_advanced: true,
+            wave_advance_count: 5,
+            apply_count: 5,
+            last_net_seconds_rollback: false,
+            net_seconds_delta: 12,
+            wave_regress_count: 1,
+            core_inventory_team_count: 3,
+            core_inventory_item_entry_count: 5,
+            core_inventory_total_amount: 77,
+            core_inventory_nonzero_item_count: 5,
+            core_inventory_changed_team_count: 2,
+            core_inventory_changed_team_sample: vec![2, 7],
+            core_inventory_by_team: BTreeMap::from([
+                (2, BTreeMap::from([(0u16, 11), (1u16, 12)])),
+                (7, BTreeMap::from([(2u16, 13)])),
+                (9, BTreeMap::from([(3u16, 20), (4u16, 21)])),
+            ]),
+            last_core_sync_ok: true,
+            core_parse_fail_count: 0,
+        });
         state.state_snapshot_authority_projection =
             Some(crate::session_state::StateSnapshotAuthorityProjection {
                 wave_time_bits: 0,
@@ -3443,14 +3524,14 @@ mod tests {
 
         adapter.apply(&mut scene, &mut hud, &input, &state);
 
-        assert!(hud.status_text.contains("runtime_wave=9"));
-        assert!(hud.status_text.contains("runtime_enemies=5"));
-        assert!(hud.status_text.contains("runtime_tps=30"));
+        assert!(hud.status_text.contains("runtime_wave=11"));
+        assert!(hud.status_text.contains("runtime_enemies=6"));
+        assert!(hud.status_text.contains("runtime_tps=24"));
         assert!(hud.status_text.contains(
-            "runtime_state_apply=w9:e5:t30:c2/4:adv1:core1:spause:nd11:tr0:wreg0:ca2:cas1,8"
+            "runtime_state_apply=w11:e6:t24:c3/5:adv1:core1:sgameover:nd12:tr0:wreg1:ca2:cas2,7"
         ));
-        assert!(hud.status_text.contains("runtime_core_teams=2"));
-        assert!(hud.status_text.contains("runtime_core_items=4"));
+        assert!(hud.status_text.contains("runtime_core_teams=3"));
+        assert!(hud.status_text.contains("runtime_core_items=5"));
     }
 
     #[test]

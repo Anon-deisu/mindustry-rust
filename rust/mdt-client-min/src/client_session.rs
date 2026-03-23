@@ -8,8 +8,7 @@ use crate::session_state::{
     EffectBusinessProjection, EffectDataSemantic, PayloadDroppedProjection,
     PickedBuildPayloadProjection, PickedUnitPayloadProjection, SessionState, TakeItemsProjection,
     TileConfigAuthoritySource, TileConfigBusinessApply, TransferItemToProjection,
-    TransferItemToUnitProjection,
-    UnitEnteredPayloadProjection, UnitRefProjection,
+    TransferItemToUnitProjection, UnitEnteredPayloadProjection, UnitRefProjection,
 };
 use mdt_protocol::{
     decode_packet, encode_framework_message, encode_packet, FrameworkMessage, PacketCodecError,
@@ -82,6 +81,11 @@ const MARKER_CONTROL_NAMES: [&str; 25] = [
     "colori",
 ];
 const BLOCK_CONTENT_TYPE: u8 = 1;
+const ITEM_CONTENT_TYPE: u8 = 0;
+const LIQUID_CONTENT_TYPE: u8 = 4;
+const BLOCK_NAME_UNIT_CARGO_UNLOAD_POINT: &str = "unit-cargo-unload-point";
+const BLOCK_NAME_ITEM_SOURCE: &str = "item-source";
+const BLOCK_NAME_LIQUID_SOURCE: &str = "liquid-source";
 const ALPHA_SHAPE_ENTITY_CLASS_IDS: [u8; 17] = [
     0, 2, 3, 16, 18, 20, 21, 24, 29, 30, 31, 33, 40, 43, 44, 45, 46,
 ];
@@ -1783,9 +1787,57 @@ impl ClientSession {
                 .building_table_projection
                 .apply_tile_config(build_pos, config_object.clone());
         }
+        self.apply_configured_block_business(build_pos, &config_object);
         self.state
             .tile_config_projection
             .apply_authoritative_update(build_pos, config_object, source)
+    }
+
+    fn apply_configured_block_business(&mut self, build_pos: i32, config_object: &TypeIoObject) {
+        let block_id = self
+            .state
+            .building_table_projection
+            .by_build_pos
+            .get(&build_pos)
+            .and_then(|building| building.block_id);
+        let Some(block_id) = block_id else {
+            return;
+        };
+        let Ok(block_content_id) = usize::try_from(block_id) else {
+            return;
+        };
+        let block_name = self
+            .loaded_world_state()
+            .and_then(|loaded| loaded.content_name(BLOCK_CONTENT_TYPE, block_content_id))
+            .map(str::to_string);
+        let Some(block_name) = block_name else {
+            return;
+        };
+
+        match block_name.as_str() {
+            BLOCK_NAME_UNIT_CARGO_UNLOAD_POINT => {
+                if let Some(item_id) = configured_item_id(config_object) {
+                    self.state
+                        .configured_block_projection
+                        .apply_unit_cargo_unload_point_item(build_pos, item_id);
+                }
+            }
+            BLOCK_NAME_ITEM_SOURCE => {
+                if let Some(item_id) = configured_item_id(config_object) {
+                    self.state
+                        .configured_block_projection
+                        .apply_item_source_item(build_pos, item_id);
+                }
+            }
+            BLOCK_NAME_LIQUID_SOURCE => {
+                if let Some(liquid_id) = configured_liquid_id(config_object) {
+                    self.state
+                        .configured_block_projection
+                        .apply_liquid_source_liquid(build_pos, liquid_id);
+                }
+            }
+            _ => {}
+        }
     }
 
     pub fn queue_tile_tap(&mut self, tile_pos: Option<i32>) -> Result<(), ClientSessionError> {
@@ -3884,6 +3936,9 @@ impl ClientSession {
                     self.state
                         .tile_config_projection
                         .remove_building_state(summary.tile_pos);
+                    self.state
+                        .configured_block_projection
+                        .clear_building_state(summary.tile_pos);
                     self.state
                         .building_table_projection
                         .apply_deconstruct_finish(summary.tile_pos, summary.block_id);
@@ -5993,6 +6048,8 @@ impl ClientSession {
                 }
             };
             data_cursor = data_cursor.saturating_add(consumed);
+            let (build_turret_plans_present, build_turret_plan_count) =
+                summarize_build_turret_plan_fields(&building.parsed_tail);
 
             let entry = BlockSnapshotExtraEntrySummary {
                 build_pos,
@@ -6010,6 +6067,8 @@ impl ClientSession {
                 efficiency: building.base.efficiency,
                 optional_efficiency: building.base.optional_efficiency,
                 visible_flags: building.base.visible_flags,
+                build_turret_plans_present,
+                build_turret_plan_count,
             };
             entries.push(entry);
         }
@@ -6047,6 +6106,8 @@ impl ClientSession {
                     entry.efficiency,
                     entry.optional_efficiency,
                     entry.visible_flags,
+                    entry.build_turret_plans_present,
+                    entry.build_turret_plan_count,
                 );
         }
     }
@@ -6251,6 +6312,9 @@ impl ClientSession {
         self.state.last_effect_business_projection = None;
         self.state.last_effect_business_path = None;
         self.state.tile_config_projection.clear_for_world_reload();
+        self.state
+            .configured_block_projection
+            .clear_for_world_reload();
         self.state
             .building_table_projection
             .clear_for_world_reload();
@@ -7445,6 +7509,32 @@ fn decode_content_payload(payload: &[u8]) -> Option<(u8, i16)> {
     let content_type = read_u8(payload, &mut cursor)?;
     let content_id = read_i16(payload, &mut cursor)?;
     (cursor == payload.len()).then_some((content_type, content_id))
+}
+
+fn configured_item_id(config_object: &TypeIoObject) -> Option<Option<i16>> {
+    match config_object {
+        TypeIoObject::Null => Some(None),
+        TypeIoObject::ContentRaw {
+            content_type,
+            content_id,
+        } if *content_type == ITEM_CONTENT_TYPE => {
+            Some((*content_id >= 0).then_some(*content_id))
+        }
+        _ => None,
+    }
+}
+
+fn configured_liquid_id(config_object: &TypeIoObject) -> Option<Option<i16>> {
+    match config_object {
+        TypeIoObject::Null => Some(None),
+        TypeIoObject::ContentRaw {
+            content_type,
+            content_id,
+        } if *content_type == LIQUID_CONTENT_TYPE => {
+            Some((*content_id >= 0).then_some(*content_id))
+        }
+        _ => None,
+    }
 }
 
 fn decode_optional_typeio_string_payload(payload: &[u8]) -> Option<Option<String>> {
@@ -9291,6 +9381,20 @@ struct BlockSnapshotExtraEntrySummary {
     efficiency: Option<u8>,
     optional_efficiency: Option<u8>,
     visible_flags: Option<u64>,
+    build_turret_plans_present: Option<bool>,
+    build_turret_plan_count: Option<u16>,
+}
+
+fn summarize_build_turret_plan_fields(
+    parsed_tail: &mdt_world::ParsedBuildingTail,
+) -> (Option<bool>, Option<u16>) {
+    match parsed_tail {
+        mdt_world::ParsedBuildingTail::BuildTurret(turret) => (
+            Some(turret.plans_present),
+            u16::try_from(turret.plan_count).ok(),
+        ),
+        _ => (None, None),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -14663,6 +14767,87 @@ mod tests {
         (manifest, session)
     }
 
+    fn loaded_world_content_id_for_name(
+        session: &ClientSession,
+        content_type: u8,
+        content_name: &str,
+    ) -> i16 {
+        let loaded = session.loaded_world_state().unwrap();
+        let names = &loaded.content_entry(content_type).unwrap().names;
+        let content_id = names
+            .iter()
+            .position(|name| name == content_name)
+            .unwrap_or_else(|| panic!("missing content name {content_name} for type {content_type}"));
+        i16::try_from(content_id).unwrap()
+    }
+
+    fn loaded_world_block_id_for_name(session: &ClientSession, block_name: &str) -> i16 {
+        loaded_world_content_id_for_name(session, BLOCK_CONTENT_TYPE, block_name)
+    }
+
+    fn ingest_construct_finish_for_block_config_test(
+        session: &mut ClientSession,
+        manifest: &mdt_remote::RemoteManifest,
+        tile_pos: i32,
+        block_id: i16,
+        config_object: &TypeIoObject,
+    ) {
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "constructFinish")
+            .unwrap()
+            .packet_id;
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&tile_pos.to_be_bytes());
+        payload.extend_from_slice(&block_id.to_be_bytes());
+        payload.push(2);
+        payload.extend_from_slice(&42i32.to_be_bytes());
+        payload.push(0);
+        payload.push(1);
+        write_typeio_object(&mut payload, config_object);
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+        session.ingest_packet_bytes(&packet).unwrap();
+    }
+
+    fn ingest_deconstruct_finish_for_block_config_test(
+        session: &mut ClientSession,
+        manifest: &mdt_remote::RemoteManifest,
+        tile_pos: i32,
+        block_id: i16,
+    ) {
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "deconstructFinish")
+            .unwrap()
+            .packet_id;
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&tile_pos.to_be_bytes());
+        payload.extend_from_slice(&block_id.to_be_bytes());
+        payload.push(2);
+        payload.extend_from_slice(&42i32.to_be_bytes());
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+        session.ingest_packet_bytes(&packet).unwrap();
+    }
+
+    fn ingest_tile_config_for_block_config_test(
+        session: &mut ClientSession,
+        manifest: &mdt_remote::RemoteManifest,
+        build_pos: i32,
+        config_object: &TypeIoObject,
+    ) {
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "tileConfig")
+            .unwrap()
+            .packet_id;
+        let payload = encode_tile_config_payload(Some(build_pos), config_object);
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+        session.ingest_packet_bytes(&packet).unwrap();
+    }
+
     fn build_loaded_world_block_snapshot_payload(
         session: &ClientSession,
         take: usize,
@@ -14689,6 +14874,89 @@ mod tests {
         payload.extend_from_slice(&u16::try_from(data.len()).unwrap().to_be_bytes());
         payload.extend_from_slice(&data);
         (payload, entries)
+    }
+
+    #[test]
+    fn summarize_build_turret_plan_fields_extracts_presence_and_uses_safe_count_conversion() {
+        let tail = mdt_world::ParsedBuildingTail::BuildTurret(mdt_world::BuildTurretTailSnapshot {
+            rotation_bits: 0,
+            plans_present: true,
+            plan_count: 2,
+            plans: Vec::new(),
+        });
+        assert_eq!(
+            summarize_build_turret_plan_fields(&tail),
+            (Some(true), Some(2))
+        );
+
+        let overflowing_tail =
+            mdt_world::ParsedBuildingTail::BuildTurret(mdt_world::BuildTurretTailSnapshot {
+                rotation_bits: 0,
+                plans_present: true,
+                plan_count: usize::from(u16::MAX).saturating_add(1),
+                plans: Vec::new(),
+            });
+        assert_eq!(
+            summarize_build_turret_plan_fields(&overflowing_tail),
+            (Some(true), None)
+        );
+
+        assert_eq!(
+            summarize_build_turret_plan_fields(&mdt_world::ParsedBuildingTail::Empty),
+            (None, None)
+        );
+    }
+
+    #[test]
+    fn apply_loaded_world_block_snapshot_entries_forwards_build_turret_plan_summary() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let build_pos = pack_build_pos_for_block_snapshot_test(2, 3);
+
+        session.apply_block_snapshot_entries_from_loaded_world_entries(vec![
+            BlockSnapshotExtraEntrySummary {
+                build_pos,
+                block_id: 300,
+                health_bits: Some(0x3f80_0000),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                enabled: Some(true),
+                module_bitmask: Some(4),
+                time_scale_bits: Some(0x3f00_0000),
+                time_scale_duration_bits: Some(0x3e80_0000),
+                last_disabler_pos: Some(77),
+                legacy_consume_connected: Some(false),
+                efficiency: Some(0x40),
+                optional_efficiency: Some(0x20),
+                visible_flags: Some(9),
+                build_turret_plans_present: Some(true),
+                build_turret_plan_count: Some(5),
+            },
+        ]);
+
+        let building = session
+            .state()
+            .building_table_projection
+            .by_build_pos
+            .get(&build_pos)
+            .unwrap();
+        assert_eq!(building.build_turret_plans_present, Some(true));
+        assert_eq!(building.build_turret_plan_count, Some(5));
+        assert_eq!(
+            session
+                .state()
+                .building_table_projection
+                .last_build_turret_plans_present,
+            Some(true)
+        );
+        assert_eq!(
+            session
+                .state()
+                .building_table_projection
+                .last_build_turret_plan_count,
+            Some(5)
+        );
     }
 
     #[test]
@@ -20482,7 +20750,10 @@ mod tests {
             ]))
         );
         assert_eq!(
-            session.state().tile_config_projection.last_business_build_pos,
+            session
+                .state()
+                .tile_config_projection
+                .last_business_build_pos,
             Some(pack_point2(120, 75))
         );
         assert_eq!(
@@ -20616,7 +20887,10 @@ mod tests {
             Some(crate::session_state::TileConfigAuthoritySource::ConstructFinish)
         );
         assert_eq!(
-            session.state().tile_config_projection.last_replaced_local_value,
+            session
+                .state()
+                .tile_config_projection
+                .last_replaced_local_value,
             Some(pending_value)
         );
         assert_eq!(
@@ -20626,7 +20900,10 @@ mod tests {
         assert!(session.state().tile_config_projection.last_business_applied);
         assert!(session.state().tile_config_projection.last_was_rollback);
         assert_eq!(
-            session.state().tile_config_projection.last_pending_local_match,
+            session
+                .state()
+                .tile_config_projection
+                .last_pending_local_match,
             Some(false)
         );
         assert_eq!(session.state().tile_config_projection.rollback_count, 1);

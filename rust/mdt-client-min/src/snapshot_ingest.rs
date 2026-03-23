@@ -59,6 +59,11 @@ pub fn ingest_inbound_snapshot(state: &mut SessionState, snapshot: InboundSnapsh
                 Ok(parsed) => {
                     let parsed_core_data = try_parse_state_snapshot_core_data(&parsed.core_data);
                     let parsed_core_data_len = parsed.core_data.len();
+                    state.apply_state_snapshot_runtime(
+                        &parsed,
+                        parsed_core_data.as_ref().ok(),
+                        parsed_core_data.is_err(),
+                    );
                     let authority_projection = derive_state_snapshot_authority_projection(
                         state.state_snapshot_authority_projection.as_ref(),
                         &parsed,
@@ -73,7 +78,6 @@ pub fn ingest_inbound_snapshot(state: &mut SessionState, snapshot: InboundSnapsh
                     state.applied_state_snapshot_count =
                         state.applied_state_snapshot_count.saturating_add(1);
                     state.last_state_snapshot = Some(parsed);
-                    state.authoritative_state_mirror = Some(authority_projection.clone());
                     state.state_snapshot_authority_projection = Some(authority_projection);
                     state.state_snapshot_business_projection = Some(business_projection);
                     match parsed_core_data {
@@ -898,9 +902,9 @@ mod tests {
     use crate::session_state::{
         AppliedBlockSnapshotEnvelope, AppliedHiddenSnapshotIds, AppliedStateSnapshotCoreData,
         AppliedStateSnapshotCoreDataItem, AppliedStateSnapshotCoreDataTeam,
-        BlockSnapshotHeadProjection, EntityProjection, GameplayStateProjection,
-        HiddenSnapshotDeltaProjection, SessionState, StateSnapshotAuthorityProjection,
-        StateSnapshotBusinessProjection,
+        AuthoritativeStateMirror, BlockSnapshotHeadProjection, EntityProjection,
+        GameplayStateProjection, HiddenSnapshotDeltaProjection, SessionState,
+        StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection,
     };
     use mdt_remote::HighFrequencyRemoteMethod;
     use std::collections::BTreeMap;
@@ -1016,7 +1020,36 @@ mod tests {
         assert_eq!(state.state_snapshot_core_data_duplicate_item_count_total, 0);
         assert_eq!(
             state.authoritative_state_mirror,
-            state.state_snapshot_authority_projection
+            Some(AuthoritativeStateMirror {
+                wave_time_bits: 123.5f32.to_bits(),
+                wave: 7,
+                enemies: 0,
+                paused: false,
+                game_over: false,
+                net_seconds: 654_321,
+                tps: 60,
+                rand0: 111_111_111,
+                rand1: 222_222_222,
+                gameplay_state: GameplayStateProjection::Playing,
+                last_wave_advanced: true,
+                wave_advance_count: 1,
+                apply_count: 1,
+                last_net_seconds_rollback: false,
+                net_seconds_delta: 654_321,
+                wave_regress_count: 0,
+                core_inventory_team_count: 1,
+                core_inventory_item_entry_count: 2,
+                core_inventory_total_amount: 366,
+                core_inventory_nonzero_item_count: 2,
+                core_inventory_changed_team_count: 1,
+                core_inventory_changed_team_sample: vec![1],
+                core_inventory_by_team: BTreeMap::from([(
+                    1,
+                    BTreeMap::from([(0u16, 321), (1u16, 45)]),
+                )]),
+                last_core_sync_ok: true,
+                core_parse_fail_count: 0,
+            })
         );
         assert_eq!(
             state.state_snapshot_business_projection,
@@ -1284,7 +1317,33 @@ mod tests {
         );
         assert_eq!(
             state.authoritative_state_mirror,
-            state.state_snapshot_authority_projection
+            Some(AuthoritativeStateMirror {
+                wave_time_bits: 123.5f32.to_bits(),
+                wave: 7,
+                enemies: 0,
+                paused: false,
+                game_over: false,
+                net_seconds: 654_321,
+                tps: 60,
+                rand0: 111_111_111,
+                rand1: 222_222_222,
+                gameplay_state: GameplayStateProjection::Playing,
+                last_wave_advanced: true,
+                wave_advance_count: 1,
+                apply_count: 1,
+                last_net_seconds_rollback: false,
+                net_seconds_delta: 654_321,
+                wave_regress_count: 0,
+                core_inventory_team_count: 0,
+                core_inventory_item_entry_count: 0,
+                core_inventory_total_amount: 0,
+                core_inventory_nonzero_item_count: 0,
+                core_inventory_changed_team_count: 0,
+                core_inventory_changed_team_sample: Vec::new(),
+                core_inventory_by_team: BTreeMap::new(),
+                last_core_sync_ok: false,
+                core_parse_fail_count: 1,
+            })
         );
     }
 
