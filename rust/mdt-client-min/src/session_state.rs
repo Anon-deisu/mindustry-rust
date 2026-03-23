@@ -532,57 +532,12 @@ impl BuildingTableProjection {
             },
         );
         self.last_block_snapshot_head_conflict = false;
-        self.last_build_pos = Some(build_pos);
-        self.last_block_id = Some(block_id);
-        self.last_rotation = Some(rotation);
-        self.last_team_id = Some(team_id);
-        self.last_io_version = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.io_version);
-        self.last_module_bitmask = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.module_bitmask);
-        self.last_time_scale_bits = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.time_scale_bits);
-        self.last_time_scale_duration_bits = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.time_scale_duration_bits);
-        self.last_last_disabler_pos = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.last_disabler_pos);
-        self.last_legacy_consume_connected = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.legacy_consume_connected);
-        self.last_config = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.config.clone());
-        self.last_health_bits = Some(health_bits);
-        self.last_enabled = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.enabled);
-        self.last_efficiency = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.efficiency);
-        self.last_optional_efficiency = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.optional_efficiency);
-        self.last_visible_flags = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.visible_flags);
-        self.last_update = Some(BuildingProjectionUpdateKind::WorldBaseline);
-        self.last_removed = false;
+        self.sync_last_mirror_for_apply(
+            build_pos,
+            BuildingProjectionUpdateKind::WorldBaseline,
+            None,
+            Some(health_bits),
+        );
         self.recount();
     }
 
@@ -700,66 +655,12 @@ impl BuildingTableProjection {
         self.last_block_snapshot_head_conflict = false;
         self.block_snapshot_head_apply_count =
             self.block_snapshot_head_apply_count.saturating_add(1);
-        self.last_build_pos = Some(build_pos);
-        self.last_block_id = Some(block_id);
-        self.last_rotation = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.rotation);
-        self.last_team_id = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.team_id);
-        self.last_io_version = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.io_version);
-        self.last_module_bitmask = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.module_bitmask);
-        self.last_time_scale_bits = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.time_scale_bits);
-        self.last_time_scale_duration_bits = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.time_scale_duration_bits);
-        self.last_last_disabler_pos = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.last_disabler_pos);
-        self.last_legacy_consume_connected = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.legacy_consume_connected);
-        self.last_config = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.config.clone());
-        self.last_health_bits = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.health_bits);
-        self.last_enabled = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.enabled);
-        self.last_efficiency = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.efficiency);
-        self.last_optional_efficiency = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.optional_efficiency);
-        self.last_visible_flags = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.visible_flags);
-        self.last_update = Some(BuildingProjectionUpdateKind::BlockSnapshotHead);
-        self.last_removed = false;
+        self.sync_last_mirror_for_apply(
+            build_pos,
+            BuildingProjectionUpdateKind::BlockSnapshotHead,
+            None,
+            None,
+        );
         self.recount();
     }
 
@@ -808,57 +709,12 @@ impl BuildingTableProjection {
             },
         );
         self.construct_finish_apply_count = self.construct_finish_apply_count.saturating_add(1);
-        self.last_build_pos = Some(build_pos);
-        self.last_block_id = block_id;
-        self.last_rotation = Some(rotation);
-        self.last_team_id = Some(team_id);
-        self.last_io_version = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.io_version);
-        self.last_module_bitmask = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.module_bitmask);
-        self.last_time_scale_bits = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.time_scale_bits);
-        self.last_time_scale_duration_bits = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.time_scale_duration_bits);
-        self.last_last_disabler_pos = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.last_disabler_pos);
-        self.last_legacy_consume_connected = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.legacy_consume_connected);
-        self.last_config = Some(config);
-        self.last_health_bits = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.health_bits);
-        self.last_enabled = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.enabled);
-        self.last_efficiency = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.efficiency);
-        self.last_optional_efficiency = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.optional_efficiency);
-        self.last_visible_flags = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.visible_flags);
-        self.last_update = Some(BuildingProjectionUpdateKind::ConstructFinish);
-        self.last_removed = false;
+        self.sync_last_mirror_for_apply(
+            build_pos,
+            BuildingProjectionUpdateKind::ConstructFinish,
+            Some(config),
+            None,
+        );
         self.recount();
     }
 
