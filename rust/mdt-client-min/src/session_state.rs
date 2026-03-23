@@ -900,66 +900,12 @@ impl BuildingTableProjection {
             },
         );
         self.tile_config_apply_count = self.tile_config_apply_count.saturating_add(1);
-        self.last_build_pos = Some(build_pos);
-        self.last_block_id = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.block_id);
-        self.last_rotation = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.rotation);
-        self.last_team_id = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.team_id);
-        self.last_io_version = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.io_version);
-        self.last_module_bitmask = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.module_bitmask);
-        self.last_time_scale_bits = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.time_scale_bits);
-        self.last_time_scale_duration_bits = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.time_scale_duration_bits);
-        self.last_last_disabler_pos = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.last_disabler_pos);
-        self.last_legacy_consume_connected = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.legacy_consume_connected);
-        self.last_config = Some(config);
-        self.last_health_bits = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.health_bits);
-        self.last_enabled = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.enabled);
-        self.last_efficiency = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.efficiency);
-        self.last_optional_efficiency = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.optional_efficiency);
-        self.last_visible_flags = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.visible_flags);
-        self.last_update = Some(BuildingProjectionUpdateKind::TileConfig);
-        self.last_removed = false;
+        self.sync_last_mirror_for_apply(
+            build_pos,
+            BuildingProjectionUpdateKind::TileConfig,
+            Some(config),
+            None,
+        );
         self.recount();
     }
 
@@ -1044,71 +990,49 @@ impl BuildingTableProjection {
             },
         );
         self.build_health_apply_count = self.build_health_apply_count.saturating_add(1);
-        self.last_build_pos = Some(build_pos);
-        self.last_block_id = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.block_id);
-        self.last_rotation = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.rotation);
-        self.last_team_id = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.team_id);
-        self.last_io_version = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.io_version);
-        self.last_module_bitmask = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.module_bitmask);
-        self.last_time_scale_bits = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.time_scale_bits);
-        self.last_time_scale_duration_bits = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.time_scale_duration_bits);
-        self.last_last_disabler_pos = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.last_disabler_pos);
-        self.last_legacy_consume_connected = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.legacy_consume_connected);
-        self.last_config = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.config.clone());
-        self.last_health_bits = Some(health_bits);
-        self.last_enabled = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.enabled);
-        self.last_efficiency = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.efficiency);
-        self.last_optional_efficiency = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.optional_efficiency);
-        self.last_visible_flags = self
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| building.visible_flags);
-        self.last_update = Some(BuildingProjectionUpdateKind::BuildHealthUpdate);
-        self.last_removed = false;
+        self.sync_last_mirror_for_apply(
+            build_pos,
+            BuildingProjectionUpdateKind::BuildHealthUpdate,
+            None,
+            Some(health_bits),
+        );
         self.recount();
     }
 
     pub fn clear_for_world_reload(&mut self) {
         *self = Self::default();
+    }
+
+    fn sync_last_mirror_for_apply(
+        &mut self,
+        build_pos: i32,
+        last_update: BuildingProjectionUpdateKind,
+        config_override: Option<TypeIoObject>,
+        health_bits_override: Option<u32>,
+    ) {
+        let building = self.by_build_pos.get(&build_pos);
+        self.last_build_pos = Some(build_pos);
+        self.last_block_id = building.and_then(|building| building.block_id);
+        self.last_rotation = building.and_then(|building| building.rotation);
+        self.last_team_id = building.and_then(|building| building.team_id);
+        self.last_io_version = building.and_then(|building| building.io_version);
+        self.last_module_bitmask = building.and_then(|building| building.module_bitmask);
+        self.last_time_scale_bits = building.and_then(|building| building.time_scale_bits);
+        self.last_time_scale_duration_bits =
+            building.and_then(|building| building.time_scale_duration_bits);
+        self.last_last_disabler_pos = building.and_then(|building| building.last_disabler_pos);
+        self.last_legacy_consume_connected =
+            building.and_then(|building| building.legacy_consume_connected);
+        self.last_config =
+            config_override.or_else(|| building.and_then(|building| building.config.clone()));
+        self.last_health_bits =
+            health_bits_override.or_else(|| building.and_then(|building| building.health_bits));
+        self.last_enabled = building.and_then(|building| building.enabled);
+        self.last_efficiency = building.and_then(|building| building.efficiency);
+        self.last_optional_efficiency = building.and_then(|building| building.optional_efficiency);
+        self.last_visible_flags = building.and_then(|building| building.visible_flags);
+        self.last_update = Some(last_update);
+        self.last_removed = false;
     }
 
     fn recount(&mut self) {

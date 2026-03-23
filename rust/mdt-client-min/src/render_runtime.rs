@@ -3199,9 +3199,9 @@ mod tests {
             pack_runtime_point2(5, 6),
             pack_runtime_point2(9, 10),
         )));
-        assert!(hud
-            .status_text
-            .contains("runtime_resource_delta=rmt80:st81:sf82:so83:seti22:setis23:setl24:setls25:sti26:stl27"));
+        assert!(hud.status_text.contains(
+            "runtime_resource_delta=rmt80:st81:sf82:so83:seti22:setis23:setl24:setls25:sti26:stl27"
+        ));
         assert!(hud
             .status_text
             .contains("runtime_command_ctrl=spte28:mc29:tir30:ri31:bcs32:ucl33:uct34:ubcs35:cb36:cu37:suc38:sus39:rot40:tinv41:rbp42:rdp46:rup43:drop44:dpl45:tap47"));

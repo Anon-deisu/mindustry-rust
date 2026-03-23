@@ -2976,10 +2976,8 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.set_tile_blocks_packet_id => {
                 if let Some(summary) = decode_set_tile_blocks_payload(&packet.payload) {
-                    self.state.received_set_tile_blocks_count = self
-                        .state
-                        .received_set_tile_blocks_count
-                        .saturating_add(1);
+                    self.state.received_set_tile_blocks_count =
+                        self.state.received_set_tile_blocks_count.saturating_add(1);
                     self.state.last_set_tile_blocks_block_id = summary.block_id;
                     self.state.last_set_tile_blocks_team_id = Some(summary.team_id);
                     self.state.last_set_tile_blocks_count = summary.position_count;
@@ -2999,10 +2997,8 @@ impl ClientSession {
             }
             packet_id if Some(packet_id) == self.set_tile_floors_packet_id => {
                 if let Some(summary) = decode_set_tile_floors_payload(&packet.payload) {
-                    self.state.received_set_tile_floors_count = self
-                        .state
-                        .received_set_tile_floors_count
-                        .saturating_add(1);
+                    self.state.received_set_tile_floors_count =
+                        self.state.received_set_tile_floors_count.saturating_add(1);
                     self.state.last_set_tile_floors_block_id = summary.block_id;
                     self.state.last_set_tile_floors_count = summary.position_count;
                     self.state.last_set_tile_floors_first_position = summary.first_position;
@@ -3963,151 +3959,8 @@ impl ClientSession {
                     })
                 }
             }
-            packet_id
-                if Some(packet_id) == self.client_packet_reliable_packet_id
-                    || Some(packet_id) == self.server_packet_reliable_packet_id =>
-            {
-                if let Some((packet_type, contents)) = decode_client_packet_payload(&packet.payload)
-                {
-                    self.state.received_client_packet_reliable_count = self
-                        .state
-                        .received_client_packet_reliable_count
-                        .saturating_add(1);
-                    self.state.last_client_packet_reliable_type = Some(packet_type.clone());
-                    self.state.last_client_packet_reliable_contents = Some(contents.clone());
-                    self.client_packet_handlers
-                        .dispatch(&packet_type, &contents);
-                    Ok(ClientSessionEvent::ClientPacketReliable {
-                        packet_type,
-                        contents,
-                    })
-                } else {
-                    Ok(ClientSessionEvent::IgnoredPacket {
-                        packet_id: packet.packet_id,
-                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
-                    })
-                }
-            }
-            packet_id
-                if Some(packet_id) == self.client_packet_unreliable_packet_id
-                    || Some(packet_id) == self.server_packet_unreliable_packet_id =>
-            {
-                if let Some((packet_type, contents)) = decode_client_packet_payload(&packet.payload)
-                {
-                    self.state.received_client_packet_unreliable_count = self
-                        .state
-                        .received_client_packet_unreliable_count
-                        .saturating_add(1);
-                    self.state.last_client_packet_unreliable_type = Some(packet_type.clone());
-                    self.state.last_client_packet_unreliable_contents = Some(contents.clone());
-                    self.client_packet_handlers
-                        .dispatch(&packet_type, &contents);
-                    Ok(ClientSessionEvent::ClientPacketUnreliable {
-                        packet_type,
-                        contents,
-                    })
-                } else {
-                    Ok(ClientSessionEvent::IgnoredPacket {
-                        packet_id: packet.packet_id,
-                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
-                    })
-                }
-            }
-            packet_id
-                if Some(packet_id) == self.client_binary_packet_reliable_packet_id
-                    || Some(packet_id) == self.server_binary_packet_reliable_packet_id =>
-            {
-                if let Some((packet_type, contents)) =
-                    decode_client_binary_packet_payload(&packet.payload)
-                {
-                    self.state.received_client_binary_packet_reliable_count = self
-                        .state
-                        .received_client_binary_packet_reliable_count
-                        .saturating_add(1);
-                    self.state.last_client_binary_packet_reliable_type = Some(packet_type.clone());
-                    self.state.last_client_binary_packet_reliable_contents = Some(contents.clone());
-                    self.client_binary_packet_handlers
-                        .dispatch(&packet_type, &contents);
-                    Ok(ClientSessionEvent::ClientBinaryPacketReliable {
-                        packet_type,
-                        contents,
-                    })
-                } else {
-                    Ok(ClientSessionEvent::IgnoredPacket {
-                        packet_id: packet.packet_id,
-                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
-                    })
-                }
-            }
-            packet_id
-                if Some(packet_id) == self.client_binary_packet_unreliable_packet_id
-                    || Some(packet_id) == self.server_binary_packet_unreliable_packet_id =>
-            {
-                if let Some((packet_type, contents)) =
-                    decode_client_binary_packet_payload(&packet.payload)
-                {
-                    self.state.received_client_binary_packet_unreliable_count = self
-                        .state
-                        .received_client_binary_packet_unreliable_count
-                        .saturating_add(1);
-                    self.state.last_client_binary_packet_unreliable_type =
-                        Some(packet_type.clone());
-                    self.state.last_client_binary_packet_unreliable_contents =
-                        Some(contents.clone());
-                    self.client_binary_packet_handlers
-                        .dispatch(&packet_type, &contents);
-                    Ok(ClientSessionEvent::ClientBinaryPacketUnreliable {
-                        packet_type,
-                        contents,
-                    })
-                } else {
-                    Ok(ClientSessionEvent::IgnoredPacket {
-                        packet_id: packet.packet_id,
-                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
-                    })
-                }
-            }
-            packet_id if Some(packet_id) == self.client_logic_data_reliable_packet_id => {
-                if let Some((channel, value)) = decode_client_logic_data_payload(&packet.payload) {
-                    self.state.received_client_logic_data_reliable_count = self
-                        .state
-                        .received_client_logic_data_reliable_count
-                        .saturating_add(1);
-                    self.state.last_client_logic_data_reliable_channel = Some(channel.clone());
-                    self.state.last_client_logic_data_reliable_value = Some(value.clone());
-                    self.client_logic_data_handlers.dispatch(
-                        &channel,
-                        ClientLogicDataTransport::Reliable,
-                        &value,
-                    );
-                    Ok(ClientSessionEvent::ClientLogicDataReliable { channel, value })
-                } else {
-                    Ok(ClientSessionEvent::IgnoredPacket {
-                        packet_id: packet.packet_id,
-                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
-                    })
-                }
-            }
-            packet_id if Some(packet_id) == self.client_logic_data_unreliable_packet_id => {
-                if let Some((channel, value)) = decode_client_logic_data_payload(&packet.payload) {
-                    self.state.received_client_logic_data_unreliable_count = self
-                        .state
-                        .received_client_logic_data_unreliable_count
-                        .saturating_add(1);
-                    self.state.last_client_logic_data_unreliable_channel = Some(channel.clone());
-                    self.state.last_client_logic_data_unreliable_value = Some(value.clone());
-                    self.client_logic_data_handlers.dispatch(
-                        &channel,
-                        ClientLogicDataTransport::Unreliable,
-                        &value,
-                    );
-                    Ok(ClientSessionEvent::ClientLogicDataUnreliable { channel, value })
-                } else {
-                    Ok(ClientSessionEvent::IgnoredPacket {
-                        packet_id: packet.packet_id,
-                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
-                    })
-                }
+            packet_id if self.is_custom_channel_packet_id(packet_id) => {
+                Ok(self.handle_custom_channel_packet(&packet))
             }
             packet_id if Some(packet_id) == self.set_rules_packet_id => {
                 if let Ok(json_data) = decode_length_prefixed_json_payload(&packet.payload) {
@@ -5167,6 +5020,161 @@ impl ClientSession {
                     })
                 }
             }
+        }
+    }
+
+    fn is_custom_channel_packet_id(&self, packet_id: u8) -> bool {
+        Some(packet_id) == self.client_packet_reliable_packet_id
+            || Some(packet_id) == self.server_packet_reliable_packet_id
+            || Some(packet_id) == self.client_packet_unreliable_packet_id
+            || Some(packet_id) == self.server_packet_unreliable_packet_id
+            || Some(packet_id) == self.client_binary_packet_reliable_packet_id
+            || Some(packet_id) == self.server_binary_packet_reliable_packet_id
+            || Some(packet_id) == self.client_binary_packet_unreliable_packet_id
+            || Some(packet_id) == self.server_binary_packet_unreliable_packet_id
+            || Some(packet_id) == self.client_logic_data_reliable_packet_id
+            || Some(packet_id) == self.client_logic_data_unreliable_packet_id
+    }
+
+    fn handle_custom_channel_packet(
+        &mut self,
+        packet: &InboundPacketRef<'_>,
+    ) -> ClientSessionEvent {
+        let ignored = || ClientSessionEvent::IgnoredPacket {
+            packet_id: packet.packet_id,
+            remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+        };
+
+        match packet.packet_id {
+            packet_id
+                if Some(packet_id) == self.client_packet_reliable_packet_id
+                    || Some(packet_id) == self.server_packet_reliable_packet_id =>
+            {
+                if let Some((packet_type, contents)) = decode_client_packet_payload(&packet.payload)
+                {
+                    self.state.received_client_packet_reliable_count = self
+                        .state
+                        .received_client_packet_reliable_count
+                        .saturating_add(1);
+                    self.state.last_client_packet_reliable_type = Some(packet_type.clone());
+                    self.state.last_client_packet_reliable_contents = Some(contents.clone());
+                    self.client_packet_handlers
+                        .dispatch(&packet_type, &contents);
+                    ClientSessionEvent::ClientPacketReliable {
+                        packet_type,
+                        contents,
+                    }
+                } else {
+                    ignored()
+                }
+            }
+            packet_id
+                if Some(packet_id) == self.client_packet_unreliable_packet_id
+                    || Some(packet_id) == self.server_packet_unreliable_packet_id =>
+            {
+                if let Some((packet_type, contents)) = decode_client_packet_payload(&packet.payload)
+                {
+                    self.state.received_client_packet_unreliable_count = self
+                        .state
+                        .received_client_packet_unreliable_count
+                        .saturating_add(1);
+                    self.state.last_client_packet_unreliable_type = Some(packet_type.clone());
+                    self.state.last_client_packet_unreliable_contents = Some(contents.clone());
+                    self.client_packet_handlers
+                        .dispatch(&packet_type, &contents);
+                    ClientSessionEvent::ClientPacketUnreliable {
+                        packet_type,
+                        contents,
+                    }
+                } else {
+                    ignored()
+                }
+            }
+            packet_id
+                if Some(packet_id) == self.client_binary_packet_reliable_packet_id
+                    || Some(packet_id) == self.server_binary_packet_reliable_packet_id =>
+            {
+                if let Some((packet_type, contents)) =
+                    decode_client_binary_packet_payload(&packet.payload)
+                {
+                    self.state.received_client_binary_packet_reliable_count = self
+                        .state
+                        .received_client_binary_packet_reliable_count
+                        .saturating_add(1);
+                    self.state.last_client_binary_packet_reliable_type = Some(packet_type.clone());
+                    self.state.last_client_binary_packet_reliable_contents = Some(contents.clone());
+                    self.client_binary_packet_handlers
+                        .dispatch(&packet_type, &contents);
+                    ClientSessionEvent::ClientBinaryPacketReliable {
+                        packet_type,
+                        contents,
+                    }
+                } else {
+                    ignored()
+                }
+            }
+            packet_id
+                if Some(packet_id) == self.client_binary_packet_unreliable_packet_id
+                    || Some(packet_id) == self.server_binary_packet_unreliable_packet_id =>
+            {
+                if let Some((packet_type, contents)) =
+                    decode_client_binary_packet_payload(&packet.payload)
+                {
+                    self.state.received_client_binary_packet_unreliable_count = self
+                        .state
+                        .received_client_binary_packet_unreliable_count
+                        .saturating_add(1);
+                    self.state.last_client_binary_packet_unreliable_type =
+                        Some(packet_type.clone());
+                    self.state.last_client_binary_packet_unreliable_contents =
+                        Some(contents.clone());
+                    self.client_binary_packet_handlers
+                        .dispatch(&packet_type, &contents);
+                    ClientSessionEvent::ClientBinaryPacketUnreliable {
+                        packet_type,
+                        contents,
+                    }
+                } else {
+                    ignored()
+                }
+            }
+            packet_id if Some(packet_id) == self.client_logic_data_reliable_packet_id => {
+                if let Some((channel, value)) = decode_client_logic_data_payload(&packet.payload) {
+                    self.state.received_client_logic_data_reliable_count = self
+                        .state
+                        .received_client_logic_data_reliable_count
+                        .saturating_add(1);
+                    self.state.last_client_logic_data_reliable_channel = Some(channel.clone());
+                    self.state.last_client_logic_data_reliable_value = Some(value.clone());
+                    self.client_logic_data_handlers.dispatch(
+                        &channel,
+                        ClientLogicDataTransport::Reliable,
+                        &value,
+                    );
+                    ClientSessionEvent::ClientLogicDataReliable { channel, value }
+                } else {
+                    ignored()
+                }
+            }
+            packet_id if Some(packet_id) == self.client_logic_data_unreliable_packet_id => {
+                if let Some((channel, value)) = decode_client_logic_data_payload(&packet.payload) {
+                    self.state.received_client_logic_data_unreliable_count = self
+                        .state
+                        .received_client_logic_data_unreliable_count
+                        .saturating_add(1);
+                    self.state.last_client_logic_data_unreliable_channel = Some(channel.clone());
+                    self.state.last_client_logic_data_unreliable_value = Some(value.clone());
+                    self.client_logic_data_handlers.dispatch(
+                        &channel,
+                        ClientLogicDataTransport::Unreliable,
+                        &value,
+                    );
+                    ClientSessionEvent::ClientLogicDataUnreliable { channel, value }
+                } else {
+                    ignored()
+                }
+            }
+            _ => unreachable!("custom channel helper called for non-custom packet"),
         }
     }
 
@@ -22610,8 +22618,14 @@ mod tests {
         );
         assert_eq!(session.state().received_logic_explosion_count, 1);
         assert_eq!(session.state().last_logic_explosion_team_id, Some(2));
-        assert_eq!(session.state().last_logic_explosion_x_bits, Some(16.0f32.to_bits()));
-        assert_eq!(session.state().last_logic_explosion_y_bits, Some(24.0f32.to_bits()));
+        assert_eq!(
+            session.state().last_logic_explosion_x_bits,
+            Some(16.0f32.to_bits())
+        );
+        assert_eq!(
+            session.state().last_logic_explosion_y_bits,
+            Some(24.0f32.to_bits())
+        );
         assert_eq!(
             session.state().last_logic_explosion_radius_bits,
             Some(64.0f32.to_bits())
@@ -22806,7 +22820,10 @@ mod tests {
             }
         );
         assert_eq!(session.state().received_set_team_count, 1);
-        assert_eq!(session.state().last_set_team_build_pos, Some(pack_point2(7, 8)));
+        assert_eq!(
+            session.state().last_set_team_build_pos,
+            Some(pack_point2(7, 8))
+        );
         assert_eq!(session.state().last_set_team_id, Some(2));
     }
 
@@ -23034,9 +23051,8 @@ mod tests {
             ),
             (
                 logic_explosion_packet_id,
-                encode_logic_explosion_payload(
-                    2, 16.0, 24.0, 64.0, 96.0, true, false, true, true,
-                )[..20]
+                encode_logic_explosion_payload(2, 16.0, 24.0, 64.0, 96.0, true, false, true, true)
+                    [..20]
                     .to_vec(),
             ),
             (
@@ -23056,7 +23072,11 @@ mod tests {
             ),
             (
                 auto_door_toggle_packet_id,
-                [encode_tile_bool_payload(Some(pack_point2(1, 2)), true), vec![0x00]].concat(),
+                [
+                    encode_tile_bool_payload(Some(pack_point2(1, 2)), true),
+                    vec![0x00],
+                ]
+                .concat(),
             ),
             (landing_pad_landed_packet_id, vec![0x00, 0x01, 0x02]),
             (

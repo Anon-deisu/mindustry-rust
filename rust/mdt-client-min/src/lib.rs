@@ -2,6 +2,7 @@ pub mod arcnet_loop;
 pub mod bootstrap_flow;
 pub mod client_session;
 pub mod connect_packet;
+pub mod event_summary;
 pub mod generated;
 pub mod net_loop;
 pub mod packet_registry;

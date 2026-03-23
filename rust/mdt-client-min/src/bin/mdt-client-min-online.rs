@@ -3872,6 +3872,21 @@ fn format_final_kick_summary(
     reason_ordinal: Option<i32>,
     duration_ms: Option<u64>,
 ) -> String {
+    mdt_client_min::event_summary::format_final_kick_summary(
+        kicked,
+        reason_text,
+        reason_ordinal,
+        duration_ms,
+    )
+}
+
+#[allow(dead_code)]
+fn format_final_kick_summary_legacy(
+    kicked: bool,
+    reason_text: Option<&str>,
+    reason_ordinal: Option<i32>,
+    duration_ms: Option<u64>,
+) -> String {
     let (hint_category, hint_text) = summarize_kick_hint_from(reason_text, reason_ordinal);
     format!(
         "final_kick: kicked={} reason_text={reason_text:?} reason_ordinal={reason_ordinal:?} duration_ms={duration_ms:?} hint_category={} hint_text={hint_text:?}",
@@ -3984,6 +3999,11 @@ fn summarize_kick_reason_name_from_ordinal(reason_ordinal: i32) -> Option<&'stat
 }
 
 fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<String> {
+    mdt_client_min::event_summary::summarize_client_packet_events(events)
+}
+
+#[allow(dead_code)]
+fn summarize_client_packet_events_legacy(events: &[ClientSessionEvent]) -> Vec<String> {
     events
         .iter()
         .filter_map(|event| match event {
