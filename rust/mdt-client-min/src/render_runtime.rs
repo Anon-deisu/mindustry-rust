@@ -1436,6 +1436,13 @@ fn runtime_effect_business_projection_label(
         }) => format!(
             "ray:0x{source_x_bits:08x}:0x{source_y_bits:08x}:0x{target_x_bits:08x}:0x{target_y_bits:08x}:0x{rotation_bits:08x}:0x{length_bits:08x}"
         ),
+        Some(EffectBusinessProjection::LightningPath { points }) => {
+            let last = points
+                .last()
+                .map(|(x_bits, y_bits)| format!(":0x{x_bits:08x}:0x{y_bits:08x}"))
+                .unwrap_or_default();
+            format!("lightningPath:{}{}", points.len(), last)
+        }
         Some(EffectBusinessProjection::FloatValue(bits)) => {
             format!("floatBits:0x{bits:08x}")
         }
@@ -1894,6 +1901,12 @@ fn runtime_world_position_from_effect_business_projection(
             x_bits: *target_x_bits,
             y_bits: *target_y_bits,
         }),
+        Some(EffectBusinessProjection::LightningPath { points }) => points.last().map(
+            |(x_bits, y_bits)| RuntimeWorldPositionObservability {
+                x_bits: *x_bits,
+                y_bits: *y_bits,
+            },
+        ),
         Some(EffectBusinessProjection::ContentRef { .. })
         | Some(EffectBusinessProjection::FloatValue(_))
         | None => None,
@@ -4544,6 +4557,51 @@ mod tests {
     }
 
     #[test]
+    fn render_runtime_adapter_renders_lightning_executor_polyline_segments() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
+
+        adapter.observe_events(&[ClientSessionEvent::EffectRequested {
+            effect_id: Some(13),
+            x: 1.0,
+            y: 2.0,
+            rotation: 0.0,
+            color_rgba: 0x11223344,
+            data_object: Some(mdt_typeio::TypeIoObject::Vec2Array(vec![
+                (10.0, 20.0),
+                (30.0, 40.0),
+                (50.0, 60.0),
+            ])),
+        }]);
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let marker = first_runtime_effect_marker(&scene);
+        assert_eq!(
+            marker.id,
+            format!(
+                "marker:runtime-effect:normal:13:0x{:08x}:0x{:08x}:1",
+                50.0f32.to_bits(),
+                60.0f32.to_bits()
+            )
+        );
+        assert_eq!(marker.x, 50.0);
+        assert_eq!(marker.y, 60.0);
+
+        let lightning_prefix = "marker:line:runtime-effect-lightning:";
+        let lightning_lines = runtime_effect_lines_with_prefix(&scene, lightning_prefix);
+        assert_eq!(lightning_lines.len(), 4);
+        assert!(lightning_lines.iter().any(|object| {
+            !object.id.ends_with(":line-end") && object.x == 10.0 && object.y == 20.0
+        }));
+        assert!(lightning_lines.iter().any(|object| {
+            object.id.ends_with(":line-end") && object.x == 50.0 && object.y == 60.0
+        }));
+    }
+
+    #[test]
     fn render_runtime_adapter_projects_point2_effect_payload_to_world_position() {
         let mut adapter = RenderRuntimeAdapter::default();
         let mut scene = RenderModel::default();
@@ -4579,7 +4637,7 @@ mod tests {
         let state = SessionState::default();
 
         adapter.observe_events(&[ClientSessionEvent::EffectRequested {
-            effect_id: Some(13),
+            effect_id: Some(12),
             x: 1.0,
             y: 2.0,
             rotation: 0.0,
@@ -4593,7 +4651,7 @@ mod tests {
         let marker = first_runtime_effect_marker(&scene);
         assert_eq!(
             marker.id,
-            "marker:runtime-effect:normal:13:0x41000000:0x41800000:1"
+            "marker:runtime-effect:normal:12:0x41000000:0x41800000:1"
         );
         assert_eq!(marker.x, 8.0);
         assert_eq!(marker.y, 16.0);
@@ -4845,7 +4903,7 @@ mod tests {
         let state = SessionState::default();
 
         adapter.observe_events(&[ClientSessionEvent::EffectRequested {
-            effect_id: Some(13),
+            effect_id: Some(12),
             x: 1.0,
             y: 2.0,
             rotation: 0.0,
@@ -4861,7 +4919,7 @@ mod tests {
         assert_eq!(
             marker.id,
             format!(
-                "marker:runtime-effect:normal:13:0x{:08x}:0x{:08x}:1",
+                "marker:runtime-effect:normal:12:0x{:08x}:0x{:08x}:1",
                 72.0f32.to_bits(),
                 48.0f32.to_bits()
             )
@@ -4934,6 +4992,17 @@ mod tests {
             })),
             "ray:0x42020000:0x42400000:0x42340000:0x42400000:0x00000000:0x41480000"
         );
+        assert_eq!(
+            runtime_effect_business_projection_label(Some(
+                &EffectBusinessProjection::LightningPath {
+                    points: vec![
+                        (10.0f32.to_bits(), 20.0f32.to_bits()),
+                        (50.0f32.to_bits(), 60.0f32.to_bits()),
+                    ],
+                }
+            )),
+            "lightningPath:2:0x42480000:0x42700000"
+        );
         assert_eq!(runtime_effect_business_projection_label(None), "none");
     }
 
@@ -4967,6 +5036,20 @@ mod tests {
             Some(RuntimeWorldPositionObservability {
                 x_bits: 45.0f32.to_bits(),
                 y_bits: 48.0f32.to_bits(),
+            })
+        );
+        assert_eq!(
+            runtime_world_position_from_effect_business_projection(Some(
+                &EffectBusinessProjection::LightningPath {
+                    points: vec![
+                        (10.0f32.to_bits(), 20.0f32.to_bits()),
+                        (50.0f32.to_bits(), 60.0f32.to_bits()),
+                    ],
+                }
+            )),
+            Some(RuntimeWorldPositionObservability {
+                x_bits: 50.0f32.to_bits(),
+                y_bits: 60.0f32.to_bits(),
             })
         );
     }

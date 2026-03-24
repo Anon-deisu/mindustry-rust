@@ -352,6 +352,9 @@ pub enum EffectBusinessProjection {
         rotation_bits: u32,
         length_bits: u32,
     },
+    LightningPath {
+        points: Vec<(u32, u32)>,
+    },
     FloatValue(u32),
 }
 

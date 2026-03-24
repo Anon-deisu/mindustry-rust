@@ -6,6 +6,7 @@ const EFFECT_CONTRACT_MAX_DEPTH: usize = 3;
 const EFFECT_CONTRACT_MAX_NODES: usize = 64;
 const ITEM_CONTENT_TYPE: u8 = 0;
 const DROP_ITEM_EFFECT_LENGTH: f32 = 20.0;
+const LIGHTNING_EFFECT_ID: i16 = 13;
 const POINT_BEAM_EFFECT_ID: i16 = 10;
 const CHAIN_LIGHTNING_EFFECT_ID: i16 = 261;
 const CHAIN_EMP_EFFECT_ID: i16 = 262;
@@ -35,6 +36,12 @@ const POSITION_TARGET_EXECUTOR: RuntimeEffectContractExecutor = RuntimeEffectCon
     contract_name: "position_target",
     overlay_origin: position_target_overlay_origin,
     business_world_position: position_target_business_world_position,
+};
+
+const LIGHTNING_PATH_EXECUTOR: RuntimeEffectContractExecutor = RuntimeEffectContractExecutor {
+    contract_name: "lightning",
+    overlay_origin: lightning_path_overlay_origin,
+    business_world_position: lightning_path_business_world_position,
 };
 
 const POINT_BEAM_EXECUTOR: RuntimeEffectContractExecutor = RuntimeEffectContractExecutor {
@@ -89,6 +96,7 @@ pub(crate) fn line_projections_for_effect_overlay(
     target_y_bits: u32,
 ) -> Vec<RuntimeEffectLineProjection> {
     match overlay.effect_id {
+        Some(LIGHTNING_EFFECT_ID) => lightning_line_projections(&overlay.polyline_points),
         Some(POINT_BEAM_EFFECT_ID) => vec![RuntimeEffectLineProjection {
             kind: "point-beam",
             source_x_bits: overlay.source_x_bits,
@@ -104,6 +112,24 @@ pub(crate) fn line_projections_for_effect_overlay(
         ),
         _ => Vec::new(),
     }
+}
+
+fn lightning_line_projections(points: &[(u32, u32)]) -> Vec<RuntimeEffectLineProjection> {
+    points
+        .windows(2)
+        .filter_map(|pair| {
+            let [(source_x_bits, source_y_bits), (target_x_bits, target_y_bits)] = pair else {
+                return None;
+            };
+            Some(RuntimeEffectLineProjection {
+                kind: "lightning",
+                source_x_bits: *source_x_bits,
+                source_y_bits: *source_y_bits,
+                target_x_bits: *target_x_bits,
+                target_y_bits: *target_y_bits,
+            })
+        })
+        .collect()
 }
 
 fn chain_line_projections(
@@ -172,6 +198,7 @@ fn executor_for_contract(
 ) -> &'static RuntimeEffectContractExecutor {
     match contract {
         RuntimeEffectContract::PositionTarget => &POSITION_TARGET_EXECUTOR,
+        RuntimeEffectContract::LightningPath => &LIGHTNING_PATH_EXECUTOR,
         RuntimeEffectContract::PointBeam => &POINT_BEAM_EXECUTOR,
         RuntimeEffectContract::DropItem => &DROP_ITEM_EXECUTOR,
         RuntimeEffectContract::FloatLength => &FLOAT_LENGTH_EXECUTOR,
@@ -182,6 +209,7 @@ fn executor_for_contract(
 fn executor_for_name(name: &str) -> Option<&'static RuntimeEffectContractExecutor> {
     for executor in [
         &POSITION_TARGET_EXECUTOR,
+        &LIGHTNING_PATH_EXECUTOR,
         &POINT_BEAM_EXECUTOR,
         &DROP_ITEM_EXECUTOR,
         &FLOAT_LENGTH_EXECUTOR,
@@ -220,6 +248,17 @@ fn position_target_overlay_origin(
         .map(bits_to_world_position)
 }
 
+fn lightning_path_overlay_origin(
+    _effect_x: f32,
+    _effect_y: f32,
+    _effect_rotation: f32,
+    object: &TypeIoObject,
+) -> Option<(f32, f32)> {
+    first_contract_match(object, lightning_path_candidate)
+        .and_then(lightning_path_world_position)
+        .map(bits_to_world_position)
+}
+
 fn position_target_business_world_position(
     projection: &EffectBusinessProjection,
 ) -> Option<(u32, u32)> {
@@ -229,6 +268,15 @@ fn position_target_business_world_position(
             target_y_bits,
             ..
         } => Some((*target_x_bits, *target_y_bits)),
+        _ => None,
+    }
+}
+
+fn lightning_path_business_world_position(
+    projection: &EffectBusinessProjection,
+) -> Option<(u32, u32)> {
+    match projection {
+        EffectBusinessProjection::LightningPath { points } => points.last().copied(),
         _ => None,
     }
 }
@@ -294,9 +342,8 @@ fn generic_business_world_position(projection: &EffectBusinessProjection) -> Opt
             target_y_bits,
             ..
         } => Some((*target_x_bits, *target_y_bits)),
-        EffectBusinessProjection::ContentRef { .. } | EffectBusinessProjection::FloatValue(_) => {
-            None
-        }
+        EffectBusinessProjection::LightningPath { points } => points.last().copied(),
+        EffectBusinessProjection::ContentRef { .. } | EffectBusinessProjection::FloatValue(_) => None,
     }
 }
 
@@ -332,6 +379,10 @@ fn drop_item_candidate(value: &TypeIoObject) -> bool {
     )
 }
 
+fn lightning_path_candidate(value: &TypeIoObject) -> bool {
+    matches!(value, TypeIoObject::Vec2Array(values) if !values.is_empty())
+}
+
 fn position_target_world_position(value: &TypeIoObject) -> Option<(u32, u32)> {
     match value {
         TypeIoObject::Point2 { x, y } => {
@@ -356,6 +407,15 @@ fn position_target_world_position(value: &TypeIoObject) -> Option<(u32, u32)> {
             | TypeIoSemanticRef::Unit { .. } => None,
         },
     }
+}
+
+fn lightning_path_world_position(value: &TypeIoObject) -> Option<(u32, u32)> {
+    let TypeIoObject::Vec2Array(values) = value else {
+        return None;
+    };
+    values
+        .last()
+        .and_then(|(x, y)| (x.is_finite() && y.is_finite()).then_some((x.to_bits(), y.to_bits())))
 }
 
 fn ray_endpoint(
@@ -477,6 +537,25 @@ mod tests {
     }
 
     #[test]
+    fn lightning_path_overlay_origin_projects_last_vec2_point() {
+        let object = TypeIoObject::ObjectArray(vec![
+            TypeIoObject::Int(7),
+            TypeIoObject::Vec2Array(vec![(10.0, 20.0), (80.0, 160.0)]),
+        ]);
+
+        assert_eq!(
+            overlay_origin_from_contract(
+                RuntimeEffectContract::LightningPath,
+                1.0,
+                2.0,
+                0.0,
+                Some(&object),
+            ),
+            Some((80.0, 160.0))
+        );
+    }
+
+    #[test]
     fn line_projections_for_effect_overlay_returns_point_beam_projection() {
         let overlay = RuntimeEffectOverlay {
             effect_id: Some(POINT_BEAM_EFFECT_ID),
@@ -491,6 +570,7 @@ mod tests {
             remaining_ticks: 3,
             contract_name: Some("point_beam"),
             binding: None,
+            polyline_points: Vec::new(),
         };
 
         assert_eq!(
@@ -520,6 +600,7 @@ mod tests {
             remaining_ticks: 3,
             contract_name: Some("position_target"),
             binding: None,
+            polyline_points: Vec::new(),
         };
 
         let lines =
@@ -552,11 +633,73 @@ mod tests {
             remaining_ticks: 3,
             contract_name: Some("position_target"),
             binding: None,
+            polyline_points: Vec::new(),
         };
 
         assert_eq!(
             line_projections_for_effect_overlay(&overlay, 80.0f32.to_bits(), 160.0f32.to_bits(),),
             Vec::<RuntimeEffectLineProjection>::new()
+        );
+    }
+
+    #[test]
+    fn world_position_from_contract_business_projection_uses_lightning_path_named_executor() {
+        let projection = EffectBusinessProjection::LightningPath {
+            points: vec![
+                (10.0f32.to_bits(), 20.0f32.to_bits()),
+                (80.0f32.to_bits(), 160.0f32.to_bits()),
+            ],
+        };
+
+        assert_eq!(
+            world_position_from_contract_business_projection(
+                Some(LIGHTNING_PATH_EXECUTOR.contract_name),
+                Some(&projection),
+            ),
+            Some((80.0f32.to_bits(), 160.0f32.to_bits()))
+        );
+    }
+
+    #[test]
+    fn line_projections_for_effect_overlay_returns_lightning_path_segments() {
+        let overlay = RuntimeEffectOverlay {
+            effect_id: Some(LIGHTNING_EFFECT_ID),
+            source_x_bits: 1.0f32.to_bits(),
+            source_y_bits: 2.0f32.to_bits(),
+            x_bits: 50.0f32.to_bits(),
+            y_bits: 60.0f32.to_bits(),
+            rotation_bits: 0.0f32.to_bits(),
+            color_rgba: 0x11223344,
+            reliable: false,
+            has_data: true,
+            remaining_ticks: 3,
+            contract_name: Some("lightning"),
+            binding: None,
+            polyline_points: vec![
+                (10.0f32.to_bits(), 20.0f32.to_bits()),
+                (30.0f32.to_bits(), 40.0f32.to_bits()),
+                (50.0f32.to_bits(), 60.0f32.to_bits()),
+            ],
+        };
+
+        assert_eq!(
+            line_projections_for_effect_overlay(&overlay, 50.0f32.to_bits(), 60.0f32.to_bits()),
+            vec![
+                RuntimeEffectLineProjection {
+                    kind: "lightning",
+                    source_x_bits: 10.0f32.to_bits(),
+                    source_y_bits: 20.0f32.to_bits(),
+                    target_x_bits: 30.0f32.to_bits(),
+                    target_y_bits: 40.0f32.to_bits(),
+                },
+                RuntimeEffectLineProjection {
+                    kind: "lightning",
+                    source_x_bits: 30.0f32.to_bits(),
+                    source_y_bits: 40.0f32.to_bits(),
+                    target_x_bits: 50.0f32.to_bits(),
+                    target_y_bits: 60.0f32.to_bits(),
+                },
+            ]
         );
     }
 }

@@ -2,6 +2,9 @@ use crate::client_session::ClientSnapshotInputState;
 use crate::session_state::SessionState;
 use mdt_typeio::{TypeIoEffectPositionHint, TypeIoObject, TypeIoSemanticRef};
 
+const EFFECT_PATH_MAX_DEPTH: usize = 3;
+const EFFECT_PATH_MAX_NODES: usize = 64;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeEffectBinding {
     WorldPosition { x_bits: u32, y_bits: u32 },
@@ -12,6 +15,7 @@ pub enum RuntimeEffectBinding {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeEffectContract {
     PositionTarget,
+    LightningPath,
     PointBeam,
     DropItem,
     FloatLength,
@@ -22,6 +26,7 @@ impl RuntimeEffectContract {
     pub const fn name(self) -> &'static str {
         match self {
             Self::PositionTarget => "position_target",
+            Self::LightningPath => "lightning",
             Self::PointBeam => "point_beam",
             Self::DropItem => "drop_item",
             Self::FloatLength => "float_length",
@@ -44,10 +49,12 @@ pub struct RuntimeEffectOverlay {
     pub remaining_ticks: u8,
     pub contract_name: Option<&'static str>,
     pub binding: Option<RuntimeEffectBinding>,
+    pub polyline_points: Vec<(u32, u32)>,
 }
 
 pub fn effect_contract(effect_id: Option<i16>) -> Option<RuntimeEffectContract> {
     match effect_id {
+        Some(13) => Some(RuntimeEffectContract::LightningPath),
         Some(10) => Some(RuntimeEffectContract::PointBeam),
         Some(8 | 9 | 178 | 261 | 262) => Some(RuntimeEffectContract::PositionTarget),
         Some(142) => Some(RuntimeEffectContract::DropItem),
@@ -73,10 +80,19 @@ pub fn spawn_runtime_effect_overlay(
     data_object: Option<&TypeIoObject>,
     remaining_ticks: u8,
 ) -> RuntimeEffectOverlay {
-    let binding = derive_runtime_effect_binding(data_object);
-    let (x_bits, y_bits) = binding
-        .as_ref()
-        .and_then(initial_position_from_binding)
+    let contract = effect_contract(effect_id);
+    let polyline_points = contract
+        .and_then(|contract| derive_runtime_effect_polyline(contract, data_object))
+        .unwrap_or_default();
+    let binding = if polyline_points.is_empty() {
+        derive_runtime_effect_binding(data_object)
+    } else {
+        None
+    };
+    let (x_bits, y_bits) = polyline_points
+        .last()
+        .copied()
+        .or_else(|| binding.as_ref().and_then(initial_position_from_binding))
         .unwrap_or((x.to_bits(), y.to_bits()));
 
     RuntimeEffectOverlay {
@@ -90,8 +106,9 @@ pub fn spawn_runtime_effect_overlay(
         reliable,
         has_data: data_object.is_some(),
         remaining_ticks,
-        contract_name: effect_contract_name(effect_id),
+        contract_name: contract.map(RuntimeEffectContract::name),
         binding,
+        polyline_points,
     }
 }
 
@@ -127,6 +144,44 @@ fn derive_runtime_effect_binding(object: Option<&TypeIoObject>) -> Option<Runtim
         .first_position_hint
         .as_ref()
         .map(binding_from_position_hint)
+}
+
+fn derive_runtime_effect_polyline(
+    contract: RuntimeEffectContract,
+    object: Option<&TypeIoObject>,
+) -> Option<Vec<(u32, u32)>> {
+    let object = object?;
+    match contract {
+        RuntimeEffectContract::LightningPath => object
+            .find_first_dfs_bounded(
+                EFFECT_PATH_MAX_DEPTH,
+                EFFECT_PATH_MAX_NODES,
+                lightning_path_candidate,
+            )
+            .and_then(|matched| lightning_path_points(matched.value)),
+        RuntimeEffectContract::PositionTarget
+        | RuntimeEffectContract::PointBeam
+        | RuntimeEffectContract::DropItem
+        | RuntimeEffectContract::FloatLength
+        | RuntimeEffectContract::UnitParent => None,
+    }
+}
+
+fn lightning_path_candidate(value: &TypeIoObject) -> bool {
+    matches!(value, TypeIoObject::Vec2Array(values) if !values.is_empty())
+}
+
+fn lightning_path_points(value: &TypeIoObject) -> Option<Vec<(u32, u32)>> {
+    let TypeIoObject::Vec2Array(values) = value else {
+        return None;
+    };
+    let points = values
+        .iter()
+        .filter_map(|(x, y)| {
+            (x.is_finite() && y.is_finite()).then_some((x.to_bits(), y.to_bits()))
+        })
+        .collect::<Vec<_>>();
+    (!points.is_empty()).then_some(points)
 }
 
 fn binding_from_position_hint(position_hint: &TypeIoEffectPositionHint) -> RuntimeEffectBinding {

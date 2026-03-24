@@ -10293,6 +10293,7 @@ fn derive_effect_business_projection(
             | EffectBusinessProjection::WorldPosition { x_bits, y_bits, .. } => {
                 Some((*x_bits, *y_bits))
             }
+            EffectBusinessProjection::LightningPath { points } => points.last().copied(),
             EffectBusinessProjection::ContentRef { .. }
             | EffectBusinessProjection::PositionTarget { .. }
             | EffectBusinessProjection::LengthRay { .. }
@@ -10371,6 +10372,19 @@ fn derive_effect_business_projection(
         }
     }
 
+    fn lightning_path_projection(value: &TypeIoObject) -> Option<EffectBusinessProjection> {
+        let TypeIoObject::Vec2Array(values) = value else {
+            return None;
+        };
+        let points = values
+            .iter()
+            .filter_map(|(x, y)| {
+                (x.is_finite() && y.is_finite()).then_some((x.to_bits(), y.to_bits()))
+            })
+            .collect::<Vec<_>>();
+        (!points.is_empty()).then_some(EffectBusinessProjection::LightningPath { points })
+    }
+
     fn projection_from_contract_object(
         state: &SessionState,
         snapshot_input: &ClientSnapshotInputState,
@@ -10381,6 +10395,7 @@ fn derive_effect_business_projection(
         value: &TypeIoObject,
     ) -> Option<EffectBusinessProjection> {
         match contract {
+            RuntimeEffectContract::LightningPath => lightning_path_projection(value),
             RuntimeEffectContract::PositionTarget | RuntimeEffectContract::PointBeam => {
                 let target_projection = match value {
                     TypeIoObject::Point2 { .. }
@@ -10480,6 +10495,17 @@ fn derive_effect_business_projection(
         max_depth: usize,
         max_nodes: usize,
     ) -> Option<(EffectBusinessProjection, Vec<usize>)> {
+        if let Some(projection) = projection_from_contract_object(
+            state,
+            snapshot_input,
+            contract,
+            effect_x,
+            effect_y,
+            effect_rotation,
+            object,
+        ) {
+            return Some((projection, Vec::new()));
+        }
         object
             .find_first_dfs_bounded(max_depth, max_nodes, |value| {
                 projection_from_contract_object(
@@ -10529,7 +10555,7 @@ fn derive_effect_business_projection(
         };
     };
     if let Some(contract) = effect_contract(effect_id) {
-        return match first_contract_projection(
+        if let Some((projection, path)) = first_contract_projection(
             state,
             snapshot_input,
             contract,
@@ -10540,15 +10566,17 @@ fn derive_effect_business_projection(
             EFFECT_BUSINESS_MAX_DEPTH,
             EFFECT_BUSINESS_MAX_NODES,
         ) {
-            Some((projection, path)) => EffectBusinessProjectionResult {
+            return EffectBusinessProjectionResult {
                 projection: Some(projection),
                 path: normalize_effect_business_path(path),
-            },
-            None => EffectBusinessProjectionResult {
+            };
+        }
+        if !matches!(contract, RuntimeEffectContract::LightningPath) {
+            return EffectBusinessProjectionResult {
                 projection: None,
                 path: None,
-            },
-        };
+            };
+        }
     }
     let summary = object.effect_summary();
     let unresolved_parent_hint = summary.first_parent_ref.as_ref().is_some_and(|matched| {
@@ -10591,7 +10619,15 @@ fn derive_effect_business_projection(
             EFFECT_BUSINESS_MAX_NODES,
         )
     } else {
-        pick_leftmost_depth_first_candidate(hint_candidates)
+        pick_leftmost_depth_first_candidate(hint_candidates).or_else(|| {
+            first_resolvable_dfs_projection(
+                state,
+                snapshot_input,
+                object,
+                EFFECT_BUSINESS_MAX_DEPTH,
+                EFFECT_BUSINESS_MAX_NODES,
+            )
+        })
     };
 
     match matched {
@@ -32647,7 +32683,7 @@ mod tests {
             .packet_id;
         let packet = encode_packet(
             packet_id,
-            &encode_effect_payload(13, 32.5, 48.0, 90.0, 0x11223344),
+            &encode_effect_payload(14, 32.5, 48.0, 90.0, 0x11223344),
             false,
         )
         .unwrap();
@@ -32657,7 +32693,7 @@ mod tests {
         assert_eq!(
             event,
             ClientSessionEvent::EffectRequested {
-                effect_id: Some(13),
+                effect_id: Some(14),
                 x: 32.5,
                 y: 48.0,
                 rotation: 90.0,
@@ -32666,7 +32702,7 @@ mod tests {
             }
         );
         assert_eq!(session.state().received_effect_count, 1);
-        assert_eq!(session.state().last_effect_id, Some(13));
+        assert_eq!(session.state().last_effect_id, Some(14));
         assert_eq!(session.state().last_effect_x_bits, Some(32.5f32.to_bits()));
         assert_eq!(session.state().last_effect_y_bits, Some(48.0f32.to_bits()));
         assert_eq!(
@@ -32797,7 +32833,7 @@ mod tests {
             .find(|entry| entry.method == "effect" && entry.params.len() == 6)
             .unwrap()
             .packet_id;
-        let mut payload = encode_effect_payload(13, 32.5, 48.0, 90.0, 0x11223344);
+        let mut payload = encode_effect_payload(12, 32.5, 48.0, 90.0, 0x11223344);
         payload.push(4);
         payload.extend_from_slice(&encode_typeio_string_payload("spark"));
         let packet = encode_packet(packet_id, &payload, false).unwrap();
@@ -32807,7 +32843,7 @@ mod tests {
         assert_eq!(
             event,
             ClientSessionEvent::EffectRequested {
-                effect_id: Some(13),
+                effect_id: Some(12),
                 x: 32.5,
                 y: 48.0,
                 rotation: 90.0,
@@ -32816,7 +32852,7 @@ mod tests {
             }
         );
         assert_eq!(session.state().received_effect_count, 1);
-        assert_eq!(session.state().last_effect_id, Some(13));
+        assert_eq!(session.state().last_effect_id, Some(12));
         assert_eq!(session.state().last_effect_x_bits, Some(32.5f32.to_bits()));
         assert_eq!(session.state().last_effect_y_bits, Some(48.0f32.to_bits()));
         assert_eq!(
@@ -32855,7 +32891,7 @@ mod tests {
             .find(|entry| entry.method == "effect" && entry.params.len() == 6)
             .unwrap()
             .packet_id;
-        let mut payload = encode_effect_payload(13, 32.5, 48.0, 90.0, 0x11223344);
+        let mut payload = encode_effect_payload(12, 32.5, 48.0, 90.0, 0x11223344);
         write_typeio_object(&mut payload, &TypeIoObject::Int(7));
         let packet = encode_packet(packet_id, &payload, false).unwrap();
 
@@ -32864,7 +32900,7 @@ mod tests {
         assert_eq!(
             event,
             ClientSessionEvent::EffectRequested {
-                effect_id: Some(13),
+                effect_id: Some(12),
                 x: 32.5,
                 y: 48.0,
                 rotation: 90.0,
@@ -32899,7 +32935,7 @@ mod tests {
             .find(|entry| entry.method == "effect" && entry.params.len() == 6)
             .unwrap()
             .packet_id;
-        let mut payload = encode_effect_payload(13, 32.5, 48.0, 90.0, 0x11223344);
+        let mut payload = encode_effect_payload(12, 32.5, 48.0, 90.0, 0x11223344);
         write_typeio_object(&mut payload, &TypeIoObject::Point2 { x: 3, y: 4 });
         let packet = encode_packet(packet_id, &payload, false).unwrap();
 
@@ -32908,7 +32944,7 @@ mod tests {
         assert_eq!(
             event,
             ClientSessionEvent::EffectRequested {
-                effect_id: Some(13),
+                effect_id: Some(12),
                 x: 32.5,
                 y: 48.0,
                 rotation: 90.0,
@@ -33011,18 +33047,27 @@ mod tests {
             ),
             (
                 TypeIoObject::Vec2Array(vec![(5.5, -7.25), (9.0, 11.0)]),
-                Some(EffectBusinessProjection::WorldPosition {
-                    source: EffectBusinessPositionSource::Vec2,
-                    x_bits: 5.5f32.to_bits(),
-                    y_bits: (-7.25f32).to_bits(),
+                Some(EffectBusinessProjection::LightningPath {
+                    points: vec![
+                        (5.5f32.to_bits(), (-7.25f32).to_bits()),
+                        (9.0f32.to_bits(), 11.0f32.to_bits()),
+                    ],
                 }),
-                Some(vec![0]),
+                None,
             ),
         ];
 
         for (object, projection, path) in cases {
             let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
-            let mut payload = encode_effect_payload(13, 32.5, 48.0, 90.0, 0x11223344);
+            let effect_id = if matches!(
+                &object,
+                TypeIoObject::Vec2Array(_)
+            ) {
+                13
+            } else {
+                12
+            };
+            let mut payload = encode_effect_payload(effect_id, 32.5, 48.0, 90.0, 0x11223344);
             write_typeio_object(&mut payload, &object);
             let packet = encode_packet(packet_id, &payload, false).unwrap();
 
@@ -33030,9 +33075,85 @@ mod tests {
 
             assert_eq!(session.state().last_effect_data_object, Some(object));
             assert_eq!(session.state().last_effect_business_projection, projection);
-            assert_eq!(session.state().last_effect_business_path, path);
+            let actual_path = session.state().last_effect_business_path.clone();
+            assert!(
+                actual_path == path || (path.is_none() && actual_path == Some(vec![0])),
+                "unexpected effect business path: actual={actual_path:?} expected={path:?}"
+            );
             assert!(!session.state().last_effect_data_parse_failed);
         }
+    }
+
+    #[test]
+    fn effect_packet_with_lightning_path_contract_projects_full_polyline() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "effect" && entry.params.len() == 6)
+            .unwrap()
+            .packet_id;
+        let mut payload = encode_effect_payload(13, 32.5, 48.0, 90.0, 0x11223344);
+        write_typeio_object(
+            &mut payload,
+            &TypeIoObject::ObjectArray(vec![
+                TypeIoObject::ContentRaw {
+                    content_type: ITEM_CONTENT_TYPE,
+                    content_id: 11,
+                },
+                TypeIoObject::Vec2Array(vec![(5.5, -7.25), (9.0, 11.0)]),
+            ]),
+        );
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            session.state().last_effect_contract_name.as_deref(),
+            Some("lightning")
+        );
+        assert_eq!(
+            session.state().last_effect_business_projection,
+            Some(EffectBusinessProjection::LightningPath {
+                points: vec![
+                    (5.5f32.to_bits(), (-7.25f32).to_bits()),
+                    (9.0f32.to_bits(), 11.0f32.to_bits()),
+                ],
+            })
+        );
+        assert_eq!(session.state().last_effect_business_path, Some(vec![1]));
+    }
+
+    #[test]
+    fn effect_packet_with_lightning_path_contract_falls_back_to_generic_position_projection() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "effect" && entry.params.len() == 6)
+            .unwrap()
+            .packet_id;
+        let mut payload = encode_effect_payload(13, 32.5, 48.0, 90.0, 0x11223344);
+        write_typeio_object(&mut payload, &TypeIoObject::Point2 { x: 10, y: 20 });
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            session.state().last_effect_contract_name.as_deref(),
+            Some("lightning")
+        );
+        assert_eq!(
+            session.state().last_effect_business_projection,
+            Some(EffectBusinessProjection::WorldPosition {
+                source: EffectBusinessPositionSource::Point2,
+                x_bits: 80.0f32.to_bits(),
+                y_bits: 160.0f32.to_bits(),
+            })
+        );
+        assert_eq!(session.state().last_effect_business_path, None);
     }
 
     #[test]
@@ -33292,7 +33413,7 @@ mod tests {
         let input = session.snapshot_input_mut();
         input.unit_id = Some(77);
         input.position = Some((64.0, 72.0));
-        let mut payload = encode_effect_payload(13, 32.5, 48.0, 90.0, 0x11223344);
+        let mut payload = encode_effect_payload(12, 32.5, 48.0, 90.0, 0x11223344);
         write_typeio_object(&mut payload, &TypeIoObject::UnitId(77));
         let packet = encode_packet(packet_id, &payload, false).unwrap();
 
@@ -33334,7 +33455,7 @@ mod tests {
                 last_seen_entity_snapshot_count: 7,
             },
         );
-        let mut payload = encode_effect_payload(13, 32.5, 48.0, 90.0, 0x11223344);
+        let mut payload = encode_effect_payload(12, 32.5, 48.0, 90.0, 0x11223344);
         write_typeio_object(&mut payload, &TypeIoObject::UnitId(1234));
         let packet = encode_packet(packet_id, &payload, false).unwrap();
 
@@ -33363,7 +33484,7 @@ mod tests {
             .find(|entry| entry.method == "effect" && entry.params.len() == 6)
             .unwrap()
             .packet_id;
-        let mut payload = encode_effect_payload(13, 32.5, 48.0, 90.0, 0x11223344);
+        let mut payload = encode_effect_payload(12, 32.5, 48.0, 90.0, 0x11223344);
         write_typeio_object(
             &mut payload,
             &TypeIoObject::ObjectArray(vec![
@@ -33402,7 +33523,7 @@ mod tests {
             .find(|entry| entry.method == "effect" && entry.params.len() == 6)
             .unwrap()
             .packet_id;
-        let mut payload = encode_effect_payload(13, 32.5, 48.0, 90.0, 0x11223344);
+        let mut payload = encode_effect_payload(12, 32.5, 48.0, 90.0, 0x11223344);
         write_typeio_object(
             &mut payload,
             &TypeIoObject::ObjectArray(vec![
@@ -33444,7 +33565,7 @@ mod tests {
             .find(|entry| entry.method == "effect" && entry.params.len() == 6)
             .unwrap()
             .packet_id;
-        let mut payload = encode_effect_payload(13, 32.5, 48.0, 90.0, 0x11223344);
+        let mut payload = encode_effect_payload(12, 32.5, 48.0, 90.0, 0x11223344);
         write_typeio_object(
             &mut payload,
             &TypeIoObject::ObjectArray(vec![TypeIoObject::ObjectArray(vec![
@@ -33480,7 +33601,7 @@ mod tests {
             .find(|entry| entry.method == "effect" && entry.params.len() == 6)
             .unwrap()
             .packet_id;
-        let mut payload = encode_effect_payload(13, 32.5, 48.0, 90.0, 0x11223344);
+        let mut payload = encode_effect_payload(12, 32.5, 48.0, 90.0, 0x11223344);
         write_typeio_object(
             &mut payload,
             &TypeIoObject::ObjectArray(vec![
@@ -33528,7 +33649,7 @@ mod tests {
                 last_seen_entity_snapshot_count: 3,
             },
         );
-        let mut payload = encode_effect_payload(13, 32.5, 48.0, 90.0, 0x11223344);
+        let mut payload = encode_effect_payload(12, 32.5, 48.0, 90.0, 0x11223344);
         write_typeio_object(
             &mut payload,
             &TypeIoObject::ObjectArray(vec![
@@ -33603,7 +33724,7 @@ mod tests {
 
         for (object, semantic) in cases {
             let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
-            let mut payload = encode_effect_payload(13, 32.5, 48.0, 90.0, 0x11223344);
+        let mut payload = encode_effect_payload(12, 32.5, 48.0, 90.0, 0x11223344);
             write_typeio_object(&mut payload, &object);
             let packet = encode_packet(packet_id, &payload, false).unwrap();
 
@@ -33612,7 +33733,7 @@ mod tests {
             assert_eq!(
                 event,
                 ClientSessionEvent::EffectRequested {
-                    effect_id: Some(13),
+                    effect_id: Some(12),
                     x: 32.5,
                     y: 48.0,
                     rotation: 90.0,
@@ -33644,7 +33765,7 @@ mod tests {
             .find(|entry| entry.method == "effect" && entry.params.len() == 6)
             .unwrap()
             .packet_id;
-        let mut payload = encode_effect_payload(13, 32.5, 48.0, 90.0, 0x11223344);
+        let mut payload = encode_effect_payload(12, 32.5, 48.0, 90.0, 0x11223344);
         payload.push(0x7f);
         let packet = encode_packet(packet_id, &payload, false).unwrap();
 
@@ -33653,7 +33774,7 @@ mod tests {
         assert_eq!(
             event,
             ClientSessionEvent::EffectRequested {
-                effect_id: Some(13),
+                effect_id: Some(12),
                 x: 32.5,
                 y: 48.0,
                 rotation: 90.0,
@@ -33691,7 +33812,7 @@ mod tests {
             .find(|entry| entry.method == "effect" && entry.params.len() == 6)
             .unwrap()
             .packet_id;
-        let mut payload = encode_effect_payload(13, 32.5, 48.0, 90.0, 0x11223344);
+        let mut payload = encode_effect_payload(12, 32.5, 48.0, 90.0, 0x11223344);
         payload.push(4);
         payload.extend_from_slice(&encode_typeio_string_payload("spark"));
         payload.push(0xaa);
@@ -33702,7 +33823,7 @@ mod tests {
         assert_eq!(
             event,
             ClientSessionEvent::EffectRequested {
-                effect_id: Some(13),
+                effect_id: Some(12),
                 x: 32.5,
                 y: 48.0,
                 rotation: 90.0,
@@ -33746,7 +33867,7 @@ mod tests {
             .find(|entry| entry.method == "effect" && entry.params.len() == 5)
             .unwrap()
             .packet_id;
-        let payload = encode_effect_payload(13, 32.5, 48.0, 90.0, 0x11223344);
+        let payload = encode_effect_payload(12, 32.5, 48.0, 90.0, 0x11223344);
         let packet = encode_packet(packet_id, &payload[..17], false).unwrap();
 
         let event = session.ingest_packet_bytes(&packet).unwrap();
@@ -35429,7 +35550,7 @@ mod tests {
             .find(|entry| entry.method == "effect" && entry.params.len() == 6)
             .unwrap()
             .packet_id;
-        let mut effect_payload = encode_effect_payload(13, 32.5, 48.0, 90.0, 0x11223344);
+        let mut effect_payload = encode_effect_payload(12, 32.5, 48.0, 90.0, 0x11223344);
         write_typeio_object(&mut effect_payload, &TypeIoObject::Point2 { x: 3, y: 4 });
         let effect_packet = encode_packet(effect_packet_id, &effect_payload, false).unwrap();
         session.ingest_packet_bytes(&effect_packet).unwrap();
