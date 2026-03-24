@@ -2231,7 +2231,50 @@ pub struct TypedBuildingRuntimeModel {
     pub block_name: String,
     pub kind: TypedBuildingRuntimeKind,
     pub value: TypedBuildingRuntimeValue,
+    pub rotation: Option<u8>,
+    pub team_id: Option<u8>,
+    pub io_version: Option<u8>,
+    pub module_bitmask: Option<u8>,
+    pub time_scale_bits: Option<u32>,
+    pub time_scale_duration_bits: Option<u32>,
+    pub last_disabler_pos: Option<i32>,
+    pub legacy_consume_connected: Option<bool>,
+    pub health_bits: Option<u32>,
+    pub enabled: Option<bool>,
+    pub efficiency: Option<u8>,
+    pub optional_efficiency: Option<u8>,
+    pub visible_flags: Option<u64>,
+    pub build_turret_rotation_bits: Option<u32>,
+    pub build_turret_plans_present: Option<bool>,
+    pub build_turret_plan_count: Option<u16>,
     pub last_update: BuildingProjectionUpdateKind,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct TypedBuildingRuntimeProjection {
+    pub by_build_pos: BTreeMap<i32, TypedBuildingRuntimeModel>,
+}
+
+impl TypedBuildingRuntimeProjection {
+    pub fn building_at(&self, build_pos: i32) -> Option<&TypedBuildingRuntimeModel> {
+        self.by_build_pos.get(&build_pos)
+    }
+
+    pub fn buildings(&self) -> impl Iterator<Item = &TypedBuildingRuntimeModel> {
+        self.by_build_pos.values()
+    }
+
+    pub fn upsert_runtime_building(&mut self, model: TypedBuildingRuntimeModel) {
+        self.by_build_pos.insert(model.build_pos, model);
+    }
+
+    pub fn remove_runtime_building(&mut self, build_pos: i32) -> bool {
+        self.by_build_pos.remove(&build_pos).is_some()
+    }
+
+    pub fn clear_for_world_reload(&mut self) {
+        *self = Self::default();
+    }
 }
 
 fn typed_runtime_building_model(
@@ -2447,6 +2490,22 @@ fn typed_runtime_building_model(
         block_name: block_name.to_string(),
         kind,
         value,
+        rotation: building.rotation,
+        team_id: building.team_id,
+        io_version: building.io_version,
+        module_bitmask: building.module_bitmask,
+        time_scale_bits: building.time_scale_bits,
+        time_scale_duration_bits: building.time_scale_duration_bits,
+        last_disabler_pos: building.last_disabler_pos,
+        legacy_consume_connected: building.legacy_consume_connected,
+        health_bits: building.health_bits,
+        enabled: building.enabled,
+        efficiency: building.efficiency,
+        optional_efficiency: building.optional_efficiency,
+        visible_flags: building.visible_flags,
+        build_turret_rotation_bits: building.build_turret_rotation_bits,
+        build_turret_plans_present: building.build_turret_plans_present,
+        build_turret_plan_count: building.build_turret_plan_count,
         last_update: building.last_update,
     })
 }
@@ -4127,6 +4186,7 @@ pub struct SessionState {
     pub entity_table_projection: EntityTableProjection,
     pub entity_semantic_projection: EntitySemanticProjectionTable,
     pub runtime_typed_entity_apply_projection: TypedRuntimeEntityProjection,
+    pub runtime_typed_building_apply_projection: TypedBuildingRuntimeProjection,
 }
 
 impl SessionState {
@@ -4153,6 +4213,21 @@ impl SessionState {
                     entity,
                     self.entity_semantic_projection.by_entity_id.get(entity_id),
                 )
+            })
+            .collect()
+    }
+
+    pub fn typed_runtime_building_at(&self, build_pos: i32) -> Option<TypedBuildingRuntimeModel> {
+        let building = self.building_table_projection.by_build_pos.get(&build_pos)?;
+        typed_runtime_building_model(build_pos, building, &self.configured_block_projection)
+    }
+
+    pub fn typed_runtime_buildings(&self) -> Vec<TypedBuildingRuntimeModel> {
+        self.building_table_projection
+            .by_build_pos
+            .iter()
+            .filter_map(|(build_pos, building)| {
+                typed_runtime_building_model(*build_pos, building, &self.configured_block_projection)
             })
             .collect()
     }
@@ -4206,6 +4281,14 @@ impl SessionState {
         projection
     }
 
+    pub fn typed_runtime_building_projection(&self) -> TypedBuildingRuntimeProjection {
+        let mut projection = TypedBuildingRuntimeProjection::default();
+        for model in self.typed_runtime_buildings() {
+            projection.by_build_pos.insert(model.build_pos, model);
+        }
+        projection
+    }
+
     pub fn runtime_typed_entity_projection(&self) -> TypedRuntimeEntityProjection {
         if self
             .runtime_typed_entity_apply_projection
@@ -4216,6 +4299,19 @@ impl SessionState {
             self.typed_runtime_entity_projection()
         } else {
             self.runtime_typed_entity_apply_projection.clone()
+        }
+    }
+
+    pub fn runtime_typed_building_projection(&self) -> TypedBuildingRuntimeProjection {
+        if self
+            .runtime_typed_building_apply_projection
+            .by_build_pos
+            .is_empty()
+            && !self.building_table_projection.by_build_pos.is_empty()
+        {
+            self.typed_runtime_building_projection()
+        } else {
+            self.runtime_typed_building_apply_projection.clone()
         }
     }
 
@@ -4242,6 +4338,29 @@ impl SessionState {
         }
     }
 
+    pub fn refresh_runtime_typed_building_from_tables(&mut self, build_pos: i32) {
+        let model = self
+            .building_table_projection
+            .by_build_pos
+            .get(&build_pos)
+            .and_then(|building| {
+                typed_runtime_building_model(
+                    build_pos,
+                    building,
+                    &self.configured_block_projection,
+                )
+            });
+        match model {
+            Some(model) => self
+                .runtime_typed_building_apply_projection
+                .upsert_runtime_building(model),
+            None => {
+                self.runtime_typed_building_apply_projection
+                    .remove_runtime_building(build_pos);
+            }
+        }
+    }
+
     pub fn rebuild_runtime_typed_entity_projection_from_tables(&mut self) {
         let mut projection = TypedRuntimeEntityProjection::default();
         for (&entity_id, entity) in &self.entity_table_projection.by_entity_id {
@@ -4258,9 +4377,22 @@ impl SessionState {
         self.runtime_typed_entity_apply_projection = projection;
     }
 
+    pub fn rebuild_runtime_typed_building_projection_from_tables(&mut self) {
+        let mut projection = TypedBuildingRuntimeProjection::default();
+        for model in self.typed_runtime_buildings() {
+            projection.by_build_pos.insert(model.build_pos, model);
+        }
+        self.runtime_typed_building_apply_projection = projection;
+    }
+
     pub fn remove_runtime_typed_entity(&mut self, entity_id: i32) -> bool {
         self.runtime_typed_entity_apply_projection
             .remove_runtime_entity(entity_id)
+    }
+
+    pub fn remove_runtime_typed_building(&mut self, build_pos: i32) -> bool {
+        self.runtime_typed_building_apply_projection
+            .remove_runtime_building(build_pos)
     }
 
     pub fn set_reconnect_phase(&mut self, phase: ReconnectPhaseProjection) {
@@ -4970,6 +5102,87 @@ mod tests {
         assert_eq!(
             building_after_construct.block_name.as_deref(),
             Some("payload-router")
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_tracks_base_tail_fields() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0005_0007i32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            300,
+            Some("message".to_string()),
+            Some(1),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(0x3f80_0000),
+            Some(0x3f00_0000),
+            Some(123),
+            Some(true),
+            Some(TypeIoObject::String(Some("ignored".to_string()))),
+            Some(0x4000_0000),
+            Some(false),
+            Some(0x40),
+            Some(0x20),
+            Some(99),
+            Some(0x4260_0000),
+            Some(true),
+            Some(7),
+        );
+        state
+            .configured_block_projection
+            .apply_message_text(build_pos, "hello".to_string());
+
+        let expected = TypedBuildingRuntimeModel {
+            build_pos,
+            block_id: Some(300),
+            block_name: "message".to_string(),
+            kind: TypedBuildingRuntimeKind::Message,
+            value: TypedBuildingRuntimeValue::Text("hello".to_string()),
+            rotation: Some(1),
+            team_id: Some(2),
+            io_version: Some(3),
+            module_bitmask: Some(4),
+            time_scale_bits: Some(0x3f80_0000),
+            time_scale_duration_bits: Some(0x3f00_0000),
+            last_disabler_pos: Some(123),
+            legacy_consume_connected: Some(true),
+            health_bits: Some(0x4000_0000),
+            enabled: Some(false),
+            efficiency: Some(0x40),
+            optional_efficiency: Some(0x20),
+            visible_flags: Some(99),
+            build_turret_rotation_bits: Some(0x4260_0000),
+            build_turret_plans_present: Some(true),
+            build_turret_plan_count: Some(7),
+            last_update: BuildingProjectionUpdateKind::BlockSnapshotHead,
+        };
+        assert_eq!(state.typed_runtime_building_at(build_pos), Some(expected.clone()));
+        assert_eq!(
+            state.runtime_typed_building_projection().building_at(build_pos),
+            Some(&expected)
+        );
+
+        state.refresh_runtime_typed_building_from_tables(build_pos);
+        assert_eq!(
+            state
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos),
+            Some(&expected)
+        );
+
+        state
+            .configured_block_projection
+            .clear_building_state(build_pos);
+        state.refresh_runtime_typed_building_from_tables(build_pos);
+        assert_eq!(state.typed_runtime_building_at(build_pos), None);
+        assert_eq!(
+            state
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos),
+            None
         );
     }
 

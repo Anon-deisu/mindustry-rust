@@ -80,10 +80,7 @@ pub fn write_status_entry(out: &mut Vec<u8>, entry: &StatusEntryRaw) {
     }
 }
 
-pub fn read_status_entry(
-    bytes: &[u8],
-    dynamic: bool,
-) -> Result<StatusEntryRaw, TypeIoReadError> {
+pub fn read_status_entry(bytes: &[u8], dynamic: bool) -> Result<StatusEntryRaw, TypeIoReadError> {
     let (entry, consumed) = read_status_entry_prefix(bytes, dynamic)?;
     ensure_consumed(consumed, bytes.len())?;
     Ok(entry)
@@ -320,7 +317,10 @@ mod tests {
         write_weapon_mounts(&mut bytes, &[]);
 
         assert_eq!(bytes, vec![0]);
-        assert_eq!(read_weapon_mounts(&bytes).unwrap(), Vec::<WeaponMountRaw>::new());
+        assert_eq!(
+            read_weapon_mounts(&bytes).unwrap(),
+            Vec::<WeaponMountRaw>::new()
+        );
     }
 
     #[test]

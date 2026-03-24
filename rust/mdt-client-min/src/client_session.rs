@@ -1836,7 +1836,10 @@ impl ClientSession {
                 .building_table_projection
                 .apply_tile_config(build_pos, config_object.clone());
         }
-        self.apply_configured_block_business(build_pos, config_object)
+        let result = self.apply_configured_block_business(build_pos, config_object);
+        self.state
+            .refresh_runtime_typed_building_from_tables(build_pos);
+        result
     }
 
     fn rollback_to_known_authority_config_business(
@@ -3000,6 +3003,7 @@ impl ClientSession {
                         self.state
                             .building_table_projection
                             .apply_deconstruct_finish(build_pos, None, None);
+                        self.state.remove_runtime_typed_building(build_pos);
                         self.state
                             .record_remove_building_resource_delta(Some(build_pos));
                     }
@@ -4402,6 +4406,7 @@ impl ClientSession {
                     self.state
                         .building_table_projection
                         .apply_deconstruct_finish(summary.tile_pos, summary.block_id, block_name);
+                    self.state.remove_runtime_typed_building(summary.tile_pos);
                     self.state
                         .record_remove_building_resource_delta(Some(summary.tile_pos));
                     self.state.last_deconstruct_finish_removed_local_plan = removed_local_plan;
@@ -4446,6 +4451,8 @@ impl ClientSession {
                         self.state
                             .building_table_projection
                             .apply_build_health(pair.build_pos, pair.health_bits);
+                        self.state
+                            .refresh_runtime_typed_building_from_tables(pair.build_pos);
                     }
                     Ok(ClientSessionEvent::BuildHealthUpdate {
                         pair_count: summary.pair_count,
@@ -7255,6 +7262,8 @@ impl ClientSession {
                     .apply_door_open(build_pos, Some(enabled));
             }
         }
+        self.state
+            .refresh_runtime_typed_building_from_tables(build_pos);
     }
 
     fn apply_loaded_world_block_snapshot_entry_business(
@@ -7362,6 +7371,8 @@ impl ClientSession {
                     .apply_door_open(entry.build_pos, Some(enabled));
             }
         }
+        self.state
+            .refresh_runtime_typed_building_from_tables(entry.build_pos);
     }
 
     fn try_apply_local_player_spawn_from_packet(
@@ -7596,6 +7607,9 @@ impl ClientSession {
             .clear_for_world_reload();
         self.state
             .runtime_typed_entity_apply_projection
+            .clear_for_world_reload();
+        self.state
+            .runtime_typed_building_apply_projection
             .clear_for_world_reload();
         self.state.rules_projection = Default::default();
         self.state.objectives_projection = Default::default();
@@ -18132,6 +18146,115 @@ mod tests {
     }
 
     #[test]
+    fn loaded_world_tail_business_helper_refreshes_runtime_typed_building_projection() {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let message_pos = pack_build_pos_for_block_snapshot_test(20, 21);
+        let canvas_pos = pack_build_pos_for_block_snapshot_test(24, 25);
+        let message_block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_MESSAGE);
+        let canvas_block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_CANVAS);
+        let canvas_bytes = canvas_config_bytes(CANVAS_CONFIG_BYTES_LEN, 0x81);
+
+        session.state.building_table_projection.seed_world_baseline(
+            message_pos,
+            message_block_id,
+            Some(BLOCK_NAME_MESSAGE.to_string()),
+            1,
+            2,
+            Some(3),
+            Some(4),
+            Some(0x3f80_0000),
+            Some(0x3f00_0000),
+            Some(123),
+            Some(true),
+            0x4000_0000,
+            Some(true),
+            Some(0x40),
+            Some(0x20),
+            Some(99),
+        );
+        session.state.building_table_projection.seed_world_baseline(
+            canvas_pos,
+            canvas_block_id,
+            Some(BLOCK_NAME_CANVAS.to_string()),
+            3,
+            4,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            0x4040_0000,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        session.apply_loaded_world_parsed_tail_business(
+            message_pos,
+            Some(BLOCK_NAME_MESSAGE),
+            &mdt_world::ParsedBuildingTail::Message(mdt_world::MessageTailSnapshot {
+                message: "loaded-world note".to_string(),
+            }),
+        );
+        session.apply_loaded_world_parsed_tail_business(
+            canvas_pos,
+            Some(BLOCK_NAME_CANVAS),
+            &mdt_world::ParsedBuildingTail::Canvas(mdt_world::CanvasTailSnapshot {
+                data_len: canvas_bytes.len(),
+                data_sha256: String::new(),
+                data_bytes: canvas_bytes.clone(),
+            }),
+        );
+
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(message_pos),
+            Some(&crate::session_state::TypedBuildingRuntimeModel {
+                build_pos: message_pos,
+                block_id: Some(message_block_id),
+                block_name: BLOCK_NAME_MESSAGE.to_string(),
+                kind: crate::session_state::TypedBuildingRuntimeKind::Message,
+                value: crate::session_state::TypedBuildingRuntimeValue::Text(
+                    "loaded-world note".to_string()
+                ),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                module_bitmask: Some(4),
+                time_scale_bits: Some(0x3f80_0000),
+                time_scale_duration_bits: Some(0x3f00_0000),
+                last_disabler_pos: Some(123),
+                legacy_consume_connected: Some(true),
+                health_bits: Some(0x4000_0000),
+                enabled: Some(true),
+                efficiency: Some(0x40),
+                optional_efficiency: Some(0x20),
+                visible_flags: Some(99),
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                last_update: crate::session_state::BuildingProjectionUpdateKind::WorldBaseline,
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(canvas_pos)
+                .map(|building| (&building.value, building.health_bits, building.rotation)),
+            Some((
+                &crate::session_state::TypedBuildingRuntimeValue::Bytes(canvas_bytes),
+                Some(0x4040_0000),
+                Some(3),
+            ))
+        );
+    }
+
+    #[test]
     fn loaded_world_tail_business_helper_applies_constructor_and_landing_pad_projection() {
         let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let constructor_pos = pack_build_pos_for_block_snapshot_test(16, 17);
@@ -27698,9 +27821,90 @@ mod tests {
             session
                 .state()
                 .configured_block_projection
-                .unit_cargo_unload_point_item_by_build_pos
-                .get(&build_pos),
+            .unit_cargo_unload_point_item_by_build_pos
+            .get(&build_pos),
             Some(&None)
+        );
+    }
+
+    #[test]
+    fn runtime_typed_building_apply_projection_tracks_construct_tile_config_and_deconstruct() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(39, 61);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_MESSAGE);
+
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+            &TypeIoObject::String(Some("hello".to_string())),
+        );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos),
+            Some(&crate::session_state::TypedBuildingRuntimeModel {
+                build_pos,
+                block_id: Some(block_id),
+                block_name: BLOCK_NAME_MESSAGE.to_string(),
+                kind: crate::session_state::TypedBuildingRuntimeKind::Message,
+                value: crate::session_state::TypedBuildingRuntimeValue::Text(
+                    "hello".to_string()
+                ),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: None,
+                module_bitmask: None,
+                time_scale_bits: None,
+                time_scale_duration_bits: None,
+                last_disabler_pos: None,
+                legacy_consume_connected: None,
+                health_bits: None,
+                enabled: None,
+                efficiency: None,
+                optional_efficiency: None,
+                visible_flags: None,
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                last_update: crate::session_state::BuildingProjectionUpdateKind::ConstructFinish,
+            })
+        );
+
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &TypeIoObject::String(Some("updated".to_string())),
+        );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos)
+                .map(|building| (building.value.clone(), building.last_update)),
+            Some((
+                crate::session_state::TypedBuildingRuntimeValue::Text(
+                    "updated".to_string()
+                ),
+                crate::session_state::BuildingProjectionUpdateKind::TileConfig,
+            ))
+        );
+
+        ingest_deconstruct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+        );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos),
+            None
         );
     }
 
@@ -35319,6 +35523,11 @@ mod tests {
             session.state().building_table_projection,
             crate::session_state::BuildingTableProjection::default()
         );
+        assert!(session
+            .state()
+            .runtime_typed_building_apply_projection
+            .by_build_pos
+            .is_empty());
         assert_eq!(
             session.state().builder_queue_projection,
             crate::session_state::BuilderQueueProjection::default()

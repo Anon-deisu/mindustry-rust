@@ -65,6 +65,9 @@ impl AsciiScenePresenter {
         if let Some(visibility_text) = compose_hud_visibility_text(hud) {
             out.push_str(&format!("HUD-VIS: {visibility_text}\n"));
         }
+        if let Some(detail_text) = compose_hud_detail_text(hud) {
+            out.push_str(&format!("HUD-DETAIL: {detail_text}\n"));
+        }
         if let Some(minimap_text) = compose_minimap_panel_text(scene, hud, window) {
             out.push_str(&format!("MINIMAP: {minimap_text}\n"));
         }
@@ -73,6 +76,9 @@ impl AsciiScenePresenter {
         }
         if let Some(minimap_kinds_text) = compose_minimap_kind_line(scene, hud) {
             out.push_str(&format!("MINIMAP-KINDS: {minimap_kinds_text}\n"));
+        }
+        for minimap_detail_text in compose_minimap_detail_lines(scene, hud) {
+            out.push_str(&format!("MINIMAP-DETAIL: {minimap_detail_text}\n"));
         }
         if let Some(minimap_legend_text) = compose_minimap_legend_line(hud) {
             out.push_str(&format!("MINIMAP-LEGEND: {minimap_legend_text}\n"));
@@ -110,11 +116,26 @@ impl AsciiScenePresenter {
         if let Some(runtime_menu_text) = compose_runtime_menu_panel_text(hud) {
             out.push_str(&format!("RUNTIME-MENU: {runtime_menu_text}\n"));
         }
+        if let Some(runtime_menu_detail_text) = compose_runtime_menu_detail_text(hud) {
+            out.push_str(&format!(
+                "RUNTIME-MENU-DETAIL: {runtime_menu_detail_text}\n"
+            ));
+        }
         if let Some(runtime_dialog_text) = compose_runtime_dialog_panel_text(hud) {
             out.push_str(&format!("RUNTIME-DIALOG: {runtime_dialog_text}\n"));
         }
+        if let Some(runtime_dialog_detail_text) = compose_runtime_dialog_detail_text(hud) {
+            out.push_str(&format!(
+                "RUNTIME-DIALOG-DETAIL: {runtime_dialog_detail_text}\n"
+            ));
+        }
         if let Some(runtime_chat_text) = compose_runtime_chat_panel_text(hud) {
             out.push_str(&format!("RUNTIME-CHAT: {runtime_chat_text}\n"));
+        }
+        if let Some(runtime_chat_detail_text) = compose_runtime_chat_detail_text(hud) {
+            out.push_str(&format!(
+                "RUNTIME-CHAT-DETAIL: {runtime_chat_detail_text}\n"
+            ));
         }
         if let Some(runtime_command_text) = compose_runtime_command_mode_panel_text(hud) {
             out.push_str(&format!("RUNTIME-COMMAND: {runtime_command_text}\n"));
@@ -330,6 +351,21 @@ fn compose_hud_visibility_text(hud: &HudModel) -> Option<String> {
     ))
 }
 
+fn compose_hud_detail_text(hud: &HudModel) -> Option<String> {
+    let summary = build_hud_status_panel(hud)?;
+    let visibility = build_hud_visibility_panel(hud)?;
+    Some(format!(
+        "player={} len={} selected={} len={} tiles={} vis-map={} hidden-map={}",
+        compact_runtime_ui_text(Some(summary.player_name.as_str())),
+        summary.player_name_len(),
+        compact_runtime_ui_text(Some(summary.selected_block.as_str())),
+        summary.selected_block_len(),
+        summary.map_tile_count(),
+        visibility.visible_map_percent(),
+        visibility.hidden_map_percent(),
+    ))
+}
+
 fn compose_runtime_ui_text(hud: &HudModel) -> Option<String> {
     let runtime_ui = hud.runtime_ui.as_ref()?;
     let hud_text = &runtime_ui.hud_text;
@@ -423,6 +459,31 @@ fn compose_runtime_menu_panel_text(hud: &HudModel) -> Option<String> {
     ))
 }
 
+fn compose_runtime_menu_detail_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_menu_panel(hud)?;
+    if panel.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "active={} outstanding-follow-up={} text-input={} id={} title={} default-len={} numeric={} allow-empty={}",
+        if panel.text_input_open_count > 0
+            || panel.menu_open_count > 0
+            || panel.outstanding_follow_up_count() > 0
+        {
+            1
+        } else {
+            0
+        },
+        panel.outstanding_follow_up_count(),
+        panel.text_input_open_count,
+        optional_i32_label(panel.text_input_last_id),
+        compact_runtime_ui_text(panel.text_input_last_title.as_deref()),
+        panel.default_text_len(),
+        optional_bool_label(panel.text_input_last_numeric),
+        optional_bool_label(panel.text_input_last_allow_empty),
+    ))
+}
+
 fn compose_runtime_dialog_panel_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_dialog_panel(hud)?;
     Some(format!(
@@ -446,6 +507,23 @@ fn compose_runtime_dialog_panel_text(hud: &HudModel) -> Option<String> {
     ))
 }
 
+fn compose_runtime_dialog_detail_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_dialog_panel(hud)?;
+    if panel.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "prompt={} active={} outstanding-follow-up={} message-len={} default-len={} notice={} notice-len={}",
+        runtime_dialog_prompt_text(panel.prompt_kind),
+        if panel.prompt_active { 1 } else { 0 },
+        panel.outstanding_follow_up_count(),
+        panel.prompt_message_len(),
+        panel.default_text_len(),
+        runtime_dialog_notice_text(panel.notice_kind),
+        panel.notice_text_len(),
+    ))
+}
+
 fn compose_runtime_chat_panel_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_chat_panel(hud)?;
     Some(format!(
@@ -455,6 +533,21 @@ fn compose_runtime_chat_panel_text(hud: &HudModel) -> Option<String> {
         panel.chat_message_count,
         compact_runtime_ui_text(panel.last_chat_message.as_deref()),
         compact_runtime_ui_text(panel.last_chat_unformatted.as_deref()),
+        optional_i32_label(panel.last_chat_sender_entity_id),
+    ))
+}
+
+fn compose_runtime_chat_detail_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_chat_panel(hud)?;
+    if panel.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "server-len={} chat-len={} raw-len={} formatted-eq-raw={} sender={}",
+        panel.last_server_message_len(),
+        panel.last_chat_message_len(),
+        panel.last_chat_unformatted_len(),
+        optional_bool_label(panel.formatted_matches_unformatted()),
         optional_i32_label(panel.last_chat_sender_entity_id),
     ))
 }
@@ -629,6 +722,37 @@ fn compose_minimap_kind_line(scene: &RenderModel, hud: &HudModel) -> Option<Stri
         text.push_str(&detail_text);
     }
     Some(text)
+}
+
+fn compose_minimap_detail_lines(scene: &RenderModel, hud: &HudModel) -> Vec<String> {
+    let Some(panel) = build_minimap_panel(
+        scene,
+        hud,
+        PresenterViewWindow {
+            origin_x: 0,
+            origin_y: 0,
+            width: 0,
+            height: 0,
+        },
+    ) else {
+        return Vec::new();
+    };
+
+    let detail_count = panel.detail_counts.len();
+    panel
+        .detail_counts
+        .iter()
+        .enumerate()
+        .map(|(index, detail)| {
+            format!(
+                "{}/{} {}={}",
+                index + 1,
+                detail_count,
+                detail.label,
+                detail.count
+            )
+        })
+        .collect()
 }
 
 fn compose_minimap_legend_line(hud: &HudModel) -> Option<String> {
@@ -1720,6 +1844,7 @@ mod tests {
         assert!(frame.contains(
             "MINIMAP-KINDS: tracked=7 player=1 marker=2 plan=0 block=0 runtime=4 terrain=0 unknown=0 detail=marker-line:1,marker-line-end:1,runtime-building:1,runtime-config:1,runtime-deconstruct:1,runtime-place:1"
         ));
+        assert!(frame.contains("MINIMAP-DETAIL: 1/6 marker-line=1"));
     }
 
     #[test]
@@ -2044,6 +2169,9 @@ mod tests {
         assert!(frame.contains("SUMMARY: player=operator team=2 selected=payload-rout~"));
         assert!(frame.contains("plans=3 markers=4 map=80x60"));
         assert!(frame.contains(
+            "HUD-DETAIL: player=operator len=8 selected=payload-rout~ len=14 tiles=4800 vis-map=2 hidden-map=0"
+        ));
+        assert!(frame.contains(
             "MINIMAP: map=80x60 window=0:0->0:0 size=1x1 cover=1/4800(0%) focus=0:0 in-window=1"
         ));
         assert!(frame.contains(
@@ -2086,10 +2214,19 @@ mod tests {
         assert!(frame
             .contains("RUNTIME-MENU: menu=16 fmenu=17 hide=18 tin=53@404:Digits/12345#16:n1:e1"));
         assert!(frame.contains(
+            "RUNTIME-MENU-DETAIL: active=1 outstanding-follow-up=0 text-input=53 id=404 title=Digits default-len=5 numeric=1 allow-empty=1"
+        ));
+        assert!(frame.contains(
             "RUNTIME-DIALOG: prompt=input act=1 menu=16/17/18 tin=53@404:Digits/Only_numbers/12345#16:n1:e1 notice=warn@warn total=48"
         ));
         assert!(frame.contains(
+            "RUNTIME-DIALOG-DETAIL: prompt=input active=1 outstanding-follow-up=0 message-len=12 default-len=5 notice=warn notice-len=4"
+        ));
+        assert!(frame.contains(
             "RUNTIME-CHAT: srv=7 last-srv=server_text chat=8 last-chat=[cyan]hello raw=hello sender=404"
+        ));
+        assert!(frame.contains(
+            "RUNTIME-CHAT-DETAIL: server-len=11 chat-len=11 raw-len=5 formatted-eq-raw=0 sender=404"
         ));
         assert!(frame.contains(
             "RUNTIME-COMMAND: act=1 sel=4@11,22,33 bld=2@327686 rect=-3:4:12:18 groups=2#3@11,4#1@99 target=b589834:u2:808:p0x42400000:0x42c00000:r1:2:3:4 cmd=5 stance=7/0"

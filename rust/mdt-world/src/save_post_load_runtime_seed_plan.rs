@@ -303,7 +303,8 @@ mod tests {
     use super::*;
     use crate::{
         BuildingBaseSnapshot, BuildingCenter, BuildingSnapshot, CustomChunkEntry, MarkerEntry,
-        ParsedBuildingTail, PointMarkerModel, SaveEntityChunkObservation,
+        ParsedBuildingTail, PointMarkerModel, SaveEntityChunkObservation, SaveEntityClassKind,
+        SaveEntityClassSummary, SaveEntityPostLoadClassSummary, SaveEntityPostLoadKind,
         SaveEntityPostLoadSummary, SaveEntityRemapSummary, SaveMapRegionObservation,
         SavePostLoadWorldObservation, StaticFogChunk, StaticFogTeam, TeamPlan, TeamPlanGroup,
         TileModel, TypeIoValue,
@@ -450,6 +451,49 @@ mod tests {
         observation.entity_summary.skipped_entities = 0;
         observation.entity_summary.builtin_entities = 2;
         observation.entity_summary.custom_entities = 1;
+        observation.entity_summary.class_summaries = vec![
+            SaveEntityClassSummary {
+                class_id: 3,
+                kind: SaveEntityClassKind::Builtin,
+                resolved_name: "flare".to_string(),
+                count: 1,
+            },
+            SaveEntityClassSummary {
+                class_id: 4,
+                kind: SaveEntityClassKind::Builtin,
+                resolved_name: "mace".to_string(),
+                count: 1,
+            },
+            SaveEntityClassSummary {
+                class_id: 255,
+                kind: SaveEntityClassKind::Custom,
+                resolved_name: "flare".to_string(),
+                count: 1,
+            },
+        ];
+        observation.entity_summary.post_load_class_summaries = vec![
+            SaveEntityPostLoadClassSummary {
+                source_class_ids: vec![3],
+                effective_class_id: Some(3),
+                kind: SaveEntityPostLoadKind::Builtin,
+                resolved_name: "flare".to_string(),
+                count: 1,
+            },
+            SaveEntityPostLoadClassSummary {
+                source_class_ids: vec![4],
+                effective_class_id: Some(4),
+                kind: SaveEntityPostLoadKind::Builtin,
+                resolved_name: "mace".to_string(),
+                count: 1,
+            },
+            SaveEntityPostLoadClassSummary {
+                source_class_ids: vec![255],
+                effective_class_id: Some(3),
+                kind: SaveEntityPostLoadKind::RemappedBuiltin,
+                resolved_name: "flare".to_string(),
+                count: 1,
+            },
+        ];
 
         let plan = observation.runtime_seed_plan();
 

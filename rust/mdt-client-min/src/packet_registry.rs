@@ -1,3 +1,5 @@
+#[path = "inbound_remote_registry_glue.rs"]
+mod inbound_remote_registry_glue;
 #[path = "snapshot_registry_glue.rs"]
 mod snapshot_registry_glue;
 
@@ -8,8 +10,8 @@ use crate::generated::remote_high_frequency_gen::{
 use crate::snapshot_ingest::InboundSnapshot;
 use mdt_remote::{
     CustomChannelRemoteFamily, CustomChannelRemoteRegistry, HighFrequencyRemoteMethod,
-    InboundRemoteDispatchSpec, InboundRemoteFamily, InboundRemoteRegistry, RemoteManifest,
-    RemoteManifestError,
+    InboundRemoteDispatchSpec, InboundRemoteFamily, RemoteManifest, RemoteManifestError,
+    INBOUND_REMOTE_FAMILY_COUNT,
 };
 
 const INBOUND_SNAPSHOT_PACKET_SPECS: [(u8, HighFrequencyRemoteMethod); 4] = [
@@ -38,7 +40,7 @@ pub struct InboundSnapshotPacketRegistry {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InboundRemotePacketRegistry {
-    registry: InboundRemoteRegistry,
+    by_packet_id: [(u8, InboundRemoteDispatchSpec); INBOUND_REMOTE_FAMILY_COUNT],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -108,28 +110,36 @@ impl CustomChannelPacketRegistry {
 impl InboundRemotePacketRegistry {
     pub fn from_remote_manifest(manifest: &RemoteManifest) -> Result<Self, RemoteManifestError> {
         Ok(Self {
-            registry: InboundRemoteRegistry::from_manifest(manifest)?,
+            by_packet_id: inbound_remote_registry_glue::typed_inbound_remote_packet_specs(
+                manifest,
+            )?,
         })
     }
 
     pub fn classify(&self, packet_id: u8) -> Option<InboundRemoteFamily> {
-        self.registry.classify(packet_id)
+        self.dispatch_spec(packet_id).map(|spec| spec.family)
     }
 
     pub fn packet_id(&self, family: InboundRemoteFamily) -> Option<u8> {
-        self.registry.packet_id(family)
+        self.by_packet_id
+            .iter()
+            .find_map(|(packet_id, spec)| (spec.family == family).then_some(*packet_id))
     }
 
     pub fn dispatch_spec(&self, packet_id: u8) -> Option<InboundRemoteDispatchSpec> {
-        self.registry.dispatch_spec(packet_id)
+        self.by_packet_id
+            .iter()
+            .find_map(|(known_packet_id, spec)| (*known_packet_id == packet_id).then_some(*spec))
     }
 
     pub fn contains_packet_id(&self, packet_id: u8) -> bool {
-        self.registry.contains_packet_id(packet_id)
+        self.by_packet_id
+            .iter()
+            .any(|(known_packet_id, _)| *known_packet_id == packet_id)
     }
 
     pub fn len(&self) -> usize {
-        self.registry.len()
+        self.by_packet_id.len()
     }
 }
 
@@ -274,6 +284,7 @@ mod tests {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let registry = InboundRemotePacketRegistry::from_remote_manifest(&manifest).unwrap();
         let remote_registry = mdt_remote::InboundRemoteRegistry::from_manifest(&manifest).unwrap();
+        let remote_specs = mdt_remote::typed_inbound_remote_dispatch_specs(&manifest).unwrap();
 
         let packet_id = remote_registry
             .packet_id(InboundRemoteFamily::ServerPacketReliable)
@@ -285,6 +296,10 @@ mod tests {
         assert_eq!(
             registry.dispatch_spec(packet_id),
             remote_registry.dispatch_spec(packet_id)
+        );
+        assert_eq!(
+            registry.dispatch_spec(remote_specs[4].0),
+            Some(remote_specs[4].1)
         );
     }
 

@@ -279,7 +279,9 @@ fn entity_surface_consistent(
     consistent
 }
 
-fn recomputed_entity_summary(observation: &SavePostLoadWorldObservation) -> SaveEntityPostLoadSummary {
+fn recomputed_entity_summary(
+    observation: &SavePostLoadWorldObservation,
+) -> SaveEntityPostLoadSummary {
     SaveEntityRegionObservation {
         remap_count: observation.entity_remap_entries.len(),
         remap_entries: observation.entity_remap_entries.clone(),
@@ -311,8 +313,8 @@ mod tests {
     use crate::{
         BuildingBaseSnapshot, BuildingCenter, BuildingSnapshot, CustomChunkEntry, MarkerEntry,
         MarkerModel, ParsedBuildingTail, ParsedCustomChunk, PointMarkerModel,
-        SaveEntityClassSummary, SaveEntityPostLoadClassSummary, SaveEntityPostLoadKind,
-        SaveEntityChunkObservation, SaveEntityPostLoadSummary, SaveEntityRemapSummary,
+        SaveEntityChunkObservation, SaveEntityClassSummary, SaveEntityPostLoadClassSummary,
+        SaveEntityPostLoadKind, SaveEntityPostLoadSummary, SaveEntityRemapSummary,
         SaveMapRegionObservation, SavePostLoadWorldObservation, StaticFogChunk, StaticFogTeam,
         TeamPlan, TeamPlanGroup, TileModel, TypeIoValue, WorldLoadUnknownCoverageSummary,
         WorldModel,
@@ -411,7 +413,10 @@ mod tests {
 
         assert!(!contract.can_project_world_shell());
         assert!(!contract.entity_surface_consistent);
-        assert_eq!(contract.issues, vec![SavePostLoadWorldIssue::EntitySummaryMismatch]);
+        assert_eq!(
+            contract.issues,
+            vec![SavePostLoadWorldIssue::EntitySummaryMismatch]
+        );
     }
 
     #[test]

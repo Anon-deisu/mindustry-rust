@@ -43,12 +43,25 @@ pub struct BuilderQueueActivityObservation {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuilderQueueHeadSelection {
+    QueueEmpty,
+    HeadInRange,
+    ReorderedToInRange,
+    FallbackToClosestInRange,
+    SkippedInRange,
+    HeadOutOfRange,
+    ObservationMissing,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BuilderQueueActivityState {
     pub head_tile: Option<(i32, i32)>,
     pub actively_building: bool,
+    pub head_in_range: bool,
     pub head_should_skip: bool,
     pub reordered: bool,
     pub used_closest_in_range_fallback: bool,
+    pub head_selection: BuilderQueueHeadSelection,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,6 +78,18 @@ pub struct BuilderQueueValidationResult {
     pub removed_count: usize,
     pub removed_head: bool,
     pub removed_tiles: Vec<(i32, i32)>,
+    pub head_tile_before: Option<(i32, i32)>,
+    pub head_tile_after: Option<(i32, i32)>,
+    pub reconcile_outcome: BuilderQueueReconcileOutcome,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum BuilderQueueReconcileOutcome {
+    #[default]
+    Unchanged,
+    RemovedNonHead,
+    AdvancedHead,
+    ClearedQueue,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -273,6 +298,7 @@ impl BuilderQueueStateMachine {
         let original_order = self.ordered_tiles.clone();
         let mut reordered = false;
         let mut used_closest_in_range_fallback = false;
+        let mut missing_observation = false;
 
         if self.ordered_tiles.len() > 1 {
             let mut total = 0usize;
@@ -294,15 +320,9 @@ impl BuilderQueueStateMachine {
                 };
                 let Some(observation) = Self::activity_observation(&observations_by_key, entry)
                 else {
-                    self.ordered_tiles = original_order;
-                    self.recount();
-                    return BuilderQueueActivityState {
-                        head_tile: self.head_tile,
-                        actively_building: false,
-                        head_should_skip: false,
-                        reordered: false,
-                        used_closest_in_range_fallback: false,
-                    };
+                    missing_observation = true;
+                    self.ordered_tiles = original_order.clone();
+                    break;
                 };
 
                 if observation.in_range && !observation.should_skip {
@@ -335,12 +355,31 @@ impl BuilderQueueStateMachine {
         let head_observation = self
             .head_entry()
             .and_then(|entry| Self::activity_observation(&observations_by_key, entry));
+        let head_in_range = head_observation.is_some_and(|observation| observation.in_range);
+        let head_should_skip = head_observation.is_some_and(|observation| observation.should_skip);
+        let head_selection = if self.head_tile.is_none() {
+            BuilderQueueHeadSelection::QueueEmpty
+        } else if missing_observation || head_observation.is_none() {
+            BuilderQueueHeadSelection::ObservationMissing
+        } else if used_closest_in_range_fallback {
+            BuilderQueueHeadSelection::FallbackToClosestInRange
+        } else if reordered {
+            BuilderQueueHeadSelection::ReorderedToInRange
+        } else if head_in_range && !head_should_skip {
+            BuilderQueueHeadSelection::HeadInRange
+        } else if head_in_range {
+            BuilderQueueHeadSelection::SkippedInRange
+        } else {
+            BuilderQueueHeadSelection::HeadOutOfRange
+        };
         BuilderQueueActivityState {
             head_tile: self.head_tile,
-            actively_building: head_observation.is_some_and(|observation| observation.in_range),
-            head_should_skip: head_observation.is_some_and(|observation| observation.should_skip),
+            actively_building: head_in_range,
+            head_in_range,
+            head_should_skip,
             reordered,
             used_closest_in_range_fallback,
+            head_selection,
         }
     }
 
@@ -377,10 +416,26 @@ impl BuilderQueueStateMachine {
         }
 
         self.recount();
+        let head_tile_after = self.head_tile;
+        let removed_head = original_head.is_some_and(|head| removed_tiles.contains(&head));
+        let reconcile_outcome = if removed_tiles.is_empty() {
+            BuilderQueueReconcileOutcome::Unchanged
+        } else if removed_head {
+            if head_tile_after.is_none() {
+                BuilderQueueReconcileOutcome::ClearedQueue
+            } else {
+                BuilderQueueReconcileOutcome::AdvancedHead
+            }
+        } else {
+            BuilderQueueReconcileOutcome::RemovedNonHead
+        };
         BuilderQueueValidationResult {
             removed_count: removed_tiles.len(),
-            removed_head: original_head.is_some_and(|head| removed_tiles.contains(&head)),
+            removed_head,
             removed_tiles,
+            head_tile_before: original_head,
+            head_tile_after,
+            reconcile_outcome,
         }
     }
 
@@ -468,8 +523,9 @@ impl BuilderQueueStateMachine {
 mod tests {
     use super::{
         BuilderQueueActivityObservation, BuilderQueueActivityState, BuilderQueueEntry,
-        BuilderQueueEntryObservation, BuilderQueueStage, BuilderQueueStateMachine,
-        BuilderQueueTileStateObservation, BuilderQueueTransition, BuilderQueueValidationResult,
+        BuilderQueueEntryObservation, BuilderQueueHeadSelection, BuilderQueueReconcileOutcome,
+        BuilderQueueStage, BuilderQueueStateMachine, BuilderQueueTileStateObservation,
+        BuilderQueueTransition, BuilderQueueValidationResult,
     };
     use std::collections::BTreeMap;
 
@@ -1199,9 +1255,11 @@ mod tests {
             BuilderQueueActivityState {
                 head_tile: Some((3, 3)),
                 actively_building: true,
+                head_in_range: true,
                 head_should_skip: false,
                 reordered: true,
                 used_closest_in_range_fallback: false,
+                head_selection: BuilderQueueHeadSelection::ReorderedToInRange,
             }
         );
         assert_eq!(queue.ordered_tiles, vec![(3, 3), (1, 1), (2, 2)]);
@@ -1270,9 +1328,11 @@ mod tests {
             BuilderQueueActivityState {
                 head_tile: Some((3, 3)),
                 actively_building: true,
+                head_in_range: true,
                 head_should_skip: true,
                 reordered: true,
                 used_closest_in_range_fallback: true,
+                head_selection: BuilderQueueHeadSelection::FallbackToClosestInRange,
             }
         );
         assert_eq!(queue.ordered_tiles, vec![(3, 3), (1, 1), (2, 2)]);
@@ -1338,9 +1398,11 @@ mod tests {
             BuilderQueueActivityState {
                 head_tile: Some((1, 1)),
                 actively_building: true,
+                head_in_range: true,
                 head_should_skip: true,
                 reordered: false,
                 used_closest_in_range_fallback: false,
+                head_selection: BuilderQueueHeadSelection::SkippedInRange,
             }
         );
         assert_eq!(queue.ordered_tiles, vec![(1, 1), (2, 2), (3, 3)]);
@@ -1382,15 +1444,71 @@ mod tests {
             BuilderQueueActivityState {
                 head_tile: Some((4, 4)),
                 actively_building: false,
+                head_in_range: false,
                 head_should_skip: false,
                 reordered: false,
                 used_closest_in_range_fallback: false,
+                head_selection: BuilderQueueHeadSelection::ObservationMissing,
             }
         );
         assert_eq!(queue.ordered_tiles, expected_order);
         assert_eq!(queue.head_tile, Some((4, 4)));
         assert_eq!(queue.queued_count, 2);
         assert_eq!(queue.inflight_count, 0);
+    }
+
+    #[test]
+    fn update_local_activity_reports_head_out_of_range_without_reordering() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 8,
+                y: 8,
+                breaking: false,
+                block_id: Some(80),
+                rotation: 0,
+            },
+            BuilderQueueEntryObservation {
+                x: 9,
+                y: 9,
+                breaking: false,
+                block_id: Some(90),
+                rotation: 1,
+            },
+        ]);
+
+        let activity = queue.update_local_activity([
+            BuilderQueueActivityObservation {
+                x: 8,
+                y: 8,
+                breaking: false,
+                in_range: false,
+                should_skip: false,
+                distance_sq: 64,
+            },
+            BuilderQueueActivityObservation {
+                x: 9,
+                y: 9,
+                breaking: false,
+                in_range: false,
+                should_skip: false,
+                distance_sq: 16,
+            },
+        ]);
+
+        assert_eq!(
+            activity,
+            BuilderQueueActivityState {
+                head_tile: Some((8, 8)),
+                actively_building: false,
+                head_in_range: false,
+                head_should_skip: false,
+                reordered: false,
+                used_closest_in_range_fallback: false,
+                head_selection: BuilderQueueHeadSelection::HeadOutOfRange,
+            }
+        );
+        assert_eq!(queue.ordered_tiles, vec![(8, 8), (9, 9)]);
     }
 
     #[test]
@@ -1450,6 +1568,9 @@ mod tests {
                 removed_count: 2,
                 removed_head: true,
                 removed_tiles: vec![(1, 1), (2, 2)],
+                head_tile_before: Some((1, 1)),
+                head_tile_after: Some((3, 3)),
+                reconcile_outcome: BuilderQueueReconcileOutcome::AdvancedHead,
             }
         );
         assert_eq!(queue.ordered_tiles, vec![(3, 3)]);
@@ -1495,7 +1616,17 @@ mod tests {
             },
         ]);
 
-        assert_eq!(validation, BuilderQueueValidationResult::default());
+        assert_eq!(
+            validation,
+            BuilderQueueValidationResult {
+                removed_count: 0,
+                removed_head: false,
+                removed_tiles: Vec::new(),
+                head_tile_before: Some((4, 4)),
+                head_tile_after: Some((4, 4)),
+                reconcile_outcome: BuilderQueueReconcileOutcome::Unchanged,
+            }
+        );
         assert_eq!(queue.ordered_tiles, vec![(4, 4), (5, 5)]);
         assert_eq!(queue.head_tile, Some((4, 4)));
         assert_eq!(queue.queued_count, 2);
@@ -1536,12 +1667,94 @@ mod tests {
                 removed_count: 1,
                 removed_head: true,
                 removed_tiles: vec![(6, 6)],
+                head_tile_before: Some((6, 6)),
+                head_tile_after: Some((7, 7)),
+                reconcile_outcome: BuilderQueueReconcileOutcome::AdvancedHead,
             }
         );
         assert_eq!(queue.ordered_tiles, vec![(7, 7)]);
         assert_eq!(queue.head_tile, Some((7, 7)));
         assert_eq!(queue.queued_count, 1);
         assert_eq!(queue.inflight_count, 0);
+    }
+
+    #[test]
+    fn validate_against_tile_states_reports_removed_non_head_when_head_stays_put() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 11,
+                y: 11,
+                breaking: false,
+                block_id: Some(110),
+                rotation: 0,
+            },
+            BuilderQueueEntryObservation {
+                x: 12,
+                y: 12,
+                breaking: true,
+                block_id: None,
+                rotation: 0,
+            },
+        ]);
+
+        let validation =
+            queue.validate_against_tile_states([BuilderQueueTileStateObservation {
+                x: 12,
+                y: 12,
+                block_id: None,
+                rotation: None,
+                requires_rotation_match: false,
+            }]);
+
+        assert_eq!(
+            validation,
+            BuilderQueueValidationResult {
+                removed_count: 1,
+                removed_head: false,
+                removed_tiles: vec![(12, 12)],
+                head_tile_before: Some((11, 11)),
+                head_tile_after: Some((11, 11)),
+                reconcile_outcome: BuilderQueueReconcileOutcome::RemovedNonHead,
+            }
+        );
+        assert_eq!(queue.head_tile, Some((11, 11)));
+        assert_eq!(queue.ordered_tiles, vec![(11, 11)]);
+    }
+
+    #[test]
+    fn validate_against_tile_states_reports_cleared_queue_when_last_head_is_removed() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([BuilderQueueEntryObservation {
+            x: 13,
+            y: 13,
+            breaking: false,
+            block_id: Some(130),
+            rotation: 2,
+        }]);
+
+        let validation =
+            queue.validate_against_tile_states([BuilderQueueTileStateObservation {
+                x: 13,
+                y: 13,
+                block_id: Some(130),
+                rotation: Some(2),
+                requires_rotation_match: true,
+            }]);
+
+        assert_eq!(
+            validation,
+            BuilderQueueValidationResult {
+                removed_count: 1,
+                removed_head: true,
+                removed_tiles: vec![(13, 13)],
+                head_tile_before: Some((13, 13)),
+                head_tile_after: None,
+                reconcile_outcome: BuilderQueueReconcileOutcome::ClearedQueue,
+            }
+        );
+        assert_eq!(queue.head_tile, None);
+        assert!(queue.ordered_tiles.is_empty());
     }
 
     #[test]
@@ -1572,7 +1785,17 @@ mod tests {
             requires_rotation_match: true,
         }]);
 
-        assert_eq!(validation, BuilderQueueValidationResult::default());
+        assert_eq!(
+            validation,
+            BuilderQueueValidationResult {
+                removed_count: 0,
+                removed_head: false,
+                removed_tiles: Vec::new(),
+                head_tile_before: Some((6, 6)),
+                head_tile_after: Some((6, 6)),
+                reconcile_outcome: BuilderQueueReconcileOutcome::Unchanged,
+            }
+        );
         assert_eq!(queue.ordered_tiles, vec![(6, 6), (7, 7)]);
         assert_eq!(queue.head_tile, Some((6, 6)));
         assert_eq!(queue.queued_count, 2);

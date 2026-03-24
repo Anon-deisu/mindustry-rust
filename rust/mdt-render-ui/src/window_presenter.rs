@@ -522,11 +522,24 @@ fn compose_frame_panel_lines(
     if let Some(visibility_text) = compose_hud_visibility_status_text(hud) {
         lines.push(format!("HUD-VIS: {visibility_text}"));
     }
+    if let Some(detail_text) = compose_hud_detail_status_text(hud) {
+        lines.push(format!("HUD-DETAIL: {detail_text}"));
+    }
     if let Some(minimap_window_text) = compose_minimap_window_status_text(scene, hud, window) {
         lines.push(format!("MINIMAP: {minimap_window_text}"));
     }
+    if let Some(minimap_visibility_text) = compose_minimap_visibility_status_text(scene, hud, window)
+    {
+        lines.push(format!("MINIMAP-VIS: {minimap_visibility_text}"));
+    }
     if let Some(minimap_kind_text) = compose_minimap_kind_status_text(scene, hud) {
         lines.push(format!("MINIMAP-KINDS: {minimap_kind_text}"));
+    }
+    if let Some(minimap_legend_text) = compose_minimap_legend_status_text(hud) {
+        lines.push(format!("MINIMAP-LEGEND: {minimap_legend_text}"));
+    }
+    for minimap_detail_text in compose_minimap_detail_status_lines(scene, hud) {
+        lines.push(format!("MINIMAP-DETAIL: {minimap_detail_text}"));
     }
     if let Some(build_panel_text) = compose_build_config_panel_status_text(hud) {
         lines.push(format!("BUILD-CONFIG: {build_panel_text}"));
@@ -543,11 +556,20 @@ fn compose_frame_panel_lines(
     if let Some(runtime_menu_text) = compose_runtime_menu_panel_status_text(hud) {
         lines.push(format!("RUNTIME-MENU: {runtime_menu_text}"));
     }
+    if let Some(runtime_menu_detail_text) = compose_runtime_menu_detail_status_text(hud) {
+        lines.push(format!("RUNTIME-MENU-DETAIL: {runtime_menu_detail_text}"));
+    }
     if let Some(runtime_dialog_text) = compose_runtime_dialog_panel_status_text(hud) {
         lines.push(format!("RUNTIME-DIALOG: {runtime_dialog_text}"));
     }
+    if let Some(runtime_dialog_detail_text) = compose_runtime_dialog_detail_status_text(hud) {
+        lines.push(format!("RUNTIME-DIALOG-DETAIL: {runtime_dialog_detail_text}"));
+    }
     if let Some(runtime_chat_text) = compose_runtime_chat_panel_status_text(hud) {
         lines.push(format!("RUNTIME-CHAT: {runtime_chat_text}"));
+    }
+    if let Some(runtime_chat_detail_text) = compose_runtime_chat_detail_status_text(hud) {
+        lines.push(format!("RUNTIME-CHAT-DETAIL: {runtime_chat_detail_text}"));
     }
     if let Some(runtime_command_text) = compose_runtime_command_mode_panel_status_text(hud) {
         lines.push(format!("RUNTIME-COMMAND: {runtime_command_text}"));
@@ -621,6 +643,21 @@ fn compose_hud_visibility_status_text(hud: &HudModel) -> Option<String> {
         visibility.hidden_known_percent,
         visibility.unknown_tile_count,
         visibility.unknown_tile_percent,
+    ))
+}
+
+fn compose_hud_detail_status_text(hud: &HudModel) -> Option<String> {
+    let summary = build_hud_status_panel(hud)?;
+    let visibility = build_hud_visibility_panel(hud)?;
+    Some(format!(
+        "huddet:p={}#{}:sel={}#{}:t{}:vm{}:hm{}",
+        compact_runtime_ui_text(Some(summary.player_name.as_str())),
+        summary.player_name_len(),
+        compact_runtime_ui_text(Some(summary.selected_block.as_str())),
+        summary.selected_block_len(),
+        summary.map_tile_count(),
+        visibility.visible_map_percent(),
+        visibility.hidden_map_percent(),
     ))
 }
 
@@ -711,6 +748,31 @@ fn compose_runtime_menu_panel_status_text(hud: &HudModel) -> Option<String> {
     ))
 }
 
+fn compose_runtime_menu_detail_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_menu_panel(hud)?;
+    if panel.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "menud:a{}:fo{}:tin{}:id{}:t{}:d{}:n{}:e{}",
+        if panel.text_input_open_count > 0
+            || panel.menu_open_count > 0
+            || panel.outstanding_follow_up_count() > 0
+        {
+            1
+        } else {
+            0
+        },
+        panel.outstanding_follow_up_count(),
+        panel.text_input_open_count,
+        optional_i32_label(panel.text_input_last_id),
+        compact_runtime_ui_text(panel.text_input_last_title.as_deref()),
+        panel.default_text_len(),
+        optional_bool_label(panel.text_input_last_numeric),
+        optional_bool_label(panel.text_input_last_allow_empty),
+    ))
+}
+
 fn compose_runtime_dialog_panel_status_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_dialog_panel(hud)?;
     Some(format!(
@@ -734,6 +796,23 @@ fn compose_runtime_dialog_panel_status_text(hud: &HudModel) -> Option<String> {
     ))
 }
 
+fn compose_runtime_dialog_detail_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_dialog_panel(hud)?;
+    if panel.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "dialogd:p={}:a{}:fo{}:msg{}:def{}:n={}@{}",
+        runtime_dialog_prompt_status_text(panel.prompt_kind),
+        if panel.prompt_active { 1 } else { 0 },
+        panel.outstanding_follow_up_count(),
+        panel.prompt_message_len(),
+        panel.default_text_len(),
+        runtime_dialog_notice_status_text(panel.notice_kind),
+        panel.notice_text_len(),
+    ))
+}
+
 fn compose_runtime_chat_panel_status_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_chat_panel(hud)?;
     Some(format!(
@@ -743,6 +822,21 @@ fn compose_runtime_chat_panel_status_text(hud: &HudModel) -> Option<String> {
         panel.chat_message_count,
         compact_runtime_ui_text(panel.last_chat_message.as_deref()),
         compact_runtime_ui_text(panel.last_chat_unformatted.as_deref()),
+        optional_i32_label(panel.last_chat_sender_entity_id),
+    ))
+}
+
+fn compose_runtime_chat_detail_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_chat_panel(hud)?;
+    if panel.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "chatd:s{}:c{}:r{}:eq{}:sid{}",
+        panel.last_server_message_len(),
+        panel.last_chat_message_len(),
+        panel.last_chat_unformatted_len(),
+        optional_bool_label(panel.formatted_matches_unformatted()),
         optional_i32_label(panel.last_chat_sender_entity_id),
     ))
 }
@@ -898,6 +992,29 @@ fn compose_minimap_window_status_text(
     ))
 }
 
+fn compose_minimap_visibility_status_text(
+    scene: &RenderModel,
+    hud: &HudModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let panel = build_minimap_panel(scene, hud, window)?;
+    Some(format!(
+        "minivis:ov{}:fg{}:k{}p{}:v{}p{}:vm{}:h{}p{}:hm{}:u{}p{}",
+        if panel.overlay_visible { 1 } else { 0 },
+        if panel.fog_enabled { 1 } else { 0 },
+        panel.known_tile_count,
+        panel.known_tile_percent,
+        panel.visible_tile_count,
+        panel.visible_known_percent,
+        panel.visible_map_percent(),
+        panel.hidden_tile_count,
+        panel.hidden_known_percent,
+        panel.hidden_map_percent(),
+        panel.unknown_tile_count,
+        panel.unknown_tile_percent,
+    ))
+}
+
 fn compose_minimap_kind_status_text(scene: &RenderModel, hud: &HudModel) -> Option<String> {
     let panel = build_minimap_panel(
         scene,
@@ -925,6 +1042,34 @@ fn compose_minimap_kind_status_text(scene: &RenderModel, hud: &HudModel) -> Opti
         text.push_str(&detail_text);
     }
     Some(text)
+}
+
+fn compose_minimap_legend_status_text(hud: &HudModel) -> Option<String> {
+    hud.summary.as_ref()?;
+    Some("legend:pl@/mkM/pnP/bk#/rtR/tr./uk?".to_string())
+}
+
+fn compose_minimap_detail_status_lines(scene: &RenderModel, hud: &HudModel) -> Vec<String> {
+    let Some(panel) = build_minimap_panel(
+        scene,
+        hud,
+        PresenterViewWindow {
+            origin_x: 0,
+            origin_y: 0,
+            width: 0,
+            height: 0,
+        },
+    ) else {
+        return Vec::new();
+    };
+
+    let detail_count = panel.detail_counts.len();
+    panel
+        .detail_counts
+        .iter()
+        .enumerate()
+        .map(|(index, detail)| format!("minid:{}/{}:{}={}", index + 1, detail_count, detail.label, detail.count))
+        .collect()
 }
 
 fn compose_build_config_panel_status_text(hud: &HudModel) -> Option<String> {
@@ -2044,6 +2189,10 @@ mod tests {
             &frame.panel_lines,
             "MINIMAP-KINDS: minikind:obj7@pl1:mk2:pn0:bk0:rt4:tr0:uk0 detail=marker-line:1,marker-line-end:1,runtime-building:1,runtime-config:1,runtime-deconstruct:1,runtime-place:1",
         );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "MINIMAP-DETAIL: minid:1/6:marker-line=1",
+        );
     }
 
     #[test]
@@ -2484,7 +2633,19 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
+            "HUD-DETAIL: huddet:p=operator#8:sel=payload-rout~#14:t4800:vm2:hm0",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "MINIMAP-VIS: minivis:ov1:fg1:k144p3:v120p83:vm2:h24p16:hm0:u4656p97",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
             "MINIMAP-KINDS: minikind:obj4@pl1:mk1:pn1:bk1:rt0:tr0:uk0",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "MINIMAP-LEGEND: legend:pl@/mkM/pnP/bk#/rtR/tr./uk?",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
@@ -2508,11 +2669,23 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
+            "RUNTIME-MENU-DETAIL: menud:a1:fo0:tin53:id404:tDigits:d5:n1:e1",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
             "RUNTIME-DIALOG: dialog:p=input:a1:m16/f17/h18:tin53@404:Digits/Only_numbers/12345#16:n1:e1:n=warn@warn:c48",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
+            "RUNTIME-DIALOG-DETAIL: dialogd:p=input:a1:fo0:msg12:def5:n=warn@4",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
             "RUNTIME-CHAT: chat:srv7@server_text:msg8@[cyan]hello:rawhello:s404",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RUNTIME-CHAT-DETAIL: chatd:s11:c11:r5:eq0:sid404",
         );
         assert_frame_line_contains(
             &frame.panel_lines,

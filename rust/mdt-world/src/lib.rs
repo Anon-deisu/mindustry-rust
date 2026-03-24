@@ -12,12 +12,17 @@ use std::sync::OnceLock;
 
 mod save_post_load;
 mod save_post_load_activation;
+mod save_post_load_consumer_plan;
 mod save_post_load_contract;
 mod save_post_load_runtime_seed_plan;
 
 pub use save_post_load_activation::{
     SavePostLoadActivationSurface, SavePostLoadBuildingActivationCandidate,
     SavePostLoadEntityActivationCandidate,
+};
+pub use save_post_load_consumer_plan::{
+    SavePostLoadConsumerApplyPlan, SavePostLoadConsumerBlocker, SavePostLoadConsumerStage,
+    SavePostLoadConsumerStageKind,
 };
 pub use save_post_load_contract::{SavePostLoadWorldContract, SavePostLoadWorldIssue};
 pub use save_post_load_runtime_seed_plan::{

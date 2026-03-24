@@ -60,6 +60,20 @@ pub struct HudStatusPanelModel {
     pub map_height: usize,
 }
 
+impl HudStatusPanelModel {
+    pub fn map_tile_count(&self) -> usize {
+        self.map_width.saturating_mul(self.map_height)
+    }
+
+    pub fn player_name_len(&self) -> usize {
+        text_char_count(Some(self.player_name.as_str()))
+    }
+
+    pub fn selected_block_len(&self) -> usize {
+        text_char_count(Some(self.selected_block.as_str()))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HudVisibilityPanelModel {
     pub overlay_visible: bool,
@@ -72,6 +86,16 @@ pub struct HudVisibilityPanelModel {
     pub hidden_known_percent: usize,
     pub unknown_tile_count: usize,
     pub unknown_tile_percent: usize,
+}
+
+impl HudVisibilityPanelModel {
+    pub fn visible_map_percent(&self) -> usize {
+        percent_of(self.visible_tile_count, self.known_tile_count.saturating_add(self.unknown_tile_count))
+    }
+
+    pub fn hidden_map_percent(&self) -> usize {
+        percent_of(self.hidden_tile_count, self.known_tile_count.saturating_add(self.unknown_tile_count))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -218,6 +242,30 @@ pub struct RuntimeMenuPanelModel {
     pub text_input_last_allow_empty: Option<bool>,
 }
 
+impl RuntimeMenuPanelModel {
+    pub fn is_empty(&self) -> bool {
+        self.menu_open_count == 0
+            && self.follow_up_menu_open_count == 0
+            && self.hide_follow_up_menu_count == 0
+            && self.text_input_open_count == 0
+            && self.text_input_last_id.is_none()
+            && self.text_input_last_title.is_none()
+            && self.text_input_last_default_text.is_none()
+            && self.text_input_last_length.is_none()
+            && self.text_input_last_numeric.is_none()
+            && self.text_input_last_allow_empty.is_none()
+    }
+
+    pub fn outstanding_follow_up_count(&self) -> u64 {
+        self.follow_up_menu_open_count
+            .saturating_sub(self.hide_follow_up_menu_count)
+    }
+
+    pub fn default_text_len(&self) -> usize {
+        text_char_count(self.text_input_last_default_text.as_deref())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeChatPanelModel {
     pub server_message_count: u64,
@@ -226,6 +274,39 @@ pub struct RuntimeChatPanelModel {
     pub last_chat_message: Option<String>,
     pub last_chat_unformatted: Option<String>,
     pub last_chat_sender_entity_id: Option<i32>,
+}
+
+impl RuntimeChatPanelModel {
+    pub fn is_empty(&self) -> bool {
+        self.server_message_count == 0
+            && self.last_server_message.is_none()
+            && self.chat_message_count == 0
+            && self.last_chat_message.is_none()
+            && self.last_chat_unformatted.is_none()
+            && self.last_chat_sender_entity_id.is_none()
+    }
+
+    pub fn last_server_message_len(&self) -> usize {
+        text_char_count(self.last_server_message.as_deref())
+    }
+
+    pub fn last_chat_message_len(&self) -> usize {
+        text_char_count(self.last_chat_message.as_deref())
+    }
+
+    pub fn last_chat_unformatted_len(&self) -> usize {
+        text_char_count(self.last_chat_unformatted.as_deref())
+    }
+
+    pub fn formatted_matches_unformatted(&self) -> Option<bool> {
+        match (
+            self.last_chat_message.as_deref(),
+            self.last_chat_unformatted.as_deref(),
+        ) {
+            (Some(formatted), Some(unformatted)) => Some(formatted == unformatted),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -261,6 +342,44 @@ pub struct RuntimeDialogPanelModel {
     pub notice_kind: Option<RuntimeDialogNoticeKind>,
     pub notice_text: Option<String>,
     pub notice_count: u64,
+}
+
+impl RuntimeDialogPanelModel {
+    pub fn is_empty(&self) -> bool {
+        self.prompt_kind.is_none()
+            && !self.prompt_active
+            && self.menu_open_count == 0
+            && self.follow_up_menu_open_count == 0
+            && self.hide_follow_up_menu_count == 0
+            && self.text_input_open_count == 0
+            && self.text_input_last_id.is_none()
+            && self.text_input_last_title.is_none()
+            && self.text_input_last_message.is_none()
+            && self.text_input_last_default_text.is_none()
+            && self.text_input_last_length.is_none()
+            && self.text_input_last_numeric.is_none()
+            && self.text_input_last_allow_empty.is_none()
+            && self.notice_kind.is_none()
+            && self.notice_text.is_none()
+            && self.notice_count == 0
+    }
+
+    pub fn outstanding_follow_up_count(&self) -> u64 {
+        self.follow_up_menu_open_count
+            .saturating_sub(self.hide_follow_up_menu_count)
+    }
+
+    pub fn prompt_message_len(&self) -> usize {
+        text_char_count(self.text_input_last_message.as_deref())
+    }
+
+    pub fn default_text_len(&self) -> usize {
+        text_char_count(self.text_input_last_default_text.as_deref())
+    }
+
+    pub fn notice_text_len(&self) -> usize {
+        text_char_count(self.notice_text.as_deref())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -356,6 +475,16 @@ impl RuntimeWorldLabelPanelModel {
 
     pub fn last_z(&self) -> Option<f32> {
         finite_f32_bits(self.last_z_bits)
+    }
+}
+
+impl MinimapPanelModel {
+    pub fn visible_map_percent(&self) -> usize {
+        percent_of(self.visible_tile_count, self.map_tile_count)
+    }
+
+    pub fn hidden_map_percent(&self) -> usize {
+        percent_of(self.hidden_tile_count, self.map_tile_count)
     }
 }
 
@@ -553,6 +682,10 @@ fn percent_of(part: usize, total: usize) -> usize {
     } else {
         part.saturating_mul(100) / total
     }
+}
+
+fn text_char_count(value: Option<&str>) -> usize {
+    value.map(|text| text.chars().count()).unwrap_or(0)
 }
 
 fn finite_f32_bits(bits: Option<u32>) -> Option<f32> {
@@ -2343,5 +2476,134 @@ mod tests {
             Some(RuntimeReconnectReasonKind::ConnectRedirect)
         );
         assert_eq!(reconnect.last_redirect_port, Some(6567));
+    }
+
+    #[test]
+    fn panel_helpers_surface_hud_and_minimap_lengths_and_map_percents() {
+        let hud = HudModel {
+            summary: Some(HudSummary {
+                player_name: "operator".to_string(),
+                team_id: 2,
+                selected_block: "payload-router".to_string(),
+                plan_count: 3,
+                marker_count: 4,
+                map_width: 10,
+                map_height: 10,
+                overlay_visible: true,
+                fog_enabled: true,
+                visible_tile_count: 25,
+                hidden_tile_count: 15,
+            }),
+            ..HudModel::default()
+        };
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 80.0,
+                height: 80.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![RenderObject {
+                id: "player:1".to_string(),
+                layer: 0,
+                x: 16.0,
+                y: 24.0,
+            }],
+        };
+
+        let status = build_hud_status_panel(&hud).expect("expected hud status panel");
+        assert_eq!(status.map_tile_count(), 100);
+        assert_eq!(status.player_name_len(), 8);
+        assert_eq!(status.selected_block_len(), 14);
+
+        let visibility = build_hud_visibility_panel(&hud).expect("expected hud visibility panel");
+        assert_eq!(visibility.visible_map_percent(), 25);
+        assert_eq!(visibility.hidden_map_percent(), 15);
+
+        let minimap = build_minimap_panel(
+            &scene,
+            &hud,
+            PresenterViewWindow {
+                origin_x: 0,
+                origin_y: 0,
+                width: 4,
+                height: 4,
+            },
+        )
+        .expect("expected minimap panel");
+        assert_eq!(minimap.visible_map_percent(), 25);
+        assert_eq!(minimap.hidden_map_percent(), 15);
+        assert_eq!(minimap.focus_tile, Some((2, 3)));
+        assert_eq!(minimap.focus_in_window, Some(true));
+    }
+
+    #[test]
+    fn panel_helpers_surface_runtime_menu_chat_and_dialog_derivations() {
+        let hud = HudModel {
+            runtime_ui: Some(RuntimeUiObservability {
+                hud_text: RuntimeHudTextObservability {
+                    set_count: 9,
+                    set_reliable_count: 10,
+                    hide_count: 11,
+                    last_message: Some("hud text".to_string()),
+                    last_reliable_message: Some("hud rel".to_string()),
+                },
+                toast: RuntimeToastObservability {
+                    info_count: 14,
+                    warning_count: 15,
+                    last_info_message: Some("toast".to_string()),
+                    last_warning_text: Some("warn".to_string()),
+                },
+                text_input: RuntimeTextInputObservability {
+                    open_count: 53,
+                    last_id: Some(404),
+                    last_title: Some("Digits".to_string()),
+                    last_message: Some("Only numbers".to_string()),
+                    last_default_text: Some("12345".to_string()),
+                    last_length: Some(16),
+                    last_numeric: Some(true),
+                    last_allow_empty: Some(true),
+                },
+                chat: crate::RuntimeChatObservability {
+                    server_message_count: 7,
+                    last_server_message: Some("server text".to_string()),
+                    chat_message_count: 8,
+                    last_chat_message: Some("[cyan]hello".to_string()),
+                    last_chat_unformatted: Some("hello".to_string()),
+                    last_chat_sender_entity_id: Some(404),
+                },
+                admin: RuntimeAdminObservability::default(),
+                menu: RuntimeMenuObservability {
+                    menu_open_count: 16,
+                    follow_up_menu_open_count: 17,
+                    hide_follow_up_menu_count: 15,
+                },
+                command_mode: RuntimeCommandModeObservability::default(),
+                rules: RuntimeRulesObservability::default(),
+                world_labels: RuntimeWorldLabelObservability::default(),
+                session: RuntimeSessionObservability::default(),
+                live: RuntimeLiveSummaryObservability::default(),
+            }),
+            ..HudModel::default()
+        };
+
+        let menu = build_runtime_menu_panel(&hud).expect("expected runtime menu panel");
+        assert!(!menu.is_empty());
+        assert_eq!(menu.outstanding_follow_up_count(), 2);
+        assert_eq!(menu.default_text_len(), 5);
+
+        let chat = build_runtime_chat_panel(&hud).expect("expected runtime chat panel");
+        assert!(!chat.is_empty());
+        assert_eq!(chat.last_server_message_len(), 11);
+        assert_eq!(chat.last_chat_message_len(), 11);
+        assert_eq!(chat.last_chat_unformatted_len(), 5);
+        assert_eq!(chat.formatted_matches_unformatted(), Some(false));
+
+        let dialog = build_runtime_dialog_panel(&hud).expect("expected runtime dialog panel");
+        assert!(!dialog.is_empty());
+        assert_eq!(dialog.outstanding_follow_up_count(), 2);
+        assert_eq!(dialog.prompt_message_len(), 12);
+        assert_eq!(dialog.default_text_len(), 5);
+        assert_eq!(dialog.notice_text_len(), 4);
     }
 }

@@ -55,6 +55,9 @@ These are already landed and should not be re-opened as if missing:
 - `mdt-world` now also has a deterministic `SavePostLoadRuntimeSeedPlan` layer above that preflight.
   - `.msav -> post_load_world() -> projection_contract() -> activation_surface()` is now folded into a passive seed plan for later runtime/apply consumers
   - remaining M7-3 work is consuming that seed plan in deeper runtime/world ownership, not re-adding the first passive plan layer
+- `mdt-world` consumer-side post-load apply plan helper is now also landed.
+  - `SavePostLoadConsumerApplyPlan::consumer_apply_plan()` now turns the stricter contract/activation/seed surfaces into a deterministic consumer-stage plan with explicit blocker reasons (`contract issue`, duplicate `entity_id`, invalid building-center refs, skipped entity)
+  - remaining `M7-3` work is still wiring that passive plan into real runtime/world ownership, not re-adding this consumer-side helper layer
 - `mdt-typeio` raw `WeaponMount[]` codec is already landed.
   - remaining non-object codec gap is now more about `abilities/status` and wider unit-sync families than mounts specifically
 - `mdt-render-ui` runtime dialog summary is already landed.
@@ -93,6 +96,9 @@ These are already landed and should not be re-opened as if missing:
 - builder queue tile-state validation now also supports explicit rotation-irrelevant observations.
   - `BuilderQueueTileStateObservation.requires_rotation_match` can now preserve or clear local place plans based on whether the observed tile family actually requires rotation equality
   - remaining work is still broader runtime integration and Java-equivalent `BuilderComp` depth, not re-adding this validation refinement
+- builder queue local activity/reconcile state-machine semantics are now richer.
+  - `update_local_activity()` now reports explicit head-selection outcomes (`HeadInRange`, reorder/fallback/skip/out-of-range/missing cases), and `validate_against_tile_states()` now reports whether reconcile left the queue unchanged, removed a non-head entry, advanced the head, or cleared the queue
+  - remaining work is still broader runtime integration and Java-equivalent `BuilderComp` depth, not re-adding this pure state-machine selection/reconcile slice
 - building-table block identity carry-through is already landed.
   - `BuildingProjection` / `BuildingTableProjection` now include `block_name` and `last_block_name`
   - world baseline, entity building rows, loaded-world extra entry, `constructFinish`, and `deconstructFinish` already wire `block_name` into the building table
@@ -104,9 +110,20 @@ These are already landed and should not be re-opened as if missing:
 - typed high-frequency snapshot registry glue is now landed.
   - `mdt-remote` now exposes `HighFrequencyRemoteRegistry`, `mdt-client-min` snapshot packet registry now consumes typed glue via `snapshot_registry_glue.rs`, and inbound-family registry construction no longer depends on unrelated outbound custom-channel families
   - remaining `M6-1` work is broader typed registry consumption outside the first snapshot/inbound glue path, not re-adding this typed snapshot registry layer
+- typed inbound remote dispatch fixed-table glue is now also landed.
+  - `mdt-remote::typed_inbound_remote_dispatch_specs(...)` now exposes a typed non-snapshot inbound dispatch table, and `mdt-client-min` packet registry consumes it through `inbound_remote_registry_glue.rs` instead of rebuilding that lookup only from string/manifest scans
+  - remaining `M6-1` work is broader typed registry/session adoption beyond this fixed-table inbound dispatch slice, not re-adding the first fixed-table glue layer
 - `mdt-render-ui` minimap/overlay semantic detail breakdown is now landed.
   - render/model panel presenters now expose deterministic family+detail counts for minimap and overlay summaries instead of only coarse kind buckets
   - remaining `M9` work is still deeper renderer pipeline and interactive UI flow, not re-adding this detail-breakdown presentation slice
+- `mdt-render-ui` presenter-local HUD/chat/menu/dialog/minimap detail rows are now landed.
+  - panel/window/ascii presenters now expose `HUD-DETAIL`, `MINIMAP-*DETAIL`, `RUNTIME-MENU-DETAIL`, `RUNTIME-DIALOG-DETAIL`, and `RUNTIME-CHAT-DETAIL` rows derived from existing runtime observability instead of only coarse summary rows
+  - remaining `M9` work is still interactive UI/user-flow depth, not re-adding this presenter-local detail slice
+- typed building runtime apply state is now landed as a separate persistent layer.
+  - `SessionState` now keeps `runtime_typed_building_apply_projection` with fallback to the computed typed join when tests/setup mutate only raw tables
+  - typed building models now carry already parsed base/head/turret fields (`rotation/team/io_version/module/time-scale/health/enabled/efficiency/visible_flags/build-turret summary`) in addition to the configured domain value
+  - `client_session` now refreshes that layer from loaded-world tail/business folds, authoritative `constructFinish` / `tileConfig` / `buildHealthUpdate`, `deconstructFinish` / `removeTile`, and `worldDataBegin` clear, and `render_runtime` build inspector now consumes that runtime-owned projection instead of rebuilding only from the raw table join at the callsite
+  - remaining `U3` work is still broader family depth and true Java-like `tile.build.readSync(..., version)` runtime ownership, not re-adding this first persistent typed building apply layer
 
 ## Highest-Confidence Remaining Lanes
 
@@ -141,11 +158,11 @@ Write scope:
 ### U3 `blockSnapshot` typed building runtime model
 
 Remaining gap:
-- low-risk loaded-world tail/base folds, `block_name` carry-through, and the first typed build-inspector runtime view are landed, but Rust still does not have Java-like `tile.build.readSync(..., version)` runtime ownership.
+- low-risk loaded-world tail/base folds, `block_name` carry-through, a persistent typed building apply layer, and the first runtime build-inspector consumer are landed, but Rust still does not have Java-like `tile.build.readSync(..., version)` runtime ownership or broad per-family live building semantics.
 
 Best bounded next slice:
-- connect already parsed base/tail data into a stronger typed building runtime model
-- do not spend time re-landing already wired configured/resource folds, `block_name` / `last_block_name`, or the current build-inspector typed runtime consumer
+- extend the typed building runtime model one low-risk family at a time above the already landed persistent apply layer
+- do not spend time re-landing already wired configured/resource folds, `block_name` / `last_block_name`, the persistent apply layer itself, or the current build-inspector runtime consumer
 
 Write scope:
 - `rust/mdt-client-min/src/client_session.rs`
