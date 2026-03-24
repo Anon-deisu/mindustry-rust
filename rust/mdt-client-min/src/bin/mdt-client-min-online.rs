@@ -877,7 +877,7 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
     let mut render_window_live = false;
     let mut dump_world_stream_hex = None;
     let mut live_intent_snapshots = Vec::new();
-    let mut enable_live_intent_runtime_capture = false;
+    let mut enable_live_intent_runtime_capture = true;
     let mut live_intent_sampling_mode = IntentSamplingMode::LiveSampling;
     let mut live_intent_delay_ms = 1_000u64;
     let mut live_intent_spacing_ms = 1_000u64;
@@ -1712,7 +1712,7 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
 
 fn usage() -> String {
     String::from(
-        "Usage: mdt-client-min-online --manifest <path> (--server <host:port> | --discover-host <host> [--discover-host <host> ...] [--discover-port <port>] [--discover-timeout-ms <ms>]) [--connect-hex <path> | --name <name> --uuid <base64> --usid <base64> --build <build> --version-type <type> --mobile --color-rgba <rgba> --mod <name:version> ...] [--locale <locale>] [--duration-ms <ms>] [--tick-ms <ms>] [--max-recv-packets <n>] [--snapshot-interval-ms <ms>] [--aim-x <f32> --aim-y <f32>] [--mine-tile <x:y>] [--snapshot-boosting|--snapshot-no-boosting] [--snapshot-shooting|--snapshot-no-shooting] [--snapshot-chatting|--snapshot-no-chatting] [--snapshot-building|--snapshot-no-building] [--view-size <w:h>] [--move-step-x <f32> --move-step-y <f32>] [--intent-snapshot <moveX:moveY:aimX:aimY:actions[:mineX,mineY|none]> ...] [--intent-live-sampling|--intent-edge-mapped] [--intent-delay-ms <ms>] [--intent-spacing-ms <ms>] [--command-mode-bind-group <index@unitId[,unitId...]> ...] [--command-mode-recall-group <index> ...] [--command-mode-clear-group <index> ...] [--command-mode-rect <x0:y0:x1:y1|none> ...] [--plan-place <x:y:block[:rotation][;config]> ...] [--plan-break <x:y> ...] [--plan-place-relative <dx:dy:block[:rotation][;config]> ...] [--plan-break-relative <dx:dy> ...] config=<none|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|point2=<x:y>|point2-array=<x:y[,x:y...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|double=<f64>|building-pos=<i32>|laccess=<i16>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|vec2-array=<x:y[,x:y...]>|vec2=<x:y>|team=<u8>|int-array=<i32[,i32...]>|object-array=<value[|value...]>|unit-command=<u16>> [--plan-rotate <x:y:dir> ...] [--plan-flip-x <x:y> ...] [--plan-flip-y <x:y> ...] [--plan-edit-loop] [--plan-edit-delay-ms <ms>] [--plan-edit-spacing-ms <ms>] [--plan-break-near-player] [--plan-place-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--plan-place-conflict-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--render-ascii-on-world-ready] [--print-client-packets] [--watch-client-packet <type> ...] [--watch-client-binary-packet <type> ...] [--watch-client-logic-data <channel> ...] [--consume-client-packet <type@semantic> ...] [--consume-client-binary-packet <type@semantic> ...] [--consume-client-logic-data <channel@semantic> ...] [--relay-client-packet <inbound@outbound@reliable|unreliable> ...] [--relay-client-binary-packet <inbound@outbound@reliable|unreliable> ...] [--relay-client-logic-data <inbound@outbound@reliable|unreliable> ...] semantic=<server-message|chat-message|hud-text|announce|clipboard|open-uri|world-pos|build-pos|unit-id|team|bool|number> [--render-window-live] [--dump-world-stream-hex <path>] [--chat-delay-ms <ms>] [--chat-spacing-ms <ms>] [--chat-message <text> ...] [--action-delay-ms <ms>] [--action-spacing-ms <ms>] [--action-request-item <buildPos|none:itemId|none:amount> ...] [--action-request-unit-payload <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-clear ...] [--action-unit-control <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-building-control-select <none|unit:<id>|block:<pos>|<id>@buildPos|none> ...] [--action-building-control-select <buildPos|none> ...] [--action-clear-items <buildPos|none> ...] [--action-clear-liquids <buildPos|none> ...] [--action-transfer-inventory <buildPos|none> ...] [--action-request-build-payload <buildPos|none> ...] [--action-request-drop-payload <x:y> ...] [--action-rotate-block <buildPos|none:direction> ...] [--action-drop-item <angle> ...] [--action-tile-config <buildPos|none:value> ...] [--action-tile-tap <tilePos|none> ...] [--action-delete-plans <x:y[,x:y...]|none> ...] [--action-command-building <x:y[,x:y...]|none@x:y> ...] [--action-command-units <unitId[,unitId...]|none@buildPos@unitTarget@x:y@queueCommand[@finalBatch]> ...] [--action-set-unit-command <unitId[,unitId...]|none@commandId|none> ...] [--action-set-unit-stance <unitId[,unitId...]|none@stanceId|none@enable> ...] [--action-begin-break <none|unit:<id>|block:<pos>|<id>@teamId@x:y> ...] [--action-begin-place <none|unit:<id>|block:<pos>|<id>@blockId|none@teamId@x:y@rotation@value> ...] [--action-menu-choose <menuId@option> ...] [--action-text-input-result <textInputId@text|none> ...] [--action-client-packet <type@contents@reliable|unreliable> ...] [--action-client-binary-packet <type@hex@reliable|unreliable> ...] [--action-client-logic-data <channel@value@reliable|unreliable> ...] value=<null|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|point2=<x:y>|point2-array=<x:y[,x:y...]>|double=<f64>|building-pos=<i32>|laccess=<i16>|vec2=<x:y>|vec2-array=<x:y[,x:y...]>|team=<u8>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|int-array=<i32[,i32...]>|object-array=<value>|unit-command=<u16>|...>",
+        "Usage: mdt-client-min-online --manifest <path> (--server <host:port> | --discover-host <host> [--discover-host <host> ...] [--discover-port <port>] [--discover-timeout-ms <ms>]) [--connect-hex <path> | --name <name> --uuid <base64> --usid <base64> --build <build> --version-type <type> --mobile --color-rgba <rgba> --mod <name:version> ...] [--locale <locale>] [--duration-ms <ms>] [--tick-ms <ms>] [--max-recv-packets <n>] [--snapshot-interval-ms <ms>] [--aim-x <f32> --aim-y <f32>] [--mine-tile <x:y>] [--snapshot-boosting|--snapshot-no-boosting] [--snapshot-shooting|--snapshot-no-shooting] [--snapshot-chatting|--snapshot-no-chatting] [--snapshot-building|--snapshot-no-building] [--view-size <w:h>] [--move-step-x <f32> --move-step-y <f32>] [--intent-snapshot <moveX:moveY:aimX:aimY:actions[:mineX,mineY|none][:building|no-building|true|false]> ...] [--intent-live-sampling|--intent-edge-mapped] [--intent-delay-ms <ms>] [--intent-spacing-ms <ms>] [--command-mode-bind-group <index@unitId[,unitId...]> ...] [--command-mode-recall-group <index> ...] [--command-mode-clear-group <index> ...] [--command-mode-rect <x0:y0:x1:y1|none> ...] [--plan-place <x:y:block[:rotation][;config]> ...] [--plan-break <x:y> ...] [--plan-place-relative <dx:dy:block[:rotation][;config]> ...] [--plan-break-relative <dx:dy> ...] config=<none|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|point2=<x:y>|point2-array=<x:y[,x:y...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|double=<f64>|building-pos=<i32>|laccess=<i16>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|vec2-array=<x:y[,x:y...]>|vec2=<x:y>|team=<u8>|int-array=<i32[,i32...]>|object-array=<value[|value...]>|unit-command=<u16>> [--plan-rotate <x:y:dir> ...] [--plan-flip-x <x:y> ...] [--plan-flip-y <x:y> ...] [--plan-edit-loop] [--plan-edit-delay-ms <ms>] [--plan-edit-spacing-ms <ms>] [--plan-break-near-player] [--plan-place-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--plan-place-conflict-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--render-ascii-on-world-ready] [--print-client-packets] [--watch-client-packet <type> ...] [--watch-client-binary-packet <type> ...] [--watch-client-logic-data <channel> ...] [--consume-client-packet <type@semantic> ...] [--consume-client-binary-packet <type@semantic> ...] [--consume-client-logic-data <channel@semantic> ...] [--relay-client-packet <inbound@outbound@reliable|unreliable> ...] [--relay-client-binary-packet <inbound@outbound@reliable|unreliable> ...] [--relay-client-logic-data <inbound@outbound@reliable|unreliable> ...] semantic=<server-message|chat-message|hud-text|announce|clipboard|open-uri|world-pos|build-pos|unit-id|team|bool|number> [--render-window-live] [--dump-world-stream-hex <path>] [--chat-delay-ms <ms>] [--chat-spacing-ms <ms>] [--chat-message <text> ...] [--action-delay-ms <ms>] [--action-spacing-ms <ms>] [--action-request-item <buildPos|none:itemId|none:amount> ...] [--action-request-unit-payload <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-clear ...] [--action-unit-control <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-building-control-select <none|unit:<id>|block:<pos>|<id>@buildPos|none> ...] [--action-building-control-select <buildPos|none> ...] [--action-clear-items <buildPos|none> ...] [--action-clear-liquids <buildPos|none> ...] [--action-transfer-inventory <buildPos|none> ...] [--action-request-build-payload <buildPos|none> ...] [--action-request-drop-payload <x:y> ...] [--action-rotate-block <buildPos|none:direction> ...] [--action-drop-item <angle> ...] [--action-tile-config <buildPos|none:value> ...] [--action-tile-tap <tilePos|none> ...] [--action-delete-plans <x:y[,x:y...]|none> ...] [--action-command-building <x:y[,x:y...]|none@x:y> ...] [--action-command-units <unitId[,unitId...]|none@buildPos@unitTarget@x:y@queueCommand[@finalBatch]> ...] [--action-set-unit-command <unitId[,unitId...]|none@commandId|none> ...] [--action-set-unit-stance <unitId[,unitId...]|none@stanceId|none@enable> ...] [--action-begin-break <none|unit:<id>|block:<pos>|<id>@teamId@x:y> ...] [--action-begin-place <none|unit:<id>|block:<pos>|<id>@blockId|none@teamId@x:y@rotation@value> ...] [--action-menu-choose <menuId@option> ...] [--action-text-input-result <textInputId@text|none> ...] [--action-client-packet <type@contents@reliable|unreliable> ...] [--action-client-binary-packet <type@hex@reliable|unreliable> ...] [--action-client-logic-data <channel@value@reliable|unreliable> ...] value=<null|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|point2=<x:y>|point2-array=<x:y[,x:y...]>|double=<f64>|building-pos=<i32>|laccess=<i16>|vec2=<x:y>|vec2-array=<x:y[,x:y...]>|team=<u8>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|int-array=<i32[,i32...]>|object-array=<value>|unit-command=<u16>|...>",
     )
 }
 
@@ -1949,10 +1949,10 @@ fn parse_f32_pair_colon_arg(flag: &str, value: &str) -> Result<(f32, f32), Strin
 }
 
 fn parse_intent_snapshot_arg(value: &str) -> Result<InputSnapshot, String> {
-    let parts = value.splitn(6, ':').collect::<Vec<_>>();
-    if !(parts.len() == 5 || parts.len() == 6) {
+    let parts = value.splitn(7, ':').collect::<Vec<_>>();
+    if !(parts.len() == 5 || parts.len() == 6 || parts.len() == 7) {
         return Err(
-            "invalid --intent-snapshot, expected <moveX:moveY:aimX:aimY:actions[:mineX,mineY|none]>"
+            "invalid --intent-snapshot, expected <moveX:moveY:aimX:aimY:actions[:mineX,mineY|none][:building|no-building|true|false]>"
                 .to_string(),
         );
     }
@@ -1974,17 +1974,28 @@ fn parse_intent_snapshot_arg(value: &str) -> Result<InputSnapshot, String> {
             .map(parse_binary_action_arg)
             .collect::<Result<Vec<_>, _>>()?
     };
-    let mining_tile = if let Some(raw) = parts.get(5) {
-        parse_optional_mining_tile_arg("--intent-snapshot mine", raw.trim())?
-    } else {
-        None
-    };
+    let mut mining_tile = None;
+    let mut building = false;
+    if let Some(raw) = parts.get(5) {
+        let raw = raw.trim();
+        if let Some(parsed_building) = parse_optional_intent_snapshot_building_value(raw) {
+            building = parsed_building;
+        } else {
+            mining_tile = parse_optional_mining_tile_arg("--intent-snapshot mine", raw)?;
+        }
+    }
+    if let Some(raw) = parts.get(6) {
+        building = parse_required_intent_snapshot_building_value(
+            "--intent-snapshot building",
+            raw.trim(),
+        )?;
+    }
 
     Ok(InputSnapshot {
         move_axis,
         aim_axis,
         mining_tile,
-        building: false,
+        building,
         active_actions,
     })
 }
@@ -2016,6 +2027,19 @@ fn parse_optional_mining_tile_arg(flag: &str, value: &str) -> Result<Option<(i32
         parse_i32_arg(&format!("{flag} x"), x)?,
         parse_i32_arg(&format!("{flag} y"), y)?,
     )))
+}
+
+fn parse_optional_intent_snapshot_building_value(value: &str) -> Option<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "build" | "building" | "true" | "1" | "on" => Some(true),
+        "no-build" | "no-building" | "false" | "0" | "off" => Some(false),
+        _ => None,
+    }
+}
+
+fn parse_required_intent_snapshot_building_value(flag: &str, value: &str) -> Result<bool, String> {
+    parse_optional_intent_snapshot_building_value(value)
+        .ok_or_else(|| format!("invalid {flag}, expected <building|no-building|true|false|1|0>"))
 }
 
 fn parse_i16_like_arg(flag: &str, value: &str) -> Result<i16, String> {
@@ -5164,8 +5188,9 @@ mod tests {
         assert!(text.contains("--discover-timeout-ms <ms>"));
         assert!(text.contains("--snapshot-building|--snapshot-no-building"));
         assert!(text.contains("--snapshot-interval-ms <ms>"));
-        assert!(text
-            .contains("--intent-snapshot <moveX:moveY:aimX:aimY:actions[:mineX,mineY|none]> ..."));
+        assert!(text.contains(
+            "--intent-snapshot <moveX:moveY:aimX:aimY:actions[:mineX,mineY|none][:building|no-building|true|false]> ..."
+        ));
         assert!(text.contains("--intent-live-sampling"));
         assert!(text.contains("--intent-edge-mapped"));
         assert!(text.contains("--intent-delay-ms <ms>"));
@@ -5253,10 +5278,10 @@ mod tests {
     }
 
     #[test]
-    fn parse_args_leaves_live_intent_runtime_capture_disabled_by_default() {
+    fn parse_args_enables_live_intent_runtime_capture_by_default() {
         let args = parse_args(sample_args(&[])).unwrap();
 
-        assert!(!args.enable_live_intent_runtime_capture);
+        assert!(args.enable_live_intent_runtime_capture);
     }
 
     #[test]
@@ -5349,6 +5374,38 @@ mod tests {
     }
 
     #[test]
+    fn parse_intent_snapshot_accepts_building_tail_without_mining_tail() {
+        let snapshot = parse_intent_snapshot_arg("0:1:16:24:fire:building").unwrap();
+
+        assert_eq!(
+            snapshot,
+            InputSnapshot {
+                move_axis: (0.0, 1.0),
+                aim_axis: (16.0, 24.0),
+                mining_tile: None,
+                building: true,
+                active_actions: vec![BinaryAction::Fire],
+            }
+        );
+    }
+
+    #[test]
+    fn parse_intent_snapshot_accepts_mining_and_building_tails_together() {
+        let snapshot = parse_intent_snapshot_arg("0:1:16:24:none:88,99:no-building").unwrap();
+
+        assert_eq!(
+            snapshot,
+            InputSnapshot {
+                move_axis: (0.0, 1.0),
+                aim_axis: (16.0, 24.0),
+                mining_tile: Some((88, 99)),
+                building: false,
+                active_actions: vec![],
+            }
+        );
+    }
+
+    #[test]
     fn parse_args_accepts_live_intent_sampling_flag() {
         let args = parse_args(sample_args(&["--intent-live-sampling"])).unwrap();
 
@@ -5371,10 +5428,10 @@ mod tests {
     }
 
     #[test]
-    fn build_live_intent_mapper_returns_none_without_schedule_or_flag() {
+    fn build_live_intent_mapper_returns_runtime_capture_by_default() {
         let args = parse_args(sample_args(&[])).unwrap();
 
-        assert!(build_live_intent_mapper(&args).is_none());
+        assert!(build_live_intent_mapper(&args).is_some());
     }
 
     #[test]
@@ -8840,7 +8897,7 @@ mod tests {
     }
 
     #[test]
-    fn sync_runtime_build_selection_state_clears_building_when_queue_empty_without_override() {
+    fn sync_runtime_build_selection_state_preserves_runtime_building_by_default() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
         let args = parse_args(sample_args(&[])).unwrap();
@@ -8852,7 +8909,7 @@ mod tests {
 
         sync_runtime_build_selection_state(&mut session, &args);
 
-        assert!(!session.snapshot_input().building);
+        assert!(session.snapshot_input().building);
     }
 
     #[test]

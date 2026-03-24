@@ -162,11 +162,21 @@ mod tests {
         aim_axis: (f32, f32),
         active_actions: &[BinaryAction],
     ) -> InputSnapshot {
+        snapshot_with_details(move_axis, aim_axis, None, false, active_actions)
+    }
+
+    fn snapshot_with_details(
+        move_axis: (f32, f32),
+        aim_axis: (f32, f32),
+        mining_tile: Option<(i32, i32)>,
+        building: bool,
+        active_actions: &[BinaryAction],
+    ) -> InputSnapshot {
         InputSnapshot {
             move_axis,
             aim_axis,
-            mining_tile: None,
-            building: false,
+            mining_tile,
+            building,
             active_actions: active_actions.to_vec(),
         }
     }
@@ -491,6 +501,33 @@ mod tests {
                 PlayerIntent::SetBuilding { building: false },
                 PlayerIntent::ActionPressed(BinaryAction::Fire),
                 PlayerIntent::ActionPressed(BinaryAction::Boost),
+                PlayerIntent::ActionReleased(BinaryAction::Fire),
+            ]
+        );
+    }
+
+    #[test]
+    fn map_snapshot_batch_keeps_final_building_bit_with_transient_edges() {
+        let mut mapper = StatelessIntentMapper::new(IntentSamplingMode::LiveSampling);
+
+        let batch = vec![
+            snapshot_with_details(
+                (1.0, 0.0),
+                (2.0, 2.0),
+                Some((7, 8)),
+                true,
+                &[BinaryAction::Fire],
+            ),
+            snapshot_with_details((0.0, 0.0), (3.0, 4.0), None, false, &[]),
+        ];
+        assert_eq!(
+            mapper.map_snapshot_batch(&batch),
+            vec![
+                PlayerIntent::SetMoveAxis { x: 0.0, y: 0.0 },
+                PlayerIntent::SetAimAxis { x: 3.0, y: 4.0 },
+                PlayerIntent::SetMiningTile { tile: None },
+                PlayerIntent::SetBuilding { building: false },
+                PlayerIntent::ActionPressed(BinaryAction::Fire),
                 PlayerIntent::ActionReleased(BinaryAction::Fire),
             ]
         );

@@ -1787,6 +1787,7 @@ fn runtime_live_summary_observability(
 fn runtime_live_entity_summary_observability(
     session_state: &SessionState,
 ) -> RuntimeLiveEntitySummaryObservability {
+    let typed_projection = session_state.typed_runtime_entity_projection();
     let local_entity = session_state
         .entity_table_projection
         .local_player_entity_id
@@ -1801,6 +1802,11 @@ fn runtime_live_entity_summary_observability(
     RuntimeLiveEntitySummaryObservability {
         entity_count: session_state.entity_table_projection.by_entity_id.len(),
         hidden_count: session_state.entity_table_projection.hidden_count,
+        player_count: typed_projection.player_count,
+        unit_count: typed_projection.unit_count,
+        last_entity_id: typed_projection.last_entity_id,
+        last_player_entity_id: typed_projection.last_player_entity_id,
+        last_unit_entity_id: typed_projection.last_unit_entity_id,
         local_entity_id: local_entity.map(|(entity_id, _)| entity_id),
         local_unit_kind: local_entity.map(|(_, entity)| entity.unit_kind),
         local_unit_value: local_entity.map(|(_, entity)| entity.unit_value),
@@ -5579,6 +5585,11 @@ mod tests {
         );
         assert_eq!(runtime_ui.live.entity.entity_count, 3);
         assert_eq!(runtime_ui.live.entity.hidden_count, 0);
+        assert_eq!(runtime_ui.live.entity.player_count, 1);
+        assert_eq!(runtime_ui.live.entity.unit_count, 0);
+        assert_eq!(runtime_ui.live.entity.last_entity_id, Some(404));
+        assert_eq!(runtime_ui.live.entity.last_player_entity_id, Some(404));
+        assert_eq!(runtime_ui.live.entity.last_unit_entity_id, None);
         assert_eq!(runtime_ui.live.entity.local_entity_id, Some(404));
         assert_eq!(runtime_ui.live.entity.local_unit_kind, Some(2));
         assert_eq!(runtime_ui.live.entity.local_unit_value, Some(999));

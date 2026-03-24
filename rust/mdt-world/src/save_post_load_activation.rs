@@ -1,4 +1,7 @@
-use crate::{ParsedBuildingTail, SaveEntityChunkObservation, SavePostLoadWorldObservation};
+use crate::{
+    BuildingCenter, ParsedBuildingTail, SaveEntityChunkObservation, SavePostLoadWorldContract,
+    SavePostLoadWorldObservation, WorldModel,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SavePostLoadEntityActivationCandidate {
@@ -53,62 +56,77 @@ impl SavePostLoadActivationSurface {
 impl SavePostLoadWorldObservation {
     pub fn activation_surface(&self) -> SavePostLoadActivationSurface {
         let contract = self.projection_contract();
-        let world = &self.map.world;
-
-        let building_candidates = world
-            .building_centers
-            .iter()
-            .enumerate()
-            .map(|(center_index, center)| {
-                let center_reference_valid = world
-                    .tiles
-                    .get(center.tile_index)
-                    .map(|tile| {
-                        tile.tile_index == center.tile_index
-                            && tile.x == center.x
-                            && tile.y == center.y
-                            && tile.block_id == center.block_id
-                            && tile.building_center_index == Some(center_index)
-                    })
-                    .unwrap_or(false);
-
-                SavePostLoadBuildingActivationCandidate {
-                    center_index,
-                    tile_index: center.tile_index,
-                    x: center.x,
-                    y: center.y,
-                    block_id: center.block_id,
-                    revision: center.building.revision,
-                    tail_kind: building_tail_kind(&center.building.parsed_tail),
-                    center_reference_valid,
-                }
-            })
-            .collect();
-
-        let mut loadable_entities = Vec::new();
-        let mut skipped_entities = Vec::new();
-        for chunk in &self.world_entity_chunks {
-            let candidate = entity_activation_candidate(chunk);
-            if chunk.would_post_load_skip() {
-                skipped_entities.push(candidate);
-            } else {
-                loadable_entities.push(candidate);
-            }
-        }
-
-        SavePostLoadActivationSurface {
-            world_shell_ready: contract.can_project_world_shell(),
-            entity_ids_unique: self.entity_summary.duplicate_entity_ids.is_empty(),
-            duplicate_entity_ids: self.entity_summary.duplicate_entity_ids.clone(),
-            unresolved_effective_names: self.entity_remap_summary.unresolved_effective_names.clone(),
-            building_candidates,
-            loadable_entities,
-            skipped_entities,
-        }
+        activation_surface_from_contract(self, &contract)
     }
 }
 
-fn entity_activation_candidate(
+pub(crate) fn activation_surface_from_contract(
+    observation: &SavePostLoadWorldObservation,
+    contract: &SavePostLoadWorldContract,
+) -> SavePostLoadActivationSurface {
+    let world = &observation.map.world;
+    let building_candidates = world
+        .building_centers
+        .iter()
+        .enumerate()
+        .map(|(center_index, center)| building_activation_candidate(world, center_index, center))
+        .collect();
+
+    let mut loadable_entities = Vec::new();
+    let mut skipped_entities = Vec::new();
+    for chunk in &observation.world_entity_chunks {
+        let candidate = entity_activation_candidate(chunk);
+        if chunk.would_post_load_skip() {
+            skipped_entities.push(candidate);
+        } else {
+            loadable_entities.push(candidate);
+        }
+    }
+
+    SavePostLoadActivationSurface {
+        world_shell_ready: contract.can_project_world_shell(),
+        entity_ids_unique: observation.entity_summary.duplicate_entity_ids.is_empty(),
+        duplicate_entity_ids: observation.entity_summary.duplicate_entity_ids.clone(),
+        unresolved_effective_names: observation
+            .entity_remap_summary
+            .unresolved_effective_names
+            .clone(),
+        building_candidates,
+        loadable_entities,
+        skipped_entities,
+    }
+}
+
+pub(crate) fn building_activation_candidate(
+    world: &WorldModel,
+    center_index: usize,
+    center: &BuildingCenter,
+) -> SavePostLoadBuildingActivationCandidate {
+    let center_reference_valid = world
+        .tiles
+        .get(center.tile_index)
+        .map(|tile| {
+            tile.tile_index == center.tile_index
+                && tile.x == center.x
+                && tile.y == center.y
+                && tile.block_id == center.block_id
+                && tile.building_center_index == Some(center_index)
+        })
+        .unwrap_or(false);
+
+    SavePostLoadBuildingActivationCandidate {
+        center_index,
+        tile_index: center.tile_index,
+        x: center.x,
+        y: center.y,
+        block_id: center.block_id,
+        revision: center.building.revision,
+        tail_kind: building_tail_kind(&center.building.parsed_tail),
+        center_reference_valid,
+    }
+}
+
+pub(crate) fn entity_activation_candidate(
     chunk: &SaveEntityChunkObservation,
 ) -> SavePostLoadEntityActivationCandidate {
     SavePostLoadEntityActivationCandidate {
@@ -116,13 +134,15 @@ fn entity_activation_candidate(
         source_class_id: chunk.class_id,
         effective_class_id: chunk.post_load_class_id(),
         source_name: chunk.resolved_name().into_owned(),
-        effective_name: chunk.post_load_resolved_name().map(|name| name.into_owned()),
+        effective_name: chunk
+            .post_load_resolved_name()
+            .map(|name| name.into_owned()),
         chunk_len: chunk.chunk_len,
         body_len: chunk.body_len,
     }
 }
 
-fn building_tail_kind(parsed_tail: &ParsedBuildingTail) -> &'static str {
+pub(crate) fn building_tail_kind(parsed_tail: &ParsedBuildingTail) -> &'static str {
     match parsed_tail {
         ParsedBuildingTail::Empty => "empty",
         ParsedBuildingTail::Conveyor(_) => "conveyor",
@@ -182,7 +202,10 @@ mod tests {
         assert!(surface.world_shell_ready);
         assert!(surface.entity_ids_unique);
         assert_eq!(surface.duplicate_entity_ids, Vec::<i32>::new());
-        assert_eq!(surface.unresolved_effective_names, vec!["mod-unit".to_string()]);
+        assert_eq!(
+            surface.unresolved_effective_names,
+            vec!["mod-unit".to_string()]
+        );
         assert_eq!(surface.valid_building_reference_count(), 1);
         assert!(!surface.can_seed_runtime_apply());
 

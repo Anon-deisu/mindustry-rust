@@ -1,17 +1,17 @@
 use crate::{
-    hud_model::HudSummary,
     panel_model::{
-        build_build_config_panel, build_build_interaction_panel, build_minimap_panel,
-        build_runtime_admin_panel, build_runtime_chat_panel, build_runtime_command_mode_panel,
-        build_runtime_dialog_panel, build_runtime_live_effect_panel,
-        build_runtime_live_entity_panel, build_runtime_menu_panel, build_runtime_rules_panel,
-        build_runtime_session_panel, build_runtime_ui_notice_panel,
-        build_runtime_world_label_panel, PresenterViewWindow, RuntimeDialogNoticeKind,
-        RuntimeDialogPromptKind,
+        build_build_config_panel, build_build_interaction_panel, build_hud_status_panel,
+        build_hud_visibility_panel, build_minimap_panel, build_runtime_admin_panel,
+        build_runtime_chat_panel, build_runtime_command_mode_panel, build_runtime_dialog_panel,
+        build_runtime_kick_panel, build_runtime_live_effect_panel,
+        build_runtime_live_entity_panel, build_runtime_loading_panel, build_runtime_menu_panel,
+        build_runtime_reconnect_panel, build_runtime_rules_panel,
+        build_runtime_ui_notice_panel, build_runtime_world_label_panel, PresenterViewWindow,
+        RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
     },
     render_model::{RenderObjectSemanticFamily, RenderObjectSemanticKind},
-    BuildQueueHeadObservability, BuildQueueHeadStage, BuildUiObservability, HudModel, RenderModel,
-    RenderObject, RuntimeUiObservability, ScenePresenter,
+    BuildQueueHeadObservability, BuildQueueHeadStage, BuildUiObservability, HudModel,
+    RenderModel, RenderObject, RuntimeUiObservability, ScenePresenter,
 };
 use minifb::{Scale, Window, WindowOptions};
 use std::fs;
@@ -36,6 +36,8 @@ pub struct WindowFrame {
     pub title: String,
     pub wave_text: Option<String>,
     pub status_text: String,
+    pub panel_lines: Vec<String>,
+    pub overlay_lines: Vec<String>,
     pub overlay_summary_text: Option<String>,
     pub fps: Option<f32>,
     pub zoom: f32,
@@ -324,6 +326,8 @@ fn compose_frame(
         title: hud.title.clone(),
         wave_text: hud.wave_text.clone(),
         status_text: compose_frame_status_text(scene, hud, window),
+        panel_lines: compose_frame_panel_lines(scene, hud, window),
+        overlay_lines: compose_frame_overlay_lines(scene, hud),
         overlay_summary_text: hud.overlay_summary_text.clone(),
         fps: hud.fps,
         zoom: scene.viewport.zoom,
@@ -486,83 +490,139 @@ fn compose_frame_status_text(
     if !hud.status_text.is_empty() {
         parts.push(hud.status_text.clone());
     }
-    if let Some(summary) = hud.summary.as_ref() {
-        parts.push(compose_hud_summary_status_text(summary));
+    if let Some(summary_text) = compose_hud_summary_status_text(hud) {
+        parts.push(summary_text);
     }
-    if let Some(minimap_text) = compose_minimap_panel_status_text(scene, hud, window) {
-        parts.push(minimap_text);
+    if let Some(visibility_text) = compose_hud_visibility_status_text(hud) {
+        parts.push(visibility_text);
     }
-    if let Some(build_panel_text) = compose_build_config_panel_status_text(hud) {
-        parts.push(build_panel_text);
-    }
-    if let Some(build_rollback_text) = compose_build_config_rollback_status_text(hud) {
-        parts.push(build_rollback_text);
-    }
-    if let Some(build_interaction_text) = compose_build_interaction_status_text(hud) {
-        parts.push(build_interaction_text);
+    if let Some(minimap_window_text) = compose_minimap_window_status_text(scene, hud, window) {
+        parts.push(minimap_window_text);
     }
     if let Some(build_ui) = hud.build_ui.as_ref() {
         parts.push(compose_build_ui_status_text(build_ui));
     }
     if let Some(runtime_ui) = hud.runtime_ui.as_ref() {
-        if let Some(runtime_ui_notice_text) = compose_runtime_ui_notice_panel_status_text(hud) {
-            parts.push(runtime_ui_notice_text);
-        }
-        if let Some(runtime_menu_text) = compose_runtime_menu_panel_status_text(hud) {
-            parts.push(runtime_menu_text);
-        }
-        if let Some(runtime_dialog_text) = compose_runtime_dialog_panel_status_text(hud) {
-            parts.push(runtime_dialog_text);
-        }
-        if let Some(runtime_chat_text) = compose_runtime_chat_panel_status_text(hud) {
-            parts.push(runtime_chat_text);
-        }
-        if let Some(runtime_command_text) = compose_runtime_command_mode_panel_status_text(hud) {
-            parts.push(runtime_command_text);
-        }
-        if let Some(runtime_admin_text) = compose_runtime_admin_panel_status_text(hud) {
-            parts.push(runtime_admin_text);
-        }
-        if let Some(runtime_rules_text) = compose_runtime_rules_panel_status_text(hud) {
-            parts.push(runtime_rules_text);
-        }
-        if let Some(runtime_world_label_text) = compose_runtime_world_label_panel_status_text(hud) {
-            parts.push(runtime_world_label_text);
-        }
-        if let Some(runtime_session_text) = compose_runtime_session_panel_status_text(hud) {
-            parts.push(runtime_session_text);
-        }
-        if let Some(runtime_live_entity_text) = compose_runtime_live_entity_panel_status_text(hud) {
-            parts.push(runtime_live_entity_text);
-        }
-        if let Some(runtime_live_effect_text) = compose_runtime_live_effect_panel_status_text(hud) {
-            parts.push(runtime_live_effect_text);
-        }
         let runtime_ui_text = compose_runtime_ui_status_text(runtime_ui);
         if !runtime_ui_text.is_empty() {
             parts.push(runtime_ui_text);
         }
     }
-    if let Some(overlay_semantics_text) = compose_overlay_semantics_status_text(scene) {
-        parts.push(overlay_semantics_text);
-    }
     parts.join(" ")
 }
 
-fn compose_hud_summary_status_text(summary: &HudSummary) -> String {
-    format!(
-        "hud:team={} sel={} plans={} mk={} map={}x{} ov{} fg{} vis{} hid{}",
+fn compose_frame_panel_lines(
+    scene: &RenderModel,
+    hud: &HudModel,
+    window: PresenterViewWindow,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    if let Some(summary_text) = compose_hud_summary_status_text(hud) {
+        lines.push(format!("HUD: {summary_text}"));
+    }
+    if let Some(visibility_text) = compose_hud_visibility_status_text(hud) {
+        lines.push(format!("HUD-VIS: {visibility_text}"));
+    }
+    if let Some(minimap_window_text) = compose_minimap_window_status_text(scene, hud, window) {
+        lines.push(format!("MINIMAP: {minimap_window_text}"));
+    }
+    if let Some(minimap_kind_text) = compose_minimap_kind_status_text(scene, hud) {
+        lines.push(format!("MINIMAP-KINDS: {minimap_kind_text}"));
+    }
+    if let Some(build_panel_text) = compose_build_config_panel_status_text(hud) {
+        lines.push(format!("BUILD-CONFIG: {build_panel_text}"));
+    }
+    if let Some(build_rollback_text) = compose_build_config_rollback_status_text(hud) {
+        lines.push(format!("BUILD-ROLLBACK: {build_rollback_text}"));
+    }
+    if let Some(build_interaction_text) = compose_build_interaction_status_text(hud) {
+        lines.push(format!("BUILD-INTERACTION: {build_interaction_text}"));
+    }
+    if let Some(runtime_ui_notice_text) = compose_runtime_ui_notice_panel_status_text(hud) {
+        lines.push(format!("RUNTIME-NOTICE: {runtime_ui_notice_text}"));
+    }
+    if let Some(runtime_menu_text) = compose_runtime_menu_panel_status_text(hud) {
+        lines.push(format!("RUNTIME-MENU: {runtime_menu_text}"));
+    }
+    if let Some(runtime_dialog_text) = compose_runtime_dialog_panel_status_text(hud) {
+        lines.push(format!("RUNTIME-DIALOG: {runtime_dialog_text}"));
+    }
+    if let Some(runtime_chat_text) = compose_runtime_chat_panel_status_text(hud) {
+        lines.push(format!("RUNTIME-CHAT: {runtime_chat_text}"));
+    }
+    if let Some(runtime_command_text) = compose_runtime_command_mode_panel_status_text(hud) {
+        lines.push(format!("RUNTIME-COMMAND: {runtime_command_text}"));
+    }
+    if let Some(runtime_admin_text) = compose_runtime_admin_panel_status_text(hud) {
+        lines.push(format!("RUNTIME-ADMIN: {runtime_admin_text}"));
+    }
+    if let Some(runtime_rules_text) = compose_runtime_rules_panel_status_text(hud) {
+        lines.push(format!("RUNTIME-RULES: {runtime_rules_text}"));
+    }
+    if let Some(runtime_world_label_text) = compose_runtime_world_label_panel_status_text(hud) {
+        lines.push(format!("RUNTIME-WORLD-LABEL: {runtime_world_label_text}"));
+    }
+    if let Some(runtime_kick_text) = compose_runtime_kick_status_text(hud) {
+        lines.push(format!("RUNTIME-KICK: {runtime_kick_text}"));
+    }
+    if let Some(runtime_loading_text) = compose_runtime_loading_status_text(hud) {
+        lines.push(format!("RUNTIME-LOADING: {runtime_loading_text}"));
+    }
+    if let Some(runtime_reconnect_text) = compose_runtime_reconnect_status_text(hud) {
+        lines.push(format!("RUNTIME-RECONNECT: {runtime_reconnect_text}"));
+    }
+    if let Some(runtime_live_entity_text) = compose_runtime_live_entity_panel_status_text(hud) {
+        lines.push(format!("RUNTIME-LIVE-ENTITY: {runtime_live_entity_text}"));
+    }
+    if let Some(runtime_live_effect_text) = compose_runtime_live_effect_panel_status_text(hud) {
+        lines.push(format!("RUNTIME-LIVE-EFFECT: {runtime_live_effect_text}"));
+    }
+    lines
+}
+
+fn compose_frame_overlay_lines(scene: &RenderModel, hud: &HudModel) -> Vec<String> {
+    let mut lines = Vec::new();
+    if let Some(summary_text) = hud
+        .overlay_summary_text
+        .as_deref()
+        .filter(|text| !text.is_empty())
+    {
+        lines.push(format!("OVERLAY: {summary_text}"));
+    }
+    if let Some(overlay_semantics_text) = compose_overlay_semantics_status_text(scene) {
+        lines.push(format!("OVERLAY-KINDS: {overlay_semantics_text}"));
+    }
+    lines
+}
+
+fn compose_hud_summary_status_text(hud: &HudModel) -> Option<String> {
+    let summary = build_hud_status_panel(hud)?;
+    Some(format!(
+        "hud:team={} sel={} plans={} mk={} map={}x{}",
         summary.team_id,
         compact_runtime_ui_text(Some(summary.selected_block.as_str())),
         summary.plan_count,
         summary.marker_count,
         summary.map_width,
         summary.map_height,
-        if summary.overlay_visible { 1 } else { 0 },
-        if summary.fog_enabled { 1 } else { 0 },
-        summary.visible_tile_count,
-        summary.hidden_tile_count,
-    )
+    ))
+}
+
+fn compose_hud_visibility_status_text(hud: &HudModel) -> Option<String> {
+    let visibility = build_hud_visibility_panel(hud)?;
+    Some(format!(
+        "hudvis:ov{}:fg{}:k{}p{}:v{}p{}:h{}p{}:u{}p{}",
+        if visibility.overlay_visible { 1 } else { 0 },
+        if visibility.fog_enabled { 1 } else { 0 },
+        visibility.known_tile_count,
+        visibility.known_tile_percent,
+        visibility.visible_tile_count,
+        visibility.visible_known_percent,
+        visibility.hidden_tile_count,
+        visibility.hidden_known_percent,
+        visibility.unknown_tile_count,
+        visibility.unknown_tile_percent,
+    ))
 }
 
 fn compose_runtime_ui_status_text(runtime_ui: &RuntimeUiObservability) -> String {
@@ -757,13 +817,24 @@ fn runtime_world_label_status_sample(value: Option<&str>) -> String {
     }
 }
 
-fn compose_runtime_session_panel_status_text(hud: &HudModel) -> Option<String> {
-    let panel = build_runtime_session_panel(hud)?;
+fn compose_runtime_kick_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_kick_panel(hud)?;
+    Some(format!("kick:{}", compose_runtime_kick_panel_status_text(&panel)))
+}
+
+fn compose_runtime_loading_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_loading_panel(hud)?;
     Some(format!(
-        "session:k={};l={};r={}",
-        compose_runtime_kick_panel_status_text(&panel.kick),
-        compose_runtime_loading_panel_status_text(&panel.loading),
-        compose_runtime_reconnect_panel_status_text(&panel.reconnect),
+        "loading:{}",
+        compose_runtime_loading_panel_status_text(&panel)
+    ))
+}
+
+fn compose_runtime_reconnect_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_reconnect_panel(hud)?;
+    Some(format!(
+        "reconnect:{}",
+        compose_runtime_reconnect_panel_status_text(&panel)
     ))
 }
 
@@ -805,16 +876,14 @@ fn compose_build_ui_status_text(build_ui: &BuildUiObservability) -> String {
     text
 }
 
-fn compose_minimap_panel_status_text(
+fn compose_minimap_window_status_text(
     scene: &RenderModel,
     hud: &HudModel,
     window: PresenterViewWindow,
 ) -> Option<String> {
     let panel = build_minimap_panel(scene, hud, window)?;
     Some(format!(
-        "mini:map{}x{}:win{},{}-{},{}@s{}x{}:c{}:f{}:i{}:vis=ov{}:fg{}:k{}p{}:v{}p{}:h{}p{}:u{}p{}:obj{}@pl{}:mk{}:pn{}:bk{}:rt{}:tr{}:uk{}",
-        panel.map_width,
-        panel.map_height,
+        "mini:win{},{}-{},{}@s{}x{}:c{}:f{}:i{}",
         panel.window.origin_x,
         panel.window.origin_y,
         panel.window_last_x,
@@ -824,16 +893,22 @@ fn compose_minimap_panel_status_text(
         panel.window_coverage_percent,
         optional_focus_tile_status_text(panel.focus_tile),
         optional_bool_label(panel.focus_in_window),
-        if panel.overlay_visible { 1 } else { 0 },
-        if panel.fog_enabled { 1 } else { 0 },
-        panel.known_tile_count,
-        panel.known_tile_percent,
-        panel.visible_tile_count,
-        panel.visible_known_percent,
-        panel.hidden_tile_count,
-        panel.hidden_known_percent,
-        panel.unknown_tile_count,
-        panel.unknown_tile_percent,
+    ))
+}
+
+fn compose_minimap_kind_status_text(scene: &RenderModel, hud: &HudModel) -> Option<String> {
+    let panel = build_minimap_panel(
+        scene,
+        hud,
+        PresenterViewWindow {
+            origin_x: 0,
+            origin_y: 0,
+            width: 0,
+            height: 0,
+        },
+    )?;
+    Some(format!(
+        "minikind:obj{}@pl{}:mk{}:pn{}:bk{}:rt{}:tr{}:uk{}",
         panel.tracked_object_count,
         panel.player_count,
         panel.marker_count,
@@ -1104,7 +1179,7 @@ fn compose_live_entity_status_text(
     entity: &crate::RuntimeLiveEntitySummaryObservability,
 ) -> String {
     format!(
-        "{}/{}@{}:u{}/{}:p{}:h{}:s{}",
+        "{}/{}@{}:u{}/{}:p{}:h{}:s{}:tp{}/{}:last{}/{}/{}",
         entity.entity_count,
         entity.hidden_count,
         optional_i32_label(entity.local_entity_id),
@@ -1113,6 +1188,11 @@ fn compose_live_entity_status_text(
         world_position_status_text(entity.local_position.as_ref()),
         optional_bool_label(entity.local_hidden),
         optional_u64_label(entity.local_last_seen_entity_snapshot_count),
+        entity.player_count,
+        entity.unit_count,
+        optional_i32_label(entity.last_entity_id),
+        optional_i32_label(entity.last_player_entity_id),
+        optional_i32_label(entity.last_unit_entity_id),
     )
 }
 
@@ -1120,7 +1200,7 @@ fn compose_live_entity_panel_status_text(
     entity: &crate::panel_model::RuntimeLiveEntityPanelModel,
 ) -> String {
     format!(
-        "{}/{}@{}:u{}/{}:p{}:h{}:s{}",
+        "{}/{}@{}:u{}/{}:p{}:h{}:s{}:tp{}/{}:last{}/{}/{}",
         entity.entity_count,
         entity.hidden_count,
         optional_i32_label(entity.local_entity_id),
@@ -1129,6 +1209,11 @@ fn compose_live_entity_panel_status_text(
         world_position_status_text(entity.local_position.as_ref()),
         optional_bool_label(entity.local_hidden),
         optional_u64_label(entity.local_last_seen_entity_snapshot_count),
+        entity.player_count,
+        entity.unit_count,
+        optional_i32_label(entity.last_entity_id),
+        optional_i32_label(entity.last_player_entity_id),
+        optional_i32_label(entity.last_unit_entity_id),
     )
 }
 
@@ -1756,6 +1841,8 @@ mod tests {
             title: "demo".to_string(),
             wave_text: None,
             status_text: String::new(),
+            panel_lines: Vec::new(),
+            overlay_lines: Vec::new(),
             overlay_summary_text: None,
             fps: None,
             zoom: 1.0,
@@ -1861,7 +1948,10 @@ mod tests {
         let backend = presenter.into_backend();
         let frame = backend.frames.last().unwrap();
         assert_eq!((frame.width, frame.height), (4, 3));
-        assert!(frame.status_text.contains("mini:map80x60:win2,3-5,5@s4x3"));
+        assert!(frame
+            .panel_lines
+            .iter()
+            .any(|line| line.contains("MINIMAP: mini:win2,3-5,5@s4x3")));
     }
 
     #[test]
@@ -1933,12 +2023,14 @@ mod tests {
 
         let backend = presenter.into_backend();
         let frame = backend.frames.last().unwrap();
-        assert!(frame
-            .status_text
-            .contains("overlay:players=1 markers=2 plans=0 blocks=0 runtime=4"));
-        assert!(frame.status_text.contains(
-            "detail=marker-line:1,marker-line-end:1,runtime-building:1,runtime-config:1,runtime-deconstruct:1,runtime-place:1"
-        ));
+        assert_frame_line_contains(
+            &frame.overlay_lines,
+            "OVERLAY-KINDS: overlay:players=1 markers=2 plans=0 blocks=0 runtime=4",
+        );
+        assert_frame_line_contains(
+            &frame.overlay_lines,
+            "detail=marker-line:1,marker-line-end:1,runtime-building:1,runtime-config:1,runtime-deconstruct:1,runtime-place:1",
+        );
     }
 
     #[test]
@@ -2259,6 +2351,11 @@ mod tests {
                     entity: crate::RuntimeLiveEntitySummaryObservability {
                         entity_count: 1,
                         hidden_count: 0,
+                        player_count: 1,
+                        unit_count: 0,
+                        last_entity_id: Some(404),
+                        last_player_entity_id: Some(404),
+                        last_unit_entity_id: None,
                         local_entity_id: Some(404),
                         local_unit_kind: Some(2),
                         local_unit_value: Some(999),
@@ -2342,58 +2439,16 @@ mod tests {
         assert!(frame.status_text.starts_with("base "));
         assert!(frame
             .status_text
-            .contains("hud:team=2 sel=payload-rout~ plans=3 mk=4 map=80x60 ov1 fg1 vis120 hid24"));
-        assert!(frame.status_text.contains(
-            "mini:map80x60:win0,0-0,0@s1x1:c0:f0:0:i1:vis=ov1:fg1:k144p3:v120p83:h24p16:u4656p97:obj4@pl1:mk1:pn1:bk1:rt0:tr0:uk0"
-        ));
+            .contains("hud:team=2 sel=payload-rout~ plans=3 mk=4 map=80x60"));
         assert!(frame
             .status_text
-            .contains("cfgpanel:sel257:r2:m1:p1/2:hist3/4:o1:h=flight@100:99:place:b301:r1:align=split:fam2/2:more0:t2@message#1,power-node#1"));
-        assert!(frame.status_text.contains(
-            "cfgstrip:a3:rb1:last=23:45:src=construct:b1:cl1:lr1:pm=mismatch:out=applied:block=power-node"
-        ));
-        assert!(frame.status_text.contains(
-            "cfgflow:m=place:s=head-diverged:q=mixed:p=3:pr=1:cfg=2/2:top=message:h=flight@100:99:place:b301:r1:auth=rollback:pm=mismatch:src=construct:t=23:45:b=power-node:o=1"
-        ));
+            .contains("hudvis:ov1:fg1:k144p3:v120p83:h24p16:u4656p97"));
+        assert!(frame
+            .status_text
+            .contains("mini:win0,0-0,0@s1x1:c0:f0:0:i1"));
         assert!(frame
             .status_text
             .contains("build:sel=257:r2:b1:q1/i2/f3/r4/o1:h=flight@100:99:place:b301:r1:cfg2"));
-        assert!(frame.status_text.contains(
-            ":cfg=message#1@18:40:len=5:text=hello;power-node#1@23:45:links=24:46|25:47"
-        ));
-        assert!(frame
-            .status_text
-            .contains("notice:hud=9/10/11@hud_text/hud_rel:toast=14/15@toast/warn:tin=53@404:Digits/Only_numbers/12345#16:n1:e1"));
-        assert!(frame
-            .status_text
-            .contains("menu:m16:fm17:h18:tin53@404:Digits/12345#16:n1:e1"));
-        assert!(frame.status_text.contains(
-            "dialog:p=input:a1:m16/f17/h18:tin53@404:Digits/Only_numbers/12345#16:n1:e1:n=warn@warn:c48"
-        ));
-        assert!(frame
-            .status_text
-            .contains("chat:srv7@server_text:msg8@[cyan]hello:rawhello:s404"));
-        assert!(frame.status_text.contains(
-            "cmd:act1:sel4@11,22,33:bld2@327686:rect-3:4:12:18:grp2#3@11,4#1@99:tb589834:u2:808:p0x42400000:0x42c00000:r1:2:3:4:c5:s7/0"
-        ));
-        assert!(frame
-            .status_text
-            .contains("admin:t56@123456:f76:dbg57/58@12:f231"));
-        assert!(frame
-            .status_text
-            .contains("rules:mut354:fail210:wv1:pvp0:obj2:q1:par1:fg2:oor75:last9"));
-        assert!(frame
-            .status_text
-            .contains("wlabel:set19:rel20:rm21:tot60:act2:inact58:last904:f3:fs1094713344@12.0:z1082130432@4.0:pos40.0:60.0:txtworld_label:l1:n11"));
-        assert!(frame.status_text.contains(
-            "session:k=idInUse@7:IdInUse:wait_for_old~;l=defer5:replay6:drop7:qdrop8:sfail9:scfail10:efail11:rdy12@1300:to2:cto1:rto1:ltready@20000:rs3:rr1:wr1:kr1:lrreload:lwr@lw1:cl0:rd1:cc0:p4:d5:r6;r=attempt3:redirect@1/127.0.0.1:6567:connectRedir~@none:server_reque~"
-        ));
-        assert!(frame
-            .status_text
-            .contains("liveent:1/0@404:u2/999:p20.0:33.0:h0:s3"));
-        assert!(frame
-            .status_text
-            .contains("livefx:11/73@8:u19:kPoint2:cposition_tar~/unit_parent:pbiz@24.0:32.0"));
         assert!(frame
             .status_text
             .contains("ui:hud=9/10/11@hud_text/hud_rel"));
@@ -2405,11 +2460,91 @@ mod tests {
             .contains("fx=11/73@8:u19:kPoint2:cposition_tar~/unit_parent:pbiz@24.0:32.0"));
         assert!(frame
             .status_text
-            .contains("overlay:players=1 markers=1 plans=1 blocks=1 runtime=0"));
-        assert!(frame.status_text.contains("toast=14/15@toast/warn"));
-        assert!(frame
-            .status_text
             .contains("tin=53@404:Digits/Only_numbers/12345#16:n1:e1"));
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "HUD: hud:team=2 sel=payload-rout~ plans=3 mk=4 map=80x60",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "HUD-VIS: hudvis:ov1:fg1:k144p3:v120p83:h24p16:u4656p97",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "MINIMAP-KINDS: minikind:obj4@pl1:mk1:pn1:bk1:rt0:tr0:uk0",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "BUILD-CONFIG: cfgpanel:sel257:r2:m1:p1/2:hist3/4:o1:h=flight@100:99:place:b301:r1:align=split:fam2/2:more0:t2@message#1,power-node#1",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "BUILD-ROLLBACK: cfgstrip:a3:rb1:last=23:45:src=construct:b1:cl1:lr1:pm=mismatch:out=applied:block=power-node",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "BUILD-INTERACTION: cfgflow:m=place:s=head-diverged:q=mixed:p=3:pr=1:cfg=2/2:top=message:h=flight@100:99:place:b301:r1:auth=rollback:pm=mismatch:src=construct:t=23:45:b=power-node:o=1",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RUNTIME-NOTICE: notice:hud=9/10/11@hud_text/hud_rel:toast=14/15@toast/warn:tin=53@404:Digits/Only_numbers/12345#16:n1:e1",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RUNTIME-MENU: menu:m16:fm17:h18:tin53@404:Digits/12345#16:n1:e1",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RUNTIME-DIALOG: dialog:p=input:a1:m16/f17/h18:tin53@404:Digits/Only_numbers/12345#16:n1:e1:n=warn@warn:c48",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RUNTIME-CHAT: chat:srv7@server_text:msg8@[cyan]hello:rawhello:s404",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RUNTIME-COMMAND: cmd:act1:sel4@11,22,33:bld2@327686:rect-3:4:12:18:grp2#3@11,4#1@99:tb589834:u2:808:p0x42400000:0x42c00000:r1:2:3:4:c5:s7/0",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RUNTIME-ADMIN: admin:t56@123456:f76:dbg57/58@12:f231",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RUNTIME-RULES: rules:mut354:fail210:wv1:pvp0:obj2:q1:par1:fg2:oor75:last9",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RUNTIME-WORLD-LABEL: wlabel:set19:rel20:rm21:tot60:act2:inact58:last904:f3:fs1094713344@12.0:z1082130432@4.0:pos40.0:60.0:txtworld_label:l1:n11",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RUNTIME-KICK: kick:idInUse@7:IdInUse:wait_for_old~",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RUNTIME-LOADING: loading:defer5:replay6:drop7:qdrop8:sfail9:scfail10:efail11:rdy12@1300:to2:cto1:rto1:ltready@20000:rs3:rr1:wr1:kr1:lrreload:lwr@lw1:cl0:rd1:cc0:p4:d5:r6",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RUNTIME-RECONNECT: reconnect:attempt3:redirect@1/127.0.0.1:6567:connectRedir~@none:server_reque~",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RUNTIME-LIVE-ENTITY: liveent:1/0@404:u2/999:p20.0:33.0:h0:s3:tp1/0:last404/404/none",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RUNTIME-LIVE-EFFECT: livefx:11/73@8:u19:kPoint2:cposition_tar~/unit_parent:pbiz@24.0:32.0",
+        );
+        assert_frame_line_contains(
+            &frame.overlay_lines,
+            "OVERLAY: Plans 1",
+        );
+        assert_frame_line_contains(
+            &frame.overlay_lines,
+            "OVERLAY-KINDS: overlay:players=1 markers=1 plans=1 blocks=1 runtime=0",
+        );
         let window_title = super::compose_window_title(frame, "demo-client");
         assert!(window_title.contains("demo-client | demo | Wave 7 |"));
         assert!(window_title.contains("| Plans 1"));
@@ -2503,18 +2638,34 @@ mod tests {
 
         let backend = presenter.into_backend();
         let frame = backend.frames.last().unwrap();
-        assert!(frame.status_text.contains(
-            "mini:map80x60:win0,0-1,1@s2x2:c0:f0:0:i1:vis=ov0:fg0:k0p0:v0p0:h0p0:u4800p100:obj3@pl1:mk0:pn0:bk0:rt0:tr1:uk1"
-        ));
-        assert!(frame.status_text.contains(
-            "cfgpanel:sel301:r1:m1:p2/1:hist4/5:o6:h=queued@10:12:place:b301:r1:align=match:fam2/3:more1:t7@gamma#4,beta#2"
-        ));
-        assert!(frame.status_text.contains(
-            "cfgstrip:a4:rb2:last=10:12:src=tilecfg:b1:cl0:lr0:pm=match:out=rej-miss-build:block=gamma"
-        ));
-        assert!(frame.status_text.contains(
-            "cfgflow:m=place:s=head-aligned:q=mixed:p=3:pr=1:cfg=3/7:top=gamma:h=queued@10:12:place:b301:r1:auth=rej-miss-build:pm=match:src=tilecfg:t=10:12:b=gamma:o=6"
-        ));
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "MINIMAP: mini:win0,0-1,1@s2x2:c0:f0:0:i1",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "MINIMAP-KINDS: minikind:obj3@pl1:mk0:pn0:bk0:rt0:tr1:uk1",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "BUILD-CONFIG: cfgpanel:sel301:r1:m1:p2/1:hist4/5:o6:h=queued@10:12:place:b301:r1:align=match:fam2/3:more1:t7@gamma#4,beta#2",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "BUILD-ROLLBACK: cfgstrip:a4:rb2:last=10:12:src=tilecfg:b1:cl0:lr0:pm=match:out=rej-miss-build:block=gamma",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "BUILD-INTERACTION: cfgflow:m=place:s=head-aligned:q=mixed:p=3:pr=1:cfg=3/7:top=gamma:h=queued@10:12:place:b301:r1:auth=rej-miss-build:pm=match:src=tilecfg:t=10:12:b=gamma:o=6",
+        );
+    }
+
+    fn assert_frame_line_contains(lines: &[String], needle: &str) {
+        assert!(
+            lines.iter().any(|line| line.contains(needle)),
+            "missing line containing `{needle}` in {:?}",
+            lines
+        );
     }
 
     fn render_object(id: &str) -> RenderObject {

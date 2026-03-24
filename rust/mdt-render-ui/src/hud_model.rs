@@ -292,6 +292,11 @@ pub struct RuntimeLiveSummaryObservability {
 pub struct RuntimeLiveEntitySummaryObservability {
     pub entity_count: usize,
     pub hidden_count: usize,
+    pub player_count: usize,
+    pub unit_count: usize,
+    pub last_entity_id: Option<i32>,
+    pub last_player_entity_id: Option<i32>,
+    pub last_unit_entity_id: Option<i32>,
     pub local_entity_id: Option<i32>,
     pub local_unit_kind: Option<u8>,
     pub local_unit_value: Option<u32>,

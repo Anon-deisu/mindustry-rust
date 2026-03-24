@@ -1,9 +1,10 @@
 use crate::panel_model::{
-    build_build_config_panel, build_build_interaction_panel, build_minimap_panel,
-    build_runtime_admin_panel, build_runtime_chat_panel, build_runtime_command_mode_panel,
-    build_runtime_dialog_panel, build_runtime_live_effect_panel,
-    build_runtime_live_entity_panel, build_runtime_menu_panel, build_runtime_rules_panel,
-    build_runtime_session_panel, build_runtime_ui_notice_panel,
+    build_build_config_panel, build_build_interaction_panel, build_hud_status_panel,
+    build_hud_visibility_panel, build_minimap_panel, build_runtime_admin_panel,
+    build_runtime_chat_panel, build_runtime_command_mode_panel, build_runtime_dialog_panel,
+    build_runtime_kick_panel, build_runtime_live_effect_panel,
+    build_runtime_live_entity_panel, build_runtime_loading_panel, build_runtime_menu_panel,
+    build_runtime_reconnect_panel, build_runtime_rules_panel, build_runtime_ui_notice_panel,
     build_runtime_world_label_panel, PresenterViewWindow, RuntimeDialogNoticeKind,
     RuntimeDialogPromptKind,
 };
@@ -61,6 +62,9 @@ impl AsciiScenePresenter {
         out.push_str(&format!("STATUS: {}\n", hud.status_text));
         if let Some(summary_text) = compose_hud_summary_text(hud) {
             out.push_str(&format!("SUMMARY: {summary_text}\n"));
+        }
+        if let Some(visibility_text) = compose_hud_visibility_text(hud) {
+            out.push_str(&format!("HUD-VIS: {visibility_text}\n"));
         }
         if let Some(minimap_text) = compose_minimap_panel_text(scene, hud, window) {
             out.push_str(&format!("MINIMAP: {minimap_text}\n"));
@@ -127,8 +131,14 @@ impl AsciiScenePresenter {
                 "RUNTIME-WORLD-LABEL: {runtime_world_label_text}\n"
             ));
         }
-        if let Some(runtime_session_text) = compose_runtime_session_panel_text(hud) {
-            out.push_str(&format!("RUNTIME-SESSION: {runtime_session_text}\n"));
+        if let Some(runtime_kick_text) = compose_runtime_kick_row_text(hud) {
+            out.push_str(&format!("RUNTIME-KICK: {runtime_kick_text}\n"));
+        }
+        if let Some(runtime_loading_text) = compose_runtime_loading_row_text(hud) {
+            out.push_str(&format!("RUNTIME-LOADING: {runtime_loading_text}\n"));
+        }
+        if let Some(runtime_reconnect_text) = compose_runtime_reconnect_row_text(hud) {
+            out.push_str(&format!("RUNTIME-RECONNECT: {runtime_reconnect_text}\n"));
         }
         if let Some(runtime_live_entity_text) = compose_runtime_live_entity_panel_text(hud) {
             out.push_str(&format!(
@@ -291,9 +301,9 @@ fn sprite_for_id(id: &str) -> char {
 }
 
 fn compose_hud_summary_text(hud: &HudModel) -> Option<String> {
-    let summary = hud.summary.as_ref()?;
+    let summary = build_hud_status_panel(hud)?;
     Some(format!(
-        "player={} team={} selected={} plans={} markers={} map={}x{} overlay={} fog={} vis={} hid={}",
+        "player={} team={} selected={} plans={} markers={} map={}x{}",
         compact_runtime_ui_text(Some(summary.player_name.as_str())),
         summary.team_id,
         compact_runtime_ui_text(Some(summary.selected_block.as_str())),
@@ -301,10 +311,23 @@ fn compose_hud_summary_text(hud: &HudModel) -> Option<String> {
         summary.marker_count,
         summary.map_width,
         summary.map_height,
-        if summary.overlay_visible { 1 } else { 0 },
-        if summary.fog_enabled { 1 } else { 0 },
-        summary.visible_tile_count,
-        summary.hidden_tile_count,
+    ))
+}
+
+fn compose_hud_visibility_text(hud: &HudModel) -> Option<String> {
+    let visibility = build_hud_visibility_panel(hud)?;
+    Some(format!(
+        "overlay={} fog={} known={}({}%) vis={}({}%) hid={}({}%) unseen={}({}%)",
+        if visibility.overlay_visible { 1 } else { 0 },
+        if visibility.fog_enabled { 1 } else { 0 },
+        visibility.known_tile_count,
+        visibility.known_tile_percent,
+        visibility.visible_tile_count,
+        visibility.visible_known_percent,
+        visibility.hidden_tile_count,
+        visibility.hidden_known_percent,
+        visibility.unknown_tile_count,
+        visibility.unknown_tile_percent,
     ))
 }
 
@@ -505,14 +528,19 @@ fn runtime_world_label_text_sample(value: Option<&str>) -> String {
     }
 }
 
-fn compose_runtime_session_panel_text(hud: &HudModel) -> Option<String> {
-    let panel = build_runtime_session_panel(hud)?;
-    Some(format!(
-        "kick={} loading={} reconnect={}",
-        compose_runtime_kick_panel_text(&panel.kick),
-        compose_runtime_loading_panel_text(&panel.loading),
-        compose_runtime_reconnect_panel_text(&panel.reconnect),
-    ))
+fn compose_runtime_kick_row_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_kick_panel(hud)?;
+    Some(compose_runtime_kick_panel_text(&panel))
+}
+
+fn compose_runtime_loading_row_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_loading_panel(hud)?;
+    Some(compose_runtime_loading_panel_text(&panel))
+}
+
+fn compose_runtime_reconnect_row_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_reconnect_panel(hud)?;
+    Some(compose_runtime_reconnect_panel_text(&panel))
 }
 
 fn compose_runtime_live_entity_panel_text(hud: &HudModel) -> Option<String> {
@@ -896,7 +924,7 @@ fn build_config_alignment_text(value: Option<bool>) -> &'static str {
 
 fn compose_live_entity_text(entity: &crate::RuntimeLiveEntitySummaryObservability) -> String {
     format!(
-        "{}/{}@{}:u{}/{}:p{}:h{}:s{}",
+        "{}/{}@{}:u{}/{}:p{}:h{}:s{}:tp{}/{}:last{}/{}/{}",
         entity.entity_count,
         entity.hidden_count,
         optional_i32_label(entity.local_entity_id),
@@ -905,6 +933,11 @@ fn compose_live_entity_text(entity: &crate::RuntimeLiveEntitySummaryObservabilit
         world_position_text(entity.local_position.as_ref()),
         optional_bool_label(entity.local_hidden),
         optional_u64_label(entity.local_last_seen_entity_snapshot_count),
+        entity.player_count,
+        entity.unit_count,
+        optional_i32_label(entity.last_entity_id),
+        optional_i32_label(entity.last_player_entity_id),
+        optional_i32_label(entity.last_unit_entity_id),
     )
 }
 
@@ -912,7 +945,7 @@ fn compose_live_entity_panel_text(
     entity: &crate::panel_model::RuntimeLiveEntityPanelModel,
 ) -> String {
     format!(
-        "{}/{}@{}:u{}/{}:p{}:h{}:s{}",
+        "{}/{}@{}:u{}/{}:p{}:h{}:s{}:tp{}/{}:last{}/{}/{}",
         entity.entity_count,
         entity.hidden_count,
         optional_i32_label(entity.local_entity_id),
@@ -921,6 +954,11 @@ fn compose_live_entity_panel_text(
         world_position_text(entity.local_position.as_ref()),
         optional_bool_label(entity.local_hidden),
         optional_u64_label(entity.local_last_seen_entity_snapshot_count),
+        entity.player_count,
+        entity.unit_count,
+        optional_i32_label(entity.last_entity_id),
+        optional_i32_label(entity.last_player_entity_id),
+        optional_i32_label(entity.last_unit_entity_id),
     )
 }
 
@@ -1878,6 +1916,11 @@ mod tests {
                     entity: crate::RuntimeLiveEntitySummaryObservability {
                         entity_count: 1,
                         hidden_count: 0,
+                        player_count: 1,
+                        unit_count: 0,
+                        last_entity_id: Some(404),
+                        last_player_entity_id: Some(404),
+                        last_unit_entity_id: None,
                         local_entity_id: Some(404),
                         local_unit_kind: Some(2),
                         local_unit_value: Some(999),
@@ -1957,7 +2000,7 @@ mod tests {
 
         let frame = presenter.last_frame();
         assert!(frame.contains("SUMMARY: player=operator team=2 selected=payload-rout~"));
-        assert!(frame.contains("map=80x60 overlay=1 fog=1 vis=120 hid=24"));
+        assert!(frame.contains("plans=3 markers=4 map=80x60"));
         assert!(frame.contains(
             "MINIMAP: map=80x60 window=0:0->0:0 size=1x1 cover=1/4800(0%) focus=0:0 in-window=1"
         ));
@@ -2016,10 +2059,16 @@ mod tests {
         assert!(frame.contains(
             "RUNTIME-WORLD-LABEL: set=19 rel=20 remove=21 total=60 active=2 inactive=58 last=904 flags=3 font=1094713344@12.0 z=1082130432@4.0 pos=40.0:60.0 text=world label lines=1 len=11"
         ));
+        assert!(frame.contains("RUNTIME-KICK: idInUse@7:IdInUse:wait_for_old~"));
         assert!(frame.contains(
-            "RUNTIME-SESSION: kick=idInUse@7:IdInUse:wait_for_old~ loading=defer5 replay6 drop7 qdrop8 sfail9 scfail10 efail11 rdy12@1300 to2/1/1 ltready@20000 rs3/1/1/1 lrreload lwr@lw1:cl0:rd1:cc0:p4:d5:r6 reconnect=attempt#3 redirect redirect=1@127.0.0.1:6567 reason=connectRedir~#none hint=server_reque~"
+            "RUNTIME-LOADING: defer5 replay6 drop7 qdrop8 sfail9 scfail10 efail11 rdy12@1300 to2/1/1 ltready@20000 rs3/1/1/1 lrreload lwr@lw1:cl0:rd1:cc0:p4:d5:r6"
         ));
-        assert!(frame.contains("RUNTIME-LIVE-ENTITY: 1/0@404:u2/999:p20.0:33.0:h0:s3"));
+        assert!(frame.contains(
+            "RUNTIME-RECONNECT: attempt#3 redirect redirect=1@127.0.0.1:6567 reason=connectRedir~#none hint=server_reque~"
+        ));
+        assert!(frame.contains(
+            "RUNTIME-LIVE-ENTITY: 1/0@404:u2/999:p20.0:33.0:h0:s3:tp1/0:last404/404/none"
+        ));
         assert!(frame.contains(
             "RUNTIME-LIVE-EFFECT: 11/73@8:u19:kPoint2:cposition_tar~/unit_parent:pbiz@24.0:32.0"
         ));

@@ -9,9 +9,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut args = env::args();
     let _bin = args.next();
 
-    let manifest_path = args.next().ok_or(
-        "usage: mdt-remote <manifest-path> [registry-output-path] [high-frequency-output-path]",
-    )?;
+    let manifest_path = args.next().ok_or("usage: mdt-remote <manifest-path> [registry-output-path] [high-frequency-output-path] [inbound-dispatch-output-path]")?;
     let output_path = args.next().map(PathBuf::from);
     let output_path = output_path.as_deref().map(resolve_cli_path).transpose()?;
     let high_frequency_output_path = match args.next() {
@@ -20,15 +18,25 @@ fn main() -> Result<(), Box<dyn Error>> {
             .as_deref()
             .map(default_high_frequency_output_path),
     };
+    let inbound_dispatch_output_path = match args.next() {
+        Some(path) => Some(resolve_cli_path(Path::new(&path))?),
+        None => output_path
+            .as_deref()
+            .map(default_inbound_dispatch_output_path),
+    };
 
     let manifest = mdt_remote::read_remote_manifest(&manifest_path)?;
     let generated = mdt_remote::generate_rust_registry(&manifest);
     let generated_high_frequency = mdt_remote::generate_high_frequency_rust_module(&manifest)?;
+    let generated_inbound_dispatch = mdt_remote::generate_inbound_dispatch_rust_module(&manifest)?;
 
     if let Some(output_path) = output_path {
         write_output_file(&output_path, &generated)?;
         if let Some(high_frequency_output_path) = high_frequency_output_path {
             write_output_file(&high_frequency_output_path, &generated_high_frequency)?;
+        }
+        if let Some(inbound_dispatch_output_path) = inbound_dispatch_output_path {
+            write_output_file(&inbound_dispatch_output_path, &generated_inbound_dispatch)?;
         }
     } else {
         print!("{generated}");
@@ -47,6 +55,10 @@ fn resolve_cli_path(path: &Path) -> io::Result<PathBuf> {
 
 fn default_high_frequency_output_path(output_path: &Path) -> PathBuf {
     output_path.with_file_name("remote-high-frequency.rs")
+}
+
+fn default_inbound_dispatch_output_path(output_path: &Path) -> PathBuf {
+    output_path.with_file_name("remote-inbound-dispatch.rs")
 }
 
 fn write_output_file(path: &Path, contents: &str) -> io::Result<()> {
@@ -76,7 +88,7 @@ fn write_output_file(path: &Path, contents: &str) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::default_high_frequency_output_path;
+    use super::{default_high_frequency_output_path, default_inbound_dispatch_output_path};
     use std::path::Path;
 
     #[test]
@@ -90,5 +102,18 @@ mod tests {
     fn falls_back_to_current_directory_for_bare_filename() {
         let actual = default_high_frequency_output_path(Path::new("remote-registry.rs"));
         assert!(actual.ends_with("remote-high-frequency.rs"));
+    }
+
+    #[test]
+    fn derives_sibling_inbound_dispatch_output_path() {
+        let actual =
+            default_inbound_dispatch_output_path(Path::new("build/mdt-remote/remote-registry.rs"));
+        assert!(actual.ends_with("build/mdt-remote/remote-inbound-dispatch.rs"));
+    }
+
+    #[test]
+    fn inbound_dispatch_output_falls_back_to_current_directory_for_bare_filename() {
+        let actual = default_inbound_dispatch_output_path(Path::new("remote-registry.rs"));
+        assert!(actual.ends_with("remote-inbound-dispatch.rs"));
     }
 }

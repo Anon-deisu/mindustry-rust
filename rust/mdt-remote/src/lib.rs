@@ -232,6 +232,32 @@ pub struct TypedRemotePacketSpec<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypedCustomChannelRemotePacketSpec<'a> {
+    pub family: CustomChannelRemoteFamily,
+    pub packet_id: u8,
+    pub packet_class: &'a str,
+    pub declaring_type: &'a str,
+    pub method: &'a str,
+    pub flow: RemoteFlow,
+    pub unreliable: bool,
+    pub payload_kind: CustomChannelRemotePayloadKind,
+    pub wire_params: Vec<TypedRemoteParamSpec<'a>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypedInboundRemotePacketSpec<'a> {
+    pub family: InboundRemoteFamily,
+    pub packet_id: u8,
+    pub packet_class: &'a str,
+    pub declaring_type: &'a str,
+    pub method: &'a str,
+    pub flow: RemoteFlow,
+    pub unreliable: bool,
+    pub payload_kind: CustomChannelRemotePayloadKind,
+    pub wire_params: Vec<TypedRemoteParamSpec<'a>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypedRemotePacketMetadata<'a> {
     pub remote_index: usize,
     pub packet_id: u8,
@@ -390,6 +416,36 @@ impl CustomChannelRemoteFamily {
         }
     }
 
+    fn variant_name(self) -> &'static str {
+        match self {
+            Self::ClientPacketReliable => "ClientPacketReliable",
+            Self::ClientPacketUnreliable => "ClientPacketUnreliable",
+            Self::ClientBinaryPacketReliable => "ClientBinaryPacketReliable",
+            Self::ClientBinaryPacketUnreliable => "ClientBinaryPacketUnreliable",
+            Self::ServerPacketReliable => "ServerPacketReliable",
+            Self::ServerPacketUnreliable => "ServerPacketUnreliable",
+            Self::ServerBinaryPacketReliable => "ServerBinaryPacketReliable",
+            Self::ServerBinaryPacketUnreliable => "ServerBinaryPacketUnreliable",
+            Self::ClientLogicDataReliable => "ClientLogicDataReliable",
+            Self::ClientLogicDataUnreliable => "ClientLogicDataUnreliable",
+        }
+    }
+
+    fn const_prefix(self) -> &'static str {
+        match self {
+            Self::ClientPacketReliable => "CLIENT_PACKET_RELIABLE",
+            Self::ClientPacketUnreliable => "CLIENT_PACKET_UNRELIABLE",
+            Self::ClientBinaryPacketReliable => "CLIENT_BINARY_PACKET_RELIABLE",
+            Self::ClientBinaryPacketUnreliable => "CLIENT_BINARY_PACKET_UNRELIABLE",
+            Self::ServerPacketReliable => "SERVER_PACKET_RELIABLE",
+            Self::ServerPacketUnreliable => "SERVER_PACKET_UNRELIABLE",
+            Self::ServerBinaryPacketReliable => "SERVER_BINARY_PACKET_RELIABLE",
+            Self::ServerBinaryPacketUnreliable => "SERVER_BINARY_PACKET_UNRELIABLE",
+            Self::ClientLogicDataReliable => "CLIENT_LOGIC_DATA_RELIABLE",
+            Self::ClientLogicDataUnreliable => "CLIENT_LOGIC_DATA_UNRELIABLE",
+        }
+    }
+
     pub fn unreliable(self) -> bool {
         matches!(
             self,
@@ -507,6 +563,28 @@ impl InboundRemoteFamily {
 
     pub fn method_name(self) -> &'static str {
         self.custom_channel_family().method_name()
+    }
+
+    fn variant_name(self) -> &'static str {
+        match self {
+            Self::ServerPacketReliable => "ServerPacketReliable",
+            Self::ServerPacketUnreliable => "ServerPacketUnreliable",
+            Self::ServerBinaryPacketReliable => "ServerBinaryPacketReliable",
+            Self::ServerBinaryPacketUnreliable => "ServerBinaryPacketUnreliable",
+            Self::ClientLogicDataReliable => "ClientLogicDataReliable",
+            Self::ClientLogicDataUnreliable => "ClientLogicDataUnreliable",
+        }
+    }
+
+    fn const_prefix(self) -> &'static str {
+        match self {
+            Self::ServerPacketReliable => "SERVER_PACKET_RELIABLE",
+            Self::ServerPacketUnreliable => "SERVER_PACKET_UNRELIABLE",
+            Self::ServerBinaryPacketReliable => "SERVER_BINARY_PACKET_RELIABLE",
+            Self::ServerBinaryPacketUnreliable => "SERVER_BINARY_PACKET_UNRELIABLE",
+            Self::ClientLogicDataReliable => "CLIENT_LOGIC_DATA_RELIABLE",
+            Self::ClientLogicDataUnreliable => "CLIENT_LOGIC_DATA_UNRELIABLE",
+        }
     }
 
     pub fn unreliable(self) -> bool {
@@ -723,6 +801,79 @@ pub fn typed_remote_packets(
     Ok(RemotePacketRegistry::from_manifest(manifest)?.into_packets())
 }
 
+pub fn custom_channel_remote_packets(
+    manifest: &RemoteManifest,
+) -> Result<Vec<TypedCustomChannelRemotePacketSpec<'_>>, RemoteManifestError> {
+    let registry = RemotePacketRegistry::from_manifest(manifest)?;
+    let mut packets = Vec::with_capacity(CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT);
+    let mut seen_packet_ids =
+        std::collections::HashSet::with_capacity(CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT);
+
+    for family in CustomChannelRemoteFamily::ordered() {
+        let entry = registry.first_custom_channel_remote_family(family).ok_or(
+            RemoteManifestError::InvalidRemotePacketMetadata(format!(
+                "missing custom-channel remote family packet in manifest: {}",
+                family.method_name(),
+            )),
+        )?;
+        if !seen_packet_ids.insert(entry.packet_id) {
+            return Err(RemoteManifestError::InvalidPacketSequence(format!(
+                "duplicate custom-channel remote family packet id: {}",
+                entry.packet_id
+            )));
+        }
+        packets.push(TypedCustomChannelRemotePacketSpec {
+            family,
+            packet_id: entry.packet_id,
+            packet_class: entry.packet_class,
+            declaring_type: entry.declaring_type,
+            method: entry.method,
+            flow: entry.flow,
+            unreliable: entry.unreliable,
+            payload_kind: family.payload_kind(),
+            wire_params: entry.wire_params.clone(),
+        });
+    }
+
+    Ok(packets)
+}
+
+pub fn inbound_remote_packets(
+    manifest: &RemoteManifest,
+) -> Result<Vec<TypedInboundRemotePacketSpec<'_>>, RemoteManifestError> {
+    let registry = RemotePacketRegistry::from_manifest(manifest)?;
+    let mut packets = Vec::with_capacity(INBOUND_REMOTE_FAMILY_COUNT);
+    let mut seen_packet_ids = std::collections::HashSet::with_capacity(INBOUND_REMOTE_FAMILY_COUNT);
+
+    for family in InboundRemoteFamily::ordered() {
+        let entry = registry.first_inbound_remote_family(family).ok_or(
+            RemoteManifestError::InvalidRemotePacketMetadata(format!(
+                "missing inbound remote family packet in manifest: {}",
+                family.method_name(),
+            )),
+        )?;
+        if !seen_packet_ids.insert(entry.packet_id) {
+            return Err(RemoteManifestError::InvalidPacketSequence(format!(
+                "duplicate inbound remote family packet id: {}",
+                entry.packet_id
+            )));
+        }
+        packets.push(TypedInboundRemotePacketSpec {
+            family,
+            packet_id: entry.packet_id,
+            packet_class: entry.packet_class,
+            declaring_type: entry.declaring_type,
+            method: entry.method,
+            flow: entry.flow,
+            unreliable: entry.unreliable,
+            payload_kind: family.payload_kind(),
+            wire_params: entry.wire_params.clone(),
+        });
+    }
+
+    Ok(packets)
+}
+
 pub fn generate_rust_registry(manifest: &RemoteManifest) -> String {
     let mut out = StringBuilder::new();
     out.push_line("// @generated by mdt-remote from remote-manifest-v1.json");
@@ -891,6 +1042,184 @@ pub fn generate_high_frequency_rust_module(
         out.push_line("    },");
     }
     out.push_line("];");
+    Ok(out.finish())
+}
+
+pub fn generate_inbound_dispatch_rust_module(
+    manifest: &RemoteManifest,
+) -> Result<String, RemoteManifestError> {
+    let custom_packets = custom_channel_remote_packets(manifest)?;
+    let inbound_packets = inbound_remote_packets(manifest)?;
+    let mut out = StringBuilder::new();
+    out.push_line("// @generated by mdt-remote from remote-manifest-v1.json");
+    out.push_line("#[derive(Debug, Clone, Copy, PartialEq, Eq)]");
+    out.push_line("pub enum RemoteFlow {");
+    out.push_line("    ClientToServer,");
+    out.push_line("    ServerToClient,");
+    out.push_line("    Bidirectional,");
+    out.push_line("}");
+    out.push_line("");
+    out.push_line("#[derive(Debug, Clone, Copy, PartialEq, Eq)]");
+    out.push_line("pub enum CustomChannelRemotePayloadKind {");
+    out.push_line("    Text,");
+    out.push_line("    Binary,");
+    out.push_line("    LogicData,");
+    out.push_line("}");
+    out.push_line("");
+    out.push_line("#[derive(Debug, Clone, Copy, PartialEq, Eq)]");
+    out.push_line("pub enum CustomChannelRemoteFamily {");
+    for family in CustomChannelRemoteFamily::ordered() {
+        out.push_line(&format!("    {},", family.variant_name()));
+    }
+    out.push_line("}");
+    out.push_line("");
+    out.push_line("#[derive(Debug, Clone, Copy, PartialEq, Eq)]");
+    out.push_line("pub enum InboundRemoteFamily {");
+    for family in InboundRemoteFamily::ordered() {
+        out.push_line(&format!("    {},", family.variant_name()));
+    }
+    out.push_line("}");
+    out.push_line("");
+    out.push_line("#[derive(Debug, Clone, Copy, PartialEq, Eq)]");
+    out.push_line("pub struct CustomChannelRemoteDispatchSpec {");
+    out.push_line("    pub family: CustomChannelRemoteFamily,");
+    out.push_line("    pub payload_kind: CustomChannelRemotePayloadKind,");
+    out.push_line("}");
+    out.push_line("");
+    out.push_line("#[derive(Debug, Clone, Copy, PartialEq, Eq)]");
+    out.push_line("pub struct InboundRemoteDispatchSpec {");
+    out.push_line("    pub family: InboundRemoteFamily,");
+    out.push_line("    pub payload_kind: CustomChannelRemotePayloadKind,");
+    out.push_line("}");
+    out.push_line("");
+    out.push_line("#[derive(Debug, Clone, Copy, PartialEq, Eq)]");
+    out.push_line("pub struct CustomChannelRemotePacketSpec {");
+    out.push_line("    pub family: CustomChannelRemoteFamily,");
+    out.push_line("    pub packet_id: u8,");
+    out.push_line("    pub packet_class: &'static str,");
+    out.push_line("    pub declaring_type: &'static str,");
+    out.push_line("    pub method: &'static str,");
+    out.push_line("    pub flow: RemoteFlow,");
+    out.push_line("    pub unreliable: bool,");
+    out.push_line("    pub payload_kind: CustomChannelRemotePayloadKind,");
+    out.push_line("}");
+    out.push_line("");
+    out.push_line("#[derive(Debug, Clone, Copy, PartialEq, Eq)]");
+    out.push_line("pub struct InboundRemotePacketSpec {");
+    out.push_line("    pub family: InboundRemoteFamily,");
+    out.push_line("    pub packet_id: u8,");
+    out.push_line("    pub packet_class: &'static str,");
+    out.push_line("    pub declaring_type: &'static str,");
+    out.push_line("    pub method: &'static str,");
+    out.push_line("    pub flow: RemoteFlow,");
+    out.push_line("    pub unreliable: bool,");
+    out.push_line("    pub payload_kind: CustomChannelRemotePayloadKind,");
+    out.push_line("}");
+    out.push_line("");
+
+    for packet in &custom_packets {
+        out.push_line(&format!(
+            "pub const CUSTOM_CHANNEL_{}_PACKET_ID: u8 = {};",
+            packet.family.const_prefix(),
+            packet.packet_id
+        ));
+    }
+    out.push_line("");
+    for packet in &inbound_packets {
+        out.push_line(&format!(
+            "pub const INBOUND_{}_PACKET_ID: u8 = {};",
+            packet.family.const_prefix(),
+            packet.packet_id
+        ));
+    }
+    out.push_line("");
+    out.push_line(
+        "pub const CUSTOM_CHANNEL_REMOTE_PACKET_SPECS: &[CustomChannelRemotePacketSpec] = &[",
+    );
+    for packet in &custom_packets {
+        out.push_line("    CustomChannelRemotePacketSpec {");
+        out.push_line(&format!(
+            "        family: CustomChannelRemoteFamily::{},",
+            packet.family.variant_name()
+        ));
+        out.push_line(&format!("        packet_id: {},", packet.packet_id));
+        out.push_line(&format!("        packet_class: {:?},", packet.packet_class));
+        out.push_line(&format!(
+            "        declaring_type: {:?},",
+            packet.declaring_type
+        ));
+        out.push_line(&format!("        method: {:?},", packet.method));
+        out.push_line(&format!(
+            "        flow: RemoteFlow::{},",
+            remote_flow_name(packet.flow)
+        ));
+        out.push_line(&format!("        unreliable: {},", packet.unreliable));
+        out.push_line(&format!(
+            "        payload_kind: CustomChannelRemotePayloadKind::{},",
+            packet.payload_kind.variant_name()
+        ));
+        out.push_line("    },");
+    }
+    out.push_line("];");
+    out.push_line("");
+    out.push_line("pub const INBOUND_REMOTE_PACKET_SPECS: &[InboundRemotePacketSpec] = &[");
+    for packet in &inbound_packets {
+        out.push_line("    InboundRemotePacketSpec {");
+        out.push_line(&format!(
+            "        family: InboundRemoteFamily::{},",
+            packet.family.variant_name()
+        ));
+        out.push_line(&format!("        packet_id: {},", packet.packet_id));
+        out.push_line(&format!("        packet_class: {:?},", packet.packet_class));
+        out.push_line(&format!(
+            "        declaring_type: {:?},",
+            packet.declaring_type
+        ));
+        out.push_line(&format!("        method: {:?},", packet.method));
+        out.push_line(&format!(
+            "        flow: RemoteFlow::{},",
+            remote_flow_name(packet.flow)
+        ));
+        out.push_line(&format!("        unreliable: {},", packet.unreliable));
+        out.push_line(&format!(
+            "        payload_kind: CustomChannelRemotePayloadKind::{},",
+            packet.payload_kind.variant_name()
+        ));
+        out.push_line("    },");
+    }
+    out.push_line("];");
+    out.push_line("");
+    out.push_line(
+        "pub const fn custom_channel_remote_dispatch_spec(packet_id: u8) -> Option<CustomChannelRemoteDispatchSpec> {",
+    );
+    out.push_line("    match packet_id {");
+    for packet in &custom_packets {
+        out.push_line(&format!(
+            "        {} => Some(CustomChannelRemoteDispatchSpec {{ family: CustomChannelRemoteFamily::{}, payload_kind: CustomChannelRemotePayloadKind::{} }}),",
+            packet.packet_id,
+            packet.family.variant_name(),
+            packet.payload_kind.variant_name()
+        ));
+    }
+    out.push_line("        _ => None,");
+    out.push_line("    }");
+    out.push_line("}");
+    out.push_line("");
+    out.push_line(
+        "pub const fn inbound_remote_dispatch_spec(packet_id: u8) -> Option<InboundRemoteDispatchSpec> {",
+    );
+    out.push_line("    match packet_id {");
+    for packet in &inbound_packets {
+        out.push_line(&format!(
+            "        {} => Some(InboundRemoteDispatchSpec {{ family: InboundRemoteFamily::{}, payload_kind: CustomChannelRemotePayloadKind::{} }}),",
+            packet.packet_id,
+            packet.family.variant_name(),
+            packet.payload_kind.variant_name()
+        ));
+    }
+    out.push_line("        _ => None,");
+    out.push_line("    }");
+    out.push_line("}");
     Ok(out.finish())
 }
 
@@ -1251,6 +1580,16 @@ impl HighFrequencyRemoteMethod {
             Self::EntitySnapshot => "ENTITY_SNAPSHOT",
             Self::BlockSnapshot => "BLOCK_SNAPSHOT",
             Self::HiddenSnapshot => "HIDDEN_SNAPSHOT",
+        }
+    }
+}
+
+impl CustomChannelRemotePayloadKind {
+    fn variant_name(self) -> &'static str {
+        match self {
+            Self::Text => "Text",
+            Self::Binary => "Binary",
+            Self::LogicData => "LogicData",
         }
     }
 }
@@ -1822,6 +2161,86 @@ mod tests {
     }
 
     #[test]
+    fn extracts_custom_channel_remote_subset_with_decoy_rejection() {
+        let manifest = custom_channel_manifest_with_decoys();
+
+        let packets = custom_channel_remote_packets(&manifest).unwrap();
+
+        assert_eq!(packets.len(), CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT);
+        assert_eq!(
+            packets[0].family,
+            CustomChannelRemoteFamily::ClientPacketReliable
+        );
+        assert_eq!(packets[0].packet_id, 5);
+        assert_eq!(
+            packets[0].payload_kind,
+            CustomChannelRemotePayloadKind::Text
+        );
+        assert_eq!(
+            packets[4].family,
+            CustomChannelRemoteFamily::ServerPacketReliable
+        );
+        assert_eq!(packets[4].packet_id, 10);
+        assert_eq!(
+            packets[4].wire_params,
+            vec![
+                TypedRemoteParamSpec {
+                    name: "type",
+                    java_type: "java.lang.String",
+                    kind: RemoteParamKind::Opaque,
+                },
+                TypedRemoteParamSpec {
+                    name: "contents",
+                    java_type: "java.lang.String",
+                    kind: RemoteParamKind::Opaque,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn extracts_inbound_remote_subset_with_typed_payload_kinds() {
+        let manifest = custom_channel_manifest_with_decoys();
+
+        let packets = inbound_remote_packets(&manifest).unwrap();
+
+        assert_eq!(packets.len(), INBOUND_REMOTE_FAMILY_COUNT);
+        assert_eq!(packets[0].family, InboundRemoteFamily::ServerPacketReliable);
+        assert_eq!(packets[0].packet_id, 10);
+        assert_eq!(
+            packets[0].payload_kind,
+            CustomChannelRemotePayloadKind::Text
+        );
+        assert_eq!(
+            packets[4].family,
+            InboundRemoteFamily::ClientLogicDataReliable
+        );
+        assert_eq!(packets[4].packet_id, 14);
+        assert_eq!(
+            packets[4].payload_kind,
+            CustomChannelRemotePayloadKind::LogicData
+        );
+    }
+
+    #[test]
+    fn generates_inbound_dispatch_rust_module() {
+        let manifest = custom_channel_manifest_with_decoys();
+
+        let generated = generate_inbound_dispatch_rust_module(&manifest).unwrap();
+
+        assert!(generated
+            .contains("pub const CUSTOM_CHANNEL_CLIENT_PACKET_RELIABLE_PACKET_ID: u8 = 5;"));
+        assert!(generated.contains("pub const INBOUND_SERVER_PACKET_RELIABLE_PACKET_ID: u8 = 10;"));
+        assert!(generated
+            .contains("pub const INBOUND_REMOTE_PACKET_SPECS: &[InboundRemotePacketSpec] = &["));
+        assert!(generated.contains(
+            "pub const fn inbound_remote_dispatch_spec(packet_id: u8) -> Option<InboundRemoteDispatchSpec> {"
+        ));
+        assert!(generated.contains("payload_kind: CustomChannelRemotePayloadKind::LogicData"));
+        assert!(!generated.contains("ServerPacketReliableDecoyCallPacket"));
+    }
+
+    #[test]
     fn extracts_high_frequency_remote_subset_from_manifest() {
         let manifest = RemoteManifest {
             schema: REMOTE_MANIFEST_SCHEMA_V1.to_string(),
@@ -1998,6 +2417,220 @@ mod tests {
         assert!(generated.contains("name: \"snapshotID\""));
         assert!(!generated.contains("name: \"player\""));
         assert!(!generated.contains("wire_included"));
+    }
+
+    fn custom_channel_manifest_with_decoys() -> RemoteManifest {
+        RemoteManifest {
+            schema: REMOTE_MANIFEST_SCHEMA_V1.to_string(),
+            generator: RemoteGeneratorInfo {
+                source: "mindustry.annotations.remote".into(),
+                call_class: "mindustry.gen.Call".into(),
+            },
+            base_packets: vec![
+                BasePacketEntry {
+                    id: 0,
+                    class_name: "mindustry.net.Packets$StreamBegin".into(),
+                },
+                BasePacketEntry {
+                    id: 1,
+                    class_name: "mindustry.net.Packets$StreamChunk".into(),
+                },
+                BasePacketEntry {
+                    id: 2,
+                    class_name: "mindustry.net.Packets$WorldStream".into(),
+                },
+                BasePacketEntry {
+                    id: 3,
+                    class_name: "mindustry.net.Packets$ConnectPacket".into(),
+                },
+            ],
+            remote_packets: vec![
+                test_remote_packet(
+                    0,
+                    4,
+                    "mindustry.gen.ClientPacketReliableDecoyCallPacket",
+                    "mindustry.core.NetClient",
+                    "clientPacketReliable",
+                    "server",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("player", "Player", false, false),
+                        test_param("contents", "java.lang.String", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    1,
+                    5,
+                    "mindustry.gen.ClientPacketReliableCallPacket",
+                    "mindustry.core.NetClient",
+                    "clientPacketReliable",
+                    "server",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("type", "java.lang.String", true, true),
+                        test_param("contents", "java.lang.String", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    2,
+                    6,
+                    "mindustry.gen.ClientPacketUnreliableCallPacket",
+                    "mindustry.core.NetClient",
+                    "clientPacketUnreliable",
+                    "server",
+                    "normal",
+                    true,
+                    vec![
+                        test_param("type", "java.lang.String", true, true),
+                        test_param("contents", "java.lang.String", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    3,
+                    7,
+                    "mindustry.gen.ClientBinaryPacketReliableCallPacket",
+                    "mindustry.core.NetClient",
+                    "clientBinaryPacketReliable",
+                    "server",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("type", "java.lang.String", true, true),
+                        test_param("contents", "byte[]", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    4,
+                    8,
+                    "mindustry.gen.ClientBinaryPacketUnreliableCallPacket",
+                    "mindustry.core.NetClient",
+                    "clientBinaryPacketUnreliable",
+                    "server",
+                    "normal",
+                    true,
+                    vec![
+                        test_param("type", "java.lang.String", true, true),
+                        test_param("contents", "byte[]", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    5,
+                    9,
+                    "mindustry.gen.ServerPacketReliableDecoyCallPacket",
+                    "mindustry.core.NetServer",
+                    "serverPacketReliable",
+                    "client",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("tile", "mindustry.world.Tile", false, false),
+                        test_param("type", "java.lang.String", true, true),
+                        test_param("contents", "java.lang.String", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    6,
+                    10,
+                    "mindustry.gen.ServerPacketReliableCallPacket",
+                    "mindustry.core.NetServer",
+                    "serverPacketReliable",
+                    "client",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("player", "Player", false, false),
+                        test_param("type", "java.lang.String", true, true),
+                        test_param("contents", "java.lang.String", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    7,
+                    11,
+                    "mindustry.gen.ServerPacketUnreliableCallPacket",
+                    "mindustry.core.NetServer",
+                    "serverPacketUnreliable",
+                    "client",
+                    "normal",
+                    true,
+                    vec![
+                        test_param("player", "Player", false, false),
+                        test_param("type", "java.lang.String", true, true),
+                        test_param("contents", "java.lang.String", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    8,
+                    12,
+                    "mindustry.gen.ServerBinaryPacketReliableCallPacket",
+                    "mindustry.core.NetServer",
+                    "serverBinaryPacketReliable",
+                    "client",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("player", "Player", false, false),
+                        test_param("type", "java.lang.String", true, true),
+                        test_param("contents", "byte[]", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    9,
+                    13,
+                    "mindustry.gen.ServerBinaryPacketUnreliableCallPacket",
+                    "mindustry.core.NetServer",
+                    "serverBinaryPacketUnreliable",
+                    "client",
+                    "normal",
+                    true,
+                    vec![
+                        test_param("player", "Player", false, false),
+                        test_param("type", "java.lang.String", true, true),
+                        test_param("contents", "byte[]", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    10,
+                    14,
+                    "mindustry.gen.ClientLogicDataReliableCallPacket",
+                    "mindustry.core.NetServer",
+                    "clientLogicDataReliable",
+                    "client",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("player", "Player", false, false),
+                        test_param("channel", "java.lang.String", true, true),
+                        test_param("value", "java.lang.Object", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    11,
+                    15,
+                    "mindustry.gen.ClientLogicDataUnreliableCallPacket",
+                    "mindustry.core.NetServer",
+                    "clientLogicDataUnreliable",
+                    "client",
+                    "normal",
+                    true,
+                    vec![
+                        test_param("player", "Player", false, false),
+                        test_param("channel", "java.lang.String", true, true),
+                        test_param("value", "java.lang.Object", true, true),
+                    ],
+                ),
+            ],
+            wire: WireSpec {
+                packet_id_byte: "u8".into(),
+                length_field: "u16be".into(),
+                compression_flag: CompressionFlagSpec {
+                    none: "none".into(),
+                    lz4: "lz4".into(),
+                },
+                compression_threshold: 36,
+            },
+        }
     }
 
     fn test_remote_packet(

@@ -15679,6 +15679,15 @@ mod tests {
                         == crate::session_state::EntityTableProjection::LOCAL_PLAYER_CLASS_ID
                     && player.base.unit_value == 100
         ));
+        let projection = session.state().typed_runtime_entity_projection();
+        assert_eq!(projection.player_count, 2);
+        assert_eq!(projection.unit_count, 0);
+        assert_eq!(projection.local_player_entity_id, Some(local_player_id));
+        assert_eq!(
+            projection.last_player_entity_id,
+            Some(local_player_id.max(99))
+        );
+        assert_eq!(projection.last_entity_id, projection.last_player_entity_id);
     }
 
     #[test]
@@ -15740,6 +15749,15 @@ mod tests {
                     && unit.semantic.unit_type_id == alpha_sync.unit_type_id
                     && unit.semantic.team_id == alpha_sync.team_id
         ));
+        let projection = session.state().typed_runtime_entity_projection();
+        assert_eq!(projection.player_count, 1);
+        assert_eq!(projection.unit_count, 1);
+        assert_eq!(
+            projection.local_player_entity_id,
+            session.state().world_player_id
+        );
+        assert_eq!(projection.last_unit_entity_id, Some(100));
+        assert!(projection.last_entity_id.is_some());
     }
 
     #[test]

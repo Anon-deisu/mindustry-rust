@@ -41,6 +41,9 @@ These are already landed and should not be re-opened as if missing:
   - `mdt-remote` now exposes `payload_kind()` for inbound custom-channel families
   - `mdt-client-min` now has typed inbound dispatch specs and `typed_remote_dispatch.rs` helper coverage
   - remaining work is live session/business adoption, not re-adding the typed metadata layer
+- `mdt-remote` typed generation is no longer limited to the high-frequency subset.
+  - generated typed registry/dispatch coverage now also includes custom-channel and inbound dispatch families
+  - remaining M6 work is deeper live session/business adoption, not re-adding the first broader typed generation layer
 - minimal command-mode state container is already landed.
   - `mdt-input` now carries `CommandModeState` / `CommandModeProjection` with selected-units, command-buildings, command-rect, control-groups, and last target/command/stance selections
   - `mdt-client-min-online` runtime outbound action sync now updates that container instead of keeping command-mode as packet-observability-only state
@@ -49,6 +52,9 @@ These are already landed and should not be re-opened as if missing:
 - `mdt-world` post-load activation preflight is already landed.
   - `SavePostLoadActivationSurface` exposes loadable/skipped entity candidates, unresolved remap names, building-center reference validity, and `can_seed_runtime_apply()`
   - remaining work is consuming that surface for Java-like live world/entity activation
+- `mdt-world` now also has a deterministic `SavePostLoadRuntimeSeedPlan` layer above that preflight.
+  - `.msav -> post_load_world() -> projection_contract() -> activation_surface()` is now folded into a passive seed plan for later runtime/apply consumers
+  - remaining M7-3 work is consuming that seed plan in deeper runtime/world ownership, not re-adding the first passive plan layer
 - `mdt-typeio` raw `WeaponMount[]` codec is already landed.
   - remaining non-object codec gap is now more about `abilities/status` and wider unit-sync families than mounts specifically
 - `mdt-render-ui` runtime dialog summary is already landed.
@@ -64,9 +70,19 @@ These are already landed and should not be re-opened as if missing:
 - `typed_runtime_entities()` baseline join helper is already landed for existing parseable entity rows.
   - `SessionState` now exposes read-only typed runtime joins for `Player` and `Unit`
   - remaining `U1` work is consumer-side runtime apply depth, not re-adding a first typed join surface
+- `typed_runtime_entity_projection()` is also landed as the first aggregate runtime model over those typed joins.
+  - `SessionState` now exposes typed player/unit counts, hidden count, local-player id, and latest player/unit/entity ids
+  - remaining `U1` work is deeper runtime ownership/apply, not re-adding the first typed summary/projection layer
+- runtime live-entity HUD/presenter output now also consumes that typed projection layer.
+  - live entity observability/panels now surface typed player/unit counts plus latest typed entity/player/unit ids
+  - remaining M9/U1 work is deeper runtime/apply behavior and richer UI depth, not re-adding the first typed live-entity aggregate view
 - `mdt-input` batch runtime intent sampling is already landed.
   - same-tick multi-snapshot batches now preserve transient press/release edges instead of only keeping the final frame
   - remaining work is richer live input source parity, not re-adding batch edge retention
+- online/runtime live intent sampling is now the default path.
+  - `mdt-client-min-online` now defaults to `RuntimeIntentTracker + IntentSamplingMode::LiveSampling`
+  - `--intent-snapshot` now also carries the `building` bit explicitly
+  - remaining M8 work is richer live input source parity and deeper command/build flow, not re-landing default live sampling
 - builder queue tile-state validation is already landed in `mdt-input`.
   - local queued place/break entries can now be pruned against observed tile states when the tile is already air or already matches the requested block/rotation
   - remaining work is broader runtime integration and Java-equivalent `BuilderComp` depth, not re-adding the validation primitive
@@ -82,7 +98,7 @@ These are already landed and should not be re-opened as if missing:
 
 Remaining gap:
 - Rust still writes parsed rows into lightweight projection tables instead of doing Java-like `readSyncEntity -> readSync -> snapSync -> add`.
-- a read-only typed runtime join helper for existing `Player` / `Unit` rows is already present; the remaining gap is applying those rows into a stronger runtime ownership model.
+- a read-only typed runtime join helper plus a first aggregate typed runtime projection for existing `Player` / `Unit` rows are already present; the remaining gap is applying those rows into a stronger runtime ownership model.
 
 Best bounded next slice:
 - start with a typed runtime apply layer for the already parseable `Player` / `Unit` families

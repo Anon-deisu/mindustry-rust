@@ -49,6 +49,31 @@ pub struct MinimapPanelModel {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HudStatusPanelModel {
+    pub player_name: String,
+    pub team_id: u8,
+    pub selected_block: String,
+    pub plan_count: usize,
+    pub marker_count: usize,
+    pub map_width: usize,
+    pub map_height: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HudVisibilityPanelModel {
+    pub overlay_visible: bool,
+    pub fog_enabled: bool,
+    pub visible_tile_count: usize,
+    pub hidden_tile_count: usize,
+    pub known_tile_count: usize,
+    pub known_tile_percent: usize,
+    pub visible_known_percent: usize,
+    pub hidden_known_percent: usize,
+    pub unknown_tile_count: usize,
+    pub unknown_tile_percent: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildConfigPanelModel {
     pub selected_block_id: Option<i16>,
     pub selected_rotation: i32,
@@ -400,6 +425,11 @@ pub struct RuntimeReconnectPanelModel {
 pub struct RuntimeLiveEntityPanelModel {
     pub entity_count: usize,
     pub hidden_count: usize,
+    pub player_count: usize,
+    pub unit_count: usize,
+    pub last_entity_id: Option<i32>,
+    pub last_player_entity_id: Option<i32>,
+    pub last_unit_entity_id: Option<i32>,
     pub local_entity_id: Option<i32>,
     pub local_unit_kind: Option<u8>,
     pub local_unit_value: Option<u32>,
@@ -419,6 +449,40 @@ pub struct RuntimeLiveEffectPanelModel {
     pub last_reliable_contract_name: Option<String>,
     pub last_position_hint: Option<crate::RuntimeWorldPositionObservability>,
     pub last_position_source: Option<crate::RuntimeLiveEffectPositionSource>,
+}
+
+pub fn build_hud_status_panel(hud: &HudModel) -> Option<HudStatusPanelModel> {
+    let summary = hud.summary.as_ref()?;
+    Some(HudStatusPanelModel {
+        player_name: summary.player_name.clone(),
+        team_id: summary.team_id,
+        selected_block: summary.selected_block.clone(),
+        plan_count: summary.plan_count,
+        marker_count: summary.marker_count,
+        map_width: summary.map_width,
+        map_height: summary.map_height,
+    })
+}
+
+pub fn build_hud_visibility_panel(hud: &HudModel) -> Option<HudVisibilityPanelModel> {
+    let summary = hud.summary.as_ref()?;
+    let map_tile_count = summary.map_width.saturating_mul(summary.map_height);
+    let known_tile_count = summary
+        .visible_tile_count
+        .saturating_add(summary.hidden_tile_count);
+    let unknown_tile_count = map_tile_count.saturating_sub(known_tile_count);
+    Some(HudVisibilityPanelModel {
+        overlay_visible: summary.overlay_visible,
+        fog_enabled: summary.fog_enabled,
+        visible_tile_count: summary.visible_tile_count,
+        hidden_tile_count: summary.hidden_tile_count,
+        known_tile_count,
+        known_tile_percent: percent_of(known_tile_count, map_tile_count),
+        visible_known_percent: percent_of(summary.visible_tile_count, known_tile_count),
+        hidden_known_percent: percent_of(summary.hidden_tile_count, known_tile_count),
+        unknown_tile_count,
+        unknown_tile_percent: percent_of(unknown_tile_count, map_tile_count),
+    })
 }
 
 pub fn build_minimap_panel(
@@ -908,6 +972,18 @@ pub fn build_runtime_world_label_panel(hud: &HudModel) -> Option<RuntimeWorldLab
     })
 }
 
+pub fn build_runtime_kick_panel(hud: &HudModel) -> Option<RuntimeKickPanelModel> {
+    Some(build_runtime_session_panel(hud)?.kick)
+}
+
+pub fn build_runtime_loading_panel(hud: &HudModel) -> Option<RuntimeLoadingPanelModel> {
+    Some(build_runtime_session_panel(hud)?.loading)
+}
+
+pub fn build_runtime_reconnect_panel(hud: &HudModel) -> Option<RuntimeReconnectPanelModel> {
+    Some(build_runtime_session_panel(hud)?.reconnect)
+}
+
 pub fn build_runtime_session_panel(hud: &HudModel) -> Option<RuntimeSessionPanelModel> {
     let session = &hud.runtime_ui.as_ref()?.session;
     Some(RuntimeSessionPanelModel {
@@ -980,6 +1056,11 @@ pub fn build_runtime_live_entity_panel(hud: &HudModel) -> Option<RuntimeLiveEnti
     Some(RuntimeLiveEntityPanelModel {
         entity_count: entity.entity_count,
         hidden_count: entity.hidden_count,
+        player_count: entity.player_count,
+        unit_count: entity.unit_count,
+        last_entity_id: entity.last_entity_id,
+        last_player_entity_id: entity.last_player_entity_id,
+        last_unit_entity_id: entity.last_unit_entity_id,
         local_entity_id: entity.local_entity_id,
         local_unit_kind: entity.local_unit_kind,
         local_unit_value: entity.local_unit_value,
@@ -1036,14 +1117,16 @@ fn resolve_presenter_window(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_build_config_panel, build_build_interaction_panel, build_minimap_panel,
-        build_runtime_admin_panel, build_runtime_chat_panel, build_runtime_command_mode_panel,
-        build_runtime_dialog_panel, build_runtime_live_effect_panel,
-        build_runtime_live_entity_panel, build_runtime_menu_panel, build_runtime_rules_panel,
-        build_runtime_session_panel, build_runtime_ui_notice_panel,
-        build_runtime_world_label_panel, BuildInteractionAuthorityState, BuildInteractionMode,
-        BuildInteractionQueueState, BuildInteractionSelectionState, PresenterViewWindow,
-        RuntimeDialogNoticeKind, RuntimeDialogPromptKind, RuntimeWorldLabelPanelModel,
+        build_build_config_panel, build_build_interaction_panel, build_hud_status_panel,
+        build_hud_visibility_panel, build_minimap_panel, build_runtime_admin_panel,
+        build_runtime_chat_panel, build_runtime_command_mode_panel, build_runtime_dialog_panel,
+        build_runtime_kick_panel, build_runtime_live_effect_panel,
+        build_runtime_live_entity_panel, build_runtime_loading_panel, build_runtime_menu_panel,
+        build_runtime_reconnect_panel, build_runtime_rules_panel, build_runtime_session_panel,
+        build_runtime_ui_notice_panel, build_runtime_world_label_panel,
+        BuildInteractionAuthorityState, BuildInteractionMode, BuildInteractionQueueState,
+        BuildInteractionSelectionState, PresenterViewWindow, RuntimeDialogNoticeKind,
+        RuntimeDialogPromptKind, RuntimeWorldLabelPanelModel,
     };
     use crate::{
         hud_model::{
@@ -1066,6 +1149,48 @@ mod tests {
 
     fn pack_point2(x: i32, y: i32) -> i32 {
         ((x & 0xffff) << 16) | (y & 0xffff)
+    }
+
+    #[test]
+    fn builds_hud_status_and_visibility_panels_from_summary() {
+        let hud = HudModel {
+            summary: Some(HudSummary {
+                player_name: "operator".to_string(),
+                team_id: 2,
+                selected_block: "payload-router".to_string(),
+                plan_count: 3,
+                marker_count: 4,
+                map_width: 80,
+                map_height: 60,
+                overlay_visible: true,
+                fog_enabled: true,
+                visible_tile_count: 120,
+                hidden_tile_count: 24,
+            }),
+            ..HudModel::default()
+        };
+
+        let status_panel = build_hud_status_panel(&hud).expect("expected hud status panel");
+        assert_eq!(status_panel.player_name, "operator");
+        assert_eq!(status_panel.team_id, 2);
+        assert_eq!(status_panel.selected_block, "payload-router");
+        assert_eq!(status_panel.plan_count, 3);
+        assert_eq!(status_panel.marker_count, 4);
+        assert_eq!(status_panel.map_width, 80);
+        assert_eq!(status_panel.map_height, 60);
+
+        let visibility_panel =
+            build_hud_visibility_panel(&hud).expect("expected hud visibility panel");
+        assert!(visibility_panel.overlay_visible);
+        assert!(visibility_panel.fog_enabled);
+        assert_eq!(visibility_panel.visible_tile_count, 120);
+        assert_eq!(visibility_panel.hidden_tile_count, 24);
+        assert_eq!(visibility_panel.known_tile_count, 144);
+        assert_eq!(visibility_panel.known_tile_percent, 3);
+        assert_eq!(visibility_panel.visible_known_percent, 83);
+        assert_eq!(visibility_panel.hidden_known_percent, 16);
+        assert_eq!(visibility_panel.unknown_tile_count, 4656);
+        assert_eq!(visibility_panel.unknown_tile_percent, 97);
     }
 
     #[test]
@@ -1631,6 +1756,11 @@ mod tests {
                     entity: crate::RuntimeLiveEntitySummaryObservability {
                         entity_count: 12,
                         hidden_count: 3,
+                        player_count: 2,
+                        unit_count: 1,
+                        last_entity_id: Some(202),
+                        last_player_entity_id: Some(102),
+                        last_unit_entity_id: Some(202),
                         local_entity_id: Some(404),
                         local_unit_kind: Some(2),
                         local_unit_value: Some(999),
@@ -1652,6 +1782,11 @@ mod tests {
 
         assert_eq!(panel.entity_count, 12);
         assert_eq!(panel.hidden_count, 3);
+        assert_eq!(panel.player_count, 2);
+        assert_eq!(panel.unit_count, 1);
+        assert_eq!(panel.last_entity_id, Some(202));
+        assert_eq!(panel.last_player_entity_id, Some(102));
+        assert_eq!(panel.last_unit_entity_id, Some(202));
         assert_eq!(panel.local_entity_id, Some(404));
         assert_eq!(panel.local_unit_kind, Some(2));
         assert_eq!(panel.local_unit_value, Some(999));
@@ -2132,5 +2267,90 @@ mod tests {
             Some("127.0.0.1")
         );
         assert_eq!(panel.reconnect.last_redirect_port, Some(6567));
+    }
+
+    #[test]
+    fn builds_runtime_session_subpanels_independently() {
+        let hud = HudModel {
+            runtime_ui: Some(RuntimeUiObservability {
+                hud_text: RuntimeHudTextObservability::default(),
+                toast: RuntimeToastObservability::default(),
+                text_input: RuntimeTextInputObservability::default(),
+                chat: crate::RuntimeChatObservability::default(),
+                admin: RuntimeAdminObservability::default(),
+                menu: RuntimeMenuObservability::default(),
+                command_mode: RuntimeCommandModeObservability::default(),
+                rules: RuntimeRulesObservability::default(),
+                world_labels: RuntimeWorldLabelObservability::default(),
+                session: RuntimeSessionObservability {
+                    kick: crate::hud_model::RuntimeKickObservability {
+                        reason_text: Some("idInUse".to_string()),
+                        reason_ordinal: Some(7),
+                        hint_category: Some("IdInUse".to_string()),
+                        hint_text: Some("wait for old session".to_string()),
+                    },
+                    loading: crate::hud_model::RuntimeLoadingObservability {
+                        deferred_inbound_packet_count: 5,
+                        replayed_inbound_packet_count: 6,
+                        dropped_loading_low_priority_packet_count: 7,
+                        dropped_loading_deferred_overflow_count: 8,
+                        failed_state_snapshot_parse_count: 9,
+                        failed_state_snapshot_core_data_parse_count: 10,
+                        failed_entity_snapshot_parse_count: 11,
+                        ready_inbound_liveness_anchor_count: 12,
+                        last_ready_inbound_liveness_anchor_at_ms: Some(1300),
+                        timeout_count: 2,
+                        connect_or_loading_timeout_count: 1,
+                        ready_snapshot_timeout_count: 1,
+                        last_timeout_kind: Some(RuntimeSessionTimeoutKind::ReadySnapshotStall),
+                        last_timeout_idle_ms: Some(20000),
+                        reset_count: 3,
+                        reconnect_reset_count: 1,
+                        world_reload_count: 1,
+                        kick_reset_count: 1,
+                        last_reset_kind: Some(RuntimeSessionResetKind::WorldReload),
+                        last_world_reload: Some(RuntimeWorldReloadObservability {
+                            had_loaded_world: true,
+                            had_client_loaded: false,
+                            was_ready_to_enter_world: true,
+                            had_connect_confirm_sent: false,
+                            cleared_pending_packets: 4,
+                            cleared_deferred_inbound_packets: 5,
+                            cleared_replayed_loading_events: 6,
+                        }),
+                    },
+                    reconnect: RuntimeReconnectObservability {
+                        phase: RuntimeReconnectPhaseObservability::Attempting,
+                        phase_transition_count: 3,
+                        reason_kind: Some(RuntimeReconnectReasonKind::ConnectRedirect),
+                        reason_text: Some("connectRedirect".to_string()),
+                        reason_ordinal: None,
+                        hint_text: Some("server requested redirect".to_string()),
+                        redirect_count: 1,
+                        last_redirect_ip: Some("127.0.0.1".to_string()),
+                        last_redirect_port: Some(6567),
+                    },
+                },
+                live: RuntimeLiveSummaryObservability::default(),
+            }),
+            ..HudModel::default()
+        };
+
+        let kick = build_runtime_kick_panel(&hud).expect("expected runtime kick panel");
+        assert_eq!(kick.reason_text.as_deref(), Some("idInUse"));
+        assert_eq!(kick.reason_ordinal, Some(7));
+
+        let loading = build_runtime_loading_panel(&hud).expect("expected runtime loading panel");
+        assert_eq!(loading.timeout_count, 2);
+        assert_eq!(loading.last_timeout_idle_ms, Some(20000));
+
+        let reconnect =
+            build_runtime_reconnect_panel(&hud).expect("expected runtime reconnect panel");
+        assert_eq!(reconnect.phase, RuntimeReconnectPhaseObservability::Attempting);
+        assert_eq!(
+            reconnect.reason_kind,
+            Some(RuntimeReconnectReasonKind::ConnectRedirect)
+        );
+        assert_eq!(reconnect.last_redirect_port, Some(6567));
     }
 }

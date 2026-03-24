@@ -3145,10 +3145,53 @@ pub enum TypedRuntimeEntityModel {
 }
 
 impl TypedRuntimeEntityModel {
-    pub fn entity_id(&self) -> i32 {
+    pub fn base(&self) -> &TypedRuntimeEntityBase {
         match self {
-            Self::Player(player) => player.base.entity_id,
-            Self::Unit(unit) => unit.base.entity_id,
+            Self::Player(player) => &player.base,
+            Self::Unit(unit) => &unit.base,
+        }
+    }
+
+    pub fn entity_id(&self) -> i32 {
+        self.base().entity_id
+    }
+
+    pub fn kind(&self) -> TypedRuntimeEntityKind {
+        match self {
+            Self::Player(_) => TypedRuntimeEntityKind::Player,
+            Self::Unit(_) => TypedRuntimeEntityKind::Unit,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TypedRuntimeEntityKind {
+    Player,
+    Unit,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct TypedRuntimeEntityProjection {
+    pub by_entity_id: BTreeMap<i32, TypedRuntimeEntityModel>,
+    pub local_player_entity_id: Option<i32>,
+    pub player_count: usize,
+    pub unit_count: usize,
+    pub hidden_count: usize,
+    pub last_entity_id: Option<i32>,
+    pub last_player_entity_id: Option<i32>,
+    pub last_unit_entity_id: Option<i32>,
+}
+
+impl TypedRuntimeEntityProjection {
+    pub fn entity_at(&self, entity_id: i32) -> Option<&TypedRuntimeEntityModel> {
+        self.by_entity_id.get(&entity_id)
+    }
+
+    pub fn local_player(&self) -> Option<&TypedRuntimePlayerEntity> {
+        let entity_id = self.local_player_entity_id?;
+        match self.by_entity_id.get(&entity_id)? {
+            TypedRuntimeEntityModel::Player(player) => Some(player),
+            TypedRuntimeEntityModel::Unit(_) => None,
         }
     }
 }
@@ -4047,6 +4090,55 @@ impl SessionState {
                 )
             })
             .collect()
+    }
+
+    pub fn typed_runtime_entity_projection(&self) -> TypedRuntimeEntityProjection {
+        let mut projection = TypedRuntimeEntityProjection::default();
+        let mut last_entity = None::<(u64, i32)>;
+        let mut last_player = None::<(u64, i32)>;
+        let mut last_unit = None::<(u64, i32)>;
+
+        for model in self.typed_runtime_entities() {
+            let entity_id = model.entity_id();
+            let base = model.base();
+            let last_seen = base.last_seen_entity_snapshot_count;
+            let priority = (last_seen, entity_id);
+            if base.hidden {
+                projection.hidden_count = projection.hidden_count.saturating_add(1);
+            }
+            if last_entity.is_none_or(|current| priority > current) {
+                last_entity = Some(priority);
+            }
+            match model.kind() {
+                TypedRuntimeEntityKind::Player => {
+                    projection.player_count = projection.player_count.saturating_add(1);
+                    if last_player.is_none_or(|current| priority > current) {
+                        last_player = Some(priority);
+                    }
+                }
+                TypedRuntimeEntityKind::Unit => {
+                    projection.unit_count = projection.unit_count.saturating_add(1);
+                    if last_unit.is_none_or(|current| priority > current) {
+                        last_unit = Some(priority);
+                    }
+                }
+            }
+            projection.by_entity_id.insert(entity_id, model);
+        }
+
+        projection.local_player_entity_id = self
+            .entity_table_projection
+            .local_player_entity_id
+            .filter(|entity_id| {
+                matches!(
+                    projection.by_entity_id.get(entity_id),
+                    Some(TypedRuntimeEntityModel::Player(_))
+                )
+            });
+        projection.last_entity_id = last_entity.map(|(_, entity_id)| entity_id);
+        projection.last_player_entity_id = last_player.map(|(_, entity_id)| entity_id);
+        projection.last_unit_entity_id = last_unit.map(|(_, entity_id)| entity_id);
+        projection
     }
 
     pub fn set_reconnect_phase(&mut self, phase: ReconnectPhaseProjection) {
@@ -4959,5 +5051,107 @@ mod tests {
         assert!(table.by_entity_id[&404].hidden);
         assert_eq!(table.hidden_apply_count, 1);
         assert_eq!(table.hidden_count, 1);
+    }
+
+    #[test]
+    fn session_state_typed_runtime_entity_projection_summarizes_players_and_units() {
+        let mut state = SessionState::default();
+        state.entity_table_projection.local_player_entity_id = Some(101);
+        state.entity_table_projection.by_entity_id.insert(
+            101,
+            EntityProjection {
+                class_id: EntityTableProjection::LOCAL_PLAYER_CLASS_ID,
+                hidden: false,
+                is_local_player: true,
+                unit_kind: 2,
+                unit_value: 1001,
+                x_bits: 10.0f32.to_bits(),
+                y_bits: 20.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 7,
+            },
+        );
+        state.entity_table_projection.by_entity_id.insert(
+            102,
+            EntityProjection {
+                class_id: EntityTableProjection::LOCAL_PLAYER_CLASS_ID,
+                hidden: true,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 1002,
+                x_bits: 11.0f32.to_bits(),
+                y_bits: 21.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 8,
+            },
+        );
+        state.entity_table_projection.by_entity_id.insert(
+            202,
+            EntityProjection {
+                class_id: 4,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 202,
+                x_bits: 30.0f32.to_bits(),
+                y_bits: 40.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 9,
+            },
+        );
+        state.entity_table_projection.by_entity_id.insert(
+            303,
+            EntityProjection {
+                class_id: 35,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 0,
+                unit_value: 0,
+                x_bits: 0,
+                y_bits: 0,
+                last_seen_entity_snapshot_count: 10,
+            },
+        );
+        state.entity_semantic_projection.upsert(
+            202,
+            4,
+            9,
+            EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
+                team_id: 2,
+                unit_type_id: 55,
+                health_bits: 0x3f80_0000,
+                rotation_bits: 0x4000_0000,
+                shield_bits: 0x4040_0000,
+                mine_tile_pos: 77,
+                status_count: 3,
+                payload_count: Some(1),
+                building_pos: Some(88),
+                lifetime_bits: Some(0x4080_0000),
+                time_bits: Some(0x40a0_0000),
+            }),
+        );
+
+        let projection = state.typed_runtime_entity_projection();
+
+        assert_eq!(projection.player_count, 2);
+        assert_eq!(projection.unit_count, 1);
+        assert_eq!(projection.hidden_count, 1);
+        assert_eq!(projection.local_player_entity_id, Some(101));
+        assert_eq!(projection.last_entity_id, Some(202));
+        assert_eq!(projection.last_player_entity_id, Some(102));
+        assert_eq!(projection.last_unit_entity_id, Some(202));
+        assert!(matches!(
+            projection.entity_at(102),
+            Some(TypedRuntimeEntityModel::Player(player))
+                if player.base.hidden && player.base.unit_value == 1002
+        ));
+        assert!(matches!(
+            projection.entity_at(202),
+            Some(TypedRuntimeEntityModel::Unit(unit))
+                if unit.semantic.unit_type_id == 55
+                    && unit.semantic.payload_count == Some(1)
+        ));
+        assert_eq!(
+            projection.local_player().map(|player| player.base.entity_id),
+            Some(101)
+        );
+        assert!(!projection.by_entity_id.contains_key(&303));
     }
 }
