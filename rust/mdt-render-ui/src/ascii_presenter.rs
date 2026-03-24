@@ -48,6 +48,9 @@ impl AsciiScenePresenter {
         if let Some(summary_text) = compose_hud_summary_text(hud) {
             out.push_str(&format!("SUMMARY: {summary_text}\n"));
         }
+        if let Some(overlay_semantics_text) = compose_overlay_semantics_text(scene) {
+            out.push_str(&format!("OVERLAY-KINDS: {overlay_semantics_text}\n"));
+        }
         if let Some(runtime_ui_text) = compose_runtime_ui_text(hud) {
             out.push_str(&format!("RUNTIME-UI: {runtime_ui_text}\n"));
         }
@@ -221,6 +224,49 @@ fn compose_runtime_ui_text(hud: &HudModel) -> Option<String> {
         optional_bool_label(text_input.last_numeric),
         optional_bool_label(text_input.last_allow_empty),
     ))
+}
+
+fn compose_overlay_semantics_text(scene: &RenderModel) -> Option<String> {
+    let counts = overlay_semantic_counts(scene);
+    let total = counts.iter().map(|(_, count)| count).sum::<usize>();
+    if total == 0 {
+        return None;
+    }
+
+    Some(format!(
+        "players={} markers={} plans={} blocks={} runtime={} terrain={} unknown={}",
+        overlay_semantic_count(&counts, RenderObjectSemanticKind::Player),
+        overlay_semantic_count(&counts, RenderObjectSemanticKind::Marker),
+        overlay_semantic_count(&counts, RenderObjectSemanticKind::Plan),
+        overlay_semantic_count(&counts, RenderObjectSemanticKind::Block),
+        overlay_semantic_count(&counts, RenderObjectSemanticKind::Runtime),
+        overlay_semantic_count(&counts, RenderObjectSemanticKind::Terrain),
+        overlay_semantic_count(&counts, RenderObjectSemanticKind::Unknown),
+    ))
+}
+
+fn overlay_semantic_counts(scene: &RenderModel) -> Vec<(RenderObjectSemanticKind, usize)> {
+    let mut counts = Vec::with_capacity(6);
+    for object in &scene.objects {
+        let kind = object.semantic_kind();
+        if let Some((_, count)) = counts.iter_mut().find(|(existing, _)| *existing == kind) {
+            *count += 1;
+        } else {
+            counts.push((kind, 1));
+        }
+    }
+    counts
+}
+
+fn overlay_semantic_count(
+    counts: &[(RenderObjectSemanticKind, usize)],
+    kind: RenderObjectSemanticKind,
+) -> usize {
+    counts
+        .iter()
+        .find(|(existing, _)| *existing == kind)
+        .map(|(_, count)| *count)
+        .unwrap_or_default()
 }
 
 fn compact_runtime_ui_text(value: Option<&str>) -> String {
@@ -440,7 +486,32 @@ mod tests {
                 height: 8.0,
                 zoom: 1.0,
             },
-            objects: Vec::new(),
+            objects: vec![
+                crate::RenderObject {
+                    id: "player:1".to_string(),
+                    layer: 1,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                crate::RenderObject {
+                    id: "marker:7".to_string(),
+                    layer: 2,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                crate::RenderObject {
+                    id: "plan:1:2:3".to_string(),
+                    layer: 3,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                crate::RenderObject {
+                    id: "block:9:4".to_string(),
+                    layer: 4,
+                    x: 0.0,
+                    y: 0.0,
+                },
+            ],
         };
         let hud = HudModel {
             title: "demo".to_string(),
@@ -494,6 +565,9 @@ mod tests {
         let frame = presenter.last_frame();
         assert!(frame.contains("SUMMARY: player=operator team=2 selected=payload-rout~"));
         assert!(frame.contains("map=80x60 overlay=1 fog=1 vis=120 hid=24"));
+        assert!(frame.contains(
+            "OVERLAY-KINDS: players=1 markers=1 plans=1 blocks=1 runtime=0 terrain=0 unknown=0"
+        ));
         assert!(frame.contains("RUNTIME-UI: hud=9/10/11@hud_text/hud_rel"));
         assert!(frame.contains("toast=14/15@toast/warn"));
         assert!(frame.contains("tin=53@404:Digits/Only_numbers"));

@@ -10,9 +10,10 @@ use crate::session_state::{
     BuildingProjectionUpdateKind, BuildingTableProjection, ConfiguredBlockOutcome,
     ConfiguredBlockProjection, ConfiguredContentRef, EffectBusinessContentKind,
     EffectBusinessPositionSource, EffectBusinessProjection, EffectDataSemantic,
-    HiddenSnapshotDeltaProjection, SessionState, StateSnapshotAuthorityProjection,
-    StateSnapshotBusinessProjection, TileConfigAuthoritySource, TileConfigProjection,
-    UnitRefProjection, WorldBootstrapProjection,
+    HiddenSnapshotDeltaProjection, SessionResetKind, SessionState, SessionTimeoutKind,
+    StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection,
+    TileConfigAuthoritySource, TileConfigProjection, UnitRefProjection,
+    WorldBootstrapProjection, WorldReloadProjection,
 };
 use mdt_remote::{HighFrequencyRemoteMethod, HIGH_FREQUENCY_REMOTE_METHOD_COUNT};
 use mdt_render_ui::{
@@ -1600,7 +1601,7 @@ fn runtime_kick_reason_name_from_ordinal(reason_ordinal: i32) -> Option<&'static
 
 fn runtime_loading_label(session_state: &SessionState) -> String {
     format!(
-        "defer{}:replay{}:drop{}:qdrop{}:sfail{}:scfail{}:efail{}:rdy{}@{}",
+        "defer{}:replay{}:drop{}:qdrop{}:sfail{}:scfail{}:efail{}:rdy{}@{}:to{}:cto{}:rto{}:lt{}@{}:rs{}:rr{}:wr{}:kr{}:lr{}:lwr{}",
         session_state.deferred_inbound_packet_count,
         session_state.replayed_inbound_packet_count,
         session_state.dropped_loading_low_priority_packet_count,
@@ -1610,7 +1611,59 @@ fn runtime_loading_label(session_state: &SessionState) -> String {
         session_state.failed_entity_snapshot_parse_count,
         session_state.ready_inbound_liveness_anchor_count,
         runtime_optional_display_label(session_state.last_ready_inbound_liveness_anchor_at_ms),
+        session_state.timeout_count,
+        session_state.connect_or_loading_timeout_count,
+        session_state.ready_snapshot_timeout_count,
+        runtime_timeout_kind_label(session_state.last_timeout.as_ref().map(|timeout| timeout.kind)),
+        runtime_optional_display_label(session_state.last_timeout.as_ref().map(|timeout| timeout.idle_ms)),
+        session_state.reset_count,
+        session_state.reconnect_reset_count,
+        session_state.world_reload_count,
+        session_state.kick_reset_count,
+        runtime_reset_kind_label(session_state.last_reset_kind),
+        runtime_world_reload_label(session_state.last_world_reload.as_ref()),
     )
+}
+
+fn runtime_timeout_kind_label(kind: Option<SessionTimeoutKind>) -> &'static str {
+    match kind {
+        Some(SessionTimeoutKind::ConnectOrLoading) => "cload",
+        Some(SessionTimeoutKind::ReadySnapshotStall) => "ready",
+        None => "none",
+    }
+}
+
+fn runtime_reset_kind_label(kind: Option<SessionResetKind>) -> &'static str {
+    match kind {
+        Some(SessionResetKind::Reconnect) => "reconnect",
+        Some(SessionResetKind::WorldReload) => "reload",
+        Some(SessionResetKind::Kick) => "kick",
+        None => "none",
+    }
+}
+
+fn runtime_world_reload_label(projection: Option<&WorldReloadProjection>) -> String {
+    match projection {
+        Some(projection) => format!(
+            "@lw{}:cl{}:rd{}:cc{}:p{}:d{}:r{}",
+            if projection.had_loaded_world { 1 } else { 0 },
+            if projection.had_client_loaded { 1 } else { 0 },
+            if projection.was_ready_to_enter_world {
+                1
+            } else {
+                0
+            },
+            if projection.had_connect_confirm_sent {
+                1
+            } else {
+                0
+            },
+            projection.cleared_pending_packets,
+            projection.cleared_deferred_inbound_packets,
+            projection.cleared_replayed_loading_events,
+        ),
+        None => "none".to_string(),
+    }
 }
 
 fn runtime_rules_label(session_state: &SessionState) -> String {
@@ -4580,5 +4633,86 @@ mod tests {
             runtime_command_control_label(&state),
             "spte1@t9:mc2@300/4:tir3@301#len5:ri4@1:2#6x7:bcs5@3:4:ucl6:uct7@2:88:ubcs8@1:77/5:6:cb9@n2:7:8->0x3f800000:0x40000000:cu10@n3:u500:b9:10:t2:600:p0x40400000:0x40800000:q0:f1:suc11@n4:u501:c12:sus13@n5:u502:s14:e0:rot15@11:12:d1:tinv16@13:14:rbp17@15:16:rdp18@0x40a00000:0x40c00000:rup19@1:700:drop20@0x40e00000:dpl21@n6:17:18:tap22@19:20"
         );
+    }
+
+    #[test]
+    fn runtime_loading_label_compacts_timeout_reset_and_world_reload_taxonomy() {
+        let mut state = SessionState::default();
+        assert_eq!(
+            runtime_loading_label(&state),
+            "defer0:replay0:drop0:qdrop0:sfail0:scfail0:efail0:rdy0@none:to0:cto0:rto0:ltnone@none:rs0:rr0:wr0:kr0:lrnone:lwrnone"
+        );
+
+        state.deferred_inbound_packet_count = 5;
+        state.replayed_inbound_packet_count = 6;
+        state.dropped_loading_low_priority_packet_count = 7;
+        state.dropped_loading_deferred_overflow_count = 8;
+        state.failed_state_snapshot_parse_count = 9;
+        state.failed_state_snapshot_core_data_parse_count = 10;
+        state.failed_entity_snapshot_parse_count = 11;
+        state.ready_inbound_liveness_anchor_count = 12;
+        state.last_ready_inbound_liveness_anchor_at_ms = Some(1300);
+        state.timeout_count = 2;
+        state.connect_or_loading_timeout_count = 1;
+        state.ready_snapshot_timeout_count = 1;
+        state.last_timeout = Some(crate::session_state::SessionTimeoutProjection {
+            kind: SessionTimeoutKind::ReadySnapshotStall,
+            idle_ms: 20000,
+        });
+        state.reset_count = 3;
+        state.reconnect_reset_count = 1;
+        state.world_reload_count = 1;
+        state.kick_reset_count = 1;
+        state.last_reset_kind = Some(SessionResetKind::WorldReload);
+        state.last_world_reload = Some(WorldReloadProjection {
+            had_loaded_world: true,
+            had_client_loaded: false,
+            was_ready_to_enter_world: true,
+            had_connect_confirm_sent: false,
+            cleared_pending_packets: 4,
+            cleared_deferred_inbound_packets: 5,
+            cleared_replayed_loading_events: 6,
+        });
+
+        assert_eq!(
+            runtime_loading_label(&state),
+            "defer5:replay6:drop7:qdrop8:sfail9:scfail10:efail11:rdy12@1300:to2:cto1:rto1:ltready@20000:rs3:rr1:wr1:kr1:lrreload:lwr@lw1:cl0:rd1:cc0:p4:d5:r6"
+        );
+    }
+
+    #[test]
+    fn render_runtime_adapter_reports_session_taxonomy_in_loading_hud() {
+        let adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        state.timeout_count = 4;
+        state.connect_or_loading_timeout_count = 3;
+        state.ready_snapshot_timeout_count = 1;
+        state.last_timeout = Some(crate::session_state::SessionTimeoutProjection {
+            kind: SessionTimeoutKind::ConnectOrLoading,
+            idle_ms: 300000,
+        });
+        state.reset_count = 5;
+        state.reconnect_reset_count = 2;
+        state.world_reload_count = 2;
+        state.kick_reset_count = 1;
+        state.last_reset_kind = Some(SessionResetKind::Kick);
+        state.last_world_reload = Some(WorldReloadProjection {
+            had_loaded_world: true,
+            had_client_loaded: true,
+            was_ready_to_enter_world: false,
+            had_connect_confirm_sent: true,
+            cleared_pending_packets: 7,
+            cleared_deferred_inbound_packets: 8,
+            cleared_replayed_loading_events: 9,
+        });
+
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        assert!(hud.status_text.contains(
+            "runtime_loading=defer0:replay0:drop0:qdrop0:sfail0:scfail0:efail0:rdy0@none:to4:cto3:rto1:ltcload@300000:rs5:rr2:wr2:kr1:lrkick:lwr@lw1:cl1:rd0:cc1:p7:d8:r9"
+        ));
     }
 }

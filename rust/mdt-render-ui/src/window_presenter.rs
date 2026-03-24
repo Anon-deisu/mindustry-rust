@@ -308,7 +308,7 @@ fn compose_frame(
         frame_id,
         title: hud.title.clone(),
         wave_text: hud.wave_text.clone(),
-        status_text: compose_frame_status_text(hud),
+        status_text: compose_frame_status_text(scene, hud),
         overlay_summary_text: hud.overlay_summary_text.clone(),
         fps: hud.fps,
         zoom: scene.viewport.zoom,
@@ -443,7 +443,7 @@ fn compose_window_title(frame: &WindowFrame, title_prefix: &str) -> String {
     parts.join(" | ")
 }
 
-fn compose_frame_status_text(hud: &HudModel) -> String {
+fn compose_frame_status_text(scene: &RenderModel, hud: &HudModel) -> String {
     let mut parts = Vec::new();
     if !hud.status_text.is_empty() {
         parts.push(hud.status_text.clone());
@@ -456,6 +456,9 @@ fn compose_frame_status_text(hud: &HudModel) -> String {
         if !runtime_ui_text.is_empty() {
             parts.push(runtime_ui_text);
         }
+    }
+    if let Some(overlay_semantics_text) = compose_overlay_semantics_status_text(scene) {
+        parts.push(overlay_semantics_text);
     }
     parts.join(" ")
 }
@@ -500,6 +503,47 @@ fn compose_runtime_ui_status_text(runtime_ui: &RuntimeUiObservability) -> String
         optional_bool_label(text_input.last_numeric),
         optional_bool_label(text_input.last_allow_empty),
     )
+}
+
+fn compose_overlay_semantics_status_text(scene: &RenderModel) -> Option<String> {
+    let counts = overlay_semantic_counts(scene);
+    let total = counts.iter().map(|(_, count)| count).sum::<usize>();
+    if total == 0 {
+        return None;
+    }
+
+    Some(format!(
+        "overlay:players={} markers={} plans={} blocks={} runtime={}",
+        overlay_semantic_count(&counts, RenderObjectSemanticKind::Player),
+        overlay_semantic_count(&counts, RenderObjectSemanticKind::Marker),
+        overlay_semantic_count(&counts, RenderObjectSemanticKind::Plan),
+        overlay_semantic_count(&counts, RenderObjectSemanticKind::Block),
+        overlay_semantic_count(&counts, RenderObjectSemanticKind::Runtime),
+    ))
+}
+
+fn overlay_semantic_counts(scene: &RenderModel) -> Vec<(RenderObjectSemanticKind, usize)> {
+    let mut counts = Vec::with_capacity(6);
+    for object in &scene.objects {
+        let kind = object.semantic_kind();
+        if let Some((_, count)) = counts.iter_mut().find(|(existing, _)| *existing == kind) {
+            *count += 1;
+        } else {
+            counts.push((kind, 1));
+        }
+    }
+    counts
+}
+
+fn overlay_semantic_count(
+    counts: &[(RenderObjectSemanticKind, usize)],
+    kind: RenderObjectSemanticKind,
+) -> usize {
+    counts
+        .iter()
+        .find(|(existing, _)| *existing == kind)
+        .map(|(_, count)| *count)
+        .unwrap_or_default()
 }
 
 fn compact_runtime_ui_text(value: Option<&str>) -> String {
@@ -901,7 +945,12 @@ mod tests {
                 height: 8.0,
                 zoom: 1.0,
             },
-            objects: Vec::new(),
+            objects: vec![
+                render_object("player:1"),
+                render_object("marker:7"),
+                render_object("plan:1:2:3"),
+                render_object("block:9:4"),
+            ],
         };
         let hud = HudModel {
             title: "demo".to_string(),
@@ -962,6 +1011,9 @@ mod tests {
         assert!(frame
             .status_text
             .contains("ui:hud=9/10/11@hud_text/hud_rel"));
+        assert!(frame
+            .status_text
+            .contains("overlay:players=1 markers=1 plans=1 blocks=1 runtime=0"));
         assert!(frame.status_text.contains("toast=14/15@toast/warn"));
         assert!(frame
             .status_text
