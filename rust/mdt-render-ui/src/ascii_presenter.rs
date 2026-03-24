@@ -7,6 +7,7 @@ use crate::panel_model::{
     build_runtime_reconnect_panel, build_runtime_rules_panel, build_runtime_session_panel,
     build_runtime_ui_notice_panel, build_runtime_ui_stack_panel, build_runtime_world_label_panel,
     MinimapPanelModel, PresenterViewWindow, RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
+    RuntimeUiNoticePanelModel,
 };
 use crate::render_model::{RenderObjectSemanticFamily, RenderObjectSemanticKind};
 use crate::{HudModel, RenderModel, ScenePresenter};
@@ -116,6 +117,11 @@ impl AsciiScenePresenter {
         }
         if let Some(runtime_ui_notice_text) = compose_runtime_ui_notice_panel_text(hud) {
             out.push_str(&format!("RUNTIME-NOTICE: {runtime_ui_notice_text}\n"));
+        }
+        if let Some(runtime_ui_notice_detail_text) = compose_runtime_ui_notice_detail_text(hud) {
+            out.push_str(&format!(
+                "RUNTIME-NOTICE-DETAIL: {runtime_ui_notice_detail_text}\n"
+            ));
         }
         if let Some(runtime_menu_text) = compose_runtime_menu_panel_text(hud) {
             out.push_str(&format!("RUNTIME-MENU: {runtime_menu_text}\n"));
@@ -436,6 +442,32 @@ fn compose_runtime_ui_notice_panel_text(hud: &HudModel) -> Option<String> {
         compact_runtime_ui_text(panel.text_input_last_message.as_deref()),
         compact_runtime_ui_text(panel.text_input_last_default_text.as_deref()),
         panel.text_input_last_length.unwrap_or_default(),
+        optional_bool_label(panel.text_input_last_numeric),
+        optional_bool_label(panel.text_input_last_allow_empty),
+    ))
+}
+
+fn compose_runtime_ui_notice_detail_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_ui_notice_panel(hud)?;
+    if runtime_ui_notice_panel_is_empty(&panel) {
+        return None;
+    }
+    Some(format!(
+        "active=1 hud-events={}/{}/{} hud-len={}/{} toast-events={}/{} toast-len={}/{} text-input={} id={} title-len={} msg-len={} default-len={} numeric={} allow-empty={}",
+        panel.hud_set_count,
+        panel.hud_set_reliable_count,
+        panel.hud_hide_count,
+        runtime_ui_text_len(panel.hud_last_message.as_deref()),
+        runtime_ui_text_len(panel.hud_last_reliable_message.as_deref()),
+        panel.toast_info_count,
+        panel.toast_warning_count,
+        runtime_ui_text_len(panel.toast_last_info_message.as_deref()),
+        runtime_ui_text_len(panel.toast_last_warning_text.as_deref()),
+        panel.text_input_open_count,
+        optional_i32_label(panel.text_input_last_id),
+        runtime_ui_text_len(panel.text_input_last_title.as_deref()),
+        runtime_ui_text_len(panel.text_input_last_message.as_deref()),
+        runtime_ui_text_len(panel.text_input_last_default_text.as_deref()),
         optional_bool_label(panel.text_input_last_numeric),
         optional_bool_label(panel.text_input_last_allow_empty),
     ))
@@ -1498,6 +1530,30 @@ fn compact_runtime_ui_text(value: Option<&str>) -> String {
     }
 }
 
+fn runtime_ui_text_len(value: Option<&str>) -> usize {
+    value.map(str::chars).map(Iterator::count).unwrap_or_default()
+}
+
+fn runtime_ui_notice_panel_is_empty(panel: &RuntimeUiNoticePanelModel) -> bool {
+    panel.hud_set_count == 0
+        && panel.hud_set_reliable_count == 0
+        && panel.hud_hide_count == 0
+        && panel.hud_last_message.is_none()
+        && panel.hud_last_reliable_message.is_none()
+        && panel.toast_info_count == 0
+        && panel.toast_warning_count == 0
+        && panel.toast_last_info_message.is_none()
+        && panel.toast_last_warning_text.is_none()
+        && panel.text_input_open_count == 0
+        && panel.text_input_last_id.is_none()
+        && panel.text_input_last_title.is_none()
+        && panel.text_input_last_message.is_none()
+        && panel.text_input_last_default_text.is_none()
+        && panel.text_input_last_length.is_none()
+        && panel.text_input_last_numeric.is_none()
+        && panel.text_input_last_allow_empty.is_none()
+}
+
 fn optional_i32_label(value: Option<i32>) -> String {
     value
         .map(|value| value.to_string())
@@ -2381,6 +2437,9 @@ mod tests {
         assert!(frame.contains(
             "RUNTIME-NOTICE: hud=9/10/11@hud_text/hud_rel toast=14/15@toast/warn tin=53@404:Digits/Only_numbers/12345#16:n1:e1"
         ));
+        assert!(frame.contains(
+            "RUNTIME-NOTICE-DETAIL: active=1 hud-events=9/10/11 hud-len=8/7 toast-events=14/15 toast-len=5/4 text-input=53 id=404 title-len=6 msg-len=12 default-len=5 numeric=1 allow-empty=1"
+        ));
         assert!(frame
             .contains("RUNTIME-MENU: menu=16 fmenu=17 hide=18 tin=53@404:Digits/12345#16:n1:e1"));
         assert!(frame.contains(
@@ -2592,6 +2651,9 @@ mod tests {
         presenter.present(&scene, &hud);
 
         assert!(!presenter.last_frame().contains("RUNTIME-SESSION:"));
+        assert!(!presenter
+            .last_frame()
+            .contains("RUNTIME-NOTICE-DETAIL:"));
         assert!(!presenter
             .last_frame()
             .contains("RUNTIME-WORLD-LABEL-DETAIL:"));

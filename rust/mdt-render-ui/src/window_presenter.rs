@@ -8,7 +8,7 @@ use crate::{
         build_runtime_reconnect_panel, build_runtime_rules_panel, build_runtime_session_panel,
         build_runtime_ui_notice_panel, build_runtime_ui_stack_panel,
         build_runtime_world_label_panel, MinimapPanelModel, PresenterViewWindow,
-        RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
+        RuntimeDialogNoticeKind, RuntimeDialogPromptKind, RuntimeUiNoticePanelModel,
     },
     render_model::{RenderObjectSemanticFamily, RenderObjectSemanticKind},
     BuildQueueHeadObservability, BuildQueueHeadStage, BuildUiObservability, HudModel, RenderModel,
@@ -569,6 +569,9 @@ fn compose_frame_panel_lines(
     if let Some(runtime_ui_notice_text) = compose_runtime_ui_notice_panel_status_text(hud) {
         lines.push(format!("RUNTIME-NOTICE: {runtime_ui_notice_text}"));
     }
+    if let Some(runtime_ui_notice_detail_text) = compose_runtime_ui_notice_detail_status_text(hud) {
+        lines.push(format!("RUNTIME-NOTICE-DETAIL: {runtime_ui_notice_detail_text}"));
+    }
     if let Some(runtime_menu_text) = compose_runtime_menu_panel_status_text(hud) {
         lines.push(format!("RUNTIME-MENU: {runtime_menu_text}"));
     }
@@ -743,6 +746,32 @@ fn compose_runtime_ui_notice_panel_status_text(hud: &HudModel) -> Option<String>
         compact_runtime_ui_text(panel.text_input_last_message.as_deref()),
         compact_runtime_ui_text(panel.text_input_last_default_text.as_deref()),
         panel.text_input_last_length.unwrap_or_default(),
+        optional_bool_label(panel.text_input_last_numeric),
+        optional_bool_label(panel.text_input_last_allow_empty),
+    ))
+}
+
+fn compose_runtime_ui_notice_detail_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_ui_notice_panel(hud)?;
+    if runtime_ui_notice_panel_is_empty(&panel) {
+        return None;
+    }
+    Some(format!(
+        "noticed:a1:h{}/{}/{}:l{}/{}:t{}/{}:l{}/{}:tin{}:id{}:t{}:m{}:d{}:n{}:e{}",
+        panel.hud_set_count,
+        panel.hud_set_reliable_count,
+        panel.hud_hide_count,
+        runtime_ui_text_len(panel.hud_last_message.as_deref()),
+        runtime_ui_text_len(panel.hud_last_reliable_message.as_deref()),
+        panel.toast_info_count,
+        panel.toast_warning_count,
+        runtime_ui_text_len(panel.toast_last_info_message.as_deref()),
+        runtime_ui_text_len(panel.toast_last_warning_text.as_deref()),
+        panel.text_input_open_count,
+        optional_i32_label(panel.text_input_last_id),
+        runtime_ui_text_len(panel.text_input_last_title.as_deref()),
+        runtime_ui_text_len(panel.text_input_last_message.as_deref()),
+        runtime_ui_text_len(panel.text_input_last_default_text.as_deref()),
         optional_bool_label(panel.text_input_last_numeric),
         optional_bool_label(panel.text_input_last_allow_empty),
     ))
@@ -1853,6 +1882,30 @@ fn compact_runtime_ui_text(value: Option<&str>) -> String {
     }
 }
 
+fn runtime_ui_text_len(value: Option<&str>) -> usize {
+    value.map(str::chars).map(Iterator::count).unwrap_or_default()
+}
+
+fn runtime_ui_notice_panel_is_empty(panel: &RuntimeUiNoticePanelModel) -> bool {
+    panel.hud_set_count == 0
+        && panel.hud_set_reliable_count == 0
+        && panel.hud_hide_count == 0
+        && panel.hud_last_message.is_none()
+        && panel.hud_last_reliable_message.is_none()
+        && panel.toast_info_count == 0
+        && panel.toast_warning_count == 0
+        && panel.toast_last_info_message.is_none()
+        && panel.toast_last_warning_text.is_none()
+        && panel.text_input_open_count == 0
+        && panel.text_input_last_id.is_none()
+        && panel.text_input_last_title.is_none()
+        && panel.text_input_last_message.is_none()
+        && panel.text_input_last_default_text.is_none()
+        && panel.text_input_last_length.is_none()
+        && panel.text_input_last_numeric.is_none()
+        && panel.text_input_last_allow_empty.is_none()
+}
+
 fn optional_i32_label(value: Option<i32>) -> String {
     value
         .map(|value| value.to_string())
@@ -2925,6 +2978,10 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
+            "RUNTIME-NOTICE-DETAIL: noticed:a1:h9/10/11:l8/7:t14/15:l5/4:tin53:id404:t6:m12:d5:n1:e1",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
             "RUNTIME-MENU: menu:m16:fm17:h18:tin53@404:Digits/12345#16:n1:e1",
         );
         assert_frame_line_contains(
@@ -3164,6 +3221,14 @@ mod tests {
                 .iter()
                 .all(|line| !line.starts_with("RUNTIME-SESSION:")),
             "unexpected runtime session line in {:?}",
+            frame.panel_lines
+        );
+        assert!(
+            frame
+                .panel_lines
+                .iter()
+                .all(|line| !line.starts_with("RUNTIME-NOTICE-DETAIL:")),
+            "unexpected runtime notice detail line in {:?}",
             frame.panel_lines
         );
         assert!(

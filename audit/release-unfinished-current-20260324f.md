@@ -143,6 +143,9 @@ These are already landed and should not be re-opened as if missing:
 - `mdt-render-ui` presenter-local HUD/chat/menu/dialog/minimap detail rows are now landed.
   - panel/window/ascii presenters now expose `HUD-DETAIL`, `MINIMAP-*DETAIL`, `RUNTIME-MENU-DETAIL`, `RUNTIME-DIALOG-DETAIL`, and `RUNTIME-CHAT-DETAIL` rows derived from existing runtime observability instead of only coarse summary rows
   - remaining `M9` work is still interactive UI/user-flow depth, not re-adding this presenter-local detail slice
+- `mdt-render-ui` runtime notice detail rows are now also landed.
+  - panel/window/ascii presenters now expose deterministic `RUNTIME-NOTICE-DETAIL` rows derived from existing HUD/toast/text-input observability instead of leaving `RUNTIME-NOTICE` as a summary-only line
+  - remaining `M9` work is still interactive UI/user-flow depth, not re-adding this presenter-local notice-detail slice
 - `mdt-render-ui` build/minimap assist presenter slice is now landed.
   - panel/window presenters now expose `BuildMinimapAssistPanelModel` and `BUILD-MINIMAP-AUX` rows that combine build head/reconcile/config/auth/runtime hints into a single deterministic presenter-local summary
   - remaining `M9` work is still broader interactive UI and renderer/runtime parity, not re-adding this presenter-local assist summary slice
