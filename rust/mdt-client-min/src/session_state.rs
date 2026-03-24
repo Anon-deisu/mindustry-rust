@@ -4658,6 +4658,10 @@ impl SessionState {
             .clear();
     }
 
+    pub fn clear_entity_snapshot_tombstone(&mut self, entity_id: i32) -> bool {
+        self.entity_snapshot_tombstones.remove(&entity_id).is_some()
+    }
+
     pub fn record_entity_snapshot_tombstone(&mut self, entity_id: i32) {
         self.entity_snapshot_tombstones
             .insert(entity_id, self.received_entity_snapshot_count);
@@ -4793,6 +4797,9 @@ impl SessionState {
             &transition.auxiliary_cleanup_ids,
             local_player_entity_id,
         );
+        for entity_id in &hidden_removed_ids {
+            self.clear_entity_snapshot_tombstone(*entity_id);
+        }
         hidden_removed_ids
     }
 
@@ -5458,6 +5465,61 @@ mod tests {
 
         assert_eq!(transition.auxiliary_cleanup_ids, BTreeSet::from([202, 303, 404]));
         assert_eq!(transition.lifecycle_remove_ids, BTreeSet::from([202, 303]));
+    }
+
+    #[test]
+    fn hidden_snapshot_lifecycle_remove_clears_matching_entity_tombstones() {
+        let mut state = SessionState::default();
+        state.entity_table_projection.by_entity_id.insert(
+            303,
+            EntityProjection {
+                class_id: 33,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 0,
+                unit_value: 0,
+                x_bits: 0,
+                y_bits: 0,
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
+        state.entity_semantic_projection.by_entity_id.insert(
+            303,
+            EntitySemanticProjectionEntry {
+                class_id: 33,
+                last_seen_entity_snapshot_count: 1,
+                projection: EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
+                    team_id: 2,
+                    unit_type_id: 3,
+                    health_bits: 0,
+                    rotation_bits: 0,
+                    shield_bits: 0,
+                    mine_tile_pos: 0,
+                    status_count: 0,
+                    payload_count: None,
+                    building_pos: None,
+                    lifetime_bits: None,
+                    time_bits: None,
+                }),
+            },
+        );
+        state.record_entity_snapshot_tombstone(303);
+
+        assert!(state.entity_snapshot_tombstone_blocks_upsert(303));
+
+        state.apply_hidden_snapshot(
+            AppliedHiddenSnapshotIds {
+                count: 1,
+                first_id: Some(303),
+                sample_ids: vec![303],
+            },
+            BTreeSet::from([303]),
+        );
+
+        assert!(!state.entity_table_projection.by_entity_id.contains_key(&303));
+        assert!(!state.entity_semantic_projection.by_entity_id.contains_key(&303));
+        assert!(!state.entity_snapshot_tombstones.contains_key(&303));
+        assert!(!state.entity_snapshot_tombstone_blocks_upsert(303));
     }
 
     #[test]
