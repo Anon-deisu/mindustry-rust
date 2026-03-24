@@ -1476,6 +1476,7 @@ fn runtime_ui_observability(
         },
         admin: runtime_admin_observability(session_state),
         menu: runtime_menu_observability(session_state),
+        command_mode: Default::default(),
         rules: runtime_rules_observability(session_state),
         world_labels: runtime_world_label_observability(session_state),
         session: runtime_session_observability(session_state, world_overlay),

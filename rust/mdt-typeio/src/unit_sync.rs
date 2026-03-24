@@ -1,4 +1,9 @@
-use crate::{write_byte, write_float, TypeIoReadError};
+use crate::{write_byte, write_float, write_short, TypeIoReadError};
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AbilityRaw {
+    pub data: f32,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct WeaponMountRaw {
@@ -6,6 +11,36 @@ pub struct WeaponMountRaw {
     pub rotate: bool,
     pub aim_x: f32,
     pub aim_y: f32,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct StatusDynamicFieldsRaw {
+    pub damage_multiplier: Option<f32>,
+    pub health_multiplier: Option<f32>,
+    pub speed_multiplier: Option<f32>,
+    pub reload_multiplier: Option<f32>,
+    pub build_speed_multiplier: Option<f32>,
+    pub drag_multiplier: Option<f32>,
+    pub armor_override: Option<f32>,
+}
+
+impl StatusDynamicFieldsRaw {
+    fn flags(self) -> u8 {
+        u8::from(self.damage_multiplier.is_some())
+            | (u8::from(self.health_multiplier.is_some()) << 1)
+            | (u8::from(self.speed_multiplier.is_some()) << 2)
+            | (u8::from(self.reload_multiplier.is_some()) << 3)
+            | (u8::from(self.build_speed_multiplier.is_some()) << 4)
+            | (u8::from(self.drag_multiplier.is_some()) << 5)
+            | (u8::from(self.armor_override.is_some()) << 6)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct StatusEntryRaw {
+    pub status_id: i16,
+    pub time: f32,
+    pub dynamic_fields: Option<StatusDynamicFieldsRaw>,
 }
 
 impl WeaponMountRaw {
@@ -21,6 +56,97 @@ impl WeaponMountRaw {
             aim_y,
         }
     }
+}
+
+pub fn write_status_entry(out: &mut Vec<u8>, entry: &StatusEntryRaw) {
+    write_short(out, entry.status_id);
+    write_float(out, entry.time);
+    if let Some(dynamic_fields) = entry.dynamic_fields {
+        write_byte(out, dynamic_fields.flags());
+        for value in [
+            dynamic_fields.damage_multiplier,
+            dynamic_fields.health_multiplier,
+            dynamic_fields.speed_multiplier,
+            dynamic_fields.reload_multiplier,
+            dynamic_fields.build_speed_multiplier,
+            dynamic_fields.drag_multiplier,
+            dynamic_fields.armor_override,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            write_float(out, value);
+        }
+    }
+}
+
+pub fn read_status_entry(
+    bytes: &[u8],
+    dynamic: bool,
+) -> Result<StatusEntryRaw, TypeIoReadError> {
+    let (entry, consumed) = read_status_entry_prefix(bytes, dynamic)?;
+    ensure_consumed(consumed, bytes.len())?;
+    Ok(entry)
+}
+
+pub fn read_status_entry_prefix(
+    bytes: &[u8],
+    dynamic: bool,
+) -> Result<(StatusEntryRaw, usize), TypeIoReadError> {
+    let mut reader = PrimitiveReader::new(bytes);
+    let status_id = reader.read_i16()?;
+    let time = reader.read_f32()?;
+    let dynamic_fields = if dynamic {
+        let flags = reader.read_u8()?;
+        Some(StatusDynamicFieldsRaw {
+            damage_multiplier: read_flagged_f32(&mut reader, flags, 0)?,
+            health_multiplier: read_flagged_f32(&mut reader, flags, 1)?,
+            speed_multiplier: read_flagged_f32(&mut reader, flags, 2)?,
+            reload_multiplier: read_flagged_f32(&mut reader, flags, 3)?,
+            build_speed_multiplier: read_flagged_f32(&mut reader, flags, 4)?,
+            drag_multiplier: read_flagged_f32(&mut reader, flags, 5)?,
+            armor_override: read_flagged_f32(&mut reader, flags, 6)?,
+        })
+    } else {
+        None
+    };
+    Ok((
+        StatusEntryRaw {
+            status_id,
+            time,
+            dynamic_fields,
+        },
+        reader.position(),
+    ))
+}
+
+pub fn write_abilities(out: &mut Vec<u8>, abilities: &[AbilityRaw]) {
+    let len: u8 = abilities
+        .len()
+        .try_into()
+        .expect("ability count exceeds wire byte capacity");
+    write_byte(out, len);
+    for ability in abilities {
+        write_float(out, ability.data);
+    }
+}
+
+pub fn read_abilities(bytes: &[u8]) -> Result<Vec<AbilityRaw>, TypeIoReadError> {
+    let (abilities, consumed) = read_abilities_prefix(bytes)?;
+    ensure_consumed(consumed, bytes.len())?;
+    Ok(abilities)
+}
+
+pub fn read_abilities_prefix(bytes: &[u8]) -> Result<(Vec<AbilityRaw>, usize), TypeIoReadError> {
+    let mut reader = PrimitiveReader::new(bytes);
+    let len = reader.read_u8()? as usize;
+    let mut abilities = Vec::with_capacity(len);
+    for _ in 0..len {
+        abilities.push(AbilityRaw {
+            data: reader.read_f32()?,
+        });
+    }
+    Ok((abilities, reader.position()))
 }
 
 pub fn write_weapon_mounts(out: &mut Vec<u8>, mounts: &[WeaponMountRaw]) {
@@ -65,6 +191,18 @@ fn ensure_consumed(consumed: usize, total: usize) -> Result<(), TypeIoReadError>
     }
 }
 
+fn read_flagged_f32(
+    reader: &mut PrimitiveReader<'_>,
+    flags: u8,
+    bit: u8,
+) -> Result<Option<f32>, TypeIoReadError> {
+    if (flags & (1 << bit)) != 0 {
+        Ok(Some(reader.read_f32()?))
+    } else {
+        Ok(None)
+    }
+}
+
 struct PrimitiveReader<'a> {
     bytes: &'a [u8],
     position: usize,
@@ -94,6 +232,11 @@ impl<'a> PrimitiveReader<'a> {
         ])))
     }
 
+    fn read_i16(&mut self) -> Result<i16, TypeIoReadError> {
+        let bytes = self.read_exact(2)?;
+        Ok(i16::from_be_bytes([bytes[0], bytes[1]]))
+    }
+
     fn read_exact(&mut self, len: usize) -> Result<&'a [u8], TypeIoReadError> {
         let remaining = self.remaining();
         if remaining < len {
@@ -112,6 +255,40 @@ impl<'a> PrimitiveReader<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn abilities_round_trip_two_entries() {
+        let abilities = vec![AbilityRaw { data: 12.5 }, AbilityRaw { data: -3.25 }];
+        let mut bytes = Vec::new();
+
+        write_abilities(&mut bytes, &abilities);
+
+        assert_eq!(read_abilities(&bytes).unwrap(), abilities);
+    }
+
+    #[test]
+    fn abilities_round_trip_empty_array() {
+        let mut bytes = Vec::new();
+
+        write_abilities(&mut bytes, &[]);
+
+        assert_eq!(bytes, vec![0]);
+        assert_eq!(read_abilities(&bytes).unwrap(), Vec::<AbilityRaw>::new());
+    }
+
+    #[test]
+    fn abilities_reader_reports_truncated_payload() {
+        let bytes = vec![1, 0x41, 0x48, 0x00];
+
+        assert!(matches!(
+            read_abilities(&bytes),
+            Err(TypeIoReadError::UnexpectedEof {
+                position: 1,
+                needed: 4,
+                remaining: 3,
+            })
+        ));
+    }
 
     #[test]
     fn weapon_mounts_round_trip_two_entries() {
@@ -156,6 +333,53 @@ mod tests {
                 position: 2,
                 needed: 4,
                 remaining: 3,
+            })
+        ));
+    }
+
+    #[test]
+    fn status_entry_round_trip_without_dynamic_fields() {
+        let entry = StatusEntryRaw {
+            status_id: 27,
+            time: 45.5,
+            dynamic_fields: None,
+        };
+        let mut bytes = Vec::new();
+
+        write_status_entry(&mut bytes, &entry);
+
+        assert_eq!(read_status_entry(&bytes, false).unwrap(), entry);
+    }
+
+    #[test]
+    fn status_entry_round_trip_with_sparse_dynamic_fields() {
+        let entry = StatusEntryRaw {
+            status_id: 91,
+            time: 12.25,
+            dynamic_fields: Some(StatusDynamicFieldsRaw {
+                damage_multiplier: Some(1.5),
+                speed_multiplier: Some(0.75),
+                armor_override: Some(6.0),
+                ..StatusDynamicFieldsRaw::default()
+            }),
+        };
+        let mut bytes = Vec::new();
+
+        write_status_entry(&mut bytes, &entry);
+
+        assert_eq!(read_status_entry(&bytes, true).unwrap(), entry);
+    }
+
+    #[test]
+    fn status_entry_reader_reports_truncated_dynamic_payload() {
+        let bytes = vec![0, 5, 0x41, 0x40, 0x00, 0x00, 0b0000_0101, 0x3f];
+
+        assert!(matches!(
+            read_status_entry(&bytes, true),
+            Err(TypeIoReadError::UnexpectedEof {
+                position: 7,
+                needed: 4,
+                remaining: 1,
             })
         ));
     }

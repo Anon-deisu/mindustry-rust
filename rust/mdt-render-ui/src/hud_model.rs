@@ -35,6 +35,7 @@ pub struct RuntimeUiObservability {
     pub text_input: RuntimeTextInputObservability,
     pub admin: RuntimeAdminObservability,
     pub menu: RuntimeMenuObservability,
+    pub command_mode: RuntimeCommandModeObservability,
     pub rules: RuntimeRulesObservability,
     pub world_labels: RuntimeWorldLabelObservability,
     pub session: RuntimeSessionObservability,
@@ -75,6 +76,57 @@ pub struct RuntimeMenuObservability {
     pub menu_open_count: u64,
     pub follow_up_menu_open_count: u64,
     pub hide_follow_up_menu_count: u64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RuntimeCommandModeObservability {
+    pub active: bool,
+    pub selected_units: Vec<i32>,
+    pub command_buildings: Vec<i32>,
+    pub command_rect: Option<RuntimeCommandRectObservability>,
+    pub control_groups: Vec<RuntimeCommandControlGroupObservability>,
+    pub last_target: Option<RuntimeCommandTargetObservability>,
+    pub last_command_selection: Option<RuntimeCommandSelectionObservability>,
+    pub last_stance_selection: Option<RuntimeCommandStanceObservability>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RuntimeCommandRectObservability {
+    pub x0: i32,
+    pub y0: i32,
+    pub x1: i32,
+    pub y1: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeCommandControlGroupObservability {
+    pub index: u8,
+    pub unit_ids: Vec<i32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RuntimeCommandUnitRefObservability {
+    pub kind: u8,
+    pub value: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RuntimeCommandTargetObservability {
+    pub build_target: Option<i32>,
+    pub unit_target: Option<RuntimeCommandUnitRefObservability>,
+    pub position_target: Option<RuntimeWorldPositionObservability>,
+    pub rect_target: Option<RuntimeCommandRectObservability>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RuntimeCommandSelectionObservability {
+    pub command_id: Option<u8>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RuntimeCommandStanceObservability {
+    pub stance_id: Option<u8>,
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

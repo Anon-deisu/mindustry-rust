@@ -228,6 +228,27 @@ pub struct RuntimeDialogPanelModel {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeCommandModePanelModel {
+    pub active: bool,
+    pub selected_unit_count: usize,
+    pub selected_unit_sample: Vec<i32>,
+    pub command_building_count: usize,
+    pub first_command_building: Option<i32>,
+    pub command_rect: Option<crate::RuntimeCommandRectObservability>,
+    pub control_groups: Vec<RuntimeCommandControlGroupPanelModel>,
+    pub last_target: Option<crate::RuntimeCommandTargetObservability>,
+    pub last_command_selection: Option<crate::RuntimeCommandSelectionObservability>,
+    pub last_stance_selection: Option<crate::RuntimeCommandStanceObservability>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeCommandControlGroupPanelModel {
+    pub index: u8,
+    pub unit_count: usize,
+    pub first_unit_id: Option<i32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeAdminPanelModel {
     pub trace_info_count: u64,
     pub trace_info_parse_fail_count: u64,
@@ -717,6 +738,46 @@ pub fn build_runtime_dialog_panel(hud: &HudModel) -> Option<RuntimeDialogPanelMo
     })
 }
 
+pub fn build_runtime_command_mode_panel(hud: &HudModel) -> Option<RuntimeCommandModePanelModel> {
+    let command_mode = &hud.runtime_ui.as_ref()?.command_mode;
+    if !command_mode.active
+        && command_mode.selected_units.is_empty()
+        && command_mode.command_buildings.is_empty()
+        && command_mode.command_rect.is_none()
+        && command_mode.control_groups.is_empty()
+        && command_mode.last_target.is_none()
+        && command_mode.last_command_selection.is_none()
+        && command_mode.last_stance_selection.is_none()
+    {
+        return None;
+    }
+    Some(RuntimeCommandModePanelModel {
+        active: command_mode.active,
+        selected_unit_count: command_mode.selected_units.len(),
+        selected_unit_sample: command_mode
+            .selected_units
+            .iter()
+            .copied()
+            .take(3)
+            .collect(),
+        command_building_count: command_mode.command_buildings.len(),
+        first_command_building: command_mode.command_buildings.first().copied(),
+        command_rect: command_mode.command_rect,
+        control_groups: command_mode
+            .control_groups
+            .iter()
+            .map(|group| RuntimeCommandControlGroupPanelModel {
+                index: group.index,
+                unit_count: group.unit_ids.len(),
+                first_unit_id: group.unit_ids.first().copied(),
+            })
+            .collect(),
+        last_target: command_mode.last_target,
+        last_command_selection: command_mode.last_command_selection,
+        last_stance_selection: command_mode.last_stance_selection,
+    })
+}
+
 pub fn build_runtime_admin_panel(hud: &HudModel) -> Option<RuntimeAdminPanelModel> {
     let admin = &hud.runtime_ui.as_ref()?.admin;
     Some(RuntimeAdminPanelModel {
@@ -907,7 +968,8 @@ fn resolve_presenter_window(
 mod tests {
     use super::{
         build_build_config_panel, build_build_interaction_panel, build_minimap_panel,
-        build_runtime_admin_panel, build_runtime_dialog_panel, build_runtime_live_effect_panel,
+        build_runtime_admin_panel, build_runtime_command_mode_panel,
+        build_runtime_dialog_panel, build_runtime_live_effect_panel,
         build_runtime_live_entity_panel, build_runtime_menu_panel, build_runtime_rules_panel,
         build_runtime_session_panel, build_runtime_ui_notice_panel,
         build_runtime_world_label_panel, BuildInteractionAuthorityState, BuildInteractionMode,
@@ -916,6 +978,10 @@ mod tests {
     };
     use crate::{
         hud_model::{
+            RuntimeCommandControlGroupObservability, RuntimeCommandModeObservability,
+            RuntimeCommandRectObservability, RuntimeCommandSelectionObservability,
+            RuntimeCommandStanceObservability, RuntimeCommandTargetObservability,
+            RuntimeCommandUnitRefObservability,
             HudSummary, RuntimeReconnectObservability, RuntimeReconnectPhaseObservability,
             RuntimeReconnectReasonKind, RuntimeSessionObservability, RuntimeSessionResetKind,
             RuntimeSessionTimeoutKind, RuntimeWorldReloadObservability,
@@ -928,6 +994,10 @@ mod tests {
         RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiObservability,
         RuntimeWorldLabelObservability, Viewport,
     };
+
+    fn pack_point2(x: i32, y: i32) -> i32 {
+        ((x & 0xffff) << 16) | (y & 0xffff)
+    }
 
     #[test]
     fn builds_minimap_panel_from_summary_window_and_scene_semantics() {
@@ -1259,6 +1329,7 @@ mod tests {
                 },
                 admin: RuntimeAdminObservability::default(),
                 menu: RuntimeMenuObservability::default(),
+                command_mode: RuntimeCommandModeObservability::default(),
                 rules: RuntimeRulesObservability::default(),
                 world_labels: RuntimeWorldLabelObservability::default(),
                 session: RuntimeSessionObservability::default(),
@@ -1300,6 +1371,7 @@ mod tests {
                 text_input: RuntimeTextInputObservability::default(),
                 admin: RuntimeAdminObservability::default(),
                 menu: RuntimeMenuObservability::default(),
+                command_mode: RuntimeCommandModeObservability::default(),
                 rules: RuntimeRulesObservability {
                     set_rules_count: 67,
                     set_rules_parse_fail_count: 68,
@@ -1353,6 +1425,7 @@ mod tests {
                 text_input: RuntimeTextInputObservability::default(),
                 admin: RuntimeAdminObservability::default(),
                 menu: RuntimeMenuObservability::default(),
+                command_mode: RuntimeCommandModeObservability::default(),
                 rules: RuntimeRulesObservability::default(),
                 world_labels: RuntimeWorldLabelObservability {
                     label_count: 19,
@@ -1383,6 +1456,7 @@ mod tests {
                 text_input: RuntimeTextInputObservability::default(),
                 admin: RuntimeAdminObservability::default(),
                 menu: RuntimeMenuObservability::default(),
+                command_mode: RuntimeCommandModeObservability::default(),
                 rules: RuntimeRulesObservability::default(),
                 world_labels: RuntimeWorldLabelObservability::default(),
                 session: RuntimeSessionObservability::default(),
@@ -1434,6 +1508,7 @@ mod tests {
                 text_input: RuntimeTextInputObservability::default(),
                 admin: RuntimeAdminObservability::default(),
                 menu: RuntimeMenuObservability::default(),
+                command_mode: RuntimeCommandModeObservability::default(),
                 rules: RuntimeRulesObservability::default(),
                 world_labels: RuntimeWorldLabelObservability::default(),
                 session: RuntimeSessionObservability::default(),
@@ -1508,6 +1583,7 @@ mod tests {
                     follow_up_menu_open_count: 17,
                     hide_follow_up_menu_count: 18,
                 },
+                command_mode: RuntimeCommandModeObservability::default(),
                 rules: RuntimeRulesObservability::default(),
                 world_labels: RuntimeWorldLabelObservability::default(),
                 session: RuntimeSessionObservability::default(),
@@ -1563,6 +1639,7 @@ mod tests {
                     follow_up_menu_open_count: 17,
                     hide_follow_up_menu_count: 18,
                 },
+                command_mode: RuntimeCommandModeObservability::default(),
                 rules: RuntimeRulesObservability::default(),
                 world_labels: RuntimeWorldLabelObservability::default(),
                 session: RuntimeSessionObservability::default(),
@@ -1592,6 +1669,148 @@ mod tests {
     }
 
     #[test]
+    fn builds_runtime_command_mode_panel_from_runtime_ui_observability() {
+        let hud = HudModel {
+            runtime_ui: Some(RuntimeUiObservability {
+                hud_text: RuntimeHudTextObservability::default(),
+                toast: RuntimeToastObservability::default(),
+                text_input: RuntimeTextInputObservability::default(),
+                admin: RuntimeAdminObservability::default(),
+                menu: RuntimeMenuObservability::default(),
+                command_mode: RuntimeCommandModeObservability {
+                    active: true,
+                    selected_units: vec![11, 22, 33, 44],
+                    command_buildings: vec![pack_point2(5, 6), pack_point2(-7, 8)],
+                    command_rect: Some(RuntimeCommandRectObservability {
+                        x0: -3,
+                        y0: 4,
+                        x1: 12,
+                        y1: 18,
+                    }),
+                    control_groups: vec![
+                        RuntimeCommandControlGroupObservability {
+                            index: 2,
+                            unit_ids: vec![11, 22, 33],
+                        },
+                        RuntimeCommandControlGroupObservability {
+                            index: 4,
+                            unit_ids: vec![99],
+                        },
+                    ],
+                    last_target: Some(RuntimeCommandTargetObservability {
+                        build_target: Some(pack_point2(9, 10)),
+                        unit_target: Some(RuntimeCommandUnitRefObservability {
+                            kind: 2,
+                            value: 808,
+                        }),
+                        position_target: Some(crate::RuntimeWorldPositionObservability {
+                            x_bits: 48.0f32.to_bits(),
+                            y_bits: 96.0f32.to_bits(),
+                        }),
+                        rect_target: Some(RuntimeCommandRectObservability {
+                            x0: 1,
+                            y0: 2,
+                            x1: 3,
+                            y1: 4,
+                        }),
+                    }),
+                    last_command_selection: Some(RuntimeCommandSelectionObservability {
+                        command_id: Some(5),
+                    }),
+                    last_stance_selection: Some(RuntimeCommandStanceObservability {
+                        stance_id: Some(7),
+                        enabled: false,
+                    }),
+                },
+                rules: RuntimeRulesObservability::default(),
+                world_labels: RuntimeWorldLabelObservability::default(),
+                session: RuntimeSessionObservability::default(),
+                live: RuntimeLiveSummaryObservability::default(),
+            }),
+            ..HudModel::default()
+        };
+
+        let panel =
+            build_runtime_command_mode_panel(&hud).expect("expected runtime command-mode panel");
+
+        assert!(panel.active);
+        assert_eq!(panel.selected_unit_count, 4);
+        assert_eq!(panel.selected_unit_sample, vec![11, 22, 33]);
+        assert_eq!(panel.command_building_count, 2);
+        assert_eq!(panel.first_command_building, Some(pack_point2(5, 6)));
+        assert_eq!(
+            panel.command_rect,
+            Some(RuntimeCommandRectObservability {
+                x0: -3,
+                y0: 4,
+                x1: 12,
+                y1: 18,
+            })
+        );
+        assert_eq!(panel.control_groups.len(), 2);
+        assert_eq!(panel.control_groups[0].index, 2);
+        assert_eq!(panel.control_groups[0].unit_count, 3);
+        assert_eq!(panel.control_groups[0].first_unit_id, Some(11));
+        assert_eq!(panel.control_groups[1].index, 4);
+        assert_eq!(panel.control_groups[1].unit_count, 1);
+        assert_eq!(panel.control_groups[1].first_unit_id, Some(99));
+        assert_eq!(
+            panel.last_target,
+            Some(RuntimeCommandTargetObservability {
+                build_target: Some(pack_point2(9, 10)),
+                unit_target: Some(RuntimeCommandUnitRefObservability {
+                    kind: 2,
+                    value: 808,
+                }),
+                position_target: Some(crate::RuntimeWorldPositionObservability {
+                    x_bits: 48.0f32.to_bits(),
+                    y_bits: 96.0f32.to_bits(),
+                }),
+                rect_target: Some(RuntimeCommandRectObservability {
+                    x0: 1,
+                    y0: 2,
+                    x1: 3,
+                    y1: 4,
+                }),
+            })
+        );
+        assert_eq!(
+            panel.last_command_selection,
+            Some(RuntimeCommandSelectionObservability {
+                command_id: Some(5),
+            })
+        );
+        assert_eq!(
+            panel.last_stance_selection,
+            Some(RuntimeCommandStanceObservability {
+                stance_id: Some(7),
+                enabled: false,
+            })
+        );
+    }
+
+    #[test]
+    fn omits_runtime_command_mode_panel_for_empty_default_state() {
+        let hud = HudModel {
+            runtime_ui: Some(RuntimeUiObservability {
+                hud_text: RuntimeHudTextObservability::default(),
+                toast: RuntimeToastObservability::default(),
+                text_input: RuntimeTextInputObservability::default(),
+                admin: RuntimeAdminObservability::default(),
+                menu: RuntimeMenuObservability::default(),
+                command_mode: RuntimeCommandModeObservability::default(),
+                rules: RuntimeRulesObservability::default(),
+                world_labels: RuntimeWorldLabelObservability::default(),
+                session: RuntimeSessionObservability::default(),
+                live: RuntimeLiveSummaryObservability::default(),
+            }),
+            ..HudModel::default()
+        };
+
+        assert_eq!(build_runtime_command_mode_panel(&hud), None);
+    }
+
+    #[test]
     fn builds_runtime_admin_panel_from_runtime_ui_observability() {
         let hud = HudModel {
             runtime_ui: Some(RuntimeUiObservability {
@@ -1609,6 +1828,7 @@ mod tests {
                     last_debug_status_value: Some(12),
                 },
                 menu: RuntimeMenuObservability::default(),
+                command_mode: RuntimeCommandModeObservability::default(),
                 rules: RuntimeRulesObservability::default(),
                 world_labels: RuntimeWorldLabelObservability::default(),
                 session: RuntimeSessionObservability::default(),
@@ -1639,6 +1859,7 @@ mod tests {
                 text_input: RuntimeTextInputObservability::default(),
                 admin: RuntimeAdminObservability::default(),
                 menu: RuntimeMenuObservability::default(),
+                command_mode: RuntimeCommandModeObservability::default(),
                 rules: RuntimeRulesObservability::default(),
                 world_labels: RuntimeWorldLabelObservability::default(),
                 session: RuntimeSessionObservability {

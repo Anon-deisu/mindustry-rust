@@ -1,9 +1,10 @@
 use crate::panel_model::{
     build_build_config_panel, build_build_interaction_panel, build_minimap_panel,
-    build_runtime_admin_panel, build_runtime_dialog_panel, build_runtime_live_effect_panel,
-    build_runtime_live_entity_panel, build_runtime_menu_panel, build_runtime_rules_panel,
-    build_runtime_session_panel, build_runtime_ui_notice_panel, build_runtime_world_label_panel,
-    PresenterViewWindow, RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
+    build_runtime_admin_panel, build_runtime_command_mode_panel, build_runtime_dialog_panel,
+    build_runtime_live_effect_panel, build_runtime_live_entity_panel, build_runtime_menu_panel,
+    build_runtime_rules_panel, build_runtime_session_panel, build_runtime_ui_notice_panel,
+    build_runtime_world_label_panel, PresenterViewWindow, RuntimeDialogNoticeKind,
+    RuntimeDialogPromptKind,
 };
 use crate::render_model::{RenderObjectSemanticFamily, RenderObjectSemanticKind};
 use crate::{HudModel, RenderModel, ScenePresenter};
@@ -107,6 +108,9 @@ impl AsciiScenePresenter {
         }
         if let Some(runtime_dialog_text) = compose_runtime_dialog_panel_text(hud) {
             out.push_str(&format!("RUNTIME-DIALOG: {runtime_dialog_text}\n"));
+        }
+        if let Some(runtime_command_text) = compose_runtime_command_mode_panel_text(hud) {
+            out.push_str(&format!("RUNTIME-COMMAND: {runtime_command_text}\n"));
         }
         if let Some(runtime_admin_text) = compose_runtime_admin_panel_text(hud) {
             out.push_str(&format!("RUNTIME-ADMIN: {runtime_admin_text}\n"));
@@ -413,6 +417,23 @@ fn compose_runtime_dialog_panel_text(hud: &HudModel) -> Option<String> {
         runtime_dialog_notice_text(panel.notice_kind),
         compact_runtime_ui_text(panel.notice_text.as_deref()),
         panel.notice_count,
+    ))
+}
+
+fn compose_runtime_command_mode_panel_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_command_mode_panel(hud)?;
+    Some(format!(
+        "act={} sel={}@{} bld={}@{} rect={} groups={} target={} cmd={} stance={}",
+        if panel.active { 1 } else { 0 },
+        panel.selected_unit_count,
+        command_i32_sample_text(&panel.selected_unit_sample),
+        panel.command_building_count,
+        optional_i32_label(panel.first_command_building),
+        command_rect_text(panel.command_rect),
+        command_control_groups_text(&panel.control_groups),
+        command_target_text(panel.last_target),
+        optional_u8_label(panel.last_command_selection.and_then(|selection| selection.command_id)),
+        command_stance_text(panel.last_stance_selection),
     ))
 }
 
@@ -1222,6 +1243,77 @@ fn runtime_dialog_notice_text(kind: Option<RuntimeDialogNoticeKind>) -> &'static
     }
 }
 
+fn command_i32_sample_text(values: &[i32]) -> String {
+    if values.is_empty() {
+        "none".to_string()
+    } else {
+        values
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+}
+
+fn command_rect_text(value: Option<crate::RuntimeCommandRectObservability>) -> String {
+    value
+        .map(|rect| format!("{}:{}:{}:{}", rect.x0, rect.y0, rect.x1, rect.y1))
+        .unwrap_or_else(|| "none".to_string())
+}
+
+fn command_control_groups_text(
+    groups: &[crate::panel_model::RuntimeCommandControlGroupPanelModel],
+) -> String {
+    if groups.is_empty() {
+        return "none".to_string();
+    }
+    groups
+        .iter()
+        .map(|group| {
+            format!(
+                "{}#{}@{}",
+                group.index,
+                group.unit_count,
+                optional_i32_label(group.first_unit_id)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn command_target_text(value: Option<crate::RuntimeCommandTargetObservability>) -> String {
+    let Some(value) = value else {
+        return "none".to_string();
+    };
+    let unit_target = value
+        .unit_target
+        .map(|unit| format!("{}:{}", unit.kind, unit.value))
+        .unwrap_or_else(|| "none".to_string());
+    let position_target = value
+        .position_target
+        .map(|position| format!("0x{:08x}:0x{:08x}", position.x_bits, position.y_bits))
+        .unwrap_or_else(|| "none".to_string());
+    format!(
+        "b{}:u{}:p{}:r{}",
+        optional_i32_label(value.build_target),
+        unit_target,
+        position_target,
+        command_rect_text(value.rect_target)
+    )
+}
+
+fn command_stance_text(value: Option<crate::RuntimeCommandStanceObservability>) -> String {
+    value
+        .map(|stance| {
+            format!(
+                "{}/{}",
+                optional_u8_label(stance.stance_id),
+                if stance.enabled { 1 } else { 0 }
+            )
+        })
+        .unwrap_or_else(|| "none".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::AsciiScenePresenter;
@@ -1590,6 +1682,51 @@ mod tests {
                     follow_up_menu_open_count: 17,
                     hide_follow_up_menu_count: 18,
                 },
+                command_mode: crate::RuntimeCommandModeObservability {
+                    active: true,
+                    selected_units: vec![11, 22, 33, 44],
+                    command_buildings: vec![((5 & 0xffff) << 16) | (6 & 0xffff), ((-7 & 0xffff) << 16) | (8 & 0xffff)],
+                    command_rect: Some(crate::RuntimeCommandRectObservability {
+                        x0: -3,
+                        y0: 4,
+                        x1: 12,
+                        y1: 18,
+                    }),
+                    control_groups: vec![
+                        crate::RuntimeCommandControlGroupObservability {
+                            index: 2,
+                            unit_ids: vec![11, 22, 33],
+                        },
+                        crate::RuntimeCommandControlGroupObservability {
+                            index: 4,
+                            unit_ids: vec![99],
+                        },
+                    ],
+                    last_target: Some(crate::RuntimeCommandTargetObservability {
+                        build_target: Some(((9 & 0xffff) << 16) | (10 & 0xffff)),
+                        unit_target: Some(crate::RuntimeCommandUnitRefObservability {
+                            kind: 2,
+                            value: 808,
+                        }),
+                        position_target: Some(crate::RuntimeWorldPositionObservability {
+                            x_bits: 48.0f32.to_bits(),
+                            y_bits: 96.0f32.to_bits(),
+                        }),
+                        rect_target: Some(crate::RuntimeCommandRectObservability {
+                            x0: 1,
+                            y0: 2,
+                            x1: 3,
+                            y1: 4,
+                        }),
+                    }),
+                    last_command_selection: Some(crate::RuntimeCommandSelectionObservability {
+                        command_id: Some(5),
+                    }),
+                    last_stance_selection: Some(crate::RuntimeCommandStanceObservability {
+                        stance_id: Some(7),
+                        enabled: false,
+                    }),
+                },
                 rules: RuntimeRulesObservability {
                     set_rules_count: 67,
                     set_rules_parse_fail_count: 68,
@@ -1790,6 +1927,9 @@ mod tests {
             .contains("RUNTIME-MENU: menu=16 fmenu=17 hide=18 tin=53@404:Digits/12345#16:n1:e1"));
         assert!(frame.contains(
             "RUNTIME-DIALOG: prompt=input act=1 menu=16/17/18 tin=53@404:Digits/Only_numbers/12345#16:n1:e1 notice=warn@warn total=48"
+        ));
+        assert!(frame.contains(
+            "RUNTIME-COMMAND: act=1 sel=4@11,22,33 bld=2@327686 rect=-3:4:12:18 groups=2#3@11,4#1@99 target=b589834:u2:808:p0x42400000:0x42c00000:r1:2:3:4 cmd=5 stance=7/0"
         ));
         assert!(frame.contains("RUNTIME-ADMIN: trace=56@123456 fail=76 dbg=57/58@12 fail=231"));
         assert!(frame.contains(
