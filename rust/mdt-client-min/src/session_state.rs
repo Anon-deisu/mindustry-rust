@@ -1671,6 +1671,7 @@ impl BuildingTableProjection {
         time_scale_duration_bits: Option<u32>,
         last_disabler_pos: Option<i32>,
         legacy_consume_connected: Option<bool>,
+        config: Option<TypeIoObject>,
         health_bits: Option<u32>,
         enabled: Option<bool>,
         efficiency: Option<u8>,
@@ -1754,9 +1755,7 @@ impl BuildingTableProjection {
                         .as_ref()
                         .and_then(|building| building.legacy_consume_connected)
                 }),
-                config: previous
-                    .as_ref()
-                    .and_then(|building| building.config.clone()),
+                config: config.or_else(|| previous.as_ref().and_then(|building| building.config.clone())),
                 health_bits: health_bits
                     .or_else(|| previous.as_ref().and_then(|building| building.health_bits)),
                 enabled: enabled
@@ -4145,6 +4144,7 @@ mod tests {
             Some(0x3f00_0000),
             Some(123),
             Some(true),
+            Some(TypeIoObject::Bool(true)),
             Some(0x4000_0000),
             Some(true),
             Some(0x40),
@@ -4159,9 +4159,11 @@ mod tests {
         assert_eq!(building.build_turret_rotation_bits, Some(0x4260_0000));
         assert_eq!(building.build_turret_plans_present, Some(true));
         assert_eq!(building.build_turret_plan_count, Some(7));
+        assert_eq!(building.config, Some(TypeIoObject::Bool(true)));
         assert_eq!(table.last_build_turret_rotation_bits, Some(0x4260_0000));
         assert_eq!(table.last_build_turret_plans_present, Some(true));
         assert_eq!(table.last_build_turret_plan_count, Some(7));
+        assert_eq!(table.last_config, Some(TypeIoObject::Bool(true)));
 
         table.apply_construct_finish(build_pos, Some(300), 1, 2, TypeIoObject::Int(9));
         let building_after_construct = table.by_build_pos.get(&build_pos).unwrap();
