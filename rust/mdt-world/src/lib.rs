@@ -765,6 +765,8 @@ pub enum MarkerModel {
     Shape(ShapeMarkerModel),
     ShapeText(ShapeTextMarkerModel),
     Line(LineMarkerModel),
+    Texture(TextureMarkerModel),
+    Quad(QuadMarkerModel),
     Unknown(UnknownMarkerModel),
 }
 
@@ -854,6 +856,39 @@ pub struct LineMarkerModel {
     pub outline: bool,
     pub color1: Option<String>,
     pub color2: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MarkerTextureRef {
+    pub kind: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextureMarkerModel {
+    pub class_tag: String,
+    pub world: bool,
+    pub minimap: bool,
+    pub autoscale: bool,
+    pub draw_layer_bits: u32,
+    pub x_bits: u32,
+    pub y_bits: u32,
+    pub rotation_bits: u32,
+    pub width_bits: u32,
+    pub height_bits: u32,
+    pub texture: MarkerTextureRef,
+    pub color: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QuadMarkerModel {
+    pub class_tag: String,
+    pub world: bool,
+    pub minimap: bool,
+    pub autoscale: bool,
+    pub draw_layer_bits: u32,
+    pub texture: MarkerTextureRef,
+    pub vertices_bits: Vec<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -12671,6 +12706,8 @@ impl MarkerModel {
             MarkerModel::Shape(marker) => Some(marker.class_tag.as_str()),
             MarkerModel::ShapeText(marker) => Some(marker.class_tag.as_str()),
             MarkerModel::Line(marker) => Some(marker.class_tag.as_str()),
+            MarkerModel::Texture(marker) => Some(marker.class_tag.as_str()),
+            MarkerModel::Quad(marker) => Some(marker.class_tag.as_str()),
             MarkerModel::Unknown(marker) => marker.class_tag.as_deref(),
         }
     }
@@ -12682,6 +12719,8 @@ impl MarkerModel {
             MarkerModel::Shape(_) => "Shape",
             MarkerModel::ShapeText(_) => "ShapeText",
             MarkerModel::Line(_) => "Line",
+            MarkerModel::Texture(_) => "Texture",
+            MarkerModel::Quad(_) => "Quad",
             MarkerModel::Unknown(_) => "Unknown",
         }
     }
@@ -12693,6 +12732,8 @@ impl MarkerModel {
             MarkerModel::Shape(marker) => marker.tile_coords(),
             MarkerModel::ShapeText(marker) => marker.tile_coords(),
             MarkerModel::Line(marker) => marker.tile_coords(),
+            MarkerModel::Texture(marker) => marker.tile_coords(),
+            MarkerModel::Quad(marker) => marker.tile_coords(),
             MarkerModel::Unknown(_) => None,
         }
     }
@@ -12704,6 +12745,8 @@ impl MarkerModel {
             MarkerModel::Shape(marker) => Some(marker.world_position()),
             MarkerModel::ShapeText(marker) => Some(marker.world_position()),
             MarkerModel::Line(marker) => Some(marker.world_position()),
+            MarkerModel::Texture(marker) => Some(marker.world_position()),
+            MarkerModel::Quad(marker) => marker.world_position(),
             MarkerModel::Unknown(_) => None,
         }
     }
@@ -12715,6 +12758,8 @@ impl MarkerModel {
             MarkerModel::Shape(marker) => marker.minimap,
             MarkerModel::ShapeText(marker) => marker.minimap,
             MarkerModel::Line(marker) => marker.minimap,
+            MarkerModel::Texture(marker) => marker.minimap,
+            MarkerModel::Quad(marker) => marker.minimap,
             MarkerModel::Unknown(marker) => marker.minimap,
         }
     }
@@ -12725,7 +12770,8 @@ impl MarkerModel {
             MarkerModel::Shape(marker) => marker.color.as_deref(),
             MarkerModel::ShapeText(marker) => marker.color.as_deref(),
             MarkerModel::Line(marker) => marker.color1.as_deref(),
-            MarkerModel::Text(_) | MarkerModel::Unknown(_) => None,
+            MarkerModel::Texture(marker) => marker.color.as_deref(),
+            MarkerModel::Text(_) | MarkerModel::Quad(_) | MarkerModel::Unknown(_) => None,
         }
     }
 }
@@ -12785,6 +12831,36 @@ impl LineMarkerModel {
 
     pub fn end_world_position(&self) -> (f32, f32) {
         world_position_from_bits(self.end_x_bits, self.end_y_bits)
+    }
+}
+
+impl TextureMarkerModel {
+    pub fn tile_coords(&self) -> Option<(i16, i16)> {
+        tile_coords_from_bits(self.x_bits, self.y_bits)
+    }
+
+    pub fn world_position(&self) -> (f32, f32) {
+        world_position_from_bits(self.x_bits, self.y_bits)
+    }
+}
+
+impl QuadMarkerModel {
+    pub fn tile_coords(&self) -> Option<(i16, i16)> {
+        let (x_bits, y_bits) = self.vertex_position_bits(0)?;
+        tile_coords_from_bits(x_bits, y_bits)
+    }
+
+    pub fn world_position(&self) -> Option<(f32, f32)> {
+        let (x_bits, y_bits) = self.vertex_position_bits(0)?;
+        Some(world_position_from_bits(x_bits, y_bits))
+    }
+
+    fn vertex_position_bits(&self, index: usize) -> Option<(u32, u32)> {
+        let base = index.checked_mul(6)?;
+        Some((
+            *self.vertices_bits.get(base)?,
+            *self.vertices_bits.get(base + 1)?,
+        ))
     }
 }
 
@@ -37558,6 +37634,10 @@ fn marker_class_family(class_tag: Option<&str>) -> Option<&'static str> {
         Some("ShapeText") | Some("shapeText") | Some("ShapeTextMarker")
         | Some("shapeTextMarker") => Some("ShapeText"),
         Some("Line") | Some("line") | Some("LineMarker") | Some("lineMarker") => Some("Line"),
+        Some("Texture") | Some("texture") | Some("TextureMarker") | Some("textureMarker") => {
+            Some("Texture")
+        }
+        Some("Quad") | Some("quad") | Some("QuadMarker") | Some("quadMarker") => Some("Quad"),
         _ => None,
     }
 }
@@ -37605,6 +37685,52 @@ fn marker_optional_named_color_field(
         .and_then(UbjsonValue::as_str)
         .map(str::to_string)
         .or_else(|| default.map(str::to_string))
+}
+
+fn marker_texture_ref_field(object: ObjectFields<'_>) -> MarkerTextureRef {
+    if let Some(texture_name) = object.field("textureName").and_then(UbjsonValue::as_str) {
+        return MarkerTextureRef {
+            kind: "string".to_string(),
+            value: texture_name.to_string(),
+        };
+    }
+
+    match object.field("texture") {
+        Some(UbjsonValue::String(value)) => MarkerTextureRef {
+            kind: "string".to_string(),
+            value: value.clone(),
+        },
+        Some(UbjsonValue::Object(entries)) => {
+            let texture = ObjectFields(entries);
+            if let Some(value) = texture.field("string").and_then(UbjsonValue::as_str) {
+                return MarkerTextureRef {
+                    kind: "string".to_string(),
+                    value: value.to_string(),
+                };
+            }
+            if let Some(value) = texture.field("content").and_then(UbjsonValue::as_str) {
+                return MarkerTextureRef {
+                    kind: "content".to_string(),
+                    value: value.to_string(),
+                };
+            }
+            if let Some(value) = texture.field("building").and_then(UbjsonValue::as_i32) {
+                return MarkerTextureRef {
+                    kind: "building".to_string(),
+                    value: value.to_string(),
+                };
+            }
+            marker_default_texture_ref()
+        }
+        _ => marker_default_texture_ref(),
+    }
+}
+
+fn marker_default_texture_ref() -> MarkerTextureRef {
+    MarkerTextureRef {
+        kind: "string".to_string(),
+        value: "white".to_string(),
+    }
 }
 
 fn marker_draw_layer_bits(object: ObjectFields<'_>) -> u32 {
@@ -37655,6 +37781,30 @@ fn marker_pos_bits_field(
             .and_then(UbjsonValue::as_f32_bits)
             .unwrap_or(default_y_bits),
     )
+}
+
+fn marker_vertices_bits_field(object: ObjectFields<'_>, key: &str) -> Vec<u32> {
+    let mut values = quad_default_vertices_bits();
+    if let Some(UbjsonValue::Array(entries)) = object.field(key) {
+        for (index, value) in entries.iter().take(values.len()).enumerate() {
+            if let Some(bits) = value.as_f32_bits() {
+                values[index] = bits;
+            }
+        }
+    }
+    values
+}
+
+fn quad_default_vertices_bits() -> Vec<u32> {
+    const QUAD_COLOR_WHITE_BITS: u32 = 0xfeff_ffff;
+    const QUAD_MIX_COLOR_CLEAR_BITS: u32 = 0x0000_0000;
+
+    let mut values = vec![0u32; 24];
+    for index in 0..4 {
+        values[index * 6 + 2] = QUAD_COLOR_WHITE_BITS;
+        values[index * 6 + 5] = QUAD_MIX_COLOR_CLEAR_BITS;
+    }
+    values
 }
 
 fn parse_markers(bytes: &[u8]) -> Result<Vec<MarkerEntry>, String> {
@@ -37794,6 +37944,32 @@ fn parse_marker_model(value: &UbjsonValue) -> Result<MarkerModel, String> {
                 color2: marker_optional_named_color_field(object, "color2", Some("ffd37f")),
             }))
         }
+        Some("Texture") => {
+            let (x_bits, y_bits) = marker_required_pos_bits(object, "texture")?;
+            Ok(MarkerModel::Texture(TextureMarkerModel {
+                class_tag: class_tag.clone().unwrap(),
+                world: marker_bool_field(object, "world", true),
+                minimap: marker_bool_field(object, "minimap", false),
+                autoscale: marker_bool_field(object, "autoscale", false),
+                draw_layer_bits: marker_draw_layer_bits(object),
+                x_bits,
+                y_bits,
+                rotation_bits: marker_f32_bits_field(object, "rotation", 0.0f32.to_bits()),
+                width_bits: marker_f32_bits_field(object, "width", 0.0f32.to_bits()),
+                height_bits: marker_f32_bits_field(object, "height", 0.0f32.to_bits()),
+                texture: marker_texture_ref_field(object),
+                color: marker_optional_color_field(object, Some("ffffffff")),
+            }))
+        }
+        Some("Quad") => Ok(MarkerModel::Quad(QuadMarkerModel {
+            class_tag: class_tag.clone().unwrap(),
+            world: marker_bool_field(object, "world", true),
+            minimap: marker_bool_field(object, "minimap", false),
+            autoscale: marker_bool_field(object, "autoscale", false),
+            draw_layer_bits: marker_draw_layer_bits(object),
+            texture: marker_texture_ref_field(object),
+            vertices_bits: marker_vertices_bits_field(object, "vertices"),
+        })),
         _ => {
             let (x_bits, y_bits) = marker_optional_pos_bits(object);
             Ok(MarkerModel::Unknown(UnknownMarkerModel {
@@ -38347,6 +38523,10 @@ mod tests {
         ];
         fields.extend(extra_fields);
         UbjsonValue::Object(fields)
+    }
+
+    fn marker_texture_value(kind: &str, value: UbjsonValue) -> UbjsonValue {
+        UbjsonValue::Object(vec![(kind.to_string(), value)])
     }
 
     #[test]
