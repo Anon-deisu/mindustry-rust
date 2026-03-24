@@ -38525,10 +38525,6 @@ mod tests {
         UbjsonValue::Object(fields)
     }
 
-    fn marker_texture_value(kind: &str, value: UbjsonValue) -> UbjsonValue {
-        UbjsonValue::Object(vec![(kind.to_string(), value)])
-    }
-
     #[test]
     fn parses_known_world_stream() {
         let compressed = sample_world_stream_bytes();
