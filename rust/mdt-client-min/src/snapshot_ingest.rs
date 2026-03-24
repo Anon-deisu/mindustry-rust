@@ -202,6 +202,9 @@ pub fn ingest_inbound_snapshot(state: &mut SessionState, snapshot: InboundSnapsh
                     let hidden_removed_ids = state
                         .entity_table_projection
                         .remove_hidden_entities(&trigger_hidden_ids);
+                    state
+                        .entity_semantic_projection
+                        .remove_entities(hidden_removed_ids.iter());
                     state.hidden_lifecycle_remove_count = state
                         .hidden_lifecycle_remove_count
                         .saturating_add(hidden_removed_ids.len() as u64);
@@ -903,8 +906,9 @@ mod tests {
         AppliedBlockSnapshotEnvelope, AppliedHiddenSnapshotIds, AppliedStateSnapshotCoreData,
         AppliedStateSnapshotCoreDataItem, AppliedStateSnapshotCoreDataTeam,
         AuthoritativeStateMirror, BlockSnapshotHeadProjection, EntityProjection,
-        GameplayStateProjection, HiddenSnapshotDeltaProjection, SessionState,
-        StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection,
+        EntitySemanticProjection, EntitySemanticProjectionEntry,
+        EntityWorldLabelSemanticProjection, GameplayStateProjection, HiddenSnapshotDeltaProjection,
+        SessionState, StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection,
     };
     use mdt_remote::HighFrequencyRemoteMethod;
     use std::collections::BTreeMap;
@@ -2260,6 +2264,21 @@ mod tests {
                 last_seen_entity_snapshot_count: 1,
             },
         );
+        state.entity_semantic_projection.by_entity_id.insert(
+            303,
+            EntitySemanticProjectionEntry {
+                class_id: 35,
+                last_seen_entity_snapshot_count: 1,
+                projection: EntitySemanticProjection::WorldLabel(
+                    EntityWorldLabelSemanticProjection {
+                        flags: 1,
+                        font_size_bits: 12.0f32.to_bits(),
+                        text: Some("hidden".to_string()),
+                        z_bits: 0.5f32.to_bits(),
+                    },
+                ),
+            },
+        );
 
         ingest_inbound_snapshot(
             &mut state,
@@ -2271,6 +2290,10 @@ mod tests {
         assert!(state.entity_table_projection.by_entity_id[&101].hidden);
         assert!(!state
             .entity_table_projection
+            .by_entity_id
+            .contains_key(&303));
+        assert!(!state
+            .entity_semantic_projection
             .by_entity_id
             .contains_key(&303));
         assert_eq!(state.hidden_lifecycle_remove_count, 1);

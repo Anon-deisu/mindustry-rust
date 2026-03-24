@@ -12,6 +12,10 @@ pub const CONVEYOR_BLOCK_ID: i16 = 0x0101;
 pub const CONTENT_TYPE_BLOCK: u8 = 1;
 pub const TEAM_SHARDED_ID: u8 = 1;
 pub const RULES_BASIC_JSON: &str = "{teams:{},attackMode:true,buildSpeedMultiplier:2.5,attributes:{},objectives:[],tags:{mode:{class:java.lang.String,value:golden}}}";
+pub const OBJECTIVES_BASIC_JSON: &str =
+    "{objectives:[{type:Research,content:{type:item,id:1}},{type:DestroyBlock,position:[4,5],team:2}]}";
+pub const OBJECTIVE_MARKER_BASIC_JSON: &str =
+    "{type:ShapeText,x:12.5,y:-3.25,world:true,text:objective-ready}";
 
 pub fn encode_hex(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len() * 2);
@@ -124,9 +128,19 @@ pub fn write_plans_queue_net(out: &mut Vec<u8>) {
 }
 
 pub fn write_rules_basic(out: &mut Vec<u8>) {
-    let bytes = RULES_BASIC_JSON.as_bytes();
-    write_int(out, bytes.len() as i32);
-    out.extend_from_slice(bytes);
+    write_rules_json(out, RULES_BASIC_JSON);
+}
+
+pub fn write_rules_json(out: &mut Vec<u8>, value: &str) {
+    write_length_prefixed_json(out, value);
+}
+
+pub fn write_objectives_json(out: &mut Vec<u8>, value: &str) {
+    write_length_prefixed_json(out, value);
+}
+
+pub fn write_objective_marker_json(out: &mut Vec<u8>, value: &str) {
+    write_length_prefixed_json(out, value);
 }
 
 pub fn read_bool(bytes: &[u8]) -> Result<bool, TypeIoReadError> {
@@ -281,12 +295,45 @@ pub fn read_rules_json(bytes: &[u8]) -> Result<String, TypeIoReadError> {
 }
 
 pub fn read_rules_json_prefix(bytes: &[u8]) -> Result<(String, usize), TypeIoReadError> {
+    read_length_prefixed_json_prefix(bytes, "rules length")
+}
+
+pub fn read_objectives_json(bytes: &[u8]) -> Result<String, TypeIoReadError> {
+    let (value, consumed) = read_objectives_json_prefix(bytes)?;
+    ensure_consumed(consumed, bytes.len())?;
+    Ok(value)
+}
+
+pub fn read_objectives_json_prefix(bytes: &[u8]) -> Result<(String, usize), TypeIoReadError> {
+    read_length_prefixed_json_prefix(bytes, "objectives length")
+}
+
+pub fn read_objective_marker_json(bytes: &[u8]) -> Result<String, TypeIoReadError> {
+    let (value, consumed) = read_objective_marker_json_prefix(bytes)?;
+    ensure_consumed(consumed, bytes.len())?;
+    Ok(value)
+}
+
+pub fn read_objective_marker_json_prefix(bytes: &[u8]) -> Result<(String, usize), TypeIoReadError> {
+    read_length_prefixed_json_prefix(bytes, "objective marker length")
+}
+
+fn write_length_prefixed_json(out: &mut Vec<u8>, value: &str) {
+    let bytes = value.as_bytes();
+    write_int(out, bytes.len() as i32);
+    out.extend_from_slice(bytes);
+}
+
+fn read_length_prefixed_json_prefix(
+    bytes: &[u8],
+    field: &'static str,
+) -> Result<(String, usize), TypeIoReadError> {
     let mut reader = PrimitiveReader::new(bytes);
     let length_position = reader.position();
     let len = reader.read_i32()?;
     if len < 0 {
         return Err(TypeIoReadError::NegativeLength {
-            field: "rules length",
+            field,
             length: len,
             position: length_position,
         });
@@ -396,6 +443,14 @@ pub fn generate_typeio_goldens() -> String {
     samples.insert("rules.basic", encode_hex(&bytes));
 
     bytes.clear();
+    write_objectives_json(&mut bytes, OBJECTIVES_BASIC_JSON);
+    samples.insert("objectives.basic", encode_hex(&bytes));
+
+    bytes.clear();
+    write_objective_marker_json(&mut bytes, OBJECTIVE_MARKER_BASIC_JSON);
+    samples.insert("objectiveMarker.basic", encode_hex(&bytes));
+
+    bytes.clear();
     write_string(&mut bytes, Some("golden-字符串"));
     samples.insert("string.nonNull", encode_hex(&bytes));
 
@@ -461,6 +516,8 @@ mod tests {
         assert!(text.contains("block.conveyor=0101"));
         assert!(text.contains("content.block.conveyor=010101"));
         assert!(text.contains("object.point2=070000000300000004"));
+        assert!(text.contains("objectives.basic="));
+        assert!(text.contains("objectiveMarker.basic="));
         assert!(text.contains("team.sharded=01"));
         assert!(text.contains("vec2.basic=41480000c0500000"));
     }
@@ -472,6 +529,21 @@ mod tests {
         let declared = i32::from_be_bytes(bytes[0..4].try_into().unwrap()) as usize;
         assert_eq!(declared, bytes.len() - 4);
         assert_eq!(&bytes[4..], RULES_BASIC_JSON.as_bytes());
+    }
+
+    #[test]
+    fn objectives_and_objective_marker_lengths_match_payloads() {
+        let mut bytes = Vec::new();
+        write_objectives_json(&mut bytes, OBJECTIVES_BASIC_JSON);
+        let declared = i32::from_be_bytes(bytes[0..4].try_into().unwrap()) as usize;
+        assert_eq!(declared, bytes.len() - 4);
+        assert_eq!(&bytes[4..], OBJECTIVES_BASIC_JSON.as_bytes());
+
+        bytes.clear();
+        write_objective_marker_json(&mut bytes, OBJECTIVE_MARKER_BASIC_JSON);
+        let declared = i32::from_be_bytes(bytes[0..4].try_into().unwrap()) as usize;
+        assert_eq!(declared, bytes.len() - 4);
+        assert_eq!(&bytes[4..], OBJECTIVE_MARKER_BASIC_JSON.as_bytes());
     }
 
     #[test]
@@ -531,6 +603,17 @@ mod tests {
         bytes.clear();
         write_rules_basic(&mut bytes);
         assert_eq!(read_rules_json(&bytes).unwrap(), RULES_BASIC_JSON);
+
+        bytes.clear();
+        write_objectives_json(&mut bytes, OBJECTIVES_BASIC_JSON);
+        assert_eq!(read_objectives_json(&bytes).unwrap(), OBJECTIVES_BASIC_JSON);
+
+        bytes.clear();
+        write_objective_marker_json(&mut bytes, OBJECTIVE_MARKER_BASIC_JSON);
+        assert_eq!(
+            read_objective_marker_json(&bytes).unwrap(),
+            OBJECTIVE_MARKER_BASIC_JSON
+        );
     }
 
     #[test]
@@ -564,6 +647,22 @@ mod tests {
             read_rules_json(&bytes),
             Err(TypeIoReadError::NegativeLength {
                 field: "rules length",
+                length: -1,
+                position: 0
+            })
+        ));
+        assert!(matches!(
+            read_objectives_json(&bytes),
+            Err(TypeIoReadError::NegativeLength {
+                field: "objectives length",
+                length: -1,
+                position: 0
+            })
+        ));
+        assert!(matches!(
+            read_objective_marker_json(&bytes),
+            Err(TypeIoReadError::NegativeLength {
+                field: "objective marker length",
                 length: -1,
                 position: 0
             })

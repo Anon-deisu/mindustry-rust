@@ -8,12 +8,15 @@ use crate::session_state::{
     BuilderQueueEntryObservation, ConfiguredBlockOutcome, ConfiguredContentRef,
     CreateBulletProjection, DestroyPayloadProjection, EffectBusinessContentKind,
     EffectBusinessPositionSource, EffectBusinessProjection, EffectDataSemantic,
-    GameplayStateProjection, PayloadDroppedProjection, PickedBuildPayloadProjection,
-    PickedUnitPayloadProjection, ReconnectPhaseProjection, ReconnectReasonKind, SessionResetKind,
-    SessionState, SessionTimeoutKind, SessionTimeoutProjection, TakeItemsProjection,
-    TileConfigAuthoritySource, TileConfigBusinessApply, TransferItemEffectProjection,
-    TransferItemToProjection, TransferItemToUnitProjection, UnitEnteredPayloadProjection,
-    UnitRefProjection, WorldReloadProjection,
+    EntityFireSemanticProjection, EntityPuddleSemanticProjection, EntitySemanticProjection,
+    EntityUnitSemanticProjection, EntityWeatherStateSemanticProjection,
+    EntityWorldLabelSemanticProjection, GameplayStateProjection, PayloadDroppedProjection,
+    PickedBuildPayloadProjection, PickedUnitPayloadProjection, ReconnectPhaseProjection,
+    ReconnectReasonKind, SessionResetKind, SessionState, SessionTimeoutKind,
+    SessionTimeoutProjection, TakeItemsProjection, TileConfigAuthoritySource,
+    TileConfigBusinessApply, TransferItemEffectProjection, TransferItemToProjection,
+    TransferItemToUnitProjection, UnitEnteredPayloadProjection, UnitRefProjection,
+    WorldReloadProjection,
 };
 use mdt_protocol::{
     decode_packet, encode_framework_message, encode_packet, FrameworkMessage, PacketCodecError,
@@ -2435,7 +2438,9 @@ impl ClientSession {
         self.state.last_connect_confirm_at_ms = Some(self.clock_ms);
         self.state
             .set_reconnect_phase(ReconnectPhaseProjection::Succeeded);
-        self.last_snapshot_at_ms = Some(self.clock_ms);
+        if self.last_snapshot_at_ms.is_none() {
+            self.last_snapshot_at_ms = Some(self.clock_ms);
+        }
         self.record_outbound_activity(self.clock_ms);
         Ok(Some(bytes))
     }
@@ -2449,12 +2454,13 @@ impl ClientSession {
             return Ok(Vec::new());
         }
 
-        let timeout_anchor = if self.ready_for_interaction() {
+        let using_ready_snapshot_timeout = self.uses_ready_snapshot_timeout();
+        let timeout_anchor = if using_ready_snapshot_timeout {
             self.last_snapshot_at_ms
         } else {
             self.last_inbound_at_ms
         };
-        let timeout_limit_ms = if self.ready_for_interaction() {
+        let timeout_limit_ms = if using_ready_snapshot_timeout {
             self.timing.timeout_ms
         } else {
             self.timing.connect_timeout_ms
@@ -2463,7 +2469,7 @@ impl ClientSession {
         if let Some(last_activity) = timeout_anchor {
             let idle_ms = now_ms.saturating_sub(last_activity);
             if idle_ms >= timeout_limit_ms {
-                let kind = if self.ready_for_interaction() {
+                let kind = if using_ready_snapshot_timeout {
                     SessionTimeoutKind::ReadySnapshotStall
                 } else {
                     SessionTimeoutKind::ConnectOrLoading
@@ -6013,6 +6019,9 @@ impl ClientSession {
         self.loading_world_data = false;
         self.replay_deferred_loading_packets()?;
         self.state.client_loaded = true;
+        if self.last_snapshot_at_ms.is_none() {
+            self.last_snapshot_at_ms = Some(self.clock_ms);
+        }
         Ok(())
     }
 
@@ -6047,7 +6056,7 @@ impl ClientSession {
     }
 
     fn record_ready_inbound_liveness_activity(&mut self, now_ms: u64) {
-        if !self.ready_for_interaction() {
+        if !self.uses_ready_snapshot_timeout() {
             return;
         }
         self.last_ready_inbound_liveness_at_ms = Some(now_ms);
@@ -6064,6 +6073,10 @@ impl ClientSession {
 
     fn ready_for_interaction(&self) -> bool {
         self.state.ready_to_enter_world && self.state.connect_confirm_sent
+    }
+
+    fn uses_ready_snapshot_timeout(&self) -> bool {
+        self.state.ready_to_enter_world && self.state.client_loaded
     }
 
     fn mark_kicked(
@@ -6403,6 +6416,24 @@ impl ClientSession {
                 false,
                 self.state.received_entity_snapshot_count,
             );
+            self.state.entity_semantic_projection.upsert(
+                row.entity_id,
+                row.class_id,
+                self.state.received_entity_snapshot_count,
+                EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
+                    team_id: row.sync.team_id,
+                    unit_type_id: row.sync.unit_type_id,
+                    health_bits: row.sync.health_bits,
+                    rotation_bits: row.sync.rotation_bits,
+                    shield_bits: row.sync.shield_bits,
+                    mine_tile_pos: row.sync.mine_tile_pos,
+                    status_count: row.sync.status_count,
+                    payload_count: None,
+                    building_pos: None,
+                    lifetime_bits: None,
+                    time_bits: None,
+                }),
+            );
         }
     }
 
@@ -6421,6 +6452,24 @@ impl ClientSession {
                 row.sync.y_bits,
                 false,
                 self.state.received_entity_snapshot_count,
+            );
+            self.state.entity_semantic_projection.upsert(
+                row.entity_id,
+                row.class_id,
+                self.state.received_entity_snapshot_count,
+                EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
+                    team_id: row.sync.team_id,
+                    unit_type_id: row.sync.unit_type_id,
+                    health_bits: row.sync.health_bits,
+                    rotation_bits: row.sync.rotation_bits,
+                    shield_bits: row.sync.shield_bits,
+                    mine_tile_pos: row.sync.mine_tile_pos,
+                    status_count: row.sync.status_count,
+                    payload_count: None,
+                    building_pos: None,
+                    lifetime_bits: None,
+                    time_bits: None,
+                }),
             );
         }
     }
@@ -6444,6 +6493,24 @@ impl ClientSession {
                 false,
                 self.state.received_entity_snapshot_count,
             );
+            self.state.entity_semantic_projection.upsert(
+                row.entity_id,
+                row.class_id,
+                self.state.received_entity_snapshot_count,
+                EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
+                    team_id: row.sync.team_id,
+                    unit_type_id: row.sync.unit_type_id,
+                    health_bits: row.sync.health_bits,
+                    rotation_bits: row.sync.rotation_bits,
+                    shield_bits: row.sync.shield_bits,
+                    mine_tile_pos: row.sync.mine_tile_pos,
+                    status_count: row.sync.status_count,
+                    payload_count: None,
+                    building_pos: None,
+                    lifetime_bits: Some(row.sync.lifetime_bits),
+                    time_bits: Some(row.sync.time_bits),
+                }),
+            );
         }
     }
 
@@ -6465,6 +6532,24 @@ impl ClientSession {
                 row.sync.y_bits,
                 false,
                 self.state.received_entity_snapshot_count,
+            );
+            self.state.entity_semantic_projection.upsert(
+                row.entity_id,
+                row.class_id,
+                self.state.received_entity_snapshot_count,
+                EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
+                    team_id: row.sync.team_id,
+                    unit_type_id: row.sync.unit_type_id,
+                    health_bits: row.sync.health_bits,
+                    rotation_bits: row.sync.rotation_bits,
+                    shield_bits: row.sync.shield_bits,
+                    mine_tile_pos: row.sync.mine_tile_pos,
+                    status_count: row.sync.status_count,
+                    payload_count: Some(row.sync.payload_count),
+                    building_pos: None,
+                    lifetime_bits: None,
+                    time_bits: None,
+                }),
             );
         }
     }
@@ -6488,6 +6573,24 @@ impl ClientSession {
                 false,
                 self.state.received_entity_snapshot_count,
             );
+            self.state.entity_semantic_projection.upsert(
+                row.entity_id,
+                row.class_id,
+                self.state.received_entity_snapshot_count,
+                EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
+                    team_id: row.sync.team_id,
+                    unit_type_id: row.sync.unit_type_id,
+                    health_bits: row.sync.health_bits,
+                    rotation_bits: row.sync.rotation_bits,
+                    shield_bits: row.sync.shield_bits,
+                    mine_tile_pos: row.sync.mine_tile_pos,
+                    status_count: row.sync.status_count,
+                    payload_count: Some(row.sync.payload_count),
+                    building_pos: Some(row.sync.building_pos),
+                    lifetime_bits: None,
+                    time_bits: None,
+                }),
+            );
         }
     }
 
@@ -6506,6 +6609,16 @@ impl ClientSession {
                 row.sync.y_bits,
                 false,
                 self.state.received_entity_snapshot_count,
+            );
+            self.state.entity_semantic_projection.upsert(
+                row.entity_id,
+                row.class_id,
+                self.state.received_entity_snapshot_count,
+                EntitySemanticProjection::Fire(EntityFireSemanticProjection {
+                    tile_pos: row.sync.tile_pos,
+                    lifetime_bits: row.sync.lifetime_bits,
+                    time_bits: row.sync.time_bits,
+                }),
             );
         }
     }
@@ -6529,6 +6642,16 @@ impl ClientSession {
                 false,
                 self.state.received_entity_snapshot_count,
             );
+            self.state.entity_semantic_projection.upsert(
+                row.entity_id,
+                row.class_id,
+                self.state.received_entity_snapshot_count,
+                EntitySemanticProjection::Puddle(EntityPuddleSemanticProjection {
+                    tile_pos: row.sync.tile_pos,
+                    liquid_id: row.sync.liquid_id,
+                    amount_bits: row.sync.amount_bits,
+                }),
+            );
         }
     }
 
@@ -6551,6 +6674,19 @@ impl ClientSession {
                 false,
                 self.state.received_entity_snapshot_count,
             );
+            self.state.entity_semantic_projection.upsert(
+                row.entity_id,
+                row.class_id,
+                self.state.received_entity_snapshot_count,
+                EntitySemanticProjection::WeatherState(EntityWeatherStateSemanticProjection {
+                    weather_id: row.sync.weather_id,
+                    intensity_bits: row.sync.intensity_bits,
+                    life_bits: row.sync.life_bits,
+                    opacity_bits: row.sync.opacity_bits,
+                    wind_x_bits: row.sync.wind_x_bits,
+                    wind_y_bits: row.sync.wind_y_bits,
+                }),
+            );
         }
     }
 
@@ -6572,6 +6708,17 @@ impl ClientSession {
                 row.sync.y_bits,
                 false,
                 self.state.received_entity_snapshot_count,
+            );
+            self.state.entity_semantic_projection.upsert(
+                row.entity_id,
+                row.class_id,
+                self.state.received_entity_snapshot_count,
+                EntitySemanticProjection::WorldLabel(EntityWorldLabelSemanticProjection {
+                    flags: row.sync.flags,
+                    font_size_bits: row.sync.font_size_bits,
+                    text: row.sync.text.clone(),
+                    z_bits: row.sync.z_bits,
+                }),
             );
         }
     }
@@ -7099,6 +7246,9 @@ impl ClientSession {
         self.state.last_hidden_snapshot_parse_error = None;
         self.state.last_hidden_snapshot_parse_error_payload_len = None;
         self.state.entity_table_projection.clear_for_world_reload();
+        self.state
+            .entity_semantic_projection
+            .clear_for_world_reload();
         self.state.rules_projection = Default::default();
         self.state.objectives_projection = Default::default();
         self.state.resource_delta_projection = Default::default();
@@ -9379,7 +9529,9 @@ fn decode_unit_removed_ref_payload(payload: &[u8]) -> Option<Option<UnitRefProje
 
 fn remove_entity_projection_for_entity_id(state: &mut SessionState, entity_id: i32) -> bool {
     state.record_entity_snapshot_tombstone(entity_id);
-    state.entity_table_projection.remove_entity(entity_id)
+    let removed_entity = state.entity_table_projection.remove_entity(entity_id);
+    let removed_semantic = state.entity_semantic_projection.remove_entity(entity_id);
+    removed_entity || removed_semantic
 }
 
 fn remove_entity_projection_for_unit_ref(
@@ -15806,6 +15958,289 @@ mod tests {
                 x_bits: 40.0f32.to_bits(),
                 y_bits: 60.0f32.to_bits(),
                 last_seen_entity_snapshot_count: 1,
+            })
+        );
+    }
+
+    #[test]
+    fn entity_snapshot_packet_applies_semantic_projection_for_supported_rows() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+
+        session.ingest_packet_bytes(&begin_packet).unwrap();
+        for chunk in chunk_packets {
+            session.ingest_packet_bytes(&chunk).unwrap();
+        }
+
+        let sample_payload = sample_snapshot_packet("entitySnapshot.packet");
+        let sample_body_len = u16::from_be_bytes([sample_payload[2], sample_payload[3]]) as usize;
+        let sample_body = &sample_payload[4..4 + sample_body_len];
+        let player_rows = try_parse_player_sync_rows_from_entity_snapshot(&sample_payload);
+        let alpha_rows = try_parse_alpha_sync_rows_from_entity_snapshot_prefix(&sample_payload);
+        assert_eq!(player_rows.len(), 1);
+        assert_eq!(alpha_rows.len(), 1);
+        let player_row = sample_body[player_rows[0].start..player_rows[0].end].to_vec();
+        let alpha_row = sample_body[alpha_rows[0].start..alpha_rows[0].end].to_vec();
+        let mech_row = build_entity_snapshot_row(321, 4, &synthetic_mech_sync_bytes());
+        let missile_row = build_entity_snapshot_row(654, 39, &synthetic_missile_sync_bytes());
+        let payload_row = build_entity_snapshot_row(777, 5, &synthetic_payload_sync_bytes());
+        let tether_payload_row =
+            build_entity_snapshot_row(888, 36, &synthetic_building_tether_payload_sync_bytes());
+        let fire_row = build_entity_snapshot_row(901, 10, &synthetic_fire_sync_bytes());
+        let puddle_row = build_entity_snapshot_row(902, 13, &synthetic_puddle_sync_bytes());
+        let weather_state_row =
+            build_entity_snapshot_row(903, 14, &synthetic_weather_state_sync_bytes());
+        let world_label_row =
+            build_entity_snapshot_row(904, 35, &synthetic_world_label_sync_bytes());
+        let payload = build_entity_snapshot_payload(&[
+            player_row,
+            alpha_row,
+            mech_row,
+            missile_row,
+            payload_row,
+            tether_payload_row,
+            fire_row,
+            puddle_row,
+            weather_state_row,
+            world_label_row,
+        ]);
+        let mech_sync = try_parse_mech_sync_rows_from_entity_snapshot_prefix(&payload)
+            .into_iter()
+            .find(|row| row.entity_id == 321)
+            .unwrap()
+            .sync;
+        let missile_sync = try_parse_missile_sync_rows_from_entity_snapshot_prefix(&payload)
+            .into_iter()
+            .find(|row| row.entity_id == 654)
+            .unwrap()
+            .sync;
+        let payload_sync = try_parse_payload_sync_rows_from_entity_snapshot_prefix(&payload)
+            .into_iter()
+            .find(|row| row.entity_id == 777)
+            .unwrap()
+            .sync;
+        let tether_sync =
+            try_parse_building_tether_payload_sync_rows_from_entity_snapshot_prefix(&payload)
+                .into_iter()
+                .find(|row| row.entity_id == 888)
+                .unwrap()
+                .sync;
+        let fire_sync = try_parse_fire_sync_rows_from_entity_snapshot_prefix(&payload)
+            .into_iter()
+            .find(|row| row.entity_id == 901)
+            .unwrap()
+            .sync;
+        let puddle_sync = try_parse_puddle_sync_rows_from_entity_snapshot_prefix(&payload)
+            .into_iter()
+            .find(|row| row.entity_id == 902)
+            .unwrap()
+            .sync;
+        let weather_sync = try_parse_weather_state_sync_rows_from_entity_snapshot_prefix(&payload)
+            .into_iter()
+            .find(|row| row.entity_id == 903)
+            .unwrap()
+            .sync;
+        let world_label_sync =
+            try_parse_world_label_sync_rows_from_entity_snapshot_prefix(&payload)
+                .into_iter()
+                .find(|row| row.entity_id == 904)
+                .unwrap()
+                .sync;
+
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == HighFrequencyRemoteMethod::EntitySnapshot.method_name())
+            .unwrap()
+            .packet_id;
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+        let event = session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            event,
+            ClientSessionEvent::SnapshotReceived(HighFrequencyRemoteMethod::EntitySnapshot)
+        );
+        assert_eq!(
+            session
+                .state()
+                .entity_semantic_projection
+                .by_entity_id
+                .get(&321),
+            Some(&crate::session_state::EntitySemanticProjectionEntry {
+                class_id: 4,
+                last_seen_entity_snapshot_count: 1,
+                projection: crate::session_state::EntitySemanticProjection::Unit(
+                    crate::session_state::EntityUnitSemanticProjection {
+                        team_id: mech_sync.team_id,
+                        unit_type_id: mech_sync.unit_type_id,
+                        health_bits: mech_sync.health_bits,
+                        rotation_bits: mech_sync.rotation_bits,
+                        shield_bits: mech_sync.shield_bits,
+                        mine_tile_pos: mech_sync.mine_tile_pos,
+                        status_count: mech_sync.status_count,
+                        payload_count: None,
+                        building_pos: None,
+                        lifetime_bits: None,
+                        time_bits: None,
+                    }
+                ),
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .entity_semantic_projection
+                .by_entity_id
+                .get(&654),
+            Some(&crate::session_state::EntitySemanticProjectionEntry {
+                class_id: 39,
+                last_seen_entity_snapshot_count: 1,
+                projection: crate::session_state::EntitySemanticProjection::Unit(
+                    crate::session_state::EntityUnitSemanticProjection {
+                        team_id: missile_sync.team_id,
+                        unit_type_id: missile_sync.unit_type_id,
+                        health_bits: missile_sync.health_bits,
+                        rotation_bits: missile_sync.rotation_bits,
+                        shield_bits: missile_sync.shield_bits,
+                        mine_tile_pos: missile_sync.mine_tile_pos,
+                        status_count: missile_sync.status_count,
+                        payload_count: None,
+                        building_pos: None,
+                        lifetime_bits: Some(missile_sync.lifetime_bits),
+                        time_bits: Some(missile_sync.time_bits),
+                    }
+                ),
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .entity_semantic_projection
+                .by_entity_id
+                .get(&777),
+            Some(&crate::session_state::EntitySemanticProjectionEntry {
+                class_id: 5,
+                last_seen_entity_snapshot_count: 1,
+                projection: crate::session_state::EntitySemanticProjection::Unit(
+                    crate::session_state::EntityUnitSemanticProjection {
+                        team_id: payload_sync.team_id,
+                        unit_type_id: payload_sync.unit_type_id,
+                        health_bits: payload_sync.health_bits,
+                        rotation_bits: payload_sync.rotation_bits,
+                        shield_bits: payload_sync.shield_bits,
+                        mine_tile_pos: payload_sync.mine_tile_pos,
+                        status_count: payload_sync.status_count,
+                        payload_count: Some(payload_sync.payload_count),
+                        building_pos: None,
+                        lifetime_bits: None,
+                        time_bits: None,
+                    }
+                ),
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .entity_semantic_projection
+                .by_entity_id
+                .get(&888),
+            Some(&crate::session_state::EntitySemanticProjectionEntry {
+                class_id: 36,
+                last_seen_entity_snapshot_count: 1,
+                projection: crate::session_state::EntitySemanticProjection::Unit(
+                    crate::session_state::EntityUnitSemanticProjection {
+                        team_id: tether_sync.team_id,
+                        unit_type_id: tether_sync.unit_type_id,
+                        health_bits: tether_sync.health_bits,
+                        rotation_bits: tether_sync.rotation_bits,
+                        shield_bits: tether_sync.shield_bits,
+                        mine_tile_pos: tether_sync.mine_tile_pos,
+                        status_count: tether_sync.status_count,
+                        payload_count: Some(tether_sync.payload_count),
+                        building_pos: Some(tether_sync.building_pos),
+                        lifetime_bits: None,
+                        time_bits: None,
+                    }
+                ),
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .entity_semantic_projection
+                .by_entity_id
+                .get(&901),
+            Some(&crate::session_state::EntitySemanticProjectionEntry {
+                class_id: 10,
+                last_seen_entity_snapshot_count: 1,
+                projection: crate::session_state::EntitySemanticProjection::Fire(
+                    crate::session_state::EntityFireSemanticProjection {
+                        tile_pos: fire_sync.tile_pos,
+                        lifetime_bits: fire_sync.lifetime_bits,
+                        time_bits: fire_sync.time_bits,
+                    }
+                ),
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .entity_semantic_projection
+                .by_entity_id
+                .get(&902),
+            Some(&crate::session_state::EntitySemanticProjectionEntry {
+                class_id: 13,
+                last_seen_entity_snapshot_count: 1,
+                projection: crate::session_state::EntitySemanticProjection::Puddle(
+                    crate::session_state::EntityPuddleSemanticProjection {
+                        tile_pos: puddle_sync.tile_pos,
+                        liquid_id: puddle_sync.liquid_id,
+                        amount_bits: puddle_sync.amount_bits,
+                    }
+                ),
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .entity_semantic_projection
+                .by_entity_id
+                .get(&903),
+            Some(&crate::session_state::EntitySemanticProjectionEntry {
+                class_id: 14,
+                last_seen_entity_snapshot_count: 1,
+                projection: crate::session_state::EntitySemanticProjection::WeatherState(
+                    crate::session_state::EntityWeatherStateSemanticProjection {
+                        weather_id: weather_sync.weather_id,
+                        intensity_bits: weather_sync.intensity_bits,
+                        life_bits: weather_sync.life_bits,
+                        opacity_bits: weather_sync.opacity_bits,
+                        wind_x_bits: weather_sync.wind_x_bits,
+                        wind_y_bits: weather_sync.wind_y_bits,
+                    }
+                ),
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .entity_semantic_projection
+                .by_entity_id
+                .get(&904),
+            Some(&crate::session_state::EntitySemanticProjectionEntry {
+                class_id: 35,
+                last_seen_entity_snapshot_count: 1,
+                projection: crate::session_state::EntitySemanticProjection::WorldLabel(
+                    crate::session_state::EntityWorldLabelSemanticProjection {
+                        flags: world_label_sync.flags,
+                        font_size_bits: world_label_sync.font_size_bits,
+                        text: world_label_sync.text,
+                        z_bits: world_label_sync.z_bits,
+                    }
+                ),
             })
         );
     }
@@ -30520,6 +30955,93 @@ mod tests {
             session.ingest_packet_bytes(&chunk).unwrap();
         }
         assert!(session.state().ready_to_enter_world);
+        assert!(session.prepare_connect_confirm_packet().unwrap().is_some());
+        assert!(session.state().connect_confirm_sent);
+
+        let actions = session.advance_time(1_201).unwrap();
+
+        assert_eq!(
+            actions,
+            vec![ClientSessionAction::TimedOut { idle_ms: 1_201 }]
+        );
+        assert!(session.state().connection_timed_out);
+        assert_eq!(
+            session.state().last_timeout,
+            Some(SessionTimeoutProjection {
+                kind: SessionTimeoutKind::ReadySnapshotStall,
+                idle_ms: 1_201,
+            })
+        );
+        assert_eq!(session.state().timeout_count, 1);
+        assert_eq!(session.state().connect_or_loading_timeout_count, 0);
+        assert_eq!(session.state().ready_snapshot_timeout_count, 1);
+    }
+
+    #[test]
+    fn world_ready_session_uses_snapshot_timeout_before_connect_confirm() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let timing = ClientSessionTiming {
+            keepalive_interval_ms: 60_000,
+            client_snapshot_interval_ms: 60_000,
+            connect_timeout_ms: 60_000,
+            timeout_ms: 1_200,
+        };
+        let mut session =
+            ClientSession::from_remote_manifest_with_timing(&manifest, "fr", timing).unwrap();
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+
+        session.ingest_packet_bytes(&begin_packet).unwrap();
+        for chunk in chunk_packets {
+            session.ingest_packet_bytes(&chunk).unwrap();
+        }
+        assert!(session.state().ready_to_enter_world);
+        assert!(session.state().client_loaded);
+        assert!(!session.state().connect_confirm_sent);
+
+        let actions = session.advance_time(1_201).unwrap();
+
+        assert_eq!(
+            actions,
+            vec![ClientSessionAction::TimedOut { idle_ms: 1_201 }]
+        );
+        assert!(session.state().connection_timed_out);
+        assert_eq!(
+            session.state().last_timeout,
+            Some(SessionTimeoutProjection {
+                kind: SessionTimeoutKind::ReadySnapshotStall,
+                idle_ms: 1_201,
+            })
+        );
+        assert_eq!(session.state().timeout_count, 1);
+        assert_eq!(session.state().connect_or_loading_timeout_count, 0);
+        assert_eq!(session.state().ready_snapshot_timeout_count, 1);
+    }
+
+    #[test]
+    fn connect_confirm_does_not_reset_finish_connecting_snapshot_timeout_anchor() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let timing = ClientSessionTiming {
+            keepalive_interval_ms: 60_000,
+            client_snapshot_interval_ms: 60_000,
+            connect_timeout_ms: 60_000,
+            timeout_ms: 1_200,
+        };
+        let mut session =
+            ClientSession::from_remote_manifest_with_timing(&manifest, "fr", timing).unwrap();
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+
+        session.ingest_packet_bytes(&begin_packet).unwrap();
+        for chunk in chunk_packets {
+            session.ingest_packet_bytes(&chunk).unwrap();
+        }
+        assert!(session.state().ready_to_enter_world);
+        assert!(session.state().client_loaded);
+
+        session.advance_time(1_000).unwrap();
         assert!(session.prepare_connect_confirm_packet().unwrap().is_some());
         assert!(session.state().connect_confirm_sent);
 

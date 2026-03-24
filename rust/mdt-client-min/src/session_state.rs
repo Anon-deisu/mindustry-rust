@@ -2405,6 +2405,107 @@ pub struct EntityProjection {
     pub last_seen_entity_snapshot_count: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EntitySemanticProjection {
+    Unit(EntityUnitSemanticProjection),
+    Fire(EntityFireSemanticProjection),
+    Puddle(EntityPuddleSemanticProjection),
+    WeatherState(EntityWeatherStateSemanticProjection),
+    WorldLabel(EntityWorldLabelSemanticProjection),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntityUnitSemanticProjection {
+    pub team_id: u8,
+    pub unit_type_id: i16,
+    pub health_bits: u32,
+    pub rotation_bits: u32,
+    pub shield_bits: u32,
+    pub mine_tile_pos: i32,
+    pub status_count: i32,
+    pub payload_count: Option<i32>,
+    pub building_pos: Option<i32>,
+    pub lifetime_bits: Option<u32>,
+    pub time_bits: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntityFireSemanticProjection {
+    pub tile_pos: i32,
+    pub lifetime_bits: u32,
+    pub time_bits: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntityPuddleSemanticProjection {
+    pub tile_pos: i32,
+    pub liquid_id: i16,
+    pub amount_bits: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntityWeatherStateSemanticProjection {
+    pub weather_id: i16,
+    pub intensity_bits: u32,
+    pub life_bits: u32,
+    pub opacity_bits: u32,
+    pub wind_x_bits: u32,
+    pub wind_y_bits: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntityWorldLabelSemanticProjection {
+    pub flags: u8,
+    pub font_size_bits: u32,
+    pub text: Option<String>,
+    pub z_bits: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntitySemanticProjectionEntry {
+    pub class_id: u8,
+    pub last_seen_entity_snapshot_count: u64,
+    pub projection: EntitySemanticProjection,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct EntitySemanticProjectionTable {
+    pub by_entity_id: BTreeMap<i32, EntitySemanticProjectionEntry>,
+}
+
+impl EntitySemanticProjectionTable {
+    pub fn upsert(
+        &mut self,
+        entity_id: i32,
+        class_id: u8,
+        last_seen_entity_snapshot_count: u64,
+        projection: EntitySemanticProjection,
+    ) {
+        self.by_entity_id.insert(
+            entity_id,
+            EntitySemanticProjectionEntry {
+                class_id,
+                last_seen_entity_snapshot_count,
+                projection,
+            },
+        );
+    }
+
+    pub fn remove_entity(&mut self, entity_id: i32) -> bool {
+        self.by_entity_id.remove(&entity_id).is_some()
+    }
+
+    pub fn remove_entities<'a>(&mut self, entity_ids: impl IntoIterator<Item = &'a i32>) {
+        for entity_id in entity_ids {
+            self.by_entity_id.remove(entity_id);
+        }
+    }
+
+    pub fn clear_for_world_reload(&mut self) {
+        self.by_entity_id.clear();
+    }
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct EntityTableProjection {
     pub by_entity_id: BTreeMap<i32, EntityProjection>,
@@ -3212,6 +3313,7 @@ pub struct SessionState {
     pub last_hidden_snapshot_parse_error: Option<String>,
     pub last_hidden_snapshot_parse_error_payload_len: Option<usize>,
     pub entity_table_projection: EntityTableProjection,
+    pub entity_semantic_projection: EntitySemanticProjectionTable,
 }
 
 impl SessionState {

@@ -86,10 +86,18 @@ impl BuilderQueueStateMachine {
         I: IntoIterator<Item = BuilderQueueEntryObservation>,
     {
         let mut next = BTreeMap::new();
-        let mut next_order = Vec::new();
+        let mut incoming_counts = BTreeMap::new();
+        let mut incoming_order = Vec::new();
         for entry in entries {
             let key = (entry.x, entry.y);
-            let previous = self.active_by_tile.get(&key);
+            let previous = self
+                .active_by_tile
+                .get(&key)
+                .filter(|plan| plan.breaking == entry.breaking);
+            incoming_counts
+                .entry(key)
+                .and_modify(|count| *count += 1)
+                .or_insert(1usize);
             let stage = if previous.is_some_and(|plan| plan.stage == BuilderQueueStage::InFlight) {
                 BuilderQueueStage::InFlight
             } else {
@@ -108,8 +116,20 @@ impl BuilderQueueStateMachine {
                     stage,
                 },
             );
-            next_order.retain(|tile| *tile != key);
-            next_order.push(key);
+            incoming_order.retain(|tile| *tile != key);
+            incoming_order.push(key);
+        }
+
+        let mut next_order = self
+            .ordered_tiles
+            .iter()
+            .copied()
+            .filter(|tile| next.contains_key(tile) && incoming_counts.get(tile) == Some(&1usize))
+            .collect::<Vec<_>>();
+        for key in incoming_order {
+            if !next_order.contains(&key) {
+                next_order.push(key);
+            }
         }
 
         self.active_by_tile = next;
@@ -323,6 +343,174 @@ mod tests {
         assert_eq!(queue.head_tile, Some((1, 1)));
         assert_eq!(queue.queued_count, 2);
         assert_eq!(queue.inflight_count, 0);
+    }
+
+    #[test]
+    fn sync_local_entries_does_not_leak_inflight_stage_or_block_id_across_break_mode_switch() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.mark_begin(6, 6, false, Some(42), 1);
+
+        queue.sync_local_entries([BuilderQueueEntryObservation {
+            x: 6,
+            y: 6,
+            breaking: true,
+            block_id: None,
+            rotation: 0,
+        }]);
+
+        assert_eq!(
+            queue.head_entry(),
+            Some(&BuilderQueueEntry {
+                x: 6,
+                y: 6,
+                breaking: true,
+                block_id: None,
+                rotation: Some(0),
+                stage: BuilderQueueStage::Queued,
+            })
+        );
+        assert_eq!(queue.queued_count, 1);
+        assert_eq!(queue.inflight_count, 0);
+    }
+
+    #[test]
+    fn sync_local_entries_preserves_inflight_stage_and_block_id_for_same_break_mode() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.mark_begin(7, 7, false, Some(70), 2);
+
+        queue.sync_local_entries([BuilderQueueEntryObservation {
+            x: 7,
+            y: 7,
+            breaking: false,
+            block_id: None,
+            rotation: 3,
+        }]);
+
+        assert_eq!(
+            queue.head_entry(),
+            Some(&BuilderQueueEntry {
+                x: 7,
+                y: 7,
+                breaking: false,
+                block_id: Some(70),
+                rotation: Some(3),
+                stage: BuilderQueueStage::InFlight,
+            })
+        );
+        assert_eq!(queue.queued_count, 0);
+        assert_eq!(queue.inflight_count, 1);
+    }
+
+    #[test]
+    fn sync_local_entries_preserves_existing_relative_order_for_unique_tiles() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 1,
+                y: 1,
+                breaking: false,
+                block_id: Some(11),
+                rotation: 0,
+            },
+            BuilderQueueEntryObservation {
+                x: 2,
+                y: 2,
+                breaking: false,
+                block_id: Some(22),
+                rotation: 1,
+            },
+            BuilderQueueEntryObservation {
+                x: 3,
+                y: 3,
+                breaking: true,
+                block_id: None,
+                rotation: 2,
+            },
+        ]);
+        queue.move_to_front(3, 3, true);
+
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 2,
+                y: 2,
+                breaking: false,
+                block_id: Some(22),
+                rotation: 1,
+            },
+            BuilderQueueEntryObservation {
+                x: 1,
+                y: 1,
+                breaking: false,
+                block_id: Some(11),
+                rotation: 0,
+            },
+            BuilderQueueEntryObservation {
+                x: 3,
+                y: 3,
+                breaking: true,
+                block_id: None,
+                rotation: 2,
+            },
+        ]);
+
+        assert_eq!(queue.ordered_tiles, vec![(3, 3), (1, 1), (2, 2)]);
+        assert_eq!(queue.head_tile, Some((3, 3)));
+    }
+
+    #[test]
+    fn sync_local_entries_appends_new_tiles_without_reordering_existing_head() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 4,
+                y: 4,
+                breaking: false,
+                block_id: Some(44),
+                rotation: 0,
+            },
+            BuilderQueueEntryObservation {
+                x: 5,
+                y: 5,
+                breaking: true,
+                block_id: None,
+                rotation: 1,
+            },
+        ]);
+        queue.move_to_front(5, 5, true);
+
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 4,
+                y: 4,
+                breaking: false,
+                block_id: Some(44),
+                rotation: 0,
+            },
+            BuilderQueueEntryObservation {
+                x: 6,
+                y: 6,
+                breaking: false,
+                block_id: Some(66),
+                rotation: 2,
+            },
+            BuilderQueueEntryObservation {
+                x: 5,
+                y: 5,
+                breaking: true,
+                block_id: None,
+                rotation: 1,
+            },
+            BuilderQueueEntryObservation {
+                x: 7,
+                y: 7,
+                breaking: false,
+                block_id: Some(77),
+                rotation: 3,
+            },
+        ]);
+
+        assert_eq!(queue.ordered_tiles, vec![(5, 5), (4, 4), (6, 6), (7, 7)]);
+        assert_eq!(queue.head_tile, Some((5, 5)));
     }
 
     #[test]

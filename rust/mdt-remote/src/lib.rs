@@ -3,6 +3,7 @@ use std::{fmt, fs, path::Path};
 
 pub const REMOTE_MANIFEST_SCHEMA_V1: &str = "mdt.remote.manifest.v1";
 pub const HIGH_FREQUENCY_REMOTE_METHOD_COUNT: usize = 5;
+pub const INBOUND_REMOTE_FAMILY_COUNT: usize = 6;
 pub const REMOTE_WIRE_PACKET_ID_BYTE_U8: &str = "u8";
 pub const REMOTE_WIRE_LENGTH_FIELD_U16BE: &str = "u16be";
 pub const REMOTE_WIRE_COMPRESSION_NONE: &str = "none";
@@ -155,6 +156,16 @@ pub enum HighFrequencyRemoteMethod {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InboundRemoteFamily {
+    ServerPacketReliable,
+    ServerPacketUnreliable,
+    ServerBinaryPacketReliable,
+    ServerBinaryPacketUnreliable,
+    ClientLogicDataReliable,
+    ClientLogicDataUnreliable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RemoteParamKind {
     Bool,
     Byte,
@@ -235,6 +246,18 @@ pub struct RemotePacketRegistry<'a> {
     packets: Vec<TypedRemotePacketMetadata<'a>>,
 }
 
+const SERVER_PACKET_TEXT_PARAM_JAVA_TYPES: [&str; 3] =
+    ["Player", "java.lang.String", "java.lang.String"];
+const SERVER_PACKET_BINARY_PARAM_JAVA_TYPES: [&str; 3] = ["Player", "java.lang.String", "byte[]"];
+const CLIENT_LOGIC_DATA_PARAM_JAVA_TYPES: [&str; 3] =
+    ["Player", "java.lang.String", "java.lang.Object"];
+const SERVER_PACKET_TEXT_WIRE_PARAM_KINDS: [RemoteParamKind; 2] =
+    [RemoteParamKind::Opaque, RemoteParamKind::Opaque];
+const SERVER_PACKET_BINARY_WIRE_PARAM_KINDS: [RemoteParamKind; 2] =
+    [RemoteParamKind::Opaque, RemoteParamKind::Bytes];
+const CLIENT_LOGIC_DATA_WIRE_PARAM_KINDS: [RemoteParamKind; 2] =
+    [RemoteParamKind::Opaque, RemoteParamKind::Opaque];
+
 impl<'a> RemoteMethodSelector<'a> {
     fn matches(self, method: &str) -> bool {
         match self {
@@ -283,6 +306,82 @@ impl<'a> RemotePacketSelector<'a> {
     pub fn with_wire_param_kinds(mut self, wire_param_kinds: &'a [RemoteParamKind]) -> Self {
         self.wire_param_kinds = wire_param_kinds;
         self
+    }
+}
+
+impl InboundRemoteFamily {
+    pub fn ordered() -> [Self; INBOUND_REMOTE_FAMILY_COUNT] {
+        [
+            Self::ServerPacketReliable,
+            Self::ServerPacketUnreliable,
+            Self::ServerBinaryPacketReliable,
+            Self::ServerBinaryPacketUnreliable,
+            Self::ClientLogicDataReliable,
+            Self::ClientLogicDataUnreliable,
+        ]
+    }
+
+    pub fn method_name(self) -> &'static str {
+        match self {
+            Self::ServerPacketReliable => "serverPacketReliable",
+            Self::ServerPacketUnreliable => "serverPacketUnreliable",
+            Self::ServerBinaryPacketReliable => "serverBinaryPacketReliable",
+            Self::ServerBinaryPacketUnreliable => "serverBinaryPacketUnreliable",
+            Self::ClientLogicDataReliable => "clientLogicDataReliable",
+            Self::ClientLogicDataUnreliable => "clientLogicDataUnreliable",
+        }
+    }
+
+    pub fn unreliable(self) -> bool {
+        matches!(
+            self,
+            Self::ServerPacketUnreliable
+                | Self::ServerBinaryPacketUnreliable
+                | Self::ClientLogicDataUnreliable
+        )
+    }
+
+    pub fn param_java_types(self) -> &'static [&'static str] {
+        match self {
+            Self::ServerPacketReliable | Self::ServerPacketUnreliable => {
+                &SERVER_PACKET_TEXT_PARAM_JAVA_TYPES
+            }
+            Self::ServerBinaryPacketReliable | Self::ServerBinaryPacketUnreliable => {
+                &SERVER_PACKET_BINARY_PARAM_JAVA_TYPES
+            }
+            Self::ClientLogicDataReliable | Self::ClientLogicDataUnreliable => {
+                &CLIENT_LOGIC_DATA_PARAM_JAVA_TYPES
+            }
+        }
+    }
+
+    pub fn wire_param_kinds(self) -> &'static [RemoteParamKind] {
+        match self {
+            Self::ServerPacketReliable | Self::ServerPacketUnreliable => {
+                &SERVER_PACKET_TEXT_WIRE_PARAM_KINDS
+            }
+            Self::ServerBinaryPacketReliable | Self::ServerBinaryPacketUnreliable => {
+                &SERVER_PACKET_BINARY_WIRE_PARAM_KINDS
+            }
+            Self::ClientLogicDataReliable | Self::ClientLogicDataUnreliable => {
+                &CLIENT_LOGIC_DATA_WIRE_PARAM_KINDS
+            }
+        }
+    }
+
+    pub fn selector(self) -> RemotePacketSelector<'static> {
+        RemotePacketSelector::method(self.method_name())
+            .with_flow(Self::selector_flow())
+            .with_unreliable(self.unreliable())
+            .with_param_java_types(self.param_java_types())
+            .with_wire_param_kinds(self.wire_param_kinds())
+    }
+
+    fn selector_flow() -> RemoteFlow {
+        // Manifest `targets=client` entries are stored as `ClientToServer` in the
+        // current typed registry surface, so inbound-to-client remote families
+        // must select that normalized flow value here.
+        RemoteFlow::ClientToServer
     }
 }
 
@@ -793,6 +892,13 @@ impl<'a> RemotePacketRegistry<'a> {
         self.packets_matching(selector).into_iter().next()
     }
 
+    pub fn first_inbound_remote_family(
+        &self,
+        family: InboundRemoteFamily,
+    ) -> Option<&TypedRemotePacketMetadata<'a>> {
+        self.first_matching(family.selector())
+    }
+
     pub fn into_packets(self) -> Vec<TypedRemotePacketMetadata<'a>> {
         self.packets
     }
@@ -1200,6 +1306,87 @@ mod tests {
         assert_eq!(
             typed_packets[2].packet_class,
             "mindustry.gen.InfoPopupReliableCallPacket"
+        );
+    }
+
+    #[test]
+    fn typed_inbound_remote_family_lookup_rejects_method_only_decoys() {
+        let manifest = RemoteManifest {
+            schema: REMOTE_MANIFEST_SCHEMA_V1.to_string(),
+            generator: RemoteGeneratorInfo {
+                source: "mindustry.annotations.remote".into(),
+                call_class: "mindustry.gen.Call".into(),
+            },
+            base_packets: vec![
+                BasePacketEntry {
+                    id: 0,
+                    class_name: "mindustry.net.Packets$StreamBegin".into(),
+                },
+                BasePacketEntry {
+                    id: 1,
+                    class_name: "mindustry.net.Packets$StreamChunk".into(),
+                },
+                BasePacketEntry {
+                    id: 2,
+                    class_name: "mindustry.net.Packets$WorldStream".into(),
+                },
+                BasePacketEntry {
+                    id: 3,
+                    class_name: "mindustry.net.Packets$ConnectPacket".into(),
+                },
+            ],
+            remote_packets: vec![
+                test_remote_packet(
+                    0,
+                    4,
+                    "mindustry.gen.ServerPacketReliableDecoyCallPacket",
+                    "mindustry.core.NetServer",
+                    "serverPacketReliable",
+                    "client",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("tile", "mindustry.world.Tile", false, false),
+                        test_param("type", "java.lang.String", true, true),
+                        test_param("contents", "java.lang.String", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    1,
+                    5,
+                    "mindustry.gen.ServerPacketReliableCallPacket",
+                    "mindustry.core.NetServer",
+                    "serverPacketReliable",
+                    "client",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("player", "Player", false, false),
+                        test_param("type", "java.lang.String", true, true),
+                        test_param("contents", "java.lang.String", true, true),
+                    ],
+                ),
+            ],
+            wire: WireSpec {
+                packet_id_byte: "u8".into(),
+                length_field: "u16be".into(),
+                compression_flag: CompressionFlagSpec {
+                    none: "none".into(),
+                    lz4: "lz4".into(),
+                },
+                compression_threshold: 36,
+            },
+        };
+
+        let registry = RemotePacketRegistry::from_manifest(&manifest).unwrap();
+        let packet = registry
+            .first_inbound_remote_family(InboundRemoteFamily::ServerPacketReliable)
+            .unwrap();
+
+        assert_eq!(packet.packet_id, 5);
+        assert_eq!(
+            packet.packet_class,
+            "mindustry.gen.ServerPacketReliableCallPacket"
         );
     }
 

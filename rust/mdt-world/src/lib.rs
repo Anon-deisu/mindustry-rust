@@ -977,6 +977,15 @@ pub struct SaveEntityPostLoadSummary {
     pub class_summaries: Vec<SaveEntityClassSummary>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SaveEntityRemapSummary {
+    pub remap_count: usize,
+    pub unique_custom_ids: usize,
+    pub duplicate_custom_ids: Vec<u16>,
+    pub unique_names: usize,
+    pub duplicate_names: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct SaveEntityRegionObservation {
     pub remap_count: usize,
@@ -1006,8 +1015,14 @@ pub struct SavePostLoadWorldObservation {
     pub content_header: Vec<ContentHeaderEntry>,
     pub patches: Vec<Vec<u8>>,
     pub map: SaveMapRegionObservation,
+    pub entity_remap_entries: Vec<SaveEntityRemapEntry>,
+    pub entity_remap_bytes: Vec<u8>,
+    pub entity_remap_summary: SaveEntityRemapSummary,
     pub team_plan_groups: Vec<TeamPlanGroup>,
     pub team_region_bytes: Vec<u8>,
+    pub world_entity_count: usize,
+    pub world_entity_bytes: Vec<u8>,
+    pub world_entity_chunks: Vec<SaveEntityChunkObservation>,
     pub markers: Vec<MarkerEntry>,
     pub marker_region_bytes: Vec<u8>,
     pub custom_chunks: Vec<CustomChunkEntry>,
@@ -1087,8 +1102,14 @@ impl MsavSaveObservation {
             content_header,
             patches,
             map,
+            entity_remap_entries: self.entities.remap_entries.clone(),
+            entity_remap_bytes: self.entities.remap_bytes.clone(),
+            entity_remap_summary: self.entities.post_load_remap_summary(),
             team_plan_groups: self.entities.team_plan_groups.clone(),
             team_region_bytes: self.entities.team_region_bytes.clone(),
+            world_entity_count: self.entities.world_entity_count,
+            world_entity_bytes: self.entities.world_entity_bytes.clone(),
+            world_entity_chunks: self.entities.entity_chunks.clone(),
             markers,
             marker_region_bytes,
             custom_chunks,
@@ -1125,6 +1146,30 @@ impl SaveEntityChunkObservation {
 }
 
 impl SaveEntityRegionObservation {
+    pub fn post_load_remap_summary(&self) -> SaveEntityRemapSummary {
+        let mut seen_custom_ids = BTreeSet::new();
+        let mut duplicate_custom_ids = BTreeSet::new();
+        let mut seen_names = BTreeSet::new();
+        let mut duplicate_names = BTreeSet::new();
+
+        for entry in &self.remap_entries {
+            if !seen_custom_ids.insert(entry.custom_id) {
+                duplicate_custom_ids.insert(entry.custom_id);
+            }
+            if !seen_names.insert(entry.name.clone()) {
+                duplicate_names.insert(entry.name.clone());
+            }
+        }
+
+        SaveEntityRemapSummary {
+            remap_count: self.remap_count,
+            unique_custom_ids: seen_custom_ids.len(),
+            duplicate_custom_ids: duplicate_custom_ids.into_iter().collect(),
+            unique_names: seen_names.len(),
+            duplicate_names: duplicate_names.into_iter().collect(),
+        }
+    }
+
     pub fn post_load_summary(&self) -> SaveEntityPostLoadSummary {
         let mut seen_entity_ids = HashSet::with_capacity(self.entity_chunks.len());
         let mut duplicate_entity_ids = Vec::new();
@@ -39636,8 +39681,23 @@ mod tests {
         assert_eq!(post_load.map.floor_region_bytes, bundle.floor_region_bytes);
         assert_eq!(post_load.map.block_region_bytes, bundle.block_region_bytes);
         assert_eq!(post_load.map.world, expected_world);
+        assert_eq!(post_load.entity_remap_entries, save.entities.remap_entries);
+        assert_eq!(post_load.entity_remap_bytes, save.entities.remap_bytes);
+        assert_eq!(
+            post_load.entity_remap_summary,
+            save.entities.post_load_remap_summary()
+        );
         assert_eq!(post_load.team_plan_groups, save.entities.team_plan_groups);
         assert_eq!(post_load.team_region_bytes, save.entities.team_region_bytes);
+        assert_eq!(
+            post_load.world_entity_count,
+            save.entities.world_entity_count
+        );
+        assert_eq!(
+            post_load.world_entity_bytes,
+            save.entities.world_entity_bytes
+        );
+        assert_eq!(post_load.world_entity_chunks, save.entities.entity_chunks);
         assert_eq!(post_load.markers, bundle.markers);
         assert_eq!(post_load.marker_region_bytes, bundle.marker_region_bytes);
         assert_eq!(post_load.custom_chunks, bundle.custom_chunks);
@@ -39663,12 +39723,72 @@ mod tests {
         assert!(post_load.map.world.building_centers.is_empty());
         assert_eq!(post_load.map.world.team_count, save.entities.team_count);
         assert_eq!(post_load.map.world.total_plans, save.entities.total_plans);
+        assert_eq!(post_load.entity_remap_entries, save.entities.remap_entries);
+        assert_eq!(post_load.entity_remap_bytes, save.entities.remap_bytes);
+        assert_eq!(
+            post_load.entity_remap_summary,
+            save.entities.post_load_remap_summary()
+        );
         assert_eq!(post_load.team_plan_groups, save.entities.team_plan_groups);
+        assert_eq!(
+            post_load.world_entity_count,
+            save.entities.world_entity_count
+        );
+        assert_eq!(
+            post_load.world_entity_bytes,
+            save.entities.world_entity_bytes
+        );
+        assert_eq!(post_load.world_entity_chunks, save.entities.entity_chunks);
         assert!(post_load.markers.is_empty());
         assert!(post_load.marker_region_bytes.is_empty());
         assert!(post_load.custom_chunks.is_empty());
         assert!(post_load.custom_region_bytes.is_empty());
         assert_eq!(post_load.entity_summary, save.post_load_entity_summary());
+    }
+
+    #[test]
+    fn save_entity_remap_summary_tracks_duplicate_ids_and_names() {
+        let summary = SaveEntityRegionObservation {
+            remap_count: 4,
+            remap_entries: vec![
+                SaveEntityRemapEntry {
+                    custom_id: 3,
+                    name: "mod-alpha".to_string(),
+                },
+                SaveEntityRemapEntry {
+                    custom_id: 4,
+                    name: "mod-beta".to_string(),
+                },
+                SaveEntityRemapEntry {
+                    custom_id: 3,
+                    name: "mod-gamma".to_string(),
+                },
+                SaveEntityRemapEntry {
+                    custom_id: 5,
+                    name: "mod-beta".to_string(),
+                },
+            ],
+            remap_bytes: Vec::new(),
+            team_count: 0,
+            total_plans: 0,
+            team_plan_groups: Vec::new(),
+            team_region_bytes: Vec::new(),
+            world_entity_count: 0,
+            world_entity_bytes: Vec::new(),
+            entity_chunks: Vec::new(),
+        }
+        .post_load_remap_summary();
+
+        assert_eq!(
+            summary,
+            SaveEntityRemapSummary {
+                remap_count: 4,
+                unique_custom_ids: 3,
+                duplicate_custom_ids: vec![3],
+                unique_names: 3,
+                duplicate_names: vec!["mod-beta".to_string()],
+            }
+        );
     }
 
     #[test]

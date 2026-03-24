@@ -69,12 +69,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut current_server_addr = resolve_initial_server_addr(&args)?;
     let mut driver = ArcNetSessionDriver::connect(current_server_addr)?;
     let mut movement_probe = args.movement_probe.map(MovementProbeController::new);
-    let mut live_intent_mapper = (!args.live_intent_schedule.is_empty()).then(|| {
-        LiveIntentMapperController::new(
-            args.live_intent_schedule.clone(),
-            args.live_intent_sampling_mode,
-        )
-    });
+    let mut live_intent_mapper = build_live_intent_mapper(&args);
     let mut runtime_plan_edit_loop = args
         .runtime_plan_edit_loop
         .clone()
@@ -469,6 +464,7 @@ struct CliArgs {
     snapshot_view_size: Option<(f32, f32)>,
     snapshot_interval_ms: Option<u64>,
     movement_probe: Option<MovementProbeConfig>,
+    enable_live_intent_runtime_capture: bool,
     live_intent_sampling_mode: IntentSamplingMode,
     live_intent_schedule: Vec<ScheduledIntentSnapshot>,
     runtime_plan_edit_loop: Option<PlanEditLoopConfig>,
@@ -687,6 +683,15 @@ impl LiveIntentMapperController {
     }
 }
 
+fn build_live_intent_mapper(args: &CliArgs) -> Option<LiveIntentMapperController> {
+    args.enable_live_intent_runtime_capture.then(|| {
+        LiveIntentMapperController::new(
+            args.live_intent_schedule.clone(),
+            args.live_intent_sampling_mode,
+        )
+    })
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct RelativeBuildPlan {
     tile_offset: (i32, i32),
@@ -811,6 +816,7 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
     let mut render_window_live = false;
     let mut dump_world_stream_hex = None;
     let mut live_intent_snapshots = Vec::new();
+    let mut enable_live_intent_runtime_capture = false;
     let mut live_intent_sampling_mode = IntentSamplingMode::LiveSampling;
     let mut live_intent_delay_ms = 1_000u64;
     let mut live_intent_spacing_ms = 1_000u64;
@@ -1001,12 +1007,15 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
             "--intent-snapshot" => {
                 i += 1;
                 let value = args.get(i).ok_or("missing value for --intent-snapshot")?;
+                enable_live_intent_runtime_capture = true;
                 live_intent_snapshots.push(parse_intent_snapshot_arg(value)?);
             }
             "--intent-live-sampling" => {
+                enable_live_intent_runtime_capture = true;
                 live_intent_sampling_mode = IntentSamplingMode::LiveSampling;
             }
             "--intent-edge-mapped" => {
+                enable_live_intent_runtime_capture = true;
                 live_intent_sampling_mode = IntentSamplingMode::EdgeMapped;
             }
             "--intent-delay-ms" => {
@@ -1546,6 +1555,7 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
         snapshot_view_size,
         snapshot_interval_ms,
         movement_probe,
+        enable_live_intent_runtime_capture,
         live_intent_sampling_mode,
         live_intent_schedule: build_intent_schedule(
             live_intent_snapshots,
@@ -4691,6 +4701,13 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_leaves_live_intent_runtime_capture_disabled_by_default() {
+        let args = parse_args(sample_args(&[])).unwrap();
+
+        assert!(!args.enable_live_intent_runtime_capture);
+    }
+
+    #[test]
     fn parse_args_accepts_movement_probe_pair() {
         let args = parse_args(sample_args(&[
             "--name",
@@ -4731,6 +4748,7 @@ mod tests {
         ]))
         .unwrap();
 
+        assert!(args.enable_live_intent_runtime_capture);
         assert_eq!(
             args.live_intent_sampling_mode,
             IntentSamplingMode::LiveSampling
@@ -4779,6 +4797,7 @@ mod tests {
     fn parse_args_accepts_live_intent_sampling_flag() {
         let args = parse_args(sample_args(&["--intent-live-sampling"])).unwrap();
 
+        assert!(args.enable_live_intent_runtime_capture);
         assert_eq!(
             args.live_intent_sampling_mode,
             IntentSamplingMode::LiveSampling
@@ -4789,10 +4808,25 @@ mod tests {
     fn parse_args_accepts_edge_mapped_intent_sampling_flag() {
         let args = parse_args(sample_args(&["--intent-edge-mapped"])).unwrap();
 
+        assert!(args.enable_live_intent_runtime_capture);
         assert_eq!(
             args.live_intent_sampling_mode,
             IntentSamplingMode::EdgeMapped
         );
+    }
+
+    #[test]
+    fn build_live_intent_mapper_returns_none_without_schedule_or_flag() {
+        let args = parse_args(sample_args(&[])).unwrap();
+
+        assert!(build_live_intent_mapper(&args).is_none());
+    }
+
+    #[test]
+    fn build_live_intent_mapper_returns_runtime_capture_for_live_sampling_flag() {
+        let args = parse_args(sample_args(&["--intent-live-sampling"])).unwrap();
+
+        assert!(build_live_intent_mapper(&args).is_some());
     }
 
     #[test]
@@ -8190,10 +8224,8 @@ mod tests {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
         let args = parse_args(sample_args(&["--intent-live-sampling"])).unwrap();
-        let mut live_intent_mapper = LiveIntentMapperController::new(
-            args.live_intent_schedule.clone(),
-            args.live_intent_sampling_mode,
-        );
+        let mut live_intent_mapper = build_live_intent_mapper(&args)
+            .expect("live sampling flag should enable runtime capture");
 
         {
             let input = session.snapshot_input_mut();

@@ -69,6 +69,68 @@ pub struct BuildConfigPanelEntryModel {
     pub sample: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeUiNoticePanelModel {
+    pub hud_set_count: u64,
+    pub hud_set_reliable_count: u64,
+    pub hud_hide_count: u64,
+    pub hud_last_message: Option<String>,
+    pub hud_last_reliable_message: Option<String>,
+    pub toast_info_count: u64,
+    pub toast_warning_count: u64,
+    pub toast_last_info_message: Option<String>,
+    pub toast_last_warning_text: Option<String>,
+    pub text_input_open_count: u64,
+    pub text_input_last_id: Option<i32>,
+    pub text_input_last_title: Option<String>,
+    pub text_input_last_message: Option<String>,
+    pub text_input_last_default_text: Option<String>,
+    pub text_input_last_length: Option<i32>,
+    pub text_input_last_numeric: Option<bool>,
+    pub text_input_last_allow_empty: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeMenuPanelModel {
+    pub menu_open_count: u64,
+    pub follow_up_menu_open_count: u64,
+    pub hide_follow_up_menu_count: u64,
+    pub text_input_open_count: u64,
+    pub text_input_last_id: Option<i32>,
+    pub text_input_last_title: Option<String>,
+    pub text_input_last_default_text: Option<String>,
+    pub text_input_last_length: Option<i32>,
+    pub text_input_last_numeric: Option<bool>,
+    pub text_input_last_allow_empty: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeRulesPanelModel {
+    pub mutation_count: u64,
+    pub parse_fail_count: u64,
+    pub set_rules_count: u64,
+    pub set_objectives_count: u64,
+    pub set_rule_count: u64,
+    pub clear_objectives_count: u64,
+    pub complete_objective_count: u64,
+    pub waves: Option<bool>,
+    pub pvp: Option<bool>,
+    pub objective_count: usize,
+    pub qualified_objective_count: usize,
+    pub objective_parent_edge_count: usize,
+    pub objective_flag_count: usize,
+    pub complete_out_of_range_count: u64,
+    pub last_completed_index: Option<i32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeWorldLabelPanelModel {
+    pub label_count: u64,
+    pub reliable_label_count: u64,
+    pub remove_label_count: u64,
+    pub total_count: u64,
+}
+
 pub fn build_minimap_panel(
     scene: &RenderModel,
     hud: &HudModel,
@@ -192,6 +254,87 @@ pub fn build_build_config_panel(
     })
 }
 
+pub fn build_runtime_ui_notice_panel(hud: &HudModel) -> Option<RuntimeUiNoticePanelModel> {
+    let runtime_ui = hud.runtime_ui.as_ref()?;
+    Some(RuntimeUiNoticePanelModel {
+        hud_set_count: runtime_ui.hud_text.set_count,
+        hud_set_reliable_count: runtime_ui.hud_text.set_reliable_count,
+        hud_hide_count: runtime_ui.hud_text.hide_count,
+        hud_last_message: runtime_ui.hud_text.last_message.clone(),
+        hud_last_reliable_message: runtime_ui.hud_text.last_reliable_message.clone(),
+        toast_info_count: runtime_ui.toast.info_count,
+        toast_warning_count: runtime_ui.toast.warning_count,
+        toast_last_info_message: runtime_ui.toast.last_info_message.clone(),
+        toast_last_warning_text: runtime_ui.toast.last_warning_text.clone(),
+        text_input_open_count: runtime_ui.text_input.open_count,
+        text_input_last_id: runtime_ui.text_input.last_id,
+        text_input_last_title: runtime_ui.text_input.last_title.clone(),
+        text_input_last_message: runtime_ui.text_input.last_message.clone(),
+        text_input_last_default_text: runtime_ui.text_input.last_default_text.clone(),
+        text_input_last_length: runtime_ui.text_input.last_length,
+        text_input_last_numeric: runtime_ui.text_input.last_numeric,
+        text_input_last_allow_empty: runtime_ui.text_input.last_allow_empty,
+    })
+}
+
+pub fn build_runtime_menu_panel(hud: &HudModel) -> Option<RuntimeMenuPanelModel> {
+    let runtime_ui = hud.runtime_ui.as_ref()?;
+    Some(RuntimeMenuPanelModel {
+        menu_open_count: runtime_ui.menu.menu_open_count,
+        follow_up_menu_open_count: runtime_ui.menu.follow_up_menu_open_count,
+        hide_follow_up_menu_count: runtime_ui.menu.hide_follow_up_menu_count,
+        text_input_open_count: runtime_ui.text_input.open_count,
+        text_input_last_id: runtime_ui.text_input.last_id,
+        text_input_last_title: runtime_ui.text_input.last_title.clone(),
+        text_input_last_default_text: runtime_ui.text_input.last_default_text.clone(),
+        text_input_last_length: runtime_ui.text_input.last_length,
+        text_input_last_numeric: runtime_ui.text_input.last_numeric,
+        text_input_last_allow_empty: runtime_ui.text_input.last_allow_empty,
+    })
+}
+
+pub fn build_runtime_rules_panel(hud: &HudModel) -> Option<RuntimeRulesPanelModel> {
+    let rules = &hud.runtime_ui.as_ref()?.rules;
+    Some(RuntimeRulesPanelModel {
+        mutation_count: rules
+            .set_rules_count
+            .saturating_add(rules.set_objectives_count)
+            .saturating_add(rules.set_rule_count)
+            .saturating_add(rules.clear_objectives_count)
+            .saturating_add(rules.complete_objective_count),
+        parse_fail_count: rules
+            .set_rules_parse_fail_count
+            .saturating_add(rules.set_objectives_parse_fail_count)
+            .saturating_add(rules.set_rule_parse_fail_count),
+        set_rules_count: rules.set_rules_count,
+        set_objectives_count: rules.set_objectives_count,
+        set_rule_count: rules.set_rule_count,
+        clear_objectives_count: rules.clear_objectives_count,
+        complete_objective_count: rules.complete_objective_count,
+        waves: rules.waves,
+        pvp: rules.pvp,
+        objective_count: rules.objective_count,
+        qualified_objective_count: rules.qualified_objective_count,
+        objective_parent_edge_count: rules.objective_parent_edge_count,
+        objective_flag_count: rules.objective_flag_count,
+        complete_out_of_range_count: rules.complete_out_of_range_count,
+        last_completed_index: rules.last_completed_index,
+    })
+}
+
+pub fn build_runtime_world_label_panel(hud: &HudModel) -> Option<RuntimeWorldLabelPanelModel> {
+    let world_labels = &hud.runtime_ui.as_ref()?.world_labels;
+    Some(RuntimeWorldLabelPanelModel {
+        label_count: world_labels.label_count,
+        reliable_label_count: world_labels.reliable_label_count,
+        remove_label_count: world_labels.remove_label_count,
+        total_count: world_labels
+            .label_count
+            .saturating_add(world_labels.reliable_label_count)
+            .saturating_add(world_labels.remove_label_count),
+    })
+}
+
 fn semantic_count(scene: &RenderModel, kind: RenderObjectSemanticKind) -> usize {
     scene
         .objects
@@ -209,10 +352,17 @@ fn world_to_tile_index_floor(world_position: f32) -> i32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_build_config_panel, build_minimap_panel, PresenterViewWindow};
+    use super::{
+        build_build_config_panel, build_minimap_panel, build_runtime_menu_panel,
+        build_runtime_rules_panel, build_runtime_ui_notice_panel,
+        build_runtime_world_label_panel, PresenterViewWindow,
+    };
     use crate::{
         hud_model::HudSummary, BuildConfigInspectorEntryObservability, BuildQueueHeadObservability,
-        BuildQueueHeadStage, BuildUiObservability, HudModel, RenderModel, RenderObject, Viewport,
+        BuildQueueHeadStage, BuildUiObservability, HudModel, RenderModel, RenderObject,
+        RuntimeHudTextObservability, RuntimeLiveSummaryObservability, RuntimeMenuObservability,
+        RuntimeRulesObservability, RuntimeTextInputObservability, RuntimeToastObservability,
+        RuntimeUiObservability, RuntimeWorldLabelObservability, Viewport,
     };
 
     #[test]
@@ -357,5 +507,185 @@ mod tests {
         assert_eq!(panel.entries.len(), 2);
         assert_eq!(panel.entries[0].family, "power-node");
         assert_eq!(panel.entries[1].family, "battery");
+    }
+
+    #[test]
+    fn builds_runtime_ui_notice_panel_from_runtime_ui_observability() {
+        let hud = HudModel {
+            runtime_ui: Some(RuntimeUiObservability {
+                hud_text: RuntimeHudTextObservability {
+                    set_count: 9,
+                    set_reliable_count: 10,
+                    hide_count: 11,
+                    last_message: Some("hud text".to_string()),
+                    last_reliable_message: Some("hud rel".to_string()),
+                },
+                toast: RuntimeToastObservability {
+                    info_count: 14,
+                    warning_count: 15,
+                    last_info_message: Some("toast".to_string()),
+                    last_warning_text: Some("warn".to_string()),
+                },
+                text_input: RuntimeTextInputObservability {
+                    open_count: 53,
+                    last_id: Some(404),
+                    last_title: Some("Digits".to_string()),
+                    last_message: Some("Only numbers".to_string()),
+                    last_default_text: Some("12345".to_string()),
+                    last_length: Some(16),
+                    last_numeric: Some(true),
+                    last_allow_empty: Some(true),
+                },
+                menu: RuntimeMenuObservability::default(),
+                rules: RuntimeRulesObservability::default(),
+                world_labels: RuntimeWorldLabelObservability::default(),
+                live: RuntimeLiveSummaryObservability::default(),
+            }),
+            ..HudModel::default()
+        };
+
+        let panel = build_runtime_ui_notice_panel(&hud).expect("expected runtime ui notice panel");
+
+        assert_eq!(panel.hud_set_count, 9);
+        assert_eq!(panel.hud_set_reliable_count, 10);
+        assert_eq!(panel.hud_hide_count, 11);
+        assert_eq!(panel.hud_last_message.as_deref(), Some("hud text"));
+        assert_eq!(panel.hud_last_reliable_message.as_deref(), Some("hud rel"));
+        assert_eq!(panel.toast_info_count, 14);
+        assert_eq!(panel.toast_warning_count, 15);
+        assert_eq!(panel.toast_last_info_message.as_deref(), Some("toast"));
+        assert_eq!(panel.toast_last_warning_text.as_deref(), Some("warn"));
+        assert_eq!(panel.text_input_open_count, 53);
+        assert_eq!(panel.text_input_last_id, Some(404));
+        assert_eq!(panel.text_input_last_title.as_deref(), Some("Digits"));
+        assert_eq!(
+            panel.text_input_last_message.as_deref(),
+            Some("Only numbers")
+        );
+        assert_eq!(panel.text_input_last_default_text.as_deref(), Some("12345"));
+        assert_eq!(panel.text_input_last_length, Some(16));
+        assert_eq!(panel.text_input_last_numeric, Some(true));
+        assert_eq!(panel.text_input_last_allow_empty, Some(true));
+    }
+
+    #[test]
+    fn builds_runtime_rules_panel_from_runtime_ui_observability() {
+        let hud = HudModel {
+            runtime_ui: Some(RuntimeUiObservability {
+                hud_text: RuntimeHudTextObservability::default(),
+                toast: RuntimeToastObservability::default(),
+                text_input: RuntimeTextInputObservability::default(),
+                menu: RuntimeMenuObservability::default(),
+                rules: RuntimeRulesObservability {
+                    set_rules_count: 67,
+                    set_rules_parse_fail_count: 68,
+                    set_objectives_count: 69,
+                    set_objectives_parse_fail_count: 70,
+                    set_rule_count: 71,
+                    set_rule_parse_fail_count: 72,
+                    clear_objectives_count: 73,
+                    complete_objective_count: 74,
+                    waves: Some(true),
+                    pvp: Some(false),
+                    objective_count: 2,
+                    qualified_objective_count: 1,
+                    objective_parent_edge_count: 1,
+                    objective_flag_count: 2,
+                    complete_out_of_range_count: 75,
+                    last_completed_index: Some(9),
+                },
+                world_labels: RuntimeWorldLabelObservability::default(),
+                live: RuntimeLiveSummaryObservability::default(),
+            }),
+            ..HudModel::default()
+        };
+
+        let panel = build_runtime_rules_panel(&hud).expect("expected runtime rules panel");
+
+        assert_eq!(panel.mutation_count, 354);
+        assert_eq!(panel.parse_fail_count, 210);
+        assert_eq!(panel.set_rules_count, 67);
+        assert_eq!(panel.set_objectives_count, 69);
+        assert_eq!(panel.set_rule_count, 71);
+        assert_eq!(panel.clear_objectives_count, 73);
+        assert_eq!(panel.complete_objective_count, 74);
+        assert_eq!(panel.waves, Some(true));
+        assert_eq!(panel.pvp, Some(false));
+        assert_eq!(panel.objective_count, 2);
+        assert_eq!(panel.qualified_objective_count, 1);
+        assert_eq!(panel.objective_parent_edge_count, 1);
+        assert_eq!(panel.objective_flag_count, 2);
+        assert_eq!(panel.complete_out_of_range_count, 75);
+        assert_eq!(panel.last_completed_index, Some(9));
+    }
+
+    #[test]
+    fn builds_runtime_world_label_panel_from_runtime_ui_observability() {
+        let hud = HudModel {
+            runtime_ui: Some(RuntimeUiObservability {
+                hud_text: RuntimeHudTextObservability::default(),
+                toast: RuntimeToastObservability::default(),
+                text_input: RuntimeTextInputObservability::default(),
+                menu: RuntimeMenuObservability::default(),
+                rules: RuntimeRulesObservability::default(),
+                world_labels: RuntimeWorldLabelObservability {
+                    label_count: 19,
+                    reliable_label_count: 20,
+                    remove_label_count: 21,
+                },
+                live: RuntimeLiveSummaryObservability::default(),
+            }),
+            ..HudModel::default()
+        };
+
+        let panel =
+            build_runtime_world_label_panel(&hud).expect("expected runtime world-label panel");
+
+        assert_eq!(panel.label_count, 19);
+        assert_eq!(panel.reliable_label_count, 20);
+        assert_eq!(panel.remove_label_count, 21);
+        assert_eq!(panel.total_count, 60);
+    }
+
+    #[test]
+    fn builds_runtime_menu_panel_from_runtime_ui_observability() {
+        let hud = HudModel {
+            runtime_ui: Some(RuntimeUiObservability {
+                hud_text: RuntimeHudTextObservability::default(),
+                toast: RuntimeToastObservability::default(),
+                text_input: RuntimeTextInputObservability {
+                    open_count: 53,
+                    last_id: Some(404),
+                    last_title: Some("Digits".to_string()),
+                    last_message: Some("Only numbers".to_string()),
+                    last_default_text: Some("12345".to_string()),
+                    last_length: Some(16),
+                    last_numeric: Some(true),
+                    last_allow_empty: Some(true),
+                },
+                menu: RuntimeMenuObservability {
+                    menu_open_count: 16,
+                    follow_up_menu_open_count: 17,
+                    hide_follow_up_menu_count: 18,
+                },
+                rules: RuntimeRulesObservability::default(),
+                world_labels: RuntimeWorldLabelObservability::default(),
+                live: RuntimeLiveSummaryObservability::default(),
+            }),
+            ..HudModel::default()
+        };
+
+        let panel = build_runtime_menu_panel(&hud).expect("expected runtime menu panel");
+
+        assert_eq!(panel.menu_open_count, 16);
+        assert_eq!(panel.follow_up_menu_open_count, 17);
+        assert_eq!(panel.hide_follow_up_menu_count, 18);
+        assert_eq!(panel.text_input_open_count, 53);
+        assert_eq!(panel.text_input_last_id, Some(404));
+        assert_eq!(panel.text_input_last_title.as_deref(), Some("Digits"));
+        assert_eq!(panel.text_input_last_default_text.as_deref(), Some("12345"));
+        assert_eq!(panel.text_input_last_length, Some(16));
+        assert_eq!(panel.text_input_last_numeric, Some(true));
+        assert_eq!(panel.text_input_last_allow_empty, Some(true));
     }
 }

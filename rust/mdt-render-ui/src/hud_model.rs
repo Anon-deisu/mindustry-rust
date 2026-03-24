@@ -33,6 +33,9 @@ pub struct RuntimeUiObservability {
     pub hud_text: RuntimeHudTextObservability,
     pub toast: RuntimeToastObservability,
     pub text_input: RuntimeTextInputObservability,
+    pub menu: RuntimeMenuObservability,
+    pub rules: RuntimeRulesObservability,
+    pub world_labels: RuntimeWorldLabelObservability,
     pub live: RuntimeLiveSummaryObservability,
 }
 
@@ -63,6 +66,40 @@ pub struct RuntimeTextInputObservability {
     pub last_length: Option<i32>,
     pub last_numeric: Option<bool>,
     pub last_allow_empty: Option<bool>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RuntimeMenuObservability {
+    pub menu_open_count: u64,
+    pub follow_up_menu_open_count: u64,
+    pub hide_follow_up_menu_count: u64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RuntimeRulesObservability {
+    pub set_rules_count: u64,
+    pub set_rules_parse_fail_count: u64,
+    pub set_objectives_count: u64,
+    pub set_objectives_parse_fail_count: u64,
+    pub set_rule_count: u64,
+    pub set_rule_parse_fail_count: u64,
+    pub clear_objectives_count: u64,
+    pub complete_objective_count: u64,
+    pub waves: Option<bool>,
+    pub pvp: Option<bool>,
+    pub objective_count: usize,
+    pub qualified_objective_count: usize,
+    pub objective_parent_edge_count: usize,
+    pub objective_flag_count: usize,
+    pub complete_out_of_range_count: u64,
+    pub last_completed_index: Option<i32>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RuntimeWorldLabelObservability {
+    pub label_count: u64,
+    pub reliable_label_count: u64,
+    pub remove_label_count: u64,
 }
 
 /// Structured live runtime summary built from session entity/effect observability.

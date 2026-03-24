@@ -13,8 +13,9 @@ pub use hud_model::{
     BuildConfigInspectorEntryObservability, BuildQueueHeadObservability, BuildQueueHeadStage,
     BuildUiObservability, HudModel, RuntimeHudTextObservability, RuntimeLiveEffectPositionSource,
     RuntimeLiveEffectSummaryObservability, RuntimeLiveEntitySummaryObservability,
-    RuntimeLiveSummaryObservability, RuntimeTextInputObservability, RuntimeToastObservability,
-    RuntimeUiObservability, RuntimeWorldPositionObservability,
+    RuntimeLiveSummaryObservability, RuntimeMenuObservability, RuntimeRulesObservability,
+    RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiObservability,
+    RuntimeWorldLabelObservability, RuntimeWorldPositionObservability,
 };
 pub use projection::{
     project_hud_model, project_render_model, project_render_model_with_player_position,

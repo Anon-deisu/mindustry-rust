@@ -1,6 +1,10 @@
 use crate::{
     hud_model::HudSummary,
-    panel_model::{build_build_config_panel, build_minimap_panel, PresenterViewWindow},
+    panel_model::{
+        build_build_config_panel, build_minimap_panel, build_runtime_menu_panel,
+        build_runtime_rules_panel, build_runtime_ui_notice_panel,
+        build_runtime_world_label_panel, PresenterViewWindow,
+    },
     render_model::RenderObjectSemanticKind,
     BuildQueueHeadObservability, BuildQueueHeadStage, BuildUiObservability, HudModel, RenderModel,
     RenderObject, RuntimeUiObservability, ScenePresenter,
@@ -476,6 +480,18 @@ fn compose_frame_status_text(
         parts.push(compose_build_ui_status_text(build_ui));
     }
     if let Some(runtime_ui) = hud.runtime_ui.as_ref() {
+        if let Some(runtime_ui_notice_text) = compose_runtime_ui_notice_panel_status_text(hud) {
+            parts.push(runtime_ui_notice_text);
+        }
+        if let Some(runtime_menu_text) = compose_runtime_menu_panel_status_text(hud) {
+            parts.push(runtime_menu_text);
+        }
+        if let Some(runtime_rules_text) = compose_runtime_rules_panel_status_text(hud) {
+            parts.push(runtime_rules_text);
+        }
+        if let Some(runtime_world_label_text) = compose_runtime_world_label_panel_status_text(hud) {
+            parts.push(runtime_world_label_text);
+        }
         let runtime_ui_text = compose_runtime_ui_status_text(runtime_ui);
         if !runtime_ui_text.is_empty() {
             parts.push(runtime_ui_text);
@@ -530,6 +546,72 @@ fn compose_runtime_ui_status_text(runtime_ui: &RuntimeUiObservability) -> String
         compose_live_entity_status_text(&live.entity),
         compose_live_effect_status_text(&live.effect),
     )
+}
+
+fn compose_runtime_ui_notice_panel_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_ui_notice_panel(hud)?;
+    Some(format!(
+        "notice:hud={}/{}/{}@{}/{}:toast={}/{}@{}/{}:tin={}@{}:{}/{}/{}#{}:n{}:e{}",
+        panel.hud_set_count,
+        panel.hud_set_reliable_count,
+        panel.hud_hide_count,
+        compact_runtime_ui_text(panel.hud_last_message.as_deref()),
+        compact_runtime_ui_text(panel.hud_last_reliable_message.as_deref()),
+        panel.toast_info_count,
+        panel.toast_warning_count,
+        compact_runtime_ui_text(panel.toast_last_info_message.as_deref()),
+        compact_runtime_ui_text(panel.toast_last_warning_text.as_deref()),
+        panel.text_input_open_count,
+        optional_i32_label(panel.text_input_last_id),
+        compact_runtime_ui_text(panel.text_input_last_title.as_deref()),
+        compact_runtime_ui_text(panel.text_input_last_message.as_deref()),
+        compact_runtime_ui_text(panel.text_input_last_default_text.as_deref()),
+        panel.text_input_last_length.unwrap_or_default(),
+        optional_bool_label(panel.text_input_last_numeric),
+        optional_bool_label(panel.text_input_last_allow_empty),
+    ))
+}
+
+fn compose_runtime_rules_panel_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_rules_panel(hud)?;
+    Some(format!(
+        "rules:mut{}:fail{}:wv{}:pvp{}:obj{}:q{}:par{}:fg{}:oor{}:last{}",
+        panel.mutation_count,
+        panel.parse_fail_count,
+        optional_bool_label(panel.waves),
+        optional_bool_label(panel.pvp),
+        panel.objective_count,
+        panel.qualified_objective_count,
+        panel.objective_parent_edge_count,
+        panel.objective_flag_count,
+        panel.complete_out_of_range_count,
+        optional_i32_label(panel.last_completed_index),
+    ))
+}
+
+fn compose_runtime_menu_panel_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_menu_panel(hud)?;
+    Some(format!(
+        "menu:m{}:fm{}:h{}:tin{}@{}:{}/{}#{}:n{}:e{}",
+        panel.menu_open_count,
+        panel.follow_up_menu_open_count,
+        panel.hide_follow_up_menu_count,
+        panel.text_input_open_count,
+        optional_i32_label(panel.text_input_last_id),
+        compact_runtime_ui_text(panel.text_input_last_title.as_deref()),
+        compact_runtime_ui_text(panel.text_input_last_default_text.as_deref()),
+        panel.text_input_last_length.unwrap_or_default(),
+        optional_bool_label(panel.text_input_last_numeric),
+        optional_bool_label(panel.text_input_last_allow_empty),
+    ))
+}
+
+fn compose_runtime_world_label_panel_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_world_label_panel(hud)?;
+    Some(format!(
+        "wlabel:set{}:rel{}:rm{}:tot{}",
+        panel.label_count, panel.reliable_label_count, panel.remove_label_count, panel.total_count,
+    ))
 }
 
 fn compose_build_ui_status_text(build_ui: &BuildUiObservability) -> String {
@@ -934,7 +1016,9 @@ mod tests {
     use crate::{
         hud_model::HudSummary, BuildQueueHeadObservability, BuildQueueHeadStage,
         BuildUiObservability, HudModel, RenderModel, RenderObject, RuntimeHudTextObservability,
-        RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiObservability, Viewport,
+        RuntimeMenuObservability, RuntimeRulesObservability, RuntimeTextInputObservability,
+        RuntimeToastObservability, RuntimeUiObservability, RuntimeWorldLabelObservability,
+        Viewport,
     };
 
     #[derive(Default)]
@@ -1303,6 +1387,34 @@ mod tests {
                     last_numeric: Some(true),
                     last_allow_empty: Some(true),
                 },
+                menu: RuntimeMenuObservability {
+                    menu_open_count: 16,
+                    follow_up_menu_open_count: 17,
+                    hide_follow_up_menu_count: 18,
+                },
+                rules: RuntimeRulesObservability {
+                    set_rules_count: 67,
+                    set_rules_parse_fail_count: 68,
+                    set_objectives_count: 69,
+                    set_objectives_parse_fail_count: 70,
+                    set_rule_count: 71,
+                    set_rule_parse_fail_count: 72,
+                    clear_objectives_count: 73,
+                    complete_objective_count: 74,
+                    waves: Some(true),
+                    pvp: Some(false),
+                    objective_count: 2,
+                    qualified_objective_count: 1,
+                    objective_parent_edge_count: 1,
+                    objective_flag_count: 2,
+                    complete_out_of_range_count: 75,
+                    last_completed_index: Some(9),
+                },
+                world_labels: RuntimeWorldLabelObservability {
+                    label_count: 19,
+                    reliable_label_count: 20,
+                    remove_label_count: 21,
+                },
                 live: crate::RuntimeLiveSummaryObservability {
                     entity: crate::RuntimeLiveEntitySummaryObservability {
                         entity_count: 1,
@@ -1389,6 +1501,16 @@ mod tests {
         assert!(frame.status_text.contains(
             ":cfg=message#1@18:40:len=5:text=hello;power-node#1@23:45:links=24:46|25:47"
         ));
+        assert!(frame
+            .status_text
+            .contains("notice:hud=9/10/11@hud_text/hud_rel:toast=14/15@toast/warn:tin=53@404:Digits/Only_numbers/12345#16:n1:e1"));
+        assert!(frame
+            .status_text
+            .contains("menu:m16:fm17:h18:tin53@404:Digits/12345#16:n1:e1"));
+        assert!(frame
+            .status_text
+            .contains("rules:mut354:fail210:wv1:pvp0:obj2:q1:par1:fg2:oor75:last9"));
+        assert!(frame.status_text.contains("wlabel:set19:rel20:rm21:tot60"));
         assert!(frame
             .status_text
             .contains("ui:hud=9/10/11@hud_text/hud_rel"));

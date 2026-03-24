@@ -20,7 +20,8 @@ use mdt_render_ui::{
     BuildUiObservability, HudModel, RenderModel, RenderObject, RuntimeHudTextObservability,
     RuntimeLiveEffectPositionSource, RuntimeLiveEffectSummaryObservability,
     RuntimeLiveEntitySummaryObservability, RuntimeLiveSummaryObservability,
-    RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiObservability,
+    RuntimeMenuObservability, RuntimeRulesObservability, RuntimeTextInputObservability,
+    RuntimeToastObservability, RuntimeUiObservability, RuntimeWorldLabelObservability,
     RuntimeWorldPositionObservability,
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -1434,7 +1435,51 @@ fn runtime_ui_observability(session_state: &SessionState) -> RuntimeUiObservabil
             last_numeric: session_state.last_text_input_numeric,
             last_allow_empty: session_state.last_text_input_allow_empty,
         },
+        menu: runtime_menu_observability(session_state),
+        rules: runtime_rules_observability(session_state),
+        world_labels: runtime_world_label_observability(session_state),
         live: runtime_live_summary_observability(session_state),
+    }
+}
+
+fn runtime_menu_observability(session_state: &SessionState) -> RuntimeMenuObservability {
+    RuntimeMenuObservability {
+        menu_open_count: session_state.received_menu_open_count,
+        follow_up_menu_open_count: session_state.received_follow_up_menu_open_count,
+        hide_follow_up_menu_count: session_state.received_hide_follow_up_menu_count,
+    }
+}
+
+fn runtime_rules_observability(session_state: &SessionState) -> RuntimeRulesObservability {
+    RuntimeRulesObservability {
+        set_rules_count: session_state.received_set_rules_count,
+        set_rules_parse_fail_count: session_state.failed_set_rules_parse_count,
+        set_objectives_count: session_state.received_set_objectives_count,
+        set_objectives_parse_fail_count: session_state.failed_set_objectives_parse_count,
+        set_rule_count: session_state.received_set_rule_count,
+        set_rule_parse_fail_count: session_state.failed_set_rule_parse_count,
+        clear_objectives_count: session_state.received_clear_objectives_count,
+        complete_objective_count: session_state.received_complete_objective_count,
+        waves: session_state.rules_projection.waves,
+        pvp: session_state.rules_projection.pvp,
+        objective_count: session_state.objectives_projection.objectives.len(),
+        qualified_objective_count: session_state.objectives_projection.qualified_count(),
+        objective_parent_edge_count: session_state.objectives_projection.parent_edge_count(),
+        objective_flag_count: session_state.objectives_projection.objective_flags.len(),
+        complete_out_of_range_count: session_state
+            .objectives_projection
+            .complete_out_of_range_count,
+        last_completed_index: session_state.objectives_projection.last_completed_index,
+    }
+}
+
+fn runtime_world_label_observability(
+    session_state: &SessionState,
+) -> RuntimeWorldLabelObservability {
+    RuntimeWorldLabelObservability {
+        label_count: session_state.received_world_label_count,
+        reliable_label_count: session_state.received_world_label_reliable_count,
+        remove_label_count: session_state.received_remove_world_label_count,
     }
 }
 
@@ -5034,6 +5079,28 @@ mod tests {
         assert_eq!(runtime_ui.text_input.last_length, Some(16));
         assert_eq!(runtime_ui.text_input.last_numeric, Some(true));
         assert_eq!(runtime_ui.text_input.last_allow_empty, Some(true));
+        assert_eq!(runtime_ui.menu.menu_open_count, 16);
+        assert_eq!(runtime_ui.menu.follow_up_menu_open_count, 17);
+        assert_eq!(runtime_ui.menu.hide_follow_up_menu_count, 18);
+        assert_eq!(runtime_ui.rules.set_rules_count, 67);
+        assert_eq!(runtime_ui.rules.set_rules_parse_fail_count, 68);
+        assert_eq!(runtime_ui.rules.set_objectives_count, 69);
+        assert_eq!(runtime_ui.rules.set_objectives_parse_fail_count, 70);
+        assert_eq!(runtime_ui.rules.set_rule_count, 71);
+        assert_eq!(runtime_ui.rules.set_rule_parse_fail_count, 72);
+        assert_eq!(runtime_ui.rules.clear_objectives_count, 73);
+        assert_eq!(runtime_ui.rules.complete_objective_count, 74);
+        assert_eq!(runtime_ui.rules.waves, Some(true));
+        assert_eq!(runtime_ui.rules.pvp, Some(false));
+        assert_eq!(runtime_ui.rules.objective_count, 2);
+        assert_eq!(runtime_ui.rules.qualified_objective_count, 1);
+        assert_eq!(runtime_ui.rules.objective_parent_edge_count, 1);
+        assert_eq!(runtime_ui.rules.objective_flag_count, 2);
+        assert_eq!(runtime_ui.rules.complete_out_of_range_count, 75);
+        assert_eq!(runtime_ui.rules.last_completed_index, Some(9));
+        assert_eq!(runtime_ui.world_labels.label_count, 19);
+        assert_eq!(runtime_ui.world_labels.reliable_label_count, 20);
+        assert_eq!(runtime_ui.world_labels.remove_label_count, 21);
         assert_eq!(runtime_ui.live.entity.entity_count, 1);
         assert_eq!(runtime_ui.live.entity.hidden_count, 0);
         assert_eq!(runtime_ui.live.entity.local_entity_id, Some(404));
