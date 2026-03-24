@@ -133,12 +133,7 @@ fn drop_item_overlay_origin(
     object: &TypeIoObject,
 ) -> Option<(f32, f32)> {
     first_contract_match(object, drop_item_candidate)?;
-    ray_endpoint(
-        effect_x,
-        effect_y,
-        effect_rotation,
-        DROP_ITEM_EFFECT_LENGTH,
-    )
+    ray_endpoint(effect_x, effect_y, effect_rotation, DROP_ITEM_EFFECT_LENGTH)
 }
 
 fn float_length_overlay_origin(
@@ -270,10 +265,26 @@ fn ray_endpoint(
         return None;
     }
     let radians = effect_rotation.to_radians();
+    let cos = snap_trig_component(radians.cos());
+    let sin = snap_trig_component(radians.sin());
     Some((
-        effect_x + radians.cos() * length,
-        effect_y + radians.sin() * length,
+        effect_x + cos * length,
+        effect_y + sin * length,
     ))
+}
+
+fn snap_trig_component(value: f32) -> f32 {
+    const TRIG_SNAP_EPSILON: f32 = 1e-6;
+
+    if value.abs() <= TRIG_SNAP_EPSILON {
+        0.0
+    } else if (value - 1.0).abs() <= TRIG_SNAP_EPSILON {
+        1.0
+    } else if (value + 1.0).abs() <= TRIG_SNAP_EPSILON {
+        -1.0
+    } else {
+        value
+    }
 }
 
 fn bits_to_world_position((x_bits, y_bits): (u32, u32)) -> (f32, f32) {

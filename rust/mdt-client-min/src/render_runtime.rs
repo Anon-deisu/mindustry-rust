@@ -1934,7 +1934,9 @@ fn runtime_build_ui_observability(
         orphan_authoritative_count: projection.orphan_authoritative_count,
         head: runtime_build_queue_head_observability(projection),
         rollback_strip: runtime_build_config_rollback_strip_observability(tile_config_projection),
-        inspector_entries: runtime_build_config_inspector_entries(runtime_typed_building_projection),
+        inspector_entries: runtime_build_config_inspector_entries(
+            runtime_typed_building_projection,
+        ),
     }
 }
 

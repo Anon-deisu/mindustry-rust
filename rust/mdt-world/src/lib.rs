@@ -14,6 +14,7 @@ mod save_post_load;
 mod save_post_load_activation;
 mod save_post_load_consumer_plan;
 mod save_post_load_contract;
+mod save_post_load_runtime_apply_batches;
 mod save_post_load_runtime_seed_plan;
 
 pub use save_post_load_activation::{
@@ -27,6 +28,9 @@ pub use save_post_load_consumer_plan::{
     SavePostLoadConsumerStageKind,
 };
 pub use save_post_load_contract::{SavePostLoadWorldContract, SavePostLoadWorldIssue};
+pub use save_post_load_runtime_apply_batches::{
+    SavePostLoadRuntimeApplyBatch, SavePostLoadRuntimeApplyBatchView,
+};
 pub use save_post_load_runtime_seed_plan::{
     SavePostLoadRuntimeBuildingSeed, SavePostLoadRuntimeCustomChunkSeed,
     SavePostLoadRuntimeEntityRemapSeed, SavePostLoadRuntimeEntitySeed,

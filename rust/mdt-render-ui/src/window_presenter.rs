@@ -5,9 +5,9 @@ use crate::{
         build_runtime_admin_panel, build_runtime_chat_panel, build_runtime_command_mode_panel,
         build_runtime_dialog_panel, build_runtime_kick_panel, build_runtime_live_effect_panel,
         build_runtime_live_entity_panel, build_runtime_loading_panel, build_runtime_menu_panel,
-        build_runtime_reconnect_panel, build_runtime_rules_panel, build_runtime_ui_notice_panel,
-        build_runtime_world_label_panel, PresenterViewWindow, RuntimeDialogNoticeKind,
-        RuntimeDialogPromptKind,
+        build_runtime_reconnect_panel, build_runtime_rules_panel, build_runtime_session_panel,
+        build_runtime_ui_notice_panel, build_runtime_world_label_panel, PresenterViewWindow,
+        RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
     },
     render_model::{RenderObjectSemanticFamily, RenderObjectSemanticKind},
     BuildQueueHeadObservability, BuildQueueHeadStage, BuildUiObservability, HudModel, RenderModel,
@@ -529,7 +529,8 @@ fn compose_frame_panel_lines(
     if let Some(minimap_window_text) = compose_minimap_window_status_text(scene, hud, window) {
         lines.push(format!("MINIMAP: {minimap_window_text}"));
     }
-    if let Some(minimap_visibility_text) = compose_minimap_visibility_status_text(scene, hud, window)
+    if let Some(minimap_visibility_text) =
+        compose_minimap_visibility_status_text(scene, hud, window)
     {
         lines.push(format!("MINIMAP-VIS: {minimap_visibility_text}"));
     }
@@ -551,7 +552,8 @@ fn compose_frame_panel_lines(
     if let Some(build_interaction_text) = compose_build_interaction_status_text(hud) {
         lines.push(format!("BUILD-INTERACTION: {build_interaction_text}"));
     }
-    if let Some(build_minimap_aux_text) = compose_build_minimap_aux_status_text(scene, hud, window) {
+    if let Some(build_minimap_aux_text) = compose_build_minimap_aux_status_text(scene, hud, window)
+    {
         lines.push(format!("BUILD-MINIMAP-AUX: {build_minimap_aux_text}"));
     }
     if let Some(runtime_ui_notice_text) = compose_runtime_ui_notice_panel_status_text(hud) {
@@ -567,7 +569,9 @@ fn compose_frame_panel_lines(
         lines.push(format!("RUNTIME-DIALOG: {runtime_dialog_text}"));
     }
     if let Some(runtime_dialog_detail_text) = compose_runtime_dialog_detail_status_text(hud) {
-        lines.push(format!("RUNTIME-DIALOG-DETAIL: {runtime_dialog_detail_text}"));
+        lines.push(format!(
+            "RUNTIME-DIALOG-DETAIL: {runtime_dialog_detail_text}"
+        ));
     }
     if let Some(runtime_chat_text) = compose_runtime_chat_panel_status_text(hud) {
         lines.push(format!("RUNTIME-CHAT: {runtime_chat_text}"));
@@ -586,6 +590,9 @@ fn compose_frame_panel_lines(
     }
     if let Some(runtime_world_label_text) = compose_runtime_world_label_panel_status_text(hud) {
         lines.push(format!("RUNTIME-WORLD-LABEL: {runtime_world_label_text}"));
+    }
+    if let Some(runtime_session_text) = compose_runtime_session_status_text(hud) {
+        lines.push(format!("RUNTIME-SESSION: {runtime_session_text}"));
     }
     if let Some(runtime_kick_text) = compose_runtime_kick_status_text(hud) {
         lines.push(format!("RUNTIME-KICK: {runtime_kick_text}"));
@@ -922,6 +929,19 @@ fn compose_runtime_kick_status_text(hud: &HudModel) -> Option<String> {
     ))
 }
 
+fn compose_runtime_session_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_session_panel(hud)?;
+    if panel.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "sess:k={};l={};r={}",
+        compose_runtime_kick_panel_status_text(&panel.kick),
+        compose_runtime_loading_panel_status_text(&panel.loading),
+        compose_runtime_reconnect_panel_status_text(&panel.reconnect),
+    ))
+}
+
 fn compose_runtime_loading_status_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_loading_panel(hud)?;
     Some(format!(
@@ -1072,7 +1092,15 @@ fn compose_minimap_detail_status_lines(scene: &RenderModel, hud: &HudModel) -> V
         .detail_counts
         .iter()
         .enumerate()
-        .map(|(index, detail)| format!("minid:{}/{}:{}={}", index + 1, detail_count, detail.label, detail.count))
+        .map(|(index, detail)| {
+            format!(
+                "minid:{}/{}:{}={}",
+                index + 1,
+                detail_count,
+                detail.label,
+                detail.count
+            )
+        })
         .collect()
 }
 
@@ -2735,6 +2763,10 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
+            "RUNTIME-SESSION: sess:k=idInUse@7:IdInUse:wait_for_old~;l=defer5:replay6:drop7:qdrop8:sfail9:scfail10:efail11:rdy12@1300:to2:cto1:rto1:ltready@20000:rs3:rr1:wr1:kr1:lrreload:lwr@lw1:cl0:rd1:cc0:p4:d5:r6;r=attempt3:redirect@1/127.0.0.1:6567:connectRedir~@none:server_reque~",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
             "RUNTIME-KICK: kick:idInUse@7:IdInUse:wait_for_old~",
         );
         assert_frame_line_contains(
@@ -2874,6 +2906,38 @@ mod tests {
         assert_frame_line_contains(
             &frame.panel_lines,
             "BUILD-MINIMAP-AUX: preb:m=place:s=head-aligned:q=mixed:r1:cfg=3/7@gamma:auth=rej-miss-build:f=0:0@1:v0:u100:w0:obj3:rt0",
+        );
+    }
+
+    #[test]
+    fn present_once_omits_runtime_session_line_for_empty_default_state() {
+        let backend = RecordingBackend::default();
+        let mut presenter = WindowPresenter::new(backend);
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 8.0,
+                height: 8.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: Vec::new(),
+        };
+        let hud = HudModel {
+            runtime_ui: Some(RuntimeUiObservability::default()),
+            ..HudModel::default()
+        };
+
+        presenter.present_once(&scene, &hud).unwrap();
+
+        let backend = presenter.into_backend();
+        let frame = backend.frames.last().unwrap();
+        assert!(
+            frame
+                .panel_lines
+                .iter()
+                .all(|line| !line.starts_with("RUNTIME-SESSION:")),
+            "unexpected runtime session line in {:?}",
+            frame.panel_lines
         );
     }
 

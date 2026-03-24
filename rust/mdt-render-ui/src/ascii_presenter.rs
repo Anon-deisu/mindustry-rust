@@ -4,8 +4,9 @@ use crate::panel_model::{
     build_runtime_chat_panel, build_runtime_command_mode_panel, build_runtime_dialog_panel,
     build_runtime_kick_panel, build_runtime_live_effect_panel, build_runtime_live_entity_panel,
     build_runtime_loading_panel, build_runtime_menu_panel, build_runtime_reconnect_panel,
-    build_runtime_rules_panel, build_runtime_ui_notice_panel, build_runtime_world_label_panel,
-    PresenterViewWindow, RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
+    build_runtime_rules_panel, build_runtime_session_panel, build_runtime_ui_notice_panel,
+    build_runtime_world_label_panel, PresenterViewWindow, RuntimeDialogNoticeKind,
+    RuntimeDialogPromptKind,
 };
 use crate::render_model::{RenderObjectSemanticFamily, RenderObjectSemanticKind};
 use crate::{HudModel, RenderModel, ScenePresenter};
@@ -150,6 +151,9 @@ impl AsciiScenePresenter {
             out.push_str(&format!(
                 "RUNTIME-WORLD-LABEL: {runtime_world_label_text}\n"
             ));
+        }
+        if let Some(runtime_session_text) = compose_runtime_session_row_text(hud) {
+            out.push_str(&format!("RUNTIME-SESSION: {runtime_session_text}\n"));
         }
         if let Some(runtime_kick_text) = compose_runtime_kick_row_text(hud) {
             out.push_str(&format!("RUNTIME-KICK: {runtime_kick_text}\n"));
@@ -623,6 +627,19 @@ fn runtime_world_label_text_sample(value: Option<&str>) -> String {
 fn compose_runtime_kick_row_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_kick_panel(hud)?;
     Some(compose_runtime_kick_panel_text(&panel))
+}
+
+fn compose_runtime_session_row_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_session_panel(hud)?;
+    if panel.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "kick={}; loading={}; reconnect={}",
+        compose_runtime_kick_panel_text(&panel.kick),
+        compose_runtime_loading_panel_text(&panel.loading),
+        compose_runtime_reconnect_panel_text(&panel.reconnect),
+    ))
 }
 
 fn compose_runtime_loading_row_text(hud: &HudModel) -> Option<String> {
@@ -2238,6 +2255,9 @@ mod tests {
         assert!(frame.contains(
             "RUNTIME-WORLD-LABEL: set=19 rel=20 remove=21 total=60 active=2 inactive=58 last=904 flags=3 font=1094713344@12.0 z=1082130432@4.0 pos=40.0:60.0 text=world label lines=1 len=11"
         ));
+        assert!(frame.contains(
+            "RUNTIME-SESSION: kick=idInUse@7:IdInUse:wait_for_old~; loading=defer5 replay6 drop7 qdrop8 sfail9 scfail10 efail11 rdy12@1300 to2/1/1 ltready@20000 rs3/1/1/1 lrreload lwr@lw1:cl0:rd1:cc0:p4:d5:r6; reconnect=attempt#3 redirect redirect=1@127.0.0.1:6567 reason=connectRedir~#none hint=server_reque~"
+        ));
         assert!(frame.contains("RUNTIME-KICK: idInUse@7:IdInUse:wait_for_old~"));
         assert!(frame.contains(
             "RUNTIME-LOADING: defer5 replay6 drop7 qdrop8 sfail9 scfail10 efail11 rdy12@1300 to2/1/1 ltready@20000 rs3/1/1/1 lrreload lwr@lw1:cl0:rd1:cc0:p4:d5:r6"
@@ -2385,6 +2405,28 @@ mod tests {
         assert!(frame.contains(
             "BUILD-INTERACTION: mode=place select=head-aligned queue=mixed pending=3 place-ready=1 cfg=4/8 top=gamma head=queued@10:12:place:b301:r1 auth=rejected-missing-building pending=match src=tileConfig tile=10:12 block=alpha orphan=6"
         ));
+    }
+
+    #[test]
+    fn ascii_presenter_omits_runtime_session_row_for_empty_default_state() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 8.0,
+                height: 8.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: Vec::new(),
+        };
+        let hud = HudModel {
+            runtime_ui: Some(RuntimeUiObservability::default()),
+            ..HudModel::default()
+        };
+        let mut presenter = AsciiScenePresenter::default();
+
+        presenter.present(&scene, &hud);
+
+        assert!(!presenter.last_frame().contains("RUNTIME-SESSION:"));
     }
 
     fn decode_hex(text: &str) -> Vec<u8> {

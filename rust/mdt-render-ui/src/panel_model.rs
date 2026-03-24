@@ -90,11 +90,19 @@ pub struct HudVisibilityPanelModel {
 
 impl HudVisibilityPanelModel {
     pub fn visible_map_percent(&self) -> usize {
-        percent_of(self.visible_tile_count, self.known_tile_count.saturating_add(self.unknown_tile_count))
+        percent_of(
+            self.visible_tile_count,
+            self.known_tile_count
+                .saturating_add(self.unknown_tile_count),
+        )
     }
 
     pub fn hidden_map_percent(&self) -> usize {
-        percent_of(self.hidden_tile_count, self.known_tile_count.saturating_add(self.unknown_tile_count))
+        percent_of(
+            self.hidden_tile_count,
+            self.known_tile_count
+                .saturating_add(self.unknown_tile_count),
+        )
     }
 }
 
@@ -514,12 +522,27 @@ pub struct RuntimeSessionPanelModel {
     pub reconnect: RuntimeReconnectPanelModel,
 }
 
+impl RuntimeSessionPanelModel {
+    pub fn is_empty(&self) -> bool {
+        self.kick.is_empty() && self.loading.is_empty() && self.reconnect.is_empty()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeKickPanelModel {
     pub reason_text: Option<String>,
     pub reason_ordinal: Option<i32>,
     pub hint_category: Option<String>,
     pub hint_text: Option<String>,
+}
+
+impl RuntimeKickPanelModel {
+    pub fn is_empty(&self) -> bool {
+        self.reason_text.is_none()
+            && self.reason_ordinal.is_none()
+            && self.hint_category.is_none()
+            && self.hint_text.is_none()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -546,6 +569,31 @@ pub struct RuntimeLoadingPanelModel {
     pub last_world_reload: Option<RuntimeWorldReloadPanelModel>,
 }
 
+impl RuntimeLoadingPanelModel {
+    pub fn is_empty(&self) -> bool {
+        self.deferred_inbound_packet_count == 0
+            && self.replayed_inbound_packet_count == 0
+            && self.dropped_loading_low_priority_packet_count == 0
+            && self.dropped_loading_deferred_overflow_count == 0
+            && self.failed_state_snapshot_parse_count == 0
+            && self.failed_state_snapshot_core_data_parse_count == 0
+            && self.failed_entity_snapshot_parse_count == 0
+            && self.ready_inbound_liveness_anchor_count == 0
+            && self.last_ready_inbound_liveness_anchor_at_ms.is_none()
+            && self.timeout_count == 0
+            && self.connect_or_loading_timeout_count == 0
+            && self.ready_snapshot_timeout_count == 0
+            && self.last_timeout_kind.is_none()
+            && self.last_timeout_idle_ms.is_none()
+            && self.reset_count == 0
+            && self.reconnect_reset_count == 0
+            && self.world_reload_count == 0
+            && self.kick_reset_count == 0
+            && self.last_reset_kind.is_none()
+            && self.last_world_reload.is_none()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeWorldReloadPanelModel {
     pub had_loaded_world: bool,
@@ -568,6 +616,20 @@ pub struct RuntimeReconnectPanelModel {
     pub redirect_count: u64,
     pub last_redirect_ip: Option<String>,
     pub last_redirect_port: Option<i32>,
+}
+
+impl RuntimeReconnectPanelModel {
+    pub fn is_empty(&self) -> bool {
+        self.phase == RuntimeReconnectPhaseObservability::Idle
+            && self.phase_transition_count == 0
+            && self.reason_kind.is_none()
+            && self.reason_text.is_none()
+            && self.reason_ordinal.is_none()
+            && self.hint_text.is_none()
+            && self.redirect_count == 0
+            && self.last_redirect_ip.is_none()
+            && self.last_redirect_port.is_none()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -819,7 +881,7 @@ pub fn build_build_interaction_panel(hud: &HudModel) -> Option<BuildInteractionP
             .rollback_strip
             .last_configured_block_name
             .clone(),
-        })
+    })
 }
 
 pub fn build_build_minimap_assist_panel(
@@ -2653,6 +2715,103 @@ mod tests {
             Some(RuntimeReconnectReasonKind::ConnectRedirect)
         );
         assert_eq!(reconnect.last_redirect_port, Some(6567));
+    }
+
+    #[test]
+    fn runtime_session_panel_reports_empty_state_only_for_default_observability() {
+        let empty_hud = HudModel {
+            runtime_ui: Some(RuntimeUiObservability {
+                hud_text: RuntimeHudTextObservability::default(),
+                toast: RuntimeToastObservability::default(),
+                text_input: RuntimeTextInputObservability::default(),
+                chat: crate::RuntimeChatObservability::default(),
+                admin: RuntimeAdminObservability::default(),
+                menu: RuntimeMenuObservability::default(),
+                command_mode: RuntimeCommandModeObservability::default(),
+                rules: RuntimeRulesObservability::default(),
+                world_labels: RuntimeWorldLabelObservability::default(),
+                session: RuntimeSessionObservability::default(),
+                live: RuntimeLiveSummaryObservability::default(),
+            }),
+            ..HudModel::default()
+        };
+        let empty_panel =
+            build_runtime_session_panel(&empty_hud).expect("expected runtime session panel");
+        assert!(empty_panel.is_empty());
+        assert!(empty_panel.kick.is_empty());
+        assert!(empty_panel.loading.is_empty());
+        assert!(empty_panel.reconnect.is_empty());
+
+        let active_hud = HudModel {
+            runtime_ui: Some(RuntimeUiObservability {
+                hud_text: RuntimeHudTextObservability::default(),
+                toast: RuntimeToastObservability::default(),
+                text_input: RuntimeTextInputObservability::default(),
+                chat: crate::RuntimeChatObservability::default(),
+                admin: RuntimeAdminObservability::default(),
+                menu: RuntimeMenuObservability::default(),
+                command_mode: RuntimeCommandModeObservability::default(),
+                rules: RuntimeRulesObservability::default(),
+                world_labels: RuntimeWorldLabelObservability::default(),
+                session: RuntimeSessionObservability {
+                    kick: crate::hud_model::RuntimeKickObservability {
+                        reason_text: Some("idInUse".to_string()),
+                        reason_ordinal: Some(7),
+                        hint_category: Some("IdInUse".to_string()),
+                        hint_text: Some("wait for old session".to_string()),
+                    },
+                    loading: crate::hud_model::RuntimeLoadingObservability {
+                        deferred_inbound_packet_count: 5,
+                        replayed_inbound_packet_count: 6,
+                        dropped_loading_low_priority_packet_count: 7,
+                        dropped_loading_deferred_overflow_count: 8,
+                        failed_state_snapshot_parse_count: 9,
+                        failed_state_snapshot_core_data_parse_count: 10,
+                        failed_entity_snapshot_parse_count: 11,
+                        ready_inbound_liveness_anchor_count: 12,
+                        last_ready_inbound_liveness_anchor_at_ms: Some(1300),
+                        timeout_count: 2,
+                        connect_or_loading_timeout_count: 1,
+                        ready_snapshot_timeout_count: 1,
+                        last_timeout_kind: Some(RuntimeSessionTimeoutKind::ReadySnapshotStall),
+                        last_timeout_idle_ms: Some(20000),
+                        reset_count: 3,
+                        reconnect_reset_count: 1,
+                        world_reload_count: 1,
+                        kick_reset_count: 1,
+                        last_reset_kind: Some(RuntimeSessionResetKind::WorldReload),
+                        last_world_reload: Some(RuntimeWorldReloadObservability {
+                            had_loaded_world: true,
+                            had_client_loaded: false,
+                            was_ready_to_enter_world: true,
+                            had_connect_confirm_sent: false,
+                            cleared_pending_packets: 4,
+                            cleared_deferred_inbound_packets: 5,
+                            cleared_replayed_loading_events: 6,
+                        }),
+                    },
+                    reconnect: RuntimeReconnectObservability {
+                        phase: RuntimeReconnectPhaseObservability::Attempting,
+                        phase_transition_count: 3,
+                        reason_kind: Some(RuntimeReconnectReasonKind::ConnectRedirect),
+                        reason_text: Some("connectRedirect".to_string()),
+                        reason_ordinal: None,
+                        hint_text: Some("server requested redirect".to_string()),
+                        redirect_count: 1,
+                        last_redirect_ip: Some("127.0.0.1".to_string()),
+                        last_redirect_port: Some(6567),
+                    },
+                },
+                live: RuntimeLiveSummaryObservability::default(),
+            }),
+            ..HudModel::default()
+        };
+        let active_panel =
+            build_runtime_session_panel(&active_hud).expect("expected runtime session panel");
+        assert!(!active_panel.is_empty());
+        assert!(!active_panel.kick.is_empty());
+        assert!(!active_panel.loading.is_empty());
+        assert!(!active_panel.reconnect.is_empty());
     }
 
     #[test]

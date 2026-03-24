@@ -2398,7 +2398,7 @@ fn typed_runtime_building_model(
                     .copied()?,
             ),
         ),
-        "bridge-conveyor" | "phase-conveyor" => (
+        "bridge-conveyor" | "phase-conveyor" | "bridge-conduit" | "phase-conduit" => (
             TypedBuildingRuntimeKind::ItemBridge,
             TypedBuildingRuntimeValue::Link(
                 configured
@@ -4218,7 +4218,10 @@ impl SessionState {
     }
 
     pub fn typed_runtime_building_at(&self, build_pos: i32) -> Option<TypedBuildingRuntimeModel> {
-        let building = self.building_table_projection.by_build_pos.get(&build_pos)?;
+        let building = self
+            .building_table_projection
+            .by_build_pos
+            .get(&build_pos)?;
         typed_runtime_building_model(build_pos, building, &self.configured_block_projection)
     }
 
@@ -4227,7 +4230,11 @@ impl SessionState {
             .by_build_pos
             .iter()
             .filter_map(|(build_pos, building)| {
-                typed_runtime_building_model(*build_pos, building, &self.configured_block_projection)
+                typed_runtime_building_model(
+                    *build_pos,
+                    building,
+                    &self.configured_block_projection,
+                )
             })
             .collect()
     }
@@ -4344,11 +4351,7 @@ impl SessionState {
             .by_build_pos
             .get(&build_pos)
             .and_then(|building| {
-                typed_runtime_building_model(
-                    build_pos,
-                    building,
-                    &self.configured_block_projection,
-                )
+                typed_runtime_building_model(build_pos, building, &self.configured_block_projection)
             });
         match model {
             Some(model) => self
@@ -5159,9 +5162,14 @@ mod tests {
             build_turret_plan_count: Some(7),
             last_update: BuildingProjectionUpdateKind::BlockSnapshotHead,
         };
-        assert_eq!(state.typed_runtime_building_at(build_pos), Some(expected.clone()));
         assert_eq!(
-            state.runtime_typed_building_projection().building_at(build_pos),
+            state.typed_runtime_building_at(build_pos),
+            Some(expected.clone())
+        );
+        assert_eq!(
+            state
+                .runtime_typed_building_projection()
+                .building_at(build_pos),
             Some(&expected)
         );
 
@@ -5183,6 +5191,66 @@ mod tests {
                 .runtime_typed_building_apply_projection
                 .building_at(build_pos),
             None
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_liquid_bridge_family() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0006_0008i32;
+        let target_pos = 0x0006_000ci32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            301,
+            Some("phase-conduit".to_string()),
+            Some(1),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(0x3f80_0000),
+            Some(0x3f00_0000),
+            Some(124),
+            Some(false),
+            Some(TypeIoObject::Null),
+            Some(0x4040_0000),
+            Some(true),
+            Some(0x30),
+            Some(0x10),
+            Some(88),
+            None,
+            None,
+            None,
+        );
+        state
+            .configured_block_projection
+            .apply_item_bridge_link(build_pos, Some(target_pos));
+
+        assert_eq!(
+            state.typed_runtime_building_at(build_pos),
+            Some(TypedBuildingRuntimeModel {
+                build_pos,
+                block_id: Some(301),
+                block_name: "phase-conduit".to_string(),
+                kind: TypedBuildingRuntimeKind::ItemBridge,
+                value: TypedBuildingRuntimeValue::Link(Some(target_pos)),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                module_bitmask: Some(4),
+                time_scale_bits: Some(0x3f80_0000),
+                time_scale_duration_bits: Some(0x3f00_0000),
+                last_disabler_pos: Some(124),
+                legacy_consume_connected: Some(false),
+                health_bits: Some(0x4040_0000),
+                enabled: Some(true),
+                efficiency: Some(0x30),
+                optional_efficiency: Some(0x10),
+                visible_flags: Some(88),
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                last_update: BuildingProjectionUpdateKind::BlockSnapshotHead,
+            })
         );
     }
 

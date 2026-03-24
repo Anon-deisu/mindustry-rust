@@ -41,6 +41,9 @@ These are already landed and should not be re-opened as if missing:
   - `mdt-remote` now exposes `payload_kind()` for inbound custom-channel families
   - `mdt-client-min` now has typed inbound dispatch specs and `typed_remote_dispatch.rs` helper coverage
   - remaining work is live session/business adoption, not re-adding the typed metadata layer
+- typed custom-channel remote dispatch fixed-table glue is now also landed.
+  - `mdt-remote::typed_custom_channel_remote_dispatch_specs(...)` now exposes a typed custom-channel dispatch table, and `mdt-client-min` consumes it through `custom_channel_registry_glue.rs` plus a fixed-table `CustomChannelPacketRegistry` instead of rebuilding that surface only from repeated manifest scans
+  - remaining `M6-1` work is broader typed registry/session adoption beyond this custom-channel fixed-table slice, not re-adding this lookup layer
 - `mdt-remote` typed generation is no longer limited to the high-frequency subset.
   - generated typed registry/dispatch coverage now also includes custom-channel and inbound dispatch families
   - remaining M6 work is deeper live session/business adoption, not re-adding the first broader typed generation layer
@@ -61,6 +64,9 @@ These are already landed and should not be re-opened as if missing:
 - `mdt-world` consumer-runtime stage helper is now also landed.
   - `consumer_runtime_helper()` now classifies each post-load consumer stage as `ApplyNow` / `AwaitingWorldShell` / `Blocked` / `Deferred`, preserves blocker reasons per stage, and exposes apply/await/block/defer step counts for later runtime owners
   - remaining `M7-3` work is still real runtime/world ownership and stage execution, not re-adding this passive runtime-readiness helper
+- `mdt-world` runtime-apply batch view helper is now also landed.
+  - `runtime_apply_batch_view()` now folds non-empty consumer runtime stages into deterministic contiguous apply batches, preserving batch order, per-batch disposition, stage detail, aggregated `step_count`, and deduplicated blockers for later runtime owners
+  - remaining `M7-3` work is still executing those batches inside real runtime/world ownership, not re-adding this passive batch-view helper
 - `mdt-typeio` raw `WeaponMount[]` codec is already landed.
   - remaining non-object codec gap is now more about `abilities/status` and wider unit-sync families than mounts specifically
 - `mdt-render-ui` runtime dialog summary is already landed.
@@ -102,6 +108,9 @@ These are already landed and should not be re-opened as if missing:
 - builder queue local activity/reconcile state-machine semantics are now richer.
   - `update_local_activity()` now reports explicit head-selection outcomes (`HeadInRange`, reorder/fallback/skip/out-of-range/missing cases), and `validate_against_tile_states()` now reports whether reconcile left the queue unchanged, removed a non-head entry, advanced the head, or cleared the queue
   - remaining work is still broader runtime integration and Java-equivalent `BuilderComp` depth, not re-adding this pure state-machine selection/reconcile slice
+- builder queue now also preserves bounded known progress on same-mode local replacement/progression paths.
+  - `BuilderQueueEntry` now carries `progress_permyriad`, `observe_progress(...)` records exact tile+breaking progress with clamp-to-`10_000`, and same-tile replacement / begin / sync paths preserve progress only when the breaking mode still matches
+  - remaining work is still broader runtime integration and Java-equivalent `BuilderComp` depth, not re-adding this pure queue-progress state slice
 - building-table block identity carry-through is already landed.
   - `BuildingProjection` / `BuildingTableProjection` now include `block_name` and `last_block_name`
   - world baseline, entity building rows, loaded-world extra entry, `constructFinish`, and `deconstructFinish` already wire `block_name` into the building table
@@ -125,11 +134,17 @@ These are already landed and should not be re-opened as if missing:
 - `mdt-render-ui` build/minimap assist presenter slice is now landed.
   - panel/window presenters now expose `BuildMinimapAssistPanelModel` and `BUILD-MINIMAP-AUX` rows that combine build head/reconcile/config/auth/runtime hints into a single deterministic presenter-local summary
   - remaining `M9` work is still broader interactive UI and renderer/runtime parity, not re-adding this presenter-local assist summary slice
+- `mdt-render-ui` runtime-session presenter summary is now landed.
+  - panel/window/ascii presenters now expose deterministic `RUNTIME-SESSION` rows that aggregate existing kick/loading/reconnect observability without changing the existing `RUNTIME-KICK` / `RUNTIME-LOADING` / `RUNTIME-RECONNECT` detail rows
+  - remaining `M9` work is still broader interactive UI and renderer/runtime parity, not re-adding this presenter-local session summary slice
 - typed building runtime apply state is now landed as a separate persistent layer.
   - `SessionState` now keeps `runtime_typed_building_apply_projection` with fallback to the computed typed join when tests/setup mutate only raw tables
   - typed building models now carry already parsed base/head/turret fields (`rotation/team/io_version/module/time-scale/health/enabled/efficiency/visible_flags/build-turret summary`) in addition to the configured domain value
   - `client_session` now refreshes that layer from loaded-world tail/business folds, authoritative `constructFinish` / `tileConfig` / `buildHealthUpdate`, `deconstructFinish` / `removeTile`, and `worldDataBegin` clear, and `render_runtime` build inspector now consumes that runtime-owned projection instead of rebuilding only from the raw table join at the callsite
   - remaining `U3` work is still broader family depth and true Java-like `tile.build.readSync(..., version)` runtime ownership, not re-adding this first persistent typed building apply layer
+- low-risk `tileConfig` link-family coverage now also includes `bridge-conduit` / `phase-conduit`.
+  - authoritative `constructFinish` + `tileConfig` now drive the existing item-bridge link projection and typed runtime building view for these `LiquidBridge` families instead of limiting that low-risk link slice to `bridge-conveyor` / `phase-conveyor`
+  - remaining `U4` / `U3` work is still broader configured business and live building semantics, not re-adding these two low-risk link families
 - narrow `effect_id=142` `drop_item` executor wiring is now landed.
   - `effect_contract(Some(142))` now resolves to `drop_item`, and the runtime effect executor projects the overlay origin forward along rotation with fixed-length `dropItem` behavior instead of leaving it as a generic item-content packet summary
   - remaining `U5` work is still landing additional narrow `effect_id -> contract/executor` families, not re-adding this first `drop_item` slice

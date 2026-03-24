@@ -109,6 +109,8 @@ const BLOCK_NAME_SORTER: &str = "sorter";
 const BLOCK_NAME_INVERTED_SORTER: &str = "inverted-sorter";
 const BLOCK_NAME_BRIDGE_CONVEYOR: &str = "bridge-conveyor";
 const BLOCK_NAME_PHASE_CONVEYOR: &str = "phase-conveyor";
+const BLOCK_NAME_BRIDGE_CONDUIT: &str = "bridge-conduit";
+const BLOCK_NAME_PHASE_CONDUIT: &str = "phase-conduit";
 const BLOCK_NAME_SWITCH: &str = "switch";
 const BLOCK_NAME_WORLD_SWITCH: &str = "world-switch";
 const BLOCK_NAME_DOOR: &str = "door";
@@ -1968,7 +1970,10 @@ impl ClientSession {
                     ConfiguredBlockOutcome::RejectedUnsupportedConfigType
                 }
             }
-            BLOCK_NAME_BRIDGE_CONVEYOR | BLOCK_NAME_PHASE_CONVEYOR => {
+            BLOCK_NAME_BRIDGE_CONVEYOR
+            | BLOCK_NAME_PHASE_CONVEYOR
+            | BLOCK_NAME_BRIDGE_CONDUIT
+            | BLOCK_NAME_PHASE_CONDUIT => {
                 if let Some(link) = configured_link_build_pos(build_pos, config_object) {
                     self.state
                         .configured_block_projection
@@ -15738,7 +15743,10 @@ mod tests {
         let runtime_projection = session.state().runtime_typed_entity_projection();
         assert_eq!(runtime_projection.player_count, 2);
         assert_eq!(runtime_projection.unit_count, 0);
-        assert_eq!(runtime_projection.local_player_entity_id, Some(local_player_id));
+        assert_eq!(
+            runtime_projection.local_player_entity_id,
+            Some(local_player_id)
+        );
         assert!(matches!(
             runtime_projection.entity_at(99),
             Some(crate::session_state::TypedRuntimeEntityModel::Player(player))
@@ -26113,6 +26121,18 @@ mod tests {
                 pack_point2(30, 59),
                 pack_point2(42, 62),
             ),
+            (
+                pack_point2(33, 55),
+                BLOCK_NAME_BRIDGE_CONDUIT,
+                pack_point2(33, 58),
+                pack_point2(43, 63),
+            ),
+            (
+                pack_point2(34, 56),
+                BLOCK_NAME_PHASE_CONDUIT,
+                pack_point2(34, 61),
+                pack_point2(44, 64),
+            ),
         ] {
             let block_id = loaded_world_block_id_for_name(&session, block_name);
             ingest_construct_finish_for_block_config_test(
@@ -27821,8 +27841,8 @@ mod tests {
             session
                 .state()
                 .configured_block_projection
-            .unit_cargo_unload_point_item_by_build_pos
-            .get(&build_pos),
+                .unit_cargo_unload_point_item_by_build_pos
+                .get(&build_pos),
             Some(&None)
         );
     }
@@ -27850,11 +27870,9 @@ mod tests {
                 block_id: Some(block_id),
                 block_name: BLOCK_NAME_MESSAGE.to_string(),
                 kind: crate::session_state::TypedBuildingRuntimeKind::Message,
-                value: crate::session_state::TypedBuildingRuntimeValue::Text(
-                    "hello".to_string()
-                ),
-                rotation: Some(1),
-                team_id: Some(2),
+                value: crate::session_state::TypedBuildingRuntimeValue::Text("hello".to_string()),
+                rotation: Some(0),
+                team_id: Some(1),
                 io_version: None,
                 module_bitmask: None,
                 time_scale_bits: None,
@@ -27886,9 +27904,7 @@ mod tests {
                 .building_at(build_pos)
                 .map(|building| (building.value.clone(), building.last_update)),
             Some((
-                crate::session_state::TypedBuildingRuntimeValue::Text(
-                    "updated".to_string()
-                ),
+                crate::session_state::TypedBuildingRuntimeValue::Text("updated".to_string()),
                 crate::session_state::BuildingProjectionUpdateKind::TileConfig,
             ))
         );

@@ -22,6 +22,7 @@ pub struct BuilderQueueEntry {
     pub breaking: bool,
     pub block_id: Option<i16>,
     pub rotation: Option<u8>,
+    pub progress_permyriad: Option<u16>,
     pub stage: BuilderQueueStage,
 }
 
@@ -124,6 +125,7 @@ impl BuilderQueueStateMachine {
                 breaking: entry.breaking,
                 block_id: Self::resolve_block_id(entry.block_id, previous.as_ref(), entry.breaking),
                 rotation: Some(entry.rotation),
+                progress_permyriad: Self::resolve_progress(previous.as_ref(), entry.breaking),
                 stage: BuilderQueueStage::Queued,
             },
         );
@@ -163,6 +165,7 @@ impl BuilderQueueStateMachine {
                     breaking: entry.breaking,
                     block_id: Self::resolve_block_id(entry.block_id, previous, entry.breaking),
                     rotation: Some(entry.rotation),
+                    progress_permyriad: Self::resolve_progress(previous, entry.breaking),
                     stage,
                 },
             );
@@ -205,6 +208,7 @@ impl BuilderQueueStateMachine {
                 breaking,
                 block_id: Self::resolve_block_id(block_id, previous, breaking),
                 rotation: Some(rotation),
+                progress_permyriad: Self::resolve_progress(previous, breaking),
                 stage: BuilderQueueStage::InFlight,
             },
         );
@@ -280,6 +284,24 @@ impl BuilderQueueStateMachine {
     pub fn head_entry(&self) -> Option<&BuilderQueueEntry> {
         self.head_tile
             .and_then(|tile| self.active_by_tile.get(&tile))
+    }
+
+    pub fn observe_progress(
+        &mut self,
+        x: i32,
+        y: i32,
+        breaking: bool,
+        progress_permyriad: u16,
+    ) -> bool {
+        let key = (x, y);
+        let Some(entry) = self.active_by_tile.get_mut(&key) else {
+            return false;
+        };
+        if entry.breaking != breaking {
+            return false;
+        }
+        entry.progress_permyriad = Some(progress_permyriad.min(10_000));
+        true
     }
 
     pub fn update_local_activity<I>(&mut self, observations: I) -> BuilderQueueActivityState
@@ -479,6 +501,10 @@ impl BuilderQueueStateMachine {
             .or_else(|| Self::matching_entry(previous, breaking).and_then(|entry| entry.block_id))
     }
 
+    fn resolve_progress(previous: Option<&BuilderQueueEntry>, breaking: bool) -> Option<u16> {
+        Self::matching_entry(previous, breaking).and_then(|entry| entry.progress_permyriad)
+    }
+
     fn activity_observation<'a>(
         observations_by_key: &'a BTreeMap<(i32, i32, bool), BuilderQueueActivityObservation>,
         entry: &BuilderQueueEntry,
@@ -568,6 +594,7 @@ mod tests {
                         breaking: false,
                         block_id: Some(9),
                         rotation: Some(2),
+                        progress_permyriad: None,
                         stage: BuilderQueueStage::Queued,
                     },
                 ),
@@ -579,6 +606,7 @@ mod tests {
                         breaking: true,
                         block_id: None,
                         rotation: Some(0),
+                        progress_permyriad: None,
                         stage: BuilderQueueStage::Queued,
                     },
                 ),
@@ -594,6 +622,7 @@ mod tests {
     fn sync_local_entries_does_not_leak_inflight_stage_or_block_id_across_break_mode_switch() {
         let mut queue = BuilderQueueStateMachine::default();
         queue.mark_begin(6, 6, false, Some(42), 1);
+        assert!(queue.observe_progress(6, 6, false, 3_300));
 
         queue.sync_local_entries([BuilderQueueEntryObservation {
             x: 6,
@@ -611,6 +640,7 @@ mod tests {
                 breaking: true,
                 block_id: None,
                 rotation: Some(0),
+                progress_permyriad: None,
                 stage: BuilderQueueStage::Queued,
             })
         );
@@ -622,6 +652,7 @@ mod tests {
     fn sync_local_entries_preserves_inflight_stage_and_block_id_for_same_break_mode() {
         let mut queue = BuilderQueueStateMachine::default();
         queue.mark_begin(7, 7, false, Some(70), 2);
+        assert!(queue.observe_progress(7, 7, false, 6_700));
 
         queue.sync_local_entries([BuilderQueueEntryObservation {
             x: 7,
@@ -639,6 +670,7 @@ mod tests {
                 breaking: false,
                 block_id: Some(70),
                 rotation: Some(3),
+                progress_permyriad: Some(6_700),
                 stage: BuilderQueueStage::InFlight,
             })
         );
@@ -656,6 +688,7 @@ mod tests {
             block_id: Some(90),
             rotation: 1,
         }]);
+        assert!(queue.observe_progress(9, 9, false, 4_200));
 
         queue.mark_begin(9, 9, true, None, 3);
 
@@ -667,12 +700,43 @@ mod tests {
                 breaking: true,
                 block_id: None,
                 rotation: Some(3),
+                progress_permyriad: None,
                 stage: BuilderQueueStage::InFlight,
             })
         );
         assert_eq!(queue.queued_count, 0);
         assert_eq!(queue.inflight_count, 1);
         assert_eq!(queue.last_transition, Some(BuilderQueueTransition::Started));
+    }
+
+    #[test]
+    fn mark_begin_preserves_known_progress_for_same_break_mode() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([BuilderQueueEntryObservation {
+            x: 14,
+            y: 14,
+            breaking: false,
+            block_id: Some(140),
+            rotation: 1,
+        }]);
+        assert!(queue.observe_progress(14, 14, false, 5_400));
+
+        queue.mark_begin(14, 14, false, Some(141), 3);
+
+        assert_eq!(
+            queue.head_entry(),
+            Some(&BuilderQueueEntry {
+                x: 14,
+                y: 14,
+                breaking: false,
+                block_id: Some(141),
+                rotation: Some(3),
+                progress_permyriad: Some(5_400),
+                stage: BuilderQueueStage::InFlight,
+            })
+        );
+        assert_eq!(queue.queued_count, 0);
+        assert_eq!(queue.inflight_count, 1);
     }
 
     #[test]
@@ -974,6 +1038,7 @@ mod tests {
                 breaking: true,
                 block_id: None,
                 rotation: Some(0),
+                progress_permyriad: None,
                 stage: BuilderQueueStage::Queued,
             })
         );
@@ -1048,6 +1113,7 @@ mod tests {
                 breaking: false,
                 block_id: Some(10),
                 rotation: Some(0),
+                progress_permyriad: None,
                 stage: BuilderQueueStage::Queued,
             })
         );
@@ -1106,6 +1172,7 @@ mod tests {
                 breaking: false,
                 block_id: Some(55),
                 rotation: Some(3),
+                progress_permyriad: None,
                 stage: BuilderQueueStage::InFlight,
             })
         );
@@ -1122,6 +1189,85 @@ mod tests {
         assert_eq!(queue.queued_count, 2);
         assert_eq!(queue.inflight_count, 0);
         assert_eq!(queue.last_transition, Some(BuilderQueueTransition::Started));
+    }
+
+    #[test]
+    fn enqueue_local_preserves_known_progress_across_same_tile_replacement() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.enqueue_local(
+            BuilderQueueEntryObservation {
+                x: 15,
+                y: 15,
+                breaking: false,
+                block_id: Some(150),
+                rotation: 0,
+            },
+            true,
+        );
+        assert!(queue.observe_progress(15, 15, false, 4_500));
+
+        let replaced = queue.enqueue_local(
+            BuilderQueueEntryObservation {
+                x: 15,
+                y: 15,
+                breaking: false,
+                block_id: Some(151),
+                rotation: 2,
+            },
+            false,
+        );
+
+        assert_eq!(
+            replaced,
+            Some(BuilderQueueEntry {
+                x: 15,
+                y: 15,
+                breaking: false,
+                block_id: Some(150),
+                rotation: Some(0),
+                progress_permyriad: Some(4_500),
+                stage: BuilderQueueStage::Queued,
+            })
+        );
+        assert_eq!(
+            queue.head_entry(),
+            Some(&BuilderQueueEntry {
+                x: 15,
+                y: 15,
+                breaking: false,
+                block_id: Some(151),
+                rotation: Some(2),
+                progress_permyriad: Some(4_500),
+                stage: BuilderQueueStage::Queued,
+            })
+        );
+        assert_eq!(queue.ordered_tiles, vec![(15, 15)]);
+        assert_eq!(queue.queued_count, 1);
+        assert_eq!(queue.inflight_count, 0);
+    }
+
+    #[test]
+    fn observe_progress_requires_exact_breaking_match_and_clamps_value() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([BuilderQueueEntryObservation {
+            x: 16,
+            y: 16,
+            breaking: false,
+            block_id: Some(160),
+            rotation: 1,
+        }]);
+
+        assert!(!queue.observe_progress(16, 16, true, 500));
+        assert!(queue.observe_progress(16, 16, false, 12_345));
+        assert_eq!(
+            queue
+                .head_entry()
+                .and_then(|entry| entry.progress_permyriad),
+            Some(10_000)
+        );
+        assert_eq!(queue.ordered_tiles, vec![(16, 16)]);
+        assert_eq!(queue.queued_count, 1);
+        assert_eq!(queue.inflight_count, 0);
     }
 
     #[test]
@@ -1188,6 +1334,7 @@ mod tests {
                 breaking: true,
                 block_id: None,
                 rotation: Some(0),
+                progress_permyriad: None,
                 stage: BuilderQueueStage::Queued,
             })
         );
@@ -1698,14 +1845,13 @@ mod tests {
             },
         ]);
 
-        let validation =
-            queue.validate_against_tile_states([BuilderQueueTileStateObservation {
-                x: 12,
-                y: 12,
-                block_id: None,
-                rotation: None,
-                requires_rotation_match: false,
-            }]);
+        let validation = queue.validate_against_tile_states([BuilderQueueTileStateObservation {
+            x: 12,
+            y: 12,
+            block_id: None,
+            rotation: None,
+            requires_rotation_match: false,
+        }]);
 
         assert_eq!(
             validation,
@@ -1733,14 +1879,13 @@ mod tests {
             rotation: 2,
         }]);
 
-        let validation =
-            queue.validate_against_tile_states([BuilderQueueTileStateObservation {
-                x: 13,
-                y: 13,
-                block_id: Some(130),
-                rotation: Some(2),
-                requires_rotation_match: true,
-            }]);
+        let validation = queue.validate_against_tile_states([BuilderQueueTileStateObservation {
+            x: 13,
+            y: 13,
+            block_id: Some(130),
+            rotation: Some(2),
+            requires_rotation_match: true,
+        }]);
 
         assert_eq!(
             validation,

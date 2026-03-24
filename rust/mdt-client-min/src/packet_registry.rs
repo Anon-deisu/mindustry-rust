@@ -1,3 +1,5 @@
+#[path = "custom_channel_registry_glue.rs"]
+mod custom_channel_registry_glue;
 #[path = "inbound_remote_registry_glue.rs"]
 mod inbound_remote_registry_glue;
 #[path = "snapshot_registry_glue.rs"]
@@ -9,9 +11,9 @@ use crate::generated::remote_high_frequency_gen::{
 };
 use crate::snapshot_ingest::InboundSnapshot;
 use mdt_remote::{
-    CustomChannelRemoteFamily, CustomChannelRemoteRegistry, HighFrequencyRemoteMethod,
+    CustomChannelRemoteDispatchSpec, CustomChannelRemoteFamily, HighFrequencyRemoteMethod,
     InboundRemoteDispatchSpec, InboundRemoteFamily, RemoteManifest, RemoteManifestError,
-    INBOUND_REMOTE_FAMILY_COUNT,
+    CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT, INBOUND_REMOTE_FAMILY_COUNT,
 };
 
 const INBOUND_SNAPSHOT_PACKET_SPECS: [(u8, HighFrequencyRemoteMethod); 4] = [
@@ -45,7 +47,7 @@ pub struct InboundRemotePacketRegistry {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CustomChannelPacketRegistry {
-    registry: CustomChannelRemoteRegistry,
+    by_packet_id: [(u8, CustomChannelRemoteDispatchSpec); CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT],
 }
 
 impl Default for InboundSnapshotPacketRegistry {
@@ -86,24 +88,36 @@ impl InboundSnapshotPacketRegistry {
 impl CustomChannelPacketRegistry {
     pub fn from_remote_manifest(manifest: &RemoteManifest) -> Result<Self, RemoteManifestError> {
         Ok(Self {
-            registry: CustomChannelRemoteRegistry::from_manifest(manifest)?,
+            by_packet_id: custom_channel_registry_glue::typed_custom_channel_remote_packet_specs(
+                manifest,
+            )?,
         })
     }
 
     pub fn classify(&self, packet_id: u8) -> Option<CustomChannelRemoteFamily> {
-        self.registry.classify(packet_id)
+        self.dispatch_spec(packet_id).map(|spec| spec.family)
+    }
+
+    pub fn dispatch_spec(&self, packet_id: u8) -> Option<CustomChannelRemoteDispatchSpec> {
+        self.by_packet_id
+            .iter()
+            .find_map(|(known_packet_id, spec)| (*known_packet_id == packet_id).then_some(*spec))
     }
 
     pub fn packet_id(&self, family: CustomChannelRemoteFamily) -> Option<u8> {
-        self.registry.packet_id(family)
+        self.by_packet_id
+            .iter()
+            .find_map(|(packet_id, spec)| (spec.family == family).then_some(*packet_id))
     }
 
     pub fn contains_packet_id(&self, packet_id: u8) -> bool {
-        self.registry.contains_packet_id(packet_id)
+        self.by_packet_id
+            .iter()
+            .any(|(known_packet_id, _)| *known_packet_id == packet_id)
     }
 
     pub fn len(&self) -> usize {
-        self.registry.len()
+        self.by_packet_id.len()
     }
 }
 
@@ -150,7 +164,8 @@ mod tests {
         InboundRemotePacketRegistry,
     };
     use mdt_remote::{
-        read_remote_manifest, BasePacketEntry, CompressionFlagSpec, CustomChannelRemoteFamily,
+        read_remote_manifest, typed_custom_channel_remote_dispatch_specs, BasePacketEntry,
+        CompressionFlagSpec, CustomChannelRemoteDispatchSpec, CustomChannelRemoteFamily,
         CustomChannelRemotePayloadKind, HighFrequencyRemoteMethod, HighFrequencyRemoteRegistry,
         RemoteGeneratorInfo, RemoteManifest, RemotePacketEntry, RemoteParamEntry, WireSpec,
     };
@@ -236,6 +251,38 @@ mod tests {
         assert_eq!(
             registry.classify(10),
             Some(CustomChannelRemoteFamily::ServerPacketReliable)
+        );
+        assert_eq!(
+            registry.dispatch_spec(14),
+            Some(CustomChannelRemoteDispatchSpec {
+                family: CustomChannelRemoteFamily::ClientLogicDataReliable,
+                payload_kind: CustomChannelRemotePayloadKind::LogicData,
+            })
+        );
+    }
+
+    #[test]
+    fn custom_channel_remote_family_registry_matches_remote_typed_dispatch_specs() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let registry = CustomChannelPacketRegistry::from_remote_manifest(&manifest).unwrap();
+        let remote_registry =
+            mdt_remote::CustomChannelRemoteRegistry::from_manifest(&manifest).unwrap();
+        let remote_specs = typed_custom_channel_remote_dispatch_specs(&manifest).unwrap();
+
+        let packet_id = remote_registry
+            .packet_id(CustomChannelRemoteFamily::ServerBinaryPacketReliable)
+            .unwrap();
+        assert_eq!(
+            registry.packet_id(CustomChannelRemoteFamily::ServerBinaryPacketReliable),
+            Some(packet_id)
+        );
+        assert_eq!(
+            registry.dispatch_spec(packet_id),
+            remote_registry.dispatch_spec(packet_id)
+        );
+        assert_eq!(
+            registry.dispatch_spec(remote_specs[8].0),
+            Some(remote_specs[8].1)
         );
     }
 
