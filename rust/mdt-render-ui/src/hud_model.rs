@@ -33,6 +33,7 @@ pub struct RuntimeUiObservability {
     pub hud_text: RuntimeHudTextObservability,
     pub toast: RuntimeToastObservability,
     pub text_input: RuntimeTextInputObservability,
+    pub admin: RuntimeAdminObservability,
     pub menu: RuntimeMenuObservability,
     pub rules: RuntimeRulesObservability,
     pub world_labels: RuntimeWorldLabelObservability,
@@ -73,6 +74,18 @@ pub struct RuntimeMenuObservability {
     pub menu_open_count: u64,
     pub follow_up_menu_open_count: u64,
     pub hide_follow_up_menu_count: u64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RuntimeAdminObservability {
+    pub trace_info_count: u64,
+    pub trace_info_parse_fail_count: u64,
+    pub last_trace_info_player_id: Option<i32>,
+    pub debug_status_client_count: u64,
+    pub debug_status_client_parse_fail_count: u64,
+    pub debug_status_client_unreliable_count: u64,
+    pub debug_status_client_unreliable_parse_fail_count: u64,
+    pub last_debug_status_value: Option<i32>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

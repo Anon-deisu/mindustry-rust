@@ -105,6 +105,19 @@ pub struct RuntimeMenuPanelModel {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeAdminPanelModel {
+    pub trace_info_count: u64,
+    pub trace_info_parse_fail_count: u64,
+    pub last_trace_info_player_id: Option<i32>,
+    pub debug_status_client_count: u64,
+    pub debug_status_client_parse_fail_count: u64,
+    pub debug_status_client_unreliable_count: u64,
+    pub debug_status_client_unreliable_parse_fail_count: u64,
+    pub last_debug_status_value: Option<i32>,
+    pub parse_fail_count: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeRulesPanelModel {
     pub mutation_count: u64,
     pub parse_fail_count: u64,
@@ -293,6 +306,25 @@ pub fn build_runtime_menu_panel(hud: &HudModel) -> Option<RuntimeMenuPanelModel>
     })
 }
 
+pub fn build_runtime_admin_panel(hud: &HudModel) -> Option<RuntimeAdminPanelModel> {
+    let admin = &hud.runtime_ui.as_ref()?.admin;
+    Some(RuntimeAdminPanelModel {
+        trace_info_count: admin.trace_info_count,
+        trace_info_parse_fail_count: admin.trace_info_parse_fail_count,
+        last_trace_info_player_id: admin.last_trace_info_player_id,
+        debug_status_client_count: admin.debug_status_client_count,
+        debug_status_client_parse_fail_count: admin.debug_status_client_parse_fail_count,
+        debug_status_client_unreliable_count: admin.debug_status_client_unreliable_count,
+        debug_status_client_unreliable_parse_fail_count: admin
+            .debug_status_client_unreliable_parse_fail_count,
+        last_debug_status_value: admin.last_debug_status_value,
+        parse_fail_count: admin
+            .trace_info_parse_fail_count
+            .saturating_add(admin.debug_status_client_parse_fail_count)
+            .saturating_add(admin.debug_status_client_unreliable_parse_fail_count),
+    })
+}
+
 pub fn build_runtime_rules_panel(hud: &HudModel) -> Option<RuntimeRulesPanelModel> {
     let rules = &hud.runtime_ui.as_ref()?.rules;
     Some(RuntimeRulesPanelModel {
@@ -353,16 +385,17 @@ fn world_to_tile_index_floor(world_position: f32) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_build_config_panel, build_minimap_panel, build_runtime_menu_panel,
-        build_runtime_rules_panel, build_runtime_ui_notice_panel,
+        build_build_config_panel, build_minimap_panel, build_runtime_admin_panel,
+        build_runtime_menu_panel, build_runtime_rules_panel, build_runtime_ui_notice_panel,
         build_runtime_world_label_panel, PresenterViewWindow,
     };
     use crate::{
         hud_model::HudSummary, BuildConfigInspectorEntryObservability, BuildQueueHeadObservability,
         BuildQueueHeadStage, BuildUiObservability, HudModel, RenderModel, RenderObject,
-        RuntimeHudTextObservability, RuntimeLiveSummaryObservability, RuntimeMenuObservability,
-        RuntimeRulesObservability, RuntimeTextInputObservability, RuntimeToastObservability,
-        RuntimeUiObservability, RuntimeWorldLabelObservability, Viewport,
+        RuntimeAdminObservability, RuntimeHudTextObservability,
+        RuntimeLiveSummaryObservability, RuntimeMenuObservability, RuntimeRulesObservability,
+        RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiObservability,
+        RuntimeWorldLabelObservability, Viewport,
     };
 
     #[test]
@@ -536,6 +569,7 @@ mod tests {
                     last_numeric: Some(true),
                     last_allow_empty: Some(true),
                 },
+                admin: RuntimeAdminObservability::default(),
                 menu: RuntimeMenuObservability::default(),
                 rules: RuntimeRulesObservability::default(),
                 world_labels: RuntimeWorldLabelObservability::default(),
@@ -575,6 +609,7 @@ mod tests {
                 hud_text: RuntimeHudTextObservability::default(),
                 toast: RuntimeToastObservability::default(),
                 text_input: RuntimeTextInputObservability::default(),
+                admin: RuntimeAdminObservability::default(),
                 menu: RuntimeMenuObservability::default(),
                 rules: RuntimeRulesObservability {
                     set_rules_count: 67,
@@ -626,6 +661,7 @@ mod tests {
                 hud_text: RuntimeHudTextObservability::default(),
                 toast: RuntimeToastObservability::default(),
                 text_input: RuntimeTextInputObservability::default(),
+                admin: RuntimeAdminObservability::default(),
                 menu: RuntimeMenuObservability::default(),
                 rules: RuntimeRulesObservability::default(),
                 world_labels: RuntimeWorldLabelObservability {
@@ -663,6 +699,7 @@ mod tests {
                     last_numeric: Some(true),
                     last_allow_empty: Some(true),
                 },
+                admin: RuntimeAdminObservability::default(),
                 menu: RuntimeMenuObservability {
                     menu_open_count: 16,
                     follow_up_menu_open_count: 17,
@@ -687,5 +724,43 @@ mod tests {
         assert_eq!(panel.text_input_last_length, Some(16));
         assert_eq!(panel.text_input_last_numeric, Some(true));
         assert_eq!(panel.text_input_last_allow_empty, Some(true));
+    }
+
+    #[test]
+    fn builds_runtime_admin_panel_from_runtime_ui_observability() {
+        let hud = HudModel {
+            runtime_ui: Some(RuntimeUiObservability {
+                hud_text: RuntimeHudTextObservability::default(),
+                toast: RuntimeToastObservability::default(),
+                text_input: RuntimeTextInputObservability::default(),
+                admin: RuntimeAdminObservability {
+                    trace_info_count: 56,
+                    trace_info_parse_fail_count: 76,
+                    last_trace_info_player_id: Some(123456),
+                    debug_status_client_count: 57,
+                    debug_status_client_parse_fail_count: 77,
+                    debug_status_client_unreliable_count: 58,
+                    debug_status_client_unreliable_parse_fail_count: 78,
+                    last_debug_status_value: Some(12),
+                },
+                menu: RuntimeMenuObservability::default(),
+                rules: RuntimeRulesObservability::default(),
+                world_labels: RuntimeWorldLabelObservability::default(),
+                live: RuntimeLiveSummaryObservability::default(),
+            }),
+            ..HudModel::default()
+        };
+
+        let panel = build_runtime_admin_panel(&hud).expect("expected runtime admin panel");
+
+        assert_eq!(panel.trace_info_count, 56);
+        assert_eq!(panel.trace_info_parse_fail_count, 76);
+        assert_eq!(panel.last_trace_info_player_id, Some(123456));
+        assert_eq!(panel.debug_status_client_count, 57);
+        assert_eq!(panel.debug_status_client_parse_fail_count, 77);
+        assert_eq!(panel.debug_status_client_unreliable_count, 58);
+        assert_eq!(panel.debug_status_client_unreliable_parse_fail_count, 78);
+        assert_eq!(panel.last_debug_status_value, Some(12));
+        assert_eq!(panel.parse_fail_count, 231);
     }
 }

@@ -1,9 +1,9 @@
 use crate::{
     hud_model::HudSummary,
     panel_model::{
-        build_build_config_panel, build_minimap_panel, build_runtime_menu_panel,
-        build_runtime_rules_panel, build_runtime_ui_notice_panel,
-        build_runtime_world_label_panel, PresenterViewWindow,
+        build_build_config_panel, build_minimap_panel, build_runtime_admin_panel,
+        build_runtime_menu_panel, build_runtime_rules_panel,
+        build_runtime_ui_notice_panel, build_runtime_world_label_panel, PresenterViewWindow,
     },
     render_model::RenderObjectSemanticKind,
     BuildQueueHeadObservability, BuildQueueHeadStage, BuildUiObservability, HudModel, RenderModel,
@@ -486,6 +486,9 @@ fn compose_frame_status_text(
         if let Some(runtime_menu_text) = compose_runtime_menu_panel_status_text(hud) {
             parts.push(runtime_menu_text);
         }
+        if let Some(runtime_admin_text) = compose_runtime_admin_panel_status_text(hud) {
+            parts.push(runtime_admin_text);
+        }
         if let Some(runtime_rules_text) = compose_runtime_rules_panel_status_text(hud) {
             parts.push(runtime_rules_text);
         }
@@ -603,6 +606,20 @@ fn compose_runtime_menu_panel_status_text(hud: &HudModel) -> Option<String> {
         panel.text_input_last_length.unwrap_or_default(),
         optional_bool_label(panel.text_input_last_numeric),
         optional_bool_label(panel.text_input_last_allow_empty),
+    ))
+}
+
+fn compose_runtime_admin_panel_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_admin_panel(hud)?;
+    Some(format!(
+        "admin:t{}@{}:f{}:dbg{}/{}@{}:f{}",
+        panel.trace_info_count,
+        optional_i32_label(panel.last_trace_info_player_id),
+        panel.trace_info_parse_fail_count,
+        panel.debug_status_client_count,
+        panel.debug_status_client_unreliable_count,
+        optional_i32_label(panel.last_debug_status_value),
+        panel.parse_fail_count,
     ))
 }
 
@@ -1015,10 +1032,10 @@ mod tests {
     };
     use crate::{
         hud_model::HudSummary, BuildQueueHeadObservability, BuildQueueHeadStage,
-        BuildUiObservability, HudModel, RenderModel, RenderObject, RuntimeHudTextObservability,
-        RuntimeMenuObservability, RuntimeRulesObservability, RuntimeTextInputObservability,
-        RuntimeToastObservability, RuntimeUiObservability, RuntimeWorldLabelObservability,
-        Viewport,
+        BuildUiObservability, HudModel, RenderModel, RenderObject, RuntimeAdminObservability,
+        RuntimeHudTextObservability, RuntimeMenuObservability, RuntimeRulesObservability,
+        RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiObservability,
+        RuntimeWorldLabelObservability, Viewport,
     };
 
     #[derive(Default)]
@@ -1387,6 +1404,16 @@ mod tests {
                     last_numeric: Some(true),
                     last_allow_empty: Some(true),
                 },
+                admin: RuntimeAdminObservability {
+                    trace_info_count: 56,
+                    trace_info_parse_fail_count: 76,
+                    last_trace_info_player_id: Some(123456),
+                    debug_status_client_count: 57,
+                    debug_status_client_parse_fail_count: 77,
+                    debug_status_client_unreliable_count: 58,
+                    debug_status_client_unreliable_parse_fail_count: 78,
+                    last_debug_status_value: Some(12),
+                },
                 menu: RuntimeMenuObservability {
                     menu_open_count: 16,
                     follow_up_menu_open_count: 17,
@@ -1507,6 +1534,9 @@ mod tests {
         assert!(frame
             .status_text
             .contains("menu:m16:fm17:h18:tin53@404:Digits/12345#16:n1:e1"));
+        assert!(frame
+            .status_text
+            .contains("admin:t56@123456:f76:dbg57/58@12:f231"));
         assert!(frame
             .status_text
             .contains("rules:mut354:fail210:wv1:pvp0:obj2:q1:par1:fg2:oor75:last9"));

@@ -17,12 +17,12 @@ use crate::session_state::{
 use mdt_remote::{HighFrequencyRemoteMethod, HIGH_FREQUENCY_REMOTE_METHOD_COUNT};
 use mdt_render_ui::{
     BuildConfigInspectorEntryObservability, BuildQueueHeadObservability, BuildQueueHeadStage,
-    BuildUiObservability, HudModel, RenderModel, RenderObject, RuntimeHudTextObservability,
-    RuntimeLiveEffectPositionSource, RuntimeLiveEffectSummaryObservability,
-    RuntimeLiveEntitySummaryObservability, RuntimeLiveSummaryObservability,
-    RuntimeMenuObservability, RuntimeRulesObservability, RuntimeTextInputObservability,
-    RuntimeToastObservability, RuntimeUiObservability, RuntimeWorldLabelObservability,
-    RuntimeWorldPositionObservability,
+    BuildUiObservability, HudModel, RenderModel, RenderObject, RuntimeAdminObservability,
+    RuntimeHudTextObservability, RuntimeLiveEffectPositionSource,
+    RuntimeLiveEffectSummaryObservability, RuntimeLiveEntitySummaryObservability,
+    RuntimeLiveSummaryObservability, RuntimeMenuObservability, RuntimeRulesObservability,
+    RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiObservability,
+    RuntimeWorldLabelObservability, RuntimeWorldPositionObservability,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -1435,10 +1435,27 @@ fn runtime_ui_observability(session_state: &SessionState) -> RuntimeUiObservabil
             last_numeric: session_state.last_text_input_numeric,
             last_allow_empty: session_state.last_text_input_allow_empty,
         },
+        admin: runtime_admin_observability(session_state),
         menu: runtime_menu_observability(session_state),
         rules: runtime_rules_observability(session_state),
         world_labels: runtime_world_label_observability(session_state),
         live: runtime_live_summary_observability(session_state),
+    }
+}
+
+fn runtime_admin_observability(session_state: &SessionState) -> RuntimeAdminObservability {
+    RuntimeAdminObservability {
+        trace_info_count: session_state.received_trace_info_count,
+        trace_info_parse_fail_count: session_state.failed_trace_info_parse_count,
+        last_trace_info_player_id: session_state.last_trace_info_player_id,
+        debug_status_client_count: session_state.received_debug_status_client_count,
+        debug_status_client_parse_fail_count: session_state
+            .failed_debug_status_client_parse_count,
+        debug_status_client_unreliable_count: session_state
+            .received_debug_status_client_unreliable_count,
+        debug_status_client_unreliable_parse_fail_count: session_state
+            .failed_debug_status_client_unreliable_parse_count,
+        last_debug_status_value: session_state.last_debug_status_value,
     }
 }
 
@@ -5079,6 +5096,17 @@ mod tests {
         assert_eq!(runtime_ui.text_input.last_length, Some(16));
         assert_eq!(runtime_ui.text_input.last_numeric, Some(true));
         assert_eq!(runtime_ui.text_input.last_allow_empty, Some(true));
+        assert_eq!(runtime_ui.admin.trace_info_count, 56);
+        assert_eq!(runtime_ui.admin.trace_info_parse_fail_count, 76);
+        assert_eq!(runtime_ui.admin.last_trace_info_player_id, Some(123456));
+        assert_eq!(runtime_ui.admin.debug_status_client_count, 57);
+        assert_eq!(runtime_ui.admin.debug_status_client_parse_fail_count, 77);
+        assert_eq!(runtime_ui.admin.debug_status_client_unreliable_count, 58);
+        assert_eq!(
+            runtime_ui.admin.debug_status_client_unreliable_parse_fail_count,
+            78
+        );
+        assert_eq!(runtime_ui.admin.last_debug_status_value, Some(12));
         assert_eq!(runtime_ui.menu.menu_open_count, 16);
         assert_eq!(runtime_ui.menu.follow_up_menu_open_count, 17);
         assert_eq!(runtime_ui.menu.hide_follow_up_menu_count, 18);

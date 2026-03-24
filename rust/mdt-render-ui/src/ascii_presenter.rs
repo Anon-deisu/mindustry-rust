@@ -1,7 +1,7 @@
 use crate::panel_model::{
-    build_build_config_panel, build_minimap_panel, build_runtime_menu_panel,
-    build_runtime_rules_panel, build_runtime_ui_notice_panel, build_runtime_world_label_panel,
-    PresenterViewWindow,
+    build_build_config_panel, build_minimap_panel, build_runtime_admin_panel,
+    build_runtime_menu_panel, build_runtime_rules_panel, build_runtime_ui_notice_panel,
+    build_runtime_world_label_panel, PresenterViewWindow,
 };
 use crate::render_model::RenderObjectSemanticKind;
 use crate::{HudModel, RenderModel, ScenePresenter};
@@ -94,6 +94,9 @@ impl AsciiScenePresenter {
         }
         if let Some(runtime_menu_text) = compose_runtime_menu_panel_text(hud) {
             out.push_str(&format!("RUNTIME-MENU: {runtime_menu_text}\n"));
+        }
+        if let Some(runtime_admin_text) = compose_runtime_admin_panel_text(hud) {
+            out.push_str(&format!("RUNTIME-ADMIN: {runtime_admin_text}\n"));
         }
         if let Some(runtime_rules_text) = compose_runtime_rules_panel_text(hud) {
             out.push_str(&format!("RUNTIME-RULES: {runtime_rules_text}\n"));
@@ -338,6 +341,20 @@ fn compose_runtime_menu_panel_text(hud: &HudModel) -> Option<String> {
         panel.text_input_last_length.unwrap_or_default(),
         optional_bool_label(panel.text_input_last_numeric),
         optional_bool_label(panel.text_input_last_allow_empty),
+    ))
+}
+
+fn compose_runtime_admin_panel_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_admin_panel(hud)?;
+    Some(format!(
+        "trace={}@{} fail={} dbg={}/{}@{} fail={}",
+        panel.trace_info_count,
+        optional_i32_label(panel.last_trace_info_player_id),
+        panel.trace_info_parse_fail_count,
+        panel.debug_status_client_count,
+        panel.debug_status_client_unreliable_count,
+        optional_i32_label(panel.last_debug_status_value),
+        panel.parse_fail_count,
     ))
 }
 
@@ -737,9 +754,9 @@ mod tests {
     use super::AsciiScenePresenter;
     use crate::{
         hud_model::HudSummary, project_scene_models, HudModel, RenderModel, RenderObject,
-        RuntimeHudTextObservability, RuntimeMenuObservability, RuntimeRulesObservability,
-        RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiObservability,
-        RuntimeWorldLabelObservability, ScenePresenter, Viewport,
+        RuntimeAdminObservability, RuntimeHudTextObservability, RuntimeMenuObservability,
+        RuntimeRulesObservability, RuntimeTextInputObservability, RuntimeToastObservability,
+        RuntimeUiObservability, RuntimeWorldLabelObservability, ScenePresenter, Viewport,
     };
     use mdt_world::parse_world_bundle;
 
@@ -982,6 +999,16 @@ mod tests {
                     last_numeric: Some(true),
                     last_allow_empty: Some(true),
                 },
+                admin: RuntimeAdminObservability {
+                    trace_info_count: 56,
+                    trace_info_parse_fail_count: 76,
+                    last_trace_info_player_id: Some(123456),
+                    debug_status_client_count: 57,
+                    debug_status_client_parse_fail_count: 77,
+                    debug_status_client_unreliable_count: 58,
+                    debug_status_client_unreliable_parse_fail_count: 78,
+                    last_debug_status_value: Some(12),
+                },
                 menu: RuntimeMenuObservability {
                     menu_open_count: 16,
                     follow_up_menu_open_count: 17,
@@ -1111,6 +1138,7 @@ mod tests {
         assert!(frame.contains(
             "RUNTIME-MENU: menu=16 fmenu=17 hide=18 tin=53@404:Digits/12345#16:n1:e1"
         ));
+        assert!(frame.contains("RUNTIME-ADMIN: trace=56@123456 fail=76 dbg=57/58@12 fail=231"));
         assert!(frame.contains(
             "RUNTIME-RULES: mut=354 fail=210 set=67/69/71 clear=73 complete=74 state=wv1:pvp0 obj=2 qual=1 parents=1 flags=2 oor=75 last=9"
         ));
