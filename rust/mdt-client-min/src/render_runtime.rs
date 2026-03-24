@@ -1,10 +1,13 @@
+#[path = "render_runtime/effect_contract_executor.rs"]
+mod effect_contract_executor;
+
 use crate::client_session::{
     BuildHealthPair, ClientBuildPlan, ClientBuildPlanConfig, ClientSessionEvent,
     ClientSnapshotInputState, StateSnapshotAppliedProjection,
 };
 use crate::effect_runtime::{
     effect_contract, resolve_runtime_effect_overlay_position, spawn_runtime_effect_overlay,
-    RuntimeEffectContract, RuntimeEffectOverlay,
+    RuntimeEffectOverlay,
 };
 use crate::session_state::{
     AuthoritativeStateMirror, BuilderPlanStage, BuilderQueueProjection,
@@ -570,16 +573,17 @@ fn runtime_effect_overlay_origin(
     rotation: f32,
     data_object: Option<&mdt_typeio::TypeIoObject>,
 ) -> (f32, f32) {
-    match (effect_contract(effect_id), data_object) {
-        (
-            Some(RuntimeEffectContract::FloatLength),
-            Some(mdt_typeio::TypeIoObject::Float(length)),
-        ) if x.is_finite() && y.is_finite() && rotation.is_finite() && length.is_finite() => {
-            let radians = rotation.to_radians();
-            (x + radians.cos() * *length, y + radians.sin() * *length)
-        }
-        _ => (x, y),
-    }
+    effect_contract(effect_id)
+        .and_then(|contract| {
+            effect_contract_executor::overlay_origin_from_contract(
+                contract,
+                x,
+                y,
+                rotation,
+                data_object,
+            )
+        })
+        .unwrap_or((x, y))
 }
 
 fn advance_runtime_effect_overlays(runtime_world_overlay: &mut RuntimeWorldOverlay) {
@@ -1716,7 +1720,8 @@ fn runtime_live_effect_position_hint_observability(
     Option<RuntimeLiveEffectPositionSource>,
     Option<RuntimeWorldPositionObservability>,
 ) {
-    if let Some(position) = runtime_world_position_from_effect_business_projection(
+    if let Some(position) = runtime_world_position_from_named_effect_business_projection(
+        session_state.last_effect_contract_name.as_deref(),
         session_state.last_effect_business_projection.as_ref(),
     ) {
         return (
@@ -1745,6 +1750,7 @@ fn runtime_live_effect_position_hint_observability(
     (None, None)
 }
 
+#[cfg(test)]
 fn runtime_world_position_from_effect_business_projection(
     projection: Option<&EffectBusinessProjection>,
 ) -> Option<RuntimeWorldPositionObservability> {
@@ -1773,6 +1779,17 @@ fn runtime_world_position_from_effect_business_projection(
         | Some(EffectBusinessProjection::FloatValue(_))
         | None => None,
     }
+}
+
+fn runtime_world_position_from_named_effect_business_projection(
+    contract_name: Option<&str>,
+    projection: Option<&EffectBusinessProjection>,
+) -> Option<RuntimeWorldPositionObservability> {
+    effect_contract_executor::world_position_from_contract_business_projection(
+        contract_name,
+        projection,
+    )
+    .map(|(x_bits, y_bits)| RuntimeWorldPositionObservability { x_bits, y_bits })
 }
 
 fn runtime_world_position_observability(

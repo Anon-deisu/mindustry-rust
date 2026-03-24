@@ -1799,6 +1799,25 @@ impl ClientSession {
         config_object: TypeIoObject,
         source: TileConfigAuthoritySource,
     ) -> TileConfigBusinessApply {
+        let (configured_block_outcome, configured_block_name) =
+            self.project_authoritative_config_business(build_pos, &config_object, source);
+        self.state
+            .tile_config_projection
+            .apply_authoritative_update(
+                build_pos,
+                config_object,
+                source,
+                Some(configured_block_outcome),
+                configured_block_name,
+            )
+    }
+
+    fn project_authoritative_config_business(
+        &mut self,
+        build_pos: i32,
+        config_object: &TypeIoObject,
+        source: TileConfigAuthoritySource,
+    ) -> (ConfiguredBlockOutcome, Option<String>) {
         let has_tracked_building = self
             .state
             .building_table_projection
@@ -1809,15 +1828,46 @@ impl ClientSession {
                 .building_table_projection
                 .apply_tile_config(build_pos, config_object.clone());
         }
-        let (configured_block_outcome, configured_block_name) =
-            self.apply_configured_block_business(build_pos, &config_object);
+        self.apply_configured_block_business(build_pos, config_object)
+    }
+
+    fn rollback_to_known_authority_config_business(
+        &mut self,
+        build_pos: Option<i32>,
+        source: TileConfigAuthoritySource,
+    ) -> TileConfigBusinessApply {
+        let mut configured_block_outcome = None;
+        let mut configured_block_name = None;
+        if let Some(build_pos) = build_pos {
+            let has_pending_local = self
+                .state
+                .tile_config_projection
+                .pending_local_by_build_pos
+                .contains_key(&build_pos);
+            let authoritative_value = self
+                .state
+                .tile_config_projection
+                .authoritative_by_build_pos
+                .get(&build_pos)
+                .cloned();
+            if has_pending_local {
+                if let Some(authoritative_value) = authoritative_value.as_ref() {
+                    let (outcome, name) = self.project_authoritative_config_business(
+                        build_pos,
+                        authoritative_value,
+                        source,
+                    );
+                    configured_block_outcome = Some(outcome);
+                    configured_block_name = name;
+                }
+            }
+        }
         self.state
             .tile_config_projection
-            .apply_authoritative_update(
+            .fallback_rollback_to_known_authority(
                 build_pos,
-                config_object,
                 source,
-                Some(configured_block_outcome),
+                configured_block_outcome,
                 configured_block_name,
             )
     }
@@ -4135,12 +4185,10 @@ impl ClientSession {
                             TileConfigBusinessApply::default()
                         }
                     } else {
-                        self.state
-                            .tile_config_projection
-                            .fallback_rollback_to_known_authority(
-                                build_pos,
-                                TileConfigAuthoritySource::TileConfigPacket,
-                            )
+                        self.rollback_to_known_authority_config_business(
+                            build_pos,
+                            TileConfigAuthoritySource::TileConfigPacket,
+                        )
                     };
                     self.state.received_tile_config_count =
                         self.state.received_tile_config_count.saturating_add(1);
@@ -25145,7 +25193,9 @@ mod tests {
                 cleared_pending_local: true,
                 was_rollback: true,
                 pending_local_match: Some(false),
-                configured_block_outcome: None,
+                configured_block_outcome: Some(
+                    crate::session_state::ConfiguredBlockOutcome::RejectedMissingBuilding,
+                ),
                 configured_block_name: None,
             }
         );
@@ -25225,7 +25275,9 @@ mod tests {
                 cleared_pending_local: true,
                 was_rollback: true,
                 pending_local_match: Some(false),
-                configured_block_outcome: None,
+                configured_block_outcome: Some(
+                    crate::session_state::ConfiguredBlockOutcome::RejectedMissingBuilding,
+                ),
                 configured_block_name: None,
             }
         );
@@ -25262,6 +25314,114 @@ mod tests {
             Some(first_value)
         );
         assert_eq!(session.state().tile_config_projection.rollback_count, 1);
+    }
+
+    #[test]
+    fn tile_config_parse_failure_reapplies_known_authority_to_building_and_configured_state() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(44, 55);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_SWITCH);
+        let authoritative_value = TypeIoObject::Bool(true);
+        let pending_value = TypeIoObject::Bool(false);
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+            &authoritative_value,
+        );
+        let previous_tile_config_apply_count =
+            session.state().building_table_projection.tile_config_apply_count;
+        let previous_configured_applied_count =
+            session.state().tile_config_projection.configured_applied_count;
+
+        session
+            .queue_tile_config(Some(build_pos), pending_value.clone())
+            .unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "tileConfig")
+            .unwrap()
+            .packet_id;
+        let mut payload = encode_tile_config_payload(Some(build_pos), &pending_value);
+        payload.push(0xff);
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        let event = session.ingest_packet_bytes(&packet).unwrap();
+
+        assert!(matches!(
+            event,
+            ClientSessionEvent::TileConfig {
+                build_pos: Some(value),
+                config_kind_name: Some(config_kind_name),
+                parse_failed: true,
+                business_applied: true,
+                cleared_pending_local: true,
+                was_rollback: true,
+                pending_local_match: Some(false),
+                configured_block_outcome: Some(crate::session_state::ConfiguredBlockOutcome::Applied),
+                configured_block_name: Some(configured_block_name),
+                ..
+            } if value == build_pos
+                && config_kind_name == "bool"
+                && configured_block_name == BLOCK_NAME_SWITCH
+        ));
+        assert_eq!(
+            session.state().building_table_projection.tile_config_apply_count,
+            previous_tile_config_apply_count + 1
+        );
+        assert_eq!(
+            session.state().tile_config_projection.configured_applied_count,
+            previous_configured_applied_count + 1
+        );
+        assert_eq!(
+            session.state().building_table_projection.last_update,
+            Some(crate::session_state::BuildingProjectionUpdateKind::TileConfig)
+        );
+        assert_eq!(
+            session
+                .state()
+                .building_table_projection
+                .by_build_pos
+                .get(&build_pos)
+                .and_then(|building| building.config.as_ref()),
+            Some(&authoritative_value)
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .switch_enabled_by_build_pos
+                .get(&build_pos),
+            Some(&Some(true))
+        );
+        assert_eq!(
+            session.state().tile_config_projection.last_business_value,
+            Some(authoritative_value)
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_replaced_local_value,
+            Some(pending_value)
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_configured_block_outcome,
+            Some(crate::session_state::ConfiguredBlockOutcome::Applied)
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_configured_block_name
+                .as_deref(),
+            Some(BLOCK_NAME_SWITCH)
+        );
     }
 
     #[test]

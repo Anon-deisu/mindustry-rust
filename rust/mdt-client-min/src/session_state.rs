@@ -1,3 +1,8 @@
+use crate::entity_snapshot_families::{
+    ALPHA_SHAPE_ENTITY_CLASS_IDS, BUILDING_TETHER_PAYLOAD_ENTITY_CLASS_IDS, FIRE_ENTITY_CLASS_IDS,
+    MECH_SHAPE_ENTITY_CLASS_IDS, MISSILE_SHAPE_ENTITY_CLASS_IDS, PAYLOAD_SHAPE_ENTITY_CLASS_IDS,
+    PUDDLE_ENTITY_CLASS_IDS, WEATHER_STATE_ENTITY_CLASS_IDS,
+};
 use crate::rules_objectives_semantics::{ObjectivesProjection, RulesProjection};
 use crate::state_snapshot_semantics::{
     derive_state_snapshot_core_inventory_transition, StateSnapshotCoreInventoryPrevious,
@@ -840,6 +845,100 @@ fn hidden_lifecycle_hidden_non_local_unit_entity_id(
     .then_some(unit.value)
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum HiddenSnapshotTypedPolicy {
+    #[default]
+    KeepHidden,
+    RemoveLikeJavaHandleSyncHidden,
+}
+
+impl HiddenSnapshotTypedPolicy {
+    fn merges_remove(self, other: Self) -> Self {
+        if matches!(self, Self::RemoveLikeJavaHandleSyncHidden)
+            || matches!(other, Self::RemoveLikeJavaHandleSyncHidden)
+        {
+            Self::RemoveLikeJavaHandleSyncHidden
+        } else {
+            Self::KeepHidden
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum HiddenSnapshotRuntimePolicy {
+    #[default]
+    KeepHidden,
+    RemoveKnownRuntimeOwned,
+}
+
+impl HiddenSnapshotRuntimePolicy {
+    fn merges_remove(self, other: Self) -> Self {
+        if matches!(self, Self::RemoveKnownRuntimeOwned)
+            || matches!(other, Self::RemoveKnownRuntimeOwned)
+        {
+            Self::RemoveKnownRuntimeOwned
+        } else {
+            Self::KeepHidden
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct HiddenSnapshotEntityPolicy {
+    typed: HiddenSnapshotTypedPolicy,
+    runtime: HiddenSnapshotRuntimePolicy,
+}
+
+impl HiddenSnapshotEntityPolicy {
+    fn should_remove(self) -> bool {
+        matches!(
+            self.typed,
+            HiddenSnapshotTypedPolicy::RemoveLikeJavaHandleSyncHidden
+        ) || matches!(
+            self.runtime,
+            HiddenSnapshotRuntimePolicy::RemoveKnownRuntimeOwned
+        )
+    }
+}
+
+fn class_id_matches_java_handle_sync_hidden_remove(class_id: u8) -> bool {
+    ALPHA_SHAPE_ENTITY_CLASS_IDS.contains(&class_id)
+        || MECH_SHAPE_ENTITY_CLASS_IDS.contains(&class_id)
+        || MISSILE_SHAPE_ENTITY_CLASS_IDS.contains(&class_id)
+        || PAYLOAD_SHAPE_ENTITY_CLASS_IDS.contains(&class_id)
+        || BUILDING_TETHER_PAYLOAD_ENTITY_CLASS_IDS.contains(&class_id)
+}
+
+fn class_id_matches_known_runtime_owned_hidden_remove(class_id: u8) -> bool {
+    FIRE_ENTITY_CLASS_IDS.contains(&class_id)
+        || PUDDLE_ENTITY_CLASS_IDS.contains(&class_id)
+        || WEATHER_STATE_ENTITY_CLASS_IDS.contains(&class_id)
+}
+
+fn resolve_hidden_snapshot_entity_policy(
+    entity: Option<&EntityProjection>,
+    semantic: Option<&EntitySemanticProjection>,
+) -> HiddenSnapshotEntityPolicy {
+    let typed = entity
+        .map(EntityProjection::hidden_snapshot_typed_policy)
+        .unwrap_or_default()
+        .merges_remove(
+            semantic
+                .map(EntitySemanticProjection::hidden_snapshot_typed_policy)
+                .unwrap_or_default(),
+        );
+    let runtime = entity
+        .map(EntityProjection::hidden_snapshot_runtime_policy)
+        .unwrap_or_default()
+        .merges_remove(
+            semantic
+                .map(EntitySemanticProjection::hidden_snapshot_runtime_policy)
+                .unwrap_or_default(),
+        );
+
+    HiddenSnapshotEntityPolicy { typed, runtime }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PayloadDroppedProjection {
     pub unit: Option<UnitRefProjection>,
@@ -1129,6 +1228,8 @@ impl TileConfigProjection {
         &mut self,
         build_pos: Option<i32>,
         source: TileConfigAuthoritySource,
+        configured_block_outcome: Option<ConfiguredBlockOutcome>,
+        configured_block_name: Option<String>,
     ) -> TileConfigBusinessApply {
         let Some(build_pos) = build_pos else {
             return self.clear_pending_local_without_business_apply(None);
@@ -1178,8 +1279,17 @@ impl TileConfigProjection {
         self.last_pending_local_match = pending_local_match;
         self.last_business_source = Some(source);
         self.last_replaced_local_value = pending_local.clone();
-        self.last_configured_block_outcome = None;
-        self.last_configured_block_name = None;
+        self.last_configured_block_outcome = configured_block_outcome;
+        self.last_configured_block_name = configured_block_name.clone();
+        match configured_block_outcome {
+            Some(outcome) if outcome.is_applied() => {
+                self.configured_applied_count = self.configured_applied_count.saturating_add(1);
+            }
+            Some(outcome) if outcome.is_rejected() => {
+                self.configured_rejected_count = self.configured_rejected_count.saturating_add(1);
+            }
+            _ => {}
+        }
         TileConfigBusinessApply {
             business_applied: true,
             cleared_pending_local: true,
@@ -1188,8 +1298,8 @@ impl TileConfigProjection {
             source: Some(source),
             authoritative_value: Some(authoritative_value),
             replaced_local_value: pending_local,
-            configured_block_outcome: None,
-            configured_block_name: None,
+            configured_block_outcome,
+            configured_block_name,
         }
     }
 
@@ -2503,11 +2613,22 @@ pub enum EntitySemanticProjection {
 }
 
 impl EntitySemanticProjection {
-    fn hidden_lifecycle_should_remove(&self) -> bool {
-        matches!(
-            self,
-            Self::Unit(_) | Self::Fire(_) | Self::Puddle(_) | Self::WeatherState(_)
-        )
+    fn hidden_snapshot_typed_policy(&self) -> HiddenSnapshotTypedPolicy {
+        match self {
+            Self::Unit(_) => HiddenSnapshotTypedPolicy::RemoveLikeJavaHandleSyncHidden,
+            Self::Fire(_) | Self::Puddle(_) | Self::WeatherState(_) | Self::WorldLabel(_) => {
+                HiddenSnapshotTypedPolicy::KeepHidden
+            }
+        }
+    }
+
+    fn hidden_snapshot_runtime_policy(&self) -> HiddenSnapshotRuntimePolicy {
+        match self {
+            Self::Fire(_) | Self::Puddle(_) | Self::WeatherState(_) => {
+                HiddenSnapshotRuntimePolicy::RemoveKnownRuntimeOwned
+            }
+            Self::Unit(_) | Self::WorldLabel(_) => HiddenSnapshotRuntimePolicy::KeepHidden,
+        }
     }
 }
 
@@ -2819,6 +2940,26 @@ impl EntityTableProjection {
             .values()
             .filter(|entity| entity.hidden)
             .count();
+    }
+}
+
+impl EntityProjection {
+    fn hidden_snapshot_typed_policy(&self) -> HiddenSnapshotTypedPolicy {
+        if self.is_local_player {
+            HiddenSnapshotTypedPolicy::KeepHidden
+        } else if class_id_matches_java_handle_sync_hidden_remove(self.class_id) {
+            HiddenSnapshotTypedPolicy::RemoveLikeJavaHandleSyncHidden
+        } else {
+            HiddenSnapshotTypedPolicy::KeepHidden
+        }
+    }
+
+    fn hidden_snapshot_runtime_policy(&self) -> HiddenSnapshotRuntimePolicy {
+        if class_id_matches_known_runtime_owned_hidden_remove(self.class_id) {
+            HiddenSnapshotRuntimePolicy::RemoveKnownRuntimeOwned
+        } else {
+            HiddenSnapshotRuntimePolicy::KeepHidden
+        }
     }
 }
 
@@ -3700,13 +3841,14 @@ impl SessionState {
             .copied()
             .filter(|entity_id| {
                 Some(*entity_id) != local_player_entity_id
-                    && matches!(
+                    && resolve_hidden_snapshot_entity_policy(
+                        self.entity_table_projection.by_entity_id.get(entity_id),
                         self.entity_semantic_projection
                             .by_entity_id
                             .get(entity_id)
                             .map(|entry| &entry.projection),
-                        Some(projection) if projection.hidden_lifecycle_should_remove()
                     )
+                    .should_remove()
             })
             .collect()
     }
@@ -4032,5 +4174,52 @@ mod tests {
             Some(true)
         );
         assert_eq!(building_after_construct.build_turret_plan_count, Some(7));
+    }
+
+    #[test]
+    fn hidden_snapshot_policy_removes_known_unit_class_rows_without_semantic_projection() {
+        let mut state = SessionState::default();
+        state.entity_table_projection.by_entity_id.insert(
+            303,
+            EntityProjection {
+                class_id: 33,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 0,
+                unit_value: 0,
+                x_bits: 1.0f32.to_bits(),
+                y_bits: 2.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
+
+        let remove_ids = state.hidden_snapshot_lifecycle_remove_ids(&BTreeSet::from([303]), None);
+
+        assert_eq!(remove_ids, BTreeSet::from([303]));
+    }
+
+    #[test]
+    fn hidden_snapshot_policy_removes_known_runtime_owned_class_rows_without_semantic_projection() {
+        let mut state = SessionState::default();
+        for (entity_id, class_id) in [(303, 10), (404, 13), (505, 14), (606, 35)] {
+            state.entity_table_projection.by_entity_id.insert(
+                entity_id,
+                EntityProjection {
+                    class_id,
+                    hidden: false,
+                    is_local_player: false,
+                    unit_kind: 0,
+                    unit_value: 0,
+                    x_bits: 0,
+                    y_bits: 0,
+                    last_seen_entity_snapshot_count: 1,
+                },
+            );
+        }
+
+        let remove_ids =
+            state.hidden_snapshot_lifecycle_remove_ids(&BTreeSet::from([303, 404, 505, 606]), None);
+
+        assert_eq!(remove_ids, BTreeSet::from([303, 404, 505]));
     }
 }
