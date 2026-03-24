@@ -683,7 +683,11 @@ fn compose_runtime_command_mode_panel_status_text(hud: &HudModel) -> Option<Stri
         command_rect_status_text(panel.command_rect),
         command_control_groups_status_text(&panel.control_groups),
         command_target_status_text(panel.last_target),
-        optional_u8_label(panel.last_command_selection.and_then(|selection| selection.command_id)),
+        optional_u8_label(
+            panel
+                .last_command_selection
+                .and_then(|selection| selection.command_id)
+        ),
         command_stance_status_text(panel.last_stance_selection),
     ))
 }
@@ -705,9 +709,29 @@ fn compose_runtime_admin_panel_status_text(hud: &HudModel) -> Option<String> {
 fn compose_runtime_world_label_panel_status_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_world_label_panel(hud)?;
     Some(format!(
-        "wlabel:set{}:rel{}:rm{}:tot{}",
-        panel.label_count, panel.reliable_label_count, panel.remove_label_count, panel.total_count,
+        "wlabel:set{}:rel{}:rm{}:tot{}:act{}:last{}:pos{}:txt{}",
+        panel.label_count,
+        panel.reliable_label_count,
+        panel.remove_label_count,
+        panel.total_count,
+        panel.active_count,
+        optional_i32_label(panel.last_entity_id),
+        world_position_status_text(panel.last_position.as_ref()),
+        runtime_world_label_status_sample(panel.last_text.as_deref()),
     ))
+}
+
+fn runtime_world_label_status_sample(value: Option<&str>) -> String {
+    let Some(value) = value else {
+        return "none".to_string();
+    };
+    let sanitized = value.replace(' ', "_");
+    let sample = sanitized.chars().take(24).collect::<String>();
+    if sanitized.chars().count() > 24 {
+        format!("{sample}~")
+    } else {
+        sample
+    }
 }
 
 fn compose_runtime_session_panel_status_text(hud: &HudModel) -> Option<String> {
@@ -2065,7 +2089,10 @@ mod tests {
                 command_mode: crate::RuntimeCommandModeObservability {
                     active: true,
                     selected_units: vec![11, 22, 33, 44],
-                    command_buildings: vec![((5 & 0xffff) << 16) | (6 & 0xffff), ((-7 & 0xffff) << 16) | (8 & 0xffff)],
+                    command_buildings: vec![
+                        ((5 & 0xffff) << 16) | (6 & 0xffff),
+                        ((-7 & 0xffff) << 16) | (8 & 0xffff),
+                    ],
                     command_rect: Some(crate::RuntimeCommandRectObservability {
                         x0: -3,
                         y0: 4,
@@ -2129,6 +2156,16 @@ mod tests {
                     label_count: 19,
                     reliable_label_count: 20,
                     remove_label_count: 21,
+                    active_count: 2,
+                    last_entity_id: Some(904),
+                    last_text: Some("world label".to_string()),
+                    last_flags: Some(3),
+                    last_font_size_bits: Some(12.0f32.to_bits()),
+                    last_z_bits: Some(4.0f32.to_bits()),
+                    last_position: Some(crate::RuntimeWorldPositionObservability {
+                        x_bits: 40.0f32.to_bits(),
+                        y_bits: 60.0f32.to_bits(),
+                    }),
                 },
                 session: RuntimeSessionObservability {
                     kick: crate::hud_model::RuntimeKickObservability {
@@ -2303,7 +2340,9 @@ mod tests {
         assert!(frame
             .status_text
             .contains("rules:mut354:fail210:wv1:pvp0:obj2:q1:par1:fg2:oor75:last9"));
-        assert!(frame.status_text.contains("wlabel:set19:rel20:rm21:tot60"));
+        assert!(frame
+            .status_text
+            .contains("wlabel:set19:rel20:rm21:tot60:act2:last904:pos40.0:60.0:txtworld_label"));
         assert!(frame.status_text.contains(
             "session:k=idInUse@7:IdInUse:wait_for_old~;l=defer5:replay6:drop7:qdrop8:sfail9:scfail10:efail11:rdy12@1300:to2:cto1:rto1:ltready@20000:rs3:rr1:wr1:kr1:lrreload:lwr@lw1:cl0:rd1:cc0:p4:d5:r6;r=attempt3:redirect@1/127.0.0.1:6567:connectRedir~@none:server_reque~"
         ));

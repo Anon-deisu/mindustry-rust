@@ -51,6 +51,21 @@ pub struct BuilderQueueActivityState {
     pub used_closest_in_range_fallback: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BuilderQueueTileStateObservation {
+    pub x: i32,
+    pub y: i32,
+    pub block_id: Option<i16>,
+    pub rotation: Option<u8>,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct BuilderQueueValidationResult {
+    pub removed_count: usize,
+    pub removed_head: bool,
+    pub removed_tiles: Vec<(i32, i32)>,
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct BuilderQueueStateMachine {
     pub active_by_tile: BTreeMap<(i32, i32), BuilderQueueEntry>,
@@ -328,6 +343,46 @@ impl BuilderQueueStateMachine {
         }
     }
 
+    pub fn validate_against_tile_states<I>(
+        &mut self,
+        observations: I,
+    ) -> BuilderQueueValidationResult
+    where
+        I: IntoIterator<Item = BuilderQueueTileStateObservation>,
+    {
+        let observations_by_tile = observations
+            .into_iter()
+            .map(|observation| ((observation.x, observation.y), observation))
+            .collect::<BTreeMap<_, _>>();
+        let original_head = self.head_tile;
+        let mut removed_tiles = Vec::new();
+
+        self.ordered_tiles.retain(|tile| {
+            let Some(entry) = self.active_by_tile.get(tile) else {
+                return false;
+            };
+            let Some(observation) = observations_by_tile.get(tile) else {
+                return true;
+            };
+            let should_remove = Self::entry_matches_tile_state(entry, observation);
+            if should_remove {
+                removed_tiles.push(*tile);
+            }
+            !should_remove
+        });
+
+        for tile in &removed_tiles {
+            self.active_by_tile.remove(tile);
+        }
+
+        self.recount();
+        BuilderQueueValidationResult {
+            removed_count: removed_tiles.len(),
+            removed_head: original_head.is_some_and(|head| removed_tiles.contains(&head)),
+            removed_tiles,
+        }
+    }
+
     fn remove_matching_entry(
         &mut self,
         x: i32,
@@ -375,6 +430,21 @@ impl BuilderQueueStateMachine {
         observations_by_key.get(&(entry.x, entry.y, entry.breaking))
     }
 
+    fn entry_matches_tile_state(
+        entry: &BuilderQueueEntry,
+        observation: &BuilderQueueTileStateObservation,
+    ) -> bool {
+        if entry.breaking {
+            observation.block_id.is_none()
+        } else {
+            observation.block_id == entry.block_id
+                && observation
+                    .rotation
+                    .zip(entry.rotation)
+                    .is_some_and(|(lhs, rhs)| lhs == rhs)
+        }
+    }
+
     fn recount(&mut self) {
         self.queued_count = self
             .active_by_tile
@@ -397,7 +467,7 @@ mod tests {
     use super::{
         BuilderQueueActivityObservation, BuilderQueueActivityState, BuilderQueueEntry,
         BuilderQueueEntryObservation, BuilderQueueStage, BuilderQueueStateMachine,
-        BuilderQueueTransition,
+        BuilderQueueTileStateObservation, BuilderQueueTransition, BuilderQueueValidationResult,
     };
     use std::collections::BTreeMap;
 
@@ -1317,6 +1387,144 @@ mod tests {
         );
         assert_eq!(queue.ordered_tiles, expected_order);
         assert_eq!(queue.head_tile, Some((4, 4)));
+        assert_eq!(queue.queued_count, 2);
+        assert_eq!(queue.inflight_count, 0);
+    }
+
+    #[test]
+    fn validate_against_tile_states_removes_matching_place_and_break_entries() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 1,
+                y: 1,
+                breaking: false,
+                block_id: Some(10),
+                rotation: 2,
+            },
+            BuilderQueueEntryObservation {
+                x: 2,
+                y: 2,
+                breaking: true,
+                block_id: None,
+                rotation: 0,
+            },
+            BuilderQueueEntryObservation {
+                x: 3,
+                y: 3,
+                breaking: false,
+                block_id: Some(30),
+                rotation: 1,
+            },
+        ]);
+
+        let validation = queue.validate_against_tile_states([
+            BuilderQueueTileStateObservation {
+                x: 1,
+                y: 1,
+                block_id: Some(10),
+                rotation: Some(2),
+            },
+            BuilderQueueTileStateObservation {
+                x: 2,
+                y: 2,
+                block_id: None,
+                rotation: None,
+            },
+            BuilderQueueTileStateObservation {
+                x: 3,
+                y: 3,
+                block_id: Some(30),
+                rotation: Some(0),
+            },
+        ]);
+
+        assert_eq!(
+            validation,
+            BuilderQueueValidationResult {
+                removed_count: 2,
+                removed_head: true,
+                removed_tiles: vec![(1, 1), (2, 2)],
+            }
+        );
+        assert_eq!(queue.ordered_tiles, vec![(3, 3)]);
+        assert_eq!(queue.head_tile, Some((3, 3)));
+        assert_eq!(queue.queued_count, 1);
+        assert_eq!(queue.inflight_count, 0);
+    }
+
+    #[test]
+    fn validate_against_tile_states_keeps_place_entry_when_rotation_is_unknown_or_mismatched() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 4,
+                y: 4,
+                breaking: false,
+                block_id: Some(40),
+                rotation: 1,
+            },
+            BuilderQueueEntryObservation {
+                x: 5,
+                y: 5,
+                breaking: false,
+                block_id: Some(50),
+                rotation: 3,
+            },
+        ]);
+
+        let validation = queue.validate_against_tile_states([
+            BuilderQueueTileStateObservation {
+                x: 4,
+                y: 4,
+                block_id: Some(40),
+                rotation: None,
+            },
+            BuilderQueueTileStateObservation {
+                x: 5,
+                y: 5,
+                block_id: Some(50),
+                rotation: Some(2),
+            },
+        ]);
+
+        assert_eq!(validation, BuilderQueueValidationResult::default());
+        assert_eq!(queue.ordered_tiles, vec![(4, 4), (5, 5)]);
+        assert_eq!(queue.head_tile, Some((4, 4)));
+        assert_eq!(queue.queued_count, 2);
+        assert_eq!(queue.inflight_count, 0);
+    }
+
+    #[test]
+    fn validate_against_tile_states_ignores_tiles_without_observation() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 6,
+                y: 6,
+                breaking: false,
+                block_id: Some(60),
+                rotation: 0,
+            },
+            BuilderQueueEntryObservation {
+                x: 7,
+                y: 7,
+                breaking: true,
+                block_id: None,
+                rotation: 0,
+            },
+        ]);
+
+        let validation = queue.validate_against_tile_states([BuilderQueueTileStateObservation {
+            x: 6,
+            y: 6,
+            block_id: Some(99),
+            rotation: Some(0),
+        }]);
+
+        assert_eq!(validation, BuilderQueueValidationResult::default());
+        assert_eq!(queue.ordered_tiles, vec![(6, 6), (7, 7)]);
+        assert_eq!(queue.head_tile, Some((6, 6)));
         assert_eq!(queue.queued_count, 2);
         assert_eq!(queue.inflight_count, 0);
     }

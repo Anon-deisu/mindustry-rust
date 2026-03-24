@@ -166,6 +166,13 @@ pub struct RuntimeWorldLabelObservability {
     pub label_count: u64,
     pub reliable_label_count: u64,
     pub remove_label_count: u64,
+    pub active_count: usize,
+    pub last_entity_id: Option<i32>,
+    pub last_text: Option<String>,
+    pub last_flags: Option<u8>,
+    pub last_font_size_bits: Option<u32>,
+    pub last_z_bits: Option<u32>,
+    pub last_position: Option<RuntimeWorldPositionObservability>,
 }
 
 /// Structured session/runtime lifecycle summary for kick/loading/reconnect state.

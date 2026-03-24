@@ -6514,8 +6514,10 @@ impl ClientSession {
                 .map(str::to_string);
             let (build_turret_rotation_bits, build_turret_plans_present, build_turret_plan_count) =
                 summarize_build_turret_tail_fields(&row.sync.parsed_tail);
-            let config_object =
-                loaded_world_config_object_from_parsed_tail(block_name.as_deref(), &row.sync.parsed_tail);
+            let config_object = loaded_world_config_object_from_parsed_tail(
+                block_name.as_deref(),
+                &row.sync.parsed_tail,
+            );
             self.state
                 .building_table_projection
                 .apply_block_snapshot_head(
@@ -11154,9 +11156,7 @@ fn loaded_world_nullable_content_object(content_type: u8, content_id: Option<i16
     }
 }
 
-fn loaded_world_nullable_content_ref_object(
-    content: Option<ConfiguredContentRef>,
-) -> TypeIoObject {
+fn loaded_world_nullable_content_ref_object(content: Option<ConfiguredContentRef>) -> TypeIoObject {
     match content {
         Some(content) => TypeIoObject::ContentRaw {
             content_type: content.content_type,
@@ -11183,10 +11183,16 @@ fn loaded_world_config_object_from_summary(
     switch_enabled: Option<bool>,
 ) -> Option<TypeIoObject> {
     if let Some(block_id) = constructor_recipe_block_id {
-        return Some(loaded_world_nullable_content_object(BLOCK_CONTENT_TYPE, block_id));
+        return Some(loaded_world_nullable_content_object(
+            BLOCK_CONTENT_TYPE,
+            block_id,
+        ));
     }
     if let Some(item_id) = landing_pad_config_item_id {
-        return Some(loaded_world_nullable_content_object(ITEM_CONTENT_TYPE, item_id));
+        return Some(loaded_world_nullable_content_object(
+            ITEM_CONTENT_TYPE,
+            item_id,
+        ));
     }
     if let Some(text) = message_text {
         return Some(TypeIoObject::String(Some(text.to_string())));
@@ -11198,7 +11204,10 @@ fn loaded_world_config_object_from_summary(
         return Some(loaded_world_nullable_content_ref_object(content));
     }
     if let Some(item_id) = duct_unloader_item_id {
-        return Some(loaded_world_nullable_content_object(ITEM_CONTENT_TYPE, item_id));
+        return Some(loaded_world_nullable_content_object(
+            ITEM_CONTENT_TYPE,
+            item_id,
+        ));
     }
     if let Some(command_id) = reconstructor_command_id {
         return Some(
@@ -11223,7 +11232,10 @@ fn loaded_world_config_object_from_summary(
                     | BLOCK_NAME_DUCT_ROUTER
             )
         ) {
-            return Some(loaded_world_nullable_content_object(ITEM_CONTENT_TYPE, item_id));
+            return Some(loaded_world_nullable_content_object(
+                ITEM_CONTENT_TYPE,
+                item_id,
+            ));
         }
     }
     if let Some(link) = item_bridge_link {
@@ -25549,10 +25561,14 @@ mod tests {
             block_id,
             &authoritative_value,
         );
-        let previous_tile_config_apply_count =
-            session.state().building_table_projection.tile_config_apply_count;
-        let previous_configured_applied_count =
-            session.state().tile_config_projection.configured_applied_count;
+        let previous_tile_config_apply_count = session
+            .state()
+            .building_table_projection
+            .tile_config_apply_count;
+        let previous_configured_applied_count = session
+            .state()
+            .tile_config_projection
+            .configured_applied_count;
 
         session
             .queue_tile_config(Some(build_pos), pending_value.clone())
@@ -25587,11 +25603,17 @@ mod tests {
                 && configured_block_name == BLOCK_NAME_SWITCH
         ));
         assert_eq!(
-            session.state().building_table_projection.tile_config_apply_count,
+            session
+                .state()
+                .building_table_projection
+                .tile_config_apply_count,
             previous_tile_config_apply_count + 1
         );
         assert_eq!(
-            session.state().tile_config_projection.configured_applied_count,
+            session
+                .state()
+                .tile_config_projection
+                .configured_applied_count,
             previous_configured_applied_count + 1
         );
         assert_eq!(

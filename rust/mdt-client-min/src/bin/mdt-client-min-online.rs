@@ -726,14 +726,11 @@ impl LiveIntentMapperController {
         if due.is_empty() {
             return self.tracker.sample_runtime_snapshot(runtime_snapshot);
         }
-
-        let mut changed = false;
-        for entry in due {
-            changed |= self
-                .tracker
-                .sample_runtime_snapshot_with_override(runtime_snapshot, &entry.snapshot);
-        }
-        changed
+        let snapshots = due
+            .into_iter()
+            .map(|entry| entry.snapshot)
+            .collect::<Vec<_>>();
+        self.tracker.sample_runtime_snapshot_batch(&snapshots)
     }
 }
 
@@ -4301,6 +4298,12 @@ fn maybe_queue_runtime_custom_packet_relays(
     for entry in custom_packet_relays.drain_entries() {
         queue_runtime_custom_packet_relay_action(session, &entry.action)?;
         println!("{} tick={}ms", entry.line, now_ms);
+        for line in summarize_runtime_custom_packet_relay_action(&entry.action) {
+            println!(
+                "runtime_custom_packet_relay_replay: tick={}ms {line}",
+                now_ms
+            );
+        }
     }
     Ok(())
 }
@@ -4408,6 +4411,115 @@ fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<String> 
     mdt_client_min::event_summary::summarize_client_packet_events(events)
 }
 
+fn summarize_custom_packet_outbound_action(action: &OutboundAction) -> Vec<String> {
+    custom_packet_event_from_outbound_action(action)
+        .map(|event| summarize_client_packet_events(&[event]))
+        .unwrap_or_default()
+}
+
+fn summarize_runtime_custom_packet_relay_action(
+    action: &RuntimeCustomPacketRelayAction,
+) -> Vec<String> {
+    summarize_client_packet_events(&[custom_packet_event_from_relay_action(action)])
+}
+
+fn custom_packet_event_from_outbound_action(action: &OutboundAction) -> Option<ClientSessionEvent> {
+    match action {
+        OutboundAction::ClientPacket {
+            packet_type,
+            contents,
+            transport,
+        } => Some(match transport {
+            ClientPacketTransport::Tcp => ClientSessionEvent::ClientPacketReliable {
+                packet_type: packet_type.clone(),
+                contents: contents.clone(),
+            },
+            ClientPacketTransport::Udp => ClientSessionEvent::ClientPacketUnreliable {
+                packet_type: packet_type.clone(),
+                contents: contents.clone(),
+            },
+        }),
+        OutboundAction::ClientBinaryPacket {
+            packet_type,
+            contents,
+            transport,
+        } => Some(match transport {
+            ClientPacketTransport::Tcp => ClientSessionEvent::ClientBinaryPacketReliable {
+                packet_type: packet_type.clone(),
+                contents: contents.clone(),
+            },
+            ClientPacketTransport::Udp => ClientSessionEvent::ClientBinaryPacketUnreliable {
+                packet_type: packet_type.clone(),
+                contents: contents.clone(),
+            },
+        }),
+        OutboundAction::ClientLogicData {
+            channel,
+            value,
+            transport,
+        } => Some(match transport {
+            ClientLogicDataTransport::Reliable => ClientSessionEvent::ClientLogicDataReliable {
+                channel: channel.clone(),
+                value: value.clone(),
+            },
+            ClientLogicDataTransport::Unreliable => ClientSessionEvent::ClientLogicDataUnreliable {
+                channel: channel.clone(),
+                value: value.clone(),
+            },
+        }),
+        _ => None,
+    }
+}
+
+fn custom_packet_event_from_relay_action(
+    action: &RuntimeCustomPacketRelayAction,
+) -> ClientSessionEvent {
+    match action {
+        RuntimeCustomPacketRelayAction::Text {
+            packet_type,
+            contents,
+            transport,
+        } => match transport {
+            ClientPacketTransport::Tcp => ClientSessionEvent::ClientPacketReliable {
+                packet_type: packet_type.clone(),
+                contents: contents.clone(),
+            },
+            ClientPacketTransport::Udp => ClientSessionEvent::ClientPacketUnreliable {
+                packet_type: packet_type.clone(),
+                contents: contents.clone(),
+            },
+        },
+        RuntimeCustomPacketRelayAction::Binary {
+            packet_type,
+            contents,
+            transport,
+        } => match transport {
+            ClientPacketTransport::Tcp => ClientSessionEvent::ClientBinaryPacketReliable {
+                packet_type: packet_type.clone(),
+                contents: contents.clone(),
+            },
+            ClientPacketTransport::Udp => ClientSessionEvent::ClientBinaryPacketUnreliable {
+                packet_type: packet_type.clone(),
+                contents: contents.clone(),
+            },
+        },
+        RuntimeCustomPacketRelayAction::LogicData {
+            channel,
+            value,
+            transport,
+        } => match transport {
+            ClientLogicDataTransport::Reliable => ClientSessionEvent::ClientLogicDataReliable {
+                channel: channel.clone(),
+                value: value.clone(),
+            },
+            ClientLogicDataTransport::Unreliable => ClientSessionEvent::ClientLogicDataUnreliable {
+                channel: channel.clone(),
+                value: value.clone(),
+            },
+        },
+    }
+}
+
 fn truncate_for_preview(text: &str, max_chars: usize) -> String {
     let mut chars = text.chars();
     let truncated = chars.by_ref().take(max_chars).collect::<String>();
@@ -4472,6 +4584,14 @@ fn maybe_queue_outbound_actions(
             entry.not_before_ms,
             entry.action
         );
+        for line in summarize_custom_packet_outbound_action(&entry.action) {
+            println!(
+                "outbound_action_client_packet_replay: index={} tick={}ms scheduled={}ms {line}",
+                queued_start_index + offset,
+                now_ms,
+                entry.not_before_ms,
+            );
+        }
     }
     Ok(())
 }
@@ -7740,6 +7860,83 @@ mod tests {
     }
 
     #[test]
+    fn summarize_custom_packet_outbound_action_formats_client_custom_variants() {
+        assert_eq!(
+            summarize_custom_packet_outbound_action(&OutboundAction::ClientPacket {
+                packet_type: "mod.echo".to_string(),
+                contents: "hello world".to_string(),
+                transport: ClientPacketTransport::Tcp,
+            }),
+            vec![
+                "client_packet: transport=reliable type=\"mod.echo\" len=11 preview=\"hello world\""
+                    .to_string()
+            ]
+        );
+        assert_eq!(
+            summarize_custom_packet_outbound_action(&OutboundAction::ClientBinaryPacket {
+                packet_type: "mod.bin".to_string(),
+                contents: vec![0xAA, 0xBB, 0xCC],
+                transport: ClientPacketTransport::Udp,
+            }),
+            vec![
+                "client_binary_packet: transport=unreliable type=\"mod.bin\" len=3 hex_prefix=aabbcc"
+                    .to_string()
+            ]
+        );
+        assert_eq!(
+            summarize_custom_packet_outbound_action(&OutboundAction::ClientLogicData {
+                channel: "logic.alpha".to_string(),
+                value: TypeIoObject::Int(7),
+                transport: ClientLogicDataTransport::Reliable,
+            }),
+            vec![
+                "client_logic_data: transport=reliable channel=\"logic.alpha\" kind=\"int\" preview=\"Int(7)\""
+                    .to_string()
+            ]
+        );
+        assert!(summarize_custom_packet_outbound_action(&OutboundAction::UnitClear).is_empty());
+    }
+
+    #[test]
+    fn summarize_runtime_custom_packet_relay_action_formats_replayed_variants() {
+        assert_eq!(
+            summarize_runtime_custom_packet_relay_action(&RuntimeCustomPacketRelayAction::Text {
+                packet_type: "mod.pong".to_string(),
+                contents: "relay ready".to_string(),
+                transport: ClientPacketTransport::Udp,
+            }),
+            vec![
+                "client_packet: transport=unreliable type=\"mod.pong\" len=11 preview=\"relay ready\""
+                    .to_string()
+            ]
+        );
+        assert_eq!(
+            summarize_runtime_custom_packet_relay_action(&RuntimeCustomPacketRelayAction::Binary {
+                packet_type: "mod.bin.pong".to_string(),
+                contents: vec![0xDE, 0xAD, 0xBE, 0xEF],
+                transport: ClientPacketTransport::Tcp,
+            }),
+            vec![
+                "client_binary_packet: transport=reliable type=\"mod.bin.pong\" len=4 hex_prefix=deadbeef"
+                    .to_string()
+            ]
+        );
+        assert_eq!(
+            summarize_runtime_custom_packet_relay_action(
+                &RuntimeCustomPacketRelayAction::LogicData {
+                    channel: "logic.beta".to_string(),
+                    value: TypeIoObject::Bool(true),
+                    transport: ClientLogicDataTransport::Unreliable,
+                }
+            ),
+            vec![
+                "client_logic_data: transport=unreliable channel=\"logic.beta\" kind=\"bool\" preview=\"Bool(true)\""
+                    .to_string()
+            ]
+        );
+    }
+
+    #[test]
     fn queue_outbound_action_dispatches_supported_methods() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
@@ -8989,6 +9186,57 @@ mod tests {
         assert!(live_intent_mapper.state().building);
         assert!(!live_intent_mapper.advance(&runtime_snapshot, 1));
         assert!(live_intent_mapper.state().pressed_actions.is_empty());
+    }
+
+    #[test]
+    fn live_intent_schedule_preserves_transient_edges_when_multiple_due_snapshots_share_tick() {
+        let schedule = vec![
+            ScheduledIntentSnapshot {
+                not_before_ms: 0,
+                snapshot: InputSnapshot {
+                    move_axis: (1.0, 0.0),
+                    aim_axis: (16.0, 24.0),
+                    mining_tile: None,
+                    building: true,
+                    active_actions: vec![BinaryAction::Fire],
+                },
+            },
+            ScheduledIntentSnapshot {
+                not_before_ms: 0,
+                snapshot: InputSnapshot {
+                    move_axis: (0.0, 0.0),
+                    aim_axis: (32.0, 48.0),
+                    mining_tile: Some((9, 10)),
+                    building: false,
+                    active_actions: vec![],
+                },
+            },
+        ];
+        let mut live_intent_mapper =
+            LiveIntentMapperController::new(schedule, IntentSamplingMode::LiveSampling);
+        let runtime_snapshot = InputSnapshot {
+            move_axis: (9.0, 9.0),
+            aim_axis: (99.0, 99.0),
+            mining_tile: None,
+            building: false,
+            active_actions: vec![BinaryAction::Boost],
+        };
+
+        assert!(live_intent_mapper.advance(&runtime_snapshot, 0));
+        assert_eq!(live_intent_mapper.state().move_axis, (0.0, 0.0));
+        assert_eq!(live_intent_mapper.state().aim_axis, (32.0, 48.0));
+        assert_eq!(live_intent_mapper.state().mining_tile, Some((9, 10)));
+        assert_eq!(
+            live_intent_mapper.state().pressed_actions,
+            vec![BinaryAction::Fire]
+        );
+        assert_eq!(
+            live_intent_mapper.state().released_actions,
+            vec![BinaryAction::Fire]
+        );
+        assert!(!live_intent_mapper
+            .state()
+            .is_action_active(BinaryAction::Fire));
     }
 
     #[test]

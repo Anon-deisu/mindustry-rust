@@ -432,7 +432,11 @@ fn compose_runtime_command_mode_panel_text(hud: &HudModel) -> Option<String> {
         command_rect_text(panel.command_rect),
         command_control_groups_text(&panel.control_groups),
         command_target_text(panel.last_target),
-        optional_u8_label(panel.last_command_selection.and_then(|selection| selection.command_id)),
+        optional_u8_label(
+            panel
+                .last_command_selection
+                .and_then(|selection| selection.command_id)
+        ),
         command_stance_text(panel.last_stance_selection),
     ))
 }
@@ -454,9 +458,28 @@ fn compose_runtime_admin_panel_text(hud: &HudModel) -> Option<String> {
 fn compose_runtime_world_label_panel_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_world_label_panel(hud)?;
     Some(format!(
-        "set={} rel={} remove={} total={}",
-        panel.label_count, panel.reliable_label_count, panel.remove_label_count, panel.total_count,
+        "set={} rel={} remove={} total={} active={} last={} pos={} text={}",
+        panel.label_count,
+        panel.reliable_label_count,
+        panel.remove_label_count,
+        panel.total_count,
+        panel.active_count,
+        optional_i32_label(panel.last_entity_id),
+        world_position_text(panel.last_position.as_ref()),
+        runtime_world_label_text_sample(panel.last_text.as_deref()),
     ))
+}
+
+fn runtime_world_label_text_sample(value: Option<&str>) -> String {
+    let Some(value) = value else {
+        return "none".to_string();
+    };
+    let sample = value.chars().take(24).collect::<String>();
+    if value.chars().count() > 24 {
+        format!("{sample}...")
+    } else {
+        sample
+    }
 }
 
 fn compose_runtime_session_panel_text(hud: &HudModel) -> Option<String> {
@@ -1685,7 +1708,10 @@ mod tests {
                 command_mode: crate::RuntimeCommandModeObservability {
                     active: true,
                     selected_units: vec![11, 22, 33, 44],
-                    command_buildings: vec![((5 & 0xffff) << 16) | (6 & 0xffff), ((-7 & 0xffff) << 16) | (8 & 0xffff)],
+                    command_buildings: vec![
+                        ((5 & 0xffff) << 16) | (6 & 0xffff),
+                        ((-7 & 0xffff) << 16) | (8 & 0xffff),
+                    ],
                     command_rect: Some(crate::RuntimeCommandRectObservability {
                         x0: -3,
                         y0: 4,
@@ -1749,6 +1775,16 @@ mod tests {
                     label_count: 19,
                     reliable_label_count: 20,
                     remove_label_count: 21,
+                    active_count: 2,
+                    last_entity_id: Some(904),
+                    last_text: Some("world label".to_string()),
+                    last_flags: Some(3),
+                    last_font_size_bits: Some(12.0f32.to_bits()),
+                    last_z_bits: Some(4.0f32.to_bits()),
+                    last_position: Some(crate::RuntimeWorldPositionObservability {
+                        x_bits: 40.0f32.to_bits(),
+                        y_bits: 60.0f32.to_bits(),
+                    }),
                 },
                 session: RuntimeSessionObservability {
                     kick: crate::hud_model::RuntimeKickObservability {
@@ -1935,7 +1971,9 @@ mod tests {
         assert!(frame.contains(
             "RUNTIME-RULES: mut=354 fail=210 set=67/69/71 clear=73 complete=74 state=wv1:pvp0 obj=2 qual=1 parents=1 flags=2 oor=75 last=9"
         ));
-        assert!(frame.contains("RUNTIME-WORLD-LABEL: set=19 rel=20 remove=21 total=60"));
+        assert!(frame.contains(
+            "RUNTIME-WORLD-LABEL: set=19 rel=20 remove=21 total=60 active=2 last=904 pos=40.0:60.0 text=world label"
+        ));
         assert!(frame.contains(
             "RUNTIME-SESSION: kick=idInUse@7:IdInUse:wait_for_old~ loading=defer5 replay6 drop7 qdrop8 sfail9 scfail10 efail11 rdy12@1300 to2/1/1 ltready@20000 rs3/1/1/1 lrreload lwr@lw1:cl0:rd1:cc0:p4:d5:r6 reconnect=attempt#3 redirect redirect=1@127.0.0.1:6567 reason=connectRedir~#none hint=server_reque~"
         ));

@@ -45,6 +45,35 @@ impl StatelessIntentMapper {
             Vec::new()
         }
     }
+
+    pub fn map_snapshot_batch(&mut self, snapshots: &[InputSnapshot]) -> Vec<PlayerIntent> {
+        let Some(last_snapshot) = snapshots.last() else {
+            return Vec::new();
+        };
+        let mut edge_intents = Vec::new();
+        for snapshot in snapshots {
+            let mapped = self.map_snapshot(snapshot);
+            edge_intents.extend(mapped.into_iter().skip(4));
+        }
+
+        let mut combined = Vec::with_capacity(4 + edge_intents.len());
+        combined.push(PlayerIntent::SetMoveAxis {
+            x: last_snapshot.move_axis.0,
+            y: last_snapshot.move_axis.1,
+        });
+        combined.push(PlayerIntent::SetAimAxis {
+            x: last_snapshot.aim_axis.0,
+            y: last_snapshot.aim_axis.1,
+        });
+        combined.push(PlayerIntent::SetMiningTile {
+            tile: last_snapshot.mining_tile,
+        });
+        combined.push(PlayerIntent::SetBuilding {
+            building: last_snapshot.building,
+        });
+        combined.extend(edge_intents);
+        combined
+    }
 }
 
 impl IntentMapper for StatelessIntentMapper {
@@ -417,6 +446,54 @@ mod tests {
         );
 
         assert!(mapper.map_latest_snapshot(&[]).is_empty());
+    }
+
+    #[test]
+    fn map_snapshot_batch_preserves_transient_edges_with_final_runtime_axes() {
+        let mut mapper = StatelessIntentMapper::new(IntentSamplingMode::LiveSampling);
+
+        let batch = vec![
+            snapshot((1.0, 0.0), (2.0, 2.0), &[BinaryAction::Fire]),
+            snapshot((0.0, 0.0), (3.0, 4.0), &[]),
+        ];
+        assert_eq!(
+            mapper.map_snapshot_batch(&batch),
+            vec![
+                PlayerIntent::SetMoveAxis { x: 0.0, y: 0.0 },
+                PlayerIntent::SetAimAxis { x: 3.0, y: 4.0 },
+                PlayerIntent::SetMiningTile { tile: None },
+                PlayerIntent::SetBuilding { building: false },
+                PlayerIntent::ActionPressed(BinaryAction::Fire),
+                PlayerIntent::ActionReleased(BinaryAction::Fire),
+            ]
+        );
+    }
+
+    #[test]
+    fn map_snapshot_batch_keeps_edge_order_across_multiple_samples() {
+        let mut mapper = StatelessIntentMapper::new(IntentSamplingMode::LiveSampling);
+
+        let batch = vec![
+            snapshot((0.0, 0.0), (1.0, 1.0), &[BinaryAction::Fire]),
+            snapshot(
+                (0.5, 0.5),
+                (2.0, 2.0),
+                &[BinaryAction::Fire, BinaryAction::Boost],
+            ),
+            snapshot((0.5, 0.5), (3.0, 3.0), &[BinaryAction::Boost]),
+        ];
+        assert_eq!(
+            mapper.map_snapshot_batch(&batch),
+            vec![
+                PlayerIntent::SetMoveAxis { x: 0.5, y: 0.5 },
+                PlayerIntent::SetAimAxis { x: 3.0, y: 3.0 },
+                PlayerIntent::SetMiningTile { tile: None },
+                PlayerIntent::SetBuilding { building: false },
+                PlayerIntent::ActionPressed(BinaryAction::Fire),
+                PlayerIntent::ActionPressed(BinaryAction::Boost),
+                PlayerIntent::ActionReleased(BinaryAction::Fire),
+            ]
+        );
     }
 
     #[test]

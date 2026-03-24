@@ -14,10 +14,10 @@ use crate::session_state::{
     BuildingProjectionUpdateKind, BuildingTableProjection, ConfiguredBlockOutcome,
     ConfiguredBlockProjection, ConfiguredContentRef, EffectBusinessContentKind,
     EffectBusinessPositionSource, EffectBusinessProjection, EffectDataSemantic,
-    HiddenSnapshotDeltaProjection, ReconnectPhaseProjection, ReconnectReasonKind, SessionResetKind,
-    SessionState, SessionTimeoutKind, StateSnapshotAuthorityProjection,
-    StateSnapshotBusinessProjection, TileConfigAuthoritySource, TileConfigProjection,
-    UnitRefProjection, WorldBootstrapProjection, WorldReloadProjection,
+    EntitySemanticProjection, HiddenSnapshotDeltaProjection, ReconnectPhaseProjection,
+    ReconnectReasonKind, SessionResetKind, SessionState, SessionTimeoutKind,
+    StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection, TileConfigAuthoritySource,
+    TileConfigProjection, UnitRefProjection, WorldBootstrapProjection, WorldReloadProjection,
 };
 use mdt_remote::{HighFrequencyRemoteMethod, HIGH_FREQUENCY_REMOTE_METHOD_COUNT};
 use mdt_render_ui::hud_model::{
@@ -1537,10 +1537,42 @@ fn runtime_rules_observability(session_state: &SessionState) -> RuntimeRulesObse
 fn runtime_world_label_observability(
     session_state: &SessionState,
 ) -> RuntimeWorldLabelObservability {
+    let active_labels = session_state
+        .entity_semantic_projection
+        .by_entity_id
+        .iter()
+        .filter_map(|(&entity_id, entry)| match &entry.projection {
+            EntitySemanticProjection::WorldLabel(world_label) => {
+                Some((entity_id, entry, world_label))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let last_active_label = active_labels
+        .iter()
+        .max_by_key(|(entity_id, entry, _)| (entry.last_seen_entity_snapshot_count, *entity_id))
+        .copied();
     RuntimeWorldLabelObservability {
         label_count: session_state.received_world_label_count,
         reliable_label_count: session_state.received_world_label_reliable_count,
         remove_label_count: session_state.received_remove_world_label_count,
+        active_count: active_labels.len(),
+        last_entity_id: last_active_label.map(|(entity_id, _, _)| entity_id),
+        last_text: last_active_label.and_then(|(_, _, world_label)| world_label.text.clone()),
+        last_flags: last_active_label.map(|(_, _, world_label)| world_label.flags),
+        last_font_size_bits: last_active_label
+            .map(|(_, _, world_label)| world_label.font_size_bits),
+        last_z_bits: last_active_label.map(|(_, _, world_label)| world_label.z_bits),
+        last_position: last_active_label.and_then(|(entity_id, _, _)| {
+            session_state
+                .entity_table_projection
+                .by_entity_id
+                .get(&entity_id)
+                .map(|entity| RuntimeWorldPositionObservability {
+                    x_bits: entity.x_bits,
+                    y_bits: entity.y_bits,
+                })
+        }),
     }
 }
 
@@ -2735,12 +2767,44 @@ fn runtime_optional_unit_ref_label(value: Option<UnitRefProjection>) -> String {
 }
 
 fn runtime_world_label_label(session_state: &SessionState) -> String {
+    let observability = runtime_world_label_observability(session_state);
     format!(
-        "lbl{}:lblr{}:rml{}",
-        session_state.received_world_label_count,
-        session_state.received_world_label_reliable_count,
-        session_state.received_remove_world_label_count,
+        "lbl{}:lblr{}:rml{}:act{}:last{}:f{}:fs{}:z{}:pos{}:txt{}",
+        observability.label_count,
+        observability.reliable_label_count,
+        observability.remove_label_count,
+        observability.active_count,
+        runtime_optional_display_label(observability.last_entity_id),
+        runtime_optional_display_label(observability.last_flags),
+        runtime_optional_display_label(observability.last_font_size_bits),
+        runtime_optional_display_label(observability.last_z_bits),
+        runtime_optional_world_label_position_label(observability.last_position),
+        runtime_optional_world_label_text_label(observability.last_text.as_deref()),
     )
+}
+
+fn runtime_optional_world_label_position_label(
+    value: Option<RuntimeWorldPositionObservability>,
+) -> String {
+    value.map_or_else(
+        || "none".to_string(),
+        |value| {
+            let x = f32::from_bits(value.x_bits);
+            let y = f32::from_bits(value.y_bits);
+            if x.is_finite() && y.is_finite() {
+                format!("{x:.1}:{y:.1}")
+            } else {
+                format!("0x{:08x}:0x{:08x}", value.x_bits, value.y_bits)
+            }
+        },
+    )
+}
+
+fn runtime_optional_world_label_text_label(value: Option<&str>) -> String {
+    let Some(value) = value else {
+        return "none".to_string();
+    };
+    runtime_build_config_text_sample(value, 16).replace(' ', "_")
 }
 
 fn runtime_marker_label(session_state: &SessionState) -> String {
@@ -4808,6 +4872,54 @@ mod tests {
             false,
             3,
         );
+        state.entity_table_projection.upsert_entity(
+            903,
+            35,
+            false,
+            0,
+            0,
+            10.0f32.to_bits(),
+            12.0f32.to_bits(),
+            false,
+            2,
+        );
+        state.entity_table_projection.upsert_entity(
+            904,
+            35,
+            false,
+            0,
+            0,
+            40.0f32.to_bits(),
+            60.0f32.to_bits(),
+            false,
+            4,
+        );
+        state.entity_semantic_projection.upsert(
+            903,
+            35,
+            2,
+            EntitySemanticProjection::WorldLabel(
+                crate::session_state::EntityWorldLabelSemanticProjection {
+                    flags: 1,
+                    font_size_bits: 8.0f32.to_bits(),
+                    text: Some("older label".to_string()),
+                    z_bits: 2.0f32.to_bits(),
+                },
+            ),
+        );
+        state.entity_semantic_projection.upsert(
+            904,
+            35,
+            4,
+            EntitySemanticProjection::WorldLabel(
+                crate::session_state::EntityWorldLabelSemanticProjection {
+                    flags: 3,
+                    font_size_bits: 12.0f32.to_bits(),
+                    text: Some("world label".to_string()),
+                    z_bits: 4.0f32.to_bits(),
+                },
+            ),
+        );
         state.entity_snapshot_tombstone_skip_count = 5;
         state.last_entity_snapshot_tombstone_skipped_ids_sample = vec![100, 202];
         state.entity_snapshot_tombstones = BTreeMap::from([(100, 11), (202, 12)]);
@@ -5447,7 +5559,26 @@ mod tests {
         assert_eq!(runtime_ui.world_labels.label_count, 19);
         assert_eq!(runtime_ui.world_labels.reliable_label_count, 20);
         assert_eq!(runtime_ui.world_labels.remove_label_count, 21);
-        assert_eq!(runtime_ui.live.entity.entity_count, 1);
+        assert_eq!(runtime_ui.world_labels.active_count, 2);
+        assert_eq!(runtime_ui.world_labels.last_entity_id, Some(904));
+        assert_eq!(
+            runtime_ui.world_labels.last_text.as_deref(),
+            Some("world label")
+        );
+        assert_eq!(runtime_ui.world_labels.last_flags, Some(3));
+        assert_eq!(
+            runtime_ui.world_labels.last_font_size_bits,
+            Some(12.0f32.to_bits())
+        );
+        assert_eq!(runtime_ui.world_labels.last_z_bits, Some(4.0f32.to_bits()));
+        assert_eq!(
+            runtime_ui.world_labels.last_position,
+            Some(RuntimeWorldPositionObservability {
+                x_bits: 40.0f32.to_bits(),
+                y_bits: 60.0f32.to_bits(),
+            })
+        );
+        assert_eq!(runtime_ui.live.entity.entity_count, 3);
         assert_eq!(runtime_ui.live.entity.hidden_count, 0);
         assert_eq!(runtime_ui.live.entity.local_entity_id, Some(404));
         assert_eq!(runtime_ui.live.entity.local_unit_kind, Some(2));
@@ -5497,7 +5628,7 @@ mod tests {
         );
         assert!(hud
             .status_text
-            .contains("runtime_world_label=lbl19:lblr20:rml21"));
+            .contains("runtime_world_label=lbl19:lblr20:rml21:act2:last904:f3:fs1094713344:z1082130432:pos40.0:60.0:txtworld_label"));
         assert!(hud
             .status_text
             .contains("runtime_marker=cr54:rm55:up56:txt57:tex58:fail2:last808:flushText"));

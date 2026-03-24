@@ -1755,7 +1755,11 @@ impl BuildingTableProjection {
                         .as_ref()
                         .and_then(|building| building.legacy_consume_connected)
                 }),
-                config: config.or_else(|| previous.as_ref().and_then(|building| building.config.clone())),
+                config: config.or_else(|| {
+                    previous
+                        .as_ref()
+                        .and_then(|building| building.config.clone())
+                }),
                 health_bits: health_bits
                     .or_else(|| previous.as_ref().and_then(|building| building.health_bits)),
                 enabled: enabled

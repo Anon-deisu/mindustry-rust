@@ -79,6 +79,18 @@ impl RuntimeIntentTracker {
         self.sample_snapshot(runtime_snapshot, None)
     }
 
+    pub fn sample_runtime_snapshot_batch(&mut self, runtime_snapshots: &[InputSnapshot]) -> bool {
+        if runtime_snapshots.is_empty() {
+            return false;
+        }
+        let intents = self.mapper.map_snapshot_batch(runtime_snapshots);
+        let previous_key = runtime_snapshot_apply_key(&self.state);
+        self.state.apply_intents(&intents);
+        runtime_snapshot_apply_key(&self.state) != previous_key
+            || !self.state.pressed_actions.is_empty()
+            || !self.state.released_actions.is_empty()
+    }
+
     pub fn sample_runtime_snapshot_with_override(
         &mut self,
         runtime_snapshot: &InputSnapshot,
@@ -369,5 +381,35 @@ mod tests {
             active_actions: Vec::new(),
         }));
         assert!(!tracker.state().building);
+    }
+
+    #[test]
+    fn runtime_intent_tracker_batch_preserves_transient_edges() {
+        let mut tracker = RuntimeIntentTracker::new(IntentSamplingMode::LiveSampling);
+        let batch = vec![
+            InputSnapshot {
+                move_axis: (1.0, 0.0),
+                aim_axis: (2.0, 2.0),
+                mining_tile: None,
+                building: true,
+                active_actions: vec![BinaryAction::Fire],
+            },
+            InputSnapshot {
+                move_axis: (0.0, 0.0),
+                aim_axis: (3.0, 4.0),
+                mining_tile: Some((7, 8)),
+                building: false,
+                active_actions: vec![],
+            },
+        ];
+
+        assert!(tracker.sample_runtime_snapshot_batch(&batch));
+        assert_eq!(tracker.state().move_axis, (0.0, 0.0));
+        assert_eq!(tracker.state().aim_axis, (3.0, 4.0));
+        assert_eq!(tracker.state().mining_tile, Some((7, 8)));
+        assert!(!tracker.state().building);
+        assert_eq!(tracker.state().pressed_actions, vec![BinaryAction::Fire]);
+        assert_eq!(tracker.state().released_actions, vec![BinaryAction::Fire]);
+        assert!(!tracker.state().is_action_active(BinaryAction::Fire));
     }
 }

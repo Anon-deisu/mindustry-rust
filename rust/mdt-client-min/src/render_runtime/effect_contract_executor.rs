@@ -60,7 +60,9 @@ pub(crate) fn world_position_from_contract_business_projection(
         .or_else(|| generic_business_world_position(projection))
 }
 
-fn executor_for_contract(contract: RuntimeEffectContract) -> &'static RuntimeEffectContractExecutor {
+fn executor_for_contract(
+    contract: RuntimeEffectContract,
+) -> &'static RuntimeEffectContractExecutor {
     match contract {
         RuntimeEffectContract::PositionTarget => &POSITION_TARGET_EXECUTOR,
         RuntimeEffectContract::ItemContent => &ITEM_CONTENT_EXECUTOR,
@@ -184,7 +186,11 @@ where
     P: Fn(&TypeIoObject) -> bool,
 {
     object
-        .find_first_dfs_bounded(EFFECT_CONTRACT_MAX_DEPTH, EFFECT_CONTRACT_MAX_NODES, predicate)
+        .find_first_dfs_bounded(
+            EFFECT_CONTRACT_MAX_DEPTH,
+            EFFECT_CONTRACT_MAX_NODES,
+            predicate,
+        )
         .map(|matched| matched.value)
 }
 
@@ -212,9 +218,7 @@ fn position_target_world_position(value: &TypeIoObject) -> Option<(u32, u32)> {
             Some((world_x.to_bits(), world_y.to_bits()))
         }
         TypeIoObject::Vec2 { x, y } => Some((x.to_bits(), y.to_bits())),
-        TypeIoObject::Vec2Array(values) => values
-            .first()
-            .map(|(x, y)| (x.to_bits(), y.to_bits())),
+        TypeIoObject::Vec2Array(values) => values.first().map(|(x, y)| (x.to_bits(), y.to_bits())),
         _ => match value.semantic_ref()? {
             TypeIoSemanticRef::Building { build_pos } => {
                 let (tile_x, tile_y) = super::unpack_runtime_point2(build_pos);
@@ -280,9 +284,10 @@ mod tests {
 
     #[test]
     fn float_length_overlay_origin_projects_nested_float_payload() {
-        let object = TypeIoObject::ObjectArray(vec![TypeIoObject::ObjectArray(vec![
-            TypeIoObject::Float(16.0),
-        ])]);
+        let object =
+            TypeIoObject::ObjectArray(vec![TypeIoObject::ObjectArray(vec![TypeIoObject::Float(
+                16.0,
+            )])]);
 
         assert_eq!(
             overlay_origin_from_contract(

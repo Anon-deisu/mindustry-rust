@@ -4,9 +4,9 @@ use crate::generated::remote_high_frequency_gen::{
 };
 use crate::snapshot_ingest::InboundSnapshot;
 use mdt_remote::{
-    CustomChannelRemoteFamily, CustomChannelRemotePayloadKind, HighFrequencyRemoteMethod,
-    InboundRemoteFamily, RemoteFlow, RemoteManifest, RemoteManifestError, RemotePacketRegistry,
-    RemotePacketSelector, CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT, INBOUND_REMOTE_FAMILY_COUNT,
+    CustomChannelRemoteFamily, CustomChannelRemoteRegistry, HighFrequencyRemoteMethod,
+    InboundRemoteDispatchSpec, InboundRemoteFamily, InboundRemoteRegistry, RemoteFlow,
+    RemoteManifest, RemoteManifestError, RemotePacketRegistry, RemotePacketSelector,
 };
 use std::collections::HashSet;
 
@@ -36,18 +36,12 @@ pub struct InboundSnapshotPacketRegistry {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InboundRemotePacketRegistry {
-    by_packet_id: [(u8, InboundRemoteFamily); INBOUND_REMOTE_FAMILY_COUNT],
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct InboundRemoteDispatchSpec {
-    pub family: InboundRemoteFamily,
-    pub payload_kind: CustomChannelRemotePayloadKind,
+    registry: InboundRemoteRegistry,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CustomChannelPacketRegistry {
-    by_packet_id: [(u8, CustomChannelRemoteFamily); CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT],
+    registry: CustomChannelRemoteRegistry,
 }
 
 impl Default for InboundSnapshotPacketRegistry {
@@ -121,115 +115,53 @@ impl InboundSnapshotPacketRegistry {
 
 impl CustomChannelPacketRegistry {
     pub fn from_remote_manifest(manifest: &RemoteManifest) -> Result<Self, RemoteManifestError> {
-        let registry = RemotePacketRegistry::from_manifest(manifest)?;
-        let mut resolved_entries = Vec::with_capacity(CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT);
-        let mut seen_packet_ids = HashSet::with_capacity(CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT);
-
-        for family in CustomChannelRemoteFamily::ordered() {
-            let entry = registry.first_custom_channel_remote_family(family).ok_or(
-                RemoteManifestError::InvalidRemotePacketMetadata(format!(
-                    "missing custom-channel remote family packet in manifest: {}",
-                    family.method_name(),
-                )),
-            )?;
-            if !seen_packet_ids.insert(entry.packet_id) {
-                return Err(RemoteManifestError::InvalidPacketSequence(format!(
-                    "duplicate custom-channel remote family packet id: {}",
-                    entry.packet_id
-                )));
-            }
-            resolved_entries.push((entry.packet_id, family));
-        }
-
-        let by_packet_id = resolved_entries
-            .try_into()
-            .expect("custom-channel remote family registry length should stay fixed");
-        Ok(Self { by_packet_id })
+        Ok(Self {
+            registry: CustomChannelRemoteRegistry::from_manifest(manifest)?,
+        })
     }
 
     pub fn classify(&self, packet_id: u8) -> Option<CustomChannelRemoteFamily> {
-        self.by_packet_id
-            .iter()
-            .find_map(|(known_packet_id, family)| {
-                (*known_packet_id == packet_id).then_some(*family)
-            })
+        self.registry.classify(packet_id)
     }
 
     pub fn packet_id(&self, family: CustomChannelRemoteFamily) -> Option<u8> {
-        self.by_packet_id
-            .iter()
-            .find_map(|(packet_id, known_family)| (*known_family == family).then_some(*packet_id))
+        self.registry.packet_id(family)
     }
 
     pub fn contains_packet_id(&self, packet_id: u8) -> bool {
-        self.by_packet_id
-            .iter()
-            .any(|(known_packet_id, _)| *known_packet_id == packet_id)
+        self.registry.contains_packet_id(packet_id)
     }
 
     pub fn len(&self) -> usize {
-        self.by_packet_id.len()
+        self.registry.len()
     }
 }
 
 impl InboundRemotePacketRegistry {
     pub fn from_remote_manifest(manifest: &RemoteManifest) -> Result<Self, RemoteManifestError> {
-        let registry = RemotePacketRegistry::from_manifest(manifest)?;
-        let mut resolved_entries = Vec::with_capacity(INBOUND_REMOTE_FAMILY_COUNT);
-        let mut seen_packet_ids = HashSet::with_capacity(INBOUND_REMOTE_FAMILY_COUNT);
-
-        for family in InboundRemoteFamily::ordered() {
-            let packet_id = registry
-                .first_inbound_remote_family(family)
-                .ok_or(RemoteManifestError::InvalidRemotePacketMetadata(format!(
-                    "missing inbound remote family packet in manifest: {}",
-                    family.method_name(),
-                )))?
-                .packet_id;
-            if !seen_packet_ids.insert(packet_id) {
-                return Err(RemoteManifestError::InvalidPacketSequence(format!(
-                    "duplicate inbound remote family packet id: {packet_id}",
-                )));
-            }
-            resolved_entries.push((packet_id, family));
-        }
-
-        let by_packet_id = resolved_entries
-            .try_into()
-            .expect("inbound remote family registry length should stay fixed");
-        Ok(Self { by_packet_id })
+        Ok(Self {
+            registry: InboundRemoteRegistry::from_manifest(manifest)?,
+        })
     }
 
     pub fn classify(&self, packet_id: u8) -> Option<InboundRemoteFamily> {
-        self.by_packet_id
-            .iter()
-            .find_map(|(known_packet_id, family)| {
-                (*known_packet_id == packet_id).then_some(*family)
-            })
+        self.registry.classify(packet_id)
     }
 
     pub fn packet_id(&self, family: InboundRemoteFamily) -> Option<u8> {
-        self.by_packet_id
-            .iter()
-            .find_map(|(packet_id, known_family)| (*known_family == family).then_some(*packet_id))
+        self.registry.packet_id(family)
     }
 
     pub fn dispatch_spec(&self, packet_id: u8) -> Option<InboundRemoteDispatchSpec> {
-        self.classify(packet_id)
-            .map(|family| InboundRemoteDispatchSpec {
-                family,
-                payload_kind: family.payload_kind(),
-            })
+        self.registry.dispatch_spec(packet_id)
     }
 
     pub fn contains_packet_id(&self, packet_id: u8) -> bool {
-        self.by_packet_id
-            .iter()
-            .any(|(known_packet_id, _)| *known_packet_id == packet_id)
+        self.registry.contains_packet_id(packet_id)
     }
 
     pub fn len(&self) -> usize {
-        self.by_packet_id.len()
+        self.registry.len()
     }
 }
 
@@ -367,6 +299,25 @@ mod tests {
             })
         );
         assert_eq!(registry.dispatch_spec(9), None);
+    }
+
+    #[test]
+    fn inbound_remote_family_registry_matches_remote_typed_registry() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let registry = InboundRemotePacketRegistry::from_remote_manifest(&manifest).unwrap();
+        let remote_registry = mdt_remote::InboundRemoteRegistry::from_manifest(&manifest).unwrap();
+
+        let packet_id = remote_registry
+            .packet_id(InboundRemoteFamily::ServerPacketReliable)
+            .unwrap();
+        assert_eq!(
+            registry.packet_id(InboundRemoteFamily::ServerPacketReliable),
+            Some(packet_id)
+        );
+        assert_eq!(
+            registry.dispatch_spec(packet_id),
+            remote_registry.dispatch_spec(packet_id)
+        );
     }
 
     fn custom_channel_remote_family_manifest_with_decoys() -> RemoteManifest {

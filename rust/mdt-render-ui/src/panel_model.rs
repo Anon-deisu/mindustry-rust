@@ -286,6 +286,10 @@ pub struct RuntimeWorldLabelPanelModel {
     pub reliable_label_count: u64,
     pub remove_label_count: u64,
     pub total_count: u64,
+    pub active_count: usize,
+    pub last_entity_id: Option<i32>,
+    pub last_text: Option<String>,
+    pub last_position: Option<crate::RuntimeWorldPositionObservability>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -715,7 +719,8 @@ pub fn build_runtime_dialog_panel(hud: &HudModel) -> Option<RuntimeDialogPanelMo
     Some(RuntimeDialogPanelModel {
         prompt_kind,
         prompt_active: runtime_ui.text_input.open_count > 0
-            || runtime_ui.menu.follow_up_menu_open_count > runtime_ui.menu.hide_follow_up_menu_count,
+            || runtime_ui.menu.follow_up_menu_open_count
+                > runtime_ui.menu.hide_follow_up_menu_count,
         menu_open_count: runtime_ui.menu.menu_open_count,
         follow_up_menu_open_count: runtime_ui.menu.follow_up_menu_open_count,
         hide_follow_up_menu_count: runtime_ui.menu.hide_follow_up_menu_count,
@@ -836,6 +841,10 @@ pub fn build_runtime_world_label_panel(hud: &HudModel) -> Option<RuntimeWorldLab
             .label_count
             .saturating_add(world_labels.reliable_label_count)
             .saturating_add(world_labels.remove_label_count),
+        active_count: world_labels.active_count,
+        last_entity_id: world_labels.last_entity_id,
+        last_text: world_labels.last_text.clone(),
+        last_position: world_labels.last_position,
     })
 }
 
@@ -968,23 +977,22 @@ fn resolve_presenter_window(
 mod tests {
     use super::{
         build_build_config_panel, build_build_interaction_panel, build_minimap_panel,
-        build_runtime_admin_panel, build_runtime_command_mode_panel,
-        build_runtime_dialog_panel, build_runtime_live_effect_panel,
-        build_runtime_live_entity_panel, build_runtime_menu_panel, build_runtime_rules_panel,
-        build_runtime_session_panel, build_runtime_ui_notice_panel,
+        build_runtime_admin_panel, build_runtime_command_mode_panel, build_runtime_dialog_panel,
+        build_runtime_live_effect_panel, build_runtime_live_entity_panel, build_runtime_menu_panel,
+        build_runtime_rules_panel, build_runtime_session_panel, build_runtime_ui_notice_panel,
         build_runtime_world_label_panel, BuildInteractionAuthorityState, BuildInteractionMode,
         BuildInteractionQueueState, BuildInteractionSelectionState, PresenterViewWindow,
         RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
     };
     use crate::{
         hud_model::{
-            RuntimeCommandControlGroupObservability, RuntimeCommandModeObservability,
+            HudSummary, RuntimeCommandControlGroupObservability, RuntimeCommandModeObservability,
             RuntimeCommandRectObservability, RuntimeCommandSelectionObservability,
             RuntimeCommandStanceObservability, RuntimeCommandTargetObservability,
-            RuntimeCommandUnitRefObservability,
-            HudSummary, RuntimeReconnectObservability, RuntimeReconnectPhaseObservability,
-            RuntimeReconnectReasonKind, RuntimeSessionObservability, RuntimeSessionResetKind,
-            RuntimeSessionTimeoutKind, RuntimeWorldReloadObservability,
+            RuntimeCommandUnitRefObservability, RuntimeReconnectObservability,
+            RuntimeReconnectPhaseObservability, RuntimeReconnectReasonKind,
+            RuntimeSessionObservability, RuntimeSessionResetKind, RuntimeSessionTimeoutKind,
+            RuntimeWorldReloadObservability,
         },
         BuildConfigAuthoritySourceObservability, BuildConfigInspectorEntryObservability,
         BuildConfigOutcomeObservability, BuildConfigRollbackStripObservability,
@@ -1431,6 +1439,16 @@ mod tests {
                     label_count: 19,
                     reliable_label_count: 20,
                     remove_label_count: 21,
+                    active_count: 2,
+                    last_entity_id: Some(904),
+                    last_text: Some("world label".to_string()),
+                    last_flags: Some(3),
+                    last_font_size_bits: Some(12.0f32.to_bits()),
+                    last_z_bits: Some(4.0f32.to_bits()),
+                    last_position: Some(crate::RuntimeWorldPositionObservability {
+                        x_bits: 40.0f32.to_bits(),
+                        y_bits: 60.0f32.to_bits(),
+                    }),
                 },
                 session: RuntimeSessionObservability::default(),
                 live: RuntimeLiveSummaryObservability::default(),
@@ -1445,6 +1463,16 @@ mod tests {
         assert_eq!(panel.reliable_label_count, 20);
         assert_eq!(panel.remove_label_count, 21);
         assert_eq!(panel.total_count, 60);
+        assert_eq!(panel.active_count, 2);
+        assert_eq!(panel.last_entity_id, Some(904));
+        assert_eq!(panel.last_text.as_deref(), Some("world label"));
+        assert_eq!(
+            panel.last_position,
+            Some(crate::RuntimeWorldPositionObservability {
+                x_bits: 40.0f32.to_bits(),
+                y_bits: 60.0f32.to_bits(),
+            })
+        );
     }
 
     #[test]
@@ -1658,12 +1686,18 @@ mod tests {
         assert_eq!(panel.text_input_open_count, 53);
         assert_eq!(panel.text_input_last_id, Some(404));
         assert_eq!(panel.text_input_last_title.as_deref(), Some("Digits"));
-        assert_eq!(panel.text_input_last_message.as_deref(), Some("Only numbers"));
+        assert_eq!(
+            panel.text_input_last_message.as_deref(),
+            Some("Only numbers")
+        );
         assert_eq!(panel.text_input_last_default_text.as_deref(), Some("12345"));
         assert_eq!(panel.text_input_last_length, Some(16));
         assert_eq!(panel.text_input_last_numeric, Some(true));
         assert_eq!(panel.text_input_last_allow_empty, Some(true));
-        assert_eq!(panel.notice_kind, Some(RuntimeDialogNoticeKind::ToastWarning));
+        assert_eq!(
+            panel.notice_kind,
+            Some(RuntimeDialogNoticeKind::ToastWarning)
+        );
         assert_eq!(panel.notice_text.as_deref(), Some("warn"));
         assert_eq!(panel.notice_count, 48);
     }
