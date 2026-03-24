@@ -23,6 +23,10 @@ pub struct MinimapPanelModel {
     pub window: PresenterViewWindow,
     pub window_last_x: usize,
     pub window_last_y: usize,
+    pub window_clamped_left: bool,
+    pub window_clamped_top: bool,
+    pub window_clamped_right: bool,
+    pub window_clamped_bottom: bool,
     pub window_tile_count: usize,
     pub window_coverage_percent: usize,
     pub map_tile_count: usize,
@@ -32,6 +36,8 @@ pub struct MinimapPanelModel {
     pub unknown_tile_percent: usize,
     pub focus_tile: Option<(usize, usize)>,
     pub focus_in_window: Option<bool>,
+    pub focus_offset_x: Option<isize>,
+    pub focus_offset_y: Option<isize>,
     pub overlay_visible: bool,
     pub fog_enabled: bool,
     pub visible_tile_count: usize,
@@ -717,12 +723,22 @@ pub fn build_minimap_panel(
         .saturating_add(summary.hidden_tile_count);
     let unknown_tile_count = map_tile_count.saturating_sub(known_tile_count);
     let focus_tile = scene.player_focus_tile(8.0);
+    let window_mid_x = window.origin_x.saturating_add(window_last_x) / 2;
+    let window_mid_y = window.origin_y.saturating_add(window_last_y) / 2;
     let focus_in_window = focus_tile.map(|(focus_x, focus_y)| {
         focus_x >= window.origin_x
             && focus_x <= window_last_x
             && focus_y >= window.origin_y
             && focus_y <= window_last_y
     });
+    let (focus_offset_x, focus_offset_y) = focus_tile
+        .map(|(focus_x, focus_y)| {
+            (
+                focus_x as isize - window_mid_x as isize,
+                focus_y as isize - window_mid_y as isize,
+            )
+        })
+        .unzip();
 
     Some(MinimapPanelModel {
         map_width: summary.map_width,
@@ -730,6 +746,10 @@ pub fn build_minimap_panel(
         window,
         window_last_x,
         window_last_y,
+        window_clamped_left: window.origin_x == 0,
+        window_clamped_top: window.origin_y == 0,
+        window_clamped_right: window_last_x.saturating_add(1) >= summary.map_width,
+        window_clamped_bottom: window_last_y.saturating_add(1) >= summary.map_height,
         window_tile_count,
         window_coverage_percent: percent_of(window_tile_count, map_tile_count),
         map_tile_count,
@@ -739,6 +759,8 @@ pub fn build_minimap_panel(
         unknown_tile_percent: percent_of(unknown_tile_count, map_tile_count),
         focus_tile,
         focus_in_window,
+        focus_offset_x,
+        focus_offset_y,
         overlay_visible: summary.overlay_visible,
         fog_enabled: summary.fog_enabled,
         visible_tile_count: summary.visible_tile_count,
@@ -1490,6 +1512,10 @@ mod tests {
         assert_eq!(panel.map_height, 60);
         assert_eq!(panel.window_last_x, 9);
         assert_eq!(panel.window_last_y, 7);
+        assert!(!panel.window_clamped_left);
+        assert!(!panel.window_clamped_top);
+        assert!(!panel.window_clamped_right);
+        assert!(!panel.window_clamped_bottom);
         assert_eq!(panel.window_tile_count, 56);
         assert_eq!(panel.window_coverage_percent, 1);
         assert_eq!(panel.map_tile_count, 4800);
@@ -1499,6 +1525,8 @@ mod tests {
         assert_eq!(panel.unknown_tile_percent, 97);
         assert_eq!(panel.focus_tile, Some((5, 3)));
         assert_eq!(panel.focus_in_window, Some(true));
+        assert_eq!(panel.focus_offset_x, Some(0));
+        assert_eq!(panel.focus_offset_y, Some(-1));
         assert_eq!(panel.visible_known_percent, 83);
         assert_eq!(panel.hidden_known_percent, 16);
         assert_eq!(panel.tracked_object_count, 5);

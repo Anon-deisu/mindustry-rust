@@ -18,8 +18,8 @@ use crate::session_state::{
     ReconnectReasonKind, SessionResetKind, SessionState, SessionTimeoutKind,
     StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection, TileConfigAuthoritySource,
     TileConfigProjection, TypedBuildingRuntimeKind, TypedBuildingRuntimeModel,
-    TypedBuildingRuntimeProjection, TypedBuildingRuntimeValue, UnitRefProjection,
-    WorldBootstrapProjection, WorldReloadProjection,
+    TypedBuildingRuntimeProjection, TypedBuildingRuntimeValue, UnitAssemblerRuntimeProjection,
+    UnitRefProjection, WorldBootstrapProjection, WorldReloadProjection,
 };
 use mdt_remote::{HighFrequencyRemoteMethod, HIGH_FREQUENCY_REMOTE_METHOD_COUNT};
 use mdt_render_ui::hud_model::{
@@ -819,6 +819,10 @@ fn runtime_configured_block_projection_label(projection: &ConfiguredBlockProject
             "pm",
             &projection.payload_mass_driver_link_by_build_pos,
         ),
+        runtime_configured_unit_assembler_family_label(
+            "ua",
+            &projection.unit_assembler_by_build_pos,
+        ),
         runtime_configured_power_node_family_label("pn", &projection.power_node_links_by_build_pos),
         runtime_configured_unit_command_family_label(
             "rc",
@@ -953,6 +957,33 @@ fn runtime_configured_power_node_family_label(
                 .collect::<Vec<_>>()
                 .join("|");
             format!("{prefix}{count}@{x}:{y}=n{}:{target_label}", targets.len())
+        }
+        None => format!("{prefix}{count}"),
+    }
+}
+
+fn runtime_configured_unit_assembler_family_label(
+    prefix: &str,
+    values: &BTreeMap<i32, UnitAssemblerRuntimeProjection>,
+) -> String {
+    let count = values.len();
+    match values.last_key_value() {
+        Some((build_pos, assembler)) => {
+            let (x, y) = unpack_runtime_point2(*build_pos);
+            let block_sample = assembler
+                .block_sample
+                .as_ref()
+                .map(runtime_build_config_content_ref_label)
+                .unwrap_or_else(|| "none".to_string());
+            format!(
+                "{prefix}{count}@{x}:{y}=p{:08x}:u{}:b{}:s{block_sample}:c{}:y{}:r{:08x}",
+                assembler.progress_bits,
+                assembler.unit_ids.len(),
+                assembler.block_entry_count,
+                runtime_optional_command_pos_bits_label(assembler.command_pos),
+                if assembler.payload_present { 1 } else { 0 },
+                assembler.pay_rotation_bits,
+            )
         }
         None => format!("{prefix}{count}"),
     }
@@ -1426,6 +1457,16 @@ fn runtime_effect_business_projection_label(
         }) => format!(
             "target:0x{source_x_bits:08x}:0x{source_y_bits:08x}:0x{target_x_bits:08x}:0x{target_y_bits:08x}"
         ),
+        Some(EffectBusinessProjection::PayloadTargetContent {
+            source_x_bits,
+            source_y_bits,
+            target_x_bits,
+            target_y_bits,
+            content_type,
+            content_id,
+        }) => format!(
+            "payloadTarget:0x{source_x_bits:08x}:0x{source_y_bits:08x}:0x{target_x_bits:08x}:0x{target_y_bits:08x}:{content_type}:{content_id}"
+        ),
         Some(EffectBusinessProjection::LengthRay {
             source_x_bits,
             source_y_bits,
@@ -1893,6 +1934,11 @@ fn runtime_world_position_from_effect_business_projection(
             target_y_bits,
             ..
         })
+        | Some(EffectBusinessProjection::PayloadTargetContent {
+            target_x_bits,
+            target_y_bits,
+            ..
+        })
         | Some(EffectBusinessProjection::LengthRay {
             target_x_bits,
             target_y_bits,
@@ -1901,12 +1947,14 @@ fn runtime_world_position_from_effect_business_projection(
             x_bits: *target_x_bits,
             y_bits: *target_y_bits,
         }),
-        Some(EffectBusinessProjection::LightningPath { points }) => points.last().map(
-            |(x_bits, y_bits)| RuntimeWorldPositionObservability {
-                x_bits: *x_bits,
-                y_bits: *y_bits,
-            },
-        ),
+        Some(EffectBusinessProjection::LightningPath { points }) => {
+            points
+                .last()
+                .map(|(x_bits, y_bits)| RuntimeWorldPositionObservability {
+                    x_bits: *x_bits,
+                    y_bits: *y_bits,
+                })
+        }
         Some(EffectBusinessProjection::ContentRef { .. })
         | Some(EffectBusinessProjection::FloatValue(_))
         | None => None,
@@ -2152,6 +2200,23 @@ fn runtime_typed_build_config_value_label(
                 .map(|value| value.to_string())
                 .unwrap_or_else(|| "clear".to_string())
         ),
+        TypedBuildingRuntimeValue::UnitAssembler {
+            progress_bits,
+            unit_count,
+            block_count,
+            block_sample,
+            command_pos,
+            payload_present,
+            pay_rotation_bits,
+        } => format!(
+            "progress=0x{progress_bits:08x}:units={unit_count}:blocks={block_count}:sample={}:command={}:payload={}:pay-rot=0x{pay_rotation_bits:08x}",
+            block_sample
+                .as_ref()
+                .map(runtime_build_config_content_ref_label)
+                .unwrap_or_else(|| "none".to_string()),
+            runtime_optional_command_pos_bits_label(*command_pos),
+            if *payload_present { 1 } else { 0 },
+        ),
         TypedBuildingRuntimeValue::BuildTower {
             rotation_bits,
             plans_present,
@@ -2266,6 +2331,12 @@ fn runtime_build_config_content_ref_label(content: &ConfiguredContentRef) -> Str
         _ => "c",
     };
     format!("{kind}:{}", content.content_id)
+}
+
+fn runtime_optional_command_pos_bits_label(value: Option<(u32, u32)>) -> String {
+    value
+        .map(|(x_bits, y_bits)| format!("0x{x_bits:08x}:0x{y_bits:08x}"))
+        .unwrap_or_else(|| "none".to_string())
 }
 
 fn runtime_ui_notice_label(session_state: &SessionState) -> String {
@@ -3286,6 +3357,242 @@ fn append_building_table_projection_objects(scene: &mut RenderModel, session_sta
             y: tile_y as f32 * TILE_SIZE,
         });
     }
+
+    let runtime_projection = session_state.runtime_typed_building_projection();
+    append_runtime_building_markers(scene, &runtime_projection);
+
+    append_runtime_build_config_content_icons(
+        scene,
+        "payload-source",
+        &session_state
+            .configured_block_projection
+            .payload_source_content_by_build_pos,
+    );
+    append_runtime_build_config_content_icons(
+        scene,
+        "payload-router",
+        &session_state
+            .configured_block_projection
+            .payload_router_sorted_content_by_build_pos,
+    );
+}
+
+fn append_runtime_building_markers(
+    scene: &mut RenderModel,
+    projection: &TypedBuildingRuntimeProjection,
+) {
+    for building in projection.buildings() {
+        match &building.value {
+            TypedBuildingRuntimeValue::UnitAssembler {
+                progress_bits,
+                unit_count,
+                block_count,
+                block_sample,
+                command_pos,
+                payload_present,
+                pay_rotation_bits,
+            } => append_runtime_unit_assembler_objects(
+                scene,
+                building,
+                *progress_bits,
+                *unit_count,
+                *block_count,
+                block_sample.as_ref(),
+                *command_pos,
+                *payload_present,
+                *pay_rotation_bits,
+            ),
+            TypedBuildingRuntimeValue::Link(Some(target_build_pos))
+                if matches!(
+                    building.kind,
+                    TypedBuildingRuntimeKind::MassDriver
+                        | TypedBuildingRuntimeKind::PayloadMassDriver
+                ) =>
+            {
+                append_runtime_driver_link_objects(
+                    scene,
+                    building.block_name.as_str(),
+                    building.build_pos,
+                    *target_build_pos,
+                );
+            }
+            _ => {}
+        }
+    }
+}
+
+fn append_runtime_unit_assembler_objects(
+    scene: &mut RenderModel,
+    building: &TypedBuildingRuntimeModel,
+    progress_bits: u32,
+    unit_count: usize,
+    block_count: usize,
+    block_sample: Option<&ConfiguredContentRef>,
+    command_pos: Option<(u32, u32)>,
+    payload_present: bool,
+    pay_rotation_bits: u32,
+) {
+    const TILE_SIZE: f32 = 8.0;
+
+    let (tile_x, tile_y) = unpack_runtime_point2(building.build_pos);
+    append_runtime_unit_assembler_area_objects(scene, building.block_name.as_str(), tile_x, tile_y);
+    scene.objects.push(RenderObject {
+        id: format!(
+            "marker:runtime-unit-assembler-progress:{}:{tile_x}:{tile_y}:0x{progress_bits:08x}:{unit_count}:{block_count}:{}:{}:0x{pay_rotation_bits:08x}",
+            building.block_name,
+            block_sample
+                .map(runtime_build_config_content_ref_label)
+                .unwrap_or_else(|| "none".to_string()),
+            if payload_present { 1 } else { 0 },
+        ),
+        layer: 16,
+        x: tile_x as f32 * TILE_SIZE,
+        y: tile_y as f32 * TILE_SIZE,
+    });
+
+    let Some((command_x_bits, command_y_bits)) = command_pos else {
+        return;
+    };
+    scene.objects.push(RenderObject {
+        id: format!(
+            "marker:runtime-unit-assembler-command:{}:{tile_x}:{tile_y}:0x{command_x_bits:08x}:0x{command_y_bits:08x}",
+            building.block_name,
+        ),
+        layer: 16,
+        x: f32::from_bits(command_x_bits),
+        y: f32::from_bits(command_y_bits),
+    });
+}
+
+fn append_runtime_unit_assembler_area_objects(
+    scene: &mut RenderModel,
+    block_name: &str,
+    tile_x: i32,
+    tile_y: i32,
+) {
+    const TILE_SIZE: f32 = 8.0;
+
+    let size = runtime_unit_assembler_area_size(block_name);
+    let min_tile_x = tile_x - size / 2;
+    let min_tile_y = tile_y - size / 2;
+    let max_tile_x = tile_x + size / 2 + 1;
+    let max_tile_y = tile_y + size / 2 + 1;
+
+    for (edge, start_x, start_y, end_x, end_y) in [
+        (
+            "top",
+            min_tile_x as f32 * TILE_SIZE,
+            min_tile_y as f32 * TILE_SIZE,
+            max_tile_x as f32 * TILE_SIZE,
+            min_tile_y as f32 * TILE_SIZE,
+        ),
+        (
+            "right",
+            max_tile_x as f32 * TILE_SIZE,
+            min_tile_y as f32 * TILE_SIZE,
+            max_tile_x as f32 * TILE_SIZE,
+            max_tile_y as f32 * TILE_SIZE,
+        ),
+        (
+            "bottom",
+            max_tile_x as f32 * TILE_SIZE,
+            max_tile_y as f32 * TILE_SIZE,
+            min_tile_x as f32 * TILE_SIZE,
+            max_tile_y as f32 * TILE_SIZE,
+        ),
+        (
+            "left",
+            min_tile_x as f32 * TILE_SIZE,
+            max_tile_y as f32 * TILE_SIZE,
+            min_tile_x as f32 * TILE_SIZE,
+            min_tile_y as f32 * TILE_SIZE,
+        ),
+    ] {
+        let line_id = format!(
+            "marker:line:runtime-unit-assembler-area:{block_name}:{tile_x}:{tile_y}:{edge}"
+        );
+        scene.objects.push(RenderObject {
+            id: line_id.clone(),
+            layer: 15,
+            x: start_x,
+            y: start_y,
+        });
+        scene.objects.push(RenderObject {
+            id: format!("{line_id}:line-end"),
+            layer: 15,
+            x: end_x,
+            y: end_y,
+        });
+    }
+}
+
+fn runtime_unit_assembler_area_size(block_name: &str) -> i32 {
+    match block_name {
+        "tank-assembler" | "ship-assembler" | "mech-assembler" => 5,
+        _ => 5,
+    }
+}
+
+fn append_runtime_driver_link_objects(
+    scene: &mut RenderModel,
+    block_name: &str,
+    build_pos: i32,
+    target_build_pos: i32,
+) {
+    const TILE_SIZE: f32 = 8.0;
+
+    let (tile_x, tile_y) = unpack_runtime_point2(build_pos);
+    let (target_x, target_y) = unpack_runtime_point2(target_build_pos);
+    let line_id = format!(
+        "marker:line:runtime-driver-link:{block_name}:{tile_x}:{tile_y}:{target_x}:{target_y}"
+    );
+    scene.objects.push(RenderObject {
+        id: line_id.clone(),
+        layer: 15,
+        x: tile_x as f32 * TILE_SIZE,
+        y: tile_y as f32 * TILE_SIZE,
+    });
+    if build_pos != target_build_pos {
+        scene.objects.push(RenderObject {
+            id: format!("{line_id}:line-end"),
+            layer: 15,
+            x: target_x as f32 * TILE_SIZE,
+            y: target_y as f32 * TILE_SIZE,
+        });
+    }
+}
+
+fn append_runtime_build_config_content_icons(
+    scene: &mut RenderModel,
+    family: &str,
+    values: &BTreeMap<i32, Option<ConfiguredContentRef>>,
+) {
+    const TILE_SIZE: f32 = 8.0;
+
+    for (&build_pos, content) in values {
+        let Some(content) = content else {
+            continue;
+        };
+        let (tile_x, tile_y) = unpack_runtime_point2(build_pos);
+        scene.objects.push(RenderObject {
+            id: runtime_build_config_content_object_id(family, build_pos, content),
+            layer: 15,
+            x: tile_x as f32 * TILE_SIZE,
+            y: tile_y as f32 * TILE_SIZE,
+        });
+    }
+}
+
+fn runtime_build_config_content_object_id(
+    family: &str,
+    build_pos: i32,
+    content: &ConfiguredContentRef,
+) -> String {
+    let (tile_x, tile_y) = unpack_runtime_point2(build_pos);
+    format!(
+        "marker:runtime-build-config-icon:{family}:{tile_x}:{tile_y}:{}:{}",
+        content.content_type, content.content_id
+    )
 }
 
 fn runtime_build_plan_object_id(index: usize, plan: &ClientBuildPlan) -> String {
@@ -4413,6 +4720,24 @@ mod tests {
                 pack_runtime_point2(27, 49),
                 vec![1.0f64.to_bits(), (-3.5f64).to_bits()],
             );
+        state
+            .configured_block_projection
+            .unit_assembler_by_build_pos
+            .insert(
+                pack_runtime_point2(29, 51),
+                crate::session_state::UnitAssemblerRuntimeProjection {
+                    progress_bits: 0x3f00_0000,
+                    unit_ids: vec![111, 222],
+                    block_entry_count: 3,
+                    block_sample: Some(ConfiguredContentRef {
+                        content_type: 1,
+                        content_id: 8,
+                    }),
+                    command_pos: Some((12.5f32.to_bits(), 20.0f32.to_bits())),
+                    payload_present: true,
+                    pay_rotation_bits: 0x4040_0000,
+                },
+            );
         for (build_pos, block_name) in [
             (pack_runtime_point2(18, 40), "message"),
             (pack_runtime_point2(21, 43), "payload-source"),
@@ -4421,6 +4746,7 @@ mod tests {
             (pack_runtime_point2(26, 48), "additive-reconstructor"),
             (pack_runtime_point2(27, 49), "memory-cell"),
             (pack_runtime_point2(28, 50), "build-tower"),
+            (pack_runtime_point2(29, 51), "tank-assembler"),
         ] {
             state.building_table_projection.by_build_pos.insert(
                 build_pos,
@@ -4460,6 +4786,9 @@ mod tests {
         assert!(hud.status_text.contains(":il1@20:42=11223344:"));
         assert!(hud.status_text.contains(":ps1@21:43=b:7:"));
         assert!(hud.status_text.contains(":pr1@22:44=u:9:"));
+        assert!(hud
+            .status_text
+            .contains(":ua1@29:51=p3f000000:u2:b3:sb:8:c0x41480000:0x41a00000:y1:r40400000:"));
         assert!(hud.status_text.contains(":pn1@23:45=n2:24:46|25:47:"));
         assert!(hud.status_text.contains(":rc1@26:48=12"));
         let build_ui = hud
@@ -4484,12 +4813,159 @@ mod tests {
         }));
         assert!(build_ui.inspector_entries.iter().any(|entry| {
             entry.family == "memory"
-                && entry.sample
-                    == "27:49:memory-cell:len=2:bits=3ff0000000000000-c00c000000000000"
+                && entry.sample == "27:49:memory-cell:len=2:bits=3ff0000000000000-c00c000000000000"
         }));
         assert!(build_ui.inspector_entries.iter().any(|entry| {
-            entry.family == "build-tower"
-                && entry.sample == "28:50:rot=0x42100000:plans=5"
+            entry.family == "build-tower" && entry.sample == "28:50:rot=0x42100000:plans=5"
+        }));
+        assert!(build_ui.inspector_entries.iter().any(|entry| {
+            entry.family == "unit-assembler"
+                && entry.sample
+                    == "29:51:tank-assembler:progress=0x3f000000:units=2:blocks=3:sample=b:8:command=0x41480000:0x41a00000:payload=1:pay-rot=0x40400000"
+        }));
+        let payload_source_icon = scene
+            .objects
+            .iter()
+            .find(|object| object.id == "marker:runtime-build-config-icon:payload-source:21:43:1:7")
+            .expect("payload-source config icon should be present");
+        assert_eq!(payload_source_icon.x, 168.0);
+        assert_eq!(payload_source_icon.y, 344.0);
+        let payload_router_icon = scene
+            .objects
+            .iter()
+            .find(|object| object.id == "marker:runtime-build-config-icon:payload-router:22:44:6:9")
+            .expect("payload-router config icon should be present");
+        assert_eq!(payload_router_icon.x, 176.0);
+        assert_eq!(payload_router_icon.y, 352.0);
+    }
+
+    #[test]
+    fn render_runtime_adapter_renders_unit_assembler_and_driver_link_markers() {
+        let adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+
+        state
+            .configured_block_projection
+            .unit_assembler_by_build_pos
+            .insert(
+                pack_runtime_point2(30, 40),
+                crate::session_state::UnitAssemblerRuntimeProjection {
+                    progress_bits: 0x3f40_0000,
+                    unit_ids: vec![3, 7],
+                    block_entry_count: 4,
+                    block_sample: Some(ConfiguredContentRef {
+                        content_type: 1,
+                        content_id: 9,
+                    }),
+                    command_pos: Some((40.0f32.to_bits(), 60.0f32.to_bits())),
+                    payload_present: false,
+                    pay_rotation_bits: 0x4080_0000,
+                },
+            );
+        state
+            .configured_block_projection
+            .mass_driver_link_by_build_pos
+            .insert(
+                pack_runtime_point2(12, 14),
+                Some(pack_runtime_point2(20, 22)),
+            );
+        state
+            .configured_block_projection
+            .payload_mass_driver_link_by_build_pos
+            .insert(
+                pack_runtime_point2(16, 18),
+                Some(pack_runtime_point2(24, 26)),
+            );
+        state
+            .configured_block_projection
+            .payload_mass_driver_link_by_build_pos
+            .insert(
+                pack_runtime_point2(28, 30),
+                Some(pack_runtime_point2(32, 34)),
+            );
+
+        for (build_pos, block_name) in [
+            (pack_runtime_point2(30, 40), "tank-assembler"),
+            (pack_runtime_point2(12, 14), "mass-driver"),
+            (pack_runtime_point2(16, 18), "payload-mass-driver"),
+            (pack_runtime_point2(28, 30), "large-payload-mass-driver"),
+        ] {
+            state.building_table_projection.by_build_pos.insert(
+                build_pos,
+                crate::session_state::BuildingProjection {
+                    block_id: Some(1),
+                    block_name: Some(block_name.to_string()),
+                    rotation: None,
+                    team_id: None,
+                    io_version: None,
+                    module_bitmask: None,
+                    time_scale_bits: None,
+                    time_scale_duration_bits: None,
+                    last_disabler_pos: None,
+                    legacy_consume_connected: None,
+                    config: None,
+                    health_bits: None,
+                    enabled: None,
+                    efficiency: None,
+                    optional_efficiency: None,
+                    visible_flags: None,
+                    build_turret_rotation_bits: None,
+                    build_turret_plans_present: None,
+                    build_turret_plan_count: None,
+                    last_update: crate::session_state::BuildingProjectionUpdateKind::TileConfig,
+                },
+            );
+        }
+
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let area_top = scene
+            .objects
+            .iter()
+            .find(|object| {
+                object.id == "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:top"
+            })
+            .expect("unit-assembler area top line should be present");
+        assert_eq!((area_top.x, area_top.y), (224.0, 304.0));
+        let area_top_end = scene
+            .objects
+            .iter()
+            .find(|object| {
+                object.id
+                    == "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:top:line-end"
+            })
+            .expect("unit-assembler area top line end should be present");
+        assert_eq!((area_top_end.x, area_top_end.y), (264.0, 304.0));
+        assert!(scene.objects.iter().any(|object| {
+            object.id
+                == "marker:runtime-unit-assembler-progress:tank-assembler:30:40:0x3f400000:2:4:b:9:0:0x40800000"
+                && object.x == 240.0
+                && object.y == 320.0
+        }));
+        assert!(scene.objects.iter().any(|object| {
+            object.id
+                == "marker:runtime-unit-assembler-command:tank-assembler:30:40:0x42200000:0x42700000"
+                && object.x == 40.0
+                && object.y == 60.0
+        }));
+        assert!(scene.objects.iter().any(|object| {
+            object.id == "marker:line:runtime-driver-link:mass-driver:12:14:20:22"
+                && object.x == 96.0
+                && object.y == 112.0
+        }));
+        assert!(scene.objects.iter().any(|object| {
+            object.id == "marker:line:runtime-driver-link:mass-driver:12:14:20:22:line-end"
+                && object.x == 160.0
+                && object.y == 176.0
+        }));
+        assert!(scene.objects.iter().any(|object| {
+            object.id == "marker:line:runtime-driver-link:payload-mass-driver:16:18:24:26"
+        }));
+        assert!(scene.objects.iter().any(|object| {
+            object.id == "marker:line:runtime-driver-link:large-payload-mass-driver:28:30:32:34"
         }));
     }
 
@@ -4887,6 +5363,133 @@ mod tests {
     }
 
     #[test]
+    fn render_runtime_adapter_renders_core_build_block_effect_icon_marker() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
+
+        adapter.observe_events(&[ClientSessionEvent::EffectRequested {
+            effect_id: Some(15),
+            x: 12.0,
+            y: 20.0,
+            rotation: 0.0,
+            color_rgba: 0x11223344,
+            data_object: Some(mdt_typeio::TypeIoObject::ContentRaw {
+                content_type: 1,
+                content_id: 42,
+            }),
+        }]);
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let icon = first_runtime_effect_icon(&scene);
+        assert_eq!(
+            icon.id,
+            format!(
+                "marker:runtime-effect-icon:block-content-icon:normal:15:1:42:0x{:08x}:0x{:08x}",
+                12.0f32.to_bits(),
+                20.0f32.to_bits()
+            )
+        );
+        assert_eq!(icon.x, 12.0);
+        assert_eq!(icon.y, 20.0);
+    }
+
+    #[test]
+    fn render_runtime_adapter_renders_unit_assemble_effect_icon_marker() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
+
+        adapter.observe_events(&[ClientSessionEvent::EffectRequested {
+            effect_id: Some(35),
+            x: 12.0,
+            y: 20.0,
+            rotation: 0.0,
+            color_rgba: 0x11223344,
+            data_object: Some(mdt_typeio::TypeIoObject::ContentRaw {
+                content_type: 6,
+                content_id: 9,
+            }),
+        }]);
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let icon = first_runtime_effect_icon(&scene);
+        assert_eq!(
+            icon.id,
+            format!(
+                "marker:runtime-effect-icon:content-icon:normal:35:6:9:0x{:08x}:0x{:08x}",
+                12.0f32.to_bits(),
+                20.0f32.to_bits()
+            )
+        );
+        assert_eq!(icon.x, 12.0);
+        assert_eq!(icon.y, 20.0);
+    }
+
+    #[test]
+    fn render_runtime_adapter_renders_payload_deposit_effect_icon_from_source_toward_target() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
+
+        adapter.observe_events(&[ClientSessionEvent::EffectRequested {
+            effect_id: Some(26),
+            x: 12.0,
+            y: 20.0,
+            rotation: 0.0,
+            color_rgba: 0x11223344,
+            data_object: Some(mdt_typeio::TypeIoObject::ObjectArray(vec![
+                mdt_typeio::TypeIoObject::ContentRaw {
+                    content_type: 1,
+                    content_id: 42,
+                },
+                mdt_typeio::TypeIoObject::Point2 { x: 10, y: 20 },
+            ])),
+        }]);
+
+        let mut first_scene = RenderModel::default();
+        let mut first_hud = HudModel::default();
+        adapter.apply(&mut first_scene, &mut first_hud, &input, &state);
+
+        let marker = first_runtime_effect_marker(&first_scene);
+        assert_eq!(marker.x, 80.0);
+        assert_eq!(marker.y, 160.0);
+        let first_icon = first_runtime_effect_icon(&first_scene);
+        assert_eq!(
+            first_icon.id,
+            format!(
+                "marker:runtime-effect-icon:payload-deposit:normal:26:1:42:0x{:08x}:0x{:08x}",
+                12.0f32.to_bits(),
+                20.0f32.to_bits()
+            )
+        );
+        assert_eq!(first_icon.x, 12.0);
+        assert_eq!(first_icon.y, 20.0);
+
+        adapter.observe_events(&[]);
+
+        let mut second_scene = RenderModel::default();
+        let mut second_hud = HudModel::default();
+        adapter.apply(&mut second_scene, &mut second_hud, &input, &state);
+
+        let second_icon = first_runtime_effect_icon(&second_scene);
+        assert_eq!(
+            second_icon.id,
+            format!(
+                "marker:runtime-effect-icon:payload-deposit:normal:26:1:42:0x{:08x}:0x{:08x}",
+                46.0f32.to_bits(),
+                90.0f32.to_bits()
+            )
+        );
+        assert_eq!(second_icon.x, 46.0);
+        assert_eq!(second_icon.y, 90.0);
+    }
+
+    #[test]
     fn render_runtime_adapter_projects_drop_item_effect_payload_along_ninety_degrees() {
         let mut adapter = RenderRuntimeAdapter::default();
         let mut scene = RenderModel::default();
@@ -5177,6 +5780,19 @@ mod tests {
             "target:0x42020000:0x42400000:0x42a00000:0x43200000"
         );
         assert_eq!(
+            runtime_effect_business_projection_label(Some(
+                &EffectBusinessProjection::PayloadTargetContent {
+                    source_x_bits: 12.0f32.to_bits(),
+                    source_y_bits: 20.0f32.to_bits(),
+                    target_x_bits: 84.0f32.to_bits(),
+                    target_y_bits: 140.0f32.to_bits(),
+                    content_type: 6,
+                    content_id: 9,
+                }
+            )),
+            "payloadTarget:0x41400000:0x41a00000:0x42a80000:0x430c0000:6:9"
+        );
+        assert_eq!(
             runtime_effect_business_projection_label(Some(&EffectBusinessProjection::LengthRay {
                 source_x_bits: 32.5f32.to_bits(),
                 source_y_bits: 48.0f32.to_bits(),
@@ -5215,6 +5831,22 @@ mod tests {
             Some(RuntimeWorldPositionObservability {
                 x_bits: 80.0f32.to_bits(),
                 y_bits: 160.0f32.to_bits(),
+            })
+        );
+        assert_eq!(
+            runtime_world_position_from_effect_business_projection(Some(
+                &EffectBusinessProjection::PayloadTargetContent {
+                    source_x_bits: 12.0f32.to_bits(),
+                    source_y_bits: 20.0f32.to_bits(),
+                    target_x_bits: 84.0f32.to_bits(),
+                    target_y_bits: 140.0f32.to_bits(),
+                    content_type: 6,
+                    content_id: 9,
+                }
+            )),
+            Some(RuntimeWorldPositionObservability {
+                x_bits: 84.0f32.to_bits(),
+                y_bits: 140.0f32.to_bits(),
             })
         );
         assert_eq!(

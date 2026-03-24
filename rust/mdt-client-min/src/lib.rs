@@ -3,6 +3,7 @@ pub mod bootstrap_flow;
 pub mod client_session;
 pub mod connect_packet;
 pub mod custom_packet_runtime;
+pub mod custom_packet_runtime_bridge;
 pub mod custom_packet_runtime_relay;
 pub mod custom_packet_runtime_surface;
 pub mod effect_runtime;
@@ -40,10 +41,10 @@ mod tests {
 
         assert_eq!(registry.len(), 4);
         assert!(registry.contains_packet_id(11));
-        assert!(registry.contains_packet_id(44));
-        assert!(registry.contains_packet_id(47));
-        assert!(registry.contains_packet_id(122));
-        assert!(!registry.contains_packet_id(24));
+        assert!(registry.contains_packet_id(46));
+        assert!(registry.contains_packet_id(49));
+        assert!(registry.contains_packet_id(125));
+        assert!(!registry.contains_packet_id(26));
     }
 
     #[test]
@@ -82,12 +83,12 @@ mod tests {
     fn classifies_real_snapshot_packet_ids() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let registry = InboundSnapshotPacketRegistry::from_remote_manifest(&manifest).unwrap();
-        let packet = registry.classify(122, &[1, 2, 3, 4]).unwrap();
+        let packet = registry.classify(125, &[1, 2, 3, 4]).unwrap();
 
         assert_eq!(packet.method, HighFrequencyRemoteMethod::StateSnapshot);
-        assert_eq!(packet.packet_id, 122);
+        assert_eq!(packet.packet_id, 125);
         assert_eq!(packet.payload, &[1, 2, 3, 4]);
-        assert!(registry.classify(24, &[9, 9, 9]).is_none());
+        assert!(registry.classify(26, &[9, 9, 9]).is_none());
     }
 
     #[test]
@@ -98,14 +99,14 @@ mod tests {
         let mut state = SessionState::default();
 
         let state_packet =
-            ingest_inbound_packet(&mut stats, &mut state, &registry, 122, &[0, 1, 2]).unwrap();
+            ingest_inbound_packet(&mut stats, &mut state, &registry, 125, &[0, 1, 2]).unwrap();
         assert_eq!(
             state_packet.method,
             HighFrequencyRemoteMethod::StateSnapshot
         );
 
         let entity_packet =
-            ingest_inbound_packet(&mut stats, &mut state, &registry, 44, &[3, 4]).unwrap();
+            ingest_inbound_packet(&mut stats, &mut state, &registry, 46, &[3, 4]).unwrap();
         assert_eq!(
             entity_packet.method,
             HighFrequencyRemoteMethod::EntitySnapshot
@@ -118,7 +119,7 @@ mod tests {
             state.last_snapshot_method,
             Some(HighFrequencyRemoteMethod::EntitySnapshot)
         );
-        assert_eq!(state.last_snapshot_packet_id, Some(44));
+        assert_eq!(state.last_snapshot_packet_id, Some(46));
         assert_eq!(state.last_snapshot_payload_len, 2);
         assert!(state.seen_state_snapshot);
         assert!(state.seen_entity_snapshot);
@@ -139,7 +140,7 @@ mod tests {
         let mut stats = NetLoopStats::default();
         let mut state = SessionState::default();
         let payload = vec![7u8; 64];
-        let encoded = encode_packet(122, &payload, false).unwrap();
+        let encoded = encode_packet(125, &payload, false).unwrap();
 
         let method = super::net_loop::ingest_inbound_packet_bytes(
             &mut stats, &mut state, &registry, &encoded,

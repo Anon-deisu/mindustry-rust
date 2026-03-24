@@ -1,19 +1,13 @@
-#[path = "custom_channel_registry_glue.rs"]
-mod custom_channel_registry_glue;
-#[path = "inbound_remote_registry_glue.rs"]
-mod inbound_remote_registry_glue;
-#[path = "snapshot_registry_glue.rs"]
-mod snapshot_registry_glue;
-
 use crate::generated::remote_high_frequency_gen::{
     BLOCK_SNAPSHOT_PACKET_ID, ENTITY_SNAPSHOT_PACKET_ID, HIDDEN_SNAPSHOT_PACKET_ID,
     STATE_SNAPSHOT_PACKET_ID,
 };
 use crate::snapshot_ingest::InboundSnapshot;
 use mdt_remote::{
-    CustomChannelRemoteDispatchSpec, CustomChannelRemoteFamily, HighFrequencyRemoteMethod,
-    InboundRemoteDispatchSpec, InboundRemoteFamily, RemoteManifest, RemoteManifestError,
-    CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT, INBOUND_REMOTE_FAMILY_COUNT,
+    CustomChannelRemoteDispatchSpec, CustomChannelRemoteFamily, CustomChannelRemoteRegistry,
+    HighFrequencyRemoteMethod, HighFrequencyRemoteRegistry, InboundRemoteDispatchSpec,
+    InboundRemoteFamily, InboundRemoteRegistry, RemoteManifest, RemoteManifestError,
+    TypedRemoteRegistries, CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT, INBOUND_REMOTE_FAMILY_COUNT,
 };
 
 const INBOUND_SNAPSHOT_PACKET_SPECS: [(u8, HighFrequencyRemoteMethod); 4] = [
@@ -36,6 +30,78 @@ const INBOUND_SNAPSHOT_PACKET_SPECS: [(u8, HighFrequencyRemoteMethod); 4] = [
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+struct TypedRemoteLookup {
+    high_frequency: HighFrequencyRemoteRegistry,
+    inbound_remote: InboundRemoteRegistry,
+    custom_channel: CustomChannelRemoteRegistry,
+}
+
+impl TypedRemoteLookup {
+    fn from_remote_manifest(manifest: &RemoteManifest) -> Result<Self, RemoteManifestError> {
+        let registries = TypedRemoteRegistries::from_manifest(manifest)?;
+        Ok(Self {
+            high_frequency: registries.high_frequency,
+            inbound_remote: registries.inbound_remote,
+            custom_channel: registries.custom_channel,
+        })
+    }
+
+    fn inbound_snapshot_packet_specs(
+        &self,
+    ) -> Result<[(u8, HighFrequencyRemoteMethod); 4], RemoteManifestError> {
+        let mut resolved = Vec::with_capacity(4);
+        let mut seen_packet_ids = std::collections::HashSet::with_capacity(4);
+
+        for method in [
+            HighFrequencyRemoteMethod::StateSnapshot,
+            HighFrequencyRemoteMethod::EntitySnapshot,
+            HighFrequencyRemoteMethod::BlockSnapshot,
+            HighFrequencyRemoteMethod::HiddenSnapshot,
+        ] {
+            let packet_id = self.high_frequency.packet_id(method).ok_or(
+                RemoteManifestError::MissingHighFrequencyPacket(method.method_name()),
+            )?;
+            if !seen_packet_ids.insert(packet_id) {
+                return Err(RemoteManifestError::InvalidPacketSequence(format!(
+                    "duplicate high-frequency server->client snapshot packet id: {packet_id}"
+                )));
+            }
+            resolved.push((packet_id, method));
+        }
+
+        resolved.try_into().map_err(|_| {
+            RemoteManifestError::InvalidPacketSequence(
+                "high-frequency server->client snapshot registry length drifted".into(),
+            )
+        })
+    }
+
+    fn inbound_remote_packet_specs(
+        &self,
+    ) -> Result<[(u8, InboundRemoteDispatchSpec); INBOUND_REMOTE_FAMILY_COUNT], RemoteManifestError>
+    {
+        Ok(self.inbound_remote.resolved_dispatch_specs())
+    }
+
+    fn custom_channel_packet_specs(
+        &self,
+    ) -> Result<
+        [(u8, CustomChannelRemoteDispatchSpec); CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT],
+        RemoteManifestError,
+    > {
+        Ok(self.custom_channel.resolved_dispatch_specs())
+    }
+
+    fn client_snapshot_packet_id(&self) -> Result<u8, RemoteManifestError> {
+        self.high_frequency
+            .packet_id(HighFrequencyRemoteMethod::ClientSnapshot)
+            .ok_or(RemoteManifestError::MissingHighFrequencyPacket(
+                HighFrequencyRemoteMethod::ClientSnapshot.method_name(),
+            ))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InboundSnapshotPacketRegistry {
     by_packet_id: [(u8, HighFrequencyRemoteMethod); 4],
 }
@@ -50,6 +116,14 @@ pub struct CustomChannelPacketRegistry {
     by_packet_id: [(u8, CustomChannelRemoteDispatchSpec); CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT],
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CombinedPacketRegistries {
+    pub inbound_snapshot: InboundSnapshotPacketRegistry,
+    pub inbound_remote: InboundRemotePacketRegistry,
+    pub custom_channel: CustomChannelPacketRegistry,
+    pub client_snapshot_packet_id: u8,
+}
+
 impl Default for InboundSnapshotPacketRegistry {
     fn default() -> Self {
         Self {
@@ -60,8 +134,9 @@ impl Default for InboundSnapshotPacketRegistry {
 
 impl InboundSnapshotPacketRegistry {
     pub fn from_remote_manifest(manifest: &RemoteManifest) -> Result<Self, RemoteManifestError> {
+        let high_frequency = HighFrequencyRemoteRegistry::from_manifest(manifest)?;
         Ok(Self {
-            by_packet_id: snapshot_registry_glue::typed_inbound_snapshot_packet_specs(manifest)?,
+            by_packet_id: inbound_snapshot_packet_specs_from_registry(&high_frequency)?,
         })
     }
 
@@ -87,10 +162,9 @@ impl InboundSnapshotPacketRegistry {
 
 impl CustomChannelPacketRegistry {
     pub fn from_remote_manifest(manifest: &RemoteManifest) -> Result<Self, RemoteManifestError> {
+        let registry = CustomChannelRemoteRegistry::from_manifest(manifest)?;
         Ok(Self {
-            by_packet_id: custom_channel_registry_glue::typed_custom_channel_remote_packet_specs(
-                manifest,
-            )?,
+            by_packet_id: registry.resolved_dispatch_specs(),
         })
     }
 
@@ -123,13 +197,34 @@ impl CustomChannelPacketRegistry {
 
 impl InboundRemotePacketRegistry {
     pub fn from_remote_manifest(manifest: &RemoteManifest) -> Result<Self, RemoteManifestError> {
+        let registry = InboundRemoteRegistry::from_manifest(manifest)?;
         Ok(Self {
-            by_packet_id: inbound_remote_registry_glue::typed_inbound_remote_packet_specs(
-                manifest,
-            )?,
+            by_packet_id: registry.resolved_dispatch_specs(),
         })
     }
+}
 
+impl CombinedPacketRegistries {
+    pub fn from_remote_manifest(manifest: &RemoteManifest) -> Result<Self, RemoteManifestError> {
+        let lookup = TypedRemoteLookup::from_remote_manifest(manifest)?;
+        let client_snapshot_packet_id = lookup.client_snapshot_packet_id()?;
+
+        Ok(Self {
+            inbound_snapshot: InboundSnapshotPacketRegistry {
+                by_packet_id: lookup.inbound_snapshot_packet_specs()?,
+            },
+            inbound_remote: InboundRemotePacketRegistry {
+                by_packet_id: lookup.inbound_remote_packet_specs()?,
+            },
+            custom_channel: CustomChannelPacketRegistry {
+                by_packet_id: lookup.custom_channel_packet_specs()?,
+            },
+            client_snapshot_packet_id,
+        })
+    }
+}
+
+impl InboundRemotePacketRegistry {
     pub fn classify(&self, packet_id: u8) -> Option<InboundRemoteFamily> {
         self.dispatch_spec(packet_id).map(|spec| spec.family)
     }
@@ -157,17 +252,48 @@ impl InboundRemotePacketRegistry {
     }
 }
 
+fn inbound_snapshot_packet_specs_from_registry(
+    high_frequency: &HighFrequencyRemoteRegistry,
+) -> Result<[(u8, HighFrequencyRemoteMethod); 4], RemoteManifestError> {
+    let mut resolved = Vec::with_capacity(4);
+    let mut seen_packet_ids = std::collections::HashSet::with_capacity(4);
+
+    for method in [
+        HighFrequencyRemoteMethod::StateSnapshot,
+        HighFrequencyRemoteMethod::EntitySnapshot,
+        HighFrequencyRemoteMethod::BlockSnapshot,
+        HighFrequencyRemoteMethod::HiddenSnapshot,
+    ] {
+        let packet_id = high_frequency.packet_id(method).ok_or(
+            RemoteManifestError::MissingHighFrequencyPacket(method.method_name()),
+        )?;
+        if !seen_packet_ids.insert(packet_id) {
+            return Err(RemoteManifestError::InvalidPacketSequence(format!(
+                "duplicate high-frequency server->client snapshot packet id: {packet_id}"
+            )));
+        }
+        resolved.push((packet_id, method));
+    }
+
+    resolved.try_into().map_err(|_| {
+        RemoteManifestError::InvalidPacketSequence(
+            "high-frequency server->client snapshot registry length drifted".into(),
+        )
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        CustomChannelPacketRegistry, InboundRemoteDispatchSpec, InboundRemoteFamily,
-        InboundRemotePacketRegistry,
+        CombinedPacketRegistries, CustomChannelPacketRegistry, InboundRemoteDispatchSpec,
+        InboundRemoteFamily, InboundRemotePacketRegistry,
     };
     use mdt_remote::{
-        read_remote_manifest, typed_custom_channel_remote_dispatch_specs, BasePacketEntry,
-        CompressionFlagSpec, CustomChannelRemoteDispatchSpec, CustomChannelRemoteFamily,
-        CustomChannelRemotePayloadKind, HighFrequencyRemoteMethod, HighFrequencyRemoteRegistry,
-        RemoteGeneratorInfo, RemoteManifest, RemotePacketEntry, RemoteParamEntry, WireSpec,
+        read_remote_manifest, BasePacketEntry, CompressionFlagSpec,
+        CustomChannelRemoteDispatchSpec, CustomChannelRemoteFamily, CustomChannelRemotePayloadKind,
+        CustomChannelRemoteRegistry, HighFrequencyRemoteMethod, HighFrequencyRemoteRegistry,
+        InboundRemoteRegistry, RemoteGeneratorInfo, RemoteManifest, RemoteManifestError,
+        RemotePacketEntry, RemoteParamEntry, WireSpec,
     };
     use std::path::PathBuf;
 
@@ -204,6 +330,10 @@ mod tests {
     fn builds_custom_channel_remote_family_registry_from_real_manifest() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let registry = CustomChannelPacketRegistry::from_remote_manifest(&manifest).unwrap();
+        let client_snapshot_packet_id = HighFrequencyRemoteRegistry::from_manifest(&manifest)
+            .unwrap()
+            .packet_id(HighFrequencyRemoteMethod::ClientSnapshot)
+            .unwrap();
 
         assert_eq!(registry.len(), 10);
         assert_eq!(
@@ -230,7 +360,7 @@ mod tests {
             ),
             Some(CustomChannelRemoteFamily::ClientLogicDataReliable)
         );
-        assert!(!registry.contains_packet_id(24));
+        assert!(!registry.contains_packet_id(client_snapshot_packet_id));
     }
 
     #[test]
@@ -265,9 +395,7 @@ mod tests {
     fn custom_channel_remote_family_registry_matches_remote_typed_dispatch_specs() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let registry = CustomChannelPacketRegistry::from_remote_manifest(&manifest).unwrap();
-        let remote_registry =
-            mdt_remote::CustomChannelRemoteRegistry::from_manifest(&manifest).unwrap();
-        let remote_specs = typed_custom_channel_remote_dispatch_specs(&manifest).unwrap();
+        let remote_registry = CustomChannelRemoteRegistry::from_manifest(&manifest).unwrap();
 
         let packet_id = remote_registry
             .packet_id(CustomChannelRemoteFamily::ServerBinaryPacketReliable)
@@ -281,8 +409,8 @@ mod tests {
             remote_registry.dispatch_spec(packet_id)
         );
         assert_eq!(
-            registry.dispatch_spec(remote_specs[8].0),
-            Some(remote_specs[8].1)
+            registry.dispatch_spec(remote_registry.resolved_dispatch_specs()[8].0),
+            Some(remote_registry.resolved_dispatch_specs()[8].1)
         );
     }
 
@@ -330,8 +458,7 @@ mod tests {
     fn inbound_remote_family_registry_matches_remote_typed_registry() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let registry = InboundRemotePacketRegistry::from_remote_manifest(&manifest).unwrap();
-        let remote_registry = mdt_remote::InboundRemoteRegistry::from_manifest(&manifest).unwrap();
-        let remote_specs = mdt_remote::typed_inbound_remote_dispatch_specs(&manifest).unwrap();
+        let remote_registry = InboundRemoteRegistry::from_manifest(&manifest).unwrap();
 
         let packet_id = remote_registry
             .packet_id(InboundRemoteFamily::ServerPacketReliable)
@@ -345,8 +472,8 @@ mod tests {
             remote_registry.dispatch_spec(packet_id)
         );
         assert_eq!(
-            registry.dispatch_spec(remote_specs[4].0),
-            Some(remote_specs[4].1)
+            registry.dispatch_spec(remote_registry.resolved_dispatch_specs()[4].0),
+            Some(remote_registry.resolved_dispatch_specs()[4].1)
         );
     }
 
@@ -356,22 +483,32 @@ mod tests {
         let registry =
             super::InboundSnapshotPacketRegistry::from_remote_manifest(&manifest).unwrap();
         let remote_registry = HighFrequencyRemoteRegistry::from_manifest(&manifest).unwrap();
+        let state_packet_id = remote_registry
+            .packet_id(HighFrequencyRemoteMethod::StateSnapshot)
+            .unwrap();
+        let entity_packet_id = remote_registry
+            .packet_id(HighFrequencyRemoteMethod::EntitySnapshot)
+            .unwrap();
 
         assert_eq!(
-            registry.classify(122, &[1]).map(|packet| packet.method),
+            registry
+                .classify(state_packet_id, &[1])
+                .map(|packet| packet.method),
             Some(HighFrequencyRemoteMethod::StateSnapshot)
         );
         assert_eq!(
-            registry.classify(44, &[2]).map(|packet| packet.method),
+            registry
+                .classify(entity_packet_id, &[2])
+                .map(|packet| packet.method),
             Some(HighFrequencyRemoteMethod::EntitySnapshot)
         );
         assert_eq!(
             remote_registry.packet_id(HighFrequencyRemoteMethod::StateSnapshot),
-            Some(122)
+            Some(state_packet_id)
         );
         assert_eq!(
             remote_registry.packet_id(HighFrequencyRemoteMethod::EntitySnapshot),
-            Some(44)
+            Some(entity_packet_id)
         );
         assert!(registry.contains_packet_id(
             remote_registry
@@ -382,6 +519,45 @@ mod tests {
             remote_registry
                 .packet_id(HighFrequencyRemoteMethod::ClientSnapshot)
                 .unwrap()
+        ));
+    }
+
+    #[test]
+    fn combined_packet_registries_build_all_registry_views_from_one_lookup() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let combined = CombinedPacketRegistries::from_remote_manifest(&manifest).unwrap();
+        let remote_registry = HighFrequencyRemoteRegistry::from_manifest(&manifest).unwrap();
+
+        assert_eq!(
+            combined.client_snapshot_packet_id,
+            remote_registry
+                .packet_id(HighFrequencyRemoteMethod::ClientSnapshot)
+                .unwrap()
+        );
+        assert_eq!(combined.inbound_snapshot.len(), 4);
+        assert_eq!(combined.inbound_remote.len(), 6);
+        assert_eq!(combined.custom_channel.len(), 10);
+        assert_eq!(
+            combined
+                .inbound_remote
+                .packet_id(InboundRemoteFamily::ServerPacketReliable),
+            Some(
+                combined
+                    .custom_channel
+                    .packet_id(CustomChannelRemoteFamily::ServerPacketReliable)
+                    .unwrap()
+            )
+        );
+    }
+
+    #[test]
+    fn combined_packet_registries_require_snapshot_and_client_snapshot_entries() {
+        let manifest = custom_channel_remote_family_manifest_with_decoys();
+        let error = CombinedPacketRegistries::from_remote_manifest(&manifest).unwrap_err();
+
+        assert!(matches!(
+            error,
+            RemoteManifestError::MissingHighFrequencyPacket("clientSnapshot")
         ));
     }
 
@@ -619,6 +795,8 @@ mod tests {
             targets: targets.into(),
             called: called.into(),
             variants: "all".into(),
+            allow_on_client: None,
+            allow_on_server: None,
             forward: false,
             unreliable,
             priority: "normal".into(),

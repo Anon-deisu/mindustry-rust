@@ -400,6 +400,8 @@ mod tests {
             targets: targets.into(),
             called: called.into(),
             variants: "all".into(),
+            allow_on_client: None,
+            allow_on_server: None,
             forward: false,
             unreliable,
             priority: "normal".into(),

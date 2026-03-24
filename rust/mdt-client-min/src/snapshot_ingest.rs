@@ -848,7 +848,7 @@ mod tests {
 
         ingest_inbound_snapshot(
             &mut state,
-            InboundSnapshot::new(HighFrequencyRemoteMethod::StateSnapshot, 122, &payload),
+            InboundSnapshot::new(HighFrequencyRemoteMethod::StateSnapshot, 125, &payload),
         );
 
         assert_eq!(state.applied_state_snapshot_count, 1);
@@ -986,7 +986,7 @@ mod tests {
 
         ingest_inbound_snapshot(
             &mut state,
-            InboundSnapshot::new(HighFrequencyRemoteMethod::StateSnapshot, 122, &payload),
+            InboundSnapshot::new(HighFrequencyRemoteMethod::StateSnapshot, 125, &payload),
         );
 
         assert_eq!(state.failed_state_snapshot_core_data_parse_count, 0);
@@ -1068,7 +1068,7 @@ mod tests {
 
         ingest_inbound_snapshot(
             &mut state,
-            InboundSnapshot::new(HighFrequencyRemoteMethod::StateSnapshot, 122, &payload),
+            InboundSnapshot::new(HighFrequencyRemoteMethod::StateSnapshot, 125, &payload),
         );
 
         assert_eq!(state.applied_state_snapshot_count, 1);
@@ -1154,7 +1154,7 @@ mod tests {
 
         ingest_inbound_snapshot(
             &mut state,
-            InboundSnapshot::new(HighFrequencyRemoteMethod::StateSnapshot, 122, &payload),
+            InboundSnapshot::new(HighFrequencyRemoteMethod::StateSnapshot, 125, &payload),
         );
 
         assert_eq!(state.applied_state_snapshot_count, 1);
@@ -1190,7 +1190,7 @@ mod tests {
 
         ingest_inbound_snapshot(
             &mut state,
-            InboundSnapshot::new(HighFrequencyRemoteMethod::StateSnapshot, 122, &payload),
+            InboundSnapshot::new(HighFrequencyRemoteMethod::StateSnapshot, 125, &payload),
         );
 
         assert_eq!(
@@ -1270,7 +1270,7 @@ mod tests {
             &mut state,
             InboundSnapshot::new(
                 HighFrequencyRemoteMethod::StateSnapshot,
-                122,
+                125,
                 &initial_payload,
             ),
         );
@@ -1278,7 +1278,7 @@ mod tests {
             &mut state,
             InboundSnapshot::new(
                 HighFrequencyRemoteMethod::StateSnapshot,
-                122,
+                125,
                 &malformed_payload,
             ),
         );
@@ -1352,7 +1352,7 @@ mod tests {
             &mut state,
             InboundSnapshot::new(
                 HighFrequencyRemoteMethod::StateSnapshot,
-                122,
+                125,
                 &initial_payload,
             ),
         );
@@ -1360,7 +1360,7 @@ mod tests {
             &mut state,
             InboundSnapshot::new(
                 HighFrequencyRemoteMethod::StateSnapshot,
-                122,
+                125,
                 &malformed_payload,
             ),
         );
@@ -1455,7 +1455,7 @@ mod tests {
             &mut state,
             InboundSnapshot::new(
                 HighFrequencyRemoteMethod::StateSnapshot,
-                122,
+                125,
                 &initial_payload,
             ),
         );
@@ -1463,7 +1463,7 @@ mod tests {
             &mut state,
             InboundSnapshot::new(
                 HighFrequencyRemoteMethod::StateSnapshot,
-                122,
+                125,
                 &updated_payload,
             ),
         );
@@ -1499,7 +1499,7 @@ mod tests {
             &mut state,
             InboundSnapshot::new(
                 HighFrequencyRemoteMethod::StateSnapshot,
-                122,
+                125,
                 &initial_payload,
             ),
         );
@@ -1523,7 +1523,7 @@ mod tests {
             &mut state,
             InboundSnapshot::new(
                 HighFrequencyRemoteMethod::StateSnapshot,
-                122,
+                125,
                 &same_wave_payload,
             ),
         );
@@ -1548,7 +1548,7 @@ mod tests {
             &mut state,
             InboundSnapshot::new(
                 HighFrequencyRemoteMethod::StateSnapshot,
-                122,
+                125,
                 &next_wave_payload,
             ),
         );
@@ -1571,7 +1571,7 @@ mod tests {
             &mut state,
             InboundSnapshot::new(
                 HighFrequencyRemoteMethod::StateSnapshot,
-                122,
+                125,
                 &rollback_payload,
             ),
         );
@@ -1601,7 +1601,7 @@ mod tests {
 
         ingest_inbound_snapshot(
             &mut state,
-            InboundSnapshot::new(HighFrequencyRemoteMethod::StateSnapshot, 122, &payload),
+            InboundSnapshot::new(HighFrequencyRemoteMethod::StateSnapshot, 125, &payload),
         );
 
         assert_eq!(
@@ -1625,7 +1625,7 @@ mod tests {
             &mut state,
             InboundSnapshot::new(
                 HighFrequencyRemoteMethod::StateSnapshot,
-                122,
+                125,
                 &initial_payload,
             ),
         );
@@ -1661,7 +1661,7 @@ mod tests {
             &mut state,
             InboundSnapshot::new(
                 HighFrequencyRemoteMethod::StateSnapshot,
-                122,
+                125,
                 &same_wave_payload,
             ),
         );
@@ -1687,7 +1687,7 @@ mod tests {
             &mut state,
             InboundSnapshot::new(
                 HighFrequencyRemoteMethod::StateSnapshot,
-                122,
+                125,
                 &next_wave_payload,
             ),
         );
@@ -1721,7 +1721,7 @@ mod tests {
             &mut state,
             InboundSnapshot::new(
                 HighFrequencyRemoteMethod::StateSnapshot,
-                122,
+                125,
                 &rollback_payload,
             ),
         );
@@ -1774,7 +1774,7 @@ mod tests {
 
         ingest_inbound_snapshot(
             &mut state,
-            InboundSnapshot::new(HighFrequencyRemoteMethod::BlockSnapshot, 47, &payload),
+            InboundSnapshot::new(HighFrequencyRemoteMethod::BlockSnapshot, 11, &payload),
         );
 
         assert_eq!(state.received_block_snapshot_count, 1);
@@ -1814,7 +1814,7 @@ mod tests {
 
         ingest_inbound_snapshot(
             &mut state,
-            InboundSnapshot::new(HighFrequencyRemoteMethod::BlockSnapshot, 47, &payload),
+            InboundSnapshot::new(HighFrequencyRemoteMethod::BlockSnapshot, 11, &payload),
         );
 
         assert_eq!(state.received_block_snapshot_count, 1);
@@ -1854,7 +1854,7 @@ mod tests {
 
         ingest_inbound_snapshot(
             &mut state,
-            InboundSnapshot::new(HighFrequencyRemoteMethod::BlockSnapshot, 47, &payload),
+            InboundSnapshot::new(HighFrequencyRemoteMethod::BlockSnapshot, 11, &payload),
         );
         assert_eq!(
             state.block_snapshot_head_projection,
@@ -1879,7 +1879,7 @@ mod tests {
 
         ingest_inbound_snapshot(
             &mut state,
-            InboundSnapshot::new(HighFrequencyRemoteMethod::BlockSnapshot, 47, &clear_payload),
+            InboundSnapshot::new(HighFrequencyRemoteMethod::BlockSnapshot, 11, &clear_payload),
         );
         assert_eq!(state.block_snapshot_head_projection, None);
         assert_eq!(state.building_table_projection.by_build_pos.len(), 0);
@@ -1914,7 +1914,7 @@ mod tests {
 
         ingest_inbound_snapshot(
             &mut state,
-            InboundSnapshot::new(HighFrequencyRemoteMethod::BlockSnapshot, 47, &payload),
+            InboundSnapshot::new(HighFrequencyRemoteMethod::BlockSnapshot, 11, &payload),
         );
 
         assert_eq!(state.applied_block_snapshot_count, 1);
@@ -1982,7 +1982,7 @@ mod tests {
 
         ingest_inbound_snapshot(
             &mut state,
-            InboundSnapshot::new(HighFrequencyRemoteMethod::BlockSnapshot, 47, &payload),
+            InboundSnapshot::new(HighFrequencyRemoteMethod::BlockSnapshot, 11, &payload),
         );
 
         assert_eq!(state.received_block_snapshot_count, 1);
@@ -2016,7 +2016,7 @@ mod tests {
 
         ingest_inbound_snapshot(
             &mut state,
-            InboundSnapshot::new(HighFrequencyRemoteMethod::BlockSnapshot, 47, &payload),
+            InboundSnapshot::new(HighFrequencyRemoteMethod::BlockSnapshot, 11, &payload),
         );
 
         assert_eq!(state.received_block_snapshot_count, 1);
@@ -2044,7 +2044,7 @@ mod tests {
 
         ingest_inbound_snapshot(
             &mut state,
-            InboundSnapshot::new(HighFrequencyRemoteMethod::HiddenSnapshot, 11, &payload),
+            InboundSnapshot::new(HighFrequencyRemoteMethod::HiddenSnapshot, 49, &payload),
         );
 
         assert_eq!(state.received_hidden_snapshot_count, 1);
@@ -2098,13 +2098,13 @@ mod tests {
             &mut state,
             InboundSnapshot::new(
                 HighFrequencyRemoteMethod::HiddenSnapshot,
-                11,
+                49,
                 &initial_payload,
             ),
         );
         ingest_inbound_snapshot(
             &mut state,
-            InboundSnapshot::new(HighFrequencyRemoteMethod::HiddenSnapshot, 11, &next_payload),
+            InboundSnapshot::new(HighFrequencyRemoteMethod::HiddenSnapshot, 49, &next_payload),
         );
 
         assert_eq!(
@@ -2192,7 +2192,7 @@ mod tests {
 
         ingest_inbound_snapshot(
             &mut state,
-            InboundSnapshot::new(HighFrequencyRemoteMethod::HiddenSnapshot, 11, &payload),
+            InboundSnapshot::new(HighFrequencyRemoteMethod::HiddenSnapshot, 49, &payload),
         );
 
         assert_eq!(state.entity_table_projection.hidden_apply_count, 1);
@@ -2239,7 +2239,7 @@ mod tests {
             &mut state,
             InboundSnapshot::new(
                 HighFrequencyRemoteMethod::HiddenSnapshot,
-                11,
+                49,
                 &initial_payload,
             ),
         );
@@ -2247,7 +2247,7 @@ mod tests {
 
         ingest_inbound_snapshot(
             &mut state,
-            InboundSnapshot::new(HighFrequencyRemoteMethod::HiddenSnapshot, 11, &next_payload),
+            InboundSnapshot::new(HighFrequencyRemoteMethod::HiddenSnapshot, 49, &next_payload),
         );
 
         assert!(!state.entity_table_projection.by_entity_id[&101].hidden);
@@ -2335,7 +2335,7 @@ mod tests {
             &mut state,
             InboundSnapshot::new(
                 HighFrequencyRemoteMethod::HiddenSnapshot,
-                11,
+                49,
                 &initial_payload,
             ),
         );
@@ -2344,7 +2344,7 @@ mod tests {
 
         ingest_inbound_snapshot(
             &mut state,
-            InboundSnapshot::new(HighFrequencyRemoteMethod::HiddenSnapshot, 11, &next_payload),
+            InboundSnapshot::new(HighFrequencyRemoteMethod::HiddenSnapshot, 49, &next_payload),
         );
 
         assert!(!state.entity_table_projection.by_entity_id[&303].hidden);
@@ -2444,7 +2444,7 @@ mod tests {
 
         ingest_inbound_snapshot(
             &mut state,
-            InboundSnapshot::new(HighFrequencyRemoteMethod::HiddenSnapshot, 11, &payload),
+            InboundSnapshot::new(HighFrequencyRemoteMethod::HiddenSnapshot, 49, &payload),
         );
 
         assert!(!state
@@ -2516,7 +2516,7 @@ mod tests {
 
         ingest_inbound_snapshot(
             &mut state,
-            InboundSnapshot::new(HighFrequencyRemoteMethod::HiddenSnapshot, 11, &payload),
+            InboundSnapshot::new(HighFrequencyRemoteMethod::HiddenSnapshot, 49, &payload),
         );
 
         assert_eq!(state.entity_table_projection.hidden_apply_count, 1);
@@ -2676,7 +2676,7 @@ mod tests {
 
         ingest_inbound_snapshot(
             &mut state,
-            InboundSnapshot::new(HighFrequencyRemoteMethod::HiddenSnapshot, 11, &payload),
+            InboundSnapshot::new(HighFrequencyRemoteMethod::HiddenSnapshot, 49, &payload),
         );
 
         assert!(state.entity_table_projection.by_entity_id[&101].hidden);
@@ -2839,7 +2839,7 @@ mod tests {
 
         ingest_inbound_snapshot(
             &mut state,
-            InboundSnapshot::new(HighFrequencyRemoteMethod::HiddenSnapshot, 11, &payload),
+            InboundSnapshot::new(HighFrequencyRemoteMethod::HiddenSnapshot, 49, &payload),
         );
 
         assert!(state.entity_table_projection.by_entity_id[&101].hidden);
@@ -2883,7 +2883,7 @@ mod tests {
 
         ingest_inbound_snapshot(
             &mut state,
-            InboundSnapshot::new(HighFrequencyRemoteMethod::HiddenSnapshot, 11, &payload),
+            InboundSnapshot::new(HighFrequencyRemoteMethod::HiddenSnapshot, 49, &payload),
         );
 
         assert_eq!(state.received_hidden_snapshot_count, 1);
@@ -2906,7 +2906,7 @@ mod tests {
 
         ingest_inbound_snapshot(
             &mut state,
-            InboundSnapshot::new(HighFrequencyRemoteMethod::HiddenSnapshot, 11, &payload),
+            InboundSnapshot::new(HighFrequencyRemoteMethod::HiddenSnapshot, 49, &payload),
         );
 
         assert_eq!(state.received_hidden_snapshot_count, 1);

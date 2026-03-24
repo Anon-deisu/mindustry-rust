@@ -9,7 +9,9 @@ use crate::entity_snapshot_families::{
     WEATHER_STATE_ENTITY_CLASS_IDS, WORLD_LABEL_ENTITY_CLASS_IDS,
 };
 use crate::net_loop::{ingest_inbound_packet, NetLoopStats};
-use crate::packet_registry::{CustomChannelPacketRegistry, InboundSnapshotPacketRegistry};
+use crate::packet_registry::{
+    CombinedPacketRegistries, CustomChannelPacketRegistry, InboundSnapshotPacketRegistry,
+};
 use crate::session_state::{
     BuilderQueueEntryObservation, ConfiguredBlockOutcome, ConfiguredContentRef,
     CreateBulletProjection, DestroyPayloadProjection, EffectBusinessContentKind,
@@ -18,11 +20,11 @@ use crate::session_state::{
     EntityUnitSemanticProjection, EntityWeatherStateSemanticProjection,
     EntityWorldLabelSemanticProjection, GameplayStateProjection, PayloadDroppedProjection,
     PickedBuildPayloadProjection, PickedUnitPayloadProjection, ReconnectPhaseProjection,
-    ReconnectReasonKind, SessionResetKind, SessionState, SessionTimeoutKind,
-    SessionTimeoutProjection, TakeItemsProjection, TileConfigAuthoritySource,
+    ReconnectReasonKind, RemotePlanSnapshotFirstPlanProjection, SessionResetKind, SessionState,
+    SessionTimeoutKind, SessionTimeoutProjection, TakeItemsProjection, TileConfigAuthoritySource,
     TileConfigBusinessApply, TransferItemEffectProjection, TransferItemToProjection,
-    TransferItemToUnitProjection, UnitEnteredPayloadProjection, UnitRefProjection,
-    WorldReloadProjection,
+    TransferItemToUnitProjection, UnitAssemblerRuntimeProjection, UnitEnteredPayloadProjection,
+    UnitRefProjection, WorldReloadProjection,
 };
 use mdt_input::CommandModeProjection;
 use mdt_protocol::{
@@ -33,7 +35,8 @@ use mdt_remote::{
     CustomChannelRemoteFamily, HighFrequencyRemoteMethod, RemoteManifest, RemoteManifestError,
 };
 use mdt_typeio::{
-    read_object_prefix, write_int as write_typeio_int, write_object as write_typeio_object,
+    read_object_effect_prefix, read_object_prefix, read_plans_queue_net_prefix,
+    write_int as write_typeio_int, write_object as write_typeio_object, BuildPlanRaw,
     TypeIoEffectPositionHint, TypeIoObject, TypeIoSemanticRef,
 };
 use mdt_world::{
@@ -268,8 +271,11 @@ pub struct ClientSession {
     known_remote_packets: BTreeMap<u8, IgnoredRemotePacketMeta>,
     known_remote_packet_priorities: BTreeMap<u8, DeferredInboundPriority>,
     client_snapshot_packet_id: u8,
+    client_plan_snapshot_packet_id: Option<u8>,
+    client_plan_snapshot_received_packet_id: Option<u8>,
     ping_packet_id: Option<u8>,
     ping_response_packet_id: Option<u8>,
+    ping_location_packet_id: Option<u8>,
     kick_string_packet_id: Option<u8>,
     kick_reason_packet_id: Option<u8>,
     connect_redirect_packet_id: Option<u8>,
@@ -453,16 +459,10 @@ impl ClientSession {
         locale: impl Into<String>,
         timing: ClientSessionTiming,
     ) -> Result<Self, ClientSessionError> {
-        let registry = InboundSnapshotPacketRegistry::from_remote_manifest(manifest)?;
-        let custom_channel_registry = CustomChannelPacketRegistry::from_remote_manifest(manifest)?;
-        let client_snapshot_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == HighFrequencyRemoteMethod::ClientSnapshot.method_name())
-            .ok_or(RemoteManifestError::MissingHighFrequencyPacket(
-                HighFrequencyRemoteMethod::ClientSnapshot.method_name(),
-            ))?
-            .packet_id;
+        let combined_registries = CombinedPacketRegistries::from_remote_manifest(manifest)?;
+        let registry = combined_registries.inbound_snapshot;
+        let custom_channel_registry = combined_registries.custom_channel;
+        let client_snapshot_packet_id = combined_registries.client_snapshot_packet_id;
         let known_remote_packets = manifest
             .remote_packets
             .iter()
@@ -493,10 +493,25 @@ impl ClientSession {
             .iter()
             .find(|entry| entry.method == "ping")
             .map(|entry| entry.packet_id);
+        let client_plan_snapshot_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "clientPlanSnapshot")
+            .map(|entry| entry.packet_id);
+        let client_plan_snapshot_received_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "clientPlanSnapshotReceived")
+            .map(|entry| entry.packet_id);
         let ping_response_packet_id = manifest
             .remote_packets
             .iter()
             .find(|entry| entry.method == "pingResponse")
+            .map(|entry| entry.packet_id);
+        let ping_location_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "pingLocation")
             .map(|entry| entry.packet_id);
         let kick_string_packet_id = manifest
             .remote_packets
@@ -1224,8 +1239,11 @@ impl ClientSession {
             known_remote_packets,
             known_remote_packet_priorities,
             client_snapshot_packet_id,
+            client_plan_snapshot_packet_id,
+            client_plan_snapshot_received_packet_id,
             ping_packet_id,
             ping_response_packet_id,
+            ping_location_packet_id,
             kick_string_packet_id,
             kick_reason_packet_id,
             connect_redirect_packet_id,
@@ -1919,15 +1937,20 @@ impl ClientSession {
             .by_build_pos
             .get(&build_pos)
             .and_then(|building| {
-                building
-                    .block_name
-                    .clone()
-                    .or_else(|| building.block_id.and_then(|block_id| self.loaded_world_block_name(block_id)))
+                building.block_name.clone().or_else(|| {
+                    building
+                        .block_id
+                        .and_then(|block_id| self.loaded_world_block_name(block_id))
+                })
             });
         matches!(
             block_name.as_deref(),
             Some(
-                BLOCK_NAME_MASS_DRIVER
+                BLOCK_NAME_BRIDGE_CONVEYOR
+                    | BLOCK_NAME_PHASE_CONVEYOR
+                    | BLOCK_NAME_BRIDGE_CONDUIT
+                    | BLOCK_NAME_PHASE_CONDUIT
+                    | BLOCK_NAME_MASS_DRIVER
                     | BLOCK_NAME_PAYLOAD_MASS_DRIVER
                     | BLOCK_NAME_LARGE_PAYLOAD_MASS_DRIVER
             )
@@ -5489,6 +5512,64 @@ impl ClientSession {
                     round_trip_ms: self.last_remote_ping_rtt_ms,
                 })
             }
+            packet_id if Some(packet_id) == self.client_plan_snapshot_packet_id => {
+                if let Some(summary) = decode_client_plan_snapshot_payload(&packet.payload) {
+                    self.record_remote_plan_snapshot(
+                        false,
+                        None,
+                        summary.group_id,
+                        summary.plans.as_deref(),
+                    );
+                    Ok(ClientSessionEvent::ClientPlanSnapshot {
+                        group_id: summary.group_id,
+                        plans: summary.plans,
+                    })
+                } else {
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
+            packet_id if Some(packet_id) == self.client_plan_snapshot_received_packet_id => {
+                if let Some(summary) = decode_client_plan_snapshot_received_payload(&packet.payload)
+                {
+                    self.record_remote_plan_snapshot(
+                        true,
+                        summary.player_id,
+                        summary.group_id,
+                        summary.plans.as_deref(),
+                    );
+                    Ok(ClientSessionEvent::ClientPlanSnapshotReceived {
+                        player_id: summary.player_id,
+                        group_id: summary.group_id,
+                        plans: summary.plans,
+                    })
+                } else {
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
+            packet_id if Some(packet_id) == self.ping_location_packet_id => {
+                if let Some(summary) = decode_ping_location_payload(&packet.payload, true)
+                    .or_else(|| decode_ping_location_payload(&packet.payload, false))
+                {
+                    self.record_ping_location(&summary);
+                    Ok(ClientSessionEvent::PingLocation {
+                        player_id: summary.player_id,
+                        x_bits: summary.x_bits,
+                        y_bits: summary.y_bits,
+                        text: summary.text,
+                    })
+                } else {
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
             _ => {
                 let previous_applied_state_snapshot_count = self.state.applied_state_snapshot_count;
                 if let Some(snapshot) = ingest_inbound_packet(
@@ -6286,6 +6367,46 @@ impl ClientSession {
         };
         self.last_remote_ping_rtt_ms = Some(self.clock_ms.saturating_sub(sent_at_ms));
         Some(sent_at_ms)
+    }
+
+    fn record_remote_plan_snapshot(
+        &mut self,
+        acknowledged: bool,
+        player_id: Option<i32>,
+        group_id: i32,
+        plans: Option<&[ClientBuildPlan]>,
+    ) {
+        let projection = if acknowledged {
+            &mut self.state.client_plan_snapshot_received_projection
+        } else {
+            &mut self.state.client_plan_snapshot_projection
+        };
+        projection.received_count = projection.received_count.saturating_add(1);
+        projection.last_player_id = player_id;
+        projection.last_group_id = Some(group_id);
+        projection.last_plan_count = plans.map(|items| items.len());
+        projection.last_first_plan = plans.and_then(|items| items.first()).map(|plan| {
+            RemotePlanSnapshotFirstPlanProjection {
+                x: plan.tile.0,
+                y: plan.tile.1,
+                breaking: plan.breaking,
+                block_id: plan.block_id,
+                rotation: plan.rotation,
+                config: client_build_plan_config_to_typeio_object(&plan.config),
+            }
+        });
+    }
+
+    fn record_ping_location(&mut self, summary: &PingLocationSummary) {
+        self.state.ping_location_projection.received_count = self
+            .state
+            .ping_location_projection
+            .received_count
+            .saturating_add(1);
+        self.state.ping_location_projection.last_player_id = summary.player_id;
+        self.state.ping_location_projection.last_x_bits = Some(summary.x_bits);
+        self.state.ping_location_projection.last_y_bits = Some(summary.y_bits);
+        self.state.ping_location_projection.last_text = summary.text.clone();
     }
 
     fn remove_snapshot_plan(&mut self, x: i32, y: i32) -> bool {
@@ -7279,6 +7400,11 @@ impl ClientSession {
             self.state
                 .configured_block_projection
                 .apply_payload_mass_driver_link(build_pos, Some(link));
+        }
+        if let Some(projection) = summarize_unit_assembler_projection(parsed_tail) {
+            self.state
+                .configured_block_projection
+                .apply_unit_assembler(build_pos, projection);
         }
         if let Some(item_id) = summarize_nullable_item_config_item_id(parsed_tail) {
             match block_name {
@@ -8404,6 +8530,21 @@ pub enum ClientSessionEvent {
         sent_at_ms: Option<u64>,
         round_trip_ms: Option<u64>,
     },
+    ClientPlanSnapshot {
+        group_id: i32,
+        plans: Option<Vec<ClientBuildPlan>>,
+    },
+    ClientPlanSnapshotReceived {
+        player_id: Option<i32>,
+        group_id: i32,
+        plans: Option<Vec<ClientBuildPlan>>,
+    },
+    PingLocation {
+        player_id: Option<i32>,
+        x_bits: u32,
+        y_bits: u32,
+        text: Option<String>,
+    },
     SnapshotReceived(HighFrequencyRemoteMethod),
     StateSnapshotApplied {
         projection: StateSnapshotAppliedProjection,
@@ -8824,6 +8965,83 @@ fn client_build_plan_config_to_typeio_object(config: &ClientBuildPlanConfig) -> 
     }
 }
 
+fn unpack_plan_point2(value: i32) -> (i32, i32) {
+    let (x, y) = unpack_point2(value);
+    (i32::from(x), i32::from(y))
+}
+
+fn build_plan_config_from_typeio_object(object: TypeIoObject) -> ClientBuildPlanConfig {
+    match object {
+        TypeIoObject::Null => ClientBuildPlanConfig::None,
+        TypeIoObject::Int(value) => ClientBuildPlanConfig::Int(value),
+        TypeIoObject::Long(value) => ClientBuildPlanConfig::Long(value),
+        TypeIoObject::Float(value) => ClientBuildPlanConfig::FloatBits(value.to_bits()),
+        TypeIoObject::String(Some(value)) => ClientBuildPlanConfig::String(value),
+        TypeIoObject::String(None) => ClientBuildPlanConfig::None,
+        TypeIoObject::ContentRaw {
+            content_type,
+            content_id,
+        } => ClientBuildPlanConfig::Content {
+            content_type,
+            content_id,
+        },
+        TypeIoObject::IntSeq(values) => ClientBuildPlanConfig::IntSeq(values),
+        TypeIoObject::Point2 { x, y } => ClientBuildPlanConfig::Point2 { x, y },
+        TypeIoObject::PackedPoint2Array(values) => ClientBuildPlanConfig::Point2Array(
+            values
+                .into_iter()
+                .map(unpack_plan_point2)
+                .collect::<Vec<_>>(),
+        ),
+        TypeIoObject::TechNodeRaw {
+            content_type,
+            content_id,
+        } => ClientBuildPlanConfig::TechNodeRaw {
+            content_type,
+            content_id,
+        },
+        TypeIoObject::Bool(value) => ClientBuildPlanConfig::Bool(value),
+        TypeIoObject::Double(value) => ClientBuildPlanConfig::DoubleBits(value.to_bits()),
+        TypeIoObject::BuildingPos(value) => ClientBuildPlanConfig::BuildingPos(value),
+        TypeIoObject::LAccess(value) => ClientBuildPlanConfig::LAccess(value),
+        TypeIoObject::Bytes(values) => ClientBuildPlanConfig::Bytes(values),
+        TypeIoObject::LegacyUnitCommandNull(value) => {
+            ClientBuildPlanConfig::LegacyUnitCommandNull(value)
+        }
+        TypeIoObject::BoolArray(values) => ClientBuildPlanConfig::BoolArray(values),
+        TypeIoObject::UnitId(value) => ClientBuildPlanConfig::UnitId(value),
+        TypeIoObject::Vec2Array(values) => ClientBuildPlanConfig::Vec2Array(
+            values
+                .into_iter()
+                .map(|(x, y)| (x.to_bits(), y.to_bits()))
+                .collect::<Vec<_>>(),
+        ),
+        TypeIoObject::Vec2 { x, y } => ClientBuildPlanConfig::Vec2 {
+            x_bits: x.to_bits(),
+            y_bits: y.to_bits(),
+        },
+        TypeIoObject::Team(value) => ClientBuildPlanConfig::Team(value),
+        TypeIoObject::IntArray(values) => ClientBuildPlanConfig::IntArray(values),
+        TypeIoObject::ObjectArray(values) => ClientBuildPlanConfig::ObjectArray(
+            values
+                .into_iter()
+                .map(build_plan_config_from_typeio_object)
+                .collect::<Vec<_>>(),
+        ),
+        TypeIoObject::UnitCommand(value) => ClientBuildPlanConfig::UnitCommand(value),
+    }
+}
+
+fn client_build_plan_from_raw(raw: BuildPlanRaw) -> ClientBuildPlan {
+    ClientBuildPlan {
+        tile: (raw.x, raw.y),
+        breaking: raw.breaking,
+        block_id: raw.block_id,
+        rotation: raw.rotation,
+        config: build_plan_config_from_typeio_object(raw.config),
+    }
+}
+
 fn pack_point2(x: i32, y: i32) -> i32 {
     ((x & 0xffff) << 16) | (y & 0xffff)
 }
@@ -8843,6 +9061,68 @@ fn bootstrap_player_unit_id(bootstrap: &LoadedWorldBootstrap) -> Option<i32> {
     } else {
         i32::try_from(bootstrap.player_unit_value).ok()
     }
+}
+
+fn decode_client_plan_snapshot_payload(payload: &[u8]) -> Option<RemotePlanSnapshotSummary> {
+    let mut cursor = 0usize;
+    let group_id = read_i32(payload, &mut cursor)?;
+    let (plans, consumed) = read_plans_queue_net_prefix(&payload[cursor..]).ok()?;
+    cursor += consumed;
+    if cursor != payload.len() {
+        return None;
+    }
+    Some(RemotePlanSnapshotSummary {
+        group_id,
+        plans: plans.map(|items| items.into_iter().map(client_build_plan_from_raw).collect()),
+    })
+}
+
+fn decode_client_plan_snapshot_received_payload(
+    payload: &[u8],
+) -> Option<RemotePlanSnapshotReceivedSummary> {
+    let mut cursor = 0usize;
+    let player_id = match read_i32(payload, &mut cursor)? {
+        -1 => None,
+        value => Some(value),
+    };
+    let group_id = read_i32(payload, &mut cursor)?;
+    let (plans, consumed) = read_plans_queue_net_prefix(&payload[cursor..]).ok()?;
+    cursor += consumed;
+    if cursor != payload.len() {
+        return None;
+    }
+    Some(RemotePlanSnapshotReceivedSummary {
+        player_id,
+        group_id,
+        plans: plans.map(|items| items.into_iter().map(client_build_plan_from_raw).collect()),
+    })
+}
+
+fn decode_ping_location_payload(
+    payload: &[u8],
+    with_player_prefix: bool,
+) -> Option<PingLocationSummary> {
+    let mut cursor = 0usize;
+    let player_id = if with_player_prefix {
+        match read_i32(payload, &mut cursor)? {
+            -1 => None,
+            value => Some(value),
+        }
+    } else {
+        None
+    };
+    let x = read_f32(payload, &mut cursor)?;
+    let y = read_f32(payload, &mut cursor)?;
+    let text = read_typeio_string_at(payload, &mut cursor)?;
+    if cursor != payload.len() {
+        return None;
+    }
+    Some(PingLocationSummary {
+        player_id,
+        x_bits: x.to_bits(),
+        y_bits: y.to_bits(),
+        text,
+    })
 }
 
 fn decode_set_position_payload(payload: &[u8]) -> Result<(f32, f32), ClientSessionError> {
@@ -10135,7 +10415,7 @@ fn decode_effect_payload(payload: &[u8], allow_trailing: bool) -> Option<EffectS
     };
     let (data_kind, data_consumed_len, data_object, parse_failed, parse_error) =
         if allow_trailing && data_len > 0 {
-            match read_object_prefix(&payload[cursor..]) {
+            match read_object_effect_prefix(&payload[cursor..]) {
                 Ok((object, consumed)) if consumed == data_len => (
                     Some(effect_data_kind_label(&object)),
                     Some(consumed),
@@ -10376,6 +10656,7 @@ fn derive_effect_business_projection(
             EffectBusinessProjection::LightningPath { points } => points.last().copied(),
             EffectBusinessProjection::ContentRef { .. }
             | EffectBusinessProjection::PositionTarget { .. }
+            | EffectBusinessProjection::PayloadTargetContent { .. }
             | EffectBusinessProjection::LengthRay { .. }
             | EffectBusinessProjection::FloatValue(_) => None,
         }
@@ -10465,6 +10746,88 @@ fn derive_effect_business_projection(
         (!points.is_empty()).then_some(EffectBusinessProjection::LightningPath { points })
     }
 
+    fn payload_target_content_content_projection(
+        state: &SessionState,
+        snapshot_input: &ClientSnapshotInputState,
+        value: &TypeIoObject,
+    ) -> Option<EffectBusinessProjection> {
+        value
+            .semantic_ref()
+            .and_then(|semantic_ref| match semantic_ref {
+                TypeIoSemanticRef::Content { content_type, .. }
+                    if [BLOCK_CONTENT_TYPE, UNIT_CONTENT_TYPE].contains(&content_type) =>
+                {
+                    projection_from_semantic_ref(state, snapshot_input, semantic_ref)
+                }
+                TypeIoSemanticRef::Content { .. }
+                | TypeIoSemanticRef::TechNode { .. }
+                | TypeIoSemanticRef::Building { .. }
+                | TypeIoSemanticRef::Unit { .. } => None,
+            })
+    }
+
+    fn payload_target_content_target_bits(
+        state: &SessionState,
+        snapshot_input: &ClientSnapshotInputState,
+        value: &TypeIoObject,
+    ) -> Option<(u32, u32)> {
+        let target_projection = match value {
+            TypeIoObject::Point2 { .. }
+            | TypeIoObject::PackedPoint2Array(_)
+            | TypeIoObject::Vec2 { .. }
+            | TypeIoObject::Vec2Array(_) => projection_from_object(state, snapshot_input, value),
+            _ => value
+                .semantic_ref()
+                .and_then(|semantic_ref| match semantic_ref {
+                    TypeIoSemanticRef::Building { .. } | TypeIoSemanticRef::Unit { .. } => {
+                        projection_from_semantic_ref(state, snapshot_input, semantic_ref)
+                    }
+                    TypeIoSemanticRef::Content { .. } | TypeIoSemanticRef::TechNode { .. } => None,
+                }),
+        }?;
+        position_bits_from_projection(&target_projection)
+    }
+
+    fn payload_target_content_projection(
+        state: &SessionState,
+        snapshot_input: &ClientSnapshotInputState,
+        effect_x: f32,
+        effect_y: f32,
+        object: &TypeIoObject,
+        max_depth: usize,
+        max_nodes: usize,
+    ) -> Option<(EffectBusinessProjection, Vec<usize>)> {
+        let content_match = object.find_first_dfs_bounded(max_depth, max_nodes, |value| {
+            payload_target_content_content_projection(state, snapshot_input, value).is_some()
+        })?;
+        let content_projection =
+            payload_target_content_content_projection(state, snapshot_input, content_match.value)?;
+        let EffectBusinessProjection::ContentRef {
+            content_type,
+            content_id,
+            ..
+        } = content_projection
+        else {
+            return None;
+        };
+        let target_match = object.find_first_dfs_bounded(max_depth, max_nodes, |value| {
+            payload_target_content_target_bits(state, snapshot_input, value).is_some()
+        })?;
+        let (target_x_bits, target_y_bits) =
+            payload_target_content_target_bits(state, snapshot_input, target_match.value)?;
+        Some((
+            EffectBusinessProjection::PayloadTargetContent {
+                source_x_bits: effect_x.to_bits(),
+                source_y_bits: effect_y.to_bits(),
+                target_x_bits,
+                target_y_bits,
+                content_type,
+                content_id,
+            },
+            target_match.path,
+        ))
+    }
+
     fn projection_from_contract_object(
         state: &SessionState,
         snapshot_input: &ClientSnapshotInputState,
@@ -10484,6 +10847,21 @@ fn derive_effect_business_projection(
                             content_type: BLOCK_CONTENT_TYPE,
                             ..
                         } => projection_from_semantic_ref(state, snapshot_input, semantic_ref),
+                        TypeIoSemanticRef::Content { .. }
+                        | TypeIoSemanticRef::TechNode { .. }
+                        | TypeIoSemanticRef::Building { .. }
+                        | TypeIoSemanticRef::Unit { .. } => None,
+                    })
+            }
+            RuntimeEffectContract::ContentIcon => {
+                value
+                    .semantic_ref()
+                    .and_then(|semantic_ref| match semantic_ref {
+                        TypeIoSemanticRef::Content { content_type, .. }
+                            if [BLOCK_CONTENT_TYPE, UNIT_CONTENT_TYPE].contains(&content_type) =>
+                        {
+                            projection_from_semantic_ref(state, snapshot_input, semantic_ref)
+                        }
                         TypeIoSemanticRef::Content { .. }
                         | TypeIoSemanticRef::TechNode { .. }
                         | TypeIoSemanticRef::Building { .. }
@@ -10517,6 +10895,7 @@ fn derive_effect_business_projection(
                     target_y_bits,
                 })
             }
+            RuntimeEffectContract::PayloadTargetContent => None,
             RuntimeEffectContract::DropItem => {
                 value
                     .semantic_ref()
@@ -10589,6 +10968,17 @@ fn derive_effect_business_projection(
         max_depth: usize,
         max_nodes: usize,
     ) -> Option<(EffectBusinessProjection, Vec<usize>)> {
+        if matches!(contract, RuntimeEffectContract::PayloadTargetContent) {
+            return payload_target_content_projection(
+                state,
+                snapshot_input,
+                effect_x,
+                effect_y,
+                object,
+                max_depth,
+                max_nodes,
+            );
+        }
         if let Some(projection) = projection_from_contract_object(
             state,
             snapshot_input,
@@ -11092,6 +11482,27 @@ struct SetUnitStanceSummary {
 struct UnitBuildingControlSelectSummary {
     target: Option<UnitRefProjection>,
     build_pos: Option<i32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RemotePlanSnapshotSummary {
+    group_id: i32,
+    plans: Option<Vec<ClientBuildPlan>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RemotePlanSnapshotReceivedSummary {
+    player_id: Option<i32>,
+    group_id: i32,
+    plans: Option<Vec<ClientBuildPlan>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PingLocationSummary {
+    player_id: Option<i32>,
+    x_bits: u32,
+    y_bits: u32,
+    text: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -11634,6 +12045,33 @@ fn summarize_payload_mass_driver_link(parsed_tail: &mdt_world::ParsedBuildingTai
         return None;
     };
     Some(driver.link)
+}
+
+fn summarize_unit_assembler_projection(
+    parsed_tail: &mdt_world::ParsedBuildingTail,
+) -> Option<UnitAssemblerRuntimeProjection> {
+    let mdt_world::ParsedBuildingTail::UnitAssembler(assembler) = parsed_tail else {
+        return None;
+    };
+    Some(UnitAssemblerRuntimeProjection {
+        progress_bits: assembler.progress_bits,
+        unit_ids: assembler.unit_ids.clone(),
+        block_entry_count: assembler.blocks.entry_count,
+        block_sample: assembler
+            .blocks
+            .entries
+            .first()
+            .map(|entry| ConfiguredContentRef {
+                content_type: entry.content_type,
+                content_id: entry.content_id,
+            }),
+        command_pos: assembler
+            .command_pos
+            .present
+            .then_some((assembler.command_pos.x_bits, assembler.command_pos.y_bits)),
+        payload_present: assembler.payload_block.payload_present,
+        pay_rotation_bits: assembler.payload_block.pay_rotation_bits,
+    })
 }
 
 fn summarize_nullable_item_config_item_id(
@@ -13340,6 +13778,53 @@ fn encode_optional_entity_payload(entity_id: Option<i32>) -> Vec<u8> {
 }
 
 #[cfg(test)]
+fn encode_remote_plan_snapshot_plans_queue(plans: Option<&[ClientBuildPlan]>) -> Vec<u8> {
+    let mut payload = Vec::new();
+    write_typeio_int(
+        &mut payload,
+        plans.map(|items| items.len() as i32).unwrap_or(-1),
+    );
+    if let Some(items) = plans {
+        for plan in items {
+            payload.push(u8::from(plan.breaking));
+            write_typeio_int(&mut payload, pack_point2(plan.tile.0, plan.tile.1));
+            if plan.breaking {
+                continue;
+            }
+            payload.extend_from_slice(&plan.block_id.unwrap_or(-1).to_be_bytes());
+            payload.push(plan.rotation);
+            payload.push(1);
+            write_typeio_object(
+                &mut payload,
+                &client_build_plan_config_to_typeio_object(&plan.config),
+            );
+        }
+    }
+    payload
+}
+
+#[cfg(test)]
+fn encode_remote_plan_snapshot_payload(
+    group_id: i32,
+    plans: Option<&[ClientBuildPlan]>,
+) -> Vec<u8> {
+    let mut payload = group_id.to_be_bytes().to_vec();
+    payload.extend_from_slice(&encode_remote_plan_snapshot_plans_queue(plans));
+    payload
+}
+
+#[cfg(test)]
+fn encode_remote_plan_snapshot_received_payload(
+    player_id: Option<i32>,
+    group_id: i32,
+    plans: Option<&[ClientBuildPlan]>,
+) -> Vec<u8> {
+    let mut payload = encode_optional_entity_payload(player_id);
+    payload.extend_from_slice(&encode_remote_plan_snapshot_payload(group_id, plans));
+    payload
+}
+
+#[cfg(test)]
 fn encode_take_items_payload(
     build_pos: Option<i32>,
     item_id: Option<i16>,
@@ -13646,6 +14131,19 @@ fn encode_two_f32_payload(x: f32, y: f32) -> Vec<u8> {
     let mut payload = Vec::with_capacity(8);
     write_f32(&mut payload, x);
     write_f32(&mut payload, y);
+    payload
+}
+
+#[cfg(test)]
+fn encode_ping_location_forwarded_payload(
+    player_id: Option<i32>,
+    x: f32,
+    y: f32,
+    text: Option<&str>,
+) -> Vec<u8> {
+    let mut payload = encode_optional_entity_payload(player_id);
+    payload.extend_from_slice(&encode_two_f32_payload(x, y));
+    payload.extend_from_slice(&encode_optional_typeio_string_payload(text));
     payload
 }
 
@@ -14091,8 +14589,8 @@ mod tests {
 
     fn fallback_generated_java_syncc_class_ids() -> BTreeSet<u8> {
         BTreeSet::from([
-            0, 2, 3, 4, 5, 10, 12, 13, 14, 16, 17, 18, 19, 20, 21, 23, 24, 26, 29, 30, 31,
-            32, 33, 35, 36, 39, 43, 45, 46,
+            0, 2, 3, 4, 5, 10, 12, 13, 14, 16, 17, 18, 19, 20, 21, 23, 24, 26, 29, 30, 31, 32, 33,
+            35, 36, 39, 43, 45, 46,
         ])
     }
 
@@ -14696,6 +15194,10 @@ mod tests {
             .join("../../fixtures/remote/remote-manifest-v1.json")
     }
 
+    fn v156_manifest_path() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../fixtures/remote/remote-manifest-v1.json")
+    }
+
     #[test]
     fn drives_connect_world_stream_and_snapshot_chain() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
@@ -14779,7 +15281,7 @@ mod tests {
             Some(crate::session_state::BuildingProjectionUpdateKind::WorldBaseline)
         );
 
-        let snapshot_packet = encode_packet(122, &[1, 2, 3, 4], false).unwrap();
+        let snapshot_packet = encode_packet(125, &[1, 2, 3, 4], false).unwrap();
         let snapshot_event = session.ingest_packet_bytes(&snapshot_packet).unwrap();
         assert_eq!(
             snapshot_event,
@@ -14898,16 +15400,31 @@ mod tests {
             i32::try_from(session.state().world_player_unit_value.unwrap()).unwrap();
         let expected_x_bits = session.state().world_player_x_bits.unwrap();
         let expected_y_bits = session.state().world_player_y_bits.unwrap();
+        let expected_connect_confirm_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "connectConfirm")
+            .unwrap()
+            .packet_id;
         let connect_confirm = session.prepare_connect_confirm_packet().unwrap();
         let connect_confirm = connect_confirm.expect("world-ready session should confirm connect");
         let connect_confirm_packet = decode_packet(&connect_confirm).unwrap();
-        assert_eq!(connect_confirm_packet.packet_id, 29);
+        assert_eq!(
+            connect_confirm_packet.packet_id,
+            expected_connect_confirm_packet_id
+        );
         assert!(connect_confirm_packet.payload.is_empty());
         assert!(session.state().connect_confirm_sent);
         let expected_ping_packet_id = manifest
             .remote_packets
             .iter()
             .find(|entry| entry.method == "ping")
+            .unwrap()
+            .packet_id;
+        let expected_snapshot_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "clientSnapshot")
             .unwrap()
             .packet_id;
 
@@ -14919,10 +15436,10 @@ mod tests {
                 transport,
                 bytes,
             } => {
-                assert_eq!(*packet_id, 29);
+                assert_eq!(*packet_id, expected_connect_confirm_packet_id);
                 assert_eq!(*transport, ClientPacketTransport::Tcp);
                 let decoded = decode_packet(bytes).unwrap();
-                assert_eq!(decoded.packet_id, 29);
+                assert_eq!(decoded.packet_id, expected_connect_confirm_packet_id);
                 assert!(decoded.payload.is_empty());
             }
             other => panic!("expected queued connectConfirm send action, got {other:?}"),
@@ -14954,10 +15471,10 @@ mod tests {
                 transport,
                 bytes,
             } => {
-                assert_eq!(*packet_id, 24);
+                assert_eq!(*packet_id, expected_snapshot_packet_id);
                 assert_eq!(*transport, ClientPacketTransport::Udp);
                 let decoded = decode_packet(bytes).unwrap();
-                assert_eq!(decoded.packet_id, 24);
+                assert_eq!(decoded.packet_id, expected_snapshot_packet_id);
                 assert_eq!(&decoded.payload[0..4], &1i32.to_be_bytes());
                 assert_eq!(&decoded.payload[4..8], &expected_unit_id.to_be_bytes());
                 assert_eq!(decoded.payload[8], 0);
@@ -15696,7 +16213,7 @@ mod tests {
         input.position = Some((999.0, 999.0));
         input.view_center = Some((999.0, 999.0));
 
-        let entity_snapshot_wire = encode_packet(44, &entity_snapshot_payload, false).unwrap();
+        let entity_snapshot_wire = encode_packet(46, &entity_snapshot_payload, false).unwrap();
         let event = session.ingest_packet_bytes(&entity_snapshot_wire).unwrap();
 
         assert_eq!(
@@ -18404,28 +18921,31 @@ mod tests {
             None,
             None,
         );
-        session.state.building_table_projection.apply_block_snapshot_head(
-            build_tower_pos,
-            build_tower_block_id,
-            Some("build-tower".to_string()),
-            Some(4),
-            Some(5),
-            Some(6),
-            Some(7),
-            Some(0x3f20_0000),
-            Some(0x3e80_0000),
-            Some(126),
-            Some(false),
-            None,
-            Some(0x4060_0000),
-            Some(true),
-            Some(0x28),
-            Some(0x14),
-            Some(55),
-            Some(0x4210_0000),
-            Some(true),
-            Some(5),
-        );
+        session
+            .state
+            .building_table_projection
+            .apply_block_snapshot_head(
+                build_tower_pos,
+                build_tower_block_id,
+                Some("build-tower".to_string()),
+                Some(4),
+                Some(5),
+                Some(6),
+                Some(7),
+                Some(0x3f20_0000),
+                Some(0x3e80_0000),
+                Some(126),
+                Some(false),
+                None,
+                Some(0x4060_0000),
+                Some(true),
+                Some(0x28),
+                Some(0x14),
+                Some(55),
+                Some(0x4210_0000),
+                Some(true),
+                Some(5),
+            );
 
         session.apply_loaded_world_parsed_tail_business(
             message_pos,
@@ -18883,6 +19403,113 @@ mod tests {
                 .item_bridge_link_by_build_pos
                 .get(&bridge_conveyor_pos),
             Some(&Some(bridge_link))
+        );
+    }
+
+    #[test]
+    fn loaded_world_tail_business_helper_applies_unit_assembler_projection() {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_build_pos_for_block_snapshot_test(54, 55);
+        let block_id = loaded_world_block_id_for_name(&session, "tank-assembler");
+        let sample_block_id =
+            loaded_world_content_id_for_name(&session, BLOCK_CONTENT_TYPE, "copper-wall");
+
+        session.state.building_table_projection.seed_world_baseline(
+            build_pos,
+            block_id,
+            Some("tank-assembler".to_string()),
+            1,
+            2,
+            Some(3),
+            Some(4),
+            Some(0x3f80_0000),
+            Some(0x3f00_0000),
+            Some(123),
+            Some(true),
+            0x4040_0000,
+            Some(true),
+            Some(0x20),
+            Some(0x10),
+            Some(77),
+        );
+
+        session.apply_loaded_world_parsed_tail_business(
+            build_pos,
+            Some("tank-assembler"),
+            &mdt_world::ParsedBuildingTail::UnitAssembler(mdt_world::UnitAssemblerTailSnapshot {
+                payload_block: mdt_world::PayloadBlockTailSnapshot {
+                    pay_vector_x_bits: 0x4120_0000,
+                    pay_vector_y_bits: 0x41a0_0000,
+                    pay_rotation_bits: 0x4000_0000,
+                    payload_present: true,
+                    payload_type: Some(1),
+                    build_block_id: Some(sample_block_id as u16),
+                    build_revision: Some(1),
+                    build_payload: None,
+                    unit_class_id: None,
+                    unit_payload_len: None,
+                    unit_payload_sha256: None,
+                },
+                progress_bits: 0x3f40_0000,
+                unit_ids: vec![301, 302],
+                blocks: mdt_world::PayloadSeqSnapshot {
+                    legacy_format: false,
+                    entry_count: 2,
+                    entries: vec![mdt_world::PayloadSeqEntrySnapshot {
+                        content_type: BLOCK_CONTENT_TYPE,
+                        content_id: sample_block_id,
+                        amount: 4,
+                    }],
+                },
+                command_pos: mdt_world::NullableVec2TailSnapshot {
+                    present: true,
+                    x_bits: 12.5f32.to_bits(),
+                    y_bits: 18.0f32.to_bits(),
+                },
+            }),
+        );
+
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .unit_assembler_by_build_pos
+                .get(&build_pos),
+            Some(&UnitAssemblerRuntimeProjection {
+                progress_bits: 0x3f40_0000,
+                unit_ids: vec![301, 302],
+                block_entry_count: 2,
+                block_sample: Some(ConfiguredContentRef {
+                    content_type: BLOCK_CONTENT_TYPE,
+                    content_id: sample_block_id,
+                }),
+                command_pos: Some((12.5f32.to_bits(), 18.0f32.to_bits())),
+                payload_present: true,
+                pay_rotation_bits: 0x4000_0000,
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos)
+                .map(|building| (&building.kind, &building.value, building.health_bits)),
+            Some((
+                &crate::session_state::TypedBuildingRuntimeKind::UnitAssembler,
+                &crate::session_state::TypedBuildingRuntimeValue::UnitAssembler {
+                    progress_bits: 0x3f40_0000,
+                    unit_count: 2,
+                    block_count: 2,
+                    block_sample: Some(ConfiguredContentRef {
+                        content_type: BLOCK_CONTENT_TYPE,
+                        content_id: sample_block_id,
+                    }),
+                    command_pos: Some((12.5f32.to_bits(), 18.0f32.to_bits())),
+                    payload_present: true,
+                    pay_rotation_bits: 0x4000_0000,
+                },
+                Some(0x4040_0000),
+            ))
         );
     }
 
@@ -20640,7 +21267,7 @@ mod tests {
         session.state.world_player_id = Some(999_999);
 
         let entity_snapshot_wire =
-            encode_packet(44, &sample_snapshot_packet("entitySnapshot.packet"), false).unwrap();
+            encode_packet(46, &sample_snapshot_packet("entitySnapshot.packet"), false).unwrap();
         let event = session.ingest_packet_bytes(&entity_snapshot_wire).unwrap();
 
         assert_eq!(
@@ -20721,7 +21348,7 @@ mod tests {
         input.view_center = Some((999.0, 999.0));
 
         let entity_snapshot_wire =
-            encode_packet(44, &sample_snapshot_packet("entitySnapshot.packet"), false).unwrap();
+            encode_packet(46, &sample_snapshot_packet("entitySnapshot.packet"), false).unwrap();
         let event = session.ingest_packet_bytes(&entity_snapshot_wire).unwrap();
 
         assert_eq!(
@@ -26540,6 +27167,258 @@ mod tests {
     }
 
     #[test]
+    fn item_bridge_family_tile_config_authoritative_relative_link_matches_pending_absolute_int() {
+        let cases = [
+            (
+                pack_point2(35, 57),
+                BLOCK_NAME_BRIDGE_CONVEYOR,
+                pack_point2(38, 55),
+            ),
+            (
+                pack_point2(36, 58),
+                BLOCK_NAME_PHASE_CONDUIT,
+                pack_point2(36, 63),
+            ),
+        ];
+
+        for (build_pos, block_name, target_pos) in cases {
+            let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+            let block_id = loaded_world_block_id_for_name(&session, block_name);
+            let (build_x, build_y) = unpack_point2(build_pos);
+            let (target_x, target_y) = unpack_point2(target_pos);
+            let authoritative_value = TypeIoObject::Point2 {
+                x: i32::from(target_x) - i32::from(build_x),
+                y: i32::from(target_y) - i32::from(build_y),
+            };
+
+            ingest_construct_finish_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                block_id,
+                &TypeIoObject::Null,
+            );
+
+            session
+                .queue_tile_config(Some(build_pos), TypeIoObject::Int(target_pos))
+                .unwrap();
+
+            ingest_tile_config_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                &authoritative_value,
+            );
+
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .item_bridge_link_by_build_pos
+                    .get(&build_pos),
+                Some(&Some(target_pos))
+            );
+            assert!(!session
+                .state()
+                .tile_config_projection
+                .pending_local_by_build_pos
+                .contains_key(&build_pos));
+            assert_eq!(
+                session
+                    .state()
+                    .tile_config_projection
+                    .authoritative_by_build_pos
+                    .get(&build_pos),
+                Some(&authoritative_value)
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .tile_config_projection
+                    .last_pending_local_match,
+                Some(true)
+            );
+            assert!(!session.state().tile_config_projection.last_was_rollback);
+            assert_eq!(session.state().tile_config_projection.rollback_count, 0);
+        }
+    }
+
+    #[test]
+    fn item_bridge_tile_config_authoritative_relative_link_rolls_back_mismatched_pending_intent() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(37, 59);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_BRIDGE_CONVEYOR);
+        let pending_target = pack_point2(41, 62);
+        let authoritative_target = pack_point2(34, 61);
+        let (build_x, build_y) = unpack_point2(build_pos);
+        let (target_x, target_y) = unpack_point2(authoritative_target);
+        let authoritative_value = TypeIoObject::Point2 {
+            x: i32::from(target_x) - i32::from(build_x),
+            y: i32::from(target_y) - i32::from(build_y),
+        };
+
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+            &TypeIoObject::Null,
+        );
+
+        session
+            .queue_tile_config(Some(build_pos), TypeIoObject::Int(pending_target))
+            .unwrap();
+
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &authoritative_value,
+        );
+
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .item_bridge_link_by_build_pos
+                .get(&build_pos),
+            Some(&Some(authoritative_target))
+        );
+        assert!(!session
+            .state()
+            .tile_config_projection
+            .pending_local_by_build_pos
+            .contains_key(&build_pos));
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_replaced_local_value,
+            Some(TypeIoObject::Int(pending_target))
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_pending_local_match,
+            Some(false)
+        );
+        assert!(session.state().tile_config_projection.last_was_rollback);
+        assert_eq!(session.state().tile_config_projection.rollback_count, 1);
+    }
+
+    #[test]
+    fn item_bridge_reverse_config_authority_clears_peer_without_local_pending() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(38, 60);
+        let peer_pos = pack_point2(39, 60);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_BRIDGE_CONVEYOR);
+
+        for current in [build_pos, peer_pos] {
+            ingest_construct_finish_for_block_config_test(
+                &mut session,
+                &manifest,
+                current,
+                block_id,
+                &TypeIoObject::Null,
+            );
+        }
+
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            peer_pos,
+            &TypeIoObject::Int(build_pos),
+        );
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &TypeIoObject::Int(peer_pos),
+        );
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            peer_pos,
+            &TypeIoObject::Int(-1),
+        );
+
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .item_bridge_link_by_build_pos
+                .get(&build_pos),
+            Some(&Some(peer_pos))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .item_bridge_link_by_build_pos
+                .get(&peer_pos),
+            Some(&None)
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_pending_local_match,
+            None
+        );
+        assert!(!session.state().tile_config_projection.last_was_rollback);
+    }
+
+    #[test]
+    fn item_bridge_player_placed_autolink_authority_updates_previous_bridge_without_pending() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let previous_pos = pack_point2(40, 62);
+        let new_pos = pack_point2(42, 62);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_PHASE_CONDUIT);
+
+        for current in [previous_pos, new_pos] {
+            ingest_construct_finish_for_block_config_test(
+                &mut session,
+                &manifest,
+                current,
+                block_id,
+                &TypeIoObject::Null,
+            );
+        }
+
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            previous_pos,
+            &TypeIoObject::Point2 { x: 2, y: 0 },
+        );
+
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .item_bridge_link_by_build_pos
+                .get(&previous_pos),
+            Some(&Some(new_pos))
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_pending_local_match,
+            None
+        );
+        assert!(!session.state().tile_config_projection.last_was_rollback);
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_configured_block_outcome,
+            Some(crate::session_state::ConfiguredBlockOutcome::Applied)
+        );
+    }
+
+    #[test]
     fn switch_and_world_switch_config_business_dispatch_apply_bool_and_clear() {
         let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
 
@@ -27456,7 +28335,10 @@ mod tests {
             Some(&authoritative_value)
         );
         assert_eq!(
-            session.state().tile_config_projection.last_replaced_local_value,
+            session
+                .state()
+                .tile_config_projection
+                .last_replaced_local_value,
             Some(TypeIoObject::Int(target_pos))
         );
         assert_eq!(
@@ -27466,7 +28348,10 @@ mod tests {
         assert!(session.state().tile_config_projection.last_business_applied);
         assert!(!session.state().tile_config_projection.last_was_rollback);
         assert_eq!(
-            session.state().tile_config_projection.last_pending_local_match,
+            session
+                .state()
+                .tile_config_projection
+                .last_pending_local_match,
             Some(true)
         );
         assert_eq!(session.state().tile_config_projection.rollback_count, 0);
@@ -27529,7 +28414,10 @@ mod tests {
             Some(&authoritative_value)
         );
         assert_eq!(
-            session.state().tile_config_projection.last_replaced_local_value,
+            session
+                .state()
+                .tile_config_projection
+                .last_replaced_local_value,
             Some(TypeIoObject::Int(pending_target))
         );
         assert_eq!(
@@ -27539,7 +28427,10 @@ mod tests {
         assert!(session.state().tile_config_projection.last_business_applied);
         assert!(session.state().tile_config_projection.last_was_rollback);
         assert_eq!(
-            session.state().tile_config_projection.last_pending_local_match,
+            session
+                .state()
+                .tile_config_projection
+                .last_pending_local_match,
             Some(false)
         );
         assert_eq!(session.state().tile_config_projection.rollback_count, 1);
@@ -27671,7 +28562,10 @@ mod tests {
                 Some(&Some(target_pos))
             );
             assert_eq!(
-                session.state().tile_config_projection.last_pending_local_match,
+                session
+                    .state()
+                    .tile_config_projection
+                    .last_pending_local_match,
                 Some(true)
             );
             assert!(!session.state().tile_config_projection.last_was_rollback);
@@ -27680,7 +28574,8 @@ mod tests {
     }
 
     #[test]
-    fn payload_mass_driver_tile_config_authoritative_relative_link_rolls_back_mismatched_pending_intent() {
+    fn payload_mass_driver_tile_config_authoritative_relative_link_rolls_back_mismatched_pending_intent(
+    ) {
         for (build_pos, block_name, pending_target, authoritative_target, authoritative_value) in [
             (
                 pack_point2(37, 59),
@@ -27728,7 +28623,10 @@ mod tests {
                 Some(&Some(authoritative_target))
             );
             assert_eq!(
-                session.state().tile_config_projection.last_pending_local_match,
+                session
+                    .state()
+                    .tile_config_projection
+                    .last_pending_local_match,
                 Some(false)
             );
             assert!(session.state().tile_config_projection.last_was_rollback);
@@ -33627,10 +34525,7 @@ mod tests {
 
         for (object, projection, path) in cases {
             let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
-            let effect_id = if matches!(
-                &object,
-                TypeIoObject::Vec2Array(_)
-            ) {
+            let effect_id = if matches!(&object, TypeIoObject::Vec2Array(_)) {
                 13
             } else {
                 12
@@ -33797,6 +34692,132 @@ mod tests {
     }
 
     #[test]
+    fn effect_packet_with_payload_target_content_contract_accepts_block_payload() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "effect" && entry.params.len() == 6)
+            .unwrap()
+            .packet_id;
+        let mut payload = encode_effect_payload(26, 32.5, 48.0, 90.0, 0x11223344);
+        write_typeio_object(
+            &mut payload,
+            &TypeIoObject::ObjectArray(vec![
+                TypeIoObject::ContentRaw {
+                    content_type: BLOCK_CONTENT_TYPE,
+                    content_id: 42,
+                },
+                TypeIoObject::Point2 { x: 10, y: 20 },
+            ]),
+        );
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            session.state().last_effect_contract_name.as_deref(),
+            Some("payload_target_content")
+        );
+        assert_eq!(
+            session.state().last_effect_business_projection,
+            Some(EffectBusinessProjection::PayloadTargetContent {
+                source_x_bits: 32.5f32.to_bits(),
+                source_y_bits: 48.0f32.to_bits(),
+                target_x_bits: 80.0f32.to_bits(),
+                target_y_bits: 160.0f32.to_bits(),
+                content_type: BLOCK_CONTENT_TYPE,
+                content_id: 42,
+            })
+        );
+        assert_eq!(session.state().last_effect_business_path, Some(vec![1]));
+    }
+
+    #[test]
+    fn effect_packet_with_payload_target_content_contract_accepts_unit_payload() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "effect" && entry.params.len() == 6)
+            .unwrap()
+            .packet_id;
+        let mut payload = encode_effect_payload(26, 32.5, 48.0, 90.0, 0x11223344);
+        write_typeio_object(
+            &mut payload,
+            &TypeIoObject::ObjectArray(vec![
+                TypeIoObject::ObjectArray(vec![TypeIoObject::Point2 { x: 10, y: 20 }]),
+                TypeIoObject::ContentRaw {
+                    content_type: UNIT_CONTENT_TYPE,
+                    content_id: 9,
+                },
+            ]),
+        );
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            session.state().last_effect_contract_name.as_deref(),
+            Some("payload_target_content")
+        );
+        assert_eq!(
+            session.state().last_effect_business_projection,
+            Some(EffectBusinessProjection::PayloadTargetContent {
+                source_x_bits: 32.5f32.to_bits(),
+                source_y_bits: 48.0f32.to_bits(),
+                target_x_bits: 80.0f32.to_bits(),
+                target_y_bits: 160.0f32.to_bits(),
+                content_type: UNIT_CONTENT_TYPE,
+                content_id: 9,
+            })
+        );
+        assert_eq!(session.state().last_effect_business_path, Some(vec![0, 0]));
+    }
+
+    #[test]
+    fn effect_packet_with_payload_target_content_contract_rejects_item_or_missing_target() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "effect" && entry.params.len() == 6)
+            .unwrap()
+            .packet_id;
+
+        for object in [
+            TypeIoObject::ObjectArray(vec![
+                TypeIoObject::ContentRaw {
+                    content_type: ITEM_CONTENT_TYPE,
+                    content_id: 7,
+                },
+                TypeIoObject::Point2 { x: 10, y: 20 },
+            ]),
+            TypeIoObject::ObjectArray(vec![TypeIoObject::ContentRaw {
+                content_type: BLOCK_CONTENT_TYPE,
+                content_id: 42,
+            }]),
+        ] {
+            let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+            let mut payload = encode_effect_payload(26, 32.5, 48.0, 90.0, 0x11223344);
+            write_typeio_object(&mut payload, &object);
+            let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+            session.ingest_packet_bytes(&packet).unwrap();
+
+            assert_eq!(
+                session.state().last_effect_contract_name.as_deref(),
+                Some("payload_target_content")
+            );
+            assert_eq!(session.state().last_effect_business_projection, None);
+            assert_eq!(session.state().last_effect_business_path, None);
+            assert!(!session.state().last_effect_data_parse_failed);
+        }
+    }
+
+    #[test]
     fn effect_packet_with_drop_item_contract_rejects_non_item_content() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
@@ -33859,6 +34880,83 @@ mod tests {
         assert_eq!(
             session.state().last_effect_contract_name.as_deref(),
             Some("drop_item")
+        );
+        assert_eq!(session.state().last_effect_business_path, None);
+    }
+
+    #[test]
+    fn effect_packet_with_core_block_icon_contract_accepts_core_build_and_upgrade_ids() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "effect" && entry.params.len() == 6)
+            .unwrap()
+            .packet_id;
+
+        for effect_id in [15, 20] {
+            let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+            let mut payload = encode_effect_payload(effect_id, 32.5, 48.0, 90.0, 0x11223344);
+            write_typeio_object(
+                &mut payload,
+                &TypeIoObject::ContentRaw {
+                    content_type: BLOCK_CONTENT_TYPE,
+                    content_id: 42,
+                },
+            );
+            let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+            session.ingest_packet_bytes(&packet).unwrap();
+
+            assert_eq!(
+                session.state().last_effect_contract_name.as_deref(),
+                Some("block_content_icon")
+            );
+            assert_eq!(
+                session.state().last_effect_business_projection,
+                Some(EffectBusinessProjection::ContentRef {
+                    kind: EffectBusinessContentKind::Content,
+                    content_type: BLOCK_CONTENT_TYPE,
+                    content_id: 42,
+                })
+            );
+            assert_eq!(session.state().last_effect_business_path, None);
+        }
+    }
+
+    #[test]
+    fn effect_packet_with_content_icon_contract_accepts_unit_content() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "effect" && entry.params.len() == 6)
+            .unwrap()
+            .packet_id;
+        let mut payload = encode_effect_payload(35, 32.5, 48.0, 90.0, 0x11223344);
+        write_typeio_object(
+            &mut payload,
+            &TypeIoObject::ContentRaw {
+                content_type: UNIT_CONTENT_TYPE,
+                content_id: 9,
+            },
+        );
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            session.state().last_effect_contract_name.as_deref(),
+            Some("content_icon")
+        );
+        assert_eq!(
+            session.state().last_effect_business_projection,
+            Some(EffectBusinessProjection::ContentRef {
+                kind: EffectBusinessContentKind::Content,
+                content_type: UNIT_CONTENT_TYPE,
+                content_id: 9,
+            })
         );
         assert_eq!(session.state().last_effect_business_path, None);
     }
@@ -34363,7 +35461,7 @@ mod tests {
 
         for (object, semantic) in cases {
             let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
-        let mut payload = encode_effect_payload(12, 32.5, 48.0, 90.0, 0x11223344);
+            let mut payload = encode_effect_payload(12, 32.5, 48.0, 90.0, 0x11223344);
             write_typeio_object(&mut payload, &object);
             let packet = encode_packet(packet_id, &payload, false).unwrap();
 
@@ -35768,6 +36866,231 @@ mod tests {
                 ClientSessionAction::SendPacket { packet_id, .. }
                     if Some(packet_id) == session.ping_response_packet_id
             )));
+    }
+
+    #[test]
+    fn v156_remote_manifest_discovers_new_packet_ids() {
+        let manifest = read_remote_manifest(v156_manifest_path()).unwrap();
+        let session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+
+        assert_eq!(
+            session.client_plan_snapshot_packet_id,
+            manifest
+                .remote_packets
+                .iter()
+                .find(|entry| entry.method == "clientPlanSnapshot")
+                .map(|entry| entry.packet_id)
+        );
+        assert_eq!(
+            session.client_plan_snapshot_received_packet_id,
+            manifest
+                .remote_packets
+                .iter()
+                .find(|entry| entry.method == "clientPlanSnapshotReceived")
+                .map(|entry| entry.packet_id)
+        );
+        assert_eq!(
+            session.ping_location_packet_id,
+            manifest
+                .remote_packets
+                .iter()
+                .find(|entry| entry.method == "pingLocation")
+                .map(|entry| entry.packet_id)
+        );
+    }
+
+    #[test]
+    fn client_plan_snapshot_packet_decodes_group_and_plans() {
+        let manifest = read_remote_manifest(v156_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = session
+            .client_plan_snapshot_packet_id
+            .expect("missing clientPlanSnapshot packet id");
+        let plans = vec![
+            ClientBuildPlan {
+                tile: (3, 4),
+                breaking: false,
+                block_id: Some(0x0101),
+                rotation: 2,
+                config: ClientBuildPlanConfig::Point2 { x: 7, y: -8 },
+            },
+            ClientBuildPlan {
+                tile: (9, 10),
+                breaking: true,
+                block_id: None,
+                rotation: 0,
+                config: ClientBuildPlanConfig::None,
+            },
+        ];
+        let packet = encode_packet(
+            packet_id,
+            &encode_remote_plan_snapshot_payload(77, Some(&plans)),
+            false,
+        )
+        .unwrap();
+
+        let event = session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            event,
+            ClientSessionEvent::ClientPlanSnapshot {
+                group_id: 77,
+                plans: Some(plans.clone()),
+            }
+        );
+        assert_eq!(
+            session.state().client_plan_snapshot_projection,
+            crate::session_state::RemotePlanSnapshotProjection {
+                received_count: 1,
+                last_player_id: None,
+                last_group_id: Some(77),
+                last_plan_count: Some(2),
+                last_first_plan: Some(RemotePlanSnapshotFirstPlanProjection {
+                    x: 3,
+                    y: 4,
+                    breaking: false,
+                    block_id: Some(0x0101),
+                    rotation: 2,
+                    config: TypeIoObject::Point2 { x: 7, y: -8 },
+                }),
+            }
+        );
+    }
+
+    #[test]
+    fn client_plan_snapshot_received_packet_decodes_player_group_and_plans() {
+        let manifest = read_remote_manifest(v156_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = session
+            .client_plan_snapshot_received_packet_id
+            .expect("missing clientPlanSnapshotReceived packet id");
+        let plans = vec![ClientBuildPlan {
+            tile: (11, 12),
+            breaking: false,
+            block_id: Some(0x0102),
+            rotation: 1,
+            config: ClientBuildPlanConfig::String("router".to_string()),
+        }];
+        let packet = encode_packet(
+            packet_id,
+            &encode_remote_plan_snapshot_received_payload(Some(42), 91, Some(&plans)),
+            false,
+        )
+        .unwrap();
+
+        let event = session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            event,
+            ClientSessionEvent::ClientPlanSnapshotReceived {
+                player_id: Some(42),
+                group_id: 91,
+                plans: Some(plans.clone()),
+            }
+        );
+        assert_eq!(
+            session.state().client_plan_snapshot_received_projection,
+            crate::session_state::RemotePlanSnapshotProjection {
+                received_count: 1,
+                last_player_id: Some(42),
+                last_group_id: Some(91),
+                last_plan_count: Some(1),
+                last_first_plan: Some(RemotePlanSnapshotFirstPlanProjection {
+                    x: 11,
+                    y: 12,
+                    breaking: false,
+                    block_id: Some(0x0102),
+                    rotation: 1,
+                    config: TypeIoObject::String(Some("router".to_string())),
+                }),
+            }
+        );
+    }
+
+    #[test]
+    fn ping_location_packet_decodes_player_position_and_text() {
+        let manifest = read_remote_manifest(v156_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = session
+            .ping_location_packet_id
+            .expect("missing pingLocation packet id");
+        let packet = encode_packet(
+            packet_id,
+            &encode_ping_location_forwarded_payload(Some(42), 12.5, -3.25, Some("watch here")),
+            false,
+        )
+        .unwrap();
+
+        let event = session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            event,
+            ClientSessionEvent::PingLocation {
+                player_id: Some(42),
+                x_bits: 12.5f32.to_bits(),
+                y_bits: (-3.25f32).to_bits(),
+                text: Some("watch here".to_string()),
+            }
+        );
+        assert_eq!(
+            session.state().ping_location_projection,
+            crate::session_state::PingLocationProjection {
+                received_count: 1,
+                last_player_id: Some(42),
+                last_x_bits: Some(12.5f32.to_bits()),
+                last_y_bits: Some((-3.25f32).to_bits()),
+                last_text: Some("watch here".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn v156_remote_packets_with_truncated_payload_are_ignored_without_crashing() {
+        let manifest = read_remote_manifest(v156_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let client_plan_snapshot_received_packet_id = session
+            .client_plan_snapshot_received_packet_id
+            .expect("missing clientPlanSnapshotReceived packet id");
+        let ping_location_packet_id = session
+            .ping_location_packet_id
+            .expect("missing pingLocation packet id");
+
+        for (packet_id, payload, method, packet_class) in [
+            (
+                client_plan_snapshot_received_packet_id,
+                encode_optional_entity_payload(Some(7)),
+                "clientPlanSnapshotReceived",
+                "mindustry.gen.ClientPlanSnapshotReceivedCallPacket",
+            ),
+            (
+                ping_location_packet_id,
+                encode_ping_location_forwarded_payload(Some(9), 6.5, 7.5, Some("cut"))[..14]
+                    .to_vec(),
+                "pingLocation",
+                "mindustry.gen.PingLocationCallPacket",
+            ),
+        ] {
+            let packet = encode_packet(packet_id, &payload, false).unwrap();
+            let event = session.ingest_packet_bytes(&packet).unwrap();
+            assert_eq!(
+                event,
+                ClientSessionEvent::IgnoredPacket {
+                    packet_id,
+                    remote: Some(IgnoredRemotePacketMeta {
+                        method: method.to_string(),
+                        packet_class: packet_class.to_string(),
+                    }),
+                }
+            );
+        }
+        assert_eq!(
+            session
+                .state()
+                .client_plan_snapshot_received_projection
+                .received_count,
+            0
+        );
+        assert_eq!(session.state().ping_location_projection.received_count, 0);
     }
 
     #[test]

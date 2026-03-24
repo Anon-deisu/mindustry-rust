@@ -321,6 +321,17 @@ pub struct ConfiguredContentRef {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnitAssemblerRuntimeProjection {
+    pub progress_bits: u32,
+    pub unit_ids: Vec<i32>,
+    pub block_entry_count: usize,
+    pub block_sample: Option<ConfiguredContentRef>,
+    pub command_pos: Option<(u32, u32)>,
+    pub payload_present: bool,
+    pub pay_rotation_bits: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EffectBusinessProjection {
     ContentRef {
         kind: EffectBusinessContentKind,
@@ -343,6 +354,14 @@ pub enum EffectBusinessProjection {
         source_y_bits: u32,
         target_x_bits: u32,
         target_y_bits: u32,
+    },
+    PayloadTargetContent {
+        source_x_bits: u32,
+        source_y_bits: u32,
+        target_x_bits: u32,
+        target_y_bits: u32,
+        content_type: u8,
+        content_id: i16,
     },
     LengthRay {
         source_x_bits: u32,
@@ -1396,6 +1415,7 @@ pub struct ConfiguredBlockProjection {
     pub reconstructor_command_by_build_pos: BTreeMap<i32, Option<u16>>,
     pub memory_values_bits_by_build_pos: BTreeMap<i32, Vec<u64>>,
     pub canvas_bytes_by_build_pos: BTreeMap<i32, Vec<u8>>,
+    pub unit_assembler_by_build_pos: BTreeMap<i32, UnitAssemblerRuntimeProjection>,
 }
 
 impl ConfiguredBlockProjection {
@@ -1523,6 +1543,15 @@ impl ConfiguredBlockProjection {
         self.canvas_bytes_by_build_pos.insert(build_pos, bytes);
     }
 
+    pub fn apply_unit_assembler(
+        &mut self,
+        build_pos: i32,
+        projection: UnitAssemblerRuntimeProjection,
+    ) {
+        self.unit_assembler_by_build_pos
+            .insert(build_pos, projection);
+    }
+
     pub fn clear_building_state(&mut self, build_pos: i32) {
         self.unit_cargo_unload_point_item_by_build_pos
             .remove(&build_pos);
@@ -1551,6 +1580,7 @@ impl ConfiguredBlockProjection {
         self.reconstructor_command_by_build_pos.remove(&build_pos);
         self.memory_values_bits_by_build_pos.remove(&build_pos);
         self.canvas_bytes_by_build_pos.remove(&build_pos);
+        self.unit_assembler_by_build_pos.remove(&build_pos);
     }
 
     pub fn clear_for_world_reload(&mut self) {
@@ -2235,6 +2265,7 @@ pub enum TypedBuildingRuntimeKind {
     DuctRouter,
     MassDriver,
     PayloadMassDriver,
+    UnitAssembler,
     PowerNode,
     Reconstructor,
     BuildTower,
@@ -2264,6 +2295,7 @@ impl TypedBuildingRuntimeKind {
             Self::DuctRouter => "duct-router",
             Self::MassDriver => "mass-driver",
             Self::PayloadMassDriver => "payload-mass-driver",
+            Self::UnitAssembler => "unit-assembler",
             Self::PowerNode => "power-node",
             Self::Reconstructor => "reconstructor",
             Self::BuildTower => "build-tower",
@@ -2285,6 +2317,15 @@ pub enum TypedBuildingRuntimeValue {
     Link(Option<i32>),
     Links(BTreeSet<i32>),
     Command(Option<u16>),
+    UnitAssembler {
+        progress_bits: u32,
+        unit_count: usize,
+        block_count: usize,
+        block_sample: Option<ConfiguredContentRef>,
+        command_pos: Option<(u32, u32)>,
+        payload_present: bool,
+        pay_rotation_bits: u32,
+    },
     BuildTower {
         rotation_bits: Option<u32>,
         plans_present: Option<bool>,
@@ -2522,6 +2563,21 @@ fn typed_runtime_building_model(
                     .copied()?,
             ),
         ),
+        "tank-assembler" | "ship-assembler" | "mech-assembler" => {
+            let assembler = configured.unit_assembler_by_build_pos.get(&build_pos)?;
+            (
+                TypedBuildingRuntimeKind::UnitAssembler,
+                TypedBuildingRuntimeValue::UnitAssembler {
+                    progress_bits: assembler.progress_bits,
+                    unit_count: assembler.unit_ids.len(),
+                    block_count: assembler.block_entry_count,
+                    block_sample: assembler.block_sample,
+                    command_pos: assembler.command_pos,
+                    payload_present: assembler.payload_present,
+                    pay_rotation_bits: assembler.pay_rotation_bits,
+                },
+            )
+        }
         "power-node" | "power-node-large" | "surge-tower" | "beam-link" => (
             TypedBuildingRuntimeKind::PowerNode,
             TypedBuildingRuntimeValue::Links(
@@ -2925,6 +2981,34 @@ impl BuilderQueueProjection {
             .count();
         self.refresh_head_projection();
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RemotePlanSnapshotFirstPlanProjection {
+    pub x: i32,
+    pub y: i32,
+    pub breaking: bool,
+    pub block_id: Option<i16>,
+    pub rotation: u8,
+    pub config: TypeIoObject,
+}
+
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct RemotePlanSnapshotProjection {
+    pub received_count: u64,
+    pub last_player_id: Option<i32>,
+    pub last_group_id: Option<i32>,
+    pub last_plan_count: Option<usize>,
+    pub last_first_plan: Option<RemotePlanSnapshotFirstPlanProjection>,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct PingLocationProjection {
+    pub received_count: u64,
+    pub last_player_id: Option<i32>,
+    pub last_x_bits: Option<u32>,
+    pub last_y_bits: Option<u32>,
+    pub last_text: Option<String>,
 }
 
 #[cfg(test)]
@@ -4220,6 +4304,9 @@ pub struct SessionState {
     pub last_deconstruct_finish_block_id: Option<i16>,
     pub last_deconstruct_finish_removed_local_plan: bool,
     pub builder_queue_projection: BuilderQueueProjection,
+    pub client_plan_snapshot_projection: RemotePlanSnapshotProjection,
+    pub client_plan_snapshot_received_projection: RemotePlanSnapshotProjection,
+    pub ping_location_projection: PingLocationProjection,
     pub received_build_health_update_count: u64,
     pub received_build_health_update_pair_count: u64,
     pub last_build_health_update_pair_count: usize,
@@ -4848,14 +4935,10 @@ impl SessionState {
             .remove_hidden_entities(&transition.lifecycle_remove_ids);
         self.entity_semantic_projection
             .remove_hidden_entities(&transition.lifecycle_remove_ids, local_player_entity_id);
-        self.resource_delta_projection.remove_hidden_entities(
-            &transition.auxiliary_cleanup_ids,
-            local_player_entity_id,
-        );
-        self.payload_lifecycle_projection.remove_hidden_entities(
-            &transition.auxiliary_cleanup_ids,
-            local_player_entity_id,
-        );
+        self.resource_delta_projection
+            .remove_hidden_entities(&transition.auxiliary_cleanup_ids, local_player_entity_id);
+        self.payload_lifecycle_projection
+            .remove_hidden_entities(&transition.auxiliary_cleanup_ids, local_player_entity_id);
         for entity_id in &hidden_removed_ids {
             self.clear_entity_snapshot_tombstone(*entity_id);
         }
@@ -5379,11 +5462,7 @@ mod tests {
     fn session_state_runtime_typed_building_projection_supports_memory_family() {
         let mut state = SessionState::default();
         let build_pos = 0x0007_0009i32;
-        let values_bits = vec![
-            1.5f64.to_bits(),
-            (-2.25f64).to_bits(),
-            f64::NAN.to_bits(),
-        ];
+        let values_bits = vec![1.5f64.to_bits(), (-2.25f64).to_bits(), f64::NAN.to_bits()];
         state.building_table_projection.apply_block_snapshot_head(
             build_pos,
             302,
@@ -5579,10 +5658,13 @@ mod tests {
             );
         }
 
-        let transition =
-            state.hidden_snapshot_runtime_transition(&BTreeSet::from([101, 202, 303, 404]), Some(101));
+        let transition = state
+            .hidden_snapshot_runtime_transition(&BTreeSet::from([101, 202, 303, 404]), Some(101));
 
-        assert_eq!(transition.auxiliary_cleanup_ids, BTreeSet::from([202, 303, 404]));
+        assert_eq!(
+            transition.auxiliary_cleanup_ids,
+            BTreeSet::from([202, 303, 404])
+        );
         assert_eq!(transition.lifecycle_remove_ids, BTreeSet::from([202, 303]));
     }
 
@@ -5635,8 +5717,14 @@ mod tests {
             BTreeSet::from([303]),
         );
 
-        assert!(!state.entity_table_projection.by_entity_id.contains_key(&303));
-        assert!(!state.entity_semantic_projection.by_entity_id.contains_key(&303));
+        assert!(!state
+            .entity_table_projection
+            .by_entity_id
+            .contains_key(&303));
+        assert!(!state
+            .entity_semantic_projection
+            .by_entity_id
+            .contains_key(&303));
         assert!(!state.entity_snapshot_tombstones.contains_key(&303));
         assert!(!state.entity_snapshot_tombstone_blocks_upsert(303));
     }

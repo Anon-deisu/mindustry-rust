@@ -1,6 +1,11 @@
 use std::error::Error;
 use std::fmt;
 
+const MAX_ARRAY_LEN: usize = 1000;
+const MAX_NORMAL_OBJECT_ARRAY_LEN: usize = 200;
+const MAX_BYTE_ARRAY_LEN: usize = 40_000;
+const MAX_SAFE_STRING_LEN: usize = 1000;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeIoObject {
     Null,
@@ -429,9 +434,19 @@ pub enum TypeIoReadError {
         length: i32,
         position: usize,
     },
+    LengthLimitExceeded {
+        field: &'static str,
+        length: usize,
+        max: usize,
+        position: usize,
+    },
     InvalidUtf8 {
         position: usize,
         message: String,
+    },
+    NestedArrayNotAllowed {
+        type_id: u8,
+        position: usize,
     },
     TrailingBytes {
         consumed: usize,
@@ -468,8 +483,22 @@ impl fmt::Display for TypeIoReadError {
             } => {
                 write!(f, "negative {field} {length} at {position}")
             }
+            TypeIoReadError::LengthLimitExceeded {
+                field,
+                length,
+                max,
+                position,
+            } => {
+                write!(f, "{field} {length} exceeds max {max} at {position}")
+            }
             TypeIoReadError::InvalidUtf8 { position, message } => {
                 write!(f, "invalid UTF-8 at {position}: {message}")
+            }
+            TypeIoReadError::NestedArrayNotAllowed { type_id, position } => {
+                write!(
+                    f,
+                    "nested array type id {type_id} is not allowed at {position}"
+                )
             }
             TypeIoReadError::TrailingBytes { consumed, total } => {
                 write!(
@@ -653,15 +682,101 @@ pub fn read_object(bytes: &[u8]) -> Result<TypeIoObject, TypeIoReadError> {
     Ok(value)
 }
 
+/// Read a single TypeIO object using Java's "safe" limits.
+pub fn read_object_safe(bytes: &[u8]) -> Result<TypeIoObject, TypeIoReadError> {
+    let (value, consumed) = read_object_safe_prefix(bytes)?;
+    if consumed != bytes.len() {
+        return Err(TypeIoReadError::TrailingBytes {
+            consumed,
+            total: bytes.len(),
+        });
+    }
+    Ok(value)
+}
+
+/// Read a single TypeIO object using the safe length limits while allowing nested arrays.
+pub fn read_object_effect(bytes: &[u8]) -> Result<TypeIoObject, TypeIoReadError> {
+    let (value, consumed) = read_object_effect_prefix(bytes)?;
+    if consumed != bytes.len() {
+        return Err(TypeIoReadError::TrailingBytes {
+            consumed,
+            total: bytes.len(),
+        });
+    }
+    Ok(value)
+}
+
 /// Read one TypeIO object from the beginning of `bytes`.
 /// Returns `(value, consumed_bytes)` and leaves trailing bytes untouched.
 pub fn read_object_prefix(bytes: &[u8]) -> Result<(TypeIoObject, usize), TypeIoReadError> {
     let mut reader = Reader::new(bytes);
-    let value = read_object_from_reader(&mut reader)?;
+    let value = read_object_from_reader(&mut reader, ObjectReadOptions::normal())?;
     Ok((value, reader.position()))
 }
 
-fn read_object_from_reader(reader: &mut Reader<'_>) -> Result<TypeIoObject, TypeIoReadError> {
+/// Read one TypeIO object from the beginning of `bytes` using Java's "safe" limits.
+pub fn read_object_safe_prefix(bytes: &[u8]) -> Result<(TypeIoObject, usize), TypeIoReadError> {
+    let mut reader = Reader::new(bytes);
+    let value = read_object_from_reader(&mut reader, ObjectReadOptions::safe())?;
+    Ok((value, reader.position()))
+}
+
+/// Read one TypeIO object from the beginning of `bytes` for effect payloads.
+/// This keeps Java-safe length caps while tolerating nested array payloads used by effects.
+pub fn read_object_effect_prefix(bytes: &[u8]) -> Result<(TypeIoObject, usize), TypeIoReadError> {
+    let mut reader = Reader::new(bytes);
+    let value = read_object_from_reader(&mut reader, ObjectReadOptions::effect_safe())?;
+    Ok((value, reader.position()))
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ObjectReadOptions {
+    max_array_len: usize,
+    max_string_len: Option<usize>,
+    allow_arrays: bool,
+    allow_nested_arrays: bool,
+}
+
+impl ObjectReadOptions {
+    fn normal() -> Self {
+        Self {
+            max_array_len: MAX_NORMAL_OBJECT_ARRAY_LEN,
+            max_string_len: None,
+            allow_arrays: true,
+            allow_nested_arrays: false,
+        }
+    }
+
+    fn safe() -> Self {
+        Self {
+            max_array_len: MAX_ARRAY_LEN,
+            max_string_len: Some(MAX_SAFE_STRING_LEN),
+            allow_arrays: true,
+            allow_nested_arrays: false,
+        }
+    }
+
+    fn effect_safe() -> Self {
+        Self {
+            max_array_len: MAX_ARRAY_LEN,
+            max_string_len: Some(MAX_SAFE_STRING_LEN),
+            allow_arrays: true,
+            allow_nested_arrays: true,
+        }
+    }
+
+    fn nested_value(self) -> Self {
+        Self {
+            allow_arrays: self.allow_nested_arrays,
+            ..self
+        }
+    }
+}
+
+fn read_object_from_reader(
+    reader: &mut Reader<'_>,
+    options: ObjectReadOptions,
+) -> Result<TypeIoObject, TypeIoReadError> {
     let type_position = reader.position();
     let type_id = reader.read_u8()?;
     match type_id {
@@ -669,13 +784,20 @@ fn read_object_from_reader(reader: &mut Reader<'_>) -> Result<TypeIoObject, Type
         1 => Ok(TypeIoObject::Int(reader.read_i32()?)),
         2 => Ok(TypeIoObject::Long(reader.read_i64()?)),
         3 => Ok(TypeIoObject::Float(reader.read_f32()?)),
-        4 => read_string_value(reader),
+        4 => read_string_value(reader, options.max_string_len),
         5 => Ok(TypeIoObject::ContentRaw {
             content_type: reader.read_u8()?,
             content_id: reader.read_i16()?,
         }),
         6 => {
+            ensure_arrays_allowed(type_id, type_position, options)?;
             let len = read_non_negative_i16_len(reader, "IntSeq length")?;
+            ensure_length_limit(
+                "IntSeq length",
+                len,
+                options.max_array_len,
+                type_position + 1,
+            )?;
             let mut values = Vec::with_capacity(len);
             for _ in 0..len {
                 values.push(reader.read_i32()?);
@@ -687,6 +809,7 @@ fn read_object_from_reader(reader: &mut Reader<'_>) -> Result<TypeIoObject, Type
             y: reader.read_i32()?,
         }),
         8 => {
+            ensure_arrays_allowed(type_id, type_position, options)?;
             let len = read_non_negative_i8_len(reader, "Point2[] length")?;
             let mut values = Vec::with_capacity(len);
             for _ in 0..len {
@@ -703,12 +826,21 @@ fn read_object_from_reader(reader: &mut Reader<'_>) -> Result<TypeIoObject, Type
         12 => Ok(TypeIoObject::BuildingPos(reader.read_i32()?)),
         13 => Ok(TypeIoObject::LAccess(reader.read_i16()?)),
         14 => {
+            ensure_arrays_allowed(type_id, type_position, options)?;
             let len = read_non_negative_i32_len(reader, "byte[] length")?;
+            ensure_length_limit("byte[] length", len, MAX_BYTE_ARRAY_LEN, type_position + 1)?;
             Ok(TypeIoObject::Bytes(reader.read_vec(len)?))
         }
         15 => Ok(TypeIoObject::LegacyUnitCommandNull(reader.read_u8()?)),
         16 => {
+            ensure_arrays_allowed(type_id, type_position, options)?;
             let len = read_non_negative_i32_len(reader, "boolean[] length")?;
+            ensure_length_limit(
+                "boolean[] length",
+                len,
+                options.max_array_len,
+                type_position + 1,
+            )?;
             let mut values = Vec::with_capacity(len);
             for _ in 0..len {
                 values.push(reader.read_u8()? != 0);
@@ -717,7 +849,14 @@ fn read_object_from_reader(reader: &mut Reader<'_>) -> Result<TypeIoObject, Type
         }
         17 => Ok(TypeIoObject::UnitId(reader.read_i32()?)),
         18 => {
+            ensure_arrays_allowed(type_id, type_position, options)?;
             let len = read_non_negative_i16_len(reader, "Vec2[] length")?;
+            ensure_length_limit(
+                "Vec2[] length",
+                len,
+                options.max_array_len,
+                type_position + 1,
+            )?;
             let mut values = Vec::with_capacity(len);
             for _ in 0..len {
                 values.push((reader.read_f32()?, reader.read_f32()?));
@@ -730,7 +869,14 @@ fn read_object_from_reader(reader: &mut Reader<'_>) -> Result<TypeIoObject, Type
         }),
         20 => Ok(TypeIoObject::Team(reader.read_u8()?)),
         21 => {
+            ensure_arrays_allowed(type_id, type_position, options)?;
             let len = read_non_negative_i16_len(reader, "int[] length")?;
+            ensure_length_limit(
+                "int[] length",
+                len,
+                options.max_array_len,
+                type_position + 1,
+            )?;
             let mut values = Vec::with_capacity(len);
             for _ in 0..len {
                 values.push(reader.read_i32()?);
@@ -738,10 +884,17 @@ fn read_object_from_reader(reader: &mut Reader<'_>) -> Result<TypeIoObject, Type
             Ok(TypeIoObject::IntArray(values))
         }
         22 => {
+            ensure_arrays_allowed(type_id, type_position, options)?;
             let len = read_non_negative_i32_len(reader, "object[] length")?;
+            ensure_length_limit(
+                "object[] length",
+                len,
+                options.max_array_len,
+                type_position + 1,
+            )?;
             let mut values = Vec::with_capacity(len);
             for _ in 0..len {
-                values.push(read_object_from_reader(reader)?);
+                values.push(read_object_from_reader(reader, options.nested_value())?);
             }
             Ok(TypeIoObject::ObjectArray(values))
         }
@@ -753,12 +906,18 @@ fn read_object_from_reader(reader: &mut Reader<'_>) -> Result<TypeIoObject, Type
     }
 }
 
-fn read_string_value(reader: &mut Reader<'_>) -> Result<TypeIoObject, TypeIoReadError> {
+fn read_string_value(
+    reader: &mut Reader<'_>,
+    max_len: Option<usize>,
+) -> Result<TypeIoObject, TypeIoReadError> {
     let marker = reader.read_u8()?;
     if marker == 0 {
         return Ok(TypeIoObject::String(None));
     }
     let len = reader.read_u16()? as usize;
+    if let Some(max_len) = max_len {
+        ensure_length_limit("string length", len, max_len, reader.position() - 2)?;
+    }
     let string_position = reader.position();
     let bytes = reader.read_vec(len)?;
     let value = String::from_utf8(bytes).map_err(|e| TypeIoReadError::InvalidUtf8 {
@@ -798,6 +957,36 @@ fn read_non_negative_i16_len(
         });
     }
     Ok(len as usize)
+}
+
+fn ensure_arrays_allowed(
+    type_id: u8,
+    position: usize,
+    options: ObjectReadOptions,
+) -> Result<(), TypeIoReadError> {
+    if options.allow_arrays {
+        Ok(())
+    } else {
+        Err(TypeIoReadError::NestedArrayNotAllowed { type_id, position })
+    }
+}
+
+fn ensure_length_limit(
+    field: &'static str,
+    length: usize,
+    max: usize,
+    position: usize,
+) -> Result<(), TypeIoReadError> {
+    if length > max {
+        Err(TypeIoReadError::LengthLimitExceeded {
+            field,
+            length,
+            max,
+            position,
+        })
+    } else {
+        Ok(())
+    }
 }
 
 fn read_non_negative_i32_len(
@@ -1173,6 +1362,97 @@ mod tests {
             TypeIoReadError::InvalidUtf8 { position, .. } => assert_eq!(position, 4),
             other => panic!("unexpected error: {other:?}"),
         }
+    }
+
+    #[test]
+    fn safe_reader_rejects_strings_longer_than_v156_cap() {
+        let mut bytes = vec![4, 1];
+        bytes.extend_from_slice(&(1001u16).to_be_bytes());
+        bytes.extend(vec![b'a'; 1001]);
+
+        assert_eq!(
+            read_object_safe(&bytes).unwrap_err(),
+            TypeIoReadError::LengthLimitExceeded {
+                field: "string length",
+                length: 1001,
+                max: 1000,
+                position: 2,
+            }
+        );
+    }
+
+    #[test]
+    fn readers_reject_array_lengths_above_v156_caps() {
+        let mut int_seq = vec![6];
+        int_seq.extend_from_slice(&(201i16).to_be_bytes());
+        assert_eq!(
+            read_object(&int_seq).unwrap_err(),
+            TypeIoReadError::LengthLimitExceeded {
+                field: "IntSeq length",
+                length: 201,
+                max: 200,
+                position: 1,
+            }
+        );
+
+        let mut safe_int_seq = vec![6];
+        safe_int_seq.extend_from_slice(&(1001i16).to_be_bytes());
+        assert_eq!(
+            read_object_safe(&safe_int_seq).unwrap_err(),
+            TypeIoReadError::LengthLimitExceeded {
+                field: "IntSeq length",
+                length: 1001,
+                max: 1000,
+                position: 1,
+            }
+        );
+
+        let mut bytes = vec![14];
+        bytes.extend_from_slice(&(40001i32).to_be_bytes());
+        assert_eq!(
+            read_object_safe(&bytes).unwrap_err(),
+            TypeIoReadError::LengthLimitExceeded {
+                field: "byte[] length",
+                length: 40001,
+                max: 40000,
+                position: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn readers_reject_nested_arrays_like_java_typeio() {
+        let mut bytes = vec![22];
+        bytes.extend_from_slice(&(1i32).to_be_bytes());
+        bytes.push(21);
+        bytes.extend_from_slice(&(1i16).to_be_bytes());
+        bytes.extend_from_slice(&(7i32).to_be_bytes());
+
+        assert_eq!(
+            read_object(&bytes).unwrap_err(),
+            TypeIoReadError::NestedArrayNotAllowed {
+                type_id: 21,
+                position: 5,
+            }
+        );
+    }
+
+    #[test]
+    fn effect_reader_allows_nested_arrays_with_safe_limits() {
+        let value = TypeIoObject::ObjectArray(vec![
+            TypeIoObject::ObjectArray(vec![
+                TypeIoObject::ObjectArray(vec![TypeIoObject::Point2 { x: 10, y: 20 }]),
+                TypeIoObject::Vec2Array(vec![(5.5, -7.25), (9.0, 11.0)]),
+            ]),
+            TypeIoObject::Bool(true),
+        ]);
+        let mut bytes = Vec::new();
+        write_object(&mut bytes, &value);
+
+        let (decoded_prefix, consumed) = read_object_effect_prefix(&bytes).unwrap();
+        assert_eq!(decoded_prefix, value);
+        assert_eq!(consumed, bytes.len());
+        assert_eq!(read_object_effect(&bytes).unwrap(), value);
     }
 
     #[test]

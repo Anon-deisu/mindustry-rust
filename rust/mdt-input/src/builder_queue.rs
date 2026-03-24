@@ -318,9 +318,10 @@ impl BuilderQueueStateMachine {
             })
             .collect::<BTreeMap<_, _>>();
         let original_order = self.ordered_tiles.clone();
+        let original_head = self.head_tile;
         let mut reordered = false;
         let mut used_closest_in_range_fallback = false;
-        let mut missing_observation = false;
+        let mut missing_head_observation = false;
 
         if self.ordered_tiles.len() > 1 {
             let mut total = 0usize;
@@ -342,8 +343,10 @@ impl BuilderQueueStateMachine {
                 };
                 let Some(observation) = Self::activity_observation(&observations_by_key, entry)
                 else {
-                    missing_observation = true;
                     self.ordered_tiles = original_order.clone();
+                    if Some(tile) == original_head {
+                        missing_head_observation = true;
+                    }
                     break;
                 };
 
@@ -381,7 +384,7 @@ impl BuilderQueueStateMachine {
         let head_should_skip = head_observation.is_some_and(|observation| observation.should_skip);
         let head_selection = if self.head_tile.is_none() {
             BuilderQueueHeadSelection::QueueEmpty
-        } else if missing_observation || head_observation.is_none() {
+        } else if missing_head_observation || head_observation.is_none() {
             BuilderQueueHeadSelection::ObservationMissing
         } else if used_closest_in_range_fallback {
             BuilderQueueHeadSelection::FallbackToClosestInRange
@@ -1602,6 +1605,132 @@ mod tests {
         assert_eq!(queue.head_tile, Some((4, 4)));
         assert_eq!(queue.queued_count, 2);
         assert_eq!(queue.inflight_count, 0);
+    }
+
+    #[test]
+    fn update_local_activity_keeps_head_out_of_range_when_non_head_observation_is_missing() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 4,
+                y: 4,
+                breaking: false,
+                block_id: Some(40),
+                rotation: 0,
+            },
+            BuilderQueueEntryObservation {
+                x: 5,
+                y: 5,
+                breaking: false,
+                block_id: Some(50),
+                rotation: 1,
+            },
+            BuilderQueueEntryObservation {
+                x: 6,
+                y: 6,
+                breaking: false,
+                block_id: Some(60),
+                rotation: 2,
+            },
+        ]);
+        let expected_order = queue.ordered_tiles.clone();
+
+        let activity = queue.update_local_activity([
+            BuilderQueueActivityObservation {
+                x: 4,
+                y: 4,
+                breaking: false,
+                in_range: false,
+                should_skip: false,
+                distance_sq: 64,
+            },
+            BuilderQueueActivityObservation {
+                x: 6,
+                y: 6,
+                breaking: false,
+                in_range: true,
+                should_skip: false,
+                distance_sq: 4,
+            },
+        ]);
+
+        assert_eq!(
+            activity,
+            BuilderQueueActivityState {
+                head_tile: Some((4, 4)),
+                actively_building: false,
+                head_in_range: false,
+                head_should_skip: false,
+                reordered: false,
+                used_closest_in_range_fallback: false,
+                head_selection: BuilderQueueHeadSelection::HeadOutOfRange,
+            }
+        );
+        assert_eq!(queue.ordered_tiles, expected_order);
+        assert_eq!(queue.head_tile, Some((4, 4)));
+    }
+
+    #[test]
+    fn update_local_activity_keeps_skipped_head_when_non_head_observation_is_missing() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 7,
+                y: 7,
+                breaking: false,
+                block_id: Some(70),
+                rotation: 0,
+            },
+            BuilderQueueEntryObservation {
+                x: 8,
+                y: 8,
+                breaking: false,
+                block_id: Some(80),
+                rotation: 1,
+            },
+            BuilderQueueEntryObservation {
+                x: 9,
+                y: 9,
+                breaking: false,
+                block_id: Some(90),
+                rotation: 2,
+            },
+        ]);
+        let expected_order = queue.ordered_tiles.clone();
+
+        let activity = queue.update_local_activity([
+            BuilderQueueActivityObservation {
+                x: 7,
+                y: 7,
+                breaking: false,
+                in_range: true,
+                should_skip: true,
+                distance_sq: 25,
+            },
+            BuilderQueueActivityObservation {
+                x: 9,
+                y: 9,
+                breaking: false,
+                in_range: true,
+                should_skip: false,
+                distance_sq: 1,
+            },
+        ]);
+
+        assert_eq!(
+            activity,
+            BuilderQueueActivityState {
+                head_tile: Some((7, 7)),
+                actively_building: true,
+                head_in_range: true,
+                head_should_skip: true,
+                reordered: false,
+                used_closest_in_range_fallback: false,
+                head_selection: BuilderQueueHeadSelection::SkippedInRange,
+            }
+        );
+        assert_eq!(queue.ordered_tiles, expected_order);
+        assert_eq!(queue.head_tile, Some((7, 7)));
     }
 
     #[test]

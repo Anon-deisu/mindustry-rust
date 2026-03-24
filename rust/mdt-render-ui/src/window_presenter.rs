@@ -597,6 +597,13 @@ fn compose_frame_panel_lines(
     if let Some(runtime_world_label_text) = compose_runtime_world_label_panel_status_text(hud) {
         lines.push(format!("RUNTIME-WORLD-LABEL: {runtime_world_label_text}"));
     }
+    if let Some(runtime_world_label_detail_text) =
+        compose_runtime_world_label_detail_status_text(hud)
+    {
+        lines.push(format!(
+            "RUNTIME-WORLD-LABEL-DETAIL: {runtime_world_label_detail_text}"
+        ));
+    }
     if let Some(runtime_session_text) = compose_runtime_session_status_text(hud) {
         lines.push(format!("RUNTIME-SESSION: {runtime_session_text}"));
     }
@@ -914,6 +921,39 @@ fn compose_runtime_world_label_panel_status_text(hud: &HudModel) -> Option<Strin
     ))
 }
 
+fn compose_runtime_world_label_detail_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_world_label_panel(hud)?;
+    if panel.label_count == 0
+        && panel.reliable_label_count == 0
+        && panel.remove_label_count == 0
+        && panel.active_count == 0
+        && panel.last_entity_id.is_none()
+        && panel.last_text.is_none()
+        && panel.last_flags.is_none()
+        && panel.last_font_size_bits.is_none()
+        && panel.last_z_bits.is_none()
+        && panel.last_position.is_none()
+    {
+        return None;
+    }
+
+    Some(format!(
+        "wlabeld:set{}:rel{}:rm{}:act{}:in{}:last{}:f{}:txt{}x{}:fs{}:z{}:p{}",
+        panel.label_count,
+        panel.reliable_label_count,
+        panel.remove_label_count,
+        panel.active_count,
+        panel.inactive_count(),
+        optional_i32_label(panel.last_entity_id),
+        optional_u8_label(panel.last_flags),
+        panel.last_text_len(),
+        panel.last_text_line_count(),
+        runtime_world_label_scalar_status_text(panel.last_font_size_bits, panel.last_font_size()),
+        runtime_world_label_scalar_status_text(panel.last_z_bits, panel.last_z()),
+        world_position_status_text(panel.last_position.as_ref()),
+    ))
+}
+
 fn runtime_world_label_status_sample(value: Option<&str>) -> String {
     let Some(value) = value else {
         return "none".to_string();
@@ -1009,7 +1049,7 @@ fn compose_minimap_window_status_text(
 ) -> Option<String> {
     let panel = build_minimap_panel(scene, hud, window)?;
     Some(format!(
-        "mini:win{},{}-{},{}@s{}x{}:c{}:f{}:i{}",
+        "mini:win{},{}-{},{}@s{}x{}:c{}:f{}:i{}:d{},{}:e{}{}{}{}",
         panel.window.origin_x,
         panel.window.origin_y,
         panel.window_last_x,
@@ -1019,6 +1059,12 @@ fn compose_minimap_window_status_text(
         panel.window_coverage_percent,
         optional_focus_tile_status_text(panel.focus_tile),
         optional_bool_label(panel.focus_in_window),
+        optional_signed_tile_status_text(panel.focus_offset_x),
+        optional_signed_tile_status_text(panel.focus_offset_y),
+        bool_flag(panel.window_clamped_left),
+        bool_flag(panel.window_clamped_top),
+        bool_flag(panel.window_clamped_right),
+        bool_flag(panel.window_clamped_bottom),
     ))
 }
 
@@ -1387,6 +1433,13 @@ fn build_config_outcome_status_text(
 fn optional_focus_tile_status_text(value: Option<(usize, usize)>) -> String {
     match value {
         Some((x, y)) => format!("{x}:{y}"),
+        None => "-".to_string(),
+    }
+}
+
+fn optional_signed_tile_status_text(value: Option<isize>) -> String {
+    match value {
+        Some(value) => value.to_string(),
         None => "-".to_string(),
     }
 }
@@ -1771,6 +1824,14 @@ fn optional_bool_label(value: Option<bool>) -> char {
         Some(true) => '1',
         Some(false) => '0',
         None => 'n',
+    }
+}
+
+fn bool_flag(value: bool) -> char {
+    if value {
+        '1'
+    } else {
+        '0'
     }
 }
 
@@ -2804,6 +2865,10 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
+            "RUNTIME-WORLD-LABEL-DETAIL: wlabeld:set19:rel20:rm21:act2:in58:last904:f3:txt11x1:fs1094713344@12.0:z1082130432@4.0:p40.0:60.0",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
             "RUNTIME-SESSION: sess:k=idInUse@7:IdInUse:wait_for_old~;l=defer5:replay6:drop7:qdrop8:sfail9:scfail10:efail11:rdy12@1300:to2:cto1:rto1:ltready@20000:rs3:rr1:wr1:kr1:lrreload:lwr@lw1:cl0:rd1:cc0:p4:d5:r6;r=attempt3:redirect@1/127.0.0.1:6567:connectRedir~@none:server_reque~",
         );
         assert_frame_line_contains(
@@ -2987,6 +3052,14 @@ mod tests {
                 .iter()
                 .all(|line| !line.starts_with("RUNTIME-SESSION:")),
             "unexpected runtime session line in {:?}",
+            frame.panel_lines
+        );
+        assert!(
+            frame
+                .panel_lines
+                .iter()
+                .all(|line| !line.starts_with("RUNTIME-WORLD-LABEL-DETAIL:")),
+            "unexpected runtime world-label detail line in {:?}",
             frame.panel_lines
         );
     }

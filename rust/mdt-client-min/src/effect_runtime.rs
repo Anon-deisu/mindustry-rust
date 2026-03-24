@@ -5,6 +5,7 @@ use mdt_typeio::{TypeIoEffectPositionHint, TypeIoObject, TypeIoSemanticRef};
 const EFFECT_PATH_MAX_DEPTH: usize = 3;
 const EFFECT_PATH_MAX_NODES: usize = 64;
 const BLOCK_CONTENT_TYPE: u8 = 1;
+const UNIT_CONTENT_TYPE: u8 = 6;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeEffectBinding {
@@ -19,6 +20,8 @@ pub enum RuntimeEffectContract {
     LightningPath,
     PointBeam,
     BlockContentIcon,
+    ContentIcon,
+    PayloadTargetContent,
     DropItem,
     FloatLength,
     UnitParent,
@@ -31,6 +34,8 @@ impl RuntimeEffectContract {
             Self::LightningPath => "lightning",
             Self::PointBeam => "point_beam",
             Self::BlockContentIcon => "block_content_icon",
+            Self::ContentIcon => "content_icon",
+            Self::PayloadTargetContent => "payload_target_content",
             Self::DropItem => "drop_item",
             Self::FloatLength => "float_length",
             Self::UnitParent => "unit_parent",
@@ -60,7 +65,9 @@ pub fn effect_contract(effect_id: Option<i16>) -> Option<RuntimeEffectContract> 
     match effect_id {
         Some(13) => Some(RuntimeEffectContract::LightningPath),
         Some(10) => Some(RuntimeEffectContract::PointBeam),
-        Some(252) => Some(RuntimeEffectContract::BlockContentIcon),
+        Some(15 | 20 | 252) => Some(RuntimeEffectContract::BlockContentIcon),
+        Some(3 | 35) => Some(RuntimeEffectContract::ContentIcon),
+        Some(26) => Some(RuntimeEffectContract::PayloadTargetContent),
         Some(8 | 9 | 178 | 261 | 262) => Some(RuntimeEffectContract::PositionTarget),
         Some(142) => Some(RuntimeEffectContract::DropItem),
         Some(200) => Some(RuntimeEffectContract::FloatLength),
@@ -86,18 +93,24 @@ pub fn spawn_runtime_effect_overlay(
     remaining_ticks: u8,
 ) -> RuntimeEffectOverlay {
     let contract = effect_contract(effect_id);
-    let content_ref = contract.and_then(|contract| derive_runtime_effect_content_ref(contract, data_object));
+    let payload_target_content = contract
+        .and_then(|contract| derive_runtime_effect_payload_target_content(contract, data_object));
+    let content_ref = payload_target_content
+        .map(|(_, _, content_ref)| content_ref)
+        .or_else(|| {
+            contract.and_then(|contract| derive_runtime_effect_content_ref(contract, data_object))
+        });
     let polyline_points = contract
         .and_then(|contract| derive_runtime_effect_polyline(contract, data_object))
         .unwrap_or_default();
-    let binding = if polyline_points.is_empty() {
+    let binding = if payload_target_content.is_none() && polyline_points.is_empty() {
         derive_runtime_effect_binding(data_object)
     } else {
         None
     };
-    let (x_bits, y_bits) = polyline_points
-        .last()
-        .copied()
+    let (x_bits, y_bits) = payload_target_content
+        .map(|(target_x_bits, target_y_bits, _)| (target_x_bits, target_y_bits))
+        .or_else(|| polyline_points.last().copied())
         .or_else(|| binding.as_ref().and_then(initial_position_from_binding))
         .unwrap_or((x.to_bits(), y.to_bits()));
 
@@ -169,6 +182,42 @@ fn derive_runtime_effect_polyline(
         RuntimeEffectContract::PositionTarget
         | RuntimeEffectContract::PointBeam
         | RuntimeEffectContract::BlockContentIcon
+        | RuntimeEffectContract::ContentIcon
+        | RuntimeEffectContract::PayloadTargetContent
+        | RuntimeEffectContract::DropItem
+        | RuntimeEffectContract::FloatLength
+        | RuntimeEffectContract::UnitParent => None,
+    }
+}
+
+fn derive_runtime_effect_payload_target_content(
+    contract: RuntimeEffectContract,
+    object: Option<&TypeIoObject>,
+) -> Option<(u32, u32, (u8, i16))> {
+    let object = object?;
+    match contract {
+        RuntimeEffectContract::PayloadTargetContent => {
+            let content_ref = object
+                .find_first_dfs_bounded(
+                    EFFECT_PATH_MAX_DEPTH,
+                    EFFECT_PATH_MAX_NODES,
+                    payload_content_candidate,
+                )
+                .and_then(|matched| payload_content_ref(matched.value))?;
+            let (target_x_bits, target_y_bits) = object
+                .find_first_dfs_bounded(
+                    EFFECT_PATH_MAX_DEPTH,
+                    EFFECT_PATH_MAX_NODES,
+                    payload_target_candidate,
+                )
+                .and_then(|matched| payload_target_world_bits(matched.value))?;
+            Some((target_x_bits, target_y_bits, content_ref))
+        }
+        RuntimeEffectContract::PositionTarget
+        | RuntimeEffectContract::LightningPath
+        | RuntimeEffectContract::PointBeam
+        | RuntimeEffectContract::BlockContentIcon
+        | RuntimeEffectContract::ContentIcon
         | RuntimeEffectContract::DropItem
         | RuntimeEffectContract::FloatLength
         | RuntimeEffectContract::UnitParent => None,
@@ -188,11 +237,19 @@ fn derive_runtime_effect_content_ref(
                 block_content_candidate,
             )
             .and_then(|matched| block_content_ref(matched.value)),
+        RuntimeEffectContract::ContentIcon => object
+            .find_first_dfs_bounded(
+                EFFECT_PATH_MAX_DEPTH,
+                EFFECT_PATH_MAX_NODES,
+                payload_content_candidate,
+            )
+            .and_then(|matched| payload_content_ref(matched.value)),
         RuntimeEffectContract::PositionTarget
         | RuntimeEffectContract::LightningPath
         | RuntimeEffectContract::PointBeam
         | RuntimeEffectContract::DropItem
         | RuntimeEffectContract::FloatLength
+        | RuntimeEffectContract::PayloadTargetContent
         | RuntimeEffectContract::UnitParent => None,
     }
 }
@@ -207,9 +264,7 @@ fn lightning_path_points(value: &TypeIoObject) -> Option<Vec<(u32, u32)>> {
     };
     let points = values
         .iter()
-        .filter_map(|(x, y)| {
-            (x.is_finite() && y.is_finite()).then_some((x.to_bits(), y.to_bits()))
-        })
+        .filter_map(|(x, y)| (x.is_finite() && y.is_finite()).then_some((x.to_bits(), y.to_bits())))
         .collect::<Vec<_>>();
     (!points.is_empty()).then_some(points)
 }
@@ -234,6 +289,58 @@ fn block_content_ref(value: &TypeIoObject) -> Option<(u8, i16)> {
         | TypeIoSemanticRef::TechNode { .. }
         | TypeIoSemanticRef::Building { .. }
         | TypeIoSemanticRef::Unit { .. } => None,
+    }
+}
+
+fn payload_content_candidate(value: &TypeIoObject) -> bool {
+    matches!(
+        value.semantic_ref(),
+        Some(TypeIoSemanticRef::Content { content_type, .. })
+            if [BLOCK_CONTENT_TYPE, UNIT_CONTENT_TYPE].contains(&content_type)
+    )
+}
+
+fn payload_content_ref(value: &TypeIoObject) -> Option<(u8, i16)> {
+    match value.semantic_ref()? {
+        TypeIoSemanticRef::Content {
+            content_type,
+            content_id,
+        } if [BLOCK_CONTENT_TYPE, UNIT_CONTENT_TYPE].contains(&content_type) => {
+            Some((content_type, content_id))
+        }
+        TypeIoSemanticRef::Content { .. }
+        | TypeIoSemanticRef::TechNode { .. }
+        | TypeIoSemanticRef::Building { .. }
+        | TypeIoSemanticRef::Unit { .. } => None,
+    }
+}
+
+fn payload_target_candidate(value: &TypeIoObject) -> bool {
+    payload_target_world_bits(value).is_some()
+}
+
+fn payload_target_world_bits(value: &TypeIoObject) -> Option<(u32, u32)> {
+    match value {
+        TypeIoObject::Point2 { x, y } => {
+            let (world_x, world_y) = point2_world_coords(*x, *y);
+            Some((world_x.to_bits(), world_y.to_bits()))
+        }
+        TypeIoObject::PackedPoint2Array(values) => {
+            let (tile_x, tile_y) = unpack_point2(*values.first()?);
+            let (world_x, world_y) = point2_world_coords(i32::from(tile_x), i32::from(tile_y));
+            Some((world_x.to_bits(), world_y.to_bits()))
+        }
+        TypeIoObject::Vec2 { x, y } => Some((x.to_bits(), y.to_bits())),
+        TypeIoObject::Vec2Array(values) => values.first().map(|(x, y)| (x.to_bits(), y.to_bits())),
+        _ => match value.semantic_ref()? {
+            TypeIoSemanticRef::Building { build_pos } => {
+                let (world_x, world_y) = world_coords_from_tile_pos(build_pos);
+                Some((world_x.to_bits(), world_y.to_bits()))
+            }
+            TypeIoSemanticRef::Content { .. }
+            | TypeIoSemanticRef::TechNode { .. }
+            | TypeIoSemanticRef::Unit { .. } => None,
+        },
     }
 }
 

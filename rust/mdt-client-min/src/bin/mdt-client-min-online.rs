@@ -13,6 +13,7 @@ use mdt_client_min::custom_packet_runtime::{
     RuntimeCustomPacketSemanticEncoding, RuntimeCustomPacketSemanticKind,
     RuntimeCustomPacketSemanticSpec, RuntimeCustomPacketSemantics,
 };
+use mdt_client_min::custom_packet_runtime_bridge::RuntimeCustomPacketBridge;
 use mdt_client_min::custom_packet_runtime_relay::{
     build_runtime_custom_packet_relay_specs, install_runtime_custom_packet_relays,
     RuntimeCustomPacketRelayAction, RuntimeCustomPacketRelaySpec, RuntimeCustomPacketRelays,
@@ -72,6 +73,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let mut custom_packet_surface =
         install_runtime_custom_packet_surface(&mut session, &args.runtime_custom_packet_semantics);
+    let mut custom_packet_bridge =
+        RuntimeCustomPacketBridge::from_specs(&args.runtime_custom_packet_semantics);
     let mut custom_packet_relays =
         install_runtime_custom_packet_relays(&mut session, &args.runtime_custom_packet_relays);
     let connect_payload = load_connect_payload(&args.connect)?;
@@ -193,6 +196,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         maybe_print_custom_packet_semantic_events(custom_packet_semantics.as_mut(), &report.events);
         maybe_print_custom_packet_surface_events(
             custom_packet_surface.as_mut(),
+            custom_packet_bridge.as_mut(),
+            args.runtime_custom_packet_semantics.len(),
             &report.events,
             now_ms,
         );
@@ -222,6 +227,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         redirected_semantics,
                         redirected_surface,
                     )) => {
+                        if let Some(custom_packet_bridge) = custom_packet_bridge.as_mut() {
+                            custom_packet_bridge.note_reconnect_reset(now_ms, "redirect");
+                            for line in custom_packet_bridge.drain_lines() {
+                                println!("{line}");
+                            }
+                        }
                         current_server_addr = redirect_addr;
                         session = redirected_session;
                         custom_packet_watch = redirected_watch;
@@ -284,6 +295,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     reconnected_semantics,
                     reconnected_surface,
                 )) => {
+                    if let Some(custom_packet_bridge) = custom_packet_bridge.as_mut() {
+                        custom_packet_bridge.note_reconnect_reset(now_ms, "server_restart");
+                        for line in custom_packet_bridge.drain_lines() {
+                            println!("{line}");
+                        }
+                    }
                     session = reconnected_session;
                     custom_packet_watch = reconnected_watch;
                     custom_packet_semantics = reconnected_semantics;
@@ -378,6 +395,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     maybe_print_custom_packet_watch_summary(custom_packet_watch.as_ref());
     maybe_print_custom_packet_semantic_summary(custom_packet_semantics.as_ref());
     maybe_print_custom_packet_surface_summary(custom_packet_surface.as_ref());
+    maybe_print_custom_packet_bridge_summary(custom_packet_bridge.as_ref());
     maybe_print_runtime_custom_packet_relay_summary(custom_packet_relays.as_ref());
     let final_input = session.snapshot_input_mut().clone();
     println!(
@@ -4427,6 +4445,8 @@ fn maybe_print_custom_packet_semantic_summary(
 
 fn maybe_print_custom_packet_surface_events(
     custom_packet_surface: Option<&mut RuntimeCustomPacketSurface>,
+    custom_packet_bridge: Option<&mut RuntimeCustomPacketBridge>,
+    registered_semantic_count: usize,
     events: &[ClientSessionEvent],
     now_ms: u64,
 ) {
@@ -4439,10 +4459,18 @@ fn maybe_print_custom_packet_surface_events(
         return;
     }
     let emit_overlay = should_emit_runtime_custom_packet_surface_overlay(&lines);
-    for line in lines {
+    for line in &lines {
         println!("{line}");
     }
     if emit_overlay {
+        let bridge_entries =
+            custom_packet_surface.latest_summary_entries(registered_semantic_count.max(1));
+        maybe_print_custom_packet_bridge_events(
+            custom_packet_bridge,
+            now_ms,
+            &lines,
+            &bridge_entries,
+        );
         println!(
             "{}",
             format_runtime_custom_packet_surface_overlay_line(
@@ -4460,6 +4488,47 @@ fn maybe_print_custom_packet_surface_events(
             )
         );
     }
+}
+
+fn maybe_print_custom_packet_bridge_events(
+    custom_packet_bridge: Option<&mut RuntimeCustomPacketBridge>,
+    now_ms: u64,
+    lines: &[String],
+    entries: &[RuntimeCustomPacketSurfaceSummaryEntry],
+) {
+    let Some(custom_packet_bridge) = custom_packet_bridge else {
+        return;
+    };
+    custom_packet_bridge.observe_surface_activity(now_ms, lines, entries);
+    for line in custom_packet_bridge.drain_lines() {
+        println!("{line}");
+    }
+    println!(
+        "{}",
+        format_runtime_custom_packet_bridge_business_line(
+            now_ms,
+            custom_packet_bridge
+                .business_summary_text(RUNTIME_CUSTOM_PACKET_SURFACE_OVERLAY_MAX_ENTRIES),
+        )
+    );
+}
+
+fn maybe_print_custom_packet_bridge_summary(
+    custom_packet_bridge: Option<&RuntimeCustomPacketBridge>,
+) {
+    let Some(custom_packet_bridge) = custom_packet_bridge else {
+        return;
+    };
+    for line in custom_packet_bridge.summary_lines() {
+        println!("{line}");
+    }
+    println!(
+        "{}",
+        format_runtime_custom_packet_bridge_business_summary_line(
+            custom_packet_bridge
+                .business_summary_text(RUNTIME_CUSTOM_PACKET_SURFACE_OVERLAY_MAX_ENTRIES),
+        )
+    );
 }
 
 fn maybe_print_custom_packet_surface_summary(
@@ -4547,6 +4616,27 @@ fn format_runtime_custom_packet_surface_business_summary(
         .collect::<Vec<_>>()
         .join(" | ");
     (!summary.is_empty()).then_some(summary)
+}
+
+fn format_runtime_custom_packet_bridge_business_line(
+    now_ms: u64,
+    summary: Option<String>,
+) -> String {
+    match summary {
+        Some(summary) => {
+            format!("runtime_custom_packet_bridge_business: tick={now_ms}ms summary={summary:?}")
+        }
+        None => format!("runtime_custom_packet_bridge_business: tick={now_ms}ms summary=none"),
+    }
+}
+
+fn format_runtime_custom_packet_bridge_business_summary_line(summary: Option<String>) -> String {
+    match summary {
+        Some(summary) => {
+            format!("runtime_custom_packet_bridge_business_summary: summary={summary:?}")
+        }
+        None => "runtime_custom_packet_bridge_business_summary: summary=none".to_string(),
+    }
 }
 
 fn format_runtime_custom_packet_surface_business_entry(
@@ -8345,6 +8435,119 @@ mod tests {
             "runtime_custom_packet_surface_reset: reason=world_data_begin cleared_routes=1"
                 .to_string(),
         ]));
+    }
+
+    #[test]
+    fn runtime_custom_packet_bridge_helpers_format_present_and_empty_summary() {
+        assert_eq!(
+            format_runtime_custom_packet_bridge_business_line(
+                42,
+                Some(
+                    "logic:logic.pos(world_pos)#2=7,9@7,9 | text:custom.status(hud_text)#1=wave ready"
+                        .to_string()
+                )
+            ),
+            "runtime_custom_packet_bridge_business: tick=42ms summary=\"logic:logic.pos(world_pos)#2=7,9@7,9 | text:custom.status(hud_text)#1=wave ready\""
+        );
+        assert_eq!(
+            format_runtime_custom_packet_bridge_business_line(43, None),
+            "runtime_custom_packet_bridge_business: tick=43ms summary=none"
+        );
+        assert_eq!(
+            format_runtime_custom_packet_bridge_business_summary_line(Some(
+                "text:custom.status(hud_text)#1=wave ready".to_string()
+            )),
+            "runtime_custom_packet_bridge_business_summary: summary=\"text:custom.status(hud_text)#1=wave ready\""
+        );
+        assert_eq!(
+            format_runtime_custom_packet_bridge_business_summary_line(None),
+            "runtime_custom_packet_bridge_business_summary: summary=none"
+        );
+    }
+
+    #[test]
+    fn runtime_custom_packet_bridge_survives_reconnect_resets() {
+        let specs = vec![
+            RuntimeCustomPacketSemanticSpec {
+                key: "logic.pos".to_string(),
+                encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+                semantic: RuntimeCustomPacketSemanticKind::WorldPos,
+            },
+            RuntimeCustomPacketSemanticSpec {
+                key: "custom.status".to_string(),
+                encoding: RuntimeCustomPacketSemanticEncoding::Text,
+                semantic: RuntimeCustomPacketSemanticKind::HudText,
+            },
+        ];
+        let mut bridge = RuntimeCustomPacketBridge::from_specs(&specs).unwrap();
+
+        maybe_print_custom_packet_bridge_events(
+            Some(&mut bridge),
+            42,
+            &[
+                "runtime_custom_packet_surface_update: encoding=logic key=\"logic.pos\" semantic=world_pos count=1 transport=reliable x=7 y=9 source=point2".to_string(),
+                "runtime_custom_packet_surface_update: encoding=text key=\"custom.status\" semantic=hud_text count=1 message=\"wave ready\"".to_string(),
+            ],
+            &[
+                RuntimeCustomPacketSurfaceSummaryEntry {
+                    key: "logic.pos".to_string(),
+                    encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+                    semantic: RuntimeCustomPacketSemanticKind::WorldPos,
+                    stable_value: "7,9".to_string(),
+                    marker: Some(RuntimeCustomPacketOverlayMarker {
+                        key: "logic.pos".to_string(),
+                        encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+                        semantic: RuntimeCustomPacketSemanticKind::WorldPos,
+                        x: 7.0,
+                        y: 9.0,
+                    }),
+                },
+                RuntimeCustomPacketSurfaceSummaryEntry {
+                    key: "custom.status".to_string(),
+                    encoding: RuntimeCustomPacketSemanticEncoding::Text,
+                    semantic: RuntimeCustomPacketSemanticKind::HudText,
+                    stable_value: "wave ready".to_string(),
+                    marker: None,
+                },
+            ],
+        );
+        assert_eq!(
+            bridge.business_summary_text(RUNTIME_CUSTOM_PACKET_SURFACE_OVERLAY_MAX_ENTRIES),
+            Some(
+                "text:custom.status(hud_text)#1=wave ready | logic:logic.pos(world_pos)#1=7,9@7,9"
+                    .to_string()
+            )
+        );
+
+        bridge.note_reconnect_reset(43, "redirect");
+        let lines = bridge.drain_lines();
+        assert_eq!(
+            lines,
+            vec![
+                "runtime_custom_packet_bridge_reset: tick=43ms reason=reconnect:redirect cleared_routes=2"
+                    .to_string()
+            ]
+        );
+        assert_eq!(bridge.business_summary_text(4), None);
+
+        maybe_print_custom_packet_bridge_events(
+            Some(&mut bridge),
+            44,
+            &[
+                "runtime_custom_packet_surface_update: encoding=text key=\"custom.status\" semantic=hud_text count=1 message=\"wave resumed\"".to_string(),
+            ],
+            &[RuntimeCustomPacketSurfaceSummaryEntry {
+                key: "custom.status".to_string(),
+                encoding: RuntimeCustomPacketSemanticEncoding::Text,
+                semantic: RuntimeCustomPacketSemanticKind::HudText,
+                stable_value: "wave resumed".to_string(),
+                marker: None,
+            }],
+        );
+        assert_eq!(
+            bridge.business_summary_text(4),
+            Some("text:custom.status(hud_text)#2=wave resumed".to_string())
+        );
     }
 
     #[test]

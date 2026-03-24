@@ -50,11 +50,11 @@ pub struct HighFrequencyRemotePacketSpec {
     pub wire_params: &'static [HighFrequencyRemoteParamSpec],
 }
 
-pub const CLIENT_SNAPSHOT_PACKET_ID: u8 = 24;
-pub const STATE_SNAPSHOT_PACKET_ID: u8 = 122;
-pub const ENTITY_SNAPSHOT_PACKET_ID: u8 = 44;
+pub const CLIENT_SNAPSHOT_PACKET_ID: u8 = 26;
+pub const STATE_SNAPSHOT_PACKET_ID: u8 = 125;
+pub const ENTITY_SNAPSHOT_PACKET_ID: u8 = 46;
 pub const BLOCK_SNAPSHOT_PACKET_ID: u8 = 11;
-pub const HIDDEN_SNAPSHOT_PACKET_ID: u8 = 47;
+pub const HIDDEN_SNAPSHOT_PACKET_ID: u8 = 49;
 
 pub const CLIENT_SNAPSHOT_WIRE_PARAMS: &[HighFrequencyRemoteParamSpec] = &[
     HighFrequencyRemoteParamSpec {
@@ -263,7 +263,7 @@ pub const HIDDEN_SNAPSHOT_WIRE_PARAMS: &[HighFrequencyRemoteParamSpec] =
 pub const HIGH_FREQUENCY_REMOTE_PACKET_SPECS: &[HighFrequencyRemotePacketSpec] = &[
     HighFrequencyRemotePacketSpec {
         method: HighFrequencyRemoteMethod::ClientSnapshot,
-        packet_id: 24,
+        packet_id: 26,
         packet_class: "mindustry.gen.ClientSnapshotCallPacket",
         declaring_type: "mindustry.core.NetServer",
         flow: RemoteFlow::ClientToServer,
@@ -273,7 +273,7 @@ pub const HIGH_FREQUENCY_REMOTE_PACKET_SPECS: &[HighFrequencyRemotePacketSpec] =
     },
     HighFrequencyRemotePacketSpec {
         method: HighFrequencyRemoteMethod::StateSnapshot,
-        packet_id: 122,
+        packet_id: 125,
         packet_class: "mindustry.gen.StateSnapshotCallPacket",
         declaring_type: "mindustry.core.NetClient",
         flow: RemoteFlow::ServerToClient,
@@ -283,7 +283,7 @@ pub const HIGH_FREQUENCY_REMOTE_PACKET_SPECS: &[HighFrequencyRemotePacketSpec] =
     },
     HighFrequencyRemotePacketSpec {
         method: HighFrequencyRemoteMethod::EntitySnapshot,
-        packet_id: 44,
+        packet_id: 46,
         packet_class: "mindustry.gen.EntitySnapshotCallPacket",
         declaring_type: "mindustry.core.NetClient",
         flow: RemoteFlow::ServerToClient,
@@ -303,7 +303,7 @@ pub const HIGH_FREQUENCY_REMOTE_PACKET_SPECS: &[HighFrequencyRemotePacketSpec] =
     },
     HighFrequencyRemotePacketSpec {
         method: HighFrequencyRemoteMethod::HiddenSnapshot,
-        packet_id: 47,
+        packet_id: 49,
         packet_class: "mindustry.gen.HiddenSnapshotCallPacket",
         declaring_type: "mindustry.core.NetClient",
         flow: RemoteFlow::ServerToClient,

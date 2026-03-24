@@ -152,6 +152,12 @@ impl AsciiScenePresenter {
                 "RUNTIME-WORLD-LABEL: {runtime_world_label_text}\n"
             ));
         }
+        if let Some(runtime_world_label_detail_text) = compose_runtime_world_label_detail_text(hud)
+        {
+            out.push_str(&format!(
+                "RUNTIME-WORLD-LABEL-DETAIL: {runtime_world_label_detail_text}\n"
+            ));
+        }
         if let Some(runtime_session_text) = compose_runtime_session_row_text(hud) {
             out.push_str(&format!("RUNTIME-SESSION: {runtime_session_text}\n"));
         }
@@ -612,6 +618,39 @@ fn compose_runtime_world_label_panel_text(hud: &HudModel) -> Option<String> {
     ))
 }
 
+fn compose_runtime_world_label_detail_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_world_label_panel(hud)?;
+    if panel.label_count == 0
+        && panel.reliable_label_count == 0
+        && panel.remove_label_count == 0
+        && panel.active_count == 0
+        && panel.last_entity_id.is_none()
+        && panel.last_text.is_none()
+        && panel.last_flags.is_none()
+        && panel.last_font_size_bits.is_none()
+        && panel.last_z_bits.is_none()
+        && panel.last_position.is_none()
+    {
+        return None;
+    }
+
+    Some(format!(
+        "set={} rel={} remove={} active={} inactive={} last={} flags={} text-len={} lines={} font={} z={} pos={}",
+        panel.label_count,
+        panel.reliable_label_count,
+        panel.remove_label_count,
+        panel.active_count,
+        panel.inactive_count(),
+        optional_i32_label(panel.last_entity_id),
+        optional_u8_label(panel.last_flags),
+        panel.last_text_len(),
+        panel.last_text_line_count(),
+        runtime_world_label_scalar_text(panel.last_font_size_bits, panel.last_font_size()),
+        runtime_world_label_scalar_text(panel.last_z_bits, panel.last_z()),
+        world_position_text(panel.last_position.as_ref()),
+    ))
+}
+
 fn runtime_world_label_text_sample(value: Option<&str>) -> String {
     let Some(value) = value else {
         return "none".to_string();
@@ -674,7 +713,7 @@ fn compose_minimap_panel_text(
 ) -> Option<String> {
     let panel = build_minimap_panel(scene, hud, window)?;
     Some(format!(
-        "map={}x{} window={}:{}->{}:{} size={}x{} cover={}/{}({}%) focus={} in-window={}",
+        "map={}x{} window={}:{}->{}:{} size={}x{} cover={}/{}({}%) focus={} in-window={} drift={}:{} edges={}/{}/{}/{}",
         panel.map_width,
         panel.map_height,
         panel.window.origin_x,
@@ -688,6 +727,12 @@ fn compose_minimap_panel_text(
         panel.window_coverage_percent,
         optional_focus_tile_text(panel.focus_tile),
         optional_bool_label(panel.focus_in_window),
+        optional_signed_tile_text(panel.focus_offset_x),
+        optional_signed_tile_text(panel.focus_offset_y),
+        bool_flag(panel.window_clamped_left),
+        bool_flag(panel.window_clamped_top),
+        bool_flag(panel.window_clamped_right),
+        bool_flag(panel.window_clamped_bottom),
     ))
 }
 
@@ -1059,6 +1104,13 @@ fn optional_focus_tile_text(value: Option<(usize, usize)>) -> String {
     }
 }
 
+fn optional_signed_tile_text(value: Option<isize>) -> String {
+    match value {
+        Some(value) => value.to_string(),
+        None => "-".to_string(),
+    }
+}
+
 fn build_config_alignment_text(value: Option<bool>) -> &'static str {
     match value {
         Some(true) => "match",
@@ -1417,6 +1469,10 @@ fn optional_bool_label(value: Option<bool>) -> char {
         Some(false) => '0',
         None => 'n',
     }
+}
+
+fn bool_flag(value: bool) -> u8 {
+    u8::from(value)
 }
 
 fn runtime_dialog_prompt_text(kind: Option<RuntimeDialogPromptKind>) -> &'static str {
@@ -2189,7 +2245,7 @@ mod tests {
             "HUD-DETAIL: player=operator len=8 selected=payload-rout~ len=14 tiles=4800 vis-map=2 hidden-map=0"
         ));
         assert!(frame.contains(
-            "MINIMAP: map=80x60 window=0:0->0:0 size=1x1 cover=1/4800(0%) focus=0:0 in-window=1"
+            "MINIMAP: map=80x60 window=0:0->0:0 size=1x1 cover=1/4800(0%) focus=0:0 in-window=1 drift=0:0 edges=1/1/0/0"
         ));
         assert!(frame.contains(
             "MINIMAP-VIS: overlay=1 fog=1 known=144(3%) vis=120(83%) hid=24(16%) unseen=4656(97%)"
@@ -2254,6 +2310,9 @@ mod tests {
         ));
         assert!(frame.contains(
             "RUNTIME-WORLD-LABEL: set=19 rel=20 remove=21 total=60 active=2 inactive=58 last=904 flags=3 font=1094713344@12.0 z=1082130432@4.0 pos=40.0:60.0 text=world label lines=1 len=11"
+        ));
+        assert!(frame.contains(
+            "RUNTIME-WORLD-LABEL-DETAIL: set=19 rel=20 remove=21 active=2 inactive=58 last=904 flags=3 text-len=11 lines=1 font=1094713344@12.0 z=1082130432@4.0 pos=40.0:60.0"
         ));
         assert!(frame.contains(
             "RUNTIME-SESSION: kick=idInUse@7:IdInUse:wait_for_old~; loading=defer5 replay6 drop7 qdrop8 sfail9 scfail10 efail11 rdy12@1300 to2/1/1 ltready@20000 rs3/1/1/1 lrreload lwr@lw1:cl0:rd1:cc0:p4:d5:r6; reconnect=attempt#3 redirect redirect=1@127.0.0.1:6567 reason=connectRedir~#none hint=server_reque~"
@@ -2381,7 +2440,7 @@ mod tests {
 
         let frame = presenter.last_frame();
         assert!(frame.contains(
-            "MINIMAP: map=80x60 window=0:0->1:1 size=2x2 cover=4/4800(0%) focus=1:1 in-window=1"
+            "MINIMAP: map=80x60 window=0:0->1:1 size=2x2 cover=4/4800(0%) focus=1:1 in-window=1 drift=1:1 edges=1/1/0/0"
         ));
         assert!(frame.contains(
             "MINIMAP-VIS: overlay=0 fog=0 known=0(0%) vis=0(0%) hid=0(0%) unseen=4800(100%)"
@@ -2427,6 +2486,9 @@ mod tests {
         presenter.present(&scene, &hud);
 
         assert!(!presenter.last_frame().contains("RUNTIME-SESSION:"));
+        assert!(!presenter
+            .last_frame()
+            .contains("RUNTIME-WORLD-LABEL-DETAIL:"));
     }
 
     fn decode_hex(text: &str) -> Vec<u8> {

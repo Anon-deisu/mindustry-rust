@@ -4,9 +4,10 @@ mod object;
 mod unit_sync;
 
 pub use object::{
-    read_object, read_object_prefix, write_object, TypeIoEffectPositionHint, TypeIoEffectSummary,
-    TypeIoEffectSummaryBudget, TypeIoObject, TypeIoObjectMatch, TypeIoReadError,
-    TypeIoSemanticMatch, TypeIoSemanticRef,
+    read_object, read_object_effect, read_object_effect_prefix, read_object_prefix,
+    read_object_safe, read_object_safe_prefix, write_object, TypeIoEffectPositionHint,
+    TypeIoEffectSummary, TypeIoEffectSummaryBudget, TypeIoObject, TypeIoObjectMatch,
+    TypeIoReadError, TypeIoSemanticMatch, TypeIoSemanticRef,
 };
 pub use unit_sync::{
     read_abilities, read_abilities_prefix, read_status_entry, read_status_entry_prefix,
@@ -22,6 +23,22 @@ pub const OBJECTIVES_BASIC_JSON: &str =
     "{objectives:[{type:Research,content:{type:item,id:1}},{type:DestroyBlock,position:[4,5],team:2}]}";
 pub const OBJECTIVE_MARKER_BASIC_JSON: &str =
     "{type:ShapeText,x:12.5,y:-3.25,world:true,text:objective-ready}";
+const MAX_PLANS_QUEUE_LEN: usize = 999;
+const MAX_RULES_JSON_LEN: usize = 40_000;
+const MAX_OBJECTIVES_JSON_LEN: usize = 60_000;
+const MAX_OBJECTIVE_MARKER_JSON_LEN: usize = 40_000;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BuildPlanRaw {
+    pub breaking: bool,
+    pub packed_position: i32,
+    pub x: i32,
+    pub y: i32,
+    pub block_id: Option<i16>,
+    pub rotation: u8,
+    pub has_config: bool,
+    pub config: TypeIoObject,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BuildPayloadHeader {
@@ -229,6 +246,91 @@ pub fn write_plans_queue_net(out: &mut Vec<u8>) {
     write_plan_break(out, 5, 6);
 }
 
+pub fn read_plan(bytes: &[u8]) -> Result<BuildPlanRaw, TypeIoReadError> {
+    let (value, consumed) = read_plan_prefix(bytes)?;
+    ensure_consumed(consumed, bytes.len())?;
+    Ok(value)
+}
+
+pub fn read_plan_prefix(bytes: &[u8]) -> Result<(BuildPlanRaw, usize), TypeIoReadError> {
+    let mut reader = PrimitiveReader::new(bytes);
+    let breaking = reader.read_u8()? != 0;
+    let packed_position = reader.read_i32()?;
+    let (x, y) = unpack_point2(packed_position);
+    let value = if breaking {
+        BuildPlanRaw {
+            breaking: true,
+            packed_position,
+            x,
+            y,
+            block_id: None,
+            rotation: 0,
+            has_config: false,
+            config: TypeIoObject::Null,
+        }
+    } else {
+        let block_id = reader.read_i16()?;
+        let rotation = reader.read_u8()?;
+        let has_config = reader.read_u8()? != 0;
+        let config = if has_config {
+            read_object_safe_from_reader(&mut reader)?
+        } else {
+            TypeIoObject::Null
+        };
+        BuildPlanRaw {
+            breaking: false,
+            packed_position,
+            x,
+            y,
+            block_id: Some(block_id),
+            rotation,
+            has_config,
+            config,
+        }
+    };
+    Ok((value, reader.position()))
+}
+
+pub fn read_plans_queue_net(bytes: &[u8]) -> Result<Option<Vec<BuildPlanRaw>>, TypeIoReadError> {
+    let (value, consumed) = read_plans_queue_net_prefix(bytes)?;
+    ensure_consumed(consumed, bytes.len())?;
+    Ok(value)
+}
+
+pub fn read_plans_queue_net_prefix(
+    bytes: &[u8],
+) -> Result<(Option<Vec<BuildPlanRaw>>, usize), TypeIoReadError> {
+    let mut reader = PrimitiveReader::new(bytes);
+    let count_position = reader.position();
+    let count = reader.read_i32()?;
+    if count == -1 {
+        return Ok((None, reader.position()));
+    }
+    if count < -1 {
+        return Err(TypeIoReadError::NegativeLength {
+            field: "plans queue length",
+            length: count,
+            position: count_position,
+        });
+    }
+
+    let count = count as usize;
+    if count > MAX_PLANS_QUEUE_LEN {
+        return Err(TypeIoReadError::LengthLimitExceeded {
+            field: "plans queue length",
+            length: count,
+            max: MAX_PLANS_QUEUE_LEN,
+            position: count_position,
+        });
+    }
+
+    let mut plans = Vec::with_capacity(count);
+    for _ in 0..count {
+        plans.push(read_plan_from_reader(&mut reader)?);
+    }
+    Ok((Some(plans), reader.position()))
+}
+
 pub fn write_rules_basic(out: &mut Vec<u8>) {
     write_rules_json(out, RULES_BASIC_JSON);
 }
@@ -432,7 +534,7 @@ pub fn read_rules_json(bytes: &[u8]) -> Result<String, TypeIoReadError> {
 }
 
 pub fn read_rules_json_prefix(bytes: &[u8]) -> Result<(String, usize), TypeIoReadError> {
-    read_length_prefixed_json_prefix(bytes, "rules length")
+    read_length_prefixed_json_prefix(bytes, "rules length", MAX_RULES_JSON_LEN)
 }
 
 pub fn read_objectives_json(bytes: &[u8]) -> Result<String, TypeIoReadError> {
@@ -442,7 +544,7 @@ pub fn read_objectives_json(bytes: &[u8]) -> Result<String, TypeIoReadError> {
 }
 
 pub fn read_objectives_json_prefix(bytes: &[u8]) -> Result<(String, usize), TypeIoReadError> {
-    read_length_prefixed_json_prefix(bytes, "objectives length")
+    read_length_prefixed_json_prefix(bytes, "objectives length", MAX_OBJECTIVES_JSON_LEN)
 }
 
 pub fn read_objective_marker_json(bytes: &[u8]) -> Result<String, TypeIoReadError> {
@@ -452,7 +554,11 @@ pub fn read_objective_marker_json(bytes: &[u8]) -> Result<String, TypeIoReadErro
 }
 
 pub fn read_objective_marker_json_prefix(bytes: &[u8]) -> Result<(String, usize), TypeIoReadError> {
-    read_length_prefixed_json_prefix(bytes, "objective marker length")
+    read_length_prefixed_json_prefix(
+        bytes,
+        "objective marker length",
+        MAX_OBJECTIVE_MARKER_JSON_LEN,
+    )
 }
 
 pub fn read_payload_header(bytes: &[u8]) -> Result<PayloadHeader, TypeIoReadError> {
@@ -507,9 +613,58 @@ fn write_length_prefixed_json(out: &mut Vec<u8>, value: &str) {
     out.extend_from_slice(bytes);
 }
 
+fn read_plan_from_reader(
+    reader: &mut PrimitiveReader<'_>,
+) -> Result<BuildPlanRaw, TypeIoReadError> {
+    let breaking = reader.read_u8()? != 0;
+    let packed_position = reader.read_i32()?;
+    let (x, y) = unpack_point2(packed_position);
+    if breaking {
+        return Ok(BuildPlanRaw {
+            breaking: true,
+            packed_position,
+            x,
+            y,
+            block_id: None,
+            rotation: 0,
+            has_config: false,
+            config: TypeIoObject::Null,
+        });
+    }
+
+    let block_id = reader.read_i16()?;
+    let rotation = reader.read_u8()?;
+    let has_config = reader.read_u8()? != 0;
+    let config = if has_config {
+        read_object_safe_from_reader(reader)?
+    } else {
+        TypeIoObject::Null
+    };
+    Ok(BuildPlanRaw {
+        breaking: false,
+        packed_position,
+        x,
+        y,
+        block_id: Some(block_id),
+        rotation,
+        has_config,
+        config,
+    })
+}
+
+fn read_object_safe_from_reader(
+    reader: &mut PrimitiveReader<'_>,
+) -> Result<TypeIoObject, TypeIoReadError> {
+    let position = reader.position();
+    let (value, consumed) = read_object_safe_prefix(&reader.bytes[position..])?;
+    let _ = reader.read_exact(consumed)?;
+    Ok(value)
+}
+
 fn read_length_prefixed_json_prefix(
     bytes: &[u8],
     field: &'static str,
+    max_len: usize,
 ) -> Result<(String, usize), TypeIoReadError> {
     let mut reader = PrimitiveReader::new(bytes);
     let length_position = reader.position();
@@ -521,8 +676,17 @@ fn read_length_prefixed_json_prefix(
             position: length_position,
         });
     }
+    let len = len as usize;
+    if len > max_len {
+        return Err(TypeIoReadError::LengthLimitExceeded {
+            field,
+            length: len,
+            max: max_len,
+            position: length_position,
+        });
+    }
     let string_position = reader.position();
-    let raw = reader.read_vec(len as usize)?;
+    let raw = reader.read_vec(len)?;
     let value = String::from_utf8(raw).map_err(|error| TypeIoReadError::InvalidUtf8 {
         position: string_position,
         message: error.to_string(),
@@ -797,6 +961,45 @@ mod tests {
             read_objective_marker_json(&bytes).unwrap(),
             OBJECTIVE_MARKER_BASIC_JSON
         );
+
+        bytes.clear();
+        write_plan_place(&mut bytes, 1, 2, 1, CONVEYOR_BLOCK_ID, 3, 4);
+        assert_eq!(
+            read_plan(&bytes).unwrap(),
+            BuildPlanRaw {
+                breaking: false,
+                packed_position: pack_point2(1, 2),
+                x: 1,
+                y: 2,
+                block_id: Some(CONVEYOR_BLOCK_ID),
+                rotation: 1,
+                has_config: true,
+                config: TypeIoObject::Point2 { x: 3, y: 4 },
+            }
+        );
+
+        bytes.clear();
+        write_plan_break(&mut bytes, 5, 6);
+        assert_eq!(
+            read_plan(&bytes).unwrap(),
+            BuildPlanRaw {
+                breaking: true,
+                packed_position: pack_point2(5, 6),
+                x: 5,
+                y: 6,
+                block_id: None,
+                rotation: 0,
+                has_config: false,
+                config: TypeIoObject::Null,
+            }
+        );
+
+        bytes.clear();
+        write_plans_queue_net(&mut bytes);
+        let plans = read_plans_queue_net(&bytes).unwrap().unwrap();
+        assert_eq!(plans.len(), 2);
+        assert!(plans[0].has_config);
+        assert!(plans[1].breaking);
     }
 
     #[test]
@@ -906,6 +1109,65 @@ mod tests {
                 position: 0
             })
         ));
+    }
+
+    #[test]
+    fn json_readers_reject_lengths_above_v156_caps() {
+        let too_large_rules = (MAX_RULES_JSON_LEN as i32 + 1).to_be_bytes();
+        assert!(matches!(
+            read_rules_json(&too_large_rules),
+            Err(TypeIoReadError::LengthLimitExceeded {
+                field: "rules length",
+                length,
+                max: MAX_RULES_JSON_LEN,
+                position: 0
+            }) if length == MAX_RULES_JSON_LEN + 1
+        ));
+
+        let too_large_objectives = (MAX_OBJECTIVES_JSON_LEN as i32 + 1).to_be_bytes();
+        assert!(matches!(
+            read_objectives_json(&too_large_objectives),
+            Err(TypeIoReadError::LengthLimitExceeded {
+                field: "objectives length",
+                length,
+                max: MAX_OBJECTIVES_JSON_LEN,
+                position: 0
+            }) if length == MAX_OBJECTIVES_JSON_LEN + 1
+        ));
+
+        let too_large_marker = (MAX_OBJECTIVE_MARKER_JSON_LEN as i32 + 1).to_be_bytes();
+        assert!(matches!(
+            read_objective_marker_json(&too_large_marker),
+            Err(TypeIoReadError::LengthLimitExceeded {
+                field: "objective marker length",
+                length,
+                max: MAX_OBJECTIVE_MARKER_JSON_LEN,
+                position: 0
+            }) if length == MAX_OBJECTIVE_MARKER_JSON_LEN + 1
+        ));
+    }
+
+    #[test]
+    fn plans_queue_reader_rejects_invalid_lengths() {
+        assert_eq!(
+            read_plans_queue_net(&(-2i32).to_be_bytes()).unwrap_err(),
+            TypeIoReadError::NegativeLength {
+                field: "plans queue length",
+                length: -2,
+                position: 0,
+            }
+        );
+
+        let too_many = (1000i32).to_be_bytes();
+        assert_eq!(
+            read_plans_queue_net(&too_many).unwrap_err(),
+            TypeIoReadError::LengthLimitExceeded {
+                field: "plans queue length",
+                length: 1000,
+                max: 999,
+                position: 0,
+            }
+        );
     }
 
     #[test]

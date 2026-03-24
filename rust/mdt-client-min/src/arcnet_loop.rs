@@ -669,6 +669,18 @@ mod tests {
         let connect = session
             .prepare_connect_packet(&sample_connect_payload())
             .unwrap();
+        let expected_connect_confirm_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "connectConfirm")
+            .unwrap()
+            .packet_id;
+        let expected_snapshot_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "clientSnapshot")
+            .unwrap()
+            .packet_id;
         let compressed_world_stream = sample_world_stream_bytes();
         let (begin_packet, chunk_packets) =
             encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
@@ -723,7 +735,7 @@ mod tests {
             for _ in 0..4 {
                 let frame = read_tcp_frame(&mut tcp_stream);
                 if let Ok(packet) = decode_packet(&frame) {
-                    if packet.packet_id == 29 {
+                    if packet.packet_id == expected_connect_confirm_packet_id {
                         assert!(packet.payload.is_empty());
                         saw_connect_confirm = true;
                         break;
@@ -740,7 +752,7 @@ mod tests {
             let (snapshot_len, snapshot_addr) = udp_socket.recv_from(&mut udp_buf).unwrap();
             assert_eq!(snapshot_addr, client_addr);
             let snapshot_packet = decode_packet(&udp_buf[..snapshot_len]).unwrap();
-            assert_eq!(snapshot_packet.packet_id, 24);
+            assert_eq!(snapshot_packet.packet_id, expected_snapshot_packet_id);
             assert_eq!(&snapshot_packet.payload[0..4], &1i32.to_be_bytes());
             assert_eq!(
                 &snapshot_packet.payload[4..8],
@@ -877,11 +889,33 @@ mod tests {
         let connect = session
             .prepare_connect_packet(&sample_connect_payload())
             .unwrap();
+        let expected_connect_confirm_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "connectConfirm")
+            .unwrap()
+            .packet_id;
+        let expected_snapshot_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "clientSnapshot")
+            .unwrap()
+            .packet_id;
+        let expected_entity_snapshot_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "entitySnapshot")
+            .unwrap()
+            .packet_id;
         let compressed_world_stream = sample_world_stream_bytes();
         let (begin_packet, chunk_packets) =
             encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
-        let entity_snapshot_wire =
-            encode_packet(44, &sample_snapshot_packet("entitySnapshot.packet"), false).unwrap();
+        let entity_snapshot_wire = encode_packet(
+            expected_entity_snapshot_packet_id,
+            &sample_snapshot_packet("entitySnapshot.packet"),
+            false,
+        )
+        .unwrap();
 
         let (tcp_listener, udp_socket, server_addr) = bind_local_arcnet_server();
         let server = thread::spawn(move || {
@@ -923,7 +957,7 @@ mod tests {
             for _ in 0..4 {
                 let frame = read_tcp_frame(&mut tcp_stream);
                 if let Ok(packet) = decode_packet(&frame) {
-                    if packet.packet_id == 29 {
+                    if packet.packet_id == expected_connect_confirm_packet_id {
                         saw_connect_confirm = true;
                         break;
                     }
@@ -939,7 +973,7 @@ mod tests {
             let (snapshot_len, snapshot_addr) = udp_socket.recv_from(&mut udp_buf).unwrap();
             assert_eq!(snapshot_addr, client_addr);
             let snapshot_packet = decode_packet(&udp_buf[..snapshot_len]).unwrap();
-            assert_eq!(snapshot_packet.packet_id, 24);
+            assert_eq!(snapshot_packet.packet_id, expected_snapshot_packet_id);
             assert_eq!(&snapshot_packet.payload[4..8], &100i32.to_be_bytes());
             assert_eq!(
                 &snapshot_packet.payload[9..13],
@@ -1003,6 +1037,12 @@ mod tests {
         let connect = session
             .prepare_connect_packet(&sample_connect_payload())
             .unwrap();
+        let expected_connect_confirm_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "connectConfirm")
+            .unwrap()
+            .packet_id;
         let compressed_world_stream = sample_world_stream_bytes();
         let (begin_packet, chunk_packets) =
             encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
@@ -1059,7 +1099,7 @@ mod tests {
             for _ in 0..4 {
                 let frame = read_tcp_frame(&mut tcp_stream);
                 if let Ok(packet) = decode_packet(&frame) {
-                    if packet.packet_id == 29 {
+                    if packet.packet_id == expected_connect_confirm_packet_id {
                         saw_connect_confirm = true;
                         break;
                     }
