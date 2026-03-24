@@ -11,6 +11,9 @@ use std::io::{Cursor, Read};
 use std::sync::OnceLock;
 
 mod save_post_load;
+mod save_post_load_contract;
+
+pub use save_post_load_contract::{SavePostLoadWorldContract, SavePostLoadWorldIssue};
 
 const BLOCK_CONTENT_TYPE: u8 = 1;
 const ITEM_CONTENT_TYPE: u8 = 0;

@@ -1,0 +1,627 @@
+use crate::{
+    MarkerModel, SaveEntityChunkObservation, SaveEntityClassKind, SavePostLoadWorldObservation,
+    WorldLoadUnknownCoverageSummary,
+};
+use std::collections::BTreeSet;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SavePostLoadWorldContract {
+    pub has_world_graph: bool,
+    pub tile_surface_consistent: bool,
+    pub overlay_surface_consistent: bool,
+    pub marker_surface_consistent: bool,
+    pub static_fog_surface_consistent: bool,
+    pub entity_surface_consistent: bool,
+    pub unknown_coverage: WorldLoadUnknownCoverageSummary,
+    pub issues: Vec<SavePostLoadWorldIssue>,
+}
+
+impl SavePostLoadWorldContract {
+    pub fn can_project_world_shell(&self) -> bool {
+        self.has_world_graph
+            && self.tile_surface_consistent
+            && self.overlay_surface_consistent
+            && self.marker_surface_consistent
+            && self.static_fog_surface_consistent
+            && self.entity_surface_consistent
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SavePostLoadWorldIssue {
+    EmptyWorldGraph,
+    TileSurfaceCountMismatch,
+    TileSurfaceIndexMismatch,
+    BuildingCenterReferenceMismatch,
+    TeamPlanOverlayMismatch,
+    TeamPlanOutOfBounds,
+    MarkerRegionMismatch,
+    MarkerOutOfBounds,
+    StaticFogDimensionMismatch,
+    StaticFogCoverageMismatch,
+    WorldEntityCountMismatch,
+    DuplicateWorldEntityIds,
+    EntitySummaryMismatch,
+}
+
+impl SavePostLoadWorldObservation {
+    pub fn projection_contract(&self) -> SavePostLoadWorldContract {
+        let mut issues = Vec::new();
+        let has_world_graph = self.map.world.width > 0
+            && self.map.world.height > 0
+            && self.map.world.tile_count() > 0;
+        if !has_world_graph {
+            push_issue(&mut issues, SavePostLoadWorldIssue::EmptyWorldGraph);
+        }
+
+        let tile_surface_consistent = tile_surface_consistent(self, &mut issues);
+        let overlay_surface_consistent = overlay_surface_consistent(self, &mut issues);
+        let marker_surface_consistent = marker_surface_consistent(self, &mut issues);
+        let static_fog_surface_consistent = static_fog_surface_consistent(self, &mut issues);
+        let entity_surface_consistent = entity_surface_consistent(self, &mut issues);
+
+        SavePostLoadWorldContract {
+            has_world_graph,
+            tile_surface_consistent,
+            overlay_surface_consistent,
+            marker_surface_consistent,
+            static_fog_surface_consistent,
+            entity_surface_consistent,
+            unknown_coverage: self.unknown_coverage_summary(),
+            issues,
+        }
+    }
+}
+
+fn tile_surface_consistent(
+    observation: &SavePostLoadWorldObservation,
+    issues: &mut Vec<SavePostLoadWorldIssue>,
+) -> bool {
+    let world = &observation.map.world;
+    let tile_count = world.tile_count();
+    let mut consistent = true;
+
+    if world.tiles.len() != tile_count
+        || world.floors.len() != tile_count
+        || world.overlays.len() != tile_count
+        || world.blocks.len() != tile_count
+    {
+        push_issue(issues, SavePostLoadWorldIssue::TileSurfaceCountMismatch);
+        consistent = false;
+    }
+
+    for (index, tile) in world.tiles.iter().enumerate() {
+        let expected_index = tile.x + tile.y.saturating_mul(world.width);
+        let same_surface = world.floors.get(index) == Some(&tile.floor_id)
+            && world.overlays.get(index) == Some(&tile.overlay_id)
+            && world.blocks.get(index) == Some(&tile.block_id);
+        if tile.tile_index != index
+            || tile.x >= world.width
+            || tile.y >= world.height
+            || tile.tile_index != expected_index
+            || !same_surface
+        {
+            push_issue(issues, SavePostLoadWorldIssue::TileSurfaceIndexMismatch);
+            consistent = false;
+            break;
+        }
+    }
+
+    for (center_index, center) in world.building_centers.iter().enumerate() {
+        let tile = world.tiles.get(center.tile_index);
+        let expected_index = center.x + center.y.saturating_mul(world.width);
+        let center_ok = tile
+            .map(|tile| tile.building_center_index == Some(center_index))
+            .unwrap_or(false);
+        if center.x >= world.width
+            || center.y >= world.height
+            || center.tile_index != expected_index
+            || !center_ok
+        {
+            push_issue(
+                issues,
+                SavePostLoadWorldIssue::BuildingCenterReferenceMismatch,
+            );
+            consistent = false;
+            break;
+        }
+    }
+
+    consistent
+}
+
+fn overlay_surface_consistent(
+    observation: &SavePostLoadWorldObservation,
+    issues: &mut Vec<SavePostLoadWorldIssue>,
+) -> bool {
+    let world = &observation.map.world;
+    let mut consistent = true;
+    let group_ids: Vec<u32> = observation
+        .team_plan_groups
+        .iter()
+        .map(|group| group.team_id)
+        .collect();
+    let group_counts: Vec<u32> = observation
+        .team_plan_groups
+        .iter()
+        .map(|group| group.plan_count)
+        .collect();
+    let total_plans: usize = observation
+        .team_plan_groups
+        .iter()
+        .map(|group| group.plans.len())
+        .sum();
+
+    if world.team_count != observation.team_plan_groups.len()
+        || world.team_ids != group_ids
+        || world.team_plan_counts != group_counts
+        || world.total_plans != total_plans
+        || observation
+            .team_plan_groups
+            .iter()
+            .any(|group| group.plan_count != group.plans.len() as u32)
+    {
+        push_issue(issues, SavePostLoadWorldIssue::TeamPlanOverlayMismatch);
+        consistent = false;
+    }
+
+    if observation.team_plan_groups.iter().any(|group| {
+        group.plans.iter().any(|plan| {
+            plan.x < 0
+                || plan.y < 0
+                || plan.x as usize >= world.width
+                || plan.y as usize >= world.height
+        })
+    }) {
+        push_issue(issues, SavePostLoadWorldIssue::TeamPlanOutOfBounds);
+        consistent = false;
+    }
+
+    consistent
+}
+
+fn marker_surface_consistent(
+    observation: &SavePostLoadWorldObservation,
+    issues: &mut Vec<SavePostLoadWorldIssue>,
+) -> bool {
+    let mut consistent = true;
+    let width = observation.map.world.width;
+    let height = observation.map.world.height;
+    let marker_region_present = !observation.marker_region_bytes.is_empty();
+    let empty_marker_region =
+        observation.marker_region_bytes.is_empty() || observation.marker_region_bytes == b"{}";
+
+    if (observation.markers.is_empty() && !empty_marker_region)
+        || (!observation.markers.is_empty() && !marker_region_present)
+    {
+        push_issue(issues, SavePostLoadWorldIssue::MarkerRegionMismatch);
+        consistent = false;
+    }
+
+    if observation
+        .markers
+        .iter()
+        .any(|entry| !marker_in_bounds(&entry.marker, width, height))
+    {
+        push_issue(issues, SavePostLoadWorldIssue::MarkerOutOfBounds);
+        consistent = false;
+    }
+
+    consistent
+}
+
+fn marker_in_bounds(marker: &MarkerModel, width: usize, height: usize) -> bool {
+    marker_tile_coords_in_bounds(marker.tile_coords(), width, height)
+        && match marker {
+            MarkerModel::Line(line) => {
+                marker_tile_coords_in_bounds(line.end_tile_coords(), width, height)
+            }
+            _ => true,
+        }
+}
+
+fn marker_tile_coords_in_bounds(coords: Option<(i16, i16)>, width: usize, height: usize) -> bool {
+    match coords {
+        Some((x, y)) => x >= 0 && y >= 0 && (x as usize) < width && (y as usize) < height,
+        None => true,
+    }
+}
+
+fn static_fog_surface_consistent(
+    observation: &SavePostLoadWorldObservation,
+    issues: &mut Vec<SavePostLoadWorldIssue>,
+) -> bool {
+    let mut consistent = true;
+    if let Some(chunk) = observation.static_fog_chunk() {
+        if chunk.width != observation.map.world.width
+            || chunk.height != observation.map.world.height
+        {
+            push_issue(issues, SavePostLoadWorldIssue::StaticFogDimensionMismatch);
+            consistent = false;
+        }
+
+        if chunk.used_teams != chunk.teams.len()
+            || chunk
+                .teams
+                .iter()
+                .any(|team| team.discovered.len() != observation.map.world.tile_count())
+        {
+            push_issue(issues, SavePostLoadWorldIssue::StaticFogCoverageMismatch);
+            consistent = false;
+        }
+    }
+
+    consistent
+}
+
+fn entity_surface_consistent(
+    observation: &SavePostLoadWorldObservation,
+    issues: &mut Vec<SavePostLoadWorldIssue>,
+) -> bool {
+    let chunks = &observation.world_entity_chunks;
+    let duplicates = duplicate_entity_ids(chunks);
+    let unique_count = chunks.len().saturating_sub(duplicates.len());
+    let builtin_count = chunks
+        .iter()
+        .filter(|chunk| chunk.class_kind() == SaveEntityClassKind::Builtin)
+        .count();
+    let custom_count = chunks
+        .iter()
+        .filter(|chunk| chunk.class_kind() == SaveEntityClassKind::Custom)
+        .count();
+    let unknown_count = chunks
+        .iter()
+        .filter(|chunk| chunk.class_kind() == SaveEntityClassKind::Unknown)
+        .count();
+    let mut consistent = true;
+
+    if observation.world_entity_count != chunks.len() {
+        push_issue(issues, SavePostLoadWorldIssue::WorldEntityCountMismatch);
+        consistent = false;
+    }
+
+    if !duplicates.is_empty() {
+        push_issue(issues, SavePostLoadWorldIssue::DuplicateWorldEntityIds);
+        consistent = false;
+    }
+
+    let summary = &observation.entity_summary;
+    if summary.total_entities != chunks.len()
+        || summary.unique_entity_ids != unique_count
+        || summary.duplicate_entity_ids != duplicates
+        || summary.builtin_entities != builtin_count
+        || summary.custom_entities != custom_count
+        || summary.unknown_entities != unknown_count
+        || summary.loadable_entities + summary.skipped_entities != summary.total_entities
+    {
+        push_issue(issues, SavePostLoadWorldIssue::EntitySummaryMismatch);
+        consistent = false;
+    }
+
+    consistent
+}
+
+fn duplicate_entity_ids(chunks: &[SaveEntityChunkObservation]) -> Vec<i32> {
+    let mut seen = BTreeSet::new();
+    let mut duplicates = BTreeSet::new();
+    for chunk in chunks {
+        if !seen.insert(chunk.entity_id) {
+            duplicates.insert(chunk.entity_id);
+        }
+    }
+    duplicates.into_iter().collect()
+}
+
+fn push_issue(issues: &mut Vec<SavePostLoadWorldIssue>, issue: SavePostLoadWorldIssue) {
+    if !issues.contains(&issue) {
+        issues.push(issue);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        BuildingBaseSnapshot, BuildingCenter, BuildingSnapshot, CustomChunkEntry, MarkerEntry,
+        MarkerModel, ParsedBuildingTail, ParsedCustomChunk, PointMarkerModel,
+        SaveEntityPostLoadSummary, SaveEntityRemapSummary, SaveMapRegionObservation,
+        SavePostLoadWorldObservation, StaticFogChunk, StaticFogTeam, TeamPlan, TeamPlanGroup,
+        TileModel, TypeIoValue, WorldLoadUnknownCoverageSummary, WorldModel,
+    };
+
+    #[test]
+    fn projection_contract_accepts_consistent_post_load_world() {
+        let observation = test_observation();
+        let contract = observation.projection_contract();
+
+        assert!(contract.can_project_world_shell());
+        assert!(contract.has_world_graph);
+        assert!(contract.tile_surface_consistent);
+        assert!(contract.overlay_surface_consistent);
+        assert!(contract.marker_surface_consistent);
+        assert!(contract.static_fog_surface_consistent);
+        assert!(contract.entity_surface_consistent);
+        assert!(contract.issues.is_empty());
+        assert_eq!(
+            contract.unknown_coverage,
+            WorldLoadUnknownCoverageSummary {
+                building_tail_unknown_count: 0,
+                marker_unknown_count: 0,
+                custom_chunk_unknown_count: 0,
+            }
+        );
+    }
+
+    #[test]
+    fn projection_contract_flags_overlay_and_fog_mismatches() {
+        let mut observation = test_observation();
+        observation.map.world.team_count = 2;
+        let fog = observation
+            .custom_chunks
+            .iter_mut()
+            .find(|chunk| chunk.name == "static-fog-data")
+            .and_then(|chunk| match &mut chunk.parsed {
+                ParsedCustomChunk::StaticFog(chunk) => Some(chunk),
+                ParsedCustomChunk::Unknown => None,
+            })
+            .unwrap();
+        fog.width = 3;
+        fog.teams[0].discovered.pop();
+
+        let contract = observation.projection_contract();
+
+        assert!(!contract.can_project_world_shell());
+        assert!(!contract.overlay_surface_consistent);
+        assert!(!contract.static_fog_surface_consistent);
+        assert!(contract
+            .issues
+            .contains(&SavePostLoadWorldIssue::TeamPlanOverlayMismatch));
+        assert!(contract
+            .issues
+            .contains(&SavePostLoadWorldIssue::StaticFogDimensionMismatch));
+        assert!(contract
+            .issues
+            .contains(&SavePostLoadWorldIssue::StaticFogCoverageMismatch));
+    }
+
+    #[test]
+    fn projection_contract_flags_marker_and_entity_mismatches() {
+        let mut observation = test_observation();
+        observation.marker_region_bytes.clear();
+        observation
+            .world_entity_chunks
+            .push(observation.world_entity_chunks[0].clone());
+
+        let contract = observation.projection_contract();
+
+        assert!(!contract.can_project_world_shell());
+        assert!(!contract.marker_surface_consistent);
+        assert!(!contract.entity_surface_consistent);
+        assert!(contract
+            .issues
+            .contains(&SavePostLoadWorldIssue::MarkerRegionMismatch));
+        assert!(contract
+            .issues
+            .contains(&SavePostLoadWorldIssue::WorldEntityCountMismatch));
+        assert!(contract
+            .issues
+            .contains(&SavePostLoadWorldIssue::DuplicateWorldEntityIds));
+        assert!(contract
+            .issues
+            .contains(&SavePostLoadWorldIssue::EntitySummaryMismatch));
+    }
+
+    #[test]
+    fn projection_contract_flags_tile_surface_breakage() {
+        let mut observation = test_observation();
+        observation.map.world.tiles[0].building_center_index = None;
+        observation.map.world.blocks.pop();
+
+        let contract = observation.projection_contract();
+
+        assert!(!contract.can_project_world_shell());
+        assert!(!contract.tile_surface_consistent);
+        assert!(contract
+            .issues
+            .contains(&SavePostLoadWorldIssue::TileSurfaceCountMismatch));
+        assert!(contract
+            .issues
+            .contains(&SavePostLoadWorldIssue::BuildingCenterReferenceMismatch));
+    }
+
+    fn test_observation() -> SavePostLoadWorldObservation {
+        SavePostLoadWorldObservation {
+            save_version: 11,
+            content_header: Vec::new(),
+            patches: Vec::new(),
+            map: SaveMapRegionObservation {
+                floor_runs: 1,
+                floor_region_bytes: vec![1],
+                block_runs: 1,
+                block_region_bytes: vec![2],
+                world: test_world(),
+            },
+            entity_remap_entries: Vec::new(),
+            entity_remap_bytes: Vec::new(),
+            entity_remap_summary: SaveEntityRemapSummary {
+                remap_count: 0,
+                unique_custom_ids: 0,
+                duplicate_custom_ids: Vec::new(),
+                unique_names: 0,
+                duplicate_names: Vec::new(),
+                effective_custom_ids: 0,
+                resolved_builtin_custom_ids: Vec::new(),
+                unresolved_effective_names: Vec::new(),
+            },
+            team_plan_groups: vec![TeamPlanGroup {
+                team_id: 1,
+                plan_count: 1,
+                plans: vec![TeamPlan {
+                    x: 1,
+                    y: 1,
+                    rotation: 0,
+                    block_id: 0x0101,
+                    config: TypeIoValue::Null,
+                    config_bytes: Vec::new(),
+                    config_sha256: "plan".to_string(),
+                }],
+            }],
+            team_region_bytes: vec![3],
+            world_entity_count: 1,
+            world_entity_bytes: vec![4],
+            world_entity_chunks: vec![SaveEntityChunkObservation {
+                chunk_len: 3,
+                chunk_bytes: vec![4, 5, 6],
+                chunk_sha256: "chunk".to_string(),
+                class_id: 255,
+                custom_name: Some("test-entity".to_string()),
+                entity_id: 42,
+                body_len: 2,
+                body_bytes: vec![5, 6],
+                body_sha256: "entity".to_string(),
+            }],
+            markers: vec![MarkerEntry {
+                id: 11,
+                marker: MarkerModel::Point(PointMarkerModel {
+                    class_tag: "Minimap".to_string(),
+                    world: true,
+                    minimap: true,
+                    autoscale: false,
+                    draw_layer_bits: 0.0f32.to_bits(),
+                    x_bits: 8.0f32.to_bits(),
+                    y_bits: 0.0f32.to_bits(),
+                    radius_bits: 1.0f32.to_bits(),
+                    stroke_bits: 1.0f32.to_bits(),
+                    color: Some("ffffff".to_string()),
+                }),
+            }],
+            marker_region_bytes: b"{markers}".to_vec(),
+            custom_chunks: vec![CustomChunkEntry {
+                name: "static-fog-data".to_string(),
+                chunk_len: 1,
+                chunk_bytes: vec![7],
+                chunk_sha256: "fog".to_string(),
+                parsed: ParsedCustomChunk::StaticFog(StaticFogChunk {
+                    used_teams: 1,
+                    width: 2,
+                    height: 2,
+                    teams: vec![StaticFogTeam {
+                        team_id: 1,
+                        run_count: 1,
+                        rle_bytes: vec![8],
+                        discovered: vec![true, false, true, true],
+                    }],
+                }),
+            }],
+            custom_region_bytes: vec![9],
+            entity_summary: SaveEntityPostLoadSummary {
+                total_entities: 1,
+                unique_entity_ids: 1,
+                duplicate_entity_ids: Vec::new(),
+                builtin_entities: 0,
+                custom_entities: 1,
+                unknown_entities: 0,
+                class_summaries: Vec::new(),
+                loadable_entities: 1,
+                skipped_entities: 0,
+                post_load_class_summaries: Vec::new(),
+            },
+        }
+    }
+
+    fn test_world() -> WorldModel {
+        let floors = vec![1, 1, 1, 1];
+        let overlays = vec![0, 0, 0, 0];
+        let blocks = vec![0x0153, 0, 0, 0];
+        WorldModel {
+            width: 2,
+            height: 2,
+            floors: floors.clone(),
+            overlays: overlays.clone(),
+            blocks: blocks.clone(),
+            tiles: vec![
+                TileModel {
+                    tile_index: 0,
+                    x: 0,
+                    y: 0,
+                    floor_id: floors[0],
+                    overlay_id: overlays[0],
+                    block_id: blocks[0],
+                    building_center_index: Some(0),
+                },
+                TileModel {
+                    tile_index: 1,
+                    x: 1,
+                    y: 0,
+                    floor_id: floors[1],
+                    overlay_id: overlays[1],
+                    block_id: blocks[1],
+                    building_center_index: None,
+                },
+                TileModel {
+                    tile_index: 2,
+                    x: 0,
+                    y: 1,
+                    floor_id: floors[2],
+                    overlay_id: overlays[2],
+                    block_id: blocks[2],
+                    building_center_index: None,
+                },
+                TileModel {
+                    tile_index: 3,
+                    x: 1,
+                    y: 1,
+                    floor_id: floors[3],
+                    overlay_id: overlays[3],
+                    block_id: blocks[3],
+                    building_center_index: None,
+                },
+            ],
+            building_centers: vec![BuildingCenter {
+                tile_index: 0,
+                x: 0,
+                y: 0,
+                block_id: 0x0153,
+                chunk_len: 0,
+                chunk_bytes: Vec::new(),
+                chunk_sha256: "center".to_string(),
+                building: BuildingSnapshot {
+                    revision: 0,
+                    base_len: 0,
+                    base: BuildingBaseSnapshot {
+                        health_bits: 1.0f32.to_bits(),
+                        rotation: 0,
+                        team_id: 1,
+                        legacy: false,
+                        save_version: None,
+                        enabled: None,
+                        module_bitmask: None,
+                        item_module: None,
+                        power_module: None,
+                        liquid_module: None,
+                        time_scale_bits: None,
+                        time_scale_duration_bits: None,
+                        last_disabler_pos: None,
+                        legacy_consume_connected: None,
+                        efficiency: None,
+                        optional_efficiency: None,
+                        visible_flags: None,
+                    },
+                    tail_len: 0,
+                    tail_bytes: Vec::new(),
+                    tail_sha256: "tail".to_string(),
+                    parsed_tail: ParsedBuildingTail::Core(crate::CoreTailSnapshot {
+                        command_pos_present: false,
+                        command_pos_x_bits: 0,
+                        command_pos_y_bits: 0,
+                    }),
+                },
+            }],
+            data_tiles: 1,
+            team_count: 1,
+            total_plans: 1,
+            team_ids: vec![1],
+            team_plan_counts: vec![1],
+        }
+    }
+}

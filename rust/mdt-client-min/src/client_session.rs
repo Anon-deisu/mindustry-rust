@@ -2332,6 +2332,13 @@ impl ClientSession {
     pub fn prepare_connect_confirm_packet(
         &mut self,
     ) -> Result<Option<Vec<u8>>, ClientSessionError> {
+        if let Some(queued) = self
+            .pending_packets
+            .iter()
+            .find(|packet| packet.packet_id == self.connect_confirm_packet_id)
+        {
+            return Ok(Some(queued.bytes.clone()));
+        }
         if !self.state.ready_to_enter_world || self.state.connect_confirm_sent {
             return Ok(None);
         }
@@ -2346,6 +2353,25 @@ impl ClientSession {
         }
         self.record_outbound_activity(self.clock_ms);
         Ok(Some(bytes))
+    }
+
+    fn enqueue_connect_confirm_packet_if_ready(&mut self) -> Result<(), ClientSessionError> {
+        let Some(bytes) = self.prepare_connect_confirm_packet()? else {
+            return Ok(());
+        };
+        if self
+            .pending_packets
+            .iter()
+            .any(|packet| packet.packet_id == self.connect_confirm_packet_id)
+        {
+            return Ok(());
+        }
+        self.pending_packets.push_back(PendingClientPacket {
+            packet_id: self.connect_confirm_packet_id,
+            transport: ClientPacketTransport::Tcp,
+            bytes,
+        });
+        Ok(())
     }
 
     pub fn advance_time(
@@ -5931,6 +5957,7 @@ impl ClientSession {
         self.loading_world_data = false;
         self.replay_deferred_loading_packets()?;
         self.state.client_loaded = true;
+        self.enqueue_connect_confirm_packet_if_ready()?;
         if self.last_snapshot_at_ms.is_none() {
             self.last_snapshot_at_ms = Some(self.clock_ms);
         }
@@ -14416,15 +14443,29 @@ mod tests {
             .packet_id;
 
         let first_actions = session.advance_time(1_000).unwrap();
-        assert_eq!(first_actions.len(), 3);
+        assert_eq!(first_actions.len(), 4);
+        match &first_actions[0] {
+            ClientSessionAction::SendPacket {
+                packet_id,
+                transport,
+                bytes,
+            } => {
+                assert_eq!(*packet_id, 29);
+                assert_eq!(*transport, ClientPacketTransport::Tcp);
+                let decoded = decode_packet(bytes).unwrap();
+                assert_eq!(decoded.packet_id, 29);
+                assert!(decoded.payload.is_empty());
+            }
+            other => panic!("expected queued connectConfirm send action, got {other:?}"),
+        }
         assert_eq!(
-            first_actions[0],
+            first_actions[1],
             ClientSessionAction::SendFramework {
                 message: FrameworkMessage::KeepAlive,
                 bytes: vec![0xfe, 2],
             }
         );
-        match &first_actions[1] {
+        match &first_actions[2] {
             ClientSessionAction::SendPacket {
                 packet_id,
                 transport,
@@ -14438,7 +14479,7 @@ mod tests {
             }
             other => panic!("expected ping send action, got {other:?}"),
         }
-        match &first_actions[2] {
+        match &first_actions[3] {
             ClientSessionAction::SendPacket {
                 packet_id,
                 transport,
@@ -28218,7 +28259,7 @@ mod tests {
         session.prepare_connect_confirm_packet().unwrap();
 
         let actions = session.advance_time(1_000).unwrap();
-        assert_eq!(actions.len(), 3);
+        assert_eq!(actions.len(), 4);
         match &actions[0] {
             ClientSessionAction::SendPacket {
                 packet_id,
@@ -28248,6 +28289,13 @@ mod tests {
         ));
         assert!(matches!(
             &actions[2],
+            ClientSessionAction::SendPacket {
+                transport: ClientPacketTransport::Tcp,
+                ..
+            }
+        ));
+        assert!(matches!(
+            &actions[3],
             ClientSessionAction::SendPacket {
                 transport: ClientPacketTransport::Udp,
                 ..
@@ -28801,7 +28849,7 @@ mod tests {
                 ),
             ),
         ];
-        assert!(actions.len() >= expected.len() + 2);
+        assert!(actions.len() >= expected.len() + 3);
 
         for (action, (method, expected_transport, expected_payload)) in
             actions.iter().zip(expected.iter())
@@ -28836,6 +28884,13 @@ mod tests {
         ));
         assert!(matches!(
             &actions[expected.len() + 1],
+            ClientSessionAction::SendPacket {
+                transport: ClientPacketTransport::Tcp,
+                ..
+            }
+        ));
+        assert!(matches!(
+            &actions[expected.len() + 2],
             ClientSessionAction::SendPacket {
                 transport: ClientPacketTransport::Udp,
                 ..
@@ -33339,7 +33394,7 @@ mod tests {
     }
 
     #[test]
-    fn world_ready_session_uses_snapshot_timeout_before_connect_confirm() {
+    fn world_ready_session_uses_snapshot_timeout_before_queued_connect_confirm_flush() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let timing = ClientSessionTiming {
             keepalive_interval_ms: 60_000,
@@ -33359,7 +33414,11 @@ mod tests {
         }
         assert!(session.state().ready_to_enter_world);
         assert!(session.state().client_loaded);
-        assert!(!session.state().connect_confirm_sent);
+        assert!(session.state().connect_confirm_sent);
+        assert!(session
+            .pending_packets
+            .iter()
+            .any(|packet| packet.packet_id == session.connect_confirm_packet_id));
 
         let actions = session.advance_time(1_201).unwrap();
 
@@ -33403,7 +33462,7 @@ mod tests {
         assert!(session.state().client_loaded);
 
         session.advance_time(1_000).unwrap();
-        assert!(session.prepare_connect_confirm_packet().unwrap().is_some());
+        assert!(session.prepare_connect_confirm_packet().unwrap().is_none());
         assert!(session.state().connect_confirm_sent);
 
         let actions = session.advance_time(1_201).unwrap();
@@ -34057,7 +34116,7 @@ mod tests {
     }
 
     #[test]
-    fn normal_priority_packets_defer_until_client_loaded_and_replay_before_connect_confirm() {
+    fn normal_priority_packets_defer_until_client_loaded_replay_and_autoqueue_connect_confirm() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
         let compressed_world_stream = sample_world_stream_bytes();
@@ -34104,7 +34163,11 @@ mod tests {
 
         assert!(saw_world_ready);
         assert!(session.state().client_loaded);
-        assert!(!session.state().connect_confirm_sent);
+        assert!(session.state().connect_confirm_sent);
+        assert!(session
+            .pending_packets
+            .iter()
+            .any(|pending| pending.packet_id == session.connect_confirm_packet_id));
         assert_eq!(session.state().replayed_inbound_packet_count, 1);
         assert_eq!(
             session.state().last_replayed_packet_method.as_deref(),
@@ -34653,7 +34716,7 @@ mod tests {
                 had_client_loaded: true,
                 was_ready_to_enter_world: true,
                 had_connect_confirm_sent: true,
-                cleared_pending_packets: 2,
+                cleared_pending_packets: 3,
                 cleared_deferred_inbound_packets: 0,
                 cleared_replayed_loading_events: 0,
             })

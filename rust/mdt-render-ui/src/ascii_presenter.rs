@@ -1,8 +1,8 @@
 use crate::panel_model::{
-    build_build_config_panel, build_minimap_panel, build_runtime_admin_panel,
-    build_runtime_live_effect_panel, build_runtime_live_entity_panel, build_runtime_menu_panel,
-    build_runtime_rules_panel, build_runtime_session_panel, build_runtime_ui_notice_panel,
-    build_runtime_world_label_panel, PresenterViewWindow,
+    build_build_config_panel, build_build_interaction_panel, build_minimap_panel,
+    build_runtime_admin_panel, build_runtime_live_effect_panel, build_runtime_live_entity_panel,
+    build_runtime_menu_panel, build_runtime_rules_panel, build_runtime_session_panel,
+    build_runtime_ui_notice_panel, build_runtime_world_label_panel, PresenterViewWindow,
 };
 use crate::render_model::{RenderObjectSemanticFamily, RenderObjectSemanticKind};
 use crate::{HudModel, RenderModel, ScenePresenter};
@@ -82,6 +82,9 @@ impl AsciiScenePresenter {
         }
         if let Some(build_config_rollback_text) = compose_build_config_rollback_text(hud) {
             out.push_str(&format!("BUILD-ROLLBACK: {build_config_rollback_text}\n"));
+        }
+        if let Some(build_interaction_text) = compose_build_interaction_text(hud) {
+            out.push_str(&format!("BUILD-INTERACTION: {build_interaction_text}\n"));
         }
         if let Some(build_text) = compose_build_ui_text(hud) {
             out.push_str(&format!("BUILD: {build_text}\n"));
@@ -576,6 +579,28 @@ fn compose_build_config_rollback_text(hud: &HudModel) -> Option<String> {
     ))
 }
 
+fn compose_build_interaction_text(hud: &HudModel) -> Option<String> {
+    let panel = build_build_interaction_panel(hud)?;
+    Some(format!(
+        "mode={} select={} queue={} pending={} place-ready={} cfg={}/{} top={} head={} auth={} pending={} src={} tile={} block={} orphan={}",
+        build_interaction_mode_text(panel.mode),
+        build_interaction_selection_text(panel.selection_state),
+        build_interaction_queue_text(panel.queue_state),
+        panel.pending_count,
+        if panel.place_ready { 1 } else { 0 },
+        panel.config_family_count,
+        panel.config_sample_count,
+        compact_runtime_ui_text(panel.top_config_family.as_deref()),
+        build_config_head_text(panel.head.as_ref()),
+        build_interaction_authority_text(panel.authority_state),
+        build_config_pending_match_text(panel.authority_pending_match),
+        build_interaction_authority_source_text(panel.authority_source),
+        build_config_tile_text(panel.authority_tile),
+        compact_runtime_ui_text(panel.authority_block_name.as_deref()),
+        panel.orphan_authoritative_count,
+    ))
+}
+
 fn compose_build_ui_inspector_lines(hud: &HudModel) -> Vec<String> {
     let Some(build_ui) = hud.build_ui.as_ref() else {
         return Vec::new();
@@ -671,6 +696,70 @@ fn build_config_pending_match_text(value: Option<bool>) -> &'static str {
     match value {
         Some(true) => "match",
         Some(false) => "mismatch",
+        None => "none",
+    }
+}
+
+fn build_interaction_mode_text(value: crate::panel_model::BuildInteractionMode) -> &'static str {
+    match value {
+        crate::panel_model::BuildInteractionMode::Idle => "idle",
+        crate::panel_model::BuildInteractionMode::Place => "place",
+        crate::panel_model::BuildInteractionMode::Break => "break",
+    }
+}
+
+fn build_interaction_selection_text(
+    value: crate::panel_model::BuildInteractionSelectionState,
+) -> &'static str {
+    match value {
+        crate::panel_model::BuildInteractionSelectionState::Unarmed => "unarmed",
+        crate::panel_model::BuildInteractionSelectionState::Armed => "armed",
+        crate::panel_model::BuildInteractionSelectionState::HeadAligned => "head-aligned",
+        crate::panel_model::BuildInteractionSelectionState::HeadDiverged => "head-diverged",
+        crate::panel_model::BuildInteractionSelectionState::BreakingHead => "break-head",
+    }
+}
+
+fn build_interaction_queue_text(
+    value: crate::panel_model::BuildInteractionQueueState,
+) -> &'static str {
+    match value {
+        crate::panel_model::BuildInteractionQueueState::Empty => "empty",
+        crate::panel_model::BuildInteractionQueueState::Queued => "queued",
+        crate::panel_model::BuildInteractionQueueState::InFlight => "inflight",
+        crate::panel_model::BuildInteractionQueueState::Mixed => "mixed",
+    }
+}
+
+fn build_interaction_authority_text(
+    value: crate::panel_model::BuildInteractionAuthorityState,
+) -> &'static str {
+    match value {
+        crate::panel_model::BuildInteractionAuthorityState::None => "none",
+        crate::panel_model::BuildInteractionAuthorityState::Applied => "applied",
+        crate::panel_model::BuildInteractionAuthorityState::Cleared => "cleared",
+        crate::panel_model::BuildInteractionAuthorityState::Rollback => "rollback",
+        crate::panel_model::BuildInteractionAuthorityState::RejectedMissingBuilding => {
+            "rejected-missing-building"
+        }
+        crate::panel_model::BuildInteractionAuthorityState::RejectedMissingBlockMetadata => {
+            "rejected-missing-metadata"
+        }
+        crate::panel_model::BuildInteractionAuthorityState::RejectedUnsupportedBlock => {
+            "rejected-unsupported-block"
+        }
+        crate::panel_model::BuildInteractionAuthorityState::RejectedUnsupportedConfigType => {
+            "rejected-unsupported-config"
+        }
+    }
+}
+
+fn build_interaction_authority_source_text(
+    value: Option<crate::BuildConfigAuthoritySourceObservability>,
+) -> &'static str {
+    match value {
+        Some(crate::BuildConfigAuthoritySourceObservability::TileConfig) => "tileConfig",
+        Some(crate::BuildConfigAuthoritySourceObservability::ConstructFinish) => "constructFinish",
         None => "none",
     }
 }
@@ -1632,6 +1721,9 @@ mod tests {
             "BUILD-ROLLBACK: authoritative=3 rollback=1 last=23:45 src=constructFinish business=1 clear=1 last-rb=1 pending=mismatch outcome=applied block=power-node"
         ));
         assert!(frame.contains(
+            "BUILD-INTERACTION: mode=place select=head-diverged queue=mixed pending=3 place-ready=1 cfg=2/2 top=message head=flight@100:99:place:b301:r1 auth=rollback pending=mismatch src=constructFinish tile=23:45 block=power-node orphan=1"
+        ));
+        assert!(frame.contains(
             "BUILD: sel=257 rot=2 building=1 queue=1/2/3/4/1 head=flight@100:99:place:b301:r1 cfg=2"
         ));
         assert!(frame
@@ -1792,6 +1884,9 @@ mod tests {
         assert!(frame.contains("BUILD-CONFIG-MORE: +1 hidden families beyond cap"));
         assert!(frame.contains(
             "BUILD-ROLLBACK: authoritative=4 rollback=2 last=10:12 src=tileConfig business=1 clear=0 last-rb=0 pending=match outcome=rejected-missing-building block=alpha"
+        ));
+        assert!(frame.contains(
+            "BUILD-INTERACTION: mode=place select=head-aligned queue=mixed pending=3 place-ready=1 cfg=4/8 top=gamma head=queued@10:12:place:b301:r1 auth=rejected-missing-building pending=match src=tileConfig tile=10:12 block=alpha orphan=6"
         ));
     }
 

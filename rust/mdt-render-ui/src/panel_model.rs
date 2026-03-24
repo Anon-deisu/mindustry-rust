@@ -99,6 +99,64 @@ pub struct BuildConfigRollbackStripModel {
     pub last_configured_block_name: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuildInteractionMode {
+    Idle,
+    Place,
+    Break,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuildInteractionSelectionState {
+    Unarmed,
+    Armed,
+    HeadAligned,
+    HeadDiverged,
+    BreakingHead,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuildInteractionQueueState {
+    Empty,
+    Queued,
+    InFlight,
+    Mixed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuildInteractionAuthorityState {
+    None,
+    Applied,
+    Cleared,
+    Rollback,
+    RejectedMissingBuilding,
+    RejectedMissingBlockMetadata,
+    RejectedUnsupportedBlock,
+    RejectedUnsupportedConfigType,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuildInteractionPanelModel {
+    pub mode: BuildInteractionMode,
+    pub selection_state: BuildInteractionSelectionState,
+    pub queue_state: BuildInteractionQueueState,
+    pub selected_block_id: Option<i16>,
+    pub selected_rotation: i32,
+    pub pending_count: usize,
+    pub orphan_authoritative_count: u64,
+    pub place_ready: bool,
+    pub config_available: bool,
+    pub config_family_count: usize,
+    pub config_sample_count: usize,
+    pub top_config_family: Option<String>,
+    pub head: Option<BuildConfigHeadModel>,
+    pub authority_state: BuildInteractionAuthorityState,
+    pub authority_pending_match: Option<bool>,
+    pub authority_source: Option<BuildConfigAuthoritySourceObservability>,
+    pub authority_tile: Option<(i32, i32)>,
+    pub authority_block_name: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeUiNoticePanelModel {
     pub hud_set_count: u64,
@@ -414,6 +472,118 @@ pub fn build_build_config_panel(
     })
 }
 
+pub fn build_build_interaction_panel(hud: &HudModel) -> Option<BuildInteractionPanelModel> {
+    let build_ui = hud.build_ui.as_ref()?;
+    let config_panel = build_build_config_panel(hud, 1)?;
+    let mode = build_interaction_mode(build_ui, config_panel.head.as_ref());
+    let selection_state =
+        build_interaction_selection_state(build_ui, &config_panel, config_panel.head.as_ref());
+    Some(BuildInteractionPanelModel {
+        mode,
+        selection_state,
+        queue_state: build_interaction_queue_state(
+            config_panel.queued_count,
+            config_panel.inflight_count,
+        ),
+        selected_block_id: build_ui.selected_block_id,
+        selected_rotation: build_ui.selected_rotation,
+        pending_count: config_panel.pending_count,
+        orphan_authoritative_count: build_ui.orphan_authoritative_count,
+        place_ready: matches!(mode, BuildInteractionMode::Place)
+            && build_ui.building
+            && build_ui.selected_block_id.is_some(),
+        config_available: config_panel.tracked_family_count > 0,
+        config_family_count: config_panel.tracked_family_count,
+        config_sample_count: config_panel.tracked_sample_count,
+        top_config_family: config_panel
+            .entries
+            .first()
+            .map(|entry| entry.family.clone()),
+        head: config_panel.head.clone(),
+        authority_state: build_interaction_authority_state(&config_panel.rollback_strip),
+        authority_pending_match: config_panel.rollback_strip.last_pending_local_match,
+        authority_source: config_panel.rollback_strip.last_source,
+        authority_tile: config_panel.rollback_strip.last_build_tile,
+        authority_block_name: config_panel
+            .rollback_strip
+            .last_configured_block_name
+            .clone(),
+    })
+}
+
+fn build_interaction_mode(
+    build_ui: &crate::BuildUiObservability,
+    head: Option<&BuildConfigHeadModel>,
+) -> BuildInteractionMode {
+    if head.map(|head| head.breaking).unwrap_or(false) {
+        BuildInteractionMode::Break
+    } else if build_ui.building && build_ui.selected_block_id.is_some() {
+        BuildInteractionMode::Place
+    } else {
+        BuildInteractionMode::Idle
+    }
+}
+
+fn build_interaction_selection_state(
+    build_ui: &crate::BuildUiObservability,
+    config_panel: &BuildConfigPanelModel,
+    head: Option<&BuildConfigHeadModel>,
+) -> BuildInteractionSelectionState {
+    if head.map(|head| head.breaking).unwrap_or(false) {
+        BuildInteractionSelectionState::BreakingHead
+    } else if !build_ui.building || build_ui.selected_block_id.is_none() {
+        BuildInteractionSelectionState::Unarmed
+    } else {
+        match config_panel.selected_matches_head {
+            Some(true) => BuildInteractionSelectionState::HeadAligned,
+            Some(false) => BuildInteractionSelectionState::HeadDiverged,
+            None => BuildInteractionSelectionState::Armed,
+        }
+    }
+}
+
+fn build_interaction_queue_state(
+    queued_count: usize,
+    inflight_count: usize,
+) -> BuildInteractionQueueState {
+    match (queued_count > 0, inflight_count > 0) {
+        (false, false) => BuildInteractionQueueState::Empty,
+        (true, false) => BuildInteractionQueueState::Queued,
+        (false, true) => BuildInteractionQueueState::InFlight,
+        (true, true) => BuildInteractionQueueState::Mixed,
+    }
+}
+
+fn build_interaction_authority_state(
+    strip: &BuildConfigRollbackStripModel,
+) -> BuildInteractionAuthorityState {
+    match strip.last_configured_outcome {
+        Some(BuildConfigOutcomeObservability::RejectedMissingBuilding) => {
+            BuildInteractionAuthorityState::RejectedMissingBuilding
+        }
+        Some(BuildConfigOutcomeObservability::RejectedMissingBlockMetadata) => {
+            BuildInteractionAuthorityState::RejectedMissingBlockMetadata
+        }
+        Some(BuildConfigOutcomeObservability::RejectedUnsupportedBlock) => {
+            BuildInteractionAuthorityState::RejectedUnsupportedBlock
+        }
+        Some(BuildConfigOutcomeObservability::RejectedUnsupportedConfigType) => {
+            BuildInteractionAuthorityState::RejectedUnsupportedConfigType
+        }
+        Some(BuildConfigOutcomeObservability::Applied) | None => {
+            if strip.last_was_rollback {
+                BuildInteractionAuthorityState::Rollback
+            } else if strip.last_cleared_pending_local {
+                BuildInteractionAuthorityState::Cleared
+            } else if strip.last_business_applied || strip.last_source.is_some() {
+                BuildInteractionAuthorityState::Applied
+            } else {
+                BuildInteractionAuthorityState::None
+            }
+        }
+    }
+}
+
 pub fn build_runtime_ui_notice_panel(hud: &HudModel) -> Option<RuntimeUiNoticePanelModel> {
     let runtime_ui = hud.runtime_ui.as_ref()?;
     Some(RuntimeUiNoticePanelModel {
@@ -642,10 +812,12 @@ fn resolve_presenter_window(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_build_config_panel, build_minimap_panel, build_runtime_admin_panel,
-        build_runtime_live_effect_panel, build_runtime_live_entity_panel, build_runtime_menu_panel,
-        build_runtime_rules_panel, build_runtime_session_panel, build_runtime_ui_notice_panel,
-        build_runtime_world_label_panel, PresenterViewWindow,
+        build_build_config_panel, build_build_interaction_panel, build_minimap_panel,
+        build_runtime_admin_panel, build_runtime_live_effect_panel,
+        build_runtime_live_entity_panel, build_runtime_menu_panel, build_runtime_rules_panel,
+        build_runtime_session_panel, build_runtime_ui_notice_panel,
+        build_runtime_world_label_panel, BuildInteractionAuthorityState, BuildInteractionMode,
+        BuildInteractionQueueState, BuildInteractionSelectionState, PresenterViewWindow,
     };
     use crate::{
         hud_model::{
@@ -839,6 +1011,128 @@ mod tests {
         assert_eq!(panel.entries.len(), 2);
         assert_eq!(panel.entries[0].family, "power-node");
         assert_eq!(panel.entries[1].family, "battery");
+    }
+
+    #[test]
+    fn builds_build_interaction_panel_from_build_ui_observability() {
+        let hud = HudModel {
+            build_ui: Some(BuildUiObservability {
+                selected_block_id: Some(257),
+                selected_rotation: 2,
+                building: true,
+                queued_count: 1,
+                inflight_count: 2,
+                finished_count: 3,
+                removed_count: 4,
+                orphan_authoritative_count: 5,
+                head: Some(BuildQueueHeadObservability {
+                    x: 10,
+                    y: 11,
+                    breaking: false,
+                    block_id: Some(301),
+                    rotation: Some(1),
+                    stage: BuildQueueHeadStage::InFlight,
+                }),
+                rollback_strip: BuildConfigRollbackStripObservability {
+                    applied_authoritative_count: 7,
+                    rollback_count: 2,
+                    last_build_tile: Some((23, 45)),
+                    last_business_applied: true,
+                    last_cleared_pending_local: true,
+                    last_was_rollback: true,
+                    last_pending_local_match: Some(false),
+                    last_source: Some(BuildConfigAuthoritySourceObservability::ConstructFinish),
+                    last_configured_outcome: Some(BuildConfigOutcomeObservability::Applied),
+                    last_configured_block_name: Some("power-node".to_string()),
+                },
+                inspector_entries: vec![
+                    BuildConfigInspectorEntryObservability {
+                        family: "message".to_string(),
+                        tracked_count: 1,
+                        sample: "18:40:len=5:text=hello".to_string(),
+                    },
+                    BuildConfigInspectorEntryObservability {
+                        family: "power-node".to_string(),
+                        tracked_count: 1,
+                        sample: "23:45:links=24:46|25:47".to_string(),
+                    },
+                ],
+            }),
+            ..HudModel::default()
+        };
+
+        let panel = build_build_interaction_panel(&hud).expect("expected build interaction panel");
+
+        assert_eq!(panel.mode, BuildInteractionMode::Place);
+        assert_eq!(
+            panel.selection_state,
+            BuildInteractionSelectionState::HeadDiverged
+        );
+        assert_eq!(panel.queue_state, BuildInteractionQueueState::Mixed);
+        assert_eq!(panel.selected_block_id, Some(257));
+        assert_eq!(panel.selected_rotation, 2);
+        assert_eq!(panel.pending_count, 3);
+        assert_eq!(panel.orphan_authoritative_count, 5);
+        assert!(panel.place_ready);
+        assert!(panel.config_available);
+        assert_eq!(panel.config_family_count, 2);
+        assert_eq!(panel.config_sample_count, 2);
+        assert_eq!(panel.top_config_family.as_deref(), Some("message"));
+        assert_eq!(
+            panel.head.as_ref().map(|head| head.stage),
+            Some(BuildQueueHeadStage::InFlight)
+        );
+        assert_eq!(
+            panel.authority_state,
+            BuildInteractionAuthorityState::Rollback
+        );
+        assert_eq!(panel.authority_pending_match, Some(false));
+        assert_eq!(
+            panel.authority_source,
+            Some(BuildConfigAuthoritySourceObservability::ConstructFinish)
+        );
+        assert_eq!(panel.authority_tile, Some((23, 45)));
+        assert_eq!(panel.authority_block_name.as_deref(), Some("power-node"));
+    }
+
+    #[test]
+    fn builds_build_interaction_panel_for_break_head_without_selection() {
+        let hud = HudModel {
+            build_ui: Some(BuildUiObservability {
+                selected_block_id: None,
+                selected_rotation: 0,
+                building: false,
+                queued_count: 2,
+                inflight_count: 0,
+                finished_count: 0,
+                removed_count: 0,
+                orphan_authoritative_count: 0,
+                head: Some(BuildQueueHeadObservability {
+                    x: 7,
+                    y: 8,
+                    breaking: true,
+                    block_id: None,
+                    rotation: None,
+                    stage: BuildQueueHeadStage::Queued,
+                }),
+                rollback_strip: BuildConfigRollbackStripObservability::default(),
+                inspector_entries: Vec::new(),
+            }),
+            ..HudModel::default()
+        };
+
+        let panel = build_build_interaction_panel(&hud).expect("expected build interaction panel");
+
+        assert_eq!(panel.mode, BuildInteractionMode::Break);
+        assert_eq!(
+            panel.selection_state,
+            BuildInteractionSelectionState::BreakingHead
+        );
+        assert_eq!(panel.queue_state, BuildInteractionQueueState::Queued);
+        assert!(!panel.place_ready);
+        assert!(!panel.config_available);
+        assert_eq!(panel.config_family_count, 0);
+        assert_eq!(panel.authority_state, BuildInteractionAuthorityState::None);
     }
 
     #[test]

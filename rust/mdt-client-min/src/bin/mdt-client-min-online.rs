@@ -11,9 +11,9 @@ use mdt_client_min::connect_packet::{
 use mdt_client_min::render_runtime::RenderRuntimeAdapter;
 use mdt_input::live_intent::RuntimeIntentTracker;
 use mdt_input::{
-    flip_plans, rotate_plans, BinaryAction, InputSnapshot, IntentSamplingMode, LiveIntentState,
-    MovementProbeConfig, MovementProbeController, PlanBlockMeta, PlanEditable, PlanPoint,
-    RuntimeInputState,
+    flip_plans, rotate_plans, BinaryAction, CommandModeState, CommandUnitRef, InputSnapshot,
+    IntentSamplingMode, LiveIntentState, MovementProbeConfig, MovementProbeController,
+    PlanBlockMeta, PlanEditable, PlanPoint, RuntimeInputState,
 };
 use mdt_remote::HighFrequencyRemoteMethod;
 use mdt_remote::{read_remote_manifest, RemoteManifest};
@@ -82,6 +82,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .runtime_plan_edit_loop
         .clone()
         .map(RuntimePlanEditLoopState::new);
+    let mut runtime_command_mode = CommandModeState::default();
     let mut relative_build_plans_applied = false;
     let mut auto_build_plans_applied = false;
     let mut ascii_scene_printed = false;
@@ -172,6 +173,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         {
             relative_build_plans_applied = false;
             auto_build_plans_applied = false;
+            runtime_command_mode.clear();
         }
         render_runtime_adapter.observe_events(&report.events);
         maybe_print_runtime_input(
@@ -218,6 +220,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         ascii_scene_printed = false;
                         world_stream_dumped = false;
                         render_runtime_adapter = RenderRuntimeAdapter::default();
+                        runtime_command_mode.clear();
                         last_runtime_input = None;
                         pending_restart_reconnect_at_ms = None;
                         let tcp_local_addr = driver.tcp_local_addr()?;
@@ -268,6 +271,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ascii_scene_printed = false;
                     world_stream_dumped = false;
                     render_runtime_adapter = RenderRuntimeAdapter::default();
+                    runtime_command_mode.clear();
                     last_runtime_input = None;
                     pending_restart_reconnect_at_ms = None;
                     let tcp_local_addr = driver.tcp_local_addr()?;
@@ -319,7 +323,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         maybe_apply_runtime_plan_edit_loop(&mut session, runtime_plan_edit_loop.as_mut(), now_ms);
         sync_runtime_build_selection_state(&mut session, &args);
         maybe_queue_chat_messages(&mut session, &args, now_ms, &mut next_chat_index)?;
-        maybe_queue_outbound_actions(&mut session, &args, now_ms, &mut next_outbound_action_index)?;
+        maybe_queue_outbound_actions(
+            &mut session,
+            &args,
+            now_ms,
+            &mut next_outbound_action_index,
+            &mut runtime_command_mode,
+        )?;
 
         thread::sleep(args.tick);
     }
@@ -4323,6 +4333,7 @@ fn maybe_queue_outbound_actions(
     args: &CliArgs,
     now_ms: u64,
     next_action_index: &mut usize,
+    runtime_command_mode: &mut CommandModeState,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if args.outbound_action_schedule.is_empty()
         || !session.state().ready_to_enter_world
@@ -4335,7 +4346,7 @@ fn maybe_queue_outbound_actions(
         collect_due_outbound_actions(&args.outbound_action_schedule, now_ms, next_action_index);
     let queued_start_index = next_action_index.saturating_sub(queued_actions.len());
     for (offset, entry) in queued_actions.into_iter().enumerate() {
-        queue_outbound_action(session, &entry.action)?;
+        queue_outbound_action_with_command_mode(session, &entry.action, runtime_command_mode)?;
         println!(
             "outbound_action_queued: index={} tick={}ms scheduled={}ms action={:?}",
             queued_start_index + offset,
@@ -4348,6 +4359,23 @@ fn maybe_queue_outbound_actions(
 }
 
 fn queue_outbound_action(
+    session: &mut ClientSession,
+    action: &OutboundAction,
+) -> Result<(), Box<dyn std::error::Error>> {
+    queue_outbound_action_inner(session, action)
+}
+
+fn queue_outbound_action_with_command_mode(
+    session: &mut ClientSession,
+    action: &OutboundAction,
+    runtime_command_mode: &mut CommandModeState,
+) -> Result<(), Box<dyn std::error::Error>> {
+    queue_outbound_action_inner(session, action)?;
+    sync_command_mode_state_for_outbound_action(runtime_command_mode, action);
+    Ok(())
+}
+
+fn queue_outbound_action_inner(
     session: &mut ClientSession,
     action: &OutboundAction,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -4524,6 +4552,91 @@ fn queue_outbound_action(
         }
     }
     Ok(())
+}
+
+fn sync_command_mode_state_for_outbound_action(
+    runtime_command_mode: &mut CommandModeState,
+    action: &OutboundAction,
+) {
+    match action {
+        OutboundAction::UnitClear => runtime_command_mode.record_unit_clear(),
+        OutboundAction::UnitControl { target } => {
+            if let Some(selected_unit_id) = standard_unit_id_from_client_ref(*target) {
+                runtime_command_mode.record_unit_control(
+                    command_unit_ref_from_client(*target),
+                    &[selected_unit_id],
+                );
+            } else {
+                runtime_command_mode
+                    .record_unit_control(command_unit_ref_from_client(*target), &[]);
+            }
+        }
+        OutboundAction::UnitBuildingControlSelect { target, build_pos } => {
+            if let Some(selected_unit_id) = standard_unit_id_from_client_ref(*target) {
+                runtime_command_mode.record_unit_building_control_select(
+                    command_unit_ref_from_client(*target),
+                    &[selected_unit_id],
+                    *build_pos,
+                );
+            } else {
+                runtime_command_mode.record_unit_building_control_select(
+                    command_unit_ref_from_client(*target),
+                    &[],
+                    *build_pos,
+                );
+            }
+        }
+        OutboundAction::BuildingControlSelect { build_pos } => {
+            runtime_command_mode.record_building_control_select(*build_pos);
+        }
+        OutboundAction::CommandBuilding { buildings, x, y } => {
+            runtime_command_mode.record_command_building(buildings, (*x, *y));
+        }
+        OutboundAction::CommandUnits {
+            unit_ids,
+            build_target,
+            unit_target,
+            pos_target,
+            ..
+        }
+        | OutboundAction::CommandUnitsChunked {
+            unit_ids,
+            build_target,
+            unit_target,
+            pos_target,
+            ..
+        } => runtime_command_mode.record_command_units(
+            unit_ids,
+            *build_target,
+            command_unit_ref_from_client(*unit_target),
+            *pos_target,
+        ),
+        OutboundAction::SetUnitCommand {
+            unit_ids,
+            command_id,
+        } => runtime_command_mode.record_set_unit_command(unit_ids, *command_id),
+        OutboundAction::SetUnitStance {
+            unit_ids,
+            stance_id,
+            enable,
+        } => runtime_command_mode.record_set_unit_stance(unit_ids, *stance_id, *enable),
+        _ => {}
+    }
+}
+
+fn command_unit_ref_from_client(target: ClientUnitRef) -> Option<CommandUnitRef> {
+    match target {
+        ClientUnitRef::None => None,
+        ClientUnitRef::Block(value) => Some(CommandUnitRef { kind: 1, value }),
+        ClientUnitRef::Standard(value) => Some(CommandUnitRef { kind: 2, value }),
+    }
+}
+
+fn standard_unit_id_from_client_ref(target: ClientUnitRef) -> Option<i32> {
+    match target {
+        ClientUnitRef::Standard(value) => Some(value),
+        _ => None,
+    }
 }
 
 fn is_runtime_refresh_event(event: &ClientSessionEvent) -> bool {
@@ -7642,6 +7755,106 @@ mod tests {
             },
         )
         .unwrap();
+    }
+
+    #[test]
+    fn sync_command_mode_state_for_outbound_action_tracks_selection_container() {
+        let mut runtime_command_mode = CommandModeState::default();
+
+        runtime_command_mode.bind_control_group(4, &[88, 99]);
+        sync_command_mode_state_for_outbound_action(
+            &mut runtime_command_mode,
+            &OutboundAction::CommandUnits {
+                unit_ids: vec![11, 22, 11],
+                build_target: Some(333),
+                unit_target: ClientUnitRef::Standard(444),
+                pos_target: Some((48.0, 96.0)),
+                queue_command: true,
+                final_batch: false,
+            },
+        );
+        assert!(runtime_command_mode.is_active());
+        assert_eq!(
+            runtime_command_mode.projection().selected_units,
+            vec![11, 22]
+        );
+        assert_eq!(
+            runtime_command_mode.projection().last_target,
+            Some(mdt_input::CommandModeTargetProjection {
+                build_target: Some(333),
+                unit_target: Some(CommandUnitRef {
+                    kind: 2,
+                    value: 444,
+                }),
+                position_target: Some(mdt_input::CommandModePositionTarget {
+                    x_bits: 48.0f32.to_bits(),
+                    y_bits: 96.0f32.to_bits(),
+                }),
+                rect_target: None,
+            })
+        );
+
+        sync_command_mode_state_for_outbound_action(
+            &mut runtime_command_mode,
+            &OutboundAction::CommandBuilding {
+                buildings: vec![pack_point2(5, 6), pack_point2(5, 6), pack_point2(-7, 8)],
+                x: 12.5,
+                y: -4.0,
+            },
+        );
+        assert_eq!(
+            runtime_command_mode.projection().command_buildings,
+            vec![pack_point2(5, 6), pack_point2(-7, 8)]
+        );
+
+        sync_command_mode_state_for_outbound_action(
+            &mut runtime_command_mode,
+            &OutboundAction::UnitClear,
+        );
+        assert!(!runtime_command_mode.is_active());
+        assert!(runtime_command_mode.projection().selected_units.is_empty());
+        assert!(runtime_command_mode
+            .projection()
+            .command_buildings
+            .is_empty());
+        assert_eq!(
+            runtime_command_mode.projection().control_groups,
+            vec![mdt_input::CommandModeControlGroupProjection {
+                index: 4,
+                unit_ids: vec![88, 99],
+            }]
+        );
+    }
+
+    #[test]
+    fn queue_outbound_action_with_command_mode_updates_runtime_command_mode() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
+        let mut runtime_command_mode = CommandModeState::default();
+
+        queue_outbound_action_with_command_mode(
+            &mut session,
+            &OutboundAction::SetUnitStance {
+                unit_ids: vec![555, 666, 555],
+                stance_id: Some(7),
+                enable: false,
+            },
+            &mut runtime_command_mode,
+        )
+        .unwrap();
+
+        assert!(runtime_command_mode.is_active());
+        assert_eq!(
+            runtime_command_mode.projection().selected_units,
+            vec![555, 666]
+        );
+        assert_eq!(
+            runtime_command_mode.projection().last_stance_selection,
+            Some(mdt_input::CommandModeStanceSelection {
+                stance_id: Some(7),
+                enabled: false,
+            })
+        );
     }
 
     #[test]

@@ -223,8 +223,11 @@ mod tests {
             server.send_to(chunk, client_addr).unwrap();
         }
 
-        let report = driver.tick(&mut session, 1, 32).unwrap();
-        assert!(report.inbound_packets >= 2);
+        let error = driver.tick(&mut session, 1, 32).unwrap_err();
+        assert!(matches!(
+            error,
+            UdpLoopError::UnsupportedTransport(ClientPacketTransport::Tcp)
+        ));
         assert!(session.state().world_stream_loaded);
         assert_eq!(session.state().world_map_width, 8);
         assert_eq!(session.state().world_map_height, 8);

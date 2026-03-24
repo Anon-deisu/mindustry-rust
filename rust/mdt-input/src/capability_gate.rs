@@ -13,7 +13,7 @@ use crate::probe::RuntimeInputState;
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct CapabilityGate;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CapabilityContext {
     pub runtime: RuntimeInputState,
     pub command_mode: CommandModeProjection,
@@ -298,6 +298,7 @@ mod tests {
                     build_target: None,
                     unit_target: Some(CommandUnitRef { kind: 1, value: 99 }),
                     position_target: None,
+                    rect_target: None,
                 })
             ),
             CapabilityDecision::allowed()

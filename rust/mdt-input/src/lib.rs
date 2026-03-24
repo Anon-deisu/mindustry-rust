@@ -20,8 +20,9 @@ pub use capability_gate::{
     CapabilityDenyReason, CapabilityGate,
 };
 pub use command_mode::{
-    CommandModeCommandSelection, CommandModePositionTarget, CommandModeProjection,
-    CommandModeStanceSelection, CommandModeState, CommandModeTargetProjection, CommandUnitRef,
+    CommandModeCommandSelection, CommandModeControlGroupProjection, CommandModePositionTarget,
+    CommandModeProjection, CommandModeRectProjection, CommandModeStanceSelection, CommandModeState,
+    CommandModeTargetProjection, CommandUnitRef,
 };
 pub use intent::{BinaryAction, PlayerIntent};
 pub use live_intent::LiveIntentState;

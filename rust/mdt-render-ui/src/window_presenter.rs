@@ -1,9 +1,10 @@
 use crate::{
     hud_model::HudSummary,
     panel_model::{
-        build_build_config_panel, build_minimap_panel, build_runtime_admin_panel,
-        build_runtime_live_effect_panel, build_runtime_live_entity_panel, build_runtime_menu_panel,
-        build_runtime_rules_panel, build_runtime_session_panel, build_runtime_ui_notice_panel,
+        build_build_config_panel, build_build_interaction_panel, build_minimap_panel,
+        build_runtime_admin_panel, build_runtime_live_effect_panel,
+        build_runtime_live_entity_panel, build_runtime_menu_panel, build_runtime_rules_panel,
+        build_runtime_session_panel, build_runtime_ui_notice_panel,
         build_runtime_world_label_panel, PresenterViewWindow,
     },
     render_model::{RenderObjectSemanticFamily, RenderObjectSemanticKind},
@@ -495,6 +496,9 @@ fn compose_frame_status_text(
     if let Some(build_rollback_text) = compose_build_config_rollback_status_text(hud) {
         parts.push(build_rollback_text);
     }
+    if let Some(build_interaction_text) = compose_build_interaction_status_text(hud) {
+        parts.push(build_interaction_text);
+    }
     if let Some(build_ui) = hud.build_ui.as_ref() {
         parts.push(compose_build_ui_status_text(build_ui));
     }
@@ -807,6 +811,28 @@ fn compose_build_config_rollback_status_text(hud: &HudModel) -> Option<String> {
     ))
 }
 
+fn compose_build_interaction_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_build_interaction_panel(hud)?;
+    Some(format!(
+        "cfgflow:m={}:s={}:q={}:p={}:pr={}:cfg={}/{}:top={}:h={}:auth={}:pm={}:src={}:t={}:b={}:o={}",
+        build_interaction_mode_status_text(panel.mode),
+        build_interaction_selection_status_text(panel.selection_state),
+        build_interaction_queue_status_text(panel.queue_state),
+        panel.pending_count,
+        if panel.place_ready { 1 } else { 0 },
+        panel.config_family_count,
+        panel.config_sample_count,
+        compact_runtime_ui_text(panel.top_config_family.as_deref()),
+        build_config_panel_head_status_text(panel.head.as_ref()),
+        build_interaction_authority_status_text(panel.authority_state),
+        build_config_pending_match_status_text(panel.authority_pending_match),
+        build_config_rollback_source_status_text(panel.authority_source),
+        build_config_tile_status_text(panel.authority_tile),
+        compact_runtime_ui_text(panel.authority_block_name.as_deref()),
+        panel.orphan_authoritative_count,
+    ))
+}
+
 fn compose_build_ui_inspector_status_text(build_ui: &BuildUiObservability) -> String {
     build_ui
         .inspector_entries
@@ -868,6 +894,62 @@ fn build_config_pending_match_status_text(value: Option<bool>) -> &'static str {
         Some(true) => "match",
         Some(false) => "mismatch",
         None => "none",
+    }
+}
+
+fn build_interaction_mode_status_text(
+    value: crate::panel_model::BuildInteractionMode,
+) -> &'static str {
+    match value {
+        crate::panel_model::BuildInteractionMode::Idle => "idle",
+        crate::panel_model::BuildInteractionMode::Place => "place",
+        crate::panel_model::BuildInteractionMode::Break => "break",
+    }
+}
+
+fn build_interaction_selection_status_text(
+    value: crate::panel_model::BuildInteractionSelectionState,
+) -> &'static str {
+    match value {
+        crate::panel_model::BuildInteractionSelectionState::Unarmed => "unarmed",
+        crate::panel_model::BuildInteractionSelectionState::Armed => "armed",
+        crate::panel_model::BuildInteractionSelectionState::HeadAligned => "head-aligned",
+        crate::panel_model::BuildInteractionSelectionState::HeadDiverged => "head-diverged",
+        crate::panel_model::BuildInteractionSelectionState::BreakingHead => "break-head",
+    }
+}
+
+fn build_interaction_queue_status_text(
+    value: crate::panel_model::BuildInteractionQueueState,
+) -> &'static str {
+    match value {
+        crate::panel_model::BuildInteractionQueueState::Empty => "empty",
+        crate::panel_model::BuildInteractionQueueState::Queued => "queued",
+        crate::panel_model::BuildInteractionQueueState::InFlight => "inflight",
+        crate::panel_model::BuildInteractionQueueState::Mixed => "mixed",
+    }
+}
+
+fn build_interaction_authority_status_text(
+    value: crate::panel_model::BuildInteractionAuthorityState,
+) -> &'static str {
+    match value {
+        crate::panel_model::BuildInteractionAuthorityState::None => "none",
+        crate::panel_model::BuildInteractionAuthorityState::Applied => "applied",
+        crate::panel_model::BuildInteractionAuthorityState::Cleared => "cleared",
+        crate::panel_model::BuildInteractionAuthorityState::Rollback => "rollback",
+        crate::panel_model::BuildInteractionAuthorityState::RejectedMissingBuilding => {
+            "rej-miss-build"
+        }
+        crate::panel_model::BuildInteractionAuthorityState::RejectedMissingBlockMetadata => {
+            "rej-miss-meta"
+        }
+        crate::panel_model::BuildInteractionAuthorityState::RejectedUnsupportedBlock => {
+            "rej-unsupported-block"
+        }
+        crate::panel_model::BuildInteractionAuthorityState::RejectedUnsupportedConfigType => {
+            "rej-unsupported-cfg"
+        }
     }
 }
 
@@ -2012,6 +2094,9 @@ mod tests {
         assert!(frame.status_text.contains(
             "cfgstrip:a3:rb1:last=23:45:src=construct:b1:cl1:lr1:pm=mismatch:out=applied:block=power-node"
         ));
+        assert!(frame.status_text.contains(
+            "cfgflow:m=place:s=head-diverged:q=mixed:p=3:pr=1:cfg=2/2:top=message:h=flight@100:99:place:b301:r1:auth=rollback:pm=mismatch:src=construct:t=23:45:b=power-node:o=1"
+        ));
         assert!(frame
             .status_text
             .contains("build:sel=257:r2:b1:q1/i2/f3/r4/o1:h=flight@100:99:place:b301:r1:cfg2"));
@@ -2157,6 +2242,9 @@ mod tests {
         ));
         assert!(frame.status_text.contains(
             "cfgstrip:a4:rb2:last=10:12:src=tilecfg:b1:cl0:lr0:pm=match:out=rej-miss-build:block=gamma"
+        ));
+        assert!(frame.status_text.contains(
+            "cfgflow:m=place:s=head-aligned:q=mixed:p=3:pr=1:cfg=3/7:top=gamma:h=queued@10:12:place:b301:r1:auth=rej-miss-build:pm=match:src=tilecfg:t=10:12:b=gamma:o=6"
         ));
     }
 

@@ -262,10 +262,6 @@ impl ArcNetSessionDriver {
 
         let event = session.ingest_packet_bytes(payload)?;
         if matches!(event, ClientSessionEvent::WorldStreamReady { .. }) {
-            if let Some(connect_confirm) = session.prepare_connect_confirm_packet()? {
-                self.send_tcp_payload(&connect_confirm)?;
-                report.outbound_tcp_frames += 1;
-            }
             report.events.extend(session.take_replayed_loading_events());
         }
         report.events.push(event);
