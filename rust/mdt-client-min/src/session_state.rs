@@ -1024,6 +1024,74 @@ impl TileConfigProjection {
         }
     }
 
+    pub fn fallback_rollback_to_known_authority(
+        &mut self,
+        build_pos: Option<i32>,
+        source: TileConfigAuthoritySource,
+    ) -> TileConfigBusinessApply {
+        let Some(build_pos) = build_pos else {
+            return self.clear_pending_local_without_business_apply(None);
+        };
+        let pending_local = self.pending_local_by_build_pos.remove(&build_pos);
+        let authoritative_value = self.authoritative_by_build_pos.get(&build_pos).cloned();
+        let cleared_pending_local = pending_local.is_some();
+
+        if pending_local.is_none() || authoritative_value.is_none() {
+            self.last_business_build_pos = None;
+            self.last_business_value = None;
+            self.last_business_applied = false;
+            self.last_cleared_pending_local = cleared_pending_local;
+            self.last_was_rollback = false;
+            self.last_pending_local_match = None;
+            self.last_business_source = None;
+            self.last_replaced_local_value = pending_local.clone();
+            self.last_configured_block_outcome = None;
+            self.last_configured_block_name = None;
+            return TileConfigBusinessApply {
+                business_applied: false,
+                cleared_pending_local,
+                was_rollback: false,
+                pending_local_match: None,
+                source: None,
+                authoritative_value: None,
+                replaced_local_value: pending_local,
+                configured_block_outcome: None,
+                configured_block_name: None,
+            };
+        }
+
+        let authoritative_value = authoritative_value.unwrap();
+        let pending_local_match = pending_local
+            .as_ref()
+            .map(|pending| pending == &authoritative_value);
+        let was_rollback = pending_local_match == Some(false);
+        if was_rollback {
+            self.rollback_count = self.rollback_count.saturating_add(1);
+        }
+
+        self.last_business_build_pos = Some(build_pos);
+        self.last_business_value = Some(authoritative_value.clone());
+        self.last_business_applied = true;
+        self.last_cleared_pending_local = true;
+        self.last_was_rollback = was_rollback;
+        self.last_pending_local_match = pending_local_match;
+        self.last_business_source = Some(source);
+        self.last_replaced_local_value = pending_local.clone();
+        self.last_configured_block_outcome = None;
+        self.last_configured_block_name = None;
+        TileConfigBusinessApply {
+            business_applied: true,
+            cleared_pending_local: true,
+            was_rollback,
+            pending_local_match,
+            source: Some(source),
+            authoritative_value: Some(authoritative_value),
+            replaced_local_value: pending_local,
+            configured_block_outcome: None,
+            configured_block_name: None,
+        }
+    }
+
     pub fn remove_building_state(&mut self, build_pos: i32) {
         self.pending_local_by_build_pos.remove(&build_pos);
         self.authoritative_by_build_pos.remove(&build_pos);
@@ -3102,6 +3170,8 @@ pub struct SessionState {
     pub entity_snapshot_tombstones: BTreeMap<i32, u64>,
     pub entity_snapshot_tombstone_skip_count: u64,
     pub last_entity_snapshot_tombstone_skipped_ids_sample: Vec<i32>,
+    pub entity_snapshot_hidden_skip_count: u64,
+    pub last_entity_snapshot_hidden_skipped_ids_sample: Vec<i32>,
     pub seen_block_snapshot: bool,
     pub seen_hidden_snapshot: bool,
     pub received_block_snapshot_count: u64,
@@ -3311,6 +3381,28 @@ impl SessionState {
                 .contains(&entity_id)
         {
             self.last_entity_snapshot_tombstone_skipped_ids_sample
+                .push(entity_id);
+        }
+    }
+
+    pub fn entity_snapshot_hidden_blocks_upsert(
+        &self,
+        entity_id: i32,
+        is_local_player: bool,
+    ) -> bool {
+        !is_local_player && self.hidden_snapshot_ids.contains(&entity_id)
+    }
+
+    pub fn record_entity_snapshot_hidden_skip(&mut self, entity_id: i32) {
+        self.entity_snapshot_hidden_skip_count =
+            self.entity_snapshot_hidden_skip_count.saturating_add(1);
+        if self.last_entity_snapshot_hidden_skipped_ids_sample.len()
+            < ENTITY_SNAPSHOT_TOMBSTONE_SKIP_SAMPLE_LIMIT
+            && !self
+                .last_entity_snapshot_hidden_skipped_ids_sample
+                .contains(&entity_id)
+        {
+            self.last_entity_snapshot_hidden_skipped_ids_sample
                 .push(entity_id);
         }
     }

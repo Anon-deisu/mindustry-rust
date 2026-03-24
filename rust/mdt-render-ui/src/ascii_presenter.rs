@@ -61,11 +61,17 @@ impl AsciiScenePresenter {
         ) {
             out.push_str(&format!("MINIMAP: {minimap_text}\n"));
         }
+        if let Some(minimap_kinds_text) = compose_minimap_kind_line(scene, hud) {
+            out.push_str(&format!("MINIMAP-KINDS: {minimap_kinds_text}\n"));
+        }
         if let Some(build_config_text) = compose_build_config_panel_text(hud) {
             out.push_str(&format!("BUILD-CONFIG: {build_config_text}\n"));
         }
         for entry_line in compose_build_config_entry_lines(hud) {
             out.push_str(&format!("BUILD-CONFIG-ENTRY: {entry_line}\n"));
+        }
+        if let Some(build_config_more_text) = compose_build_config_more_line(hud) {
+            out.push_str(&format!("BUILD-CONFIG-MORE: {build_config_more_text}\n"));
         }
         if let Some(build_text) = compose_build_ui_text(hud) {
             out.push_str(&format!("BUILD: {build_text}\n"));
@@ -266,30 +272,54 @@ fn compose_minimap_panel_text(
 ) -> Option<String> {
     let panel = build_minimap_panel(scene, hud, window)?;
     Some(format!(
-        "map={}x{} win={}:{}+{}x{} focus={} overlay={} fog={} vis={} hid={} kinds=p{}/m{}/pl{}/b{}/r{}",
+        "map={}x{} rect={}:{}->{}:{} focus={} tiles={}/{} known={} vis={}({}%) hid={}({}%) overlay={} fog={} objs={}",
         panel.map_width,
         panel.map_height,
         panel.window.origin_x,
         panel.window.origin_y,
-        panel.window.width,
-        panel.window.height,
+        panel.window_last_x,
+        panel.window_last_y,
         optional_focus_tile_text(panel.focus_tile),
+        panel.window_tile_count,
+        panel.map_tile_count,
+        panel.known_tile_count,
+        panel.visible_tile_count,
+        percent_text(panel.visible_tile_count, panel.known_tile_count),
+        panel.hidden_tile_count,
+        percent_text(panel.hidden_tile_count, panel.known_tile_count),
         if panel.overlay_visible { 1 } else { 0 },
         if panel.fog_enabled { 1 } else { 0 },
-        panel.visible_tile_count,
-        panel.hidden_tile_count,
+        panel.tracked_object_count,
+    ))
+}
+
+fn compose_minimap_kind_line(scene: &RenderModel, hud: &HudModel) -> Option<String> {
+    let panel = build_minimap_panel(
+        scene,
+        hud,
+        PresenterViewWindow {
+            origin_x: 0,
+            origin_y: 0,
+            width: 0,
+            height: 0,
+        },
+    )?;
+    Some(format!(
+        "player={} marker={} plan={} block={} runtime={} terrain={} unknown={}",
         panel.player_count,
         panel.marker_count,
         panel.plan_count,
         panel.block_count,
         panel.runtime_count,
+        panel.terrain_count,
+        panel.unknown_count,
     ))
 }
 
 fn compose_build_config_panel_text(hud: &HudModel) -> Option<String> {
     let panel = build_build_config_panel(hud, 3)?;
     Some(format!(
-        "sel={} rot={} mode={} queue={}/{}/{}/{}/{} head={} rows={}",
+        "sel={} rot={} mode={} pending={}/{} hist={}/{} orphan={} head={} align={} families={}/{} tracked={}",
         optional_i16_label(panel.selected_block_id),
         panel.selected_rotation,
         if panel.building { "build" } else { "idle" },
@@ -299,7 +329,10 @@ fn compose_build_config_panel_text(hud: &HudModel) -> Option<String> {
         panel.removed_count,
         panel.orphan_authoritative_count,
         build_config_head_text(panel.head.as_ref()),
+        build_config_alignment_text(panel.selected_matches_head),
         panel.entries.len(),
+        panel.tracked_family_count,
+        panel.tracked_sample_count,
     ))
 }
 
@@ -310,15 +343,28 @@ fn compose_build_config_entry_lines(hud: &HudModel) -> Vec<String> {
     panel
         .entries
         .iter()
-        .map(|entry| {
+        .enumerate()
+        .map(|(index, entry)| {
             format!(
-                "{}#{}@{}",
+                "{}/{} {}#{}@{}",
+                index + 1,
+                panel.tracked_family_count,
                 compact_runtime_ui_text(Some(entry.family.as_str())),
                 entry.tracked_count,
                 compact_build_inspector_text(entry.sample.as_str(), 56),
             )
         })
         .collect()
+}
+
+fn compose_build_config_more_line(hud: &HudModel) -> Option<String> {
+    let panel = build_build_config_panel(hud, 3)?;
+    (panel.truncated_family_count > 0).then(|| {
+        format!(
+            "+{} hidden families beyond cap",
+            panel.truncated_family_count
+        )
+    })
 }
 
 fn compose_build_ui_inspector_lines(hud: &HudModel) -> Vec<String> {
@@ -399,6 +445,22 @@ fn optional_focus_tile_text(value: Option<(usize, usize)>) -> String {
     match value {
         Some((x, y)) => format!("{x}:{y}"),
         None => "-".to_string(),
+    }
+}
+
+fn build_config_alignment_text(value: Option<bool>) -> &'static str {
+    match value {
+        Some(true) => "match",
+        Some(false) => "split",
+        None => "none",
+    }
+}
+
+fn percent_text(part: usize, total: usize) -> usize {
+    if total == 0 {
+        0
+    } else {
+        part.saturating_mul(100) / total
     }
 }
 
@@ -901,13 +963,16 @@ mod tests {
         assert!(frame.contains("SUMMARY: player=operator team=2 selected=payload-rout~"));
         assert!(frame.contains("map=80x60 overlay=1 fog=1 vis=120 hid=24"));
         assert!(frame.contains(
-            "MINIMAP: map=80x60 win=0:0+1x1 focus=0:0 overlay=1 fog=1 vis=120 hid=24 kinds=p1/m1/pl1/b1/r0"
+            "MINIMAP: map=80x60 rect=0:0->0:0 focus=0:0 tiles=1/4800 known=144 vis=120(83%) hid=24(16%) overlay=1 fog=1 objs=4"
         ));
         assert!(frame.contains(
-            "BUILD-CONFIG: sel=257 rot=2 mode=build queue=1/2/3/4/1 head=flight@100:99:place:b301:r1 rows=2"
+            "MINIMAP-KINDS: player=1 marker=1 plan=1 block=1 runtime=0 terrain=0 unknown=0"
         ));
-        assert!(frame.contains("BUILD-CONFIG-ENTRY: message#1@18:40:len=5:text=hello"));
-        assert!(frame.contains("BUILD-CONFIG-ENTRY: power-node#1@23:45:links=24:46|25:47"));
+        assert!(frame.contains(
+            "BUILD-CONFIG: sel=257 rot=2 mode=build pending=1/2 hist=3/4 orphan=1 head=flight@100:99:place:b301:r1 align=split families=2/2 tracked=2"
+        ));
+        assert!(frame.contains("BUILD-CONFIG-ENTRY: 1/2 message#1@18:40:len=5:text=hello"));
+        assert!(frame.contains("BUILD-CONFIG-ENTRY: 2/2 power-node#1@23:45:links=24:46|25:47"));
         assert!(frame.contains(
             "BUILD: sel=257 rot=2 building=1 queue=1/2/3/4/1 head=flight@100:99:place:b301:r1 cfg=2"
         ));
@@ -924,6 +989,111 @@ mod tests {
         assert!(frame.contains("tin=53@404:Digits/Only_numbers"));
         assert!(frame.contains("live=ent=1/0@404:u2/999:p20.0:33.0:h0:s3"));
         assert!(frame.contains("fx=11/73@8:u19:kPoint2:cposition_tar~/unit_parent:pbiz@24.0:32.0"));
+    }
+
+    #[test]
+    fn ascii_presenter_surfaces_minimap_and_build_config_overflow_context() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 16.0,
+                height: 16.0,
+                zoom: 1.0,
+            },
+            objects: vec![
+                crate::RenderObject {
+                    id: "player:1".to_string(),
+                    layer: 1,
+                    x: 8.0,
+                    y: 8.0,
+                },
+                crate::RenderObject {
+                    id: "terrain:1".to_string(),
+                    layer: 0,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                crate::RenderObject {
+                    id: "unknown".to_string(),
+                    layer: 2,
+                    x: 8.0,
+                    y: 0.0,
+                },
+            ],
+        };
+        let hud = HudModel {
+            summary: Some(HudSummary {
+                player_name: "operator".to_string(),
+                team_id: 2,
+                selected_block: "payload-router".to_string(),
+                plan_count: 3,
+                marker_count: 4,
+                map_width: 80,
+                map_height: 60,
+                overlay_visible: false,
+                fog_enabled: false,
+                visible_tile_count: 0,
+                hidden_tile_count: 0,
+            }),
+            build_ui: Some(crate::BuildUiObservability {
+                selected_block_id: Some(301),
+                selected_rotation: 1,
+                building: true,
+                queued_count: 2,
+                inflight_count: 1,
+                finished_count: 4,
+                removed_count: 5,
+                orphan_authoritative_count: 6,
+                head: Some(crate::BuildQueueHeadObservability {
+                    x: 10,
+                    y: 12,
+                    breaking: false,
+                    block_id: Some(301),
+                    rotation: Some(1),
+                    stage: crate::BuildQueueHeadStage::Queued,
+                }),
+                inspector_entries: vec![
+                    crate::BuildConfigInspectorEntryObservability {
+                        family: "alpha".to_string(),
+                        tracked_count: 1,
+                        sample: "one".to_string(),
+                    },
+                    crate::BuildConfigInspectorEntryObservability {
+                        family: "gamma".to_string(),
+                        tracked_count: 4,
+                        sample: "four".to_string(),
+                    },
+                    crate::BuildConfigInspectorEntryObservability {
+                        family: "beta".to_string(),
+                        tracked_count: 2,
+                        sample: "two".to_string(),
+                    },
+                    crate::BuildConfigInspectorEntryObservability {
+                        family: "delta".to_string(),
+                        tracked_count: 1,
+                        sample: "three".to_string(),
+                    },
+                ],
+            }),
+            ..HudModel::default()
+        };
+        let mut presenter = AsciiScenePresenter::default();
+
+        presenter.present(&scene, &hud);
+
+        let frame = presenter.last_frame();
+        assert!(frame.contains(
+            "MINIMAP: map=80x60 rect=0:0->1:1 focus=1:1 tiles=4/4800 known=0 vis=0(0%) hid=0(0%) overlay=0 fog=0 objs=3"
+        ));
+        assert!(frame.contains(
+            "MINIMAP-KINDS: player=1 marker=0 plan=0 block=0 runtime=0 terrain=1 unknown=1"
+        ));
+        assert!(frame.contains(
+            "BUILD-CONFIG: sel=301 rot=1 mode=build pending=2/1 hist=4/5 orphan=6 head=queued@10:12:place:b301:r1 align=match families=3/4 tracked=8"
+        ));
+        assert!(frame.contains("BUILD-CONFIG-ENTRY: 1/4 gamma#4@four"));
+        assert!(frame.contains("BUILD-CONFIG-ENTRY: 2/4 beta#2@two"));
+        assert!(frame.contains("BUILD-CONFIG-ENTRY: 3/4 alpha#1@one"));
+        assert!(frame.contains("BUILD-CONFIG-MORE: +1 hidden families beyond cap"));
     }
 
     fn decode_hex(text: &str) -> Vec<u8> {

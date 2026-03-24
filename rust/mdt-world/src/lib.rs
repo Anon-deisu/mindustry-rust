@@ -991,6 +991,30 @@ pub struct SaveEntityRegionObservation {
     pub entity_chunks: Vec<SaveEntityChunkObservation>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SaveMapRegionObservation {
+    pub floor_runs: usize,
+    pub floor_region_bytes: Vec<u8>,
+    pub block_runs: usize,
+    pub block_region_bytes: Vec<u8>,
+    pub world: WorldModel,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SavePostLoadWorldObservation {
+    pub save_version: i32,
+    pub content_header: Vec<ContentHeaderEntry>,
+    pub patches: Vec<Vec<u8>>,
+    pub map: SaveMapRegionObservation,
+    pub team_plan_groups: Vec<TeamPlanGroup>,
+    pub team_region_bytes: Vec<u8>,
+    pub markers: Vec<MarkerEntry>,
+    pub marker_region_bytes: Vec<u8>,
+    pub custom_chunks: Vec<CustomChunkEntry>,
+    pub custom_region_bytes: Vec<u8>,
+    pub entity_summary: SaveEntityPostLoadSummary,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct MsavSaveObservation {
     pub envelope: MsavEnvelopeObservation,
@@ -1006,6 +1030,71 @@ impl MsavSaveObservation {
 
     pub fn post_load_entity_summary(&self) -> SaveEntityPostLoadSummary {
         self.entities.post_load_summary()
+    }
+
+    pub fn post_load_world(&self) -> Result<SavePostLoadWorldObservation, String> {
+        let content_region = self
+            .region("content")
+            .ok_or_else(|| "missing .msav content region".to_string())?;
+        let content_header = parse_save_content_header_region(&content_region.chunk_bytes)?;
+
+        let patches = match self.region("patches") {
+            Some(region) => parse_save_content_patches_region(&region.chunk_bytes)?,
+            None => Vec::new(),
+        };
+
+        let map_region = self
+            .region("map")
+            .ok_or_else(|| "missing .msav map region".to_string())?;
+        let mut map = parse_save_map_region(
+            self.envelope.save_version,
+            &content_header,
+            &map_region.chunk_bytes,
+        )?;
+        map.world.team_count = self.entities.team_count;
+        map.world.total_plans = self.entities.total_plans;
+        map.world.team_ids = self
+            .entities
+            .team_plan_groups
+            .iter()
+            .map(|group| group.team_id)
+            .collect();
+        map.world.team_plan_counts = self
+            .entities
+            .team_plan_groups
+            .iter()
+            .map(|group| group.plan_count)
+            .collect();
+
+        let (markers, marker_region_bytes) = match self.region("markers") {
+            Some(region) => (
+                parse_markers(&region.chunk_bytes)?,
+                region.chunk_bytes.clone(),
+            ),
+            None => (Vec::new(), Vec::new()),
+        };
+
+        let (custom_chunks, custom_region_bytes) = match self.region("custom") {
+            Some(region) => (
+                parse_save_custom_chunks_region(&region.chunk_bytes)?,
+                region.chunk_bytes.clone(),
+            ),
+            None => (Vec::new(), Vec::new()),
+        };
+
+        Ok(SavePostLoadWorldObservation {
+            save_version: self.envelope.save_version,
+            content_header,
+            patches,
+            map,
+            team_plan_groups: self.entities.team_plan_groups.clone(),
+            team_region_bytes: self.entities.team_region_bytes.clone(),
+            markers,
+            marker_region_bytes,
+            custom_chunks,
+            custom_region_bytes,
+            entity_summary: self.post_load_entity_summary(),
+        })
     }
 }
 
@@ -25837,6 +25926,236 @@ pub fn parse_save_entity_region(
     })
 }
 
+fn parse_save_content_header_region(bytes: &[u8]) -> Result<Vec<ContentHeaderEntry>, String> {
+    let mut reader = Reader::new(bytes);
+    let mapped_types = reader.read_u8()? as usize;
+    let mut content_header = Vec::with_capacity(mapped_types);
+
+    for _ in 0..mapped_types {
+        let content_type = reader.read_u8()?;
+        let total = reader.read_u16()? as usize;
+        let mut names = Vec::with_capacity(total);
+        for _ in 0..total {
+            names.push(reader.read_java_utf()?);
+        }
+        content_header.push(ContentHeaderEntry {
+            content_type,
+            names,
+        });
+    }
+
+    if !reader.remaining_bytes().is_empty() {
+        return Err(format!(
+            "unexpected trailing bytes after save content region: {}",
+            reader.remaining_bytes().len()
+        ));
+    }
+
+    Ok(content_header)
+}
+
+fn parse_save_content_patches_region(bytes: &[u8]) -> Result<Vec<Vec<u8>>, String> {
+    let mut reader = Reader::new(bytes);
+    let patch_count = reader.read_u8()? as usize;
+    let mut patches = Vec::with_capacity(patch_count);
+    for _ in 0..patch_count {
+        let len = reader.read_u32()? as usize;
+        patches.push(reader.read_exact_vec(len)?);
+    }
+
+    if !reader.remaining_bytes().is_empty() {
+        return Err(format!(
+            "unexpected trailing bytes after save patches region: {}",
+            reader.remaining_bytes().len()
+        ));
+    }
+
+    Ok(patches)
+}
+
+fn parse_save_map_region(
+    save_version: i32,
+    content_header: &[ContentHeaderEntry],
+    bytes: &[u8],
+) -> Result<SaveMapRegionObservation, String> {
+    let mut reader = Reader::new(bytes);
+    let width = reader.read_u16()? as usize;
+    let height = reader.read_u16()? as usize;
+    let tile_count = width * height;
+
+    let mut floors = vec![0u16; tile_count];
+    let mut overlays = vec![0u16; tile_count];
+    let mut floor_region_bytes = Vec::new();
+    let mut floor_runs = 0usize;
+    let mut i = 0usize;
+    while i < tile_count {
+        let floor = reader.read_u16()?;
+        let overlay = reader.read_u16()?;
+        let consecutives = reader.read_u8()? as usize;
+        floor_region_bytes.extend_from_slice(&floor.to_be_bytes());
+        floor_region_bytes.extend_from_slice(&overlay.to_be_bytes());
+        floor_region_bytes.push(consecutives as u8);
+        for j in 0..=consecutives {
+            floors[i + j] = floor;
+            overlays[i + j] = overlay;
+        }
+        floor_runs += 1;
+        i += consecutives + 1;
+    }
+
+    let mut blocks = vec![0u16; tile_count];
+    let mut building_centers = Vec::new();
+    let mut data_tiles = 0usize;
+    let mut block_region_bytes = Vec::new();
+    let mut block_runs = 0usize;
+    let mut i = 0usize;
+    while i < tile_count {
+        let block = reader.read_u16()?;
+        let packed = reader.read_u8()?;
+        let had_entity = (packed & 1) != 0;
+        let had_data_old = (packed & 2) != 0;
+        let had_data_new = (packed & 4) != 0;
+        let mut is_center = true;
+        blocks[i] = block;
+        block_region_bytes.extend_from_slice(&block.to_be_bytes());
+        block_region_bytes.push(packed);
+
+        if had_data_new {
+            data_tiles += 1;
+            let data = reader.read_u8()?;
+            let floor_data = reader.read_u8()?;
+            let overlay_data = reader.read_u8()?;
+            let extra_data = reader.read_u32()?;
+            block_region_bytes.push(data);
+            block_region_bytes.push(floor_data);
+            block_region_bytes.push(overlay_data);
+            block_region_bytes.extend_from_slice(&extra_data.to_be_bytes());
+        }
+
+        if had_entity {
+            is_center = reader.read_bool()?;
+            block_region_bytes.push(u8::from(is_center));
+        }
+
+        if had_entity && is_center {
+            let chunk_len_start = reader.position();
+            let chunk_len = read_save_chunk_len(&mut reader, save_version)?;
+            let chunk_len_end = reader.position();
+            let chunk = reader.read_exact_vec(chunk_len)?;
+            let block_name = resolve_content_name(content_header, BLOCK_CONTENT_TYPE, block);
+            let building =
+                parse_building_snapshot(content_header, block_name, &chunk).map_err(|error| {
+                    format!(
+                        "failed to parse save building center chunk at ({}, {}) for block {:04x} ({:?}): {}",
+                        i % width,
+                        i / width,
+                        block,
+                        block_name,
+                        error
+                    )
+                })?;
+            block_region_bytes.extend_from_slice(reader.slice(chunk_len_start, chunk_len_end));
+            block_region_bytes.extend_from_slice(&chunk);
+            building_centers.push(BuildingCenter {
+                tile_index: i,
+                x: i % width,
+                y: i / width,
+                block_id: block,
+                chunk_len,
+                chunk_bytes: chunk.clone(),
+                chunk_sha256: sha256_hex(&chunk),
+                building,
+            });
+        } else if had_data_old && !had_entity {
+            data_tiles += 1;
+            block_region_bytes.push(reader.read_u8()?);
+        } else if !had_data_new && !had_entity {
+            let consecutives = reader.read_u8()? as usize;
+            block_region_bytes.push(consecutives as u8);
+            for j in 1..=consecutives {
+                blocks[i + j] = block;
+            }
+            i += consecutives;
+        }
+
+        block_runs += 1;
+        i += 1;
+    }
+
+    if !reader.remaining_bytes().is_empty() {
+        return Err(format!(
+            "unexpected trailing bytes after save map region: {}",
+            reader.remaining_bytes().len()
+        ));
+    }
+
+    let mut building_center_lookup = vec![None; tile_count];
+    for (center_index, center) in building_centers.iter().enumerate() {
+        building_center_lookup[center.tile_index] = Some(center_index);
+    }
+
+    let tiles = (0..tile_count)
+        .map(|tile_index| TileModel {
+            tile_index,
+            x: tile_index % width,
+            y: tile_index / width,
+            floor_id: floors[tile_index],
+            overlay_id: overlays[tile_index],
+            block_id: blocks[tile_index],
+            building_center_index: building_center_lookup[tile_index],
+        })
+        .collect();
+
+    Ok(SaveMapRegionObservation {
+        floor_runs,
+        floor_region_bytes,
+        block_runs,
+        block_region_bytes,
+        world: WorldModel {
+            width,
+            height,
+            floors,
+            overlays,
+            blocks,
+            tiles,
+            building_centers,
+            data_tiles,
+            team_count: 0,
+            total_plans: 0,
+            team_ids: Vec::new(),
+            team_plan_counts: Vec::new(),
+        },
+    })
+}
+
+fn parse_save_custom_chunks_region(bytes: &[u8]) -> Result<Vec<CustomChunkEntry>, String> {
+    let mut reader = Reader::new(bytes);
+    let custom_chunk_count = reader.read_u32()? as usize;
+    let mut custom_chunks = Vec::with_capacity(custom_chunk_count);
+    for _ in 0..custom_chunk_count {
+        let name = reader.read_java_utf()?;
+        let chunk_len = reader.read_u32()? as usize;
+        let chunk_bytes = reader.read_exact_vec(chunk_len)?;
+        let parsed = parse_known_custom_chunk(&name, &chunk_bytes)?;
+        custom_chunks.push(CustomChunkEntry {
+            name,
+            chunk_len,
+            chunk_sha256: sha256_hex(&chunk_bytes),
+            chunk_bytes,
+            parsed,
+        });
+    }
+
+    if !reader.remaining_bytes().is_empty() {
+        return Err(format!(
+            "unexpected trailing bytes after save custom region: {}",
+            reader.remaining_bytes().len()
+        ));
+    }
+
+    Ok(custom_chunks)
+}
+
 fn parse_msav_envelope_from_inflated(
     inflated: &[u8],
     compressed_length: usize,
@@ -25936,6 +26255,14 @@ fn parse_save_entity_remap_table(
     ))
 }
 
+fn read_save_chunk_len(reader: &mut Reader<'_>, save_version: i32) -> Result<usize, String> {
+    if save_version >= 10 {
+        Ok(reader.read_u32()? as usize)
+    } else {
+        Ok(reader.read_u16()? as usize)
+    }
+}
+
 fn parse_save_world_entity_chunks(
     reader: &mut Reader<'_>,
     save_version: i32,
@@ -25950,11 +26277,7 @@ fn parse_save_world_entity_chunks(
     let mut entity_chunks = Vec::with_capacity(world_entity_count);
 
     for index in 0..world_entity_count {
-        let chunk_len = if save_version >= 10 {
-            reader.read_u32()? as usize
-        } else {
-            reader.read_u16()? as usize
-        };
+        let chunk_len = read_save_chunk_len(reader, save_version)?;
         let chunk_bytes = reader.read_exact_vec(chunk_len)?;
         let mut chunk_reader = Reader::new(&chunk_bytes);
         let class_id = chunk_reader.read_u8().map_err(|error| {
@@ -38986,6 +39309,83 @@ mod tests {
         mdt_protocol::deflate_zlib(&inflated).unwrap()
     }
 
+    fn encode_content_header_region(entries: &[ContentHeaderEntry]) -> Vec<u8> {
+        let mut out = vec![entries.len() as u8];
+        out.extend_from_slice(&serialize_content_header(entries).unwrap());
+        out
+    }
+
+    fn encode_patch_region(patches: &[Vec<u8>]) -> Vec<u8> {
+        let mut out = vec![patches.len() as u8];
+        for patch in patches {
+            out.extend_from_slice(&(patch.len() as u32).to_be_bytes());
+            out.extend_from_slice(patch);
+        }
+        out
+    }
+
+    fn encode_save_map_region_from_bundle(bundle: &WorldBundle) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(&(bundle.world.width as u16).to_be_bytes());
+        out.extend_from_slice(&(bundle.world.height as u16).to_be_bytes());
+        out.extend_from_slice(&bundle.floor_region_bytes);
+        out.extend_from_slice(&bundle.block_region_bytes);
+        out
+    }
+
+    fn sample_msav_post_load_save11_bytes() -> Vec<u8> {
+        let bundle = sample_world_bundle();
+        let entity_region = sample_save_entity_region_bytes(11);
+        let mut inflated = Vec::new();
+        inflated.extend_from_slice(&MSAV_HEADER);
+        inflated.extend_from_slice(&11i32.to_be_bytes());
+
+        for region_name in msav_region_names(11).unwrap() {
+            let region_bytes = match *region_name {
+                "meta" => vec![0xde, 0xad],
+                "content" => encode_content_header_region(&bundle.content_header),
+                "patches" => encode_patch_region(&bundle.patches),
+                "map" => encode_save_map_region_from_bundle(&bundle),
+                "entities" => entity_region.clone(),
+                "markers" => bundle.marker_region_bytes.clone(),
+                "custom" => bundle.custom_region_bytes.clone(),
+                _ => unreachable!("unexpected region name: {region_name}"),
+            };
+            inflated.extend_from_slice(&encode_save_region(&region_bytes));
+        }
+
+        mdt_protocol::deflate_zlib(&inflated).unwrap()
+    }
+
+    fn sample_msav_post_load_save6_bytes() -> Vec<u8> {
+        let mut map_region = Vec::new();
+        map_region.extend_from_slice(&1u16.to_be_bytes());
+        map_region.extend_from_slice(&1u16.to_be_bytes());
+        map_region.extend_from_slice(&0u16.to_be_bytes());
+        map_region.extend_from_slice(&0u16.to_be_bytes());
+        map_region.push(0);
+        map_region.extend_from_slice(&0u16.to_be_bytes());
+        map_region.push(0);
+        map_region.push(0);
+
+        let mut inflated = Vec::new();
+        inflated.extend_from_slice(&MSAV_HEADER);
+        inflated.extend_from_slice(&6i32.to_be_bytes());
+
+        for region_name in msav_region_names(6).unwrap() {
+            let region_bytes = match *region_name {
+                "meta" => vec![0xde, 0xad],
+                "content" => vec![0],
+                "map" => map_region.clone(),
+                "entities" => sample_save_entity_region_bytes(6),
+                _ => unreachable!("unexpected region name: {region_name}"),
+            };
+            inflated.extend_from_slice(&encode_save_region(&region_bytes));
+        }
+
+        mdt_protocol::deflate_zlib(&inflated).unwrap()
+    }
+
     fn assert_no_duplicate_keys(label: &str, lines: &[(String, String)]) {
         let text = lines
             .iter()
@@ -39206,6 +39606,69 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn parses_msav_post_load_world_for_save11_regions() {
+        let bundle = sample_world_bundle();
+        let save = parse_msav_save(&sample_msav_post_load_save11_bytes()).unwrap();
+        let post_load = save.post_load_world().unwrap();
+
+        let mut expected_world = bundle.world.clone();
+        expected_world.team_count = save.entities.team_count;
+        expected_world.total_plans = save.entities.total_plans;
+        expected_world.team_ids = save
+            .entities
+            .team_plan_groups
+            .iter()
+            .map(|group| group.team_id)
+            .collect();
+        expected_world.team_plan_counts = save
+            .entities
+            .team_plan_groups
+            .iter()
+            .map(|group| group.plan_count)
+            .collect();
+
+        assert_eq!(post_load.save_version, 11);
+        assert_eq!(post_load.content_header, bundle.content_header);
+        assert_eq!(post_load.patches, bundle.patches);
+        assert_eq!(post_load.map.floor_region_bytes, bundle.floor_region_bytes);
+        assert_eq!(post_load.map.block_region_bytes, bundle.block_region_bytes);
+        assert_eq!(post_load.map.world, expected_world);
+        assert_eq!(post_load.team_plan_groups, save.entities.team_plan_groups);
+        assert_eq!(post_load.team_region_bytes, save.entities.team_region_bytes);
+        assert_eq!(post_load.markers, bundle.markers);
+        assert_eq!(post_load.marker_region_bytes, bundle.marker_region_bytes);
+        assert_eq!(post_load.custom_chunks, bundle.custom_chunks);
+        assert_eq!(post_load.custom_region_bytes, bundle.custom_region_bytes);
+        assert_eq!(post_load.entity_summary, save.post_load_entity_summary());
+    }
+
+    #[test]
+    fn parses_msav_post_load_world_for_save6_legacy_regions() {
+        let save = parse_msav_save(&sample_msav_post_load_save6_bytes()).unwrap();
+        let post_load = save.post_load_world().unwrap();
+
+        assert_eq!(post_load.save_version, 6);
+        assert!(post_load.content_header.is_empty());
+        assert!(post_load.patches.is_empty());
+        assert_eq!(post_load.map.floor_runs, 1);
+        assert_eq!(post_load.map.block_runs, 1);
+        assert_eq!(post_load.map.world.width, 1);
+        assert_eq!(post_load.map.world.height, 1);
+        assert_eq!(post_load.map.world.floors, vec![0]);
+        assert_eq!(post_load.map.world.overlays, vec![0]);
+        assert_eq!(post_load.map.world.blocks, vec![0]);
+        assert!(post_load.map.world.building_centers.is_empty());
+        assert_eq!(post_load.map.world.team_count, save.entities.team_count);
+        assert_eq!(post_load.map.world.total_plans, save.entities.total_plans);
+        assert_eq!(post_load.team_plan_groups, save.entities.team_plan_groups);
+        assert!(post_load.markers.is_empty());
+        assert!(post_load.marker_region_bytes.is_empty());
+        assert!(post_load.custom_chunks.is_empty());
+        assert!(post_load.custom_region_bytes.is_empty());
+        assert_eq!(post_load.entity_summary, save.post_load_entity_summary());
     }
 
     #[test]

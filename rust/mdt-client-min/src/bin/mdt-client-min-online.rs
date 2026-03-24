@@ -9,12 +9,12 @@ use mdt_client_min::connect_packet::{
     ConnectPacketSpec,
 };
 use mdt_client_min::render_runtime::RenderRuntimeAdapter;
+use mdt_input::live_intent::RuntimeIntentTracker;
 use mdt_input::{
     flip_plans, rotate_plans, BinaryAction, InputSnapshot, IntentSamplingMode, LiveIntentState,
     MovementProbeConfig, MovementProbeController, PlanBlockMeta, PlanEditable, PlanPoint,
     RuntimeInputState,
 };
-use mdt_input::live_intent::RuntimeIntentTracker;
 use mdt_remote::HighFrequencyRemoteMethod;
 use mdt_remote::{read_remote_manifest, RemoteManifest};
 use mdt_render_ui::{
@@ -8142,9 +8142,13 @@ mod tests {
         };
 
         assert!(live_intent_mapper.advance(&runtime_snapshot, 0));
-        assert!(live_intent_mapper.state().is_action_active(BinaryAction::Fire));
+        assert!(live_intent_mapper
+            .state()
+            .is_action_active(BinaryAction::Fire));
         assert!(!live_intent_mapper.advance(&runtime_snapshot, 50));
-        assert!(live_intent_mapper.state().is_action_active(BinaryAction::Fire));
+        assert!(live_intent_mapper
+            .state()
+            .is_action_active(BinaryAction::Fire));
     }
 
     #[test]
@@ -8162,7 +8166,10 @@ mod tests {
         };
 
         assert!(live_intent_mapper.advance(&runtime_snapshot, 0));
-        assert_eq!(live_intent_mapper.state().pressed_actions, vec![BinaryAction::Fire]);
+        assert_eq!(
+            live_intent_mapper.state().pressed_actions,
+            vec![BinaryAction::Fire]
+        );
         assert!(!live_intent_mapper.advance(&runtime_snapshot, 1));
         assert!(live_intent_mapper.state().pressed_actions.is_empty());
     }

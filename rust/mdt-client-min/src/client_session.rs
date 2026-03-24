@@ -4168,7 +4168,10 @@ impl ClientSession {
                     } else {
                         self.state
                             .tile_config_projection
-                            .clear_pending_local_without_business_apply(build_pos)
+                            .fallback_rollback_to_known_authority(
+                                build_pos,
+                                TileConfigAuthoritySource::TileConfigPacket,
+                            )
                     };
                     self.state.received_tile_config_count =
                         self.state.received_tile_config_count.saturating_add(1);
@@ -5416,6 +5419,9 @@ impl ClientSession {
                                                 self.state
                                                     .last_entity_snapshot_tombstone_skipped_ids_sample
                                                     .clear();
+                                                self.state
+                                                    .last_entity_snapshot_hidden_skipped_ids_sample
+                                                    .clear();
                                                 self.apply_parseable_player_rows_from_entity_snapshot(
                                                     &player_rows,
                                                 );
@@ -6295,11 +6301,7 @@ impl ClientSession {
                 parseable_match_count: parsed.parseable_match_count,
             };
         };
-        if self
-            .state
-            .entity_snapshot_tombstone_blocks_upsert(player_id)
-        {
-            self.state.record_entity_snapshot_tombstone_skip(player_id);
+        if self.should_skip_entity_snapshot_upsert(player_id, true) {
             return LocalPlayerSyncApplicationResult {
                 applied: false,
                 target_player_id: Some(player_id),
@@ -6362,12 +6364,7 @@ impl ClientSession {
             if Some(row.entity_id) == local_player_id {
                 continue;
             }
-            if self
-                .state
-                .entity_snapshot_tombstone_blocks_upsert(row.entity_id)
-            {
-                self.state
-                    .record_entity_snapshot_tombstone_skip(row.entity_id);
+            if self.should_skip_entity_snapshot_upsert(row.entity_id, false) {
                 continue;
             }
             self.state.entity_table_projection.upsert_player_entity(
@@ -6388,12 +6385,7 @@ impl ClientSession {
         alpha_rows: &[EntityAlphaSyncRow],
     ) {
         for row in alpha_rows {
-            if self
-                .state
-                .entity_snapshot_tombstone_blocks_upsert(row.entity_id)
-            {
-                self.state
-                    .record_entity_snapshot_tombstone_skip(row.entity_id);
+            if self.should_skip_entity_snapshot_upsert(row.entity_id, false) {
                 continue;
             }
             self.state.entity_table_projection.upsert_entity(
@@ -6412,12 +6404,7 @@ impl ClientSession {
 
     fn apply_parseable_mech_rows_from_entity_snapshot(&mut self, mech_rows: &[EntityMechSyncRow]) {
         for row in mech_rows {
-            if self
-                .state
-                .entity_snapshot_tombstone_blocks_upsert(row.entity_id)
-            {
-                self.state
-                    .record_entity_snapshot_tombstone_skip(row.entity_id);
+            if self.should_skip_entity_snapshot_upsert(row.entity_id, false) {
                 continue;
             }
             self.state.entity_table_projection.upsert_entity(
@@ -6439,12 +6426,7 @@ impl ClientSession {
         missile_rows: &[EntityMissileSyncRow],
     ) {
         for row in missile_rows {
-            if self
-                .state
-                .entity_snapshot_tombstone_blocks_upsert(row.entity_id)
-            {
-                self.state
-                    .record_entity_snapshot_tombstone_skip(row.entity_id);
+            if self.should_skip_entity_snapshot_upsert(row.entity_id, false) {
                 continue;
             }
             self.state.entity_table_projection.upsert_entity(
@@ -6466,12 +6448,7 @@ impl ClientSession {
         payload_rows: &[EntityPayloadSyncRow],
     ) {
         for row in payload_rows {
-            if self
-                .state
-                .entity_snapshot_tombstone_blocks_upsert(row.entity_id)
-            {
-                self.state
-                    .record_entity_snapshot_tombstone_skip(row.entity_id);
+            if self.should_skip_entity_snapshot_upsert(row.entity_id, false) {
                 continue;
             }
             self.state.entity_table_projection.upsert_entity(
@@ -6493,12 +6470,7 @@ impl ClientSession {
         tether_payload_rows: &[EntityBuildingTetherPayloadSyncRow],
     ) {
         for row in tether_payload_rows {
-            if self
-                .state
-                .entity_snapshot_tombstone_blocks_upsert(row.entity_id)
-            {
-                self.state
-                    .record_entity_snapshot_tombstone_skip(row.entity_id);
+            if self.should_skip_entity_snapshot_upsert(row.entity_id, false) {
                 continue;
             }
             self.state.entity_table_projection.upsert_entity(
@@ -6517,12 +6489,7 @@ impl ClientSession {
 
     fn apply_parseable_fire_rows_from_entity_snapshot(&mut self, fire_rows: &[EntityFireSyncRow]) {
         for row in fire_rows {
-            if self
-                .state
-                .entity_snapshot_tombstone_blocks_upsert(row.entity_id)
-            {
-                self.state
-                    .record_entity_snapshot_tombstone_skip(row.entity_id);
+            if self.should_skip_entity_snapshot_upsert(row.entity_id, false) {
                 continue;
             }
             self.state.entity_table_projection.upsert_entity(
@@ -6544,12 +6511,7 @@ impl ClientSession {
         puddle_rows: &[EntityPuddleSyncRow],
     ) {
         for row in puddle_rows {
-            if self
-                .state
-                .entity_snapshot_tombstone_blocks_upsert(row.entity_id)
-            {
-                self.state
-                    .record_entity_snapshot_tombstone_skip(row.entity_id);
+            if self.should_skip_entity_snapshot_upsert(row.entity_id, false) {
                 continue;
             }
             self.state.entity_table_projection.upsert_entity(
@@ -6571,12 +6533,7 @@ impl ClientSession {
         weather_state_rows: &[EntityWeatherStateSyncRow],
     ) {
         for row in weather_state_rows {
-            if self
-                .state
-                .entity_snapshot_tombstone_blocks_upsert(row.entity_id)
-            {
-                self.state
-                    .record_entity_snapshot_tombstone_skip(row.entity_id);
+            if self.should_skip_entity_snapshot_upsert(row.entity_id, false) {
                 continue;
             }
             self.state.entity_table_projection.upsert_entity(
@@ -6598,12 +6555,7 @@ impl ClientSession {
         world_label_rows: &[EntityWorldLabelSyncRow],
     ) {
         for row in world_label_rows {
-            if self
-                .state
-                .entity_snapshot_tombstone_blocks_upsert(row.entity_id)
-            {
-                self.state
-                    .record_entity_snapshot_tombstone_skip(row.entity_id);
+            if self.should_skip_entity_snapshot_upsert(row.entity_id, false) {
                 continue;
             }
             self.state.entity_table_projection.upsert_entity(
@@ -6618,6 +6570,28 @@ impl ClientSession {
                 self.state.received_entity_snapshot_count,
             );
         }
+    }
+
+    fn should_skip_entity_snapshot_upsert(
+        &mut self,
+        entity_id: i32,
+        is_local_player: bool,
+    ) -> bool {
+        if self
+            .state
+            .entity_snapshot_tombstone_blocks_upsert(entity_id)
+        {
+            self.state.record_entity_snapshot_tombstone_skip(entity_id);
+            return true;
+        }
+        if self
+            .state
+            .entity_snapshot_hidden_blocks_upsert(entity_id, is_local_player)
+        {
+            self.state.record_entity_snapshot_hidden_skip(entity_id);
+            return true;
+        }
+        false
     }
 
     fn apply_block_snapshot_entries_from_loaded_world(&mut self, payload: &[u8]) {
@@ -7087,6 +7061,10 @@ impl ClientSession {
         self.state.last_entity_snapshot_parse_error = None;
         self.state.clear_entity_snapshot_tombstones();
         self.state.entity_snapshot_tombstone_skip_count = 0;
+        self.state
+            .last_entity_snapshot_hidden_skipped_ids_sample
+            .clear();
+        self.state.entity_snapshot_hidden_skip_count = 0;
         self.state.seen_block_snapshot = false;
         self.state.received_block_snapshot_count = 0;
         self.state.last_block_snapshot_payload_len = None;
@@ -15861,7 +15839,7 @@ mod tests {
     }
 
     #[test]
-    fn hidden_snapshot_does_not_block_non_local_entity_snapshot_revival() {
+    fn hidden_snapshot_blocks_non_local_entity_snapshot_revival_while_id_remains_hidden() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
         let compressed_world_stream = sample_world_stream_bytes();
@@ -15926,20 +15904,107 @@ mod tests {
             .contains_key(&99));
 
         session.ingest_packet_bytes(&entity_packet).unwrap();
+        assert!(!session
+            .state()
+            .entity_table_projection
+            .by_entity_id
+            .contains_key(&99));
+        assert_eq!(session.state().entity_snapshot_hidden_skip_count, 1);
+        assert_eq!(
+            session
+                .state()
+                .last_entity_snapshot_hidden_skipped_ids_sample,
+            vec![99]
+        );
+        assert_eq!(session.state().entity_snapshot_tombstone_skip_count, 0);
+
+        session.ingest_packet_bytes(&entity_packet).unwrap();
+        assert!(!session
+            .state()
+            .entity_table_projection
+            .by_entity_id
+            .contains_key(&99));
+        assert_eq!(session.state().entity_snapshot_hidden_skip_count, 2);
+        assert_eq!(
+            session
+                .state()
+                .last_entity_snapshot_hidden_skipped_ids_sample,
+            vec![99]
+        );
+        assert!(session.state().entity_snapshot_tombstones.is_empty());
+        assert_eq!(session.state().entity_snapshot_tombstone_skip_count, 0);
+    }
+
+    #[test]
+    fn clearing_hidden_snapshot_ids_allows_non_local_entity_snapshot_revival_again() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+
+        session.ingest_packet_bytes(&begin_packet).unwrap();
+        for chunk in chunk_packets {
+            session.ingest_packet_bytes(&chunk).unwrap();
+        }
+
+        let sample_payload = sample_snapshot_packet("entitySnapshot.packet");
+        let sample_body_len = u16::from_be_bytes([sample_payload[2], sample_payload[3]]) as usize;
+        let sample_body = &sample_payload[4..4 + sample_body_len];
+        let rows = try_parse_player_sync_rows_from_entity_snapshot(&sample_payload);
+        assert_eq!(rows.len(), 1);
+        let player_row = &sample_body[rows[0].start..rows[0].end];
+        let mut other_player_row = player_row.to_vec();
+        other_player_row[..4].copy_from_slice(&99i32.to_be_bytes());
+
+        let mut entity_payload = Vec::new();
+        entity_payload.extend_from_slice(&2u16.to_be_bytes());
+        entity_payload.extend_from_slice(
+            &u16::try_from(player_row.len() + other_player_row.len())
+                .unwrap()
+                .to_be_bytes(),
+        );
+        entity_payload.extend_from_slice(player_row);
+        entity_payload.extend_from_slice(&other_player_row);
+
+        let entity_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == HighFrequencyRemoteMethod::EntitySnapshot.method_name())
+            .unwrap()
+            .packet_id;
+        let entity_packet = encode_packet(entity_packet_id, &entity_payload, false).unwrap();
+        session.ingest_packet_bytes(&entity_packet).unwrap();
         assert!(session
             .state()
             .entity_table_projection
             .by_entity_id
             .contains_key(&99));
-        assert_eq!(
-            session
-                .state()
-                .entity_table_projection
-                .by_entity_id
-                .get(&99)
-                .map(|entity| entity.hidden),
-            Some(false)
-        );
+
+        let hidden_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == HighFrequencyRemoteMethod::HiddenSnapshot.method_name())
+            .unwrap()
+            .packet_id;
+        let mut hidden_payload = Vec::new();
+        hidden_payload.extend_from_slice(&1i32.to_be_bytes());
+        hidden_payload.extend_from_slice(&99i32.to_be_bytes());
+        let hidden_packet = encode_packet(hidden_packet_id, &hidden_payload, false).unwrap();
+        session.ingest_packet_bytes(&hidden_packet).unwrap();
+
+        session.ingest_packet_bytes(&entity_packet).unwrap();
+        assert!(!session
+            .state()
+            .entity_table_projection
+            .by_entity_id
+            .contains_key(&99));
+        assert_eq!(session.state().entity_snapshot_hidden_skip_count, 1);
+
+        let clear_hidden_packet =
+            encode_packet(hidden_packet_id, &0i32.to_be_bytes(), false).unwrap();
+        session.ingest_packet_bytes(&clear_hidden_packet).unwrap();
+        assert!(session.state().hidden_snapshot_ids.is_empty());
 
         session.ingest_packet_bytes(&entity_packet).unwrap();
         assert!(session
@@ -15949,6 +16014,20 @@ mod tests {
             .contains_key(&99));
         assert!(session.state().entity_snapshot_tombstones.is_empty());
         assert_eq!(session.state().entity_snapshot_tombstone_skip_count, 0);
+        assert_eq!(session.state().entity_snapshot_hidden_skip_count, 1);
+        assert!(session
+            .state()
+            .last_entity_snapshot_hidden_skipped_ids_sample
+            .is_empty());
+        assert_eq!(
+            session
+                .state()
+                .entity_table_projection
+                .by_entity_id
+                .get(&99)
+                .map(|entity| entity.hidden),
+            Some(false)
+        );
     }
 
     fn pack_build_pos_for_block_snapshot_test(x: usize, y: usize) -> i32 {
@@ -22054,6 +22133,78 @@ mod tests {
                 .state()
                 .tile_config_projection
                 .last_cleared_pending_local
+        );
+    }
+
+    #[test]
+    fn tile_config_parse_failure_rolls_back_to_known_authority_when_pending_local_exists() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        session
+            .state
+            .tile_config_projection
+            .seed_authoritative_state(777, TypeIoObject::Int(1));
+        session
+            .queue_tile_config(Some(777), TypeIoObject::Int(7))
+            .unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "tileConfig")
+            .unwrap()
+            .packet_id;
+        let mut payload = encode_tile_config_payload(Some(777), &TypeIoObject::Int(7));
+        payload.push(0xff);
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        let event = session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            event,
+            ClientSessionEvent::TileConfig {
+                build_pos: Some(777),
+                config_kind: Some(1),
+                config_kind_name: Some("int".to_string()),
+                parse_failed: true,
+                business_applied: true,
+                cleared_pending_local: true,
+                was_rollback: true,
+                pending_local_match: Some(false),
+                configured_block_outcome: None,
+                configured_block_name: None,
+            }
+        );
+        assert_eq!(session.state().failed_tile_config_parse_count, 1);
+        assert_eq!(session.state().tile_config_projection.rollback_count, 1);
+        assert!(session.state().tile_config_projection.last_business_applied);
+        assert!(session.state().tile_config_projection.last_was_rollback);
+        assert_eq!(
+            session.state().tile_config_projection.last_business_source,
+            Some(crate::session_state::TileConfigAuthoritySource::TileConfigPacket)
+        );
+        assert_eq!(
+            session.state().tile_config_projection.last_business_value,
+            Some(TypeIoObject::Int(1))
+        );
+        assert_eq!(
+            session.state().tile_config_projection.last_replaced_local_value,
+            Some(TypeIoObject::Int(7))
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .pending_local_by_build_pos
+                .get(&777),
+            None
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .authoritative_by_build_pos
+                .get(&777),
+            Some(&TypeIoObject::Int(1))
         );
     }
 
@@ -31139,6 +31290,11 @@ mod tests {
         assert_eq!(session.state().last_hidden_snapshot, None);
         assert_eq!(session.state().hidden_snapshot_delta_projection, None);
         assert!(session.state().hidden_snapshot_ids.is_empty());
+        assert_eq!(session.state().entity_snapshot_hidden_skip_count, 0);
+        assert!(session
+            .state()
+            .last_entity_snapshot_hidden_skipped_ids_sample
+            .is_empty());
         assert_eq!(
             session.state().rules_projection,
             crate::rules_objectives_semantics::RulesProjection::default()

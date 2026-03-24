@@ -561,23 +561,31 @@ fn compose_minimap_panel_status_text(
 ) -> Option<String> {
     let panel = build_minimap_panel(scene, hud, window)?;
     Some(format!(
-        "mini:map{}x{}:win{},{}+{}x{}:f{}:ov{}:fg{}:vis{}:hid{}:k{}/{}/{}/{}/{}",
+        "mini:map{}x{}:rect{},{}-{},{}:f{}:t{}/{}:k{}:v{}p{}:h{}p{}:ov{}:fg{}:obj{}@{}/{}/{}/{}/{}/{}/{}",
         panel.map_width,
         panel.map_height,
         panel.window.origin_x,
         panel.window.origin_y,
-        panel.window.width,
-        panel.window.height,
+        panel.window_last_x,
+        panel.window_last_y,
         optional_focus_tile_status_text(panel.focus_tile),
+        panel.window_tile_count,
+        panel.map_tile_count,
+        panel.known_tile_count,
+        panel.visible_tile_count,
+        percent_status_value(panel.visible_tile_count, panel.known_tile_count),
+        panel.hidden_tile_count,
+        percent_status_value(panel.hidden_tile_count, panel.known_tile_count),
         if panel.overlay_visible { 1 } else { 0 },
         if panel.fog_enabled { 1 } else { 0 },
-        panel.visible_tile_count,
-        panel.hidden_tile_count,
+        panel.tracked_object_count,
         panel.player_count,
         panel.marker_count,
         panel.plan_count,
         panel.block_count,
         panel.runtime_count,
+        panel.terrain_count,
+        panel.unknown_count,
     ))
 }
 
@@ -596,7 +604,7 @@ fn compose_build_config_panel_status_text(hud: &HudModel) -> Option<String> {
         .collect::<Vec<_>>()
         .join(",");
     Some(format!(
-        "cfgpanel:sel{}:r{}:m{}:q{}/{}/{}/{}/{}:h={}:rows{}@{}",
+        "cfgpanel:sel{}:r{}:m{}:p{}/{}:hist{}/{}:o{}:h={}:align={}:fam{}/{}:more{}:t{}@{}",
         optional_i16_label(panel.selected_block_id),
         panel.selected_rotation,
         if panel.building { 1 } else { 0 },
@@ -606,7 +614,11 @@ fn compose_build_config_panel_status_text(hud: &HudModel) -> Option<String> {
         panel.removed_count,
         panel.orphan_authoritative_count,
         build_config_panel_head_status_text(panel.head.as_ref()),
+        build_config_alignment_status_text(panel.selected_matches_head),
         panel.entries.len(),
+        panel.tracked_family_count,
+        panel.truncated_family_count,
+        panel.tracked_sample_count,
         if entries.is_empty() {
             "-".to_string()
         } else {
@@ -661,6 +673,14 @@ fn optional_focus_tile_status_text(value: Option<(usize, usize)>) -> String {
     }
 }
 
+fn build_config_alignment_status_text(value: Option<bool>) -> &'static str {
+    match value {
+        Some(true) => "match",
+        Some(false) => "split",
+        None => "none",
+    }
+}
+
 fn compact_build_inspector_text(value: &str, limit: usize) -> String {
     let mut compact = String::new();
     for (index, ch) in value.chars().enumerate() {
@@ -677,6 +697,14 @@ fn compact_build_inspector_text(value: &str, limit: usize) -> String {
         "-".to_string()
     } else {
         compact
+    }
+}
+
+fn percent_status_value(part: usize, total: usize) -> usize {
+    if total == 0 {
+        0
+    } else {
+        part.saturating_mul(100) / total
     }
 }
 
@@ -1349,12 +1377,12 @@ mod tests {
         assert!(frame
             .status_text
             .contains("hud:team=2 sel=payload-rout~ plans=3 mk=4 map=80x60 ov1 fg1 vis120 hid24"));
+        assert!(frame.status_text.contains(
+            "mini:map80x60:rect0,0-0,0:f0:0:t1/4800:k144:v120p83:h24p16:ov1:fg1:obj4@1/1/1/1/0/0/0"
+        ));
         assert!(frame
             .status_text
-            .contains("mini:map80x60:win0,0+1x1:f0:0:ov1:fg1:vis120:hid24:k1/1/1/1/0"));
-        assert!(frame
-            .status_text
-            .contains("cfgpanel:sel257:r2:m1:q1/2/3/4/1:h=flight@100:99:place:b301:r1:rows2@message#1,power-node#1"));
+            .contains("cfgpanel:sel257:r2:m1:p1/2:hist3/4:o1:h=flight@100:99:place:b301:r1:align=split:fam2/2:more0:t2@message#1,power-node#1"));
         assert!(frame
             .status_text
             .contains("build:sel=257:r2:b1:q1/i2/f3/r4/o1:h=flight@100:99:place:b301:r1:cfg2"));
@@ -1380,6 +1408,87 @@ mod tests {
         let window_title = super::compose_window_title(frame, "demo-client");
         assert!(window_title.contains("demo-client | demo | Wave 7 |"));
         assert!(window_title.contains("| Plans 1"));
+    }
+
+    #[test]
+    fn present_once_surfaces_build_config_overflow_and_extended_minimap_counts() {
+        let backend = RecordingBackend::default();
+        let mut presenter = WindowPresenter::new(backend);
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 16.0,
+                height: 16.0,
+                zoom: 1.0,
+            },
+            objects: vec![
+                render_object("player:1"),
+                render_object("terrain:2"),
+                render_object("unknown"),
+            ],
+        };
+        let hud = HudModel {
+            status_text: "base".to_string(),
+            summary: Some(HudSummary {
+                player_name: "operator".to_string(),
+                team_id: 2,
+                selected_block: "payload-router".to_string(),
+                plan_count: 3,
+                marker_count: 4,
+                map_width: 80,
+                map_height: 60,
+                overlay_visible: false,
+                fog_enabled: false,
+                visible_tile_count: 0,
+                hidden_tile_count: 0,
+            }),
+            build_ui: Some(BuildUiObservability {
+                selected_block_id: Some(301),
+                selected_rotation: 1,
+                building: true,
+                queued_count: 2,
+                inflight_count: 1,
+                finished_count: 4,
+                removed_count: 5,
+                orphan_authoritative_count: 6,
+                head: Some(BuildQueueHeadObservability {
+                    x: 10,
+                    y: 12,
+                    breaking: false,
+                    block_id: Some(301),
+                    rotation: Some(1),
+                    stage: BuildQueueHeadStage::Queued,
+                }),
+                inspector_entries: vec![
+                    crate::BuildConfigInspectorEntryObservability {
+                        family: "alpha".to_string(),
+                        tracked_count: 1,
+                        sample: "one".to_string(),
+                    },
+                    crate::BuildConfigInspectorEntryObservability {
+                        family: "gamma".to_string(),
+                        tracked_count: 4,
+                        sample: "four".to_string(),
+                    },
+                    crate::BuildConfigInspectorEntryObservability {
+                        family: "beta".to_string(),
+                        tracked_count: 2,
+                        sample: "two".to_string(),
+                    },
+                ],
+            }),
+            ..HudModel::default()
+        };
+
+        presenter.present_once(&scene, &hud).unwrap();
+
+        let backend = presenter.into_backend();
+        let frame = backend.frames.last().unwrap();
+        assert!(frame.status_text.contains(
+            "mini:map80x60:rect0,0-1,1:f0:0:t4/4800:k0:v0p0:h0p0:ov0:fg0:obj3@1/0/0/0/0/1/1"
+        ));
+        assert!(frame.status_text.contains(
+            "cfgpanel:sel301:r1:m1:p2/1:hist4/5:o6:h=queued@10:12:place:b301:r1:align=match:fam2/3:more1:t7@gamma#4,beta#2"
+        ));
     }
 
     fn render_object(id: &str) -> RenderObject {

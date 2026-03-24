@@ -53,12 +53,11 @@ impl InboundSnapshotPacketRegistry {
 
         for (_, method) in INBOUND_SNAPSHOT_PACKET_SPECS {
             let entry = registry
-                .first_matching(RemotePacketSelector {
-                    method: method.method_name(),
-                    flow: Some(RemoteFlow::ServerToClient),
-                    unreliable: Some(true),
-                    param_java_types: &[],
-                })
+                .first_matching(
+                    RemotePacketSelector::high_frequency(method)
+                        .with_flow(RemoteFlow::ServerToClient)
+                        .with_unreliable(true),
+                )
                 .ok_or(RemoteManifestError::MissingHighFrequencyPacket(
                     method.method_name(),
                 ))?;

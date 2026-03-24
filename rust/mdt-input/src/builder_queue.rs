@@ -48,6 +48,39 @@ pub struct BuilderQueueStateMachine {
 }
 
 impl BuilderQueueStateMachine {
+    pub fn enqueue_local(
+        &mut self,
+        entry: BuilderQueueEntryObservation,
+        tail: bool,
+    ) -> Option<BuilderQueueEntry> {
+        let key = (entry.x, entry.y);
+        let previous = self.active_by_tile.remove(&key);
+        self.ordered_tiles.retain(|tile| *tile != key);
+        self.active_by_tile.insert(
+            key,
+            BuilderQueueEntry {
+                x: entry.x,
+                y: entry.y,
+                breaking: entry.breaking,
+                block_id: entry.block_id.or_else(|| {
+                    previous
+                        .as_ref()
+                        .filter(|plan| plan.breaking == entry.breaking)
+                        .and_then(|plan| plan.block_id)
+                }),
+                rotation: Some(entry.rotation),
+                stage: BuilderQueueStage::Queued,
+            },
+        );
+        if tail {
+            self.ordered_tiles.push(key);
+        } else {
+            self.ordered_tiles.insert(0, key);
+        }
+        self.recount();
+        previous
+    }
+
     pub fn sync_local_entries<I>(&mut self, entries: I)
     where
         I: IntoIterator<Item = BuilderQueueEntryObservation>,
@@ -171,6 +204,15 @@ impl BuilderQueueStateMachine {
 
     pub fn clear(&mut self) {
         *self = Self::default();
+    }
+
+    pub fn is_building(&self) -> bool {
+        !self.active_by_tile.is_empty()
+    }
+
+    pub fn head_entry(&self) -> Option<&BuilderQueueEntry> {
+        self.head_tile
+            .and_then(|tile| self.active_by_tile.get(&tile))
     }
 
     fn remove_matching_entry(
@@ -499,5 +541,195 @@ mod tests {
         assert_eq!(queue.ordered_tiles, vec![(8, 8)]);
         assert_eq!(queue.head_tile, Some((8, 8)));
         assert_eq!(queue.queued_count, 1);
+    }
+
+    #[test]
+    fn enqueue_local_tail_replaces_same_tile_and_appends_to_queue_tail() {
+        let mut queue = BuilderQueueStateMachine::default();
+
+        queue.enqueue_local(
+            BuilderQueueEntryObservation {
+                x: 1,
+                y: 1,
+                breaking: false,
+                block_id: Some(10),
+                rotation: 0,
+            },
+            true,
+        );
+        queue.enqueue_local(
+            BuilderQueueEntryObservation {
+                x: 2,
+                y: 2,
+                breaking: false,
+                block_id: Some(20),
+                rotation: 1,
+            },
+            true,
+        );
+        let replaced = queue.enqueue_local(
+            BuilderQueueEntryObservation {
+                x: 1,
+                y: 1,
+                breaking: true,
+                block_id: None,
+                rotation: 3,
+            },
+            true,
+        );
+
+        assert_eq!(
+            replaced,
+            Some(BuilderQueueEntry {
+                x: 1,
+                y: 1,
+                breaking: false,
+                block_id: Some(10),
+                rotation: Some(0),
+                stage: BuilderQueueStage::Queued,
+            })
+        );
+        assert_eq!(queue.ordered_tiles, vec![(2, 2), (1, 1)]);
+        assert_eq!(queue.head_tile, Some((2, 2)));
+        assert_eq!(queue.head_entry().map(|entry| entry.breaking), Some(false));
+        assert_eq!(
+            queue
+                .active_by_tile
+                .get(&(1, 1))
+                .and_then(|entry| entry.block_id),
+            None
+        );
+        assert!(queue.is_building());
+        assert_eq!(queue.queued_count, 2);
+        assert_eq!(queue.inflight_count, 0);
+    }
+
+    #[test]
+    fn enqueue_local_front_replaces_inflight_tile_and_downgrades_to_queued_head() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 4,
+                y: 4,
+                breaking: false,
+                block_id: Some(40),
+                rotation: 1,
+            },
+            BuilderQueueEntryObservation {
+                x: 5,
+                y: 5,
+                breaking: false,
+                block_id: Some(50),
+                rotation: 2,
+            },
+        ]);
+        queue.mark_begin(5, 5, false, Some(55), 3);
+
+        let replaced = queue.enqueue_local(
+            BuilderQueueEntryObservation {
+                x: 5,
+                y: 5,
+                breaking: false,
+                block_id: Some(51),
+                rotation: 0,
+            },
+            false,
+        );
+
+        assert_eq!(
+            replaced,
+            Some(BuilderQueueEntry {
+                x: 5,
+                y: 5,
+                breaking: false,
+                block_id: Some(55),
+                rotation: Some(3),
+                stage: BuilderQueueStage::InFlight,
+            })
+        );
+        assert_eq!(queue.ordered_tiles, vec![(5, 5), (4, 4)]);
+        assert_eq!(queue.head_tile, Some((5, 5)));
+        assert_eq!(
+            queue.head_entry().map(|entry| entry.stage),
+            Some(BuilderQueueStage::Queued)
+        );
+        assert_eq!(
+            queue.head_entry().and_then(|entry| entry.block_id),
+            Some(51)
+        );
+        assert_eq!(queue.queued_count, 2);
+        assert_eq!(queue.inflight_count, 0);
+        assert_eq!(queue.last_transition, Some(BuilderQueueTransition::Started));
+    }
+
+    #[test]
+    fn enqueue_local_sequence_keeps_head_selection_deterministic_across_mixed_front_and_tail_ops() {
+        let mut queue = BuilderQueueStateMachine::default();
+
+        queue.enqueue_local(
+            BuilderQueueEntryObservation {
+                x: 1,
+                y: 1,
+                breaking: false,
+                block_id: Some(10),
+                rotation: 0,
+            },
+            true,
+        );
+        queue.enqueue_local(
+            BuilderQueueEntryObservation {
+                x: 2,
+                y: 2,
+                breaking: false,
+                block_id: Some(20),
+                rotation: 1,
+            },
+            true,
+        );
+        queue.enqueue_local(
+            BuilderQueueEntryObservation {
+                x: 1,
+                y: 1,
+                breaking: true,
+                block_id: None,
+                rotation: 2,
+            },
+            true,
+        );
+        queue.enqueue_local(
+            BuilderQueueEntryObservation {
+                x: 3,
+                y: 3,
+                breaking: false,
+                block_id: Some(30),
+                rotation: 3,
+            },
+            false,
+        );
+        queue.enqueue_local(
+            BuilderQueueEntryObservation {
+                x: 2,
+                y: 2,
+                breaking: true,
+                block_id: None,
+                rotation: 0,
+            },
+            false,
+        );
+
+        assert_eq!(queue.ordered_tiles, vec![(2, 2), (3, 3), (1, 1)]);
+        assert_eq!(
+            queue.head_entry(),
+            Some(&BuilderQueueEntry {
+                x: 2,
+                y: 2,
+                breaking: true,
+                block_id: None,
+                rotation: Some(0),
+                stage: BuilderQueueStage::Queued,
+            })
+        );
+        assert_eq!(queue.queued_count, 3);
+        assert_eq!(queue.inflight_count, 0);
     }
 }

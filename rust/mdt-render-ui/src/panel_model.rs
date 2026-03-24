@@ -13,16 +13,24 @@ pub struct MinimapPanelModel {
     pub map_width: usize,
     pub map_height: usize,
     pub window: PresenterViewWindow,
+    pub window_last_x: usize,
+    pub window_last_y: usize,
+    pub window_tile_count: usize,
+    pub map_tile_count: usize,
+    pub known_tile_count: usize,
     pub focus_tile: Option<(usize, usize)>,
     pub overlay_visible: bool,
     pub fog_enabled: bool,
     pub visible_tile_count: usize,
     pub hidden_tile_count: usize,
+    pub tracked_object_count: usize,
     pub player_count: usize,
     pub marker_count: usize,
     pub plan_count: usize,
     pub block_count: usize,
     pub runtime_count: usize,
+    pub terrain_count: usize,
+    pub unknown_count: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,9 +40,14 @@ pub struct BuildConfigPanelModel {
     pub building: bool,
     pub queued_count: usize,
     pub inflight_count: usize,
+    pub pending_count: usize,
     pub finished_count: u64,
     pub removed_count: u64,
     pub orphan_authoritative_count: u64,
+    pub tracked_family_count: usize,
+    pub tracked_sample_count: usize,
+    pub truncated_family_count: usize,
+    pub selected_matches_head: Option<bool>,
     pub head: Option<BuildConfigHeadModel>,
     pub entries: Vec<BuildConfigPanelEntryModel>,
 }
@@ -62,6 +75,19 @@ pub fn build_minimap_panel(
     window: PresenterViewWindow,
 ) -> Option<MinimapPanelModel> {
     let summary = hud.summary.as_ref()?;
+    let player_count = semantic_count(scene, RenderObjectSemanticKind::Player);
+    let marker_count = semantic_count(scene, RenderObjectSemanticKind::Marker);
+    let plan_count = semantic_count(scene, RenderObjectSemanticKind::Plan);
+    let block_count = semantic_count(scene, RenderObjectSemanticKind::Block);
+    let runtime_count = semantic_count(scene, RenderObjectSemanticKind::Runtime);
+    let terrain_count = semantic_count(scene, RenderObjectSemanticKind::Terrain);
+    let unknown_count = semantic_count(scene, RenderObjectSemanticKind::Unknown);
+    let window_last_x = window
+        .origin_x
+        .saturating_add(window.width.saturating_sub(1));
+    let window_last_y = window
+        .origin_y
+        .saturating_add(window.height.saturating_sub(1));
     let focus_tile = scene
         .objects
         .iter()
@@ -77,16 +103,32 @@ pub fn build_minimap_panel(
         map_width: summary.map_width,
         map_height: summary.map_height,
         window,
+        window_last_x,
+        window_last_y,
+        window_tile_count: window.width.saturating_mul(window.height),
+        map_tile_count: summary.map_width.saturating_mul(summary.map_height),
+        known_tile_count: summary
+            .visible_tile_count
+            .saturating_add(summary.hidden_tile_count),
         focus_tile,
         overlay_visible: summary.overlay_visible,
         fog_enabled: summary.fog_enabled,
         visible_tile_count: summary.visible_tile_count,
         hidden_tile_count: summary.hidden_tile_count,
-        player_count: semantic_count(scene, RenderObjectSemanticKind::Player),
-        marker_count: semantic_count(scene, RenderObjectSemanticKind::Marker),
-        plan_count: semantic_count(scene, RenderObjectSemanticKind::Plan),
-        block_count: semantic_count(scene, RenderObjectSemanticKind::Block),
-        runtime_count: semantic_count(scene, RenderObjectSemanticKind::Runtime),
+        tracked_object_count: player_count
+            .saturating_add(marker_count)
+            .saturating_add(plan_count)
+            .saturating_add(block_count)
+            .saturating_add(runtime_count)
+            .saturating_add(terrain_count)
+            .saturating_add(unknown_count),
+        player_count,
+        marker_count,
+        plan_count,
+        block_count,
+        runtime_count,
+        terrain_count,
+        unknown_count,
     })
 }
 
@@ -95,15 +137,49 @@ pub fn build_build_config_panel(
     max_entries: usize,
 ) -> Option<BuildConfigPanelModel> {
     let build_ui = hud.build_ui.as_ref()?;
+    let mut entries = build_ui.inspector_entries.iter().collect::<Vec<_>>();
+    entries.sort_by(|left, right| {
+        right
+            .tracked_count
+            .cmp(&left.tracked_count)
+            .then_with(|| left.family.cmp(&right.family))
+            .then_with(|| left.sample.cmp(&right.sample))
+    });
+    let tracked_family_count = entries.len();
+    let tracked_sample_count = entries.iter().map(|entry| entry.tracked_count).sum();
+    let capped_entries = entries
+        .into_iter()
+        .take(max_entries)
+        .map(|entry| BuildConfigPanelEntryModel {
+            family: entry.family.clone(),
+            tracked_count: entry.tracked_count,
+            sample: entry.sample.clone(),
+        })
+        .collect::<Vec<_>>();
     Some(BuildConfigPanelModel {
         selected_block_id: build_ui.selected_block_id,
         selected_rotation: build_ui.selected_rotation,
         building: build_ui.building,
         queued_count: build_ui.queued_count,
         inflight_count: build_ui.inflight_count,
+        pending_count: build_ui
+            .queued_count
+            .saturating_add(build_ui.inflight_count),
         finished_count: build_ui.finished_count,
         removed_count: build_ui.removed_count,
         orphan_authoritative_count: build_ui.orphan_authoritative_count,
+        tracked_family_count,
+        tracked_sample_count,
+        truncated_family_count: tracked_family_count.saturating_sub(capped_entries.len()),
+        selected_matches_head: build_ui.head.as_ref().and_then(|head| {
+            build_ui.selected_block_id.map(|selected_block_id| {
+                head.block_id == Some(selected_block_id)
+                    && head
+                        .rotation
+                        .map(|rotation| i32::from(rotation) == build_ui.selected_rotation)
+                        .unwrap_or(true)
+            })
+        }),
         head: build_ui.head.as_ref().map(|head| BuildConfigHeadModel {
             x: head.x,
             y: head.y,
@@ -112,16 +188,7 @@ pub fn build_build_config_panel(
             rotation: head.rotation,
             stage: head.stage,
         }),
-        entries: build_ui
-            .inspector_entries
-            .iter()
-            .take(max_entries)
-            .map(|entry| BuildConfigPanelEntryModel {
-                family: entry.family.clone(),
-                tracked_count: entry.tracked_count,
-                sample: entry.sample.clone(),
-            })
-            .collect(),
+        entries: capped_entries,
     })
 }
 
@@ -220,15 +287,23 @@ mod tests {
 
         assert_eq!(panel.map_width, 80);
         assert_eq!(panel.map_height, 60);
+        assert_eq!(panel.window_last_x, 9);
+        assert_eq!(panel.window_last_y, 7);
+        assert_eq!(panel.window_tile_count, 56);
+        assert_eq!(panel.map_tile_count, 4800);
+        assert_eq!(panel.known_tile_count, 144);
         assert_eq!(panel.focus_tile, Some((5, 3)));
+        assert_eq!(panel.tracked_object_count, 5);
         assert_eq!(panel.marker_count, 1);
         assert_eq!(panel.plan_count, 1);
         assert_eq!(panel.block_count, 1);
         assert_eq!(panel.runtime_count, 1);
+        assert_eq!(panel.terrain_count, 0);
+        assert_eq!(panel.unknown_count, 0);
     }
 
     #[test]
-    fn builds_build_config_panel_with_capped_entries() {
+    fn builds_build_config_panel_with_capped_and_sorted_entries() {
         let hud = HudModel {
             build_ui: Some(BuildUiObservability {
                 selected_block_id: Some(257),
@@ -255,21 +330,32 @@ mod tests {
                     },
                     BuildConfigInspectorEntryObservability {
                         family: "power-node".to_string(),
-                        tracked_count: 1,
+                        tracked_count: 3,
                         sample: "23:45:links=24:46|25:47".to_string(),
+                    },
+                    BuildConfigInspectorEntryObservability {
+                        family: "battery".to_string(),
+                        tracked_count: 1,
+                        sample: "20:41:cap=120".to_string(),
                     },
                 ],
             }),
             ..HudModel::default()
         };
 
-        let panel = build_build_config_panel(&hud, 1).unwrap();
+        let panel = build_build_config_panel(&hud, 2).unwrap();
         assert_eq!(panel.selected_block_id, Some(257));
+        assert_eq!(panel.pending_count, 3);
+        assert_eq!(panel.tracked_family_count, 3);
+        assert_eq!(panel.tracked_sample_count, 5);
+        assert_eq!(panel.truncated_family_count, 1);
+        assert_eq!(panel.selected_matches_head, Some(false));
         assert_eq!(
             panel.head.as_ref().map(|head| head.stage),
             Some(BuildQueueHeadStage::InFlight)
         );
-        assert_eq!(panel.entries.len(), 1);
-        assert_eq!(panel.entries[0].family, "message");
+        assert_eq!(panel.entries.len(), 2);
+        assert_eq!(panel.entries[0].family, "power-node");
+        assert_eq!(panel.entries[1].family, "battery");
     }
 }

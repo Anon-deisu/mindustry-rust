@@ -1,13 +1,17 @@
 use mdt_remote::{
     RemoteFlow, RemoteManifest, RemoteManifestError, RemotePacketRegistry, RemotePacketSelector,
+    RemoteParamKind,
 };
 use std::collections::HashSet;
 
 const INBOUND_REMOTE_FAMILY_COUNT: usize = 6;
 
-const SERVER_PACKET_TEXT_PARAMS: [&str; 3] = ["Player", "java.lang.String", "java.lang.String"];
-const SERVER_PACKET_BINARY_PARAMS: [&str; 3] = ["Player", "java.lang.String", "byte[]"];
-const CLIENT_LOGIC_DATA_PARAMS: [&str; 3] = ["Player", "java.lang.String", "java.lang.Object"];
+const SERVER_PACKET_TEXT_WIRE_PARAM_KINDS: [RemoteParamKind; 2] =
+    [RemoteParamKind::Opaque, RemoteParamKind::Opaque];
+const SERVER_PACKET_BINARY_WIRE_PARAM_KINDS: [RemoteParamKind; 2] =
+    [RemoteParamKind::Opaque, RemoteParamKind::Bytes];
+const CLIENT_LOGIC_DATA_WIRE_PARAM_KINDS: [RemoteParamKind; 2] =
+    [RemoteParamKind::Opaque, RemoteParamKind::Opaque];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InboundRemoteFamily {
@@ -63,16 +67,25 @@ impl InboundRemoteFamily {
         RemoteFlow::ClientToServer
     }
 
-    pub fn param_java_types(self) -> &'static [&'static str] {
+    pub fn wire_param_kinds(self) -> &'static [RemoteParamKind] {
         match self {
-            Self::ServerPacketReliable | Self::ServerPacketUnreliable => &SERVER_PACKET_TEXT_PARAMS,
+            Self::ServerPacketReliable | Self::ServerPacketUnreliable => {
+                &SERVER_PACKET_TEXT_WIRE_PARAM_KINDS
+            }
             Self::ServerBinaryPacketReliable | Self::ServerBinaryPacketUnreliable => {
-                &SERVER_PACKET_BINARY_PARAMS
+                &SERVER_PACKET_BINARY_WIRE_PARAM_KINDS
             }
             Self::ClientLogicDataReliable | Self::ClientLogicDataUnreliable => {
-                &CLIENT_LOGIC_DATA_PARAMS
+                &CLIENT_LOGIC_DATA_WIRE_PARAM_KINDS
             }
         }
+    }
+
+    pub fn selector(self) -> RemotePacketSelector<'static> {
+        RemotePacketSelector::method(self.method_name())
+            .with_flow(self.selector_flow())
+            .with_unreliable(self.unreliable())
+            .with_wire_param_kinds(self.wire_param_kinds())
     }
 }
 
@@ -83,17 +96,12 @@ impl InboundRemotePacketRegistry {
         let mut seen_packet_ids = HashSet::with_capacity(INBOUND_REMOTE_FAMILY_COUNT);
 
         for family in InboundRemoteFamily::ordered() {
-            let entry = registry
-                .first_matching(RemotePacketSelector {
-                    method: family.method_name(),
-                    flow: Some(family.selector_flow()),
-                    unreliable: Some(family.unreliable()),
-                    param_java_types: family.param_java_types(),
-                })
-                .ok_or(RemoteManifestError::InvalidRemotePacketMetadata(format!(
+            let entry = registry.first_matching(family.selector()).ok_or(
+                RemoteManifestError::InvalidRemotePacketMetadata(format!(
                     "missing inbound remote family packet in manifest: {}",
                     family.method_name(),
-                )))?;
+                )),
+            )?;
             if !seen_packet_ids.insert(entry.packet_id) {
                 return Err(RemoteManifestError::InvalidPacketSequence(format!(
                     "duplicate inbound remote family packet id: {}",
