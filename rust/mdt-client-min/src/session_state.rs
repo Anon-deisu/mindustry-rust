@@ -3806,6 +3806,8 @@ impl SessionState {
         self.entity_table_projection
             .apply_hidden_ids(&trigger_hidden_ids);
         let local_player_entity_id = self.entity_table_projection.local_player_entity_id;
+        let hidden_auxiliary_cleanup_ids =
+            self.hidden_snapshot_auxiliary_cleanup_ids(&trigger_hidden_ids, local_player_entity_id);
         let hidden_lifecycle_remove_ids =
             self.hidden_snapshot_lifecycle_remove_ids(&trigger_hidden_ids, local_player_entity_id);
         let hidden_removed_ids = self
@@ -3814,9 +3816,9 @@ impl SessionState {
         self.entity_semantic_projection
             .remove_hidden_entities(&hidden_lifecycle_remove_ids, local_player_entity_id);
         self.resource_delta_projection
-            .remove_hidden_entities(&hidden_lifecycle_remove_ids, local_player_entity_id);
+            .remove_hidden_entities(&hidden_auxiliary_cleanup_ids, local_player_entity_id);
         self.payload_lifecycle_projection
-            .remove_hidden_entities(&hidden_lifecycle_remove_ids, local_player_entity_id);
+            .remove_hidden_entities(&hidden_auxiliary_cleanup_ids, local_player_entity_id);
         self.hidden_lifecycle_remove_count = self
             .hidden_lifecycle_remove_count
             .saturating_add(hidden_removed_ids.len() as u64);
@@ -3832,6 +3834,18 @@ impl SessionState {
             added_sample_ids,
             removed_sample_ids,
         });
+    }
+
+    fn hidden_snapshot_auxiliary_cleanup_ids(
+        &self,
+        trigger_hidden_ids: &BTreeSet<i32>,
+        local_player_entity_id: Option<i32>,
+    ) -> BTreeSet<i32> {
+        trigger_hidden_ids
+            .iter()
+            .copied()
+            .filter(|entity_id| Some(*entity_id) != local_player_entity_id)
+            .collect()
     }
 
     fn hidden_snapshot_lifecycle_remove_ids(

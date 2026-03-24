@@ -2612,6 +2612,154 @@ mod tests {
     }
 
     #[test]
+    fn hidden_snapshot_cleans_orphan_resource_and_payload_rows_without_entity_lifecycle_remove() {
+        let payload = [
+            0x00, 0x00, 0x00, 0x02, // count
+            0x00, 0x00, 0x00, 0x65, // 101 local
+            0x00, 0x00, 0x01, 0x2F, // 303 hidden non-local
+        ];
+        let mut state = SessionState::default();
+        state.entity_table_projection.local_player_entity_id = Some(101);
+        state.entity_table_projection.by_entity_id.insert(
+            101,
+            EntityProjection {
+                class_id: 12,
+                hidden: false,
+                is_local_player: true,
+                unit_kind: 2,
+                unit_value: 101,
+                x_bits: 0.0f32.to_bits(),
+                y_bits: 0.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
+        state
+            .resource_delta_projection
+            .entity_item_stack_by_entity_id
+            .insert(
+                101,
+                ResourceUnitItemStack {
+                    item_id: Some(1),
+                    amount: 5,
+                },
+            );
+        state
+            .resource_delta_projection
+            .entity_item_stack_by_entity_id
+            .insert(
+                303,
+                ResourceUnitItemStack {
+                    item_id: Some(2),
+                    amount: 7,
+                },
+            );
+        state.payload_lifecycle_projection.by_carrier.insert(
+            UnitRefProjection {
+                kind: 2,
+                value: 303,
+            },
+            PayloadLifecycleCarrierProjection {
+                carrier: UnitRefProjection {
+                    kind: 2,
+                    value: 303,
+                },
+                target_unit: Some(UnitRefProjection {
+                    kind: 2,
+                    value: 404,
+                }),
+                target_build: None,
+                drop_tile: None,
+                on_ground: Some(false),
+                removed_target_unit: false,
+                removed_target_build: false,
+                removed_carrier: false,
+            },
+        );
+        state.payload_lifecycle_projection.by_carrier.insert(
+            UnitRefProjection {
+                kind: 2,
+                value: 505,
+            },
+            PayloadLifecycleCarrierProjection {
+                carrier: UnitRefProjection {
+                    kind: 2,
+                    value: 505,
+                },
+                target_unit: Some(UnitRefProjection {
+                    kind: 2,
+                    value: 303,
+                }),
+                target_build: None,
+                drop_tile: None,
+                on_ground: Some(false),
+                removed_target_unit: false,
+                removed_target_build: false,
+                removed_carrier: false,
+            },
+        );
+        state.payload_lifecycle_projection.by_carrier.insert(
+            UnitRefProjection {
+                kind: 2,
+                value: 101,
+            },
+            PayloadLifecycleCarrierProjection {
+                carrier: UnitRefProjection {
+                    kind: 2,
+                    value: 101,
+                },
+                target_unit: Some(UnitRefProjection {
+                    kind: 2,
+                    value: 101,
+                }),
+                target_build: None,
+                drop_tile: None,
+                on_ground: Some(false),
+                removed_target_unit: false,
+                removed_target_build: false,
+                removed_carrier: false,
+            },
+        );
+
+        ingest_inbound_snapshot(
+            &mut state,
+            InboundSnapshot::new(HighFrequencyRemoteMethod::HiddenSnapshot, 11, &payload),
+        );
+
+        assert!(state.entity_table_projection.by_entity_id[&101].hidden);
+        assert!(state
+            .resource_delta_projection
+            .entity_item_stack_by_entity_id
+            .contains_key(&101));
+        assert!(!state
+            .resource_delta_projection
+            .entity_item_stack_by_entity_id
+            .contains_key(&303));
+        assert!(!state
+            .payload_lifecycle_projection
+            .by_carrier
+            .contains_key(&UnitRefProjection {
+                kind: 2,
+                value: 303
+            }));
+        assert!(state
+            .payload_lifecycle_projection
+            .by_carrier
+            .contains_key(&UnitRefProjection {
+                kind: 2,
+                value: 101
+            }));
+        assert!(
+            state.payload_lifecycle_projection.by_carrier[&UnitRefProjection {
+                kind: 2,
+                value: 505
+            }]
+                .removed_target_unit
+        );
+        assert_eq!(state.hidden_lifecycle_remove_count, 0);
+        assert!(state.last_hidden_lifecycle_removed_ids_sample.is_empty());
+    }
+
+    #[test]
     fn malformed_hidden_snapshot_tracks_parse_error() {
         let payload = [0xFF, 0xFF, 0xFF, 0xFF];
         let mut state = SessionState::default();
