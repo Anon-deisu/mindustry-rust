@@ -1,8 +1,8 @@
+use crate::client_session::{ClientLogicDataTransport, ClientSession, ClientSessionEvent};
 use crate::custom_packet_runtime::{
     RuntimeCustomPacketSemanticEncoding, RuntimeCustomPacketSemanticKind,
     RuntimeCustomPacketSemanticSpec,
 };
-use crate::client_session::{ClientLogicDataTransport, ClientSession, ClientSessionEvent};
 use mdt_typeio::{unpack_point2, TypeIoObject};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, VecDeque};
@@ -20,6 +20,15 @@ pub struct RuntimeCustomPacketOverlayMarker {
     pub semantic: RuntimeCustomPacketSemanticKind,
     pub x: f32,
     pub y: f32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RuntimeCustomPacketSurfaceSummaryEntry {
+    pub key: String,
+    pub encoding: RuntimeCustomPacketSemanticEncoding,
+    pub semantic: RuntimeCustomPacketSemanticKind,
+    pub stable_value: String,
+    pub marker: Option<RuntimeCustomPacketOverlayMarker>,
 }
 
 #[derive(Debug, Default)]
@@ -61,6 +70,12 @@ struct OverlayEntry {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+struct SummaryEntry {
+    serial: u64,
+    entry: RuntimeCustomPacketSurfaceSummaryEntry,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 struct OverlayMarkerEntry {
     serial: u64,
     marker: RuntimeCustomPacketOverlayMarker,
@@ -85,6 +100,13 @@ impl RuntimeCustomPacketSurface {
 
     pub fn overlay_markers(&self, max_entries: usize) -> Vec<RuntimeCustomPacketOverlayMarker> {
         self.state.borrow().overlay_markers(max_entries)
+    }
+
+    pub fn latest_summary_entries(
+        &self,
+        max_entries: usize,
+    ) -> Vec<RuntimeCustomPacketSurfaceSummaryEntry> {
+        self.state.borrow().latest_summary_entries(max_entries)
     }
 }
 
@@ -457,14 +479,55 @@ impl RuntimeCustomPacketSurfaceState {
                 .cmp(&left.serial)
                 .then_with(|| left.marker.key.cmp(&right.marker.key))
                 .then_with(|| {
-                    encoding_label(left.marker.encoding)
-                        .cmp(encoding_label(right.marker.encoding))
+                    encoding_label(left.marker.encoding).cmp(encoding_label(right.marker.encoding))
                 })
         });
         entries
             .into_iter()
             .take(max_entries)
             .map(|entry| entry.marker)
+            .collect()
+    }
+
+    fn latest_summary_entries(
+        &self,
+        max_entries: usize,
+    ) -> Vec<RuntimeCustomPacketSurfaceSummaryEntry> {
+        if max_entries == 0 {
+            return Vec::new();
+        }
+        let mut entries = Vec::new();
+        collect_summary_entries(
+            &mut entries,
+            RuntimeCustomPacketSemanticEncoding::Text,
+            &self.text_routes,
+        );
+        collect_summary_entries(
+            &mut entries,
+            RuntimeCustomPacketSemanticEncoding::Binary,
+            &self.binary_routes,
+        );
+        collect_summary_entries(
+            &mut entries,
+            RuntimeCustomPacketSemanticEncoding::LogicData,
+            &self.logic_routes,
+        );
+        entries.sort_by(|left, right| {
+            right
+                .serial
+                .cmp(&left.serial)
+                .then_with(|| left.entry.key.cmp(&right.entry.key))
+                .then_with(|| {
+                    encoding_label(left.entry.encoding).cmp(encoding_label(right.entry.encoding))
+                })
+                .then_with(|| {
+                    semantic_label(left.entry.semantic).cmp(semantic_label(right.entry.semantic))
+                })
+        });
+        entries
+            .into_iter()
+            .take(max_entries)
+            .map(|entry| entry.entry)
             .collect()
     }
 }
@@ -583,6 +646,33 @@ fn collect_overlay_marker_entries(
             entries.push(OverlayMarkerEntry {
                 serial: route.last_update_serial,
                 marker: marker.clone(),
+            });
+        }
+    }
+}
+
+fn collect_summary_entries(
+    entries: &mut Vec<SummaryEntry>,
+    encoding: RuntimeCustomPacketSemanticEncoding,
+    routes: &BTreeMap<String, Vec<RuntimeCustomPacketSurfaceRouteState>>,
+) {
+    for (key, route_states) in routes {
+        for route in route_states {
+            let Some(stable_value) = route.last_stable_value.as_ref() else {
+                continue;
+            };
+            if route.last_update_serial == 0 {
+                continue;
+            }
+            entries.push(SummaryEntry {
+                serial: route.last_update_serial,
+                entry: RuntimeCustomPacketSurfaceSummaryEntry {
+                    key: key.clone(),
+                    encoding,
+                    semantic: route.semantic,
+                    stable_value: stable_value.clone(),
+                    marker: route.last_marker.clone(),
+                },
             });
         }
     }
@@ -1276,5 +1366,57 @@ mod tests {
         state.observe_events(&[ClientSessionEvent::WorldDataBegin]);
 
         assert!(state.overlay_markers(4).is_empty());
+    }
+
+    #[test]
+    fn runtime_custom_packet_surface_latest_summary_entries_export_stable_values_and_markers() {
+        let mut state = RuntimeCustomPacketSurfaceState::default();
+        state.register(&RuntimeCustomPacketSemanticSpec {
+            key: "custom.status".to_string(),
+            encoding: RuntimeCustomPacketSemanticEncoding::Text,
+            semantic: RuntimeCustomPacketSemanticKind::HudText,
+        });
+        state.register(&RuntimeCustomPacketSemanticSpec {
+            key: "logic.pos".to_string(),
+            encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+            semantic: RuntimeCustomPacketSemanticKind::WorldPos,
+        });
+
+        state.record_text_handler("custom.status", "wave ready");
+        state.record_logic_data_handler(
+            "logic.pos",
+            ClientLogicDataTransport::Reliable,
+            &TypeIoObject::Point2 { x: 7, y: 9 },
+        );
+
+        assert_eq!(
+            state.latest_summary_entries(4),
+            vec![
+                RuntimeCustomPacketSurfaceSummaryEntry {
+                    key: "logic.pos".to_string(),
+                    encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+                    semantic: RuntimeCustomPacketSemanticKind::WorldPos,
+                    stable_value: "7,9".to_string(),
+                    marker: Some(RuntimeCustomPacketOverlayMarker {
+                        key: "logic.pos".to_string(),
+                        encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+                        semantic: RuntimeCustomPacketSemanticKind::WorldPos,
+                        x: 7.0,
+                        y: 9.0,
+                    }),
+                },
+                RuntimeCustomPacketSurfaceSummaryEntry {
+                    key: "custom.status".to_string(),
+                    encoding: RuntimeCustomPacketSemanticEncoding::Text,
+                    semantic: RuntimeCustomPacketSemanticKind::HudText,
+                    stable_value: "wave ready".to_string(),
+                    marker: None,
+                },
+            ]
+        );
+
+        state.observe_events(&[ClientSessionEvent::WorldDataBegin]);
+
+        assert!(state.latest_summary_entries(4).is_empty());
     }
 }

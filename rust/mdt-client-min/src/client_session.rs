@@ -140,6 +140,10 @@ const BLOCK_NAME_ADDITIVE_RECONSTRUCTOR: &str = "additive-reconstructor";
 const BLOCK_NAME_MULTIPLICATIVE_RECONSTRUCTOR: &str = "multiplicative-reconstructor";
 const BLOCK_NAME_EXPONENTIAL_RECONSTRUCTOR: &str = "exponential-reconstructor";
 const BLOCK_NAME_TETRATIVE_RECONSTRUCTOR: &str = "tetrative-reconstructor";
+#[cfg(test)]
+const BLOCK_NAME_MEMORY_CELL: &str = "memory-cell";
+#[cfg(test)]
+const BLOCK_NAME_MEMORY_BANK: &str = "memory-bank";
 const CANVAS_CONFIG_BYTES_LEN: usize = 54;
 const LARGE_CANVAS_CONFIG_BYTES_LEN: usize = 288;
 const MESSAGE_BLOCK_MAX_TEXT_LENGTH: usize = 300;
@@ -7088,6 +7092,7 @@ impl ClientSession {
             let duct_unloader_item_id = summarize_duct_unloader_item_id(&building.parsed_tail);
             let reconstructor_command_id =
                 summarize_reconstructor_command_id(&building.parsed_tail);
+            let memory_values_bits = summarize_memory_values_bits(&building.parsed_tail);
             let canvas_bytes = summarize_canvas_bytes(&building.parsed_tail);
             let payload_mass_driver_link =
                 summarize_payload_mass_driver_link(&building.parsed_tail);
@@ -7119,6 +7124,7 @@ impl ClientSession {
                 payload_router_sorted_content,
                 duct_unloader_item_id,
                 reconstructor_command_id,
+                memory_values_bits,
                 canvas_bytes,
                 payload_mass_driver_link,
                 nullable_item_id: summarize_nullable_item_config_item_id(&building.parsed_tail),
@@ -7213,6 +7219,11 @@ impl ClientSession {
             self.state
                 .configured_block_projection
                 .apply_reconstructor_command(build_pos, command_id);
+        }
+        if let Some(values_bits) = summarize_memory_values_bits(parsed_tail) {
+            self.state
+                .configured_block_projection
+                .apply_memory_values_bits(build_pos, values_bits);
         }
         if let Some(bytes) = summarize_canvas_bytes(parsed_tail) {
             self.state
@@ -7319,6 +7330,11 @@ impl ClientSession {
             self.state
                 .configured_block_projection
                 .apply_reconstructor_command(entry.build_pos, command_id);
+        }
+        if let Some(values_bits) = entry.memory_values_bits.clone() {
+            self.state
+                .configured_block_projection
+                .apply_memory_values_bits(entry.build_pos, values_bits);
         }
         if let Some(bytes) = entry.canvas_bytes.clone() {
             self.state
@@ -11253,6 +11269,7 @@ struct BlockSnapshotExtraEntrySummary {
     payload_router_sorted_content: Option<Option<ConfiguredContentRef>>,
     duct_unloader_item_id: Option<Option<i16>>,
     reconstructor_command_id: Option<Option<u16>>,
+    memory_values_bits: Option<Vec<u64>>,
     canvas_bytes: Option<Vec<u8>>,
     payload_mass_driver_link: Option<i32>,
     nullable_item_id: Option<Option<i16>>,
@@ -11532,6 +11549,13 @@ fn summarize_reconstructor_command_id(
         return None;
     };
     Some(reconstructor.command_id.map(u16::from))
+}
+
+fn summarize_memory_values_bits(parsed_tail: &mdt_world::ParsedBuildingTail) -> Option<Vec<u64>> {
+    let mdt_world::ParsedBuildingTail::Memory(memory) = parsed_tail else {
+        return None;
+    };
+    Some(memory.values_bits.clone())
 }
 
 fn summarize_canvas_bytes(parsed_tail: &mdt_world::ParsedBuildingTail) -> Option<Vec<u8>> {
@@ -18052,6 +18076,7 @@ mod tests {
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 reconstructor_command_id: None,
+                memory_values_bits: None,
                 canvas_bytes: None,
                 payload_mass_driver_link: None,
                 nullable_item_id: None,
@@ -18127,6 +18152,7 @@ mod tests {
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 reconstructor_command_id: None,
+                memory_values_bits: None,
                 canvas_bytes: None,
                 payload_mass_driver_link: None,
                 nullable_item_id: None,
@@ -18158,9 +18184,11 @@ mod tests {
         let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let build_pos_message = pack_build_pos_for_block_snapshot_test(20, 21);
         let build_pos_router = pack_build_pos_for_block_snapshot_test(22, 23);
+        let build_pos_memory = pack_build_pos_for_block_snapshot_test(24, 25);
         let payload_block_id =
             loaded_world_content_id_for_name(&session, BLOCK_CONTENT_TYPE, "copper-wall");
         let unit_id = loaded_world_content_id_for_name(&session, UNIT_CONTENT_TYPE, "dagger");
+        let memory_values_bits = vec![1.0f64.to_bits(), (-3.5f64).to_bits()];
         let _ = manifest;
 
         session.apply_loaded_world_parsed_tail_business(
@@ -18206,6 +18234,14 @@ mod tests {
                 rec_dir: 0,
             }),
         );
+        session.apply_loaded_world_parsed_tail_business(
+            build_pos_memory,
+            Some(BLOCK_NAME_MEMORY_CELL),
+            &mdt_world::ParsedBuildingTail::Memory(mdt_world::MemoryTailSnapshot {
+                len: memory_values_bits.len(),
+                values_bits: memory_values_bits.clone(),
+            }),
+        );
 
         assert_eq!(
             session
@@ -18226,15 +18262,26 @@ mod tests {
                 content_id: unit_id,
             }))
         );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .memory_values_bits_by_build_pos
+                .get(&build_pos_memory),
+            Some(&memory_values_bits)
+        );
     }
 
     #[test]
     fn loaded_world_tail_business_helper_refreshes_runtime_typed_building_projection() {
         let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let message_pos = pack_build_pos_for_block_snapshot_test(20, 21);
+        let memory_pos = pack_build_pos_for_block_snapshot_test(22, 23);
         let canvas_pos = pack_build_pos_for_block_snapshot_test(24, 25);
         let message_block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_MESSAGE);
+        let memory_block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_MEMORY_BANK);
         let canvas_block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_CANVAS);
+        let memory_values_bits = vec![0.5f64.to_bits(), 8.0f64.to_bits(), (-1.25f64).to_bits()];
         let canvas_bytes = canvas_config_bytes(CANVAS_CONFIG_BYTES_LEN, 0x81);
 
         session.state.building_table_projection.seed_world_baseline(
@@ -18254,6 +18301,24 @@ mod tests {
             Some(0x40),
             Some(0x20),
             Some(99),
+        );
+        session.state.building_table_projection.seed_world_baseline(
+            memory_pos,
+            memory_block_id,
+            Some(BLOCK_NAME_MEMORY_BANK.to_string()),
+            2,
+            3,
+            Some(4),
+            Some(5),
+            Some(0x3f40_0000),
+            Some(0x3e80_0000),
+            Some(124),
+            Some(false),
+            0x4020_0000,
+            Some(true),
+            Some(0x30),
+            Some(0x18),
+            Some(77),
         );
         session.state.building_table_projection.seed_world_baseline(
             canvas_pos,
@@ -18279,6 +18344,14 @@ mod tests {
             Some(BLOCK_NAME_MESSAGE),
             &mdt_world::ParsedBuildingTail::Message(mdt_world::MessageTailSnapshot {
                 message: "loaded-world note".to_string(),
+            }),
+        );
+        session.apply_loaded_world_parsed_tail_business(
+            memory_pos,
+            Some(BLOCK_NAME_MEMORY_BANK),
+            &mdt_world::ParsedBuildingTail::Memory(mdt_world::MemoryTailSnapshot {
+                len: memory_values_bits.len(),
+                values_bits: memory_values_bits.clone(),
             }),
         );
         session.apply_loaded_world_parsed_tail_business(
@@ -18322,6 +18395,18 @@ mod tests {
                 build_turret_plan_count: None,
                 last_update: crate::session_state::BuildingProjectionUpdateKind::WorldBaseline,
             })
+        );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(memory_pos)
+                .map(|building| (&building.value, building.health_bits, building.rotation)),
+            Some((
+                &crate::session_state::TypedBuildingRuntimeValue::Memory(memory_values_bits),
+                Some(0x4020_0000),
+                Some(2),
+            ))
         );
         assert_eq!(
             session
@@ -18838,8 +18923,10 @@ mod tests {
         let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let message_pos = pack_build_pos_for_block_snapshot_test(24, 25);
         let router_pos = pack_build_pos_for_block_snapshot_test(26, 27);
+        let memory_pos = pack_build_pos_for_block_snapshot_test(28, 29);
         let payload_block_id =
             loaded_world_content_id_for_name(&session, BLOCK_CONTENT_TYPE, "copper-wall");
+        let memory_values_bits = vec![4.0f64.to_bits(), (-6.5f64).to_bits()];
 
         session.apply_block_snapshot_entries_from_loaded_world_entries(vec![
             BlockSnapshotExtraEntrySummary {
@@ -18869,6 +18956,7 @@ mod tests {
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 reconstructor_command_id: None,
+                memory_values_bits: None,
                 canvas_bytes: None,
                 payload_mass_driver_link: None,
                 nullable_item_id: None,
@@ -18906,6 +18994,42 @@ mod tests {
                 })),
                 duct_unloader_item_id: None,
                 reconstructor_command_id: None,
+                memory_values_bits: None,
+                canvas_bytes: None,
+                payload_mass_driver_link: None,
+                nullable_item_id: None,
+                item_bridge_link: None,
+                light_color: None,
+                switch_enabled: None,
+            },
+            BlockSnapshotExtraEntrySummary {
+                build_pos: memory_pos,
+                block_id: 302,
+                block_name: Some(BLOCK_NAME_MEMORY_CELL.to_string()),
+                health_bits: Some(0x3f80_0000),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                enabled: Some(true),
+                module_bitmask: Some(4),
+                time_scale_bits: Some(0x3f00_0000),
+                time_scale_duration_bits: Some(0x3e80_0000),
+                last_disabler_pos: Some(77),
+                legacy_consume_connected: Some(false),
+                efficiency: Some(0x40),
+                optional_efficiency: Some(0x20),
+                visible_flags: Some(9),
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                constructor_recipe_block_id: None,
+                landing_pad_config_item_id: None,
+                message_text: None,
+                payload_source_content: None,
+                payload_router_sorted_content: None,
+                duct_unloader_item_id: None,
+                reconstructor_command_id: None,
+                memory_values_bits: Some(memory_values_bits.clone()),
                 canvas_bytes: None,
                 payload_mass_driver_link: None,
                 nullable_item_id: None,
@@ -18933,6 +19057,14 @@ mod tests {
                 content_type: BLOCK_CONTENT_TYPE,
                 content_id: payload_block_id,
             }))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .memory_values_bits_by_build_pos
+                .get(&memory_pos),
+            Some(&memory_values_bits)
         );
     }
 
@@ -18973,6 +19105,7 @@ mod tests {
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 reconstructor_command_id: None,
+                memory_values_bits: None,
                 canvas_bytes: None,
                 payload_mass_driver_link: None,
                 nullable_item_id: None,
@@ -19007,6 +19140,7 @@ mod tests {
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 reconstructor_command_id: None,
+                memory_values_bits: None,
                 canvas_bytes: None,
                 payload_mass_driver_link: None,
                 nullable_item_id: None,
@@ -19073,6 +19207,7 @@ mod tests {
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 reconstructor_command_id: None,
+                memory_values_bits: None,
                 canvas_bytes: None,
                 payload_mass_driver_link: None,
                 nullable_item_id: Some(Some(item_id)),
@@ -19107,6 +19242,7 @@ mod tests {
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 reconstructor_command_id: None,
+                memory_values_bits: None,
                 canvas_bytes: None,
                 payload_mass_driver_link: None,
                 nullable_item_id: Some(None),
@@ -19141,6 +19277,7 @@ mod tests {
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 reconstructor_command_id: None,
+                memory_values_bits: None,
                 canvas_bytes: None,
                 payload_mass_driver_link: None,
                 nullable_item_id: None,
@@ -19175,6 +19312,7 @@ mod tests {
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 reconstructor_command_id: None,
+                memory_values_bits: None,
                 canvas_bytes: None,
                 payload_mass_driver_link: None,
                 nullable_item_id: None,
@@ -19209,6 +19347,7 @@ mod tests {
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 reconstructor_command_id: None,
+                memory_values_bits: None,
                 canvas_bytes: None,
                 payload_mass_driver_link: None,
                 nullable_item_id: None,
@@ -19243,6 +19382,7 @@ mod tests {
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 reconstructor_command_id: None,
+                memory_values_bits: None,
                 canvas_bytes: None,
                 payload_mass_driver_link: None,
                 nullable_item_id: None,
@@ -19349,6 +19489,7 @@ mod tests {
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 reconstructor_command_id: None,
+                memory_values_bits: None,
                 canvas_bytes: None,
                 payload_mass_driver_link: None,
                 nullable_item_id: None,
@@ -19383,6 +19524,7 @@ mod tests {
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: Some(Some(item_id)),
                 reconstructor_command_id: None,
+                memory_values_bits: None,
                 canvas_bytes: None,
                 payload_mass_driver_link: None,
                 nullable_item_id: None,
@@ -19417,6 +19559,7 @@ mod tests {
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 reconstructor_command_id: Some(Some(7)),
+                memory_values_bits: None,
                 canvas_bytes: None,
                 payload_mass_driver_link: None,
                 nullable_item_id: None,
@@ -19451,6 +19594,7 @@ mod tests {
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 reconstructor_command_id: None,
+                memory_values_bits: None,
                 canvas_bytes: Some(canvas_bytes.clone()),
                 payload_mass_driver_link: None,
                 nullable_item_id: None,
@@ -19485,6 +19629,7 @@ mod tests {
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 reconstructor_command_id: None,
+                memory_values_bits: None,
                 canvas_bytes: None,
                 payload_mass_driver_link: Some(10),
                 nullable_item_id: None,
@@ -19519,6 +19664,7 @@ mod tests {
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 reconstructor_command_id: None,
+                memory_values_bits: None,
                 canvas_bytes: None,
                 payload_mass_driver_link: None,
                 nullable_item_id: Some(Some(item_id)),
@@ -19553,6 +19699,7 @@ mod tests {
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 reconstructor_command_id: None,
+                memory_values_bits: None,
                 canvas_bytes: None,
                 payload_mass_driver_link: None,
                 nullable_item_id: None,
@@ -19587,6 +19734,7 @@ mod tests {
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 reconstructor_command_id: None,
+                memory_values_bits: None,
                 canvas_bytes: None,
                 payload_mass_driver_link: None,
                 nullable_item_id: None,

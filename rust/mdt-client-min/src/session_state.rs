@@ -1350,6 +1350,7 @@ pub struct ConfiguredBlockProjection {
     pub payload_mass_driver_link_by_build_pos: BTreeMap<i32, Option<i32>>,
     pub power_node_links_by_build_pos: BTreeMap<i32, BTreeSet<i32>>,
     pub reconstructor_command_by_build_pos: BTreeMap<i32, Option<u16>>,
+    pub memory_values_bits_by_build_pos: BTreeMap<i32, Vec<u64>>,
     pub canvas_bytes_by_build_pos: BTreeMap<i32, Vec<u8>>,
 }
 
@@ -1469,6 +1470,11 @@ impl ConfiguredBlockProjection {
             .insert(build_pos, command_id);
     }
 
+    pub fn apply_memory_values_bits(&mut self, build_pos: i32, values_bits: Vec<u64>) {
+        self.memory_values_bits_by_build_pos
+            .insert(build_pos, values_bits);
+    }
+
     pub fn apply_canvas_bytes(&mut self, build_pos: i32, bytes: Vec<u8>) {
         self.canvas_bytes_by_build_pos.insert(build_pos, bytes);
     }
@@ -1499,6 +1505,7 @@ impl ConfiguredBlockProjection {
             .remove(&build_pos);
         self.power_node_links_by_build_pos.remove(&build_pos);
         self.reconstructor_command_by_build_pos.remove(&build_pos);
+        self.memory_values_bits_by_build_pos.remove(&build_pos);
         self.canvas_bytes_by_build_pos.remove(&build_pos);
     }
 
@@ -2186,6 +2193,7 @@ pub enum TypedBuildingRuntimeKind {
     PayloadMassDriver,
     PowerNode,
     Reconstructor,
+    Memory,
     Canvas,
 }
 
@@ -2213,6 +2221,7 @@ impl TypedBuildingRuntimeKind {
             Self::PayloadMassDriver => "payload-mass-driver",
             Self::PowerNode => "power-node",
             Self::Reconstructor => "reconstructor",
+            Self::Memory => "memory",
             Self::Canvas => "canvas",
         }
     }
@@ -2230,6 +2239,7 @@ pub enum TypedBuildingRuntimeValue {
     Link(Option<i32>),
     Links(BTreeSet<i32>),
     Command(Option<u16>),
+    Memory(Vec<u64>),
     Bytes(Vec<u8>),
 }
 
@@ -2480,6 +2490,15 @@ fn typed_runtime_building_model(
                     .reconstructor_command_by_build_pos
                     .get(&build_pos)
                     .copied()?,
+            ),
+        ),
+        "memory-cell" | "memory-bank" => (
+            TypedBuildingRuntimeKind::Memory,
+            TypedBuildingRuntimeValue::Memory(
+                configured
+                    .memory_values_bits_by_build_pos
+                    .get(&build_pos)
+                    .cloned()?,
             ),
         ),
         "canvas" | "large-canvas" => (
@@ -5282,6 +5301,70 @@ mod tests {
                 efficiency: Some(0x30),
                 optional_efficiency: Some(0x10),
                 visible_flags: Some(88),
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                last_update: BuildingProjectionUpdateKind::BlockSnapshotHead,
+            })
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_memory_family() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0007_0009i32;
+        let values_bits = vec![
+            1.5f64.to_bits(),
+            (-2.25f64).to_bits(),
+            f64::NAN.to_bits(),
+        ];
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            302,
+            Some("memory-cell".to_string()),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(0x3f80_0000),
+            Some(0x3f00_0000),
+            Some(125),
+            Some(true),
+            None,
+            Some(0x4080_0000),
+            Some(true),
+            Some(0x20),
+            Some(0x10),
+            Some(77),
+            None,
+            None,
+            None,
+        );
+        state
+            .configured_block_projection
+            .apply_memory_values_bits(build_pos, values_bits.clone());
+
+        assert_eq!(
+            state.typed_runtime_building_at(build_pos),
+            Some(TypedBuildingRuntimeModel {
+                build_pos,
+                block_id: Some(302),
+                block_name: "memory-cell".to_string(),
+                kind: TypedBuildingRuntimeKind::Memory,
+                value: TypedBuildingRuntimeValue::Memory(values_bits),
+                rotation: Some(2),
+                team_id: Some(3),
+                io_version: Some(4),
+                module_bitmask: Some(5),
+                time_scale_bits: Some(0x3f80_0000),
+                time_scale_duration_bits: Some(0x3f00_0000),
+                last_disabler_pos: Some(125),
+                legacy_consume_connected: Some(true),
+                health_bits: Some(0x4080_0000),
+                enabled: Some(true),
+                efficiency: Some(0x20),
+                optional_efficiency: Some(0x10),
+                visible_flags: Some(77),
                 build_turret_rotation_bits: None,
                 build_turret_plans_present: None,
                 build_turret_plan_count: None,

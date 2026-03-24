@@ -19,7 +19,7 @@ use mdt_client_min::custom_packet_runtime_relay::{
 };
 use mdt_client_min::custom_packet_runtime_surface::{
     install_runtime_custom_packet_surface, RuntimeCustomPacketOverlayMarker,
-    RuntimeCustomPacketSurface,
+    RuntimeCustomPacketSurface, RuntimeCustomPacketSurfaceSummaryEntry,
 };
 use mdt_client_min::render_runtime::RenderRuntimeAdapter;
 use mdt_input::live_intent::RuntimeIntentTracker;
@@ -3456,7 +3456,8 @@ fn append_runtime_custom_packet_surface_scene_objects(
     };
     let markers =
         custom_packet_surface.overlay_markers(RUNTIME_CUSTOM_PACKET_SURFACE_OVERLAY_MAX_ENTRIES);
-    scene.objects
+    scene
+        .objects
         .extend(runtime_custom_packet_surface_scene_objects(&markers));
 }
 
@@ -4450,6 +4451,14 @@ fn maybe_print_custom_packet_surface_events(
                     .overlay_summary_text(RUNTIME_CUSTOM_PACKET_SURFACE_OVERLAY_MAX_ENTRIES),
             )
         );
+        println!(
+            "{}",
+            format_runtime_custom_packet_surface_business_line(
+                now_ms,
+                &custom_packet_surface
+                    .latest_summary_entries(RUNTIME_CUSTOM_PACKET_SURFACE_OVERLAY_MAX_ENTRIES),
+            )
+        );
     }
 }
 
@@ -4467,6 +4476,13 @@ fn maybe_print_custom_packet_surface_summary(
         format_runtime_custom_packet_surface_summary_line(
             custom_packet_surface
                 .overlay_summary_text(RUNTIME_CUSTOM_PACKET_SURFACE_OVERLAY_MAX_ENTRIES),
+        )
+    );
+    println!(
+        "{}",
+        format_runtime_custom_packet_surface_business_summary_line(
+            &custom_packet_surface
+                .latest_summary_entries(RUNTIME_CUSTOM_PACKET_SURFACE_OVERLAY_MAX_ENTRIES),
         )
     );
 }
@@ -4496,6 +4512,77 @@ fn format_runtime_custom_packet_surface_summary_line(overlay_summary: Option<Str
             format!("runtime_custom_packet_surface_overlay_summary: summary={summary:?}")
         }
         None => "runtime_custom_packet_surface_overlay_summary: summary=none".to_string(),
+    }
+}
+
+fn format_runtime_custom_packet_surface_business_line(
+    now_ms: u64,
+    entries: &[RuntimeCustomPacketSurfaceSummaryEntry],
+) -> String {
+    match format_runtime_custom_packet_surface_business_summary(entries) {
+        Some(summary) => {
+            format!("runtime_custom_packet_surface_business: tick={now_ms}ms summary={summary:?}")
+        }
+        None => format!("runtime_custom_packet_surface_business: tick={now_ms}ms summary=none"),
+    }
+}
+
+fn format_runtime_custom_packet_surface_business_summary_line(
+    entries: &[RuntimeCustomPacketSurfaceSummaryEntry],
+) -> String {
+    match format_runtime_custom_packet_surface_business_summary(entries) {
+        Some(summary) => {
+            format!("runtime_custom_packet_surface_business_summary: summary={summary:?}")
+        }
+        None => "runtime_custom_packet_surface_business_summary: summary=none".to_string(),
+    }
+}
+
+fn format_runtime_custom_packet_surface_business_summary(
+    entries: &[RuntimeCustomPacketSurfaceSummaryEntry],
+) -> Option<String> {
+    let summary = entries
+        .iter()
+        .map(format_runtime_custom_packet_surface_business_entry)
+        .collect::<Vec<_>>()
+        .join(" | ");
+    (!summary.is_empty()).then_some(summary)
+}
+
+fn format_runtime_custom_packet_surface_business_entry(
+    entry: &RuntimeCustomPacketSurfaceSummaryEntry,
+) -> String {
+    let value = truncate_for_preview(&entry.stable_value.escape_default().to_string(), 48);
+    let marker = entry
+        .marker
+        .as_ref()
+        .map(|marker| {
+            format!(
+                "@{},{}",
+                format_runtime_custom_packet_surface_coord(marker.x),
+                format_runtime_custom_packet_surface_coord(marker.y)
+            )
+        })
+        .unwrap_or_default();
+    format!(
+        "{}:{}({})={}{}",
+        runtime_custom_packet_surface_encoding_label(entry.encoding),
+        entry.key,
+        runtime_custom_packet_surface_semantic_label(entry.semantic),
+        value,
+        marker
+    )
+}
+
+fn format_runtime_custom_packet_surface_coord(value: f32) -> String {
+    let rendered = value.to_string();
+    if rendered.contains('.') {
+        rendered
+            .trim_end_matches('0')
+            .trim_end_matches('.')
+            .to_string()
+    } else {
+        rendered
     }
 }
 
@@ -8205,6 +8292,44 @@ mod tests {
         assert_eq!(
             format_runtime_custom_packet_surface_summary_line(None),
             "runtime_custom_packet_surface_overlay_summary: summary=none"
+        );
+        let entries = vec![
+            RuntimeCustomPacketSurfaceSummaryEntry {
+                key: "logic.pos".to_string(),
+                encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+                semantic: RuntimeCustomPacketSemanticKind::WorldPos,
+                stable_value: "7,9".to_string(),
+                marker: Some(RuntimeCustomPacketOverlayMarker {
+                    key: "logic.pos".to_string(),
+                    encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+                    semantic: RuntimeCustomPacketSemanticKind::WorldPos,
+                    x: 7.0,
+                    y: 9.0,
+                }),
+            },
+            RuntimeCustomPacketSurfaceSummaryEntry {
+                key: "custom.status".to_string(),
+                encoding: RuntimeCustomPacketSemanticEncoding::Text,
+                semantic: RuntimeCustomPacketSemanticKind::HudText,
+                stable_value: "wave ready".to_string(),
+                marker: None,
+            },
+        ];
+        assert_eq!(
+            format_runtime_custom_packet_surface_business_line(42, &entries),
+            "runtime_custom_packet_surface_business: tick=42ms summary=\"logic:logic.pos(world_pos)=7,9@7,9 | text:custom.status(hud_text)=wave ready\""
+        );
+        assert_eq!(
+            format_runtime_custom_packet_surface_business_line(43, &[]),
+            "runtime_custom_packet_surface_business: tick=43ms summary=none"
+        );
+        assert_eq!(
+            format_runtime_custom_packet_surface_business_summary_line(&entries),
+            "runtime_custom_packet_surface_business_summary: summary=\"logic:logic.pos(world_pos)=7,9@7,9 | text:custom.status(hud_text)=wave ready\""
+        );
+        assert_eq!(
+            format_runtime_custom_packet_surface_business_summary_line(&[]),
+            "runtime_custom_packet_surface_business_summary: summary=none"
         );
     }
 

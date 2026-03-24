@@ -2157,6 +2157,11 @@ fn runtime_typed_build_config_value_label(
             bytes.len(),
             runtime_build_config_bytes_sample(bytes, 8),
         ),
+        TypedBuildingRuntimeValue::Memory(words) => format!(
+            "len={}:bits={}",
+            words.len(),
+            runtime_build_config_memory_words_sample(words, 4),
+        ),
     }
 }
 
@@ -2208,6 +2213,24 @@ fn runtime_build_config_bytes_sample(bytes: &[u8], limit: usize) -> String {
         sample.push_str(&format!("{byte:02x}"));
     }
     if bytes.len() > limit {
+        sample.push('~');
+    }
+    if sample.is_empty() {
+        "empty".to_string()
+    } else {
+        sample
+    }
+}
+
+fn runtime_build_config_memory_words_sample(words: &[u64], limit: usize) -> String {
+    let mut sample = String::new();
+    for (index, word) in words.iter().take(limit).enumerate() {
+        if index > 0 {
+            sample.push('-');
+        }
+        sample.push_str(&format!("{word:016x}"));
+    }
+    if words.len() > limit {
         sample.push('~');
     }
     if sample.is_empty() {
@@ -4364,12 +4387,20 @@ mod tests {
             .configured_block_projection
             .reconstructor_command_by_build_pos
             .insert(pack_runtime_point2(26, 48), Some(12));
+        state
+            .configured_block_projection
+            .memory_values_bits_by_build_pos
+            .insert(
+                pack_runtime_point2(27, 49),
+                vec![1.0f64.to_bits(), (-3.5f64).to_bits()],
+            );
         for (build_pos, block_name) in [
             (pack_runtime_point2(18, 40), "message"),
             (pack_runtime_point2(21, 43), "payload-source"),
             (pack_runtime_point2(22, 44), "payload-router"),
             (pack_runtime_point2(23, 45), "power-node"),
             (pack_runtime_point2(26, 48), "additive-reconstructor"),
+            (pack_runtime_point2(27, 49), "memory-cell"),
         ] {
             state.building_table_projection.by_build_pos.insert(
                 build_pos,
@@ -4429,6 +4460,11 @@ mod tests {
         assert!(build_ui.inspector_entries.iter().any(|entry| {
             entry.family == "reconstructor"
                 && entry.sample == "26:48:additive-reconstructor:command=12"
+        }));
+        assert!(build_ui.inspector_entries.iter().any(|entry| {
+            entry.family == "memory"
+                && entry.sample
+                    == "27:49:memory-cell:len=2:bits=3ff0000000000000-c00c000000000000"
         }));
     }
 
@@ -4594,7 +4630,46 @@ mod tests {
             )
         );
 
-        let chain_prefix = "marker:line:runtime-effect-chain:";
+        let chain_prefix = "marker:line:runtime-effect-chain-lightning:";
+        let chain_lines = runtime_effect_lines_with_prefix(&scene, chain_prefix);
+        assert!(chain_lines.len() >= 6);
+        assert!(chain_lines.iter().any(|object| {
+            !object.id.ends_with(":line-end") && object.x == 12.0 && object.y == 20.0
+        }));
+        assert!(chain_lines.iter().any(|object| {
+            object.id.ends_with(":line-end") && object.x == 80.0 && object.y == 160.0
+        }));
+    }
+
+    #[test]
+    fn render_runtime_adapter_renders_chain_emp_executor_segments() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
+
+        adapter.observe_events(&[ClientSessionEvent::EffectRequested {
+            effect_id: Some(262),
+            x: 12.0,
+            y: 20.0,
+            rotation: 0.0,
+            color_rgba: 0x11223344,
+            data_object: Some(mdt_typeio::TypeIoObject::Point2 { x: 10, y: 20 }),
+        }]);
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let marker = first_runtime_effect_marker(&scene);
+        assert_eq!(
+            marker.id,
+            format!(
+                "marker:runtime-effect:normal:262:0x{:08x}:0x{:08x}:1",
+                80.0f32.to_bits(),
+                160.0f32.to_bits()
+            )
+        );
+
+        let chain_prefix = "marker:line:runtime-effect-chain-emp:";
         let chain_lines = runtime_effect_lines_with_prefix(&scene, chain_prefix);
         assert!(chain_lines.len() >= 6);
         assert!(chain_lines.iter().any(|object| {

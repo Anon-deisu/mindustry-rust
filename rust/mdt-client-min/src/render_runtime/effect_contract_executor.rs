@@ -120,12 +120,19 @@ pub(crate) fn line_projections_for_effect_overlay(
             target_x_bits,
             target_y_bits,
         }],
-        Some(CHAIN_LIGHTNING_EFFECT_ID | CHAIN_EMP_EFFECT_ID) => chain_line_projections(
-            overlay.source_x_bits,
-            overlay.source_y_bits,
-            target_x_bits,
-            target_y_bits,
-        ),
+        Some(effect_id @ (CHAIN_LIGHTNING_EFFECT_ID | CHAIN_EMP_EFFECT_ID)) => {
+            chain_line_kind(effect_id)
+                .map(|kind| {
+                    chain_line_projections(
+                        kind,
+                        overlay.source_x_bits,
+                        overlay.source_y_bits,
+                        target_x_bits,
+                        target_y_bits,
+                    )
+                })
+                .unwrap_or_default()
+        }
         _ => Vec::new(),
     }
 }
@@ -167,7 +174,16 @@ fn lightning_line_projections(points: &[(u32, u32)]) -> Vec<RuntimeEffectLinePro
         .collect()
 }
 
+fn chain_line_kind(effect_id: i16) -> Option<&'static str> {
+    match effect_id {
+        CHAIN_LIGHTNING_EFFECT_ID => Some("chain-lightning"),
+        CHAIN_EMP_EFFECT_ID => Some("chain-emp"),
+        _ => None,
+    }
+}
+
 fn chain_line_projections(
+    kind: &'static str,
     source_x_bits: u32,
     source_y_bits: u32,
     target_x_bits: u32,
@@ -218,7 +234,7 @@ fn chain_line_projections(
                 return None;
             };
             Some(RuntimeEffectLineProjection {
-                kind: "chain",
+                kind,
                 source_x_bits: *source_x_bits,
                 source_y_bits: *source_y_bits,
                 target_x_bits: *target_x_bits,
@@ -646,7 +662,41 @@ mod tests {
             line_projections_for_effect_overlay(&overlay, 80.0f32.to_bits(), 160.0f32.to_bits());
 
         assert!(lines.len() >= CHAIN_MIN_SEGMENTS);
-        assert_eq!(lines.first().map(|line| line.kind), Some("chain"));
+        assert_eq!(lines.first().map(|line| line.kind), Some("chain-lightning"));
+        assert_eq!(
+            lines.first().map(|line| (line.source_x_bits, line.source_y_bits)),
+            Some((12.0f32.to_bits(), 20.0f32.to_bits()))
+        );
+        assert_eq!(
+            lines.last().map(|line| (line.target_x_bits, line.target_y_bits)),
+            Some((80.0f32.to_bits(), 160.0f32.to_bits()))
+        );
+    }
+
+    #[test]
+    fn line_projections_for_effect_overlay_returns_chain_emp_segments() {
+        let overlay = RuntimeEffectOverlay {
+            effect_id: Some(CHAIN_EMP_EFFECT_ID),
+            source_x_bits: 12.0f32.to_bits(),
+            source_y_bits: 20.0f32.to_bits(),
+            x_bits: 80.0f32.to_bits(),
+            y_bits: 160.0f32.to_bits(),
+            rotation_bits: 0.0f32.to_bits(),
+            color_rgba: 0x11223344,
+            reliable: false,
+            has_data: true,
+            remaining_ticks: 3,
+            contract_name: Some("position_target"),
+            binding: None,
+            content_ref: None,
+            polyline_points: Vec::new(),
+        };
+
+        let lines =
+            line_projections_for_effect_overlay(&overlay, 80.0f32.to_bits(), 160.0f32.to_bits());
+
+        assert!(lines.len() >= CHAIN_MIN_SEGMENTS);
+        assert_eq!(lines.first().map(|line| line.kind), Some("chain-emp"));
         assert_eq!(
             lines.first().map(|line| (line.source_x_bits, line.source_y_bits)),
             Some((12.0f32.to_bits(), 20.0f32.to_bits()))
