@@ -58,6 +58,7 @@ pub fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<Stri
                 packet_type,
                 contents,
             } => Some(format_text_packet_summary(
+                "client_packet",
                 "reliable",
                 packet_type,
                 contents,
@@ -66,6 +67,25 @@ pub fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<Stri
                 packet_type,
                 contents,
             } => Some(format_text_packet_summary(
+                "client_packet",
+                "unreliable",
+                packet_type,
+                contents,
+            )),
+            ClientSessionEvent::ServerPacketReliable {
+                packet_type,
+                contents,
+            } => Some(format_text_packet_summary(
+                "server_packet",
+                "reliable",
+                packet_type,
+                contents,
+            )),
+            ClientSessionEvent::ServerPacketUnreliable {
+                packet_type,
+                contents,
+            } => Some(format_text_packet_summary(
+                "server_packet",
                 "unreliable",
                 packet_type,
                 contents,
@@ -74,6 +94,7 @@ pub fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<Stri
                 packet_type,
                 contents,
             } => Some(format_binary_packet_summary(
+                "client_binary_packet",
                 "reliable",
                 packet_type,
                 contents,
@@ -82,15 +103,44 @@ pub fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<Stri
                 packet_type,
                 contents,
             } => Some(format_binary_packet_summary(
+                "client_binary_packet",
+                "unreliable",
+                packet_type,
+                contents,
+            )),
+            ClientSessionEvent::ServerBinaryPacketReliable {
+                packet_type,
+                contents,
+            } => Some(format_binary_packet_summary(
+                "server_binary_packet",
+                "reliable",
+                packet_type,
+                contents,
+            )),
+            ClientSessionEvent::ServerBinaryPacketUnreliable {
+                packet_type,
+                contents,
+            } => Some(format_binary_packet_summary(
+                "server_binary_packet",
                 "unreliable",
                 packet_type,
                 contents,
             )),
             ClientSessionEvent::ClientLogicDataReliable { channel, value } => {
-                Some(format_logic_data_summary("reliable", channel, value))
+                Some(format_logic_data_summary(
+                    "client_logic_data",
+                    "reliable",
+                    channel,
+                    value,
+                ))
             }
             ClientSessionEvent::ClientLogicDataUnreliable { channel, value } => {
-                Some(format_logic_data_summary("unreliable", channel, value))
+                Some(format_logic_data_summary(
+                    "client_logic_data",
+                    "unreliable",
+                    channel,
+                    value,
+                ))
             }
             ClientSessionEvent::SoundRequested {
                 sound_id,
@@ -768,28 +818,43 @@ fn summarize_kick_reason_name_from_ordinal(reason_ordinal: i32) -> Option<&'stat
     }
 }
 
-fn format_text_packet_summary(transport: &str, packet_type: &str, contents: &str) -> String {
+fn format_text_packet_summary(
+    label: &str,
+    transport: &str,
+    packet_type: &str,
+    contents: &str,
+) -> String {
     let escaped = contents.escape_default().to_string();
     let preview = truncate_for_preview(&escaped, 96);
     format!(
-        "client_packet: transport={transport} type={packet_type:?} len={} preview={preview:?}",
+        "{label}: transport={transport} type={packet_type:?} len={} preview={preview:?}",
         contents.len()
     )
 }
 
-fn format_binary_packet_summary(transport: &str, packet_type: &str, contents: &[u8]) -> String {
+fn format_binary_packet_summary(
+    label: &str,
+    transport: &str,
+    packet_type: &str,
+    contents: &[u8],
+) -> String {
     let prefix_len = contents.len().min(16);
     let hex_prefix = encode_hex_text(&contents[..prefix_len]);
     format!(
-        "client_binary_packet: transport={transport} type={packet_type:?} len={} hex_prefix={hex_prefix}",
+        "{label}: transport={transport} type={packet_type:?} len={} hex_prefix={hex_prefix}",
         contents.len()
     )
 }
 
-fn format_logic_data_summary(transport: &str, channel: &str, value: &TypeIoObject) -> String {
+fn format_logic_data_summary(
+    label: &str,
+    transport: &str,
+    channel: &str,
+    value: &TypeIoObject,
+) -> String {
     let preview = truncate_for_preview(&format!("{value:?}"), 96);
     format!(
-        "client_logic_data: transport={transport} channel={channel:?} kind={:?} preview={preview:?}",
+        "{label}: transport={transport} channel={channel:?} kind={:?} preview={preview:?}",
         value.kind()
     )
 }

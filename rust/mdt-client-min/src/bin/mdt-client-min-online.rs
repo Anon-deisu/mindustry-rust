@@ -62,6 +62,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             args.live_intent_sampling_mode,
         )
     });
+    let mut runtime_plan_edit_loop = args
+        .runtime_plan_edit_loop
+        .clone()
+        .map(RuntimePlanEditLoopState::new);
     let mut relative_build_plans_applied = false;
     let mut auto_build_plans_applied = false;
     let mut ascii_scene_printed = false;
@@ -279,6 +283,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &report.events,
             &mut auto_build_plans_applied,
         );
+        maybe_apply_runtime_plan_edit_loop(&mut session, runtime_plan_edit_loop.as_mut(), now_ms);
         sync_runtime_build_selection_state(&mut session, &args);
         maybe_queue_chat_messages(&mut session, &args, now_ms, &mut next_chat_index)?;
         maybe_queue_outbound_actions(&mut session, &args, now_ms, &mut next_outbound_action_index)?;
@@ -438,6 +443,7 @@ struct CliArgs {
     movement_probe: Option<MovementProbeConfig>,
     live_intent_sampling_mode: IntentSamplingMode,
     live_intent_schedule: Vec<ScheduledIntentSnapshot>,
+    runtime_plan_edit_loop: Option<PlanEditLoopConfig>,
     build_plans: Vec<ClientBuildPlan>,
     relative_build_plans: Vec<RelativeBuildPlan>,
     auto_break_near_player: bool,
@@ -484,6 +490,13 @@ struct ScheduledOutboundAction {
 struct ScheduledIntentSnapshot {
     not_before_ms: u64,
     snapshot: InputSnapshot,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct PlanEditLoopConfig {
+    ops: Vec<PlanEditOp>,
+    delay_ms: u64,
+    spacing_ms: u64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -670,6 +683,52 @@ enum PlanEditOp {
     Flip { origin: (i32, i32), flip_x: bool },
 }
 
+#[derive(Debug)]
+struct RuntimePlanEditLoopState {
+    config: PlanEditLoopConfig,
+    next_due_ms: Option<u64>,
+    next_op_index: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct RuntimePlanEditLoopEntry {
+    op_index: usize,
+    scheduled_ms: u64,
+    op: PlanEditOp,
+}
+
+impl RuntimePlanEditLoopState {
+    fn new(config: PlanEditLoopConfig) -> Self {
+        Self {
+            config,
+            next_due_ms: None,
+            next_op_index: 0,
+        }
+    }
+
+    fn collect_due_entries(&mut self, now_ms: u64) -> Vec<RuntimePlanEditLoopEntry> {
+        if self.config.ops.is_empty() {
+            return Vec::new();
+        }
+
+        let mut due = Vec::new();
+        let next_due_ms = self
+            .next_due_ms
+            .get_or_insert(self.config.delay_ms);
+        while now_ms >= *next_due_ms {
+            let op_index = self.next_op_index;
+            due.push(RuntimePlanEditLoopEntry {
+                op_index,
+                scheduled_ms: *next_due_ms,
+                op: self.config.ops[op_index].clone(),
+            });
+            self.next_op_index = (self.next_op_index + 1) % self.config.ops.len();
+            *next_due_ms = next_due_ms.saturating_add(self.config.spacing_ms);
+        }
+        due
+    }
+}
+
 #[derive(Clone)]
 enum ConnectSource {
     HexFile(PathBuf),
@@ -726,6 +785,9 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
     let mut chat_delay_ms = 1_000u64;
     let mut chat_spacing_ms = 1_000u64;
     let mut plan_edit_ops = Vec::new();
+    let mut plan_edit_loop = false;
+    let mut plan_edit_delay_ms = 1_000u64;
+    let mut plan_edit_spacing_ms = 1_000u64;
     let mut outbound_actions = Vec::new();
     let mut action_delay_ms = 1_000u64;
     let mut action_spacing_ms = 1_000u64;
@@ -970,6 +1032,23 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
                 i += 1;
                 let value = args.get(i).ok_or("missing value for --plan-flip-y")?;
                 plan_edit_ops.push(parse_plan_flip_arg("--plan-flip-y", value, false)?);
+            }
+            "--plan-edit-loop" => {
+                plan_edit_loop = true;
+            }
+            "--plan-edit-delay-ms" => {
+                i += 1;
+                let value = args
+                    .get(i)
+                    .ok_or("missing value for --plan-edit-delay-ms")?;
+                plan_edit_delay_ms = parse_u64_arg("--plan-edit-delay-ms", value)?;
+            }
+            "--plan-edit-spacing-ms" => {
+                i += 1;
+                let value = args
+                    .get(i)
+                    .ok_or("missing value for --plan-edit-spacing-ms")?;
+                plan_edit_spacing_ms = parse_u64_arg("--plan-edit-spacing-ms", value)?;
             }
             "--plan-place-near-player" => {
                 i += 1;
@@ -1347,6 +1426,16 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
         apply_plan_edits_to_build_plans(&mut build_plans, &plan_edit_ops);
         apply_plan_edits_to_relative_build_plans(&mut relative_build_plans, &plan_edit_ops);
     }
+    if plan_edit_loop && plan_edit_spacing_ms == 0 {
+        return Err(
+            "--plan-edit-spacing-ms must be positive when --plan-edit-loop is enabled".to_string(),
+        );
+    }
+    let runtime_plan_edit_loop = plan_edit_loop.then(|| PlanEditLoopConfig {
+        ops: plan_edit_ops.clone(),
+        delay_ms: plan_edit_delay_ms,
+        spacing_ms: plan_edit_spacing_ms,
+    });
 
     let connect = match connect_hex_path {
         Some(path) => ConnectSource::HexFile(path),
@@ -1401,6 +1490,7 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
             live_intent_delay_ms,
             live_intent_spacing_ms,
         ),
+        runtime_plan_edit_loop,
         build_plans,
         relative_build_plans,
         auto_break_near_player,
@@ -1425,7 +1515,7 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
 
 fn usage() -> String {
     String::from(
-        "Usage: mdt-client-min-online --manifest <path> (--server <host:port> | --discover-host <host> [--discover-host <host> ...] [--discover-port <port>] [--discover-timeout-ms <ms>]) [--connect-hex <path> | --name <name> --uuid <base64> --usid <base64> --build <build> --version-type <type> --mobile --color-rgba <rgba> --mod <name:version> ...] [--locale <locale>] [--duration-ms <ms>] [--tick-ms <ms>] [--max-recv-packets <n>] [--snapshot-interval-ms <ms>] [--aim-x <f32> --aim-y <f32>] [--mine-tile <x:y>] [--snapshot-boosting|--snapshot-no-boosting] [--snapshot-shooting|--snapshot-no-shooting] [--snapshot-chatting|--snapshot-no-chatting] [--snapshot-building|--snapshot-no-building] [--view-size <w:h>] [--move-step-x <f32> --move-step-y <f32>] [--intent-snapshot <moveX:moveY:aimX:aimY:actions> ...] [--intent-live-sampling|--intent-edge-mapped] [--intent-delay-ms <ms>] [--intent-spacing-ms <ms>] [--plan-place <x:y:block[:rotation][;config]> ...] [--plan-break <x:y> ...] [--plan-place-relative <dx:dy:block[:rotation][;config]> ...] [--plan-break-relative <dx:dy> ...] config=<none|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|point2=<x:y>|point2-array=<x:y[,x:y...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|double=<f64>|building-pos=<i32>|laccess=<i16>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|vec2-array=<x:y[,x:y...]>|vec2=<x:y>|team=<u8>|int-array=<i32[,i32...]>|object-array=<value[|value...]>|unit-command=<u16>> [--plan-rotate <x:y:dir> ...] [--plan-flip-x <x:y> ...] [--plan-flip-y <x:y> ...] [--plan-break-near-player] [--plan-place-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--plan-place-conflict-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--render-ascii-on-world-ready] [--print-client-packets] [--watch-client-packet <type> ...] [--watch-client-binary-packet <type> ...] [--watch-client-logic-data <channel> ...] [--render-window-live] [--dump-world-stream-hex <path>] [--chat-delay-ms <ms>] [--chat-spacing-ms <ms>] [--chat-message <text> ...] [--action-delay-ms <ms>] [--action-spacing-ms <ms>] [--action-request-item <buildPos|none:itemId|none:amount> ...] [--action-request-unit-payload <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-clear ...] [--action-unit-control <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-building-control-select <none|unit:<id>|block:<pos>|<id>@buildPos|none> ...] [--action-building-control-select <buildPos|none> ...] [--action-clear-items <buildPos|none> ...] [--action-clear-liquids <buildPos|none> ...] [--action-transfer-inventory <buildPos|none> ...] [--action-request-build-payload <buildPos|none> ...] [--action-request-drop-payload <x:y> ...] [--action-rotate-block <buildPos|none:direction> ...] [--action-drop-item <angle> ...] [--action-tile-config <buildPos|none:value> ...] [--action-tile-tap <tilePos|none> ...] [--action-delete-plans <x:y[,x:y...]|none> ...] [--action-command-building <x:y[,x:y...]|none@x:y> ...] [--action-command-units <unitId[,unitId...]|none@buildPos@unitTarget@x:y@queueCommand[@finalBatch]> ...] [--action-set-unit-command <unitId[,unitId...]|none@commandId|none> ...] [--action-set-unit-stance <unitId[,unitId...]|none@stanceId|none@enable> ...] [--action-begin-break <none|unit:<id>|block:<pos>|<id>@teamId@x:y> ...] [--action-begin-place <none|unit:<id>|block:<pos>|<id>@blockId|none@teamId@x:y@rotation@value> ...] [--action-menu-choose <menuId@option> ...] [--action-text-input-result <textInputId@text|none> ...] [--action-client-packet <type@contents@reliable|unreliable> ...] [--action-client-binary-packet <type@hex@reliable|unreliable> ...] [--action-client-logic-data <channel@value@reliable|unreliable> ...] value=<null|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|point2=<x:y>|point2-array=<x:y[,x:y...]>|double=<f64>|building-pos=<i32>|laccess=<i16>|vec2=<x:y>|vec2-array=<x:y[,x:y...]>|team=<u8>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|int-array=<i32[,i32...]>|object-array=<value>|unit-command=<u16>|...>",
+        "Usage: mdt-client-min-online --manifest <path> (--server <host:port> | --discover-host <host> [--discover-host <host> ...] [--discover-port <port>] [--discover-timeout-ms <ms>]) [--connect-hex <path> | --name <name> --uuid <base64> --usid <base64> --build <build> --version-type <type> --mobile --color-rgba <rgba> --mod <name:version> ...] [--locale <locale>] [--duration-ms <ms>] [--tick-ms <ms>] [--max-recv-packets <n>] [--snapshot-interval-ms <ms>] [--aim-x <f32> --aim-y <f32>] [--mine-tile <x:y>] [--snapshot-boosting|--snapshot-no-boosting] [--snapshot-shooting|--snapshot-no-shooting] [--snapshot-chatting|--snapshot-no-chatting] [--snapshot-building|--snapshot-no-building] [--view-size <w:h>] [--move-step-x <f32> --move-step-y <f32>] [--intent-snapshot <moveX:moveY:aimX:aimY:actions> ...] [--intent-live-sampling|--intent-edge-mapped] [--intent-delay-ms <ms>] [--intent-spacing-ms <ms>] [--plan-place <x:y:block[:rotation][;config]> ...] [--plan-break <x:y> ...] [--plan-place-relative <dx:dy:block[:rotation][;config]> ...] [--plan-break-relative <dx:dy> ...] config=<none|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|point2=<x:y>|point2-array=<x:y[,x:y...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|double=<f64>|building-pos=<i32>|laccess=<i16>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|vec2-array=<x:y[,x:y...]>|vec2=<x:y>|team=<u8>|int-array=<i32[,i32...]>|object-array=<value[|value...]>|unit-command=<u16>> [--plan-rotate <x:y:dir> ...] [--plan-flip-x <x:y> ...] [--plan-flip-y <x:y> ...] [--plan-edit-loop] [--plan-edit-delay-ms <ms>] [--plan-edit-spacing-ms <ms>] [--plan-break-near-player] [--plan-place-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--plan-place-conflict-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--render-ascii-on-world-ready] [--print-client-packets] [--watch-client-packet <type> ...] [--watch-client-binary-packet <type> ...] [--watch-client-logic-data <channel> ...] [--render-window-live] [--dump-world-stream-hex <path>] [--chat-delay-ms <ms>] [--chat-spacing-ms <ms>] [--chat-message <text> ...] [--action-delay-ms <ms>] [--action-spacing-ms <ms>] [--action-request-item <buildPos|none:itemId|none:amount> ...] [--action-request-unit-payload <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-clear ...] [--action-unit-control <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-building-control-select <none|unit:<id>|block:<pos>|<id>@buildPos|none> ...] [--action-building-control-select <buildPos|none> ...] [--action-clear-items <buildPos|none> ...] [--action-clear-liquids <buildPos|none> ...] [--action-transfer-inventory <buildPos|none> ...] [--action-request-build-payload <buildPos|none> ...] [--action-request-drop-payload <x:y> ...] [--action-rotate-block <buildPos|none:direction> ...] [--action-drop-item <angle> ...] [--action-tile-config <buildPos|none:value> ...] [--action-tile-tap <tilePos|none> ...] [--action-delete-plans <x:y[,x:y...]|none> ...] [--action-command-building <x:y[,x:y...]|none@x:y> ...] [--action-command-units <unitId[,unitId...]|none@buildPos@unitTarget@x:y@queueCommand[@finalBatch]> ...] [--action-set-unit-command <unitId[,unitId...]|none@commandId|none> ...] [--action-set-unit-stance <unitId[,unitId...]|none@stanceId|none@enable> ...] [--action-begin-break <none|unit:<id>|block:<pos>|<id>@teamId@x:y> ...] [--action-begin-place <none|unit:<id>|block:<pos>|<id>@blockId|none@teamId@x:y@rotation@value> ...] [--action-menu-choose <menuId@option> ...] [--action-text-input-result <textInputId@text|none> ...] [--action-client-packet <type@contents@reliable|unreliable> ...] [--action-client-binary-packet <type@hex@reliable|unreliable> ...] [--action-client-logic-data <channel@value@reliable|unreliable> ...] value=<null|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|point2=<x:y>|point2-array=<x:y[,x:y...]>|double=<f64>|building-pos=<i32>|laccess=<i16>|vec2=<x:y>|vec2-array=<x:y[,x:y...]>|team=<u8>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|int-array=<i32[,i32...]>|object-array=<value>|unit-command=<u16>|...>",
     )
 }
 
@@ -2559,6 +2649,44 @@ fn apply_plan_edit_ops<P: PlanEditable>(plans: &mut [P], ops: &[PlanEditOp]) {
     }
 }
 
+fn maybe_apply_runtime_plan_edit_loop(
+    session: &mut ClientSession,
+    runtime_plan_edit_loop: Option<&mut RuntimePlanEditLoopState>,
+    now_ms: u64,
+) {
+    let Some(runtime_plan_edit_loop) = runtime_plan_edit_loop else {
+        return;
+    };
+    if !session.state().ready_to_enter_world || !session.state().connect_confirm_sent {
+        return;
+    }
+    if !session
+        .snapshot_input()
+        .plans
+        .as_ref()
+        .is_some_and(|plans| !plans.is_empty())
+    {
+        return;
+    }
+
+    let due_entries = runtime_plan_edit_loop.collect_due_entries(now_ms);
+    if due_entries.is_empty() {
+        return;
+    }
+
+    let input = session.snapshot_input_mut();
+    let Some(plans) = input.plans.as_mut() else {
+        return;
+    };
+    for entry in due_entries {
+        apply_plan_edits_to_build_plans(plans.as_mut_slice(), std::slice::from_ref(&entry.op));
+        println!(
+            "plan_edit_loop_applied: index={} tick={}ms scheduled={}ms op={:?}",
+            entry.op_index, now_ms, entry.scheduled_ms, entry.op
+        );
+    }
+}
+
 #[derive(Clone)]
 struct EditableClientBuildPlan {
     plan: ClientBuildPlan,
@@ -3633,16 +3761,20 @@ impl RuntimeCustomPacketWatchState {
     fn observe_events(&mut self, events: &[ClientSessionEvent]) {
         for event in events {
             match event {
-                ClientSessionEvent::ClientPacketReliable { packet_type, .. } => {
+                ClientSessionEvent::ClientPacketReliable { packet_type, .. }
+                | ClientSessionEvent::ServerPacketReliable { packet_type, .. } => {
                     self.record_text_event(packet_type, true);
                 }
-                ClientSessionEvent::ClientPacketUnreliable { packet_type, .. } => {
+                ClientSessionEvent::ClientPacketUnreliable { packet_type, .. }
+                | ClientSessionEvent::ServerPacketUnreliable { packet_type, .. } => {
                     self.record_text_event(packet_type, false);
                 }
-                ClientSessionEvent::ClientBinaryPacketReliable { packet_type, .. } => {
+                ClientSessionEvent::ClientBinaryPacketReliable { packet_type, .. }
+                | ClientSessionEvent::ServerBinaryPacketReliable { packet_type, .. } => {
                     self.record_binary_event(packet_type, true);
                 }
-                ClientSessionEvent::ClientBinaryPacketUnreliable { packet_type, .. } => {
+                ClientSessionEvent::ClientBinaryPacketUnreliable { packet_type, .. }
+                | ClientSessionEvent::ServerBinaryPacketUnreliable { packet_type, .. } => {
                     self.record_binary_event(packet_type, false);
                 }
                 ClientSessionEvent::ClientLogicDataReliable { channel, .. } => {
@@ -4358,6 +4490,9 @@ mod tests {
         assert!(text.contains("--watch-client-binary-packet <type> ..."));
         assert!(text.contains("--watch-client-logic-data <channel> ..."));
         assert!(text.contains("--plan-rotate <x:y:dir>"));
+        assert!(text.contains("--plan-edit-loop"));
+        assert!(text.contains("--plan-edit-delay-ms <ms>"));
+        assert!(text.contains("--plan-edit-spacing-ms <ms>"));
         assert!(text.contains("--plan-place <x:y:block[:rotation][;config]>"));
         assert!(text.contains("config=<none|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>"));
         assert!(text.contains(
@@ -4727,6 +4862,49 @@ mod tests {
             args.relative_build_plans[0].config,
             ClientBuildPlanConfig::Point2Array(vec![(0, 2), (1, 3)])
         );
+    }
+
+    #[test]
+    fn parse_args_accepts_runtime_plan_edit_loop_flags() {
+        let args = parse_args(sample_args(&[
+            "--plan-place",
+            "1:0:0x0101:0",
+            "--plan-rotate",
+            "0:0:1",
+            "--plan-edit-loop",
+            "--plan-edit-delay-ms",
+            "250",
+            "--plan-edit-spacing-ms",
+            "400",
+        ]))
+        .unwrap();
+
+        assert_eq!(
+            args.runtime_plan_edit_loop,
+            Some(PlanEditLoopConfig {
+                ops: vec![PlanEditOp::Rotate {
+                    origin: (0, 0),
+                    direction: 1,
+                }],
+                delay_ms: 250,
+                spacing_ms: 400,
+            })
+        );
+    }
+
+    #[test]
+    fn parse_args_rejects_runtime_plan_edit_loop_with_zero_spacing() {
+        let error = parse_args(sample_args(&[
+            "--plan-rotate",
+            "0:0:1",
+            "--plan-edit-loop",
+            "--plan-edit-spacing-ms",
+            "0",
+        ]))
+        .err()
+        .expect("zero runtime plan-edit spacing should fail");
+
+        assert!(error.contains("--plan-edit-spacing-ms must be positive"));
     }
 
     #[test]
@@ -5451,15 +5629,15 @@ mod tests {
             &TypeIoObject::Int(7),
         );
         state.observe_events(&[
-            ClientSessionEvent::ClientPacketReliable {
+            ClientSessionEvent::ServerPacketReliable {
                 packet_type: "custom.text".to_string(),
                 contents: "line\none".to_string(),
             },
-            ClientSessionEvent::ClientPacketUnreliable {
+            ClientSessionEvent::ServerPacketUnreliable {
                 packet_type: "custom.text".to_string(),
                 contents: "line two".to_string(),
             },
-            ClientSessionEvent::ClientBinaryPacketReliable {
+            ClientSessionEvent::ServerBinaryPacketReliable {
                 packet_type: "custom.bin".to_string(),
                 contents: vec![0xAA, 0xBB, 0xCC],
             },
@@ -5532,6 +5710,14 @@ mod tests {
                 packet_type: "custom.bin.u".to_string(),
                 contents: vec![0xAA, 0xBB, 0xCC],
             },
+            ClientSessionEvent::ServerPacketReliable {
+                packet_type: "server.text.r".to_string(),
+                contents: "server".to_string(),
+            },
+            ClientSessionEvent::ServerBinaryPacketUnreliable {
+                packet_type: "server.bin.u".to_string(),
+                contents: vec![0x10, 0x20],
+            },
             ClientSessionEvent::ClientLogicDataReliable {
                 channel: "logic.r".to_string(),
                 value: TypeIoObject::String(Some("hello".to_string())),
@@ -5546,7 +5732,7 @@ mod tests {
             ClientSessionEvent::SnapshotReceived(HighFrequencyRemoteMethod::EntitySnapshot),
         ]);
 
-        assert_eq!(lines.len(), 6);
+        assert_eq!(lines.len(), 8);
         assert!(lines[0].contains("client_packet: transport=reliable"));
         assert!(lines[0].contains("type=\"custom.text.r\""));
         assert!(lines[0].contains("len=8"));
@@ -5562,14 +5748,21 @@ mod tests {
         assert!(lines[3].contains("type=\"custom.bin.u\""));
         assert!(lines[3].contains("len=3"));
         assert!(lines[3].contains("hex_prefix=aabbcc"));
-        assert!(lines[4].contains("client_logic_data: transport=reliable"));
-        assert!(lines[4].contains("channel=\"logic.r\""));
-        assert!(lines[4].contains("kind=\"string\""));
-        assert!(lines[4].contains("String(Some(\\\"hello\\\"))"));
-        assert!(lines[5].contains("client_logic_data: transport=unreliable"));
-        assert!(lines[5].contains("channel=\"logic.u\""));
-        assert!(lines[5].contains("kind=\"object[]\""));
-        assert!(lines[5].contains("ObjectArray([Int(7), Bool(true)])"));
+        assert!(lines[4].contains("server_packet: transport=reliable"));
+        assert!(lines[4].contains("type=\"server.text.r\""));
+        assert!(lines[4].contains("len=6"));
+        assert!(lines[5].contains("server_binary_packet: transport=unreliable"));
+        assert!(lines[5].contains("type=\"server.bin.u\""));
+        assert!(lines[5].contains("len=2"));
+        assert!(lines[5].contains("hex_prefix=1020"));
+        assert!(lines[6].contains("client_logic_data: transport=reliable"));
+        assert!(lines[6].contains("channel=\"logic.r\""));
+        assert!(lines[6].contains("kind=\"string\""));
+        assert!(lines[6].contains("String(Some(\\\"hello\\\"))"));
+        assert!(lines[7].contains("client_logic_data: transport=unreliable"));
+        assert!(lines[7].contains("channel=\"logic.u\""));
+        assert!(lines[7].contains("kind=\"object[]\""));
+        assert!(lines[7].contains("ObjectArray([Int(7), Bool(true)])"));
     }
 
     #[test]
@@ -6722,6 +6915,60 @@ mod tests {
     }
 
     #[test]
+    fn runtime_plan_edit_loop_state_collects_entries_and_wraps() {
+        let mut state = RuntimePlanEditLoopState::new(PlanEditLoopConfig {
+            ops: vec![
+                PlanEditOp::Rotate {
+                    origin: (0, 0),
+                    direction: 1,
+                },
+                PlanEditOp::Flip {
+                    origin: (2, 3),
+                    flip_x: false,
+                },
+            ],
+            delay_ms: 100,
+            spacing_ms: 50,
+        });
+
+        assert!(state.collect_due_entries(0).is_empty());
+        assert!(state.collect_due_entries(99).is_empty());
+        assert_eq!(
+            state.collect_due_entries(100),
+            vec![RuntimePlanEditLoopEntry {
+                op_index: 0,
+                scheduled_ms: 100,
+                op: PlanEditOp::Rotate {
+                    origin: (0, 0),
+                    direction: 1,
+                },
+            }]
+        );
+        assert_eq!(
+            state.collect_due_entries(150),
+            vec![RuntimePlanEditLoopEntry {
+                op_index: 1,
+                scheduled_ms: 150,
+                op: PlanEditOp::Flip {
+                    origin: (2, 3),
+                    flip_x: false,
+                },
+            }]
+        );
+        assert_eq!(
+            state.collect_due_entries(200),
+            vec![RuntimePlanEditLoopEntry {
+                op_index: 0,
+                scheduled_ms: 200,
+                op: PlanEditOp::Rotate {
+                    origin: (0, 0),
+                    direction: 1,
+                },
+            }]
+        );
+    }
+
+    #[test]
     fn outbound_action_script_produces_stable_client_event_signature() {
         let args = parse_args(sample_args(&[
             "--action-delay-ms",
@@ -7144,6 +7391,72 @@ mod tests {
         assert_eq!(input.selected_block_id, Some(0x0101));
         assert_eq!(input.selected_rotation, 1);
         assert_eq!(input.plans.as_ref().map(|plans| plans.len()), Some(2));
+    }
+
+    #[test]
+    fn maybe_apply_runtime_plan_edit_loop_rotates_live_queue_after_delay() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
+        let args = parse_args(sample_args(&[
+            "--plan-place",
+            "1:0:0x0101:0",
+            "--plan-rotate",
+            "0:0:1",
+            "--plan-edit-loop",
+            "--plan-edit-delay-ms",
+            "100",
+            "--plan-edit-spacing-ms",
+            "50",
+        ]))
+        .unwrap();
+        let mut loop_state = RuntimePlanEditLoopState::new(
+            args.runtime_plan_edit_loop
+                .clone()
+                .expect("runtime plan-edit loop config"),
+        );
+
+        ingest_sample_world(&mut session);
+        assert!(session.state().ready_to_enter_world);
+        assert!(session.prepare_connect_confirm_packet().unwrap().is_some());
+        assert!(session.state().connect_confirm_sent);
+        apply_snapshot_overrides(&mut session, &args);
+
+        maybe_apply_runtime_plan_edit_loop(&mut session, Some(&mut loop_state), 0);
+        maybe_apply_runtime_plan_edit_loop(&mut session, Some(&mut loop_state), 99);
+        assert_eq!(
+            session.snapshot_input().plans,
+            Some(vec![ClientBuildPlan {
+                tile: (0, 1),
+                breaking: false,
+                block_id: Some(0x0101),
+                rotation: 1,
+                config: ClientBuildPlanConfig::None,
+            }])
+        );
+
+        maybe_apply_runtime_plan_edit_loop(&mut session, Some(&mut loop_state), 100);
+        assert_eq!(
+            session.snapshot_input().plans,
+            Some(vec![ClientBuildPlan {
+                tile: (-1, 0),
+                breaking: false,
+                block_id: Some(0x0101),
+                rotation: 2,
+                config: ClientBuildPlanConfig::None,
+            }])
+        );
+
+        maybe_apply_runtime_plan_edit_loop(&mut session, Some(&mut loop_state), 150);
+        assert_eq!(
+            session.snapshot_input().plans,
+            Some(vec![ClientBuildPlan {
+                tile: (0, -1),
+                breaking: false,
+                block_id: Some(0x0101),
+                rotation: 3,
+                config: ClientBuildPlanConfig::None,
+            }])
+        );
     }
 
     #[test]

@@ -2888,7 +2888,8 @@ impl ClientSession {
                         self.state
                             .building_table_projection
                             .apply_deconstruct_finish(build_pos, None);
-                        self.state.record_remove_building_resource_delta(Some(build_pos));
+                        self.state
+                            .record_remove_building_resource_delta(Some(build_pos));
                     }
                     Ok(ClientSessionEvent::RemoveTile { tile_pos })
                 } else {
@@ -5586,10 +5587,7 @@ impl ClientSession {
         };
 
         match packet.packet_id {
-            packet_id
-                if Some(packet_id) == self.client_packet_reliable_packet_id
-                    || Some(packet_id) == self.server_packet_reliable_packet_id =>
-            {
+            packet_id if Some(packet_id) == self.client_packet_reliable_packet_id => {
                 if let Some((packet_type, contents)) = decode_client_packet_payload(&packet.payload)
                 {
                     self.state.received_client_packet_reliable_count = self
@@ -5608,10 +5606,26 @@ impl ClientSession {
                     ignored()
                 }
             }
-            packet_id
-                if Some(packet_id) == self.client_packet_unreliable_packet_id
-                    || Some(packet_id) == self.server_packet_unreliable_packet_id =>
-            {
+            packet_id if Some(packet_id) == self.server_packet_reliable_packet_id => {
+                if let Some((packet_type, contents)) = decode_client_packet_payload(&packet.payload)
+                {
+                    self.state.received_server_packet_reliable_count = self
+                        .state
+                        .received_server_packet_reliable_count
+                        .saturating_add(1);
+                    self.state.last_server_packet_reliable_type = Some(packet_type.clone());
+                    self.state.last_server_packet_reliable_contents = Some(contents.clone());
+                    self.client_packet_handlers
+                        .dispatch(&packet_type, &contents);
+                    ClientSessionEvent::ServerPacketReliable {
+                        packet_type,
+                        contents,
+                    }
+                } else {
+                    ignored()
+                }
+            }
+            packet_id if Some(packet_id) == self.client_packet_unreliable_packet_id => {
                 if let Some((packet_type, contents)) = decode_client_packet_payload(&packet.payload)
                 {
                     self.state.received_client_packet_unreliable_count = self
@@ -5630,10 +5644,26 @@ impl ClientSession {
                     ignored()
                 }
             }
-            packet_id
-                if Some(packet_id) == self.client_binary_packet_reliable_packet_id
-                    || Some(packet_id) == self.server_binary_packet_reliable_packet_id =>
-            {
+            packet_id if Some(packet_id) == self.server_packet_unreliable_packet_id => {
+                if let Some((packet_type, contents)) = decode_client_packet_payload(&packet.payload)
+                {
+                    self.state.received_server_packet_unreliable_count = self
+                        .state
+                        .received_server_packet_unreliable_count
+                        .saturating_add(1);
+                    self.state.last_server_packet_unreliable_type = Some(packet_type.clone());
+                    self.state.last_server_packet_unreliable_contents = Some(contents.clone());
+                    self.client_packet_handlers
+                        .dispatch(&packet_type, &contents);
+                    ClientSessionEvent::ServerPacketUnreliable {
+                        packet_type,
+                        contents,
+                    }
+                } else {
+                    ignored()
+                }
+            }
+            packet_id if Some(packet_id) == self.client_binary_packet_reliable_packet_id => {
                 if let Some((packet_type, contents)) =
                     decode_client_binary_packet_payload(&packet.payload)
                 {
@@ -5653,10 +5683,27 @@ impl ClientSession {
                     ignored()
                 }
             }
-            packet_id
-                if Some(packet_id) == self.client_binary_packet_unreliable_packet_id
-                    || Some(packet_id) == self.server_binary_packet_unreliable_packet_id =>
-            {
+            packet_id if Some(packet_id) == self.server_binary_packet_reliable_packet_id => {
+                if let Some((packet_type, contents)) =
+                    decode_client_binary_packet_payload(&packet.payload)
+                {
+                    self.state.received_server_binary_packet_reliable_count = self
+                        .state
+                        .received_server_binary_packet_reliable_count
+                        .saturating_add(1);
+                    self.state.last_server_binary_packet_reliable_type = Some(packet_type.clone());
+                    self.state.last_server_binary_packet_reliable_contents = Some(contents.clone());
+                    self.client_binary_packet_handlers
+                        .dispatch(&packet_type, &contents);
+                    ClientSessionEvent::ServerBinaryPacketReliable {
+                        packet_type,
+                        contents,
+                    }
+                } else {
+                    ignored()
+                }
+            }
+            packet_id if Some(packet_id) == self.client_binary_packet_unreliable_packet_id => {
                 if let Some((packet_type, contents)) =
                     decode_client_binary_packet_payload(&packet.payload)
                 {
@@ -5671,6 +5718,28 @@ impl ClientSession {
                     self.client_binary_packet_handlers
                         .dispatch(&packet_type, &contents);
                     ClientSessionEvent::ClientBinaryPacketUnreliable {
+                        packet_type,
+                        contents,
+                    }
+                } else {
+                    ignored()
+                }
+            }
+            packet_id if Some(packet_id) == self.server_binary_packet_unreliable_packet_id => {
+                if let Some((packet_type, contents)) =
+                    decode_client_binary_packet_payload(&packet.payload)
+                {
+                    self.state.received_server_binary_packet_unreliable_count = self
+                        .state
+                        .received_server_binary_packet_unreliable_count
+                        .saturating_add(1);
+                    self.state.last_server_binary_packet_unreliable_type =
+                        Some(packet_type.clone());
+                    self.state.last_server_binary_packet_unreliable_contents =
+                        Some(contents.clone());
+                    self.client_binary_packet_handlers
+                        .dispatch(&packet_type, &contents);
+                    ClientSessionEvent::ServerBinaryPacketUnreliable {
                         packet_type,
                         contents,
                     }
@@ -7087,11 +7156,27 @@ pub enum ClientSessionEvent {
         packet_type: String,
         contents: String,
     },
+    ServerPacketReliable {
+        packet_type: String,
+        contents: String,
+    },
+    ServerPacketUnreliable {
+        packet_type: String,
+        contents: String,
+    },
     ClientBinaryPacketReliable {
         packet_type: String,
         contents: Vec<u8>,
     },
     ClientBinaryPacketUnreliable {
+        packet_type: String,
+        contents: Vec<u8>,
+    },
+    ServerBinaryPacketReliable {
+        packet_type: String,
+        contents: Vec<u8>,
+    },
+    ServerBinaryPacketUnreliable {
         packet_type: String,
         contents: Vec<u8>,
     },
@@ -17097,20 +17182,20 @@ mod tests {
 
         assert_eq!(
             event,
-            ClientSessionEvent::ClientPacketReliable {
+            ClientSessionEvent::ServerPacketReliable {
                 packet_type: "server.text.r".to_string(),
                 contents: "payload-r".to_string(),
             }
         );
-        assert_eq!(session.state().received_client_packet_reliable_count, 1);
+        assert_eq!(session.state().received_server_packet_reliable_count, 1);
         assert_eq!(
-            session.state().last_client_packet_reliable_type.as_deref(),
+            session.state().last_server_packet_reliable_type.as_deref(),
             Some("server.text.r")
         );
         assert_eq!(
             session
                 .state()
-                .last_client_packet_reliable_contents
+                .last_server_packet_reliable_contents
                 .as_deref(),
             Some("payload-r")
         );
@@ -17137,23 +17222,23 @@ mod tests {
 
         assert_eq!(
             event,
-            ClientSessionEvent::ClientPacketUnreliable {
+            ClientSessionEvent::ServerPacketUnreliable {
                 packet_type: "server.text.u".to_string(),
                 contents: "payload-u".to_string(),
             }
         );
-        assert_eq!(session.state().received_client_packet_unreliable_count, 1);
+        assert_eq!(session.state().received_server_packet_unreliable_count, 1);
         assert_eq!(
             session
                 .state()
-                .last_client_packet_unreliable_type
+                .last_server_packet_unreliable_type
                 .as_deref(),
             Some("server.text.u")
         );
         assert_eq!(
             session
                 .state()
-                .last_client_packet_unreliable_contents
+                .last_server_packet_unreliable_contents
                 .as_deref(),
             Some("payload-u")
         );
@@ -17181,24 +17266,24 @@ mod tests {
 
         assert_eq!(
             event,
-            ClientSessionEvent::ClientBinaryPacketReliable {
+            ClientSessionEvent::ServerBinaryPacketReliable {
                 packet_type: "server.bin.r".to_string(),
                 contents: contents.clone(),
             }
         );
         assert_eq!(
-            session.state().received_client_binary_packet_reliable_count,
+            session.state().received_server_binary_packet_reliable_count,
             1
         );
         assert_eq!(
             session
                 .state()
-                .last_client_binary_packet_reliable_type
+                .last_server_binary_packet_reliable_type
                 .as_deref(),
             Some("server.bin.r")
         );
         assert_eq!(
-            session.state().last_client_binary_packet_reliable_contents,
+            session.state().last_server_binary_packet_reliable_contents,
             Some(contents)
         );
     }
@@ -17225,7 +17310,7 @@ mod tests {
 
         assert_eq!(
             event,
-            ClientSessionEvent::ClientBinaryPacketUnreliable {
+            ClientSessionEvent::ServerBinaryPacketUnreliable {
                 packet_type: "server.bin.u".to_string(),
                 contents: contents.clone(),
             }
@@ -17233,20 +17318,20 @@ mod tests {
         assert_eq!(
             session
                 .state()
-                .received_client_binary_packet_unreliable_count,
+                .received_server_binary_packet_unreliable_count,
             1
         );
         assert_eq!(
             session
                 .state()
-                .last_client_binary_packet_unreliable_type
+                .last_server_binary_packet_unreliable_type
                 .as_deref(),
             Some("server.bin.u")
         );
         assert_eq!(
             session
                 .state()
-                .last_client_binary_packet_unreliable_contents,
+                .last_server_binary_packet_unreliable_contents,
             Some(contents)
         );
     }
@@ -25573,7 +25658,9 @@ mod tests {
         set_item_payload.extend_from_slice(&7i16.to_be_bytes());
         set_item_payload.extend_from_slice(&25i32.to_be_bytes());
         session
-            .ingest_packet_bytes(&encode_packet(set_item_packet_id, &set_item_payload, false).unwrap())
+            .ingest_packet_bytes(
+                &encode_packet(set_item_packet_id, &set_item_payload, false).unwrap(),
+            )
             .unwrap();
 
         let mut set_items_payload = encode_building_payload(Some(build_pos));
@@ -25645,13 +25732,25 @@ mod tests {
             4
         );
         assert_eq!(session.state().resource_delta_projection.build_count(), 2);
-        assert_eq!(session.state().resource_delta_projection.build_stack_count(), 2);
         assert_eq!(
-            session.state().resource_delta_projection.last_changed_build_pos,
+            session
+                .state()
+                .resource_delta_projection
+                .build_stack_count(),
+            2
+        );
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .last_changed_build_pos,
             Some(build_pos)
         );
         assert_eq!(
-            session.state().resource_delta_projection.last_changed_amount,
+            session
+                .state()
+                .resource_delta_projection
+                .last_changed_amount,
             Some(0)
         );
     }
@@ -25690,14 +25789,21 @@ mod tests {
         set_item_payload.extend_from_slice(&4i16.to_be_bytes());
         set_item_payload.extend_from_slice(&10i32.to_be_bytes());
         session
-            .ingest_packet_bytes(&encode_packet(set_item_packet_id, &set_item_payload, false).unwrap())
+            .ingest_packet_bytes(
+                &encode_packet(set_item_packet_id, &set_item_payload, false).unwrap(),
+            )
             .unwrap();
 
         session
             .ingest_packet_bytes(
                 &encode_packet(
                     take_items_packet_id,
-                    &encode_take_items_payload(Some(build_pos), Some(4), 6, ClientUnitRef::Standard(99)),
+                    &encode_take_items_payload(
+                        Some(build_pos),
+                        Some(4),
+                        6,
+                        ClientUnitRef::Standard(99),
+                    ),
                     false,
                 )
                 .unwrap(),
@@ -25764,16 +25870,34 @@ mod tests {
                 amount: 1,
             })
         );
-        assert_eq!(session.state().resource_delta_projection.delta_apply_count, 3);
-        assert_eq!(session.state().resource_delta_projection.delta_skip_count, 0);
-        assert_eq!(session.state().resource_delta_projection.delta_conflict_count, 0);
+        assert_eq!(
+            session.state().resource_delta_projection.delta_apply_count,
+            3
+        );
+        assert_eq!(
+            session.state().resource_delta_projection.delta_skip_count,
+            0
+        );
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .delta_conflict_count,
+            0
+        );
         assert_eq!(session.state().resource_delta_projection.entity_count(), 2);
         assert_eq!(
-            session.state().resource_delta_projection.last_changed_entity_id,
+            session
+                .state()
+                .resource_delta_projection
+                .last_changed_entity_id,
             Some(88)
         );
         assert_eq!(
-            session.state().resource_delta_projection.last_changed_amount,
+            session
+                .state()
+                .resource_delta_projection
+                .last_changed_amount,
             Some(1)
         );
     }
@@ -25824,7 +25948,9 @@ mod tests {
         set_item_payload.extend_from_slice(&4i16.to_be_bytes());
         set_item_payload.extend_from_slice(&10i32.to_be_bytes());
         session
-            .ingest_packet_bytes(&encode_packet(set_item_packet_id, &set_item_payload, false).unwrap())
+            .ingest_packet_bytes(
+                &encode_packet(set_item_packet_id, &set_item_payload, false).unwrap(),
+            )
             .unwrap();
         session
             .ingest_packet_bytes(
@@ -25870,9 +25996,21 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(session.state().resource_delta_projection.delta_apply_count, 1);
-        assert_eq!(session.state().resource_delta_projection.delta_skip_count, 2);
-        assert_eq!(session.state().resource_delta_projection.delta_conflict_count, 1);
+        assert_eq!(
+            session.state().resource_delta_projection.delta_apply_count,
+            1
+        );
+        assert_eq!(
+            session.state().resource_delta_projection.delta_skip_count,
+            2
+        );
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .delta_conflict_count,
+            1
+        );
         assert_eq!(
             session
                 .state()

@@ -455,12 +455,13 @@ impl ResourceDeltaProjection {
 
         match projection.to {
             Some(unit_ref) => match resource_delta_standard_entity_id(Some(unit_ref)) {
-                Some(entity_id) => match self.add_entity_item(entity_id, item_id, projection.amount)
-                {
-                    ResourceDeltaOutcome::Applied => applied = true,
-                    ResourceDeltaOutcome::Skipped => skipped = true,
-                    ResourceDeltaOutcome::Conflicted => conflicted = true,
-                },
+                Some(entity_id) => {
+                    match self.add_entity_item(entity_id, item_id, projection.amount) {
+                        ResourceDeltaOutcome::Applied => applied = true,
+                        ResourceDeltaOutcome::Skipped => skipped = true,
+                        ResourceDeltaOutcome::Conflicted => conflicted = true,
+                    }
+                }
                 None => skipped = true,
             },
             None => skipped = true,
@@ -2647,12 +2648,24 @@ pub struct SessionState {
     pub last_client_packet_reliable_contents: Option<String>,
     pub last_client_packet_unreliable_type: Option<String>,
     pub last_client_packet_unreliable_contents: Option<String>,
+    pub received_server_packet_reliable_count: u64,
+    pub received_server_packet_unreliable_count: u64,
+    pub last_server_packet_reliable_type: Option<String>,
+    pub last_server_packet_reliable_contents: Option<String>,
+    pub last_server_packet_unreliable_type: Option<String>,
+    pub last_server_packet_unreliable_contents: Option<String>,
     pub received_client_binary_packet_reliable_count: u64,
     pub received_client_binary_packet_unreliable_count: u64,
     pub last_client_binary_packet_reliable_type: Option<String>,
     pub last_client_binary_packet_reliable_contents: Option<Vec<u8>>,
     pub last_client_binary_packet_unreliable_type: Option<String>,
     pub last_client_binary_packet_unreliable_contents: Option<Vec<u8>>,
+    pub received_server_binary_packet_reliable_count: u64,
+    pub received_server_binary_packet_unreliable_count: u64,
+    pub last_server_binary_packet_reliable_type: Option<String>,
+    pub last_server_binary_packet_reliable_contents: Option<Vec<u8>>,
+    pub last_server_binary_packet_unreliable_type: Option<String>,
+    pub last_server_binary_packet_unreliable_contents: Option<Vec<u8>>,
     pub received_client_logic_data_reliable_count: u64,
     pub received_client_logic_data_unreliable_count: u64,
     pub last_client_logic_data_reliable_channel: Option<String>,
@@ -3283,7 +3296,8 @@ impl SessionState {
     }
 
     pub fn record_remove_resource_delta_entity(&mut self, unit: Option<UnitRefProjection>) {
-        self.resource_delta_projection.remove_standard_entity_item(unit);
+        self.resource_delta_projection
+            .remove_standard_entity_item(unit);
     }
 
     pub fn record_remove_resource_delta_entity_by_id(&mut self, entity_id: Option<i32>) {
@@ -3323,7 +3337,8 @@ impl SessionState {
         self.resource_delta_projection.last_to_entity_id = None;
         self.resource_delta_projection.last_x_bits = Some(projection.x_bits);
         self.resource_delta_projection.last_y_bits = Some(projection.y_bits);
-        self.resource_delta_projection.apply_transfer_item_to(projection);
+        self.resource_delta_projection
+            .apply_transfer_item_to(projection);
     }
 
     pub fn record_transfer_item_to_unit_resource_delta(

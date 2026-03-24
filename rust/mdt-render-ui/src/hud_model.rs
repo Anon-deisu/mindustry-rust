@@ -2,7 +2,9 @@
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct HudModel {
     pub title: String,
+    pub wave_text: Option<String>,
     pub status_text: String,
+    pub overlay_summary_text: Option<String>,
     pub fps: Option<f32>,
     pub summary: Option<HudSummary>,
     pub runtime_ui: Option<RuntimeUiObservability>,
@@ -68,7 +70,9 @@ impl HudModel {
 
     pub fn is_hidden(&self) -> bool {
         self.title.is_empty()
+            && self.wave_text.is_none()
             && self.status_text.is_empty()
+            && self.overlay_summary_text.is_none()
             && self.fps.is_none()
             && self.summary.is_none()
             && self.runtime_ui.is_none()

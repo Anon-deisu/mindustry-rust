@@ -1,5 +1,5 @@
 use crate::{hud_model::HudSummary, HudModel, RenderModel, RenderObject, Viewport};
-use mdt_world::{LoadedWorldSession, MarkerEntry, MarkerModel, PointMarkerModel, TeamPlanRef};
+use mdt_world::{LoadedWorldSession, MarkerEntry, TeamPlanRef};
 
 const TILE_SIZE: f32 = 8.0;
 const TERRAIN_LAYER: i32 = 0;
@@ -8,10 +8,14 @@ const PLAN_LAYER: i32 = 20;
 const MARKER_LAYER: i32 = 30;
 const PLAYER_LAYER: i32 = 40;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct SceneVisibility {
     hud_visible: bool,
     overlay_visible: bool,
+    hud_title_text: Option<String>,
+    hud_wave_text: Option<String>,
+    hud_status_text: Option<String>,
+    overlay_summary_text: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -282,17 +286,26 @@ fn project_hud_model_with_visibility(
     locale: &str,
     visibility: SceneVisibility,
 ) -> HudModel {
-    if !visibility.hud_visible {
+    if !visibility.hud_visible && !visibility.overlay_visible {
         return HudModel::hidden();
     }
 
     let graph = session.graph();
     let fog_visibility = fog_visibility(session);
     let (visible_tile_count, hidden_tile_count) = fog_tile_counts(session, fog_visibility);
-    let title = session
-        .display_title(locale)
-        .unwrap_or(session.player().name.as_str())
-        .to_string();
+    let title = if visibility.hud_visible {
+        visibility
+            .hud_title_text
+            .clone()
+            .or_else(|| {
+                session
+                    .display_title(locale)
+                    .map(std::string::ToString::to_string)
+            })
+            .unwrap_or_else(|| session.player().name.clone())
+    } else {
+        String::new()
+    };
     let selected_block = session.selected_block_name().unwrap_or("none");
     let player_name = session.player().name.clone();
     let team_id = session.player().team_id;
@@ -300,26 +313,37 @@ fn project_hud_model_with_visibility(
     let marker_count = graph.markers().count();
     let map_width = graph.width();
     let map_height = graph.height();
-    let status_text = format!(
-        "player={} team={} selected={} plans={} markers={} map={}x{} overlay={} fog={} vis={} hid={}",
-        player_name,
-        team_id,
-        selected_block,
-        plan_count,
-        marker_count,
-        map_width,
-        map_height,
-        if visibility.overlay_visible { 1 } else { 0 },
-        if fog_visibility.enabled { 1 } else { 0 },
-        visible_tile_count,
-        hidden_tile_count
-    );
+    let status_text = if visibility.hud_visible {
+        visibility.hud_status_text.clone().unwrap_or_else(|| {
+            format!(
+                "player={} team={} selected={} plans={} markers={} map={}x{} overlay={} fog={} vis={} hid={}",
+                player_name,
+                team_id,
+                selected_block,
+                plan_count,
+                marker_count,
+                map_width,
+                map_height,
+                if visibility.overlay_visible { 1 } else { 0 },
+                if fog_visibility.enabled { 1 } else { 0 },
+                visible_tile_count,
+                hidden_tile_count
+            )
+        })
+    } else {
+        String::new()
+    };
 
     HudModel {
         title,
+        wave_text: visibility.hud_visible.then(|| visibility.hud_wave_text.clone()).flatten(),
         status_text,
+        overlay_summary_text: visibility
+            .overlay_visible
+            .then(|| visibility.overlay_summary_text.clone())
+            .flatten(),
         fps: None,
-        summary: Some(HudSummary {
+        summary: visibility.hud_visible.then_some(HudSummary {
             player_name,
             team_id,
             selected_block: selected_block.to_string(),
@@ -341,6 +365,10 @@ fn scene_visibility(session: &LoadedWorldSession<'_>, locale: &str) -> SceneVisi
     SceneVisibility {
         hud_visible: render_contract.hud.visible,
         overlay_visible: render_contract.overlay.visible,
+        hud_title_text: render_contract.hud.title_text.clone(),
+        hud_wave_text: render_contract.hud.wave_text.clone(),
+        hud_status_text: render_contract.hud.status_text.clone(),
+        overlay_summary_text: render_contract.overlay.summary_text.clone(),
     }
 }
 
@@ -394,18 +422,12 @@ fn project_team_plan(plan: TeamPlanRef<'_>) -> RenderObject {
 }
 
 fn marker_world_position(marker: &MarkerEntry) -> Option<(f32, f32)> {
-    marker
-        .marker
-        .tile_coords()
-        .map(|(x, y)| (x as f32 * TILE_SIZE, y as f32 * TILE_SIZE))
-        .or_else(|| match &marker.marker {
-            MarkerModel::Point(point) => Some(point_marker_world_position(point)),
-            MarkerModel::Unknown(_) => None,
-        })
-}
-
-fn point_marker_world_position(marker: &PointMarkerModel) -> (f32, f32) {
-    (f32::from_bits(marker.x_bits), f32::from_bits(marker.y_bits))
+    marker.marker.world_position().or_else(|| {
+        marker
+            .marker
+            .tile_coords()
+            .map(|(x, y)| (x as f32 * TILE_SIZE, y as f32 * TILE_SIZE))
+    })
 }
 
 fn world_to_tile_index_floor(world_position: f32) -> i32 {
@@ -483,6 +505,7 @@ mod tests {
 
         let render = project_render_model(&session);
         let hud = project_hud_model(&session, "fr");
+        let contract = session.enter_render_contract("fr");
 
         assert_eq!(render.viewport.width, 64.0);
         assert_eq!(render.viewport.height, 64.0);
@@ -500,11 +523,22 @@ mod tests {
             .iter()
             .any(|object| object.id == "plan:1:1:2"));
         assert_eq!(hud.title, "Golden Deterministic");
-        assert!(hud.status_text.contains("plans=1"));
-        assert!(hud.status_text.contains("markers=2"));
-        assert!(hud.status_text.contains("map=8x8"));
-        assert!(hud.status_text.contains("overlay=1"));
-        assert!(hud.status_text.contains("fog=1"));
+        assert_eq!(hud.wave_text.as_deref(), contract.hud.wave_text.as_deref());
+        assert_eq!(
+            hud.status_text,
+            contract.hud.status_text.as_deref().unwrap_or_default()
+        );
+        assert_eq!(
+            hud.overlay_summary_text.as_deref(),
+            contract.overlay.summary_text.as_deref()
+        );
+        let summary = hud.summary.as_ref().expect("summary should be present");
+        assert_eq!(summary.plan_count, 1);
+        assert_eq!(summary.marker_count, 2);
+        assert_eq!(summary.map_width, 8);
+        assert_eq!(summary.map_height, 8);
+        assert!(summary.overlay_visible);
+        assert!(summary.fog_enabled);
     }
 
     #[test]
@@ -563,7 +597,9 @@ mod tests {
         assert!(hud.is_hidden());
         assert!(!hud.is_visible());
         assert_eq!(hud.title, "");
+        assert_eq!(hud.wave_text, None);
         assert_eq!(hud.status_text, "");
+        assert_eq!(hud.overlay_summary_text, None);
         assert_eq!(hud.summary, None);
     }
 

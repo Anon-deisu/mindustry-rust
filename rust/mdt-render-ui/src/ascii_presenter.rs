@@ -41,7 +41,17 @@ impl AsciiScenePresenter {
 
         let mut out = String::new();
         out.push_str(&format!("TITLE: {}\n", hud.title));
+        if let Some(wave_text) = hud.wave_text.as_deref().filter(|text| !text.is_empty()) {
+            out.push_str(&format!("WAVE: {wave_text}\n"));
+        }
         out.push_str(&format!("STATUS: {}\n", hud.status_text));
+        if let Some(summary_text) = hud
+            .overlay_summary_text
+            .as_deref()
+            .filter(|text| !text.is_empty())
+        {
+            out.push_str(&format!("OVERLAY: {summary_text}\n"));
+        }
         out.push_str(&format!(
             "VIEWPORT: {}x{} zoom={:.2}\n",
             width, height, scene.viewport.zoom
@@ -176,13 +186,25 @@ mod tests {
         .unwrap();
         let session = bundle.loaded_session().unwrap();
         let (scene, hud) = project_scene_models(&session, "fr");
+        let contract = session.enter_render_contract("fr");
         let mut presenter = AsciiScenePresenter::default();
 
         presenter.present(&scene, &hud);
 
         let frame = presenter.last_frame();
         assert!(frame.contains("TITLE: Golden Deterministic"));
-        assert!(frame.contains("STATUS: player=golden-player"));
+        assert!(frame.contains(&format!(
+            "WAVE: {}",
+            contract.hud.wave_text.as_deref().unwrap_or_default()
+        )));
+        assert!(frame.contains(&format!(
+            "STATUS: {}",
+            contract.hud.status_text.as_deref().unwrap_or_default()
+        )));
+        assert!(frame.contains(&format!(
+            "OVERLAY: {}",
+            contract.overlay.summary_text.as_deref().unwrap_or_default()
+        )));
         assert!(frame.contains("@"));
         assert!(frame.contains("M"));
         assert!(frame.contains("P"));

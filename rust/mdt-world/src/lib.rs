@@ -761,6 +761,9 @@ pub struct MarkerEntry {
 #[derive(Debug, Clone, PartialEq)]
 pub enum MarkerModel {
     Point(PointMarkerModel),
+    Text(TextMarkerModel),
+    Shape(ShapeMarkerModel),
+    ShapeText(ShapeTextMarkerModel),
     Unknown(UnknownMarkerModel),
 }
 
@@ -770,6 +773,7 @@ pub struct PointMarkerModel {
     pub world: bool,
     pub minimap: bool,
     pub autoscale: bool,
+    pub draw_layer_bits: u32,
     pub x_bits: u32,
     pub y_bits: u32,
     pub radius_bits: u32,
@@ -777,9 +781,72 @@ pub struct PointMarkerModel {
     pub color: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextMarkerModel {
+    pub class_tag: String,
+    pub world: bool,
+    pub minimap: bool,
+    pub autoscale: bool,
+    pub draw_layer_bits: u32,
+    pub x_bits: u32,
+    pub y_bits: u32,
+    pub text: String,
+    pub font_size_bits: u32,
+    pub flags: i32,
+    pub text_align: i32,
+    pub line_align: i32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShapeMarkerModel {
+    pub class_tag: String,
+    pub world: bool,
+    pub minimap: bool,
+    pub autoscale: bool,
+    pub draw_layer_bits: u32,
+    pub x_bits: u32,
+    pub y_bits: u32,
+    pub radius_bits: u32,
+    pub rotation_bits: u32,
+    pub stroke_bits: u32,
+    pub start_angle_bits: u32,
+    pub end_angle_bits: u32,
+    pub fill: bool,
+    pub outline: bool,
+    pub sides: i32,
+    pub color: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShapeTextMarkerModel {
+    pub class_tag: String,
+    pub world: bool,
+    pub minimap: bool,
+    pub autoscale: bool,
+    pub draw_layer_bits: u32,
+    pub x_bits: u32,
+    pub y_bits: u32,
+    pub text: String,
+    pub font_size_bits: u32,
+    pub text_height_bits: u32,
+    pub flags: i32,
+    pub text_align: i32,
+    pub line_align: i32,
+    pub radius_bits: u32,
+    pub rotation_bits: u32,
+    pub sides: i32,
+    pub color: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnknownMarkerModel {
     pub class_tag: Option<String>,
+    pub world: bool,
+    pub minimap: bool,
+    pub autoscale: bool,
+    pub draw_layer_bits: Option<u32>,
+    pub x_bits: Option<u32>,
+    pub y_bits: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -11823,12 +11890,7 @@ impl<'a> LoadedWorldSession<'a> {
             .bundle
             .markers
             .iter()
-            .map(|marker| match &marker.marker {
-                MarkerModel::Point(point) => {
-                    point.color.clone().unwrap_or_else(|| "none".to_string())
-                }
-                MarkerModel::Unknown(_) => "none".to_string(),
-            })
+            .map(|marker| marker.marker.color().unwrap_or("none").to_string())
             .collect()
     }
 
@@ -12587,6 +12649,9 @@ impl MarkerModel {
     pub fn class_tag(&self) -> Option<&str> {
         match self {
             MarkerModel::Point(marker) => Some(marker.class_tag.as_str()),
+            MarkerModel::Text(marker) => Some(marker.class_tag.as_str()),
+            MarkerModel::Shape(marker) => Some(marker.class_tag.as_str()),
+            MarkerModel::ShapeText(marker) => Some(marker.class_tag.as_str()),
             MarkerModel::Unknown(marker) => marker.class_tag.as_deref(),
         }
     }
@@ -12594,6 +12659,9 @@ impl MarkerModel {
     pub fn kind_name(&self) -> &'static str {
         match self {
             MarkerModel::Point(_) => "Point",
+            MarkerModel::Text(_) => "Text",
+            MarkerModel::Shape(_) => "Shape",
+            MarkerModel::ShapeText(_) => "ShapeText",
             MarkerModel::Unknown(_) => "Unknown",
         }
     }
@@ -12601,25 +12669,99 @@ impl MarkerModel {
     pub fn tile_coords(&self) -> Option<(i16, i16)> {
         match self {
             MarkerModel::Point(marker) => marker.tile_coords(),
+            MarkerModel::Text(marker) => marker.tile_coords(),
+            MarkerModel::Shape(marker) => marker.tile_coords(),
+            MarkerModel::ShapeText(marker) => marker.tile_coords(),
             MarkerModel::Unknown(_) => None,
+        }
+    }
+
+    pub fn world_position(&self) -> Option<(f32, f32)> {
+        match self {
+            MarkerModel::Point(marker) => Some(marker.world_position()),
+            MarkerModel::Text(marker) => Some(marker.world_position()),
+            MarkerModel::Shape(marker) => Some(marker.world_position()),
+            MarkerModel::ShapeText(marker) => Some(marker.world_position()),
+            MarkerModel::Unknown(_) => None,
+        }
+    }
+
+    pub fn minimap_enabled(&self) -> bool {
+        match self {
+            MarkerModel::Point(marker) => marker.minimap,
+            MarkerModel::Text(marker) => marker.minimap,
+            MarkerModel::Shape(marker) => marker.minimap,
+            MarkerModel::ShapeText(marker) => marker.minimap,
+            MarkerModel::Unknown(marker) => marker.minimap,
+        }
+    }
+
+    pub fn color(&self) -> Option<&str> {
+        match self {
+            MarkerModel::Point(marker) => marker.color.as_deref(),
+            MarkerModel::Shape(marker) => marker.color.as_deref(),
+            MarkerModel::ShapeText(marker) => marker.color.as_deref(),
+            MarkerModel::Text(_) | MarkerModel::Unknown(_) => None,
         }
     }
 }
 
 impl PointMarkerModel {
     pub fn tile_coords(&self) -> Option<(i16, i16)> {
-        fn coord(bits: u32) -> Option<i16> {
-            let world = f32::from_bits(bits);
-            if !world.is_finite() {
-                return None;
-            }
-            let tile = world / 8.0;
-            let rounded = tile.round();
-            ((tile - rounded).abs() < 0.0001).then_some(rounded as i16)
-        }
-
-        Some((coord(self.x_bits)?, coord(self.y_bits)?))
+        tile_coords_from_bits(self.x_bits, self.y_bits)
     }
+
+    pub fn world_position(&self) -> (f32, f32) {
+        world_position_from_bits(self.x_bits, self.y_bits)
+    }
+}
+
+impl TextMarkerModel {
+    pub fn tile_coords(&self) -> Option<(i16, i16)> {
+        tile_coords_from_bits(self.x_bits, self.y_bits)
+    }
+
+    pub fn world_position(&self) -> (f32, f32) {
+        world_position_from_bits(self.x_bits, self.y_bits)
+    }
+}
+
+impl ShapeMarkerModel {
+    pub fn tile_coords(&self) -> Option<(i16, i16)> {
+        tile_coords_from_bits(self.x_bits, self.y_bits)
+    }
+
+    pub fn world_position(&self) -> (f32, f32) {
+        world_position_from_bits(self.x_bits, self.y_bits)
+    }
+}
+
+impl ShapeTextMarkerModel {
+    pub fn tile_coords(&self) -> Option<(i16, i16)> {
+        tile_coords_from_bits(self.x_bits, self.y_bits)
+    }
+
+    pub fn world_position(&self) -> (f32, f32) {
+        world_position_from_bits(self.x_bits, self.y_bits)
+    }
+}
+
+fn tile_coords_from_bits(x_bits: u32, y_bits: u32) -> Option<(i16, i16)> {
+    fn coord(bits: u32) -> Option<i16> {
+        let world = f32::from_bits(bits);
+        if !world.is_finite() {
+            return None;
+        }
+        let tile = world / 8.0;
+        let rounded = tile.round();
+        ((tile - rounded).abs() < 0.0001).then_some(rounded as i16)
+    }
+
+    Some((coord(x_bits)?, coord(y_bits)?))
+}
+
+fn world_position_from_bits(x_bits: u32, y_bits: u32) -> (f32, f32) {
+    (f32::from_bits(x_bits), f32::from_bits(y_bits))
 }
 
 impl CustomChunkEntry {
@@ -14567,6 +14709,21 @@ pub struct OneF32TailSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OneI8TailSnapshot {
+    pub value: i8,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OneI32TailSnapshot {
+    pub value: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OneBoolTailSnapshot {
+    pub value: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OneF32BoolTailSnapshot {
     pub bits: u32,
     pub flag: bool,
@@ -14640,6 +14797,9 @@ pub enum ParsedBuildingTail {
     Constructor(ConstructorTailSnapshot),
     UnitAssembler(UnitAssemblerTailSnapshot),
     OneF32(OneF32TailSnapshot),
+    OneI8(OneI8TailSnapshot),
+    OneI32(OneI32TailSnapshot),
+    OneBool(OneBoolTailSnapshot),
     OneF32Bool(OneF32BoolTailSnapshot),
     TwoF32(TwoF32TailSnapshot),
     TwoF32I32(TwoF32I32TailSnapshot),
@@ -14950,6 +15110,9 @@ fn building_tail_kind(parsed_tail: &ParsedBuildingTail) -> &'static str {
         ParsedBuildingTail::Constructor(_) => "constructor",
         ParsedBuildingTail::UnitAssembler(_) => "unitAssembler",
         ParsedBuildingTail::OneF32(_) => "oneF32",
+        ParsedBuildingTail::OneI8(_) => "oneI8",
+        ParsedBuildingTail::OneI32(_) => "oneI32",
+        ParsedBuildingTail::OneBool(_) => "oneBool",
         ParsedBuildingTail::OneF32Bool(_) => "oneF32Bool",
         ParsedBuildingTail::TwoF32(_) => "twoF32",
         ParsedBuildingTail::TwoF32I32(_) => "twoF32I32",
@@ -16044,16 +16207,7 @@ pub fn parse_marker_goldens(bytes: &[u8]) -> Result<MarkerSummary, String> {
         "markers.minimap",
         &markers
             .iter()
-            .map(|marker| match &marker.marker {
-                MarkerModel::Point(point) => {
-                    if point.minimap {
-                        "1"
-                    } else {
-                        "0"
-                    }
-                }
-                MarkerModel::Unknown(_) => "0",
-            })
+            .map(|marker| if marker.marker.minimap_enabled() { "1" } else { "0" })
             .collect::<Vec<_>>()
             .join(","),
     );
@@ -16062,12 +16216,7 @@ pub fn parse_marker_goldens(bytes: &[u8]) -> Result<MarkerSummary, String> {
         "markers.colors",
         &markers
             .iter()
-            .map(|marker| match &marker.marker {
-                MarkerModel::Point(point) => {
-                    point.color.clone().unwrap_or_else(|| "none".to_string())
-                }
-                MarkerModel::Unknown(_) => "none".to_string(),
-            })
+            .map(|marker| marker.marker.color().unwrap_or("none").to_string())
             .collect::<Vec<_>>()
             .join(","),
     );
@@ -23585,6 +23734,15 @@ fn parse_building_tail_with_context(
                 parse_unit_assembler_tail_snapshot(content_header, revision, tail_bytes)?,
             ))
         }
+        Some("duct") | Some("armored-duct") => Ok(ParsedBuildingTail::OneI8(
+            parse_one_i8_tail_snapshot(tail_bytes)?,
+        )),
+        Some("illuminator") => Ok(ParsedBuildingTail::OneI32(
+            parse_one_i32_tail_snapshot(tail_bytes)?,
+        )),
+        Some("switch") | Some("world-switch") => Ok(ParsedBuildingTail::OneBool(
+            parse_one_bool_tail_snapshot(revision, tail_bytes)?,
+        )),
         Some(
             "graphite-press"
             | "multi-press"
@@ -24733,6 +24891,49 @@ fn parse_one_f32_tail_snapshot(tail_bytes: &[u8]) -> Result<OneF32TailSnapshot, 
     Ok(OneF32TailSnapshot { bits })
 }
 
+fn parse_one_i8_tail_snapshot(tail_bytes: &[u8]) -> Result<OneI8TailSnapshot, String> {
+    let mut reader = Reader::new(tail_bytes);
+    let value = reader.read_i8()?;
+    if !reader.remaining_bytes().is_empty() {
+        return Err(format!(
+            "unexpected one i8 tail remainder: {} bytes",
+            reader.remaining_bytes().len()
+        ));
+    }
+    Ok(OneI8TailSnapshot { value })
+}
+
+fn parse_one_i32_tail_snapshot(tail_bytes: &[u8]) -> Result<OneI32TailSnapshot, String> {
+    let mut reader = Reader::new(tail_bytes);
+    let value = reader.read_i32()?;
+    if !reader.remaining_bytes().is_empty() {
+        return Err(format!(
+            "unexpected one i32 tail remainder: {} bytes",
+            reader.remaining_bytes().len()
+        ));
+    }
+    Ok(OneI32TailSnapshot { value })
+}
+
+fn parse_one_bool_tail_snapshot(
+    revision: u8,
+    tail_bytes: &[u8],
+) -> Result<OneBoolTailSnapshot, String> {
+    let mut reader = Reader::new(tail_bytes);
+    let value = if revision >= 1 {
+        reader.read_bool()?
+    } else {
+        false
+    };
+    if !reader.remaining_bytes().is_empty() {
+        return Err(format!(
+            "unexpected one bool tail remainder: {} bytes",
+            reader.remaining_bytes().len()
+        ));
+    }
+    Ok(OneBoolTailSnapshot { value })
+}
+
 fn parse_one_f32_bool_tail_snapshot(
     revision: u8,
     tail_bytes: &[u8],
@@ -25518,6 +25719,9 @@ pub fn format_world_model_goldens(model: &WorldModel) -> String {
                 ParsedBuildingTail::Constructor(_) => "constructor",
                 ParsedBuildingTail::UnitAssembler(_) => "unitAssembler",
                 ParsedBuildingTail::OneF32(_) => "oneF32",
+                ParsedBuildingTail::OneI8(_) => "oneI8",
+                ParsedBuildingTail::OneI32(_) => "oneI32",
+                ParsedBuildingTail::OneBool(_) => "oneBool",
                 ParsedBuildingTail::OneF32Bool(_) => "oneF32Bool",
                 ParsedBuildingTail::TwoF32(_) => "twoF32",
                 ParsedBuildingTail::TwoF32I32(_) => "twoF32I32",
@@ -26231,6 +26435,27 @@ pub fn format_world_model_goldens(model: &WorldModel) -> String {
                     &mut lines,
                     &format!("{prefix}.tail.oneF32.bits"),
                     &format!("{:08x}", value.bits),
+                );
+            }
+            ParsedBuildingTail::OneI8(value) => {
+                push_str(
+                    &mut lines,
+                    &format!("{prefix}.tail.oneI8.value"),
+                    &format!("{:02x}", value.value as u8),
+                );
+            }
+            ParsedBuildingTail::OneI32(value) => {
+                push_str(
+                    &mut lines,
+                    &format!("{prefix}.tail.oneI32.value"),
+                    &format!("{:08x}", value.value as u32),
+                );
+            }
+            ParsedBuildingTail::OneBool(value) => {
+                push_str(
+                    &mut lines,
+                    &format!("{prefix}.tail.oneBool.value"),
+                    if value.value { "1" } else { "0" },
                 );
             }
             ParsedBuildingTail::OneF32Bool(value) => {
@@ -37075,6 +37300,29 @@ impl UbjsonValue {
             _ => None,
         }
     }
+
+    fn as_i32(&self) -> Option<i32> {
+        match self {
+            UbjsonValue::Int(value) => i32::try_from(*value).ok(),
+            UbjsonValue::Float32(bits) => {
+                let value = f32::from_bits(*bits);
+                (value.is_finite()
+                    && (value - value.round()).abs() < 0.0001
+                    && value >= i32::MIN as f32
+                    && value <= i32::MAX as f32)
+                    .then_some(value as i32)
+            }
+            UbjsonValue::Float64(bits) => {
+                let value = f64::from_bits(*bits);
+                (value.is_finite()
+                    && (value - value.round()).abs() < 0.0001
+                    && value >= i32::MIN as f64
+                    && value <= i32::MAX as f64)
+                    .then_some(value as i32)
+            }
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -37099,6 +37347,90 @@ impl<'a> IntoIterator for ObjectFields<'a> {
     fn into_iter(self) -> Self::IntoIter {
         self.0.iter()
     }
+}
+
+fn marker_class_family(class_tag: Option<&str>) -> Option<&'static str> {
+    match class_tag {
+        Some("Point") | Some("point") | Some("PointMarker") | Some("pointMarker")
+        | Some("Minimap") | Some("minimap") => Some("Point"),
+        Some("Text") | Some("text") | Some("TextMarker") | Some("textMarker") => Some("Text"),
+        Some("Shape") | Some("shape") | Some("ShapeMarker") | Some("shapeMarker") => {
+            Some("Shape")
+        }
+        Some("ShapeText") | Some("shapeText") | Some("ShapeTextMarker")
+        | Some("shapeTextMarker") => Some("ShapeText"),
+        _ => None,
+    }
+}
+
+fn marker_bool_field(object: ObjectFields<'_>, key: &str, default: bool) -> bool {
+    object
+        .field(key)
+        .and_then(UbjsonValue::as_bool)
+        .unwrap_or(default)
+}
+
+fn marker_i32_field(object: ObjectFields<'_>, key: &str, default: i32) -> i32 {
+    object
+        .field(key)
+        .and_then(UbjsonValue::as_i32)
+        .unwrap_or(default)
+}
+
+fn marker_f32_bits_field(object: ObjectFields<'_>, key: &str, default: u32) -> u32 {
+    object
+        .field(key)
+        .and_then(UbjsonValue::as_f32_bits)
+        .unwrap_or(default)
+}
+
+fn marker_string_field(object: ObjectFields<'_>, key: &str, default: &str) -> String {
+    object
+        .field(key)
+        .and_then(UbjsonValue::as_str)
+        .unwrap_or(default)
+        .to_string()
+}
+
+fn marker_optional_color_field(object: ObjectFields<'_>, default: Option<&str>) -> Option<String> {
+    object
+        .field("color")
+        .and_then(UbjsonValue::as_str)
+        .map(str::to_string)
+        .or_else(|| default.map(str::to_string))
+}
+
+fn marker_draw_layer_bits(object: ObjectFields<'_>) -> u32 {
+    marker_f32_bits_field(object, "drawLayer", 120.0f32.to_bits())
+}
+
+fn marker_required_pos_bits(
+    object: ObjectFields<'_>,
+    family_name: &str,
+) -> Result<(u32, u32), String> {
+    let pos = object
+        .field("pos")
+        .and_then(UbjsonValue::as_object)
+        .ok_or_else(|| format!("{family_name} marker missing pos"))?;
+    let x_bits = pos
+        .field("x")
+        .and_then(UbjsonValue::as_f32_bits)
+        .ok_or_else(|| format!("{family_name} marker missing pos.x"))?;
+    let y_bits = pos
+        .field("y")
+        .and_then(UbjsonValue::as_f32_bits)
+        .ok_or_else(|| format!("{family_name} marker missing pos.y"))?;
+    Ok((x_bits, y_bits))
+}
+
+fn marker_optional_pos_bits(object: ObjectFields<'_>) -> (Option<u32>, Option<u32>) {
+    let pos = object.field("pos").and_then(UbjsonValue::as_object);
+    (
+        pos.and_then(|pos| pos.field("x"))
+            .and_then(UbjsonValue::as_f32_bits),
+        pos.and_then(|pos| pos.field("y"))
+            .and_then(UbjsonValue::as_f32_bits),
+    )
 }
 
 fn parse_markers(bytes: &[u8]) -> Result<Vec<MarkerEntry>, String> {
@@ -37142,47 +37474,94 @@ fn parse_marker_model(value: &UbjsonValue) -> Result<MarkerModel, String> {
         .and_then(UbjsonValue::as_str)
         .map(str::to_string);
 
-    match class_tag.as_deref() {
-        Some("Point") | Some("Minimap") => Ok(MarkerModel::Point(PointMarkerModel {
-            class_tag: class_tag.unwrap(),
-            world: object
-                .field("world")
-                .and_then(UbjsonValue::as_bool)
-                .unwrap_or(true),
-            minimap: object
-                .field("minimap")
-                .and_then(UbjsonValue::as_bool)
-                .unwrap_or(false),
-            autoscale: object
-                .field("autoscale")
-                .and_then(UbjsonValue::as_bool)
-                .unwrap_or(false),
-            x_bits: object
-                .field("pos")
-                .and_then(UbjsonValue::as_object)
-                .and_then(|pos| pos.field("x"))
-                .and_then(UbjsonValue::as_f32_bits)
-                .ok_or_else(|| "point marker missing pos.x".to_string())?,
-            y_bits: object
-                .field("pos")
-                .and_then(UbjsonValue::as_object)
-                .and_then(|pos| pos.field("y"))
-                .and_then(UbjsonValue::as_f32_bits)
-                .ok_or_else(|| "point marker missing pos.y".to_string())?,
-            radius_bits: object
-                .field("radius")
-                .and_then(UbjsonValue::as_f32_bits)
-                .unwrap_or_else(|| 5.0f32.to_bits()),
-            stroke_bits: object
-                .field("stroke")
-                .and_then(UbjsonValue::as_f32_bits)
-                .unwrap_or_else(|| 11.0f32.to_bits()),
-            color: object
-                .field("color")
-                .and_then(UbjsonValue::as_str)
-                .map(str::to_string),
-        })),
-        _ => Ok(MarkerModel::Unknown(UnknownMarkerModel { class_tag })),
+    match marker_class_family(class_tag.as_deref()) {
+        Some("Point") => {
+            let (x_bits, y_bits) = marker_required_pos_bits(object, "point")?;
+            Ok(MarkerModel::Point(PointMarkerModel {
+                class_tag: class_tag.clone().unwrap(),
+                world: marker_bool_field(object, "world", true),
+                minimap: marker_bool_field(object, "minimap", false),
+                autoscale: marker_bool_field(object, "autoscale", false),
+                draw_layer_bits: marker_draw_layer_bits(object),
+                x_bits,
+                y_bits,
+                radius_bits: marker_f32_bits_field(object, "radius", 5.0f32.to_bits()),
+                stroke_bits: marker_f32_bits_field(object, "stroke", 11.0f32.to_bits()),
+                color: marker_optional_color_field(object, None),
+            }))
+        }
+        Some("Text") => {
+            let (x_bits, y_bits) = marker_required_pos_bits(object, "text")?;
+            Ok(MarkerModel::Text(TextMarkerModel {
+                class_tag: class_tag.clone().unwrap(),
+                world: marker_bool_field(object, "world", true),
+                minimap: marker_bool_field(object, "minimap", false),
+                autoscale: marker_bool_field(object, "autoscale", false),
+                draw_layer_bits: marker_draw_layer_bits(object),
+                x_bits,
+                y_bits,
+                text: marker_string_field(object, "text", "uwu"),
+                font_size_bits: marker_f32_bits_field(object, "fontSize", 1.0f32.to_bits()),
+                flags: marker_i32_field(object, "flags", 3),
+                text_align: marker_i32_field(object, "textAlign", 1),
+                line_align: marker_i32_field(object, "lineAlign", 1),
+            }))
+        }
+        Some("Shape") => {
+            let (x_bits, y_bits) = marker_required_pos_bits(object, "shape")?;
+            Ok(MarkerModel::Shape(ShapeMarkerModel {
+                class_tag: class_tag.clone().unwrap(),
+                world: marker_bool_field(object, "world", true),
+                minimap: marker_bool_field(object, "minimap", false),
+                autoscale: marker_bool_field(object, "autoscale", false),
+                draw_layer_bits: marker_draw_layer_bits(object),
+                x_bits,
+                y_bits,
+                radius_bits: marker_f32_bits_field(object, "radius", 8.0f32.to_bits()),
+                rotation_bits: marker_f32_bits_field(object, "rotation", 0.0f32.to_bits()),
+                stroke_bits: marker_f32_bits_field(object, "stroke", 1.0f32.to_bits()),
+                start_angle_bits: marker_f32_bits_field(object, "startAngle", 0.0f32.to_bits()),
+                end_angle_bits: marker_f32_bits_field(object, "endAngle", 360.0f32.to_bits()),
+                fill: marker_bool_field(object, "fill", false),
+                outline: marker_bool_field(object, "outline", true),
+                sides: marker_i32_field(object, "sides", 4),
+                color: marker_optional_color_field(object, Some("ffd37f")),
+            }))
+        }
+        Some("ShapeText") => {
+            let (x_bits, y_bits) = marker_required_pos_bits(object, "shapeText")?;
+            Ok(MarkerModel::ShapeText(ShapeTextMarkerModel {
+                class_tag: class_tag.clone().unwrap(),
+                world: marker_bool_field(object, "world", true),
+                minimap: marker_bool_field(object, "minimap", false),
+                autoscale: marker_bool_field(object, "autoscale", false),
+                draw_layer_bits: marker_draw_layer_bits(object),
+                x_bits,
+                y_bits,
+                text: marker_string_field(object, "text", "frog"),
+                font_size_bits: marker_f32_bits_field(object, "fontSize", 1.0f32.to_bits()),
+                text_height_bits: marker_f32_bits_field(object, "textHeight", 7.0f32.to_bits()),
+                flags: marker_i32_field(object, "flags", 3),
+                text_align: marker_i32_field(object, "textAlign", 1),
+                line_align: marker_i32_field(object, "lineAlign", 1),
+                radius_bits: marker_f32_bits_field(object, "radius", 6.0f32.to_bits()),
+                rotation_bits: marker_f32_bits_field(object, "rotation", 0.0f32.to_bits()),
+                sides: marker_i32_field(object, "sides", 4),
+                color: marker_optional_color_field(object, Some("ffd37f")),
+            }))
+        }
+        _ => {
+            let (x_bits, y_bits) = marker_optional_pos_bits(object);
+            Ok(MarkerModel::Unknown(UnknownMarkerModel {
+                class_tag,
+                world: marker_bool_field(object, "world", true),
+                minimap: marker_bool_field(object, "minimap", false),
+                autoscale: marker_bool_field(object, "autoscale", false),
+                draw_layer_bits: object.field("drawLayer").and_then(UbjsonValue::as_f32_bits),
+                x_bits,
+                y_bits,
+            }))
+        }
     }
 }
 
@@ -37707,6 +38086,25 @@ mod tests {
         bytes
     }
 
+    fn marker_pos_value(x: f32, y: f32) -> UbjsonValue {
+        UbjsonValue::Object(vec![
+            ("x".to_string(), UbjsonValue::Float32(x.to_bits())),
+            ("y".to_string(), UbjsonValue::Float32(y.to_bits())),
+        ])
+    }
+
+    fn marker_object(class_tag: &str, extra_fields: Vec<(String, UbjsonValue)>) -> UbjsonValue {
+        let mut fields = vec![
+            (
+                "class".to_string(),
+                UbjsonValue::String(class_tag.to_string()),
+            ),
+            ("pos".to_string(), marker_pos_value(16.0, 24.0)),
+        ];
+        fields.extend(extra_fields);
+        UbjsonValue::Object(fields)
+    }
+
     #[test]
     fn parses_known_world_stream() {
         let compressed = sample_world_stream_bytes();
@@ -37740,6 +38138,12 @@ mod tests {
         bundle.world.building_centers[0].building.parsed_tail = ParsedBuildingTail::Unknown;
         bundle.markers[0].marker = MarkerModel::Unknown(UnknownMarkerModel {
             class_tag: Some("UnknownMarkerClass".to_string()),
+            world: true,
+            minimap: false,
+            autoscale: false,
+            draw_layer_bits: None,
+            x_bits: None,
+            y_bits: None,
         });
         bundle.custom_chunks[0].parsed = ParsedCustomChunk::Unknown;
         let summary = bundle.unknown_coverage_summary();
@@ -37798,17 +38202,102 @@ mod tests {
 
     #[test]
     fn parses_unknown_marker_model_for_unmapped_class() {
-        let marker = parse_marker_model(&UbjsonValue::Object(vec![(
-            "class".to_string(),
-            UbjsonValue::String("MysteryMarker".to_string()),
-        )]))
+        let marker = parse_marker_model(&UbjsonValue::Object(vec![
+            (
+                "class".to_string(),
+                UbjsonValue::String("MysteryMarker".to_string()),
+            ),
+            ("world".to_string(), UbjsonValue::Bool(false)),
+            ("minimap".to_string(), UbjsonValue::Bool(true)),
+            ("autoscale".to_string(), UbjsonValue::Bool(true)),
+            (
+                "drawLayer".to_string(),
+                UbjsonValue::Float32(9.5f32.to_bits()),
+            ),
+            ("pos".to_string(), marker_pos_value(16.0, 24.0)),
+        ]))
         .unwrap();
 
         match marker {
             MarkerModel::Unknown(unknown) => {
                 assert_eq!(unknown.class_tag.as_deref(), Some("MysteryMarker"));
+                assert!(!unknown.world);
+                assert!(unknown.minimap);
+                assert!(unknown.autoscale);
+                assert_eq!(unknown.draw_layer_bits, Some(9.5f32.to_bits()));
+                assert_eq!(unknown.x_bits, Some(16.0f32.to_bits()));
+                assert_eq!(unknown.y_bits, Some(24.0f32.to_bits()));
             }
-            MarkerModel::Point(_) => panic!("expected unknown marker model"),
+            _ => panic!("expected unknown marker model"),
+        }
+    }
+
+    #[test]
+    fn parses_text_marker_model_with_java_defaults() {
+        let marker = parse_marker_model(&marker_object("Text", Vec::new())).unwrap();
+
+        match marker {
+            MarkerModel::Text(text) => {
+                assert_eq!(text.class_tag, "Text");
+                assert!(text.world);
+                assert!(!text.minimap);
+                assert!(!text.autoscale);
+                assert_eq!(text.draw_layer_bits, 120.0f32.to_bits());
+                assert_eq!(text.text, "uwu");
+                assert_eq!(text.font_size_bits, 1.0f32.to_bits());
+                assert_eq!(text.flags, 3);
+                assert_eq!(text.text_align, 1);
+                assert_eq!(text.line_align, 1);
+                assert_eq!(text.tile_coords(), Some((2, 3)));
+            }
+            _ => panic!("expected text marker model"),
+        }
+    }
+
+    #[test]
+    fn parses_shape_marker_model_with_java_defaults() {
+        let marker = parse_marker_model(&marker_object("Shape", Vec::new())).unwrap();
+
+        match marker {
+            MarkerModel::Shape(shape) => {
+                assert_eq!(shape.class_tag, "Shape");
+                assert_eq!(shape.draw_layer_bits, 120.0f32.to_bits());
+                assert_eq!(shape.radius_bits, 8.0f32.to_bits());
+                assert_eq!(shape.rotation_bits, 0.0f32.to_bits());
+                assert_eq!(shape.stroke_bits, 1.0f32.to_bits());
+                assert_eq!(shape.start_angle_bits, 0.0f32.to_bits());
+                assert_eq!(shape.end_angle_bits, 360.0f32.to_bits());
+                assert!(!shape.fill);
+                assert!(shape.outline);
+                assert_eq!(shape.sides, 4);
+                assert_eq!(shape.color.as_deref(), Some("ffd37f"));
+                assert_eq!(shape.tile_coords(), Some((2, 3)));
+            }
+            _ => panic!("expected shape marker model"),
+        }
+    }
+
+    #[test]
+    fn parses_shape_text_marker_model_with_java_defaults_and_camelized_tag() {
+        let marker = parse_marker_model(&marker_object("shapeText", Vec::new())).unwrap();
+
+        match marker {
+            MarkerModel::ShapeText(shape_text) => {
+                assert_eq!(shape_text.class_tag, "shapeText");
+                assert_eq!(shape_text.draw_layer_bits, 120.0f32.to_bits());
+                assert_eq!(shape_text.text, "frog");
+                assert_eq!(shape_text.font_size_bits, 1.0f32.to_bits());
+                assert_eq!(shape_text.text_height_bits, 7.0f32.to_bits());
+                assert_eq!(shape_text.flags, 3);
+                assert_eq!(shape_text.text_align, 1);
+                assert_eq!(shape_text.line_align, 1);
+                assert_eq!(shape_text.radius_bits, 6.0f32.to_bits());
+                assert_eq!(shape_text.rotation_bits, 0.0f32.to_bits());
+                assert_eq!(shape_text.sides, 4);
+                assert_eq!(shape_text.color.as_deref(), Some("ffd37f"));
+                assert_eq!(shape_text.tile_coords(), Some((2, 3)));
+            }
+            _ => panic!("expected shape text marker model"),
         }
     }
 
@@ -40042,6 +40531,37 @@ mod tests {
         assert_eq!(
             shielded_wall,
             ParsedBuildingTail::OneF32(OneF32TailSnapshot { bits: 0x42600000 })
+        );
+    }
+
+    #[test]
+    fn parses_low_risk_integer_and_bool_tail_families() {
+        let duct = parse_building_tail(Some("duct"), 1, &[5]).unwrap();
+        assert_eq!(duct, ParsedBuildingTail::OneI8(OneI8TailSnapshot { value: 5 }));
+
+        let armored_duct = parse_building_tail(Some("armored-duct"), 1, &[2]).unwrap();
+        assert_eq!(
+            armored_duct,
+            ParsedBuildingTail::OneI8(OneI8TailSnapshot { value: 2 })
+        );
+
+        let illuminator =
+            parse_building_tail(Some("illuminator"), 1, &0x11223344i32.to_be_bytes()).unwrap();
+        assert_eq!(
+            illuminator,
+            ParsedBuildingTail::OneI32(OneI32TailSnapshot { value: 0x11223344 })
+        );
+
+        let switch = parse_building_tail(Some("switch"), 1, &[1]).unwrap();
+        assert_eq!(
+            switch,
+            ParsedBuildingTail::OneBool(OneBoolTailSnapshot { value: true })
+        );
+
+        let world_switch = parse_building_tail(Some("world-switch"), 1, &[0]).unwrap();
+        assert_eq!(
+            world_switch,
+            ParsedBuildingTail::OneBool(OneBoolTailSnapshot { value: false })
         );
     }
 
@@ -49571,7 +50091,7 @@ mod tests {
 
         let point = match &markers[1].marker {
             MarkerModel::Point(point) => point,
-            MarkerModel::Unknown(_) => panic!("expected point marker"),
+            _ => panic!("expected point marker"),
         };
         assert_eq!(point.color.as_deref(), Some("ffd37fff"));
     }

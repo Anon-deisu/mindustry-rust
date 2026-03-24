@@ -23,7 +23,9 @@ const WINDOW_TARGET_FPS: usize = 60;
 pub struct WindowFrame {
     pub frame_id: u64,
     pub title: String,
+    pub wave_text: Option<String>,
     pub status_text: String,
+    pub overlay_summary_text: Option<String>,
     pub fps: Option<f32>,
     pub zoom: f32,
     pub width: usize,
@@ -304,7 +306,9 @@ fn compose_frame(
     WindowFrame {
         frame_id,
         title: hud.title.clone(),
+        wave_text: hud.wave_text.clone(),
         status_text: compose_frame_status_text(hud),
+        overlay_summary_text: hud.overlay_summary_text.clone(),
         fps: hud.fps,
         zoom: scene.viewport.zoom,
         width: window_width,
@@ -421,11 +425,21 @@ fn color_for_semantic_kind(kind: RenderObjectSemanticKind) -> u32 {
 }
 
 fn compose_window_title(frame: &WindowFrame, title_prefix: &str) -> String {
-    if frame.status_text.is_empty() {
-        format!("{title_prefix} | {}", frame.title)
-    } else {
-        format!("{title_prefix} | {} | {}", frame.title, frame.status_text)
+    let mut parts = vec![title_prefix.to_string(), frame.title.clone()];
+    if let Some(wave_text) = frame.wave_text.as_deref().filter(|text| !text.is_empty()) {
+        parts.push(wave_text.to_string());
     }
+    if !frame.status_text.is_empty() {
+        parts.push(frame.status_text.clone());
+    }
+    if let Some(summary_text) = frame
+        .overlay_summary_text
+        .as_deref()
+        .filter(|text| !text.is_empty())
+    {
+        parts.push(summary_text.to_string());
+    }
+    parts.join(" | ")
 }
 
 fn compose_frame_status_text(hud: &HudModel) -> String {
@@ -609,7 +623,9 @@ mod tests {
         };
         let hud = HudModel {
             title: "demo".to_string(),
+            wave_text: None,
             status_text: "ok".to_string(),
+            overlay_summary_text: None,
             fps: Some(60.0),
             summary: None,
             runtime_ui: None,
@@ -650,7 +666,9 @@ mod tests {
                     },
                     HudModel {
                         title: "loop".to_string(),
+                        wave_text: None,
                         status_text: "loop".to_string(),
+                        overlay_summary_text: None,
                         fps: None,
                         summary: None,
                         runtime_ui: None,
@@ -669,7 +687,9 @@ mod tests {
         let frame = WindowFrame {
             frame_id: 0,
             title: "demo".to_string(),
+            wave_text: None,
             status_text: String::new(),
+            overlay_summary_text: None,
             fps: None,
             zoom: 1.0,
             width: 2,
@@ -868,7 +888,9 @@ mod tests {
         };
         let hud = HudModel {
             title: "demo".to_string(),
+            wave_text: Some("Wave 7".to_string()),
             status_text: "base".to_string(),
+            overlay_summary_text: Some("Plans 1".to_string()),
             fps: None,
             summary: None,
             runtime_ui: Some(RuntimeUiObservability {
@@ -902,6 +924,8 @@ mod tests {
 
         let backend = presenter.into_backend();
         let frame = backend.frames.last().unwrap();
+        assert_eq!(frame.wave_text.as_deref(), Some("Wave 7"));
+        assert_eq!(frame.overlay_summary_text.as_deref(), Some("Plans 1"));
         assert!(frame.status_text.starts_with("base "));
         assert!(frame
             .status_text
@@ -910,6 +934,9 @@ mod tests {
         assert!(frame
             .status_text
             .contains("tin=53@404:Digits/Only_numbers/12345#16:n1:e1"));
+        let window_title = super::compose_window_title(frame, "demo-client");
+        assert!(window_title.contains("demo-client | demo | Wave 7 |"));
+        assert!(window_title.contains("| Plans 1"));
     }
 
     fn render_object(id: &str) -> RenderObject {
