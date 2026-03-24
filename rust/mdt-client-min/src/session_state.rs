@@ -1,4 +1,7 @@
 use crate::rules_objectives_semantics::{ObjectivesProjection, RulesProjection};
+use crate::state_snapshot_semantics::{
+    derive_state_snapshot_core_inventory_transition, StateSnapshotCoreInventoryPrevious,
+};
 use mdt_remote::HighFrequencyRemoteMethod;
 use mdt_typeio::TypeIoObject;
 use std::collections::{BTreeMap, BTreeSet};
@@ -6,6 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 const ENTITY_SNAPSHOT_TOMBSTONE_TTL_SNAPSHOTS: u64 = 1;
 const ENTITY_SNAPSHOT_TOMBSTONE_SKIP_SAMPLE_LIMIT: usize = 4;
 const CORE_INVENTORY_CHANGED_TEAM_SAMPLE_LIMIT: usize = 4;
+const HIDDEN_SNAPSHOT_SAMPLE_LIMIT: usize = 4;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct AppliedStateSnapshotCoreDataItem {
@@ -537,6 +541,29 @@ impl ResourceDeltaProjection {
         self.entity_item_stack_by_entity_id.remove(&entity_id);
     }
 
+    pub fn remove_hidden_entities(
+        &mut self,
+        hidden_ids: &BTreeSet<i32>,
+        local_player_entity_id: Option<i32>,
+    ) -> Vec<i32> {
+        let removed_ids = self
+            .entity_item_stack_by_entity_id
+            .keys()
+            .copied()
+            .filter(|&entity_id| {
+                hidden_lifecycle_matches_hidden_non_local_entity_id(
+                    hidden_ids,
+                    local_player_entity_id,
+                    entity_id,
+                )
+            })
+            .collect::<Vec<_>>();
+        for entity_id in &removed_ids {
+            self.entity_item_stack_by_entity_id.remove(entity_id);
+        }
+        removed_ids
+    }
+
     pub fn apply_take_items(&mut self, projection: &TakeItemsProjection) {
         let Some(item_id) = projection.item_id else {
             self.delta_skip_count = self.delta_skip_count.saturating_add(1);
@@ -788,6 +815,29 @@ fn resource_delta_standard_entity_id(unit: Option<UnitRefProjection>) -> Option<
         Some(UnitRefProjection { kind: 2, value }) => Some(value),
         _ => None,
     }
+}
+
+fn hidden_lifecycle_matches_hidden_non_local_entity_id(
+    hidden_ids: &BTreeSet<i32>,
+    local_player_entity_id: Option<i32>,
+    entity_id: i32,
+) -> bool {
+    Some(entity_id) != local_player_entity_id && hidden_ids.contains(&entity_id)
+}
+
+fn hidden_lifecycle_hidden_non_local_unit_entity_id(
+    unit: Option<UnitRefProjection>,
+    hidden_ids: &BTreeSet<i32>,
+    local_player_entity_id: Option<i32>,
+) -> Option<i32> {
+    let unit = unit?;
+    (unit.kind == 2
+        && hidden_lifecycle_matches_hidden_non_local_entity_id(
+            hidden_ids,
+            local_player_entity_id,
+            unit.value,
+        ))
+    .then_some(unit.value)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2501,6 +2551,29 @@ impl EntitySemanticProjectionTable {
         }
     }
 
+    pub fn remove_hidden_entities(
+        &mut self,
+        hidden_ids: &BTreeSet<i32>,
+        local_player_entity_id: Option<i32>,
+    ) -> Vec<i32> {
+        let removed_ids = self
+            .by_entity_id
+            .keys()
+            .copied()
+            .filter(|&entity_id| {
+                hidden_lifecycle_matches_hidden_non_local_entity_id(
+                    hidden_ids,
+                    local_player_entity_id,
+                    entity_id,
+                )
+            })
+            .collect::<Vec<_>>();
+        for entity_id in &removed_ids {
+            self.by_entity_id.remove(entity_id);
+        }
+        removed_ids
+    }
+
     pub fn clear_for_world_reload(&mut self) {
         self.by_entity_id.clear();
     }
@@ -3367,53 +3440,17 @@ impl SessionState {
         } else {
             GameplayStateProjection::Playing
         };
-        let mut next_core_inventory_by_team = BTreeMap::new();
-        let mut next_core_inventory_item_entry_count = 0usize;
-        let mut next_core_inventory_total_amount = 0i64;
-        let mut next_core_inventory_nonzero_item_count = 0usize;
-
-        if let Some(core_data) = core_data {
-            for team in &core_data.teams {
-                let mut items = BTreeMap::new();
-                for item in &team.items {
-                    items.insert(item.item_id, item.amount);
-                    next_core_inventory_total_amount =
-                        next_core_inventory_total_amount.saturating_add(i64::from(item.amount));
-                    if item.amount != 0 {
-                        next_core_inventory_nonzero_item_count =
-                            next_core_inventory_nonzero_item_count.saturating_add(1);
-                    }
-                }
-                next_core_inventory_item_entry_count =
-                    next_core_inventory_item_entry_count.saturating_add(items.len());
-                next_core_inventory_by_team.insert(team.team_id, items);
-            }
-        } else if let Some(previous) = previous {
-            next_core_inventory_by_team = previous.core_inventory_by_team.clone();
-            next_core_inventory_item_entry_count = previous.core_inventory_item_entry_count;
-            next_core_inventory_total_amount = previous.core_inventory_total_amount;
-            next_core_inventory_nonzero_item_count = previous.core_inventory_nonzero_item_count;
-        }
-
-        let mut changed_team_ids = BTreeSet::new();
-        if core_data.is_some() {
-            if let Some(previous) = previous {
-                for team_id in previous
-                    .core_inventory_by_team
-                    .keys()
-                    .chain(next_core_inventory_by_team.keys())
-                {
-                    if previous.core_inventory_by_team.get(team_id)
-                        != next_core_inventory_by_team.get(team_id)
-                    {
-                        changed_team_ids.insert(*team_id);
-                    }
-                }
-            } else {
-                changed_team_ids.extend(next_core_inventory_by_team.keys().copied());
-            }
-        }
-        let core_inventory_changed_team_sample = changed_team_ids
+        let core_inventory = derive_state_snapshot_core_inventory_transition(
+            previous.map(|previous| StateSnapshotCoreInventoryPrevious {
+                inventory_by_team: &previous.core_inventory_by_team,
+                item_entry_count: previous.core_inventory_item_entry_count,
+                total_amount: previous.core_inventory_total_amount,
+                nonzero_item_count: previous.core_inventory_nonzero_item_count,
+            }),
+            core_data,
+        );
+        let core_inventory_changed_team_sample = core_inventory
+            .changed_team_ids
             .iter()
             .take(CORE_INVENTORY_CHANGED_TEAM_SAMPLE_LIMIT)
             .copied()
@@ -3442,14 +3479,14 @@ impl SessionState {
                 .map(|mirror| mirror.wave_regress_count)
                 .unwrap_or_default()
                 .saturating_add(u64::from(snapshot.wave < previous_wave)),
-            core_inventory_team_count: next_core_inventory_by_team.len(),
-            core_inventory_item_entry_count: next_core_inventory_item_entry_count,
-            core_inventory_total_amount: next_core_inventory_total_amount,
-            core_inventory_nonzero_item_count: next_core_inventory_nonzero_item_count,
-            core_inventory_changed_team_count: changed_team_ids.len(),
+            core_inventory_team_count: core_inventory.inventory.inventory_by_team.len(),
+            core_inventory_item_entry_count: core_inventory.inventory.item_entry_count,
+            core_inventory_total_amount: core_inventory.inventory.total_amount,
+            core_inventory_nonzero_item_count: core_inventory.inventory.nonzero_item_count,
+            core_inventory_changed_team_count: core_inventory.changed_team_ids.len(),
             core_inventory_changed_team_sample,
-            core_inventory_by_team: next_core_inventory_by_team,
-            last_core_sync_ok: core_data.is_some(),
+            core_inventory_by_team: core_inventory.inventory.inventory_by_team,
+            last_core_sync_ok: core_inventory.synced,
             core_parse_fail_count: previous
                 .map(|mirror| mirror.core_parse_fail_count)
                 .unwrap_or_default()
@@ -3521,6 +3558,63 @@ impl SessionState {
             self.last_entity_snapshot_hidden_skipped_ids_sample
                 .push(entity_id);
         }
+    }
+
+    pub fn apply_hidden_snapshot(
+        &mut self,
+        applied: AppliedHiddenSnapshotIds,
+        trigger_hidden_ids: BTreeSet<i32>,
+    ) {
+        let previous_hidden_ids = std::mem::take(&mut self.hidden_snapshot_ids);
+        let trigger_count = trigger_hidden_ids.len();
+        let added_ids = trigger_hidden_ids
+            .difference(&previous_hidden_ids)
+            .copied()
+            .collect::<Vec<_>>();
+        let removed_ids = previous_hidden_ids
+            .difference(&trigger_hidden_ids)
+            .copied()
+            .collect::<Vec<_>>();
+        let added_sample_ids = added_ids
+            .iter()
+            .take(HIDDEN_SNAPSHOT_SAMPLE_LIMIT)
+            .copied()
+            .collect();
+        let removed_sample_ids = removed_ids
+            .iter()
+            .take(HIDDEN_SNAPSHOT_SAMPLE_LIMIT)
+            .copied()
+            .collect();
+
+        self.applied_hidden_snapshot_count = self.applied_hidden_snapshot_count.saturating_add(1);
+        self.last_hidden_snapshot = Some(applied);
+        self.entity_table_projection
+            .apply_hidden_ids(&trigger_hidden_ids);
+        let local_player_entity_id = self.entity_table_projection.local_player_entity_id;
+        let hidden_removed_ids = self
+            .entity_table_projection
+            .remove_hidden_entities(&trigger_hidden_ids);
+        self.entity_semantic_projection
+            .remove_hidden_entities(&trigger_hidden_ids, local_player_entity_id);
+        self.resource_delta_projection
+            .remove_hidden_entities(&trigger_hidden_ids, local_player_entity_id);
+        self.payload_lifecycle_projection
+            .remove_hidden_entities(&trigger_hidden_ids, local_player_entity_id);
+        self.hidden_lifecycle_remove_count = self
+            .hidden_lifecycle_remove_count
+            .saturating_add(hidden_removed_ids.len() as u64);
+        self.last_hidden_lifecycle_removed_ids_sample = hidden_removed_ids
+            .into_iter()
+            .take(HIDDEN_SNAPSHOT_SAMPLE_LIMIT)
+            .collect();
+        self.hidden_snapshot_ids = trigger_hidden_ids;
+        self.hidden_snapshot_delta_projection = Some(HiddenSnapshotDeltaProjection {
+            active_count: trigger_count,
+            added_count: added_ids.len(),
+            removed_count: removed_ids.len(),
+            added_sample_ids,
+            removed_sample_ids,
+        });
     }
 
     pub fn record_payload_lifecycle_drop(
@@ -3699,6 +3793,41 @@ impl SessionState {
 }
 
 impl PayloadLifecycleProjection {
+    pub fn remove_hidden_entities(
+        &mut self,
+        hidden_ids: &BTreeSet<i32>,
+        local_player_entity_id: Option<i32>,
+    ) {
+        let removed_carriers = self
+            .by_carrier
+            .keys()
+            .copied()
+            .filter(|carrier| {
+                hidden_lifecycle_hidden_non_local_unit_entity_id(
+                    Some(*carrier),
+                    hidden_ids,
+                    local_player_entity_id,
+                )
+                .is_some()
+            })
+            .collect::<Vec<_>>();
+        for carrier in removed_carriers {
+            self.by_carrier.remove(&carrier);
+        }
+
+        for entry in self.by_carrier.values_mut() {
+            if hidden_lifecycle_hidden_non_local_unit_entity_id(
+                entry.target_unit,
+                hidden_ids,
+                local_player_entity_id,
+            )
+            .is_some()
+            {
+                entry.removed_target_unit = true;
+            }
+        }
+    }
+
     fn entry_mut(&mut self, carrier: UnitRefProjection) -> &mut PayloadLifecycleCarrierProjection {
         self.by_carrier
             .entry(carrier)

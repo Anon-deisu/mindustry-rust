@@ -3,6 +3,7 @@ pub mod bootstrap_flow;
 pub mod client_session;
 pub mod connect_packet;
 pub mod effect_runtime;
+pub mod entity_snapshot_families;
 pub mod event_summary;
 pub mod generated;
 pub mod net_loop;
@@ -11,6 +12,7 @@ pub mod render_runtime;
 pub mod rules_objectives_semantics;
 pub mod session_state;
 pub mod snapshot_ingest;
+pub mod state_snapshot_semantics;
 pub mod udp_loop;
 
 #[cfg(test)]

@@ -10,13 +10,18 @@ pub mod window_presenter;
 pub use ascii_presenter::AsciiScenePresenter;
 pub use bin_support::{decode_hex, read_world_stream_bytes};
 pub use hud_model::{
-    BuildConfigInspectorEntryObservability, BuildQueueHeadObservability, BuildQueueHeadStage,
-    BuildUiObservability, HudModel, RuntimeAdminObservability, RuntimeHudTextObservability,
+    BuildConfigAuthoritySourceObservability, BuildConfigInspectorEntryObservability,
+    BuildConfigOutcomeObservability, BuildConfigRollbackStripObservability,
+    BuildQueueHeadObservability, BuildQueueHeadStage, BuildUiObservability, HudModel,
+    RuntimeAdminObservability, RuntimeHudTextObservability, RuntimeKickObservability,
     RuntimeLiveEffectPositionSource, RuntimeLiveEffectSummaryObservability,
     RuntimeLiveEntitySummaryObservability, RuntimeLiveSummaryObservability,
-    RuntimeMenuObservability, RuntimeRulesObservability, RuntimeTextInputObservability,
-    RuntimeToastObservability, RuntimeUiObservability, RuntimeWorldLabelObservability,
-    RuntimeWorldPositionObservability,
+    RuntimeLoadingObservability, RuntimeMenuObservability, RuntimeReconnectObservability,
+    RuntimeReconnectPhaseObservability, RuntimeReconnectReasonKind, RuntimeRulesObservability,
+    RuntimeSessionObservability, RuntimeSessionResetKind, RuntimeSessionTimeoutKind,
+    RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiObservability,
+    RuntimeWorldLabelObservability, RuntimeWorldPositionObservability,
+    RuntimeWorldReloadObservability,
 };
 pub use projection::{
     project_hud_model, project_render_model, project_render_model_with_player_position,

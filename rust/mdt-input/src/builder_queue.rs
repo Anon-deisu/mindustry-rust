@@ -32,6 +32,25 @@ pub enum BuilderQueueTransition {
     Finished,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BuilderQueueActivityObservation {
+    pub x: i32,
+    pub y: i32,
+    pub breaking: bool,
+    pub in_range: bool,
+    pub should_skip: bool,
+    pub distance_sq: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BuilderQueueActivityState {
+    pub head_tile: Option<(i32, i32)>,
+    pub actively_building: bool,
+    pub head_should_skip: bool,
+    pub reordered: bool,
+    pub used_closest_in_range_fallback: bool,
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct BuilderQueueStateMachine {
     pub active_by_tile: BTreeMap<(i32, i32), BuilderQueueEntry>,
@@ -62,12 +81,7 @@ impl BuilderQueueStateMachine {
                 x: entry.x,
                 y: entry.y,
                 breaking: entry.breaking,
-                block_id: entry.block_id.or_else(|| {
-                    previous
-                        .as_ref()
-                        .filter(|plan| plan.breaking == entry.breaking)
-                        .and_then(|plan| plan.block_id)
-                }),
+                block_id: Self::resolve_block_id(entry.block_id, previous.as_ref(), entry.breaking),
                 rotation: Some(entry.rotation),
                 stage: BuilderQueueStage::Queued,
             },
@@ -90,10 +104,7 @@ impl BuilderQueueStateMachine {
         let mut incoming_order = Vec::new();
         for entry in entries {
             let key = (entry.x, entry.y);
-            let previous = self
-                .active_by_tile
-                .get(&key)
-                .filter(|plan| plan.breaking == entry.breaking);
+            let previous = Self::matching_entry(self.active_by_tile.get(&key), entry.breaking);
             incoming_counts
                 .entry(key)
                 .and_modify(|count| *count += 1)
@@ -109,9 +120,7 @@ impl BuilderQueueStateMachine {
                     x: entry.x,
                     y: entry.y,
                     breaking: entry.breaking,
-                    block_id: entry
-                        .block_id
-                        .or_else(|| previous.and_then(|plan| plan.block_id)),
+                    block_id: Self::resolve_block_id(entry.block_id, previous, entry.breaking),
                     rotation: Some(entry.rotation),
                     stage,
                 },
@@ -146,17 +155,14 @@ impl BuilderQueueStateMachine {
         rotation: u8,
     ) {
         let key = (x, y);
-        let previous = self
-            .active_by_tile
-            .get(&key)
-            .filter(|entry| entry.breaking == breaking);
+        let previous = Self::matching_entry(self.active_by_tile.get(&key), breaking);
         self.active_by_tile.insert(
             key,
             BuilderQueueEntry {
                 x,
                 y,
                 breaking,
-                block_id: block_id.or_else(|| previous.and_then(|entry| entry.block_id)),
+                block_id: Self::resolve_block_id(block_id, previous, breaking),
                 rotation: Some(rotation),
                 stage: BuilderQueueStage::InFlight,
             },
@@ -235,6 +241,93 @@ impl BuilderQueueStateMachine {
             .and_then(|tile| self.active_by_tile.get(&tile))
     }
 
+    pub fn update_local_activity<I>(&mut self, observations: I) -> BuilderQueueActivityState
+    where
+        I: IntoIterator<Item = BuilderQueueActivityObservation>,
+    {
+        let observations_by_key = observations
+            .into_iter()
+            .map(|observation| {
+                (
+                    (observation.x, observation.y, observation.breaking),
+                    observation,
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        let original_order = self.ordered_tiles.clone();
+        let mut reordered = false;
+        let mut used_closest_in_range_fallback = false;
+
+        if self.ordered_tiles.len() > 1 {
+            let mut total = 0usize;
+            let size = self.ordered_tiles.len();
+            let mut best_index = None;
+            let mut best_distance = u64::MAX;
+            let mut found_valid_head = false;
+            let original_head_in_range = self
+                .head_entry()
+                .and_then(|entry| Self::activity_observation(&observations_by_key, entry))
+                .is_some_and(|observation| observation.in_range);
+
+            while total < size {
+                let Some(tile) = self.ordered_tiles.first().copied() else {
+                    break;
+                };
+                let Some(entry) = self.active_by_tile.get(&tile) else {
+                    break;
+                };
+                let Some(observation) = Self::activity_observation(&observations_by_key, entry)
+                else {
+                    self.ordered_tiles = original_order;
+                    self.recount();
+                    return BuilderQueueActivityState {
+                        head_tile: self.head_tile,
+                        actively_building: false,
+                        head_should_skip: false,
+                        reordered: false,
+                        used_closest_in_range_fallback: false,
+                    };
+                };
+
+                if observation.in_range && !observation.should_skip {
+                    found_valid_head = true;
+                    reordered = total > 0;
+                    break;
+                }
+                if observation.in_range && observation.distance_sq < best_distance {
+                    best_distance = observation.distance_sq;
+                    best_index = Some(total);
+                }
+
+                self.ordered_tiles.rotate_left(1);
+                total += 1;
+            }
+
+            if !found_valid_head {
+                self.ordered_tiles = original_order;
+                if let Some(best_index) = best_index.filter(|index| *index > 0) {
+                    if !original_head_in_range {
+                        self.ordered_tiles.rotate_left(best_index);
+                        reordered = true;
+                        used_closest_in_range_fallback = true;
+                    }
+                }
+            }
+        }
+
+        self.recount();
+        let head_observation = self
+            .head_entry()
+            .and_then(|entry| Self::activity_observation(&observations_by_key, entry));
+        BuilderQueueActivityState {
+            head_tile: self.head_tile,
+            actively_building: head_observation.is_some_and(|observation| observation.in_range),
+            head_should_skip: head_observation.is_some_and(|observation| observation.should_skip),
+            reordered,
+            used_closest_in_range_fallback,
+        }
+    }
+
     fn remove_matching_entry(
         &mut self,
         x: i32,
@@ -259,6 +352,29 @@ impl BuilderQueueStateMachine {
         self.ordered_tiles.insert(0, key);
     }
 
+    fn matching_entry<'a>(
+        entry: Option<&'a BuilderQueueEntry>,
+        breaking: bool,
+    ) -> Option<&'a BuilderQueueEntry> {
+        entry.filter(|entry| entry.breaking == breaking)
+    }
+
+    fn resolve_block_id(
+        block_id: Option<i16>,
+        previous: Option<&BuilderQueueEntry>,
+        breaking: bool,
+    ) -> Option<i16> {
+        block_id
+            .or_else(|| Self::matching_entry(previous, breaking).and_then(|entry| entry.block_id))
+    }
+
+    fn activity_observation<'a>(
+        observations_by_key: &'a BTreeMap<(i32, i32, bool), BuilderQueueActivityObservation>,
+        entry: &BuilderQueueEntry,
+    ) -> Option<&'a BuilderQueueActivityObservation> {
+        observations_by_key.get(&(entry.x, entry.y, entry.breaking))
+    }
+
     fn recount(&mut self) {
         self.queued_count = self
             .active_by_tile
@@ -279,8 +395,9 @@ impl BuilderQueueStateMachine {
 #[cfg(test)]
 mod tests {
     use super::{
-        BuilderQueueEntry, BuilderQueueEntryObservation, BuilderQueueStage,
-        BuilderQueueStateMachine, BuilderQueueTransition,
+        BuilderQueueActivityObservation, BuilderQueueActivityState, BuilderQueueEntry,
+        BuilderQueueEntryObservation, BuilderQueueStage, BuilderQueueStateMachine,
+        BuilderQueueTransition,
     };
     use std::collections::BTreeMap;
 
@@ -399,6 +516,35 @@ mod tests {
         );
         assert_eq!(queue.queued_count, 0);
         assert_eq!(queue.inflight_count, 1);
+    }
+
+    #[test]
+    fn mark_begin_does_not_leak_block_id_across_break_mode_switch() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([BuilderQueueEntryObservation {
+            x: 9,
+            y: 9,
+            breaking: false,
+            block_id: Some(90),
+            rotation: 1,
+        }]);
+
+        queue.mark_begin(9, 9, true, None, 3);
+
+        assert_eq!(
+            queue.head_entry(),
+            Some(&BuilderQueueEntry {
+                x: 9,
+                y: 9,
+                breaking: true,
+                block_id: None,
+                rotation: Some(3),
+                stage: BuilderQueueStage::InFlight,
+            })
+        );
+        assert_eq!(queue.queued_count, 0);
+        assert_eq!(queue.inflight_count, 1);
+        assert_eq!(queue.last_transition, Some(BuilderQueueTransition::Started));
     }
 
     #[test]
@@ -918,6 +1064,260 @@ mod tests {
             })
         );
         assert_eq!(queue.queued_count, 3);
+        assert_eq!(queue.inflight_count, 0);
+    }
+
+    #[test]
+    fn update_local_activity_rotates_to_first_in_range_unskipped_plan() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 1,
+                y: 1,
+                breaking: false,
+                block_id: Some(10),
+                rotation: 0,
+            },
+            BuilderQueueEntryObservation {
+                x: 2,
+                y: 2,
+                breaking: false,
+                block_id: Some(20),
+                rotation: 1,
+            },
+            BuilderQueueEntryObservation {
+                x: 3,
+                y: 3,
+                breaking: false,
+                block_id: Some(30),
+                rotation: 2,
+            },
+        ]);
+        queue.last_transition = Some(BuilderQueueTransition::Started);
+
+        let activity = queue.update_local_activity([
+            BuilderQueueActivityObservation {
+                x: 1,
+                y: 1,
+                breaking: false,
+                in_range: false,
+                should_skip: false,
+                distance_sq: 81,
+            },
+            BuilderQueueActivityObservation {
+                x: 2,
+                y: 2,
+                breaking: false,
+                in_range: true,
+                should_skip: true,
+                distance_sq: 25,
+            },
+            BuilderQueueActivityObservation {
+                x: 3,
+                y: 3,
+                breaking: false,
+                in_range: true,
+                should_skip: false,
+                distance_sq: 9,
+            },
+        ]);
+
+        assert_eq!(
+            activity,
+            BuilderQueueActivityState {
+                head_tile: Some((3, 3)),
+                actively_building: true,
+                head_should_skip: false,
+                reordered: true,
+                used_closest_in_range_fallback: false,
+            }
+        );
+        assert_eq!(queue.ordered_tiles, vec![(3, 3), (1, 1), (2, 2)]);
+        assert_eq!(queue.head_tile, Some((3, 3)));
+        assert_eq!(queue.last_transition, Some(BuilderQueueTransition::Started));
+        assert_eq!(queue.queued_count, 3);
+        assert_eq!(queue.inflight_count, 0);
+    }
+
+    #[test]
+    fn update_local_activity_falls_back_to_closest_in_range_plan_when_all_are_skipped() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 1,
+                y: 1,
+                breaking: false,
+                block_id: Some(10),
+                rotation: 0,
+            },
+            BuilderQueueEntryObservation {
+                x: 2,
+                y: 2,
+                breaking: false,
+                block_id: Some(20),
+                rotation: 1,
+            },
+            BuilderQueueEntryObservation {
+                x: 3,
+                y: 3,
+                breaking: true,
+                block_id: None,
+                rotation: 2,
+            },
+        ]);
+
+        let activity = queue.update_local_activity([
+            BuilderQueueActivityObservation {
+                x: 1,
+                y: 1,
+                breaking: false,
+                in_range: false,
+                should_skip: false,
+                distance_sq: 100,
+            },
+            BuilderQueueActivityObservation {
+                x: 2,
+                y: 2,
+                breaking: false,
+                in_range: true,
+                should_skip: true,
+                distance_sq: 16,
+            },
+            BuilderQueueActivityObservation {
+                x: 3,
+                y: 3,
+                breaking: true,
+                in_range: true,
+                should_skip: true,
+                distance_sq: 4,
+            },
+        ]);
+
+        assert_eq!(
+            activity,
+            BuilderQueueActivityState {
+                head_tile: Some((3, 3)),
+                actively_building: true,
+                head_should_skip: true,
+                reordered: true,
+                used_closest_in_range_fallback: true,
+            }
+        );
+        assert_eq!(queue.ordered_tiles, vec![(3, 3), (1, 1), (2, 2)]);
+        assert_eq!(queue.head_tile, Some((3, 3)));
+    }
+
+    #[test]
+    fn update_local_activity_keeps_in_range_skipped_head_without_closest_fallback() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 1,
+                y: 1,
+                breaking: false,
+                block_id: Some(10),
+                rotation: 0,
+            },
+            BuilderQueueEntryObservation {
+                x: 2,
+                y: 2,
+                breaking: false,
+                block_id: Some(20),
+                rotation: 1,
+            },
+            BuilderQueueEntryObservation {
+                x: 3,
+                y: 3,
+                breaking: true,
+                block_id: None,
+                rotation: 2,
+            },
+        ]);
+
+        let activity = queue.update_local_activity([
+            BuilderQueueActivityObservation {
+                x: 1,
+                y: 1,
+                breaking: false,
+                in_range: true,
+                should_skip: true,
+                distance_sq: 36,
+            },
+            BuilderQueueActivityObservation {
+                x: 2,
+                y: 2,
+                breaking: false,
+                in_range: true,
+                should_skip: true,
+                distance_sq: 4,
+            },
+            BuilderQueueActivityObservation {
+                x: 3,
+                y: 3,
+                breaking: true,
+                in_range: false,
+                should_skip: false,
+                distance_sq: 100,
+            },
+        ]);
+
+        assert_eq!(
+            activity,
+            BuilderQueueActivityState {
+                head_tile: Some((1, 1)),
+                actively_building: true,
+                head_should_skip: true,
+                reordered: false,
+                used_closest_in_range_fallback: false,
+            }
+        );
+        assert_eq!(queue.ordered_tiles, vec![(1, 1), (2, 2), (3, 3)]);
+        assert_eq!(queue.head_tile, Some((1, 1)));
+    }
+
+    #[test]
+    fn update_local_activity_keeps_order_stable_when_observations_are_incomplete() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 4,
+                y: 4,
+                breaking: false,
+                block_id: Some(40),
+                rotation: 0,
+            },
+            BuilderQueueEntryObservation {
+                x: 5,
+                y: 5,
+                breaking: false,
+                block_id: Some(50),
+                rotation: 1,
+            },
+        ]);
+        let expected_order = queue.ordered_tiles.clone();
+
+        let activity = queue.update_local_activity([BuilderQueueActivityObservation {
+            x: 5,
+            y: 5,
+            breaking: false,
+            in_range: true,
+            should_skip: false,
+            distance_sq: 1,
+        }]);
+
+        assert_eq!(
+            activity,
+            BuilderQueueActivityState {
+                head_tile: Some((4, 4)),
+                actively_building: false,
+                head_should_skip: false,
+                reordered: false,
+                used_closest_in_range_fallback: false,
+            }
+        );
+        assert_eq!(queue.ordered_tiles, expected_order);
+        assert_eq!(queue.head_tile, Some((4, 4)));
+        assert_eq!(queue.queued_count, 2);
         assert_eq!(queue.inflight_count, 0);
     }
 }

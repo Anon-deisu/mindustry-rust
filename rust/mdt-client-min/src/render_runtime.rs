@@ -10,19 +10,27 @@ use crate::session_state::{
     BuildingProjectionUpdateKind, BuildingTableProjection, ConfiguredBlockOutcome,
     ConfiguredBlockProjection, ConfiguredContentRef, EffectBusinessContentKind,
     EffectBusinessPositionSource, EffectBusinessProjection, EffectDataSemantic,
-    HiddenSnapshotDeltaProjection, SessionResetKind, SessionState, SessionTimeoutKind,
-    StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection, TileConfigAuthoritySource,
-    TileConfigProjection, UnitRefProjection, WorldBootstrapProjection, WorldReloadProjection,
+    HiddenSnapshotDeltaProjection, ReconnectPhaseProjection, ReconnectReasonKind, SessionResetKind,
+    SessionState, SessionTimeoutKind, StateSnapshotAuthorityProjection,
+    StateSnapshotBusinessProjection, TileConfigAuthoritySource, TileConfigProjection,
+    UnitRefProjection, WorldBootstrapProjection, WorldReloadProjection,
 };
 use mdt_remote::{HighFrequencyRemoteMethod, HIGH_FREQUENCY_REMOTE_METHOD_COUNT};
+use mdt_render_ui::hud_model::{
+    RuntimeKickObservability, RuntimeLoadingObservability, RuntimeReconnectObservability,
+    RuntimeReconnectPhaseObservability, RuntimeReconnectReasonKind, RuntimeSessionObservability,
+    RuntimeSessionResetKind, RuntimeSessionTimeoutKind, RuntimeWorldReloadObservability,
+};
 use mdt_render_ui::{
-    BuildConfigInspectorEntryObservability, BuildQueueHeadObservability, BuildQueueHeadStage,
-    BuildUiObservability, HudModel, RenderModel, RenderObject, RuntimeAdminObservability,
-    RuntimeHudTextObservability, RuntimeLiveEffectPositionSource,
-    RuntimeLiveEffectSummaryObservability, RuntimeLiveEntitySummaryObservability,
-    RuntimeLiveSummaryObservability, RuntimeMenuObservability, RuntimeRulesObservability,
-    RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiObservability,
-    RuntimeWorldLabelObservability, RuntimeWorldPositionObservability,
+    BuildConfigAuthoritySourceObservability, BuildConfigInspectorEntryObservability,
+    BuildConfigOutcomeObservability, BuildConfigRollbackStripObservability,
+    BuildQueueHeadObservability, BuildQueueHeadStage, BuildUiObservability, HudModel, RenderModel,
+    RenderObject, RuntimeAdminObservability, RuntimeHudTextObservability,
+    RuntimeLiveEffectPositionSource, RuntimeLiveEffectSummaryObservability,
+    RuntimeLiveEntitySummaryObservability, RuntimeLiveSummaryObservability,
+    RuntimeMenuObservability, RuntimeRulesObservability, RuntimeTextInputObservability,
+    RuntimeToastObservability, RuntimeUiObservability, RuntimeWorldLabelObservability,
+    RuntimeWorldPositionObservability,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -62,10 +70,11 @@ impl RenderRuntimeAdapter {
         let runtime_state_mirror = session_state.authoritative_state_mirror.as_ref();
         let state_authority_projection = session_state.state_snapshot_authority_projection.as_ref();
         let state_business_projection = session_state.state_snapshot_business_projection.as_ref();
-        hud.runtime_ui = Some(runtime_ui_observability(session_state));
+        hud.runtime_ui = Some(runtime_ui_observability(session_state, &self.world_overlay));
         hud.build_ui = Some(runtime_build_ui_observability(
             snapshot_input,
             &session_state.builder_queue_projection,
+            &session_state.tile_config_projection,
             &session_state.configured_block_projection,
         ));
         hud.status_text = format!(
@@ -1410,7 +1419,10 @@ fn runtime_effect_data_error_label(error: Option<&str>) -> String {
     }
 }
 
-fn runtime_ui_observability(session_state: &SessionState) -> RuntimeUiObservability {
+fn runtime_ui_observability(
+    session_state: &SessionState,
+    world_overlay: &RuntimeWorldOverlay,
+) -> RuntimeUiObservability {
     RuntimeUiObservability {
         hud_text: RuntimeHudTextObservability {
             set_count: session_state.received_set_hud_text_count,
@@ -1439,6 +1451,7 @@ fn runtime_ui_observability(session_state: &SessionState) -> RuntimeUiObservabil
         menu: runtime_menu_observability(session_state),
         rules: runtime_rules_observability(session_state),
         world_labels: runtime_world_label_observability(session_state),
+        session: runtime_session_observability(session_state, world_overlay),
         live: runtime_live_summary_observability(session_state),
     }
 }
@@ -1449,8 +1462,7 @@ fn runtime_admin_observability(session_state: &SessionState) -> RuntimeAdminObse
         trace_info_parse_fail_count: session_state.failed_trace_info_parse_count,
         last_trace_info_player_id: session_state.last_trace_info_player_id,
         debug_status_client_count: session_state.received_debug_status_client_count,
-        debug_status_client_parse_fail_count: session_state
-            .failed_debug_status_client_parse_count,
+        debug_status_client_parse_fail_count: session_state.failed_debug_status_client_parse_count,
         debug_status_client_unreliable_count: session_state
             .received_debug_status_client_unreliable_count,
         debug_status_client_unreliable_parse_fail_count: session_state
@@ -1497,6 +1509,119 @@ fn runtime_world_label_observability(
         label_count: session_state.received_world_label_count,
         reliable_label_count: session_state.received_world_label_reliable_count,
         remove_label_count: session_state.received_remove_world_label_count,
+    }
+}
+
+fn runtime_session_observability(
+    session_state: &SessionState,
+    world_overlay: &RuntimeWorldOverlay,
+) -> RuntimeSessionObservability {
+    RuntimeSessionObservability {
+        kick: RuntimeKickObservability {
+            reason_text: world_overlay.last_kick_reason_text.clone(),
+            reason_ordinal: world_overlay.last_kick_reason_ordinal,
+            hint_category: world_overlay.last_kick_hint_category.map(str::to_string),
+            hint_text: world_overlay.last_kick_hint_text.map(str::to_string),
+        },
+        loading: RuntimeLoadingObservability {
+            deferred_inbound_packet_count: session_state.deferred_inbound_packet_count,
+            replayed_inbound_packet_count: session_state.replayed_inbound_packet_count,
+            dropped_loading_low_priority_packet_count: session_state
+                .dropped_loading_low_priority_packet_count,
+            dropped_loading_deferred_overflow_count: session_state
+                .dropped_loading_deferred_overflow_count,
+            failed_state_snapshot_parse_count: session_state.failed_state_snapshot_parse_count,
+            failed_state_snapshot_core_data_parse_count: session_state
+                .failed_state_snapshot_core_data_parse_count,
+            failed_entity_snapshot_parse_count: session_state.failed_entity_snapshot_parse_count,
+            ready_inbound_liveness_anchor_count: session_state.ready_inbound_liveness_anchor_count,
+            last_ready_inbound_liveness_anchor_at_ms: session_state
+                .last_ready_inbound_liveness_anchor_at_ms,
+            timeout_count: session_state.timeout_count,
+            connect_or_loading_timeout_count: session_state.connect_or_loading_timeout_count,
+            ready_snapshot_timeout_count: session_state.ready_snapshot_timeout_count,
+            last_timeout_kind: session_state
+                .last_timeout
+                .as_ref()
+                .map(|timeout| runtime_session_timeout_kind_observability(timeout.kind)),
+            last_timeout_idle_ms: session_state
+                .last_timeout
+                .as_ref()
+                .map(|timeout| timeout.idle_ms),
+            reset_count: session_state.reset_count,
+            reconnect_reset_count: session_state.reconnect_reset_count,
+            world_reload_count: session_state.world_reload_count,
+            kick_reset_count: session_state.kick_reset_count,
+            last_reset_kind: session_state
+                .last_reset_kind
+                .map(runtime_session_reset_kind_observability),
+            last_world_reload: session_state
+                .last_world_reload
+                .as_ref()
+                .map(|world_reload| RuntimeWorldReloadObservability {
+                    had_loaded_world: world_reload.had_loaded_world,
+                    had_client_loaded: world_reload.had_client_loaded,
+                    was_ready_to_enter_world: world_reload.was_ready_to_enter_world,
+                    had_connect_confirm_sent: world_reload.had_connect_confirm_sent,
+                    cleared_pending_packets: world_reload.cleared_pending_packets,
+                    cleared_deferred_inbound_packets: world_reload.cleared_deferred_inbound_packets,
+                    cleared_replayed_loading_events: world_reload.cleared_replayed_loading_events,
+                }),
+        },
+        reconnect: RuntimeReconnectObservability {
+            phase: runtime_reconnect_phase_observability(session_state.reconnect_projection.phase),
+            phase_transition_count: session_state.reconnect_projection.phase_transition_count,
+            reason_kind: session_state
+                .reconnect_projection
+                .reason_kind
+                .map(runtime_reconnect_reason_kind_observability),
+            reason_text: session_state.reconnect_projection.reason_text.clone(),
+            reason_ordinal: session_state.reconnect_projection.reason_ordinal,
+            hint_text: session_state.reconnect_projection.hint_text.clone(),
+            redirect_count: session_state.received_connect_redirect_count,
+            last_redirect_ip: session_state.last_connect_redirect_ip.clone(),
+            last_redirect_port: session_state.last_connect_redirect_port,
+        },
+    }
+}
+
+fn runtime_session_timeout_kind_observability(
+    kind: SessionTimeoutKind,
+) -> RuntimeSessionTimeoutKind {
+    match kind {
+        SessionTimeoutKind::ConnectOrLoading => RuntimeSessionTimeoutKind::ConnectOrLoading,
+        SessionTimeoutKind::ReadySnapshotStall => RuntimeSessionTimeoutKind::ReadySnapshotStall,
+    }
+}
+
+fn runtime_session_reset_kind_observability(kind: SessionResetKind) -> RuntimeSessionResetKind {
+    match kind {
+        SessionResetKind::Reconnect => RuntimeSessionResetKind::Reconnect,
+        SessionResetKind::WorldReload => RuntimeSessionResetKind::WorldReload,
+        SessionResetKind::Kick => RuntimeSessionResetKind::Kick,
+    }
+}
+
+fn runtime_reconnect_phase_observability(
+    phase: ReconnectPhaseProjection,
+) -> RuntimeReconnectPhaseObservability {
+    match phase {
+        ReconnectPhaseProjection::Idle => RuntimeReconnectPhaseObservability::Idle,
+        ReconnectPhaseProjection::Scheduled => RuntimeReconnectPhaseObservability::Scheduled,
+        ReconnectPhaseProjection::Attempting => RuntimeReconnectPhaseObservability::Attempting,
+        ReconnectPhaseProjection::Succeeded => RuntimeReconnectPhaseObservability::Succeeded,
+        ReconnectPhaseProjection::Aborted => RuntimeReconnectPhaseObservability::Aborted,
+    }
+}
+
+fn runtime_reconnect_reason_kind_observability(
+    kind: ReconnectReasonKind,
+) -> RuntimeReconnectReasonKind {
+    match kind {
+        ReconnectReasonKind::ConnectRedirect => RuntimeReconnectReasonKind::ConnectRedirect,
+        ReconnectReasonKind::Kick => RuntimeReconnectReasonKind::Kick,
+        ReconnectReasonKind::Timeout => RuntimeReconnectReasonKind::Timeout,
+        ReconnectReasonKind::ManualConnect => RuntimeReconnectReasonKind::ManualConnect,
     }
 }
 
@@ -1635,6 +1760,7 @@ fn runtime_world_position_observability(
 fn runtime_build_ui_observability(
     snapshot_input: &ClientSnapshotInputState,
     projection: &BuilderQueueProjection,
+    tile_config_projection: &TileConfigProjection,
     configured_block_projection: &ConfiguredBlockProjection,
 ) -> BuildUiObservability {
     BuildUiObservability {
@@ -1647,7 +1773,64 @@ fn runtime_build_ui_observability(
         removed_count: projection.removed_count,
         orphan_authoritative_count: projection.orphan_authoritative_count,
         head: runtime_build_queue_head_observability(projection),
+        rollback_strip: runtime_build_config_rollback_strip_observability(tile_config_projection),
         inspector_entries: runtime_build_config_inspector_entries(configured_block_projection),
+    }
+}
+
+fn runtime_build_config_rollback_strip_observability(
+    projection: &TileConfigProjection,
+) -> BuildConfigRollbackStripObservability {
+    BuildConfigRollbackStripObservability {
+        applied_authoritative_count: projection.applied_authoritative_count,
+        rollback_count: projection.rollback_count,
+        last_build_tile: projection
+            .last_business_build_pos
+            .map(unpack_runtime_point2),
+        last_business_applied: projection.last_business_applied,
+        last_cleared_pending_local: projection.last_cleared_pending_local,
+        last_was_rollback: projection.last_was_rollback,
+        last_pending_local_match: projection.last_pending_local_match,
+        last_source: projection
+            .last_business_source
+            .map(runtime_build_config_authority_source_observability),
+        last_configured_outcome: projection
+            .last_configured_block_outcome
+            .map(runtime_build_config_outcome_observability),
+        last_configured_block_name: projection.last_configured_block_name.clone(),
+    }
+}
+
+fn runtime_build_config_authority_source_observability(
+    source: TileConfigAuthoritySource,
+) -> BuildConfigAuthoritySourceObservability {
+    match source {
+        TileConfigAuthoritySource::TileConfigPacket => {
+            BuildConfigAuthoritySourceObservability::TileConfig
+        }
+        TileConfigAuthoritySource::ConstructFinish => {
+            BuildConfigAuthoritySourceObservability::ConstructFinish
+        }
+    }
+}
+
+fn runtime_build_config_outcome_observability(
+    outcome: ConfiguredBlockOutcome,
+) -> BuildConfigOutcomeObservability {
+    match outcome {
+        ConfiguredBlockOutcome::Applied => BuildConfigOutcomeObservability::Applied,
+        ConfiguredBlockOutcome::RejectedMissingBuilding => {
+            BuildConfigOutcomeObservability::RejectedMissingBuilding
+        }
+        ConfiguredBlockOutcome::RejectedMissingBlockMetadata => {
+            BuildConfigOutcomeObservability::RejectedMissingBlockMetadata
+        }
+        ConfiguredBlockOutcome::RejectedUnsupportedBlock => {
+            BuildConfigOutcomeObservability::RejectedUnsupportedBlock
+        }
+        ConfiguredBlockOutcome::RejectedUnsupportedConfigType => {
+            BuildConfigOutcomeObservability::RejectedUnsupportedConfigType
+        }
     }
 }
 
@@ -3420,6 +3603,21 @@ mod tests {
         assert!(hud.status_text.contains("runtime_kick="));
         assert!(hud.status_text.contains(":ServerRestarting:"));
         assert!(hud.status_text.contains("server_is_re~"));
+        let session = &hud
+            .runtime_ui
+            .as_ref()
+            .expect("runtime_ui should be present")
+            .session;
+        assert_eq!(session.kick.reason_text.as_deref(), Some("server restart"));
+        assert_eq!(session.kick.reason_ordinal, Some(15));
+        assert_eq!(
+            session.kick.hint_category.as_deref(),
+            Some("ServerRestarting")
+        );
+        assert_eq!(
+            session.kick.hint_text.as_deref(),
+            Some("server is restarting; retry connection shortly.")
+        );
     }
 
     #[test]
@@ -3838,6 +4036,7 @@ mod tests {
         state.tile_config_projection.applied_construct_finish_count = 1;
         state.tile_config_projection.configured_applied_count = 1;
         state.tile_config_projection.configured_rejected_count = 2;
+        state.tile_config_projection.rollback_count = 1;
         state.tile_config_projection.last_business_build_pos = Some(pack_runtime_point2(9, 4));
         state.tile_config_projection.last_business_applied = true;
         state.tile_config_projection.last_cleared_pending_local = true;
@@ -3854,6 +4053,30 @@ mod tests {
         assert!(hud
             .status_text
             .contains("runtime_tilecfg_apply=a3:p2:c1:ca1:cr2:construct@9:4:cl1:rb1:pm0:coapplied:cbitem-source"));
+        let rollback_strip = &hud
+            .build_ui
+            .as_ref()
+            .expect("build_ui observability should be present")
+            .rollback_strip;
+        assert_eq!(rollback_strip.applied_authoritative_count, 3);
+        assert_eq!(rollback_strip.rollback_count, 1);
+        assert_eq!(rollback_strip.last_build_tile, Some((9, 4)));
+        assert!(rollback_strip.last_business_applied);
+        assert!(rollback_strip.last_cleared_pending_local);
+        assert!(rollback_strip.last_was_rollback);
+        assert_eq!(rollback_strip.last_pending_local_match, Some(false));
+        assert_eq!(
+            rollback_strip.last_source,
+            Some(mdt_render_ui::BuildConfigAuthoritySourceObservability::ConstructFinish)
+        );
+        assert_eq!(
+            rollback_strip.last_configured_outcome,
+            Some(mdt_render_ui::BuildConfigOutcomeObservability::Applied)
+        );
+        assert_eq!(
+            rollback_strip.last_configured_block_name.as_deref(),
+            Some("item-source")
+        );
     }
 
     #[test]
@@ -5103,7 +5326,9 @@ mod tests {
         assert_eq!(runtime_ui.admin.debug_status_client_parse_fail_count, 77);
         assert_eq!(runtime_ui.admin.debug_status_client_unreliable_count, 58);
         assert_eq!(
-            runtime_ui.admin.debug_status_client_unreliable_parse_fail_count,
+            runtime_ui
+                .admin
+                .debug_status_client_unreliable_parse_fail_count,
             78
         );
         assert_eq!(runtime_ui.admin.last_debug_status_value, Some(12));
@@ -5613,11 +5838,72 @@ mod tests {
             cleared_deferred_inbound_packets: 8,
             cleared_replayed_loading_events: 9,
         });
+        state.record_reconnect_projection(
+            ReconnectPhaseProjection::Attempting,
+            Some(ReconnectReasonKind::ConnectRedirect),
+            Some("connectRedirect".to_string()),
+            None,
+            Some("server requested redirect".to_string()),
+        );
+        state.received_connect_redirect_count = 1;
+        state.last_connect_redirect_ip = Some("127.0.0.1".to_string());
+        state.last_connect_redirect_port = Some(6567);
 
         adapter.apply(&mut scene, &mut hud, &input, &state);
 
         assert!(hud.status_text.contains(
             "runtime_loading=defer0:replay0:drop0:qdrop0:sfail0:scfail0:efail0:rdy0@none:to4:cto3:rto1:ltcload@300000:rs5:rr2:wr2:kr1:lrkick:lwr@lw1:cl1:rd0:cc1:p7:d8:r9"
         ));
+        let session = &hud
+            .runtime_ui
+            .as_ref()
+            .expect("runtime_ui should be present")
+            .session;
+        assert_eq!(session.loading.timeout_count, 4);
+        assert_eq!(session.loading.connect_or_loading_timeout_count, 3);
+        assert_eq!(session.loading.ready_snapshot_timeout_count, 1);
+        assert_eq!(
+            session.loading.last_timeout_kind,
+            Some(RuntimeSessionTimeoutKind::ConnectOrLoading)
+        );
+        assert_eq!(session.loading.last_timeout_idle_ms, Some(300000));
+        assert_eq!(session.loading.reset_count, 5);
+        assert_eq!(session.loading.reconnect_reset_count, 2);
+        assert_eq!(session.loading.world_reload_count, 2);
+        assert_eq!(session.loading.kick_reset_count, 1);
+        assert_eq!(
+            session.loading.last_reset_kind,
+            Some(RuntimeSessionResetKind::Kick)
+        );
+        assert_eq!(
+            session
+                .loading
+                .last_world_reload
+                .as_ref()
+                .map(|world_reload| world_reload.cleared_pending_packets),
+            Some(7)
+        );
+        assert_eq!(
+            session.reconnect.phase,
+            RuntimeReconnectPhaseObservability::Attempting
+        );
+        assert_eq!(
+            session.reconnect.reason_kind,
+            Some(RuntimeReconnectReasonKind::ConnectRedirect)
+        );
+        assert_eq!(
+            session.reconnect.reason_text.as_deref(),
+            Some("connectRedirect")
+        );
+        assert_eq!(
+            session.reconnect.hint_text.as_deref(),
+            Some("server requested redirect")
+        );
+        assert_eq!(session.reconnect.redirect_count, 1);
+        assert_eq!(
+            session.reconnect.last_redirect_ip.as_deref(),
+            Some("127.0.0.1")
+        );
+        assert_eq!(session.reconnect.last_redirect_port, Some(6567));
     }
 }

@@ -5,6 +5,7 @@ pub struct InputSnapshot {
     pub move_axis: (f32, f32),
     pub aim_axis: (f32, f32),
     pub mining_tile: Option<(i32, i32)>,
+    pub building: bool,
     pub active_actions: Vec<BinaryAction>,
 }
 
@@ -50,7 +51,7 @@ impl IntentMapper for StatelessIntentMapper {
     fn map_snapshot(&mut self, snapshot: &InputSnapshot) -> Vec<PlayerIntent> {
         let active_actions = canonicalize_actions(&snapshot.active_actions);
         let mut intents =
-            Vec::with_capacity(3 + active_actions.len() + self.active_actions_prev.len());
+            Vec::with_capacity(4 + active_actions.len() + self.active_actions_prev.len());
 
         intents.push(PlayerIntent::SetMoveAxis {
             x: snapshot.move_axis.0,
@@ -62,6 +63,9 @@ impl IntentMapper for StatelessIntentMapper {
         });
         intents.push(PlayerIntent::SetMiningTile {
             tile: snapshot.mining_tile,
+        });
+        intents.push(PlayerIntent::SetBuilding {
+            building: snapshot.building,
         });
 
         match self.sampling_mode {
@@ -133,6 +137,7 @@ mod tests {
             move_axis,
             aim_axis,
             mining_tile: None,
+            building: false,
             active_actions: active_actions.to_vec(),
         }
     }
@@ -147,6 +152,7 @@ mod tests {
                 PlayerIntent::SetMoveAxis { x: 1.0, y: 0.0 },
                 PlayerIntent::SetAimAxis { x: 0.0, y: 1.0 },
                 PlayerIntent::SetMiningTile { tile: None },
+                PlayerIntent::SetBuilding { building: false },
                 PlayerIntent::ActionPressed(BinaryAction::Fire),
             ]
         );
@@ -157,6 +163,7 @@ mod tests {
                 PlayerIntent::SetMoveAxis { x: 1.0, y: 0.0 },
                 PlayerIntent::SetAimAxis { x: 0.0, y: 1.0 },
                 PlayerIntent::SetMiningTile { tile: None },
+                PlayerIntent::SetBuilding { building: false },
                 PlayerIntent::ActionHeld(BinaryAction::Fire),
             ]
         );
@@ -167,6 +174,7 @@ mod tests {
                 PlayerIntent::SetMoveAxis { x: 0.0, y: 0.0 },
                 PlayerIntent::SetAimAxis { x: 0.0, y: 1.0 },
                 PlayerIntent::SetMiningTile { tile: None },
+                PlayerIntent::SetBuilding { building: false },
                 PlayerIntent::ActionReleased(BinaryAction::Fire),
             ]
         );
@@ -191,6 +199,7 @@ mod tests {
                 PlayerIntent::SetMoveAxis { x: 0.0, y: 0.0 },
                 PlayerIntent::SetAimAxis { x: 2.0, y: 3.0 },
                 PlayerIntent::SetMiningTile { tile: None },
+                PlayerIntent::SetBuilding { building: false },
                 PlayerIntent::ActionPressed(BinaryAction::Fire),
                 PlayerIntent::ActionPressed(BinaryAction::Boost),
             ]
@@ -206,6 +215,7 @@ mod tests {
                 PlayerIntent::SetMoveAxis { x: 0.0, y: 0.0 },
                 PlayerIntent::SetAimAxis { x: 2.0, y: 3.0 },
                 PlayerIntent::SetMiningTile { tile: None },
+                PlayerIntent::SetBuilding { building: false },
                 PlayerIntent::ActionHeld(BinaryAction::Fire),
                 PlayerIntent::ActionHeld(BinaryAction::Boost),
             ]
@@ -227,6 +237,7 @@ mod tests {
                 PlayerIntent::SetMoveAxis { x: 0.0, y: 0.0 },
                 PlayerIntent::SetAimAxis { x: 1.0, y: 1.0 },
                 PlayerIntent::SetMiningTile { tile: None },
+                PlayerIntent::SetBuilding { building: false },
                 PlayerIntent::ActionPressed(BinaryAction::Fire),
                 PlayerIntent::ActionPressed(BinaryAction::Boost),
                 PlayerIntent::ActionPressed(BinaryAction::Chat),
@@ -244,6 +255,7 @@ mod tests {
                 PlayerIntent::SetMoveAxis { x: 0.0, y: 0.0 },
                 PlayerIntent::SetAimAxis { x: 1.0, y: 1.0 },
                 PlayerIntent::SetMiningTile { tile: None },
+                PlayerIntent::SetBuilding { building: false },
                 PlayerIntent::ActionHeld(BinaryAction::Fire),
                 PlayerIntent::ActionHeld(BinaryAction::Boost),
                 PlayerIntent::ActionHeld(BinaryAction::Chat),
@@ -268,6 +280,7 @@ mod tests {
                 PlayerIntent::SetMoveAxis { x: 0.0, y: 0.0 },
                 PlayerIntent::SetAimAxis { x: 0.0, y: 0.0 },
                 PlayerIntent::SetMiningTile { tile: None },
+                PlayerIntent::SetBuilding { building: false },
                 PlayerIntent::ActionReleased(BinaryAction::Fire),
                 PlayerIntent::ActionReleased(BinaryAction::Boost),
                 PlayerIntent::ActionReleased(BinaryAction::Chat),
@@ -291,6 +304,7 @@ mod tests {
                 PlayerIntent::SetMoveAxis { x: 0.0, y: 0.0 },
                 PlayerIntent::SetAimAxis { x: 0.0, y: 0.0 },
                 PlayerIntent::SetMiningTile { tile: None },
+                PlayerIntent::SetBuilding { building: false },
                 PlayerIntent::ActionReleased(BinaryAction::Fire),
                 PlayerIntent::ActionReleased(BinaryAction::Boost),
             ]
@@ -320,7 +334,8 @@ mod tests {
             ]
         );
         assert_eq!(second[2], PlayerIntent::SetMiningTile { tile: None });
-        assert_eq!(second[3], PlayerIntent::ActionHeld(BinaryAction::Chat));
+        assert_eq!(second[3], PlayerIntent::SetBuilding { building: false });
+        assert_eq!(second[4], PlayerIntent::ActionHeld(BinaryAction::Chat));
     }
 
     #[test]
@@ -333,6 +348,7 @@ mod tests {
                 PlayerIntent::SetMoveAxis { x: 0.0, y: 0.0 },
                 PlayerIntent::SetAimAxis { x: 1.0, y: 2.0 },
                 PlayerIntent::SetMiningTile { tile: None },
+                PlayerIntent::SetBuilding { building: false },
                 PlayerIntent::ActionPressed(BinaryAction::Fire),
             ]
         );
@@ -343,6 +359,7 @@ mod tests {
                 PlayerIntent::SetMoveAxis { x: 0.0, y: 0.0 },
                 PlayerIntent::SetAimAxis { x: 1.0, y: 2.0 },
                 PlayerIntent::SetMiningTile { tile: None },
+                PlayerIntent::SetBuilding { building: false },
             ]
         );
 
@@ -352,6 +369,7 @@ mod tests {
                 PlayerIntent::SetMoveAxis { x: 0.0, y: 0.0 },
                 PlayerIntent::SetAimAxis { x: 3.0, y: 4.0 },
                 PlayerIntent::SetMiningTile { tile: None },
+                PlayerIntent::SetBuilding { building: false },
                 PlayerIntent::ActionPressed(BinaryAction::Boost),
                 PlayerIntent::ActionReleased(BinaryAction::Fire),
             ]
@@ -363,6 +381,7 @@ mod tests {
                 PlayerIntent::SetMoveAxis { x: 0.0, y: 0.0 },
                 PlayerIntent::SetAimAxis { x: 3.0, y: 4.0 },
                 PlayerIntent::SetMiningTile { tile: None },
+                PlayerIntent::SetBuilding { building: false },
             ]
         );
 
@@ -372,6 +391,7 @@ mod tests {
                 PlayerIntent::SetMoveAxis { x: 0.0, y: 0.0 },
                 PlayerIntent::SetAimAxis { x: 5.0, y: 6.0 },
                 PlayerIntent::SetMiningTile { tile: None },
+                PlayerIntent::SetBuilding { building: false },
                 PlayerIntent::ActionReleased(BinaryAction::Boost),
             ]
         );
@@ -391,6 +411,7 @@ mod tests {
                 PlayerIntent::SetMoveAxis { x: 0.5, y: 0.5 },
                 PlayerIntent::SetAimAxis { x: 2.0, y: 2.0 },
                 PlayerIntent::SetMiningTile { tile: None },
+                PlayerIntent::SetBuilding { building: false },
                 PlayerIntent::ActionPressed(BinaryAction::Boost),
             ]
         );
@@ -406,6 +427,7 @@ mod tests {
             move_axis: (0.0, 0.0),
             aim_axis: (3.0, 4.0),
             mining_tile: Some((7, 9)),
+            building: false,
             active_actions: vec![BinaryAction::Interact],
         });
 
@@ -415,7 +437,31 @@ mod tests {
                 PlayerIntent::SetMoveAxis { x: 0.0, y: 0.0 },
                 PlayerIntent::SetAimAxis { x: 3.0, y: 4.0 },
                 PlayerIntent::SetMiningTile { tile: Some((7, 9)) },
+                PlayerIntent::SetBuilding { building: false },
                 PlayerIntent::ActionPressed(BinaryAction::Interact),
+            ]
+        );
+    }
+
+    #[test]
+    fn building_is_emitted_as_structured_intent() {
+        let mut mapper = StatelessIntentMapper::default();
+
+        let intents = mapper.map_snapshot(&InputSnapshot {
+            move_axis: (0.0, 0.0),
+            aim_axis: (1.0, 2.0),
+            mining_tile: None,
+            building: true,
+            active_actions: Vec::new(),
+        });
+
+        assert_eq!(
+            intents,
+            vec![
+                PlayerIntent::SetMoveAxis { x: 0.0, y: 0.0 },
+                PlayerIntent::SetAimAxis { x: 1.0, y: 2.0 },
+                PlayerIntent::SetMiningTile { tile: None },
+                PlayerIntent::SetBuilding { building: true },
             ]
         );
     }

@@ -1,4 +1,12 @@
-use crate::{render_model::RenderObjectSemanticKind, BuildQueueHeadStage, HudModel, RenderModel};
+use crate::{
+    hud_model::{
+        RuntimeReconnectPhaseObservability, RuntimeReconnectReasonKind, RuntimeSessionResetKind,
+        RuntimeSessionTimeoutKind,
+    },
+    render_model::RenderObjectSemanticKind,
+    BuildConfigAuthoritySourceObservability, BuildConfigOutcomeObservability, BuildQueueHeadStage,
+    HudModel, RenderModel,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PresenterViewWindow {
@@ -16,13 +24,20 @@ pub struct MinimapPanelModel {
     pub window_last_x: usize,
     pub window_last_y: usize,
     pub window_tile_count: usize,
+    pub window_coverage_percent: usize,
     pub map_tile_count: usize,
     pub known_tile_count: usize,
+    pub known_tile_percent: usize,
+    pub unknown_tile_count: usize,
+    pub unknown_tile_percent: usize,
     pub focus_tile: Option<(usize, usize)>,
+    pub focus_in_window: Option<bool>,
     pub overlay_visible: bool,
     pub fog_enabled: bool,
     pub visible_tile_count: usize,
+    pub visible_known_percent: usize,
     pub hidden_tile_count: usize,
+    pub hidden_known_percent: usize,
     pub tracked_object_count: usize,
     pub player_count: usize,
     pub marker_count: usize,
@@ -49,6 +64,7 @@ pub struct BuildConfigPanelModel {
     pub truncated_family_count: usize,
     pub selected_matches_head: Option<bool>,
     pub head: Option<BuildConfigHeadModel>,
+    pub rollback_strip: BuildConfigRollbackStripModel,
     pub entries: Vec<BuildConfigPanelEntryModel>,
 }
 
@@ -67,6 +83,20 @@ pub struct BuildConfigPanelEntryModel {
     pub family: String,
     pub tracked_count: usize,
     pub sample: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuildConfigRollbackStripModel {
+    pub applied_authoritative_count: u64,
+    pub rollback_count: u64,
+    pub last_build_tile: Option<(i32, i32)>,
+    pub last_business_applied: bool,
+    pub last_cleared_pending_local: bool,
+    pub last_was_rollback: bool,
+    pub last_pending_local_match: Option<bool>,
+    pub last_source: Option<BuildConfigAuthoritySourceObservability>,
+    pub last_configured_outcome: Option<BuildConfigOutcomeObservability>,
+    pub last_configured_block_name: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -144,6 +174,94 @@ pub struct RuntimeWorldLabelPanelModel {
     pub total_count: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeSessionPanelModel {
+    pub kick: RuntimeKickPanelModel,
+    pub loading: RuntimeLoadingPanelModel,
+    pub reconnect: RuntimeReconnectPanelModel,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeKickPanelModel {
+    pub reason_text: Option<String>,
+    pub reason_ordinal: Option<i32>,
+    pub hint_category: Option<String>,
+    pub hint_text: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeLoadingPanelModel {
+    pub deferred_inbound_packet_count: u64,
+    pub replayed_inbound_packet_count: u64,
+    pub dropped_loading_low_priority_packet_count: u64,
+    pub dropped_loading_deferred_overflow_count: u64,
+    pub failed_state_snapshot_parse_count: u64,
+    pub failed_state_snapshot_core_data_parse_count: u64,
+    pub failed_entity_snapshot_parse_count: u64,
+    pub ready_inbound_liveness_anchor_count: u64,
+    pub last_ready_inbound_liveness_anchor_at_ms: Option<u64>,
+    pub timeout_count: u64,
+    pub connect_or_loading_timeout_count: u64,
+    pub ready_snapshot_timeout_count: u64,
+    pub last_timeout_kind: Option<RuntimeSessionTimeoutKind>,
+    pub last_timeout_idle_ms: Option<u64>,
+    pub reset_count: u64,
+    pub reconnect_reset_count: u64,
+    pub world_reload_count: u64,
+    pub kick_reset_count: u64,
+    pub last_reset_kind: Option<RuntimeSessionResetKind>,
+    pub last_world_reload: Option<RuntimeWorldReloadPanelModel>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeWorldReloadPanelModel {
+    pub had_loaded_world: bool,
+    pub had_client_loaded: bool,
+    pub was_ready_to_enter_world: bool,
+    pub had_connect_confirm_sent: bool,
+    pub cleared_pending_packets: usize,
+    pub cleared_deferred_inbound_packets: usize,
+    pub cleared_replayed_loading_events: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeReconnectPanelModel {
+    pub phase: RuntimeReconnectPhaseObservability,
+    pub phase_transition_count: u64,
+    pub reason_kind: Option<RuntimeReconnectReasonKind>,
+    pub reason_text: Option<String>,
+    pub reason_ordinal: Option<i32>,
+    pub hint_text: Option<String>,
+    pub redirect_count: u64,
+    pub last_redirect_ip: Option<String>,
+    pub last_redirect_port: Option<i32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeLiveEntityPanelModel {
+    pub entity_count: usize,
+    pub hidden_count: usize,
+    pub local_entity_id: Option<i32>,
+    pub local_unit_kind: Option<u8>,
+    pub local_unit_value: Option<u32>,
+    pub local_hidden: Option<bool>,
+    pub local_last_seen_entity_snapshot_count: Option<u64>,
+    pub local_position: Option<crate::RuntimeWorldPositionObservability>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeLiveEffectPanelModel {
+    pub effect_count: u64,
+    pub spawn_effect_count: u64,
+    pub last_effect_id: Option<i16>,
+    pub last_spawn_effect_unit_type_id: Option<i16>,
+    pub last_kind: Option<String>,
+    pub last_contract_name: Option<String>,
+    pub last_reliable_contract_name: Option<String>,
+    pub last_position_hint: Option<crate::RuntimeWorldPositionObservability>,
+    pub last_position_source: Option<crate::RuntimeLiveEffectPositionSource>,
+}
+
 pub fn build_minimap_panel(
     scene: &RenderModel,
     hud: &HudModel,
@@ -163,6 +281,12 @@ pub fn build_minimap_panel(
     let window_last_y = window
         .origin_y
         .saturating_add(window.height.saturating_sub(1));
+    let window_tile_count = window.width.saturating_mul(window.height);
+    let map_tile_count = summary.map_width.saturating_mul(summary.map_height);
+    let known_tile_count = summary
+        .visible_tile_count
+        .saturating_add(summary.hidden_tile_count);
+    let unknown_tile_count = map_tile_count.saturating_sub(known_tile_count);
     let focus_tile = scene
         .objects
         .iter()
@@ -173,6 +297,12 @@ pub fn build_minimap_panel(
                 world_to_tile_index_floor(object.y).max(0) as usize,
             )
         });
+    let focus_in_window = focus_tile.map(|(focus_x, focus_y)| {
+        focus_x >= window.origin_x
+            && focus_x <= window_last_x
+            && focus_y >= window.origin_y
+            && focus_y <= window_last_y
+    });
 
     Some(MinimapPanelModel {
         map_width: summary.map_width,
@@ -180,16 +310,21 @@ pub fn build_minimap_panel(
         window,
         window_last_x,
         window_last_y,
-        window_tile_count: window.width.saturating_mul(window.height),
-        map_tile_count: summary.map_width.saturating_mul(summary.map_height),
-        known_tile_count: summary
-            .visible_tile_count
-            .saturating_add(summary.hidden_tile_count),
+        window_tile_count,
+        window_coverage_percent: percent_of(window_tile_count, map_tile_count),
+        map_tile_count,
+        known_tile_count,
+        known_tile_percent: percent_of(known_tile_count, map_tile_count),
+        unknown_tile_count,
+        unknown_tile_percent: percent_of(unknown_tile_count, map_tile_count),
         focus_tile,
+        focus_in_window,
         overlay_visible: summary.overlay_visible,
         fog_enabled: summary.fog_enabled,
         visible_tile_count: summary.visible_tile_count,
+        visible_known_percent: percent_of(summary.visible_tile_count, known_tile_count),
         hidden_tile_count: summary.hidden_tile_count,
+        hidden_known_percent: percent_of(summary.hidden_tile_count, known_tile_count),
         tracked_object_count: player_count
             .saturating_add(marker_count)
             .saturating_add(plan_count)
@@ -205,6 +340,14 @@ pub fn build_minimap_panel(
         terrain_count,
         unknown_count,
     })
+}
+
+fn percent_of(part: usize, total: usize) -> usize {
+    if total == 0 {
+        0
+    } else {
+        part.saturating_mul(100) / total
+    }
 }
 
 pub fn build_build_config_panel(
@@ -263,6 +406,18 @@ pub fn build_build_config_panel(
             rotation: head.rotation,
             stage: head.stage,
         }),
+        rollback_strip: BuildConfigRollbackStripModel {
+            applied_authoritative_count: build_ui.rollback_strip.applied_authoritative_count,
+            rollback_count: build_ui.rollback_strip.rollback_count,
+            last_build_tile: build_ui.rollback_strip.last_build_tile,
+            last_business_applied: build_ui.rollback_strip.last_business_applied,
+            last_cleared_pending_local: build_ui.rollback_strip.last_cleared_pending_local,
+            last_was_rollback: build_ui.rollback_strip.last_was_rollback,
+            last_pending_local_match: build_ui.rollback_strip.last_pending_local_match,
+            last_source: build_ui.rollback_strip.last_source,
+            last_configured_outcome: build_ui.rollback_strip.last_configured_outcome,
+            last_configured_block_name: build_ui.rollback_strip.last_configured_block_name.clone(),
+        },
         entries: capped_entries,
     })
 }
@@ -367,11 +522,107 @@ pub fn build_runtime_world_label_panel(hud: &HudModel) -> Option<RuntimeWorldLab
     })
 }
 
+pub fn build_runtime_session_panel(hud: &HudModel) -> Option<RuntimeSessionPanelModel> {
+    let session = &hud.runtime_ui.as_ref()?.session;
+    Some(RuntimeSessionPanelModel {
+        kick: RuntimeKickPanelModel {
+            reason_text: session.kick.reason_text.clone(),
+            reason_ordinal: session.kick.reason_ordinal,
+            hint_category: session.kick.hint_category.clone(),
+            hint_text: session.kick.hint_text.clone(),
+        },
+        loading: RuntimeLoadingPanelModel {
+            deferred_inbound_packet_count: session.loading.deferred_inbound_packet_count,
+            replayed_inbound_packet_count: session.loading.replayed_inbound_packet_count,
+            dropped_loading_low_priority_packet_count: session
+                .loading
+                .dropped_loading_low_priority_packet_count,
+            dropped_loading_deferred_overflow_count: session
+                .loading
+                .dropped_loading_deferred_overflow_count,
+            failed_state_snapshot_parse_count: session.loading.failed_state_snapshot_parse_count,
+            failed_state_snapshot_core_data_parse_count: session
+                .loading
+                .failed_state_snapshot_core_data_parse_count,
+            failed_entity_snapshot_parse_count: session.loading.failed_entity_snapshot_parse_count,
+            ready_inbound_liveness_anchor_count: session
+                .loading
+                .ready_inbound_liveness_anchor_count,
+            last_ready_inbound_liveness_anchor_at_ms: session
+                .loading
+                .last_ready_inbound_liveness_anchor_at_ms,
+            timeout_count: session.loading.timeout_count,
+            connect_or_loading_timeout_count: session.loading.connect_or_loading_timeout_count,
+            ready_snapshot_timeout_count: session.loading.ready_snapshot_timeout_count,
+            last_timeout_kind: session.loading.last_timeout_kind,
+            last_timeout_idle_ms: session.loading.last_timeout_idle_ms,
+            reset_count: session.loading.reset_count,
+            reconnect_reset_count: session.loading.reconnect_reset_count,
+            world_reload_count: session.loading.world_reload_count,
+            kick_reset_count: session.loading.kick_reset_count,
+            last_reset_kind: session.loading.last_reset_kind,
+            last_world_reload: session
+                .loading
+                .last_world_reload
+                .as_ref()
+                .map(|world_reload| RuntimeWorldReloadPanelModel {
+                    had_loaded_world: world_reload.had_loaded_world,
+                    had_client_loaded: world_reload.had_client_loaded,
+                    was_ready_to_enter_world: world_reload.was_ready_to_enter_world,
+                    had_connect_confirm_sent: world_reload.had_connect_confirm_sent,
+                    cleared_pending_packets: world_reload.cleared_pending_packets,
+                    cleared_deferred_inbound_packets: world_reload.cleared_deferred_inbound_packets,
+                    cleared_replayed_loading_events: world_reload.cleared_replayed_loading_events,
+                }),
+        },
+        reconnect: RuntimeReconnectPanelModel {
+            phase: session.reconnect.phase,
+            phase_transition_count: session.reconnect.phase_transition_count,
+            reason_kind: session.reconnect.reason_kind,
+            reason_text: session.reconnect.reason_text.clone(),
+            reason_ordinal: session.reconnect.reason_ordinal,
+            hint_text: session.reconnect.hint_text.clone(),
+            redirect_count: session.reconnect.redirect_count,
+            last_redirect_ip: session.reconnect.last_redirect_ip.clone(),
+            last_redirect_port: session.reconnect.last_redirect_port,
+        },
+    })
+}
+
+pub fn build_runtime_live_entity_panel(hud: &HudModel) -> Option<RuntimeLiveEntityPanelModel> {
+    let entity = &hud.runtime_ui.as_ref()?.live.entity;
+    Some(RuntimeLiveEntityPanelModel {
+        entity_count: entity.entity_count,
+        hidden_count: entity.hidden_count,
+        local_entity_id: entity.local_entity_id,
+        local_unit_kind: entity.local_unit_kind,
+        local_unit_value: entity.local_unit_value,
+        local_hidden: entity.local_hidden,
+        local_last_seen_entity_snapshot_count: entity.local_last_seen_entity_snapshot_count,
+        local_position: entity.local_position,
+    })
+}
+
+pub fn build_runtime_live_effect_panel(hud: &HudModel) -> Option<RuntimeLiveEffectPanelModel> {
+    let effect = &hud.runtime_ui.as_ref()?.live.effect;
+    Some(RuntimeLiveEffectPanelModel {
+        effect_count: effect.effect_count,
+        spawn_effect_count: effect.spawn_effect_count,
+        last_effect_id: effect.last_effect_id,
+        last_spawn_effect_unit_type_id: effect.last_spawn_effect_unit_type_id,
+        last_kind: effect.last_kind.clone(),
+        last_contract_name: effect.last_contract_name.clone(),
+        last_reliable_contract_name: effect.last_reliable_contract_name.clone(),
+        last_position_hint: effect.last_position_hint,
+        last_position_source: effect.last_position_source,
+    })
+}
+
 fn semantic_count(scene: &RenderModel, kind: RenderObjectSemanticKind) -> usize {
     scene
         .objects
         .iter()
-        .filter(|object| object.semantic_kind() == kind)
+        .filter(|object| object.semantic_family() == kind.family())
         .count()
 }
 
@@ -386,13 +637,20 @@ fn world_to_tile_index_floor(world_position: f32) -> i32 {
 mod tests {
     use super::{
         build_build_config_panel, build_minimap_panel, build_runtime_admin_panel,
-        build_runtime_menu_panel, build_runtime_rules_panel, build_runtime_ui_notice_panel,
+        build_runtime_live_effect_panel, build_runtime_live_entity_panel, build_runtime_menu_panel,
+        build_runtime_rules_panel, build_runtime_session_panel, build_runtime_ui_notice_panel,
         build_runtime_world_label_panel, PresenterViewWindow,
     };
     use crate::{
-        hud_model::HudSummary, BuildConfigInspectorEntryObservability, BuildQueueHeadObservability,
-        BuildQueueHeadStage, BuildUiObservability, HudModel, RenderModel, RenderObject,
-        RuntimeAdminObservability, RuntimeHudTextObservability,
+        hud_model::{
+            HudSummary, RuntimeReconnectObservability, RuntimeReconnectPhaseObservability,
+            RuntimeReconnectReasonKind, RuntimeSessionObservability, RuntimeSessionResetKind,
+            RuntimeSessionTimeoutKind, RuntimeWorldReloadObservability,
+        },
+        BuildConfigAuthoritySourceObservability, BuildConfigInspectorEntryObservability,
+        BuildConfigOutcomeObservability, BuildConfigRollbackStripObservability,
+        BuildQueueHeadObservability, BuildQueueHeadStage, BuildUiObservability, HudModel,
+        RenderModel, RenderObject, RuntimeAdminObservability, RuntimeHudTextObservability,
         RuntimeLiveSummaryObservability, RuntimeMenuObservability, RuntimeRulesObservability,
         RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiObservability,
         RuntimeWorldLabelObservability, Viewport,
@@ -473,9 +731,16 @@ mod tests {
         assert_eq!(panel.window_last_x, 9);
         assert_eq!(panel.window_last_y, 7);
         assert_eq!(panel.window_tile_count, 56);
+        assert_eq!(panel.window_coverage_percent, 1);
         assert_eq!(panel.map_tile_count, 4800);
         assert_eq!(panel.known_tile_count, 144);
+        assert_eq!(panel.known_tile_percent, 3);
+        assert_eq!(panel.unknown_tile_count, 4656);
+        assert_eq!(panel.unknown_tile_percent, 97);
         assert_eq!(panel.focus_tile, Some((5, 3)));
+        assert_eq!(panel.focus_in_window, Some(true));
+        assert_eq!(panel.visible_known_percent, 83);
+        assert_eq!(panel.hidden_known_percent, 16);
         assert_eq!(panel.tracked_object_count, 5);
         assert_eq!(panel.marker_count, 1);
         assert_eq!(panel.plan_count, 1);
@@ -505,6 +770,18 @@ mod tests {
                     rotation: Some(1),
                     stage: BuildQueueHeadStage::InFlight,
                 }),
+                rollback_strip: BuildConfigRollbackStripObservability {
+                    applied_authoritative_count: 7,
+                    rollback_count: 2,
+                    last_build_tile: Some((23, 45)),
+                    last_business_applied: true,
+                    last_cleared_pending_local: true,
+                    last_was_rollback: true,
+                    last_pending_local_match: Some(false),
+                    last_source: Some(BuildConfigAuthoritySourceObservability::ConstructFinish),
+                    last_configured_outcome: Some(BuildConfigOutcomeObservability::Applied),
+                    last_configured_block_name: Some("power-node".to_string()),
+                },
                 inspector_entries: vec![
                     BuildConfigInspectorEntryObservability {
                         family: "message".to_string(),
@@ -536,6 +813,21 @@ mod tests {
         assert_eq!(
             panel.head.as_ref().map(|head| head.stage),
             Some(BuildQueueHeadStage::InFlight)
+        );
+        assert_eq!(panel.rollback_strip.applied_authoritative_count, 7);
+        assert_eq!(panel.rollback_strip.rollback_count, 2);
+        assert_eq!(panel.rollback_strip.last_build_tile, Some((23, 45)));
+        assert_eq!(
+            panel.rollback_strip.last_source,
+            Some(BuildConfigAuthoritySourceObservability::ConstructFinish)
+        );
+        assert_eq!(
+            panel.rollback_strip.last_configured_outcome,
+            Some(BuildConfigOutcomeObservability::Applied)
+        );
+        assert_eq!(
+            panel.rollback_strip.last_configured_block_name.as_deref(),
+            Some("power-node")
         );
         assert_eq!(panel.entries.len(), 2);
         assert_eq!(panel.entries[0].family, "power-node");
@@ -573,6 +865,7 @@ mod tests {
                 menu: RuntimeMenuObservability::default(),
                 rules: RuntimeRulesObservability::default(),
                 world_labels: RuntimeWorldLabelObservability::default(),
+                session: RuntimeSessionObservability::default(),
                 live: RuntimeLiveSummaryObservability::default(),
             }),
             ..HudModel::default()
@@ -630,6 +923,7 @@ mod tests {
                     last_completed_index: Some(9),
                 },
                 world_labels: RuntimeWorldLabelObservability::default(),
+                session: RuntimeSessionObservability::default(),
                 live: RuntimeLiveSummaryObservability::default(),
             }),
             ..HudModel::default()
@@ -669,6 +963,7 @@ mod tests {
                     reliable_label_count: 20,
                     remove_label_count: 21,
                 },
+                session: RuntimeSessionObservability::default(),
                 live: RuntimeLiveSummaryObservability::default(),
             }),
             ..HudModel::default()
@@ -681,6 +976,118 @@ mod tests {
         assert_eq!(panel.reliable_label_count, 20);
         assert_eq!(panel.remove_label_count, 21);
         assert_eq!(panel.total_count, 60);
+    }
+
+    #[test]
+    fn builds_runtime_live_entity_panel_from_runtime_ui_observability() {
+        let hud = HudModel {
+            runtime_ui: Some(RuntimeUiObservability {
+                hud_text: RuntimeHudTextObservability::default(),
+                toast: RuntimeToastObservability::default(),
+                text_input: RuntimeTextInputObservability::default(),
+                admin: RuntimeAdminObservability::default(),
+                menu: RuntimeMenuObservability::default(),
+                rules: RuntimeRulesObservability::default(),
+                world_labels: RuntimeWorldLabelObservability::default(),
+                session: RuntimeSessionObservability::default(),
+                live: RuntimeLiveSummaryObservability {
+                    entity: crate::RuntimeLiveEntitySummaryObservability {
+                        entity_count: 12,
+                        hidden_count: 3,
+                        local_entity_id: Some(404),
+                        local_unit_kind: Some(2),
+                        local_unit_value: Some(999),
+                        local_hidden: Some(false),
+                        local_last_seen_entity_snapshot_count: Some(7),
+                        local_position: Some(crate::RuntimeWorldPositionObservability {
+                            x_bits: 20.0f32.to_bits(),
+                            y_bits: 33.0f32.to_bits(),
+                        }),
+                    },
+                    effect: crate::RuntimeLiveEffectSummaryObservability::default(),
+                },
+            }),
+            ..HudModel::default()
+        };
+
+        let panel =
+            build_runtime_live_entity_panel(&hud).expect("expected runtime live entity panel");
+
+        assert_eq!(panel.entity_count, 12);
+        assert_eq!(panel.hidden_count, 3);
+        assert_eq!(panel.local_entity_id, Some(404));
+        assert_eq!(panel.local_unit_kind, Some(2));
+        assert_eq!(panel.local_unit_value, Some(999));
+        assert_eq!(panel.local_hidden, Some(false));
+        assert_eq!(panel.local_last_seen_entity_snapshot_count, Some(7));
+        assert_eq!(
+            panel.local_position,
+            Some(crate::RuntimeWorldPositionObservability {
+                x_bits: 20.0f32.to_bits(),
+                y_bits: 33.0f32.to_bits(),
+            })
+        );
+    }
+
+    #[test]
+    fn builds_runtime_live_effect_panel_from_runtime_ui_observability() {
+        let hud = HudModel {
+            runtime_ui: Some(RuntimeUiObservability {
+                hud_text: RuntimeHudTextObservability::default(),
+                toast: RuntimeToastObservability::default(),
+                text_input: RuntimeTextInputObservability::default(),
+                admin: RuntimeAdminObservability::default(),
+                menu: RuntimeMenuObservability::default(),
+                rules: RuntimeRulesObservability::default(),
+                world_labels: RuntimeWorldLabelObservability::default(),
+                session: RuntimeSessionObservability::default(),
+                live: RuntimeLiveSummaryObservability {
+                    entity: crate::RuntimeLiveEntitySummaryObservability::default(),
+                    effect: crate::RuntimeLiveEffectSummaryObservability {
+                        effect_count: 11,
+                        spawn_effect_count: 73,
+                        last_effect_id: Some(8),
+                        last_spawn_effect_unit_type_id: Some(19),
+                        last_kind: Some("Point2".to_string()),
+                        last_contract_name: Some("position_target".to_string()),
+                        last_reliable_contract_name: Some("unit_parent".to_string()),
+                        last_position_hint: Some(crate::RuntimeWorldPositionObservability {
+                            x_bits: 24.0f32.to_bits(),
+                            y_bits: 32.0f32.to_bits(),
+                        }),
+                        last_position_source: Some(
+                            crate::RuntimeLiveEffectPositionSource::BusinessProjection,
+                        ),
+                    },
+                },
+            }),
+            ..HudModel::default()
+        };
+
+        let panel =
+            build_runtime_live_effect_panel(&hud).expect("expected runtime live effect panel");
+
+        assert_eq!(panel.effect_count, 11);
+        assert_eq!(panel.spawn_effect_count, 73);
+        assert_eq!(panel.last_effect_id, Some(8));
+        assert_eq!(panel.last_spawn_effect_unit_type_id, Some(19));
+        assert_eq!(panel.last_kind.as_deref(), Some("Point2"));
+        assert_eq!(panel.last_contract_name.as_deref(), Some("position_target"));
+        assert_eq!(
+            panel.last_reliable_contract_name.as_deref(),
+            Some("unit_parent")
+        );
+        assert_eq!(
+            panel.last_position_hint,
+            Some(crate::RuntimeWorldPositionObservability {
+                x_bits: 24.0f32.to_bits(),
+                y_bits: 32.0f32.to_bits(),
+            })
+        );
+        assert_eq!(
+            panel.last_position_source,
+            Some(crate::RuntimeLiveEffectPositionSource::BusinessProjection)
+        );
     }
 
     #[test]
@@ -707,6 +1114,7 @@ mod tests {
                 },
                 rules: RuntimeRulesObservability::default(),
                 world_labels: RuntimeWorldLabelObservability::default(),
+                session: RuntimeSessionObservability::default(),
                 live: RuntimeLiveSummaryObservability::default(),
             }),
             ..HudModel::default()
@@ -746,6 +1154,7 @@ mod tests {
                 menu: RuntimeMenuObservability::default(),
                 rules: RuntimeRulesObservability::default(),
                 world_labels: RuntimeWorldLabelObservability::default(),
+                session: RuntimeSessionObservability::default(),
                 live: RuntimeLiveSummaryObservability::default(),
             }),
             ..HudModel::default()
@@ -762,5 +1171,108 @@ mod tests {
         assert_eq!(panel.debug_status_client_unreliable_parse_fail_count, 78);
         assert_eq!(panel.last_debug_status_value, Some(12));
         assert_eq!(panel.parse_fail_count, 231);
+    }
+
+    #[test]
+    fn builds_runtime_session_panel_from_runtime_ui_observability() {
+        let hud = HudModel {
+            runtime_ui: Some(RuntimeUiObservability {
+                hud_text: RuntimeHudTextObservability::default(),
+                toast: RuntimeToastObservability::default(),
+                text_input: RuntimeTextInputObservability::default(),
+                admin: RuntimeAdminObservability::default(),
+                menu: RuntimeMenuObservability::default(),
+                rules: RuntimeRulesObservability::default(),
+                world_labels: RuntimeWorldLabelObservability::default(),
+                session: RuntimeSessionObservability {
+                    kick: crate::hud_model::RuntimeKickObservability {
+                        reason_text: Some("idInUse".to_string()),
+                        reason_ordinal: Some(7),
+                        hint_category: Some("IdInUse".to_string()),
+                        hint_text: Some("wait for old session".to_string()),
+                    },
+                    loading: crate::hud_model::RuntimeLoadingObservability {
+                        deferred_inbound_packet_count: 5,
+                        replayed_inbound_packet_count: 6,
+                        dropped_loading_low_priority_packet_count: 7,
+                        dropped_loading_deferred_overflow_count: 8,
+                        failed_state_snapshot_parse_count: 9,
+                        failed_state_snapshot_core_data_parse_count: 10,
+                        failed_entity_snapshot_parse_count: 11,
+                        ready_inbound_liveness_anchor_count: 12,
+                        last_ready_inbound_liveness_anchor_at_ms: Some(1300),
+                        timeout_count: 2,
+                        connect_or_loading_timeout_count: 1,
+                        ready_snapshot_timeout_count: 1,
+                        last_timeout_kind: Some(RuntimeSessionTimeoutKind::ReadySnapshotStall),
+                        last_timeout_idle_ms: Some(20000),
+                        reset_count: 3,
+                        reconnect_reset_count: 1,
+                        world_reload_count: 1,
+                        kick_reset_count: 1,
+                        last_reset_kind: Some(RuntimeSessionResetKind::WorldReload),
+                        last_world_reload: Some(RuntimeWorldReloadObservability {
+                            had_loaded_world: true,
+                            had_client_loaded: false,
+                            was_ready_to_enter_world: true,
+                            had_connect_confirm_sent: false,
+                            cleared_pending_packets: 4,
+                            cleared_deferred_inbound_packets: 5,
+                            cleared_replayed_loading_events: 6,
+                        }),
+                    },
+                    reconnect: RuntimeReconnectObservability {
+                        phase: RuntimeReconnectPhaseObservability::Attempting,
+                        phase_transition_count: 3,
+                        reason_kind: Some(RuntimeReconnectReasonKind::ConnectRedirect),
+                        reason_text: Some("connectRedirect".to_string()),
+                        reason_ordinal: None,
+                        hint_text: Some("server requested redirect".to_string()),
+                        redirect_count: 1,
+                        last_redirect_ip: Some("127.0.0.1".to_string()),
+                        last_redirect_port: Some(6567),
+                    },
+                },
+                live: RuntimeLiveSummaryObservability::default(),
+            }),
+            ..HudModel::default()
+        };
+
+        let panel = build_runtime_session_panel(&hud).expect("expected runtime session panel");
+
+        assert_eq!(panel.kick.reason_text.as_deref(), Some("idInUse"));
+        assert_eq!(panel.kick.reason_ordinal, Some(7));
+        assert_eq!(panel.kick.hint_category.as_deref(), Some("IdInUse"));
+        assert_eq!(
+            panel.loading.last_timeout_kind,
+            Some(RuntimeSessionTimeoutKind::ReadySnapshotStall)
+        );
+        assert_eq!(panel.loading.last_timeout_idle_ms, Some(20000));
+        assert_eq!(
+            panel.loading.last_reset_kind,
+            Some(RuntimeSessionResetKind::WorldReload)
+        );
+        assert_eq!(
+            panel
+                .loading
+                .last_world_reload
+                .as_ref()
+                .map(|world_reload| world_reload.cleared_pending_packets),
+            Some(4)
+        );
+        assert_eq!(
+            panel.reconnect.phase,
+            RuntimeReconnectPhaseObservability::Attempting
+        );
+        assert_eq!(panel.reconnect.phase_transition_count, 3);
+        assert_eq!(
+            panel.reconnect.reason_kind,
+            Some(RuntimeReconnectReasonKind::ConnectRedirect)
+        );
+        assert_eq!(
+            panel.reconnect.last_redirect_ip.as_deref(),
+            Some("127.0.0.1")
+        );
+        assert_eq!(panel.reconnect.last_redirect_port, Some(6567));
     }
 }

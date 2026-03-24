@@ -37,6 +37,7 @@ pub struct RuntimeUiObservability {
     pub menu: RuntimeMenuObservability,
     pub rules: RuntimeRulesObservability,
     pub world_labels: RuntimeWorldLabelObservability,
+    pub session: RuntimeSessionObservability,
     pub live: RuntimeLiveSummaryObservability,
 }
 
@@ -115,6 +116,101 @@ pub struct RuntimeWorldLabelObservability {
     pub remove_label_count: u64,
 }
 
+/// Structured session/runtime lifecycle summary for kick/loading/reconnect state.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RuntimeSessionObservability {
+    pub kick: RuntimeKickObservability,
+    pub loading: RuntimeLoadingObservability,
+    pub reconnect: RuntimeReconnectObservability,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RuntimeKickObservability {
+    pub reason_text: Option<String>,
+    pub reason_ordinal: Option<i32>,
+    pub hint_category: Option<String>,
+    pub hint_text: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RuntimeLoadingObservability {
+    pub deferred_inbound_packet_count: u64,
+    pub replayed_inbound_packet_count: u64,
+    pub dropped_loading_low_priority_packet_count: u64,
+    pub dropped_loading_deferred_overflow_count: u64,
+    pub failed_state_snapshot_parse_count: u64,
+    pub failed_state_snapshot_core_data_parse_count: u64,
+    pub failed_entity_snapshot_parse_count: u64,
+    pub ready_inbound_liveness_anchor_count: u64,
+    pub last_ready_inbound_liveness_anchor_at_ms: Option<u64>,
+    pub timeout_count: u64,
+    pub connect_or_loading_timeout_count: u64,
+    pub ready_snapshot_timeout_count: u64,
+    pub last_timeout_kind: Option<RuntimeSessionTimeoutKind>,
+    pub last_timeout_idle_ms: Option<u64>,
+    pub reset_count: u64,
+    pub reconnect_reset_count: u64,
+    pub world_reload_count: u64,
+    pub kick_reset_count: u64,
+    pub last_reset_kind: Option<RuntimeSessionResetKind>,
+    pub last_world_reload: Option<RuntimeWorldReloadObservability>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeSessionTimeoutKind {
+    ConnectOrLoading,
+    ReadySnapshotStall,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeSessionResetKind {
+    Reconnect,
+    WorldReload,
+    Kick,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RuntimeWorldReloadObservability {
+    pub had_loaded_world: bool,
+    pub had_client_loaded: bool,
+    pub was_ready_to_enter_world: bool,
+    pub had_connect_confirm_sent: bool,
+    pub cleared_pending_packets: usize,
+    pub cleared_deferred_inbound_packets: usize,
+    pub cleared_replayed_loading_events: usize,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct RuntimeReconnectObservability {
+    pub phase: RuntimeReconnectPhaseObservability,
+    pub phase_transition_count: u64,
+    pub reason_kind: Option<RuntimeReconnectReasonKind>,
+    pub reason_text: Option<String>,
+    pub reason_ordinal: Option<i32>,
+    pub hint_text: Option<String>,
+    pub redirect_count: u64,
+    pub last_redirect_ip: Option<String>,
+    pub last_redirect_port: Option<i32>,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeReconnectPhaseObservability {
+    #[default]
+    Idle,
+    Scheduled,
+    Attempting,
+    Succeeded,
+    Aborted,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeReconnectReasonKind {
+    ConnectRedirect,
+    Kick,
+    Timeout,
+    ManualConnect,
+}
+
 /// Structured live runtime summary built from session entity/effect observability.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RuntimeLiveSummaryObservability {
@@ -160,6 +256,35 @@ pub struct RuntimeWorldPositionObservability {
     pub y_bits: u32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuildConfigAuthoritySourceObservability {
+    TileConfig,
+    ConstructFinish,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuildConfigOutcomeObservability {
+    Applied,
+    RejectedMissingBuilding,
+    RejectedMissingBlockMetadata,
+    RejectedUnsupportedBlock,
+    RejectedUnsupportedConfigType,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BuildConfigRollbackStripObservability {
+    pub applied_authoritative_count: u64,
+    pub rollback_count: u64,
+    pub last_build_tile: Option<(i32, i32)>,
+    pub last_business_applied: bool,
+    pub last_cleared_pending_local: bool,
+    pub last_was_rollback: bool,
+    pub last_pending_local_match: Option<bool>,
+    pub last_source: Option<BuildConfigAuthoritySourceObservability>,
+    pub last_configured_outcome: Option<BuildConfigOutcomeObservability>,
+    pub last_configured_block_name: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct BuildUiObservability {
     pub selected_block_id: Option<i16>,
@@ -171,6 +296,7 @@ pub struct BuildUiObservability {
     pub removed_count: u64,
     pub orphan_authoritative_count: u64,
     pub head: Option<BuildQueueHeadObservability>,
+    pub rollback_strip: BuildConfigRollbackStripObservability,
     pub inspector_entries: Vec<BuildConfigInspectorEntryObservability>,
 }
 

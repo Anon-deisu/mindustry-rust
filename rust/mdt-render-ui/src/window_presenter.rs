@@ -2,10 +2,11 @@ use crate::{
     hud_model::HudSummary,
     panel_model::{
         build_build_config_panel, build_minimap_panel, build_runtime_admin_panel,
-        build_runtime_menu_panel, build_runtime_rules_panel,
-        build_runtime_ui_notice_panel, build_runtime_world_label_panel, PresenterViewWindow,
+        build_runtime_live_effect_panel, build_runtime_live_entity_panel, build_runtime_menu_panel,
+        build_runtime_rules_panel, build_runtime_session_panel, build_runtime_ui_notice_panel,
+        build_runtime_world_label_panel, PresenterViewWindow,
     },
-    render_model::RenderObjectSemanticKind,
+    render_model::{RenderObjectSemanticFamily, RenderObjectSemanticKind},
     BuildQueueHeadObservability, BuildQueueHeadStage, BuildUiObservability, HudModel, RenderModel,
     RenderObject, RuntimeUiObservability, ScenePresenter,
 };
@@ -429,14 +430,14 @@ fn color_for_object(object: &RenderObject) -> u32 {
 }
 
 fn color_for_semantic_kind(kind: RenderObjectSemanticKind) -> u32 {
-    match kind {
-        RenderObjectSemanticKind::Player => COLOR_PLAYER,
-        RenderObjectSemanticKind::Runtime => COLOR_RUNTIME,
-        RenderObjectSemanticKind::Marker => COLOR_MARKER,
-        RenderObjectSemanticKind::Plan => COLOR_PLAN,
-        RenderObjectSemanticKind::Block => COLOR_BLOCK,
-        RenderObjectSemanticKind::Terrain => COLOR_TERRAIN,
-        RenderObjectSemanticKind::Unknown => COLOR_UNKNOWN,
+    match kind.family() {
+        RenderObjectSemanticFamily::Player => COLOR_PLAYER,
+        RenderObjectSemanticFamily::Runtime => COLOR_RUNTIME,
+        RenderObjectSemanticFamily::Marker => COLOR_MARKER,
+        RenderObjectSemanticFamily::Plan => COLOR_PLAN,
+        RenderObjectSemanticFamily::Block => COLOR_BLOCK,
+        RenderObjectSemanticFamily::Terrain => COLOR_TERRAIN,
+        RenderObjectSemanticFamily::Unknown => COLOR_UNKNOWN,
     }
 }
 
@@ -476,6 +477,9 @@ fn compose_frame_status_text(
     if let Some(build_panel_text) = compose_build_config_panel_status_text(hud) {
         parts.push(build_panel_text);
     }
+    if let Some(build_rollback_text) = compose_build_config_rollback_status_text(hud) {
+        parts.push(build_rollback_text);
+    }
     if let Some(build_ui) = hud.build_ui.as_ref() {
         parts.push(compose_build_ui_status_text(build_ui));
     }
@@ -494,6 +498,15 @@ fn compose_frame_status_text(
         }
         if let Some(runtime_world_label_text) = compose_runtime_world_label_panel_status_text(hud) {
             parts.push(runtime_world_label_text);
+        }
+        if let Some(runtime_session_text) = compose_runtime_session_panel_status_text(hud) {
+            parts.push(runtime_session_text);
+        }
+        if let Some(runtime_live_entity_text) = compose_runtime_live_entity_panel_status_text(hud) {
+            parts.push(runtime_live_entity_text);
+        }
+        if let Some(runtime_live_effect_text) = compose_runtime_live_effect_panel_status_text(hud) {
+            parts.push(runtime_live_effect_text);
         }
         let runtime_ui_text = compose_runtime_ui_status_text(runtime_ui);
         if !runtime_ui_text.is_empty() {
@@ -631,6 +644,32 @@ fn compose_runtime_world_label_panel_status_text(hud: &HudModel) -> Option<Strin
     ))
 }
 
+fn compose_runtime_session_panel_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_session_panel(hud)?;
+    Some(format!(
+        "session:k={};l={};r={}",
+        compose_runtime_kick_panel_status_text(&panel.kick),
+        compose_runtime_loading_panel_status_text(&panel.loading),
+        compose_runtime_reconnect_panel_status_text(&panel.reconnect),
+    ))
+}
+
+fn compose_runtime_live_entity_panel_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_live_entity_panel(hud)?;
+    Some(format!(
+        "liveent:{}",
+        compose_live_entity_panel_status_text(&panel)
+    ))
+}
+
+fn compose_runtime_live_effect_panel_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_live_effect_panel(hud)?;
+    Some(format!(
+        "livefx:{}",
+        compose_live_effect_panel_status_text(&panel)
+    ))
+}
+
 fn compose_build_ui_status_text(build_ui: &BuildUiObservability) -> String {
     let mut text = format!(
         "build:sel={}:r{}:b{}:q{}/i{}/f{}/r{}/o{}:h={}:cfg{}",
@@ -660,23 +699,28 @@ fn compose_minimap_panel_status_text(
 ) -> Option<String> {
     let panel = build_minimap_panel(scene, hud, window)?;
     Some(format!(
-        "mini:map{}x{}:rect{},{}-{},{}:f{}:t{}/{}:k{}:v{}p{}:h{}p{}:ov{}:fg{}:obj{}@{}/{}/{}/{}/{}/{}/{}",
+        "mini:map{}x{}:win{},{}-{},{}@s{}x{}:c{}:f{}:i{}:vis=ov{}:fg{}:k{}p{}:v{}p{}:h{}p{}:u{}p{}:obj{}@pl{}:mk{}:pn{}:bk{}:rt{}:tr{}:uk{}",
         panel.map_width,
         panel.map_height,
         panel.window.origin_x,
         panel.window.origin_y,
         panel.window_last_x,
         panel.window_last_y,
+        panel.window.width,
+        panel.window.height,
+        panel.window_coverage_percent,
         optional_focus_tile_status_text(panel.focus_tile),
-        panel.window_tile_count,
-        panel.map_tile_count,
-        panel.known_tile_count,
-        panel.visible_tile_count,
-        percent_status_value(panel.visible_tile_count, panel.known_tile_count),
-        panel.hidden_tile_count,
-        percent_status_value(panel.hidden_tile_count, panel.known_tile_count),
+        optional_bool_label(panel.focus_in_window),
         if panel.overlay_visible { 1 } else { 0 },
         if panel.fog_enabled { 1 } else { 0 },
+        panel.known_tile_count,
+        panel.known_tile_percent,
+        panel.visible_tile_count,
+        panel.visible_known_percent,
+        panel.hidden_tile_count,
+        panel.hidden_known_percent,
+        panel.unknown_tile_count,
+        panel.unknown_tile_percent,
         panel.tracked_object_count,
         panel.player_count,
         panel.marker_count,
@@ -726,6 +770,28 @@ fn compose_build_config_panel_status_text(hud: &HudModel) -> Option<String> {
     ))
 }
 
+fn compose_build_config_rollback_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_build_config_panel(hud, 2)?;
+    let strip = &panel.rollback_strip;
+    Some(format!(
+        "cfgstrip:a{}:rb{}:last={}:src={}:b{}:cl{}:lr{}:pm={}:out={}:block={}",
+        strip.applied_authoritative_count,
+        strip.rollback_count,
+        build_config_tile_status_text(strip.last_build_tile),
+        build_config_rollback_source_status_text(strip.last_source),
+        if strip.last_business_applied { 1 } else { 0 },
+        if strip.last_cleared_pending_local {
+            1
+        } else {
+            0
+        },
+        if strip.last_was_rollback { 1 } else { 0 },
+        build_config_pending_match_status_text(strip.last_pending_local_match),
+        build_config_outcome_status_text(strip.last_configured_outcome),
+        compact_runtime_ui_text(strip.last_configured_block_name.as_deref()),
+    ))
+}
+
 fn compose_build_ui_inspector_status_text(build_ui: &BuildUiObservability) -> String {
     build_ui
         .inspector_entries
@@ -765,6 +831,50 @@ fn build_config_panel_head_status_text(
     )
 }
 
+fn build_config_tile_status_text(value: Option<(i32, i32)>) -> String {
+    match value {
+        Some((x, y)) => format!("{x}:{y}"),
+        None => "none".to_string(),
+    }
+}
+
+fn build_config_rollback_source_status_text(
+    value: Option<crate::BuildConfigAuthoritySourceObservability>,
+) -> &'static str {
+    match value {
+        Some(crate::BuildConfigAuthoritySourceObservability::TileConfig) => "tilecfg",
+        Some(crate::BuildConfigAuthoritySourceObservability::ConstructFinish) => "construct",
+        None => "none",
+    }
+}
+
+fn build_config_pending_match_status_text(value: Option<bool>) -> &'static str {
+    match value {
+        Some(true) => "match",
+        Some(false) => "mismatch",
+        None => "none",
+    }
+}
+
+fn build_config_outcome_status_text(
+    value: Option<crate::BuildConfigOutcomeObservability>,
+) -> &'static str {
+    match value {
+        Some(crate::BuildConfigOutcomeObservability::Applied) => "applied",
+        Some(crate::BuildConfigOutcomeObservability::RejectedMissingBuilding) => "rej-miss-build",
+        Some(crate::BuildConfigOutcomeObservability::RejectedMissingBlockMetadata) => {
+            "rej-miss-meta"
+        }
+        Some(crate::BuildConfigOutcomeObservability::RejectedUnsupportedBlock) => {
+            "rej-unsupported-block"
+        }
+        Some(crate::BuildConfigOutcomeObservability::RejectedUnsupportedConfigType) => {
+            "rej-unsupported-cfg"
+        }
+        None => "none",
+    }
+}
+
 fn optional_focus_tile_status_text(value: Option<(usize, usize)>) -> String {
     match value {
         Some((x, y)) => format!("{x}:{y}"),
@@ -799,16 +909,24 @@ fn compact_build_inspector_text(value: &str, limit: usize) -> String {
     }
 }
 
-fn percent_status_value(part: usize, total: usize) -> usize {
-    if total == 0 {
-        0
-    } else {
-        part.saturating_mul(100) / total
-    }
-}
-
 fn compose_live_entity_status_text(
     entity: &crate::RuntimeLiveEntitySummaryObservability,
+) -> String {
+    format!(
+        "{}/{}@{}:u{}/{}:p{}:h{}:s{}",
+        entity.entity_count,
+        entity.hidden_count,
+        optional_i32_label(entity.local_entity_id),
+        optional_u8_label(entity.local_unit_kind),
+        optional_u32_label(entity.local_unit_value),
+        world_position_status_text(entity.local_position.as_ref()),
+        optional_bool_label(entity.local_hidden),
+        optional_u64_label(entity.local_last_seen_entity_snapshot_count),
+    )
+}
+
+fn compose_live_entity_panel_status_text(
+    entity: &crate::panel_model::RuntimeLiveEntityPanelModel,
 ) -> String {
     format!(
         "{}/{}@{}:u{}/{}:p{}:h{}:s{}",
@@ -840,6 +958,151 @@ fn compose_live_effect_status_text(
     )
 }
 
+fn compose_live_effect_panel_status_text(
+    effect: &crate::panel_model::RuntimeLiveEffectPanelModel,
+) -> String {
+    format!(
+        "{}/{}@{}:u{}:k{}:c{}/{}:p{}@{}",
+        effect.effect_count,
+        effect.spawn_effect_count,
+        optional_i16_label(effect.last_effect_id),
+        optional_i16_label(effect.last_spawn_effect_unit_type_id),
+        compact_runtime_ui_text(effect.last_kind.as_deref()),
+        compact_runtime_ui_text(effect.last_contract_name.as_deref()),
+        compact_runtime_ui_text(effect.last_reliable_contract_name.as_deref()),
+        live_effect_position_source_status_text(effect.last_position_source),
+        world_position_status_text(effect.last_position_hint.as_ref()),
+    )
+}
+
+fn compose_runtime_kick_panel_status_text(
+    kick: &crate::panel_model::RuntimeKickPanelModel,
+) -> String {
+    format!(
+        "{}@{}:{}:{}",
+        compact_runtime_ui_text(kick.reason_text.as_deref()),
+        optional_i32_label(kick.reason_ordinal),
+        compact_runtime_ui_text(kick.hint_category.as_deref()),
+        compact_runtime_ui_text(kick.hint_text.as_deref()),
+    )
+}
+
+fn compose_runtime_loading_panel_status_text(
+    loading: &crate::panel_model::RuntimeLoadingPanelModel,
+) -> String {
+    format!(
+        "defer{}:replay{}:drop{}:qdrop{}:sfail{}:scfail{}:efail{}:rdy{}@{}:to{}:cto{}:rto{}:lt{}@{}:rs{}:rr{}:wr{}:kr{}:lr{}:lwr{}",
+        loading.deferred_inbound_packet_count,
+        loading.replayed_inbound_packet_count,
+        loading.dropped_loading_low_priority_packet_count,
+        loading.dropped_loading_deferred_overflow_count,
+        loading.failed_state_snapshot_parse_count,
+        loading.failed_state_snapshot_core_data_parse_count,
+        loading.failed_entity_snapshot_parse_count,
+        loading.ready_inbound_liveness_anchor_count,
+        optional_u64_label(loading.last_ready_inbound_liveness_anchor_at_ms),
+        loading.timeout_count,
+        loading.connect_or_loading_timeout_count,
+        loading.ready_snapshot_timeout_count,
+        runtime_session_timeout_kind_status_text(loading.last_timeout_kind),
+        optional_u64_label(loading.last_timeout_idle_ms),
+        loading.reset_count,
+        loading.reconnect_reset_count,
+        loading.world_reload_count,
+        loading.kick_reset_count,
+        runtime_session_reset_kind_status_text(loading.last_reset_kind),
+        runtime_world_reload_panel_status_text(loading.last_world_reload.as_ref()),
+    )
+}
+
+fn compose_runtime_reconnect_panel_status_text(
+    reconnect: &crate::panel_model::RuntimeReconnectPanelModel,
+) -> String {
+    format!(
+        "{}{}:{}@{}/{}:{}:{}@{}:{}",
+        runtime_reconnect_phase_status_text(reconnect.phase),
+        reconnect.phase_transition_count,
+        runtime_reconnect_reason_kind_status_text(reconnect.reason_kind),
+        reconnect.redirect_count,
+        compact_runtime_ui_text(reconnect.last_redirect_ip.as_deref()),
+        optional_i32_label(reconnect.last_redirect_port),
+        compact_runtime_ui_text(reconnect.reason_text.as_deref()),
+        optional_i32_label(reconnect.reason_ordinal),
+        compact_runtime_ui_text(reconnect.hint_text.as_deref()),
+    )
+}
+
+fn runtime_session_timeout_kind_status_text(
+    kind: Option<crate::hud_model::RuntimeSessionTimeoutKind>,
+) -> &'static str {
+    match kind {
+        Some(crate::hud_model::RuntimeSessionTimeoutKind::ConnectOrLoading) => "cload",
+        Some(crate::hud_model::RuntimeSessionTimeoutKind::ReadySnapshotStall) => "ready",
+        None => "none",
+    }
+}
+
+fn runtime_session_reset_kind_status_text(
+    kind: Option<crate::hud_model::RuntimeSessionResetKind>,
+) -> &'static str {
+    match kind {
+        Some(crate::hud_model::RuntimeSessionResetKind::Reconnect) => "reconnect",
+        Some(crate::hud_model::RuntimeSessionResetKind::WorldReload) => "reload",
+        Some(crate::hud_model::RuntimeSessionResetKind::Kick) => "kick",
+        None => "none",
+    }
+}
+
+fn runtime_world_reload_panel_status_text(
+    world_reload: Option<&crate::panel_model::RuntimeWorldReloadPanelModel>,
+) -> String {
+    match world_reload {
+        Some(world_reload) => format!(
+            "@lw{}:cl{}:rd{}:cc{}:p{}:d{}:r{}",
+            if world_reload.had_loaded_world { 1 } else { 0 },
+            if world_reload.had_client_loaded { 1 } else { 0 },
+            if world_reload.was_ready_to_enter_world {
+                1
+            } else {
+                0
+            },
+            if world_reload.had_connect_confirm_sent {
+                1
+            } else {
+                0
+            },
+            world_reload.cleared_pending_packets,
+            world_reload.cleared_deferred_inbound_packets,
+            world_reload.cleared_replayed_loading_events,
+        ),
+        None => "none".to_string(),
+    }
+}
+
+fn runtime_reconnect_phase_status_text(
+    phase: crate::hud_model::RuntimeReconnectPhaseObservability,
+) -> &'static str {
+    match phase {
+        crate::hud_model::RuntimeReconnectPhaseObservability::Idle => "idle",
+        crate::hud_model::RuntimeReconnectPhaseObservability::Scheduled => "sched",
+        crate::hud_model::RuntimeReconnectPhaseObservability::Attempting => "attempt",
+        crate::hud_model::RuntimeReconnectPhaseObservability::Succeeded => "ok",
+        crate::hud_model::RuntimeReconnectPhaseObservability::Aborted => "abort",
+    }
+}
+
+fn runtime_reconnect_reason_kind_status_text(
+    kind: Option<crate::hud_model::RuntimeReconnectReasonKind>,
+) -> &'static str {
+    match kind {
+        Some(crate::hud_model::RuntimeReconnectReasonKind::ConnectRedirect) => "redirect",
+        Some(crate::hud_model::RuntimeReconnectReasonKind::Kick) => "kick",
+        Some(crate::hud_model::RuntimeReconnectReasonKind::Timeout) => "timeout",
+        Some(crate::hud_model::RuntimeReconnectReasonKind::ManualConnect) => "manual",
+        None => "none",
+    }
+}
+
 fn compose_overlay_semantics_status_text(scene: &RenderModel) -> Option<String> {
     let counts = overlay_semantic_counts(scene);
     let total = counts.iter().map(|(_, count)| count).sum::<usize>();
@@ -847,20 +1110,33 @@ fn compose_overlay_semantics_status_text(scene: &RenderModel) -> Option<String> 
         return None;
     }
 
-    Some(format!(
+    let mut text = format!(
         "overlay:players={} markers={} plans={} blocks={} runtime={}",
         overlay_semantic_count(&counts, RenderObjectSemanticKind::Player),
         overlay_semantic_count(&counts, RenderObjectSemanticKind::Marker),
         overlay_semantic_count(&counts, RenderObjectSemanticKind::Plan),
         overlay_semantic_count(&counts, RenderObjectSemanticKind::Block),
         overlay_semantic_count(&counts, RenderObjectSemanticKind::Runtime),
-    ))
+    );
+    if let Some(detail_text) = overlay_semantic_detail_text(scene) {
+        text.push_str(" detail=");
+        text.push_str(&detail_text);
+    }
+    Some(text)
 }
 
 fn overlay_semantic_counts(scene: &RenderModel) -> Vec<(RenderObjectSemanticKind, usize)> {
     let mut counts = Vec::with_capacity(6);
     for object in &scene.objects {
-        let kind = object.semantic_kind();
+        let kind = match object.semantic_family() {
+            RenderObjectSemanticFamily::Player => RenderObjectSemanticKind::Player,
+            RenderObjectSemanticFamily::Runtime => RenderObjectSemanticKind::Runtime,
+            RenderObjectSemanticFamily::Marker => RenderObjectSemanticKind::Marker,
+            RenderObjectSemanticFamily::Plan => RenderObjectSemanticKind::Plan,
+            RenderObjectSemanticFamily::Block => RenderObjectSemanticKind::Block,
+            RenderObjectSemanticFamily::Terrain => RenderObjectSemanticKind::Terrain,
+            RenderObjectSemanticFamily::Unknown => RenderObjectSemanticKind::Unknown,
+        };
         if let Some((_, count)) = counts.iter_mut().find(|(existing, _)| *existing == kind) {
             *count += 1;
         } else {
@@ -879,6 +1155,31 @@ fn overlay_semantic_count(
         .find(|(existing, _)| *existing == kind)
         .map(|(_, count)| *count)
         .unwrap_or_default()
+}
+
+fn overlay_semantic_detail_text(scene: &RenderModel) -> Option<String> {
+    let mut counts = Vec::<(String, usize)>::new();
+    for object in &scene.objects {
+        let Some(label) = object.semantic_kind().detail_label() else {
+            continue;
+        };
+        if let Some((_, count)) = counts.iter_mut().find(|(existing, _)| existing == label) {
+            *count += 1;
+        } else {
+            counts.push((label.to_string(), 1));
+        }
+    }
+    if counts.is_empty() {
+        return None;
+    }
+    counts.sort_by(|left, right| left.0.cmp(&right.0));
+    Some(
+        counts
+            .into_iter()
+            .map(|(label, count)| format!("{label}:{count}"))
+            .collect::<Vec<_>>()
+            .join(","),
+    )
 }
 
 fn build_queue_head_status_text(head: Option<&BuildQueueHeadObservability>) -> String {
@@ -1031,11 +1332,16 @@ mod tests {
         COLOR_RUNTIME, COLOR_TERRAIN, COLOR_UNKNOWN,
     };
     use crate::{
-        hud_model::HudSummary, BuildQueueHeadObservability, BuildQueueHeadStage,
-        BuildUiObservability, HudModel, RenderModel, RenderObject, RuntimeAdminObservability,
-        RuntimeHudTextObservability, RuntimeMenuObservability, RuntimeRulesObservability,
-        RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiObservability,
-        RuntimeWorldLabelObservability, Viewport,
+        hud_model::{
+            HudSummary, RuntimeReconnectObservability, RuntimeReconnectPhaseObservability,
+            RuntimeReconnectReasonKind, RuntimeSessionObservability, RuntimeSessionResetKind,
+            RuntimeSessionTimeoutKind, RuntimeWorldReloadObservability,
+        },
+        BuildQueueHeadObservability, BuildQueueHeadStage, BuildUiObservability, HudModel,
+        RenderModel, RenderObject, RuntimeAdminObservability, RuntimeHudTextObservability,
+        RuntimeMenuObservability, RuntimeRulesObservability, RuntimeTextInputObservability,
+        RuntimeToastObservability, RuntimeUiObservability, RuntimeWorldLabelObservability,
+        Viewport,
     };
 
     #[derive(Default)]
@@ -1223,7 +1529,19 @@ mod tests {
         assert_eq!(color_for_object(&render_object("player:7")), COLOR_PLAYER);
         assert_eq!(color_for_object(&render_object("unit:7")), COLOR_PLAYER);
         assert_eq!(
+            color_for_object(&render_object("marker:line:7")),
+            COLOR_MARKER
+        );
+        assert_eq!(
+            color_for_object(&render_object("marker:line:7:line-end")),
+            COLOR_MARKER
+        );
+        assert_eq!(
             color_for_object(&render_object("marker:runtime-health:1:2")),
+            COLOR_RUNTIME
+        );
+        assert_eq!(
+            color_for_object(&render_object("marker:runtime-config-rollback:1:2:string")),
             COLOR_RUNTIME
         );
         assert_eq!(
@@ -1245,6 +1563,41 @@ mod tests {
         assert_eq!(color_for_object(&render_object("terrain:3")), COLOR_TERRAIN);
         assert_eq!(color_for_object(&render_object("tile:3")), COLOR_TERRAIN);
         assert_eq!(color_for_object(&render_object("unknown")), COLOR_UNKNOWN);
+    }
+
+    #[test]
+    fn present_once_surfaces_overlay_detail_semantics() {
+        let backend = RecordingBackend::default();
+        let mut presenter = WindowPresenter::new(backend);
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 16.0,
+                height: 16.0,
+                zoom: 1.0,
+            },
+            objects: vec![
+                render_object("player:1"),
+                render_object("marker:line:7"),
+                render_object("marker:line:7:line-end"),
+                render_object("marker:runtime-config:3:2:string"),
+                render_object("block:runtime-building:1:2:3"),
+                render_object("plan:runtime-place:0:4:5"),
+                render_object("terrain:runtime-deconstruct:9:4"),
+            ],
+        };
+
+        presenter
+            .present_once(&scene, &HudModel::default())
+            .unwrap();
+
+        let backend = presenter.into_backend();
+        let frame = backend.frames.last().unwrap();
+        assert!(frame
+            .status_text
+            .contains("overlay:players=1 markers=2 plans=0 blocks=0 runtime=4"));
+        assert!(frame.status_text.contains(
+            "detail=marker-line:1,marker-line-end:1,runtime-building:1,runtime-config:1,runtime-deconstruct:1,runtime-place:1"
+        ));
     }
 
     #[test]
@@ -1442,6 +1795,55 @@ mod tests {
                     reliable_label_count: 20,
                     remove_label_count: 21,
                 },
+                session: RuntimeSessionObservability {
+                    kick: crate::hud_model::RuntimeKickObservability {
+                        reason_text: Some("idInUse".to_string()),
+                        reason_ordinal: Some(7),
+                        hint_category: Some("IdInUse".to_string()),
+                        hint_text: Some("wait for old session".to_string()),
+                    },
+                    loading: crate::hud_model::RuntimeLoadingObservability {
+                        deferred_inbound_packet_count: 5,
+                        replayed_inbound_packet_count: 6,
+                        dropped_loading_low_priority_packet_count: 7,
+                        dropped_loading_deferred_overflow_count: 8,
+                        failed_state_snapshot_parse_count: 9,
+                        failed_state_snapshot_core_data_parse_count: 10,
+                        failed_entity_snapshot_parse_count: 11,
+                        ready_inbound_liveness_anchor_count: 12,
+                        last_ready_inbound_liveness_anchor_at_ms: Some(1300),
+                        timeout_count: 2,
+                        connect_or_loading_timeout_count: 1,
+                        ready_snapshot_timeout_count: 1,
+                        last_timeout_kind: Some(RuntimeSessionTimeoutKind::ReadySnapshotStall),
+                        last_timeout_idle_ms: Some(20000),
+                        reset_count: 3,
+                        reconnect_reset_count: 1,
+                        world_reload_count: 1,
+                        kick_reset_count: 1,
+                        last_reset_kind: Some(RuntimeSessionResetKind::WorldReload),
+                        last_world_reload: Some(RuntimeWorldReloadObservability {
+                            had_loaded_world: true,
+                            had_client_loaded: false,
+                            was_ready_to_enter_world: true,
+                            had_connect_confirm_sent: false,
+                            cleared_pending_packets: 4,
+                            cleared_deferred_inbound_packets: 5,
+                            cleared_replayed_loading_events: 6,
+                        }),
+                    },
+                    reconnect: RuntimeReconnectObservability {
+                        phase: RuntimeReconnectPhaseObservability::Attempting,
+                        phase_transition_count: 3,
+                        reason_kind: Some(RuntimeReconnectReasonKind::ConnectRedirect),
+                        reason_text: Some("connectRedirect".to_string()),
+                        reason_ordinal: None,
+                        hint_text: Some("server requested redirect".to_string()),
+                        redirect_count: 1,
+                        last_redirect_ip: Some("127.0.0.1".to_string()),
+                        last_redirect_port: Some(6567),
+                    },
+                },
                 live: crate::RuntimeLiveSummaryObservability {
                     entity: crate::RuntimeLiveEntitySummaryObservability {
                         entity_count: 1,
@@ -1491,6 +1893,20 @@ mod tests {
                     rotation: Some(1),
                     stage: BuildQueueHeadStage::InFlight,
                 }),
+                rollback_strip: crate::BuildConfigRollbackStripObservability {
+                    applied_authoritative_count: 3,
+                    rollback_count: 1,
+                    last_build_tile: Some((23, 45)),
+                    last_business_applied: true,
+                    last_cleared_pending_local: true,
+                    last_was_rollback: true,
+                    last_pending_local_match: Some(false),
+                    last_source: Some(
+                        crate::BuildConfigAuthoritySourceObservability::ConstructFinish,
+                    ),
+                    last_configured_outcome: Some(crate::BuildConfigOutcomeObservability::Applied),
+                    last_configured_block_name: Some("power-node".to_string()),
+                },
                 inspector_entries: vec![
                     crate::BuildConfigInspectorEntryObservability {
                         family: "message".to_string(),
@@ -1517,11 +1933,14 @@ mod tests {
             .status_text
             .contains("hud:team=2 sel=payload-rout~ plans=3 mk=4 map=80x60 ov1 fg1 vis120 hid24"));
         assert!(frame.status_text.contains(
-            "mini:map80x60:rect0,0-0,0:f0:0:t1/4800:k144:v120p83:h24p16:ov1:fg1:obj4@1/1/1/1/0/0/0"
+            "mini:map80x60:win0,0-0,0@s1x1:c0:f0:0:i1:vis=ov1:fg1:k144p3:v120p83:h24p16:u4656p97:obj4@pl1:mk1:pn1:bk1:rt0:tr0:uk0"
         ));
         assert!(frame
             .status_text
             .contains("cfgpanel:sel257:r2:m1:p1/2:hist3/4:o1:h=flight@100:99:place:b301:r1:align=split:fam2/2:more0:t2@message#1,power-node#1"));
+        assert!(frame.status_text.contains(
+            "cfgstrip:a3:rb1:last=23:45:src=construct:b1:cl1:lr1:pm=mismatch:out=applied:block=power-node"
+        ));
         assert!(frame
             .status_text
             .contains("build:sel=257:r2:b1:q1/i2/f3/r4/o1:h=flight@100:99:place:b301:r1:cfg2"));
@@ -1541,6 +1960,15 @@ mod tests {
             .status_text
             .contains("rules:mut354:fail210:wv1:pvp0:obj2:q1:par1:fg2:oor75:last9"));
         assert!(frame.status_text.contains("wlabel:set19:rel20:rm21:tot60"));
+        assert!(frame.status_text.contains(
+            "session:k=idInUse@7:IdInUse:wait_for_old~;l=defer5:replay6:drop7:qdrop8:sfail9:scfail10:efail11:rdy12@1300:to2:cto1:rto1:ltready@20000:rs3:rr1:wr1:kr1:lrreload:lwr@lw1:cl0:rd1:cc0:p4:d5:r6;r=attempt3:redirect@1/127.0.0.1:6567:connectRedir~@none:server_reque~"
+        ));
+        assert!(frame
+            .status_text
+            .contains("liveent:1/0@404:u2/999:p20.0:33.0:h0:s3"));
+        assert!(frame
+            .status_text
+            .contains("livefx:11/73@8:u19:kPoint2:cposition_tar~/unit_parent:pbiz@24.0:32.0"));
         assert!(frame
             .status_text
             .contains("ui:hud=9/10/11@hud_text/hud_rel"));
@@ -1610,6 +2038,20 @@ mod tests {
                     rotation: Some(1),
                     stage: BuildQueueHeadStage::Queued,
                 }),
+                rollback_strip: crate::BuildConfigRollbackStripObservability {
+                    applied_authoritative_count: 4,
+                    rollback_count: 2,
+                    last_build_tile: Some((10, 12)),
+                    last_business_applied: true,
+                    last_cleared_pending_local: false,
+                    last_was_rollback: false,
+                    last_pending_local_match: Some(true),
+                    last_source: Some(crate::BuildConfigAuthoritySourceObservability::TileConfig),
+                    last_configured_outcome: Some(
+                        crate::BuildConfigOutcomeObservability::RejectedMissingBuilding,
+                    ),
+                    last_configured_block_name: Some("gamma".to_string()),
+                },
                 inspector_entries: vec![
                     crate::BuildConfigInspectorEntryObservability {
                         family: "alpha".to_string(),
@@ -1636,10 +2078,13 @@ mod tests {
         let backend = presenter.into_backend();
         let frame = backend.frames.last().unwrap();
         assert!(frame.status_text.contains(
-            "mini:map80x60:rect0,0-1,1:f0:0:t4/4800:k0:v0p0:h0p0:ov0:fg0:obj3@1/0/0/0/0/1/1"
+            "mini:map80x60:win0,0-1,1@s2x2:c0:f0:0:i1:vis=ov0:fg0:k0p0:v0p0:h0p0:u4800p100:obj3@pl1:mk0:pn0:bk0:rt0:tr1:uk1"
         ));
         assert!(frame.status_text.contains(
             "cfgpanel:sel301:r1:m1:p2/1:hist4/5:o6:h=queued@10:12:place:b301:r1:align=match:fam2/3:more1:t7@gamma#4,beta#2"
+        ));
+        assert!(frame.status_text.contains(
+            "cfgstrip:a4:rb2:last=10:12:src=tilecfg:b1:cl0:lr0:pm=match:out=rej-miss-build:block=gamma"
         ));
     }
 

@@ -35,10 +35,16 @@ use std::time::{Duration, Instant};
 
 #[path = "../custom_packet_runtime.rs"]
 mod custom_packet_runtime;
+#[path = "../custom_packet_runtime_relay.rs"]
+mod custom_packet_runtime_relay;
 
 use custom_packet_runtime::{
     build_runtime_custom_packet_semantic_specs, install_runtime_custom_packet_semantics,
     RuntimeCustomPacketSemanticSpec, RuntimeCustomPacketSemantics,
+};
+use custom_packet_runtime_relay::{
+    build_runtime_custom_packet_relay_specs, install_runtime_custom_packet_relays,
+    RuntimeCustomPacketRelayAction, RuntimeCustomPacketRelaySpec, RuntimeCustomPacketRelays,
 };
 
 const LIVE_VIEW_TILES: (usize, usize) = (64, 32);
@@ -63,6 +69,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &mut session,
         &args.runtime_custom_packet_semantics,
     );
+    let mut custom_packet_relays =
+        install_runtime_custom_packet_relays(&mut session, &args.runtime_custom_packet_relays);
     let connect_payload = load_connect_payload(&args.connect)?;
     let connect = session.prepare_connect_packet(&connect_payload)?;
 
@@ -176,6 +184,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         maybe_print_client_packets(&args, &report.events);
         maybe_print_custom_packet_watch_events(custom_packet_watch.as_mut(), &report.events);
         maybe_print_custom_packet_semantic_events(custom_packet_semantics.as_mut(), &report.events);
+        maybe_queue_runtime_custom_packet_relays(
+            &mut session,
+            custom_packet_relays.as_mut(),
+            &report.events,
+            now_ms,
+        )?;
         if let Some((redirect_ip, redirect_port)) = pending_redirect {
             if let Some(redirect_addr) = resolve_redirect_server_addr(&redirect_ip, redirect_port) {
                 println!(
@@ -195,6 +209,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         session = redirected_session;
                         custom_packet_watch = redirected_watch;
                         custom_packet_semantics = redirected_semantics;
+                        custom_packet_relays = install_runtime_custom_packet_relays(
+                            &mut session,
+                            &args.runtime_custom_packet_relays,
+                        );
                         relative_build_plans_applied = false;
                         auto_build_plans_applied = false;
                         ascii_scene_printed = false;
@@ -241,6 +259,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     session = reconnected_session;
                     custom_packet_watch = reconnected_watch;
                     custom_packet_semantics = reconnected_semantics;
+                    custom_packet_relays = install_runtime_custom_packet_relays(
+                        &mut session,
+                        &args.runtime_custom_packet_relays,
+                    );
                     relative_build_plans_applied = false;
                     auto_build_plans_applied = false;
                     ascii_scene_printed = false;
@@ -305,6 +327,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     maybe_print_final_ascii_scene(&session, &args, &render_runtime_adapter);
     maybe_print_custom_packet_watch_summary(custom_packet_watch.as_ref());
     maybe_print_custom_packet_semantic_summary(custom_packet_semantics.as_ref());
+    maybe_print_runtime_custom_packet_relay_summary(custom_packet_relays.as_ref());
     let final_input = session.snapshot_input_mut().clone();
     println!(
         "final: packets_seen={} snapshots={} world_loaded={} ready={} keepalive_sent={} client_snapshot_sent={} timed_out={}",
@@ -479,6 +502,7 @@ struct CliArgs {
     watched_client_binary_packet_types: Vec<String>,
     watched_client_logic_data_channels: Vec<String>,
     runtime_custom_packet_semantics: Vec<RuntimeCustomPacketSemanticSpec>,
+    runtime_custom_packet_relays: Vec<RuntimeCustomPacketRelaySpec>,
     render_window_live: bool,
     dump_world_stream_hex: Option<PathBuf>,
     chat_schedule: Vec<ScheduledChatEntry>,
@@ -813,6 +837,9 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
     let mut consumed_client_packet_types = Vec::new();
     let mut consumed_client_binary_packet_types = Vec::new();
     let mut consumed_client_logic_data_channels = Vec::new();
+    let mut relayed_client_packet_types = Vec::new();
+    let mut relayed_client_binary_packet_types = Vec::new();
+    let mut relayed_client_logic_data_channels = Vec::new();
     let mut render_window_live = false;
     let mut dump_world_stream_hex = None;
     let mut live_intent_snapshots = Vec::new();
@@ -1164,6 +1191,30 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
                 consumed_client_logic_data_channels.push(
                     args.get(i)
                         .ok_or("missing value for --consume-client-logic-data")?
+                        .to_string(),
+                );
+            }
+            "--relay-client-packet" => {
+                i += 1;
+                relayed_client_packet_types.push(
+                    args.get(i)
+                        .ok_or("missing value for --relay-client-packet")?
+                        .to_string(),
+                );
+            }
+            "--relay-client-binary-packet" => {
+                i += 1;
+                relayed_client_binary_packet_types.push(
+                    args.get(i)
+                        .ok_or("missing value for --relay-client-binary-packet")?
+                        .to_string(),
+                );
+            }
+            "--relay-client-logic-data" => {
+                i += 1;
+                relayed_client_logic_data_channels.push(
+                    args.get(i)
+                        .ok_or("missing value for --relay-client-logic-data")?
                         .to_string(),
                 );
             }
@@ -1538,6 +1589,11 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
         &consumed_client_binary_packet_types,
         &consumed_client_logic_data_channels,
     )?;
+    let runtime_custom_packet_relays = build_runtime_custom_packet_relay_specs(
+        &relayed_client_packet_types,
+        &relayed_client_binary_packet_types,
+        &relayed_client_logic_data_channels,
+    )?;
 
     Ok(CliArgs {
         manifest_path: manifest_path.ok_or(format!("missing --manifest\n{}", usage()))?,
@@ -1574,6 +1630,7 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
         watched_client_binary_packet_types,
         watched_client_logic_data_channels,
         runtime_custom_packet_semantics,
+        runtime_custom_packet_relays,
         render_window_live,
         dump_world_stream_hex,
         chat_schedule: build_chat_schedule(chat_messages, chat_delay_ms, chat_spacing_ms),
@@ -1588,7 +1645,7 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
 
 fn usage() -> String {
     String::from(
-        "Usage: mdt-client-min-online --manifest <path> (--server <host:port> | --discover-host <host> [--discover-host <host> ...] [--discover-port <port>] [--discover-timeout-ms <ms>]) [--connect-hex <path> | --name <name> --uuid <base64> --usid <base64> --build <build> --version-type <type> --mobile --color-rgba <rgba> --mod <name:version> ...] [--locale <locale>] [--duration-ms <ms>] [--tick-ms <ms>] [--max-recv-packets <n>] [--snapshot-interval-ms <ms>] [--aim-x <f32> --aim-y <f32>] [--mine-tile <x:y>] [--snapshot-boosting|--snapshot-no-boosting] [--snapshot-shooting|--snapshot-no-shooting] [--snapshot-chatting|--snapshot-no-chatting] [--snapshot-building|--snapshot-no-building] [--view-size <w:h>] [--move-step-x <f32> --move-step-y <f32>] [--intent-snapshot <moveX:moveY:aimX:aimY:actions[:mineX,mineY|none]> ...] [--intent-live-sampling|--intent-edge-mapped] [--intent-delay-ms <ms>] [--intent-spacing-ms <ms>] [--plan-place <x:y:block[:rotation][;config]> ...] [--plan-break <x:y> ...] [--plan-place-relative <dx:dy:block[:rotation][;config]> ...] [--plan-break-relative <dx:dy> ...] config=<none|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|point2=<x:y>|point2-array=<x:y[,x:y...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|double=<f64>|building-pos=<i32>|laccess=<i16>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|vec2-array=<x:y[,x:y...]>|vec2=<x:y>|team=<u8>|int-array=<i32[,i32...]>|object-array=<value[|value...]>|unit-command=<u16>> [--plan-rotate <x:y:dir> ...] [--plan-flip-x <x:y> ...] [--plan-flip-y <x:y> ...] [--plan-edit-loop] [--plan-edit-delay-ms <ms>] [--plan-edit-spacing-ms <ms>] [--plan-break-near-player] [--plan-place-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--plan-place-conflict-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--render-ascii-on-world-ready] [--print-client-packets] [--watch-client-packet <type> ...] [--watch-client-binary-packet <type> ...] [--watch-client-logic-data <channel> ...] [--consume-client-packet <type@semantic> ...] [--consume-client-binary-packet <type@semantic> ...] [--consume-client-logic-data <channel@semantic> ...] semantic=<server-message|chat-message|hud-text|announce|clipboard|open-uri|world-pos|build-pos|unit-id|team|bool|number> [--render-window-live] [--dump-world-stream-hex <path>] [--chat-delay-ms <ms>] [--chat-spacing-ms <ms>] [--chat-message <text> ...] [--action-delay-ms <ms>] [--action-spacing-ms <ms>] [--action-request-item <buildPos|none:itemId|none:amount> ...] [--action-request-unit-payload <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-clear ...] [--action-unit-control <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-building-control-select <none|unit:<id>|block:<pos>|<id>@buildPos|none> ...] [--action-building-control-select <buildPos|none> ...] [--action-clear-items <buildPos|none> ...] [--action-clear-liquids <buildPos|none> ...] [--action-transfer-inventory <buildPos|none> ...] [--action-request-build-payload <buildPos|none> ...] [--action-request-drop-payload <x:y> ...] [--action-rotate-block <buildPos|none:direction> ...] [--action-drop-item <angle> ...] [--action-tile-config <buildPos|none:value> ...] [--action-tile-tap <tilePos|none> ...] [--action-delete-plans <x:y[,x:y...]|none> ...] [--action-command-building <x:y[,x:y...]|none@x:y> ...] [--action-command-units <unitId[,unitId...]|none@buildPos@unitTarget@x:y@queueCommand[@finalBatch]> ...] [--action-set-unit-command <unitId[,unitId...]|none@commandId|none> ...] [--action-set-unit-stance <unitId[,unitId...]|none@stanceId|none@enable> ...] [--action-begin-break <none|unit:<id>|block:<pos>|<id>@teamId@x:y> ...] [--action-begin-place <none|unit:<id>|block:<pos>|<id>@blockId|none@teamId@x:y@rotation@value> ...] [--action-menu-choose <menuId@option> ...] [--action-text-input-result <textInputId@text|none> ...] [--action-client-packet <type@contents@reliable|unreliable> ...] [--action-client-binary-packet <type@hex@reliable|unreliable> ...] [--action-client-logic-data <channel@value@reliable|unreliable> ...] value=<null|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|point2=<x:y>|point2-array=<x:y[,x:y...]>|double=<f64>|building-pos=<i32>|laccess=<i16>|vec2=<x:y>|vec2-array=<x:y[,x:y...]>|team=<u8>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|int-array=<i32[,i32...]>|object-array=<value>|unit-command=<u16>|...>",
+        "Usage: mdt-client-min-online --manifest <path> (--server <host:port> | --discover-host <host> [--discover-host <host> ...] [--discover-port <port>] [--discover-timeout-ms <ms>]) [--connect-hex <path> | --name <name> --uuid <base64> --usid <base64> --build <build> --version-type <type> --mobile --color-rgba <rgba> --mod <name:version> ...] [--locale <locale>] [--duration-ms <ms>] [--tick-ms <ms>] [--max-recv-packets <n>] [--snapshot-interval-ms <ms>] [--aim-x <f32> --aim-y <f32>] [--mine-tile <x:y>] [--snapshot-boosting|--snapshot-no-boosting] [--snapshot-shooting|--snapshot-no-shooting] [--snapshot-chatting|--snapshot-no-chatting] [--snapshot-building|--snapshot-no-building] [--view-size <w:h>] [--move-step-x <f32> --move-step-y <f32>] [--intent-snapshot <moveX:moveY:aimX:aimY:actions[:mineX,mineY|none]> ...] [--intent-live-sampling|--intent-edge-mapped] [--intent-delay-ms <ms>] [--intent-spacing-ms <ms>] [--plan-place <x:y:block[:rotation][;config]> ...] [--plan-break <x:y> ...] [--plan-place-relative <dx:dy:block[:rotation][;config]> ...] [--plan-break-relative <dx:dy> ...] config=<none|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|point2=<x:y>|point2-array=<x:y[,x:y...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|double=<f64>|building-pos=<i32>|laccess=<i16>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|vec2-array=<x:y[,x:y...]>|vec2=<x:y>|team=<u8>|int-array=<i32[,i32...]>|object-array=<value[|value...]>|unit-command=<u16>> [--plan-rotate <x:y:dir> ...] [--plan-flip-x <x:y> ...] [--plan-flip-y <x:y> ...] [--plan-edit-loop] [--plan-edit-delay-ms <ms>] [--plan-edit-spacing-ms <ms>] [--plan-break-near-player] [--plan-place-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--plan-place-conflict-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--render-ascii-on-world-ready] [--print-client-packets] [--watch-client-packet <type> ...] [--watch-client-binary-packet <type> ...] [--watch-client-logic-data <channel> ...] [--consume-client-packet <type@semantic> ...] [--consume-client-binary-packet <type@semantic> ...] [--consume-client-logic-data <channel@semantic> ...] [--relay-client-packet <inbound@outbound@reliable|unreliable> ...] [--relay-client-binary-packet <inbound@outbound@reliable|unreliable> ...] [--relay-client-logic-data <inbound@outbound@reliable|unreliable> ...] semantic=<server-message|chat-message|hud-text|announce|clipboard|open-uri|world-pos|build-pos|unit-id|team|bool|number> [--render-window-live] [--dump-world-stream-hex <path>] [--chat-delay-ms <ms>] [--chat-spacing-ms <ms>] [--chat-message <text> ...] [--action-delay-ms <ms>] [--action-spacing-ms <ms>] [--action-request-item <buildPos|none:itemId|none:amount> ...] [--action-request-unit-payload <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-clear ...] [--action-unit-control <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-building-control-select <none|unit:<id>|block:<pos>|<id>@buildPos|none> ...] [--action-building-control-select <buildPos|none> ...] [--action-clear-items <buildPos|none> ...] [--action-clear-liquids <buildPos|none> ...] [--action-transfer-inventory <buildPos|none> ...] [--action-request-build-payload <buildPos|none> ...] [--action-request-drop-payload <x:y> ...] [--action-rotate-block <buildPos|none:direction> ...] [--action-drop-item <angle> ...] [--action-tile-config <buildPos|none:value> ...] [--action-tile-tap <tilePos|none> ...] [--action-delete-plans <x:y[,x:y...]|none> ...] [--action-command-building <x:y[,x:y...]|none@x:y> ...] [--action-command-units <unitId[,unitId...]|none@buildPos@unitTarget@x:y@queueCommand[@finalBatch]> ...] [--action-set-unit-command <unitId[,unitId...]|none@commandId|none> ...] [--action-set-unit-stance <unitId[,unitId...]|none@stanceId|none@enable> ...] [--action-begin-break <none|unit:<id>|block:<pos>|<id>@teamId@x:y> ...] [--action-begin-place <none|unit:<id>|block:<pos>|<id>@blockId|none@teamId@x:y@rotation@value> ...] [--action-menu-choose <menuId@option> ...] [--action-text-input-result <textInputId@text|none> ...] [--action-client-packet <type@contents@reliable|unreliable> ...] [--action-client-binary-packet <type@hex@reliable|unreliable> ...] [--action-client-logic-data <channel@value@reliable|unreliable> ...] value=<null|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|point2=<x:y>|point2-array=<x:y[,x:y...]>|double=<f64>|building-pos=<i32>|laccess=<i16>|vec2=<x:y>|vec2-array=<x:y[,x:y...]>|team=<u8>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|int-array=<i32[,i32...]>|object-array=<value>|unit-command=<u16>|...>",
     )
 }
 
@@ -1794,6 +1851,7 @@ fn parse_intent_snapshot_arg(value: &str) -> Result<InputSnapshot, String> {
         move_axis,
         aim_axis,
         mining_tile,
+        building: false,
         active_actions,
     })
 }
@@ -3399,8 +3457,11 @@ fn sync_runtime_build_selection_state(session: &mut ClientSession, args: &CliArg
     let input = session.snapshot_input_mut();
     let has_plans = input.plans.as_ref().is_some_and(|plans| !plans.is_empty());
 
-    // Keep explicit snapshot-building flags authoritative; otherwise follow queue presence.
-    input.building = args.snapshot_building.unwrap_or(has_plans);
+    // Keep explicit snapshot-building flags authoritative. Under live runtime capture,
+    // also preserve the just-sampled building bit through the queue-sync pass.
+    input.building = args
+        .snapshot_building
+        .unwrap_or(has_plans || (args.enable_live_intent_runtime_capture && input.building));
 
     if let Some(plan) = input.plans.as_ref().and_then(|plans| {
         plans
@@ -3688,6 +3749,7 @@ fn sample_runtime_intent_snapshot(session: &mut ClientSession) -> InputSnapshot 
         move_axis: input.velocity,
         aim_axis,
         mining_tile: input.mining_tile,
+        building: input.building,
         active_actions,
     }
 }
@@ -3702,6 +3764,7 @@ fn apply_live_intents_to_snapshot(session: &mut ClientSession, state: &LiveInten
     }
     input.pointer = Some(state.aim_axis);
     input.mining_tile = state.mining_tile;
+    input.building = state.building;
     input.shooting = state.is_action_active(BinaryAction::Fire);
     input.boosting = state.is_action_active(BinaryAction::Boost);
     input.chatting = state.is_action_active(BinaryAction::Chat);
@@ -4092,6 +4155,64 @@ fn maybe_print_custom_packet_semantic_summary(
         return;
     };
     for line in custom_packet_semantics.summary_lines() {
+        println!("{line}");
+    }
+}
+
+fn maybe_queue_runtime_custom_packet_relays(
+    session: &mut ClientSession,
+    custom_packet_relays: Option<&mut RuntimeCustomPacketRelays>,
+    events: &[ClientSessionEvent],
+    now_ms: u64,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let Some(custom_packet_relays) = custom_packet_relays else {
+        return Ok(());
+    };
+    custom_packet_relays.observe_events(events);
+    for entry in custom_packet_relays.drain_entries() {
+        queue_runtime_custom_packet_relay_action(session, &entry.action)?;
+        println!("{} tick={}ms", entry.line, now_ms);
+    }
+    Ok(())
+}
+
+fn queue_runtime_custom_packet_relay_action(
+    session: &mut ClientSession,
+    action: &RuntimeCustomPacketRelayAction,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match action {
+        RuntimeCustomPacketRelayAction::Text {
+            packet_type,
+            contents,
+            transport,
+        } => {
+            session.queue_client_packet(packet_type, contents, *transport)?;
+        }
+        RuntimeCustomPacketRelayAction::Binary {
+            packet_type,
+            contents,
+            transport,
+        } => {
+            session.queue_client_binary_packet(packet_type, contents, *transport)?;
+        }
+        RuntimeCustomPacketRelayAction::LogicData {
+            channel,
+            value,
+            transport,
+        } => {
+            session.queue_client_logic_data(channel, value, *transport)?;
+        }
+    }
+    Ok(())
+}
+
+fn maybe_print_runtime_custom_packet_relay_summary(
+    custom_packet_relays: Option<&RuntimeCustomPacketRelays>,
+) {
+    let Some(custom_packet_relays) = custom_packet_relays else {
+        return;
+    };
+    for line in custom_packet_relays.summary_lines() {
         println!("{line}");
     }
 }
@@ -4635,6 +4756,12 @@ mod tests {
         assert!(text.contains("--consume-client-packet <type@semantic> ..."));
         assert!(text.contains("--consume-client-binary-packet <type@semantic> ..."));
         assert!(text.contains("--consume-client-logic-data <channel@semantic> ..."));
+        assert!(text.contains("--relay-client-packet <inbound@outbound@reliable|unreliable> ..."));
+        assert!(text
+            .contains("--relay-client-binary-packet <inbound@outbound@reliable|unreliable> ..."));
+        assert!(
+            text.contains("--relay-client-logic-data <inbound@outbound@reliable|unreliable> ...")
+        );
         assert!(text.contains("semantic=<server-message|chat-message|hud-text|announce|clipboard|open-uri|world-pos|build-pos|unit-id|team|bool|number>"));
         assert!(text.contains("--plan-rotate <x:y:dir>"));
         assert!(text.contains("--plan-edit-loop"));
@@ -4762,6 +4889,7 @@ mod tests {
                         move_axis: (1.0, 0.0),
                         aim_axis: (16.0, 24.0),
                         mining_tile: Some((88, 99)),
+                        building: false,
                         active_actions: vec![BinaryAction::Fire, BinaryAction::Boost],
                     },
                 },
@@ -4771,6 +4899,7 @@ mod tests {
                         move_axis: (0.0, 0.0),
                         aim_axis: (32.0, 48.0),
                         mining_tile: None,
+                        building: false,
                         active_actions: vec![],
                     },
                 },
@@ -4788,6 +4917,7 @@ mod tests {
                 move_axis: (0.0, 1.0),
                 aim_axis: (16.0, 24.0),
                 mining_tile: None,
+                building: false,
                 active_actions: vec![BinaryAction::Chat, BinaryAction::Interact],
             }
         );
@@ -5230,6 +5360,40 @@ mod tests {
                     key: "logic.pos".to_string(),
                     encoding: custom_packet_runtime::RuntimeCustomPacketSemanticEncoding::LogicData,
                     semantic: custom_packet_runtime::RuntimeCustomPacketSemanticKind::WorldPos,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_args_accepts_runtime_custom_packet_relay_flags() {
+        let args = parse_args(sample_args(&[
+            "--relay-client-packet",
+            "custom.ping@custom.pong@tcp",
+            "--relay-client-binary-packet",
+            "bin.ping@bin.pong@udp",
+            "--relay-client-logic-data",
+            "logic.ping@logic.pong@reliable",
+        ]))
+        .unwrap();
+
+        assert_eq!(
+            args.runtime_custom_packet_relays,
+            vec![
+                RuntimeCustomPacketRelaySpec::Text {
+                    inbound_type: "custom.ping".to_string(),
+                    outbound_type: "custom.pong".to_string(),
+                    transport: ClientPacketTransport::Tcp,
+                },
+                RuntimeCustomPacketRelaySpec::Binary {
+                    inbound_type: "bin.ping".to_string(),
+                    outbound_type: "bin.pong".to_string(),
+                    transport: ClientPacketTransport::Udp,
+                },
+                RuntimeCustomPacketRelaySpec::LogicData {
+                    inbound_channel: "logic.ping".to_string(),
+                    outbound_channel: "logic.pong".to_string(),
+                    transport: ClientLogicDataTransport::Reliable,
                 },
             ]
         );
@@ -8024,6 +8188,22 @@ mod tests {
     }
 
     #[test]
+    fn sync_runtime_build_selection_state_preserves_runtime_building_under_live_capture() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
+        let args = parse_args(sample_args(&["--intent-live-sampling"])).unwrap();
+        {
+            let input = session.snapshot_input_mut();
+            input.building = true;
+            input.plans = Some(Vec::new());
+        }
+
+        sync_runtime_build_selection_state(&mut session, &args);
+
+        assert!(session.snapshot_input().building);
+    }
+
+    #[test]
     fn sync_runtime_build_selection_state_respects_snapshot_building_override() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
@@ -8180,6 +8360,7 @@ mod tests {
             move_axis: (0.0, 0.0),
             aim_axis: (18.0, 30.0),
             mining_tile: Some((4, 6)),
+            building: true,
             active_actions: vec![BinaryAction::Interact],
             pressed_actions: vec![BinaryAction::Interact],
             released_actions: Vec::new(),
@@ -8190,6 +8371,7 @@ mod tests {
         let input = session.snapshot_input_mut();
         assert_eq!(input.pointer, Some((18.0, 30.0)));
         assert_eq!(input.mining_tile, Some((4, 6)));
+        assert!(input.building);
         assert!(!input.shooting);
         assert!(!input.boosting);
         assert!(!input.chatting);
@@ -8205,6 +8387,7 @@ mod tests {
             input.pointer = None;
             input.velocity = (1.5, -2.5);
             input.mining_tile = Some((9, 11));
+            input.building = true;
             input.shooting = true;
             input.chatting = true;
         }
@@ -8213,6 +8396,7 @@ mod tests {
         assert_eq!(sampled.move_axis, (1.5, -2.5));
         assert_eq!(sampled.aim_axis, (5.0, 6.0));
         assert_eq!(sampled.mining_tile, Some((9, 11)));
+        assert!(sampled.building);
         assert_eq!(
             sampled.active_actions,
             vec![BinaryAction::Fire, BinaryAction::Chat]
@@ -8232,6 +8416,7 @@ mod tests {
             input.position = Some((4.0, 8.0));
             input.pointer = Some((16.0, 24.0));
             input.velocity = (1.0, 0.0);
+            input.building = true;
             input.shooting = true;
             input.boosting = true;
         }
@@ -8247,12 +8432,14 @@ mod tests {
             live_intent_mapper.state().pressed_actions,
             vec![BinaryAction::Fire, BinaryAction::Boost]
         );
+        assert!(live_intent_mapper.state().building);
         assert!(live_intent_mapper.state().released_actions.is_empty());
 
         {
             let input = session.snapshot_input_mut();
             input.pointer = Some((32.0, 48.0));
             input.velocity = (0.0, 0.0);
+            input.building = false;
             input.shooting = false;
             input.boosting = false;
         }
@@ -8268,12 +8455,14 @@ mod tests {
         let input = session.snapshot_input_mut();
         assert_eq!(input.pointer, Some((32.0, 48.0)));
         assert_eq!(input.velocity, (0.0, 0.0));
+        assert!(!input.building);
         assert!(!input.shooting);
         assert!(!input.boosting);
         assert_eq!(
             live_intent_mapper.state().released_actions,
             vec![BinaryAction::Fire, BinaryAction::Boost]
         );
+        assert!(!live_intent_mapper.state().building);
     }
 
     #[test]
@@ -8293,6 +8482,7 @@ mod tests {
             move_axis: (0.0, 0.0),
             aim_axis: (9.0, 9.0),
             mining_tile: None,
+            building: false,
             active_actions: vec![],
         };
 
@@ -8317,6 +8507,7 @@ mod tests {
             move_axis: (0.0, 0.0),
             aim_axis: (0.0, 0.0),
             mining_tile: None,
+            building: true,
             active_actions: vec![BinaryAction::Fire],
         };
 
@@ -8325,6 +8516,7 @@ mod tests {
             live_intent_mapper.state().pressed_actions,
             vec![BinaryAction::Fire]
         );
+        assert!(live_intent_mapper.state().building);
         assert!(!live_intent_mapper.advance(&runtime_snapshot, 1));
         assert!(live_intent_mapper.state().pressed_actions.is_empty());
     }

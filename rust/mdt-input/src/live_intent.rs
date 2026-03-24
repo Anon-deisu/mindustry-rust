@@ -6,6 +6,7 @@ pub struct LiveIntentState {
     pub move_axis: (f32, f32),
     pub aim_axis: (f32, f32),
     pub mining_tile: Option<(i32, i32)>,
+    pub building: bool,
     pub active_actions: Vec<BinaryAction>,
     pub pressed_actions: Vec<BinaryAction>,
     pub released_actions: Vec<BinaryAction>,
@@ -26,6 +27,9 @@ impl LiveIntentState {
                 }
                 PlayerIntent::SetMiningTile { tile } => {
                     self.mining_tile = *tile;
+                }
+                PlayerIntent::SetBuilding { building } => {
+                    self.building = *building;
                 }
                 PlayerIntent::ActionPressed(action) => {
                     push_unique(&mut self.active_actions, *action);
@@ -86,12 +90,14 @@ fn runtime_snapshot_apply_key(
     (f32, f32),
     (f32, f32),
     Option<(i32, i32)>,
+    bool,
     Vec<BinaryAction>,
 ) {
     (
         state.move_axis,
         state.aim_axis,
         state.mining_tile,
+        state.building,
         state.active_actions.clone(),
     )
 }
@@ -121,12 +127,14 @@ mod tests {
             move_axis: (1.0, -1.0),
             aim_axis: (16.0, 24.0),
             mining_tile: Some((7, 9)),
+            building: true,
             active_actions: vec![BinaryAction::Fire, BinaryAction::Boost],
         });
         state.apply_intents(&first);
         assert_eq!(state.move_axis, (1.0, -1.0));
         assert_eq!(state.aim_axis, (16.0, 24.0));
         assert_eq!(state.mining_tile, Some((7, 9)));
+        assert!(state.building);
         assert_eq!(
             state.pressed_actions,
             vec![BinaryAction::Fire, BinaryAction::Boost]
@@ -139,12 +147,14 @@ mod tests {
             move_axis: (0.0, 0.0),
             aim_axis: (32.0, 48.0),
             mining_tile: None,
+            building: false,
             active_actions: vec![BinaryAction::Boost],
         });
         state.apply_intents(&second);
         assert_eq!(state.move_axis, (0.0, 0.0));
         assert_eq!(state.aim_axis, (32.0, 48.0));
         assert_eq!(state.mining_tile, None);
+        assert!(!state.building);
         assert!(state.pressed_actions.is_empty());
         assert_eq!(state.released_actions, vec![BinaryAction::Fire]);
         assert!(!state.is_action_active(BinaryAction::Fire));
@@ -160,6 +170,7 @@ mod tests {
             move_axis: (1.0, 0.0),
             aim_axis: (8.0, 12.0),
             mining_tile: Some((4, 5)),
+            building: true,
             active_actions: vec![BinaryAction::Fire],
         });
         state.apply_intents(&first);
@@ -167,11 +178,13 @@ mod tests {
         assert!(state.released_actions.is_empty());
         assert!(state.is_action_active(BinaryAction::Fire));
         assert_eq!(state.mining_tile, Some((4, 5)));
+        assert!(state.building);
 
         let second = mapper.map_snapshot(&InputSnapshot {
             move_axis: (1.0, 0.0),
             aim_axis: (8.0, 12.0),
             mining_tile: Some((4, 5)),
+            building: true,
             active_actions: vec![BinaryAction::Fire],
         });
         state.apply_intents(&second);
@@ -183,6 +196,7 @@ mod tests {
             move_axis: (0.0, 0.0),
             aim_axis: (16.0, 20.0),
             mining_tile: None,
+            building: false,
             active_actions: vec![],
         });
         state.apply_intents(&third);
@@ -190,6 +204,7 @@ mod tests {
         assert_eq!(state.released_actions, vec![BinaryAction::Fire]);
         assert!(!state.is_action_active(BinaryAction::Fire));
         assert_eq!(state.mining_tile, None);
+        assert!(!state.building);
     }
 
     #[test]
@@ -200,11 +215,13 @@ mod tests {
             move_axis: (1.0, 0.0),
             aim_axis: (16.0, 24.0),
             mining_tile: Some((7, 9)),
+            building: true,
             active_actions: vec![BinaryAction::Fire, BinaryAction::Boost],
         }));
         assert_eq!(tracker.state().move_axis, (1.0, 0.0));
         assert_eq!(tracker.state().aim_axis, (16.0, 24.0));
         assert_eq!(tracker.state().mining_tile, Some((7, 9)));
+        assert!(tracker.state().building);
         assert_eq!(
             tracker.state().pressed_actions,
             vec![BinaryAction::Fire, BinaryAction::Boost]
@@ -215,11 +232,13 @@ mod tests {
             move_axis: (0.0, 0.0),
             aim_axis: (32.0, 48.0),
             mining_tile: None,
+            building: false,
             active_actions: vec![],
         }));
         assert_eq!(tracker.state().move_axis, (0.0, 0.0));
         assert_eq!(tracker.state().aim_axis, (32.0, 48.0));
         assert_eq!(tracker.state().mining_tile, None);
+        assert!(!tracker.state().building);
         assert!(tracker.state().pressed_actions.is_empty());
         assert_eq!(
             tracker.state().released_actions,
@@ -234,6 +253,7 @@ mod tests {
             move_axis: (0.5, -0.5),
             aim_axis: (10.0, 20.0),
             mining_tile: Some((3, 4)),
+            building: true,
             active_actions: vec![BinaryAction::Chat],
         }));
 
@@ -241,11 +261,13 @@ mod tests {
             move_axis: (2.0, 3.0),
             aim_axis: (40.0, 50.0),
             mining_tile: None,
+            building: false,
             active_actions: vec![BinaryAction::Fire],
         }));
         assert_eq!(tracker.state().move_axis, (0.5, -0.5));
         assert_eq!(tracker.state().aim_axis, (10.0, 20.0));
         assert_eq!(tracker.state().mining_tile, Some((3, 4)));
+        assert!(tracker.state().building);
         assert!(tracker.state().is_action_active(BinaryAction::Chat));
         assert!(!tracker.state().is_action_active(BinaryAction::Fire));
 
@@ -253,6 +275,7 @@ mod tests {
             move_axis: (5.0, 6.0),
             aim_axis: (60.0, 70.0),
             mining_tile: Some((8, 9)),
+            building: false,
             active_actions: vec![BinaryAction::Boost],
         }));
         assert_eq!(tracker.state().move_axis, (0.5, -0.5));
@@ -262,11 +285,36 @@ mod tests {
             move_axis: (5.0, 6.0),
             aim_axis: (60.0, 70.0),
             mining_tile: Some((8, 9)),
+            building: false,
             active_actions: vec![BinaryAction::Boost],
         }));
         assert_eq!(tracker.state().move_axis, (5.0, 6.0));
         assert_eq!(tracker.state().aim_axis, (60.0, 70.0));
         assert_eq!(tracker.state().mining_tile, Some((8, 9)));
+        assert!(!tracker.state().building);
         assert!(tracker.state().is_action_active(BinaryAction::Boost));
+    }
+
+    #[test]
+    fn runtime_intent_tracker_detects_building_state_changes() {
+        let mut tracker = RuntimeIntentTracker::new(IntentSamplingMode::LiveSampling);
+
+        assert!(tracker.sample_runtime_snapshot(&InputSnapshot {
+            move_axis: (0.0, 0.0),
+            aim_axis: (0.0, 0.0),
+            mining_tile: None,
+            building: true,
+            active_actions: Vec::new(),
+        }));
+        assert!(tracker.state().building);
+
+        assert!(tracker.sample_runtime_snapshot(&InputSnapshot {
+            move_axis: (0.0, 0.0),
+            aim_axis: (0.0, 0.0),
+            mining_tile: None,
+            building: false,
+            active_actions: Vec::new(),
+        }));
+        assert!(!tracker.state().building);
     }
 }

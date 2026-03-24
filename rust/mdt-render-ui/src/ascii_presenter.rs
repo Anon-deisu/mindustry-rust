@@ -1,9 +1,10 @@
 use crate::panel_model::{
     build_build_config_panel, build_minimap_panel, build_runtime_admin_panel,
-    build_runtime_menu_panel, build_runtime_rules_panel, build_runtime_ui_notice_panel,
+    build_runtime_live_effect_panel, build_runtime_live_entity_panel, build_runtime_menu_panel,
+    build_runtime_rules_panel, build_runtime_session_panel, build_runtime_ui_notice_panel,
     build_runtime_world_label_panel, PresenterViewWindow,
 };
-use crate::render_model::RenderObjectSemanticKind;
+use crate::render_model::{RenderObjectSemanticFamily, RenderObjectSemanticKind};
 use crate::{HudModel, RenderModel, ScenePresenter};
 
 const TILE_SIZE: f32 = 8.0;
@@ -65,8 +66,23 @@ impl AsciiScenePresenter {
         ) {
             out.push_str(&format!("MINIMAP: {minimap_text}\n"));
         }
+        if let Some(minimap_visibility_text) = compose_minimap_visibility_line(
+            scene,
+            hud,
+            PresenterViewWindow {
+                origin_x: window_x,
+                origin_y: window_y,
+                width: window_width,
+                height: window_height,
+            },
+        ) {
+            out.push_str(&format!("MINIMAP-VIS: {minimap_visibility_text}\n"));
+        }
         if let Some(minimap_kinds_text) = compose_minimap_kind_line(scene, hud) {
             out.push_str(&format!("MINIMAP-KINDS: {minimap_kinds_text}\n"));
+        }
+        if let Some(minimap_legend_text) = compose_minimap_legend_line(hud) {
+            out.push_str(&format!("MINIMAP-LEGEND: {minimap_legend_text}\n"));
         }
         if let Some(build_config_text) = compose_build_config_panel_text(hud) {
             out.push_str(&format!("BUILD-CONFIG: {build_config_text}\n"));
@@ -76,6 +92,9 @@ impl AsciiScenePresenter {
         }
         if let Some(build_config_more_text) = compose_build_config_more_line(hud) {
             out.push_str(&format!("BUILD-CONFIG-MORE: {build_config_more_text}\n"));
+        }
+        if let Some(build_config_rollback_text) = compose_build_config_rollback_text(hud) {
+            out.push_str(&format!("BUILD-ROLLBACK: {build_config_rollback_text}\n"));
         }
         if let Some(build_text) = compose_build_ui_text(hud) {
             out.push_str(&format!("BUILD: {build_text}\n"));
@@ -104,6 +123,19 @@ impl AsciiScenePresenter {
         if let Some(runtime_world_label_text) = compose_runtime_world_label_panel_text(hud) {
             out.push_str(&format!(
                 "RUNTIME-WORLD-LABEL: {runtime_world_label_text}\n"
+            ));
+        }
+        if let Some(runtime_session_text) = compose_runtime_session_panel_text(hud) {
+            out.push_str(&format!("RUNTIME-SESSION: {runtime_session_text}\n"));
+        }
+        if let Some(runtime_live_entity_text) = compose_runtime_live_entity_panel_text(hud) {
+            out.push_str(&format!(
+                "RUNTIME-LIVE-ENTITY: {runtime_live_entity_text}\n"
+            ));
+        }
+        if let Some(runtime_live_effect_text) = compose_runtime_live_effect_panel_text(hud) {
+            out.push_str(&format!(
+                "RUNTIME-LIVE-EFFECT: {runtime_live_effect_text}\n"
             ));
         }
         if let Some(summary_text) = hud
@@ -222,14 +254,14 @@ fn world_to_tile_index_clamped(world_position: f32, bound: usize) -> usize {
 }
 
 fn sprite_for_id(id: &str) -> char {
-    match RenderObjectSemanticKind::from_id(id) {
-        RenderObjectSemanticKind::Player => '@',
-        RenderObjectSemanticKind::Runtime => 'R',
-        RenderObjectSemanticKind::Marker => 'M',
-        RenderObjectSemanticKind::Plan => 'P',
-        RenderObjectSemanticKind::Block => '#',
-        RenderObjectSemanticKind::Terrain => '.',
-        RenderObjectSemanticKind::Unknown => '?',
+    match RenderObjectSemanticKind::from_id(id).family() {
+        RenderObjectSemanticFamily::Player => '@',
+        RenderObjectSemanticFamily::Runtime => 'R',
+        RenderObjectSemanticFamily::Marker => 'M',
+        RenderObjectSemanticFamily::Plan => 'P',
+        RenderObjectSemanticFamily::Block => '#',
+        RenderObjectSemanticFamily::Terrain => '.',
+        RenderObjectSemanticFamily::Unknown => '?',
     }
 }
 
@@ -366,6 +398,26 @@ fn compose_runtime_world_label_panel_text(hud: &HudModel) -> Option<String> {
     ))
 }
 
+fn compose_runtime_session_panel_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_session_panel(hud)?;
+    Some(format!(
+        "kick={} loading={} reconnect={}",
+        compose_runtime_kick_panel_text(&panel.kick),
+        compose_runtime_loading_panel_text(&panel.loading),
+        compose_runtime_reconnect_panel_text(&panel.reconnect),
+    ))
+}
+
+fn compose_runtime_live_entity_panel_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_live_entity_panel(hud)?;
+    Some(compose_live_entity_panel_text(&panel))
+}
+
+fn compose_runtime_live_effect_panel_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_live_effect_panel(hud)?;
+    Some(compose_live_effect_panel_text(&panel))
+}
+
 fn compose_build_ui_text(hud: &HudModel) -> Option<String> {
     let build_ui = hud.build_ui.as_ref()?;
     Some(compose_build_ui_summary_text(build_ui))
@@ -378,24 +430,41 @@ fn compose_minimap_panel_text(
 ) -> Option<String> {
     let panel = build_minimap_panel(scene, hud, window)?;
     Some(format!(
-        "map={}x{} rect={}:{}->{}:{} focus={} tiles={}/{} known={} vis={}({}%) hid={}({}%) overlay={} fog={} objs={}",
+        "map={}x{} window={}:{}->{}:{} size={}x{} cover={}/{}({}%) focus={} in-window={}",
         panel.map_width,
         panel.map_height,
         panel.window.origin_x,
         panel.window.origin_y,
         panel.window_last_x,
         panel.window_last_y,
-        optional_focus_tile_text(panel.focus_tile),
+        panel.window.width,
+        panel.window.height,
         panel.window_tile_count,
         panel.map_tile_count,
-        panel.known_tile_count,
-        panel.visible_tile_count,
-        percent_text(panel.visible_tile_count, panel.known_tile_count),
-        panel.hidden_tile_count,
-        percent_text(panel.hidden_tile_count, panel.known_tile_count),
+        panel.window_coverage_percent,
+        optional_focus_tile_text(panel.focus_tile),
+        optional_bool_label(panel.focus_in_window),
+    ))
+}
+
+fn compose_minimap_visibility_line(
+    scene: &RenderModel,
+    hud: &HudModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let panel = build_minimap_panel(scene, hud, window)?;
+    Some(format!(
+        "overlay={} fog={} known={}({}%) vis={}({}%) hid={}({}%) unseen={}({}%)",
         if panel.overlay_visible { 1 } else { 0 },
         if panel.fog_enabled { 1 } else { 0 },
-        panel.tracked_object_count,
+        panel.known_tile_count,
+        panel.known_tile_percent,
+        panel.visible_tile_count,
+        panel.visible_known_percent,
+        panel.hidden_tile_count,
+        panel.hidden_known_percent,
+        panel.unknown_tile_count,
+        panel.unknown_tile_percent,
     ))
 }
 
@@ -411,7 +480,8 @@ fn compose_minimap_kind_line(scene: &RenderModel, hud: &HudModel) -> Option<Stri
         },
     )?;
     Some(format!(
-        "player={} marker={} plan={} block={} runtime={} terrain={} unknown={}",
+        "tracked={} player={} marker={} plan={} block={} runtime={} terrain={} unknown={}",
+        panel.tracked_object_count,
         panel.player_count,
         panel.marker_count,
         panel.plan_count,
@@ -420,6 +490,11 @@ fn compose_minimap_kind_line(scene: &RenderModel, hud: &HudModel) -> Option<Stri
         panel.terrain_count,
         panel.unknown_count,
     ))
+}
+
+fn compose_minimap_legend_line(hud: &HudModel) -> Option<String> {
+    hud.summary.as_ref()?;
+    Some("@=player M=marker P=plan #=block R=runtime .=terrain ?=unknown".to_string())
 }
 
 fn compose_build_config_panel_text(hud: &HudModel) -> Option<String> {
@@ -471,6 +546,24 @@ fn compose_build_config_more_line(hud: &HudModel) -> Option<String> {
             panel.truncated_family_count
         )
     })
+}
+
+fn compose_build_config_rollback_text(hud: &HudModel) -> Option<String> {
+    let panel = build_build_config_panel(hud, 3)?;
+    let strip = &panel.rollback_strip;
+    Some(format!(
+        "authoritative={} rollback={} last={} src={} business={} clear={} last-rb={} pending={} outcome={} block={}",
+        strip.applied_authoritative_count,
+        strip.rollback_count,
+        build_config_tile_text(strip.last_build_tile),
+        build_config_rollback_source_text(strip.last_source),
+        if strip.last_business_applied { 1 } else { 0 },
+        if strip.last_cleared_pending_local { 1 } else { 0 },
+        if strip.last_was_rollback { 1 } else { 0 },
+        build_config_pending_match_text(strip.last_pending_local_match),
+        build_config_outcome_text(strip.last_configured_outcome),
+        compact_runtime_ui_text(strip.last_configured_block_name.as_deref()),
+    ))
 }
 
 fn compose_build_ui_inspector_lines(hud: &HudModel) -> Vec<String> {
@@ -547,6 +640,52 @@ fn build_config_head_text(head: Option<&crate::panel_model::BuildConfigHeadModel
     )
 }
 
+fn build_config_tile_text(value: Option<(i32, i32)>) -> String {
+    match value {
+        Some((x, y)) => format!("{x}:{y}"),
+        None => "none".to_string(),
+    }
+}
+
+fn build_config_rollback_source_text(
+    value: Option<crate::BuildConfigAuthoritySourceObservability>,
+) -> &'static str {
+    match value {
+        Some(crate::BuildConfigAuthoritySourceObservability::TileConfig) => "tileConfig",
+        Some(crate::BuildConfigAuthoritySourceObservability::ConstructFinish) => "constructFinish",
+        None => "none",
+    }
+}
+
+fn build_config_pending_match_text(value: Option<bool>) -> &'static str {
+    match value {
+        Some(true) => "match",
+        Some(false) => "mismatch",
+        None => "none",
+    }
+}
+
+fn build_config_outcome_text(
+    value: Option<crate::BuildConfigOutcomeObservability>,
+) -> &'static str {
+    match value {
+        Some(crate::BuildConfigOutcomeObservability::Applied) => "applied",
+        Some(crate::BuildConfigOutcomeObservability::RejectedMissingBuilding) => {
+            "rejected-missing-building"
+        }
+        Some(crate::BuildConfigOutcomeObservability::RejectedMissingBlockMetadata) => {
+            "rejected-missing-block-metadata"
+        }
+        Some(crate::BuildConfigOutcomeObservability::RejectedUnsupportedBlock) => {
+            "rejected-unsupported-block"
+        }
+        Some(crate::BuildConfigOutcomeObservability::RejectedUnsupportedConfigType) => {
+            "rejected-unsupported-config-type"
+        }
+        None => "none",
+    }
+}
+
 fn optional_focus_tile_text(value: Option<(usize, usize)>) -> String {
     match value {
         Some((x, y)) => format!("{x}:{y}"),
@@ -562,15 +701,23 @@ fn build_config_alignment_text(value: Option<bool>) -> &'static str {
     }
 }
 
-fn percent_text(part: usize, total: usize) -> usize {
-    if total == 0 {
-        0
-    } else {
-        part.saturating_mul(100) / total
-    }
+fn compose_live_entity_text(entity: &crate::RuntimeLiveEntitySummaryObservability) -> String {
+    format!(
+        "{}/{}@{}:u{}/{}:p{}:h{}:s{}",
+        entity.entity_count,
+        entity.hidden_count,
+        optional_i32_label(entity.local_entity_id),
+        optional_u8_label(entity.local_unit_kind),
+        optional_u32_label(entity.local_unit_value),
+        world_position_text(entity.local_position.as_ref()),
+        optional_bool_label(entity.local_hidden),
+        optional_u64_label(entity.local_last_seen_entity_snapshot_count),
+    )
 }
 
-fn compose_live_entity_text(entity: &crate::RuntimeLiveEntitySummaryObservability) -> String {
+fn compose_live_entity_panel_text(
+    entity: &crate::panel_model::RuntimeLiveEntityPanelModel,
+) -> String {
     format!(
         "{}/{}@{}:u{}/{}:p{}:h{}:s{}",
         entity.entity_count,
@@ -599,6 +746,149 @@ fn compose_live_effect_text(effect: &crate::RuntimeLiveEffectSummaryObservabilit
     )
 }
 
+fn compose_live_effect_panel_text(
+    effect: &crate::panel_model::RuntimeLiveEffectPanelModel,
+) -> String {
+    format!(
+        "{}/{}@{}:u{}:k{}:c{}/{}:p{}@{}",
+        effect.effect_count,
+        effect.spawn_effect_count,
+        optional_i16_label(effect.last_effect_id),
+        optional_i16_label(effect.last_spawn_effect_unit_type_id),
+        compact_runtime_ui_text(effect.last_kind.as_deref()),
+        compact_runtime_ui_text(effect.last_contract_name.as_deref()),
+        compact_runtime_ui_text(effect.last_reliable_contract_name.as_deref()),
+        live_effect_position_source_text(effect.last_position_source),
+        world_position_text(effect.last_position_hint.as_ref()),
+    )
+}
+
+fn compose_runtime_kick_panel_text(kick: &crate::panel_model::RuntimeKickPanelModel) -> String {
+    format!(
+        "{}@{}:{}:{}",
+        compact_runtime_ui_text(kick.reason_text.as_deref()),
+        optional_i32_label(kick.reason_ordinal),
+        compact_runtime_ui_text(kick.hint_category.as_deref()),
+        compact_runtime_ui_text(kick.hint_text.as_deref()),
+    )
+}
+
+fn compose_runtime_loading_panel_text(
+    loading: &crate::panel_model::RuntimeLoadingPanelModel,
+) -> String {
+    format!(
+        "defer{} replay{} drop{} qdrop{} sfail{} scfail{} efail{} rdy{}@{} to{}/{}/{} lt{}@{} rs{}/{}/{}/{} lr{} lwr{}",
+        loading.deferred_inbound_packet_count,
+        loading.replayed_inbound_packet_count,
+        loading.dropped_loading_low_priority_packet_count,
+        loading.dropped_loading_deferred_overflow_count,
+        loading.failed_state_snapshot_parse_count,
+        loading.failed_state_snapshot_core_data_parse_count,
+        loading.failed_entity_snapshot_parse_count,
+        loading.ready_inbound_liveness_anchor_count,
+        optional_u64_label(loading.last_ready_inbound_liveness_anchor_at_ms),
+        loading.timeout_count,
+        loading.connect_or_loading_timeout_count,
+        loading.ready_snapshot_timeout_count,
+        runtime_session_timeout_kind_text(loading.last_timeout_kind),
+        optional_u64_label(loading.last_timeout_idle_ms),
+        loading.reset_count,
+        loading.reconnect_reset_count,
+        loading.world_reload_count,
+        loading.kick_reset_count,
+        runtime_session_reset_kind_text(loading.last_reset_kind),
+        runtime_world_reload_panel_text(loading.last_world_reload.as_ref()),
+    )
+}
+
+fn compose_runtime_reconnect_panel_text(
+    reconnect: &crate::panel_model::RuntimeReconnectPanelModel,
+) -> String {
+    format!(
+        "{}#{} {} redirect={}@{}:{} reason={}#{} hint={}",
+        runtime_reconnect_phase_text(reconnect.phase),
+        reconnect.phase_transition_count,
+        runtime_reconnect_reason_kind_text(reconnect.reason_kind),
+        reconnect.redirect_count,
+        compact_runtime_ui_text(reconnect.last_redirect_ip.as_deref()),
+        optional_i32_label(reconnect.last_redirect_port),
+        compact_runtime_ui_text(reconnect.reason_text.as_deref()),
+        optional_i32_label(reconnect.reason_ordinal),
+        compact_runtime_ui_text(reconnect.hint_text.as_deref()),
+    )
+}
+
+fn runtime_session_timeout_kind_text(
+    kind: Option<crate::hud_model::RuntimeSessionTimeoutKind>,
+) -> &'static str {
+    match kind {
+        Some(crate::hud_model::RuntimeSessionTimeoutKind::ConnectOrLoading) => "cload",
+        Some(crate::hud_model::RuntimeSessionTimeoutKind::ReadySnapshotStall) => "ready",
+        None => "none",
+    }
+}
+
+fn runtime_session_reset_kind_text(
+    kind: Option<crate::hud_model::RuntimeSessionResetKind>,
+) -> &'static str {
+    match kind {
+        Some(crate::hud_model::RuntimeSessionResetKind::Reconnect) => "reconnect",
+        Some(crate::hud_model::RuntimeSessionResetKind::WorldReload) => "reload",
+        Some(crate::hud_model::RuntimeSessionResetKind::Kick) => "kick",
+        None => "none",
+    }
+}
+
+fn runtime_world_reload_panel_text(
+    world_reload: Option<&crate::panel_model::RuntimeWorldReloadPanelModel>,
+) -> String {
+    match world_reload {
+        Some(world_reload) => format!(
+            "@lw{}:cl{}:rd{}:cc{}:p{}:d{}:r{}",
+            if world_reload.had_loaded_world { 1 } else { 0 },
+            if world_reload.had_client_loaded { 1 } else { 0 },
+            if world_reload.was_ready_to_enter_world {
+                1
+            } else {
+                0
+            },
+            if world_reload.had_connect_confirm_sent {
+                1
+            } else {
+                0
+            },
+            world_reload.cleared_pending_packets,
+            world_reload.cleared_deferred_inbound_packets,
+            world_reload.cleared_replayed_loading_events,
+        ),
+        None => "none".to_string(),
+    }
+}
+
+fn runtime_reconnect_phase_text(
+    phase: crate::hud_model::RuntimeReconnectPhaseObservability,
+) -> &'static str {
+    match phase {
+        crate::hud_model::RuntimeReconnectPhaseObservability::Idle => "idle",
+        crate::hud_model::RuntimeReconnectPhaseObservability::Scheduled => "sched",
+        crate::hud_model::RuntimeReconnectPhaseObservability::Attempting => "attempt",
+        crate::hud_model::RuntimeReconnectPhaseObservability::Succeeded => "ok",
+        crate::hud_model::RuntimeReconnectPhaseObservability::Aborted => "abort",
+    }
+}
+
+fn runtime_reconnect_reason_kind_text(
+    kind: Option<crate::hud_model::RuntimeReconnectReasonKind>,
+) -> &'static str {
+    match kind {
+        Some(crate::hud_model::RuntimeReconnectReasonKind::ConnectRedirect) => "redirect",
+        Some(crate::hud_model::RuntimeReconnectReasonKind::Kick) => "kick",
+        Some(crate::hud_model::RuntimeReconnectReasonKind::Timeout) => "timeout",
+        Some(crate::hud_model::RuntimeReconnectReasonKind::ManualConnect) => "manual",
+        None => "none",
+    }
+}
+
 fn compose_overlay_semantics_text(scene: &RenderModel) -> Option<String> {
     let counts = overlay_semantic_counts(scene);
     let total = counts.iter().map(|(_, count)| count).sum::<usize>();
@@ -606,7 +896,7 @@ fn compose_overlay_semantics_text(scene: &RenderModel) -> Option<String> {
         return None;
     }
 
-    Some(format!(
+    let mut text = format!(
         "players={} markers={} plans={} blocks={} runtime={} terrain={} unknown={}",
         overlay_semantic_count(&counts, RenderObjectSemanticKind::Player),
         overlay_semantic_count(&counts, RenderObjectSemanticKind::Marker),
@@ -615,13 +905,26 @@ fn compose_overlay_semantics_text(scene: &RenderModel) -> Option<String> {
         overlay_semantic_count(&counts, RenderObjectSemanticKind::Runtime),
         overlay_semantic_count(&counts, RenderObjectSemanticKind::Terrain),
         overlay_semantic_count(&counts, RenderObjectSemanticKind::Unknown),
-    ))
+    );
+    if let Some(detail_text) = overlay_semantic_detail_text(scene) {
+        text.push_str(" detail=");
+        text.push_str(&detail_text);
+    }
+    Some(text)
 }
 
 fn overlay_semantic_counts(scene: &RenderModel) -> Vec<(RenderObjectSemanticKind, usize)> {
     let mut counts = Vec::with_capacity(6);
     for object in &scene.objects {
-        let kind = object.semantic_kind();
+        let kind = match object.semantic_family() {
+            RenderObjectSemanticFamily::Player => RenderObjectSemanticKind::Player,
+            RenderObjectSemanticFamily::Runtime => RenderObjectSemanticKind::Runtime,
+            RenderObjectSemanticFamily::Marker => RenderObjectSemanticKind::Marker,
+            RenderObjectSemanticFamily::Plan => RenderObjectSemanticKind::Plan,
+            RenderObjectSemanticFamily::Block => RenderObjectSemanticKind::Block,
+            RenderObjectSemanticFamily::Terrain => RenderObjectSemanticKind::Terrain,
+            RenderObjectSemanticFamily::Unknown => RenderObjectSemanticKind::Unknown,
+        };
         if let Some((_, count)) = counts.iter_mut().find(|(existing, _)| *existing == kind) {
             *count += 1;
         } else {
@@ -640,6 +943,31 @@ fn overlay_semantic_count(
         .find(|(existing, _)| *existing == kind)
         .map(|(_, count)| *count)
         .unwrap_or_default()
+}
+
+fn overlay_semantic_detail_text(scene: &RenderModel) -> Option<String> {
+    let mut counts = Vec::<(String, usize)>::new();
+    for object in &scene.objects {
+        let Some(label) = object.semantic_kind().detail_label() else {
+            continue;
+        };
+        if let Some((_, count)) = counts.iter_mut().find(|(existing, _)| existing == label) {
+            *count += 1;
+        } else {
+            counts.push((label.to_string(), 1));
+        }
+    }
+    if counts.is_empty() {
+        return None;
+    }
+    counts.sort_by(|left, right| left.0.cmp(&right.0));
+    Some(
+        counts
+            .into_iter()
+            .map(|(label, count)| format!("{label}:{count}"))
+            .collect::<Vec<_>>()
+            .join(","),
+    )
 }
 
 fn build_queue_head_text(head: Option<&crate::BuildQueueHeadObservability>) -> String {
@@ -753,10 +1081,15 @@ fn optional_bool_label(value: Option<bool>) -> char {
 mod tests {
     use super::AsciiScenePresenter;
     use crate::{
-        hud_model::HudSummary, project_scene_models, HudModel, RenderModel, RenderObject,
-        RuntimeAdminObservability, RuntimeHudTextObservability, RuntimeMenuObservability,
-        RuntimeRulesObservability, RuntimeTextInputObservability, RuntimeToastObservability,
-        RuntimeUiObservability, RuntimeWorldLabelObservability, ScenePresenter, Viewport,
+        hud_model::{
+            HudSummary, RuntimeReconnectObservability, RuntimeReconnectPhaseObservability,
+            RuntimeReconnectReasonKind, RuntimeSessionObservability, RuntimeSessionResetKind,
+            RuntimeSessionTimeoutKind, RuntimeWorldReloadObservability,
+        },
+        project_scene_models, HudModel, RenderModel, RenderObject, RuntimeAdminObservability,
+        RuntimeHudTextObservability, RuntimeMenuObservability, RuntimeRulesObservability,
+        RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiObservability,
+        RuntimeWorldLabelObservability, ScenePresenter, Viewport,
     };
     use mdt_world::parse_world_bundle;
 
@@ -914,11 +1247,83 @@ mod tests {
     #[test]
     fn sprite_for_id_supports_alias_prefixes() {
         assert_eq!(super::sprite_for_id("unit:1"), '@');
+        assert_eq!(super::sprite_for_id("marker:line:7"), 'M');
+        assert_eq!(super::sprite_for_id("marker:line:7:line-end"), 'M');
         assert_eq!(super::sprite_for_id("marker:runtime-health:1:2"), 'R');
+        assert_eq!(
+            super::sprite_for_id("marker:runtime-config-rollback:1:2:string"),
+            'R'
+        );
         assert_eq!(super::sprite_for_id("hint:1"), 'M');
         assert_eq!(super::sprite_for_id("build-plan:1"), 'P');
         assert_eq!(super::sprite_for_id("building:1:2"), '#');
         assert_eq!(super::sprite_for_id("tile:1"), '.');
+    }
+
+    #[test]
+    fn ascii_presenter_surfaces_overlay_detail_semantics() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 16.0,
+                height: 16.0,
+                zoom: 1.0,
+            },
+            objects: vec![
+                crate::RenderObject {
+                    id: "player:1".to_string(),
+                    layer: 1,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                crate::RenderObject {
+                    id: "marker:line:7".to_string(),
+                    layer: 2,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                crate::RenderObject {
+                    id: "marker:line:7:line-end".to_string(),
+                    layer: 3,
+                    x: 8.0,
+                    y: 0.0,
+                },
+                crate::RenderObject {
+                    id: "marker:runtime-config:3:2:string".to_string(),
+                    layer: 4,
+                    x: 0.0,
+                    y: 8.0,
+                },
+                crate::RenderObject {
+                    id: "block:runtime-building:1:2:3".to_string(),
+                    layer: 5,
+                    x: 8.0,
+                    y: 8.0,
+                },
+                crate::RenderObject {
+                    id: "plan:runtime-place:0:4:5".to_string(),
+                    layer: 6,
+                    x: 8.0,
+                    y: 8.0,
+                },
+                crate::RenderObject {
+                    id: "terrain:runtime-deconstruct:9:4".to_string(),
+                    layer: 7,
+                    x: 8.0,
+                    y: 8.0,
+                },
+            ],
+        };
+        let mut presenter = AsciiScenePresenter::default();
+
+        presenter.present(&scene, &HudModel::default());
+
+        let frame = presenter.last_frame();
+        assert!(frame.contains(
+            "OVERLAY-KINDS: players=1 markers=2 plans=0 blocks=0 runtime=4 terrain=0 unknown=0"
+        ));
+        assert!(frame.contains(
+            "detail=marker-line:1,marker-line-end:1,runtime-building:1,runtime-config:1,runtime-deconstruct:1,runtime-place:1"
+        ));
     }
 
     #[test]
@@ -1037,6 +1442,55 @@ mod tests {
                     reliable_label_count: 20,
                     remove_label_count: 21,
                 },
+                session: RuntimeSessionObservability {
+                    kick: crate::hud_model::RuntimeKickObservability {
+                        reason_text: Some("idInUse".to_string()),
+                        reason_ordinal: Some(7),
+                        hint_category: Some("IdInUse".to_string()),
+                        hint_text: Some("wait for old session".to_string()),
+                    },
+                    loading: crate::hud_model::RuntimeLoadingObservability {
+                        deferred_inbound_packet_count: 5,
+                        replayed_inbound_packet_count: 6,
+                        dropped_loading_low_priority_packet_count: 7,
+                        dropped_loading_deferred_overflow_count: 8,
+                        failed_state_snapshot_parse_count: 9,
+                        failed_state_snapshot_core_data_parse_count: 10,
+                        failed_entity_snapshot_parse_count: 11,
+                        ready_inbound_liveness_anchor_count: 12,
+                        last_ready_inbound_liveness_anchor_at_ms: Some(1300),
+                        timeout_count: 2,
+                        connect_or_loading_timeout_count: 1,
+                        ready_snapshot_timeout_count: 1,
+                        last_timeout_kind: Some(RuntimeSessionTimeoutKind::ReadySnapshotStall),
+                        last_timeout_idle_ms: Some(20000),
+                        reset_count: 3,
+                        reconnect_reset_count: 1,
+                        world_reload_count: 1,
+                        kick_reset_count: 1,
+                        last_reset_kind: Some(RuntimeSessionResetKind::WorldReload),
+                        last_world_reload: Some(RuntimeWorldReloadObservability {
+                            had_loaded_world: true,
+                            had_client_loaded: false,
+                            was_ready_to_enter_world: true,
+                            had_connect_confirm_sent: false,
+                            cleared_pending_packets: 4,
+                            cleared_deferred_inbound_packets: 5,
+                            cleared_replayed_loading_events: 6,
+                        }),
+                    },
+                    reconnect: RuntimeReconnectObservability {
+                        phase: RuntimeReconnectPhaseObservability::Attempting,
+                        phase_transition_count: 3,
+                        reason_kind: Some(RuntimeReconnectReasonKind::ConnectRedirect),
+                        reason_text: Some("connectRedirect".to_string()),
+                        reason_ordinal: None,
+                        hint_text: Some("server requested redirect".to_string()),
+                        redirect_count: 1,
+                        last_redirect_ip: Some("127.0.0.1".to_string()),
+                        last_redirect_port: Some(6567),
+                    },
+                },
                 live: crate::RuntimeLiveSummaryObservability {
                     entity: crate::RuntimeLiveEntitySummaryObservability {
                         entity_count: 1,
@@ -1086,6 +1540,20 @@ mod tests {
                     rotation: Some(1),
                     stage: crate::BuildQueueHeadStage::InFlight,
                 }),
+                rollback_strip: crate::BuildConfigRollbackStripObservability {
+                    applied_authoritative_count: 3,
+                    rollback_count: 1,
+                    last_build_tile: Some((23, 45)),
+                    last_business_applied: true,
+                    last_cleared_pending_local: true,
+                    last_was_rollback: true,
+                    last_pending_local_match: Some(false),
+                    last_source: Some(
+                        crate::BuildConfigAuthoritySourceObservability::ConstructFinish,
+                    ),
+                    last_configured_outcome: Some(crate::BuildConfigOutcomeObservability::Applied),
+                    last_configured_block_name: Some("power-node".to_string()),
+                },
                 inspector_entries: vec![
                     crate::BuildConfigInspectorEntryObservability {
                         family: "message".to_string(),
@@ -1108,16 +1576,25 @@ mod tests {
         assert!(frame.contains("SUMMARY: player=operator team=2 selected=payload-rout~"));
         assert!(frame.contains("map=80x60 overlay=1 fog=1 vis=120 hid=24"));
         assert!(frame.contains(
-            "MINIMAP: map=80x60 rect=0:0->0:0 focus=0:0 tiles=1/4800 known=144 vis=120(83%) hid=24(16%) overlay=1 fog=1 objs=4"
+            "MINIMAP: map=80x60 window=0:0->0:0 size=1x1 cover=1/4800(0%) focus=0:0 in-window=1"
         ));
         assert!(frame.contains(
-            "MINIMAP-KINDS: player=1 marker=1 plan=1 block=1 runtime=0 terrain=0 unknown=0"
+            "MINIMAP-VIS: overlay=1 fog=1 known=144(3%) vis=120(83%) hid=24(16%) unseen=4656(97%)"
+        ));
+        assert!(frame.contains(
+            "MINIMAP-KINDS: tracked=4 player=1 marker=1 plan=1 block=1 runtime=0 terrain=0 unknown=0"
+        ));
+        assert!(frame.contains(
+            "MINIMAP-LEGEND: @=player M=marker P=plan #=block R=runtime .=terrain ?=unknown"
         ));
         assert!(frame.contains(
             "BUILD-CONFIG: sel=257 rot=2 mode=build pending=1/2 hist=3/4 orphan=1 head=flight@100:99:place:b301:r1 align=split families=2/2 tracked=2"
         ));
         assert!(frame.contains("BUILD-CONFIG-ENTRY: 1/2 message#1@18:40:len=5:text=hello"));
         assert!(frame.contains("BUILD-CONFIG-ENTRY: 2/2 power-node#1@23:45:links=24:46|25:47"));
+        assert!(frame.contains(
+            "BUILD-ROLLBACK: authoritative=3 rollback=1 last=23:45 src=constructFinish business=1 clear=1 last-rb=1 pending=mismatch outcome=applied block=power-node"
+        ));
         assert!(frame.contains(
             "BUILD: sel=257 rot=2 building=1 queue=1/2/3/4/1 head=flight@100:99:place:b301:r1 cfg=2"
         ));
@@ -1135,14 +1612,20 @@ mod tests {
         assert!(frame.contains(
             "RUNTIME-NOTICE: hud=9/10/11@hud_text/hud_rel toast=14/15@toast/warn tin=53@404:Digits/Only_numbers/12345#16:n1:e1"
         ));
-        assert!(frame.contains(
-            "RUNTIME-MENU: menu=16 fmenu=17 hide=18 tin=53@404:Digits/12345#16:n1:e1"
-        ));
+        assert!(frame
+            .contains("RUNTIME-MENU: menu=16 fmenu=17 hide=18 tin=53@404:Digits/12345#16:n1:e1"));
         assert!(frame.contains("RUNTIME-ADMIN: trace=56@123456 fail=76 dbg=57/58@12 fail=231"));
         assert!(frame.contains(
             "RUNTIME-RULES: mut=354 fail=210 set=67/69/71 clear=73 complete=74 state=wv1:pvp0 obj=2 qual=1 parents=1 flags=2 oor=75 last=9"
         ));
         assert!(frame.contains("RUNTIME-WORLD-LABEL: set=19 rel=20 remove=21 total=60"));
+        assert!(frame.contains(
+            "RUNTIME-SESSION: kick=idInUse@7:IdInUse:wait_for_old~ loading=defer5 replay6 drop7 qdrop8 sfail9 scfail10 efail11 rdy12@1300 to2/1/1 ltready@20000 rs3/1/1/1 lrreload lwr@lw1:cl0:rd1:cc0:p4:d5:r6 reconnect=attempt#3 redirect redirect=1@127.0.0.1:6567 reason=connectRedir~#none hint=server_reque~"
+        ));
+        assert!(frame.contains("RUNTIME-LIVE-ENTITY: 1/0@404:u2/999:p20.0:33.0:h0:s3"));
+        assert!(frame.contains(
+            "RUNTIME-LIVE-EFFECT: 11/73@8:u19:kPoint2:cposition_tar~/unit_parent:pbiz@24.0:32.0"
+        ));
         assert!(frame.contains("live=ent=1/0@404:u2/999:p20.0:33.0:h0:s3"));
         assert!(frame.contains("fx=11/73@8:u19:kPoint2:cposition_tar~/unit_parent:pbiz@24.0:32.0"));
     }
@@ -1207,6 +1690,20 @@ mod tests {
                     rotation: Some(1),
                     stage: crate::BuildQueueHeadStage::Queued,
                 }),
+                rollback_strip: crate::BuildConfigRollbackStripObservability {
+                    applied_authoritative_count: 4,
+                    rollback_count: 2,
+                    last_build_tile: Some((10, 12)),
+                    last_business_applied: true,
+                    last_cleared_pending_local: false,
+                    last_was_rollback: false,
+                    last_pending_local_match: Some(true),
+                    last_source: Some(crate::BuildConfigAuthoritySourceObservability::TileConfig),
+                    last_configured_outcome: Some(
+                        crate::BuildConfigOutcomeObservability::RejectedMissingBuilding,
+                    ),
+                    last_configured_block_name: Some("alpha".to_string()),
+                },
                 inspector_entries: vec![
                     crate::BuildConfigInspectorEntryObservability {
                         family: "alpha".to_string(),
@@ -1238,10 +1735,16 @@ mod tests {
 
         let frame = presenter.last_frame();
         assert!(frame.contains(
-            "MINIMAP: map=80x60 rect=0:0->1:1 focus=1:1 tiles=4/4800 known=0 vis=0(0%) hid=0(0%) overlay=0 fog=0 objs=3"
+            "MINIMAP: map=80x60 window=0:0->1:1 size=2x2 cover=4/4800(0%) focus=1:1 in-window=1"
         ));
         assert!(frame.contains(
-            "MINIMAP-KINDS: player=1 marker=0 plan=0 block=0 runtime=0 terrain=1 unknown=1"
+            "MINIMAP-VIS: overlay=0 fog=0 known=0(0%) vis=0(0%) hid=0(0%) unseen=4800(100%)"
+        ));
+        assert!(frame.contains(
+            "MINIMAP-KINDS: tracked=3 player=1 marker=0 plan=0 block=0 runtime=0 terrain=1 unknown=1"
+        ));
+        assert!(frame.contains(
+            "MINIMAP-LEGEND: @=player M=marker P=plan #=block R=runtime .=terrain ?=unknown"
         ));
         assert!(frame.contains(
             "BUILD-CONFIG: sel=301 rot=1 mode=build pending=2/1 hist=4/5 orphan=6 head=queued@10:12:place:b301:r1 align=match families=3/4 tracked=8"
@@ -1250,6 +1753,9 @@ mod tests {
         assert!(frame.contains("BUILD-CONFIG-ENTRY: 2/4 beta#2@two"));
         assert!(frame.contains("BUILD-CONFIG-ENTRY: 3/4 alpha#1@one"));
         assert!(frame.contains("BUILD-CONFIG-MORE: +1 hidden families beyond cap"));
+        assert!(frame.contains(
+            "BUILD-ROLLBACK: authoritative=4 rollback=2 last=10:12 src=tileConfig business=1 clear=0 last-rb=0 pending=match outcome=rejected-missing-building block=alpha"
+        ));
     }
 
     fn decode_hex(text: &str) -> Vec<u8> {

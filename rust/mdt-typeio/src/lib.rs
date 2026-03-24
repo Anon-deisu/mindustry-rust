@@ -17,6 +17,102 @@ pub const OBJECTIVES_BASIC_JSON: &str =
 pub const OBJECTIVE_MARKER_BASIC_JSON: &str =
     "{type:ShapeText,x:12.5,y:-3.25,world:true,text:objective-ready}";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BuildPayloadHeader {
+    pub block_id_raw: u16,
+    pub build_revision: u8,
+}
+
+impl BuildPayloadHeader {
+    pub fn block_id_i16(self) -> i16 {
+        i16::from_be_bytes(self.block_id_raw.to_be_bytes())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UnitPayloadHeader {
+    pub class_id: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PayloadType {
+    Unit,
+    Build,
+}
+
+impl PayloadType {
+    pub fn id(self) -> u8 {
+        match self {
+            PayloadType::Unit => 0,
+            PayloadType::Build => 1,
+        }
+    }
+
+    fn from_id(type_id: u8) -> Option<Self> {
+        match type_id {
+            0 => Some(PayloadType::Unit),
+            1 => Some(PayloadType::Build),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TypedPayload<TBuild, TUnit> {
+    Null,
+    Build(TBuild),
+    Unit(TUnit),
+}
+
+impl<TBuild, TUnit> TypedPayload<TBuild, TUnit> {
+    pub fn kind(&self) -> &'static str {
+        match self {
+            TypedPayload::Null => "null",
+            TypedPayload::Build(_) => "build",
+            TypedPayload::Unit(_) => "unit",
+        }
+    }
+
+    pub fn payload_present(&self) -> bool {
+        !matches!(self, TypedPayload::Null)
+    }
+}
+
+pub type PayloadHeader = TypedPayload<BuildPayloadHeader, UnitPayloadHeader>;
+
+impl PayloadHeader {
+    pub fn payload_type(&self) -> Option<PayloadType> {
+        match self {
+            TypedPayload::Null => None,
+            TypedPayload::Build(_) => Some(PayloadType::Build),
+            TypedPayload::Unit(_) => Some(PayloadType::Unit),
+        }
+    }
+
+    pub fn summary(&self, prefix_len: usize) -> PayloadSummary {
+        PayloadSummary {
+            kind: self.kind(),
+            payload_present: self.payload_present(),
+            payload_type: self.payload_type(),
+            prefix_len,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PayloadSummary {
+    pub kind: &'static str,
+    pub payload_present: bool,
+    pub payload_type: Option<PayloadType>,
+    pub prefix_len: usize,
+}
+
+impl PayloadSummary {
+    pub fn payload_type_id(&self) -> Option<u8> {
+        self.payload_type.map(PayloadType::id)
+    }
+}
+
 pub fn encode_hex(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
@@ -141,6 +237,41 @@ pub fn write_objectives_json(out: &mut Vec<u8>, value: &str) {
 
 pub fn write_objective_marker_json(out: &mut Vec<u8>, value: &str) {
     write_length_prefixed_json(out, value);
+}
+
+pub fn write_payload_null(out: &mut Vec<u8>) {
+    write_payload_header(out, &TypedPayload::Null);
+}
+
+pub fn write_payload_unit_header(out: &mut Vec<u8>, class_id: u8) {
+    write_payload_header(out, &TypedPayload::Unit(UnitPayloadHeader { class_id }));
+}
+
+pub fn write_payload_build_header(out: &mut Vec<u8>, block_id_raw: u16, build_revision: u8) {
+    write_payload_header(
+        out,
+        &TypedPayload::Build(BuildPayloadHeader {
+            block_id_raw,
+            build_revision,
+        }),
+    );
+}
+
+pub fn write_payload_header(out: &mut Vec<u8>, value: &PayloadHeader) {
+    match value {
+        TypedPayload::Null => write_bool(out, false),
+        TypedPayload::Unit(header) => {
+            write_bool(out, true);
+            write_byte(out, PayloadType::Unit.id());
+            write_byte(out, header.class_id);
+        }
+        TypedPayload::Build(header) => {
+            write_bool(out, true);
+            write_byte(out, PayloadType::Build.id());
+            out.extend_from_slice(&header.block_id_raw.to_be_bytes());
+            write_byte(out, header.build_revision);
+        }
+    }
 }
 
 pub fn read_bool(bytes: &[u8]) -> Result<bool, TypeIoReadError> {
@@ -316,6 +447,52 @@ pub fn read_objective_marker_json(bytes: &[u8]) -> Result<String, TypeIoReadErro
 
 pub fn read_objective_marker_json_prefix(bytes: &[u8]) -> Result<(String, usize), TypeIoReadError> {
     read_length_prefixed_json_prefix(bytes, "objective marker length")
+}
+
+pub fn read_payload_header(bytes: &[u8]) -> Result<PayloadHeader, TypeIoReadError> {
+    let (value, consumed) = read_payload_header_prefix(bytes)?;
+    ensure_consumed(consumed, bytes.len())?;
+    Ok(value)
+}
+
+pub fn read_payload_header_prefix(bytes: &[u8]) -> Result<(PayloadHeader, usize), TypeIoReadError> {
+    let mut reader = PrimitiveReader::new(bytes);
+    let payload_present = reader.read_u8()? != 0;
+    if !payload_present {
+        return Ok((TypedPayload::Null, reader.position()));
+    }
+
+    let type_position = reader.position();
+    let payload_type = reader.read_u8()?;
+    let value = match PayloadType::from_id(payload_type) {
+        Some(PayloadType::Unit) => TypedPayload::Unit(UnitPayloadHeader {
+            class_id: reader.read_u8()?,
+        }),
+        Some(PayloadType::Build) => TypedPayload::Build(BuildPayloadHeader {
+            block_id_raw: reader.read_u16()?,
+            build_revision: reader.read_u8()?,
+        }),
+        None => {
+            return Err(TypeIoReadError::UnsupportedPayloadType {
+                type_id: payload_type,
+                position: type_position,
+            })
+        }
+    };
+    Ok((value, reader.position()))
+}
+
+pub fn read_payload_summary(bytes: &[u8]) -> Result<PayloadSummary, TypeIoReadError> {
+    let (value, consumed) = read_payload_summary_prefix(bytes)?;
+    ensure_consumed(consumed, bytes.len())?;
+    Ok(value)
+}
+
+pub fn read_payload_summary_prefix(
+    bytes: &[u8],
+) -> Result<(PayloadSummary, usize), TypeIoReadError> {
+    let (value, consumed) = read_payload_header_prefix(bytes)?;
+    Ok((value.summary(consumed), consumed))
 }
 
 fn write_length_prefixed_json(out: &mut Vec<u8>, value: &str) {
@@ -617,6 +794,62 @@ mod tests {
     }
 
     #[test]
+    fn payload_header_codecs_round_trip_expected_variants() {
+        let mut bytes = Vec::new();
+        write_payload_null(&mut bytes);
+        assert_eq!(read_payload_header(&bytes).unwrap(), TypedPayload::Null);
+        assert_eq!(
+            read_payload_summary(&bytes).unwrap(),
+            PayloadSummary {
+                kind: "null",
+                payload_present: false,
+                payload_type: None,
+                prefix_len: 1,
+            }
+        );
+
+        bytes.clear();
+        write_payload_unit_header(&mut bytes, 26);
+        assert_eq!(
+            read_payload_header(&bytes).unwrap(),
+            TypedPayload::Unit(UnitPayloadHeader { class_id: 26 })
+        );
+        assert_eq!(
+            read_payload_summary(&bytes).unwrap(),
+            PayloadSummary {
+                kind: "unit",
+                payload_present: true,
+                payload_type: Some(PayloadType::Unit),
+                prefix_len: 3,
+            }
+        );
+
+        bytes.clear();
+        write_payload_build_header(&mut bytes, 0x8123, 7);
+        let header = read_payload_header(&bytes).unwrap();
+        assert_eq!(
+            header,
+            TypedPayload::Build(BuildPayloadHeader {
+                block_id_raw: 0x8123,
+                build_revision: 7,
+            })
+        );
+        match header {
+            TypedPayload::Build(build) => assert_eq!(build.block_id_i16(), -32477),
+            _ => unreachable!(),
+        }
+        assert_eq!(
+            read_payload_summary(&bytes).unwrap(),
+            PayloadSummary {
+                kind: "build",
+                payload_present: true,
+                payload_type: Some(PayloadType::Build),
+                prefix_len: 5,
+            }
+        );
+    }
+
+    #[test]
     fn unpack_point2_restores_signed_coordinates() {
         let packed = pack_point2(-10, 300);
         assert_eq!(unpack_point2(packed), (-10, 300));
@@ -665,6 +898,39 @@ mod tests {
                 field: "objective marker length",
                 length: -1,
                 position: 0
+            })
+        ));
+    }
+
+    #[test]
+    fn payload_header_prefix_reader_leaves_body_bytes_untouched() {
+        let mut bytes = Vec::new();
+        write_payload_unit_header(&mut bytes, 43);
+        bytes.extend_from_slice(&[0xaa, 0xbb, 0xcc]);
+
+        let (header, consumed) = read_payload_header_prefix(&bytes).unwrap();
+        assert_eq!(
+            header,
+            TypedPayload::Unit(UnitPayloadHeader { class_id: 43 })
+        );
+        assert_eq!(consumed, 3);
+        assert!(matches!(
+            read_payload_header(&bytes),
+            Err(TypeIoReadError::TrailingBytes {
+                consumed: 3,
+                total
+            }) if total == bytes.len()
+        ));
+    }
+
+    #[test]
+    fn payload_header_reader_rejects_unknown_payload_type_ids() {
+        let bytes = [1u8, 9u8];
+        assert!(matches!(
+            read_payload_header(&bytes),
+            Err(TypeIoReadError::UnsupportedPayloadType {
+                type_id: 9,
+                position: 1
             })
         ));
     }

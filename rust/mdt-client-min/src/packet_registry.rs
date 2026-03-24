@@ -4,8 +4,9 @@ use crate::generated::remote_high_frequency_gen::{
 };
 use crate::snapshot_ingest::InboundSnapshot;
 use mdt_remote::{
-    HighFrequencyRemoteMethod, InboundRemoteFamily, RemoteFlow, RemoteManifest,
-    RemoteManifestError, RemotePacketRegistry, RemotePacketSelector, INBOUND_REMOTE_FAMILY_COUNT,
+    CustomChannelRemoteFamily, HighFrequencyRemoteMethod, InboundRemoteFamily, RemoteFlow,
+    RemoteManifest, RemoteManifestError, RemotePacketRegistry, RemotePacketSelector,
+    CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT, INBOUND_REMOTE_FAMILY_COUNT,
 };
 use std::collections::HashSet;
 
@@ -36,6 +37,11 @@ pub struct InboundSnapshotPacketRegistry {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InboundRemotePacketRegistry {
     by_packet_id: [(u8, InboundRemoteFamily); INBOUND_REMOTE_FAMILY_COUNT],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CustomChannelPacketRegistry {
+    by_packet_id: [(u8, CustomChannelRemoteFamily); CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT],
 }
 
 impl Default for InboundSnapshotPacketRegistry {
@@ -107,26 +113,78 @@ impl InboundSnapshotPacketRegistry {
     }
 }
 
-impl InboundRemotePacketRegistry {
+impl CustomChannelPacketRegistry {
     pub fn from_remote_manifest(manifest: &RemoteManifest) -> Result<Self, RemoteManifestError> {
         let registry = RemotePacketRegistry::from_manifest(manifest)?;
-        let mut resolved_entries = Vec::with_capacity(INBOUND_REMOTE_FAMILY_COUNT);
-        let mut seen_packet_ids = HashSet::with_capacity(INBOUND_REMOTE_FAMILY_COUNT);
+        let mut resolved_entries = Vec::with_capacity(CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT);
+        let mut seen_packet_ids = HashSet::with_capacity(CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT);
 
-        for family in InboundRemoteFamily::ordered() {
-            let entry = registry.first_inbound_remote_family(family).ok_or(
+        for family in CustomChannelRemoteFamily::ordered() {
+            let entry = registry.first_custom_channel_remote_family(family).ok_or(
                 RemoteManifestError::InvalidRemotePacketMetadata(format!(
-                    "missing inbound remote family packet in manifest: {}",
+                    "missing custom-channel remote family packet in manifest: {}",
                     family.method_name(),
                 )),
             )?;
             if !seen_packet_ids.insert(entry.packet_id) {
                 return Err(RemoteManifestError::InvalidPacketSequence(format!(
-                    "duplicate inbound remote family packet id: {}",
+                    "duplicate custom-channel remote family packet id: {}",
                     entry.packet_id
                 )));
             }
             resolved_entries.push((entry.packet_id, family));
+        }
+
+        let by_packet_id = resolved_entries
+            .try_into()
+            .expect("custom-channel remote family registry length should stay fixed");
+        Ok(Self { by_packet_id })
+    }
+
+    pub fn classify(&self, packet_id: u8) -> Option<CustomChannelRemoteFamily> {
+        self.by_packet_id
+            .iter()
+            .find_map(|(known_packet_id, family)| {
+                (*known_packet_id == packet_id).then_some(*family)
+            })
+    }
+
+    pub fn packet_id(&self, family: CustomChannelRemoteFamily) -> Option<u8> {
+        self.by_packet_id
+            .iter()
+            .find_map(|(packet_id, known_family)| (*known_family == family).then_some(*packet_id))
+    }
+
+    pub fn contains_packet_id(&self, packet_id: u8) -> bool {
+        self.by_packet_id
+            .iter()
+            .any(|(known_packet_id, _)| *known_packet_id == packet_id)
+    }
+
+    pub fn len(&self) -> usize {
+        self.by_packet_id.len()
+    }
+}
+
+impl InboundRemotePacketRegistry {
+    pub fn from_remote_manifest(manifest: &RemoteManifest) -> Result<Self, RemoteManifestError> {
+        let registry = CustomChannelPacketRegistry::from_remote_manifest(manifest)?;
+        let mut resolved_entries = Vec::with_capacity(INBOUND_REMOTE_FAMILY_COUNT);
+        let mut seen_packet_ids = HashSet::with_capacity(INBOUND_REMOTE_FAMILY_COUNT);
+
+        for family in InboundRemoteFamily::ordered() {
+            let packet_id = registry.packet_id(family.custom_channel_family()).ok_or(
+                RemoteManifestError::InvalidRemotePacketMetadata(format!(
+                    "missing inbound remote family packet in manifest: {}",
+                    family.method_name(),
+                )),
+            )?;
+            if !seen_packet_ids.insert(packet_id) {
+                return Err(RemoteManifestError::InvalidPacketSequence(format!(
+                    "duplicate inbound remote family packet id: {packet_id}",
+                )));
+            }
+            resolved_entries.push((packet_id, family));
         }
 
         let by_packet_id = resolved_entries
@@ -156,10 +214,10 @@ impl InboundRemotePacketRegistry {
 
 #[cfg(test)]
 mod tests {
-    use super::{InboundRemoteFamily, InboundRemotePacketRegistry};
+    use super::{CustomChannelPacketRegistry, InboundRemoteFamily, InboundRemotePacketRegistry};
     use mdt_remote::{
-        read_remote_manifest, BasePacketEntry, CompressionFlagSpec, RemoteGeneratorInfo,
-        RemoteManifest, RemotePacketEntry, RemoteParamEntry, WireSpec,
+        read_remote_manifest, BasePacketEntry, CompressionFlagSpec, CustomChannelRemoteFamily,
+        RemoteGeneratorInfo, RemoteManifest, RemotePacketEntry, RemoteParamEntry, WireSpec,
     };
     use std::path::PathBuf;
 
@@ -193,22 +251,76 @@ mod tests {
     }
 
     #[test]
-    fn inbound_remote_family_registry_prefers_typed_signature_over_method_name_only() {
-        let manifest = inbound_remote_family_manifest_with_decoy_server_packet();
-        let registry = InboundRemotePacketRegistry::from_remote_manifest(&manifest).unwrap();
+    fn builds_custom_channel_remote_family_registry_from_real_manifest() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let registry = CustomChannelPacketRegistry::from_remote_manifest(&manifest).unwrap();
+
+        assert_eq!(registry.len(), 10);
+        assert_eq!(
+            registry.classify(
+                registry
+                    .packet_id(CustomChannelRemoteFamily::ClientPacketReliable)
+                    .unwrap()
+            ),
+            Some(CustomChannelRemoteFamily::ClientPacketReliable)
+        );
+        assert_eq!(
+            registry.classify(
+                registry
+                    .packet_id(CustomChannelRemoteFamily::ServerPacketUnreliable)
+                    .unwrap()
+            ),
+            Some(CustomChannelRemoteFamily::ServerPacketUnreliable)
+        );
+        assert_eq!(
+            registry.classify(
+                registry
+                    .packet_id(CustomChannelRemoteFamily::ClientLogicDataReliable)
+                    .unwrap()
+            ),
+            Some(CustomChannelRemoteFamily::ClientLogicDataReliable)
+        );
+        assert!(!registry.contains_packet_id(24));
+    }
+
+    #[test]
+    fn custom_channel_remote_family_registry_prefers_typed_signature_over_method_name_only() {
+        let manifest = custom_channel_remote_family_manifest_with_decoys();
+        let registry = CustomChannelPacketRegistry::from_remote_manifest(&manifest).unwrap();
 
         assert_eq!(
-            registry.packet_id(InboundRemoteFamily::ServerPacketReliable),
+            registry.packet_id(CustomChannelRemoteFamily::ClientPacketReliable),
             Some(5)
         );
         assert_eq!(registry.classify(4), None);
         assert_eq!(
-            registry.classify(5),
+            registry.packet_id(CustomChannelRemoteFamily::ServerPacketReliable),
+            Some(10)
+        );
+        assert_eq!(registry.classify(9), None);
+        assert_eq!(
+            registry.classify(10),
+            Some(CustomChannelRemoteFamily::ServerPacketReliable)
+        );
+    }
+
+    #[test]
+    fn inbound_remote_family_registry_reuses_custom_channel_typed_lookup() {
+        let manifest = custom_channel_remote_family_manifest_with_decoys();
+        let registry = InboundRemotePacketRegistry::from_remote_manifest(&manifest).unwrap();
+
+        assert_eq!(
+            registry.packet_id(InboundRemoteFamily::ServerPacketReliable),
+            Some(10)
+        );
+        assert_eq!(registry.classify(9), None);
+        assert_eq!(
+            registry.classify(10),
             Some(InboundRemoteFamily::ServerPacketReliable)
         );
     }
 
-    fn inbound_remote_family_manifest_with_decoy_server_packet() -> RemoteManifest {
+    fn custom_channel_remote_family_manifest_with_decoys() -> RemoteManifest {
         RemoteManifest {
             schema: "mdt.remote.manifest.v1".into(),
             generator: RemoteGeneratorInfo {
@@ -237,8 +349,81 @@ mod tests {
                 remote_packet(
                     0,
                     4,
+                    "mindustry.gen.ClientPacketReliableDecoyCallPacket",
+                    "mindustry.core.NetClient",
+                    "clientPacketReliable",
+                    "server",
+                    "client",
+                    false,
+                    vec![
+                        param("player", "Player", false, false),
+                        param("contents", "java.lang.String", true, true),
+                    ],
+                ),
+                remote_packet(
+                    1,
+                    5,
+                    "mindustry.gen.ClientPacketReliableCallPacket",
+                    "mindustry.core.NetClient",
+                    "clientPacketReliable",
+                    "server",
+                    "client",
+                    false,
+                    vec![
+                        param("type", "java.lang.String", true, true),
+                        param("contents", "java.lang.String", true, true),
+                    ],
+                ),
+                remote_packet(
+                    2,
+                    6,
+                    "mindustry.gen.ClientPacketUnreliableCallPacket",
+                    "mindustry.core.NetClient",
+                    "clientPacketUnreliable",
+                    "server",
+                    "client",
+                    true,
+                    vec![
+                        param("type", "java.lang.String", true, true),
+                        param("contents", "java.lang.String", true, true),
+                    ],
+                ),
+                remote_packet(
+                    3,
+                    7,
+                    "mindustry.gen.ClientBinaryPacketReliableCallPacket",
+                    "mindustry.core.NetClient",
+                    "clientBinaryPacketReliable",
+                    "server",
+                    "client",
+                    false,
+                    vec![
+                        param("type", "java.lang.String", true, true),
+                        param("contents", "byte[]", true, true),
+                    ],
+                ),
+                remote_packet(
+                    4,
+                    8,
+                    "mindustry.gen.ClientBinaryPacketUnreliableCallPacket",
+                    "mindustry.core.NetClient",
+                    "clientBinaryPacketUnreliable",
+                    "server",
+                    "client",
+                    true,
+                    vec![
+                        param("type", "java.lang.String", true, true),
+                        param("contents", "byte[]", true, true),
+                    ],
+                ),
+                remote_packet(
+                    5,
+                    9,
                     "mindustry.gen.ServerPacketReliableDecoyCallPacket",
+                    "mindustry.core.NetServer",
                     "serverPacketReliable",
+                    "client",
+                    "server",
                     false,
                     vec![
                         param("tile", "mindustry.world.Tile", false, false),
@@ -247,22 +432,28 @@ mod tests {
                     ],
                 ),
                 remote_packet(
-                    1,
-                    5,
-                    "mindustry.gen.ServerPacketReliableCallPacket",
-                    "serverPacketReliable",
-                    false,
-                    vec![
-                        param("player", "Player", false, false),
-                        param("type", "java.lang.String", true, true),
-                        param("contents", "java.lang.String", true, true),
-                    ],
-                ),
-                remote_packet(
-                    2,
                     6,
+                    10,
+                    "mindustry.gen.ServerPacketReliableCallPacket",
+                    "mindustry.core.NetServer",
+                    "serverPacketReliable",
+                    "client",
+                    "server",
+                    false,
+                    vec![
+                        param("player", "Player", false, false),
+                        param("type", "java.lang.String", true, true),
+                        param("contents", "java.lang.String", true, true),
+                    ],
+                ),
+                remote_packet(
+                    7,
+                    11,
                     "mindustry.gen.ServerPacketUnreliableCallPacket",
+                    "mindustry.core.NetServer",
                     "serverPacketUnreliable",
+                    "client",
+                    "server",
                     true,
                     vec![
                         param("player", "Player", false, false),
@@ -271,10 +462,13 @@ mod tests {
                     ],
                 ),
                 remote_packet(
-                    3,
-                    7,
+                    8,
+                    12,
                     "mindustry.gen.ServerBinaryPacketReliableCallPacket",
+                    "mindustry.core.NetServer",
                     "serverBinaryPacketReliable",
+                    "client",
+                    "server",
                     false,
                     vec![
                         param("player", "Player", false, false),
@@ -283,10 +477,13 @@ mod tests {
                     ],
                 ),
                 remote_packet(
-                    4,
-                    8,
+                    9,
+                    13,
                     "mindustry.gen.ServerBinaryPacketUnreliableCallPacket",
+                    "mindustry.core.NetServer",
                     "serverBinaryPacketUnreliable",
+                    "client",
+                    "server",
                     true,
                     vec![
                         param("player", "Player", false, false),
@@ -295,10 +492,13 @@ mod tests {
                     ],
                 ),
                 remote_packet(
-                    5,
-                    9,
+                    10,
+                    14,
                     "mindustry.gen.ClientLogicDataReliableCallPacket",
+                    "mindustry.core.NetServer",
                     "clientLogicDataReliable",
+                    "client",
+                    "server",
                     false,
                     vec![
                         param("player", "Player", false, false),
@@ -307,10 +507,13 @@ mod tests {
                     ],
                 ),
                 remote_packet(
-                    6,
-                    10,
+                    11,
+                    15,
                     "mindustry.gen.ClientLogicDataUnreliableCallPacket",
+                    "mindustry.core.NetServer",
                     "clientLogicDataUnreliable",
+                    "client",
+                    "server",
                     true,
                     vec![
                         param("player", "Player", false, false),
@@ -335,7 +538,10 @@ mod tests {
         remote_index: usize,
         packet_id: u8,
         packet_class: &str,
+        declaring_type: &str,
         method: &str,
+        targets: &str,
+        called: &str,
         unreliable: bool,
         params: Vec<RemoteParamEntry>,
     ) -> RemotePacketEntry {
@@ -343,10 +549,10 @@ mod tests {
             remote_index,
             packet_id,
             packet_class: packet_class.into(),
-            declaring_type: "mindustry.core.NetServer".into(),
+            declaring_type: declaring_type.into(),
             method: method.into(),
-            targets: "client".into(),
-            called: "server".into(),
+            targets: targets.into(),
+            called: called.into(),
             variants: "all".into(),
             forward: false,
             unreliable,

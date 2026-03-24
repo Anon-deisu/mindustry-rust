@@ -2,12 +2,14 @@ use crate::session_state::{
     AppliedBlockSnapshotEnvelope, AppliedHiddenSnapshotIds, AppliedStateSnapshot,
     AppliedStateSnapshotCoreData, AppliedStateSnapshotCoreDataItem,
     AppliedStateSnapshotCoreDataTeam, BlockSnapshotHeadProjection, GameplayStateProjection,
-    HiddenSnapshotDeltaProjection, SessionState, StateSnapshotAuthorityProjection,
-    StateSnapshotBusinessProjection,
+    SessionState, StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection,
+};
+use crate::state_snapshot_semantics::{
+    derive_state_snapshot_core_inventory_transition, StateSnapshotCoreInventoryPrevious,
 };
 use mdt_remote::HighFrequencyRemoteMethod;
 use mdt_world::parse_building_base_snapshot_bytes;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::fmt;
 
 const HIDDEN_SNAPSHOT_SAMPLE_LIMIT: usize = 4;
@@ -82,20 +84,26 @@ pub fn ingest_inbound_snapshot(state: &mut SessionState, snapshot: InboundSnapsh
                     state.state_snapshot_business_projection = Some(business_projection);
                     match parsed_core_data {
                         Ok(core_data) => {
-                            let (duplicate_team_count, duplicate_item_count) =
-                                count_state_snapshot_core_data_duplicates(&core_data);
+                            let core_inventory = derive_state_snapshot_core_inventory_transition(
+                                None,
+                                Some(&core_data),
+                            );
                             state.last_state_snapshot_core_data = Some(core_data.clone());
                             state.last_good_state_snapshot_core_data = Some(core_data);
                             state.last_state_snapshot_core_data_duplicate_team_count =
-                                duplicate_team_count;
+                                core_inventory.inventory.duplicate_team_count;
                             state.last_state_snapshot_core_data_duplicate_item_count =
-                                duplicate_item_count;
+                                core_inventory.inventory.duplicate_item_count;
                             state.state_snapshot_core_data_duplicate_team_count_total = state
                                 .state_snapshot_core_data_duplicate_team_count_total
-                                .saturating_add(duplicate_team_count as u64);
+                                .saturating_add(
+                                    core_inventory.inventory.duplicate_team_count as u64,
+                                );
                             state.state_snapshot_core_data_duplicate_item_count_total = state
                                 .state_snapshot_core_data_duplicate_item_count_total
-                                .saturating_add(duplicate_item_count as u64);
+                                .saturating_add(
+                                    core_inventory.inventory.duplicate_item_count as u64,
+                                );
                             state.last_state_snapshot_core_data_parse_error = None;
                             state.last_state_snapshot_core_data_parse_error_payload_len = None;
                         }
@@ -172,54 +180,8 @@ pub fn ingest_inbound_snapshot(state: &mut SessionState, snapshot: InboundSnapsh
             state.last_hidden_snapshot_payload_len = Some(snapshot.payload.len());
             match try_parse_hidden_snapshot_ids(snapshot.payload) {
                 Ok(parsed) => {
-                    let previous_hidden_ids = state.hidden_snapshot_ids.clone();
                     let trigger_hidden_ids = parsed.ids.iter().copied().collect::<BTreeSet<_>>();
-                    let trigger_count = trigger_hidden_ids.len();
-                    let added_ids = trigger_hidden_ids
-                        .difference(&previous_hidden_ids)
-                        .copied()
-                        .collect::<Vec<_>>();
-                    let removed_ids = previous_hidden_ids
-                        .difference(&trigger_hidden_ids)
-                        .copied()
-                        .collect::<Vec<_>>();
-                    let added_sample_ids = added_ids
-                        .iter()
-                        .take(HIDDEN_SNAPSHOT_SAMPLE_LIMIT)
-                        .copied()
-                        .collect();
-                    let removed_sample_ids = removed_ids
-                        .iter()
-                        .take(HIDDEN_SNAPSHOT_SAMPLE_LIMIT)
-                        .copied()
-                        .collect();
-                    state.applied_hidden_snapshot_count =
-                        state.applied_hidden_snapshot_count.saturating_add(1);
-                    state.last_hidden_snapshot = Some(parsed.applied);
-                    state
-                        .entity_table_projection
-                        .apply_hidden_ids(&trigger_hidden_ids);
-                    let hidden_removed_ids = state
-                        .entity_table_projection
-                        .remove_hidden_entities(&trigger_hidden_ids);
-                    state
-                        .entity_semantic_projection
-                        .remove_entities(hidden_removed_ids.iter());
-                    state.hidden_lifecycle_remove_count = state
-                        .hidden_lifecycle_remove_count
-                        .saturating_add(hidden_removed_ids.len() as u64);
-                    state.last_hidden_lifecycle_removed_ids_sample = hidden_removed_ids
-                        .into_iter()
-                        .take(HIDDEN_SNAPSHOT_SAMPLE_LIMIT)
-                        .collect();
-                    state.hidden_snapshot_ids = trigger_hidden_ids;
-                    state.hidden_snapshot_delta_projection = Some(HiddenSnapshotDeltaProjection {
-                        active_count: trigger_count,
-                        added_count: added_ids.len(),
-                        removed_count: removed_ids.len(),
-                        added_sample_ids,
-                        removed_sample_ids,
-                    });
+                    state.apply_hidden_snapshot(parsed.applied, trigger_hidden_ids);
                     state.last_hidden_snapshot_parse_error = None;
                     state.last_hidden_snapshot_parse_error_payload_len = None;
                 }
@@ -263,53 +225,17 @@ fn derive_state_snapshot_authority_projection(
     } else {
         GameplayStateProjection::Playing
     };
-    let mut next_core_inventory_by_team = BTreeMap::new();
-    let mut next_core_inventory_item_entry_count = 0usize;
-    let mut next_core_inventory_total_amount = 0i64;
-    let mut next_core_inventory_nonzero_item_count = 0usize;
-
-    if let Some(core_data) = core_data {
-        for team in &core_data.teams {
-            let mut items = BTreeMap::new();
-            for item in &team.items {
-                items.insert(item.item_id, item.amount);
-                next_core_inventory_total_amount =
-                    next_core_inventory_total_amount.saturating_add(i64::from(item.amount));
-                if item.amount != 0 {
-                    next_core_inventory_nonzero_item_count =
-                        next_core_inventory_nonzero_item_count.saturating_add(1);
-                }
-            }
-            next_core_inventory_item_entry_count =
-                next_core_inventory_item_entry_count.saturating_add(items.len());
-            next_core_inventory_by_team.insert(team.team_id, items);
-        }
-    } else if let Some(previous) = previous {
-        next_core_inventory_by_team = previous.core_inventory_by_team.clone();
-        next_core_inventory_item_entry_count = previous.core_inventory_item_entry_count;
-        next_core_inventory_total_amount = previous.core_inventory_total_amount;
-        next_core_inventory_nonzero_item_count = previous.core_inventory_nonzero_item_count;
-    }
-
-    let mut changed_team_ids = BTreeSet::new();
-    if core_data.is_some() {
-        if let Some(previous) = previous {
-            for team_id in previous
-                .core_inventory_by_team
-                .keys()
-                .chain(next_core_inventory_by_team.keys())
-            {
-                if previous.core_inventory_by_team.get(team_id)
-                    != next_core_inventory_by_team.get(team_id)
-                {
-                    changed_team_ids.insert(*team_id);
-                }
-            }
-        } else {
-            changed_team_ids.extend(next_core_inventory_by_team.keys().copied());
-        }
-    }
-    let core_inventory_changed_team_sample = changed_team_ids
+    let core_inventory = derive_state_snapshot_core_inventory_transition(
+        previous.map(|previous| StateSnapshotCoreInventoryPrevious {
+            inventory_by_team: &previous.core_inventory_by_team,
+            item_entry_count: previous.core_inventory_item_entry_count,
+            total_amount: previous.core_inventory_total_amount,
+            nonzero_item_count: previous.core_inventory_nonzero_item_count,
+        }),
+        core_data,
+    );
+    let core_inventory_changed_team_sample = core_inventory
+        .changed_team_ids
         .iter()
         .take(CORE_INVENTORY_CHANGED_TEAM_SAMPLE_LIMIT)
         .copied()
@@ -338,14 +264,14 @@ fn derive_state_snapshot_authority_projection(
             .map(|projection| projection.state_snapshot_wave_regress_count)
             .unwrap_or_default()
             .saturating_add(u64::from(snapshot.wave < previous_wave)),
-        core_inventory_team_count: next_core_inventory_by_team.len(),
-        core_inventory_item_entry_count: next_core_inventory_item_entry_count,
-        core_inventory_total_amount: next_core_inventory_total_amount,
-        core_inventory_nonzero_item_count: next_core_inventory_nonzero_item_count,
-        core_inventory_changed_team_count: changed_team_ids.len(),
+        core_inventory_team_count: core_inventory.inventory.inventory_by_team.len(),
+        core_inventory_item_entry_count: core_inventory.inventory.item_entry_count,
+        core_inventory_total_amount: core_inventory.inventory.total_amount,
+        core_inventory_nonzero_item_count: core_inventory.inventory.nonzero_item_count,
+        core_inventory_changed_team_count: core_inventory.changed_team_ids.len(),
         core_inventory_changed_team_sample,
-        core_inventory_by_team: next_core_inventory_by_team,
-        last_core_sync_ok: core_data.is_some(),
+        core_inventory_by_team: core_inventory.inventory.inventory_by_team,
+        last_core_sync_ok: core_inventory.synced,
         core_parse_fail_count: previous
             .map(|projection| projection.core_parse_fail_count)
             .unwrap_or_default()
@@ -390,53 +316,17 @@ fn derive_state_snapshot_business_projection(
                 .map(|projection| projection.gameplay_state != gameplay_state)
                 .unwrap_or(false),
         ));
-    let mut next_core_inventory_by_team = BTreeMap::new();
-    let mut next_core_inventory_item_entry_count = 0usize;
-    let mut next_core_inventory_total_amount = 0i64;
-    let mut next_core_inventory_nonzero_item_count = 0usize;
-
-    if let Some(core_data) = core_data {
-        for team in &core_data.teams {
-            let mut items = BTreeMap::new();
-            for item in &team.items {
-                items.insert(item.item_id, item.amount);
-                next_core_inventory_total_amount =
-                    next_core_inventory_total_amount.saturating_add(i64::from(item.amount));
-                if item.amount != 0 {
-                    next_core_inventory_nonzero_item_count =
-                        next_core_inventory_nonzero_item_count.saturating_add(1);
-                }
-            }
-            next_core_inventory_item_entry_count =
-                next_core_inventory_item_entry_count.saturating_add(items.len());
-            next_core_inventory_by_team.insert(team.team_id, items);
-        }
-    } else if let Some(previous) = previous {
-        next_core_inventory_by_team = previous.core_inventory_by_team.clone();
-        next_core_inventory_item_entry_count = previous.core_inventory_item_entry_count;
-        next_core_inventory_total_amount = previous.core_inventory_total_amount;
-        next_core_inventory_nonzero_item_count = previous.core_inventory_nonzero_item_count;
-    }
-
-    let mut changed_team_ids = BTreeSet::new();
-    if core_data.is_some() {
-        if let Some(previous) = previous {
-            for team_id in previous
-                .core_inventory_by_team
-                .keys()
-                .chain(next_core_inventory_by_team.keys())
-            {
-                if previous.core_inventory_by_team.get(team_id)
-                    != next_core_inventory_by_team.get(team_id)
-                {
-                    changed_team_ids.insert(*team_id);
-                }
-            }
-        } else {
-            changed_team_ids.extend(next_core_inventory_by_team.keys().copied());
-        }
-    }
-    let core_inventory_changed_team_sample = changed_team_ids
+    let core_inventory = derive_state_snapshot_core_inventory_transition(
+        previous.map(|previous| StateSnapshotCoreInventoryPrevious {
+            inventory_by_team: &previous.core_inventory_by_team,
+            item_entry_count: previous.core_inventory_item_entry_count,
+            total_amount: previous.core_inventory_total_amount,
+            nonzero_item_count: previous.core_inventory_nonzero_item_count,
+        }),
+        core_data,
+    );
+    let core_inventory_changed_team_sample = core_inventory
+        .changed_team_ids
         .iter()
         .take(CORE_INVENTORY_CHANGED_TEAM_SAMPLE_LIMIT)
         .copied()
@@ -476,14 +366,14 @@ fn derive_state_snapshot_business_projection(
             .map(|projection| projection.state_snapshot_wave_regress_count)
             .unwrap_or_default()
             .saturating_add(u64::from(snapshot.wave < previous_wave)),
-        core_inventory_synced: core_data.is_some(),
-        core_inventory_team_count: next_core_inventory_by_team.len(),
-        core_inventory_item_entry_count: next_core_inventory_item_entry_count,
-        core_inventory_total_amount: next_core_inventory_total_amount,
-        core_inventory_nonzero_item_count: next_core_inventory_nonzero_item_count,
-        core_inventory_changed_team_count: changed_team_ids.len(),
+        core_inventory_synced: core_inventory.synced,
+        core_inventory_team_count: core_inventory.inventory.inventory_by_team.len(),
+        core_inventory_item_entry_count: core_inventory.inventory.item_entry_count,
+        core_inventory_total_amount: core_inventory.inventory.total_amount,
+        core_inventory_nonzero_item_count: core_inventory.inventory.nonzero_item_count,
+        core_inventory_changed_team_count: core_inventory.changed_team_ids.len(),
         core_inventory_changed_team_sample,
-        core_inventory_by_team: next_core_inventory_by_team,
+        core_inventory_by_team: core_inventory.inventory.inventory_by_team,
     }
 }
 
@@ -829,29 +719,6 @@ fn count_fits_remaining_bytes(count: usize, remaining_bytes: usize, entry_size: 
     entry_size != 0 && count <= remaining_bytes / entry_size
 }
 
-fn count_state_snapshot_core_data_duplicates(
-    core_data: &AppliedStateSnapshotCoreData,
-) -> (usize, usize) {
-    let mut duplicate_team_count = 0usize;
-    let mut duplicate_item_count = 0usize;
-    let mut seen_team_ids = BTreeSet::new();
-    let mut seen_item_ids_by_team = BTreeMap::<u8, BTreeSet<u16>>::new();
-
-    for team in &core_data.teams {
-        if !seen_team_ids.insert(team.team_id) {
-            duplicate_team_count = duplicate_team_count.saturating_add(1);
-        }
-        let seen_item_ids = seen_item_ids_by_team.entry(team.team_id).or_default();
-        for item in &team.items {
-            if !seen_item_ids.insert(item.item_id) {
-                duplicate_item_count = duplicate_item_count.saturating_add(1);
-            }
-        }
-    }
-
-    (duplicate_team_count, duplicate_item_count)
-}
-
 fn read_u8(payload: &[u8], cursor: &mut usize) -> Option<u8> {
     let value = *payload.get(*cursor)?;
     *cursor += 1;
@@ -908,7 +775,8 @@ mod tests {
         AuthoritativeStateMirror, BlockSnapshotHeadProjection, EntityProjection,
         EntitySemanticProjection, EntitySemanticProjectionEntry,
         EntityWorldLabelSemanticProjection, GameplayStateProjection, HiddenSnapshotDeltaProjection,
-        SessionState, StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection,
+        PayloadLifecycleCarrierProjection, ResourceUnitItemStack, SessionState,
+        StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection, UnitRefProjection,
     };
     use mdt_remote::HighFrequencyRemoteMethod;
     use std::collections::BTreeMap;
@@ -1095,11 +963,11 @@ mod tests {
     }
 
     #[test]
-    fn state_snapshot_ingest_tracks_duplicate_core_data_keys_without_changing_fold_behavior() {
+    fn state_snapshot_ingest_uses_last_write_wins_core_inventory_metrics_for_duplicate_keys() {
         let core_data = build_core_data_payload(&[
             (1, &[(0, 10), (0, 20)]),
             (1, &[(1, 30)]),
-            (2, &[(4, 40), (4, 50)]),
+            (2, &[(4, 40), (4, 0)]),
         ]);
         let payload = build_state_snapshot_payload(
             7,
@@ -1130,19 +998,53 @@ mod tests {
                 .as_ref()
                 .map(|projection| projection.core_inventory_by_team.clone()),
             Some(BTreeMap::from([
-                (1u8, BTreeMap::from([(1u16, 30)])),
-                (2u8, BTreeMap::from([(4u16, 50)])),
+                (1u8, BTreeMap::from([(0u16, 20), (1u16, 30)])),
+                (2u8, BTreeMap::from([(4u16, 0)])),
             ]))
+        );
+        assert_eq!(
+            state
+                .state_snapshot_authority_projection
+                .as_ref()
+                .map(|projection| (
+                    projection.core_inventory_item_entry_count,
+                    projection.core_inventory_total_amount,
+                    projection.core_inventory_nonzero_item_count,
+                )),
+            Some((3, 50, 2))
         );
         assert_eq!(
             state
                 .state_snapshot_business_projection
                 .as_ref()
-                .map(|projection| projection.core_inventory_by_team.clone()),
+                .map(|projection| (
+                    projection.core_inventory_item_entry_count,
+                    projection.core_inventory_total_amount,
+                    projection.core_inventory_nonzero_item_count,
+                    projection.core_inventory_by_team.clone(),
+                )),
             Some(BTreeMap::from([
-                (1u8, BTreeMap::from([(1u16, 30)])),
-                (2u8, BTreeMap::from([(4u16, 50)])),
+                (1u8, BTreeMap::from([(0u16, 20), (1u16, 30)])),
+                (2u8, BTreeMap::from([(4u16, 0)])),
             ]))
+            .map(|inventory| (3, 50, 2, inventory))
+        );
+        assert_eq!(
+            state.authoritative_state_mirror.as_ref().map(|mirror| (
+                mirror.core_inventory_item_entry_count,
+                mirror.core_inventory_total_amount,
+                mirror.core_inventory_nonzero_item_count,
+                mirror.core_inventory_by_team.clone(),
+            )),
+            Some((
+                3,
+                50,
+                2,
+                BTreeMap::from([
+                    (1u8, BTreeMap::from([(0u16, 20), (1u16, 30)])),
+                    (2u8, BTreeMap::from([(4u16, 0)])),
+                ]),
+            ))
         );
     }
 
@@ -2343,6 +2245,199 @@ mod tests {
         assert!(state.entity_table_projection.by_entity_id[&101].hidden);
         assert_eq!(state.entity_table_projection.hidden_apply_count, 2);
         assert_eq!(state.entity_table_projection.hidden_count, 1);
+    }
+
+    #[test]
+    fn hidden_snapshot_cleans_non_local_orphan_semantic_resource_and_payload_rows() {
+        let payload = [
+            0x00, 0x00, 0x00, 0x02, // count
+            0x00, 0x00, 0x00, 0x65, // 101 local
+            0x00, 0x00, 0x01, 0x2F, // 303 hidden non-local
+        ];
+        let mut state = SessionState::default();
+        state.entity_table_projection.local_player_entity_id = Some(101);
+        state.entity_table_projection.by_entity_id.insert(
+            101,
+            EntityProjection {
+                class_id: 12,
+                hidden: false,
+                is_local_player: true,
+                unit_kind: 2,
+                unit_value: 101,
+                x_bits: 0.0f32.to_bits(),
+                y_bits: 0.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
+        state.entity_semantic_projection.by_entity_id.insert(
+            101,
+            EntitySemanticProjectionEntry {
+                class_id: 35,
+                last_seen_entity_snapshot_count: 1,
+                projection: EntitySemanticProjection::WorldLabel(
+                    EntityWorldLabelSemanticProjection {
+                        flags: 0,
+                        font_size_bits: 10.0f32.to_bits(),
+                        text: Some("local".to_string()),
+                        z_bits: 1.0f32.to_bits(),
+                    },
+                ),
+            },
+        );
+        state.entity_semantic_projection.by_entity_id.insert(
+            303,
+            EntitySemanticProjectionEntry {
+                class_id: 35,
+                last_seen_entity_snapshot_count: 1,
+                projection: EntitySemanticProjection::WorldLabel(
+                    EntityWorldLabelSemanticProjection {
+                        flags: 1,
+                        font_size_bits: 12.0f32.to_bits(),
+                        text: Some("orphan".to_string()),
+                        z_bits: 0.5f32.to_bits(),
+                    },
+                ),
+            },
+        );
+        state
+            .resource_delta_projection
+            .entity_item_stack_by_entity_id
+            .insert(
+                101,
+                ResourceUnitItemStack {
+                    item_id: Some(1),
+                    amount: 5,
+                },
+            );
+        state
+            .resource_delta_projection
+            .entity_item_stack_by_entity_id
+            .insert(
+                303,
+                ResourceUnitItemStack {
+                    item_id: Some(2),
+                    amount: 7,
+                },
+            );
+        state.payload_lifecycle_projection.by_carrier.insert(
+            UnitRefProjection {
+                kind: 2,
+                value: 303,
+            },
+            PayloadLifecycleCarrierProjection {
+                carrier: UnitRefProjection {
+                    kind: 2,
+                    value: 303,
+                },
+                target_unit: Some(UnitRefProjection {
+                    kind: 2,
+                    value: 404,
+                }),
+                target_build: None,
+                drop_tile: None,
+                on_ground: Some(false),
+                removed_target_unit: false,
+                removed_target_build: false,
+                removed_carrier: false,
+            },
+        );
+        state.payload_lifecycle_projection.by_carrier.insert(
+            UnitRefProjection {
+                kind: 2,
+                value: 505,
+            },
+            PayloadLifecycleCarrierProjection {
+                carrier: UnitRefProjection {
+                    kind: 2,
+                    value: 505,
+                },
+                target_unit: Some(UnitRefProjection {
+                    kind: 2,
+                    value: 303,
+                }),
+                target_build: None,
+                drop_tile: None,
+                on_ground: Some(false),
+                removed_target_unit: false,
+                removed_target_build: false,
+                removed_carrier: false,
+            },
+        );
+        state.payload_lifecycle_projection.by_carrier.insert(
+            UnitRefProjection {
+                kind: 2,
+                value: 101,
+            },
+            PayloadLifecycleCarrierProjection {
+                carrier: UnitRefProjection {
+                    kind: 2,
+                    value: 101,
+                },
+                target_unit: Some(UnitRefProjection {
+                    kind: 2,
+                    value: 101,
+                }),
+                target_build: None,
+                drop_tile: None,
+                on_ground: Some(false),
+                removed_target_unit: false,
+                removed_target_build: false,
+                removed_carrier: false,
+            },
+        );
+
+        ingest_inbound_snapshot(
+            &mut state,
+            InboundSnapshot::new(HighFrequencyRemoteMethod::HiddenSnapshot, 11, &payload),
+        );
+
+        assert!(state.entity_table_projection.by_entity_id[&101].hidden);
+        assert!(state
+            .entity_semantic_projection
+            .by_entity_id
+            .contains_key(&101));
+        assert!(!state
+            .entity_semantic_projection
+            .by_entity_id
+            .contains_key(&303));
+        assert!(state
+            .resource_delta_projection
+            .entity_item_stack_by_entity_id
+            .contains_key(&101));
+        assert!(!state
+            .resource_delta_projection
+            .entity_item_stack_by_entity_id
+            .contains_key(&303));
+        assert!(!state
+            .payload_lifecycle_projection
+            .by_carrier
+            .contains_key(&UnitRefProjection {
+                kind: 2,
+                value: 303
+            }));
+        assert!(state
+            .payload_lifecycle_projection
+            .by_carrier
+            .contains_key(&UnitRefProjection {
+                kind: 2,
+                value: 101
+            }));
+        assert!(
+            state.payload_lifecycle_projection.by_carrier[&UnitRefProjection {
+                kind: 2,
+                value: 505
+            }]
+                .removed_target_unit
+        );
+        assert!(
+            !state.payload_lifecycle_projection.by_carrier[&UnitRefProjection {
+                kind: 2,
+                value: 101
+            }]
+                .removed_target_unit
+        );
+        assert_eq!(state.hidden_lifecycle_remove_count, 0);
+        assert!(state.last_hidden_lifecycle_removed_ids_sample.is_empty());
     }
 
     #[test]

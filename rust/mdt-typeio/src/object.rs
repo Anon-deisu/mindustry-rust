@@ -420,6 +420,10 @@ pub enum TypeIoReadError {
         type_id: u8,
         position: usize,
     },
+    UnsupportedPayloadType {
+        type_id: u8,
+        position: usize,
+    },
     NegativeLength {
         field: &'static str,
         length: i32,
@@ -453,6 +457,9 @@ impl fmt::Display for TypeIoReadError {
                     f,
                     "unsupported TypeIO object type id {type_id} at {position}"
                 )
+            }
+            TypeIoReadError::UnsupportedPayloadType { type_id, position } => {
+                write!(f, "unsupported payload type id {type_id} at {position}")
             }
             TypeIoReadError::NegativeLength {
                 field,

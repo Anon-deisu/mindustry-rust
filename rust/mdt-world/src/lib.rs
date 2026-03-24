@@ -1,5 +1,8 @@
 use flate2::read::ZlibDecoder;
-use mdt_typeio::read_object_prefix;
+use mdt_typeio::{
+    read_object_prefix, read_payload_header_prefix, read_payload_summary,
+    read_payload_summary_prefix, TypedPayload,
+};
 use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
 use std::borrow::Cow;
@@ -958,10 +961,27 @@ pub enum SaveEntityClassKind {
     Unknown,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SaveEntityPostLoadKind {
+    Builtin,
+    RemappedBuiltin,
+    UnresolvedCustom,
+    Unknown,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SaveEntityClassSummary {
     pub class_id: u8,
     pub kind: SaveEntityClassKind,
+    pub resolved_name: String,
+    pub count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SaveEntityPostLoadClassSummary {
+    pub source_class_ids: Vec<u8>,
+    pub effective_class_id: Option<u8>,
+    pub kind: SaveEntityPostLoadKind,
     pub resolved_name: String,
     pub count: usize,
 }
@@ -975,6 +995,9 @@ pub struct SaveEntityPostLoadSummary {
     pub custom_entities: usize,
     pub unknown_entities: usize,
     pub class_summaries: Vec<SaveEntityClassSummary>,
+    pub loadable_entities: usize,
+    pub skipped_entities: usize,
+    pub post_load_class_summaries: Vec<SaveEntityPostLoadClassSummary>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -984,6 +1007,9 @@ pub struct SaveEntityRemapSummary {
     pub duplicate_custom_ids: Vec<u16>,
     pub unique_names: usize,
     pub duplicate_names: Vec<String>,
+    pub effective_custom_ids: usize,
+    pub resolved_builtin_custom_ids: Vec<u16>,
+    pub unresolved_effective_names: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1143,6 +1169,59 @@ impl SaveEntityChunkObservation {
             Cow::Owned(format!("unknown:{:02x}", self.class_id))
         }
     }
+
+    pub fn post_load_kind(&self) -> SaveEntityPostLoadKind {
+        if let Some(name) = self.custom_name.as_deref() {
+            if lookup_builtin_entity_class_id(name).is_some() {
+                SaveEntityPostLoadKind::RemappedBuiltin
+            } else {
+                SaveEntityPostLoadKind::UnresolvedCustom
+            }
+        } else if self.builtin_name().is_some() {
+            SaveEntityPostLoadKind::Builtin
+        } else {
+            SaveEntityPostLoadKind::Unknown
+        }
+    }
+
+    pub fn post_load_class_id(&self) -> Option<u8> {
+        if let Some(name) = self.custom_name.as_deref() {
+            lookup_builtin_entity_class_id(name)
+        } else {
+            self.builtin_name().map(|_| self.class_id)
+        }
+    }
+
+    pub fn post_load_resolved_name(&self) -> Option<Cow<'_, str>> {
+        if let Some(name) = self.custom_name.as_deref() {
+            lookup_builtin_entity_class_id(name)?;
+            Some(Cow::Borrowed(name))
+        } else {
+            self.builtin_name().map(Cow::Borrowed)
+        }
+    }
+
+    pub fn would_post_load_skip(&self) -> bool {
+        self.post_load_class_id().is_none()
+    }
+
+    fn post_load_summary_name(&self) -> String {
+        match self.post_load_kind() {
+            SaveEntityPostLoadKind::Builtin => {
+                self.builtin_name().unwrap_or("unreachable").to_string()
+            }
+            SaveEntityPostLoadKind::RemappedBuiltin => self
+                .custom_name
+                .as_deref()
+                .unwrap_or("unreachable")
+                .to_string(),
+            SaveEntityPostLoadKind::UnresolvedCustom => format!(
+                "unresolved:{}",
+                self.custom_name.as_deref().unwrap_or("unreachable")
+            ),
+            SaveEntityPostLoadKind::Unknown => format!("unknown:{:02x}", self.class_id),
+        }
+    }
 }
 
 impl SaveEntityRegionObservation {
@@ -1151,6 +1230,7 @@ impl SaveEntityRegionObservation {
         let mut duplicate_custom_ids = BTreeSet::new();
         let mut seen_names = BTreeSet::new();
         let mut duplicate_names = BTreeSet::new();
+        let mut effective_entries = BTreeMap::new();
 
         for entry in &self.remap_entries {
             if !seen_custom_ids.insert(entry.custom_id) {
@@ -1158,6 +1238,17 @@ impl SaveEntityRegionObservation {
             }
             if !seen_names.insert(entry.name.clone()) {
                 duplicate_names.insert(entry.name.clone());
+            }
+            effective_entries.insert(entry.custom_id, entry.name.clone());
+        }
+
+        let mut resolved_builtin_custom_ids = Vec::new();
+        let mut unresolved_effective_names = BTreeSet::new();
+        for (custom_id, name) in &effective_entries {
+            if lookup_builtin_entity_class_id(name).is_some() {
+                resolved_builtin_custom_ids.push(*custom_id);
+            } else {
+                unresolved_effective_names.insert(name.clone());
             }
         }
 
@@ -1167,6 +1258,9 @@ impl SaveEntityRegionObservation {
             duplicate_custom_ids: duplicate_custom_ids.into_iter().collect(),
             unique_names: seen_names.len(),
             duplicate_names: duplicate_names.into_iter().collect(),
+            effective_custom_ids: effective_entries.len(),
+            resolved_builtin_custom_ids,
+            unresolved_effective_names: unresolved_effective_names.into_iter().collect(),
         }
     }
 
@@ -1174,9 +1268,13 @@ impl SaveEntityRegionObservation {
         let mut seen_entity_ids = HashSet::with_capacity(self.entity_chunks.len());
         let mut duplicate_entity_ids = Vec::new();
         let mut class_summaries = BTreeMap::<u8, SaveEntityClassSummary>::new();
+        let mut post_load_class_summaries =
+            BTreeMap::<(SaveEntityPostLoadKind, Option<u8>, String), (BTreeSet<u8>, usize)>::new();
         let mut builtin_entities = 0usize;
         let mut custom_entities = 0usize;
         let mut unknown_entities = 0usize;
+        let mut loadable_entities = 0usize;
+        let mut skipped_entities = 0usize;
 
         for chunk in &self.entity_chunks {
             if !seen_entity_ids.insert(chunk.entity_id)
@@ -1200,6 +1298,29 @@ impl SaveEntityRegionObservation {
                     resolved_name: chunk.resolved_name().into_owned(),
                     count: 1,
                 });
+
+            if chunk.would_post_load_skip() {
+                skipped_entities += 1;
+            } else {
+                loadable_entities += 1;
+            }
+
+            let key = (
+                chunk.post_load_kind(),
+                chunk.post_load_class_id(),
+                chunk.post_load_summary_name(),
+            );
+            post_load_class_summaries
+                .entry(key)
+                .and_modify(|(source_class_ids, count)| {
+                    source_class_ids.insert(chunk.class_id);
+                    *count += 1;
+                })
+                .or_insert_with(|| {
+                    let mut source_class_ids = BTreeSet::new();
+                    source_class_ids.insert(chunk.class_id);
+                    (source_class_ids, 1)
+                });
         }
 
         SaveEntityPostLoadSummary {
@@ -1210,6 +1331,22 @@ impl SaveEntityRegionObservation {
             custom_entities,
             unknown_entities,
             class_summaries: class_summaries.into_values().collect(),
+            loadable_entities,
+            skipped_entities,
+            post_load_class_summaries: post_load_class_summaries
+                .into_iter()
+                .map(
+                    |((kind, effective_class_id, resolved_name), (source_class_ids, count))| {
+                        SaveEntityPostLoadClassSummary {
+                            source_class_ids: source_class_ids.into_iter().collect(),
+                            effective_class_id,
+                            kind,
+                            resolved_name,
+                            count,
+                        }
+                    },
+                )
+                .collect(),
         }
     }
 }
@@ -1219,6 +1356,14 @@ pub fn lookup_builtin_entity_class_name(class_id: u8) -> Option<&'static str> {
     ENTITY_CLASS_IDS
         .get_or_init(parse_builtin_entity_class_ids)
         .get(&class_id)
+        .copied()
+}
+
+pub fn lookup_builtin_entity_class_id(name: &str) -> Option<u8> {
+    static ENTITY_CLASS_NAMES: OnceLock<BTreeMap<&'static str, u8>> = OnceLock::new();
+    ENTITY_CLASS_NAMES
+        .get_or_init(parse_builtin_entity_class_names)
+        .get(name)
         .copied()
 }
 
@@ -1234,6 +1379,13 @@ fn parse_builtin_entity_class_ids() -> BTreeMap<u8, &'static str> {
             let class_id = raw_id.trim().parse::<u8>().ok()?;
             Some((class_id, name.trim()))
         })
+        .collect()
+}
+
+fn parse_builtin_entity_class_names() -> BTreeMap<&'static str, u8> {
+    parse_builtin_entity_class_ids()
+        .into_iter()
+        .map(|(class_id, name)| (name, class_id))
         .collect()
 }
 
@@ -13396,13 +13548,14 @@ fn parse_payload_snapshot_bytes_with_depth(
     depth: usize,
 ) -> Result<(PayloadSnapshot, usize), String> {
     let mut reader = Reader::new(bytes);
-    if !reader.read_bool()? {
-        return Ok((PayloadSnapshot::Null, reader.position()));
-    }
-    match reader.read_u8()? {
-        1 => {
-            let block_id = reader.read_i16()?;
-            let build_revision = reader.read_u8()?;
+    let (payload_header, prefix_len) =
+        read_payload_header_prefix(bytes).map_err(|error| error.to_string())?;
+    reader.skip_bytes(prefix_len)?;
+    match payload_header {
+        TypedPayload::Null => Ok((PayloadSnapshot::Null, reader.position())),
+        TypedPayload::Build(header) => {
+            let block_id = header.block_id_i16();
+            let build_revision = header.build_revision;
             let block_name = if block_id >= 0 {
                 resolve_content_name(content_header, BLOCK_CONTENT_TYPE, block_id as u16)
             } else {
@@ -13424,8 +13577,8 @@ fn parse_payload_snapshot_bytes_with_depth(
                 reader.position(),
             ))
         }
-        0 => {
-            let class_id = reader.read_u8()?;
+        TypedPayload::Unit(header) => {
+            let class_id = header.class_id;
             let unit_payload = parse_unit_payload_snapshot_bytes(
                 content_header,
                 class_id,
@@ -13435,9 +13588,6 @@ fn parse_payload_snapshot_bytes_with_depth(
             reader.skip_bytes(unit_payload.body_len)?;
             Ok((PayloadSnapshot::Unit(unit_payload), reader.position()))
         }
-        payload_type => Err(format!(
-            "unsupported payload type in payload snapshot parser: {payload_type}"
-        )),
     }
 }
 
@@ -13742,11 +13892,14 @@ fn candidate_unit_payload_shapes(class_id: u8) -> &'static [UnitPayloadShape] {
         26 => &[UnitPayloadShape::PayloadOctLike],
         36 => &[UnitPayloadShape::BuildingTetherPayload],
         39 => &[UnitPayloadShape::TimedKill],
-        // `classId=40` remains the tank-like payload compatibility path.
+        // Current Java EntityMapping routes 43/45/46 to TankUnit / ElevationMoveUnit /
+        // CrawlUnit respectively, but their writeSync payload body still matches the
+        // standard-current wire shape.
+        43 | 45 | 46 => &[UnitPayloadShape::StandardCurrent],
+        // `classId=40` and `47` remain legacy compatibility aliases from
+        // classids.properties, not current vanilla runtime ids.
         40 => &[UnitPayloadShape::TankLikeCurrent],
-        // Runtime entity mapping and payload wire shape do not always align 1:1.
-        // Keep 43/45/46/47 on the proven current standard payload parser path.
-        43 | 45 | 46 | 47 => &[UnitPayloadShape::StandardCurrent],
+        47 => &[UnitPayloadShape::StandardCurrent],
         1 | 2 | 3 | 20 | 24 => &[UnitPayloadShape::StandardLegacy],
         _ => &[
             UnitPayloadShape::AlphaLegacy,
@@ -24889,24 +25042,11 @@ fn parse_mixed_content_ref_tail_snapshot(
 }
 
 fn inspect_payload_router_payload_prefix(bytes: &[u8]) -> Option<(bool, Option<u8>)> {
-    let mut reader = Reader::new(bytes);
-    let payload_present = reader.read_bool().ok()?;
-    if !payload_present {
-        return reader.remaining_bytes().is_empty().then_some((false, None));
+    let (summary, consumed) = read_payload_summary_prefix(bytes).ok()?;
+    if !summary.payload_present && consumed != bytes.len() {
+        return None;
     }
-
-    let payload_type = reader.read_u8().ok()?;
-    match payload_type {
-        0 => {
-            reader.read_u8().ok()?;
-        }
-        1 => {
-            reader.read_i16().ok()?;
-            reader.read_u8().ok()?;
-        }
-        _ => return None,
-    }
-    Some((true, Some(payload_type)))
+    Some((summary.payload_present, summary.payload_type_id()))
 }
 
 fn parse_payload_router_payload_segment(
@@ -24915,16 +25055,11 @@ fn parse_payload_router_payload_segment(
 ) -> Result<(bool, Option<u8>, usize, Option<Box<PayloadSnapshot>>), String> {
     if let Ok((parsed_payload, consumed)) = parse_payload_snapshot_bytes(content_header, bytes) {
         if validate_payload_router_remainder(&bytes[consumed..]).is_ok() {
-            let mut reader = Reader::new(&bytes[..consumed]);
-            let payload_present = reader.read_bool()?;
-            let payload_type = if payload_present {
-                Some(reader.read_u8()?)
-            } else {
-                None
-            };
+            let summary =
+                read_payload_summary(&bytes[..consumed]).map_err(|error| error.to_string())?;
             return Ok((
-                payload_present,
-                payload_type,
+                summary.payload_present,
+                summary.payload_type_id(),
                 consumed,
                 Some(Box::new(parsed_payload)),
             ));
@@ -24967,44 +25102,41 @@ where
     let pay_vector_x_bits = reader.read_u32()?;
     let pay_vector_y_bits = reader.read_u32()?;
     let pay_rotation_bits = reader.read_u32()?;
-    let payload_present = reader.read_bool()?;
-    let mut payload_type = None;
+    let (payload_header, payload_prefix_len) =
+        read_payload_header_prefix(&reader.remaining_bytes()).map_err(|error| error.to_string())?;
+    let payload_present = payload_header.payload_present();
+    let payload_type = payload_header.payload_type().map(|kind| kind.id());
     let mut build_block_id = None;
     let mut build_revision = None;
     let mut build_payload = None;
     let mut unit_class_id = None;
     let mut unit_payload_len = None;
     let mut unit_payload_sha256 = None;
+    reader.skip_bytes(payload_prefix_len)?;
 
-    if payload_present {
-        let payload_kind = reader.read_u8()?;
-        payload_type = Some(payload_kind);
-        match payload_kind {
-            1 => {
-                let block_id = reader.read_u16()?;
-                let revision = reader.read_u8()?;
-                let block_name = resolve_content_name(content_header, BLOCK_CONTENT_TYPE, block_id);
-                let remaining = reader.remaining_bytes();
-                let (snapshot, consumed) = parse_nested_build_payload_snapshot(
-                    content_header,
-                    block_name,
-                    revision,
-                    &remaining,
-                )?;
-                reader.skip_bytes(consumed)?;
-                build_block_id = Some(block_id);
-                build_revision = Some(revision);
-                build_payload = Some(Box::new(snapshot));
-            }
-            0 => {
-                let class_id = reader.read_u8()?;
-                let remaining = reader.remaining_bytes();
-                let consumed = match parse_unit_payload_snapshot_bytes(
-                    content_header,
-                    class_id,
-                    &remaining,
-                    0,
-                ) {
+    match payload_header {
+        TypedPayload::Null => {}
+        TypedPayload::Build(header) => {
+            let block_id = header.block_id_raw;
+            let revision = header.build_revision;
+            let block_name = resolve_content_name(content_header, BLOCK_CONTENT_TYPE, block_id);
+            let remaining = reader.remaining_bytes();
+            let (snapshot, consumed) = parse_nested_build_payload_snapshot(
+                content_header,
+                block_name,
+                revision,
+                &remaining,
+            )?;
+            reader.skip_bytes(consumed)?;
+            build_block_id = Some(block_id);
+            build_revision = Some(revision);
+            build_payload = Some(Box::new(snapshot));
+        }
+        TypedPayload::Unit(header) => {
+            let class_id = header.class_id;
+            let remaining = reader.remaining_bytes();
+            let consumed =
+                match parse_unit_payload_snapshot_bytes(content_header, class_id, &remaining, 0) {
                     Ok(snapshot) => snapshot.body_len,
                     Err(_) => parse_unit_payload_body_len(
                         outer_kind,
@@ -25012,15 +25144,11 @@ where
                         &validate_outer_remainder,
                     )?,
                 };
-                let unit_body = &remaining[..consumed];
-                reader.skip_bytes(consumed)?;
-                unit_class_id = Some(class_id);
-                unit_payload_len = Some(consumed);
-                unit_payload_sha256 = Some(sha256_hex(unit_body));
-            }
-            other => {
-                return Err(format!("unknown payload type: {}", other));
-            }
+            let unit_body = &remaining[..consumed];
+            reader.skip_bytes(consumed)?;
+            unit_class_id = Some(class_id);
+            unit_payload_len = Some(consumed);
+            unit_payload_sha256 = Some(sha256_hex(unit_body));
         }
     }
 
@@ -39261,6 +39389,65 @@ mod tests {
         decode_hex_text(hex)
     }
 
+    fn java_unit_payload_golden_entries() -> HashMap<String, String> {
+        include_str!("../../../tests/src/test/resources/unit-payload-goldens.txt")
+            .lines()
+            .filter_map(|line| line.split_once('='))
+            .map(|(key, value)| (key.trim().to_string(), value.trim().to_string()))
+            .collect()
+    }
+
+    fn generated_java_entity_mapping_name_ids() -> HashMap<String, u8> {
+        let mut name_ids = HashMap::new();
+        let mut active_id = None;
+        let mut active_constructor = None::<String>;
+
+        for line in include_str!(
+            "../../../core/build/generated/source/kapt/main/mindustry/gen/EntityMapping.java"
+        )
+        .lines()
+        {
+            let line = line.trim();
+            if let Some(rest) = line.strip_prefix("idMap[") {
+                let (raw_id, constructor) = rest
+                    .split_once("] = ")
+                    .unwrap_or_else(|| panic!("malformed idMap line: {line}"));
+                let Ok(parsed_id) = raw_id.parse::<u8>() else {
+                    active_id = None;
+                    active_constructor = None;
+                    continue;
+                };
+                active_id = Some(parsed_id);
+                active_constructor = Some(
+                    constructor
+                        .strip_suffix(';')
+                        .unwrap_or_else(|| panic!("malformed constructor line: {line}"))
+                        .to_string(),
+                );
+                continue;
+            }
+
+            let Some(rest) = line.strip_prefix("nameMap.put(\"") else {
+                continue;
+            };
+            let (name, constructor) = rest
+                .split_once("\", ")
+                .unwrap_or_else(|| panic!("malformed nameMap line: {line}"));
+            let constructor = constructor
+                .strip_suffix(");")
+                .unwrap_or_else(|| panic!("malformed nameMap constructor line: {line}"));
+
+            if active_constructor.as_deref() == Some(constructor) {
+                name_ids.insert(
+                    name.to_string(),
+                    active_id.unwrap_or_else(|| panic!("missing active id for: {line}")),
+                );
+            }
+        }
+
+        name_ids
+    }
+
     fn sample_world_bundle() -> WorldBundle {
         let compressed = sample_world_stream_bytes();
         parse_world_bundle(&compressed).unwrap()
@@ -39577,17 +39764,32 @@ mod tests {
         let first = &save.entities.entity_chunks[0];
         let second = &save.entities.entity_chunks[1];
 
+        assert_eq!(lookup_builtin_entity_class_id("flare"), Some(3));
         assert_eq!(
             lookup_builtin_entity_class_name(7),
             Some("mindustry.entities.comp.BulletComp")
         );
         assert_eq!(first.class_kind(), SaveEntityClassKind::Custom);
         assert_eq!(first.resolved_name().as_ref(), "mod-unit");
+        assert_eq!(
+            first.post_load_kind(),
+            SaveEntityPostLoadKind::UnresolvedCustom
+        );
+        assert_eq!(first.post_load_class_id(), None);
+        assert_eq!(first.post_load_resolved_name(), None);
+        assert!(first.would_post_load_skip());
         assert_eq!(second.class_kind(), SaveEntityClassKind::Builtin);
         assert_eq!(
             second.resolved_name().as_ref(),
             "mindustry.entities.comp.BulletComp"
         );
+        assert_eq!(second.post_load_kind(), SaveEntityPostLoadKind::Builtin);
+        assert_eq!(second.post_load_class_id(), Some(7));
+        assert_eq!(
+            second.post_load_resolved_name().as_deref(),
+            Some("mindustry.entities.comp.BulletComp")
+        );
+        assert!(!second.would_post_load_skip());
 
         let summary = save.post_load_entity_summary();
         assert_eq!(summary.total_entities, 2);
@@ -39596,6 +39798,8 @@ mod tests {
         assert_eq!(summary.custom_entities, 1);
         assert_eq!(summary.builtin_entities, 1);
         assert_eq!(summary.unknown_entities, 0);
+        assert_eq!(summary.loadable_entities, 1);
+        assert_eq!(summary.skipped_entities, 1);
         assert_eq!(
             summary.class_summaries,
             vec![
@@ -39609,6 +39813,25 @@ mod tests {
                     class_id: 7,
                     kind: SaveEntityClassKind::Builtin,
                     resolved_name: "mindustry.entities.comp.BulletComp".to_string(),
+                    count: 1,
+                },
+            ]
+        );
+        assert_eq!(
+            summary.post_load_class_summaries,
+            vec![
+                SaveEntityPostLoadClassSummary {
+                    source_class_ids: vec![7],
+                    effective_class_id: Some(7),
+                    kind: SaveEntityPostLoadKind::Builtin,
+                    resolved_name: "mindustry.entities.comp.BulletComp".to_string(),
+                    count: 1,
+                },
+                SaveEntityPostLoadClassSummary {
+                    source_class_ids: vec![3],
+                    effective_class_id: None,
+                    kind: SaveEntityPostLoadKind::UnresolvedCustom,
+                    resolved_name: "unresolved:mod-unit".to_string(),
                     count: 1,
                 },
             ]
@@ -39634,6 +39857,8 @@ mod tests {
         assert_eq!(summary.custom_entities, 0);
         assert_eq!(summary.builtin_entities, 1);
         assert_eq!(summary.unknown_entities, 2);
+        assert_eq!(summary.loadable_entities, 1);
+        assert_eq!(summary.skipped_entities, 2);
         assert_eq!(
             summary.class_summaries,
             vec![
@@ -39651,6 +39876,103 @@ mod tests {
                 },
             ]
         );
+        assert_eq!(
+            summary.post_load_class_summaries,
+            vec![
+                SaveEntityPostLoadClassSummary {
+                    source_class_ids: vec![7],
+                    effective_class_id: Some(7),
+                    kind: SaveEntityPostLoadKind::Builtin,
+                    resolved_name: "mindustry.entities.comp.BulletComp".to_string(),
+                    count: 1,
+                },
+                SaveEntityPostLoadClassSummary {
+                    source_class_ids: vec![250],
+                    effective_class_id: None,
+                    kind: SaveEntityPostLoadKind::Unknown,
+                    resolved_name: "unknown:fa".to_string(),
+                    count: 2,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn save_entity_post_load_summary_applies_last_wins_builtin_remap() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&3u16.to_be_bytes());
+        bytes.extend_from_slice(&99u16.to_be_bytes());
+        write_java_utf(&mut bytes, "mod-alpha").unwrap();
+        bytes.extend_from_slice(&99u16.to_be_bytes());
+        write_java_utf(&mut bytes, "flare").unwrap();
+        bytes.extend_from_slice(&120u16.to_be_bytes());
+        write_java_utf(&mut bytes, "mace").unwrap();
+        bytes.extend_from_slice(&generate_team_plan_sample_bytes());
+        bytes.extend_from_slice(&3u32.to_be_bytes());
+        bytes.extend_from_slice(&encode_save_entity_chunk(11, 99, 0x0102_0304, &[0xaa]));
+        bytes.extend_from_slice(&encode_save_entity_chunk(11, 120, 0x0506_0708, &[0xbb]));
+        bytes.extend_from_slice(&encode_save_entity_chunk(11, 3, 0x1112_1314, &[0xcc]));
+
+        let parsed = parse_save_entity_region(11, &bytes).unwrap();
+        let first = &parsed.entity_chunks[0];
+        let second = &parsed.entity_chunks[1];
+        let third = &parsed.entity_chunks[2];
+        let summary = parsed.post_load_summary();
+        let remap_summary = parsed.post_load_remap_summary();
+
+        assert_eq!(first.custom_name.as_deref(), Some("flare"));
+        assert_eq!(
+            first.post_load_kind(),
+            SaveEntityPostLoadKind::RemappedBuiltin
+        );
+        assert_eq!(first.post_load_class_id(), Some(3));
+        assert_eq!(first.post_load_resolved_name().as_deref(), Some("flare"));
+        assert!(!first.would_post_load_skip());
+
+        assert_eq!(
+            second.post_load_kind(),
+            SaveEntityPostLoadKind::RemappedBuiltin
+        );
+        assert_eq!(second.post_load_class_id(), Some(4));
+        assert_eq!(second.post_load_resolved_name().as_deref(), Some("mace"));
+        assert!(!second.would_post_load_skip());
+
+        assert_eq!(third.post_load_kind(), SaveEntityPostLoadKind::Builtin);
+        assert_eq!(third.post_load_class_id(), Some(3));
+        assert_eq!(third.post_load_resolved_name().as_deref(), Some("flare"));
+        assert!(!third.would_post_load_skip());
+
+        assert_eq!(summary.loadable_entities, 3);
+        assert_eq!(summary.skipped_entities, 0);
+        assert_eq!(
+            summary.post_load_class_summaries,
+            vec![
+                SaveEntityPostLoadClassSummary {
+                    source_class_ids: vec![3],
+                    effective_class_id: Some(3),
+                    kind: SaveEntityPostLoadKind::Builtin,
+                    resolved_name: "flare".to_string(),
+                    count: 1,
+                },
+                SaveEntityPostLoadClassSummary {
+                    source_class_ids: vec![99],
+                    effective_class_id: Some(3),
+                    kind: SaveEntityPostLoadKind::RemappedBuiltin,
+                    resolved_name: "flare".to_string(),
+                    count: 1,
+                },
+                SaveEntityPostLoadClassSummary {
+                    source_class_ids: vec![120],
+                    effective_class_id: Some(4),
+                    kind: SaveEntityPostLoadKind::RemappedBuiltin,
+                    resolved_name: "mace".to_string(),
+                    count: 1,
+                },
+            ]
+        );
+        assert_eq!(remap_summary.effective_custom_ids, 2);
+        assert_eq!(remap_summary.resolved_builtin_custom_ids, vec![99, 120]);
+        assert!(remap_summary.unresolved_effective_names.is_empty());
     }
 
     #[test]
@@ -39787,6 +40109,9 @@ mod tests {
                 duplicate_custom_ids: vec![3],
                 unique_names: 3,
                 duplicate_names: vec!["mod-beta".to_string()],
+                effective_custom_ids: 3,
+                resolved_builtin_custom_ids: Vec::new(),
+                unresolved_effective_names: vec!["mod-beta".to_string(), "mod-gamma".to_string()],
             }
         );
     }
@@ -41327,11 +41652,7 @@ mod tests {
 
     #[test]
     fn parses_real_java_unit_payload_goldens() {
-        let entries = include_str!("../../../tests/src/test/resources/unit-payload-goldens.txt")
-            .lines()
-            .filter_map(|line| line.split_once('='))
-            .map(|(key, value)| (key.trim().to_string(), value.trim().to_string()))
-            .collect::<HashMap<_, _>>();
+        let entries = java_unit_payload_golden_entries();
 
         let sample_names = entries
             .keys()
@@ -52571,6 +52892,10 @@ mod tests {
             &[UnitPayloadShape::StandardCurrent]
         );
         assert_eq!(
+            candidate_unit_payload_shapes(45),
+            &[UnitPayloadShape::StandardCurrent]
+        );
+        assert_eq!(
             candidate_unit_payload_shapes(40),
             &[UnitPayloadShape::TankLikeCurrent]
         );
@@ -52582,5 +52907,29 @@ mod tests {
             candidate_unit_payload_shapes(47),
             &[UnitPayloadShape::StandardCurrent]
         );
+    }
+
+    #[test]
+    fn real_java_current_unit_payload_ids_route_to_standard_current_shape() {
+        let entity_mapping = generated_java_entity_mapping_name_ids();
+        let entries = java_unit_payload_golden_entries();
+
+        for sample_name in ["stell", "vanquish", "elude", "latum"] {
+            let class_id = u8::from_str_radix(
+                entries[&format!("unitPayload.{sample_name}.classId")].as_str(),
+                16,
+            )
+            .unwrap();
+            assert_eq!(
+                Some(class_id),
+                entity_mapping.get(sample_name).copied(),
+                "sample={sample_name}"
+            );
+            assert_eq!(
+                candidate_unit_payload_shapes(class_id),
+                &[UnitPayloadShape::StandardCurrent],
+                "sample={sample_name}"
+            );
+        }
     }
 }

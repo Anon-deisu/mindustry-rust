@@ -11,7 +11,8 @@ pub mod plan_editor;
 pub mod probe;
 
 pub use builder_queue::{
-    BuilderQueueEntry, BuilderQueueEntryObservation, BuilderQueueStage, BuilderQueueStateMachine,
+    BuilderQueueActivityObservation, BuilderQueueActivityState, BuilderQueueEntry,
+    BuilderQueueEntryObservation, BuilderQueueStage, BuilderQueueStateMachine,
     BuilderQueueTransition,
 };
 pub use capability_gate::{

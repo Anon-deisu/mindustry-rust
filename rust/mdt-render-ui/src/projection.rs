@@ -421,9 +421,10 @@ fn project_team_plan(plan: TeamPlanRef<'_>) -> RenderObject {
 
 fn project_marker_objects(marker: &MarkerEntry) -> Vec<RenderObject> {
     let mut objects = Vec::with_capacity(2);
+    let marker_kind = marker_kind_id_segment(marker);
     if let Some((x, y)) = marker_world_position(marker) {
         objects.push(RenderObject {
-            id: format!("marker:{}", marker.id),
+            id: format!("marker:{marker_kind}:{}", marker.id),
             layer: MARKER_LAYER,
             x,
             y,
@@ -433,7 +434,7 @@ fn project_marker_objects(marker: &MarkerEntry) -> Vec<RenderObject> {
     if let Some((x, y)) = line_marker_end_world_position(marker) {
         if marker_world_position(marker) != Some((x, y)) {
             objects.push(RenderObject {
-                id: format!("marker:{}:line-end", marker.id),
+                id: format!("marker:{marker_kind}:{}:line-end", marker.id),
                 layer: MARKER_LAYER,
                 x,
                 y,
@@ -442,6 +443,19 @@ fn project_marker_objects(marker: &MarkerEntry) -> Vec<RenderObject> {
     }
 
     objects
+}
+
+fn marker_kind_id_segment(marker: &MarkerEntry) -> &'static str {
+    match &marker.marker {
+        MarkerModel::Point(_) => "point",
+        MarkerModel::Text(_) => "text",
+        MarkerModel::Shape(_) => "shape",
+        MarkerModel::ShapeText(_) => "shape-text",
+        MarkerModel::Line(_) => "line",
+        MarkerModel::Texture(_) => "texture",
+        MarkerModel::Quad(_) => "quad",
+        MarkerModel::Unknown(_) => "unknown",
+    }
 }
 
 fn marker_world_position(marker: &MarkerEntry) -> Option<(f32, f32)> {
@@ -538,7 +552,9 @@ fn tile_in_window(
 #[cfg(test)]
 mod tests {
     use super::{project_hud_model, project_render_model, project_render_model_with_view_window};
-    use mdt_world::{parse_world_bundle, LineMarkerModel, MarkerEntry, MarkerModel};
+    use mdt_world::{
+        parse_world_bundle, LineMarkerModel, MarkerEntry, MarkerModel, PointMarkerModel,
+    };
 
     #[test]
     fn projects_loaded_world_session_into_render_and_hud_models() {
@@ -558,7 +574,10 @@ mod tests {
             .objects
             .iter()
             .any(|object| object.id.starts_with("terrain:")));
-        assert!(render.objects.iter().any(|object| object.id == "marker:11"));
+        assert!(render
+            .objects
+            .iter()
+            .any(|object| object.id.starts_with("marker:")));
         assert!(render
             .objects
             .iter()
@@ -650,10 +669,35 @@ mod tests {
         let objects = super::project_marker_objects(&marker);
 
         assert_eq!(objects.len(), 2);
-        assert_eq!(objects[0].id, "marker:77");
+        assert_eq!(objects[0].id, "marker:line:77");
         assert_eq!((objects[0].x, objects[0].y), (16.0, 24.0));
-        assert_eq!(objects[1].id, "marker:77:line-end");
+        assert_eq!(objects[1].id, "marker:line:77:line-end");
         assert_eq!((objects[1].x, objects[1].y), (40.0, 56.0));
+    }
+
+    #[test]
+    fn point_marker_projects_kind_specific_id_prefix() {
+        let marker = MarkerEntry {
+            id: 42,
+            marker: MarkerModel::Point(PointMarkerModel {
+                class_tag: "Point".to_string(),
+                world: true,
+                minimap: true,
+                autoscale: false,
+                draw_layer_bits: 0,
+                x_bits: 16.0f32.to_bits(),
+                y_bits: 24.0f32.to_bits(),
+                radius_bits: 1.0f32.to_bits(),
+                stroke_bits: 0.5f32.to_bits(),
+                color: Some("ffffff".to_string()),
+            }),
+        };
+
+        let objects = super::project_marker_objects(&marker);
+
+        assert_eq!(objects.len(), 1);
+        assert_eq!(objects[0].id, "marker:point:42");
+        assert_eq!((objects[0].x, objects[0].y), (16.0, 24.0));
     }
 
     #[test]
