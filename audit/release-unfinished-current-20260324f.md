@@ -180,6 +180,9 @@ These are already landed and should not be re-opened as if missing:
 - narrow `effect_id=256` `shieldBreak` executor wiring is now also landed.
   - Rust now maps `effect_id=256` to `shield_break`, keeps the effect-specific runtime executor name on the session surface, and renders the Java fallback-style expanding hexagon as runtime line segments keyed by the effect origin plus `rotation`
   - remaining `U5` work is still landing additional narrow `effect_id -> contract/executor` families, not re-adding this first shield-break fallback slice
+- narrow `effect_id=257/260` `arcShieldBreak` / `unitShieldBreak` unit-parent fallback geometry is now also landed.
+  - Rust keeps the existing `unit_parent` parent-follow binding path, but runtime rendering no longer stops at a bare marker: `257` now emits a parent-rotation-aware double-arc fallback band and `260` emits a parent-centered circle-plus-burst fallback
+  - remaining `U5` work for this family is now metadata parity rather than first-pass geometry: exact `257` parity still needs `ShieldArcAbility` radius/width/offset data, and exact `260` parity still needs `unit_type -> hitSize`
 - `mdt-client-min-online` custom/logic runtime surface wiring is now landed as a narrow `M6-3` harness slice.
   - the online harness now reuses `custom_packet_runtime_surface` across `--consume-client-*` custom/logic flows, emits runtime/business overlay summaries on updates and resets, and re-installs that surface after reconnect/redirect rebuilds
   - remaining `M6-3` work is still deeper Java-equivalent business integration, not re-adding this harness/runtime summary bridge

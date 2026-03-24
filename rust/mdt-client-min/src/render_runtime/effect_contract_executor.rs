@@ -1,5 +1,5 @@
-use crate::effect_runtime::{RuntimeEffectContract, RuntimeEffectOverlay};
-use crate::session_state::EffectBusinessProjection;
+use crate::effect_runtime::{RuntimeEffectBinding, RuntimeEffectContract, RuntimeEffectOverlay};
+use crate::session_state::{EffectBusinessProjection, EntitySemanticProjection, SessionState};
 use mdt_typeio::{TypeIoObject, TypeIoSemanticRef};
 
 const EFFECT_CONTRACT_MAX_DEPTH: usize = 3;
@@ -14,6 +14,8 @@ const PAYLOAD_DEPOSIT_OVERLAY_TTL_TICKS: u8 = 3;
 const LIGHTNING_EFFECT_ID: i16 = 13;
 const POINT_BEAM_EFFECT_ID: i16 = 10;
 const SHIELD_BREAK_EFFECT_ID: i16 = 256;
+const ARC_SHIELD_BREAK_EFFECT_ID: i16 = 257;
+const UNIT_SHIELD_BREAK_EFFECT_ID: i16 = 260;
 const CHAIN_LIGHTNING_EFFECT_ID: i16 = 261;
 const CHAIN_EMP_EFFECT_ID: i16 = 262;
 const CHAIN_SEGMENT_TARGET_PIXELS: f32 = 24.0;
@@ -21,6 +23,18 @@ const CHAIN_MIN_SEGMENTS: usize = 3;
 const CHAIN_MAX_SEGMENTS: usize = 8;
 const SHIELD_BREAK_SIDE_COUNT: usize = 6;
 const SHIELD_BREAK_RADIUS_GROWTH: f32 = 1.0;
+const ARC_SHIELD_BREAK_SEGMENT_COUNT: usize = 8;
+const ARC_SHIELD_BREAK_SWEEP_DEGREES: f32 = 140.0;
+const ARC_SHIELD_BREAK_BASE_RADIUS: f32 = 16.0;
+const ARC_SHIELD_BREAK_BAND_WIDTH: f32 = 4.0;
+const ARC_SHIELD_BREAK_RADIUS_GROWTH: f32 = 2.0;
+const UNIT_SHIELD_BREAK_CIRCLE_SEGMENT_COUNT: usize = 12;
+const UNIT_SHIELD_BREAK_BASE_RADIUS: f32 = 14.0;
+const UNIT_SHIELD_BREAK_RADIUS_GROWTH: f32 = 3.0;
+const UNIT_SHIELD_BREAK_BURST_COUNT: usize = 8;
+const UNIT_SHIELD_BREAK_BURST_INSET: f32 = 4.0;
+const UNIT_SHIELD_BREAK_BURST_LENGTH: f32 = 6.0;
+const UNIT_SHIELD_BREAK_BURST_GROWTH: f32 = 5.0;
 
 type OverlayOriginProjector = fn(f32, f32, f32, &TypeIoObject) -> Option<(f32, f32)>;
 type BusinessWorldPositionProjector = fn(&EffectBusinessProjection) -> Option<(u32, u32)>;
@@ -136,6 +150,7 @@ pub(crate) fn line_projections_for_effect_overlay(
     overlay: &RuntimeEffectOverlay,
     target_x_bits: u32,
     target_y_bits: u32,
+    session_state: &SessionState,
 ) -> Vec<RuntimeEffectLineProjection> {
     match overlay.effect_id {
         Some(LIGHTNING_EFFECT_ID) => lightning_line_projections(&overlay.polyline_points),
@@ -152,6 +167,15 @@ pub(crate) fn line_projections_for_effect_overlay(
             overlay.rotation_bits,
             overlay.remaining_ticks,
         ),
+        Some(ARC_SHIELD_BREAK_EFFECT_ID) => arc_shield_break_line_projections(
+            target_x_bits,
+            target_y_bits,
+            unit_parent_rotation_bits(overlay, session_state).unwrap_or(overlay.rotation_bits),
+            overlay.remaining_ticks,
+        ),
+        Some(UNIT_SHIELD_BREAK_EFFECT_ID) => {
+            unit_shield_break_line_projections(target_x_bits, target_y_bits, overlay.remaining_ticks)
+        }
         Some(effect_id @ (CHAIN_LIGHTNING_EFFECT_ID | CHAIN_EMP_EFFECT_ID)) => {
             chain_line_kind(effect_id)
                 .map(|kind| {
@@ -354,6 +378,102 @@ fn shield_break_line_projections(
         .collect()
 }
 
+fn arc_shield_break_line_projections(
+    center_x_bits: u32,
+    center_y_bits: u32,
+    rotation_bits: u32,
+    remaining_ticks: u8,
+) -> Vec<RuntimeEffectLineProjection> {
+    let center_x = f32::from_bits(center_x_bits);
+    let center_y = f32::from_bits(center_y_bits);
+    if !center_x.is_finite() || !center_y.is_finite() {
+        return Vec::new();
+    }
+
+    let progress = shield_break_progress(remaining_ticks);
+    let facing_degrees = f32::from_bits(rotation_bits);
+    let facing_radians = if facing_degrees.is_finite() {
+        facing_degrees.to_radians()
+    } else {
+        0.0
+    };
+    let outer_radius = ARC_SHIELD_BREAK_BASE_RADIUS + progress * ARC_SHIELD_BREAK_RADIUS_GROWTH;
+    let inner_radius = (outer_radius - ARC_SHIELD_BREAK_BAND_WIDTH).max(1.0);
+    let sweep_radians = ARC_SHIELD_BREAK_SWEEP_DEGREES.to_radians();
+    let start_angle = facing_radians - sweep_radians / 2.0;
+    let outer_points = arc_points(
+        center_x,
+        center_y,
+        outer_radius,
+        start_angle,
+        sweep_radians,
+        ARC_SHIELD_BREAK_SEGMENT_COUNT,
+    );
+    let inner_points = arc_points(
+        center_x,
+        center_y,
+        inner_radius,
+        start_angle,
+        sweep_radians,
+        ARC_SHIELD_BREAK_SEGMENT_COUNT,
+    );
+    if outer_points.len() < 2 || inner_points.len() < 2 {
+        return Vec::new();
+    }
+
+    let mut lines = polyline_line_projections("arc-shield-break", &outer_points);
+    lines.extend(polyline_line_projections("arc-shield-break", &inner_points));
+    lines.push(line_projection(
+        "arc-shield-break",
+        outer_points[0],
+        inner_points[0],
+    ));
+    lines.push(line_projection(
+        "arc-shield-break",
+        *outer_points.last().expect("outer arc missing endpoint"),
+        *inner_points.last().expect("inner arc missing endpoint"),
+    ));
+    lines
+}
+
+fn unit_shield_break_line_projections(
+    center_x_bits: u32,
+    center_y_bits: u32,
+    remaining_ticks: u8,
+) -> Vec<RuntimeEffectLineProjection> {
+    let center_x = f32::from_bits(center_x_bits);
+    let center_y = f32::from_bits(center_y_bits);
+    if !center_x.is_finite() || !center_y.is_finite() {
+        return Vec::new();
+    }
+
+    let progress = shield_break_progress(remaining_ticks);
+    let radius = UNIT_SHIELD_BREAK_BASE_RADIUS + progress * UNIT_SHIELD_BREAK_RADIUS_GROWTH;
+    let burst_inner_radius = (radius - UNIT_SHIELD_BREAK_BURST_INSET).max(1.0);
+    let burst_outer_radius = radius + UNIT_SHIELD_BREAK_BURST_LENGTH + progress * UNIT_SHIELD_BREAK_BURST_GROWTH;
+    let circle_points = regular_polygon_points(
+        center_x,
+        center_y,
+        radius,
+        UNIT_SHIELD_BREAK_CIRCLE_SEGMENT_COUNT,
+        0.0,
+    );
+    if circle_points.len() < 3 {
+        return Vec::new();
+    }
+
+    let mut lines = closed_polyline_line_projections("unit-shield-break", &circle_points);
+    lines.extend((0..UNIT_SHIELD_BREAK_BURST_COUNT).map(|index| {
+        let angle = index as f32 * std::f32::consts::TAU / UNIT_SHIELD_BREAK_BURST_COUNT as f32;
+        line_projection(
+            "unit-shield-break",
+            polar_point(center_x, center_y, burst_inner_radius, angle),
+            polar_point(center_x, center_y, burst_outer_radius, angle),
+        )
+    }));
+    lines
+}
+
 fn shield_break_progress(remaining_ticks: u8) -> f32 {
     let total_steps = PAYLOAD_DEPOSIT_OVERLAY_TTL_TICKS.saturating_sub(1);
     if total_steps == 0 {
@@ -363,6 +483,21 @@ fn shield_break_progress(remaining_ticks: u8) -> f32 {
         .saturating_sub(remaining_ticks)
         .min(total_steps);
     elapsed as f32 / total_steps as f32
+}
+
+fn unit_parent_rotation_bits(overlay: &RuntimeEffectOverlay, session_state: &SessionState) -> Option<u32> {
+    let RuntimeEffectBinding::ParentUnit { unit_id } = overlay.binding.as_ref()? else {
+        return None;
+    };
+    let projection = &session_state
+        .entity_semantic_projection
+        .by_entity_id
+        .get(unit_id)?
+        .projection;
+    match projection {
+        EntitySemanticProjection::Unit(unit) => Some(unit.rotation_bits),
+        _ => None,
+    }
 }
 
 fn executor_for_contract(
@@ -703,6 +838,117 @@ fn ray_endpoint(
     Some((effect_x + cos * length, effect_y + sin * length))
 }
 
+fn line_projection(
+    kind: &'static str,
+    (source_x_bits, source_y_bits): (u32, u32),
+    (target_x_bits, target_y_bits): (u32, u32),
+) -> RuntimeEffectLineProjection {
+    RuntimeEffectLineProjection {
+        kind,
+        source_x_bits,
+        source_y_bits,
+        target_x_bits,
+        target_y_bits,
+    }
+}
+
+fn polyline_line_projections(
+    kind: &'static str,
+    points: &[(u32, u32)],
+) -> Vec<RuntimeEffectLineProjection> {
+    points
+        .windows(2)
+        .filter_map(|pair| {
+            let [source, target] = pair else {
+                return None;
+            };
+            Some(line_projection(kind, *source, *target))
+        })
+        .collect()
+}
+
+fn closed_polyline_line_projections(
+    kind: &'static str,
+    points: &[(u32, u32)],
+) -> Vec<RuntimeEffectLineProjection> {
+    if points.len() < 2 {
+        return Vec::new();
+    }
+
+    points
+        .iter()
+        .copied()
+        .zip(points.iter().copied().cycle().skip(1))
+        .take(points.len())
+        .map(|(source, target)| line_projection(kind, source, target))
+        .collect()
+}
+
+fn regular_polygon_points(
+    center_x: f32,
+    center_y: f32,
+    radius: f32,
+    side_count: usize,
+    phase_radians: f32,
+) -> Vec<(u32, u32)> {
+    if !center_x.is_finite()
+        || !center_y.is_finite()
+        || !radius.is_finite()
+        || radius <= f32::EPSILON
+        || side_count < 3
+    {
+        return Vec::new();
+    }
+
+    (0..side_count)
+        .map(|index| {
+            let angle = phase_radians + index as f32 * std::f32::consts::TAU / side_count as f32;
+            polar_point(center_x, center_y, radius, angle)
+        })
+        .collect()
+}
+
+fn arc_points(
+    center_x: f32,
+    center_y: f32,
+    radius: f32,
+    start_radians: f32,
+    sweep_radians: f32,
+    segment_count: usize,
+) -> Vec<(u32, u32)> {
+    if !center_x.is_finite()
+        || !center_y.is_finite()
+        || !radius.is_finite()
+        || !start_radians.is_finite()
+        || !sweep_radians.is_finite()
+        || radius <= f32::EPSILON
+        || segment_count == 0
+    {
+        return Vec::new();
+    }
+
+    (0..=segment_count)
+        .map(|index| {
+            let t = index as f32 / segment_count as f32;
+            polar_point(
+                center_x,
+                center_y,
+                radius,
+                start_radians + sweep_radians * t,
+            )
+        })
+        .collect()
+}
+
+fn polar_point(center_x: f32, center_y: f32, radius: f32, angle_radians: f32) -> (u32, u32) {
+    let cos = snap_trig_component(angle_radians.cos());
+    let sin = snap_trig_component(angle_radians.sin());
+    (
+        (center_x + cos * radius).to_bits(),
+        (center_y + sin * radius).to_bits(),
+    )
+}
+
 fn snap_trig_component(value: f32) -> f32 {
     const TRIG_SNAP_EPSILON: f32 = 1e-6;
 
@@ -905,7 +1151,12 @@ mod tests {
         };
 
         assert_eq!(
-            line_projections_for_effect_overlay(&overlay, 80.0f32.to_bits(), 160.0f32.to_bits(),),
+            line_projections_for_effect_overlay(
+                &overlay,
+                80.0f32.to_bits(),
+                160.0f32.to_bits(),
+                &SessionState::default(),
+            ),
             vec![RuntimeEffectLineProjection {
                 kind: "point-beam",
                 source_x_bits: 12.0f32.to_bits(),
@@ -935,14 +1186,135 @@ mod tests {
             polyline_points: Vec::new(),
         };
 
-        let lines =
-            line_projections_for_effect_overlay(&overlay, 32.0f32.to_bits(), 48.0f32.to_bits());
+        let lines = line_projections_for_effect_overlay(
+            &overlay,
+            32.0f32.to_bits(),
+            48.0f32.to_bits(),
+            &SessionState::default(),
+        );
 
         assert_eq!(lines.len(), SHIELD_BREAK_SIDE_COUNT);
         assert!(lines.iter().all(|line| line.kind == "shield-break"));
         assert!(lines.iter().any(|line| {
             line.source_x_bits == 38.0f32.to_bits() && line.source_y_bits == 48.0f32.to_bits()
         }));
+    }
+
+    #[test]
+    fn line_projections_for_effect_overlay_returns_arc_shield_break_bands_and_endcaps() {
+        let overlay = RuntimeEffectOverlay {
+            effect_id: Some(ARC_SHIELD_BREAK_EFFECT_ID),
+            source_x_bits: 12.0f32.to_bits(),
+            source_y_bits: 20.0f32.to_bits(),
+            x_bits: 32.0f32.to_bits(),
+            y_bits: 48.0f32.to_bits(),
+            rotation_bits: 0.0f32.to_bits(),
+            color_rgba: 0x11223344,
+            reliable: false,
+            has_data: true,
+            remaining_ticks: 3,
+            contract_name: Some("unit_parent"),
+            binding: None,
+            content_ref: None,
+            polyline_points: Vec::new(),
+        };
+
+        let lines = line_projections_for_effect_overlay(
+            &overlay,
+            32.0f32.to_bits(),
+            48.0f32.to_bits(),
+            &SessionState::default(),
+        );
+        let outer_points = arc_points(
+            32.0,
+            48.0,
+            ARC_SHIELD_BREAK_BASE_RADIUS,
+            -ARC_SHIELD_BREAK_SWEEP_DEGREES.to_radians() / 2.0,
+            ARC_SHIELD_BREAK_SWEEP_DEGREES.to_radians(),
+            ARC_SHIELD_BREAK_SEGMENT_COUNT,
+        );
+        let inner_points = arc_points(
+            32.0,
+            48.0,
+            ARC_SHIELD_BREAK_BASE_RADIUS - ARC_SHIELD_BREAK_BAND_WIDTH,
+            -ARC_SHIELD_BREAK_SWEEP_DEGREES.to_radians() / 2.0,
+            ARC_SHIELD_BREAK_SWEEP_DEGREES.to_radians(),
+            ARC_SHIELD_BREAK_SEGMENT_COUNT,
+        );
+
+        assert_eq!(lines.len(), ARC_SHIELD_BREAK_SEGMENT_COUNT * 2 + 2);
+        assert!(lines.iter().all(|line| line.kind == "arc-shield-break"));
+        assert!(lines.contains(&line_projection(
+            "arc-shield-break",
+            outer_points[0],
+            inner_points[0],
+        )));
+        assert!(lines.contains(&line_projection(
+            "arc-shield-break",
+            *outer_points.last().expect("missing outer endpoint"),
+            *inner_points.last().expect("missing inner endpoint"),
+        )));
+    }
+
+    #[test]
+    fn line_projections_for_effect_overlay_returns_unit_shield_break_circle_and_burst_spokes() {
+        let overlay = RuntimeEffectOverlay {
+            effect_id: Some(UNIT_SHIELD_BREAK_EFFECT_ID),
+            source_x_bits: 12.0f32.to_bits(),
+            source_y_bits: 20.0f32.to_bits(),
+            x_bits: 32.0f32.to_bits(),
+            y_bits: 48.0f32.to_bits(),
+            rotation_bits: 0.0f32.to_bits(),
+            color_rgba: 0x11223344,
+            reliable: false,
+            has_data: true,
+            remaining_ticks: 3,
+            contract_name: Some("unit_parent"),
+            binding: None,
+            content_ref: None,
+            polyline_points: Vec::new(),
+        };
+
+        let lines = line_projections_for_effect_overlay(
+            &overlay,
+            32.0f32.to_bits(),
+            48.0f32.to_bits(),
+            &SessionState::default(),
+        );
+        let circle_points = regular_polygon_points(
+            32.0,
+            48.0,
+            UNIT_SHIELD_BREAK_BASE_RADIUS,
+            UNIT_SHIELD_BREAK_CIRCLE_SEGMENT_COUNT,
+            0.0,
+        );
+        let first_burst = line_projection(
+            "unit-shield-break",
+            polar_point(
+                32.0,
+                48.0,
+                UNIT_SHIELD_BREAK_BASE_RADIUS - UNIT_SHIELD_BREAK_BURST_INSET,
+                0.0,
+            ),
+            polar_point(
+                32.0,
+                48.0,
+                UNIT_SHIELD_BREAK_BASE_RADIUS + UNIT_SHIELD_BREAK_BURST_LENGTH,
+                0.0,
+            ),
+        );
+
+        assert_eq!(
+            lines.len(),
+            UNIT_SHIELD_BREAK_CIRCLE_SEGMENT_COUNT + UNIT_SHIELD_BREAK_BURST_COUNT
+        );
+        assert!(lines.iter().all(|line| line.kind == "unit-shield-break"));
+        assert!(lines.contains(&line_projection(
+            "unit-shield-break",
+            circle_points[0],
+            circle_points[1],
+        )));
+        assert!(lines.contains(&first_burst));
     }
 
     #[test]
@@ -964,8 +1336,12 @@ mod tests {
             polyline_points: Vec::new(),
         };
 
-        let lines =
-            line_projections_for_effect_overlay(&overlay, 80.0f32.to_bits(), 160.0f32.to_bits());
+        let lines = line_projections_for_effect_overlay(
+            &overlay,
+            80.0f32.to_bits(),
+            160.0f32.to_bits(),
+            &SessionState::default(),
+        );
 
         assert!(lines.len() >= CHAIN_MIN_SEGMENTS);
         assert_eq!(lines.first().map(|line| line.kind), Some("chain-lightning"));
@@ -1002,8 +1378,12 @@ mod tests {
             polyline_points: Vec::new(),
         };
 
-        let lines =
-            line_projections_for_effect_overlay(&overlay, 80.0f32.to_bits(), 160.0f32.to_bits());
+        let lines = line_projections_for_effect_overlay(
+            &overlay,
+            80.0f32.to_bits(),
+            160.0f32.to_bits(),
+            &SessionState::default(),
+        );
 
         assert!(lines.len() >= CHAIN_MIN_SEGMENTS);
         assert_eq!(lines.first().map(|line| line.kind), Some("chain-emp"));
@@ -1041,7 +1421,12 @@ mod tests {
         };
 
         assert_eq!(
-            line_projections_for_effect_overlay(&overlay, 80.0f32.to_bits(), 160.0f32.to_bits(),),
+            line_projections_for_effect_overlay(
+                &overlay,
+                80.0f32.to_bits(),
+                160.0f32.to_bits(),
+                &SessionState::default(),
+            ),
             Vec::<RuntimeEffectLineProjection>::new()
         );
     }
@@ -1181,7 +1566,12 @@ mod tests {
         };
 
         assert_eq!(
-            line_projections_for_effect_overlay(&overlay, 50.0f32.to_bits(), 60.0f32.to_bits()),
+            line_projections_for_effect_overlay(
+                &overlay,
+                50.0f32.to_bits(),
+                60.0f32.to_bits(),
+                &SessionState::default(),
+            ),
             vec![
                 RuntimeEffectLineProjection {
                     kind: "lightning",
@@ -1199,5 +1589,67 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn line_projections_for_effect_overlay_uses_parent_unit_rotation_for_arc_shield_break() {
+        let overlay = RuntimeEffectOverlay {
+            effect_id: Some(ARC_SHIELD_BREAK_EFFECT_ID),
+            source_x_bits: 12.0f32.to_bits(),
+            source_y_bits: 20.0f32.to_bits(),
+            x_bits: 32.0f32.to_bits(),
+            y_bits: 48.0f32.to_bits(),
+            rotation_bits: 0.0f32.to_bits(),
+            color_rgba: 0x11223344,
+            reliable: false,
+            has_data: true,
+            remaining_ticks: 3,
+            contract_name: Some("unit_parent"),
+            binding: Some(RuntimeEffectBinding::ParentUnit { unit_id: 404 }),
+            content_ref: None,
+            polyline_points: Vec::new(),
+        };
+        let mut state = SessionState::default();
+        state.entity_semantic_projection.by_entity_id.insert(
+            404,
+            crate::session_state::EntitySemanticProjectionEntry {
+                class_id: 4,
+                last_seen_entity_snapshot_count: 1,
+                projection: EntitySemanticProjection::Unit(crate::session_state::EntityUnitSemanticProjection {
+                    team_id: 1,
+                    unit_type_id: 55,
+                    health_bits: 0,
+                    rotation_bits: 90.0f32.to_bits(),
+                    shield_bits: 0,
+                    mine_tile_pos: 0,
+                    status_count: 0,
+                    payload_count: None,
+                    building_pos: None,
+                    lifetime_bits: None,
+                    time_bits: None,
+                }),
+            },
+        );
+
+        let lines = line_projections_for_effect_overlay(
+            &overlay,
+            32.0f32.to_bits(),
+            48.0f32.to_bits(),
+            &state,
+        );
+        let outer_points = arc_points(
+            32.0,
+            48.0,
+            ARC_SHIELD_BREAK_BASE_RADIUS,
+            90.0f32.to_radians() - ARC_SHIELD_BREAK_SWEEP_DEGREES.to_radians() / 2.0,
+            ARC_SHIELD_BREAK_SWEEP_DEGREES.to_radians(),
+            ARC_SHIELD_BREAK_SEGMENT_COUNT,
+        );
+
+        assert!(lines.contains(&line_projection(
+            "arc-shield-break",
+            outer_points[0],
+            outer_points[1],
+        )));
     }
 }

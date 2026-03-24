@@ -3199,7 +3199,7 @@ fn append_runtime_world_overlay_objects(
     for overlay in &runtime_world_overlay.effect_overlays {
         let (x_bits, y_bits) =
             resolve_runtime_effect_overlay_position(overlay, session_state, snapshot_input);
-        append_runtime_effect_executor_objects(scene, overlay, x_bits, y_bits);
+        append_runtime_effect_executor_objects(scene, overlay, x_bits, y_bits, session_state);
         let reliable = runtime_effect_delivery_label(overlay.reliable);
         let data = if overlay.has_data { 1 } else { 0 };
         scene.objects.push(RenderObject {
@@ -3222,11 +3222,13 @@ fn append_runtime_effect_executor_objects(
     overlay: &RuntimeEffectOverlay,
     target_x_bits: u32,
     target_y_bits: u32,
+    session_state: &SessionState,
 ) {
     for line in effect_contract_executor::line_projections_for_effect_overlay(
         overlay,
         target_x_bits,
         target_y_bits,
+        session_state,
     ) {
         let line_id = runtime_effect_line_object_id(
             line.kind,
@@ -5655,6 +5657,110 @@ mod tests {
         );
         assert_eq!(updated_marker.x, 24.0);
         assert_eq!(updated_marker.y, 28.0);
+    }
+
+    #[test]
+    fn render_runtime_adapter_renders_arc_shield_break_lines_for_parent_unit() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        state.entity_table_projection.by_entity_id.insert(
+            404,
+            crate::session_state::EntityProjection {
+                class_id: 12,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 88,
+                x_bits: 12.0f32.to_bits(),
+                y_bits: 16.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 3,
+            },
+        );
+        state.entity_semantic_projection.by_entity_id.insert(
+            404,
+            crate::session_state::EntitySemanticProjectionEntry {
+                class_id: 12,
+                last_seen_entity_snapshot_count: 3,
+                projection: crate::session_state::EntitySemanticProjection::Unit(
+                    crate::session_state::EntityUnitSemanticProjection {
+                        team_id: 1,
+                        unit_type_id: 55,
+                        health_bits: 0,
+                        rotation_bits: 90.0f32.to_bits(),
+                        shield_bits: 0,
+                        mine_tile_pos: 0,
+                        status_count: 0,
+                        payload_count: None,
+                        building_pos: None,
+                        lifetime_bits: None,
+                        time_bits: None,
+                    },
+                ),
+            },
+        );
+
+        adapter.observe_events(&[ClientSessionEvent::EffectRequested {
+            effect_id: Some(257),
+            x: 1.0,
+            y: 2.0,
+            rotation: 0.0,
+            color_rgba: 0x11223344,
+            data_object: Some(mdt_typeio::TypeIoObject::UnitId(404)),
+        }]);
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let marker = first_runtime_effect_marker(&scene);
+        assert_eq!(marker.x, 12.0);
+        assert_eq!(marker.y, 16.0);
+
+        let shield_prefix = "marker:line:runtime-effect-arc-shield-break:";
+        let shield_lines = runtime_effect_lines_with_prefix(&scene, shield_prefix);
+        assert_eq!(shield_lines.len(), 36);
+        assert!(shield_lines.iter().any(|object| object.y > 28.0));
+    }
+
+    #[test]
+    fn render_runtime_adapter_renders_unit_shield_break_lines_for_parent_unit() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        state.entity_table_projection.by_entity_id.insert(
+            404,
+            crate::session_state::EntityProjection {
+                class_id: 12,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 88,
+                x_bits: 12.0f32.to_bits(),
+                y_bits: 16.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 3,
+            },
+        );
+
+        adapter.observe_events(&[ClientSessionEvent::EffectRequested {
+            effect_id: Some(260),
+            x: 1.0,
+            y: 2.0,
+            rotation: 0.0,
+            color_rgba: 0x11223344,
+            data_object: Some(mdt_typeio::TypeIoObject::UnitId(404)),
+        }]);
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let marker = first_runtime_effect_marker(&scene);
+        assert_eq!(marker.x, 12.0);
+        assert_eq!(marker.y, 16.0);
+
+        let shield_prefix = "marker:line:runtime-effect-unit-shield-break:";
+        let shield_lines = runtime_effect_lines_with_prefix(&scene, shield_prefix);
+        assert_eq!(shield_lines.len(), 40);
+        assert!(shield_lines.iter().any(|object| object.x == 26.0 && object.y == 16.0));
     }
 
     #[test]
