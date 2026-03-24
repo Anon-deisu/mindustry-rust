@@ -1813,16 +1813,26 @@ impl ClientSession {
         config_object: TypeIoObject,
         source: TileConfigAuthoritySource,
     ) -> TileConfigBusinessApply {
+        let uses_single_link_match =
+            self.authoritative_config_pending_match_uses_single_link(build_pos);
         let (configured_block_outcome, configured_block_name) =
             self.project_authoritative_config_business(build_pos, &config_object, source);
         self.state
             .tile_config_projection
-            .apply_authoritative_update(
+            .apply_authoritative_update_with_match(
                 build_pos,
                 config_object,
                 source,
                 Some(configured_block_outcome),
                 configured_block_name,
+                |pending, authoritative| {
+                    authoritative_config_pending_local_matches(
+                        build_pos,
+                        uses_single_link_match,
+                        pending,
+                        authoritative,
+                    )
+                },
             )
     }
 
@@ -1855,7 +1865,10 @@ impl ClientSession {
     ) -> TileConfigBusinessApply {
         let mut configured_block_outcome = None;
         let mut configured_block_name = None;
+        let mut uses_single_link_match = false;
         if let Some(build_pos) = build_pos {
+            uses_single_link_match =
+                self.authoritative_config_pending_match_uses_single_link(build_pos);
             let has_pending_local = self
                 .state
                 .tile_config_projection
@@ -1881,12 +1894,44 @@ impl ClientSession {
         }
         self.state
             .tile_config_projection
-            .fallback_rollback_to_known_authority(
+            .fallback_rollback_to_known_authority_with_match(
                 build_pos,
                 source,
                 configured_block_outcome,
                 configured_block_name,
+                |pending, authoritative| {
+                    build_pos.is_some_and(|build_pos| {
+                        authoritative_config_pending_local_matches(
+                            build_pos,
+                            uses_single_link_match,
+                            pending,
+                            authoritative,
+                        )
+                    })
+                },
             )
+    }
+
+    fn authoritative_config_pending_match_uses_single_link(&self, build_pos: i32) -> bool {
+        let block_name = self
+            .state
+            .building_table_projection
+            .by_build_pos
+            .get(&build_pos)
+            .and_then(|building| {
+                building
+                    .block_name
+                    .clone()
+                    .or_else(|| building.block_id.and_then(|block_id| self.loaded_world_block_name(block_id)))
+            });
+        matches!(
+            block_name.as_deref(),
+            Some(
+                BLOCK_NAME_MASS_DRIVER
+                    | BLOCK_NAME_PAYLOAD_MASS_DRIVER
+                    | BLOCK_NAME_LARGE_PAYLOAD_MASS_DRIVER
+            )
+        )
     }
 
     fn apply_configured_block_business(
@@ -9013,6 +9058,25 @@ fn configured_link_build_pos(build_pos: i32, config_object: &TypeIoObject) -> Op
             )))
         }
         _ => None,
+    }
+}
+
+fn authoritative_config_pending_local_matches(
+    build_pos: i32,
+    uses_single_link_match: bool,
+    pending_local: &TypeIoObject,
+    authoritative: &TypeIoObject,
+) -> bool {
+    if uses_single_link_match {
+        match (
+            configured_link_build_pos(build_pos, pending_local),
+            configured_link_build_pos(build_pos, authoritative),
+        ) {
+            (Some(pending_link), Some(authoritative_link)) => pending_link == authoritative_link,
+            _ => pending_local == authoritative,
+        }
+    } else {
+        pending_local == authoritative
     }
 }
 
@@ -27336,6 +27400,159 @@ mod tests {
     }
 
     #[test]
+    fn mass_driver_tile_config_authoritative_relative_link_matches_pending_absolute_int() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(30, 52);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_MASS_DRIVER);
+        let target_pos = pack_point2(33, 50);
+        let authoritative_value = TypeIoObject::Point2 { x: 3, y: -2 };
+
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+            &TypeIoObject::Null,
+        );
+
+        session
+            .queue_tile_config(Some(build_pos), TypeIoObject::Int(target_pos))
+            .unwrap();
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .pending_local_by_build_pos
+                .get(&build_pos),
+            Some(&TypeIoObject::Int(target_pos))
+        );
+
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &authoritative_value,
+        );
+
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .mass_driver_link_by_build_pos
+                .get(&build_pos),
+            Some(&Some(target_pos))
+        );
+        assert!(!session
+            .state()
+            .tile_config_projection
+            .pending_local_by_build_pos
+            .contains_key(&build_pos));
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .authoritative_by_build_pos
+                .get(&build_pos),
+            Some(&authoritative_value)
+        );
+        assert_eq!(
+            session.state().tile_config_projection.last_replaced_local_value,
+            Some(TypeIoObject::Int(target_pos))
+        );
+        assert_eq!(
+            session.state().tile_config_projection.last_business_value,
+            Some(authoritative_value.clone())
+        );
+        assert!(session.state().tile_config_projection.last_business_applied);
+        assert!(!session.state().tile_config_projection.last_was_rollback);
+        assert_eq!(
+            session.state().tile_config_projection.last_pending_local_match,
+            Some(true)
+        );
+        assert_eq!(session.state().tile_config_projection.rollback_count, 0);
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_configured_block_outcome,
+            Some(crate::session_state::ConfiguredBlockOutcome::Applied)
+        );
+    }
+
+    #[test]
+    fn mass_driver_tile_config_authoritative_relative_link_rolls_back_mismatched_pending_intent() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(31, 53);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_MASS_DRIVER);
+        let pending_target = pack_point2(35, 54);
+        let authoritative_target = pack_point2(34, 51);
+        let authoritative_value = TypeIoObject::Point2 { x: 3, y: -2 };
+
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+            &TypeIoObject::Null,
+        );
+
+        session
+            .queue_tile_config(Some(build_pos), TypeIoObject::Int(pending_target))
+            .unwrap();
+
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &authoritative_value,
+        );
+
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .mass_driver_link_by_build_pos
+                .get(&build_pos),
+            Some(&Some(authoritative_target))
+        );
+        assert!(!session
+            .state()
+            .tile_config_projection
+            .pending_local_by_build_pos
+            .contains_key(&build_pos));
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .authoritative_by_build_pos
+                .get(&build_pos),
+            Some(&authoritative_value)
+        );
+        assert_eq!(
+            session.state().tile_config_projection.last_replaced_local_value,
+            Some(TypeIoObject::Int(pending_target))
+        );
+        assert_eq!(
+            session.state().tile_config_projection.last_business_value,
+            Some(authoritative_value.clone())
+        );
+        assert!(session.state().tile_config_projection.last_business_applied);
+        assert!(session.state().tile_config_projection.last_was_rollback);
+        assert_eq!(
+            session.state().tile_config_projection.last_pending_local_match,
+            Some(false)
+        );
+        assert_eq!(session.state().tile_config_projection.rollback_count, 1);
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_configured_block_outcome,
+            Some(crate::session_state::ConfiguredBlockOutcome::Applied)
+        );
+    }
+
+    #[test]
     fn payload_mass_driver_config_business_dispatch_applies_relative_and_absolute_links() {
         let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
 
@@ -27404,6 +27621,118 @@ mod tests {
                     .get(&build_pos),
                 Some(&Some(absolute_target))
             );
+        }
+    }
+
+    #[test]
+    fn payload_mass_driver_tile_config_authoritative_relative_link_matches_pending_absolute_int() {
+        for (build_pos, block_name, target_pos, authoritative_value) in [
+            (
+                pack_point2(35, 57),
+                BLOCK_NAME_PAYLOAD_MASS_DRIVER,
+                pack_point2(37, 58),
+                TypeIoObject::Point2 { x: 2, y: 1 },
+            ),
+            (
+                pack_point2(36, 58),
+                BLOCK_NAME_LARGE_PAYLOAD_MASS_DRIVER,
+                pack_point2(38, 60),
+                TypeIoObject::Point2 { x: 2, y: 2 },
+            ),
+        ] {
+            let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+            let block_id = loaded_world_block_id_for_name(&session, block_name);
+
+            ingest_construct_finish_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                block_id,
+                &TypeIoObject::Null,
+            );
+
+            session
+                .queue_tile_config(Some(build_pos), TypeIoObject::Int(target_pos))
+                .unwrap();
+
+            ingest_tile_config_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                &authoritative_value,
+            );
+
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .payload_mass_driver_link_by_build_pos
+                    .get(&build_pos),
+                Some(&Some(target_pos))
+            );
+            assert_eq!(
+                session.state().tile_config_projection.last_pending_local_match,
+                Some(true)
+            );
+            assert!(!session.state().tile_config_projection.last_was_rollback);
+            assert_eq!(session.state().tile_config_projection.rollback_count, 0);
+        }
+    }
+
+    #[test]
+    fn payload_mass_driver_tile_config_authoritative_relative_link_rolls_back_mismatched_pending_intent() {
+        for (build_pos, block_name, pending_target, authoritative_target, authoritative_value) in [
+            (
+                pack_point2(37, 59),
+                BLOCK_NAME_PAYLOAD_MASS_DRIVER,
+                pack_point2(40, 60),
+                pack_point2(39, 58),
+                TypeIoObject::Point2 { x: 2, y: -1 },
+            ),
+            (
+                pack_point2(38, 60),
+                BLOCK_NAME_LARGE_PAYLOAD_MASS_DRIVER,
+                pack_point2(41, 62),
+                pack_point2(40, 59),
+                TypeIoObject::Point2 { x: 2, y: -1 },
+            ),
+        ] {
+            let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+            let block_id = loaded_world_block_id_for_name(&session, block_name);
+
+            ingest_construct_finish_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                block_id,
+                &TypeIoObject::Null,
+            );
+
+            session
+                .queue_tile_config(Some(build_pos), TypeIoObject::Int(pending_target))
+                .unwrap();
+
+            ingest_tile_config_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                &authoritative_value,
+            );
+
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .payload_mass_driver_link_by_build_pos
+                    .get(&build_pos),
+                Some(&Some(authoritative_target))
+            );
+            assert_eq!(
+                session.state().tile_config_projection.last_pending_local_match,
+                Some(false)
+            );
+            assert!(session.state().tile_config_projection.last_was_rollback);
+            assert_eq!(session.state().tile_config_projection.rollback_count, 1);
         }
     }
 

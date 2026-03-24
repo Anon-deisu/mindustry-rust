@@ -1131,6 +1131,28 @@ impl TileConfigProjection {
         configured_block_outcome: Option<ConfiguredBlockOutcome>,
         configured_block_name: Option<String>,
     ) -> TileConfigBusinessApply {
+        self.apply_authoritative_update_with_match(
+            build_pos,
+            value,
+            source,
+            configured_block_outcome,
+            configured_block_name,
+            |pending, authoritative| pending == authoritative,
+        )
+    }
+
+    pub fn apply_authoritative_update_with_match<F>(
+        &mut self,
+        build_pos: i32,
+        value: TypeIoObject,
+        source: TileConfigAuthoritySource,
+        configured_block_outcome: Option<ConfiguredBlockOutcome>,
+        configured_block_name: Option<String>,
+        pending_local_matches: F,
+    ) -> TileConfigBusinessApply
+    where
+        F: FnOnce(&TypeIoObject, &TypeIoObject) -> bool,
+    {
         self.applied_authoritative_count = self.applied_authoritative_count.saturating_add(1);
         match source {
             TileConfigAuthoritySource::TileConfigPacket => {
@@ -1144,7 +1166,9 @@ impl TileConfigProjection {
         }
 
         let pending_local = self.pop_next_pending_local_request(build_pos);
-        let pending_local_match = pending_local.as_ref().map(|pending| pending == &value);
+        let pending_local_match = pending_local
+            .as_ref()
+            .map(|pending| pending_local_matches(pending, &value));
         let cleared_pending_local = pending_local.is_some();
         let was_rollback = pending_local_match == Some(false);
         if was_rollback {
@@ -1240,6 +1264,26 @@ impl TileConfigProjection {
         configured_block_outcome: Option<ConfiguredBlockOutcome>,
         configured_block_name: Option<String>,
     ) -> TileConfigBusinessApply {
+        self.fallback_rollback_to_known_authority_with_match(
+            build_pos,
+            source,
+            configured_block_outcome,
+            configured_block_name,
+            |pending, authoritative| pending == authoritative,
+        )
+    }
+
+    pub fn fallback_rollback_to_known_authority_with_match<F>(
+        &mut self,
+        build_pos: Option<i32>,
+        source: TileConfigAuthoritySource,
+        configured_block_outcome: Option<ConfiguredBlockOutcome>,
+        configured_block_name: Option<String>,
+        pending_local_matches: F,
+    ) -> TileConfigBusinessApply
+    where
+        F: FnOnce(&TypeIoObject, &TypeIoObject) -> bool,
+    {
         let Some(build_pos) = build_pos else {
             return self.clear_pending_local_without_business_apply(None);
         };
@@ -1274,7 +1318,7 @@ impl TileConfigProjection {
         let authoritative_value = authoritative_value.unwrap();
         let pending_local_match = pending_local
             .as_ref()
-            .map(|pending| pending == &authoritative_value);
+            .map(|pending| pending_local_matches(pending, &authoritative_value));
         let was_rollback = pending_local_match == Some(false);
         if was_rollback {
             self.rollback_count = self.rollback_count.saturating_add(1);
