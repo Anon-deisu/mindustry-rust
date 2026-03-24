@@ -922,6 +922,61 @@ pub struct MsavEnvelopeObservation {
     pub leading_region_length: Option<u32>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MsavRegionObservation {
+    pub name: &'static str,
+    pub chunk_length: usize,
+    pub chunk_bytes: Vec<u8>,
+    pub chunk_sha256: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SaveEntityRemapEntry {
+    pub custom_id: u16,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SaveEntityChunkObservation {
+    pub chunk_len: usize,
+    pub chunk_bytes: Vec<u8>,
+    pub chunk_sha256: String,
+    pub class_id: u8,
+    pub custom_name: Option<String>,
+    pub entity_id: i32,
+    pub body_len: usize,
+    pub body_bytes: Vec<u8>,
+    pub body_sha256: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SaveEntityRegionObservation {
+    pub remap_count: usize,
+    pub remap_entries: Vec<SaveEntityRemapEntry>,
+    pub remap_bytes: Vec<u8>,
+    pub team_count: usize,
+    pub total_plans: usize,
+    pub team_plan_groups: Vec<TeamPlanGroup>,
+    pub team_region_bytes: Vec<u8>,
+    pub world_entity_count: usize,
+    pub world_entity_bytes: Vec<u8>,
+    pub entity_chunks: Vec<SaveEntityChunkObservation>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MsavSaveObservation {
+    pub envelope: MsavEnvelopeObservation,
+    pub inflated: Vec<u8>,
+    pub regions: Vec<MsavRegionObservation>,
+    pub entities: SaveEntityRegionObservation,
+}
+
+impl MsavSaveObservation {
+    pub fn region(&self, name: &str) -> Option<&MsavRegionObservation> {
+        self.regions.iter().find(|region| region.name == name)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct WorldBundle {
     pub compressed: Vec<u8>,
@@ -25569,6 +25624,98 @@ fn resolve_content_name<'a>(
 pub fn read_msav_envelope(bytes: &[u8]) -> Result<MsavEnvelopeObservation, String> {
     let zlib_header = read_msav_zlib_header(bytes)?;
     let inflated = inflate_zlib(bytes)?;
+    Ok(parse_msav_envelope_from_inflated(&inflated, bytes.len(), zlib_header)?.0)
+}
+
+/// Parses a `.msav` save envelope plus its framed regions, then passively
+/// decodes the `entities` region remap table/team blocks/entity chunks.
+pub fn parse_msav_save(bytes: &[u8]) -> Result<MsavSaveObservation, String> {
+    let zlib_header = read_msav_zlib_header(bytes)?;
+    let inflated = inflate_zlib(bytes)?;
+    let (envelope, mut reader) =
+        parse_msav_envelope_from_inflated(&inflated, bytes.len(), zlib_header)?;
+    let region_names = msav_region_names(envelope.save_version)?;
+    let mut regions = Vec::with_capacity(region_names.len());
+    let mut entities = None;
+
+    for name in region_names {
+        let region = read_msav_region_observation(&mut reader, name)?;
+        if *name == "entities" {
+            entities = Some(parse_save_entity_region(
+                envelope.save_version,
+                &region.chunk_bytes,
+            )?);
+        }
+        regions.push(region);
+    }
+
+    let trailing = reader.remaining_bytes();
+    if !trailing.is_empty() {
+        return Err(format!(
+            "unexpected trailing bytes after .msav save regions: {}",
+            trailing.len()
+        ));
+    }
+
+    Ok(MsavSaveObservation {
+        envelope,
+        inflated,
+        regions,
+        entities: entities.ok_or_else(|| "missing .msav entities region".to_string())?,
+    })
+}
+
+pub fn parse_save_entity_region(
+    save_version: i32,
+    bytes: &[u8],
+) -> Result<SaveEntityRegionObservation, String> {
+    if !(6..=11).contains(&save_version) {
+        return Err(format!(
+            "unsupported .msav save version for passive entity parsing: {}",
+            save_version
+        ));
+    }
+
+    let mut reader = Reader::new(bytes);
+    let (remap_count, remap_entries, remap_bytes) = parse_save_entity_remap_table(&mut reader)?;
+    let team_start = reader.position();
+    let TeamPlanParseResult {
+        team_count,
+        total_plans,
+        team_plan_groups,
+        ..
+    } = parse_team_plan_groups(&mut reader)?;
+    let team_end = reader.position();
+    let team_region_bytes = reader.slice(team_start, team_end).to_vec();
+    let (world_entity_count, entity_chunks, world_entity_bytes) =
+        parse_save_world_entity_chunks(&mut reader, save_version, &remap_entries)?;
+
+    if !reader.remaining_bytes().is_empty() {
+        return Err(format!(
+            "unexpected trailing bytes after save entity region: {}",
+            reader.remaining_bytes().len()
+        ));
+    }
+
+    Ok(SaveEntityRegionObservation {
+        remap_count,
+        remap_entries,
+        remap_bytes,
+        team_count,
+        total_plans,
+        team_plan_groups,
+        team_region_bytes,
+        world_entity_count,
+        world_entity_bytes,
+        entity_chunks,
+    })
+}
+
+fn parse_msav_envelope_from_inflated(
+    inflated: &[u8],
+    compressed_length: usize,
+    zlib_header: MsavZlibHeader,
+) -> Result<(MsavEnvelopeObservation, Reader<'_>), String> {
     if inflated.len() < MSAV_HEADER.len() + 4 {
         return Err(format!(
             "inflated .msav envelope too short: expected at least {} bytes, got {}",
@@ -25590,21 +25737,128 @@ pub fn read_msav_envelope(bytes: &[u8]) -> Result<MsavEnvelopeObservation, Strin
     }
 
     let save_version = reader.read_i32()?;
-    let leading_region_length = if reader.position() + 4 <= inflated.len() {
-        Some(reader.read_u32()?)
+    let body_start = reader.position();
+    let leading_region_length = if body_start + 4 <= inflated.len() {
+        let length_bytes: [u8; 4] = inflated[body_start..body_start + 4]
+            .try_into()
+            .map_err(|_| "failed to read leading region length".to_string())?;
+        Some(u32::from_be_bytes(length_bytes))
     } else {
         None
     };
 
-    Ok(MsavEnvelopeObservation {
-        compressed_length: bytes.len(),
-        inflated_length: inflated.len(),
-        body_length: inflated.len() - (MSAV_HEADER.len() + 4),
-        zlib_header,
-        header,
-        save_version,
-        leading_region_length,
+    Ok((
+        MsavEnvelopeObservation {
+            compressed_length,
+            inflated_length: inflated.len(),
+            body_length: inflated.len() - (MSAV_HEADER.len() + 4),
+            zlib_header,
+            header,
+            save_version,
+            leading_region_length,
+        },
+        reader,
+    ))
+}
+
+fn msav_region_names(save_version: i32) -> Result<&'static [&'static str], String> {
+    match save_version {
+        6 => Ok(&["meta", "content", "map", "entities"]),
+        7 => Ok(&["meta", "content", "map", "entities", "custom"]),
+        8..=10 => Ok(&["meta", "content", "map", "entities", "markers", "custom"]),
+        11 => Ok(&[
+            "meta", "content", "patches", "map", "entities", "markers", "custom",
+        ]),
+        _ => Err(format!(
+            "unsupported .msav save version for passive parsing: {}",
+            save_version
+        )),
+    }
+}
+
+fn read_msav_region_observation(
+    reader: &mut Reader<'_>,
+    name: &'static str,
+) -> Result<MsavRegionObservation, String> {
+    let chunk_length = reader.read_u32()? as usize;
+    let chunk_bytes = reader.read_exact_vec(chunk_length)?;
+    Ok(MsavRegionObservation {
+        name,
+        chunk_length,
+        chunk_sha256: sha256_hex(&chunk_bytes),
+        chunk_bytes,
     })
+}
+
+fn parse_save_entity_remap_table(
+    reader: &mut Reader<'_>,
+) -> Result<(usize, Vec<SaveEntityRemapEntry>, Vec<u8>), String> {
+    let start = reader.position();
+    let remap_count = reader.read_u16()? as usize;
+    let mut remap_entries = Vec::with_capacity(remap_count);
+    for _ in 0..remap_count {
+        remap_entries.push(SaveEntityRemapEntry {
+            custom_id: reader.read_u16()?,
+            name: reader.read_java_utf()?,
+        });
+    }
+    let end = reader.position();
+    Ok((
+        remap_count,
+        remap_entries,
+        reader.slice(start, end).to_vec(),
+    ))
+}
+
+fn parse_save_world_entity_chunks(
+    reader: &mut Reader<'_>,
+    save_version: i32,
+    remap_entries: &[SaveEntityRemapEntry],
+) -> Result<(usize, Vec<SaveEntityChunkObservation>, Vec<u8>), String> {
+    let start = reader.position();
+    let world_entity_count = reader.read_u32()? as usize;
+    let remap_names = remap_entries
+        .iter()
+        .map(|entry| (entry.custom_id, entry.name.as_str()))
+        .collect::<BTreeMap<_, _>>();
+    let mut entity_chunks = Vec::with_capacity(world_entity_count);
+
+    for index in 0..world_entity_count {
+        let chunk_len = if save_version >= 10 {
+            reader.read_u32()? as usize
+        } else {
+            reader.read_u16()? as usize
+        };
+        let chunk_bytes = reader.read_exact_vec(chunk_len)?;
+        let mut chunk_reader = Reader::new(&chunk_bytes);
+        let class_id = chunk_reader.read_u8().map_err(|error| {
+            format!("failed to read save entity chunk {index} class id: {error}")
+        })?;
+        let entity_id = chunk_reader.read_i32().map_err(|error| {
+            format!("failed to read save entity chunk {index} entity id: {error}")
+        })?;
+        let body_bytes = chunk_reader.remaining_bytes();
+        entity_chunks.push(SaveEntityChunkObservation {
+            chunk_len,
+            chunk_sha256: sha256_hex(&chunk_bytes),
+            class_id,
+            custom_name: remap_names
+                .get(&(class_id as u16))
+                .map(|name| (*name).to_string()),
+            entity_id,
+            body_len: body_bytes.len(),
+            body_sha256: sha256_hex(&body_bytes),
+            body_bytes,
+            chunk_bytes,
+        });
+    }
+
+    let end = reader.position();
+    Ok((
+        world_entity_count,
+        entity_chunks,
+        reader.slice(start, end).to_vec(),
+    ))
 }
 
 pub fn parse_world_bundle(compressed: &[u8]) -> Result<WorldBundle, String> {
@@ -38533,6 +38787,79 @@ mod tests {
         mdt_protocol::deflate_zlib(&inflated).unwrap()
     }
 
+    fn encode_save_region(bytes: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(&(bytes.len() as u32).to_be_bytes());
+        out.extend_from_slice(bytes);
+        out
+    }
+
+    fn encode_save_entity_chunk(
+        save_version: i32,
+        class_id: u8,
+        entity_id: i32,
+        body: &[u8],
+    ) -> Vec<u8> {
+        let mut chunk = Vec::new();
+        chunk.push(class_id);
+        chunk.extend_from_slice(&entity_id.to_be_bytes());
+        chunk.extend_from_slice(body);
+
+        let mut out = Vec::new();
+        if save_version >= 10 {
+            out.extend_from_slice(&(chunk.len() as u32).to_be_bytes());
+        } else {
+            out.extend_from_slice(&(chunk.len() as u16).to_be_bytes());
+        }
+        out.extend_from_slice(&chunk);
+        out
+    }
+
+    fn sample_save_entity_region_bytes(save_version: i32) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(&1u16.to_be_bytes());
+        out.extend_from_slice(&3u16.to_be_bytes());
+        write_java_utf(&mut out, "mod-unit").unwrap();
+        out.extend_from_slice(&generate_team_plan_sample_bytes());
+        out.extend_from_slice(&2u32.to_be_bytes());
+        out.extend_from_slice(&encode_save_entity_chunk(
+            save_version,
+            3,
+            0x0102_0304,
+            &[0xaa, 0xbb],
+        ));
+        out.extend_from_slice(&encode_save_entity_chunk(
+            save_version,
+            7,
+            0x1122_3344,
+            &[0xcc],
+        ));
+        out
+    }
+
+    fn sample_msav_save_bytes(save_version: i32) -> Vec<u8> {
+        let entity_region = sample_save_entity_region_bytes(save_version);
+        let mut inflated = Vec::new();
+        inflated.extend_from_slice(&MSAV_HEADER);
+        inflated.extend_from_slice(&save_version.to_be_bytes());
+
+        for region_name in msav_region_names(save_version).unwrap() {
+            let region_bytes = match *region_name {
+                "meta" => vec![0xde, 0xad],
+                "content" => vec![0xbe, 0xef],
+                "patches" => vec![0x11],
+                "map" => vec![0xfa, 0xce],
+                "entities" => entity_region.clone(),
+                "markers" => vec![0x33],
+                "custom" => vec![0x44, 0x55],
+                _ => unreachable!("unexpected region name: {region_name}"),
+            };
+            inflated.extend_from_slice(&encode_save_region(&region_bytes));
+        }
+
+        mdt_protocol::deflate_zlib(&inflated).unwrap()
+    }
+
     fn assert_no_duplicate_keys(label: &str, lines: &[(String, String)]) {
         let text = lines
             .iter()
@@ -38595,6 +38922,95 @@ mod tests {
         let error = read_msav_envelope(&bytes).unwrap_err();
 
         assert!(error.contains("inflated .msav envelope too short"));
+    }
+
+    #[test]
+    fn parses_save6_entities_region_with_legacy_short_chunks() {
+        let bytes = sample_msav_save_bytes(6);
+        let save = parse_msav_save(&bytes).unwrap();
+
+        assert_eq!(save.envelope.save_version, 6);
+        assert_eq!(
+            save.regions
+                .iter()
+                .map(|region| region.name)
+                .collect::<Vec<_>>(),
+            vec!["meta", "content", "map", "entities"]
+        );
+        assert_eq!(save.region("meta").unwrap().chunk_bytes, vec![0xde, 0xad]);
+        assert_eq!(
+            save.region("entities").unwrap().chunk_bytes,
+            sample_save_entity_region_bytes(6)
+        );
+        assert_eq!(save.entities.remap_count, 1);
+        assert_eq!(
+            save.entities.remap_entries,
+            vec![SaveEntityRemapEntry {
+                custom_id: 3,
+                name: "mod-unit".to_string(),
+            }]
+        );
+        assert_eq!(save.entities.team_count, 1);
+        assert_eq!(save.entities.total_plans, 1);
+        assert_eq!(
+            save.entities.team_region_bytes,
+            generate_team_plan_sample_bytes()
+        );
+        assert_eq!(save.entities.world_entity_count, 2);
+
+        let first = &save.entities.entity_chunks[0];
+        assert_eq!(first.chunk_len, 7);
+        assert_eq!(first.class_id, 3);
+        assert_eq!(first.custom_name.as_deref(), Some("mod-unit"));
+        assert_eq!(first.entity_id, 0x0102_0304);
+        assert_eq!(first.body_bytes, vec![0xaa, 0xbb]);
+        assert_eq!(first.body_len, 2);
+
+        let second = &save.entities.entity_chunks[1];
+        assert_eq!(second.class_id, 7);
+        assert_eq!(second.custom_name, None);
+        assert_eq!(second.entity_id, 0x1122_3344);
+        assert_eq!(second.body_bytes, vec![0xcc]);
+    }
+
+    #[test]
+    fn parses_save11_entities_region_with_int_chunks() {
+        let bytes = sample_msav_save_bytes(11);
+        let save = parse_msav_save(&bytes).unwrap();
+
+        assert_eq!(save.envelope.save_version, 11);
+        assert_eq!(save.envelope.leading_region_length, Some(2));
+        assert_eq!(
+            save.regions
+                .iter()
+                .map(|region| region.name)
+                .collect::<Vec<_>>(),
+            vec!["meta", "content", "patches", "map", "entities", "markers", "custom"]
+        );
+        assert_eq!(save.region("patches").unwrap().chunk_bytes, vec![0x11]);
+        assert_eq!(save.region("custom").unwrap().chunk_bytes, vec![0x44, 0x55]);
+        assert_eq!(save.entities.world_entity_count, 2);
+        assert_eq!(save.entities.entity_chunks[0].chunk_len, 7);
+        assert_eq!(save.entities.world_entity_bytes, {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&2u32.to_be_bytes());
+            bytes.extend_from_slice(&encode_save_entity_chunk(11, 3, 0x0102_0304, &[0xaa, 0xbb]));
+            bytes.extend_from_slice(&encode_save_entity_chunk(11, 7, 0x1122_3344, &[0xcc]));
+            bytes
+        });
+    }
+
+    #[test]
+    fn rejects_truncated_legacy_save_entity_chunk() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&0u16.to_be_bytes());
+        bytes.extend_from_slice(&generate_team_plan_sample_bytes());
+        bytes.extend_from_slice(&1u32.to_be_bytes());
+        bytes.extend_from_slice(&4u16.to_be_bytes());
+        bytes.extend_from_slice(&[3, 0, 0, 0]);
+
+        let error = parse_save_entity_region(6, &bytes).unwrap_err();
+        assert!(error.contains("save entity chunk 0 entity id"));
     }
 
     fn test_building_center(

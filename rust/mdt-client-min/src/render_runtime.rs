@@ -16,11 +16,12 @@ use crate::session_state::{
 };
 use mdt_remote::{HighFrequencyRemoteMethod, HIGH_FREQUENCY_REMOTE_METHOD_COUNT};
 use mdt_render_ui::{
-    BuildQueueHeadObservability, BuildQueueHeadStage, BuildUiObservability, HudModel, RenderModel,
-    RenderObject, RuntimeHudTextObservability, RuntimeLiveEffectPositionSource,
-    RuntimeLiveEffectSummaryObservability, RuntimeLiveEntitySummaryObservability,
-    RuntimeLiveSummaryObservability, RuntimeTextInputObservability, RuntimeToastObservability,
-    RuntimeUiObservability, RuntimeWorldPositionObservability,
+    BuildConfigInspectorEntryObservability, BuildQueueHeadObservability, BuildQueueHeadStage,
+    BuildUiObservability, HudModel, RenderModel, RenderObject, RuntimeHudTextObservability,
+    RuntimeLiveEffectPositionSource, RuntimeLiveEffectSummaryObservability,
+    RuntimeLiveEntitySummaryObservability, RuntimeLiveSummaryObservability,
+    RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiObservability,
+    RuntimeWorldPositionObservability,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -64,6 +65,7 @@ impl RenderRuntimeAdapter {
         hud.build_ui = Some(runtime_build_ui_observability(
             snapshot_input,
             &session_state.builder_queue_projection,
+            &session_state.configured_block_projection,
         ));
         hud.status_text = format!(
             "{} runtime_selected={} runtime_plans={} runtime_cfg_int={} runtime_cfg_long={} runtime_cfg_float={} runtime_cfg_bool={} runtime_cfg_int_seq={} runtime_cfg_point2={} runtime_cfg_point2_array={} runtime_cfg_tech_node={} runtime_cfg_double={} runtime_cfg_building_pos={} runtime_cfg_laccess={} runtime_cfg_string={} runtime_cfg_bytes={} runtime_cfg_legacy_unit_command_null={} runtime_cfg_bool_array={} runtime_cfg_unit_id={} runtime_cfg_vec2_array={} runtime_cfg_vec2={} runtime_cfg_team={} runtime_cfg_int_array={} runtime_cfg_object_array={} runtime_cfg_content={} runtime_cfg_unit_command={} runtime_world_tiles={} runtime_health={} building={} runtime_builder={} runtime_builder_head={} runtime_entity_local={} runtime_entity_hidden={} runtime_entity_gate={} runtime_entity_sync={} runtime_snap_last={} runtime_snap_events={} runtime_snap_apply={} runtime_wave={} runtime_enemies={} runtime_tps={} runtime_state_apply={} runtime_core_teams={} runtime_core_items={} runtime_buildings={} runtime_block={} runtime_block_fail={} runtime_hidden={} runtime_hidden_delta={} runtime_hidden_fail={} runtime_effects={} runtime_effect_data_kind={} runtime_effect_contract={} runtime_effect_data_semantic={} runtime_effect_apply={} runtime_effect_path={} runtime_effect_data_fail={} bootstrap_rules={} bootstrap_tags={} bootstrap_locales={} bootstrap_teams={} bootstrap_markers={} bootstrap_chunks={} bootstrap_patches={} bootstrap_plans={} bootstrap_fog_teams={} runtime_view_center={} runtime_view_size={} runtime_position={} runtime_pointer={} runtime_selected_rotation={} runtime_input_flags={} runtime_snap_client={} runtime_snap_state={} runtime_snap_entity={} runtime_snap_block={} runtime_snap_hidden={} runtime_tilecfg_events={} runtime_tilecfg_parse_fail={} runtime_tilecfg_noapply={} runtime_tilecfg_rollback={} runtime_tilecfg_pending_mismatch={} runtime_tilecfg_apply={} runtime_configured={} runtime_take_items={} runtime_transfer_item={} runtime_transfer_item_unit={} runtime_payload_drop={} runtime_payload_pick_build={} runtime_payload_pick_unit={} runtime_unit_entered_payload={} runtime_unit_despawn={} runtime_unit_lifecycle={} runtime_spawn_fx={} runtime_audio={} runtime_admin={} runtime_kick={} runtime_loading={} runtime_rules={} runtime_ui_notice={} runtime_ui_menu={} runtime_world_label={} runtime_marker={} runtime_logic_sync={} runtime_resource_delta={} runtime_command_ctrl={} runtime_gameplay_signal={}",
@@ -1540,6 +1542,7 @@ fn runtime_world_position_observability(
 fn runtime_build_ui_observability(
     snapshot_input: &ClientSnapshotInputState,
     projection: &BuilderQueueProjection,
+    configured_block_projection: &ConfiguredBlockProjection,
 ) -> BuildUiObservability {
     BuildUiObservability {
         selected_block_id: snapshot_input.selected_block_id,
@@ -1551,6 +1554,7 @@ fn runtime_build_ui_observability(
         removed_count: projection.removed_count,
         orphan_authoritative_count: projection.orphan_authoritative_count,
         head: runtime_build_queue_head_observability(projection),
+        inspector_entries: runtime_build_config_inspector_entries(configured_block_projection),
     }
 }
 
@@ -1574,6 +1578,457 @@ fn runtime_build_queue_head_stage(stage: BuilderPlanStage) -> BuildQueueHeadStag
         BuilderPlanStage::Finished => BuildQueueHeadStage::Finished,
         BuilderPlanStage::Removed => BuildQueueHeadStage::Removed,
     }
+}
+
+fn runtime_build_config_inspector_entries(
+    projection: &ConfiguredBlockProjection,
+) -> Vec<BuildConfigInspectorEntryObservability> {
+    let mut entries = Vec::new();
+    runtime_push_string_build_config_entry(
+        &mut entries,
+        "message",
+        &projection.message_text_by_build_pos,
+        |text| {
+            if text.is_empty() {
+                "text=empty".to_string()
+            } else {
+                format!(
+                    "len={}:text={}",
+                    text.chars().count(),
+                    runtime_build_config_text_sample(text, 24),
+                )
+            }
+        },
+    );
+    runtime_push_canvas_build_config_entry(&mut entries, &projection.canvas_bytes_by_build_pos);
+    runtime_push_power_node_build_config_entry(
+        &mut entries,
+        &projection.power_node_links_by_build_pos,
+    );
+    runtime_push_u16_option_build_config_entry(
+        &mut entries,
+        "reconstructor",
+        &projection.reconstructor_command_by_build_pos,
+        "command",
+    );
+    runtime_push_raw_content_build_config_entry(
+        &mut entries,
+        "payload-source",
+        &projection.payload_source_content_by_build_pos,
+    );
+    runtime_push_raw_content_build_config_entry(
+        &mut entries,
+        "payload-router",
+        &projection.payload_router_sorted_content_by_build_pos,
+    );
+    runtime_push_i16_option_build_config_entry(
+        &mut entries,
+        "duct-router",
+        &projection.duct_router_item_by_build_pos,
+        "item",
+    );
+    runtime_push_i16_option_build_config_entry(
+        &mut entries,
+        "sorter",
+        &projection.sorter_item_by_build_pos,
+        "item",
+    );
+    runtime_push_i16_option_build_config_entry(
+        &mut entries,
+        "inverted-sorter",
+        &projection.inverted_sorter_item_by_build_pos,
+        "item",
+    );
+    runtime_push_i16_option_build_config_entry(
+        &mut entries,
+        "item-source",
+        &projection.item_source_item_by_build_pos,
+        "item",
+    );
+    runtime_push_i16_option_build_config_entry(
+        &mut entries,
+        "liquid-source",
+        &projection.liquid_source_liquid_by_build_pos,
+        "liquid",
+    );
+    runtime_push_i16_option_build_config_entry(
+        &mut entries,
+        "unit-cargo-unload-point",
+        &projection.unit_cargo_unload_point_item_by_build_pos,
+        "item",
+    );
+    runtime_push_i16_option_build_config_entry(
+        &mut entries,
+        "landing-pad",
+        &projection.landing_pad_item_by_build_pos,
+        "item",
+    );
+    runtime_push_bool_option_build_config_entry(
+        &mut entries,
+        "switch",
+        &projection.switch_enabled_by_build_pos,
+        "enabled",
+    );
+    runtime_push_bool_option_build_config_entry(
+        &mut entries,
+        "door",
+        &projection.door_open_by_build_pos,
+        "open",
+    );
+    runtime_push_i16_option_build_config_entry(
+        &mut entries,
+        "constructor",
+        &projection.constructor_recipe_block_by_build_pos,
+        "recipe",
+    );
+    runtime_push_i32_build_config_entry(
+        &mut entries,
+        "light",
+        &projection.light_color_by_build_pos,
+        |value| format!("color=0x{value:08x}"),
+    );
+    runtime_push_link_build_config_entry(
+        &mut entries,
+        "item-bridge",
+        &projection.item_bridge_link_by_build_pos,
+    );
+    runtime_push_i16_option_build_config_entry(
+        &mut entries,
+        "unloader",
+        &projection.unloader_item_by_build_pos,
+        "item",
+    );
+    runtime_push_i16_option_build_config_entry(
+        &mut entries,
+        "duct-unloader",
+        &projection.duct_unloader_item_by_build_pos,
+        "item",
+    );
+    runtime_push_link_build_config_entry(
+        &mut entries,
+        "mass-driver",
+        &projection.mass_driver_link_by_build_pos,
+    );
+    runtime_push_link_build_config_entry(
+        &mut entries,
+        "payload-mass-driver",
+        &projection.payload_mass_driver_link_by_build_pos,
+    );
+    entries
+}
+
+fn runtime_push_i16_option_build_config_entry(
+    entries: &mut Vec<BuildConfigInspectorEntryObservability>,
+    family: &str,
+    values: &BTreeMap<i32, Option<i16>>,
+    value_name: &str,
+) {
+    if values.is_empty() {
+        return;
+    }
+    let sample = match values.last_key_value() {
+        Some((build_pos, Some(value))) => {
+            format!(
+                "{}:{}={value}",
+                runtime_build_config_pos_label(*build_pos),
+                value_name
+            )
+        }
+        Some((build_pos, None)) => {
+            format!(
+                "{}:{}=clear",
+                runtime_build_config_pos_label(*build_pos),
+                value_name
+            )
+        }
+        None => return,
+    };
+    entries.push(BuildConfigInspectorEntryObservability {
+        family: family.to_string(),
+        tracked_count: values.len(),
+        sample,
+    });
+}
+
+fn runtime_push_u16_option_build_config_entry(
+    entries: &mut Vec<BuildConfigInspectorEntryObservability>,
+    family: &str,
+    values: &BTreeMap<i32, Option<u16>>,
+    value_name: &str,
+) {
+    if values.is_empty() {
+        return;
+    }
+    let sample = match values.last_key_value() {
+        Some((build_pos, Some(value))) => {
+            format!(
+                "{}:{}={value}",
+                runtime_build_config_pos_label(*build_pos),
+                value_name
+            )
+        }
+        Some((build_pos, None)) => {
+            format!(
+                "{}:{}=clear",
+                runtime_build_config_pos_label(*build_pos),
+                value_name
+            )
+        }
+        None => return,
+    };
+    entries.push(BuildConfigInspectorEntryObservability {
+        family: family.to_string(),
+        tracked_count: values.len(),
+        sample,
+    });
+}
+
+fn runtime_push_bool_option_build_config_entry(
+    entries: &mut Vec<BuildConfigInspectorEntryObservability>,
+    family: &str,
+    values: &BTreeMap<i32, Option<bool>>,
+    value_name: &str,
+) {
+    if values.is_empty() {
+        return;
+    }
+    let sample = match values.last_key_value() {
+        Some((build_pos, Some(value))) => format!(
+            "{}:{}={}",
+            runtime_build_config_pos_label(*build_pos),
+            value_name,
+            if *value { 1 } else { 0 }
+        ),
+        Some((build_pos, None)) => {
+            format!(
+                "{}:{}=clear",
+                runtime_build_config_pos_label(*build_pos),
+                value_name
+            )
+        }
+        None => return,
+    };
+    entries.push(BuildConfigInspectorEntryObservability {
+        family: family.to_string(),
+        tracked_count: values.len(),
+        sample,
+    });
+}
+
+fn runtime_push_string_build_config_entry<F>(
+    entries: &mut Vec<BuildConfigInspectorEntryObservability>,
+    family: &str,
+    values: &BTreeMap<i32, String>,
+    describe: F,
+) where
+    F: Fn(&str) -> String,
+{
+    if values.is_empty() {
+        return;
+    }
+    let sample = match values.last_key_value() {
+        Some((build_pos, value)) => {
+            format!(
+                "{}:{}",
+                runtime_build_config_pos_label(*build_pos),
+                describe(value)
+            )
+        }
+        None => return,
+    };
+    entries.push(BuildConfigInspectorEntryObservability {
+        family: family.to_string(),
+        tracked_count: values.len(),
+        sample,
+    });
+}
+
+fn runtime_push_i32_build_config_entry<F>(
+    entries: &mut Vec<BuildConfigInspectorEntryObservability>,
+    family: &str,
+    values: &BTreeMap<i32, i32>,
+    describe: F,
+) where
+    F: Fn(i32) -> String,
+{
+    if values.is_empty() {
+        return;
+    }
+    let sample = match values.last_key_value() {
+        Some((build_pos, value)) => {
+            format!(
+                "{}:{}",
+                runtime_build_config_pos_label(*build_pos),
+                describe(*value)
+            )
+        }
+        None => return,
+    };
+    entries.push(BuildConfigInspectorEntryObservability {
+        family: family.to_string(),
+        tracked_count: values.len(),
+        sample,
+    });
+}
+
+fn runtime_push_raw_content_build_config_entry(
+    entries: &mut Vec<BuildConfigInspectorEntryObservability>,
+    family: &str,
+    values: &BTreeMap<i32, Option<ConfiguredContentRef>>,
+) {
+    if values.is_empty() {
+        return;
+    }
+    let sample = match values.last_key_value() {
+        Some((build_pos, Some(content))) => format!(
+            "{}:content={}",
+            runtime_build_config_pos_label(*build_pos),
+            runtime_build_config_content_ref_label(content),
+        ),
+        Some((build_pos, None)) => {
+            format!(
+                "{}:content=clear",
+                runtime_build_config_pos_label(*build_pos)
+            )
+        }
+        None => return,
+    };
+    entries.push(BuildConfigInspectorEntryObservability {
+        family: family.to_string(),
+        tracked_count: values.len(),
+        sample,
+    });
+}
+
+fn runtime_push_link_build_config_entry(
+    entries: &mut Vec<BuildConfigInspectorEntryObservability>,
+    family: &str,
+    values: &BTreeMap<i32, Option<i32>>,
+) {
+    if values.is_empty() {
+        return;
+    }
+    let sample = match values.last_key_value() {
+        Some((build_pos, Some(link_pos))) => format!(
+            "{}:link={}",
+            runtime_build_config_pos_label(*build_pos),
+            runtime_build_config_pos_label(*link_pos),
+        ),
+        Some((build_pos, None)) => {
+            format!("{}:link=clear", runtime_build_config_pos_label(*build_pos))
+        }
+        None => return,
+    };
+    entries.push(BuildConfigInspectorEntryObservability {
+        family: family.to_string(),
+        tracked_count: values.len(),
+        sample,
+    });
+}
+
+fn runtime_push_power_node_build_config_entry(
+    entries: &mut Vec<BuildConfigInspectorEntryObservability>,
+    values: &BTreeMap<i32, BTreeSet<i32>>,
+) {
+    if values.is_empty() {
+        return;
+    }
+    let sample = match values.last_key_value() {
+        Some((build_pos, targets)) if targets.is_empty() => {
+            format!("{}:links=clear", runtime_build_config_pos_label(*build_pos))
+        }
+        Some((build_pos, targets)) => {
+            let links = targets
+                .iter()
+                .map(|target_pos| runtime_build_config_pos_label(*target_pos))
+                .collect::<Vec<_>>()
+                .join("|");
+            format!(
+                "{}:links={links}",
+                runtime_build_config_pos_label(*build_pos),
+            )
+        }
+        None => return,
+    };
+    entries.push(BuildConfigInspectorEntryObservability {
+        family: "power-node".to_string(),
+        tracked_count: values.len(),
+        sample,
+    });
+}
+
+fn runtime_push_canvas_build_config_entry(
+    entries: &mut Vec<BuildConfigInspectorEntryObservability>,
+    values: &BTreeMap<i32, Vec<u8>>,
+) {
+    if values.is_empty() {
+        return;
+    }
+    let sample = match values.last_key_value() {
+        Some((build_pos, bytes)) => format!(
+            "{}:len={}:hex={}",
+            runtime_build_config_pos_label(*build_pos),
+            bytes.len(),
+            runtime_build_config_bytes_sample(bytes, 8),
+        ),
+        None => return,
+    };
+    entries.push(BuildConfigInspectorEntryObservability {
+        family: "canvas".to_string(),
+        tracked_count: values.len(),
+        sample,
+    });
+}
+
+fn runtime_build_config_pos_label(build_pos: i32) -> String {
+    let (x, y) = unpack_runtime_point2(build_pos);
+    format!("{x}:{y}")
+}
+
+fn runtime_build_config_text_sample(text: &str, limit: usize) -> String {
+    let mut sample = String::new();
+    for (index, ch) in text.chars().enumerate() {
+        if index == limit {
+            sample.push('~');
+            break;
+        }
+        sample.push(match ch {
+            ' ' | '\t' | '\r' | '\n' => '_',
+            _ => ch,
+        });
+    }
+    if sample.is_empty() {
+        "empty".to_string()
+    } else {
+        sample
+    }
+}
+
+fn runtime_build_config_bytes_sample(bytes: &[u8], limit: usize) -> String {
+    let mut sample = String::new();
+    for (index, byte) in bytes.iter().take(limit).enumerate() {
+        if index > 0 {
+            sample.push('-');
+        }
+        sample.push_str(&format!("{byte:02x}"));
+    }
+    if bytes.len() > limit {
+        sample.push('~');
+    }
+    if sample.is_empty() {
+        "empty".to_string()
+    } else {
+        sample
+    }
+}
+
+fn runtime_build_config_content_ref_label(content: &ConfiguredContentRef) -> String {
+    let kind = match content.content_type {
+        1 => "b",
+        6 => "u",
+        _ => "c",
+    };
+    format!("{kind}:{}", content.content_id)
 }
 
 fn runtime_ui_notice_label(session_state: &SessionState) -> String {
@@ -3385,6 +3840,25 @@ mod tests {
         assert!(hud.status_text.contains(":pr1@22:44=u:9:"));
         assert!(hud.status_text.contains(":pn1@23:45=n2:24:46|25:47:"));
         assert!(hud.status_text.contains(":rc1@26:48=12"));
+        let build_ui = hud
+            .build_ui
+            .as_ref()
+            .expect("build_ui observability should be present");
+        assert!(build_ui.inspector_entries.iter().any(|entry| {
+            entry.family == "message" && entry.sample == "18:40:len=5:text=hello"
+        }));
+        assert!(build_ui.inspector_entries.iter().any(|entry| {
+            entry.family == "payload-source" && entry.sample == "21:43:content=b:7"
+        }));
+        assert!(build_ui.inspector_entries.iter().any(|entry| {
+            entry.family == "payload-router" && entry.sample == "22:44:content=u:9"
+        }));
+        assert!(build_ui.inspector_entries.iter().any(|entry| {
+            entry.family == "power-node" && entry.sample == "23:45:links=24:46|25:47"
+        }));
+        assert!(build_ui.inspector_entries.iter().any(|entry| {
+            entry.family == "reconstructor" && entry.sample == "26:48:command=12"
+        }));
     }
 
     #[test]
@@ -4350,6 +4824,7 @@ mod tests {
         assert_eq!(head.block_id, Some(301));
         assert_eq!(head.rotation, Some(1));
         assert_eq!(head.stage, BuildQueueHeadStage::InFlight);
+        assert!(build_ui.inspector_entries.is_empty());
         assert!(hud.status_text.contains("runtime_core_teams=1"));
         assert!(hud.status_text.contains("runtime_core_items=2"));
         assert!(hud

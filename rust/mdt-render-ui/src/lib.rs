@@ -9,11 +9,12 @@ pub mod window_presenter;
 pub use ascii_presenter::AsciiScenePresenter;
 pub use bin_support::{decode_hex, read_world_stream_bytes};
 pub use hud_model::{
-    BuildQueueHeadObservability, BuildQueueHeadStage, BuildUiObservability, HudModel,
-    RuntimeHudTextObservability, RuntimeLiveEffectPositionSource,
-    RuntimeLiveEffectSummaryObservability, RuntimeLiveEntitySummaryObservability,
-    RuntimeLiveSummaryObservability, RuntimeTextInputObservability, RuntimeToastObservability,
-    RuntimeUiObservability, RuntimeWorldPositionObservability,
+    BuildConfigInspectorEntryObservability, BuildQueueHeadObservability, BuildQueueHeadStage,
+    BuildUiObservability, HudModel, RuntimeHudTextObservability,
+    RuntimeLiveEffectPositionSource, RuntimeLiveEffectSummaryObservability,
+    RuntimeLiveEntitySummaryObservability, RuntimeLiveSummaryObservability,
+    RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiObservability,
+    RuntimeWorldPositionObservability,
 };
 pub use projection::{
     project_hud_model, project_render_model, project_render_model_with_player_position,

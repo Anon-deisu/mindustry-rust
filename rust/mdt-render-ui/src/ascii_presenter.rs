@@ -51,6 +51,9 @@ impl AsciiScenePresenter {
         if let Some(build_text) = compose_build_ui_text(hud) {
             out.push_str(&format!("BUILD: {build_text}\n"));
         }
+        for inspector_line in compose_build_ui_inspector_lines(hud) {
+            out.push_str(&format!("BUILD-INSPECTOR: {inspector_line}\n"));
+        }
         if let Some(overlay_semantics_text) = compose_overlay_semantics_text(scene) {
             out.push_str(&format!("OVERLAY-KINDS: {overlay_semantics_text}\n"));
         }
@@ -234,8 +237,50 @@ fn compose_runtime_ui_text(hud: &HudModel) -> Option<String> {
 
 fn compose_build_ui_text(hud: &HudModel) -> Option<String> {
     let build_ui = hud.build_ui.as_ref()?;
-    Some(format!(
-        "sel={} rot={} building={} queue={}/{}/{}/{}/{} head={}",
+    Some(compose_build_ui_summary_text(build_ui))
+}
+
+fn compose_build_ui_inspector_lines(hud: &HudModel) -> Vec<String> {
+    let Some(build_ui) = hud.build_ui.as_ref() else {
+        return Vec::new();
+    };
+
+    build_ui
+        .inspector_entries
+        .iter()
+        .map(|entry| {
+            format!(
+                "family={} tracked={} sample={}",
+                compact_runtime_ui_text(Some(entry.family.as_str())),
+                entry.tracked_count,
+                compact_build_inspector_text(entry.sample.as_str(), 72),
+            )
+        })
+        .collect()
+}
+
+fn compact_build_inspector_text(value: &str, limit: usize) -> String {
+    let mut compact = String::new();
+    for (index, ch) in value.chars().enumerate() {
+        if index == limit {
+            compact.push('~');
+            break;
+        }
+        compact.push(match ch {
+            ' ' | '\t' | '\r' | '\n' => '_',
+            _ => ch,
+        });
+    }
+    if compact.is_empty() {
+        "-".to_string()
+    } else {
+        compact
+    }
+}
+
+fn compose_build_ui_summary_text(build_ui: &crate::BuildUiObservability) -> String {
+    format!(
+        "sel={} rot={} building={} queue={}/{}/{}/{}/{} head={} cfg={}",
         optional_i16_label(build_ui.selected_block_id),
         build_ui.selected_rotation,
         if build_ui.building { 1 } else { 0 },
@@ -245,7 +290,8 @@ fn compose_build_ui_text(hud: &HudModel) -> Option<String> {
         build_ui.removed_count,
         build_ui.orphan_authoritative_count,
         build_queue_head_text(build_ui.head.as_ref()),
-    ))
+        build_ui.inspector_entries.len(),
+    )
 }
 
 fn compose_live_entity_text(entity: &crate::RuntimeLiveEntitySummaryObservability) -> String {
@@ -725,6 +771,18 @@ mod tests {
                     rotation: Some(1),
                     stage: crate::BuildQueueHeadStage::InFlight,
                 }),
+                inspector_entries: vec![
+                    crate::BuildConfigInspectorEntryObservability {
+                        family: "message".to_string(),
+                        tracked_count: 1,
+                        sample: "18:40:len=5:text=hello".to_string(),
+                    },
+                    crate::BuildConfigInspectorEntryObservability {
+                        family: "power-node".to_string(),
+                        tracked_count: 1,
+                        sample: "23:45:links=24:46|25:47".to_string(),
+                    },
+                ],
             }),
         };
         let mut presenter = AsciiScenePresenter::default();
@@ -735,7 +793,13 @@ mod tests {
         assert!(frame.contains("SUMMARY: player=operator team=2 selected=payload-rout~"));
         assert!(frame.contains("map=80x60 overlay=1 fog=1 vis=120 hid=24"));
         assert!(frame.contains(
-            "BUILD: sel=257 rot=2 building=1 queue=1/2/3/4/1 head=flight@100:99:place:b301:r1"
+            "BUILD: sel=257 rot=2 building=1 queue=1/2/3/4/1 head=flight@100:99:place:b301:r1 cfg=2"
+        ));
+        assert!(frame.contains(
+            "BUILD-INSPECTOR: family=message tracked=1 sample=18:40:len=5:text=hello"
+        ));
+        assert!(frame.contains(
+            "BUILD-INSPECTOR: family=power-node tracked=1 sample=23:45:links=24:46|25:47"
         ));
         assert!(frame.contains(
             "OVERLAY-KINDS: players=1 markers=1 plans=1 blocks=1 runtime=0 terrain=0 unknown=0"

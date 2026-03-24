@@ -512,8 +512,8 @@ fn compose_runtime_ui_status_text(runtime_ui: &RuntimeUiObservability) -> String
 }
 
 fn compose_build_ui_status_text(build_ui: &BuildUiObservability) -> String {
-    format!(
-        "build:sel={}:r{}:b{}:q{}/i{}/f{}/r{}/o{}:h={}",
+    let mut text = format!(
+        "build:sel={}:r{}:b{}:q{}/i{}/f{}/r{}/o{}:h={}:cfg{}",
         optional_i16_label(build_ui.selected_block_id),
         build_ui.selected_rotation,
         if build_ui.building { 1 } else { 0 },
@@ -523,7 +523,49 @@ fn compose_build_ui_status_text(build_ui: &BuildUiObservability) -> String {
         build_ui.removed_count,
         build_ui.orphan_authoritative_count,
         build_queue_head_status_text(build_ui.head.as_ref()),
-    )
+        build_ui.inspector_entries.len(),
+    );
+    let inspector_text = compose_build_ui_inspector_status_text(build_ui);
+    if !inspector_text.is_empty() {
+        text.push_str(":cfg=");
+        text.push_str(&inspector_text);
+    }
+    text
+}
+
+fn compose_build_ui_inspector_status_text(build_ui: &BuildUiObservability) -> String {
+    build_ui
+        .inspector_entries
+        .iter()
+        .map(|entry| {
+            format!(
+                "{}#{}@{}",
+                compact_runtime_ui_text(Some(entry.family.as_str())),
+                entry.tracked_count,
+                compact_build_inspector_text(entry.sample.as_str(), 28),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(";")
+}
+
+fn compact_build_inspector_text(value: &str, limit: usize) -> String {
+    let mut compact = String::new();
+    for (index, ch) in value.chars().enumerate() {
+        if index == limit {
+            compact.push('~');
+            break;
+        }
+        compact.push(match ch {
+            ' ' | '\t' | '\r' | '\n' => '_',
+            _ => ch,
+        });
+    }
+    if compact.is_empty() {
+        "-".to_string()
+    } else {
+        compact
+    }
 }
 
 fn compose_live_entity_status_text(
@@ -1170,6 +1212,18 @@ mod tests {
                     rotation: Some(1),
                     stage: BuildQueueHeadStage::InFlight,
                 }),
+                inspector_entries: vec![
+                    crate::BuildConfigInspectorEntryObservability {
+                        family: "message".to_string(),
+                        tracked_count: 1,
+                        sample: "18:40:len=5:text=hello".to_string(),
+                    },
+                    crate::BuildConfigInspectorEntryObservability {
+                        family: "power-node".to_string(),
+                        tracked_count: 1,
+                        sample: "23:45:links=24:46|25:47".to_string(),
+                    },
+                ],
             }),
         };
 
@@ -1185,7 +1239,10 @@ mod tests {
             .contains("hud:team=2 sel=payload-rout~ plans=3 mk=4 map=80x60 ov1 fg1 vis120 hid24"));
         assert!(frame
             .status_text
-            .contains("build:sel=257:r2:b1:q1/i2/f3/r4/o1:h=flight@100:99:place:b301:r1"));
+            .contains("build:sel=257:r2:b1:q1/i2/f3/r4/o1:h=flight@100:99:place:b301:r1:cfg2"));
+        assert!(frame
+            .status_text
+            .contains(":cfg=message#1@18:40:len=5:text=hello;power-node#1@23:45:links=24:46|25:47"));
         assert!(frame
             .status_text
             .contains("ui:hud=9/10/11@hud_text/hud_rel"));

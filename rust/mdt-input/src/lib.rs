@@ -2,6 +2,7 @@
 //! This crate is intentionally transport-agnostic.
 
 pub mod builder_queue;
+pub mod capability_gate;
 pub mod command_mode;
 pub mod intent;
 pub mod live_intent;
@@ -12,6 +13,10 @@ pub mod probe;
 pub use builder_queue::{
     BuilderQueueEntry, BuilderQueueEntryObservation, BuilderQueueStage, BuilderQueueStateMachine,
     BuilderQueueTransition,
+};
+pub use capability_gate::{
+    CapabilityBuildRequest, CapabilityCommandRequest, CapabilityContext, CapabilityDecision,
+    CapabilityDenyReason, CapabilityGate,
 };
 pub use command_mode::{
     CommandModeCommandSelection, CommandModePositionTarget, CommandModeProjection,

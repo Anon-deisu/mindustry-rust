@@ -364,6 +364,31 @@ pub struct TransferItemToUnitProjection {
     pub to_entity_id: Option<i32>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TransferItemEffectProjection {
+    pub item_id: Option<i16>,
+    pub x_bits: u32,
+    pub y_bits: u32,
+    pub to_entity_id: Option<i32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DestroyPayloadProjection {
+    pub build_pos: Option<i32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreateBulletProjection {
+    pub bullet_type_id: Option<i16>,
+    pub team_id: u8,
+    pub x_bits: u32,
+    pub y_bits: u32,
+    pub angle_bits: u32,
+    pub damage_bits: u32,
+    pub velocity_scl_bits: u32,
+    pub lifetime_scl_bits: u32,
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ResourceUnitItemStack {
     pub item_id: Option<i16>,
@@ -2606,6 +2631,8 @@ pub struct SessionState {
     pub last_transfer_item_to: Option<TransferItemToProjection>,
     pub received_transfer_item_to_unit_count: u64,
     pub last_transfer_item_to_unit: Option<TransferItemToUnitProjection>,
+    pub received_transfer_item_effect_count: u64,
+    pub last_transfer_item_effect: Option<TransferItemEffectProjection>,
     pub resource_delta_projection: ResourceDeltaProjection,
     pub received_payload_dropped_count: u64,
     pub last_payload_dropped: Option<PayloadDroppedProjection>,
@@ -2613,6 +2640,8 @@ pub struct SessionState {
     pub last_picked_build_payload: Option<PickedBuildPayloadProjection>,
     pub received_picked_unit_payload_count: u64,
     pub last_picked_unit_payload: Option<PickedUnitPayloadProjection>,
+    pub received_destroy_payload_count: u64,
+    pub last_destroy_payload: Option<DestroyPayloadProjection>,
     pub payload_lifecycle_projection: PayloadLifecycleProjection,
     pub received_unit_entered_payload_count: u64,
     pub last_unit_entered_payload: Option<UnitEnteredPayloadProjection>,
@@ -2636,6 +2665,8 @@ pub struct SessionState {
     pub last_create_weather_duration_bits: Option<u32>,
     pub last_create_weather_wind_x_bits: Option<u32>,
     pub last_create_weather_wind_y_bits: Option<u32>,
+    pub received_create_bullet_count: u64,
+    pub last_create_bullet: Option<CreateBulletProjection>,
     pub received_spawn_effect_count: u64,
     pub last_spawn_effect_x_bits: Option<u32>,
     pub last_spawn_effect_y_bits: Option<u32>,

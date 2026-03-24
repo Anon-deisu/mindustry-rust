@@ -3,7 +3,9 @@ use crate::generated::remote_high_frequency_gen::{
     STATE_SNAPSHOT_PACKET_ID,
 };
 use crate::snapshot_ingest::InboundSnapshot;
-use mdt_remote::{HighFrequencyRemoteMethod, RemoteManifest, RemoteManifestError};
+use mdt_remote::{
+    HighFrequencyRemoteMethod, RemoteManifest, RemoteManifestError, RemotePacketRegistry,
+};
 use std::collections::HashSet;
 
 const INBOUND_SNAPSHOT_PACKET_SPECS: [(u8, HighFrequencyRemoteMethod); 4] = [
@@ -40,14 +42,15 @@ impl Default for InboundSnapshotPacketRegistry {
 
 impl InboundSnapshotPacketRegistry {
     pub fn from_remote_manifest(manifest: &RemoteManifest) -> Result<Self, RemoteManifestError> {
+        let registry = RemotePacketRegistry::from_manifest(manifest)?;
         let mut resolved_entries = Vec::with_capacity(INBOUND_SNAPSHOT_PACKET_SPECS.len());
         let mut seen_packet_ids = HashSet::with_capacity(INBOUND_SNAPSHOT_PACKET_SPECS.len());
 
         for (_, method) in INBOUND_SNAPSHOT_PACKET_SPECS {
-            let entry = manifest
-                .remote_packets
-                .iter()
-                .find(|packet| packet.method == method.method_name())
+            let entry = registry
+                .packets_for_method(method.method_name())
+                .into_iter()
+                .next()
                 .ok_or(RemoteManifestError::MissingHighFrequencyPacket(
                     method.method_name(),
                 ))?;

@@ -6,13 +6,14 @@ use crate::net_loop::{ingest_inbound_packet, NetLoopStats};
 use crate::packet_registry::InboundSnapshotPacketRegistry;
 use crate::session_state::{
     BuilderQueueEntryObservation, ConfiguredBlockOutcome, ConfiguredContentRef,
-    EffectBusinessContentKind, EffectBusinessPositionSource, EffectBusinessProjection,
-    EffectDataSemantic, GameplayStateProjection, PayloadDroppedProjection,
-    PickedBuildPayloadProjection, PickedUnitPayloadProjection, ReconnectPhaseProjection,
-    ReconnectReasonKind, SessionResetKind, SessionState, SessionTimeoutKind,
-    SessionTimeoutProjection, TakeItemsProjection, TileConfigAuthoritySource,
-    TileConfigBusinessApply, TransferItemToProjection, TransferItemToUnitProjection,
-    UnitEnteredPayloadProjection, UnitRefProjection, WorldReloadProjection,
+    CreateBulletProjection, DestroyPayloadProjection, EffectBusinessContentKind,
+    EffectBusinessPositionSource, EffectBusinessProjection, EffectDataSemantic,
+    GameplayStateProjection, PayloadDroppedProjection, PickedBuildPayloadProjection,
+    PickedUnitPayloadProjection, ReconnectPhaseProjection, ReconnectReasonKind, SessionResetKind,
+    SessionState, SessionTimeoutKind, SessionTimeoutProjection, TakeItemsProjection,
+    TileConfigAuthoritySource, TileConfigBusinessApply, TransferItemEffectProjection,
+    TransferItemToProjection, TransferItemToUnitProjection, UnitEnteredPayloadProjection,
+    UnitRefProjection, WorldReloadProjection,
 };
 use mdt_protocol::{
     decode_packet, encode_framework_message, encode_packet, FrameworkMessage, PacketCodecError,
@@ -329,6 +330,7 @@ pub struct ClientSession {
     request_drop_payload_packet_id: Option<u8>,
     request_unit_payload_packet_id: Option<u8>,
     payload_dropped_packet_id: Option<u8>,
+    destroy_payload_packet_id: Option<u8>,
     picked_build_payload_packet_id: Option<u8>,
     picked_unit_payload_packet_id: Option<u8>,
     unit_entered_payload_packet_id: Option<u8>,
@@ -336,6 +338,7 @@ pub struct ClientSession {
     take_items_packet_id: Option<u8>,
     transfer_item_to_packet_id: Option<u8>,
     transfer_item_to_unit_packet_id: Option<u8>,
+    transfer_item_effect_packet_id: Option<u8>,
     unit_despawn_packet_id: Option<u8>,
     unit_death_packet_id: Option<u8>,
     unit_destroy_packet_id: Option<u8>,
@@ -368,6 +371,7 @@ pub struct ClientSession {
     set_position_packet_id: Option<u8>,
     set_camera_position_packet_id: Option<u8>,
     create_weather_packet_id: Option<u8>,
+    create_bullet_packet_id: Option<u8>,
     spawn_effect_packet_id: Option<u8>,
     logic_explosion_packet_id: Option<u8>,
     auto_door_toggle_packet_id: Option<u8>,
@@ -855,6 +859,11 @@ impl ClientSession {
             .iter()
             .find(|entry| entry.method == "payloadDropped")
             .map(|entry| entry.packet_id);
+        let destroy_payload_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "destroyPayload")
+            .map(|entry| entry.packet_id);
         let picked_build_payload_packet_id = manifest
             .remote_packets
             .iter()
@@ -889,6 +898,11 @@ impl ClientSession {
             .remote_packets
             .iter()
             .find(|entry| entry.method == "transferItemToUnit")
+            .map(|entry| entry.packet_id);
+        let transfer_item_effect_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "transferItemEffect")
             .map(|entry| entry.packet_id);
         let unit_despawn_packet_id = manifest
             .remote_packets
@@ -1044,6 +1058,11 @@ impl ClientSession {
             .remote_packets
             .iter()
             .find(|entry| entry.method == "createWeather")
+            .map(|entry| entry.packet_id);
+        let create_bullet_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "createBullet")
             .map(|entry| entry.packet_id);
         let spawn_effect_packet_id = manifest
             .remote_packets
@@ -1363,6 +1382,7 @@ impl ClientSession {
             request_drop_payload_packet_id,
             request_unit_payload_packet_id,
             payload_dropped_packet_id,
+            destroy_payload_packet_id,
             picked_build_payload_packet_id,
             picked_unit_payload_packet_id,
             unit_entered_payload_packet_id,
@@ -1370,6 +1390,7 @@ impl ClientSession {
             take_items_packet_id,
             transfer_item_to_packet_id,
             transfer_item_to_unit_packet_id,
+            transfer_item_effect_packet_id,
             unit_despawn_packet_id,
             unit_death_packet_id,
             unit_destroy_packet_id,
@@ -1402,6 +1423,7 @@ impl ClientSession {
             set_position_packet_id,
             set_camera_position_packet_id,
             create_weather_packet_id,
+            create_bullet_packet_id,
             spawn_effect_packet_id,
             logic_explosion_packet_id,
             auto_door_toggle_packet_id,
@@ -4615,6 +4637,21 @@ impl ClientSession {
                     })
                 }
             }
+            packet_id if Some(packet_id) == self.transfer_item_effect_packet_id => {
+                if let Some(projection) = decode_transfer_item_effect_payload(&packet.payload) {
+                    self.state.received_transfer_item_effect_count = self
+                        .state
+                        .received_transfer_item_effect_count
+                        .saturating_add(1);
+                    self.state.last_transfer_item_effect = Some(projection.clone());
+                    Ok(ClientSessionEvent::TransferItemEffect { projection })
+                } else {
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
             packet_id if Some(packet_id) == self.payload_dropped_packet_id => {
                 if let Some(projection) = decode_payload_dropped_payload(&packet.payload) {
                     self.state.received_payload_dropped_count =
@@ -4625,6 +4662,19 @@ impl ClientSession {
                         world_coords_to_tile_pos(projection.x_bits, projection.y_bits),
                     );
                     Ok(ClientSessionEvent::PayloadDropped { projection })
+                } else {
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
+            packet_id if Some(packet_id) == self.destroy_payload_packet_id => {
+                if let Some(projection) = decode_destroy_payload_payload(&packet.payload) {
+                    self.state.received_destroy_payload_count =
+                        self.state.received_destroy_payload_count.saturating_add(1);
+                    self.state.last_destroy_payload = Some(projection.clone());
+                    Ok(ClientSessionEvent::DestroyPayload { projection })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
                         packet_id: packet.packet_id,
@@ -4831,6 +4881,19 @@ impl ClientSession {
                         wind_x: summary.wind_x,
                         wind_y: summary.wind_y,
                     })
+                } else {
+                    Ok(ClientSessionEvent::IgnoredPacket {
+                        packet_id: packet.packet_id,
+                        remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
+                    })
+                }
+            }
+            packet_id if Some(packet_id) == self.create_bullet_packet_id => {
+                if let Some(projection) = decode_create_bullet_payload(&packet.payload) {
+                    self.state.received_create_bullet_count =
+                        self.state.received_create_bullet_count.saturating_add(1);
+                    self.state.last_create_bullet = Some(projection.clone());
+                    Ok(ClientSessionEvent::CreateBullet { projection })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
                         packet_id: packet.packet_id,
@@ -7169,8 +7232,14 @@ pub enum ClientSessionEvent {
     TransferItemToUnit {
         projection: TransferItemToUnitProjection,
     },
+    TransferItemEffect {
+        projection: TransferItemEffectProjection,
+    },
     PayloadDropped {
         projection: PayloadDroppedProjection,
+    },
+    DestroyPayload {
+        projection: DestroyPayloadProjection,
     },
     PickedBuildPayload {
         projection: PickedBuildPayloadProjection,
@@ -7214,6 +7283,9 @@ pub enum ClientSessionEvent {
         duration: f32,
         wind_x: f32,
         wind_y: f32,
+    },
+    CreateBullet {
+        projection: CreateBulletProjection,
     },
     SpawnEffect {
         x: f32,
@@ -8926,6 +8998,28 @@ fn decode_create_weather_payload(payload: &[u8]) -> Option<CreateWeatherSummary>
     })
 }
 
+fn decode_create_bullet_payload(payload: &[u8]) -> Option<CreateBulletProjection> {
+    let mut cursor = 0usize;
+    let bullet_type_id = read_i16(payload, &mut cursor)?;
+    let team_id = read_u8(payload, &mut cursor)?;
+    let x = read_f32(payload, &mut cursor)?;
+    let y = read_f32(payload, &mut cursor)?;
+    let angle = read_f32(payload, &mut cursor)?;
+    let damage = read_f32(payload, &mut cursor)?;
+    let velocity_scl = read_f32(payload, &mut cursor)?;
+    let lifetime_scl = read_f32(payload, &mut cursor)?;
+    (cursor == payload.len()).then_some(CreateBulletProjection {
+        bullet_type_id: (bullet_type_id != -1).then_some(bullet_type_id),
+        team_id,
+        x_bits: x.to_bits(),
+        y_bits: y.to_bits(),
+        angle_bits: angle.to_bits(),
+        damage_bits: damage.to_bits(),
+        velocity_scl_bits: velocity_scl.to_bits(),
+        lifetime_scl_bits: lifetime_scl.to_bits(),
+    })
+}
+
 fn decode_spawn_effect_payload(payload: &[u8]) -> Option<SpawnEffectSummary> {
     let mut cursor = 0usize;
     let x = read_f32(payload, &mut cursor)?;
@@ -9191,6 +9285,20 @@ fn decode_transfer_item_to_unit_payload(payload: &[u8]) -> Option<TransferItemTo
     })
 }
 
+fn decode_transfer_item_effect_payload(payload: &[u8]) -> Option<TransferItemEffectProjection> {
+    let mut cursor = 0usize;
+    let item_id = read_optional_item_id(payload, &mut cursor)?;
+    let x = read_f32(payload, &mut cursor)?;
+    let y = read_f32(payload, &mut cursor)?;
+    let to_entity_id = read_optional_entity_id(payload, &mut cursor)?;
+    (cursor == payload.len()).then_some(TransferItemEffectProjection {
+        item_id,
+        x_bits: x.to_bits(),
+        y_bits: y.to_bits(),
+        to_entity_id,
+    })
+}
+
 fn decode_payload_dropped_payload(payload: &[u8]) -> Option<PayloadDroppedProjection> {
     let mut cursor = 0usize;
     let unit = read_optional_unit_ref(payload, &mut cursor)?;
@@ -9201,6 +9309,12 @@ fn decode_payload_dropped_payload(payload: &[u8]) -> Option<PayloadDroppedProjec
         x_bits: x.to_bits(),
         y_bits: y.to_bits(),
     })
+}
+
+fn decode_destroy_payload_payload(payload: &[u8]) -> Option<DestroyPayloadProjection> {
+    let mut cursor = 0usize;
+    let build_pos = read_optional_build_pos(payload, &mut cursor)?;
+    (cursor == payload.len()).then_some(DestroyPayloadProjection { build_pos })
 }
 
 fn decode_picked_build_payload(payload: &[u8]) -> Option<PickedBuildPayloadProjection> {
@@ -11965,11 +12079,30 @@ fn encode_transfer_item_to_unit_payload(
 }
 
 #[cfg(test)]
+fn encode_transfer_item_effect_payload(
+    item_id: Option<i16>,
+    x: f32,
+    y: f32,
+    to_entity_id: Option<i32>,
+) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(14);
+    payload.extend_from_slice(&encode_optional_item_payload(item_id));
+    payload.extend_from_slice(&encode_two_f32_payload(x, y));
+    payload.extend_from_slice(&encode_optional_entity_payload(to_entity_id));
+    payload
+}
+
+#[cfg(test)]
 fn encode_payload_dropped_payload(unit: ClientUnitRef, x: f32, y: f32) -> Vec<u8> {
     let mut payload = Vec::with_capacity(13);
     payload.extend_from_slice(&encode_unit_payload(unit));
     payload.extend_from_slice(&encode_two_f32_payload(x, y));
     payload
+}
+
+#[cfg(test)]
+fn encode_destroy_payload_payload(build_pos: Option<i32>) -> Vec<u8> {
+    encode_building_payload(build_pos)
 }
 
 #[cfg(test)]
@@ -12015,6 +12148,29 @@ fn encode_create_weather_payload(
     write_f32(&mut payload, duration);
     write_f32(&mut payload, wind_x);
     write_f32(&mut payload, wind_y);
+    payload
+}
+
+#[cfg(test)]
+fn encode_create_bullet_payload(
+    bullet_type_id: Option<i16>,
+    team_id: u8,
+    x: f32,
+    y: f32,
+    angle: f32,
+    damage: f32,
+    velocity_scl: f32,
+    lifetime_scl: f32,
+) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(27);
+    payload.extend_from_slice(&bullet_type_id.unwrap_or(-1).to_be_bytes());
+    payload.push(team_id);
+    write_f32(&mut payload, x);
+    write_f32(&mut payload, y);
+    write_f32(&mut payload, angle);
+    write_f32(&mut payload, damage);
+    write_f32(&mut payload, velocity_scl);
+    write_f32(&mut payload, lifetime_scl);
     payload
 }
 
@@ -17115,7 +17271,10 @@ mod tests {
             Some("127.0.0.1")
         );
         assert_eq!(session.state().last_connect_redirect_port, Some(6567));
-        assert_eq!(session.reconnect_phase(), ReconnectPhaseProjection::Scheduled);
+        assert_eq!(
+            session.reconnect_phase(),
+            ReconnectPhaseProjection::Scheduled
+        );
         assert_eq!(
             session.reconnect_reason_kind(),
             Some(ReconnectReasonKind::ConnectRedirect)
@@ -29848,7 +30007,10 @@ mod tests {
         assert_eq!(session.state().kick_reset_count, 1);
         assert_eq!(session.state().reconnect_reset_count, 0);
         assert_eq!(session.state().world_reload_count, 0);
-        assert_eq!(session.reconnect_phase(), ReconnectPhaseProjection::Scheduled);
+        assert_eq!(
+            session.reconnect_phase(),
+            ReconnectPhaseProjection::Scheduled
+        );
         assert_eq!(
             session.reconnect_reason_kind(),
             Some(ReconnectReasonKind::Kick)
@@ -30858,7 +31020,10 @@ mod tests {
         assert_eq!(session.state().reconnect_reset_count, 1);
         assert_eq!(session.state().world_reload_count, 0);
         assert_eq!(session.state().kick_reset_count, 0);
-        assert_eq!(session.reconnect_phase(), ReconnectPhaseProjection::Attempting);
+        assert_eq!(
+            session.reconnect_phase(),
+            ReconnectPhaseProjection::Attempting
+        );
         assert_eq!(
             session.reconnect_reason_kind(),
             Some(ReconnectReasonKind::ManualConnect)
@@ -30875,6 +31040,9 @@ mod tests {
         }
         assert!(session.state().world_stream_loaded);
         assert!(session.prepare_connect_confirm_packet().unwrap().is_some());
-        assert_eq!(session.reconnect_phase(), ReconnectPhaseProjection::Succeeded);
+        assert_eq!(
+            session.reconnect_phase(),
+            ReconnectPhaseProjection::Succeeded
+        );
     }
 }

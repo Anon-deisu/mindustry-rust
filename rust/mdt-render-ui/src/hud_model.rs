@@ -110,7 +110,7 @@ pub struct RuntimeWorldPositionObservability {
     pub y_bits: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct BuildUiObservability {
     pub selected_block_id: Option<i16>,
     pub selected_rotation: i32,
@@ -121,6 +121,7 @@ pub struct BuildUiObservability {
     pub removed_count: u64,
     pub orphan_authoritative_count: u64,
     pub head: Option<BuildQueueHeadObservability>,
+    pub inspector_entries: Vec<BuildConfigInspectorEntryObservability>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -139,6 +140,13 @@ pub enum BuildQueueHeadStage {
     InFlight,
     Finished,
     Removed,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BuildConfigInspectorEntryObservability {
+    pub family: String,
+    pub tracked_count: usize,
+    pub sample: String,
 }
 
 impl HudModel {

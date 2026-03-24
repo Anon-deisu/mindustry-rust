@@ -16,6 +16,7 @@ pub enum RemoteManifestError {
     UnsupportedSchema(String),
     InvalidPacketSequence(String),
     InvalidWireSpec(String),
+    InvalidRemotePacketMetadata(String),
     MissingHighFrequencyPacket(&'static str),
 }
 
@@ -29,6 +30,7 @@ impl fmt::Display for RemoteManifestError {
             }
             Self::InvalidPacketSequence(message) => write!(f, "{message}"),
             Self::InvalidWireSpec(message) => write!(f, "{message}"),
+            Self::InvalidRemotePacketMetadata(message) => write!(f, "{message}"),
             Self::MissingHighFrequencyPacket(method) => {
                 write!(
                     f,
@@ -137,6 +139,13 @@ pub enum RemoteFlow {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemotePriority {
+    Low,
+    Normal,
+    High,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HighFrequencyRemoteMethod {
     ClientSnapshot,
     StateSnapshot,
@@ -169,6 +178,15 @@ pub struct TypedRemoteParamSpec<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypedRemoteParamMetadata<'a> {
+    pub name: &'a str,
+    pub java_type: &'a str,
+    pub kind: RemoteParamKind,
+    pub network_included_when_caller_is_client: bool,
+    pub network_included_when_caller_is_server: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypedRemotePacketSpec<'a> {
     pub method: HighFrequencyRemoteMethod,
     pub packet_id: u8,
@@ -178,6 +196,28 @@ pub struct TypedRemotePacketSpec<'a> {
     pub unreliable: bool,
     pub priority: &'a str,
     pub wire_params: Vec<TypedRemoteParamSpec<'a>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypedRemotePacketMetadata<'a> {
+    pub remote_index: usize,
+    pub packet_id: u8,
+    pub packet_class: &'a str,
+    pub declaring_type: &'a str,
+    pub method: &'a str,
+    pub called: &'a str,
+    pub variants: &'a str,
+    pub flow: RemoteFlow,
+    pub forward: bool,
+    pub unreliable: bool,
+    pub priority: RemotePriority,
+    pub params: Vec<TypedRemoteParamMetadata<'a>>,
+    pub wire_params: Vec<TypedRemoteParamSpec<'a>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemotePacketRegistry<'a> {
+    packets: Vec<TypedRemotePacketMetadata<'a>>,
 }
 
 pub fn read_remote_manifest(path: impl AsRef<Path>) -> Result<RemoteManifest, RemoteManifestError> {
@@ -224,6 +264,55 @@ pub fn validate_remote_manifest(manifest: &RemoteManifest) -> Result<(), RemoteM
                 "remote packet {} has packetId {}, expected {}",
                 packet.packet_class, packet.packet_id, expected_packet_id
             )));
+        }
+
+        if packet.packet_class.trim().is_empty() {
+            return Err(RemoteManifestError::InvalidRemotePacketMetadata(format!(
+                "remote packet {} has empty packetClass",
+                packet.packet_id
+            )));
+        }
+        if packet.declaring_type.trim().is_empty() {
+            return Err(RemoteManifestError::InvalidRemotePacketMetadata(format!(
+                "remote packet {} has empty declaringType",
+                packet.packet_class
+            )));
+        }
+        if packet.method.trim().is_empty() {
+            return Err(RemoteManifestError::InvalidRemotePacketMetadata(format!(
+                "remote packet {} has empty method",
+                packet.packet_class
+            )));
+        }
+        if packet.called.trim().is_empty() {
+            return Err(RemoteManifestError::InvalidRemotePacketMetadata(format!(
+                "remote packet {} has empty called",
+                packet.packet_class
+            )));
+        }
+        if packet.variants.trim().is_empty() {
+            return Err(RemoteManifestError::InvalidRemotePacketMetadata(format!(
+                "remote packet {} has empty variants",
+                packet.packet_class
+            )));
+        }
+
+        remote_flow_from_targets(&packet.targets)?;
+        remote_priority_from_str(&packet.priority)?;
+
+        for param in &packet.params {
+            if param.name.trim().is_empty() {
+                return Err(RemoteManifestError::InvalidRemotePacketMetadata(format!(
+                    "remote packet {} has param with empty name",
+                    packet.packet_class
+                )));
+            }
+            if param.java_type.trim().is_empty() {
+                return Err(RemoteManifestError::InvalidRemotePacketMetadata(format!(
+                    "remote packet {} param {} has empty javaType",
+                    packet.packet_class, param.name
+                )));
+            }
         }
     }
 
@@ -272,40 +361,36 @@ fn validate_wire_spec(wire: &WireSpec) -> Result<(), RemoteManifestError> {
 pub fn high_frequency_remote_packets(
     manifest: &RemoteManifest,
 ) -> Result<Vec<TypedRemotePacketSpec<'_>>, RemoteManifestError> {
+    let registry = RemotePacketRegistry::from_manifest(manifest)?;
     let mut packets = Vec::with_capacity(HIGH_FREQUENCY_REMOTE_METHOD_COUNT);
     for method in HighFrequencyRemoteMethod::ordered() {
-        let entry = manifest
-            .remote_packets
-            .iter()
-            .find(|packet| packet.method == method.method_name())
+        let entry = registry
+            .packets_for_method(method.method_name())
+            .into_iter()
+            .next()
             .ok_or(RemoteManifestError::MissingHighFrequencyPacket(
                 method.method_name(),
             ))?;
-        let flow = remote_flow_from_targets(&entry.targets);
-        let wire_params = entry
-            .params
-            .iter()
-            .filter(|param| param_is_wire_included(param, flow))
-            .map(|param| TypedRemoteParamSpec {
-                name: param.name.as_str(),
-                java_type: param.java_type.as_str(),
-                kind: remote_param_kind(&param.java_type),
-            })
-            .collect();
 
         packets.push(TypedRemotePacketSpec {
             method,
             packet_id: entry.packet_id,
-            packet_class: entry.packet_class.as_str(),
-            declaring_type: entry.declaring_type.as_str(),
-            flow,
+            packet_class: entry.packet_class,
+            declaring_type: entry.declaring_type,
+            flow: entry.flow,
             unreliable: entry.unreliable,
             priority: entry.priority.as_str(),
-            wire_params,
+            wire_params: entry.wire_params.clone(),
         });
     }
 
     Ok(packets)
+}
+
+pub fn typed_remote_packets(
+    manifest: &RemoteManifest,
+) -> Result<Vec<TypedRemotePacketMetadata<'_>>, RemoteManifestError> {
+    Ok(RemotePacketRegistry::from_manifest(manifest)?.into_packets())
 }
 
 pub fn generate_rust_registry(manifest: &RemoteManifest) -> String {
@@ -503,21 +588,38 @@ pub fn remote_packet_const_name(packet_class: &str) -> String {
     out.trim_end_matches('_').to_string()
 }
 
-fn remote_flow_from_targets(targets: &str) -> RemoteFlow {
+fn remote_flow_from_targets(targets: &str) -> Result<RemoteFlow, RemoteManifestError> {
     match targets {
-        "client" => RemoteFlow::ClientToServer,
-        "server" => RemoteFlow::ServerToClient,
-        _ => RemoteFlow::Bidirectional,
+        "client" => Ok(RemoteFlow::ClientToServer),
+        "server" => Ok(RemoteFlow::ServerToClient),
+        "both" => Ok(RemoteFlow::Bidirectional),
+        _ => Err(RemoteManifestError::InvalidRemotePacketMetadata(format!(
+            "unsupported remote targets: {targets}"
+        ))),
     }
 }
 
-fn param_is_wire_included(param: &RemoteParamEntry, flow: RemoteFlow) -> bool {
+fn remote_priority_from_str(priority: &str) -> Result<RemotePriority, RemoteManifestError> {
+    match priority {
+        "low" => Ok(RemotePriority::Low),
+        "normal" => Ok(RemotePriority::Normal),
+        "high" => Ok(RemotePriority::High),
+        _ => Err(RemoteManifestError::InvalidRemotePacketMetadata(format!(
+            "unsupported remote priority: {priority}"
+        ))),
+    }
+}
+
+fn param_is_wire_included_client_server(
+    network_included_when_caller_is_client: bool,
+    network_included_when_caller_is_server: bool,
+    flow: RemoteFlow,
+) -> bool {
     match flow {
-        RemoteFlow::ClientToServer => param.network_included_when_caller_is_client,
-        RemoteFlow::ServerToClient => param.network_included_when_caller_is_server,
+        RemoteFlow::ClientToServer => network_included_when_caller_is_client,
+        RemoteFlow::ServerToClient => network_included_when_caller_is_server,
         RemoteFlow::Bidirectional => {
-            param.network_included_when_caller_is_client
-                || param.network_included_when_caller_is_server
+            network_included_when_caller_is_client || network_included_when_caller_is_server
         }
     }
 }
@@ -564,6 +666,57 @@ fn remote_param_kind_name(kind: RemoteParamKind) -> &'static str {
     }
 }
 
+impl RemotePriority {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Low => "low",
+            Self::Normal => "normal",
+            Self::High => "high",
+        }
+    }
+}
+
+impl<'a> RemotePacketRegistry<'a> {
+    pub fn from_manifest(manifest: &'a RemoteManifest) -> Result<Self, RemoteManifestError> {
+        let packets = manifest
+            .remote_packets
+            .iter()
+            .map(typed_remote_packet_metadata)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Self { packets })
+    }
+
+    pub fn packets(&self) -> &[TypedRemotePacketMetadata<'a>] {
+        &self.packets
+    }
+
+    pub fn get_by_packet_id(&self, packet_id: u8) -> Option<&TypedRemotePacketMetadata<'a>> {
+        self.packets
+            .iter()
+            .find(|packet| packet.packet_id == packet_id)
+    }
+
+    pub fn get_by_packet_class(
+        &self,
+        packet_class: &str,
+    ) -> Option<&TypedRemotePacketMetadata<'a>> {
+        self.packets
+            .iter()
+            .find(|packet| packet.packet_class == packet_class)
+    }
+
+    pub fn packets_for_method(&self, method: &str) -> Vec<&TypedRemotePacketMetadata<'a>> {
+        self.packets
+            .iter()
+            .filter(|packet| packet.method == method)
+            .collect()
+    }
+
+    pub fn into_packets(self) -> Vec<TypedRemotePacketMetadata<'a>> {
+        self.packets
+    }
+}
+
 impl HighFrequencyRemoteMethod {
     pub fn ordered() -> [Self; HIGH_FREQUENCY_REMOTE_METHOD_COUNT] {
         [
@@ -604,6 +757,55 @@ impl HighFrequencyRemoteMethod {
             Self::HiddenSnapshot => "HIDDEN_SNAPSHOT",
         }
     }
+}
+
+fn typed_remote_packet_metadata(
+    entry: &RemotePacketEntry,
+) -> Result<TypedRemotePacketMetadata<'_>, RemoteManifestError> {
+    let flow = remote_flow_from_targets(&entry.targets)?;
+    let priority = remote_priority_from_str(&entry.priority)?;
+    let params = entry
+        .params
+        .iter()
+        .map(|param| TypedRemoteParamMetadata {
+            name: param.name.as_str(),
+            java_type: param.java_type.as_str(),
+            kind: remote_param_kind(&param.java_type),
+            network_included_when_caller_is_client: param.network_included_when_caller_is_client,
+            network_included_when_caller_is_server: param.network_included_when_caller_is_server,
+        })
+        .collect::<Vec<_>>();
+    let wire_params = params
+        .iter()
+        .filter(|param| {
+            param_is_wire_included_client_server(
+                param.network_included_when_caller_is_client,
+                param.network_included_when_caller_is_server,
+                flow,
+            )
+        })
+        .map(|param| TypedRemoteParamSpec {
+            name: param.name,
+            java_type: param.java_type,
+            kind: param.kind,
+        })
+        .collect::<Vec<_>>();
+
+    Ok(TypedRemotePacketMetadata {
+        remote_index: entry.remote_index,
+        packet_id: entry.packet_id,
+        packet_class: entry.packet_class.as_str(),
+        declaring_type: entry.declaring_type.as_str(),
+        method: entry.method.as_str(),
+        called: entry.called.as_str(),
+        variants: entry.variants.as_str(),
+        flow,
+        forward: entry.forward,
+        unreliable: entry.unreliable,
+        priority,
+        params,
+        wire_params,
+    })
 }
 
 struct StringBuilder {
@@ -732,12 +934,142 @@ mod tests {
     }
 
     #[test]
+    fn rejects_remote_targets_drift() {
+        let manifest = SAMPLE_MANIFEST.replace("\"targets\": \"client\"", "\"targets\": \"all\"");
+        let error = parse_remote_manifest(&manifest).unwrap_err();
+        assert!(matches!(
+            error,
+            RemoteManifestError::InvalidRemotePacketMetadata(_)
+        ));
+        assert_eq!(error.to_string(), "unsupported remote targets: all");
+    }
+
+    #[test]
+    fn rejects_remote_priority_drift() {
+        let manifest =
+            SAMPLE_MANIFEST.replace("\"priority\": \"high\"", "\"priority\": \"urgent\"");
+        let error = parse_remote_manifest(&manifest).unwrap_err();
+        assert!(matches!(
+            error,
+            RemoteManifestError::InvalidRemotePacketMetadata(_)
+        ));
+        assert_eq!(error.to_string(), "unsupported remote priority: urgent");
+    }
+
+    #[test]
     fn generates_rust_registry_from_manifest_sample() {
         let manifest = parse_remote_manifest(SAMPLE_MANIFEST).unwrap();
         let registry = generate_rust_registry(&manifest);
         assert!(registry.contains("pub const TEST_CALL_PACKET_ID: u8 = 4;"));
         assert!(registry.contains("pub const REMOTE_PACKET_SPECS: &[RemotePacketSpec] = &["));
         assert!(registry.contains("priority: \"high\""));
+    }
+
+    #[test]
+    fn builds_full_remote_packet_registry() {
+        let manifest = parse_remote_manifest(
+            r#"{
+  "schema": "mdt.remote.manifest.v1",
+  "generator": {
+    "source": "mindustry.annotations.remote",
+    "callClass": "mindustry.gen.Call"
+  },
+  "basePackets": [
+    {"id": 0, "class": "mindustry.net.Packets$StreamBegin"},
+    {"id": 1, "class": "mindustry.net.Packets$StreamChunk"},
+    {"id": 2, "class": "mindustry.net.Packets$WorldStream"},
+    {"id": 3, "class": "mindustry.net.Packets$ConnectPacket"}
+  ],
+  "remotePackets": [
+    {
+      "remoteIndex": 0,
+      "packetId": 4,
+      "packetClass": "mindustry.gen.SetMessageBlockTextCallPacket",
+      "declaringType": "mindustry.world.blocks.logic.MessageBlock",
+      "method": "setMessageBlockText",
+      "targets": "client",
+      "called": "server",
+      "variants": "all",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "player", "javaType": "Player", "networkIncludedWhenCallerIsClient": false, "networkIncludedWhenCallerIsServer": false},
+        {"name": "tile", "javaType": "mindustry.world.Tile", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": false},
+        {"name": "text", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": false}
+      ]
+    },
+    {
+      "remoteIndex": 1,
+      "packetId": 5,
+      "packetClass": "mindustry.gen.InfoPopupCallPacket",
+      "declaringType": "mindustry.core.NetClient",
+      "method": "infoPopup",
+      "targets": "server",
+      "called": "client",
+      "variants": "one",
+      "forward": false,
+      "unreliable": true,
+      "priority": "high",
+      "params": [
+        {"name": "message", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": false, "networkIncludedWhenCallerIsServer": true},
+        {"name": "duration", "javaType": "float", "networkIncludedWhenCallerIsClient": false, "networkIncludedWhenCallerIsServer": true}
+      ]
+    },
+    {
+      "remoteIndex": 2,
+      "packetId": 6,
+      "packetClass": "mindustry.gen.InfoPopupReliableCallPacket",
+      "declaringType": "mindustry.core.NetClient",
+      "method": "infoPopup",
+      "targets": "both",
+      "called": "both",
+      "variants": "both",
+      "forward": true,
+      "unreliable": false,
+      "priority": "low",
+      "params": [
+        {"name": "message", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "id", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": false}
+      ]
+    }
+  ],
+  "wire": {
+    "packetIdByte": "u8",
+    "lengthField": "u16be",
+    "compressionFlag": {"0": "none", "1": "lz4"},
+    "compressionThreshold": 36
+  }
+}"#,
+        )
+        .unwrap();
+
+        let registry = RemotePacketRegistry::from_manifest(&manifest).unwrap();
+        assert_eq!(registry.packets().len(), 3);
+
+        let by_id = registry.get_by_packet_id(4).unwrap();
+        assert_eq!(by_id.flow, RemoteFlow::ClientToServer);
+        assert_eq!(by_id.priority, RemotePriority::Normal);
+        assert_eq!(by_id.params.len(), 3);
+        assert_eq!(by_id.params[1].kind, RemoteParamKind::TileRef);
+        assert_eq!(by_id.wire_params.len(), 2);
+        assert_eq!(by_id.wire_params[0].name, "tile");
+        assert_eq!(by_id.wire_params[1].kind, RemoteParamKind::Opaque);
+
+        let overloads = registry.packets_for_method("infoPopup");
+        assert_eq!(overloads.len(), 2);
+        assert_eq!(overloads[0].flow, RemoteFlow::ServerToClient);
+        assert_eq!(overloads[0].priority, RemotePriority::High);
+        assert_eq!(overloads[1].flow, RemoteFlow::Bidirectional);
+        assert_eq!(overloads[1].wire_params.len(), 2);
+        assert_eq!(overloads[1].wire_params[1].kind, RemoteParamKind::Int);
+
+        let typed_packets = typed_remote_packets(&manifest).unwrap();
+        assert_eq!(typed_packets.len(), 3);
+        assert_eq!(
+            typed_packets[2].packet_class,
+            "mindustry.gen.InfoPopupReliableCallPacket"
+        );
     }
 
     #[test]
