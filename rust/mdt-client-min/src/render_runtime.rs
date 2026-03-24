@@ -75,7 +75,11 @@ impl RenderRuntimeAdapter {
         let runtime_state_mirror = session_state.authoritative_state_mirror.as_ref();
         let state_authority_projection = session_state.state_snapshot_authority_projection.as_ref();
         let state_business_projection = session_state.state_snapshot_business_projection.as_ref();
-        hud.runtime_ui = Some(runtime_ui_observability(session_state, &self.world_overlay));
+        hud.runtime_ui = Some(runtime_ui_observability(
+            snapshot_input,
+            session_state,
+            &self.world_overlay,
+        ));
         hud.build_ui = Some(runtime_build_ui_observability(
             snapshot_input,
             &session_state.builder_queue_projection,
@@ -1453,6 +1457,7 @@ fn runtime_effect_data_error_label(error: Option<&str>) -> String {
 }
 
 fn runtime_ui_observability(
+    snapshot_input: &ClientSnapshotInputState,
     session_state: &SessionState,
     world_overlay: &RuntimeWorldOverlay,
 ) -> RuntimeUiObservability {
@@ -1483,11 +1488,73 @@ fn runtime_ui_observability(
         chat: runtime_chat_observability(session_state),
         admin: runtime_admin_observability(session_state),
         menu: runtime_menu_observability(session_state),
-        command_mode: Default::default(),
+        command_mode: runtime_command_mode_observability(&snapshot_input.command_mode),
         rules: runtime_rules_observability(session_state),
         world_labels: runtime_world_label_observability(session_state),
         session: runtime_session_observability(session_state, world_overlay),
         live: runtime_live_summary_observability(session_state),
+    }
+}
+
+fn runtime_command_mode_observability(
+    projection: &mdt_input::CommandModeProjection,
+) -> mdt_render_ui::RuntimeCommandModeObservability {
+    mdt_render_ui::RuntimeCommandModeObservability {
+        active: projection.active,
+        selected_units: projection.selected_units.clone(),
+        command_buildings: projection.command_buildings.clone(),
+        command_rect: projection
+            .command_rect
+            .map(|rect| mdt_render_ui::RuntimeCommandRectObservability {
+                x0: rect.x0,
+                y0: rect.y0,
+                x1: rect.x1,
+                y1: rect.y1,
+            }),
+        control_groups: projection
+            .control_groups
+            .iter()
+            .map(|group| mdt_render_ui::RuntimeCommandControlGroupObservability {
+                index: group.index,
+                unit_ids: group.unit_ids.clone(),
+            })
+            .collect(),
+        last_target: projection
+            .last_target
+            .map(|target| mdt_render_ui::RuntimeCommandTargetObservability {
+                build_target: target.build_target,
+                unit_target: target.unit_target.map(
+                    |unit| mdt_render_ui::RuntimeCommandUnitRefObservability {
+                        kind: unit.kind,
+                        value: unit.value,
+                    },
+                ),
+                position_target: target.position_target.map(
+                    |position| mdt_render_ui::RuntimeWorldPositionObservability {
+                        x_bits: position.x_bits,
+                        y_bits: position.y_bits,
+                    },
+                ),
+                rect_target: target.rect_target.map(
+                    |rect| mdt_render_ui::RuntimeCommandRectObservability {
+                        x0: rect.x0,
+                        y0: rect.y0,
+                        x1: rect.x1,
+                        y1: rect.y1,
+                    },
+                ),
+            }),
+        last_command_selection: projection.last_command_selection.map(
+            |selection| mdt_render_ui::RuntimeCommandSelectionObservability {
+                command_id: selection.command_id,
+            },
+        ),
+        last_stance_selection: projection.last_stance_selection.map(
+            |selection| mdt_render_ui::RuntimeCommandStanceObservability {
+                stance_id: selection.stance_id,
+                enabled: selection.enabled,
+            },
+        ),
     }
 }
 
@@ -3951,6 +4018,96 @@ mod tests {
             .objects
             .iter()
             .any(|object| object.id == "block:runtime-building:12:6:258"));
+    }
+
+    #[test]
+    fn render_runtime_adapter_surfaces_snapshot_input_command_mode_projection() {
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState {
+            command_mode: mdt_input::CommandModeProjection {
+                active: true,
+                selected_units: vec![11, 22],
+                command_buildings: vec![pack_runtime_point2(18, 40)],
+                command_rect: Some(mdt_input::CommandModeRectProjection {
+                    x0: 1,
+                    y0: 2,
+                    x1: 3,
+                    y1: 4,
+                }),
+                control_groups: vec![mdt_input::CommandModeControlGroupProjection {
+                    index: 4,
+                    unit_ids: vec![99],
+                }],
+                last_target: Some(mdt_input::CommandModeTargetProjection {
+                    unit_target: Some(mdt_input::CommandUnitRef { kind: 2, value: 808 }),
+                    ..Default::default()
+                }),
+                last_command_selection: Some(mdt_input::CommandModeCommandSelection {
+                    command_id: Some(5),
+                }),
+                last_stance_selection: Some(mdt_input::CommandModeStanceSelection {
+                    stance_id: Some(7),
+                    enabled: true,
+                }),
+            },
+            ..Default::default()
+        };
+        let state = SessionState::default();
+
+        RenderRuntimeAdapter::default().apply(&mut scene, &mut hud, &input, &state);
+
+        let runtime_ui = hud
+            .runtime_ui
+            .as_ref()
+            .expect("runtime_ui observability should be present");
+        assert!(runtime_ui.command_mode.active);
+        assert_eq!(runtime_ui.command_mode.selected_units, vec![11, 22]);
+        assert_eq!(
+            runtime_ui.command_mode.command_buildings,
+            vec![pack_runtime_point2(18, 40)]
+        );
+        assert_eq!(
+            runtime_ui.command_mode.command_rect,
+            Some(mdt_render_ui::RuntimeCommandRectObservability {
+                x0: 1,
+                y0: 2,
+                x1: 3,
+                y1: 4,
+            })
+        );
+        assert_eq!(
+            runtime_ui.command_mode.control_groups,
+            vec![mdt_render_ui::RuntimeCommandControlGroupObservability {
+                index: 4,
+                unit_ids: vec![99],
+            }]
+        );
+        assert_eq!(
+            runtime_ui.command_mode.last_target,
+            Some(mdt_render_ui::RuntimeCommandTargetObservability {
+                build_target: None,
+                unit_target: Some(mdt_render_ui::RuntimeCommandUnitRefObservability {
+                    kind: 2,
+                    value: 808,
+                }),
+                position_target: None,
+                rect_target: None,
+            })
+        );
+        assert_eq!(
+            runtime_ui.command_mode.last_command_selection,
+            Some(mdt_render_ui::RuntimeCommandSelectionObservability {
+                command_id: Some(5),
+            })
+        );
+        assert_eq!(
+            runtime_ui.command_mode.last_stance_selection,
+            Some(mdt_render_ui::RuntimeCommandStanceObservability {
+                stance_id: Some(7),
+                enabled: true,
+            })
+        );
     }
 
     #[test]

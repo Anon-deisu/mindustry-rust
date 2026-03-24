@@ -52,6 +52,15 @@ These are already landed and should not be re-opened as if missing:
   - prompt priority: `text input > follow-up menu > menu`
   - notice priority: `warning toast > info toast > reliable hud > hud`
   - remaining gap is richer chat/dialog UI interaction, not re-adding a first dialog summary layer
+- `entitySnapshot` typed `WorldLabel` rows are no longer packet-counter-only.
+  - runtime/HUD now consumes active label count plus latest `entity_id/text/flags/font_size/z/position`
+  - remaining work is broader render/UI depth, not re-adding the first runtime-apply bridge
+- `mdt-input` batch runtime intent sampling is already landed.
+  - same-tick multi-snapshot batches now preserve transient press/release edges instead of only keeping the final frame
+  - remaining work is richer live input source parity, not re-adding batch edge retention
+- builder queue tile-state validation is already landed in `mdt-input`.
+  - local queued place/break entries can now be pruned against observed tile states when the tile is already air or already matches the requested block/rotation
+  - remaining work is broader runtime integration and Java-equivalent `BuilderComp` depth, not re-adding the validation primitive
 
 ## Highest-Confidence Remaining Lanes
 

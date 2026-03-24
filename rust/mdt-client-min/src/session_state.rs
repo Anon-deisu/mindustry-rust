@@ -3615,6 +3615,101 @@ impl SessionState {
         self.last_wave_advance_signal_apply_count = None;
     }
 
+    pub fn clear_runtime_ui_transients_for_world_reload(&mut self) {
+        self.received_server_message_count = 0;
+        self.last_server_message = None;
+        self.received_chat_message_count = 0;
+        self.last_chat_message = None;
+        self.last_chat_unformatted = None;
+        self.last_chat_sender_entity_id = None;
+
+        self.received_set_hud_text_count = 0;
+        self.last_set_hud_text_message = None;
+        self.received_set_hud_text_reliable_count = 0;
+        self.last_set_hud_text_reliable_message = None;
+        self.received_hide_hud_text_count = 0;
+        self.received_announce_count = 0;
+        self.last_announce_message = None;
+
+        self.received_world_label_count = 0;
+        self.received_world_label_reliable_count = 0;
+        self.last_world_label_reliable = None;
+        self.last_world_label_id = None;
+        self.last_world_label_message = None;
+        self.last_world_label_duration_bits = None;
+        self.last_world_label_world_x_bits = None;
+        self.last_world_label_world_y_bits = None;
+        self.received_remove_world_label_count = 0;
+        self.last_remove_world_label_id = None;
+
+        self.received_create_marker_count = 0;
+        self.received_remove_marker_count = 0;
+        self.received_update_marker_count = 0;
+        self.received_update_marker_text_count = 0;
+        self.received_update_marker_texture_count = 0;
+        self.failed_marker_decode_count = 0;
+        self.last_failed_marker_method = None;
+        self.last_failed_marker_payload_len = None;
+        self.last_marker_id = None;
+        self.last_marker_json_len = None;
+        self.last_marker_control = None;
+        self.last_marker_control_name = None;
+        self.last_marker_p1_bits = None;
+        self.last_marker_p2_bits = None;
+        self.last_marker_p3_bits = None;
+        self.last_marker_fetch = None;
+        self.last_marker_text = None;
+        self.last_marker_texture_kind = None;
+        self.last_marker_texture_kind_name = None;
+
+        self.received_info_message_count = 0;
+        self.last_info_message = None;
+        self.received_info_popup_count = 0;
+        self.received_info_popup_reliable_count = 0;
+        self.last_info_popup_reliable = None;
+        self.last_info_popup_id = None;
+        self.last_info_popup_message = None;
+        self.last_info_popup_duration_bits = None;
+        self.last_info_popup_align = None;
+        self.last_info_popup_top = None;
+        self.last_info_popup_left = None;
+        self.last_info_popup_bottom = None;
+        self.last_info_popup_right = None;
+        self.received_info_toast_count = 0;
+        self.last_info_toast_message = None;
+        self.last_info_toast_duration_bits = None;
+        self.received_warning_toast_count = 0;
+        self.last_warning_toast_unicode = None;
+        self.last_warning_toast_text = None;
+
+        self.received_menu_open_count = 0;
+        self.last_menu_open_id = None;
+        self.last_menu_open_title = None;
+        self.last_menu_open_message = None;
+        self.last_menu_open_option_rows = 0;
+        self.last_menu_open_first_row_len = 0;
+        self.received_follow_up_menu_open_count = 0;
+        self.last_follow_up_menu_open_id = None;
+        self.last_follow_up_menu_open_title = None;
+        self.last_follow_up_menu_open_message = None;
+        self.last_follow_up_menu_open_option_rows = 0;
+        self.last_follow_up_menu_open_first_row_len = 0;
+        self.received_hide_follow_up_menu_count = 0;
+        self.last_hide_follow_up_menu_id = None;
+        self.received_copy_to_clipboard_count = 0;
+        self.last_copy_to_clipboard_text = None;
+        self.received_open_uri_count = 0;
+        self.last_open_uri = None;
+        self.received_text_input_count = 0;
+        self.last_text_input_id = None;
+        self.last_text_input_title = None;
+        self.last_text_input_message = None;
+        self.last_text_input_length = None;
+        self.last_text_input_default_text = None;
+        self.last_text_input_numeric = None;
+        self.last_text_input_allow_empty = None;
+    }
+
     pub fn record_wave_advance_signal(
         &mut self,
         from: Option<i32>,

@@ -307,6 +307,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &args,
             &report.events,
             &render_runtime_adapter,
+            &runtime_command_mode,
             &mut ascii_scene_printed,
         );
         maybe_dump_world_stream_hex(&session, &args, &mut world_stream_dumped)?;
@@ -315,6 +316,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &args,
             &report.events,
             &render_runtime_adapter,
+            &runtime_command_mode,
             &mut window_scene_presenter,
             &mut window_scene_disabled,
         );
@@ -344,7 +346,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         thread::sleep(args.tick);
     }
 
-    maybe_print_final_ascii_scene(&session, &args, &render_runtime_adapter);
+    maybe_print_final_ascii_scene(&session, &args, &render_runtime_adapter, &runtime_command_mode);
     maybe_print_custom_packet_watch_summary(custom_packet_watch.as_ref());
     maybe_print_custom_packet_semantic_summary(custom_packet_semantics.as_ref());
     maybe_print_runtime_custom_packet_relay_summary(custom_packet_relays.as_ref());
@@ -3220,11 +3222,21 @@ fn apply_snapshot_overrides(session: &mut ClientSession, args: &CliArgs) {
     }
 }
 
+fn render_snapshot_input(
+    session: &ClientSession,
+    runtime_command_mode: &CommandModeState,
+) -> mdt_client_min::client_session::ClientSnapshotInputState {
+    let mut input = session.snapshot_input().clone();
+    input.command_mode = runtime_command_mode.projection();
+    input
+}
+
 fn maybe_print_ascii_scene(
     session: &ClientSession,
     args: &CliArgs,
     events: &[ClientSessionEvent],
     render_runtime_adapter: &RenderRuntimeAdapter,
+    runtime_command_mode: &CommandModeState,
     ascii_scene_printed: &mut bool,
 ) {
     if *ascii_scene_printed || !args.render_ascii_on_world_ready {
@@ -3254,12 +3266,8 @@ fn maybe_print_ascii_scene(
         Some(runtime_view_center),
         LIVE_VIEW_TILES,
     );
-    render_runtime_adapter.apply(
-        &mut scene,
-        &mut hud,
-        session.snapshot_input(),
-        session.state(),
-    );
+    let input = render_snapshot_input(session, runtime_command_mode);
+    render_runtime_adapter.apply(&mut scene, &mut hud, &input, session.state());
     let mut presenter =
         AsciiScenePresenter::with_max_view_tiles(LIVE_VIEW_TILES.0, LIVE_VIEW_TILES.1);
     presenter.present(&scene, &hud);
@@ -3271,6 +3279,7 @@ fn maybe_print_final_ascii_scene(
     session: &ClientSession,
     args: &CliArgs,
     render_runtime_adapter: &RenderRuntimeAdapter,
+    runtime_command_mode: &CommandModeState,
 ) {
     if !args.render_ascii_on_world_ready {
         return;
@@ -3292,12 +3301,8 @@ fn maybe_print_final_ascii_scene(
         runtime_view_center,
         LIVE_VIEW_TILES,
     );
-    render_runtime_adapter.apply(
-        &mut scene,
-        &mut hud,
-        session.snapshot_input(),
-        session.state(),
-    );
+    let input = render_snapshot_input(session, runtime_command_mode);
+    render_runtime_adapter.apply(&mut scene, &mut hud, &input, session.state());
     let runtime_object_ids = collect_authoritative_runtime_scene_object_ids(&scene.objects);
     let mut presenter =
         AsciiScenePresenter::with_max_view_tiles(LIVE_VIEW_TILES.0, LIVE_VIEW_TILES.1);
@@ -3327,6 +3332,7 @@ fn maybe_present_window_scene(
     args: &CliArgs,
     events: &[ClientSessionEvent],
     render_runtime_adapter: &RenderRuntimeAdapter,
+    runtime_command_mode: &CommandModeState,
     window_scene_presenter: &mut Option<WindowPresenter<MinifbWindowBackend>>,
     window_scene_disabled: &mut bool,
 ) {
@@ -3352,12 +3358,8 @@ fn maybe_present_window_scene(
         runtime_view_center,
         LIVE_VIEW_TILES,
     );
-    render_runtime_adapter.apply(
-        &mut scene,
-        &mut hud,
-        session.snapshot_input(),
-        session.state(),
-    );
+    let input = render_snapshot_input(session, runtime_command_mode);
+    render_runtime_adapter.apply(&mut scene, &mut hud, &input, session.state());
     let Some(presenter) = window_scene_presenter.as_mut() else {
         return;
     };

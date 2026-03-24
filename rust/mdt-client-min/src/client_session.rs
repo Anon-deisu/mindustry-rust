@@ -24,6 +24,7 @@ use crate::session_state::{
     TransferItemToUnitProjection, UnitEnteredPayloadProjection, UnitRefProjection,
     WorldReloadProjection,
 };
+use mdt_input::CommandModeProjection;
 use mdt_protocol::{
     decode_packet, encode_framework_message, encode_packet, FrameworkMessage, PacketCodecError,
     STREAM_BEGIN_PACKET_ID, STREAM_CHUNK_PACKET_ID,
@@ -7569,6 +7570,7 @@ impl ClientSession {
             .clear_for_world_reload();
         self.state.rules_projection = Default::default();
         self.state.objectives_projection = Default::default();
+        self.state.clear_runtime_ui_transients_for_world_reload();
         self.state.resource_delta_projection = Default::default();
         self.state.last_effect_business_projection = None;
         self.state.last_effect_business_path = None;
@@ -8356,6 +8358,7 @@ pub struct ClientSnapshotInputState {
     pub selected_block_id: Option<i16>,
     pub selected_rotation: i32,
     pub plans: Option<Vec<ClientBuildPlan>>,
+    pub command_mode: CommandModeProjection,
     pub view_center: Option<(f32, f32)>,
     pub view_size: Option<(f32, f32)>,
 }
@@ -8378,6 +8381,7 @@ impl Default for ClientSnapshotInputState {
             selected_block_id: None,
             selected_rotation: 0,
             plans: None,
+            command_mode: CommandModeProjection::default(),
             view_center: None,
             view_size: None,
         }
@@ -35289,6 +35293,72 @@ mod tests {
         assert_eq!(session.state().last_wave_advance_signal_from, None);
         assert_eq!(session.state().last_wave_advance_signal_to, None);
         assert_eq!(session.state().last_wave_advance_signal_apply_count, None);
+    }
+
+    #[test]
+    fn world_data_begin_clears_runtime_ui_transients() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+
+        session.ingest_packet_bytes(&begin_packet).unwrap();
+        for chunk in &chunk_packets {
+            session.ingest_packet_bytes(chunk).unwrap();
+        }
+
+        session.state.received_server_message_count = 7;
+        session.state.last_server_message = Some("server text".to_string());
+        session.state.received_chat_message_count = 8;
+        session.state.last_chat_message = Some("[cyan]hello".to_string());
+        session.state.last_chat_unformatted = Some("hello".to_string());
+        session.state.last_chat_sender_entity_id = Some(404);
+        session.state.received_set_hud_text_count = 9;
+        session.state.last_set_hud_text_message = Some("hud".to_string());
+        session.state.received_info_toast_count = 14;
+        session.state.last_info_toast_message = Some("toast".to_string());
+        session.state.received_menu_open_count = 16;
+        session.state.last_menu_open_title = Some("menu".to_string());
+        session.state.received_copy_to_clipboard_count = 17;
+        session.state.last_copy_to_clipboard_text = Some("copied".to_string());
+        session.state.received_text_input_count = 18;
+        session.state.last_text_input_message = Some("digits only".to_string());
+        session.state.received_world_label_count = 19;
+        session.state.last_world_label_message = Some("label".to_string());
+        session.state.received_create_marker_count = 20;
+        session.state.last_marker_control_name = Some("flushText".to_string());
+
+        let world_data_begin_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "worldDataBegin")
+            .unwrap()
+            .packet_id;
+        let world_data_begin = encode_packet(world_data_begin_packet_id, &[], false).unwrap();
+
+        session.ingest_packet_bytes(&world_data_begin).unwrap();
+
+        assert_eq!(session.state().received_server_message_count, 0);
+        assert_eq!(session.state().last_server_message, None);
+        assert_eq!(session.state().received_chat_message_count, 0);
+        assert_eq!(session.state().last_chat_message, None);
+        assert_eq!(session.state().last_chat_unformatted, None);
+        assert_eq!(session.state().last_chat_sender_entity_id, None);
+        assert_eq!(session.state().received_set_hud_text_count, 0);
+        assert_eq!(session.state().last_set_hud_text_message, None);
+        assert_eq!(session.state().received_info_toast_count, 0);
+        assert_eq!(session.state().last_info_toast_message, None);
+        assert_eq!(session.state().received_menu_open_count, 0);
+        assert_eq!(session.state().last_menu_open_title, None);
+        assert_eq!(session.state().received_copy_to_clipboard_count, 0);
+        assert_eq!(session.state().last_copy_to_clipboard_text, None);
+        assert_eq!(session.state().received_text_input_count, 0);
+        assert_eq!(session.state().last_text_input_message, None);
+        assert_eq!(session.state().received_world_label_count, 0);
+        assert_eq!(session.state().last_world_label_message, None);
+        assert_eq!(session.state().received_create_marker_count, 0);
+        assert_eq!(session.state().last_marker_control_name, None);
     }
 
     #[test]
