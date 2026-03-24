@@ -2,9 +2,10 @@ use crate::{
     hud_model::HudSummary,
     panel_model::{
         build_build_config_panel, build_build_interaction_panel, build_minimap_panel,
-        build_runtime_admin_panel, build_runtime_command_mode_panel, build_runtime_dialog_panel,
-        build_runtime_live_effect_panel, build_runtime_live_entity_panel, build_runtime_menu_panel,
-        build_runtime_rules_panel, build_runtime_session_panel, build_runtime_ui_notice_panel,
+        build_runtime_admin_panel, build_runtime_chat_panel, build_runtime_command_mode_panel,
+        build_runtime_dialog_panel, build_runtime_live_effect_panel,
+        build_runtime_live_entity_panel, build_runtime_menu_panel, build_runtime_rules_panel,
+        build_runtime_session_panel, build_runtime_ui_notice_panel,
         build_runtime_world_label_panel, PresenterViewWindow, RuntimeDialogNoticeKind,
         RuntimeDialogPromptKind,
     },
@@ -513,6 +514,9 @@ fn compose_frame_status_text(
         if let Some(runtime_dialog_text) = compose_runtime_dialog_panel_status_text(hud) {
             parts.push(runtime_dialog_text);
         }
+        if let Some(runtime_chat_text) = compose_runtime_chat_panel_status_text(hud) {
+            parts.push(runtime_chat_text);
+        }
         if let Some(runtime_command_text) = compose_runtime_command_mode_panel_status_text(hud) {
             parts.push(runtime_command_text);
         }
@@ -671,6 +675,19 @@ fn compose_runtime_dialog_panel_status_text(hud: &HudModel) -> Option<String> {
     ))
 }
 
+fn compose_runtime_chat_panel_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_chat_panel(hud)?;
+    Some(format!(
+        "chat:srv{}@{}:msg{}@{}:raw{}:s{}",
+        panel.server_message_count,
+        compact_runtime_ui_text(panel.last_server_message.as_deref()),
+        panel.chat_message_count,
+        compact_runtime_ui_text(panel.last_chat_message.as_deref()),
+        compact_runtime_ui_text(panel.last_chat_unformatted.as_deref()),
+        optional_i32_label(panel.last_chat_sender_entity_id),
+    ))
+}
+
 fn compose_runtime_command_mode_panel_status_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_command_mode_panel(hud)?;
     Some(format!(
@@ -709,13 +726,16 @@ fn compose_runtime_admin_panel_status_text(hud: &HudModel) -> Option<String> {
 fn compose_runtime_world_label_panel_status_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_world_label_panel(hud)?;
     Some(format!(
-        "wlabel:set{}:rel{}:rm{}:tot{}:act{}:last{}:pos{}:txt{}",
+        "wlabel:set{}:rel{}:rm{}:tot{}:act{}:last{}:f{}:fs{}:z{}:pos{}:txt{}",
         panel.label_count,
         panel.reliable_label_count,
         panel.remove_label_count,
         panel.total_count,
         panel.active_count,
         optional_i32_label(panel.last_entity_id),
+        optional_u8_label(panel.last_flags),
+        optional_u32_label(panel.last_font_size_bits),
+        optional_u32_label(panel.last_z_bits),
         world_position_status_text(panel.last_position.as_ref()),
         runtime_world_label_status_sample(panel.last_text.as_deref()),
     ))
@@ -2071,6 +2091,14 @@ mod tests {
                     last_numeric: Some(true),
                     last_allow_empty: Some(true),
                 },
+                chat: crate::RuntimeChatObservability {
+                    server_message_count: 7,
+                    last_server_message: Some("server text".to_string()),
+                    chat_message_count: 8,
+                    last_chat_message: Some("[cyan]hello".to_string()),
+                    last_chat_unformatted: Some("hello".to_string()),
+                    last_chat_sender_entity_id: Some(404),
+                },
                 admin: RuntimeAdminObservability {
                     trace_info_count: 56,
                     trace_info_parse_fail_count: 76,
@@ -2331,6 +2359,9 @@ mod tests {
         assert!(frame.status_text.contains(
             "dialog:p=input:a1:m16/f17/h18:tin53@404:Digits/Only_numbers/12345#16:n1:e1:n=warn@warn:c48"
         ));
+        assert!(frame
+            .status_text
+            .contains("chat:srv7@server_text:msg8@[cyan]hello:rawhello:s404"));
         assert!(frame.status_text.contains(
             "cmd:act1:sel4@11,22,33:bld2@327686:rect-3:4:12:18:grp2#3@11,4#1@99:tb589834:u2:808:p0x42400000:0x42c00000:r1:2:3:4:c5:s7/0"
         ));
@@ -2342,7 +2373,7 @@ mod tests {
             .contains("rules:mut354:fail210:wv1:pvp0:obj2:q1:par1:fg2:oor75:last9"));
         assert!(frame
             .status_text
-            .contains("wlabel:set19:rel20:rm21:tot60:act2:last904:pos40.0:60.0:txtworld_label"));
+            .contains("wlabel:set19:rel20:rm21:tot60:act2:last904:f3:fs1094713344:z1082130432:pos40.0:60.0:txtworld_label"));
         assert!(frame.status_text.contains(
             "session:k=idInUse@7:IdInUse:wait_for_old~;l=defer5:replay6:drop7:qdrop8:sfail9:scfail10:efail11:rdy12@1300:to2:cto1:rto1:ltready@20000:rs3:rr1:wr1:kr1:lrreload:lwr@lw1:cl0:rd1:cc0:p4:d5:r6;r=attempt3:redirect@1/127.0.0.1:6567:connectRedir~@none:server_reque~"
         ));

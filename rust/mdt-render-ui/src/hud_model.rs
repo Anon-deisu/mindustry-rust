@@ -33,6 +33,7 @@ pub struct RuntimeUiObservability {
     pub hud_text: RuntimeHudTextObservability,
     pub toast: RuntimeToastObservability,
     pub text_input: RuntimeTextInputObservability,
+    pub chat: RuntimeChatObservability,
     pub admin: RuntimeAdminObservability,
     pub menu: RuntimeMenuObservability,
     pub command_mode: RuntimeCommandModeObservability,
@@ -69,6 +70,16 @@ pub struct RuntimeTextInputObservability {
     pub last_length: Option<i32>,
     pub last_numeric: Option<bool>,
     pub last_allow_empty: Option<bool>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RuntimeChatObservability {
+    pub server_message_count: u64,
+    pub last_server_message: Option<String>,
+    pub chat_message_count: u64,
+    pub last_chat_message: Option<String>,
+    pub last_chat_unformatted: Option<String>,
+    pub last_chat_sender_entity_id: Option<i32>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

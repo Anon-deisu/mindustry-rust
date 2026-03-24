@@ -1,8 +1,9 @@
 use crate::panel_model::{
     build_build_config_panel, build_build_interaction_panel, build_minimap_panel,
-    build_runtime_admin_panel, build_runtime_command_mode_panel, build_runtime_dialog_panel,
-    build_runtime_live_effect_panel, build_runtime_live_entity_panel, build_runtime_menu_panel,
-    build_runtime_rules_panel, build_runtime_session_panel, build_runtime_ui_notice_panel,
+    build_runtime_admin_panel, build_runtime_chat_panel, build_runtime_command_mode_panel,
+    build_runtime_dialog_panel, build_runtime_live_effect_panel,
+    build_runtime_live_entity_panel, build_runtime_menu_panel, build_runtime_rules_panel,
+    build_runtime_session_panel, build_runtime_ui_notice_panel,
     build_runtime_world_label_panel, PresenterViewWindow, RuntimeDialogNoticeKind,
     RuntimeDialogPromptKind,
 };
@@ -108,6 +109,9 @@ impl AsciiScenePresenter {
         }
         if let Some(runtime_dialog_text) = compose_runtime_dialog_panel_text(hud) {
             out.push_str(&format!("RUNTIME-DIALOG: {runtime_dialog_text}\n"));
+        }
+        if let Some(runtime_chat_text) = compose_runtime_chat_panel_text(hud) {
+            out.push_str(&format!("RUNTIME-CHAT: {runtime_chat_text}\n"));
         }
         if let Some(runtime_command_text) = compose_runtime_command_mode_panel_text(hud) {
             out.push_str(&format!("RUNTIME-COMMAND: {runtime_command_text}\n"));
@@ -420,6 +424,19 @@ fn compose_runtime_dialog_panel_text(hud: &HudModel) -> Option<String> {
     ))
 }
 
+fn compose_runtime_chat_panel_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_chat_panel(hud)?;
+    Some(format!(
+        "srv={} last-srv={} chat={} last-chat={} raw={} sender={}",
+        panel.server_message_count,
+        compact_runtime_ui_text(panel.last_server_message.as_deref()),
+        panel.chat_message_count,
+        compact_runtime_ui_text(panel.last_chat_message.as_deref()),
+        compact_runtime_ui_text(panel.last_chat_unformatted.as_deref()),
+        optional_i32_label(panel.last_chat_sender_entity_id),
+    ))
+}
+
 fn compose_runtime_command_mode_panel_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_command_mode_panel(hud)?;
     Some(format!(
@@ -458,13 +475,16 @@ fn compose_runtime_admin_panel_text(hud: &HudModel) -> Option<String> {
 fn compose_runtime_world_label_panel_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_world_label_panel(hud)?;
     Some(format!(
-        "set={} rel={} remove={} total={} active={} last={} pos={} text={}",
+        "set={} rel={} remove={} total={} active={} last={} flags={} font={} z={} pos={} text={}",
         panel.label_count,
         panel.reliable_label_count,
         panel.remove_label_count,
         panel.total_count,
         panel.active_count,
         optional_i32_label(panel.last_entity_id),
+        optional_u8_label(panel.last_flags),
+        optional_u32_label(panel.last_font_size_bits),
+        optional_u32_label(panel.last_z_bits),
         world_position_text(panel.last_position.as_ref()),
         runtime_world_label_text_sample(panel.last_text.as_deref()),
     ))
@@ -1690,6 +1710,14 @@ mod tests {
                     last_numeric: Some(true),
                     last_allow_empty: Some(true),
                 },
+                chat: crate::RuntimeChatObservability {
+                    server_message_count: 7,
+                    last_server_message: Some("server text".to_string()),
+                    chat_message_count: 8,
+                    last_chat_message: Some("[cyan]hello".to_string()),
+                    last_chat_unformatted: Some("hello".to_string()),
+                    last_chat_sender_entity_id: Some(404),
+                },
                 admin: RuntimeAdminObservability {
                     trace_info_count: 56,
                     trace_info_parse_fail_count: 76,
@@ -1965,6 +1993,9 @@ mod tests {
             "RUNTIME-DIALOG: prompt=input act=1 menu=16/17/18 tin=53@404:Digits/Only_numbers/12345#16:n1:e1 notice=warn@warn total=48"
         ));
         assert!(frame.contains(
+            "RUNTIME-CHAT: srv=7 last-srv=server_text chat=8 last-chat=[cyan]hello raw=hello sender=404"
+        ));
+        assert!(frame.contains(
             "RUNTIME-COMMAND: act=1 sel=4@11,22,33 bld=2@327686 rect=-3:4:12:18 groups=2#3@11,4#1@99 target=b589834:u2:808:p0x42400000:0x42c00000:r1:2:3:4 cmd=5 stance=7/0"
         ));
         assert!(frame.contains("RUNTIME-ADMIN: trace=56@123456 fail=76 dbg=57/58@12 fail=231"));
@@ -1972,7 +2003,7 @@ mod tests {
             "RUNTIME-RULES: mut=354 fail=210 set=67/69/71 clear=73 complete=74 state=wv1:pvp0 obj=2 qual=1 parents=1 flags=2 oor=75 last=9"
         ));
         assert!(frame.contains(
-            "RUNTIME-WORLD-LABEL: set=19 rel=20 remove=21 total=60 active=2 last=904 pos=40.0:60.0 text=world label"
+            "RUNTIME-WORLD-LABEL: set=19 rel=20 remove=21 total=60 active=2 last=904 flags=3 font=1094713344 z=1082130432 pos=40.0:60.0 text=world label"
         ));
         assert!(frame.contains(
             "RUNTIME-SESSION: kick=idInUse@7:IdInUse:wait_for_old~ loading=defer5 replay6 drop7 qdrop8 sfail9 scfail10 efail11 rdy12@1300 to2/1/1 ltready@20000 rs3/1/1/1 lrreload lwr@lw1:cl0:rd1:cc0:p4:d5:r6 reconnect=attempt#3 redirect redirect=1@127.0.0.1:6567 reason=connectRedir~#none hint=server_reque~"

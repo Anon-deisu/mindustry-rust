@@ -192,6 +192,16 @@ pub struct RuntimeMenuPanelModel {
     pub text_input_last_allow_empty: Option<bool>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeChatPanelModel {
+    pub server_message_count: u64,
+    pub last_server_message: Option<String>,
+    pub chat_message_count: u64,
+    pub last_chat_message: Option<String>,
+    pub last_chat_unformatted: Option<String>,
+    pub last_chat_sender_entity_id: Option<i32>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeDialogPromptKind {
     Menu,
@@ -289,6 +299,9 @@ pub struct RuntimeWorldLabelPanelModel {
     pub active_count: usize,
     pub last_entity_id: Option<i32>,
     pub last_text: Option<String>,
+    pub last_flags: Option<u8>,
+    pub last_font_size_bits: Option<u32>,
+    pub last_z_bits: Option<u32>,
     pub last_position: Option<crate::RuntimeWorldPositionObservability>,
 }
 
@@ -683,6 +696,18 @@ pub fn build_runtime_menu_panel(hud: &HudModel) -> Option<RuntimeMenuPanelModel>
     })
 }
 
+pub fn build_runtime_chat_panel(hud: &HudModel) -> Option<RuntimeChatPanelModel> {
+    let runtime_ui = hud.runtime_ui.as_ref()?;
+    Some(RuntimeChatPanelModel {
+        server_message_count: runtime_ui.chat.server_message_count,
+        last_server_message: runtime_ui.chat.last_server_message.clone(),
+        chat_message_count: runtime_ui.chat.chat_message_count,
+        last_chat_message: runtime_ui.chat.last_chat_message.clone(),
+        last_chat_unformatted: runtime_ui.chat.last_chat_unformatted.clone(),
+        last_chat_sender_entity_id: runtime_ui.chat.last_chat_sender_entity_id,
+    })
+}
+
 pub fn build_runtime_dialog_panel(hud: &HudModel) -> Option<RuntimeDialogPanelModel> {
     let runtime_ui = hud.runtime_ui.as_ref()?;
     let prompt_kind = if runtime_ui.text_input.open_count > 0 {
@@ -844,6 +869,9 @@ pub fn build_runtime_world_label_panel(hud: &HudModel) -> Option<RuntimeWorldLab
         active_count: world_labels.active_count,
         last_entity_id: world_labels.last_entity_id,
         last_text: world_labels.last_text.clone(),
+        last_flags: world_labels.last_flags,
+        last_font_size_bits: world_labels.last_font_size_bits,
+        last_z_bits: world_labels.last_z_bits,
         last_position: world_labels.last_position,
     })
 }
@@ -977,9 +1005,10 @@ fn resolve_presenter_window(
 mod tests {
     use super::{
         build_build_config_panel, build_build_interaction_panel, build_minimap_panel,
-        build_runtime_admin_panel, build_runtime_command_mode_panel, build_runtime_dialog_panel,
-        build_runtime_live_effect_panel, build_runtime_live_entity_panel, build_runtime_menu_panel,
-        build_runtime_rules_panel, build_runtime_session_panel, build_runtime_ui_notice_panel,
+        build_runtime_admin_panel, build_runtime_chat_panel, build_runtime_command_mode_panel,
+        build_runtime_dialog_panel, build_runtime_live_effect_panel,
+        build_runtime_live_entity_panel, build_runtime_menu_panel, build_runtime_rules_panel,
+        build_runtime_session_panel, build_runtime_ui_notice_panel,
         build_runtime_world_label_panel, BuildInteractionAuthorityState, BuildInteractionMode,
         BuildInteractionQueueState, BuildInteractionSelectionState, PresenterViewWindow,
         RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
@@ -1335,6 +1364,14 @@ mod tests {
                     last_numeric: Some(true),
                     last_allow_empty: Some(true),
                 },
+                chat: crate::RuntimeChatObservability {
+                    server_message_count: 7,
+                    last_server_message: Some("server text".to_string()),
+                    chat_message_count: 8,
+                    last_chat_message: Some("[cyan]hello".to_string()),
+                    last_chat_unformatted: Some("hello".to_string()),
+                    last_chat_sender_entity_id: Some(404),
+                },
                 admin: RuntimeAdminObservability::default(),
                 menu: RuntimeMenuObservability::default(),
                 command_mode: RuntimeCommandModeObservability::default(),
@@ -1371,12 +1408,49 @@ mod tests {
     }
 
     #[test]
+    fn builds_runtime_chat_panel_from_runtime_ui_observability() {
+        let hud = HudModel {
+            runtime_ui: Some(RuntimeUiObservability {
+                hud_text: RuntimeHudTextObservability::default(),
+                toast: RuntimeToastObservability::default(),
+                text_input: RuntimeTextInputObservability::default(),
+                chat: crate::RuntimeChatObservability {
+                    server_message_count: 7,
+                    last_server_message: Some("server text".to_string()),
+                    chat_message_count: 8,
+                    last_chat_message: Some("[cyan]hello".to_string()),
+                    last_chat_unformatted: Some("hello".to_string()),
+                    last_chat_sender_entity_id: Some(404),
+                },
+                admin: RuntimeAdminObservability::default(),
+                menu: RuntimeMenuObservability::default(),
+                command_mode: RuntimeCommandModeObservability::default(),
+                rules: RuntimeRulesObservability::default(),
+                world_labels: RuntimeWorldLabelObservability::default(),
+                session: RuntimeSessionObservability::default(),
+                live: RuntimeLiveSummaryObservability::default(),
+            }),
+            ..HudModel::default()
+        };
+
+        let panel = build_runtime_chat_panel(&hud).expect("expected runtime chat panel");
+
+        assert_eq!(panel.server_message_count, 7);
+        assert_eq!(panel.last_server_message.as_deref(), Some("server text"));
+        assert_eq!(panel.chat_message_count, 8);
+        assert_eq!(panel.last_chat_message.as_deref(), Some("[cyan]hello"));
+        assert_eq!(panel.last_chat_unformatted.as_deref(), Some("hello"));
+        assert_eq!(panel.last_chat_sender_entity_id, Some(404));
+    }
+
+    #[test]
     fn builds_runtime_rules_panel_from_runtime_ui_observability() {
         let hud = HudModel {
             runtime_ui: Some(RuntimeUiObservability {
                 hud_text: RuntimeHudTextObservability::default(),
                 toast: RuntimeToastObservability::default(),
                 text_input: RuntimeTextInputObservability::default(),
+                chat: crate::RuntimeChatObservability::default(),
                 admin: RuntimeAdminObservability::default(),
                 menu: RuntimeMenuObservability::default(),
                 command_mode: RuntimeCommandModeObservability::default(),
@@ -1431,6 +1505,7 @@ mod tests {
                 hud_text: RuntimeHudTextObservability::default(),
                 toast: RuntimeToastObservability::default(),
                 text_input: RuntimeTextInputObservability::default(),
+                chat: crate::RuntimeChatObservability::default(),
                 admin: RuntimeAdminObservability::default(),
                 menu: RuntimeMenuObservability::default(),
                 command_mode: RuntimeCommandModeObservability::default(),
@@ -1466,6 +1541,9 @@ mod tests {
         assert_eq!(panel.active_count, 2);
         assert_eq!(panel.last_entity_id, Some(904));
         assert_eq!(panel.last_text.as_deref(), Some("world label"));
+        assert_eq!(panel.last_flags, Some(3));
+        assert_eq!(panel.last_font_size_bits, Some(12.0f32.to_bits()));
+        assert_eq!(panel.last_z_bits, Some(4.0f32.to_bits()));
         assert_eq!(
             panel.last_position,
             Some(crate::RuntimeWorldPositionObservability {
@@ -1482,6 +1560,7 @@ mod tests {
                 hud_text: RuntimeHudTextObservability::default(),
                 toast: RuntimeToastObservability::default(),
                 text_input: RuntimeTextInputObservability::default(),
+                chat: crate::RuntimeChatObservability::default(),
                 admin: RuntimeAdminObservability::default(),
                 menu: RuntimeMenuObservability::default(),
                 command_mode: RuntimeCommandModeObservability::default(),
@@ -1534,6 +1613,7 @@ mod tests {
                 hud_text: RuntimeHudTextObservability::default(),
                 toast: RuntimeToastObservability::default(),
                 text_input: RuntimeTextInputObservability::default(),
+                chat: crate::RuntimeChatObservability::default(),
                 admin: RuntimeAdminObservability::default(),
                 menu: RuntimeMenuObservability::default(),
                 command_mode: RuntimeCommandModeObservability::default(),
@@ -1605,6 +1685,7 @@ mod tests {
                     last_numeric: Some(true),
                     last_allow_empty: Some(true),
                 },
+                chat: crate::RuntimeChatObservability::default(),
                 admin: RuntimeAdminObservability::default(),
                 menu: RuntimeMenuObservability {
                     menu_open_count: 16,
@@ -1661,6 +1742,7 @@ mod tests {
                     last_numeric: Some(true),
                     last_allow_empty: Some(true),
                 },
+                chat: crate::RuntimeChatObservability::default(),
                 admin: RuntimeAdminObservability::default(),
                 menu: RuntimeMenuObservability {
                     menu_open_count: 16,
@@ -1709,6 +1791,7 @@ mod tests {
                 hud_text: RuntimeHudTextObservability::default(),
                 toast: RuntimeToastObservability::default(),
                 text_input: RuntimeTextInputObservability::default(),
+                chat: crate::RuntimeChatObservability::default(),
                 admin: RuntimeAdminObservability::default(),
                 menu: RuntimeMenuObservability::default(),
                 command_mode: RuntimeCommandModeObservability {
@@ -1830,6 +1913,7 @@ mod tests {
                 hud_text: RuntimeHudTextObservability::default(),
                 toast: RuntimeToastObservability::default(),
                 text_input: RuntimeTextInputObservability::default(),
+                chat: crate::RuntimeChatObservability::default(),
                 admin: RuntimeAdminObservability::default(),
                 menu: RuntimeMenuObservability::default(),
                 command_mode: RuntimeCommandModeObservability::default(),
@@ -1851,6 +1935,7 @@ mod tests {
                 hud_text: RuntimeHudTextObservability::default(),
                 toast: RuntimeToastObservability::default(),
                 text_input: RuntimeTextInputObservability::default(),
+                chat: crate::RuntimeChatObservability::default(),
                 admin: RuntimeAdminObservability {
                     trace_info_count: 56,
                     trace_info_parse_fail_count: 76,
@@ -1891,6 +1976,7 @@ mod tests {
                 hud_text: RuntimeHudTextObservability::default(),
                 toast: RuntimeToastObservability::default(),
                 text_input: RuntimeTextInputObservability::default(),
+                chat: crate::RuntimeChatObservability::default(),
                 admin: RuntimeAdminObservability::default(),
                 menu: RuntimeMenuObservability::default(),
                 command_mode: RuntimeCommandModeObservability::default(),
