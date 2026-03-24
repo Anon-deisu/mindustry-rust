@@ -3,6 +3,7 @@ use crate::client_session::{
     ClientPacketTransport, ClientSession, ClientSessionAction, ClientSessionError,
     ClientSessionEvent,
 };
+use crate::session_state::SessionTimeoutKind;
 use mdt_protocol::{
     decode_framework_message, encode_framework_message, FrameworkCodecError, FrameworkMessage,
 };
@@ -181,6 +182,11 @@ impl ArcNetSessionDriver {
                     }
                     ClientSessionAction::TimedOut { idle_ms } => {
                         report.timed_out = Some(idle_ms);
+                        report.timed_out_kind = session
+                            .state()
+                            .last_timeout
+                            .map(|projection| projection.kind)
+                            .or(Some(SessionTimeoutKind::ConnectOrLoading));
                     }
                 }
             }
@@ -352,6 +358,7 @@ pub struct ArcNetTickReport {
     pub udp_registered: bool,
     pub connect_sent: bool,
     pub timed_out: Option<u64>,
+    pub timed_out_kind: Option<SessionTimeoutKind>,
     pub events: Vec<ClientSessionEvent>,
 }
 

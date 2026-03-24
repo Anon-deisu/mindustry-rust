@@ -764,6 +764,7 @@ pub enum MarkerModel {
     Text(TextMarkerModel),
     Shape(ShapeMarkerModel),
     ShapeText(ShapeTextMarkerModel),
+    Line(LineMarkerModel),
     Unknown(UnknownMarkerModel),
 }
 
@@ -836,6 +837,23 @@ pub struct ShapeTextMarkerModel {
     pub rotation_bits: u32,
     pub sides: i32,
     pub color: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LineMarkerModel {
+    pub class_tag: String,
+    pub world: bool,
+    pub minimap: bool,
+    pub autoscale: bool,
+    pub draw_layer_bits: u32,
+    pub x_bits: u32,
+    pub y_bits: u32,
+    pub end_x_bits: u32,
+    pub end_y_bits: u32,
+    pub stroke_bits: u32,
+    pub outline: bool,
+    pub color1: Option<String>,
+    pub color2: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -12652,6 +12670,7 @@ impl MarkerModel {
             MarkerModel::Text(marker) => Some(marker.class_tag.as_str()),
             MarkerModel::Shape(marker) => Some(marker.class_tag.as_str()),
             MarkerModel::ShapeText(marker) => Some(marker.class_tag.as_str()),
+            MarkerModel::Line(marker) => Some(marker.class_tag.as_str()),
             MarkerModel::Unknown(marker) => marker.class_tag.as_deref(),
         }
     }
@@ -12662,6 +12681,7 @@ impl MarkerModel {
             MarkerModel::Text(_) => "Text",
             MarkerModel::Shape(_) => "Shape",
             MarkerModel::ShapeText(_) => "ShapeText",
+            MarkerModel::Line(_) => "Line",
             MarkerModel::Unknown(_) => "Unknown",
         }
     }
@@ -12672,6 +12692,7 @@ impl MarkerModel {
             MarkerModel::Text(marker) => marker.tile_coords(),
             MarkerModel::Shape(marker) => marker.tile_coords(),
             MarkerModel::ShapeText(marker) => marker.tile_coords(),
+            MarkerModel::Line(marker) => marker.tile_coords(),
             MarkerModel::Unknown(_) => None,
         }
     }
@@ -12682,6 +12703,7 @@ impl MarkerModel {
             MarkerModel::Text(marker) => Some(marker.world_position()),
             MarkerModel::Shape(marker) => Some(marker.world_position()),
             MarkerModel::ShapeText(marker) => Some(marker.world_position()),
+            MarkerModel::Line(marker) => Some(marker.world_position()),
             MarkerModel::Unknown(_) => None,
         }
     }
@@ -12692,6 +12714,7 @@ impl MarkerModel {
             MarkerModel::Text(marker) => marker.minimap,
             MarkerModel::Shape(marker) => marker.minimap,
             MarkerModel::ShapeText(marker) => marker.minimap,
+            MarkerModel::Line(marker) => marker.minimap,
             MarkerModel::Unknown(marker) => marker.minimap,
         }
     }
@@ -12701,6 +12724,7 @@ impl MarkerModel {
             MarkerModel::Point(marker) => marker.color.as_deref(),
             MarkerModel::Shape(marker) => marker.color.as_deref(),
             MarkerModel::ShapeText(marker) => marker.color.as_deref(),
+            MarkerModel::Line(marker) => marker.color1.as_deref(),
             MarkerModel::Text(_) | MarkerModel::Unknown(_) => None,
         }
     }
@@ -12743,6 +12767,24 @@ impl ShapeTextMarkerModel {
 
     pub fn world_position(&self) -> (f32, f32) {
         world_position_from_bits(self.x_bits, self.y_bits)
+    }
+}
+
+impl LineMarkerModel {
+    pub fn tile_coords(&self) -> Option<(i16, i16)> {
+        tile_coords_from_bits(self.x_bits, self.y_bits)
+    }
+
+    pub fn world_position(&self) -> (f32, f32) {
+        world_position_from_bits(self.x_bits, self.y_bits)
+    }
+
+    pub fn end_tile_coords(&self) -> Option<(i16, i16)> {
+        tile_coords_from_bits(self.end_x_bits, self.end_y_bits)
+    }
+
+    pub fn end_world_position(&self) -> (f32, f32) {
+        world_position_from_bits(self.end_x_bits, self.end_y_bits)
     }
 }
 
@@ -37515,6 +37557,7 @@ fn marker_class_family(class_tag: Option<&str>) -> Option<&'static str> {
         }
         Some("ShapeText") | Some("shapeText") | Some("ShapeTextMarker")
         | Some("shapeTextMarker") => Some("ShapeText"),
+        Some("Line") | Some("line") | Some("LineMarker") | Some("lineMarker") => Some("Line"),
         _ => None,
     }
 }
@@ -37549,8 +37592,16 @@ fn marker_string_field(object: ObjectFields<'_>, key: &str, default: &str) -> St
 }
 
 fn marker_optional_color_field(object: ObjectFields<'_>, default: Option<&str>) -> Option<String> {
+    marker_optional_named_color_field(object, "color", default)
+}
+
+fn marker_optional_named_color_field(
+    object: ObjectFields<'_>,
+    key: &str,
+    default: Option<&str>,
+) -> Option<String> {
     object
-        .field("color")
+        .field(key)
         .and_then(UbjsonValue::as_str)
         .map(str::to_string)
         .or_else(|| default.map(str::to_string))
@@ -37586,6 +37637,23 @@ fn marker_optional_pos_bits(object: ObjectFields<'_>) -> (Option<u32>, Option<u3
             .and_then(UbjsonValue::as_f32_bits),
         pos.and_then(|pos| pos.field("y"))
             .and_then(UbjsonValue::as_f32_bits),
+    )
+}
+
+fn marker_pos_bits_field(
+    object: ObjectFields<'_>,
+    key: &str,
+    default_x_bits: u32,
+    default_y_bits: u32,
+) -> (u32, u32) {
+    let pos = object.field(key).and_then(UbjsonValue::as_object);
+    (
+        pos.and_then(|pos| pos.field("x"))
+            .and_then(UbjsonValue::as_f32_bits)
+            .unwrap_or(default_x_bits),
+        pos.and_then(|pos| pos.field("y"))
+            .and_then(UbjsonValue::as_f32_bits)
+            .unwrap_or(default_y_bits),
     )
 }
 
@@ -37704,6 +37772,26 @@ fn parse_marker_model(value: &UbjsonValue) -> Result<MarkerModel, String> {
                 rotation_bits: marker_f32_bits_field(object, "rotation", 0.0f32.to_bits()),
                 sides: marker_i32_field(object, "sides", 4),
                 color: marker_optional_color_field(object, Some("ffd37f")),
+            }))
+        }
+        Some("Line") => {
+            let (x_bits, y_bits) = marker_required_pos_bits(object, "line")?;
+            let (end_x_bits, end_y_bits) =
+                marker_pos_bits_field(object, "endPos", 0.0f32.to_bits(), 0.0f32.to_bits());
+            Ok(MarkerModel::Line(LineMarkerModel {
+                class_tag: class_tag.clone().unwrap(),
+                world: marker_bool_field(object, "world", true),
+                minimap: marker_bool_field(object, "minimap", false),
+                autoscale: marker_bool_field(object, "autoscale", false),
+                draw_layer_bits: marker_draw_layer_bits(object),
+                x_bits,
+                y_bits,
+                end_x_bits,
+                end_y_bits,
+                stroke_bits: marker_f32_bits_field(object, "stroke", 1.0f32.to_bits()),
+                outline: marker_bool_field(object, "outline", true),
+                color1: marker_optional_named_color_field(object, "color1", Some("ffd37f")),
+                color2: marker_optional_named_color_field(object, "color2", Some("ffd37f")),
             }))
         }
         _ => {
@@ -38454,6 +38542,47 @@ mod tests {
                 assert_eq!(shape_text.tile_coords(), Some((2, 3)));
             }
             _ => panic!("expected shape text marker model"),
+        }
+    }
+
+    #[test]
+    fn parses_line_marker_model_with_java_defaults_and_aliases() {
+        let marker = parse_marker_model(&marker_object(
+            "lineMarker",
+            vec![("endPos".to_string(), marker_pos_value(40.0, 56.0))],
+        ))
+        .unwrap();
+
+        match marker {
+            MarkerModel::Line(line) => {
+                assert_eq!(line.class_tag, "lineMarker");
+                assert!(line.world);
+                assert!(!line.minimap);
+                assert!(!line.autoscale);
+                assert_eq!(line.draw_layer_bits, 120.0f32.to_bits());
+                assert_eq!(line.stroke_bits, 1.0f32.to_bits());
+                assert!(line.outline);
+                assert_eq!(line.color1.as_deref(), Some("ffd37f"));
+                assert_eq!(line.color2.as_deref(), Some("ffd37f"));
+                assert_eq!(line.tile_coords(), Some((2, 3)));
+                assert_eq!(line.world_position(), (16.0, 24.0));
+                assert_eq!(line.end_tile_coords(), Some((5, 7)));
+                assert_eq!(line.end_world_position(), (40.0, 56.0));
+            }
+            _ => panic!("expected line marker model"),
+        }
+
+        let marker = parse_marker_model(&marker_object("Line", Vec::new())).unwrap();
+        assert_eq!(marker.class_tag(), Some("Line"));
+        assert_eq!(marker.kind_name(), "Line");
+        assert_eq!(marker.tile_coords(), Some((2, 3)));
+        assert_eq!(marker.world_position(), Some((16.0, 24.0)));
+        assert_eq!(marker.color(), Some("ffd37f"));
+        match marker {
+            MarkerModel::Line(line) => {
+                assert_eq!(line.end_world_position(), (0.0, 0.0));
+            }
+            _ => panic!("expected line marker model"),
         }
     }
 

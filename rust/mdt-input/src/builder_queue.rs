@@ -141,6 +141,34 @@ impl BuilderQueueStateMachine {
         self.recount();
     }
 
+    pub fn move_to_front(&mut self, x: i32, y: i32, breaking: bool) -> bool {
+        let key = (x, y);
+        if self
+            .active_by_tile
+            .get(&key)
+            .is_some_and(|entry| entry.breaking == breaking)
+        {
+            self.promote_to_front(key);
+            self.recount();
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn remove_local_entry(
+        &mut self,
+        x: i32,
+        y: i32,
+        breaking: bool,
+    ) -> Option<BuilderQueueEntry> {
+        let removed = self.remove_matching_entry(x, y, breaking);
+        if removed.is_some() {
+            self.recount();
+        }
+        removed
+    }
+
     pub fn clear(&mut self) {
         *self = Self::default();
     }
@@ -349,5 +377,124 @@ mod tests {
         );
         assert!(queue.last_orphan_authoritative);
         assert!(!queue.last_removed_local_plan);
+    }
+
+    #[test]
+    fn move_to_front_promotes_exact_matching_local_entry_without_touching_counters() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 1,
+                y: 1,
+                breaking: false,
+                block_id: Some(1),
+                rotation: 0,
+            },
+            BuilderQueueEntryObservation {
+                x: 2,
+                y: 2,
+                breaking: true,
+                block_id: None,
+                rotation: 1,
+            },
+            BuilderQueueEntryObservation {
+                x: 3,
+                y: 3,
+                breaking: false,
+                block_id: Some(3),
+                rotation: 2,
+            },
+        ]);
+        queue.last_transition = Some(BuilderQueueTransition::Started);
+        queue.rejected_count = 5;
+        queue.finished_count = 7;
+
+        assert!(queue.move_to_front(2, 2, true));
+
+        assert_eq!(queue.ordered_tiles, vec![(2, 2), (1, 1), (3, 3)]);
+        assert_eq!(queue.head_tile, Some((2, 2)));
+        assert_eq!(queue.last_transition, Some(BuilderQueueTransition::Started));
+        assert_eq!(queue.rejected_count, 5);
+        assert_eq!(queue.finished_count, 7);
+        assert_eq!(queue.queued_count, 3);
+        assert_eq!(queue.inflight_count, 0);
+    }
+
+    #[test]
+    fn move_to_front_requires_exact_breaking_match() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([BuilderQueueEntryObservation {
+            x: 4,
+            y: 4,
+            breaking: false,
+            block_id: Some(9),
+            rotation: 2,
+        }]);
+        let expected_order = queue.ordered_tiles.clone();
+
+        assert!(!queue.move_to_front(4, 4, true));
+
+        assert_eq!(queue.ordered_tiles, expected_order);
+        assert_eq!(queue.head_tile, Some((4, 4)));
+    }
+
+    #[test]
+    fn remove_local_entry_removes_exact_matching_plan_without_affecting_authoritative_counts() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 5,
+                y: 5,
+                breaking: false,
+                block_id: Some(11),
+                rotation: 3,
+            },
+            BuilderQueueEntryObservation {
+                x: 6,
+                y: 6,
+                breaking: true,
+                block_id: None,
+                rotation: 0,
+            },
+        ]);
+        queue.last_transition = Some(BuilderQueueTransition::Finished);
+        queue.orphan_authoritative_count = 4;
+
+        let removed = queue.remove_local_entry(6, 6, true);
+
+        assert_eq!(
+            removed,
+            Some(BuilderQueueEntry {
+                x: 6,
+                y: 6,
+                breaking: true,
+                block_id: None,
+                rotation: Some(0),
+                stage: BuilderQueueStage::Queued,
+            })
+        );
+        assert_eq!(queue.ordered_tiles, vec![(5, 5)]);
+        assert_eq!(queue.head_tile, Some((5, 5)));
+        assert_eq!(queue.queued_count, 1);
+        assert_eq!(queue.last_transition, Some(BuilderQueueTransition::Finished));
+        assert_eq!(queue.orphan_authoritative_count, 4);
+    }
+
+    #[test]
+    fn remove_local_entry_keeps_opposite_breaking_plan_on_same_tile() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([BuilderQueueEntryObservation {
+            x: 8,
+            y: 8,
+            breaking: false,
+            block_id: Some(13),
+            rotation: 1,
+        }]);
+
+        assert_eq!(queue.remove_local_entry(8, 8, true), None);
+
+        assert_eq!(queue.ordered_tiles, vec![(8, 8)]);
+        assert_eq!(queue.head_tile, Some((8, 8)));
+        assert_eq!(queue.queued_count, 1);
     }
 }

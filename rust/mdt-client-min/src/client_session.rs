@@ -8,9 +8,11 @@ use crate::session_state::{
     BuilderQueueEntryObservation, ConfiguredBlockOutcome, ConfiguredContentRef,
     EffectBusinessContentKind, EffectBusinessPositionSource, EffectBusinessProjection,
     EffectDataSemantic, GameplayStateProjection, PayloadDroppedProjection,
-    PickedBuildPayloadProjection, PickedUnitPayloadProjection, SessionState, TakeItemsProjection,
+    PickedBuildPayloadProjection, PickedUnitPayloadProjection, SessionResetKind, SessionState,
+    SessionTimeoutKind, SessionTimeoutProjection, TakeItemsProjection,
     TileConfigAuthoritySource, TileConfigBusinessApply, TransferItemToProjection,
     TransferItemToUnitProjection, UnitEnteredPayloadProjection, UnitRefProjection,
+    WorldReloadProjection,
 };
 use mdt_protocol::{
     decode_packet, encode_framework_message, encode_packet, FrameworkMessage, PacketCodecError,
@@ -2386,8 +2388,12 @@ impl ClientSession {
         if let Some(last_activity) = timeout_anchor {
             let idle_ms = now_ms.saturating_sub(last_activity);
             if idle_ms >= timeout_limit_ms {
-                self.timed_out = true;
-                self.state.connection_timed_out = true;
+                let kind = if self.ready_for_interaction() {
+                    SessionTimeoutKind::ReadySnapshotStall
+                } else {
+                    SessionTimeoutKind::ConnectOrLoading
+                };
+                self.mark_timed_out(kind, idle_ms);
                 return Ok(vec![ClientSessionAction::TimedOut { idle_ms }]);
             }
         }
@@ -5937,6 +5943,51 @@ impl ClientSession {
         self.last_kick_hint_text = hint_text;
         self.timed_out = false;
         self.state.connection_timed_out = false;
+        self.record_reset(SessionResetKind::Kick);
+    }
+
+    fn mark_timed_out(
+        &mut self,
+        kind: SessionTimeoutKind,
+        idle_ms: u64,
+    ) -> SessionTimeoutProjection {
+        let projection = SessionTimeoutProjection { kind, idle_ms };
+        self.timed_out = true;
+        self.state.connection_timed_out = true;
+        self.state.timeout_count = self.state.timeout_count.saturating_add(1);
+        self.state.last_timeout = Some(projection);
+        match kind {
+            SessionTimeoutKind::ConnectOrLoading => {
+                self.state.connect_or_loading_timeout_count = self
+                    .state
+                    .connect_or_loading_timeout_count
+                    .saturating_add(1);
+            }
+            SessionTimeoutKind::ReadySnapshotStall => {
+                self.state.ready_snapshot_timeout_count = self
+                    .state
+                    .ready_snapshot_timeout_count
+                    .saturating_add(1);
+            }
+        }
+        projection
+    }
+
+    fn record_reset(&mut self, kind: SessionResetKind) {
+        self.state.reset_count = self.state.reset_count.saturating_add(1);
+        self.state.last_reset_kind = Some(kind);
+        match kind {
+            SessionResetKind::Reconnect => {
+                self.state.reconnect_reset_count =
+                    self.state.reconnect_reset_count.saturating_add(1);
+            }
+            SessionResetKind::WorldReload => {
+                self.state.world_reload_count = self.state.world_reload_count.saturating_add(1);
+            }
+            SessionResetKind::Kick => {
+                self.state.kick_reset_count = self.state.kick_reset_count.saturating_add(1);
+            }
+        }
     }
 
     fn try_queue_ping_response(&mut self, payload: &[u8]) -> Result<bool, ClientSessionError> {
@@ -6726,9 +6777,19 @@ impl ClientSession {
         self.snapshot_input = ClientSnapshotInputState::default();
         self.state = SessionState::default();
         self.stats = NetLoopStats::default();
+        self.record_reset(SessionResetKind::Reconnect);
     }
 
-    fn begin_world_data_reload(&mut self) {
+    fn begin_world_data_reload(&mut self) -> WorldReloadProjection {
+        let projection = WorldReloadProjection {
+            had_loaded_world: self.loaded_world_bundle.is_some(),
+            had_client_loaded: self.state.client_loaded,
+            was_ready_to_enter_world: self.state.ready_to_enter_world,
+            had_connect_confirm_sent: self.state.connect_confirm_sent,
+            cleared_pending_packets: self.pending_packets.len(),
+            cleared_deferred_inbound_packets: self.deferred_inbound_packets.len(),
+            cleared_replayed_loading_events: self.replayed_loading_events.len(),
+        };
         self.pending_world_stream = None;
         self.loaded_world_bundle = None;
         self.pending_packets.clear();
@@ -6884,9 +6945,20 @@ impl ClientSession {
         self.snapshot_input.rotation = 0.0;
         self.snapshot_input.base_rotation = 0.0;
         self.snapshot_input.velocity = (0.0, 0.0);
+        self.snapshot_input.mining_tile = None;
+        self.snapshot_input.boosting = false;
+        self.snapshot_input.shooting = false;
+        self.snapshot_input.chatting = false;
         self.snapshot_input.building = false;
+        self.snapshot_input.selected_block_id = None;
+        self.snapshot_input.selected_rotation = 0;
         self.snapshot_input.plans = None;
         self.snapshot_input.view_center = None;
+        self.snapshot_input.view_size = None;
+        self.snapshot_input.pointer = None;
+        self.record_reset(SessionResetKind::WorldReload);
+        self.state.last_world_reload = Some(projection.clone());
+        projection
     }
 
     fn queue_outbound_packet(
@@ -16754,6 +16826,16 @@ mod tests {
             vec![ClientSessionAction::TimedOut { idle_ms: 1_201 }]
         );
         assert!(session.state().connection_timed_out);
+        assert_eq!(
+            session.state().last_timeout,
+            Some(SessionTimeoutProjection {
+                kind: SessionTimeoutKind::ReadySnapshotStall,
+                idle_ms: 1_201,
+            })
+        );
+        assert_eq!(session.state().timeout_count, 1);
+        assert_eq!(session.state().connect_or_loading_timeout_count, 0);
+        assert_eq!(session.state().ready_snapshot_timeout_count, 1);
     }
 
     #[test]
@@ -16800,6 +16882,16 @@ mod tests {
             vec![ClientSessionAction::TimedOut { idle_ms: 1_201 }]
         );
         assert!(session.state().connection_timed_out);
+        assert_eq!(
+            session.state().last_timeout,
+            Some(SessionTimeoutProjection {
+                kind: SessionTimeoutKind::ReadySnapshotStall,
+                idle_ms: 1_201,
+            })
+        );
+        assert_eq!(session.state().timeout_count, 1);
+        assert_eq!(session.state().connect_or_loading_timeout_count, 0);
+        assert_eq!(session.state().ready_snapshot_timeout_count, 1);
     }
 
     #[test]
@@ -29226,6 +29318,16 @@ mod tests {
             vec![ClientSessionAction::TimedOut { idle_ms: 1_201 }]
         );
         assert!(session.state().connection_timed_out);
+        assert_eq!(
+            session.state().last_timeout,
+            Some(SessionTimeoutProjection {
+                kind: SessionTimeoutKind::ConnectOrLoading,
+                idle_ms: 1_201,
+            })
+        );
+        assert_eq!(session.state().timeout_count, 1);
+        assert_eq!(session.state().connect_or_loading_timeout_count, 1);
+        assert_eq!(session.state().ready_snapshot_timeout_count, 0);
     }
 
     #[test]
@@ -29258,6 +29360,16 @@ mod tests {
             vec![ClientSessionAction::TimedOut { idle_ms: 1_201 }]
         );
         assert!(session.state().connection_timed_out);
+        assert_eq!(
+            session.state().last_timeout,
+            Some(SessionTimeoutProjection {
+                kind: SessionTimeoutKind::ReadySnapshotStall,
+                idle_ms: 1_201,
+            })
+        );
+        assert_eq!(session.state().timeout_count, 1);
+        assert_eq!(session.state().connect_or_loading_timeout_count, 0);
+        assert_eq!(session.state().ready_snapshot_timeout_count, 1);
     }
 
     #[test]
@@ -29320,6 +29432,16 @@ mod tests {
             vec![ClientSessionAction::TimedOut { idle_ms: 1_201 }]
         );
         assert!(session.state().connection_timed_out);
+        assert_eq!(
+            session.state().last_timeout,
+            Some(SessionTimeoutProjection {
+                kind: SessionTimeoutKind::ReadySnapshotStall,
+                idle_ms: 1_201,
+            })
+        );
+        assert_eq!(session.state().timeout_count, 1);
+        assert_eq!(session.state().connect_or_loading_timeout_count, 0);
+        assert_eq!(session.state().ready_snapshot_timeout_count, 1);
     }
 
     #[test]
@@ -29341,6 +29463,16 @@ mod tests {
             session.advance_time(1_201).unwrap(),
             vec![ClientSessionAction::TimedOut { idle_ms: 1_201 }]
         );
+        assert_eq!(
+            session.state().last_timeout,
+            Some(SessionTimeoutProjection {
+                kind: SessionTimeoutKind::ConnectOrLoading,
+                idle_ms: 1_201,
+            })
+        );
+        assert_eq!(session.state().timeout_count, 1);
+        assert_eq!(session.state().connect_or_loading_timeout_count, 1);
+        assert_eq!(session.state().ready_snapshot_timeout_count, 0);
 
         let packet_id = manifest
             .remote_packets
@@ -29453,6 +29585,11 @@ mod tests {
         assert_eq!(session.last_kick_duration_ms(), None);
         assert_eq!(session.last_kick_hint_category(), None);
         assert_eq!(session.last_kick_hint_text(), None);
+        assert_eq!(session.state().last_reset_kind, Some(SessionResetKind::Kick));
+        assert_eq!(session.state().reset_count, 1);
+        assert_eq!(session.state().kick_reset_count, 1);
+        assert_eq!(session.state().reconnect_reset_count, 0);
+        assert_eq!(session.state().world_reload_count, 0);
         let actions = session.advance_time(1_000).unwrap();
         assert!(actions.is_empty());
     }
@@ -29500,6 +29637,11 @@ mod tests {
                 "uuid or usid is already in use; wait for the old session to clear or regenerate the connect identity.",
             )
         );
+        assert_eq!(session.state().last_reset_kind, Some(SessionResetKind::Kick));
+        assert_eq!(session.state().reset_count, 1);
+        assert_eq!(session.state().kick_reset_count, 1);
+        assert_eq!(session.state().reconnect_reset_count, 0);
+        assert_eq!(session.state().world_reload_count, 0);
         let actions = session.advance_time(1_000).unwrap();
         assert!(actions.is_empty());
     }
@@ -29549,6 +29691,11 @@ mod tests {
             session.last_kick_hint_text(),
             Some("server is restarting; retry connection shortly.")
         );
+        assert_eq!(session.state().last_reset_kind, Some(SessionResetKind::Kick));
+        assert_eq!(session.state().reset_count, 1);
+        assert_eq!(session.state().kick_reset_count, 1);
+        assert_eq!(session.state().reconnect_reset_count, 0);
+        assert_eq!(session.state().world_reload_count, 0);
     }
 
     #[test]
@@ -30036,6 +30183,23 @@ mod tests {
         assert!(!session.state().client_loaded);
         assert_eq!(session.state().deferred_inbound_packet_count, 0);
         assert!(session.take_replayed_loading_events().is_empty());
+        assert_eq!(session.state().last_reset_kind, Some(SessionResetKind::WorldReload));
+        assert_eq!(session.state().reset_count, 1);
+        assert_eq!(session.state().world_reload_count, 1);
+        assert_eq!(session.state().reconnect_reset_count, 0);
+        assert_eq!(session.state().kick_reset_count, 0);
+        assert_eq!(
+            session.state().last_world_reload,
+            Some(WorldReloadProjection {
+                had_loaded_world: false,
+                had_client_loaded: false,
+                was_ready_to_enter_world: false,
+                had_connect_confirm_sent: false,
+                cleared_pending_packets: 0,
+                cleared_deferred_inbound_packets: 1,
+                cleared_replayed_loading_events: 0,
+            })
+        );
 
         session.ingest_packet_bytes(&begin_packet).unwrap();
         for chunk in &chunk_packets {
@@ -30339,6 +30503,23 @@ mod tests {
             session.state().entity_table_projection,
             crate::session_state::EntityTableProjection::default()
         );
+        assert_eq!(session.state().last_reset_kind, Some(SessionResetKind::WorldReload));
+        assert_eq!(session.state().reset_count, 1);
+        assert_eq!(session.state().world_reload_count, 1);
+        assert_eq!(session.state().reconnect_reset_count, 0);
+        assert_eq!(session.state().kick_reset_count, 0);
+        assert_eq!(
+            session.state().last_world_reload,
+            Some(WorldReloadProjection {
+                had_loaded_world: true,
+                had_client_loaded: true,
+                was_ready_to_enter_world: true,
+                had_connect_confirm_sent: true,
+                cleared_pending_packets: 2,
+                cleared_deferred_inbound_packets: 0,
+                cleared_replayed_loading_events: 0,
+            })
+        );
         assert!(session
             .state()
             .configured_block_projection
@@ -30470,6 +30651,11 @@ mod tests {
         assert!(!session.timed_out);
         assert!(!session.loading_world_data);
         assert!(session.loaded_world_bundle().is_none());
+        assert_eq!(session.state().last_reset_kind, Some(SessionResetKind::Reconnect));
+        assert_eq!(session.state().reset_count, 1);
+        assert_eq!(session.state().reconnect_reset_count, 1);
+        assert_eq!(session.state().world_reload_count, 0);
+        assert_eq!(session.state().kick_reset_count, 0);
 
         session.ingest_packet_bytes(&begin_packet).unwrap();
         for chunk in &chunk_packets {

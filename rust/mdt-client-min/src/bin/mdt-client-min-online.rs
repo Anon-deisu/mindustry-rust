@@ -712,9 +712,7 @@ impl RuntimePlanEditLoopState {
         }
 
         let mut due = Vec::new();
-        let next_due_ms = self
-            .next_due_ms
-            .get_or_insert(self.config.delay_ms);
+        let next_due_ms = self.next_due_ms.get_or_insert(self.config.delay_ms);
         while now_ms >= *next_due_ms {
             let op_index = self.next_op_index;
             due.push(RuntimePlanEditLoopEntry {
@@ -1515,7 +1513,7 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
 
 fn usage() -> String {
     String::from(
-        "Usage: mdt-client-min-online --manifest <path> (--server <host:port> | --discover-host <host> [--discover-host <host> ...] [--discover-port <port>] [--discover-timeout-ms <ms>]) [--connect-hex <path> | --name <name> --uuid <base64> --usid <base64> --build <build> --version-type <type> --mobile --color-rgba <rgba> --mod <name:version> ...] [--locale <locale>] [--duration-ms <ms>] [--tick-ms <ms>] [--max-recv-packets <n>] [--snapshot-interval-ms <ms>] [--aim-x <f32> --aim-y <f32>] [--mine-tile <x:y>] [--snapshot-boosting|--snapshot-no-boosting] [--snapshot-shooting|--snapshot-no-shooting] [--snapshot-chatting|--snapshot-no-chatting] [--snapshot-building|--snapshot-no-building] [--view-size <w:h>] [--move-step-x <f32> --move-step-y <f32>] [--intent-snapshot <moveX:moveY:aimX:aimY:actions> ...] [--intent-live-sampling|--intent-edge-mapped] [--intent-delay-ms <ms>] [--intent-spacing-ms <ms>] [--plan-place <x:y:block[:rotation][;config]> ...] [--plan-break <x:y> ...] [--plan-place-relative <dx:dy:block[:rotation][;config]> ...] [--plan-break-relative <dx:dy> ...] config=<none|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|point2=<x:y>|point2-array=<x:y[,x:y...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|double=<f64>|building-pos=<i32>|laccess=<i16>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|vec2-array=<x:y[,x:y...]>|vec2=<x:y>|team=<u8>|int-array=<i32[,i32...]>|object-array=<value[|value...]>|unit-command=<u16>> [--plan-rotate <x:y:dir> ...] [--plan-flip-x <x:y> ...] [--plan-flip-y <x:y> ...] [--plan-edit-loop] [--plan-edit-delay-ms <ms>] [--plan-edit-spacing-ms <ms>] [--plan-break-near-player] [--plan-place-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--plan-place-conflict-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--render-ascii-on-world-ready] [--print-client-packets] [--watch-client-packet <type> ...] [--watch-client-binary-packet <type> ...] [--watch-client-logic-data <channel> ...] [--render-window-live] [--dump-world-stream-hex <path>] [--chat-delay-ms <ms>] [--chat-spacing-ms <ms>] [--chat-message <text> ...] [--action-delay-ms <ms>] [--action-spacing-ms <ms>] [--action-request-item <buildPos|none:itemId|none:amount> ...] [--action-request-unit-payload <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-clear ...] [--action-unit-control <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-building-control-select <none|unit:<id>|block:<pos>|<id>@buildPos|none> ...] [--action-building-control-select <buildPos|none> ...] [--action-clear-items <buildPos|none> ...] [--action-clear-liquids <buildPos|none> ...] [--action-transfer-inventory <buildPos|none> ...] [--action-request-build-payload <buildPos|none> ...] [--action-request-drop-payload <x:y> ...] [--action-rotate-block <buildPos|none:direction> ...] [--action-drop-item <angle> ...] [--action-tile-config <buildPos|none:value> ...] [--action-tile-tap <tilePos|none> ...] [--action-delete-plans <x:y[,x:y...]|none> ...] [--action-command-building <x:y[,x:y...]|none@x:y> ...] [--action-command-units <unitId[,unitId...]|none@buildPos@unitTarget@x:y@queueCommand[@finalBatch]> ...] [--action-set-unit-command <unitId[,unitId...]|none@commandId|none> ...] [--action-set-unit-stance <unitId[,unitId...]|none@stanceId|none@enable> ...] [--action-begin-break <none|unit:<id>|block:<pos>|<id>@teamId@x:y> ...] [--action-begin-place <none|unit:<id>|block:<pos>|<id>@blockId|none@teamId@x:y@rotation@value> ...] [--action-menu-choose <menuId@option> ...] [--action-text-input-result <textInputId@text|none> ...] [--action-client-packet <type@contents@reliable|unreliable> ...] [--action-client-binary-packet <type@hex@reliable|unreliable> ...] [--action-client-logic-data <channel@value@reliable|unreliable> ...] value=<null|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|point2=<x:y>|point2-array=<x:y[,x:y...]>|double=<f64>|building-pos=<i32>|laccess=<i16>|vec2=<x:y>|vec2-array=<x:y[,x:y...]>|team=<u8>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|int-array=<i32[,i32...]>|object-array=<value>|unit-command=<u16>|...>",
+        "Usage: mdt-client-min-online --manifest <path> (--server <host:port> | --discover-host <host> [--discover-host <host> ...] [--discover-port <port>] [--discover-timeout-ms <ms>]) [--connect-hex <path> | --name <name> --uuid <base64> --usid <base64> --build <build> --version-type <type> --mobile --color-rgba <rgba> --mod <name:version> ...] [--locale <locale>] [--duration-ms <ms>] [--tick-ms <ms>] [--max-recv-packets <n>] [--snapshot-interval-ms <ms>] [--aim-x <f32> --aim-y <f32>] [--mine-tile <x:y>] [--snapshot-boosting|--snapshot-no-boosting] [--snapshot-shooting|--snapshot-no-shooting] [--snapshot-chatting|--snapshot-no-chatting] [--snapshot-building|--snapshot-no-building] [--view-size <w:h>] [--move-step-x <f32> --move-step-y <f32>] [--intent-snapshot <moveX:moveY:aimX:aimY:actions[:mineX,mineY|none]> ...] [--intent-live-sampling|--intent-edge-mapped] [--intent-delay-ms <ms>] [--intent-spacing-ms <ms>] [--plan-place <x:y:block[:rotation][;config]> ...] [--plan-break <x:y> ...] [--plan-place-relative <dx:dy:block[:rotation][;config]> ...] [--plan-break-relative <dx:dy> ...] config=<none|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|point2=<x:y>|point2-array=<x:y[,x:y...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|double=<f64>|building-pos=<i32>|laccess=<i16>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|vec2-array=<x:y[,x:y...]>|vec2=<x:y>|team=<u8>|int-array=<i32[,i32...]>|object-array=<value[|value...]>|unit-command=<u16>> [--plan-rotate <x:y:dir> ...] [--plan-flip-x <x:y> ...] [--plan-flip-y <x:y> ...] [--plan-edit-loop] [--plan-edit-delay-ms <ms>] [--plan-edit-spacing-ms <ms>] [--plan-break-near-player] [--plan-place-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--plan-place-conflict-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--render-ascii-on-world-ready] [--print-client-packets] [--watch-client-packet <type> ...] [--watch-client-binary-packet <type> ...] [--watch-client-logic-data <channel> ...] [--render-window-live] [--dump-world-stream-hex <path>] [--chat-delay-ms <ms>] [--chat-spacing-ms <ms>] [--chat-message <text> ...] [--action-delay-ms <ms>] [--action-spacing-ms <ms>] [--action-request-item <buildPos|none:itemId|none:amount> ...] [--action-request-unit-payload <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-clear ...] [--action-unit-control <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-building-control-select <none|unit:<id>|block:<pos>|<id>@buildPos|none> ...] [--action-building-control-select <buildPos|none> ...] [--action-clear-items <buildPos|none> ...] [--action-clear-liquids <buildPos|none> ...] [--action-transfer-inventory <buildPos|none> ...] [--action-request-build-payload <buildPos|none> ...] [--action-request-drop-payload <x:y> ...] [--action-rotate-block <buildPos|none:direction> ...] [--action-drop-item <angle> ...] [--action-tile-config <buildPos|none:value> ...] [--action-tile-tap <tilePos|none> ...] [--action-delete-plans <x:y[,x:y...]|none> ...] [--action-command-building <x:y[,x:y...]|none@x:y> ...] [--action-command-units <unitId[,unitId...]|none@buildPos@unitTarget@x:y@queueCommand[@finalBatch]> ...] [--action-set-unit-command <unitId[,unitId...]|none@commandId|none> ...] [--action-set-unit-stance <unitId[,unitId...]|none@stanceId|none@enable> ...] [--action-begin-break <none|unit:<id>|block:<pos>|<id>@teamId@x:y> ...] [--action-begin-place <none|unit:<id>|block:<pos>|<id>@blockId|none@teamId@x:y@rotation@value> ...] [--action-menu-choose <menuId@option> ...] [--action-text-input-result <textInputId@text|none> ...] [--action-client-packet <type@contents@reliable|unreliable> ...] [--action-client-binary-packet <type@hex@reliable|unreliable> ...] [--action-client-logic-data <channel@value@reliable|unreliable> ...] value=<null|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|point2=<x:y>|point2-array=<x:y[,x:y...]>|double=<f64>|building-pos=<i32>|laccess=<i16>|vec2=<x:y>|vec2-array=<x:y[,x:y...]>|team=<u8>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|int-array=<i32[,i32...]>|object-array=<value>|unit-command=<u16>|...>",
     )
 }
 
@@ -1686,10 +1684,11 @@ fn parse_f32_pair_colon_arg(flag: &str, value: &str) -> Result<(f32, f32), Strin
 }
 
 fn parse_intent_snapshot_arg(value: &str) -> Result<InputSnapshot, String> {
-    let parts = value.splitn(5, ':').collect::<Vec<_>>();
-    if parts.len() != 5 {
+    let parts = value.splitn(6, ':').collect::<Vec<_>>();
+    if !(parts.len() == 5 || parts.len() == 6) {
         return Err(
-            "invalid --intent-snapshot, expected <moveX:moveY:aimX:aimY:actions>".to_string(),
+            "invalid --intent-snapshot, expected <moveX:moveY:aimX:aimY:actions[:mineX,mineY|none]>"
+                .to_string(),
         );
     }
 
@@ -1710,10 +1709,16 @@ fn parse_intent_snapshot_arg(value: &str) -> Result<InputSnapshot, String> {
             .map(parse_binary_action_arg)
             .collect::<Result<Vec<_>, _>>()?
     };
+    let mining_tile = if let Some(raw) = parts.get(5) {
+        parse_optional_mining_tile_arg("--intent-snapshot mine", raw.trim())?
+    } else {
+        None
+    };
 
     Ok(InputSnapshot {
         move_axis,
         aim_axis,
+        mining_tile,
         active_actions,
     })
 }
@@ -1725,12 +1730,26 @@ fn parse_binary_action_arg(value: &str) -> Result<BinaryAction, String> {
         "left" | "moveleft" | "move-left" => Ok(BinaryAction::MoveLeft),
         "right" | "moveright" | "move-right" => Ok(BinaryAction::MoveRight),
         "fire" => Ok(BinaryAction::Fire),
-        "use" => Ok(BinaryAction::Use),
-        "pause" => Ok(BinaryAction::Pause),
+        "boost" => Ok(BinaryAction::Boost),
+        "chat" | "pause" => Ok(BinaryAction::Chat),
+        "interact" | "use" => Ok(BinaryAction::Interact),
         other => Err(format!(
-            "invalid --intent-snapshot action '{other}', expected one of up,down,left,right,fire,use,pause"
+            "invalid --intent-snapshot action '{other}', expected one of up,down,left,right,fire,boost,chat,interact"
         )),
     }
+}
+
+fn parse_optional_mining_tile_arg(flag: &str, value: &str) -> Result<Option<(i32, i32)>, String> {
+    if value.is_empty() || value.eq_ignore_ascii_case("none") {
+        return Ok(None);
+    }
+    let Some((x, y)) = value.split_once(',') else {
+        return Err(format!("invalid {flag}, expected <x,y> or none"));
+    };
+    Ok(Some((
+        parse_i32_arg(&format!("{flag} x"), x)?,
+        parse_i32_arg(&format!("{flag} y"), y)?,
+    )))
 }
 
 fn parse_i16_like_arg(flag: &str, value: &str) -> Result<i16, String> {
@@ -3584,9 +3603,10 @@ fn apply_live_intents_to_snapshot(session: &mut ClientSession, state: &LiveInten
         input.base_rotation = heading;
     }
     input.pointer = Some(state.aim_axis);
+    input.mining_tile = state.mining_tile;
     input.shooting = state.is_action_active(BinaryAction::Fire);
-    input.boosting = state.is_action_active(BinaryAction::Use);
-    input.chatting = state.is_action_active(BinaryAction::Pause);
+    input.boosting = state.is_action_active(BinaryAction::Boost);
+    input.chatting = state.is_action_active(BinaryAction::Chat);
 }
 
 fn maybe_print_runtime_input(
@@ -4480,7 +4500,8 @@ mod tests {
         assert!(text.contains("--discover-timeout-ms <ms>"));
         assert!(text.contains("--snapshot-building|--snapshot-no-building"));
         assert!(text.contains("--snapshot-interval-ms <ms>"));
-        assert!(text.contains("--intent-snapshot <moveX:moveY:aimX:aimY:actions> ..."));
+        assert!(text
+            .contains("--intent-snapshot <moveX:moveY:aimX:aimY:actions[:mineX,mineY|none]> ..."));
         assert!(text.contains("--intent-live-sampling"));
         assert!(text.contains("--intent-edge-mapped"));
         assert!(text.contains("--intent-delay-ms <ms>"));
@@ -4588,9 +4609,9 @@ mod tests {
             "--intent-spacing-ms",
             "250",
             "--intent-snapshot",
-            "1:0:16:24:fire,use",
+            "1:0:16:24:fire,boost:88,99",
             "--intent-snapshot",
-            "0:0:32:48:none",
+            "0:0:32:48:none:none",
         ]))
         .unwrap();
 
@@ -4606,7 +4627,8 @@ mod tests {
                     snapshot: InputSnapshot {
                         move_axis: (1.0, 0.0),
                         aim_axis: (16.0, 24.0),
-                        active_actions: vec![BinaryAction::Fire, BinaryAction::Use],
+                        mining_tile: Some((88, 99)),
+                        active_actions: vec![BinaryAction::Fire, BinaryAction::Boost],
                     },
                 },
                 ScheduledIntentSnapshot {
@@ -4614,10 +4636,26 @@ mod tests {
                     snapshot: InputSnapshot {
                         move_axis: (0.0, 0.0),
                         aim_axis: (32.0, 48.0),
+                        mining_tile: None,
                         active_actions: vec![],
                     },
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn parse_intent_snapshot_accepts_legacy_use_and_pause_aliases() {
+        let snapshot = parse_intent_snapshot_arg("0:1:16:24:pause,use:none").unwrap();
+
+        assert_eq!(
+            snapshot,
+            InputSnapshot {
+                move_axis: (0.0, 1.0),
+                aim_axis: (16.0, 24.0),
+                mining_tile: None,
+                active_actions: vec![BinaryAction::Chat, BinaryAction::Interact],
+            }
         );
     }
 
@@ -7896,9 +7934,9 @@ mod tests {
             "--intent-spacing-ms",
             "100",
             "--intent-snapshot",
-            "1:0:16:24:fire,use",
+            "1:0:16:24:fire,boost:88,99",
             "--intent-snapshot",
-            "0:0:32:48:use",
+            "0:0:32:48:chat:none",
         ]))
         .unwrap();
         let mut live_intent_mapper = LiveIntentMapperController::new(
@@ -7918,6 +7956,7 @@ mod tests {
             let input = session.snapshot_input_mut();
             assert_eq!(input.velocity, (1.0, 0.0));
             assert_eq!(input.pointer, Some((16.0, 24.0)));
+            assert_eq!(input.mining_tile, Some((88, 99)));
             assert_eq!(input.rotation, 0.0);
             assert_eq!(input.base_rotation, 0.0);
             assert!(input.shooting);
@@ -7936,8 +7975,40 @@ mod tests {
         let input = session.snapshot_input_mut();
         assert_eq!(input.velocity, (0.0, 0.0));
         assert_eq!(input.pointer, Some((32.0, 48.0)));
+        assert_eq!(input.mining_tile, None);
         assert!(!input.shooting);
-        assert!(input.boosting);
+        assert!(!input.boosting);
+        assert!(input.chatting);
+    }
+
+    #[test]
+    fn apply_live_intents_to_snapshot_keeps_interact_out_of_snapshot_flags() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
+        {
+            let input = session.snapshot_input_mut();
+            input.shooting = true;
+            input.boosting = true;
+            input.chatting = true;
+        }
+
+        let state = LiveIntentState {
+            move_axis: (0.0, 0.0),
+            aim_axis: (18.0, 30.0),
+            mining_tile: Some((4, 6)),
+            active_actions: vec![BinaryAction::Interact],
+            pressed_actions: vec![BinaryAction::Interact],
+            released_actions: Vec::new(),
+        };
+
+        apply_live_intents_to_snapshot(&mut session, &state);
+
+        let input = session.snapshot_input_mut();
+        assert_eq!(input.pointer, Some((18.0, 30.0)));
+        assert_eq!(input.mining_tile, Some((4, 6)));
+        assert!(!input.shooting);
+        assert!(!input.boosting);
+        assert!(!input.chatting);
     }
 
     #[test]

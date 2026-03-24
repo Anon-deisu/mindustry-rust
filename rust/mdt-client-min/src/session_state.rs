@@ -33,6 +33,36 @@ pub enum GameplayStateProjection {
     GameOver,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionTimeoutKind {
+    ConnectOrLoading,
+    ReadySnapshotStall,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SessionTimeoutProjection {
+    pub kind: SessionTimeoutKind,
+    pub idle_ms: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionResetKind {
+    Reconnect,
+    WorldReload,
+    Kick,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct WorldReloadProjection {
+    pub had_loaded_world: bool,
+    pub had_client_loaded: bool,
+    pub was_ready_to_enter_world: bool,
+    pub had_connect_confirm_sent: bool,
+    pub cleared_pending_packets: usize,
+    pub cleared_deferred_inbound_packets: usize,
+    pub cleared_replayed_loading_events: usize,
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct StateSnapshotBusinessProjection {
     pub wave_time_bits: u32,
@@ -2480,6 +2510,16 @@ pub struct SessionState {
     pub sent_client_snapshot_count: u64,
     pub last_sent_client_snapshot_id: Option<i32>,
     pub connection_timed_out: bool,
+    pub timeout_count: u64,
+    pub connect_or_loading_timeout_count: u64,
+    pub ready_snapshot_timeout_count: u64,
+    pub last_timeout: Option<SessionTimeoutProjection>,
+    pub reset_count: u64,
+    pub reconnect_reset_count: u64,
+    pub world_reload_count: u64,
+    pub kick_reset_count: u64,
+    pub last_reset_kind: Option<SessionResetKind>,
+    pub last_world_reload: Option<WorldReloadProjection>,
     pub received_snapshot_count: u64,
     pub last_snapshot_packet_id: Option<u8>,
     pub last_snapshot_method: Option<HighFrequencyRemoteMethod>,

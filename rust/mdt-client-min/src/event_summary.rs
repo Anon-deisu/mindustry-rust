@@ -33,6 +33,7 @@ pub fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<Stri
                 x.to_bits(),
                 y.to_bits()
             )),
+            ClientSessionEvent::WorldDataBegin => Some("world_data_begin".to_string()),
             ClientSessionEvent::CameraPositionUpdated { x, y } => Some(format!(
                 "camera_position: x_bits=0x{:08x} y_bits=0x{:08x}",
                 x.to_bits(),

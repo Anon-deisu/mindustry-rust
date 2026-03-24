@@ -4,6 +4,7 @@ use crate::intent::{BinaryAction, PlayerIntent};
 pub struct LiveIntentState {
     pub move_axis: (f32, f32),
     pub aim_axis: (f32, f32),
+    pub mining_tile: Option<(i32, i32)>,
     pub active_actions: Vec<BinaryAction>,
     pub pressed_actions: Vec<BinaryAction>,
     pub released_actions: Vec<BinaryAction>,
@@ -21,6 +22,9 @@ impl LiveIntentState {
                 }
                 PlayerIntent::SetAimAxis { x, y } => {
                     self.aim_axis = (*x, *y);
+                }
+                PlayerIntent::SetMiningTile { tile } => {
+                    self.mining_tile = *tile;
                 }
                 PlayerIntent::ActionPressed(action) => {
                     push_unique(&mut self.active_actions, *action);
@@ -67,31 +71,35 @@ mod tests {
         let first = mapper.map_snapshot(&InputSnapshot {
             move_axis: (1.0, -1.0),
             aim_axis: (16.0, 24.0),
-            active_actions: vec![BinaryAction::Fire, BinaryAction::Use],
+            mining_tile: Some((7, 9)),
+            active_actions: vec![BinaryAction::Fire, BinaryAction::Boost],
         });
         state.apply_intents(&first);
         assert_eq!(state.move_axis, (1.0, -1.0));
         assert_eq!(state.aim_axis, (16.0, 24.0));
+        assert_eq!(state.mining_tile, Some((7, 9)));
         assert_eq!(
             state.pressed_actions,
-            vec![BinaryAction::Fire, BinaryAction::Use]
+            vec![BinaryAction::Fire, BinaryAction::Boost]
         );
         assert!(state.released_actions.is_empty());
         assert!(state.is_action_active(BinaryAction::Fire));
-        assert!(state.is_action_active(BinaryAction::Use));
+        assert!(state.is_action_active(BinaryAction::Boost));
 
         let second = mapper.map_snapshot(&InputSnapshot {
             move_axis: (0.0, 0.0),
             aim_axis: (32.0, 48.0),
-            active_actions: vec![BinaryAction::Use],
+            mining_tile: None,
+            active_actions: vec![BinaryAction::Boost],
         });
         state.apply_intents(&second);
         assert_eq!(state.move_axis, (0.0, 0.0));
         assert_eq!(state.aim_axis, (32.0, 48.0));
+        assert_eq!(state.mining_tile, None);
         assert!(state.pressed_actions.is_empty());
         assert_eq!(state.released_actions, vec![BinaryAction::Fire]);
         assert!(!state.is_action_active(BinaryAction::Fire));
-        assert!(state.is_action_active(BinaryAction::Use));
+        assert!(state.is_action_active(BinaryAction::Boost));
     }
 
     #[test]
@@ -102,16 +110,19 @@ mod tests {
         let first = mapper.map_snapshot(&InputSnapshot {
             move_axis: (1.0, 0.0),
             aim_axis: (8.0, 12.0),
+            mining_tile: Some((4, 5)),
             active_actions: vec![BinaryAction::Fire],
         });
         state.apply_intents(&first);
         assert_eq!(state.pressed_actions, vec![BinaryAction::Fire]);
         assert!(state.released_actions.is_empty());
         assert!(state.is_action_active(BinaryAction::Fire));
+        assert_eq!(state.mining_tile, Some((4, 5)));
 
         let second = mapper.map_snapshot(&InputSnapshot {
             move_axis: (1.0, 0.0),
             aim_axis: (8.0, 12.0),
+            mining_tile: Some((4, 5)),
             active_actions: vec![BinaryAction::Fire],
         });
         state.apply_intents(&second);
@@ -122,11 +133,13 @@ mod tests {
         let third = mapper.map_snapshot(&InputSnapshot {
             move_axis: (0.0, 0.0),
             aim_axis: (16.0, 20.0),
+            mining_tile: None,
             active_actions: vec![],
         });
         state.apply_intents(&third);
         assert!(state.pressed_actions.is_empty());
         assert_eq!(state.released_actions, vec![BinaryAction::Fire]);
         assert!(!state.is_action_active(BinaryAction::Fire));
+        assert_eq!(state.mining_tile, None);
     }
 }

@@ -4,6 +4,7 @@ use crate::intent::{BinaryAction, PlayerIntent};
 pub struct InputSnapshot {
     pub move_axis: (f32, f32),
     pub aim_axis: (f32, f32),
+    pub mining_tile: Option<(i32, i32)>,
     pub active_actions: Vec<BinaryAction>,
 }
 
@@ -49,7 +50,7 @@ impl IntentMapper for StatelessIntentMapper {
     fn map_snapshot(&mut self, snapshot: &InputSnapshot) -> Vec<PlayerIntent> {
         let active_actions = canonicalize_actions(&snapshot.active_actions);
         let mut intents =
-            Vec::with_capacity(2 + active_actions.len() + self.active_actions_prev.len());
+            Vec::with_capacity(3 + active_actions.len() + self.active_actions_prev.len());
 
         intents.push(PlayerIntent::SetMoveAxis {
             x: snapshot.move_axis.0,
@@ -58,6 +59,9 @@ impl IntentMapper for StatelessIntentMapper {
         intents.push(PlayerIntent::SetAimAxis {
             x: snapshot.aim_axis.0,
             y: snapshot.aim_axis.1,
+        });
+        intents.push(PlayerIntent::SetMiningTile {
+            tile: snapshot.mining_tile,
         });
 
         match self.sampling_mode {
@@ -110,8 +114,9 @@ fn action_order_key(action: &BinaryAction) -> u8 {
         BinaryAction::MoveLeft => 2,
         BinaryAction::MoveRight => 3,
         BinaryAction::Fire => 4,
-        BinaryAction::Use => 5,
-        BinaryAction::Pause => 6,
+        BinaryAction::Boost => 5,
+        BinaryAction::Chat => 6,
+        BinaryAction::Interact => 7,
     }
 }
 
@@ -127,6 +132,7 @@ mod tests {
         InputSnapshot {
             move_axis,
             aim_axis,
+            mining_tile: None,
             active_actions: active_actions.to_vec(),
         }
     }
@@ -140,6 +146,7 @@ mod tests {
             vec![
                 PlayerIntent::SetMoveAxis { x: 1.0, y: 0.0 },
                 PlayerIntent::SetAimAxis { x: 0.0, y: 1.0 },
+                PlayerIntent::SetMiningTile { tile: None },
                 PlayerIntent::ActionPressed(BinaryAction::Fire),
             ]
         );
@@ -149,6 +156,7 @@ mod tests {
             vec![
                 PlayerIntent::SetMoveAxis { x: 1.0, y: 0.0 },
                 PlayerIntent::SetAimAxis { x: 0.0, y: 1.0 },
+                PlayerIntent::SetMiningTile { tile: None },
                 PlayerIntent::ActionHeld(BinaryAction::Fire),
             ]
         );
@@ -158,6 +166,7 @@ mod tests {
             vec![
                 PlayerIntent::SetMoveAxis { x: 0.0, y: 0.0 },
                 PlayerIntent::SetAimAxis { x: 0.0, y: 1.0 },
+                PlayerIntent::SetMiningTile { tile: None },
                 PlayerIntent::ActionReleased(BinaryAction::Fire),
             ]
         );
@@ -174,15 +183,16 @@ mod tests {
                 &[
                     BinaryAction::Fire,
                     BinaryAction::Fire,
-                    BinaryAction::Use,
+                    BinaryAction::Boost,
                     BinaryAction::Fire,
                 ]
             )),
             vec![
                 PlayerIntent::SetMoveAxis { x: 0.0, y: 0.0 },
                 PlayerIntent::SetAimAxis { x: 2.0, y: 3.0 },
+                PlayerIntent::SetMiningTile { tile: None },
                 PlayerIntent::ActionPressed(BinaryAction::Fire),
-                PlayerIntent::ActionPressed(BinaryAction::Use),
+                PlayerIntent::ActionPressed(BinaryAction::Boost),
             ]
         );
 
@@ -190,13 +200,14 @@ mod tests {
             mapper.map_snapshot(&snapshot(
                 (0.0, 0.0),
                 (2.0, 3.0),
-                &[BinaryAction::Use, BinaryAction::Use, BinaryAction::Fire,]
+                &[BinaryAction::Boost, BinaryAction::Boost, BinaryAction::Fire,]
             )),
             vec![
                 PlayerIntent::SetMoveAxis { x: 0.0, y: 0.0 },
                 PlayerIntent::SetAimAxis { x: 2.0, y: 3.0 },
+                PlayerIntent::SetMiningTile { tile: None },
                 PlayerIntent::ActionHeld(BinaryAction::Fire),
-                PlayerIntent::ActionHeld(BinaryAction::Use),
+                PlayerIntent::ActionHeld(BinaryAction::Boost),
             ]
         );
     }
@@ -208,32 +219,42 @@ mod tests {
         let first = mapper.map_snapshot(&snapshot(
             (0.0, 0.0),
             (1.0, 1.0),
-            &[BinaryAction::Pause, BinaryAction::Use, BinaryAction::Fire],
+            &[
+                BinaryAction::Chat,
+                BinaryAction::Boost,
+                BinaryAction::Fire,
+            ],
         ));
         assert_eq!(
             first,
             vec![
                 PlayerIntent::SetMoveAxis { x: 0.0, y: 0.0 },
                 PlayerIntent::SetAimAxis { x: 1.0, y: 1.0 },
+                PlayerIntent::SetMiningTile { tile: None },
                 PlayerIntent::ActionPressed(BinaryAction::Fire),
-                PlayerIntent::ActionPressed(BinaryAction::Use),
-                PlayerIntent::ActionPressed(BinaryAction::Pause),
+                PlayerIntent::ActionPressed(BinaryAction::Boost),
+                PlayerIntent::ActionPressed(BinaryAction::Chat),
             ]
         );
 
         let second = mapper.map_snapshot(&snapshot(
             (0.0, 0.0),
             (1.0, 1.0),
-            &[BinaryAction::Use, BinaryAction::Fire, BinaryAction::Pause],
+            &[
+                BinaryAction::Boost,
+                BinaryAction::Fire,
+                BinaryAction::Chat,
+            ],
         ));
         assert_eq!(
             second,
             vec![
                 PlayerIntent::SetMoveAxis { x: 0.0, y: 0.0 },
                 PlayerIntent::SetAimAxis { x: 1.0, y: 1.0 },
+                PlayerIntent::SetMiningTile { tile: None },
                 PlayerIntent::ActionHeld(BinaryAction::Fire),
-                PlayerIntent::ActionHeld(BinaryAction::Use),
-                PlayerIntent::ActionHeld(BinaryAction::Pause),
+                PlayerIntent::ActionHeld(BinaryAction::Boost),
+                PlayerIntent::ActionHeld(BinaryAction::Chat),
             ]
         );
     }
@@ -245,7 +266,11 @@ mod tests {
         mapper.map_snapshot(&snapshot(
             (0.0, 0.0),
             (0.0, 0.0),
-            &[BinaryAction::Pause, BinaryAction::Use, BinaryAction::Fire],
+            &[
+                BinaryAction::Chat,
+                BinaryAction::Boost,
+                BinaryAction::Fire,
+            ],
         ));
 
         let released = mapper.map_snapshot(&snapshot((0.0, 0.0), (0.0, 0.0), &[]));
@@ -254,9 +279,10 @@ mod tests {
             vec![
                 PlayerIntent::SetMoveAxis { x: 0.0, y: 0.0 },
                 PlayerIntent::SetAimAxis { x: 0.0, y: 0.0 },
+                PlayerIntent::SetMiningTile { tile: None },
                 PlayerIntent::ActionReleased(BinaryAction::Fire),
-                PlayerIntent::ActionReleased(BinaryAction::Use),
-                PlayerIntent::ActionReleased(BinaryAction::Pause),
+                PlayerIntent::ActionReleased(BinaryAction::Boost),
+                PlayerIntent::ActionReleased(BinaryAction::Chat),
             ]
         );
     }
@@ -268,7 +294,7 @@ mod tests {
         mapper.map_snapshot(&snapshot(
             (0.0, 0.0),
             (0.0, 0.0),
-            &[BinaryAction::Fire, BinaryAction::Use],
+            &[BinaryAction::Fire, BinaryAction::Boost],
         ));
 
         assert_eq!(
@@ -276,8 +302,9 @@ mod tests {
             vec![
                 PlayerIntent::SetMoveAxis { x: 0.0, y: 0.0 },
                 PlayerIntent::SetAimAxis { x: 0.0, y: 0.0 },
+                PlayerIntent::SetMiningTile { tile: None },
                 PlayerIntent::ActionReleased(BinaryAction::Fire),
-                PlayerIntent::ActionReleased(BinaryAction::Use),
+                PlayerIntent::ActionReleased(BinaryAction::Boost),
             ]
         );
     }
@@ -286,9 +313,9 @@ mod tests {
     fn axis_intents_are_always_emitted_even_without_action_changes() {
         let mut mapper = StatelessIntentMapper::default();
 
-        let first = mapper.map_snapshot(&snapshot((0.5, -0.5), (4.0, 8.0), &[BinaryAction::Pause]));
+        let first = mapper.map_snapshot(&snapshot((0.5, -0.5), (4.0, 8.0), &[BinaryAction::Chat]));
         let second =
-            mapper.map_snapshot(&snapshot((-1.0, 1.0), (9.0, 10.0), &[BinaryAction::Pause]));
+            mapper.map_snapshot(&snapshot((-1.0, 1.0), (9.0, 10.0), &[BinaryAction::Chat]));
 
         assert_eq!(
             first[0..2],
@@ -304,7 +331,8 @@ mod tests {
                 PlayerIntent::SetAimAxis { x: 9.0, y: 10.0 },
             ]
         );
-        assert_eq!(second[2], PlayerIntent::ActionHeld(BinaryAction::Pause));
+        assert_eq!(second[2], PlayerIntent::SetMiningTile { tile: None });
+        assert_eq!(second[3], PlayerIntent::ActionHeld(BinaryAction::Chat));
     }
 
     #[test]
@@ -316,6 +344,7 @@ mod tests {
             vec![
                 PlayerIntent::SetMoveAxis { x: 0.0, y: 0.0 },
                 PlayerIntent::SetAimAxis { x: 1.0, y: 2.0 },
+                PlayerIntent::SetMiningTile { tile: None },
                 PlayerIntent::ActionPressed(BinaryAction::Fire),
             ]
         );
@@ -325,24 +354,27 @@ mod tests {
             vec![
                 PlayerIntent::SetMoveAxis { x: 0.0, y: 0.0 },
                 PlayerIntent::SetAimAxis { x: 1.0, y: 2.0 },
+                PlayerIntent::SetMiningTile { tile: None },
             ]
         );
 
         assert_eq!(
-            mapper.map_snapshot(&snapshot((0.0, 0.0), (3.0, 4.0), &[BinaryAction::Use])),
+            mapper.map_snapshot(&snapshot((0.0, 0.0), (3.0, 4.0), &[BinaryAction::Boost])),
             vec![
                 PlayerIntent::SetMoveAxis { x: 0.0, y: 0.0 },
                 PlayerIntent::SetAimAxis { x: 3.0, y: 4.0 },
-                PlayerIntent::ActionPressed(BinaryAction::Use),
+                PlayerIntent::SetMiningTile { tile: None },
+                PlayerIntent::ActionPressed(BinaryAction::Boost),
                 PlayerIntent::ActionReleased(BinaryAction::Fire),
             ]
         );
 
         assert_eq!(
-            mapper.map_snapshot(&snapshot((0.0, 0.0), (3.0, 4.0), &[BinaryAction::Use])),
+            mapper.map_snapshot(&snapshot((0.0, 0.0), (3.0, 4.0), &[BinaryAction::Boost])),
             vec![
                 PlayerIntent::SetMoveAxis { x: 0.0, y: 0.0 },
                 PlayerIntent::SetAimAxis { x: 3.0, y: 4.0 },
+                PlayerIntent::SetMiningTile { tile: None },
             ]
         );
 
@@ -351,7 +383,8 @@ mod tests {
             vec![
                 PlayerIntent::SetMoveAxis { x: 0.0, y: 0.0 },
                 PlayerIntent::SetAimAxis { x: 5.0, y: 6.0 },
-                PlayerIntent::ActionReleased(BinaryAction::Use),
+                PlayerIntent::SetMiningTile { tile: None },
+                PlayerIntent::ActionReleased(BinaryAction::Boost),
             ]
         );
     }
@@ -362,17 +395,40 @@ mod tests {
 
         let batch = vec![
             snapshot((0.0, 0.0), (1.0, 1.0), &[BinaryAction::Fire]),
-            snapshot((0.5, 0.5), (2.0, 2.0), &[BinaryAction::Use]),
+            snapshot((0.5, 0.5), (2.0, 2.0), &[BinaryAction::Boost]),
         ];
         assert_eq!(
             mapper.map_latest_snapshot(&batch),
             vec![
                 PlayerIntent::SetMoveAxis { x: 0.5, y: 0.5 },
                 PlayerIntent::SetAimAxis { x: 2.0, y: 2.0 },
-                PlayerIntent::ActionPressed(BinaryAction::Use),
+                PlayerIntent::SetMiningTile { tile: None },
+                PlayerIntent::ActionPressed(BinaryAction::Boost),
             ]
         );
 
         assert!(mapper.map_latest_snapshot(&[]).is_empty());
+    }
+
+    #[test]
+    fn mining_tile_is_emitted_as_structured_intent() {
+        let mut mapper = StatelessIntentMapper::default();
+
+        let intents = mapper.map_snapshot(&InputSnapshot {
+            move_axis: (0.0, 0.0),
+            aim_axis: (3.0, 4.0),
+            mining_tile: Some((7, 9)),
+            active_actions: vec![BinaryAction::Interact],
+        });
+
+        assert_eq!(
+            intents,
+            vec![
+                PlayerIntent::SetMoveAxis { x: 0.0, y: 0.0 },
+                PlayerIntent::SetAimAxis { x: 3.0, y: 4.0 },
+                PlayerIntent::SetMiningTile { tile: Some((7, 9)) },
+                PlayerIntent::ActionPressed(BinaryAction::Interact),
+            ]
+        );
     }
 }

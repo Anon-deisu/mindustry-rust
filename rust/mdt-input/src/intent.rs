@@ -5,14 +5,16 @@ pub enum BinaryAction {
     MoveLeft,
     MoveRight,
     Fire,
-    Use,
-    Pause,
+    Boost,
+    Chat,
+    Interact,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum PlayerIntent {
     SetMoveAxis { x: f32, y: f32 },
     SetAimAxis { x: f32, y: f32 },
+    SetMiningTile { tile: Option<(i32, i32)> },
     ActionPressed(BinaryAction),
     ActionHeld(BinaryAction),
     ActionReleased(BinaryAction),

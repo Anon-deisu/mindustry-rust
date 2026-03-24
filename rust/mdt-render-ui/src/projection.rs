@@ -1,5 +1,5 @@
 use crate::{hud_model::HudSummary, HudModel, RenderModel, RenderObject, Viewport};
-use mdt_world::{LoadedWorldSession, MarkerEntry, TeamPlanRef};
+use mdt_world::{LineMarkerModel, LoadedWorldSession, MarkerEntry, MarkerModel, TeamPlanRef};
 
 const TILE_SIZE: f32 = 8.0;
 const TERRAIN_LAYER: i32 = 0;
@@ -123,18 +123,13 @@ fn project_render_model_with_player_position_visibility(
         }
 
         for marker in graph.markers() {
-            if let Some((x, y)) = marker_world_position(marker) {
-                let marker_tile_x = world_to_tile_index_clamped(x, graph.width());
-                let marker_tile_y = world_to_tile_index_clamped(y, graph.height());
+            for object in project_marker_objects(marker) {
+                let marker_tile_x = world_to_tile_index_clamped(object.x, graph.width());
+                let marker_tile_y = world_to_tile_index_clamped(object.y, graph.height());
                 if !tile_visible_under_fog(session, fog_visibility, marker_tile_x, marker_tile_y) {
                     continue;
                 }
-                objects.push(RenderObject {
-                    id: format!("marker:{}", marker.id),
-                    layer: MARKER_LAYER,
-                    x,
-                    y,
-                });
+                objects.push(object);
             }
         }
     }
@@ -234,9 +229,9 @@ fn project_render_model_with_view_window_visibility(
         }
 
         for marker in graph.markers() {
-            if let Some((x, y)) = marker_world_position(marker) {
-                let marker_tile_x = world_to_tile_index_clamped(x, graph.width());
-                let marker_tile_y = world_to_tile_index_clamped(y, graph.height());
+            for object in project_marker_objects(marker) {
+                let marker_tile_x = world_to_tile_index_clamped(object.x, graph.width());
+                let marker_tile_y = world_to_tile_index_clamped(object.y, graph.height());
                 if !tile_visible_under_fog(session, fog_visibility, marker_tile_x, marker_tile_y) {
                     continue;
                 }
@@ -248,12 +243,7 @@ fn project_render_model_with_view_window_visibility(
                     window_width,
                     window_height,
                 ) {
-                    objects.push(RenderObject {
-                        id: format!("marker:{}", marker.id),
-                        layer: MARKER_LAYER,
-                        x,
-                        y,
-                    });
+                    objects.push(object);
                 }
             }
         }
@@ -421,13 +411,60 @@ fn project_team_plan(plan: TeamPlanRef<'_>) -> RenderObject {
     }
 }
 
+fn project_marker_objects(marker: &MarkerEntry) -> Vec<RenderObject> {
+    let mut objects = Vec::with_capacity(2);
+    if let Some((x, y)) = marker_world_position(marker) {
+        objects.push(RenderObject {
+            id: format!("marker:{}", marker.id),
+            layer: MARKER_LAYER,
+            x,
+            y,
+        });
+    }
+
+    if let Some((x, y)) = line_marker_end_world_position(marker) {
+        if marker_world_position(marker) != Some((x, y)) {
+            objects.push(RenderObject {
+                id: format!("marker:{}:line-end", marker.id),
+                layer: MARKER_LAYER,
+                x,
+                y,
+            });
+        }
+    }
+
+    objects
+}
+
 fn marker_world_position(marker: &MarkerEntry) -> Option<(f32, f32)> {
-    marker.marker.world_position().or_else(|| {
+    finite_world_position(marker.marker.world_position()).or_else(|| {
         marker
             .marker
             .tile_coords()
             .map(|(x, y)| (x as f32 * TILE_SIZE, y as f32 * TILE_SIZE))
     })
+}
+
+fn line_marker_end_world_position(marker: &MarkerEntry) -> Option<(f32, f32)> {
+    let MarkerModel::Line(line) = &marker.marker else {
+        return None;
+    };
+
+    finite_line_marker_world_position(line).or_else(|| {
+        line.end_tile_coords()
+            .map(|(x, y)| (x as f32 * TILE_SIZE, y as f32 * TILE_SIZE))
+    })
+}
+
+fn finite_line_marker_world_position(line: &LineMarkerModel) -> Option<(f32, f32)> {
+    finite_world_position(Some(line.end_world_position()))
+}
+
+fn finite_world_position(position: Option<(f32, f32)>) -> Option<(f32, f32)> {
+    match position {
+        Some((x, y)) if x.is_finite() && y.is_finite() => Some((x, y)),
+        _ => None,
+    }
 }
 
 fn world_to_tile_index_floor(world_position: f32) -> i32 {
@@ -493,7 +530,7 @@ fn tile_in_window(
 #[cfg(test)]
 mod tests {
     use super::{project_hud_model, project_render_model, project_render_model_with_view_window};
-    use mdt_world::parse_world_bundle;
+    use mdt_world::{parse_world_bundle, LineMarkerModel, MarkerEntry, MarkerModel};
 
     #[test]
     fn projects_loaded_world_session_into_render_and_hud_models() {
@@ -579,6 +616,36 @@ mod tests {
             .objects
             .iter()
             .any(|object| object.id == format!("player:{}", session.player().id)));
+    }
+
+    #[test]
+    fn line_marker_projects_start_and_end_anchors() {
+        let marker = MarkerEntry {
+            id: 77,
+            marker: MarkerModel::Line(LineMarkerModel {
+                class_tag: "Line".to_string(),
+                world: true,
+                minimap: true,
+                autoscale: false,
+                draw_layer_bits: 0,
+                x_bits: 16.0f32.to_bits(),
+                y_bits: 24.0f32.to_bits(),
+                end_x_bits: 40.0f32.to_bits(),
+                end_y_bits: 56.0f32.to_bits(),
+                stroke_bits: 1.0f32.to_bits(),
+                outline: true,
+                color1: Some("ffd37f".to_string()),
+                color2: Some("ffd37f".to_string()),
+            }),
+        };
+
+        let objects = super::project_marker_objects(&marker);
+
+        assert_eq!(objects.len(), 2);
+        assert_eq!(objects[0].id, "marker:77");
+        assert_eq!((objects[0].x, objects[0].y), (16.0, 24.0));
+        assert_eq!(objects[1].id, "marker:77:line-end");
+        assert_eq!((objects[1].x, objects[1].y), (40.0, 56.0));
     }
 
     #[test]
