@@ -30,14 +30,19 @@ impl AsciiScenePresenter {
     fn compose_frame(&self, scene: &RenderModel, hud: &HudModel) -> String {
         let width = (scene.viewport.width / TILE_SIZE).round().max(0.0) as usize;
         let height = (scene.viewport.height / TILE_SIZE).round().max(0.0) as usize;
-        let (window_x, window_y, window_width, window_height) =
-            crop_window(scene, width, height, self.max_view_tiles);
-        let mut grid = vec![vec![' '; window_width]; window_height];
+        let window = crop_window(scene, width, height, self.max_view_tiles);
+        let mut grid = vec![vec![' '; window.width]; window.height];
         let mut objects = scene
             .objects
             .iter()
             .filter_map(|object| {
-                visible_window_tile(object, window_x, window_y, window_width, window_height)
+                visible_window_tile(
+                    object,
+                    window.origin_x,
+                    window.origin_y,
+                    window.width,
+                    window.height,
+                )
             })
             .collect::<Vec<_>>();
         objects.sort_by_key(|(object, _, _)| object.layer);
@@ -54,28 +59,10 @@ impl AsciiScenePresenter {
         if let Some(summary_text) = compose_hud_summary_text(hud) {
             out.push_str(&format!("SUMMARY: {summary_text}\n"));
         }
-        if let Some(minimap_text) = compose_minimap_panel_text(
-            scene,
-            hud,
-            PresenterViewWindow {
-                origin_x: window_x,
-                origin_y: window_y,
-                width: window_width,
-                height: window_height,
-            },
-        ) {
+        if let Some(minimap_text) = compose_minimap_panel_text(scene, hud, window) {
             out.push_str(&format!("MINIMAP: {minimap_text}\n"));
         }
-        if let Some(minimap_visibility_text) = compose_minimap_visibility_line(
-            scene,
-            hud,
-            PresenterViewWindow {
-                origin_x: window_x,
-                origin_y: window_y,
-                width: window_width,
-                height: window_height,
-            },
-        ) {
+        if let Some(minimap_visibility_text) = compose_minimap_visibility_line(scene, hud, window) {
             out.push_str(&format!("MINIMAP-VIS: {minimap_visibility_text}\n"));
         }
         if let Some(minimap_kinds_text) = compose_minimap_kind_line(scene, hud) {
@@ -149,14 +136,18 @@ impl AsciiScenePresenter {
             "VIEWPORT: {}x{} zoom={:.2}\n",
             width, height, scene.viewport.zoom
         ));
-        if window_width != width || window_height != height {
+        if window.origin_x != 0
+            || window.origin_y != 0
+            || window.width != width
+            || window.height != height
+        {
             out.push_str(&format!(
                 "WINDOW: origin=({}, {}) size={}x{}\n",
-                window_x, window_y, window_width, window_height
+                window.origin_x, window.origin_y, window.width, window.height
             ));
         }
-        for y in (0..window_height).rev() {
-            for x in 0..window_width {
+        for y in (0..window.height).rev() {
+            for x in 0..window.width {
                 let ch = match grid[y][x] {
                     ' ' => '.',
                     other => other,
@@ -182,36 +173,62 @@ fn crop_window(
     width: usize,
     height: usize,
     max_view_tiles: Option<(usize, usize)>,
-) -> (usize, usize, usize, usize) {
+) -> PresenterViewWindow {
+    let base_window = projected_window(scene, width, height);
     let Some((max_width, max_height)) = max_view_tiles else {
-        return (0, 0, width, height);
+        return base_window;
     };
-    if width <= max_width && height <= max_height {
-        return (0, 0, width, height);
+    if base_window.width <= max_width && base_window.height <= max_height {
+        return base_window;
     }
 
-    let focus = scene
-        .objects
-        .iter()
-        .find(|object| object.semantic_kind() == RenderObjectSemanticKind::Player)
-        .map(|object| {
-            (
-                world_to_tile_index_clamped(object.x, width),
-                world_to_tile_index_clamped(object.y, height),
-            )
-        })
-        .unwrap_or((width / 2, height / 2));
+    let focus = scene.player_focus_tile(TILE_SIZE).unwrap_or((
+        base_window.origin_x.saturating_add(base_window.width / 2),
+        base_window.origin_y.saturating_add(base_window.height / 2),
+    ));
 
-    let window_width = max_width.min(width);
-    let window_height = max_height.min(height);
-    let window_x = crop_origin(focus.0, width, window_width);
-    let window_y = crop_origin(focus.1, height, window_height);
-    (window_x, window_y, window_width, window_height)
+    let window_width = max_width.min(base_window.width);
+    let window_height = max_height.min(base_window.height);
+    PresenterViewWindow {
+        origin_x: crop_origin(
+            focus.0,
+            base_window.origin_x,
+            base_window.width,
+            window_width,
+        ),
+        origin_y: crop_origin(
+            focus.1,
+            base_window.origin_y,
+            base_window.height,
+            window_height,
+        ),
+        width: window_width,
+        height: window_height,
+    }
 }
 
-fn crop_origin(focus: usize, bound: usize, window: usize) -> usize {
+fn projected_window(scene: &RenderModel, width: usize, height: usize) -> PresenterViewWindow {
+    scene
+        .view_window
+        .map(|window| PresenterViewWindow {
+            origin_x: window.origin_x,
+            origin_y: window.origin_y,
+            width: window.width.min(width),
+            height: window.height.min(height),
+        })
+        .unwrap_or(PresenterViewWindow {
+            origin_x: 0,
+            origin_y: 0,
+            width,
+            height,
+        })
+}
+
+fn crop_origin(focus: usize, origin: usize, bound: usize, window: usize) -> usize {
     let half = window / 2;
-    focus.saturating_sub(half).min(bound.saturating_sub(window))
+    focus
+        .saturating_sub(half)
+        .clamp(origin, origin.saturating_add(bound.saturating_sub(window)))
 }
 
 fn visible_window_tile(
@@ -244,13 +261,6 @@ fn world_to_tile_index_floor(world_position: f32) -> i32 {
         return 0;
     }
     (world_position / TILE_SIZE).floor() as i32
-}
-
-fn world_to_tile_index_clamped(world_position: f32, bound: usize) -> usize {
-    if bound == 0 {
-        return 0;
-    }
-    world_to_tile_index_floor(world_position).clamp(0, bound.saturating_sub(1) as i32) as usize
 }
 
 fn sprite_for_id(id: &str) -> char {
@@ -1086,10 +1096,11 @@ mod tests {
             RuntimeReconnectReasonKind, RuntimeSessionObservability, RuntimeSessionResetKind,
             RuntimeSessionTimeoutKind, RuntimeWorldReloadObservability,
         },
-        project_scene_models, HudModel, RenderModel, RenderObject, RuntimeAdminObservability,
-        RuntimeHudTextObservability, RuntimeMenuObservability, RuntimeRulesObservability,
-        RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiObservability,
-        RuntimeWorldLabelObservability, ScenePresenter, Viewport,
+        project_scene_models, project_scene_models_with_view_window, HudModel, RenderModel,
+        RenderObject, RuntimeAdminObservability, RuntimeHudTextObservability,
+        RuntimeMenuObservability, RuntimeRulesObservability, RuntimeTextInputObservability,
+        RuntimeToastObservability, RuntimeUiObservability, RuntimeWorldLabelObservability,
+        ScenePresenter, Viewport,
     };
     use mdt_world::parse_world_bundle;
 
@@ -1143,6 +1154,27 @@ mod tests {
     }
 
     #[test]
+    fn ascii_presenter_honors_projected_view_window_without_local_crop() {
+        let bundle = parse_world_bundle(&decode_hex(include_str!(
+            "../../../tests/src/test/resources/world-stream.hex"
+        )))
+        .unwrap();
+        let session = bundle.loaded_session().unwrap();
+        let (scene, hud) =
+            project_scene_models_with_view_window(&session, "fr", Some((32.0, 32.0)), (4, 4));
+        let mut presenter = AsciiScenePresenter::default();
+
+        presenter.present(&scene, &hud);
+
+        let frame = presenter.last_frame();
+        let grid_rows = frame.lines().rev().take(4).collect::<Vec<_>>();
+
+        assert!(frame.contains("WINDOW: origin=(2, 2) size=4x4"));
+        assert_eq!(grid_rows.len(), 4);
+        assert!(grid_rows.iter().all(|row| row.len() == 4));
+    }
+
+    #[test]
     fn ascii_presenter_uses_alias_semantic_mapping_for_focus_and_sprites() {
         let scene = RenderModel {
             viewport: Viewport {
@@ -1150,6 +1182,7 @@ mod tests {
                 height: 64.0,
                 zoom: 1.0,
             },
+            view_window: None,
             objects: vec![
                 RenderObject {
                     id: "unit:focus".to_string(),
@@ -1213,6 +1246,7 @@ mod tests {
                 height: 64.0,
                 zoom: 1.0,
             },
+            view_window: None,
             objects: vec![
                 RenderObject {
                     id: "terrain:stable".to_string(),
@@ -1268,6 +1302,7 @@ mod tests {
                 height: 16.0,
                 zoom: 1.0,
             },
+            view_window: None,
             objects: vec![
                 crate::RenderObject {
                     id: "player:1".to_string(),
@@ -1334,6 +1369,7 @@ mod tests {
                 height: 8.0,
                 zoom: 1.0,
             },
+            view_window: None,
             objects: vec![
                 crate::RenderObject {
                     id: "player:1".to_string(),
@@ -1638,6 +1674,7 @@ mod tests {
                 height: 16.0,
                 zoom: 1.0,
             },
+            view_window: None,
             objects: vec![
                 crate::RenderObject {
                     id: "player:1".to_string(),

@@ -171,6 +171,13 @@ pub enum CustomChannelRemoteFamily {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CustomChannelRemotePayloadKind {
+    Text,
+    Binary,
+    LogicData,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InboundRemoteFamily {
     ServerPacketReliable,
     ServerPacketUnreliable,
@@ -372,6 +379,22 @@ impl CustomChannelRemoteFamily {
         )
     }
 
+    pub fn payload_kind(self) -> CustomChannelRemotePayloadKind {
+        match self {
+            Self::ClientPacketReliable
+            | Self::ClientPacketUnreliable
+            | Self::ServerPacketReliable
+            | Self::ServerPacketUnreliable => CustomChannelRemotePayloadKind::Text,
+            Self::ClientBinaryPacketReliable
+            | Self::ClientBinaryPacketUnreliable
+            | Self::ServerBinaryPacketReliable
+            | Self::ServerBinaryPacketUnreliable => CustomChannelRemotePayloadKind::Binary,
+            Self::ClientLogicDataReliable | Self::ClientLogicDataUnreliable => {
+                CustomChannelRemotePayloadKind::LogicData
+            }
+        }
+    }
+
     pub fn param_java_types(self) -> &'static [&'static str] {
         match self {
             Self::ClientPacketReliable | Self::ClientPacketUnreliable => {
@@ -459,6 +482,10 @@ impl InboundRemoteFamily {
 
     pub fn unreliable(self) -> bool {
         self.custom_channel_family().unreliable()
+    }
+
+    pub fn payload_kind(self) -> CustomChannelRemotePayloadKind {
+        self.custom_channel_family().payload_kind()
     }
 
     pub fn param_java_types(self) -> &'static [&'static str] {
@@ -1579,6 +1606,22 @@ mod tests {
             "mindustry.gen.ClientPacketReliableCallPacket"
         );
         assert_eq!(packet.flow, RemoteFlow::ServerToClient);
+        assert_eq!(
+            CustomChannelRemoteFamily::ClientPacketReliable.payload_kind(),
+            CustomChannelRemotePayloadKind::Text
+        );
+        assert_eq!(
+            CustomChannelRemoteFamily::ServerBinaryPacketReliable.payload_kind(),
+            CustomChannelRemotePayloadKind::Binary
+        );
+        assert_eq!(
+            CustomChannelRemoteFamily::ClientLogicDataReliable.payload_kind(),
+            CustomChannelRemotePayloadKind::LogicData
+        );
+        assert_eq!(
+            InboundRemoteFamily::ClientLogicDataUnreliable.payload_kind(),
+            CustomChannelRemotePayloadKind::LogicData
+        );
     }
 
     #[test]

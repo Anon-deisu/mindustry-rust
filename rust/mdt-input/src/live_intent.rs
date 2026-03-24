@@ -76,7 +76,25 @@ impl RuntimeIntentTracker {
     }
 
     pub fn sample_runtime_snapshot(&mut self, runtime_snapshot: &InputSnapshot) -> bool {
-        let snapshot = self.override_snapshot.as_ref().unwrap_or(runtime_snapshot);
+        self.sample_snapshot(runtime_snapshot, None)
+    }
+
+    pub fn sample_runtime_snapshot_with_override(
+        &mut self,
+        runtime_snapshot: &InputSnapshot,
+        override_snapshot: &InputSnapshot,
+    ) -> bool {
+        self.sample_snapshot(runtime_snapshot, Some(override_snapshot))
+    }
+
+    fn sample_snapshot(
+        &mut self,
+        runtime_snapshot: &InputSnapshot,
+        override_snapshot: Option<&InputSnapshot>,
+    ) -> bool {
+        let snapshot = override_snapshot
+            .or(self.override_snapshot.as_ref())
+            .unwrap_or(runtime_snapshot);
         let intents = self.mapper.map_snapshot(snapshot);
         let previous_key = runtime_snapshot_apply_key(&self.state);
         self.state.apply_intents(&intents);
@@ -293,6 +311,41 @@ mod tests {
         assert_eq!(tracker.state().mining_tile, Some((8, 9)));
         assert!(!tracker.state().building);
         assert!(tracker.state().is_action_active(BinaryAction::Boost));
+    }
+
+    #[test]
+    fn runtime_intent_tracker_supports_one_shot_override_without_persisting() {
+        let mut tracker = RuntimeIntentTracker::new(IntentSamplingMode::LiveSampling);
+        let runtime_snapshot = InputSnapshot {
+            move_axis: (2.0, 3.0),
+            aim_axis: (40.0, 50.0),
+            mining_tile: None,
+            building: false,
+            active_actions: vec![BinaryAction::Fire],
+        };
+        let override_snapshot = InputSnapshot {
+            move_axis: (0.5, -0.5),
+            aim_axis: (10.0, 20.0),
+            mining_tile: Some((3, 4)),
+            building: true,
+            active_actions: vec![BinaryAction::Chat],
+        };
+
+        assert!(
+            tracker.sample_runtime_snapshot_with_override(&runtime_snapshot, &override_snapshot)
+        );
+        assert_eq!(tracker.state().move_axis, (0.5, -0.5));
+        assert!(tracker.state().is_action_active(BinaryAction::Chat));
+        assert!(!tracker.state().is_action_active(BinaryAction::Fire));
+
+        assert!(tracker.sample_runtime_snapshot(&runtime_snapshot));
+        assert_eq!(tracker.state().move_axis, (2.0, 3.0));
+        assert_eq!(tracker.state().aim_axis, (40.0, 50.0));
+        assert_eq!(tracker.state().mining_tile, None);
+        assert!(!tracker.state().building);
+        assert!(tracker.state().is_action_active(BinaryAction::Fire));
+        assert!(!tracker.state().is_action_active(BinaryAction::Chat));
+        assert_eq!(tracker.state().released_actions, vec![BinaryAction::Chat]);
     }
 
     #[test]

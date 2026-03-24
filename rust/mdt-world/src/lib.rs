@@ -10,6 +10,8 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::io::{Cursor, Read};
 use std::sync::OnceLock;
 
+mod save_post_load;
+
 const BLOCK_CONTENT_TYPE: u8 = 1;
 const ITEM_CONTENT_TYPE: u8 = 0;
 const LIQUID_CONTENT_TYPE: u8 = 4;
@@ -40025,6 +40027,57 @@ mod tests {
         assert_eq!(post_load.custom_chunks, bundle.custom_chunks);
         assert_eq!(post_load.custom_region_bytes, bundle.custom_region_bytes);
         assert_eq!(post_load.entity_summary, save.post_load_entity_summary());
+    }
+
+    #[test]
+    fn msav_post_load_world_exposes_graph_overlay_queries() {
+        let save = parse_msav_save(&sample_msav_post_load_save11_bytes()).unwrap();
+        let post_load = save.post_load_world().unwrap();
+        let graph = post_load.graph();
+
+        let plan = graph.node(1, 2).unwrap();
+        assert_eq!(plan.tile().tile_index, 17);
+        assert_eq!(plan.building_center().unwrap().block_id, 0x0101);
+        assert_eq!(plan.team_plans().len(), 1);
+        assert_eq!(plan.team_plans()[0].team_id, 1);
+        assert_eq!(plan.markers().len(), 1);
+        assert_eq!(plan.markers()[0].id, 24);
+        assert_eq!(plan.fog_revealed(1), Some(true));
+        assert_eq!(plan.fog_revealed(5), Some(false));
+
+        let core = graph.node(4, 4).unwrap();
+        assert_eq!(core.tile().block_id, 0x0153);
+        assert_eq!(core.building_center().unwrap().block_id, 0x0153);
+        assert!(core.team_plans().is_empty());
+        assert_eq!(core.markers().len(), 1);
+        assert_eq!(core.markers()[0].id, 11);
+        assert_eq!(core.fog_revealed(1), Some(true));
+        assert_eq!(core.fog_revealed(5), Some(false));
+
+        assert_eq!(post_load.team_plan_group(1).unwrap().plan_count, 1);
+        assert_eq!(
+            post_load.marker(24).unwrap().marker.class_tag(),
+            Some("Minimap")
+        );
+        assert_eq!(
+            post_load
+                .static_fog_chunk()
+                .unwrap()
+                .team(5)
+                .unwrap()
+                .discovered_count(),
+            2
+        );
+        assert_eq!(
+            post_load.unknown_coverage_summary(),
+            WorldLoadUnknownCoverageSummary {
+                building_tail_unknown_count: 0,
+                marker_unknown_count: 0,
+                custom_chunk_unknown_count: 0,
+            }
+        );
+        assert!(!post_load.markers_are_empty());
+        assert_eq!(post_load.marker_region(), post_load.marker_region_bytes);
     }
 
     #[test]

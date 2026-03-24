@@ -13,6 +13,7 @@ pub mod rules_objectives_semantics;
 pub mod session_state;
 pub mod snapshot_ingest;
 pub mod state_snapshot_semantics;
+pub mod typed_remote_dispatch;
 pub mod udp_loop;
 
 #[cfg(test)]

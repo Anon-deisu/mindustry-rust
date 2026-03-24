@@ -1799,7 +1799,12 @@ impl ClientSession {
         config_object: TypeIoObject,
         source: TileConfigAuthoritySource,
     ) -> TileConfigBusinessApply {
-        if matches!(source, TileConfigAuthoritySource::TileConfigPacket) {
+        let has_tracked_building = self
+            .state
+            .building_table_projection
+            .by_build_pos
+            .contains_key(&build_pos);
+        if matches!(source, TileConfigAuthoritySource::TileConfigPacket) && has_tracked_building {
             self.state
                 .building_table_projection
                 .apply_tile_config(build_pos, config_object.clone());
@@ -6193,7 +6198,19 @@ impl ClientSession {
                 base.optional_efficiency,
                 base.visible_flags,
             );
-            self.apply_loaded_world_parsed_tail_business(build_pos, &center.building.parsed_tail);
+            let block_name = self
+                .loaded_world_state()
+                .and_then(|loaded| {
+                    usize::try_from(block_id).ok().and_then(|block_content_id| {
+                        loaded.content_name(BLOCK_CONTENT_TYPE, block_content_id)
+                    })
+                })
+                .map(str::to_string);
+            self.apply_loaded_world_parsed_tail_business(
+                build_pos,
+                block_name.as_deref(),
+                &center.building.parsed_tail,
+            );
         }
     }
 
@@ -6400,7 +6417,21 @@ impl ClientSession {
                     build_turret_plans_present,
                     build_turret_plan_count,
                 );
-            self.apply_loaded_world_parsed_tail_business(row.build_pos, &row.sync.parsed_tail);
+            let block_name = self
+                .loaded_world_state()
+                .and_then(|loaded| {
+                    usize::try_from(row.block_id)
+                        .ok()
+                        .and_then(|block_content_id| {
+                            loaded.content_name(BLOCK_CONTENT_TYPE, block_content_id)
+                        })
+                })
+                .map(str::to_string);
+            self.apply_loaded_world_parsed_tail_business(
+                row.build_pos,
+                block_name.as_deref(),
+                &row.sync.parsed_tail,
+            );
         }
     }
 
@@ -6905,6 +6936,7 @@ impl ClientSession {
             let entry = BlockSnapshotExtraEntrySummary {
                 build_pos,
                 block_id,
+                block_name: block_name.map(str::to_string),
                 health_bits: Some(building.base.health_bits),
                 rotation: Some(building.base.rotation),
                 team_id: Some(building.base.team_id),
@@ -6930,6 +6962,10 @@ impl ClientSession {
                 reconstructor_command_id,
                 canvas_bytes,
                 payload_mass_driver_link,
+                nullable_item_id: summarize_nullable_item_config_item_id(&building.parsed_tail),
+                item_bridge_link: summarize_item_bridge_link(&building.parsed_tail),
+                light_color: summarize_one_i32_tail_value(&building.parsed_tail),
+                switch_enabled: summarize_one_bool_tail_value(&building.parsed_tail),
             };
             entries.push(entry);
         }
@@ -6978,6 +7014,7 @@ impl ClientSession {
     fn apply_loaded_world_parsed_tail_business(
         &mut self,
         build_pos: i32,
+        block_name: Option<&str>,
         parsed_tail: &mdt_world::ParsedBuildingTail,
     ) {
         if let Some(block_id) = summarize_constructor_recipe_block_id(parsed_tail) {
@@ -7024,6 +7061,59 @@ impl ClientSession {
             self.state
                 .configured_block_projection
                 .apply_payload_mass_driver_link(build_pos, Some(link));
+        }
+        if let Some(item_id) = summarize_nullable_item_config_item_id(parsed_tail) {
+            match block_name {
+                Some(BLOCK_NAME_SORTER) => self
+                    .state
+                    .configured_block_projection
+                    .apply_sorter_item(build_pos, item_id),
+                Some(BLOCK_NAME_INVERTED_SORTER) => self
+                    .state
+                    .configured_block_projection
+                    .apply_inverted_sorter_item(build_pos, item_id),
+                Some(BLOCK_NAME_UNLOADER) => self
+                    .state
+                    .configured_block_projection
+                    .apply_unloader_item(build_pos, item_id),
+                Some(BLOCK_NAME_DUCT_ROUTER) => self
+                    .state
+                    .configured_block_projection
+                    .apply_duct_router_item(build_pos, item_id),
+                _ => {}
+            }
+        }
+        if let Some(link) = summarize_item_bridge_link(parsed_tail) {
+            if matches!(
+                block_name,
+                Some(BLOCK_NAME_BRIDGE_CONVEYOR | BLOCK_NAME_PHASE_CONVEYOR)
+            ) {
+                self.state
+                    .configured_block_projection
+                    .apply_item_bridge_link(build_pos, Some(link));
+            }
+        }
+        if let Some(color) = summarize_one_i32_tail_value(parsed_tail) {
+            if block_name == Some(BLOCK_NAME_ILLUMINATOR) {
+                self.state
+                    .configured_block_projection
+                    .apply_light_color(build_pos, color);
+            }
+        }
+        if let Some(enabled) = summarize_one_bool_tail_value(parsed_tail) {
+            if matches!(
+                block_name,
+                Some(BLOCK_NAME_SWITCH | BLOCK_NAME_WORLD_SWITCH)
+            ) {
+                self.state
+                    .configured_block_projection
+                    .apply_switch_enabled(build_pos, Some(enabled));
+            }
+            if matches!(block_name, Some(BLOCK_NAME_DOOR | BLOCK_NAME_DOOR_LARGE)) {
+                self.state
+                    .configured_block_projection
+                    .apply_door_open(build_pos, Some(enabled));
+            }
         }
     }
 
@@ -7075,6 +7165,62 @@ impl ClientSession {
             self.state
                 .configured_block_projection
                 .apply_payload_mass_driver_link(entry.build_pos, Some(link));
+        }
+        if let Some(item_id) = entry.nullable_item_id {
+            match entry.block_name.as_deref() {
+                Some(BLOCK_NAME_SORTER) => self
+                    .state
+                    .configured_block_projection
+                    .apply_sorter_item(entry.build_pos, item_id),
+                Some(BLOCK_NAME_INVERTED_SORTER) => self
+                    .state
+                    .configured_block_projection
+                    .apply_inverted_sorter_item(entry.build_pos, item_id),
+                Some(BLOCK_NAME_UNLOADER) => self
+                    .state
+                    .configured_block_projection
+                    .apply_unloader_item(entry.build_pos, item_id),
+                Some(BLOCK_NAME_DUCT_ROUTER) => self
+                    .state
+                    .configured_block_projection
+                    .apply_duct_router_item(entry.build_pos, item_id),
+                _ => {}
+            }
+        }
+        if let Some(link) = entry.item_bridge_link {
+            if matches!(
+                entry.block_name.as_deref(),
+                Some(BLOCK_NAME_BRIDGE_CONVEYOR | BLOCK_NAME_PHASE_CONVEYOR)
+            ) {
+                self.state
+                    .configured_block_projection
+                    .apply_item_bridge_link(entry.build_pos, Some(link));
+            }
+        }
+        if let Some(color) = entry.light_color {
+            if entry.block_name.as_deref() == Some(BLOCK_NAME_ILLUMINATOR) {
+                self.state
+                    .configured_block_projection
+                    .apply_light_color(entry.build_pos, color);
+            }
+        }
+        if let Some(enabled) = entry.switch_enabled {
+            if matches!(
+                entry.block_name.as_deref(),
+                Some(BLOCK_NAME_SWITCH | BLOCK_NAME_WORLD_SWITCH)
+            ) {
+                self.state
+                    .configured_block_projection
+                    .apply_switch_enabled(entry.build_pos, Some(enabled));
+            }
+            if matches!(
+                entry.block_name.as_deref(),
+                Some(BLOCK_NAME_DOOR | BLOCK_NAME_DOOR_LARGE)
+            ) {
+                self.state
+                    .configured_block_projection
+                    .apply_door_open(entry.build_pos, Some(enabled));
+            }
         }
     }
 
@@ -10852,6 +10998,7 @@ impl fmt::Display for EntityPlayerSyncRowsParseError {
 struct BlockSnapshotExtraEntrySummary {
     build_pos: i32,
     block_id: i16,
+    block_name: Option<String>,
     health_bits: Option<u32>,
     rotation: Option<u8>,
     team_id: Option<u8>,
@@ -10877,6 +11024,10 @@ struct BlockSnapshotExtraEntrySummary {
     reconstructor_command_id: Option<Option<u16>>,
     canvas_bytes: Option<Vec<u8>>,
     payload_mass_driver_link: Option<i32>,
+    nullable_item_id: Option<Option<i16>>,
+    item_bridge_link: Option<i32>,
+    light_color: Option<i32>,
+    switch_enabled: Option<bool>,
 }
 
 fn summarize_build_turret_tail_fields(
@@ -10995,13 +11146,47 @@ fn summarize_canvas_bytes(parsed_tail: &mdt_world::ParsedBuildingTail) -> Option
     Some(canvas.data_bytes.clone())
 }
 
-fn summarize_payload_mass_driver_link(
-    parsed_tail: &mdt_world::ParsedBuildingTail,
-) -> Option<i32> {
+fn summarize_payload_mass_driver_link(parsed_tail: &mdt_world::ParsedBuildingTail) -> Option<i32> {
     let mdt_world::ParsedBuildingTail::PayloadMassDriver(driver) = parsed_tail else {
         return None;
     };
     Some(driver.link)
+}
+
+fn summarize_nullable_item_config_item_id(
+    parsed_tail: &mdt_world::ParsedBuildingTail,
+) -> Option<Option<i16>> {
+    match parsed_tail {
+        mdt_world::ParsedBuildingTail::NullableItemRef(item_ref) => {
+            summarize_nullable_loaded_world_content_id(item_ref.item_id)
+        }
+        mdt_world::ParsedBuildingTail::SorterLegacy(sorter) => {
+            summarize_nullable_loaded_world_content_id(sorter.item_id)
+        }
+        _ => None,
+    }
+}
+
+fn summarize_item_bridge_link(parsed_tail: &mdt_world::ParsedBuildingTail) -> Option<i32> {
+    match parsed_tail {
+        mdt_world::ParsedBuildingTail::ItemBridge(bridge) => Some(bridge.link),
+        mdt_world::ParsedBuildingTail::BufferedItemBridge(bridge) => Some(bridge.bridge.link),
+        _ => None,
+    }
+}
+
+fn summarize_one_i32_tail_value(parsed_tail: &mdt_world::ParsedBuildingTail) -> Option<i32> {
+    let mdt_world::ParsedBuildingTail::OneI32(value) = parsed_tail else {
+        return None;
+    };
+    Some(value.value)
+}
+
+fn summarize_one_bool_tail_value(parsed_tail: &mdt_world::ParsedBuildingTail) -> Option<bool> {
+    let mdt_world::ParsedBuildingTail::OneBool(value) = parsed_tail else {
+        return None;
+    };
+    Some(value.value)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -13361,9 +13546,9 @@ mod tests {
     use crate::session_state::AppliedStateSnapshot;
     use mdt_protocol::{decode_framework_message, decode_packet, encode_packet, FrameworkMessage};
     use mdt_remote::read_remote_manifest;
+    use std::cell::RefCell;
     use std::collections::BTreeSet;
     use std::fs;
-    use std::cell::RefCell;
     use std::path::PathBuf;
     use std::rc::Rc;
 
@@ -14169,7 +14354,10 @@ mod tests {
             .difference(&rust_ids)
             .copied()
             .collect::<Vec<_>>();
-        let extras = rust_ids.difference(&java_syncc_ids).copied().collect::<Vec<_>>();
+        let extras = rust_ids
+            .difference(&java_syncc_ids)
+            .copied()
+            .collect::<Vec<_>>();
 
         assert_eq!(missing, Vec::<u8>::new());
         assert_eq!(extras, vec![6, 40, 44]);
@@ -17004,18 +17192,36 @@ mod tests {
         session.ingest_packet_bytes(&hidden_packet).unwrap();
 
         assert!(session.state().hidden_snapshot_ids.contains(&99));
-        assert!(!session
+        assert!(session
             .state()
             .entity_table_projection
             .by_entity_id
             .contains_key(&99));
+        assert_eq!(
+            session
+                .state()
+                .entity_table_projection
+                .by_entity_id
+                .get(&99)
+                .map(|entity| entity.hidden),
+            Some(true)
+        );
 
         session.ingest_packet_bytes(&entity_packet).unwrap();
-        assert!(!session
+        assert!(session
             .state()
             .entity_table_projection
             .by_entity_id
             .contains_key(&99));
+        assert_eq!(
+            session
+                .state()
+                .entity_table_projection
+                .by_entity_id
+                .get(&99)
+                .map(|entity| entity.hidden),
+            Some(true)
+        );
         assert_eq!(session.state().entity_snapshot_hidden_skip_count, 1);
         assert_eq!(
             session
@@ -17026,11 +17232,20 @@ mod tests {
         assert_eq!(session.state().entity_snapshot_tombstone_skip_count, 0);
 
         session.ingest_packet_bytes(&entity_packet).unwrap();
-        assert!(!session
+        assert!(session
             .state()
             .entity_table_projection
             .by_entity_id
             .contains_key(&99));
+        assert_eq!(
+            session
+                .state()
+                .entity_table_projection
+                .by_entity_id
+                .get(&99)
+                .map(|entity| entity.hidden),
+            Some(true)
+        );
         assert_eq!(session.state().entity_snapshot_hidden_skip_count, 2);
         assert_eq!(
             session
@@ -17101,11 +17316,20 @@ mod tests {
         session.ingest_packet_bytes(&hidden_packet).unwrap();
 
         session.ingest_packet_bytes(&entity_packet).unwrap();
-        assert!(!session
+        assert!(session
             .state()
             .entity_table_projection
             .by_entity_id
             .contains_key(&99));
+        assert_eq!(
+            session
+                .state()
+                .entity_table_projection
+                .by_entity_id
+                .get(&99)
+                .map(|entity| entity.hidden),
+            Some(true)
+        );
         assert_eq!(session.state().entity_snapshot_hidden_skip_count, 1);
 
         let clear_hidden_packet =
@@ -17315,6 +17539,7 @@ mod tests {
             BlockSnapshotExtraEntrySummary {
                 build_pos,
                 block_id: 300,
+                block_name: None,
                 health_bits: Some(0x3f80_0000),
                 rotation: Some(1),
                 team_id: Some(2),
@@ -17340,6 +17565,10 @@ mod tests {
                 reconstructor_command_id: None,
                 canvas_bytes: None,
                 payload_mass_driver_link: None,
+                nullable_item_id: None,
+                item_bridge_link: None,
+                light_color: None,
+                switch_enabled: None,
             },
         ]);
 
@@ -17387,12 +17616,14 @@ mod tests {
 
         session.apply_loaded_world_parsed_tail_business(
             build_pos_message,
+            Some(BLOCK_NAME_MESSAGE),
             &mdt_world::ParsedBuildingTail::Message(mdt_world::MessageTailSnapshot {
                 message: "loaded-world note".to_string(),
             }),
         );
         session.apply_loaded_world_parsed_tail_business(
             build_pos_router,
+            Some(BLOCK_NAME_PAYLOAD_ROUTER),
             &mdt_world::ParsedBuildingTail::PayloadRouter(mdt_world::PayloadRouterTailSnapshot {
                 progress_bits: 0,
                 item_rotation_bits: 0,
@@ -17410,6 +17641,7 @@ mod tests {
         );
         session.apply_loaded_world_parsed_tail_business(
             build_pos_router,
+            Some(BLOCK_NAME_PAYLOAD_ROUTER),
             &mdt_world::ParsedBuildingTail::PayloadRouter(mdt_world::PayloadRouterTailSnapshot {
                 progress_bits: 0,
                 item_rotation_bits: 0,
@@ -17458,6 +17690,7 @@ mod tests {
 
         session.apply_loaded_world_parsed_tail_business(
             constructor_pos,
+            Some(BLOCK_NAME_CONSTRUCTOR),
             &mdt_world::ParsedBuildingTail::Constructor(mdt_world::ConstructorTailSnapshot {
                 payload_block: mdt_world::PayloadBlockTailSnapshot {
                     pay_vector_x_bits: 0,
@@ -17478,6 +17711,7 @@ mod tests {
         );
         session.apply_loaded_world_parsed_tail_business(
             landing_pad_pos,
+            Some(BLOCK_NAME_LANDING_PAD),
             &mdt_world::ParsedBuildingTail::LandingPad(mdt_world::LandingPadTailSnapshot {
                 config_item_id: Some(item_id as u16),
                 priority: 0,
@@ -17514,12 +17748,21 @@ mod tests {
         let reconstructor_pos = pack_build_pos_for_block_snapshot_test(36, 37);
         let canvas_pos = pack_build_pos_for_block_snapshot_test(38, 39);
         let payload_mass_driver_pos = pack_build_pos_for_block_snapshot_test(40, 41);
+        let sorter_pos = pack_build_pos_for_block_snapshot_test(42, 43);
+        let duct_router_pos = pack_build_pos_for_block_snapshot_test(44, 45);
+        let illuminator_pos = pack_build_pos_for_block_snapshot_test(46, 47);
+        let switch_pos = pack_build_pos_for_block_snapshot_test(48, 49);
+        let phase_conveyor_pos = pack_build_pos_for_block_snapshot_test(50, 51);
+        let bridge_conveyor_pos = pack_build_pos_for_block_snapshot_test(52, 53);
         let unit_id = loaded_world_content_id_for_name(&session, UNIT_CONTENT_TYPE, "dagger");
         let item_id = loaded_world_content_id_for_name(&session, ITEM_CONTENT_TYPE, "copper");
         let canvas_bytes = vec![0x11, 0x22, 0x33, 0x44];
+        let phase_link = pack_build_pos_for_block_snapshot_test(60, 61);
+        let bridge_link = pack_build_pos_for_block_snapshot_test(62, 63);
 
         session.apply_loaded_world_parsed_tail_business(
             payload_source_pos,
+            Some(BLOCK_NAME_PAYLOAD_SOURCE),
             &mdt_world::ParsedBuildingTail::PayloadSource(mdt_world::PayloadSourceTailSnapshot {
                 payload_block: mdt_world::PayloadBlockTailSnapshot {
                     pay_vector_x_bits: 0,
@@ -17545,6 +17788,7 @@ mod tests {
         );
         session.apply_loaded_world_parsed_tail_business(
             duct_unloader_pos,
+            Some(BLOCK_NAME_DUCT_UNLOADER),
             &mdt_world::ParsedBuildingTail::DuctUnloader(mdt_world::DuctUnloaderTailSnapshot {
                 item_id: Some(item_id as u16),
                 offset: 0,
@@ -17552,6 +17796,7 @@ mod tests {
         );
         session.apply_loaded_world_parsed_tail_business(
             reconstructor_pos,
+            Some(BLOCK_NAME_ADDITIVE_RECONSTRUCTOR),
             &mdt_world::ParsedBuildingTail::Reconstructor(mdt_world::ReconstructorTailSnapshot {
                 payload_block: mdt_world::PayloadBlockTailSnapshot {
                     pay_vector_x_bits: 0,
@@ -17577,6 +17822,7 @@ mod tests {
         );
         session.apply_loaded_world_parsed_tail_business(
             canvas_pos,
+            Some(BLOCK_NAME_CANVAS),
             &mdt_world::ParsedBuildingTail::Canvas(mdt_world::CanvasTailSnapshot {
                 data_len: canvas_bytes.len(),
                 data_sha256: String::new(),
@@ -17585,6 +17831,7 @@ mod tests {
         );
         session.apply_loaded_world_parsed_tail_business(
             payload_mass_driver_pos,
+            Some(BLOCK_NAME_PAYLOAD_MASS_DRIVER),
             &mdt_world::ParsedBuildingTail::PayloadMassDriver(
                 mdt_world::PayloadMassDriverTailSnapshot {
                     payload_block: mdt_world::PayloadBlockTailSnapshot {
@@ -17607,6 +17854,70 @@ mod tests {
                     charge_bits: 0,
                     loaded: false,
                     charging: false,
+                },
+            ),
+        );
+        session.apply_loaded_world_parsed_tail_business(
+            sorter_pos,
+            Some(BLOCK_NAME_SORTER),
+            &mdt_world::ParsedBuildingTail::SorterLegacy(mdt_world::SorterLegacyTailSnapshot {
+                item_id: Some(item_id as u16),
+                buffer: mdt_world::DirectionalItemBufferTailSnapshot {
+                    legacy: true,
+                    sides: Vec::new(),
+                },
+            }),
+        );
+        session.apply_loaded_world_parsed_tail_business(
+            duct_router_pos,
+            Some(BLOCK_NAME_DUCT_ROUTER),
+            &mdt_world::ParsedBuildingTail::NullableItemRef(
+                mdt_world::NullableItemRefTailSnapshot {
+                    item_id: Some(item_id as u16),
+                },
+            ),
+        );
+        session.apply_loaded_world_parsed_tail_business(
+            illuminator_pos,
+            Some(BLOCK_NAME_ILLUMINATOR),
+            &mdt_world::ParsedBuildingTail::OneI32(mdt_world::OneI32TailSnapshot {
+                value: 0x1122_3344,
+            }),
+        );
+        session.apply_loaded_world_parsed_tail_business(
+            switch_pos,
+            Some(BLOCK_NAME_WORLD_SWITCH),
+            &mdt_world::ParsedBuildingTail::OneBool(mdt_world::OneBoolTailSnapshot {
+                value: false,
+            }),
+        );
+        session.apply_loaded_world_parsed_tail_business(
+            phase_conveyor_pos,
+            Some(BLOCK_NAME_PHASE_CONVEYOR),
+            &mdt_world::ParsedBuildingTail::ItemBridge(mdt_world::ItemBridgeTailSnapshot {
+                link: phase_link,
+                warmup_bits: 0,
+                incoming: Vec::new(),
+                moved: false,
+            }),
+        );
+        session.apply_loaded_world_parsed_tail_business(
+            bridge_conveyor_pos,
+            Some(BLOCK_NAME_BRIDGE_CONVEYOR),
+            &mdt_world::ParsedBuildingTail::BufferedItemBridge(
+                mdt_world::BufferedItemBridgeTailSnapshot {
+                    bridge: mdt_world::ItemBridgeTailSnapshot {
+                        link: bridge_link,
+                        warmup_bits: 0,
+                        incoming: Vec::new(),
+                        moved: false,
+                    },
+                    buffer: mdt_world::ItemBufferTailSnapshot {
+                        index: 0,
+                        capacity: 0,
+                        normalized_index: 0,
+                        entries: Vec::new(),
+                    },
                 },
             ),
         );
@@ -17654,6 +17965,54 @@ mod tests {
                 .get(&payload_mass_driver_pos),
             Some(&Some(10))
         );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .sorter_item_by_build_pos
+                .get(&sorter_pos),
+            Some(&Some(item_id))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .duct_router_item_by_build_pos
+                .get(&duct_router_pos),
+            Some(&Some(item_id))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .light_color_by_build_pos
+                .get(&illuminator_pos),
+            Some(&0x1122_3344)
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .switch_enabled_by_build_pos
+                .get(&switch_pos),
+            Some(&Some(false))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .item_bridge_link_by_build_pos
+                .get(&phase_conveyor_pos),
+            Some(&Some(phase_link))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .item_bridge_link_by_build_pos
+                .get(&bridge_conveyor_pos),
+            Some(&Some(bridge_link))
+        );
     }
 
     #[test]
@@ -17665,6 +18024,7 @@ mod tests {
 
         session.apply_loaded_world_parsed_tail_business(
             constructor_pos,
+            Some(BLOCK_NAME_CONSTRUCTOR),
             &mdt_world::ParsedBuildingTail::Constructor(mdt_world::ConstructorTailSnapshot {
                 payload_block: mdt_world::PayloadBlockTailSnapshot {
                     pay_vector_x_bits: 0,
@@ -17685,6 +18045,7 @@ mod tests {
         );
         session.apply_loaded_world_parsed_tail_business(
             landing_pad_pos,
+            Some(BLOCK_NAME_LANDING_PAD),
             &mdt_world::ParsedBuildingTail::LandingPad(mdt_world::LandingPadTailSnapshot {
                 config_item_id: Some(0x8000),
                 priority: 0,
@@ -17708,6 +18069,113 @@ mod tests {
     }
 
     #[test]
+    fn loaded_world_tail_business_helper_applies_block_name_sensitive_projection() {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let sorter_pos = pack_build_pos_for_block_snapshot_test(52, 53);
+        let duct_router_pos = pack_build_pos_for_block_snapshot_test(54, 55);
+        let bridge_pos = pack_build_pos_for_block_snapshot_test(56, 57);
+        let illuminator_pos = pack_build_pos_for_block_snapshot_test(58, 59);
+        let switch_pos = pack_build_pos_for_block_snapshot_test(60, 61);
+        let door_pos = pack_build_pos_for_block_snapshot_test(62, 63);
+        let item_id = loaded_world_content_id_for_name(&session, ITEM_CONTENT_TYPE, "copper");
+
+        session.apply_loaded_world_parsed_tail_business(
+            sorter_pos,
+            Some(BLOCK_NAME_SORTER),
+            &mdt_world::ParsedBuildingTail::NullableItemRef(
+                mdt_world::NullableItemRefTailSnapshot {
+                    item_id: Some(item_id as u16),
+                },
+            ),
+        );
+        session.apply_loaded_world_parsed_tail_business(
+            duct_router_pos,
+            Some(BLOCK_NAME_DUCT_ROUTER),
+            &mdt_world::ParsedBuildingTail::NullableItemRef(
+                mdt_world::NullableItemRefTailSnapshot { item_id: None },
+            ),
+        );
+        session.apply_loaded_world_parsed_tail_business(
+            bridge_pos,
+            Some(BLOCK_NAME_BRIDGE_CONVEYOR),
+            &mdt_world::ParsedBuildingTail::ItemBridge(mdt_world::ItemBridgeTailSnapshot {
+                link: 12,
+                warmup_bits: 0,
+                incoming: Vec::new(),
+                moved: false,
+            }),
+        );
+        session.apply_loaded_world_parsed_tail_business(
+            illuminator_pos,
+            Some(BLOCK_NAME_ILLUMINATOR),
+            &mdt_world::ParsedBuildingTail::OneI32(mdt_world::OneI32TailSnapshot {
+                value: 0x11223344,
+            }),
+        );
+        session.apply_loaded_world_parsed_tail_business(
+            switch_pos,
+            Some(BLOCK_NAME_SWITCH),
+            &mdt_world::ParsedBuildingTail::OneBool(mdt_world::OneBoolTailSnapshot { value: true }),
+        );
+        session.apply_loaded_world_parsed_tail_business(
+            door_pos,
+            Some(BLOCK_NAME_DOOR_LARGE),
+            &mdt_world::ParsedBuildingTail::OneBool(mdt_world::OneBoolTailSnapshot {
+                value: false,
+            }),
+        );
+
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .sorter_item_by_build_pos
+                .get(&sorter_pos),
+            Some(&Some(item_id))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .duct_router_item_by_build_pos
+                .get(&duct_router_pos),
+            Some(&None)
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .item_bridge_link_by_build_pos
+                .get(&bridge_pos),
+            Some(&Some(12))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .light_color_by_build_pos
+                .get(&illuminator_pos),
+            Some(&0x11223344)
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .switch_enabled_by_build_pos
+                .get(&switch_pos),
+            Some(&Some(true))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .door_open_by_build_pos
+                .get(&door_pos),
+            Some(&Some(false))
+        );
+    }
+
+    #[test]
     fn apply_loaded_world_block_snapshot_entries_forwards_message_and_payload_router_summary() {
         let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let message_pos = pack_build_pos_for_block_snapshot_test(24, 25);
@@ -17719,6 +18187,7 @@ mod tests {
             BlockSnapshotExtraEntrySummary {
                 build_pos: message_pos,
                 block_id: 300,
+                block_name: Some(BLOCK_NAME_MESSAGE.to_string()),
                 health_bits: Some(0x3f80_0000),
                 rotation: Some(1),
                 team_id: Some(2),
@@ -17744,10 +18213,15 @@ mod tests {
                 reconstructor_command_id: None,
                 canvas_bytes: None,
                 payload_mass_driver_link: None,
+                nullable_item_id: None,
+                item_bridge_link: None,
+                light_color: None,
+                switch_enabled: None,
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: router_pos,
                 block_id: 301,
+                block_name: Some(BLOCK_NAME_PAYLOAD_ROUTER.to_string()),
                 health_bits: Some(0x3f80_0000),
                 rotation: Some(1),
                 team_id: Some(2),
@@ -17776,6 +18250,10 @@ mod tests {
                 reconstructor_command_id: None,
                 canvas_bytes: None,
                 payload_mass_driver_link: None,
+                nullable_item_id: None,
+                item_bridge_link: None,
+                light_color: None,
+                switch_enabled: None,
             },
         ]);
 
@@ -17813,6 +18291,7 @@ mod tests {
             BlockSnapshotExtraEntrySummary {
                 build_pos: constructor_pos,
                 block_id: 302,
+                block_name: Some(BLOCK_NAME_CONSTRUCTOR.to_string()),
                 health_bits: Some(0x3f80_0000),
                 rotation: Some(1),
                 team_id: Some(2),
@@ -17838,10 +18317,15 @@ mod tests {
                 reconstructor_command_id: None,
                 canvas_bytes: None,
                 payload_mass_driver_link: None,
+                nullable_item_id: None,
+                item_bridge_link: None,
+                light_color: None,
+                switch_enabled: None,
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: landing_pad_pos,
                 block_id: 303,
+                block_name: Some(BLOCK_NAME_LANDING_PAD.to_string()),
                 health_bits: Some(0x3f80_0000),
                 rotation: Some(1),
                 team_id: Some(2),
@@ -17867,6 +18351,10 @@ mod tests {
                 reconstructor_command_id: None,
                 canvas_bytes: None,
                 payload_mass_driver_link: None,
+                nullable_item_id: None,
+                item_bridge_link: None,
+                light_color: None,
+                switch_enabled: None,
             },
         ]);
 
@@ -17889,6 +18377,274 @@ mod tests {
     }
 
     #[test]
+    fn apply_loaded_world_block_snapshot_entries_forwards_block_name_sensitive_summary() {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let sorter_pos = pack_build_pos_for_block_snapshot_test(62, 63);
+        let duct_router_pos = pack_build_pos_for_block_snapshot_test(64, 65);
+        let bridge_pos = pack_build_pos_for_block_snapshot_test(66, 67);
+        let illuminator_pos = pack_build_pos_for_block_snapshot_test(68, 69);
+        let switch_pos = pack_build_pos_for_block_snapshot_test(70, 71);
+        let door_pos = pack_build_pos_for_block_snapshot_test(72, 73);
+        let item_id = loaded_world_content_id_for_name(&session, ITEM_CONTENT_TYPE, "copper");
+
+        session.apply_block_snapshot_entries_from_loaded_world_entries(vec![
+            BlockSnapshotExtraEntrySummary {
+                build_pos: sorter_pos,
+                block_id: 309,
+                block_name: Some(BLOCK_NAME_SORTER.to_string()),
+                health_bits: Some(0x3f80_0000),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                enabled: Some(true),
+                module_bitmask: Some(4),
+                time_scale_bits: Some(0x3f00_0000),
+                time_scale_duration_bits: Some(0x3e80_0000),
+                last_disabler_pos: Some(77),
+                legacy_consume_connected: Some(false),
+                efficiency: Some(0x40),
+                optional_efficiency: Some(0x20),
+                visible_flags: Some(9),
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                constructor_recipe_block_id: None,
+                landing_pad_config_item_id: None,
+                message_text: None,
+                payload_source_content: None,
+                payload_router_sorted_content: None,
+                duct_unloader_item_id: None,
+                reconstructor_command_id: None,
+                canvas_bytes: None,
+                payload_mass_driver_link: None,
+                nullable_item_id: Some(Some(item_id)),
+                item_bridge_link: None,
+                light_color: None,
+                switch_enabled: None,
+            },
+            BlockSnapshotExtraEntrySummary {
+                build_pos: duct_router_pos,
+                block_id: 310,
+                block_name: Some(BLOCK_NAME_DUCT_ROUTER.to_string()),
+                health_bits: Some(0x3f80_0000),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                enabled: Some(true),
+                module_bitmask: Some(4),
+                time_scale_bits: Some(0x3f00_0000),
+                time_scale_duration_bits: Some(0x3e80_0000),
+                last_disabler_pos: Some(77),
+                legacy_consume_connected: Some(false),
+                efficiency: Some(0x40),
+                optional_efficiency: Some(0x20),
+                visible_flags: Some(9),
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                constructor_recipe_block_id: None,
+                landing_pad_config_item_id: None,
+                message_text: None,
+                payload_source_content: None,
+                payload_router_sorted_content: None,
+                duct_unloader_item_id: None,
+                reconstructor_command_id: None,
+                canvas_bytes: None,
+                payload_mass_driver_link: None,
+                nullable_item_id: Some(None),
+                item_bridge_link: None,
+                light_color: None,
+                switch_enabled: None,
+            },
+            BlockSnapshotExtraEntrySummary {
+                build_pos: bridge_pos,
+                block_id: 311,
+                block_name: Some(BLOCK_NAME_PHASE_CONVEYOR.to_string()),
+                health_bits: Some(0x3f80_0000),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                enabled: Some(true),
+                module_bitmask: Some(4),
+                time_scale_bits: Some(0x3f00_0000),
+                time_scale_duration_bits: Some(0x3e80_0000),
+                last_disabler_pos: Some(77),
+                legacy_consume_connected: Some(false),
+                efficiency: Some(0x40),
+                optional_efficiency: Some(0x20),
+                visible_flags: Some(9),
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                constructor_recipe_block_id: None,
+                landing_pad_config_item_id: None,
+                message_text: None,
+                payload_source_content: None,
+                payload_router_sorted_content: None,
+                duct_unloader_item_id: None,
+                reconstructor_command_id: None,
+                canvas_bytes: None,
+                payload_mass_driver_link: None,
+                nullable_item_id: None,
+                item_bridge_link: Some(14),
+                light_color: None,
+                switch_enabled: None,
+            },
+            BlockSnapshotExtraEntrySummary {
+                build_pos: illuminator_pos,
+                block_id: 312,
+                block_name: Some(BLOCK_NAME_ILLUMINATOR.to_string()),
+                health_bits: Some(0x3f80_0000),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                enabled: Some(true),
+                module_bitmask: Some(4),
+                time_scale_bits: Some(0x3f00_0000),
+                time_scale_duration_bits: Some(0x3e80_0000),
+                last_disabler_pos: Some(77),
+                legacy_consume_connected: Some(false),
+                efficiency: Some(0x40),
+                optional_efficiency: Some(0x20),
+                visible_flags: Some(9),
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                constructor_recipe_block_id: None,
+                landing_pad_config_item_id: None,
+                message_text: None,
+                payload_source_content: None,
+                payload_router_sorted_content: None,
+                duct_unloader_item_id: None,
+                reconstructor_command_id: None,
+                canvas_bytes: None,
+                payload_mass_driver_link: None,
+                nullable_item_id: None,
+                item_bridge_link: None,
+                light_color: Some(0x55667788),
+                switch_enabled: None,
+            },
+            BlockSnapshotExtraEntrySummary {
+                build_pos: switch_pos,
+                block_id: 313,
+                block_name: Some(BLOCK_NAME_WORLD_SWITCH.to_string()),
+                health_bits: Some(0x3f80_0000),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                enabled: Some(true),
+                module_bitmask: Some(4),
+                time_scale_bits: Some(0x3f00_0000),
+                time_scale_duration_bits: Some(0x3e80_0000),
+                last_disabler_pos: Some(77),
+                legacy_consume_connected: Some(false),
+                efficiency: Some(0x40),
+                optional_efficiency: Some(0x20),
+                visible_flags: Some(9),
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                constructor_recipe_block_id: None,
+                landing_pad_config_item_id: None,
+                message_text: None,
+                payload_source_content: None,
+                payload_router_sorted_content: None,
+                duct_unloader_item_id: None,
+                reconstructor_command_id: None,
+                canvas_bytes: None,
+                payload_mass_driver_link: None,
+                nullable_item_id: None,
+                item_bridge_link: None,
+                light_color: None,
+                switch_enabled: Some(false),
+            },
+            BlockSnapshotExtraEntrySummary {
+                build_pos: door_pos,
+                block_id: 314,
+                block_name: Some(BLOCK_NAME_DOOR.to_string()),
+                health_bits: Some(0x3f80_0000),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                enabled: Some(true),
+                module_bitmask: Some(4),
+                time_scale_bits: Some(0x3f00_0000),
+                time_scale_duration_bits: Some(0x3e80_0000),
+                last_disabler_pos: Some(77),
+                legacy_consume_connected: Some(false),
+                efficiency: Some(0x40),
+                optional_efficiency: Some(0x20),
+                visible_flags: Some(9),
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                constructor_recipe_block_id: None,
+                landing_pad_config_item_id: None,
+                message_text: None,
+                payload_source_content: None,
+                payload_router_sorted_content: None,
+                duct_unloader_item_id: None,
+                reconstructor_command_id: None,
+                canvas_bytes: None,
+                payload_mass_driver_link: None,
+                nullable_item_id: None,
+                item_bridge_link: None,
+                light_color: None,
+                switch_enabled: Some(true),
+            },
+        ]);
+
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .sorter_item_by_build_pos
+                .get(&sorter_pos),
+            Some(&Some(item_id))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .duct_router_item_by_build_pos
+                .get(&duct_router_pos),
+            Some(&None)
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .item_bridge_link_by_build_pos
+                .get(&bridge_pos),
+            Some(&Some(14))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .light_color_by_build_pos
+                .get(&illuminator_pos),
+            Some(&0x55667788)
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .switch_enabled_by_build_pos
+                .get(&switch_pos),
+            Some(&Some(false))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .door_open_by_build_pos
+                .get(&door_pos),
+            Some(&Some(true))
+        );
+    }
+
+    #[test]
     fn apply_loaded_world_block_snapshot_entries_forwards_additional_configured_summary() {
         let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let payload_source_pos = pack_build_pos_for_block_snapshot_test(42, 43);
@@ -17896,14 +18652,19 @@ mod tests {
         let reconstructor_pos = pack_build_pos_for_block_snapshot_test(46, 47);
         let canvas_pos = pack_build_pos_for_block_snapshot_test(48, 49);
         let payload_mass_driver_pos = pack_build_pos_for_block_snapshot_test(50, 51);
+        let sorter_pos = pack_build_pos_for_block_snapshot_test(52, 53);
+        let illuminator_pos = pack_build_pos_for_block_snapshot_test(54, 55);
+        let phase_conveyor_pos = pack_build_pos_for_block_snapshot_test(56, 57);
         let unit_id = loaded_world_content_id_for_name(&session, UNIT_CONTENT_TYPE, "dagger");
         let item_id = loaded_world_content_id_for_name(&session, ITEM_CONTENT_TYPE, "copper");
         let canvas_bytes = vec![0xaa, 0xbb, 0xcc, 0xdd];
+        let phase_link = pack_build_pos_for_block_snapshot_test(64, 65);
 
         session.apply_block_snapshot_entries_from_loaded_world_entries(vec![
             BlockSnapshotExtraEntrySummary {
                 build_pos: payload_source_pos,
                 block_id: 304,
+                block_name: Some(BLOCK_NAME_PAYLOAD_SOURCE.to_string()),
                 health_bits: Some(0x3f80_0000),
                 rotation: Some(1),
                 team_id: Some(2),
@@ -17932,10 +18693,15 @@ mod tests {
                 reconstructor_command_id: None,
                 canvas_bytes: None,
                 payload_mass_driver_link: None,
+                nullable_item_id: None,
+                item_bridge_link: None,
+                light_color: None,
+                switch_enabled: None,
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: duct_unloader_pos,
                 block_id: 305,
+                block_name: Some(BLOCK_NAME_DUCT_UNLOADER.to_string()),
                 health_bits: Some(0x3f80_0000),
                 rotation: Some(1),
                 team_id: Some(2),
@@ -17961,10 +18727,15 @@ mod tests {
                 reconstructor_command_id: None,
                 canvas_bytes: None,
                 payload_mass_driver_link: None,
+                nullable_item_id: None,
+                item_bridge_link: None,
+                light_color: None,
+                switch_enabled: None,
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: reconstructor_pos,
                 block_id: 306,
+                block_name: Some(BLOCK_NAME_ADDITIVE_RECONSTRUCTOR.to_string()),
                 health_bits: Some(0x3f80_0000),
                 rotation: Some(1),
                 team_id: Some(2),
@@ -17990,10 +18761,15 @@ mod tests {
                 reconstructor_command_id: Some(Some(7)),
                 canvas_bytes: None,
                 payload_mass_driver_link: None,
+                nullable_item_id: None,
+                item_bridge_link: None,
+                light_color: None,
+                switch_enabled: None,
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: canvas_pos,
                 block_id: 307,
+                block_name: Some(BLOCK_NAME_CANVAS.to_string()),
                 health_bits: Some(0x3f80_0000),
                 rotation: Some(1),
                 team_id: Some(2),
@@ -18019,10 +18795,15 @@ mod tests {
                 reconstructor_command_id: None,
                 canvas_bytes: Some(canvas_bytes.clone()),
                 payload_mass_driver_link: None,
+                nullable_item_id: None,
+                item_bridge_link: None,
+                light_color: None,
+                switch_enabled: None,
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: payload_mass_driver_pos,
                 block_id: 308,
+                block_name: Some(BLOCK_NAME_PAYLOAD_MASS_DRIVER.to_string()),
                 health_bits: Some(0x3f80_0000),
                 rotation: Some(1),
                 team_id: Some(2),
@@ -18048,6 +18829,112 @@ mod tests {
                 reconstructor_command_id: None,
                 canvas_bytes: None,
                 payload_mass_driver_link: Some(10),
+                nullable_item_id: None,
+                item_bridge_link: None,
+                light_color: None,
+                switch_enabled: None,
+            },
+            BlockSnapshotExtraEntrySummary {
+                build_pos: sorter_pos,
+                block_id: 309,
+                block_name: Some(BLOCK_NAME_SORTER.to_string()),
+                health_bits: Some(0x3f80_0000),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                enabled: Some(true),
+                module_bitmask: Some(4),
+                time_scale_bits: Some(0x3f00_0000),
+                time_scale_duration_bits: Some(0x3e80_0000),
+                last_disabler_pos: Some(77),
+                legacy_consume_connected: Some(false),
+                efficiency: Some(0x40),
+                optional_efficiency: Some(0x20),
+                visible_flags: Some(9),
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                constructor_recipe_block_id: None,
+                landing_pad_config_item_id: None,
+                message_text: None,
+                payload_source_content: None,
+                payload_router_sorted_content: None,
+                duct_unloader_item_id: None,
+                reconstructor_command_id: None,
+                canvas_bytes: None,
+                payload_mass_driver_link: None,
+                nullable_item_id: Some(Some(item_id)),
+                item_bridge_link: None,
+                light_color: None,
+                switch_enabled: None,
+            },
+            BlockSnapshotExtraEntrySummary {
+                build_pos: illuminator_pos,
+                block_id: 310,
+                block_name: Some(BLOCK_NAME_ILLUMINATOR.to_string()),
+                health_bits: Some(0x3f80_0000),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                enabled: Some(true),
+                module_bitmask: Some(4),
+                time_scale_bits: Some(0x3f00_0000),
+                time_scale_duration_bits: Some(0x3e80_0000),
+                last_disabler_pos: Some(77),
+                legacy_consume_connected: Some(false),
+                efficiency: Some(0x40),
+                optional_efficiency: Some(0x20),
+                visible_flags: Some(9),
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                constructor_recipe_block_id: None,
+                landing_pad_config_item_id: None,
+                message_text: None,
+                payload_source_content: None,
+                payload_router_sorted_content: None,
+                duct_unloader_item_id: None,
+                reconstructor_command_id: None,
+                canvas_bytes: None,
+                payload_mass_driver_link: None,
+                nullable_item_id: None,
+                item_bridge_link: None,
+                light_color: Some(0x2233_4455),
+                switch_enabled: None,
+            },
+            BlockSnapshotExtraEntrySummary {
+                build_pos: phase_conveyor_pos,
+                block_id: 311,
+                block_name: Some(BLOCK_NAME_PHASE_CONVEYOR.to_string()),
+                health_bits: Some(0x3f80_0000),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                enabled: Some(true),
+                module_bitmask: Some(4),
+                time_scale_bits: Some(0x3f00_0000),
+                time_scale_duration_bits: Some(0x3e80_0000),
+                last_disabler_pos: Some(77),
+                legacy_consume_connected: Some(false),
+                efficiency: Some(0x40),
+                optional_efficiency: Some(0x20),
+                visible_flags: Some(9),
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                constructor_recipe_block_id: None,
+                landing_pad_config_item_id: None,
+                message_text: None,
+                payload_source_content: None,
+                payload_router_sorted_content: None,
+                duct_unloader_item_id: None,
+                reconstructor_command_id: None,
+                canvas_bytes: None,
+                payload_mass_driver_link: None,
+                nullable_item_id: None,
+                item_bridge_link: Some(phase_link),
+                light_color: None,
+                switch_enabled: None,
             },
         ]);
 
@@ -18093,6 +18980,30 @@ mod tests {
                 .payload_mass_driver_link_by_build_pos
                 .get(&payload_mass_driver_pos),
             Some(&Some(10))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .sorter_item_by_build_pos
+                .get(&sorter_pos),
+            Some(&Some(item_id))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .light_color_by_build_pos
+                .get(&illuminator_pos),
+            Some(&0x2233_4455)
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .item_bridge_link_by_build_pos
+                .get(&phase_conveyor_pos),
+            Some(&Some(phase_link))
         );
     }
 
@@ -18380,7 +19291,10 @@ mod tests {
         assert_eq!(session.state().received_wave_advance_signal_count, 1);
         assert_eq!(session.state().last_wave_advance_signal_from, Some(0));
         assert_eq!(session.state().last_wave_advance_signal_to, Some(7));
-        assert_eq!(session.state().last_wave_advance_signal_apply_count, Some(1));
+        assert_eq!(
+            session.state().last_wave_advance_signal_apply_count,
+            Some(1)
+        );
         assert_eq!(
             session.state().last_state_snapshot,
             Some(AppliedStateSnapshot {
@@ -18399,7 +19313,10 @@ mod tests {
         assert_eq!(session.state().received_wave_advance_signal_count, 1);
         assert_eq!(session.state().last_wave_advance_signal_from, Some(0));
         assert_eq!(session.state().last_wave_advance_signal_to, Some(7));
-        assert_eq!(session.state().last_wave_advance_signal_apply_count, Some(1));
+        assert_eq!(
+            session.state().last_wave_advance_signal_apply_count,
+            Some(1)
+        );
     }
 
     #[test]
@@ -18469,7 +19386,10 @@ mod tests {
         assert_eq!(session.state().received_wave_advance_signal_count, 2);
         assert_eq!(session.state().last_wave_advance_signal_from, Some(7));
         assert_eq!(session.state().last_wave_advance_signal_to, Some(8));
-        assert_eq!(session.state().last_wave_advance_signal_apply_count, Some(2));
+        assert_eq!(
+            session.state().last_wave_advance_signal_apply_count,
+            Some(2)
+        );
     }
 
     #[test]
@@ -18494,7 +19414,10 @@ mod tests {
         assert_eq!(session.state().received_wave_advance_signal_count, 1);
         assert_eq!(session.state().last_wave_advance_signal_from, Some(0));
         assert_eq!(session.state().last_wave_advance_signal_to, Some(7));
-        assert_eq!(session.state().last_wave_advance_signal_apply_count, Some(1));
+        assert_eq!(
+            session.state().last_wave_advance_signal_apply_count,
+            Some(1)
+        );
 
         let advanced_packet = encode_packet(
             packet_id,
@@ -18518,7 +19441,10 @@ mod tests {
         assert_eq!(session.state().received_wave_advance_signal_count, 2);
         assert_eq!(session.state().last_wave_advance_signal_from, Some(7));
         assert_eq!(session.state().last_wave_advance_signal_to, Some(8));
-        assert_eq!(session.state().last_wave_advance_signal_apply_count, Some(2));
+        assert_eq!(
+            session.state().last_wave_advance_signal_apply_count,
+            Some(2)
+        );
     }
 
     #[test]
@@ -18571,7 +19497,10 @@ mod tests {
         assert_eq!(session.state().received_wave_advance_signal_count, 1);
         assert_eq!(session.state().last_wave_advance_signal_from, Some(0));
         assert_eq!(session.state().last_wave_advance_signal_to, Some(7));
-        assert_eq!(session.state().last_wave_advance_signal_apply_count, Some(1));
+        assert_eq!(
+            session.state().last_wave_advance_signal_apply_count,
+            Some(1)
+        );
     }
 
     #[test]
@@ -18625,7 +19554,10 @@ mod tests {
         assert_eq!(session.state().received_wave_advance_signal_count, 1);
         assert_eq!(session.state().last_wave_advance_signal_from, Some(0));
         assert_eq!(session.state().last_wave_advance_signal_to, Some(7));
-        assert_eq!(session.state().last_wave_advance_signal_apply_count, Some(1));
+        assert_eq!(
+            session.state().last_wave_advance_signal_apply_count,
+            Some(1)
+        );
     }
 
     #[test]
@@ -23492,7 +24424,7 @@ mod tests {
                 was_rollback: false,
                 pending_local_match: None,
                 configured_block_outcome: Some(
-                    crate::session_state::ConfiguredBlockOutcome::RejectedMissingBlockMetadata,
+                    crate::session_state::ConfiguredBlockOutcome::RejectedMissingBuilding,
                 ),
                 configured_block_name: None,
             }
@@ -23568,7 +24500,7 @@ mod tests {
                 .state()
                 .tile_config_projection
                 .last_configured_block_outcome,
-            Some(crate::session_state::ConfiguredBlockOutcome::RejectedMissingBlockMetadata)
+            Some(crate::session_state::ConfiguredBlockOutcome::RejectedMissingBuilding)
         );
         assert_eq!(
             session
@@ -23590,13 +24522,8 @@ mod tests {
                 .state()
                 .building_table_projection
                 .by_build_pos
-                .get(&888)
-                .and_then(|building| building.config.as_ref()),
-            Some(&expected_config)
-        );
-        assert_eq!(
-            session.state().building_table_projection.last_update,
-            Some(crate::session_state::BuildingProjectionUpdateKind::TileConfig)
+                .get(&888),
+            None
         );
     }
 
@@ -23665,7 +24592,7 @@ mod tests {
                 was_rollback: false,
                 pending_local_match: Some(true),
                 configured_block_outcome: Some(
-                    crate::session_state::ConfiguredBlockOutcome::RejectedMissingBlockMetadata,
+                    crate::session_state::ConfiguredBlockOutcome::RejectedMissingBuilding,
                 ),
                 configured_block_name: None,
             }
@@ -23689,9 +24616,8 @@ mod tests {
                 .state()
                 .building_table_projection
                 .by_build_pos
-                .get(&888)
-                .and_then(|building| building.config.as_ref()),
-            Some(&expected_config)
+                .get(&888),
+            None
         );
         assert_eq!(
             session
@@ -23761,7 +24687,7 @@ mod tests {
                 was_rollback: true,
                 pending_local_match: Some(false),
                 configured_block_outcome: Some(
-                    crate::session_state::ConfiguredBlockOutcome::RejectedMissingBlockMetadata,
+                    crate::session_state::ConfiguredBlockOutcome::RejectedMissingBuilding,
                 ),
                 configured_block_name: None,
             }
@@ -23785,9 +24711,8 @@ mod tests {
                 .state()
                 .building_table_projection
                 .by_build_pos
-                .get(&888)
-                .and_then(|building| building.config.as_ref()),
-            Some(&authoritative_value)
+                .get(&888),
+            None
         );
         assert_eq!(session.state().tile_config_projection.rollback_count, 1);
         assert!(session.state().tile_config_projection.last_was_rollback);
@@ -23812,6 +24737,156 @@ mod tests {
                 .configured_rejected_count,
             1
         );
+    }
+
+    #[test]
+    fn tile_config_packet_consumes_only_oldest_pending_local_request() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "tileConfig")
+            .unwrap()
+            .packet_id;
+        let first_value = TypeIoObject::Int(7);
+        let second_value = TypeIoObject::Int(9);
+        session
+            .queue_tile_config(Some(888), first_value.clone())
+            .unwrap();
+        session
+            .queue_tile_config(Some(888), second_value.clone())
+            .unwrap();
+
+        let payload = encode_tile_config_payload(Some(888), &first_value);
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+        let event = session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            event,
+            ClientSessionEvent::TileConfig {
+                build_pos: Some(888),
+                config_kind: Some(1),
+                config_kind_name: Some("int".to_string()),
+                parse_failed: false,
+                business_applied: true,
+                cleared_pending_local: true,
+                was_rollback: false,
+                pending_local_match: Some(true),
+                configured_block_outcome: Some(
+                    crate::session_state::ConfiguredBlockOutcome::RejectedMissingBuilding,
+                ),
+                configured_block_name: None,
+            }
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .pending_local_by_build_pos
+                .get(&888),
+            Some(&second_value)
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .pending_local_request_queue_by_build_pos
+                .get(&888)
+                .map(|queue| queue.iter().cloned().collect::<Vec<_>>()),
+            Some(vec![second_value.clone()])
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .authoritative_by_build_pos
+                .get(&888),
+            Some(&first_value)
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_replaced_local_value,
+            Some(first_value)
+        );
+    }
+
+    #[test]
+    fn tile_config_packet_rollback_preserves_later_pending_local_request() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "tileConfig")
+            .unwrap()
+            .packet_id;
+        let first_value = TypeIoObject::Int(7);
+        let second_value = TypeIoObject::Int(9);
+        let authoritative_value = TypeIoObject::Int(3);
+        session
+            .queue_tile_config(Some(888), first_value.clone())
+            .unwrap();
+        session
+            .queue_tile_config(Some(888), second_value.clone())
+            .unwrap();
+
+        let payload = encode_tile_config_payload(Some(888), &authoritative_value);
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+        let event = session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            event,
+            ClientSessionEvent::TileConfig {
+                build_pos: Some(888),
+                config_kind: Some(1),
+                config_kind_name: Some("int".to_string()),
+                parse_failed: false,
+                business_applied: true,
+                cleared_pending_local: true,
+                was_rollback: true,
+                pending_local_match: Some(false),
+                configured_block_outcome: Some(
+                    crate::session_state::ConfiguredBlockOutcome::RejectedMissingBuilding,
+                ),
+                configured_block_name: None,
+            }
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .pending_local_by_build_pos
+                .get(&888),
+            Some(&second_value)
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .pending_local_request_queue_by_build_pos
+                .get(&888)
+                .map(|queue| queue.iter().cloned().collect::<Vec<_>>()),
+            Some(vec![second_value.clone()])
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .authoritative_by_build_pos
+                .get(&888),
+            Some(&authoritative_value)
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_replaced_local_value,
+            Some(first_value)
+        );
+        assert_eq!(session.state().tile_config_projection.rollback_count, 1);
     }
 
     #[test]
@@ -24034,6 +25109,84 @@ mod tests {
                 .get(&777),
             Some(&TypeIoObject::Int(1))
         );
+    }
+
+    #[test]
+    fn tile_config_parse_failure_consumes_only_oldest_pending_local_request() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "tileConfig")
+            .unwrap()
+            .packet_id;
+        let first_value = TypeIoObject::Int(7);
+        let second_value = TypeIoObject::Int(9);
+        session
+            .state
+            .tile_config_projection
+            .seed_authoritative_state(777, TypeIoObject::Int(1));
+        session
+            .queue_tile_config(Some(777), first_value.clone())
+            .unwrap();
+        session
+            .queue_tile_config(Some(777), second_value.clone())
+            .unwrap();
+        let mut payload = encode_tile_config_payload(Some(777), &first_value);
+        payload.push(0xaa);
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        let event = session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            event,
+            ClientSessionEvent::TileConfig {
+                build_pos: Some(777),
+                config_kind: Some(1),
+                config_kind_name: Some("int".to_string()),
+                parse_failed: true,
+                business_applied: true,
+                cleared_pending_local: true,
+                was_rollback: true,
+                pending_local_match: Some(false),
+                configured_block_outcome: None,
+                configured_block_name: None,
+            }
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .pending_local_by_build_pos
+                .get(&777),
+            Some(&second_value)
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .pending_local_request_queue_by_build_pos
+                .get(&777)
+                .map(|queue| queue.iter().cloned().collect::<Vec<_>>()),
+            Some(vec![second_value.clone()])
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .authoritative_by_build_pos
+                .get(&777),
+            Some(&TypeIoObject::Int(1))
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_replaced_local_value,
+            Some(first_value)
+        );
+        assert_eq!(session.state().tile_config_projection.rollback_count, 1);
     }
 
     #[test]
@@ -33557,7 +34710,10 @@ mod tests {
         assert_eq!(session.state().received_wave_advance_signal_count, 1);
         assert_eq!(session.state().last_wave_advance_signal_from, Some(0));
         assert_eq!(session.state().last_wave_advance_signal_to, Some(7));
-        assert_eq!(session.state().last_wave_advance_signal_apply_count, Some(1));
+        assert_eq!(
+            session.state().last_wave_advance_signal_apply_count,
+            Some(1)
+        );
 
         let world_data_begin_packet_id = manifest
             .remote_packets

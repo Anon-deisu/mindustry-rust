@@ -3,7 +3,8 @@ use crate::client_session::{
     ClientSnapshotInputState, StateSnapshotAppliedProjection,
 };
 use crate::effect_runtime::{
-    resolve_runtime_effect_overlay_position, spawn_runtime_effect_overlay, RuntimeEffectOverlay,
+    effect_contract, resolve_runtime_effect_overlay_position, spawn_runtime_effect_overlay,
+    RuntimeEffectContract, RuntimeEffectOverlay,
 };
 use crate::session_state::{
     AuthoritativeStateMirror, BuilderPlanStage, BuilderQueueProjection,
@@ -466,12 +467,19 @@ pub fn observe_runtime_world_events(
                 color_rgba,
                 data_object,
             } => {
+                let (overlay_x, overlay_y) = runtime_effect_overlay_origin(
+                    *effect_id,
+                    *x,
+                    *y,
+                    *rotation,
+                    data_object.as_ref(),
+                );
                 push_runtime_effect_overlay(
                     runtime_world_overlay,
                     spawn_runtime_effect_overlay(
                         *effect_id,
-                        *x,
-                        *y,
+                        overlay_x,
+                        overlay_y,
                         *rotation,
                         *color_rgba,
                         false,
@@ -552,6 +560,25 @@ fn push_runtime_effect_overlay(
     if runtime_world_overlay.effect_overlays.len() > EFFECT_OVERLAY_LIMIT {
         let overflow = runtime_world_overlay.effect_overlays.len() - EFFECT_OVERLAY_LIMIT;
         runtime_world_overlay.effect_overlays.drain(0..overflow);
+    }
+}
+
+fn runtime_effect_overlay_origin(
+    effect_id: Option<i16>,
+    x: f32,
+    y: f32,
+    rotation: f32,
+    data_object: Option<&mdt_typeio::TypeIoObject>,
+) -> (f32, f32) {
+    match (effect_contract(effect_id), data_object) {
+        (
+            Some(RuntimeEffectContract::FloatLength),
+            Some(mdt_typeio::TypeIoObject::Float(length)),
+        ) if x.is_finite() && y.is_finite() && rotation.is_finite() && length.is_finite() => {
+            let radians = rotation.to_radians();
+            (x + radians.cos() * *length, y + radians.sin() * *length)
+        }
+        _ => (x, y),
     }
 }
 
@@ -4319,6 +4346,37 @@ mod tests {
         );
         assert_eq!(marker.x, 8.0);
         assert_eq!(marker.y, 16.0);
+    }
+
+    #[test]
+    fn render_runtime_adapter_projects_float_length_effect_payload_to_ray_endpoint() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
+
+        adapter.observe_events(&[ClientSessionEvent::EffectRequested {
+            effect_id: Some(200),
+            x: 10.0,
+            y: 20.0,
+            rotation: 0.0,
+            color_rgba: 0x11223344,
+            data_object: Some(mdt_typeio::TypeIoObject::Float(16.0)),
+        }]);
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let marker = first_runtime_effect_marker(&scene);
+        assert_eq!(
+            marker.id,
+            format!(
+                "marker:runtime-effect:normal:200:0x{:08x}:0x{:08x}:1",
+                26.0f32.to_bits(),
+                20.0f32.to_bits()
+            )
+        );
+        assert_eq!(marker.x, 26.0);
+        assert_eq!(marker.y, 20.0);
     }
 
     #[test]

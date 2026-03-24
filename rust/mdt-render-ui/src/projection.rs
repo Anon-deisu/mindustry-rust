@@ -1,4 +1,6 @@
-use crate::{hud_model::HudSummary, HudModel, RenderModel, RenderObject, Viewport};
+use crate::{
+    hud_model::HudSummary, HudModel, RenderModel, RenderObject, RenderViewWindow, Viewport,
+};
 use mdt_world::{LineMarkerModel, LoadedWorldSession, MarkerEntry, MarkerModel, TeamPlanRef};
 
 const TILE_SIZE: f32 = 8.0;
@@ -148,6 +150,12 @@ fn project_render_model_with_player_position_visibility(
             height: graph.height() as f32 * TILE_SIZE,
             zoom: 1.0,
         },
+        view_window: Some(RenderViewWindow {
+            origin_x: 0,
+            origin_y: 0,
+            width: graph.width(),
+            height: graph.height(),
+        }),
         objects,
     }
 }
@@ -262,6 +270,12 @@ fn project_render_model_with_view_window_visibility(
             height: graph.height() as f32 * TILE_SIZE,
             zoom: 1.0,
         },
+        view_window: Some(RenderViewWindow {
+            origin_x: window_x,
+            origin_y: window_y,
+            width: window_width,
+            height: window_height,
+        }),
         objects,
     }
 }
@@ -552,6 +566,7 @@ fn tile_in_window(
 #[cfg(test)]
 mod tests {
     use super::{project_hud_model, project_render_model, project_render_model_with_view_window};
+    use crate::RenderViewWindow;
     use mdt_world::{
         parse_world_bundle, LineMarkerModel, MarkerEntry, MarkerModel, PointMarkerModel,
     };
@@ -635,6 +650,15 @@ mod tests {
         let cropped = project_render_model_with_view_window(&session, Some((32.0, 32.0)), (4, 4));
 
         assert!(cropped.objects.len() < full.objects.len());
+        assert_eq!(
+            cropped.view_window,
+            Some(RenderViewWindow {
+                origin_x: 2,
+                origin_y: 2,
+                width: 4,
+                height: 4,
+            })
+        );
         assert!(!cropped
             .objects
             .iter()

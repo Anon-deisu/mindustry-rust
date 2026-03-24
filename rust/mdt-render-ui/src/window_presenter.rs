@@ -287,27 +287,32 @@ fn compose_frame(
 ) -> WindowFrame {
     let width = ((scene.viewport.width / TILE_SIZE).round().max(0.0) as usize).max(1);
     let height = ((scene.viewport.height / TILE_SIZE).round().max(0.0) as usize).max(1);
-    let (window_x, window_y, window_width, window_height) =
-        crop_window(scene, width, height, max_view_tiles);
-    let mut tiles = vec![COLOR_EMPTY; window_width.saturating_mul(window_height)];
+    let window = crop_window(scene, width, height, max_view_tiles);
+    let mut tiles = vec![COLOR_EMPTY; window.width.saturating_mul(window.height)];
 
     let mut objects = scene
         .objects
         .iter()
         .filter_map(|object| {
-            visible_window_tile(object, window_x, window_y, window_width, window_height)
+            visible_window_tile(
+                object,
+                window.origin_x,
+                window.origin_y,
+                window.width,
+                window.height,
+            )
         })
         .collect::<Vec<_>>();
     objects.sort_by_key(|(object, _, _)| object.layer);
     for (object, local_x, local_y) in objects {
-        tiles[local_y * window_width + local_x] = color_for_object(object);
+        tiles[local_y * window.width + local_x] = color_for_object(object);
     }
 
-    let mut pixels = Vec::with_capacity(window_width.saturating_mul(window_height));
+    let mut pixels = Vec::with_capacity(window.width.saturating_mul(window.height));
 
-    for y in (0..window_height).rev() {
-        for x in 0..window_width {
-            pixels.push(tiles[y * window_width + x]);
+    for y in (0..window.height).rev() {
+        for x in 0..window.width {
+            pixels.push(tiles[y * window.width + x]);
         }
     }
 
@@ -315,21 +320,12 @@ fn compose_frame(
         frame_id,
         title: hud.title.clone(),
         wave_text: hud.wave_text.clone(),
-        status_text: compose_frame_status_text(
-            scene,
-            hud,
-            PresenterViewWindow {
-                origin_x: window_x,
-                origin_y: window_y,
-                width: window_width,
-                height: window_height,
-            },
-        ),
+        status_text: compose_frame_status_text(scene, hud, window),
         overlay_summary_text: hud.overlay_summary_text.clone(),
         fps: hud.fps,
         zoom: scene.viewport.zoom,
-        width: window_width,
-        height: window_height,
+        width: window.width,
+        height: window.height,
         pixels,
     }
 }
@@ -339,37 +335,63 @@ fn crop_window(
     width: usize,
     height: usize,
     max_view_tiles: Option<(usize, usize)>,
-) -> (usize, usize, usize, usize) {
+) -> PresenterViewWindow {
+    let base_window = projected_window(scene, width, height);
     let Some((max_width, max_height)) = max_view_tiles else {
-        return (0, 0, width, height);
+        return base_window;
     };
     let zoom = normalize_zoom(scene.viewport.zoom);
-    let window_width = zoomed_view_tile_span(max_width, zoom, width);
-    let window_height = zoomed_view_tile_span(max_height, zoom, height);
-    if width <= window_width && height <= window_height {
-        return (0, 0, width, height);
-    };
+    let window_width = zoomed_view_tile_span(max_width, zoom, base_window.width);
+    let window_height = zoomed_view_tile_span(max_height, zoom, base_window.height);
+    if base_window.width <= window_width && base_window.height <= window_height {
+        return base_window;
+    }
 
-    let focus = scene
-        .objects
-        .iter()
-        .find(|object| object.semantic_kind() == RenderObjectSemanticKind::Player)
-        .map(|object| {
-            (
-                world_to_tile_index_clamped(object.x, width),
-                world_to_tile_index_clamped(object.y, height),
-            )
-        })
-        .unwrap_or((width / 2, height / 2));
+    let focus = scene.player_focus_tile(TILE_SIZE).unwrap_or((
+        base_window.origin_x.saturating_add(base_window.width / 2),
+        base_window.origin_y.saturating_add(base_window.height / 2),
+    ));
 
-    let window_x = crop_origin(focus.0, width, window_width);
-    let window_y = crop_origin(focus.1, height, window_height);
-    (window_x, window_y, window_width, window_height)
+    PresenterViewWindow {
+        origin_x: crop_origin(
+            focus.0,
+            base_window.origin_x,
+            base_window.width,
+            window_width,
+        ),
+        origin_y: crop_origin(
+            focus.1,
+            base_window.origin_y,
+            base_window.height,
+            window_height,
+        ),
+        width: window_width,
+        height: window_height,
+    }
 }
 
-fn crop_origin(focus: usize, bound: usize, window: usize) -> usize {
+fn projected_window(scene: &RenderModel, width: usize, height: usize) -> PresenterViewWindow {
+    scene
+        .view_window
+        .map(|window| PresenterViewWindow {
+            origin_x: window.origin_x,
+            origin_y: window.origin_y,
+            width: window.width.min(width),
+            height: window.height.min(height),
+        })
+        .unwrap_or(PresenterViewWindow {
+            origin_x: 0,
+            origin_y: 0,
+            width,
+            height,
+        })
+}
+
+fn crop_origin(focus: usize, origin: usize, bound: usize, window: usize) -> usize {
     let half = window / 2;
-    focus.saturating_sub(half).min(bound.saturating_sub(window))
+    focus
+        .saturating_sub(half)
+        .clamp(origin, origin.saturating_add(bound.saturating_sub(window)))
 }
 
 fn visible_window_tile(
@@ -416,13 +438,6 @@ fn world_to_tile_index_floor(world_position: f32) -> i32 {
         return 0;
     }
     (world_position / TILE_SIZE).floor() as i32
-}
-
-fn world_to_tile_index_clamped(world_position: f32, bound: usize) -> usize {
-    if bound == 0 {
-        return 0;
-    }
-    world_to_tile_index_floor(world_position).clamp(0, bound.saturating_sub(1) as i32) as usize
 }
 
 fn color_for_object(object: &RenderObject) -> u32 {
@@ -1338,10 +1353,10 @@ mod tests {
             RuntimeSessionTimeoutKind, RuntimeWorldReloadObservability,
         },
         BuildQueueHeadObservability, BuildQueueHeadStage, BuildUiObservability, HudModel,
-        RenderModel, RenderObject, RuntimeAdminObservability, RuntimeHudTextObservability,
-        RuntimeMenuObservability, RuntimeRulesObservability, RuntimeTextInputObservability,
-        RuntimeToastObservability, RuntimeUiObservability, RuntimeWorldLabelObservability,
-        Viewport,
+        RenderModel, RenderObject, RenderViewWindow, RuntimeAdminObservability,
+        RuntimeHudTextObservability, RuntimeMenuObservability, RuntimeRulesObservability,
+        RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiObservability,
+        RuntimeWorldLabelObservability, Viewport,
     };
 
     #[derive(Default)]
@@ -1374,6 +1389,7 @@ mod tests {
                 height: 16.0,
                 zoom: 1.0,
             },
+            view_window: None,
             objects: vec![
                 RenderObject {
                     id: "terrain:0".to_string(),
@@ -1432,6 +1448,7 @@ mod tests {
                             height: 8.0,
                             zoom: 1.0,
                         },
+                        view_window: None,
                         objects: vec![RenderObject {
                             id: "terrain:0".to_string(),
                             layer: 0,
@@ -1491,6 +1508,7 @@ mod tests {
                 height: 64.0,
                 zoom: 1.0,
             },
+            view_window: None,
             objects: vec![
                 RenderObject {
                     id: "terrain:origin".to_string(),
@@ -1522,6 +1540,54 @@ mod tests {
         assert_eq!(frame.pixel(3, 0), Some(COLOR_PLAYER));
         assert_eq!(frame.pixel(0, 3), Some(COLOR_BLOCK));
         assert_eq!(frame.pixel(0, 0), Some(COLOR_EMPTY));
+    }
+
+    #[test]
+    fn present_once_honors_projected_view_window_without_local_crop() {
+        let backend = RecordingBackend::default();
+        let mut presenter = WindowPresenter::new(backend);
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 64.0,
+                height: 64.0,
+                zoom: 1.0,
+            },
+            view_window: Some(RenderViewWindow {
+                origin_x: 2,
+                origin_y: 3,
+                width: 4,
+                height: 3,
+            }),
+            objects: vec![RenderObject {
+                id: "player:focus".to_string(),
+                layer: 40,
+                x: 32.0,
+                y: 32.0,
+            }],
+        };
+        let hud = HudModel {
+            summary: Some(HudSummary {
+                player_name: "operator".to_string(),
+                team_id: 2,
+                selected_block: "router".to_string(),
+                plan_count: 0,
+                marker_count: 0,
+                map_width: 80,
+                map_height: 60,
+                overlay_visible: true,
+                fog_enabled: false,
+                visible_tile_count: 0,
+                hidden_tile_count: 0,
+            }),
+            ..HudModel::default()
+        };
+
+        presenter.present_once(&scene, &hud).unwrap();
+
+        let backend = presenter.into_backend();
+        let frame = backend.frames.last().unwrap();
+        assert_eq!((frame.width, frame.height), (4, 3));
+        assert!(frame.status_text.contains("mini:map80x60:win2,3-5,5@s4x3"));
     }
 
     #[test]
@@ -1575,6 +1641,7 @@ mod tests {
                 height: 16.0,
                 zoom: 1.0,
             },
+            view_window: None,
             objects: vec![
                 render_object("player:1"),
                 render_object("marker:line:7"),
@@ -1610,6 +1677,7 @@ mod tests {
                 height: 64.0,
                 zoom: 1.0,
             },
+            view_window: None,
             objects: vec![
                 RenderObject {
                     id: "terrain:stable".to_string(),
@@ -1655,6 +1723,7 @@ mod tests {
                 height: 64.0,
                 zoom: 2.0,
             },
+            view_window: None,
             objects: vec![RenderObject {
                 id: "player:focus".to_string(),
                 layer: 40,
@@ -1681,6 +1750,7 @@ mod tests {
                 height: 64.0,
                 zoom: 0.5,
             },
+            view_window: None,
             objects: vec![RenderObject {
                 id: "player:focus".to_string(),
                 layer: 40,
@@ -1707,6 +1777,7 @@ mod tests {
                 height: 8.0,
                 zoom: 1.0,
             },
+            view_window: None,
             objects: vec![
                 render_object("player:1"),
                 render_object("marker:7"),
@@ -2000,6 +2071,7 @@ mod tests {
                 height: 16.0,
                 zoom: 1.0,
             },
+            view_window: None,
             objects: vec![
                 render_object("player:1"),
                 render_object("terrain:2"),

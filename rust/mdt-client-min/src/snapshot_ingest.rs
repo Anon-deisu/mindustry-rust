@@ -773,7 +773,7 @@ mod tests {
         AppliedBlockSnapshotEnvelope, AppliedHiddenSnapshotIds, AppliedStateSnapshotCoreData,
         AppliedStateSnapshotCoreDataItem, AppliedStateSnapshotCoreDataTeam,
         AuthoritativeStateMirror, BlockSnapshotHeadProjection, EntityProjection,
-        EntitySemanticProjection, EntitySemanticProjectionEntry,
+        EntitySemanticProjection, EntitySemanticProjectionEntry, EntityUnitSemanticProjection,
         EntityWorldLabelSemanticProjection, GameplayStateProjection, HiddenSnapshotDeltaProjection,
         PayloadLifecycleCarrierProjection, ResourceUnitItemStack, SessionState,
         StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection, UnitRefProjection,
@@ -2133,7 +2133,7 @@ mod tests {
     }
 
     #[test]
-    fn hidden_snapshot_removes_non_local_entity_rows_but_keeps_local_player() {
+    fn hidden_snapshot_removes_non_local_unit_rows_but_keeps_local_player() {
         let payload = [
             0x00, 0x00, 0x00, 0x02, // count
             0x00, 0x00, 0x00, 0x65, // 101
@@ -2169,16 +2169,21 @@ mod tests {
         state.entity_semantic_projection.by_entity_id.insert(
             303,
             EntitySemanticProjectionEntry {
-                class_id: 35,
+                class_id: 4,
                 last_seen_entity_snapshot_count: 1,
-                projection: EntitySemanticProjection::WorldLabel(
-                    EntityWorldLabelSemanticProjection {
-                        flags: 1,
-                        font_size_bits: 12.0f32.to_bits(),
-                        text: Some("hidden".to_string()),
-                        z_bits: 0.5f32.to_bits(),
-                    },
-                ),
+                projection: EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
+                    team_id: 2,
+                    unit_type_id: 3,
+                    health_bits: 4.0f32.to_bits(),
+                    rotation_bits: 5.0f32.to_bits(),
+                    shield_bits: 6.0f32.to_bits(),
+                    mine_tile_pos: 0,
+                    status_count: 0,
+                    payload_count: None,
+                    building_pos: None,
+                    lifetime_bits: None,
+                    time_bits: None,
+                }),
             },
         );
 
@@ -2248,6 +2253,58 @@ mod tests {
     }
 
     #[test]
+    fn hidden_snapshot_keeps_non_unit_rows_when_handle_sync_hidden_is_not_known_remove() {
+        let payload = [
+            0x00, 0x00, 0x00, 0x01, // count
+            0x00, 0x00, 0x01, 0x2F, // 303
+        ];
+        let mut state = SessionState::default();
+        state.entity_table_projection.by_entity_id.insert(
+            303,
+            EntityProjection {
+                class_id: 35,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 0,
+                unit_value: 0,
+                x_bits: 1.0f32.to_bits(),
+                y_bits: 2.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
+        state.entity_semantic_projection.by_entity_id.insert(
+            303,
+            EntitySemanticProjectionEntry {
+                class_id: 35,
+                last_seen_entity_snapshot_count: 1,
+                projection: EntitySemanticProjection::WorldLabel(
+                    EntityWorldLabelSemanticProjection {
+                        flags: 1,
+                        font_size_bits: 12.0f32.to_bits(),
+                        text: Some("hidden".to_string()),
+                        z_bits: 0.5f32.to_bits(),
+                    },
+                ),
+            },
+        );
+
+        ingest_inbound_snapshot(
+            &mut state,
+            InboundSnapshot::new(HighFrequencyRemoteMethod::HiddenSnapshot, 11, &payload),
+        );
+
+        assert_eq!(state.entity_table_projection.hidden_apply_count, 1);
+        assert_eq!(state.entity_table_projection.hidden_count, 1);
+        assert!(state.entity_table_projection.by_entity_id[&303].hidden);
+        assert!(state
+            .entity_semantic_projection
+            .by_entity_id
+            .contains_key(&303));
+        assert_eq!(state.hidden_lifecycle_remove_count, 0);
+        assert!(state.last_hidden_lifecycle_removed_ids_sample.is_empty());
+    }
+
+    #[test]
     fn hidden_snapshot_cleans_non_local_orphan_semantic_resource_and_payload_rows() {
         let payload = [
             0x00, 0x00, 0x00, 0x02, // count
@@ -2287,16 +2344,21 @@ mod tests {
         state.entity_semantic_projection.by_entity_id.insert(
             303,
             EntitySemanticProjectionEntry {
-                class_id: 35,
+                class_id: 4,
                 last_seen_entity_snapshot_count: 1,
-                projection: EntitySemanticProjection::WorldLabel(
-                    EntityWorldLabelSemanticProjection {
-                        flags: 1,
-                        font_size_bits: 12.0f32.to_bits(),
-                        text: Some("orphan".to_string()),
-                        z_bits: 0.5f32.to_bits(),
-                    },
-                ),
+                projection: EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
+                    team_id: 2,
+                    unit_type_id: 3,
+                    health_bits: 4.0f32.to_bits(),
+                    rotation_bits: 5.0f32.to_bits(),
+                    shield_bits: 6.0f32.to_bits(),
+                    mine_tile_pos: 0,
+                    status_count: 0,
+                    payload_count: Some(1),
+                    building_pos: None,
+                    lifetime_bits: None,
+                    time_bits: None,
+                }),
             },
         );
         state

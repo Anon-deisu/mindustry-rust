@@ -4,7 +4,16 @@
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct RenderModel {
     pub viewport: Viewport,
+    pub view_window: Option<RenderViewWindow>,
     pub objects: Vec<RenderObject>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RenderViewWindow {
+    pub origin_x: usize,
+    pub origin_y: usize,
+    pub width: usize,
+    pub height: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -75,6 +84,24 @@ impl RenderObject {
 
     pub fn semantic_family(&self) -> RenderObjectSemanticFamily {
         self.semantic_kind().family()
+    }
+}
+
+impl RenderModel {
+    pub fn player_focus_tile(&self, tile_size: f32) -> Option<(usize, usize)> {
+        if !tile_size.is_finite() || tile_size <= 0.0 {
+            return None;
+        }
+
+        self.objects
+            .iter()
+            .find(|object| object.semantic_kind() == RenderObjectSemanticKind::Player)
+            .map(|object| {
+                (
+                    world_to_tile_index_floor(object.x, tile_size).max(0) as usize,
+                    world_to_tile_index_floor(object.y, tile_size).max(0) as usize,
+                )
+            })
     }
 }
 
@@ -203,9 +230,19 @@ fn terrain_semantic_kind(second: &str) -> RenderObjectSemanticKind {
     }
 }
 
+fn world_to_tile_index_floor(world_position: f32, tile_size: f32) -> i32 {
+    if !world_position.is_finite() {
+        return 0;
+    }
+    (world_position / tile_size).floor() as i32
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{RenderObject, RenderObjectSemanticFamily, RenderObjectSemanticKind};
+    use super::{
+        RenderModel, RenderObject, RenderObjectSemanticFamily, RenderObjectSemanticKind,
+        RenderViewWindow, Viewport,
+    };
 
     #[test]
     fn semantic_kind_from_id_supports_known_prefixes_aliases_and_runtime_patterns() {
@@ -376,5 +413,39 @@ mod tests {
             runtime_marker.semantic_family(),
             RenderObjectSemanticFamily::Runtime
         );
+    }
+
+    #[test]
+    fn render_model_tracks_projected_view_window_and_player_focus_tile() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 64.0,
+                height: 64.0,
+                zoom: 1.0,
+            },
+            view_window: Some(RenderViewWindow {
+                origin_x: 2,
+                origin_y: 3,
+                width: 4,
+                height: 5,
+            }),
+            objects: vec![RenderObject {
+                id: "player:7".to_string(),
+                layer: 40,
+                x: 28.0,
+                y: 33.0,
+            }],
+        };
+
+        assert_eq!(
+            scene.view_window,
+            Some(RenderViewWindow {
+                origin_x: 2,
+                origin_y: 3,
+                width: 4,
+                height: 5,
+            })
+        );
+        assert_eq!(scene.player_focus_tile(8.0), Some((3, 4)));
     }
 }

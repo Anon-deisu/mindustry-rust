@@ -4,7 +4,7 @@ use crate::state_snapshot_semantics::{
 };
 use mdt_remote::HighFrequencyRemoteMethod;
 use mdt_typeio::TypeIoObject;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 const ENTITY_SNAPSHOT_TOMBSTONE_TTL_SNAPSHOTS: u64 = 1;
 const ENTITY_SNAPSHOT_TOMBSTONE_SKIP_SAMPLE_LIMIT: usize = 4;
@@ -947,6 +947,7 @@ impl ConfiguredBlockOutcome {
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct TileConfigProjection {
     pub pending_local_by_build_pos: BTreeMap<i32, TypeIoObject>,
+    pub pending_local_request_queue_by_build_pos: BTreeMap<i32, VecDeque<TypeIoObject>>,
     pub authoritative_by_build_pos: BTreeMap<i32, TypeIoObject>,
     pub queued_local_count: u64,
     pub applied_authoritative_count: u64,
@@ -974,7 +975,44 @@ impl TileConfigProjection {
         self.queued_local_count = self.queued_local_count.saturating_add(1);
         self.last_queued_build_pos = Some(build_pos);
         self.last_queued_value = Some(value.clone());
+        self.pending_local_request_queue_by_build_pos
+            .entry(build_pos)
+            .or_default()
+            .push_back(value.clone());
         self.pending_local_by_build_pos.insert(build_pos, value);
+    }
+
+    fn pop_next_pending_local_request(&mut self, build_pos: i32) -> Option<TypeIoObject> {
+        let pending_local = self
+            .pending_local_request_queue_by_build_pos
+            .get_mut(&build_pos)
+            .and_then(VecDeque::pop_front);
+        self.sync_pending_local_latest_value(build_pos);
+        pending_local
+    }
+
+    fn clear_all_pending_local_requests(&mut self, build_pos: i32) {
+        self.pending_local_request_queue_by_build_pos
+            .remove(&build_pos);
+        self.pending_local_by_build_pos.remove(&build_pos);
+    }
+
+    fn sync_pending_local_latest_value(&mut self, build_pos: i32) {
+        match self
+            .pending_local_request_queue_by_build_pos
+            .get(&build_pos)
+            .and_then(|queue| queue.back())
+            .cloned()
+        {
+            Some(value) => {
+                self.pending_local_by_build_pos.insert(build_pos, value);
+            }
+            None => {
+                self.pending_local_request_queue_by_build_pos
+                    .remove(&build_pos);
+                self.pending_local_by_build_pos.remove(&build_pos);
+            }
+        }
     }
 
     pub fn apply_authoritative_update(
@@ -997,7 +1035,7 @@ impl TileConfigProjection {
             }
         }
 
-        let pending_local = self.pending_local_by_build_pos.remove(&build_pos);
+        let pending_local = self.pop_next_pending_local_request(build_pos);
         let pending_local_match = pending_local.as_ref().map(|pending| pending == &value);
         let cleared_pending_local = pending_local.is_some();
         let was_rollback = pending_local_match == Some(false);
@@ -1054,7 +1092,7 @@ impl TileConfigProjection {
     }
 
     pub fn seed_authoritative_state(&mut self, build_pos: i32, value: TypeIoObject) {
-        self.pending_local_by_build_pos.remove(&build_pos);
+        self.clear_all_pending_local_requests(build_pos);
         self.authoritative_by_build_pos.insert(build_pos, value);
     }
 
@@ -1062,8 +1100,7 @@ impl TileConfigProjection {
         &mut self,
         build_pos: Option<i32>,
     ) -> TileConfigBusinessApply {
-        let pending_local =
-            build_pos.and_then(|value| self.pending_local_by_build_pos.remove(&value));
+        let pending_local = build_pos.and_then(|value| self.pop_next_pending_local_request(value));
         let cleared_pending_local = pending_local.is_some();
         self.last_business_build_pos = None;
         self.last_business_value = None;
@@ -1096,7 +1133,7 @@ impl TileConfigProjection {
         let Some(build_pos) = build_pos else {
             return self.clear_pending_local_without_business_apply(None);
         };
-        let pending_local = self.pending_local_by_build_pos.remove(&build_pos);
+        let pending_local = self.pop_next_pending_local_request(build_pos);
         let authoritative_value = self.authoritative_by_build_pos.get(&build_pos).cloned();
         let cleared_pending_local = pending_local.is_some();
 
@@ -1157,11 +1194,12 @@ impl TileConfigProjection {
     }
 
     pub fn remove_building_state(&mut self, build_pos: i32) {
-        self.pending_local_by_build_pos.remove(&build_pos);
+        self.clear_all_pending_local_requests(build_pos);
         self.authoritative_by_build_pos.remove(&build_pos);
     }
 
     pub fn clear_for_world_reload(&mut self) {
+        self.pending_local_request_queue_by_build_pos.clear();
         self.pending_local_by_build_pos.clear();
         self.authoritative_by_build_pos.clear();
         self.last_queued_build_pos = None;
@@ -3615,15 +3653,17 @@ impl SessionState {
         self.entity_table_projection
             .apply_hidden_ids(&trigger_hidden_ids);
         let local_player_entity_id = self.entity_table_projection.local_player_entity_id;
+        let hidden_lifecycle_remove_ids =
+            self.hidden_snapshot_lifecycle_remove_ids(&trigger_hidden_ids, local_player_entity_id);
         let hidden_removed_ids = self
             .entity_table_projection
-            .remove_hidden_entities(&trigger_hidden_ids);
+            .remove_hidden_entities(&hidden_lifecycle_remove_ids);
         self.entity_semantic_projection
-            .remove_hidden_entities(&trigger_hidden_ids, local_player_entity_id);
+            .remove_hidden_entities(&hidden_lifecycle_remove_ids, local_player_entity_id);
         self.resource_delta_projection
-            .remove_hidden_entities(&trigger_hidden_ids, local_player_entity_id);
+            .remove_hidden_entities(&hidden_lifecycle_remove_ids, local_player_entity_id);
         self.payload_lifecycle_projection
-            .remove_hidden_entities(&trigger_hidden_ids, local_player_entity_id);
+            .remove_hidden_entities(&hidden_lifecycle_remove_ids, local_player_entity_id);
         self.hidden_lifecycle_remove_count = self
             .hidden_lifecycle_remove_count
             .saturating_add(hidden_removed_ids.len() as u64);
@@ -3639,6 +3679,27 @@ impl SessionState {
             added_sample_ids,
             removed_sample_ids,
         });
+    }
+
+    fn hidden_snapshot_lifecycle_remove_ids(
+        &self,
+        trigger_hidden_ids: &BTreeSet<i32>,
+        local_player_entity_id: Option<i32>,
+    ) -> BTreeSet<i32> {
+        trigger_hidden_ids
+            .iter()
+            .copied()
+            .filter(|entity_id| {
+                Some(*entity_id) != local_player_entity_id
+                    && matches!(
+                        self.entity_semantic_projection
+                            .by_entity_id
+                            .get(entity_id)
+                            .map(|entry| &entry.projection),
+                        Some(EntitySemanticProjection::Unit(_))
+                    )
+            })
+            .collect()
     }
 
     pub fn record_payload_lifecycle_drop(

@@ -700,8 +700,9 @@ impl LiveIntentMapperController {
 
         let mut changed = false;
         for entry in due {
-            self.tracker.set_override_snapshot(Some(entry.snapshot));
-            changed |= self.tracker.sample_runtime_snapshot(runtime_snapshot);
+            changed |= self
+                .tracker
+                .sample_runtime_snapshot_with_override(runtime_snapshot, &entry.snapshot);
         }
         changed
     }
@@ -8466,7 +8467,7 @@ mod tests {
     }
 
     #[test]
-    fn live_intent_schedule_override_still_persists_across_runtime_sampling_ticks() {
+    fn live_intent_schedule_override_yields_back_to_runtime_sampling_after_due_tick() {
         let args = parse_args(sample_args(&[
             "--intent-delay-ms",
             "0",
@@ -8490,10 +8491,16 @@ mod tests {
         assert!(live_intent_mapper
             .state()
             .is_action_active(BinaryAction::Fire));
-        assert!(!live_intent_mapper.advance(&runtime_snapshot, 50));
-        assert!(live_intent_mapper
+        assert!(live_intent_mapper.advance(&runtime_snapshot, 50));
+        assert!(!live_intent_mapper
             .state()
             .is_action_active(BinaryAction::Fire));
+        assert_eq!(live_intent_mapper.state().move_axis, (0.0, 0.0));
+        assert_eq!(live_intent_mapper.state().aim_axis, (9.0, 9.0));
+        assert_eq!(
+            live_intent_mapper.state().released_actions,
+            vec![BinaryAction::Fire]
+        );
     }
 
     #[test]

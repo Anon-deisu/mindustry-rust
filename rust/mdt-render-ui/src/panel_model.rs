@@ -268,6 +268,7 @@ pub fn build_minimap_panel(
     window: PresenterViewWindow,
 ) -> Option<MinimapPanelModel> {
     let summary = hud.summary.as_ref()?;
+    let window = resolve_presenter_window(scene, summary.map_width, summary.map_height, window);
     let player_count = semantic_count(scene, RenderObjectSemanticKind::Player);
     let marker_count = semantic_count(scene, RenderObjectSemanticKind::Marker);
     let plan_count = semantic_count(scene, RenderObjectSemanticKind::Plan);
@@ -287,16 +288,7 @@ pub fn build_minimap_panel(
         .visible_tile_count
         .saturating_add(summary.hidden_tile_count);
     let unknown_tile_count = map_tile_count.saturating_sub(known_tile_count);
-    let focus_tile = scene
-        .objects
-        .iter()
-        .find(|object| object.semantic_kind() == RenderObjectSemanticKind::Player)
-        .map(|object| {
-            (
-                world_to_tile_index_floor(object.x).max(0) as usize,
-                world_to_tile_index_floor(object.y).max(0) as usize,
-            )
-        });
+    let focus_tile = scene.player_focus_tile(8.0);
     let focus_in_window = focus_tile.map(|(focus_x, focus_y)| {
         focus_x >= window.origin_x
             && focus_x <= window_last_x
@@ -626,11 +618,25 @@ fn semantic_count(scene: &RenderModel, kind: RenderObjectSemanticKind) -> usize 
         .count()
 }
 
-fn world_to_tile_index_floor(world_position: f32) -> i32 {
-    if !world_position.is_finite() {
-        return 0;
+fn resolve_presenter_window(
+    scene: &RenderModel,
+    map_width: usize,
+    map_height: usize,
+    window: PresenterViewWindow,
+) -> PresenterViewWindow {
+    if window.width != 0 || window.height != 0 {
+        return window;
     }
-    (world_position / 8.0).floor() as i32
+
+    scene
+        .view_window
+        .map(|view_window| PresenterViewWindow {
+            origin_x: view_window.origin_x.min(map_width),
+            origin_y: view_window.origin_y.min(map_height),
+            width: view_window.width.min(map_width),
+            height: view_window.height.min(map_height),
+        })
+        .unwrap_or(window)
 }
 
 #[cfg(test)]
@@ -664,6 +670,7 @@ mod tests {
                 height: 64.0,
                 zoom: 1.0,
             },
+            view_window: None,
             objects: vec![
                 RenderObject {
                     id: "player:focus".to_string(),
