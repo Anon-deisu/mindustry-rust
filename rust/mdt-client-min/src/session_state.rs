@@ -2193,6 +2193,7 @@ pub enum TypedBuildingRuntimeKind {
     PayloadMassDriver,
     PowerNode,
     Reconstructor,
+    BuildTower,
     Memory,
     Canvas,
 }
@@ -2221,6 +2222,7 @@ impl TypedBuildingRuntimeKind {
             Self::PayloadMassDriver => "payload-mass-driver",
             Self::PowerNode => "power-node",
             Self::Reconstructor => "reconstructor",
+            Self::BuildTower => "build-tower",
             Self::Memory => "memory",
             Self::Canvas => "canvas",
         }
@@ -2239,6 +2241,11 @@ pub enum TypedBuildingRuntimeValue {
     Link(Option<i32>),
     Links(BTreeSet<i32>),
     Command(Option<u16>),
+    BuildTower {
+        rotation_bits: Option<u32>,
+        plans_present: Option<bool>,
+        plan_count: Option<u16>,
+    },
     Memory(Vec<u64>),
     Bytes(Vec<u8>),
 }
@@ -2491,6 +2498,14 @@ fn typed_runtime_building_model(
                     .get(&build_pos)
                     .copied()?,
             ),
+        ),
+        "build-tower" => (
+            TypedBuildingRuntimeKind::BuildTower,
+            TypedBuildingRuntimeValue::BuildTower {
+                rotation_bits: building.build_turret_rotation_bits,
+                plans_present: building.build_turret_plans_present,
+                plan_count: building.build_turret_plan_count,
+            },
         ),
         "memory-cell" | "memory-bank" => (
             TypedBuildingRuntimeKind::Memory,
@@ -5375,6 +5390,66 @@ mod tests {
                 build_turret_rotation_bits: None,
                 build_turret_plans_present: None,
                 build_turret_plan_count: None,
+                last_update: BuildingProjectionUpdateKind::BlockSnapshotHead,
+            })
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_build_tower_family() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0008_000ai32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            303,
+            Some("build-tower".to_string()),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(6),
+            Some(0x3f80_0000),
+            Some(0x3f00_0000),
+            Some(126),
+            Some(false),
+            None,
+            Some(0x40a0_0000),
+            Some(true),
+            Some(0x50),
+            Some(0x28),
+            Some(66),
+            Some(0x4210_0000),
+            Some(true),
+            Some(5),
+        );
+
+        assert_eq!(
+            state.typed_runtime_building_at(build_pos),
+            Some(TypedBuildingRuntimeModel {
+                build_pos,
+                block_id: Some(303),
+                block_name: "build-tower".to_string(),
+                kind: TypedBuildingRuntimeKind::BuildTower,
+                value: TypedBuildingRuntimeValue::BuildTower {
+                    rotation_bits: Some(0x4210_0000),
+                    plans_present: Some(true),
+                    plan_count: Some(5),
+                },
+                rotation: Some(3),
+                team_id: Some(4),
+                io_version: Some(5),
+                module_bitmask: Some(6),
+                time_scale_bits: Some(0x3f80_0000),
+                time_scale_duration_bits: Some(0x3f00_0000),
+                last_disabler_pos: Some(126),
+                legacy_consume_connected: Some(false),
+                health_bits: Some(0x40a0_0000),
+                enabled: Some(true),
+                efficiency: Some(0x50),
+                optional_efficiency: Some(0x28),
+                visible_flags: Some(66),
+                build_turret_rotation_bits: Some(0x4210_0000),
+                build_turret_plans_present: Some(true),
+                build_turret_plan_count: Some(5),
                 last_update: BuildingProjectionUpdateKind::BlockSnapshotHead,
             })
         );

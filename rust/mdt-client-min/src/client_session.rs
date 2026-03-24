@@ -18278,9 +18278,11 @@ mod tests {
         let message_pos = pack_build_pos_for_block_snapshot_test(20, 21);
         let memory_pos = pack_build_pos_for_block_snapshot_test(22, 23);
         let canvas_pos = pack_build_pos_for_block_snapshot_test(24, 25);
+        let build_tower_pos = pack_build_pos_for_block_snapshot_test(26, 27);
         let message_block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_MESSAGE);
         let memory_block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_MEMORY_BANK);
         let canvas_block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_CANVAS);
+        let build_tower_block_id = loaded_world_block_id_for_name(&session, "build-tower");
         let memory_values_bits = vec![0.5f64.to_bits(), 8.0f64.to_bits(), (-1.25f64).to_bits()];
         let canvas_bytes = canvas_config_bytes(CANVAS_CONFIG_BYTES_LEN, 0x81);
 
@@ -18338,6 +18340,28 @@ mod tests {
             None,
             None,
         );
+        session.state.building_table_projection.apply_block_snapshot_head(
+            build_tower_pos,
+            build_tower_block_id,
+            Some("build-tower".to_string()),
+            Some(4),
+            Some(5),
+            Some(6),
+            Some(7),
+            Some(0x3f20_0000),
+            Some(0x3e80_0000),
+            Some(126),
+            Some(false),
+            None,
+            Some(0x4060_0000),
+            Some(true),
+            Some(0x28),
+            Some(0x14),
+            Some(55),
+            Some(0x4210_0000),
+            Some(true),
+            Some(5),
+        );
 
         session.apply_loaded_world_parsed_tail_business(
             message_pos,
@@ -18361,6 +18385,16 @@ mod tests {
                 data_len: canvas_bytes.len(),
                 data_sha256: String::new(),
                 data_bytes: canvas_bytes.clone(),
+            }),
+        );
+        session.apply_loaded_world_parsed_tail_business(
+            build_tower_pos,
+            Some("build-tower"),
+            &mdt_world::ParsedBuildingTail::BuildTurret(mdt_world::BuildTurretTailSnapshot {
+                rotation_bits: 0x4210_0000,
+                plans_present: true,
+                plan_count: 5,
+                plans: Vec::new(),
             }),
         );
 
@@ -18418,6 +18452,36 @@ mod tests {
                 &crate::session_state::TypedBuildingRuntimeValue::Bytes(canvas_bytes),
                 Some(0x4040_0000),
                 Some(3),
+            ))
+        );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(build_tower_pos)
+                .map(|building| {
+                    (
+                        building.block_id,
+                        &building.kind,
+                        &building.value,
+                        building.build_turret_rotation_bits,
+                        building.build_turret_plan_count,
+                        building.health_bits,
+                        building.rotation,
+                    )
+                }),
+            Some((
+                Some(build_tower_block_id),
+                &crate::session_state::TypedBuildingRuntimeKind::BuildTower,
+                &crate::session_state::TypedBuildingRuntimeValue::BuildTower {
+                    rotation_bits: Some(0x4210_0000),
+                    plans_present: Some(true),
+                    plan_count: Some(5),
+                },
+                Some(0x4210_0000),
+                Some(5),
+                Some(0x4060_0000),
+                Some(4),
             ))
         );
     }

@@ -2152,6 +2152,25 @@ fn runtime_typed_build_config_value_label(
                 .map(|value| value.to_string())
                 .unwrap_or_else(|| "clear".to_string())
         ),
+        TypedBuildingRuntimeValue::BuildTower {
+            rotation_bits,
+            plans_present,
+            plan_count,
+        } => {
+            let plans = match plans_present {
+                Some(true) => plan_count
+                    .map(|count| count.to_string())
+                    .unwrap_or_else(|| "?".to_string()),
+                Some(false) => "none".to_string(),
+                None => "unknown".to_string(),
+            };
+            format!(
+                "rot={}:plans={plans}",
+                rotation_bits
+                    .map(|bits| format!("0x{bits:08x}"))
+                    .unwrap_or_else(|| "none".to_string())
+            )
+        }
         TypedBuildingRuntimeValue::Bytes(bytes) => format!(
             "len={}:hex={}",
             bytes.len(),
@@ -4401,6 +4420,7 @@ mod tests {
             (pack_runtime_point2(23, 45), "power-node"),
             (pack_runtime_point2(26, 48), "additive-reconstructor"),
             (pack_runtime_point2(27, 49), "memory-cell"),
+            (pack_runtime_point2(28, 50), "build-tower"),
         ] {
             state.building_table_projection.by_build_pos.insert(
                 build_pos,
@@ -4421,9 +4441,10 @@ mod tests {
                     efficiency: None,
                     optional_efficiency: None,
                     visible_flags: None,
-                    build_turret_rotation_bits: None,
-                    build_turret_plans_present: None,
-                    build_turret_plan_count: None,
+                    build_turret_rotation_bits: (block_name == "build-tower")
+                        .then_some(0x4210_0000),
+                    build_turret_plans_present: (block_name == "build-tower").then_some(true),
+                    build_turret_plan_count: (block_name == "build-tower").then_some(5),
                     last_update: crate::session_state::BuildingProjectionUpdateKind::TileConfig,
                 },
             );
@@ -4465,6 +4486,10 @@ mod tests {
             entry.family == "memory"
                 && entry.sample
                     == "27:49:memory-cell:len=2:bits=3ff0000000000000-c00c000000000000"
+        }));
+        assert!(build_ui.inspector_entries.iter().any(|entry| {
+            entry.family == "build-tower"
+                && entry.sample == "28:50:rot=0x42100000:plans=5"
         }));
     }
 
