@@ -13228,6 +13228,8 @@ mod tests {
     use crate::session_state::AppliedStateSnapshot;
     use mdt_protocol::{decode_framework_message, decode_packet, encode_packet, FrameworkMessage};
     use mdt_remote::read_remote_manifest;
+    use std::collections::BTreeSet;
+    use std::fs;
     use std::cell::RefCell;
     use std::path::PathBuf;
     use std::rc::Rc;
@@ -13247,6 +13249,60 @@ mod tests {
         decode_hex_text(include_str!(
             "../../../tests/src/test/resources/connect-packet.hex"
         ))
+    }
+
+    fn parse_generated_java_class_id(source: &str) -> Option<u8> {
+        let marker = "public int classId() {";
+        let marker_start = source.find(marker)?;
+        let rest = &source[marker_start + marker.len()..];
+        let return_start = rest.find("return ")?;
+        let rest = &rest[return_start + "return ".len()..];
+        let end = rest.find(';')?;
+        rest[..end].trim().parse().ok()
+    }
+
+    fn generated_java_syncc_class_ids() -> BTreeSet<u8> {
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../core/build/generated/source/kapt/main/mindustry/gen");
+        let mut ids = BTreeSet::new();
+        for entry in fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().and_then(|value| value.to_str()) != Some("java") {
+                continue;
+            }
+            let source = fs::read_to_string(path).unwrap();
+            let Some(class_decl) = source
+                .lines()
+                .map(str::trim)
+                .find(|line| line.starts_with("public class "))
+            else {
+                continue;
+            };
+            if !class_decl.contains("Syncc") {
+                continue;
+            }
+            ids.insert(
+                parse_generated_java_class_id(&source)
+                    .unwrap_or_else(|| panic!("missing generated Java classId")),
+            );
+        }
+        ids
+    }
+
+    fn current_rust_entity_snapshot_family_class_ids() -> BTreeSet<u8> {
+        let mut ids = BTreeSet::new();
+        ids.extend(ALPHA_SHAPE_ENTITY_CLASS_IDS);
+        ids.extend(crate::entity_snapshot_families::BUILDING_ENTITY_CLASS_IDS);
+        ids.extend(MECH_SHAPE_ENTITY_CLASS_IDS);
+        ids.extend(MISSILE_SHAPE_ENTITY_CLASS_IDS);
+        ids.extend(PAYLOAD_SHAPE_ENTITY_CLASS_IDS);
+        ids.extend(BUILDING_TETHER_PAYLOAD_ENTITY_CLASS_IDS);
+        ids.extend(FIRE_ENTITY_CLASS_IDS);
+        ids.extend(PUDDLE_ENTITY_CLASS_IDS);
+        ids.extend(WEATHER_STATE_ENTITY_CLASS_IDS);
+        ids.extend(WORLD_LABEL_ENTITY_CLASS_IDS);
+        ids.insert(crate::session_state::EntityTableProjection::LOCAL_PLAYER_CLASS_ID);
+        ids
     }
 
     fn sample_world_stream_bytes() -> Vec<u8> {
@@ -13943,6 +13999,31 @@ mod tests {
             projection.last_update,
             crate::session_state::BuildingProjectionUpdateKind::WorldBaseline
         );
+    }
+
+    #[test]
+    fn rust_entity_snapshot_families_cover_all_current_generated_java_syncc_ids() {
+        let rust_ids = current_rust_entity_snapshot_family_class_ids();
+        let java_syncc_ids = generated_java_syncc_class_ids();
+        let missing = java_syncc_ids
+            .difference(&rust_ids)
+            .copied()
+            .collect::<Vec<_>>();
+        let extras = rust_ids.difference(&java_syncc_ids).copied().collect::<Vec<_>>();
+
+        assert_eq!(missing, Vec::<u8>::new());
+        assert_eq!(extras, vec![6, 40, 44]);
+    }
+
+    #[test]
+    fn generated_java_syncc_ids_exclude_prior_entity_snapshot_false_positive_ids() {
+        let java_syncc_ids = generated_java_syncc_class_ids();
+        for class_id in [7u8, 8, 9, 11, 15, 28, 42] {
+            assert!(
+                !java_syncc_ids.contains(&class_id),
+                "classId={class_id} unexpectedly participates in current Java entitySnapshot"
+            );
+        }
     }
 
     #[test]
