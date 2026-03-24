@@ -215,6 +215,14 @@ pub struct TypedRemotePacketMetadata<'a> {
     pub wire_params: Vec<TypedRemoteParamSpec<'a>>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RemotePacketSelector<'a> {
+    pub method: &'a str,
+    pub flow: Option<RemoteFlow>,
+    pub unreliable: Option<bool>,
+    pub param_java_types: &'a [&'a str],
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemotePacketRegistry<'a> {
     packets: Vec<TypedRemotePacketMetadata<'a>>,
@@ -712,6 +720,40 @@ impl<'a> RemotePacketRegistry<'a> {
             .collect()
     }
 
+    pub fn packets_matching(
+        &self,
+        selector: RemotePacketSelector<'_>,
+    ) -> Vec<&TypedRemotePacketMetadata<'a>> {
+        self.packets
+            .iter()
+            .filter(|packet| packet.method == selector.method)
+            .filter(|packet| selector.flow.is_none_or(|flow| packet.flow == flow))
+            .filter(|packet| {
+                selector
+                    .unreliable
+                    .is_none_or(|unreliable| packet.unreliable == unreliable)
+            })
+            .filter(|packet| {
+                selector.param_java_types.is_empty()
+                    || packet.params.len() == selector.param_java_types.len()
+                        && packet
+                            .params
+                            .iter()
+                            .zip(selector.param_java_types.iter())
+                            .all(|(param, expected_java_type)| {
+                                param.java_type == *expected_java_type
+                            })
+            })
+            .collect()
+    }
+
+    pub fn first_matching(
+        &self,
+        selector: RemotePacketSelector<'_>,
+    ) -> Option<&TypedRemotePacketMetadata<'a>> {
+        self.packets_matching(selector).into_iter().next()
+    }
+
     pub fn into_packets(self) -> Vec<TypedRemotePacketMetadata<'a>> {
         self.packets
     }
@@ -1063,6 +1105,26 @@ mod tests {
         assert_eq!(overloads[1].flow, RemoteFlow::Bidirectional);
         assert_eq!(overloads[1].wire_params.len(), 2);
         assert_eq!(overloads[1].wire_params[1].kind, RemoteParamKind::Int);
+
+        let selected = registry
+            .first_matching(RemotePacketSelector {
+                method: "infoPopup",
+                flow: Some(RemoteFlow::ServerToClient),
+                unreliable: Some(true),
+                param_java_types: &["java.lang.String", "float"],
+            })
+            .unwrap();
+        assert_eq!(selected.packet_id, 5);
+        assert_eq!(selected.packet_class, "mindustry.gen.InfoPopupCallPacket");
+
+        let reliable_bidirectional = registry.packets_matching(RemotePacketSelector {
+            method: "infoPopup",
+            flow: Some(RemoteFlow::Bidirectional),
+            unreliable: Some(false),
+            param_java_types: &["java.lang.String", "int"],
+        });
+        assert_eq!(reliable_bidirectional.len(), 1);
+        assert_eq!(reliable_bidirectional[0].packet_id, 6);
 
         let typed_packets = typed_remote_packets(&manifest).unwrap();
         assert_eq!(typed_packets.len(), 3);

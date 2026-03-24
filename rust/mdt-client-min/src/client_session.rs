@@ -6263,6 +6263,7 @@ impl ClientSession {
                 base.optional_efficiency,
                 base.visible_flags,
             );
+            self.apply_loaded_world_parsed_tail_business(build_pos, &center.building.parsed_tail);
         }
     }
 
@@ -6794,6 +6795,9 @@ impl ClientSession {
             data_cursor = data_cursor.saturating_add(consumed);
             let (build_turret_rotation_bits, build_turret_plans_present, build_turret_plan_count) =
                 summarize_build_turret_tail_fields(&building.parsed_tail);
+            let message_text = summarize_message_tail_text(&building.parsed_tail);
+            let payload_router_sorted_content =
+                summarize_payload_router_sorted_content(&building.parsed_tail);
 
             let entry = BlockSnapshotExtraEntrySummary {
                 build_pos,
@@ -6814,6 +6818,8 @@ impl ClientSession {
                 build_turret_rotation_bits,
                 build_turret_plans_present,
                 build_turret_plan_count,
+                message_text,
+                payload_router_sorted_content,
             };
             entries.push(entry);
         }
@@ -6855,6 +6861,40 @@ impl ClientSession {
                     entry.build_turret_plans_present,
                     entry.build_turret_plan_count,
                 );
+            self.apply_loaded_world_block_snapshot_entry_business(&entry);
+        }
+    }
+
+    fn apply_loaded_world_parsed_tail_business(
+        &mut self,
+        build_pos: i32,
+        parsed_tail: &mdt_world::ParsedBuildingTail,
+    ) {
+        if let Some(text) = summarize_message_tail_text(parsed_tail) {
+            self.state
+                .configured_block_projection
+                .apply_message_text(build_pos, text);
+        }
+        if let Some(content) = summarize_payload_router_sorted_content(parsed_tail) {
+            self.state
+                .configured_block_projection
+                .apply_payload_router_sorted_content(build_pos, content);
+        }
+    }
+
+    fn apply_loaded_world_block_snapshot_entry_business(
+        &mut self,
+        entry: &BlockSnapshotExtraEntrySummary,
+    ) {
+        if let Some(text) = entry.message_text.clone() {
+            self.state
+                .configured_block_projection
+                .apply_message_text(entry.build_pos, text);
+        }
+        if let Some(content) = entry.payload_router_sorted_content {
+            self.state
+                .configured_block_projection
+                .apply_payload_router_sorted_content(entry.build_pos, content);
         }
     }
 
@@ -10427,7 +10467,7 @@ impl fmt::Display for EntityPlayerSyncRowsParseError {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct BlockSnapshotExtraEntrySummary {
     build_pos: i32,
     block_id: i16,
@@ -10447,6 +10487,8 @@ struct BlockSnapshotExtraEntrySummary {
     build_turret_rotation_bits: Option<u32>,
     build_turret_plans_present: Option<bool>,
     build_turret_plan_count: Option<u16>,
+    message_text: Option<String>,
+    payload_router_sorted_content: Option<Option<ConfiguredContentRef>>,
 }
 
 fn summarize_build_turret_tail_fields(
@@ -10459,6 +10501,35 @@ fn summarize_build_turret_tail_fields(
             u16::try_from(turret.plan_count).ok(),
         ),
         _ => (None, None, None),
+    }
+}
+
+fn summarize_message_tail_text(parsed_tail: &mdt_world::ParsedBuildingTail) -> Option<String> {
+    match parsed_tail {
+        mdt_world::ParsedBuildingTail::Message(message) => Some(message.message.clone()),
+        _ => None,
+    }
+}
+
+fn summarize_payload_router_sorted_content(
+    parsed_tail: &mdt_world::ParsedBuildingTail,
+) -> Option<Option<ConfiguredContentRef>> {
+    let mdt_world::ParsedBuildingTail::PayloadRouter(router) = parsed_tail else {
+        return None;
+    };
+    match (router.sorted.content_type, router.sorted.content_id) {
+        (None, None) => Some(None),
+        (Some(content_type), Some(content_id))
+            if [BLOCK_CONTENT_TYPE, UNIT_CONTENT_TYPE].contains(&content_type) =>
+        {
+            i16::try_from(content_id).ok().map(|content_id| {
+                Some(ConfiguredContentRef {
+                    content_type,
+                    content_id,
+                })
+            })
+        }
+        _ => None,
     }
 }
 
@@ -16074,6 +16145,8 @@ mod tests {
                 build_turret_rotation_bits: Some(0x4210_0000),
                 build_turret_plans_present: Some(true),
                 build_turret_plan_count: Some(5),
+                message_text: None,
+                payload_router_sorted_content: None,
             },
         ]);
 
@@ -16106,6 +16179,157 @@ mod tests {
                 .building_table_projection
                 .last_build_turret_plan_count,
             Some(5)
+        );
+    }
+
+    #[test]
+    fn loaded_world_tail_business_helper_applies_message_and_payload_router_projection() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos_message = pack_build_pos_for_block_snapshot_test(20, 21);
+        let build_pos_router = pack_build_pos_for_block_snapshot_test(22, 23);
+        let payload_block_id =
+            loaded_world_content_id_for_name(&session, BLOCK_CONTENT_TYPE, "copper-wall");
+        let unit_id = loaded_world_content_id_for_name(&session, UNIT_CONTENT_TYPE, "dagger");
+        let _ = manifest;
+
+        session.apply_loaded_world_parsed_tail_business(
+            build_pos_message,
+            &mdt_world::ParsedBuildingTail::Message(mdt_world::MessageTailSnapshot {
+                message: "loaded-world note".to_string(),
+            }),
+        );
+        session.apply_loaded_world_parsed_tail_business(
+            build_pos_router,
+            &mdt_world::ParsedBuildingTail::PayloadRouter(mdt_world::PayloadRouterTailSnapshot {
+                progress_bits: 0,
+                item_rotation_bits: 0,
+                payload_present: false,
+                payload_type: None,
+                payload_serialized_len: 0,
+                payload_serialized_sha256: String::new(),
+                parsed_payload: None,
+                sorted: mdt_world::MixedContentRefTailSnapshot {
+                    content_type: Some(BLOCK_CONTENT_TYPE),
+                    content_id: Some(payload_block_id as u16),
+                },
+                rec_dir: 0,
+            }),
+        );
+        session.apply_loaded_world_parsed_tail_business(
+            build_pos_router,
+            &mdt_world::ParsedBuildingTail::PayloadRouter(mdt_world::PayloadRouterTailSnapshot {
+                progress_bits: 0,
+                item_rotation_bits: 0,
+                payload_present: false,
+                payload_type: None,
+                payload_serialized_len: 0,
+                payload_serialized_sha256: String::new(),
+                parsed_payload: None,
+                sorted: mdt_world::MixedContentRefTailSnapshot {
+                    content_type: Some(UNIT_CONTENT_TYPE),
+                    content_id: Some(unit_id as u16),
+                },
+                rec_dir: 0,
+            }),
+        );
+
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .message_text_by_build_pos
+                .get(&build_pos_message),
+            Some(&"loaded-world note".to_string())
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .payload_router_sorted_content_by_build_pos
+                .get(&build_pos_router),
+            Some(&Some(ConfiguredContentRef {
+                content_type: UNIT_CONTENT_TYPE,
+                content_id: unit_id,
+            }))
+        );
+    }
+
+    #[test]
+    fn apply_loaded_world_block_snapshot_entries_forwards_message_and_payload_router_summary() {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let message_pos = pack_build_pos_for_block_snapshot_test(24, 25);
+        let router_pos = pack_build_pos_for_block_snapshot_test(26, 27);
+        let payload_block_id =
+            loaded_world_content_id_for_name(&session, BLOCK_CONTENT_TYPE, "copper-wall");
+
+        session.apply_block_snapshot_entries_from_loaded_world_entries(vec![
+            BlockSnapshotExtraEntrySummary {
+                build_pos: message_pos,
+                block_id: 300,
+                health_bits: Some(0x3f80_0000),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                enabled: Some(true),
+                module_bitmask: Some(4),
+                time_scale_bits: Some(0x3f00_0000),
+                time_scale_duration_bits: Some(0x3e80_0000),
+                last_disabler_pos: Some(77),
+                legacy_consume_connected: Some(false),
+                efficiency: Some(0x40),
+                optional_efficiency: Some(0x20),
+                visible_flags: Some(9),
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                message_text: Some("snapshot message".to_string()),
+                payload_router_sorted_content: None,
+            },
+            BlockSnapshotExtraEntrySummary {
+                build_pos: router_pos,
+                block_id: 301,
+                health_bits: Some(0x3f80_0000),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                enabled: Some(true),
+                module_bitmask: Some(4),
+                time_scale_bits: Some(0x3f00_0000),
+                time_scale_duration_bits: Some(0x3e80_0000),
+                last_disabler_pos: Some(77),
+                legacy_consume_connected: Some(false),
+                efficiency: Some(0x40),
+                optional_efficiency: Some(0x20),
+                visible_flags: Some(9),
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                message_text: None,
+                payload_router_sorted_content: Some(Some(ConfiguredContentRef {
+                    content_type: BLOCK_CONTENT_TYPE,
+                    content_id: payload_block_id,
+                })),
+            },
+        ]);
+
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .message_text_by_build_pos
+                .get(&message_pos),
+            Some(&"snapshot message".to_string())
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .payload_router_sorted_content_by_build_pos
+                .get(&router_pos),
+            Some(&Some(ConfiguredContentRef {
+                content_type: BLOCK_CONTENT_TYPE,
+                content_id: payload_block_id,
+            }))
         );
     }
 
@@ -25815,10 +26039,7 @@ mod tests {
             }
         );
         assert_eq!(session.state().received_transfer_item_effect_count, 1);
-        assert_eq!(
-            session.state().last_transfer_item_effect,
-            Some(projection)
-        );
+        assert_eq!(session.state().last_transfer_item_effect, Some(projection));
     }
 
     #[test]

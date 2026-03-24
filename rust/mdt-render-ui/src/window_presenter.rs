@@ -1,7 +1,9 @@
 use crate::{
-    hud_model::HudSummary, render_model::RenderObjectSemanticKind, BuildQueueHeadObservability,
-    BuildQueueHeadStage, BuildUiObservability, HudModel, RenderModel, RenderObject,
-    RuntimeUiObservability, ScenePresenter,
+    hud_model::HudSummary,
+    panel_model::{build_build_config_panel, build_minimap_panel, PresenterViewWindow},
+    render_model::RenderObjectSemanticKind,
+    BuildQueueHeadObservability, BuildQueueHeadStage, BuildUiObservability, HudModel, RenderModel,
+    RenderObject, RuntimeUiObservability, ScenePresenter,
 };
 use minifb::{Scale, Window, WindowOptions};
 use std::fs;
@@ -308,7 +310,16 @@ fn compose_frame(
         frame_id,
         title: hud.title.clone(),
         wave_text: hud.wave_text.clone(),
-        status_text: compose_frame_status_text(scene, hud),
+        status_text: compose_frame_status_text(
+            scene,
+            hud,
+            PresenterViewWindow {
+                origin_x: window_x,
+                origin_y: window_y,
+                width: window_width,
+                height: window_height,
+            },
+        ),
         overlay_summary_text: hud.overlay_summary_text.clone(),
         fps: hud.fps,
         zoom: scene.viewport.zoom,
@@ -443,13 +454,23 @@ fn compose_window_title(frame: &WindowFrame, title_prefix: &str) -> String {
     parts.join(" | ")
 }
 
-fn compose_frame_status_text(scene: &RenderModel, hud: &HudModel) -> String {
+fn compose_frame_status_text(
+    scene: &RenderModel,
+    hud: &HudModel,
+    window: PresenterViewWindow,
+) -> String {
     let mut parts = Vec::new();
     if !hud.status_text.is_empty() {
         parts.push(hud.status_text.clone());
     }
     if let Some(summary) = hud.summary.as_ref() {
         parts.push(compose_hud_summary_status_text(summary));
+    }
+    if let Some(minimap_text) = compose_minimap_panel_status_text(scene, hud, window) {
+        parts.push(minimap_text);
+    }
+    if let Some(build_panel_text) = compose_build_config_panel_status_text(hud) {
+        parts.push(build_panel_text);
     }
     if let Some(build_ui) = hud.build_ui.as_ref() {
         parts.push(compose_build_ui_status_text(build_ui));
@@ -533,6 +554,67 @@ fn compose_build_ui_status_text(build_ui: &BuildUiObservability) -> String {
     text
 }
 
+fn compose_minimap_panel_status_text(
+    scene: &RenderModel,
+    hud: &HudModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let panel = build_minimap_panel(scene, hud, window)?;
+    Some(format!(
+        "mini:map{}x{}:win{},{}+{}x{}:f{}:ov{}:fg{}:vis{}:hid{}:k{}/{}/{}/{}/{}",
+        panel.map_width,
+        panel.map_height,
+        panel.window.origin_x,
+        panel.window.origin_y,
+        panel.window.width,
+        panel.window.height,
+        optional_focus_tile_status_text(panel.focus_tile),
+        if panel.overlay_visible { 1 } else { 0 },
+        if panel.fog_enabled { 1 } else { 0 },
+        panel.visible_tile_count,
+        panel.hidden_tile_count,
+        panel.player_count,
+        panel.marker_count,
+        panel.plan_count,
+        panel.block_count,
+        panel.runtime_count,
+    ))
+}
+
+fn compose_build_config_panel_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_build_config_panel(hud, 2)?;
+    let entries = panel
+        .entries
+        .iter()
+        .map(|entry| {
+            format!(
+                "{}#{}",
+                compact_runtime_ui_text(Some(entry.family.as_str())),
+                entry.tracked_count
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    Some(format!(
+        "cfgpanel:sel{}:r{}:m{}:q{}/{}/{}/{}/{}:h={}:rows{}@{}",
+        optional_i16_label(panel.selected_block_id),
+        panel.selected_rotation,
+        if panel.building { 1 } else { 0 },
+        panel.queued_count,
+        panel.inflight_count,
+        panel.finished_count,
+        panel.removed_count,
+        panel.orphan_authoritative_count,
+        build_config_panel_head_status_text(panel.head.as_ref()),
+        panel.entries.len(),
+        if entries.is_empty() {
+            "-".to_string()
+        } else {
+            entries
+        },
+    ))
+}
+
 fn compose_build_ui_inspector_status_text(build_ui: &BuildUiObservability) -> String {
     build_ui
         .inspector_entries
@@ -547,6 +629,36 @@ fn compose_build_ui_inspector_status_text(build_ui: &BuildUiObservability) -> St
         })
         .collect::<Vec<_>>()
         .join(";")
+}
+
+fn build_config_panel_head_status_text(
+    head: Option<&crate::panel_model::BuildConfigHeadModel>,
+) -> String {
+    let Some(head) = head else {
+        return "none".to_string();
+    };
+
+    let stage = match head.stage {
+        BuildQueueHeadStage::Queued => "queued",
+        BuildQueueHeadStage::InFlight => "flight",
+        BuildQueueHeadStage::Finished => "finish",
+        BuildQueueHeadStage::Removed => "remove",
+    };
+    let mode = if head.breaking { "break" } else { "place" };
+    format!(
+        "{stage}@{}:{}:{mode}:b{}:r{}",
+        head.x,
+        head.y,
+        optional_i16_label(head.block_id),
+        optional_u8_label(head.rotation),
+    )
+}
+
+fn optional_focus_tile_status_text(value: Option<(usize, usize)>) -> String {
+    match value {
+        Some((x, y)) => format!("{x}:{y}"),
+        None => "-".to_string(),
+    }
 }
 
 fn compact_build_inspector_text(value: &str, limit: usize) -> String {
@@ -1239,10 +1351,16 @@ mod tests {
             .contains("hud:team=2 sel=payload-rout~ plans=3 mk=4 map=80x60 ov1 fg1 vis120 hid24"));
         assert!(frame
             .status_text
-            .contains("build:sel=257:r2:b1:q1/i2/f3/r4/o1:h=flight@100:99:place:b301:r1:cfg2"));
+            .contains("mini:map80x60:win0,0+1x1:f0:0:ov1:fg1:vis120:hid24:k1/1/1/1/0"));
         assert!(frame
             .status_text
-            .contains(":cfg=message#1@18:40:len=5:text=hello;power-node#1@23:45:links=24:46|25:47"));
+            .contains("cfgpanel:sel257:r2:m1:q1/2/3/4/1:h=flight@100:99:place:b301:r1:rows2@message#1,power-node#1"));
+        assert!(frame
+            .status_text
+            .contains("build:sel=257:r2:b1:q1/i2/f3/r4/o1:h=flight@100:99:place:b301:r1:cfg2"));
+        assert!(frame.status_text.contains(
+            ":cfg=message#1@18:40:len=5:text=hello;power-node#1@23:45:links=24:46|25:47"
+        ));
         assert!(frame
             .status_text
             .contains("ui:hud=9/10/11@hud_text/hud_rel"));

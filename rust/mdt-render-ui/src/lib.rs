@@ -1,6 +1,7 @@
 pub mod ascii_presenter;
 pub mod bin_support;
 pub mod hud_model;
+mod panel_model;
 pub mod projection;
 pub mod render_model;
 pub mod scene_present;
@@ -10,11 +11,10 @@ pub use ascii_presenter::AsciiScenePresenter;
 pub use bin_support::{decode_hex, read_world_stream_bytes};
 pub use hud_model::{
     BuildConfigInspectorEntryObservability, BuildQueueHeadObservability, BuildQueueHeadStage,
-    BuildUiObservability, HudModel, RuntimeHudTextObservability,
-    RuntimeLiveEffectPositionSource, RuntimeLiveEffectSummaryObservability,
-    RuntimeLiveEntitySummaryObservability, RuntimeLiveSummaryObservability,
-    RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiObservability,
-    RuntimeWorldPositionObservability,
+    BuildUiObservability, HudModel, RuntimeHudTextObservability, RuntimeLiveEffectPositionSource,
+    RuntimeLiveEffectSummaryObservability, RuntimeLiveEntitySummaryObservability,
+    RuntimeLiveSummaryObservability, RuntimeTextInputObservability, RuntimeToastObservability,
+    RuntimeUiObservability, RuntimeWorldPositionObservability,
 };
 pub use projection::{
     project_hud_model, project_render_model, project_render_model_with_player_position,

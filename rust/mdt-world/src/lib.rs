@@ -2,8 +2,10 @@ use flate2::read::ZlibDecoder;
 use mdt_typeio::read_object_prefix;
 use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::io::{Cursor, Read};
+use std::sync::OnceLock;
 
 const BLOCK_CONTENT_TYPE: u8 = 1;
 const ITEM_CONTENT_TYPE: u8 = 0;
@@ -949,6 +951,32 @@ pub struct SaveEntityChunkObservation {
     pub body_sha256: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SaveEntityClassKind {
+    Builtin,
+    Custom,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SaveEntityClassSummary {
+    pub class_id: u8,
+    pub kind: SaveEntityClassKind,
+    pub resolved_name: String,
+    pub count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SaveEntityPostLoadSummary {
+    pub total_entities: usize,
+    pub unique_entity_ids: usize,
+    pub duplicate_entity_ids: Vec<i32>,
+    pub builtin_entities: usize,
+    pub custom_entities: usize,
+    pub unknown_entities: usize,
+    pub class_summaries: Vec<SaveEntityClassSummary>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct SaveEntityRegionObservation {
     pub remap_count: usize,
@@ -975,6 +1003,104 @@ impl MsavSaveObservation {
     pub fn region(&self, name: &str) -> Option<&MsavRegionObservation> {
         self.regions.iter().find(|region| region.name == name)
     }
+
+    pub fn post_load_entity_summary(&self) -> SaveEntityPostLoadSummary {
+        self.entities.post_load_summary()
+    }
+}
+
+impl SaveEntityChunkObservation {
+    pub fn builtin_name(&self) -> Option<&'static str> {
+        lookup_builtin_entity_class_name(self.class_id)
+    }
+
+    pub fn class_kind(&self) -> SaveEntityClassKind {
+        if self.custom_name.is_some() {
+            SaveEntityClassKind::Custom
+        } else if self.builtin_name().is_some() {
+            SaveEntityClassKind::Builtin
+        } else {
+            SaveEntityClassKind::Unknown
+        }
+    }
+
+    pub fn resolved_name(&self) -> Cow<'_, str> {
+        if let Some(name) = self.custom_name.as_deref() {
+            Cow::Borrowed(name)
+        } else if let Some(name) = self.builtin_name() {
+            Cow::Borrowed(name)
+        } else {
+            Cow::Owned(format!("unknown:{:02x}", self.class_id))
+        }
+    }
+}
+
+impl SaveEntityRegionObservation {
+    pub fn post_load_summary(&self) -> SaveEntityPostLoadSummary {
+        let mut seen_entity_ids = HashSet::with_capacity(self.entity_chunks.len());
+        let mut duplicate_entity_ids = Vec::new();
+        let mut class_summaries = BTreeMap::<u8, SaveEntityClassSummary>::new();
+        let mut builtin_entities = 0usize;
+        let mut custom_entities = 0usize;
+        let mut unknown_entities = 0usize;
+
+        for chunk in &self.entity_chunks {
+            if !seen_entity_ids.insert(chunk.entity_id)
+                && !duplicate_entity_ids.contains(&chunk.entity_id)
+            {
+                duplicate_entity_ids.push(chunk.entity_id);
+            }
+
+            match chunk.class_kind() {
+                SaveEntityClassKind::Builtin => builtin_entities += 1,
+                SaveEntityClassKind::Custom => custom_entities += 1,
+                SaveEntityClassKind::Unknown => unknown_entities += 1,
+            }
+
+            class_summaries
+                .entry(chunk.class_id)
+                .and_modify(|summary| summary.count += 1)
+                .or_insert_with(|| SaveEntityClassSummary {
+                    class_id: chunk.class_id,
+                    kind: chunk.class_kind(),
+                    resolved_name: chunk.resolved_name().into_owned(),
+                    count: 1,
+                });
+        }
+
+        SaveEntityPostLoadSummary {
+            total_entities: self.entity_chunks.len(),
+            unique_entity_ids: seen_entity_ids.len(),
+            duplicate_entity_ids,
+            builtin_entities,
+            custom_entities,
+            unknown_entities,
+            class_summaries: class_summaries.into_values().collect(),
+        }
+    }
+}
+
+pub fn lookup_builtin_entity_class_name(class_id: u8) -> Option<&'static str> {
+    static ENTITY_CLASS_IDS: OnceLock<BTreeMap<u8, &'static str>> = OnceLock::new();
+    ENTITY_CLASS_IDS
+        .get_or_init(parse_builtin_entity_class_ids)
+        .get(&class_id)
+        .copied()
+}
+
+fn parse_builtin_entity_class_ids() -> BTreeMap<u8, &'static str> {
+    include_str!("classids.properties")
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                return None;
+            }
+            let (name, raw_id) = line.split_once('=')?;
+            let class_id = raw_id.trim().parse::<u8>().ok()?;
+            Some((class_id, name.trim()))
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -38998,6 +39124,88 @@ mod tests {
             bytes.extend_from_slice(&encode_save_entity_chunk(11, 7, 0x1122_3344, &[0xcc]));
             bytes
         });
+    }
+
+    #[test]
+    fn save_entity_post_load_summary_resolves_builtin_and_custom_names() {
+        let save = parse_msav_save(&sample_msav_save_bytes(6)).unwrap();
+        let first = &save.entities.entity_chunks[0];
+        let second = &save.entities.entity_chunks[1];
+
+        assert_eq!(
+            lookup_builtin_entity_class_name(7),
+            Some("mindustry.entities.comp.BulletComp")
+        );
+        assert_eq!(first.class_kind(), SaveEntityClassKind::Custom);
+        assert_eq!(first.resolved_name().as_ref(), "mod-unit");
+        assert_eq!(second.class_kind(), SaveEntityClassKind::Builtin);
+        assert_eq!(
+            second.resolved_name().as_ref(),
+            "mindustry.entities.comp.BulletComp"
+        );
+
+        let summary = save.post_load_entity_summary();
+        assert_eq!(summary.total_entities, 2);
+        assert_eq!(summary.unique_entity_ids, 2);
+        assert!(summary.duplicate_entity_ids.is_empty());
+        assert_eq!(summary.custom_entities, 1);
+        assert_eq!(summary.builtin_entities, 1);
+        assert_eq!(summary.unknown_entities, 0);
+        assert_eq!(
+            summary.class_summaries,
+            vec![
+                SaveEntityClassSummary {
+                    class_id: 3,
+                    kind: SaveEntityClassKind::Custom,
+                    resolved_name: "mod-unit".to_string(),
+                    count: 1,
+                },
+                SaveEntityClassSummary {
+                    class_id: 7,
+                    kind: SaveEntityClassKind::Builtin,
+                    resolved_name: "mindustry.entities.comp.BulletComp".to_string(),
+                    count: 1,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn save_entity_post_load_summary_tracks_unknown_classes_and_duplicate_entity_ids() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&0u16.to_be_bytes());
+        bytes.extend_from_slice(&generate_team_plan_sample_bytes());
+        bytes.extend_from_slice(&3u32.to_be_bytes());
+        bytes.extend_from_slice(&encode_save_entity_chunk(11, 250, 0x0102_0304, &[0xaa]));
+        bytes.extend_from_slice(&encode_save_entity_chunk(11, 250, 0x0102_0304, &[0xbb]));
+        bytes.extend_from_slice(&encode_save_entity_chunk(11, 7, 0x0506_0708, &[0xcc]));
+
+        let parsed = parse_save_entity_region(11, &bytes).unwrap();
+        let summary = parsed.post_load_summary();
+
+        assert_eq!(summary.total_entities, 3);
+        assert_eq!(summary.unique_entity_ids, 2);
+        assert_eq!(summary.duplicate_entity_ids, vec![0x0102_0304]);
+        assert_eq!(summary.custom_entities, 0);
+        assert_eq!(summary.builtin_entities, 1);
+        assert_eq!(summary.unknown_entities, 2);
+        assert_eq!(
+            summary.class_summaries,
+            vec![
+                SaveEntityClassSummary {
+                    class_id: 7,
+                    kind: SaveEntityClassKind::Builtin,
+                    resolved_name: "mindustry.entities.comp.BulletComp".to_string(),
+                    count: 1,
+                },
+                SaveEntityClassSummary {
+                    class_id: 250,
+                    kind: SaveEntityClassKind::Unknown,
+                    resolved_name: "unknown:fa".to_string(),
+                    count: 2,
+                },
+            ]
+        );
     }
 
     #[test]

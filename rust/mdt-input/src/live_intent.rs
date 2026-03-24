@@ -1,4 +1,5 @@
 use crate::intent::{BinaryAction, PlayerIntent};
+use crate::mapper::{InputSnapshot, IntentMapper, IntentSamplingMode, StatelessIntentMapper};
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct LiveIntentState {
@@ -46,6 +47,55 @@ impl LiveIntentState {
     }
 }
 
+#[derive(Debug)]
+pub struct RuntimeIntentTracker {
+    mapper: StatelessIntentMapper,
+    state: LiveIntentState,
+    override_snapshot: Option<InputSnapshot>,
+}
+
+impl RuntimeIntentTracker {
+    pub fn new(sampling_mode: IntentSamplingMode) -> Self {
+        Self {
+            mapper: StatelessIntentMapper::new(sampling_mode),
+            state: LiveIntentState::default(),
+            override_snapshot: None,
+        }
+    }
+
+    pub fn state(&self) -> &LiveIntentState {
+        &self.state
+    }
+
+    pub fn set_override_snapshot(&mut self, snapshot: Option<InputSnapshot>) {
+        self.override_snapshot = snapshot;
+    }
+
+    pub fn sample_runtime_snapshot(&mut self, runtime_snapshot: &InputSnapshot) -> bool {
+        let snapshot = self.override_snapshot.as_ref().unwrap_or(runtime_snapshot);
+        let intents = self.mapper.map_snapshot(snapshot);
+        let previous_key = runtime_snapshot_apply_key(&self.state);
+        self.state.apply_intents(&intents);
+        runtime_snapshot_apply_key(&self.state) != previous_key
+    }
+}
+
+fn runtime_snapshot_apply_key(
+    state: &LiveIntentState,
+) -> (
+    (f32, f32),
+    (f32, f32),
+    Option<(i32, i32)>,
+    Vec<BinaryAction>,
+) {
+    (
+        state.move_axis,
+        state.aim_axis,
+        state.mining_tile,
+        state.active_actions.clone(),
+    )
+}
+
 fn push_unique(actions: &mut Vec<BinaryAction>, action: BinaryAction) {
     if !actions.contains(&action) {
         actions.push(action);
@@ -61,7 +111,6 @@ fn remove_action(actions: &mut Vec<BinaryAction>, action: BinaryAction) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mapper::{InputSnapshot, IntentMapper, IntentSamplingMode, StatelessIntentMapper};
 
     #[test]
     fn apply_intents_tracks_axes_and_action_edges() {
@@ -141,5 +190,83 @@ mod tests {
         assert_eq!(state.released_actions, vec![BinaryAction::Fire]);
         assert!(!state.is_action_active(BinaryAction::Fire));
         assert_eq!(state.mining_tile, None);
+    }
+
+    #[test]
+    fn runtime_intent_tracker_samples_runtime_snapshot_without_schedule() {
+        let mut tracker = RuntimeIntentTracker::new(IntentSamplingMode::LiveSampling);
+
+        assert!(tracker.sample_runtime_snapshot(&InputSnapshot {
+            move_axis: (1.0, 0.0),
+            aim_axis: (16.0, 24.0),
+            mining_tile: Some((7, 9)),
+            active_actions: vec![BinaryAction::Fire, BinaryAction::Boost],
+        }));
+        assert_eq!(tracker.state().move_axis, (1.0, 0.0));
+        assert_eq!(tracker.state().aim_axis, (16.0, 24.0));
+        assert_eq!(tracker.state().mining_tile, Some((7, 9)));
+        assert_eq!(
+            tracker.state().pressed_actions,
+            vec![BinaryAction::Fire, BinaryAction::Boost]
+        );
+        assert!(tracker.state().released_actions.is_empty());
+
+        assert!(tracker.sample_runtime_snapshot(&InputSnapshot {
+            move_axis: (0.0, 0.0),
+            aim_axis: (32.0, 48.0),
+            mining_tile: None,
+            active_actions: vec![],
+        }));
+        assert_eq!(tracker.state().move_axis, (0.0, 0.0));
+        assert_eq!(tracker.state().aim_axis, (32.0, 48.0));
+        assert_eq!(tracker.state().mining_tile, None);
+        assert!(tracker.state().pressed_actions.is_empty());
+        assert_eq!(
+            tracker.state().released_actions,
+            vec![BinaryAction::Fire, BinaryAction::Boost]
+        );
+    }
+
+    #[test]
+    fn runtime_intent_tracker_keeps_override_snapshot_active_until_replaced() {
+        let mut tracker = RuntimeIntentTracker::new(IntentSamplingMode::LiveSampling);
+        tracker.set_override_snapshot(Some(InputSnapshot {
+            move_axis: (0.5, -0.5),
+            aim_axis: (10.0, 20.0),
+            mining_tile: Some((3, 4)),
+            active_actions: vec![BinaryAction::Chat],
+        }));
+
+        assert!(tracker.sample_runtime_snapshot(&InputSnapshot {
+            move_axis: (2.0, 3.0),
+            aim_axis: (40.0, 50.0),
+            mining_tile: None,
+            active_actions: vec![BinaryAction::Fire],
+        }));
+        assert_eq!(tracker.state().move_axis, (0.5, -0.5));
+        assert_eq!(tracker.state().aim_axis, (10.0, 20.0));
+        assert_eq!(tracker.state().mining_tile, Some((3, 4)));
+        assert!(tracker.state().is_action_active(BinaryAction::Chat));
+        assert!(!tracker.state().is_action_active(BinaryAction::Fire));
+
+        assert!(!tracker.sample_runtime_snapshot(&InputSnapshot {
+            move_axis: (5.0, 6.0),
+            aim_axis: (60.0, 70.0),
+            mining_tile: Some((8, 9)),
+            active_actions: vec![BinaryAction::Boost],
+        }));
+        assert_eq!(tracker.state().move_axis, (0.5, -0.5));
+
+        tracker.set_override_snapshot(None);
+        assert!(tracker.sample_runtime_snapshot(&InputSnapshot {
+            move_axis: (5.0, 6.0),
+            aim_axis: (60.0, 70.0),
+            mining_tile: Some((8, 9)),
+            active_actions: vec![BinaryAction::Boost],
+        }));
+        assert_eq!(tracker.state().move_axis, (5.0, 6.0));
+        assert_eq!(tracker.state().aim_axis, (60.0, 70.0));
+        assert_eq!(tracker.state().mining_tile, Some((8, 9)));
+        assert!(tracker.state().is_action_active(BinaryAction::Boost));
     }
 }

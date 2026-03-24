@@ -1,3 +1,4 @@
+use crate::panel_model::{build_build_config_panel, build_minimap_panel, PresenterViewWindow};
 use crate::render_model::RenderObjectSemanticKind;
 use crate::{HudModel, RenderModel, ScenePresenter};
 
@@ -47,6 +48,24 @@ impl AsciiScenePresenter {
         out.push_str(&format!("STATUS: {}\n", hud.status_text));
         if let Some(summary_text) = compose_hud_summary_text(hud) {
             out.push_str(&format!("SUMMARY: {summary_text}\n"));
+        }
+        if let Some(minimap_text) = compose_minimap_panel_text(
+            scene,
+            hud,
+            PresenterViewWindow {
+                origin_x: window_x,
+                origin_y: window_y,
+                width: window_width,
+                height: window_height,
+            },
+        ) {
+            out.push_str(&format!("MINIMAP: {minimap_text}\n"));
+        }
+        if let Some(build_config_text) = compose_build_config_panel_text(hud) {
+            out.push_str(&format!("BUILD-CONFIG: {build_config_text}\n"));
+        }
+        for entry_line in compose_build_config_entry_lines(hud) {
+            out.push_str(&format!("BUILD-CONFIG-ENTRY: {entry_line}\n"));
         }
         if let Some(build_text) = compose_build_ui_text(hud) {
             out.push_str(&format!("BUILD: {build_text}\n"));
@@ -240,6 +259,68 @@ fn compose_build_ui_text(hud: &HudModel) -> Option<String> {
     Some(compose_build_ui_summary_text(build_ui))
 }
 
+fn compose_minimap_panel_text(
+    scene: &RenderModel,
+    hud: &HudModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let panel = build_minimap_panel(scene, hud, window)?;
+    Some(format!(
+        "map={}x{} win={}:{}+{}x{} focus={} overlay={} fog={} vis={} hid={} kinds=p{}/m{}/pl{}/b{}/r{}",
+        panel.map_width,
+        panel.map_height,
+        panel.window.origin_x,
+        panel.window.origin_y,
+        panel.window.width,
+        panel.window.height,
+        optional_focus_tile_text(panel.focus_tile),
+        if panel.overlay_visible { 1 } else { 0 },
+        if panel.fog_enabled { 1 } else { 0 },
+        panel.visible_tile_count,
+        panel.hidden_tile_count,
+        panel.player_count,
+        panel.marker_count,
+        panel.plan_count,
+        panel.block_count,
+        panel.runtime_count,
+    ))
+}
+
+fn compose_build_config_panel_text(hud: &HudModel) -> Option<String> {
+    let panel = build_build_config_panel(hud, 3)?;
+    Some(format!(
+        "sel={} rot={} mode={} queue={}/{}/{}/{}/{} head={} rows={}",
+        optional_i16_label(panel.selected_block_id),
+        panel.selected_rotation,
+        if panel.building { "build" } else { "idle" },
+        panel.queued_count,
+        panel.inflight_count,
+        panel.finished_count,
+        panel.removed_count,
+        panel.orphan_authoritative_count,
+        build_config_head_text(panel.head.as_ref()),
+        panel.entries.len(),
+    ))
+}
+
+fn compose_build_config_entry_lines(hud: &HudModel) -> Vec<String> {
+    let Some(panel) = build_build_config_panel(hud, 3) else {
+        return Vec::new();
+    };
+    panel
+        .entries
+        .iter()
+        .map(|entry| {
+            format!(
+                "{}#{}@{}",
+                compact_runtime_ui_text(Some(entry.family.as_str())),
+                entry.tracked_count,
+                compact_build_inspector_text(entry.sample.as_str(), 56),
+            )
+        })
+        .collect()
+}
+
 fn compose_build_ui_inspector_lines(hud: &HudModel) -> Vec<String> {
     let Some(build_ui) = hud.build_ui.as_ref() else {
         return Vec::new();
@@ -292,6 +373,33 @@ fn compose_build_ui_summary_text(build_ui: &crate::BuildUiObservability) -> Stri
         build_queue_head_text(build_ui.head.as_ref()),
         build_ui.inspector_entries.len(),
     )
+}
+
+fn build_config_head_text(head: Option<&crate::panel_model::BuildConfigHeadModel>) -> String {
+    let Some(head) = head else {
+        return "none".to_string();
+    };
+    let stage = match head.stage {
+        crate::BuildQueueHeadStage::Queued => "queued",
+        crate::BuildQueueHeadStage::InFlight => "flight",
+        crate::BuildQueueHeadStage::Finished => "finish",
+        crate::BuildQueueHeadStage::Removed => "remove",
+    };
+    let mode = if head.breaking { "break" } else { "place" };
+    format!(
+        "{stage}@{}:{}:{mode}:b{}:r{}",
+        head.x,
+        head.y,
+        optional_i16_label(head.block_id),
+        optional_u8_label(head.rotation),
+    )
+}
+
+fn optional_focus_tile_text(value: Option<(usize, usize)>) -> String {
+    match value {
+        Some((x, y)) => format!("{x}:{y}"),
+        None => "-".to_string(),
+    }
 }
 
 fn compose_live_entity_text(entity: &crate::RuntimeLiveEntitySummaryObservability) -> String {
@@ -793,11 +901,18 @@ mod tests {
         assert!(frame.contains("SUMMARY: player=operator team=2 selected=payload-rout~"));
         assert!(frame.contains("map=80x60 overlay=1 fog=1 vis=120 hid=24"));
         assert!(frame.contains(
-            "BUILD: sel=257 rot=2 building=1 queue=1/2/3/4/1 head=flight@100:99:place:b301:r1 cfg=2"
+            "MINIMAP: map=80x60 win=0:0+1x1 focus=0:0 overlay=1 fog=1 vis=120 hid=24 kinds=p1/m1/pl1/b1/r0"
         ));
         assert!(frame.contains(
-            "BUILD-INSPECTOR: family=message tracked=1 sample=18:40:len=5:text=hello"
+            "BUILD-CONFIG: sel=257 rot=2 mode=build queue=1/2/3/4/1 head=flight@100:99:place:b301:r1 rows=2"
         ));
+        assert!(frame.contains("BUILD-CONFIG-ENTRY: message#1@18:40:len=5:text=hello"));
+        assert!(frame.contains("BUILD-CONFIG-ENTRY: power-node#1@23:45:links=24:46|25:47"));
+        assert!(frame.contains(
+            "BUILD: sel=257 rot=2 building=1 queue=1/2/3/4/1 head=flight@100:99:place:b301:r1 cfg=2"
+        ));
+        assert!(frame
+            .contains("BUILD-INSPECTOR: family=message tracked=1 sample=18:40:len=5:text=hello"));
         assert!(frame.contains(
             "BUILD-INSPECTOR: family=power-node tracked=1 sample=23:45:links=24:46|25:47"
         ));

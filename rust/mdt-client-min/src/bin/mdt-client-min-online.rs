@@ -10,10 +10,11 @@ use mdt_client_min::connect_packet::{
 };
 use mdt_client_min::render_runtime::RenderRuntimeAdapter;
 use mdt_input::{
-    flip_plans, rotate_plans, BinaryAction, InputSnapshot, IntentMapper, IntentSamplingMode,
-    LiveIntentState, MovementProbeConfig, MovementProbeController, PlanBlockMeta, PlanEditable,
-    PlanPoint, RuntimeInputState, StatelessIntentMapper,
+    flip_plans, rotate_plans, BinaryAction, InputSnapshot, IntentSamplingMode, LiveIntentState,
+    MovementProbeConfig, MovementProbeController, PlanBlockMeta, PlanEditable, PlanPoint,
+    RuntimeInputState,
 };
+use mdt_input::live_intent::RuntimeIntentTracker;
 use mdt_remote::HighFrequencyRemoteMethod;
 use mdt_remote::{read_remote_manifest, RemoteManifest};
 use mdt_render_ui::{
@@ -624,8 +625,7 @@ enum OutboundAction {
 
 #[derive(Debug)]
 struct LiveIntentMapperController {
-    mapper: StatelessIntentMapper,
-    state: LiveIntentState,
+    tracker: RuntimeIntentTracker,
     schedule: Vec<ScheduledIntentSnapshot>,
     next_snapshot_index: usize,
 }
@@ -633,25 +633,29 @@ struct LiveIntentMapperController {
 impl LiveIntentMapperController {
     fn new(schedule: Vec<ScheduledIntentSnapshot>, sampling_mode: IntentSamplingMode) -> Self {
         Self {
-            mapper: StatelessIntentMapper::new(sampling_mode),
-            state: LiveIntentState::default(),
+            tracker: RuntimeIntentTracker::new(sampling_mode),
             schedule,
             next_snapshot_index: 0,
         }
     }
 
-    fn advance(&mut self, now_ms: u64) -> bool {
+    fn state(&self) -> &LiveIntentState {
+        self.tracker.state()
+    }
+
+    fn advance(&mut self, runtime_snapshot: &InputSnapshot, now_ms: u64) -> bool {
         let due =
             collect_due_intent_snapshots(&self.schedule, now_ms, &mut self.next_snapshot_index);
         if due.is_empty() {
-            return false;
+            return self.tracker.sample_runtime_snapshot(runtime_snapshot);
         }
 
+        let mut changed = false;
         for entry in due {
-            let intents = self.mapper.map_snapshot(&entry.snapshot);
-            self.state.apply_intents(&intents);
+            self.tracker.set_override_snapshot(Some(entry.snapshot));
+            changed |= self.tracker.sample_runtime_snapshot(runtime_snapshot);
         }
-        true
+        changed
     }
 }
 
@@ -3588,9 +3592,32 @@ fn maybe_apply_runtime_snapshot_overrides(
     }
 
     if let Some(live_intent_mapper) = live_intent_mapper {
-        if live_intent_mapper.advance(now_ms) {
-            apply_live_intents_to_snapshot(session, &live_intent_mapper.state);
+        let runtime_snapshot = sample_runtime_intent_snapshot(session);
+        if live_intent_mapper.advance(&runtime_snapshot, now_ms) {
+            apply_live_intents_to_snapshot(session, live_intent_mapper.state());
         }
+    }
+}
+
+fn sample_runtime_intent_snapshot(session: &mut ClientSession) -> InputSnapshot {
+    let input = session.snapshot_input_mut().clone();
+    let aim_axis = input.pointer.or(input.position).unwrap_or((0.0, 0.0));
+    let mut active_actions = Vec::with_capacity(3);
+    if input.shooting {
+        active_actions.push(BinaryAction::Fire);
+    }
+    if input.boosting {
+        active_actions.push(BinaryAction::Boost);
+    }
+    if input.chatting {
+        active_actions.push(BinaryAction::Chat);
+    }
+
+    InputSnapshot {
+        move_axis: input.velocity,
+        aim_axis,
+        mining_tile: input.mining_tile,
+        active_actions,
     }
 }
 
@@ -8012,17 +8039,132 @@ mod tests {
     }
 
     #[test]
-    fn live_intent_mapper_controller_uses_configured_sampling_mode() {
+    fn sample_runtime_intent_snapshot_reads_current_snapshot_flags() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
+        {
+            let input = session.snapshot_input_mut();
+            input.position = Some((5.0, 6.0));
+            input.pointer = None;
+            input.velocity = (1.5, -2.5);
+            input.mining_tile = Some((9, 11));
+            input.shooting = true;
+            input.chatting = true;
+        }
+
+        let sampled = sample_runtime_intent_snapshot(&mut session);
+        assert_eq!(sampled.move_axis, (1.5, -2.5));
+        assert_eq!(sampled.aim_axis, (5.0, 6.0));
+        assert_eq!(sampled.mining_tile, Some((9, 11)));
+        assert_eq!(
+            sampled.active_actions,
+            vec![BinaryAction::Fire, BinaryAction::Chat]
+        );
+    }
+
+    #[test]
+    fn live_intent_mapper_samples_runtime_snapshot_without_schedule() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
         let args = parse_args(sample_args(&["--intent-live-sampling"])).unwrap();
-        let live_intent_mapper = LiveIntentMapperController::new(
+        let mut live_intent_mapper = LiveIntentMapperController::new(
             args.live_intent_schedule.clone(),
             args.live_intent_sampling_mode,
         );
 
-        assert_eq!(
-            live_intent_mapper.mapper.sampling_mode(),
-            IntentSamplingMode::LiveSampling
+        {
+            let input = session.snapshot_input_mut();
+            input.position = Some((4.0, 8.0));
+            input.pointer = Some((16.0, 24.0));
+            input.velocity = (1.0, 0.0);
+            input.shooting = true;
+            input.boosting = true;
+        }
+        maybe_apply_runtime_snapshot_overrides(
+            &mut session,
+            &args,
+            None,
+            Some(&mut live_intent_mapper),
+            500,
+            0,
         );
+        assert_eq!(
+            live_intent_mapper.state().pressed_actions,
+            vec![BinaryAction::Fire, BinaryAction::Boost]
+        );
+        assert!(live_intent_mapper.state().released_actions.is_empty());
+
+        {
+            let input = session.snapshot_input_mut();
+            input.pointer = Some((32.0, 48.0));
+            input.velocity = (0.0, 0.0);
+            input.shooting = false;
+            input.boosting = false;
+        }
+        maybe_apply_runtime_snapshot_overrides(
+            &mut session,
+            &args,
+            None,
+            Some(&mut live_intent_mapper),
+            500,
+            100,
+        );
+
+        let input = session.snapshot_input_mut();
+        assert_eq!(input.pointer, Some((32.0, 48.0)));
+        assert_eq!(input.velocity, (0.0, 0.0));
+        assert!(!input.shooting);
+        assert!(!input.boosting);
+        assert_eq!(
+            live_intent_mapper.state().released_actions,
+            vec![BinaryAction::Fire, BinaryAction::Boost]
+        );
+    }
+
+    #[test]
+    fn live_intent_schedule_override_still_persists_across_runtime_sampling_ticks() {
+        let args = parse_args(sample_args(&[
+            "--intent-delay-ms",
+            "0",
+            "--intent-snapshot",
+            "1:0:16:24:fire:none",
+        ]))
+        .unwrap();
+        let mut live_intent_mapper = LiveIntentMapperController::new(
+            args.live_intent_schedule.clone(),
+            args.live_intent_sampling_mode,
+        );
+        let runtime_snapshot = InputSnapshot {
+            move_axis: (0.0, 0.0),
+            aim_axis: (9.0, 9.0),
+            mining_tile: None,
+            active_actions: vec![],
+        };
+
+        assert!(live_intent_mapper.advance(&runtime_snapshot, 0));
+        assert!(live_intent_mapper.state().is_action_active(BinaryAction::Fire));
+        assert!(!live_intent_mapper.advance(&runtime_snapshot, 50));
+        assert!(live_intent_mapper.state().is_action_active(BinaryAction::Fire));
+    }
+
+    #[test]
+    fn live_intent_mapper_controller_uses_configured_sampling_mode() {
+        let args = parse_args(sample_args(&["--intent-live-sampling"])).unwrap();
+        let mut live_intent_mapper = LiveIntentMapperController::new(
+            args.live_intent_schedule.clone(),
+            args.live_intent_sampling_mode,
+        );
+        let runtime_snapshot = InputSnapshot {
+            move_axis: (0.0, 0.0),
+            aim_axis: (0.0, 0.0),
+            mining_tile: None,
+            active_actions: vec![BinaryAction::Fire],
+        };
+
+        assert!(live_intent_mapper.advance(&runtime_snapshot, 0));
+        assert_eq!(live_intent_mapper.state().pressed_actions, vec![BinaryAction::Fire]);
+        assert!(!live_intent_mapper.advance(&runtime_snapshot, 1));
+        assert!(live_intent_mapper.state().pressed_actions.is_empty());
     }
 
     #[test]
