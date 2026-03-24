@@ -167,6 +167,17 @@ pub fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<Stri
                 volume.to_bits(),
                 pitch.to_bits()
             )),
+            ClientSessionEvent::TransferItemEffect { projection } => Some(format!(
+                "transfer_item_effect: item_id={:?} x_bits=0x{:08x} y_bits=0x{:08x} to_entity_id={:?}",
+                projection.item_id,
+                projection.x_bits,
+                projection.y_bits,
+                projection.to_entity_id,
+            )),
+            ClientSessionEvent::DestroyPayload { projection } => Some(format!(
+                "destroy_payload: build_pos={:?}",
+                projection.build_pos
+            )),
             ClientSessionEvent::CreateWeather {
                 weather_id,
                 intensity,
@@ -179,6 +190,17 @@ pub fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<Stri
                 duration.to_bits(),
                 wind_x.to_bits(),
                 wind_y.to_bits()
+            )),
+            ClientSessionEvent::CreateBullet { projection } => Some(format!(
+                "create_bullet: bullet_type_id={:?} team_id={} x_bits=0x{:08x} y_bits=0x{:08x} angle_bits=0x{:08x} damage_bits=0x{:08x} velocity_scl_bits=0x{:08x} lifetime_scl_bits=0x{:08x}",
+                projection.bullet_type_id,
+                projection.team_id,
+                projection.x_bits,
+                projection.y_bits,
+                projection.angle_bits,
+                projection.damage_bits,
+                projection.velocity_scl_bits,
+                projection.lifetime_scl_bits,
             )),
             ClientSessionEvent::SpawnEffect {
                 x,
@@ -1009,5 +1031,59 @@ fn truncate_for_preview(text: &str, max_chars: usize) -> String {
         format!("{truncated}...")
     } else {
         truncated
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn summarize_client_packet_events_includes_remote_observability_slice() {
+        let lines = summarize_client_packet_events(&[
+            ClientSessionEvent::TransferItemEffect {
+                projection: crate::session_state::TransferItemEffectProjection {
+                    item_id: Some(6),
+                    x_bits: 18.5f32.to_bits(),
+                    y_bits: (-7.25f32).to_bits(),
+                    to_entity_id: Some(1234),
+                },
+            },
+            ClientSessionEvent::DestroyPayload {
+                projection: crate::session_state::DestroyPayloadProjection {
+                    build_pos: Some(0x000e_0009),
+                },
+            },
+            ClientSessionEvent::CreateBullet {
+                projection: crate::session_state::CreateBulletProjection {
+                    bullet_type_id: Some(17),
+                    team_id: 4,
+                    x_bits: 32.5f32.to_bits(),
+                    y_bits: 48.0f32.to_bits(),
+                    angle_bits: 90.0f32.to_bits(),
+                    damage_bits: 11.5f32.to_bits(),
+                    velocity_scl_bits: 1.25f32.to_bits(),
+                    lifetime_scl_bits: 0.75f32.to_bits(),
+                },
+            },
+        ]);
+
+        assert_eq!(lines.len(), 3);
+        assert!(lines[0].contains("transfer_item_effect:"));
+        assert!(lines[0].contains("item_id=Some(6)"));
+        assert!(lines[0].contains("x_bits=0x41940000"));
+        assert!(lines[0].contains("y_bits=0xc0e80000"));
+        assert!(lines[0].contains("to_entity_id=Some(1234)"));
+        assert!(lines[1].contains("destroy_payload:"));
+        assert!(lines[1].contains("build_pos=Some(917513)"));
+        assert!(lines[2].contains("create_bullet:"));
+        assert!(lines[2].contains("bullet_type_id=Some(17)"));
+        assert!(lines[2].contains("team_id=4"));
+        assert!(lines[2].contains("x_bits=0x42020000"));
+        assert!(lines[2].contains("y_bits=0x42400000"));
+        assert!(lines[2].contains("angle_bits=0x42b40000"));
+        assert!(lines[2].contains("damage_bits=0x41380000"));
+        assert!(lines[2].contains("velocity_scl_bits=0x3fa00000"));
+        assert!(lines[2].contains("lifetime_scl_bits=0x3f400000"));
     }
 }

@@ -25779,6 +25779,129 @@ mod tests {
     }
 
     #[test]
+    fn transfer_item_effect_packet_emits_event_and_updates_state() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "transferItemEffect")
+            .unwrap()
+            .packet_id;
+        let projection = TransferItemEffectProjection {
+            item_id: Some(6),
+            x_bits: 18.5f32.to_bits(),
+            y_bits: (-7.25f32).to_bits(),
+            to_entity_id: Some(1234),
+        };
+        let packet = encode_packet(
+            packet_id,
+            &encode_transfer_item_effect_payload(
+                projection.item_id,
+                f32::from_bits(projection.x_bits),
+                f32::from_bits(projection.y_bits),
+                projection.to_entity_id,
+            ),
+            false,
+        )
+        .unwrap();
+
+        let event = session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            event,
+            ClientSessionEvent::TransferItemEffect {
+                projection: projection.clone(),
+            }
+        );
+        assert_eq!(session.state().received_transfer_item_effect_count, 1);
+        assert_eq!(
+            session.state().last_transfer_item_effect,
+            Some(projection)
+        );
+    }
+
+    #[test]
+    fn destroy_payload_packet_emits_event_and_updates_state() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "destroyPayload")
+            .unwrap()
+            .packet_id;
+        let projection = DestroyPayloadProjection {
+            build_pos: Some(pack_point2(14, 9)),
+        };
+        let packet = encode_packet(
+            packet_id,
+            &encode_destroy_payload_payload(projection.build_pos),
+            false,
+        )
+        .unwrap();
+
+        let event = session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            event,
+            ClientSessionEvent::DestroyPayload {
+                projection: projection.clone(),
+            }
+        );
+        assert_eq!(session.state().received_destroy_payload_count, 1);
+        assert_eq!(session.state().last_destroy_payload, Some(projection));
+    }
+
+    #[test]
+    fn create_bullet_packet_emits_event_and_updates_state() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "createBullet")
+            .unwrap()
+            .packet_id;
+        let projection = CreateBulletProjection {
+            bullet_type_id: Some(17),
+            team_id: 4,
+            x_bits: 32.5f32.to_bits(),
+            y_bits: 48.0f32.to_bits(),
+            angle_bits: 90.0f32.to_bits(),
+            damage_bits: 11.5f32.to_bits(),
+            velocity_scl_bits: 1.25f32.to_bits(),
+            lifetime_scl_bits: 0.75f32.to_bits(),
+        };
+        let packet = encode_packet(
+            packet_id,
+            &encode_create_bullet_payload(
+                projection.bullet_type_id,
+                projection.team_id,
+                f32::from_bits(projection.x_bits),
+                f32::from_bits(projection.y_bits),
+                f32::from_bits(projection.angle_bits),
+                f32::from_bits(projection.damage_bits),
+                f32::from_bits(projection.velocity_scl_bits),
+                f32::from_bits(projection.lifetime_scl_bits),
+            ),
+            false,
+        )
+        .unwrap();
+
+        let event = session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            event,
+            ClientSessionEvent::CreateBullet {
+                projection: projection.clone(),
+            }
+        );
+        assert_eq!(session.state().received_create_bullet_count, 1);
+        assert_eq!(session.state().last_create_bullet, Some(projection));
+    }
+
+    #[test]
     fn take_items_packet_emits_event_and_updates_state() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
