@@ -18,15 +18,14 @@ use crate::session_state::{
     ReconnectReasonKind, SessionResetKind, SessionState, SessionTimeoutKind,
     StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection, TileConfigAuthoritySource,
     TileConfigProjection, TypedBuildingRuntimeKind, TypedBuildingRuntimeModel,
-    TypedBuildingRuntimeValue, UnitRefProjection, WorldBootstrapProjection,
-    WorldReloadProjection,
+    TypedBuildingRuntimeValue, UnitRefProjection, WorldBootstrapProjection, WorldReloadProjection,
 };
 use mdt_remote::{HighFrequencyRemoteMethod, HIGH_FREQUENCY_REMOTE_METHOD_COUNT};
 use mdt_render_ui::hud_model::{
     RuntimeChatObservability, RuntimeKickObservability, RuntimeLoadingObservability,
-    RuntimeReconnectObservability, RuntimeReconnectPhaseObservability,
-    RuntimeReconnectReasonKind, RuntimeSessionObservability, RuntimeSessionResetKind,
-    RuntimeSessionTimeoutKind, RuntimeWorldReloadObservability,
+    RuntimeReconnectObservability, RuntimeReconnectPhaseObservability, RuntimeReconnectReasonKind,
+    RuntimeSessionObservability, RuntimeSessionResetKind, RuntimeSessionTimeoutKind,
+    RuntimeWorldReloadObservability,
 };
 use mdt_render_ui::{
     BuildConfigAuthoritySourceObservability, BuildConfigInspectorEntryObservability,
@@ -1507,58 +1506,60 @@ fn runtime_command_mode_observability(
         active: projection.active,
         selected_units: projection.selected_units.clone(),
         command_buildings: projection.command_buildings.clone(),
-        command_rect: projection
-            .command_rect
-            .map(|rect| mdt_render_ui::RuntimeCommandRectObservability {
+        command_rect: projection.command_rect.map(|rect| {
+            mdt_render_ui::RuntimeCommandRectObservability {
                 x0: rect.x0,
                 y0: rect.y0,
                 x1: rect.x1,
                 y1: rect.y1,
-            }),
+            }
+        }),
         control_groups: projection
             .control_groups
             .iter()
-            .map(|group| mdt_render_ui::RuntimeCommandControlGroupObservability {
-                index: group.index,
-                unit_ids: group.unit_ids.clone(),
-            })
+            .map(
+                |group| mdt_render_ui::RuntimeCommandControlGroupObservability {
+                    index: group.index,
+                    unit_ids: group.unit_ids.clone(),
+                },
+            )
             .collect(),
-        last_target: projection
-            .last_target
-            .map(|target| mdt_render_ui::RuntimeCommandTargetObservability {
+        last_target: projection.last_target.map(|target| {
+            mdt_render_ui::RuntimeCommandTargetObservability {
                 build_target: target.build_target,
-                unit_target: target.unit_target.map(
-                    |unit| mdt_render_ui::RuntimeCommandUnitRefObservability {
+                unit_target: target.unit_target.map(|unit| {
+                    mdt_render_ui::RuntimeCommandUnitRefObservability {
                         kind: unit.kind,
                         value: unit.value,
-                    },
-                ),
-                position_target: target.position_target.map(
-                    |position| mdt_render_ui::RuntimeWorldPositionObservability {
+                    }
+                }),
+                position_target: target.position_target.map(|position| {
+                    mdt_render_ui::RuntimeWorldPositionObservability {
                         x_bits: position.x_bits,
                         y_bits: position.y_bits,
-                    },
-                ),
-                rect_target: target.rect_target.map(
-                    |rect| mdt_render_ui::RuntimeCommandRectObservability {
+                    }
+                }),
+                rect_target: target.rect_target.map(|rect| {
+                    mdt_render_ui::RuntimeCommandRectObservability {
                         x0: rect.x0,
                         y0: rect.y0,
                         x1: rect.x1,
                         y1: rect.y1,
-                    },
-                ),
-            }),
-        last_command_selection: projection.last_command_selection.map(
-            |selection| mdt_render_ui::RuntimeCommandSelectionObservability {
+                    }
+                }),
+            }
+        }),
+        last_command_selection: projection.last_command_selection.map(|selection| {
+            mdt_render_ui::RuntimeCommandSelectionObservability {
                 command_id: selection.command_id,
-            },
-        ),
-        last_stance_selection: projection.last_stance_selection.map(
-            |selection| mdt_render_ui::RuntimeCommandStanceObservability {
+            }
+        }),
+        last_stance_selection: projection.last_stance_selection.map(|selection| {
+            mdt_render_ui::RuntimeCommandStanceObservability {
                 stance_id: selection.stance_id,
                 enabled: selection.enabled,
-            },
-        ),
+            }
+        }),
     }
 }
 
@@ -2039,11 +2040,13 @@ fn runtime_build_config_inspector_entries(
     }
     grouped
         .into_iter()
-        .map(|(kind, (tracked_count, sample))| BuildConfigInspectorEntryObservability {
-            family: kind.family_name().to_string(),
-            tracked_count,
-            sample,
-        })
+        .map(
+            |(kind, (tracked_count, sample))| BuildConfigInspectorEntryObservability {
+                family: kind.family_name().to_string(),
+                tracked_count,
+                sample,
+            },
+        )
         .collect()
 }
 
@@ -2083,7 +2086,11 @@ fn runtime_typed_build_config_value_label(
             "{}={}",
             runtime_typed_build_config_bool_label(kind),
             value
-                .map(|value| if value { "1".to_string() } else { "0".to_string() })
+                .map(|value| if value {
+                    "1".to_string()
+                } else {
+                    "0".to_string()
+                })
                 .unwrap_or_else(|| "clear".to_string())
         ),
         TypedBuildingRuntimeValue::Text(text) => {
@@ -3785,7 +3792,10 @@ mod tests {
                     unit_ids: vec![99],
                 }],
                 last_target: Some(mdt_input::CommandModeTargetProjection {
-                    unit_target: Some(mdt_input::CommandUnitRef { kind: 2, value: 808 }),
+                    unit_target: Some(mdt_input::CommandUnitRef {
+                        kind: 2,
+                        value: 808,
+                    }),
                     ..Default::default()
                 }),
                 last_command_selection: Some(mdt_input::CommandModeCommandSelection {

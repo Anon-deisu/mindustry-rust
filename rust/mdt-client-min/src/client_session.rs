@@ -4328,7 +4328,8 @@ impl ClientSession {
                     self.state.last_construct_finish_config_consumed_len =
                         Some(config_consumed_len);
                     self.state.last_construct_finish_config_object = Some(config_object);
-                    let block_name = block_id.and_then(|block_id| self.loaded_world_block_name(block_id));
+                    let block_name =
+                        block_id.and_then(|block_id| self.loaded_world_block_name(block_id));
                     self.state.building_table_projection.apply_construct_finish(
                         tile_pos,
                         block_id,
@@ -4395,8 +4396,9 @@ impl ClientSession {
                     self.state
                         .configured_block_projection
                         .clear_building_state(summary.tile_pos);
-                    let block_name =
-                        summary.block_id.and_then(|block_id| self.loaded_world_block_name(block_id));
+                    let block_name = summary
+                        .block_id
+                        .and_then(|block_id| self.loaded_world_block_name(block_id));
                     self.state
                         .building_table_projection
                         .apply_deconstruct_finish(summary.tile_pos, summary.block_id, block_name);
@@ -15669,6 +15671,14 @@ mod tests {
                 last_seen_entity_snapshot_count: 1,
             })
         );
+        assert!(matches!(
+            session.state().typed_runtime_entity_at(99),
+            Some(crate::session_state::TypedRuntimeEntityModel::Player(player))
+                if player.base.entity_id == 99
+                    && player.base.class_id
+                        == crate::session_state::EntityTableProjection::LOCAL_PLAYER_CLASS_ID
+                    && player.base.unit_value == 100
+        ));
     }
 
     #[test]
@@ -15699,13 +15709,12 @@ mod tests {
             event,
             ClientSessionEvent::SnapshotReceived(HighFrequencyRemoteMethod::EntitySnapshot)
         );
+        let alpha_rows = try_parse_alpha_sync_rows_from_entity_snapshot_prefix(&payload);
         assert_eq!(
-            try_parse_alpha_sync_rows_from_entity_snapshot_prefix(&payload)
-                .iter()
-                .map(|row| row.entity_id)
-                .collect::<Vec<_>>(),
+            alpha_rows.iter().map(|row| row.entity_id).collect::<Vec<_>>(),
             vec![100]
         );
+        let alpha_sync = &alpha_rows[0].sync;
         assert_eq!(
             session
                 .state()
@@ -15723,6 +15732,14 @@ mod tests {
                 last_seen_entity_snapshot_count: 1,
             })
         );
+        assert!(matches!(
+            session.state().typed_runtime_entity_at(100),
+            Some(crate::session_state::TypedRuntimeEntityModel::Unit(unit))
+                if unit.base.entity_id == 100
+                    && unit.base.class_id == 0
+                    && unit.semantic.unit_type_id == alpha_sync.unit_type_id
+                    && unit.semantic.team_id == alpha_sync.team_id
+        ));
     }
 
     #[test]

@@ -346,7 +346,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         thread::sleep(args.tick);
     }
 
-    maybe_print_final_ascii_scene(&session, &args, &render_runtime_adapter, &runtime_command_mode);
+    maybe_print_final_ascii_scene(
+        &session,
+        &args,
+        &render_runtime_adapter,
+        &runtime_command_mode,
+    );
     maybe_print_custom_packet_watch_summary(custom_packet_watch.as_ref());
     maybe_print_custom_packet_semantic_summary(custom_packet_semantics.as_ref());
     maybe_print_runtime_custom_packet_relay_summary(custom_packet_relays.as_ref());

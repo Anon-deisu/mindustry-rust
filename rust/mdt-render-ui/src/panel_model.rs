@@ -305,6 +305,34 @@ pub struct RuntimeWorldLabelPanelModel {
     pub last_position: Option<crate::RuntimeWorldPositionObservability>,
 }
 
+impl RuntimeWorldLabelPanelModel {
+    pub fn inactive_count(&self) -> u64 {
+        self.total_count.saturating_sub(self.active_count as u64)
+    }
+
+    pub fn last_text_len(&self) -> usize {
+        self.last_text
+            .as_deref()
+            .map(|text| text.chars().count())
+            .unwrap_or(0)
+    }
+
+    pub fn last_text_line_count(&self) -> usize {
+        self.last_text
+            .as_deref()
+            .map(|text| text.split('\n').count())
+            .unwrap_or(0)
+    }
+
+    pub fn last_font_size(&self) -> Option<f32> {
+        finite_f32_bits(self.last_font_size_bits)
+    }
+
+    pub fn last_z(&self) -> Option<f32> {
+        finite_f32_bits(self.last_z_bits)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeSessionPanelModel {
     pub kick: RuntimeKickPanelModel,
@@ -471,6 +499,10 @@ fn percent_of(part: usize, total: usize) -> usize {
     } else {
         part.saturating_mul(100) / total
     }
+}
+
+fn finite_f32_bits(bits: Option<u32>) -> Option<f32> {
+    bits.map(f32::from_bits).filter(|value| value.is_finite())
 }
 
 pub fn build_build_config_panel(
@@ -1011,7 +1043,7 @@ mod tests {
         build_runtime_session_panel, build_runtime_ui_notice_panel,
         build_runtime_world_label_panel, BuildInteractionAuthorityState, BuildInteractionMode,
         BuildInteractionQueueState, BuildInteractionSelectionState, PresenterViewWindow,
-        RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
+        RuntimeDialogNoticeKind, RuntimeDialogPromptKind, RuntimeWorldLabelPanelModel,
     };
     use crate::{
         hud_model::{
@@ -1544,6 +1576,11 @@ mod tests {
         assert_eq!(panel.last_flags, Some(3));
         assert_eq!(panel.last_font_size_bits, Some(12.0f32.to_bits()));
         assert_eq!(panel.last_z_bits, Some(4.0f32.to_bits()));
+        assert_eq!(panel.inactive_count(), 58);
+        assert_eq!(panel.last_text_len(), 11);
+        assert_eq!(panel.last_text_line_count(), 1);
+        assert_eq!(panel.last_font_size(), Some(12.0));
+        assert_eq!(panel.last_z(), Some(4.0));
         assert_eq!(
             panel.last_position,
             Some(crate::RuntimeWorldPositionObservability {
@@ -1551,6 +1588,29 @@ mod tests {
                 y_bits: 60.0f32.to_bits(),
             })
         );
+    }
+
+    #[test]
+    fn runtime_world_label_panel_derived_metrics_handle_multiline_and_non_finite_bits() {
+        let panel = RuntimeWorldLabelPanelModel {
+            label_count: 1,
+            reliable_label_count: 2,
+            remove_label_count: 3,
+            total_count: 6,
+            active_count: 1,
+            last_entity_id: Some(9),
+            last_text: Some("alpha\nbeta\n".to_string()),
+            last_flags: Some(7),
+            last_font_size_bits: Some(f32::NAN.to_bits()),
+            last_z_bits: Some(f32::INFINITY.to_bits()),
+            last_position: None,
+        };
+
+        assert_eq!(panel.inactive_count(), 5);
+        assert_eq!(panel.last_text_len(), 11);
+        assert_eq!(panel.last_text_line_count(), 3);
+        assert_eq!(panel.last_font_size(), None);
+        assert_eq!(panel.last_z(), None);
     }
 
     #[test]

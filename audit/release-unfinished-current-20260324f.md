@@ -29,6 +29,9 @@ These are already landed and should not be re-opened as if missing:
 - `hiddenSnapshot` lifecycle delete is already narrowed to known runtime-owned non-local semantics instead of deleting every hidden entity row.
   - current cleanup now covers non-local `Unit` / `Fire` / `Puddle` / `WeatherState`
   - `WorldLabel` is still intentionally preserved as a conservative boundary
+- `hiddenSnapshot` latest-set sync now also clears stale entity hidden flags when ids leave the hidden set.
+  - `EntityTableProjection::apply_hidden_ids(...)` mirrors the newest hidden-id set instead of only setting `hidden=true`
+  - remaining hidden work is deeper runtime semantics, not re-fixing stale hidden flags on surviving rows
 - `effect(..., data)` runtime overlay already consumes the `float_length` contract for ray-endpoint projection.
 - `tileConfig` authority reconcile is no longer a single-value last-write-only pending model.
   - per-building local intents now keep FIFO request order
@@ -55,6 +58,12 @@ These are already landed and should not be re-opened as if missing:
 - `entitySnapshot` typed `WorldLabel` rows are no longer packet-counter-only.
   - runtime/HUD now consumes active label count plus latest `entity_id/text/flags/font_size/z/position`
   - remaining work is broader render/UI depth, not re-adding the first runtime-apply bridge
+- `world-label` presentation depth is already wider than the first runtime apply bridge.
+  - panel/presenter output now also includes inactive count, text length, line count, and `font` / `z` bits plus decoded `f32`
+  - remaining work is broader render/UI parity, not re-adding those derived world-label fields
+- `typed_runtime_entities()` baseline join helper is already landed for existing parseable entity rows.
+  - `SessionState` now exposes read-only typed runtime joins for `Player` and `Unit`
+  - remaining `U1` work is consumer-side runtime apply depth, not re-adding a first typed join surface
 - `mdt-input` batch runtime intent sampling is already landed.
   - same-tick multi-snapshot batches now preserve transient press/release edges instead of only keeping the final frame
   - remaining work is richer live input source parity, not re-adding batch edge retention
@@ -73,6 +82,7 @@ These are already landed and should not be re-opened as if missing:
 
 Remaining gap:
 - Rust still writes parsed rows into lightweight projection tables instead of doing Java-like `readSyncEntity -> readSync -> snapSync -> add`.
+- a read-only typed runtime join helper for existing `Player` / `Unit` rows is already present; the remaining gap is applying those rows into a stronger runtime ownership model.
 
 Best bounded next slice:
 - start with a typed runtime apply layer for the already parseable `Player` / `Unit` families

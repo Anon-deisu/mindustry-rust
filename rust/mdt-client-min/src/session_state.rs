@@ -2077,8 +2077,8 @@ impl BuildingTableProjection {
         self.last_build_pos = Some(build_pos);
         self.last_block_id =
             block_id_override.or_else(|| previous.and_then(|building| building.block_id));
-        self.last_block_name =
-            block_name_override.or_else(|| previous.and_then(|building| building.block_name.clone()));
+        self.last_block_name = block_name_override
+            .or_else(|| previous.and_then(|building| building.block_name.clone()));
         self.last_rotation = previous.and_then(|building| building.rotation);
         self.last_team_id = previous.and_then(|building| building.team_id);
         self.last_io_version = previous.and_then(|building| building.io_version);
@@ -2307,10 +2307,7 @@ fn typed_runtime_building_model(
         "door" | "door-large" => (
             TypedBuildingRuntimeKind::Door,
             TypedBuildingRuntimeValue::Bool(
-                configured
-                    .door_open_by_build_pos
-                    .get(&build_pos)
-                    .copied()?,
+                configured.door_open_by_build_pos.get(&build_pos).copied()?,
             ),
         ),
         "message" | "reinforced-message" | "world-message" => (
@@ -3117,6 +3114,81 @@ impl EntitySemanticProjectionTable {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypedRuntimeEntityBase {
+    pub entity_id: i32,
+    pub class_id: u8,
+    pub hidden: bool,
+    pub is_local_player: bool,
+    pub unit_kind: u8,
+    pub unit_value: u32,
+    pub x_bits: u32,
+    pub y_bits: u32,
+    pub last_seen_entity_snapshot_count: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypedRuntimePlayerEntity {
+    pub base: TypedRuntimeEntityBase,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypedRuntimeUnitEntity {
+    pub base: TypedRuntimeEntityBase,
+    pub semantic: EntityUnitSemanticProjection,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TypedRuntimeEntityModel {
+    Player(TypedRuntimePlayerEntity),
+    Unit(TypedRuntimeUnitEntity),
+}
+
+impl TypedRuntimeEntityModel {
+    pub fn entity_id(&self) -> i32 {
+        match self {
+            Self::Player(player) => player.base.entity_id,
+            Self::Unit(unit) => unit.base.entity_id,
+        }
+    }
+}
+
+fn typed_runtime_entity_base(entity_id: i32, entity: &EntityProjection) -> TypedRuntimeEntityBase {
+    TypedRuntimeEntityBase {
+        entity_id,
+        class_id: entity.class_id,
+        hidden: entity.hidden,
+        is_local_player: entity.is_local_player,
+        unit_kind: entity.unit_kind,
+        unit_value: entity.unit_value,
+        x_bits: entity.x_bits,
+        y_bits: entity.y_bits,
+        last_seen_entity_snapshot_count: entity.last_seen_entity_snapshot_count,
+    }
+}
+
+fn typed_runtime_entity_model(
+    entity_id: i32,
+    entity: &EntityProjection,
+    semantic: Option<&EntitySemanticProjectionEntry>,
+) -> Option<TypedRuntimeEntityModel> {
+    let base = typed_runtime_entity_base(entity_id, entity);
+    match semantic.map(|entry| &entry.projection) {
+        Some(EntitySemanticProjection::Unit(unit)) => {
+            Some(TypedRuntimeEntityModel::Unit(TypedRuntimeUnitEntity {
+                base,
+                semantic: unit.clone(),
+            }))
+        }
+        _ if entity.class_id == EntityTableProjection::LOCAL_PLAYER_CLASS_ID => {
+            Some(TypedRuntimeEntityModel::Player(TypedRuntimePlayerEntity {
+                base,
+            }))
+        }
+        _ => None,
+    }
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct EntityTableProjection {
     pub by_entity_id: BTreeMap<i32, EntityProjection>,
@@ -3263,10 +3335,8 @@ impl EntityTableProjection {
     }
 
     pub fn apply_hidden_ids(&mut self, hidden_ids: &BTreeSet<i32>) {
-        for entity_id in hidden_ids {
-            if let Some(entity) = self.by_entity_id.get_mut(entity_id) {
-                entity.hidden = true;
-            }
+        for (&entity_id, entity) in &mut self.by_entity_id {
+            entity.hidden = hidden_ids.contains(&entity_id);
         }
         self.hidden_apply_count = self.hidden_apply_count.saturating_add(1);
         self.recount_hidden();
@@ -3954,6 +4024,29 @@ pub struct SessionState {
 impl SessionState {
     pub fn reset(&mut self) {
         *self = Self::default();
+    }
+
+    pub fn typed_runtime_entity_at(&self, entity_id: i32) -> Option<TypedRuntimeEntityModel> {
+        let entity = self.entity_table_projection.by_entity_id.get(&entity_id)?;
+        typed_runtime_entity_model(
+            entity_id,
+            entity,
+            self.entity_semantic_projection.by_entity_id.get(&entity_id),
+        )
+    }
+
+    pub fn typed_runtime_entities(&self) -> Vec<TypedRuntimeEntityModel> {
+        self.entity_table_projection
+            .by_entity_id
+            .iter()
+            .filter_map(|(entity_id, entity)| {
+                typed_runtime_entity_model(
+                    *entity_id,
+                    entity,
+                    self.entity_semantic_projection.by_entity_id.get(entity_id),
+                )
+            })
+            .collect()
     }
 
     pub fn set_reconnect_phase(&mut self, phase: ReconnectPhaseProjection) {
@@ -4710,5 +4803,161 @@ mod tests {
             state.hidden_snapshot_lifecycle_remove_ids(&BTreeSet::from([303, 404, 505, 606]), None);
 
         assert_eq!(remove_ids, BTreeSet::from([303, 404, 505]));
+    }
+
+    #[test]
+    fn session_state_typed_runtime_entity_at_surfaces_player_without_semantic() {
+        let mut state = SessionState::default();
+        state.entity_table_projection.by_entity_id.insert(
+            101,
+            EntityProjection {
+                class_id: EntityTableProjection::LOCAL_PLAYER_CLASS_ID,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 9001,
+                x_bits: 1.5f32.to_bits(),
+                y_bits: 2.5f32.to_bits(),
+                last_seen_entity_snapshot_count: 7,
+            },
+        );
+
+        assert_eq!(
+            state.typed_runtime_entity_at(101),
+            Some(TypedRuntimeEntityModel::Player(TypedRuntimePlayerEntity {
+                base: TypedRuntimeEntityBase {
+                    entity_id: 101,
+                    class_id: EntityTableProjection::LOCAL_PLAYER_CLASS_ID,
+                    hidden: false,
+                    is_local_player: false,
+                    unit_kind: 2,
+                    unit_value: 9001,
+                    x_bits: 1.5f32.to_bits(),
+                    y_bits: 2.5f32.to_bits(),
+                    last_seen_entity_snapshot_count: 7,
+                },
+            }))
+        );
+        assert_eq!(state.typed_runtime_entities().len(), 1);
+    }
+
+    #[test]
+    fn session_state_typed_runtime_entity_at_joins_unit_semantic_projection() {
+        let mut state = SessionState::default();
+        state.entity_table_projection.by_entity_id.insert(
+            202,
+            EntityProjection {
+                class_id: 4,
+                hidden: true,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 202,
+                x_bits: 3.5f32.to_bits(),
+                y_bits: 4.5f32.to_bits(),
+                last_seen_entity_snapshot_count: 9,
+            },
+        );
+        state.entity_semantic_projection.upsert(
+            202,
+            4,
+            9,
+            EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
+                team_id: 2,
+                unit_type_id: 55,
+                health_bits: 0x3f80_0000,
+                rotation_bits: 0x4000_0000,
+                shield_bits: 0x4040_0000,
+                mine_tile_pos: 77,
+                status_count: 3,
+                payload_count: Some(1),
+                building_pos: Some(88),
+                lifetime_bits: Some(0x4080_0000),
+                time_bits: Some(0x40a0_0000),
+            }),
+        );
+
+        assert_eq!(
+            state.typed_runtime_entity_at(202),
+            Some(TypedRuntimeEntityModel::Unit(TypedRuntimeUnitEntity {
+                base: TypedRuntimeEntityBase {
+                    entity_id: 202,
+                    class_id: 4,
+                    hidden: true,
+                    is_local_player: false,
+                    unit_kind: 2,
+                    unit_value: 202,
+                    x_bits: 3.5f32.to_bits(),
+                    y_bits: 4.5f32.to_bits(),
+                    last_seen_entity_snapshot_count: 9,
+                },
+                semantic: EntityUnitSemanticProjection {
+                    team_id: 2,
+                    unit_type_id: 55,
+                    health_bits: 0x3f80_0000,
+                    rotation_bits: 0x4000_0000,
+                    shield_bits: 0x4040_0000,
+                    mine_tile_pos: 77,
+                    status_count: 3,
+                    payload_count: Some(1),
+                    building_pos: Some(88),
+                    lifetime_bits: Some(0x4080_0000),
+                    time_bits: Some(0x40a0_0000),
+                },
+            }))
+        );
+        assert_eq!(state.typed_runtime_entities().len(), 1);
+    }
+
+    #[test]
+    fn entity_table_apply_hidden_ids_clears_stale_hidden_flags_for_removed_ids() {
+        let mut table = EntityTableProjection::default();
+        table.by_entity_id.insert(
+            101,
+            EntityProjection {
+                class_id: 12,
+                hidden: true,
+                is_local_player: true,
+                unit_kind: 2,
+                unit_value: 101,
+                x_bits: 0,
+                y_bits: 0,
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
+        table.by_entity_id.insert(
+            303,
+            EntityProjection {
+                class_id: 35,
+                hidden: true,
+                is_local_player: false,
+                unit_kind: 0,
+                unit_value: 0,
+                x_bits: 0,
+                y_bits: 0,
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
+        table.by_entity_id.insert(
+            404,
+            EntityProjection {
+                class_id: 35,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 0,
+                unit_value: 0,
+                x_bits: 0,
+                y_bits: 0,
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
+        table.hidden_count = 2;
+
+        table.apply_hidden_ids(&BTreeSet::from([404]));
+
+        assert!(!table.by_entity_id[&101].hidden);
+        assert!(!table.by_entity_id[&303].hidden);
+        assert!(table.by_entity_id[&404].hidden);
+        assert_eq!(table.hidden_apply_count, 1);
+        assert_eq!(table.hidden_count, 1);
     }
 }

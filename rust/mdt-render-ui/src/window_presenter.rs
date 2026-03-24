@@ -726,18 +726,21 @@ fn compose_runtime_admin_panel_status_text(hud: &HudModel) -> Option<String> {
 fn compose_runtime_world_label_panel_status_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_world_label_panel(hud)?;
     Some(format!(
-        "wlabel:set{}:rel{}:rm{}:tot{}:act{}:last{}:f{}:fs{}:z{}:pos{}:txt{}",
+        "wlabel:set{}:rel{}:rm{}:tot{}:act{}:inact{}:last{}:f{}:fs{}:z{}:pos{}:txt{}:l{}:n{}",
         panel.label_count,
         panel.reliable_label_count,
         panel.remove_label_count,
         panel.total_count,
         panel.active_count,
+        panel.inactive_count(),
         optional_i32_label(panel.last_entity_id),
         optional_u8_label(panel.last_flags),
-        optional_u32_label(panel.last_font_size_bits),
-        optional_u32_label(panel.last_z_bits),
+        runtime_world_label_scalar_status_text(panel.last_font_size_bits, panel.last_font_size()),
+        runtime_world_label_scalar_status_text(panel.last_z_bits, panel.last_z()),
         world_position_status_text(panel.last_position.as_ref()),
         runtime_world_label_status_sample(panel.last_text.as_deref()),
+        panel.last_text_line_count(),
+        panel.last_text_len(),
     ))
 }
 
@@ -1437,6 +1440,14 @@ fn optional_u32_label(value: Option<u32>) -> String {
     value
         .map(|value| value.to_string())
         .unwrap_or_else(|| "none".to_string())
+}
+
+fn runtime_world_label_scalar_status_text(bits: Option<u32>, value: Option<f32>) -> String {
+    match (bits, value) {
+        (Some(bits), Some(value)) => format!("{bits}@{value:.1}"),
+        (Some(bits), None) => bits.to_string(),
+        (None, _) => "none".to_string(),
+    }
 }
 
 fn optional_u64_label(value: Option<u64>) -> String {
@@ -2373,7 +2384,7 @@ mod tests {
             .contains("rules:mut354:fail210:wv1:pvp0:obj2:q1:par1:fg2:oor75:last9"));
         assert!(frame
             .status_text
-            .contains("wlabel:set19:rel20:rm21:tot60:act2:last904:f3:fs1094713344:z1082130432:pos40.0:60.0:txtworld_label"));
+            .contains("wlabel:set19:rel20:rm21:tot60:act2:inact58:last904:f3:fs1094713344@12.0:z1082130432@4.0:pos40.0:60.0:txtworld_label:l1:n11"));
         assert!(frame.status_text.contains(
             "session:k=idInUse@7:IdInUse:wait_for_old~;l=defer5:replay6:drop7:qdrop8:sfail9:scfail10:efail11:rdy12@1300:to2:cto1:rto1:ltready@20000:rs3:rr1:wr1:kr1:lrreload:lwr@lw1:cl0:rd1:cc0:p4:d5:r6;r=attempt3:redirect@1/127.0.0.1:6567:connectRedir~@none:server_reque~"
         ));

@@ -475,18 +475,21 @@ fn compose_runtime_admin_panel_text(hud: &HudModel) -> Option<String> {
 fn compose_runtime_world_label_panel_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_world_label_panel(hud)?;
     Some(format!(
-        "set={} rel={} remove={} total={} active={} last={} flags={} font={} z={} pos={} text={}",
+        "set={} rel={} remove={} total={} active={} inactive={} last={} flags={} font={} z={} pos={} text={} lines={} len={}",
         panel.label_count,
         panel.reliable_label_count,
         panel.remove_label_count,
         panel.total_count,
         panel.active_count,
+        panel.inactive_count(),
         optional_i32_label(panel.last_entity_id),
         optional_u8_label(panel.last_flags),
-        optional_u32_label(panel.last_font_size_bits),
-        optional_u32_label(panel.last_z_bits),
+        runtime_world_label_scalar_text(panel.last_font_size_bits, panel.last_font_size()),
+        runtime_world_label_scalar_text(panel.last_z_bits, panel.last_z()),
         world_position_text(panel.last_position.as_ref()),
         runtime_world_label_text_sample(panel.last_text.as_deref()),
+        panel.last_text_line_count(),
+        panel.last_text_len(),
     ))
 }
 
@@ -1227,6 +1230,14 @@ fn optional_u32_label(value: Option<u32>) -> String {
     value
         .map(|value| value.to_string())
         .unwrap_or_else(|| "none".to_string())
+}
+
+fn runtime_world_label_scalar_text(bits: Option<u32>, value: Option<f32>) -> String {
+    match (bits, value) {
+        (Some(bits), Some(value)) => format!("{bits}@{value:.1}"),
+        (Some(bits), None) => bits.to_string(),
+        (None, _) => "none".to_string(),
+    }
 }
 
 fn optional_u64_label(value: Option<u64>) -> String {
@@ -2003,7 +2014,7 @@ mod tests {
             "RUNTIME-RULES: mut=354 fail=210 set=67/69/71 clear=73 complete=74 state=wv1:pvp0 obj=2 qual=1 parents=1 flags=2 oor=75 last=9"
         ));
         assert!(frame.contains(
-            "RUNTIME-WORLD-LABEL: set=19 rel=20 remove=21 total=60 active=2 last=904 flags=3 font=1094713344 z=1082130432 pos=40.0:60.0 text=world label"
+            "RUNTIME-WORLD-LABEL: set=19 rel=20 remove=21 total=60 active=2 inactive=58 last=904 flags=3 font=1094713344@12.0 z=1082130432@4.0 pos=40.0:60.0 text=world label lines=1 len=11"
         ));
         assert!(frame.contains(
             "RUNTIME-SESSION: kick=idInUse@7:IdInUse:wait_for_old~ loading=defer5 replay6 drop7 qdrop8 sfail9 scfail10 efail11 rdy12@1300 to2/1/1 ltready@20000 rs3/1/1/1 lrreload lwr@lw1:cl0:rd1:cc0:p4:d5:r6 reconnect=attempt#3 redirect redirect=1@127.0.0.1:6567 reason=connectRedir~#none hint=server_reque~"

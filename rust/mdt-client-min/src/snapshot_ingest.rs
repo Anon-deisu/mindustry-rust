@@ -2211,7 +2211,7 @@ mod tests {
     }
 
     #[test]
-    fn hidden_snapshot_keeps_prior_local_hidden_flag_until_entity_sync_updates_it() {
+    fn hidden_snapshot_clears_prior_local_hidden_flag_when_id_leaves_hidden_set() {
         let initial_payload = [
             0x00, 0x00, 0x00, 0x01, // count
             0x00, 0x00, 0x00, 0x65, // 101
@@ -2250,9 +2250,125 @@ mod tests {
             InboundSnapshot::new(HighFrequencyRemoteMethod::HiddenSnapshot, 11, &next_payload),
         );
 
-        assert!(state.entity_table_projection.by_entity_id[&101].hidden);
+        assert!(!state.entity_table_projection.by_entity_id[&101].hidden);
+        assert_eq!(state.entity_table_projection.hidden_apply_count, 2);
+        assert_eq!(state.entity_table_projection.hidden_count, 0);
+        assert_eq!(
+            state
+                .hidden_snapshot_ids
+                .iter()
+                .copied()
+                .collect::<Vec<_>>(),
+            vec![303]
+        );
+    }
+
+    #[test]
+    fn hidden_snapshot_clears_prior_runtime_kept_hidden_flag_when_id_leaves_hidden_set() {
+        let initial_payload = [
+            0x00, 0x00, 0x00, 0x01, // count
+            0x00, 0x00, 0x01, 0x2F, // 303
+        ];
+        let next_payload = [
+            0x00, 0x00, 0x00, 0x01, // count
+            0x00, 0x00, 0x01, 0x94, // 404
+        ];
+        let mut state = SessionState::default();
+        state.entity_table_projection.by_entity_id.insert(
+            303,
+            EntityProjection {
+                class_id: 35,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 0,
+                unit_value: 0,
+                x_bits: 1.0f32.to_bits(),
+                y_bits: 2.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
+        state.entity_table_projection.by_entity_id.insert(
+            404,
+            EntityProjection {
+                class_id: 35,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 0,
+                unit_value: 0,
+                x_bits: 3.0f32.to_bits(),
+                y_bits: 4.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
+        state.entity_semantic_projection.by_entity_id.insert(
+            303,
+            EntitySemanticProjectionEntry {
+                class_id: 35,
+                last_seen_entity_snapshot_count: 1,
+                projection: EntitySemanticProjection::WorldLabel(
+                    EntityWorldLabelSemanticProjection {
+                        flags: 1,
+                        font_size_bits: 12.0f32.to_bits(),
+                        text: Some("first".to_string()),
+                        z_bits: 0.5f32.to_bits(),
+                    },
+                ),
+            },
+        );
+        state.entity_semantic_projection.by_entity_id.insert(
+            404,
+            EntitySemanticProjectionEntry {
+                class_id: 35,
+                last_seen_entity_snapshot_count: 1,
+                projection: EntitySemanticProjection::WorldLabel(
+                    EntityWorldLabelSemanticProjection {
+                        flags: 2,
+                        font_size_bits: 13.0f32.to_bits(),
+                        text: Some("second".to_string()),
+                        z_bits: 0.75f32.to_bits(),
+                    },
+                ),
+            },
+        );
+
+        ingest_inbound_snapshot(
+            &mut state,
+            InboundSnapshot::new(
+                HighFrequencyRemoteMethod::HiddenSnapshot,
+                11,
+                &initial_payload,
+            ),
+        );
+        assert!(state.entity_table_projection.by_entity_id[&303].hidden);
+        assert!(!state.entity_table_projection.by_entity_id[&404].hidden);
+
+        ingest_inbound_snapshot(
+            &mut state,
+            InboundSnapshot::new(HighFrequencyRemoteMethod::HiddenSnapshot, 11, &next_payload),
+        );
+
+        assert!(!state.entity_table_projection.by_entity_id[&303].hidden);
+        assert!(state.entity_table_projection.by_entity_id[&404].hidden);
+        assert!(state
+            .entity_semantic_projection
+            .by_entity_id
+            .contains_key(&303));
+        assert!(state
+            .entity_semantic_projection
+            .by_entity_id
+            .contains_key(&404));
         assert_eq!(state.entity_table_projection.hidden_apply_count, 2);
         assert_eq!(state.entity_table_projection.hidden_count, 1);
+        assert_eq!(
+            state.hidden_snapshot_delta_projection,
+            Some(HiddenSnapshotDeltaProjection {
+                active_count: 1,
+                added_count: 1,
+                removed_count: 1,
+                added_sample_ids: vec![404],
+                removed_sample_ids: vec![303],
+            })
+        );
     }
 
     #[test]
