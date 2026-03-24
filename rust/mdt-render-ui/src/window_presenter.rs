@@ -2,10 +2,11 @@ use crate::{
     hud_model::HudSummary,
     panel_model::{
         build_build_config_panel, build_build_interaction_panel, build_minimap_panel,
-        build_runtime_admin_panel, build_runtime_live_effect_panel,
+        build_runtime_admin_panel, build_runtime_dialog_panel, build_runtime_live_effect_panel,
         build_runtime_live_entity_panel, build_runtime_menu_panel, build_runtime_rules_panel,
         build_runtime_session_panel, build_runtime_ui_notice_panel,
-        build_runtime_world_label_panel, PresenterViewWindow,
+        build_runtime_world_label_panel, PresenterViewWindow, RuntimeDialogNoticeKind,
+        RuntimeDialogPromptKind,
     },
     render_model::{RenderObjectSemanticFamily, RenderObjectSemanticKind},
     BuildQueueHeadObservability, BuildQueueHeadStage, BuildUiObservability, HudModel, RenderModel,
@@ -509,6 +510,9 @@ fn compose_frame_status_text(
         if let Some(runtime_menu_text) = compose_runtime_menu_panel_status_text(hud) {
             parts.push(runtime_menu_text);
         }
+        if let Some(runtime_dialog_text) = compose_runtime_dialog_panel_status_text(hud) {
+            parts.push(runtime_dialog_text);
+        }
         if let Some(runtime_admin_text) = compose_runtime_admin_panel_status_text(hud) {
             parts.push(runtime_admin_text);
         }
@@ -638,6 +642,29 @@ fn compose_runtime_menu_panel_status_text(hud: &HudModel) -> Option<String> {
         panel.text_input_last_length.unwrap_or_default(),
         optional_bool_label(panel.text_input_last_numeric),
         optional_bool_label(panel.text_input_last_allow_empty),
+    ))
+}
+
+fn compose_runtime_dialog_panel_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_dialog_panel(hud)?;
+    Some(format!(
+        "dialog:p={}:a{}:m{}/f{}/h{}:tin{}@{}:{}/{}/{}#{}:n{}:e{}:n={}@{}:c{}",
+        runtime_dialog_prompt_status_text(panel.prompt_kind),
+        if panel.prompt_active { 1 } else { 0 },
+        panel.menu_open_count,
+        panel.follow_up_menu_open_count,
+        panel.hide_follow_up_menu_count,
+        panel.text_input_open_count,
+        optional_i32_label(panel.text_input_last_id),
+        compact_runtime_ui_text(panel.text_input_last_title.as_deref()),
+        compact_runtime_ui_text(panel.text_input_last_message.as_deref()),
+        compact_runtime_ui_text(panel.text_input_last_default_text.as_deref()),
+        panel.text_input_last_length.unwrap_or_default(),
+        optional_bool_label(panel.text_input_last_numeric),
+        optional_bool_label(panel.text_input_last_allow_empty),
+        runtime_dialog_notice_status_text(panel.notice_kind),
+        compact_runtime_ui_text(panel.notice_text.as_deref()),
+        panel.notice_count,
     ))
 }
 
@@ -1386,6 +1413,25 @@ fn optional_bool_label(value: Option<bool>) -> char {
     }
 }
 
+fn runtime_dialog_prompt_status_text(kind: Option<RuntimeDialogPromptKind>) -> &'static str {
+    match kind {
+        Some(RuntimeDialogPromptKind::Menu) => "menu",
+        Some(RuntimeDialogPromptKind::FollowUpMenu) => "follow",
+        Some(RuntimeDialogPromptKind::TextInput) => "input",
+        None => "none",
+    }
+}
+
+fn runtime_dialog_notice_status_text(kind: Option<RuntimeDialogNoticeKind>) -> &'static str {
+    match kind {
+        Some(RuntimeDialogNoticeKind::Hud) => "hud",
+        Some(RuntimeDialogNoticeKind::HudReliable) => "hud-rel",
+        Some(RuntimeDialogNoticeKind::ToastInfo) => "toast",
+        Some(RuntimeDialogNoticeKind::ToastWarning) => "warn",
+        None => "none",
+    }
+}
+
 fn scale_frame_pixels(frame: &WindowFrame, tile_pixels: usize) -> Vec<u32> {
     let tile_pixels = tile_pixels.max(1);
     let width = frame.width.max(1);
@@ -2109,6 +2155,9 @@ mod tests {
         assert!(frame
             .status_text
             .contains("menu:m16:fm17:h18:tin53@404:Digits/12345#16:n1:e1"));
+        assert!(frame.status_text.contains(
+            "dialog:p=input:a1:m16/f17/h18:tin53@404:Digits/Only_numbers/12345#16:n1:e1:n=warn@warn:c48"
+        ));
         assert!(frame
             .status_text
             .contains("admin:t56@123456:f76:dbg57/58@12:f231"));

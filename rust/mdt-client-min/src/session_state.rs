@@ -2502,6 +2502,15 @@ pub enum EntitySemanticProjection {
     WorldLabel(EntityWorldLabelSemanticProjection),
 }
 
+impl EntitySemanticProjection {
+    fn hidden_lifecycle_should_remove(&self) -> bool {
+        matches!(
+            self,
+            Self::Unit(_) | Self::Fire(_) | Self::Puddle(_) | Self::WeatherState(_)
+        )
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EntityUnitSemanticProjection {
     pub team_id: u8,
@@ -3696,7 +3705,7 @@ impl SessionState {
                             .by_entity_id
                             .get(entity_id)
                             .map(|entry| &entry.projection),
-                        Some(EntitySemanticProjection::Unit(_))
+                        Some(projection) if projection.hidden_lifecycle_should_remove()
                     )
             })
             .collect()

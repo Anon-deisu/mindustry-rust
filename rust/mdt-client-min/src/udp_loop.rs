@@ -65,7 +65,7 @@ impl UdpSessionDriver {
             }
         }
 
-        let actions = session.advance_time(now_ms)?;
+        let actions = session.advance_time_for_transport_scope(now_ms, false, true)?;
 
         for action in actions {
             match action {
@@ -223,14 +223,14 @@ mod tests {
             server.send_to(chunk, client_addr).unwrap();
         }
 
-        let error = driver.tick(&mut session, 1, 32).unwrap_err();
-        assert!(matches!(
-            error,
-            UdpLoopError::UnsupportedTransport(ClientPacketTransport::Tcp)
-        ));
+        let report = driver.tick(&mut session, 1, 32).unwrap();
+        assert!(report.inbound_packets >= 2);
+        assert_eq!(report.outbound_packets, 0);
+        assert_eq!(report.outbound_framework_messages, 1);
         assert!(session.state().world_stream_loaded);
         assert_eq!(session.state().world_map_width, 8);
         assert_eq!(session.state().world_map_height, 8);
+        assert!(session.state().connect_confirm_sent);
     }
 
     #[test]

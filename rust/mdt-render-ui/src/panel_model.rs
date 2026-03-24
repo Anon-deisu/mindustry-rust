@@ -192,6 +192,41 @@ pub struct RuntimeMenuPanelModel {
     pub text_input_last_allow_empty: Option<bool>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeDialogPromptKind {
+    Menu,
+    FollowUpMenu,
+    TextInput,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeDialogNoticeKind {
+    Hud,
+    HudReliable,
+    ToastInfo,
+    ToastWarning,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeDialogPanelModel {
+    pub prompt_kind: Option<RuntimeDialogPromptKind>,
+    pub prompt_active: bool,
+    pub menu_open_count: u64,
+    pub follow_up_menu_open_count: u64,
+    pub hide_follow_up_menu_count: u64,
+    pub text_input_open_count: u64,
+    pub text_input_last_id: Option<i32>,
+    pub text_input_last_title: Option<String>,
+    pub text_input_last_message: Option<String>,
+    pub text_input_last_default_text: Option<String>,
+    pub text_input_last_length: Option<i32>,
+    pub text_input_last_numeric: Option<bool>,
+    pub text_input_last_allow_empty: Option<bool>,
+    pub notice_kind: Option<RuntimeDialogNoticeKind>,
+    pub notice_text: Option<String>,
+    pub notice_count: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeAdminPanelModel {
     pub trace_info_count: u64,
@@ -623,6 +658,65 @@ pub fn build_runtime_menu_panel(hud: &HudModel) -> Option<RuntimeMenuPanelModel>
     })
 }
 
+pub fn build_runtime_dialog_panel(hud: &HudModel) -> Option<RuntimeDialogPanelModel> {
+    let runtime_ui = hud.runtime_ui.as_ref()?;
+    let prompt_kind = if runtime_ui.text_input.open_count > 0 {
+        Some(RuntimeDialogPromptKind::TextInput)
+    } else if runtime_ui.menu.follow_up_menu_open_count > runtime_ui.menu.hide_follow_up_menu_count
+    {
+        Some(RuntimeDialogPromptKind::FollowUpMenu)
+    } else if runtime_ui.menu.menu_open_count > 0 {
+        Some(RuntimeDialogPromptKind::Menu)
+    } else {
+        None
+    };
+    let notice_kind = if runtime_ui.toast.last_warning_text.is_some() {
+        Some(RuntimeDialogNoticeKind::ToastWarning)
+    } else if runtime_ui.toast.last_info_message.is_some() {
+        Some(RuntimeDialogNoticeKind::ToastInfo)
+    } else if runtime_ui.hud_text.last_reliable_message.is_some() {
+        Some(RuntimeDialogNoticeKind::HudReliable)
+    } else if runtime_ui.hud_text.last_message.is_some() {
+        Some(RuntimeDialogNoticeKind::Hud)
+    } else {
+        None
+    };
+    let notice_text = match notice_kind {
+        Some(RuntimeDialogNoticeKind::ToastWarning) => runtime_ui.toast.last_warning_text.clone(),
+        Some(RuntimeDialogNoticeKind::ToastInfo) => runtime_ui.toast.last_info_message.clone(),
+        Some(RuntimeDialogNoticeKind::HudReliable) => {
+            runtime_ui.hud_text.last_reliable_message.clone()
+        }
+        Some(RuntimeDialogNoticeKind::Hud) => runtime_ui.hud_text.last_message.clone(),
+        None => None,
+    };
+
+    Some(RuntimeDialogPanelModel {
+        prompt_kind,
+        prompt_active: runtime_ui.text_input.open_count > 0
+            || runtime_ui.menu.follow_up_menu_open_count > runtime_ui.menu.hide_follow_up_menu_count,
+        menu_open_count: runtime_ui.menu.menu_open_count,
+        follow_up_menu_open_count: runtime_ui.menu.follow_up_menu_open_count,
+        hide_follow_up_menu_count: runtime_ui.menu.hide_follow_up_menu_count,
+        text_input_open_count: runtime_ui.text_input.open_count,
+        text_input_last_id: runtime_ui.text_input.last_id,
+        text_input_last_title: runtime_ui.text_input.last_title.clone(),
+        text_input_last_message: runtime_ui.text_input.last_message.clone(),
+        text_input_last_default_text: runtime_ui.text_input.last_default_text.clone(),
+        text_input_last_length: runtime_ui.text_input.last_length,
+        text_input_last_numeric: runtime_ui.text_input.last_numeric,
+        text_input_last_allow_empty: runtime_ui.text_input.last_allow_empty,
+        notice_kind,
+        notice_text,
+        notice_count: runtime_ui
+            .hud_text
+            .set_count
+            .saturating_add(runtime_ui.hud_text.set_reliable_count)
+            .saturating_add(runtime_ui.toast.info_count)
+            .saturating_add(runtime_ui.toast.warning_count),
+    })
+}
+
 pub fn build_runtime_admin_panel(hud: &HudModel) -> Option<RuntimeAdminPanelModel> {
     let admin = &hud.runtime_ui.as_ref()?.admin;
     Some(RuntimeAdminPanelModel {
@@ -813,11 +907,12 @@ fn resolve_presenter_window(
 mod tests {
     use super::{
         build_build_config_panel, build_build_interaction_panel, build_minimap_panel,
-        build_runtime_admin_panel, build_runtime_live_effect_panel,
+        build_runtime_admin_panel, build_runtime_dialog_panel, build_runtime_live_effect_panel,
         build_runtime_live_entity_panel, build_runtime_menu_panel, build_runtime_rules_panel,
         build_runtime_session_panel, build_runtime_ui_notice_panel,
         build_runtime_world_label_panel, BuildInteractionAuthorityState, BuildInteractionMode,
         BuildInteractionQueueState, BuildInteractionSelectionState, PresenterViewWindow,
+        RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
     };
     use crate::{
         hud_model::{
@@ -1433,6 +1528,67 @@ mod tests {
         assert_eq!(panel.text_input_last_length, Some(16));
         assert_eq!(panel.text_input_last_numeric, Some(true));
         assert_eq!(panel.text_input_last_allow_empty, Some(true));
+    }
+
+    #[test]
+    fn builds_runtime_dialog_panel_prioritizes_text_input_and_warning_notice() {
+        let hud = HudModel {
+            runtime_ui: Some(RuntimeUiObservability {
+                hud_text: RuntimeHudTextObservability {
+                    set_count: 9,
+                    set_reliable_count: 10,
+                    hide_count: 11,
+                    last_message: Some("hud text".to_string()),
+                    last_reliable_message: Some("hud rel".to_string()),
+                },
+                toast: RuntimeToastObservability {
+                    info_count: 14,
+                    warning_count: 15,
+                    last_info_message: Some("toast".to_string()),
+                    last_warning_text: Some("warn".to_string()),
+                },
+                text_input: RuntimeTextInputObservability {
+                    open_count: 53,
+                    last_id: Some(404),
+                    last_title: Some("Digits".to_string()),
+                    last_message: Some("Only numbers".to_string()),
+                    last_default_text: Some("12345".to_string()),
+                    last_length: Some(16),
+                    last_numeric: Some(true),
+                    last_allow_empty: Some(true),
+                },
+                admin: RuntimeAdminObservability::default(),
+                menu: RuntimeMenuObservability {
+                    menu_open_count: 16,
+                    follow_up_menu_open_count: 17,
+                    hide_follow_up_menu_count: 18,
+                },
+                rules: RuntimeRulesObservability::default(),
+                world_labels: RuntimeWorldLabelObservability::default(),
+                session: RuntimeSessionObservability::default(),
+                live: RuntimeLiveSummaryObservability::default(),
+            }),
+            ..HudModel::default()
+        };
+
+        let panel = build_runtime_dialog_panel(&hud).expect("expected runtime dialog panel");
+
+        assert_eq!(panel.prompt_kind, Some(RuntimeDialogPromptKind::TextInput));
+        assert!(panel.prompt_active);
+        assert_eq!(panel.menu_open_count, 16);
+        assert_eq!(panel.follow_up_menu_open_count, 17);
+        assert_eq!(panel.hide_follow_up_menu_count, 18);
+        assert_eq!(panel.text_input_open_count, 53);
+        assert_eq!(panel.text_input_last_id, Some(404));
+        assert_eq!(panel.text_input_last_title.as_deref(), Some("Digits"));
+        assert_eq!(panel.text_input_last_message.as_deref(), Some("Only numbers"));
+        assert_eq!(panel.text_input_last_default_text.as_deref(), Some("12345"));
+        assert_eq!(panel.text_input_last_length, Some(16));
+        assert_eq!(panel.text_input_last_numeric, Some(true));
+        assert_eq!(panel.text_input_last_allow_empty, Some(true));
+        assert_eq!(panel.notice_kind, Some(RuntimeDialogNoticeKind::ToastWarning));
+        assert_eq!(panel.notice_text.as_deref(), Some("warn"));
+        assert_eq!(panel.notice_count, 48);
     }
 
     #[test]

@@ -294,7 +294,7 @@ if ($Stage) {
     }
 
     if ($stageExistingPaths.Count -gt 0) {
-        git -C $TargetCheckout add -- @stageExistingPaths
+        git -C $TargetCheckout add -f -- @stageExistingPaths
         if ($LASTEXITCODE -ne 0) {
             throw "git add failed for copied handoff paths in target checkout: $TargetCheckout"
         }

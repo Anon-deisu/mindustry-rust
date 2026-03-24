@@ -2378,6 +2378,15 @@ impl ClientSession {
         &mut self,
         now_ms: u64,
     ) -> Result<Vec<ClientSessionAction>, ClientSessionError> {
+        self.advance_time_for_transport_scope(now_ms, true, true)
+    }
+
+    pub(crate) fn advance_time_for_transport_scope(
+        &mut self,
+        now_ms: u64,
+        allow_tcp: bool,
+        allow_udp: bool,
+    ) -> Result<Vec<ClientSessionAction>, ClientSessionError> {
         self.clock_ms = now_ms;
         if self.timed_out || self.kicked {
             return Ok(Vec::new());
@@ -2409,9 +2418,19 @@ impl ClientSession {
         }
 
         let mut actions = Vec::new();
+        let interaction_ready = self.transport_scope_ready_for_interaction(allow_tcp, allow_udp);
 
-        if self.ready_for_interaction() {
+        if interaction_ready {
+            let mut retained_packets = VecDeque::new();
             while let Some(packet) = self.pending_packets.pop_front() {
+                let allowed = match packet.transport {
+                    ClientPacketTransport::Tcp => allow_tcp,
+                    ClientPacketTransport::Udp => allow_udp,
+                };
+                if !allowed {
+                    retained_packets.push_back(packet);
+                    continue;
+                }
                 self.record_outbound_activity(now_ms);
                 actions.push(ClientSessionAction::SendPacket {
                     packet_id: packet.packet_id,
@@ -2419,6 +2438,7 @@ impl ClientSession {
                     bytes: packet.bytes,
                 });
             }
+            self.pending_packets = retained_packets;
         }
 
         if self.should_send_keepalive(now_ms) {
@@ -2431,7 +2451,7 @@ impl ClientSession {
             actions.push(ClientSessionAction::SendFramework { message, bytes });
         }
 
-        if self.ready_for_interaction() && self.should_send_remote_ping(now_ms) {
+        if interaction_ready && allow_tcp && self.should_send_remote_ping(now_ms) {
             if let Some(packet_id) = self.ping_packet_id {
                 let payload = encode_ping_time_payload(now_ms);
                 let bytes = encode_packet(packet_id, &payload, false)?;
@@ -2445,7 +2465,7 @@ impl ClientSession {
             }
         }
 
-        if self.should_send_client_snapshot(now_ms) {
+        if interaction_ready && allow_udp && self.should_send_client_snapshot(now_ms) {
             let snapshot_id = self.next_client_snapshot_id;
             self.next_client_snapshot_id = self.next_client_snapshot_id.saturating_add(1);
             let payload =
@@ -2465,6 +2485,20 @@ impl ClientSession {
         }
 
         Ok(actions)
+    }
+
+    fn transport_scope_ready_for_interaction(&self, allow_tcp: bool, allow_udp: bool) -> bool {
+        if !self.ready_for_interaction() {
+            return false;
+        }
+
+        !self.pending_packets.iter().any(|packet| {
+            packet.packet_id == self.connect_confirm_packet_id
+                && match packet.transport {
+                    ClientPacketTransport::Tcp => !allow_tcp,
+                    ClientPacketTransport::Udp => !allow_udp,
+                }
+        })
     }
 
     pub fn ingest_packet_bytes(
@@ -28266,6 +28300,12 @@ mod tests {
             .find(|entry| entry.method == "connectConfirm")
             .unwrap()
             .packet_id;
+        let expected_ping_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "ping")
+            .unwrap()
+            .packet_id;
         match &actions[0] {
             ClientSessionAction::SendPacket {
                 packet_id,
@@ -28300,20 +28340,34 @@ mod tests {
             }
             other => panic!("expected queued connectConfirm packet, got {other:?}"),
         }
-        assert!(matches!(
-            &actions[2],
+        match &actions[2] {
             ClientSessionAction::SendPacket {
-                transport: ClientPacketTransport::Tcp,
-                ..
+                packet_id,
+                transport,
+                bytes,
+            } => {
+                assert_eq!(*packet_id, expected_ping_packet_id);
+                assert_eq!(*transport, ClientPacketTransport::Tcp);
+                let decoded = decode_packet(bytes).unwrap();
+                assert_eq!(decoded.packet_id, expected_ping_packet_id);
+                assert_eq!(decoded.payload, 1_000i64.to_be_bytes());
             }
-        ));
-        assert!(matches!(
-            &actions[3],
+            other => panic!("expected queued ping packet, got {other:?}"),
+        }
+        match &actions[3] {
             ClientSessionAction::SendPacket {
-                transport: ClientPacketTransport::Udp,
-                ..
+                packet_id,
+                transport,
+                bytes,
+            } => {
+                assert_eq!(*packet_id, session.client_snapshot_packet_id);
+                assert_eq!(*transport, ClientPacketTransport::Udp);
+                let decoded = decode_packet(bytes).unwrap();
+                assert_eq!(decoded.packet_id, session.client_snapshot_packet_id);
+                assert_eq!(&decoded.payload[0..4], &1i32.to_be_bytes());
             }
-        ));
+            other => panic!("expected queued client snapshot packet, got {other:?}"),
+        }
     }
 
     #[test]
@@ -28902,21 +28956,40 @@ mod tests {
                 ..
             } if *packet_id == expected_connect_confirm_packet_id
         ));
-        let post_queue = &actions[expected.len() + 1..];
-        assert!(post_queue.iter().any(|action| matches!(
-            action,
+        let expected_ping_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "ping")
+            .unwrap()
+            .packet_id;
+        match &actions[expected.len() + 1] {
             ClientSessionAction::SendPacket {
-                transport: ClientPacketTransport::Tcp,
-                ..
+                packet_id,
+                transport,
+                bytes,
+            } => {
+                assert_eq!(*packet_id, expected_ping_packet_id);
+                assert_eq!(*transport, ClientPacketTransport::Tcp);
+                let decoded = decode_packet(bytes).unwrap();
+                assert_eq!(decoded.packet_id, expected_ping_packet_id);
+                assert_eq!(decoded.payload, 1_000i64.to_be_bytes());
             }
-        )));
-        assert!(post_queue.iter().any(|action| matches!(
-            action,
+            other => panic!("expected queued ping packet, got {other:?}"),
+        }
+        match &actions[expected.len() + 2] {
             ClientSessionAction::SendPacket {
-                transport: ClientPacketTransport::Udp,
-                ..
+                packet_id,
+                transport,
+                bytes,
+            } => {
+                assert_eq!(*packet_id, session.client_snapshot_packet_id);
+                assert_eq!(*transport, ClientPacketTransport::Udp);
+                let decoded = decode_packet(bytes).unwrap();
+                assert_eq!(decoded.packet_id, session.client_snapshot_packet_id);
+                assert_eq!(&decoded.payload[0..4], &1i32.to_be_bytes());
             }
-        )));
+            other => panic!("expected queued client snapshot packet, got {other:?}"),
+        }
     }
 
     #[test]

@@ -1,8 +1,9 @@
 use crate::panel_model::{
     build_build_config_panel, build_build_interaction_panel, build_minimap_panel,
-    build_runtime_admin_panel, build_runtime_live_effect_panel, build_runtime_live_entity_panel,
-    build_runtime_menu_panel, build_runtime_rules_panel, build_runtime_session_panel,
-    build_runtime_ui_notice_panel, build_runtime_world_label_panel, PresenterViewWindow,
+    build_runtime_admin_panel, build_runtime_dialog_panel, build_runtime_live_effect_panel,
+    build_runtime_live_entity_panel, build_runtime_menu_panel, build_runtime_rules_panel,
+    build_runtime_session_panel, build_runtime_ui_notice_panel, build_runtime_world_label_panel,
+    PresenterViewWindow, RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
 };
 use crate::render_model::{RenderObjectSemanticFamily, RenderObjectSemanticKind};
 use crate::{HudModel, RenderModel, ScenePresenter};
@@ -103,6 +104,9 @@ impl AsciiScenePresenter {
         }
         if let Some(runtime_menu_text) = compose_runtime_menu_panel_text(hud) {
             out.push_str(&format!("RUNTIME-MENU: {runtime_menu_text}\n"));
+        }
+        if let Some(runtime_dialog_text) = compose_runtime_dialog_panel_text(hud) {
+            out.push_str(&format!("RUNTIME-DIALOG: {runtime_dialog_text}\n"));
         }
         if let Some(runtime_admin_text) = compose_runtime_admin_panel_text(hud) {
             out.push_str(&format!("RUNTIME-ADMIN: {runtime_admin_text}\n"));
@@ -386,6 +390,29 @@ fn compose_runtime_menu_panel_text(hud: &HudModel) -> Option<String> {
         panel.text_input_last_length.unwrap_or_default(),
         optional_bool_label(panel.text_input_last_numeric),
         optional_bool_label(panel.text_input_last_allow_empty),
+    ))
+}
+
+fn compose_runtime_dialog_panel_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_dialog_panel(hud)?;
+    Some(format!(
+        "prompt={} act={} menu={}/{}/{} tin={}@{}:{}/{}/{}#{}:n{}:e{} notice={}@{} total={}",
+        runtime_dialog_prompt_text(panel.prompt_kind),
+        if panel.prompt_active { 1 } else { 0 },
+        panel.menu_open_count,
+        panel.follow_up_menu_open_count,
+        panel.hide_follow_up_menu_count,
+        panel.text_input_open_count,
+        optional_i32_label(panel.text_input_last_id),
+        compact_runtime_ui_text(panel.text_input_last_title.as_deref()),
+        compact_runtime_ui_text(panel.text_input_last_message.as_deref()),
+        compact_runtime_ui_text(panel.text_input_last_default_text.as_deref()),
+        panel.text_input_last_length.unwrap_or_default(),
+        optional_bool_label(panel.text_input_last_numeric),
+        optional_bool_label(panel.text_input_last_allow_empty),
+        runtime_dialog_notice_text(panel.notice_kind),
+        compact_runtime_ui_text(panel.notice_text.as_deref()),
+        panel.notice_count,
     ))
 }
 
@@ -1176,6 +1203,25 @@ fn optional_bool_label(value: Option<bool>) -> char {
     }
 }
 
+fn runtime_dialog_prompt_text(kind: Option<RuntimeDialogPromptKind>) -> &'static str {
+    match kind {
+        Some(RuntimeDialogPromptKind::Menu) => "menu",
+        Some(RuntimeDialogPromptKind::FollowUpMenu) => "follow",
+        Some(RuntimeDialogPromptKind::TextInput) => "input",
+        None => "none",
+    }
+}
+
+fn runtime_dialog_notice_text(kind: Option<RuntimeDialogNoticeKind>) -> &'static str {
+    match kind {
+        Some(RuntimeDialogNoticeKind::Hud) => "hud",
+        Some(RuntimeDialogNoticeKind::HudReliable) => "hud-rel",
+        Some(RuntimeDialogNoticeKind::ToastInfo) => "toast",
+        Some(RuntimeDialogNoticeKind::ToastWarning) => "warn",
+        None => "none",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::AsciiScenePresenter;
@@ -1742,6 +1788,9 @@ mod tests {
         ));
         assert!(frame
             .contains("RUNTIME-MENU: menu=16 fmenu=17 hide=18 tin=53@404:Digits/12345#16:n1:e1"));
+        assert!(frame.contains(
+            "RUNTIME-DIALOG: prompt=input act=1 menu=16/17/18 tin=53@404:Digits/Only_numbers/12345#16:n1:e1 notice=warn@warn total=48"
+        ));
         assert!(frame.contains("RUNTIME-ADMIN: trace=56@123456 fail=76 dbg=57/58@12 fail=231"));
         assert!(frame.contains(
             "RUNTIME-RULES: mut=354 fail=210 set=67/69/71 clear=73 complete=74 state=wv1:pvp0 obj=2 qual=1 parents=1 flags=2 oor=75 last=9"

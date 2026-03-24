@@ -1,11 +1,15 @@
 use std::collections::BTreeMap;
 
 mod object;
+mod unit_sync;
 
 pub use object::{
     read_object, read_object_prefix, write_object, TypeIoEffectPositionHint, TypeIoEffectSummary,
     TypeIoEffectSummaryBudget, TypeIoObject, TypeIoObjectMatch, TypeIoReadError,
     TypeIoSemanticMatch, TypeIoSemanticRef,
+};
+pub use unit_sync::{
+    read_weapon_mounts, read_weapon_mounts_prefix, write_weapon_mounts, WeaponMountRaw,
 };
 
 pub const CONVEYOR_BLOCK_ID: i16 = 0x0101;

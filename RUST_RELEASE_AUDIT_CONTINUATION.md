@@ -262,7 +262,7 @@ This document tracks release-readiness audit continuation for the Rust deliverab
   - verified locally:
     - `cargo test --manifest-path rust\mdt-input\Cargo.toml`
     - `cargo test --manifest-path rust\mdt-client-min\Cargo.toml`
-  - current status: `mdt-input` `52` tests green; `mdt-client-min` `411 + 136` tests green after the lifecycle/command-mode stabilization pass.
+  - current status: `mdt-input` `52` tests green; `mdt-client-min` `412 + 141` tests green after the lifecycle/command-mode/hiddenSnapshot stabilization pass.
 
 - `mdt-world` additive world-tail closure:
   - `duct-unloader` now parses as structured `DuctUnloaderTailSnapshot { item_id, offset }` instead of falling back to `Unknown`.
@@ -559,8 +559,34 @@ Use:
 - `mdt-render-ui` now preserves authoritative `view_window` through projection/presenter/minimap paths.
   - already-windowed render models are no longer expanded back out by presenter-local fallback logic.
 
+- `hiddenSnapshot` cleanup now goes beyond non-local `Unit` rows.
+  - `snapshot_ingest.rs` / `session_state.rs` now also prune non-local known runtime-owned `Fire` / `Puddle` / `WeatherState` rows while still keeping `WorldLabel` conservative.
+  - this narrows `handleSyncHidden()` parity risk without claiming Java-equivalent live group ownership.
+
+- `mdt-client-min-online` now has explicit command-mode CLI/runtime seed controls.
+  - new flags: `--command-mode-bind-group`, `--command-mode-recall-group`, `--command-mode-clear-group`, `--command-mode-rect`.
+  - runtime command-mode seed ops are replayed after `WorldDataBegin`, connect redirect, and server-restart reconnect clears so local command-mode setup is not silently lost on map/reconnect boundaries.
+
+- `mdt-render-ui` now has a user-visible runtime dialog summary layer.
+  - `panel_model` folds `menu` / `follow-up menu` / `text input` / `hud text` / `toast` into one `RuntimeDialogPanelModel`.
+  - `ascii_presenter` emits `RUNTIME-DIALOG:` and `window_presenter` adds a compact `dialog:` status slice.
+
+- `mdt-world` now has a post-load activation preflight helper.
+  - `save_post_load_activation.rs` exposes `SavePostLoadActivationSurface` with loadable/skipped entity candidates, unresolved remap names, building-center reference validity, and `can_seed_runtime_apply()`.
+  - this still stops below Java `NetworkIO.loadWorld(...) -> finishConnecting()` live world/entity apply.
+
+- `mdt-typeio` now has raw `WeaponMount[]` codec coverage.
+  - `unit_sync.rs` exposes `WeaponMountRaw`, `write_weapon_mounts`, `read_weapon_mounts`, and `read_weapon_mounts_prefix`.
+  - this narrows the non-object `TypeIO` gap for unit sync without claiming broader `abilities/status` parity.
+
 - Local verification evidence for this landing batch:
   - `cargo test --manifest-path rust\\mdt-client-min\\Cargo.toml typed_dispatch_ --lib`
   - `cargo test --manifest-path rust\\mdt-client-min\\Cargo.toml tile_config_`
   - `cargo test --manifest-path rust\\mdt-client-min\\Cargo.toml construct_finish_packet_reconciles_pending_tile_config_intent`
+  - `cargo test --manifest-path rust\\mdt-client-min\\Cargo.toml hidden_snapshot_`
+  - `cargo test --manifest-path rust\\mdt-client-min\\Cargo.toml parse_args_accepts_command_mode`
+  - `cargo test --manifest-path rust\\mdt-client-min\\Cargo.toml runtime_command_mode_cli_updates_projection`
   - `cargo test --manifest-path rust\\mdt-client-min\\Cargo.toml`
+  - `cargo test --manifest-path rust\\mdt-render-ui\\Cargo.toml`
+  - `cargo test --manifest-path rust\\mdt-world\\Cargo.toml activation_surface_`
+  - `cargo test --manifest-path rust\\mdt-typeio\\Cargo.toml weapon_mounts`

@@ -26,7 +26,9 @@ These are already landed and should not be re-opened as if missing:
     - `bridge-conveyor` / `phase-conveyor`
     - `illuminator`
     - `switch` / `world-switch`
-- `hiddenSnapshot` lifecycle delete is already narrowed to known non-local `Unit` semantics instead of deleting every non-local hidden entity row.
+- `hiddenSnapshot` lifecycle delete is already narrowed to known runtime-owned non-local semantics instead of deleting every hidden entity row.
+  - current cleanup now covers non-local `Unit` / `Fire` / `Puddle` / `WeatherState`
+  - `WorldLabel` is still intentionally preserved as a conservative boundary
 - `effect(..., data)` runtime overlay already consumes the `float_length` contract for ray-endpoint projection.
 - `tileConfig` authority reconcile is no longer a single-value last-write-only pending model.
   - per-building local intents now keep FIFO request order
@@ -39,7 +41,17 @@ These are already landed and should not be re-opened as if missing:
 - minimal command-mode state container is already landed.
   - `mdt-input` now carries `CommandModeState` / `CommandModeProjection` with selected-units, command-buildings, command-rect, control-groups, and last target/command/stance selections
   - `mdt-client-min-online` runtime outbound action sync now updates that container instead of keeping command-mode as packet-observability-only state
-  - remaining work is real input binding depth and richer command/build UI flow, not re-adding the state container baseline
+  - CLI/runtime seed controls for bind/recall/clear-group and rect are also landed, including replay after world reload/reconnect clears
+  - remaining work is richer live input binding and command/build UI flow, not re-adding the state container baseline
+- `mdt-world` post-load activation preflight is already landed.
+  - `SavePostLoadActivationSurface` exposes loadable/skipped entity candidates, unresolved remap names, building-center reference validity, and `can_seed_runtime_apply()`
+  - remaining work is consuming that surface for Java-like live world/entity activation
+- `mdt-typeio` raw `WeaponMount[]` codec is already landed.
+  - remaining non-object codec gap is now more about `abilities/status` and wider unit-sync families than mounts specifically
+- `mdt-render-ui` runtime dialog summary is already landed.
+  - prompt priority: `text input > follow-up menu > menu`
+  - notice priority: `warning toast > info toast > reliable hud > hud`
+  - remaining gap is richer chat/dialog UI interaction, not re-adding a first dialog summary layer
 
 ## Highest-Confidence Remaining Lanes
 
@@ -60,7 +72,7 @@ Write scope:
 ### U2 `hiddenSnapshot` deeper hidden/runtime semantics
 
 Remaining gap:
-- Rust has latest-trigger/delta tracking, hidden blocking, and conservative non-local `Unit` cleanup, but still not Java-equivalent `handleSyncHidden()` depth.
+- Rust has latest-trigger/delta tracking, hidden blocking, and conservative cleanup for known runtime-owned non-local `Unit` / `Fire` / `Puddle` / `WeatherState`, but still not Java-equivalent `handleSyncHidden()` depth.
 
 Best bounded next slice:
 - improve hidden apply semantics without touching `worldDataBegin`, reconnect, or packet defer/replay

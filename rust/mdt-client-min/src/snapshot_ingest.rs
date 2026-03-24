@@ -772,11 +772,13 @@ mod tests {
     use crate::session_state::{
         AppliedBlockSnapshotEnvelope, AppliedHiddenSnapshotIds, AppliedStateSnapshotCoreData,
         AppliedStateSnapshotCoreDataItem, AppliedStateSnapshotCoreDataTeam,
-        AuthoritativeStateMirror, BlockSnapshotHeadProjection, EntityProjection,
-        EntitySemanticProjection, EntitySemanticProjectionEntry, EntityUnitSemanticProjection,
-        EntityWorldLabelSemanticProjection, GameplayStateProjection, HiddenSnapshotDeltaProjection,
-        PayloadLifecycleCarrierProjection, ResourceUnitItemStack, SessionState,
-        StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection, UnitRefProjection,
+        AuthoritativeStateMirror, BlockSnapshotHeadProjection, EntityFireSemanticProjection,
+        EntityProjection, EntityPuddleSemanticProjection, EntitySemanticProjection,
+        EntitySemanticProjectionEntry, EntityUnitSemanticProjection,
+        EntityWeatherStateSemanticProjection, EntityWorldLabelSemanticProjection,
+        GameplayStateProjection, HiddenSnapshotDeltaProjection, PayloadLifecycleCarrierProjection,
+        ResourceUnitItemStack, SessionState, StateSnapshotAuthorityProjection,
+        StateSnapshotBusinessProjection, UnitRefProjection,
     };
     use mdt_remote::HighFrequencyRemoteMethod;
     use std::collections::BTreeMap;
@@ -2250,6 +2252,113 @@ mod tests {
         assert!(state.entity_table_projection.by_entity_id[&101].hidden);
         assert_eq!(state.entity_table_projection.hidden_apply_count, 2);
         assert_eq!(state.entity_table_projection.hidden_count, 1);
+    }
+
+    #[test]
+    fn hidden_snapshot_removes_known_runtime_owned_non_unit_rows() {
+        let payload = [
+            0x00, 0x00, 0x00, 0x03, // count
+            0x00, 0x00, 0x01, 0x2F, // 303 fire
+            0x00, 0x00, 0x01, 0x94, // 404 puddle
+            0x00, 0x00, 0x01, 0xF9, // 505 weather
+        ];
+        let mut state = SessionState::default();
+
+        for (entity_id, class_id, x_bits, y_bits) in [
+            (303, 10, 1.0f32.to_bits(), 2.0f32.to_bits()),
+            (404, 13, 3.0f32.to_bits(), 4.0f32.to_bits()),
+            (505, 14, 5.0f32.to_bits(), 6.0f32.to_bits()),
+        ] {
+            state.entity_table_projection.by_entity_id.insert(
+                entity_id,
+                EntityProjection {
+                    class_id,
+                    hidden: false,
+                    is_local_player: false,
+                    unit_kind: 0,
+                    unit_value: 0,
+                    x_bits,
+                    y_bits,
+                    last_seen_entity_snapshot_count: 1,
+                },
+            );
+        }
+        state.entity_semantic_projection.by_entity_id.insert(
+            303,
+            EntitySemanticProjectionEntry {
+                class_id: 10,
+                last_seen_entity_snapshot_count: 1,
+                projection: EntitySemanticProjection::Fire(EntityFireSemanticProjection {
+                    tile_pos: 77,
+                    lifetime_bits: 8.0f32.to_bits(),
+                    time_bits: 9.0f32.to_bits(),
+                }),
+            },
+        );
+        state.entity_semantic_projection.by_entity_id.insert(
+            404,
+            EntitySemanticProjectionEntry {
+                class_id: 13,
+                last_seen_entity_snapshot_count: 1,
+                projection: EntitySemanticProjection::Puddle(EntityPuddleSemanticProjection {
+                    tile_pos: 88,
+                    liquid_id: 4,
+                    amount_bits: 1.5f32.to_bits(),
+                }),
+            },
+        );
+        state.entity_semantic_projection.by_entity_id.insert(
+            505,
+            EntitySemanticProjectionEntry {
+                class_id: 14,
+                last_seen_entity_snapshot_count: 1,
+                projection: EntitySemanticProjection::WeatherState(
+                    EntityWeatherStateSemanticProjection {
+                        weather_id: 6,
+                        intensity_bits: 0.5f32.to_bits(),
+                        life_bits: 2.5f32.to_bits(),
+                        opacity_bits: 0.75f32.to_bits(),
+                        wind_x_bits: 1.25f32.to_bits(),
+                        wind_y_bits: 1.75f32.to_bits(),
+                    },
+                ),
+            },
+        );
+
+        ingest_inbound_snapshot(
+            &mut state,
+            InboundSnapshot::new(HighFrequencyRemoteMethod::HiddenSnapshot, 11, &payload),
+        );
+
+        assert!(!state
+            .entity_table_projection
+            .by_entity_id
+            .contains_key(&303));
+        assert!(!state
+            .entity_table_projection
+            .by_entity_id
+            .contains_key(&404));
+        assert!(!state
+            .entity_table_projection
+            .by_entity_id
+            .contains_key(&505));
+        assert!(!state
+            .entity_semantic_projection
+            .by_entity_id
+            .contains_key(&303));
+        assert!(!state
+            .entity_semantic_projection
+            .by_entity_id
+            .contains_key(&404));
+        assert!(!state
+            .entity_semantic_projection
+            .by_entity_id
+            .contains_key(&505));
+        assert_eq!(state.hidden_lifecycle_remove_count, 3);
+        assert_eq!(
+            state.last_hidden_lifecycle_removed_ids_sample,
+            vec![303, 404, 505]
+        );
     }
 
     #[test]
