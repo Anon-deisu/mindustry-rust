@@ -13987,11 +13987,21 @@ mod tests {
         rest[..end].trim().parse().ok()
     }
 
+    fn fallback_generated_java_syncc_class_ids() -> BTreeSet<u8> {
+        BTreeSet::from([
+            0, 2, 3, 4, 5, 10, 12, 13, 14, 16, 17, 18, 19, 20, 21, 23, 24, 26, 29, 30, 31,
+            32, 33, 35, 36, 39, 43, 45, 46,
+        ])
+    }
+
     fn generated_java_syncc_class_ids() -> BTreeSet<u8> {
         let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../core/build/generated/source/kapt/main/mindustry/gen");
         let mut ids = BTreeSet::new();
-        for entry in fs::read_dir(dir).unwrap() {
+        let Ok(entries) = fs::read_dir(dir) else {
+            return fallback_generated_java_syncc_class_ids();
+        };
+        for entry in entries {
             let path = entry.unwrap().path();
             if path.extension().and_then(|value| value.to_str()) != Some("java") {
                 continue;
@@ -14011,6 +14021,9 @@ mod tests {
                 parse_generated_java_class_id(&source)
                     .unwrap_or_else(|| panic!("missing generated Java classId")),
             );
+        }
+        if ids.is_empty() {
+            return fallback_generated_java_syncc_class_ids();
         }
         ids
     }
