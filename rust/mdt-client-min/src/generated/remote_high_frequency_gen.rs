@@ -253,12 +253,13 @@ pub const BLOCK_SNAPSHOT_WIRE_PARAMS: &[HighFrequencyRemoteParamSpec] = &[
     },
 ];
 
-pub const HIDDEN_SNAPSHOT_WIRE_PARAMS: &[HighFrequencyRemoteParamSpec] =
-    &[HighFrequencyRemoteParamSpec {
+pub const HIDDEN_SNAPSHOT_WIRE_PARAMS: &[HighFrequencyRemoteParamSpec] = &[
+    HighFrequencyRemoteParamSpec {
         name: "ids",
         java_type: "arc.struct.IntSeq",
         kind: RemoteParamKind::IntSeq,
-    }];
+    },
+];
 
 pub const HIGH_FREQUENCY_REMOTE_PACKET_SPECS: &[HighFrequencyRemotePacketSpec] = &[
     HighFrequencyRemotePacketSpec {
