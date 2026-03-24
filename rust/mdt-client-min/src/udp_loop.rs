@@ -186,7 +186,7 @@ mod tests {
     }
 
     #[test]
-    fn drives_connect_and_world_stream_over_udp() {
+    fn world_stream_ready_over_udp_surfaces_pending_tcp_connect_confirm() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let timing = ClientSessionTiming {
             keepalive_interval_ms: 60_000,

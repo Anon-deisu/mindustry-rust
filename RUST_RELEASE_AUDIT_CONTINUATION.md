@@ -254,6 +254,15 @@ This document tracks release-readiness audit continuation for the Rust deliverab
 
 ## 2026-03-24 Additive Progress Update
 
+- lifecycle/input stabilization update:
+  - `mdt-input` command-mode state is now explicit in `rust/mdt-input/src/command_mode.rs`, including selected units/buildings, rect selection, control groups, and last target/command/stance selections; `mdt-client-min-online` runtime outbound action sync now writes into that state instead of keeping only last-packet facts.
+  - `mdt-client-min` `mark_client_loaded()` now auto-queues `connectConfirm` through the normal pending-packet path once the world becomes ready, while `prepare_connect_confirm_packet()` reuses queued bytes if the confirm is already pending.
+  - lifecycle regression expectations were updated for the new ready-state action ordering, including queued gameplay/chat actions and the standalone UDP driver test surface.
+  - verified locally:
+    - `cargo test --manifest-path rust\mdt-input\Cargo.toml`
+    - `cargo test --manifest-path rust\mdt-client-min\Cargo.toml`
+  - current status: `mdt-input` `52` tests green; `mdt-client-min` `411 + 136` tests green after the lifecycle/command-mode stabilization pass.
+
 - `mdt-world` additive world-tail closure:
   - `duct-unloader` now parses as structured `DuctUnloaderTailSnapshot { item_id, offset }` instead of falling back to `Unknown`.
   - `memory-cell` / `memory-bank` now parse as structured `MemoryTailSnapshot { len, values_bits }`, preserving raw `double` bit patterns for fail-closed parity-safe inspection rather than speculating on higher-level memory semantics.

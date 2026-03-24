@@ -28260,6 +28260,12 @@ mod tests {
 
         let actions = session.advance_time(1_000).unwrap();
         assert_eq!(actions.len(), 4);
+        let expected_connect_confirm_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "connectConfirm")
+            .unwrap()
+            .packet_id;
         match &actions[0] {
             ClientSessionAction::SendPacket {
                 packet_id,
@@ -28280,13 +28286,20 @@ mod tests {
             }
             other => panic!("expected queued chat packet, got {other:?}"),
         }
-        assert!(matches!(
-            &actions[1],
+        match &actions[1] {
             ClientSessionAction::SendPacket {
-                transport: ClientPacketTransport::Tcp,
-                ..
+                packet_id,
+                transport,
+                bytes,
+            } => {
+                assert_eq!(*packet_id, expected_connect_confirm_packet_id);
+                assert_eq!(*transport, ClientPacketTransport::Tcp);
+                let decoded = decode_packet(bytes).unwrap();
+                assert_eq!(decoded.packet_id, expected_connect_confirm_packet_id);
+                assert!(decoded.payload.is_empty());
             }
-        ));
+            other => panic!("expected queued connectConfirm packet, got {other:?}"),
+        }
         assert!(matches!(
             &actions[2],
             ClientSessionAction::SendPacket {
@@ -28850,6 +28863,12 @@ mod tests {
             ),
         ];
         assert!(actions.len() >= expected.len() + 3);
+        let expected_connect_confirm_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "connectConfirm")
+            .unwrap()
+            .packet_id;
 
         for (action, (method, expected_transport, expected_payload)) in
             actions.iter().zip(expected.iter())
@@ -28878,24 +28897,26 @@ mod tests {
         assert!(matches!(
             &actions[expected.len()],
             ClientSessionAction::SendPacket {
+                packet_id,
                 transport: ClientPacketTransport::Tcp,
                 ..
-            }
+            } if *packet_id == expected_connect_confirm_packet_id
         ));
-        assert!(matches!(
-            &actions[expected.len() + 1],
+        let post_queue = &actions[expected.len() + 1..];
+        assert!(post_queue.iter().any(|action| matches!(
+            action,
             ClientSessionAction::SendPacket {
                 transport: ClientPacketTransport::Tcp,
                 ..
             }
-        ));
-        assert!(matches!(
-            &actions[expected.len() + 2],
+        )));
+        assert!(post_queue.iter().any(|action| matches!(
+            action,
             ClientSessionAction::SendPacket {
                 transport: ClientPacketTransport::Udp,
                 ..
             }
-        ));
+        )));
     }
 
     #[test]

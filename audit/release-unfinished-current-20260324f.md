@@ -36,6 +36,10 @@ These are already landed and should not be re-opened as if missing:
   - `mdt-remote` now exposes `payload_kind()` for inbound custom-channel families
   - `mdt-client-min` now has typed inbound dispatch specs and `typed_remote_dispatch.rs` helper coverage
   - remaining work is live session/business adoption, not re-adding the typed metadata layer
+- minimal command-mode state container is already landed.
+  - `mdt-input` now carries `CommandModeState` / `CommandModeProjection` with selected-units, command-buildings, command-rect, control-groups, and last target/command/stance selections
+  - `mdt-client-min-online` runtime outbound action sync now updates that container instead of keeping command-mode as packet-observability-only state
+  - remaining work is real input binding depth and richer command/build UI flow, not re-adding the state container baseline
 
 ## Highest-Confidence Remaining Lanes
 
@@ -110,8 +114,8 @@ Write scope:
 ### U6 `finishConnecting` / `clientLoaded` lifecycle parity
 
 Remaining gap:
-- `mark_client_loaded()` now fail-closes deferred replay and auto-queues `connectConfirm` once the world becomes ready, so the old gap is no longer "whether Rust sends `connectConfirm` through the normal queue".
-- the remaining gap is narrower: deeper Java-equivalent transport/lifecycle atomicity across `finishConnecting`, replay side effects, reconnect edges, and higher-layer UI/runtime assumptions about when the queued `connectConfirm` is actually flushed.
+- `mark_client_loaded()` now fail-closes deferred replay and auto-queues `connectConfirm` once the world becomes ready, and the resulting ready-state action ordering has been regression-revalidated across the full current `mdt-client-min` suite.
+- the remaining gap is narrower: deeper Java-equivalent transport/lifecycle atomicity across `finishConnecting`, replay side effects, reconnect edges, split-driver transport coordination, and higher-layer UI/runtime assumptions about when the queued `connectConfirm` is actually flushed.
 
 Best bounded next slice:
 - keep this serial-only and do not mix with snapshot/entity/world ownership work

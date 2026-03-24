@@ -13,11 +13,11 @@ Purpose: freeze the highest-signal remaining input/render/UI gaps so later worke
   - Rust anchor: `rust/mdt-client-min/src/bin/mdt-client-min-online.rs`
   - Current state: Rust now has one-shot live-intent schedule override instead of sticky schedule-only behavior, but still lacks real keyboard/mouse/touch capture.
 
-- command-mode state container is still missing.
+- command-mode runtime state is now present, but real input/UI ownership is still thin.
   - Java anchor: command selection/control state in desktop/mobile input paths
-  - Rust anchor: `rust/mdt-client-min/src/client_session.rs`
-  - Rust anchor: `rust/mdt-input/`
-  - Current state: Rust can emit command packets and keep last-observed command facts, but not Java-like `selectedUnits` / `commandBuildings` / `commandRect` / control-group state.
+  - Rust anchor: `rust/mdt-client-min/src/bin/mdt-client-min-online.rs`
+  - Rust anchor: `rust/mdt-input/src/command_mode.rs`
+  - Current state: Rust now keeps `selected_units` / `command_buildings` / `command_rect` / control_groups plus recent target/command/stance selections, but still lacks Java-like live selection gestures, richer command rectangle ownership, and integrated command UI flow.
 
 - build placement/config interaction chain is still mostly read-only.
   - Java anchor: `core/src/mindustry/ui/fragments/PlacementFragment.java`
@@ -49,5 +49,5 @@ Purpose: freeze the highest-signal remaining input/render/UI gaps so later worke
 ## Immediate Next 3
 
 - add a real runtime input adapter/binding profile on top of `LiveIntentState`
-- add a minimal command-mode state container instead of last-packet observability only
+- deepen live command-mode input/UI behavior on top of the landed state container
 - add interactive build/config UI flow rather than only panel/readout summaries
