@@ -95,28 +95,38 @@ impl RuntimeCustomPacketSurfaceState {
         let Some(routes) = self.text_routes.get_mut(key) else {
             return;
         };
+        let mut next_update_serial = self.next_update_serial;
+        let mut queued_lines = Vec::with_capacity(routes.len());
         for route in routes {
             route.handler_count = route.handler_count.saturating_add(1);
             match render_text_surface(route.semantic, text) {
                 Ok(rendered) => {
-                    self.apply_rendered_surface_value(
-                        RuntimeCustomPacketSemanticEncoding::Text,
-                        key,
-                        route,
-                        rendered,
-                    );
+                    next_update_serial = next_update_serial.saturating_add(1);
+                    route.last_overlay_value = Some(rendered.overlay_value.clone());
+                    route.last_stable_value = Some(rendered.stable_value.clone());
+                    route.last_update_serial = next_update_serial;
+                    queued_lines.push(format!(
+                        "runtime_custom_packet_surface_update: encoding={} key={key:?} semantic={} count={} {}",
+                        encoding_label(RuntimeCustomPacketSemanticEncoding::Text),
+                        semantic_label(route.semantic),
+                        route.handler_count,
+                        rendered.detail
+                    ));
                 }
                 Err(reason) => {
-                    self.record_decode_error(
-                        RuntimeCustomPacketSemanticEncoding::Text,
-                        key,
-                        route,
-                        reason,
+                    route.decode_error_count = route.decode_error_count.saturating_add(1);
+                    queued_lines.push(format!(
+                        "runtime_custom_packet_surface_decode_error: encoding={} key={key:?} semantic={} count={} reason={reason:?} preview={:?}",
+                        encoding_label(RuntimeCustomPacketSemanticEncoding::Text),
+                        semantic_label(route.semantic),
+                        route.decode_error_count,
                         truncate_for_preview(&text.escape_default().to_string(), 96),
-                    );
+                    ));
                 }
             }
         }
+        self.next_update_serial = next_update_serial;
+        self.pending_lines.extend(queued_lines);
     }
 
     fn record_binary_handler(&mut self, key: &str, bytes: &[u8]) {
@@ -124,11 +134,13 @@ impl RuntimeCustomPacketSurfaceState {
             return;
         };
         let text = std::str::from_utf8(bytes).ok();
+        let mut next_update_serial = self.next_update_serial;
+        let mut queued_lines = Vec::with_capacity(routes.len());
         for route in routes {
             route.handler_count = route.handler_count.saturating_add(1);
             let Some(text) = text else {
                 route.decode_error_count = route.decode_error_count.saturating_add(1);
-                self.pending_lines.push_back(format!(
+                queued_lines.push(format!(
                     "runtime_custom_packet_surface_decode_error: encoding=binary key={key:?} semantic={} count={} reason=\"invalid_utf8\" len={} hex_prefix={}",
                     semantic_label(route.semantic),
                     route.decode_error_count,
@@ -139,24 +151,32 @@ impl RuntimeCustomPacketSurfaceState {
             };
             match render_text_surface(route.semantic, text) {
                 Ok(rendered) => {
-                    self.apply_rendered_surface_value(
-                        RuntimeCustomPacketSemanticEncoding::Binary,
-                        key,
-                        route,
-                        rendered,
-                    );
+                    next_update_serial = next_update_serial.saturating_add(1);
+                    route.last_overlay_value = Some(rendered.overlay_value.clone());
+                    route.last_stable_value = Some(rendered.stable_value.clone());
+                    route.last_update_serial = next_update_serial;
+                    queued_lines.push(format!(
+                        "runtime_custom_packet_surface_update: encoding={} key={key:?} semantic={} count={} {}",
+                        encoding_label(RuntimeCustomPacketSemanticEncoding::Binary),
+                        semantic_label(route.semantic),
+                        route.handler_count,
+                        rendered.detail
+                    ));
                 }
                 Err(reason) => {
-                    self.record_decode_error(
-                        RuntimeCustomPacketSemanticEncoding::Binary,
-                        key,
-                        route,
-                        reason,
+                    route.decode_error_count = route.decode_error_count.saturating_add(1);
+                    queued_lines.push(format!(
+                        "runtime_custom_packet_surface_decode_error: encoding={} key={key:?} semantic={} count={} reason={reason:?} preview={:?}",
+                        encoding_label(RuntimeCustomPacketSemanticEncoding::Binary),
+                        semantic_label(route.semantic),
+                        route.decode_error_count,
                         truncate_for_preview(&text.escape_default().to_string(), 96),
-                    );
+                    ));
                 }
             }
         }
+        self.next_update_serial = next_update_serial;
+        self.pending_lines.extend(queued_lines);
     }
 
     fn record_logic_data_handler(
@@ -168,6 +188,8 @@ impl RuntimeCustomPacketSurfaceState {
         let Some(routes) = self.logic_routes.get_mut(key) else {
             return;
         };
+        let mut next_update_serial = self.next_update_serial;
+        let mut queued_lines = Vec::with_capacity(routes.len());
         for route in routes {
             route.handler_count = route.handler_count.saturating_add(1);
             match render_logic_surface(route.semantic, value) {
@@ -177,16 +199,21 @@ impl RuntimeCustomPacketSurfaceState {
                         logic_data_transport_label(transport),
                         rendered.detail
                     );
-                    self.apply_rendered_surface_value(
-                        RuntimeCustomPacketSemanticEncoding::LogicData,
-                        key,
-                        route,
-                        rendered,
-                    );
+                    next_update_serial = next_update_serial.saturating_add(1);
+                    route.last_overlay_value = Some(rendered.overlay_value.clone());
+                    route.last_stable_value = Some(rendered.stable_value.clone());
+                    route.last_update_serial = next_update_serial;
+                    queued_lines.push(format!(
+                        "runtime_custom_packet_surface_update: encoding={} key={key:?} semantic={} count={} {}",
+                        encoding_label(RuntimeCustomPacketSemanticEncoding::LogicData),
+                        semantic_label(route.semantic),
+                        route.handler_count,
+                        rendered.detail
+                    ));
                 }
                 Err(reason) => {
                     route.decode_error_count = route.decode_error_count.saturating_add(1);
-                    self.pending_lines.push_back(format!(
+                    queued_lines.push(format!(
                         "runtime_custom_packet_surface_decode_error: encoding=logic key={key:?} semantic={} count={} transport={} reason={reason:?} kind={:?} preview={:?}",
                         semantic_label(route.semantic),
                         route.decode_error_count,
@@ -197,43 +224,8 @@ impl RuntimeCustomPacketSurfaceState {
                 }
             }
         }
-    }
-
-    fn apply_rendered_surface_value(
-        &mut self,
-        encoding: RuntimeCustomPacketSemanticEncoding,
-        key: &str,
-        route: &mut RuntimeCustomPacketSurfaceRouteState,
-        rendered: RenderedSurfaceValue,
-    ) {
-        self.next_update_serial = self.next_update_serial.saturating_add(1);
-        route.last_overlay_value = Some(rendered.overlay_value.clone());
-        route.last_stable_value = Some(rendered.stable_value.clone());
-        route.last_update_serial = self.next_update_serial;
-        self.pending_lines.push_back(format!(
-            "runtime_custom_packet_surface_update: encoding={} key={key:?} semantic={} count={} {}",
-            encoding_label(encoding),
-            semantic_label(route.semantic),
-            route.handler_count,
-            rendered.detail
-        ));
-    }
-
-    fn record_decode_error(
-        &mut self,
-        encoding: RuntimeCustomPacketSemanticEncoding,
-        key: &str,
-        route: &mut RuntimeCustomPacketSurfaceRouteState,
-        reason: &'static str,
-        preview: String,
-    ) {
-        route.decode_error_count = route.decode_error_count.saturating_add(1);
-        self.pending_lines.push_back(format!(
-            "runtime_custom_packet_surface_decode_error: encoding={} key={key:?} semantic={} count={} reason={reason:?} preview={preview:?}",
-            encoding_label(encoding),
-            semantic_label(route.semantic),
-            route.decode_error_count
-        ));
+        self.next_update_serial = next_update_serial;
+        self.pending_lines.extend(queued_lines);
     }
 
     fn observe_events(&mut self, events: &[ClientSessionEvent]) {
@@ -251,17 +243,35 @@ impl RuntimeCustomPacketSurfaceState {
                 }
                 ClientSessionEvent::ClientPacketUnreliable { packet_type, .. }
                 | ClientSessionEvent::ServerPacketUnreliable { packet_type, .. } => self
-                    .record_event(RuntimeCustomPacketSemanticEncoding::Text, packet_type, false),
+                    .record_event(
+                        RuntimeCustomPacketSemanticEncoding::Text,
+                        packet_type,
+                        false,
+                    ),
                 ClientSessionEvent::ClientBinaryPacketReliable { packet_type, .. }
                 | ClientSessionEvent::ServerBinaryPacketReliable { packet_type, .. } => self
-                    .record_event(RuntimeCustomPacketSemanticEncoding::Binary, packet_type, true),
+                    .record_event(
+                        RuntimeCustomPacketSemanticEncoding::Binary,
+                        packet_type,
+                        true,
+                    ),
                 ClientSessionEvent::ClientBinaryPacketUnreliable { packet_type, .. }
                 | ClientSessionEvent::ServerBinaryPacketUnreliable { packet_type, .. } => self
-                    .record_event(RuntimeCustomPacketSemanticEncoding::Binary, packet_type, false),
-                ClientSessionEvent::ClientLogicDataReliable { channel, .. } => self
-                    .record_event(RuntimeCustomPacketSemanticEncoding::LogicData, channel, true),
-                ClientSessionEvent::ClientLogicDataUnreliable { channel, .. } => self
-                    .record_event(RuntimeCustomPacketSemanticEncoding::LogicData, channel, false),
+                    .record_event(
+                        RuntimeCustomPacketSemanticEncoding::Binary,
+                        packet_type,
+                        false,
+                    ),
+                ClientSessionEvent::ClientLogicDataReliable { channel, .. } => self.record_event(
+                    RuntimeCustomPacketSemanticEncoding::LogicData,
+                    channel,
+                    true,
+                ),
+                ClientSessionEvent::ClientLogicDataUnreliable { channel, .. } => self.record_event(
+                    RuntimeCustomPacketSemanticEncoding::LogicData,
+                    channel,
+                    false,
+                ),
                 _ => {}
             }
         }
@@ -400,14 +410,18 @@ pub fn install_runtime_custom_packet_surface(
                 let key = spec.key.clone();
                 let shared_state = Rc::clone(&state);
                 session.add_client_packet_handler(spec.key.clone(), move |contents| {
-                    shared_state.borrow_mut().record_text_handler(&key, contents);
+                    shared_state
+                        .borrow_mut()
+                        .record_text_handler(&key, contents);
                 });
             }
             RuntimeCustomPacketSemanticEncoding::Binary => {
                 let key = spec.key.clone();
                 let shared_state = Rc::clone(&state);
                 session.add_client_binary_packet_handler(spec.key.clone(), move |contents| {
-                    shared_state.borrow_mut().record_binary_handler(&key, contents);
+                    shared_state
+                        .borrow_mut()
+                        .record_binary_handler(&key, contents);
                 });
             }
             RuntimeCustomPacketSemanticEncoding::LogicData => {
@@ -932,5 +946,88 @@ fn semantic_label(semantic: RuntimeCustomPacketSemanticKind) -> &'static str {
         RuntimeCustomPacketSemanticKind::Team => "team",
         RuntimeCustomPacketSemanticKind::Bool => "bool",
         RuntimeCustomPacketSemanticKind::Number => "number",
+    }
+}
+
+fn encoding_label(encoding: RuntimeCustomPacketSemanticEncoding) -> &'static str {
+    match encoding {
+        RuntimeCustomPacketSemanticEncoding::Text => "text",
+        RuntimeCustomPacketSemanticEncoding::Binary => "binary",
+        RuntimeCustomPacketSemanticEncoding::LogicData => "logic",
+    }
+}
+
+fn encoding_overlay_prefix(encoding: RuntimeCustomPacketSemanticEncoding) -> &'static str {
+    encoding_label(encoding)
+}
+
+fn logic_data_transport_label(transport: ClientLogicDataTransport) -> &'static str {
+    match transport {
+        ClientLogicDataTransport::Reliable => "reliable",
+        ClientLogicDataTransport::Unreliable => "unreliable",
+    }
+}
+
+fn encode_hex_prefix(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .take(16)
+        .map(|value| format!("{value:02x}"))
+        .collect::<String>()
+}
+
+fn truncate_for_preview(text: &str, max_chars: usize) -> String {
+    let mut chars = text.chars();
+    let truncated = chars.by_ref().take(max_chars).collect::<String>();
+    if chars.next().is_some() {
+        format!("{truncated}...")
+    } else {
+        truncated
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn runtime_custom_packet_surface_overlay_summary_tracks_latest_updates_and_reset() {
+        let mut state = RuntimeCustomPacketSurfaceState::default();
+        state.register(&RuntimeCustomPacketSemanticSpec {
+            key: "custom.status".to_string(),
+            encoding: RuntimeCustomPacketSemanticEncoding::Text,
+            semantic: RuntimeCustomPacketSemanticKind::HudText,
+        });
+        state.register(&RuntimeCustomPacketSemanticSpec {
+            key: "logic.pos".to_string(),
+            encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+            semantic: RuntimeCustomPacketSemanticKind::WorldPos,
+        });
+
+        state.record_text_handler("custom.status", "wave ready");
+        state.record_logic_data_handler(
+            "logic.pos",
+            ClientLogicDataTransport::Reliable,
+            &TypeIoObject::Point2 { x: 7, y: 9 },
+        );
+
+        assert_eq!(
+            state.overlay_summary_text(4),
+            Some("logic:logic.pos=7,9 | text:custom.status=wave ready".to_string())
+        );
+
+        let summaries = state.summary_lines();
+        assert_eq!(summaries.len(), 2);
+        assert!(summaries[0].contains("runtime_custom_packet_surface_summary:"));
+        assert!(summaries[0].contains("last=Some(\"wave ready\")"));
+        assert!(summaries[1].contains("last=Some(\"7,9\")"));
+
+        state.observe_events(&[ClientSessionEvent::WorldDataBegin]);
+
+        let lines = state.drain_lines();
+        assert!(lines
+            .iter()
+            .any(|line| line.contains("runtime_custom_packet_surface_reset:")));
+        assert_eq!(state.overlay_summary_text(4), None);
     }
 }

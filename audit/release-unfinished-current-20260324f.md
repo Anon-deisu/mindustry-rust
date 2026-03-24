@@ -137,6 +137,9 @@ These are already landed and should not be re-opened as if missing:
 - `mdt-render-ui` runtime-session presenter summary is now landed.
   - panel/window/ascii presenters now expose deterministic `RUNTIME-SESSION` rows that aggregate existing kick/loading/reconnect observability without changing the existing `RUNTIME-KICK` / `RUNTIME-LOADING` / `RUNTIME-RECONNECT` detail rows
   - remaining `M9` work is still broader interactive UI and renderer/runtime parity, not re-adding this presenter-local session summary slice
+- `mdt-render-ui` window build-config detail rows are now also landed.
+  - window presentation now emits deterministic `BUILD-CONFIG-ENTRY` and `BUILD-CONFIG-MORE` rows on top of the existing capped build-config panel data instead of only the compact summary text
+  - remaining `M9` work is still broader interactive UI and renderer/runtime parity, not re-adding this presenter-local detail slice
 - typed building runtime apply state is now landed as a separate persistent layer.
   - `SessionState` now keeps `runtime_typed_building_apply_projection` with fallback to the computed typed join when tests/setup mutate only raw tables
   - typed building models now carry already parsed base/head/turret fields (`rotation/team/io_version/module/time-scale/health/enabled/efficiency/visible_flags/build-turret summary`) in addition to the configured domain value
@@ -148,6 +151,15 @@ These are already landed and should not be re-opened as if missing:
 - narrow `effect_id=142` `drop_item` executor wiring is now landed.
   - `effect_contract(Some(142))` now resolves to `drop_item`, and the runtime effect executor projects the overlay origin forward along rotation with fixed-length `dropItem` behavior instead of leaving it as a generic item-content packet summary
   - remaining `U5` work is still landing additional narrow `effect_id -> contract/executor` families, not re-adding this first `drop_item` slice
+- narrow `effect_id=10` `point_beam` contract/executor wiring is now also landed.
+  - `effect_contract(Some(10))` now resolves to `point_beam`, contract-aware business projection still reuses the existing `PositionTarget { source, target }` payload semantics, and runtime rendering now keeps the dedicated beam line behavior keyed to `effect_id=10`
+  - remaining `U5` work is still landing additional narrow `effect_id -> contract/executor` families, not re-adding this `point_beam` slice
+- `mdt-client-min-online` custom/logic runtime surface wiring is now landed as a narrow `M6-3` harness slice.
+  - the online harness now reuses `custom_packet_runtime_surface` across `--consume-client-*` custom/logic flows, emits runtime/business overlay summaries on updates and resets, and re-installs that surface after reconnect/redirect rebuilds
+  - remaining `M6-3` work is still deeper Java-equivalent business integration, not re-adding this harness/runtime summary bridge
+- `connectConfirm` queued-vs-flushed observability is now landed as the first narrow `U6` transport split.
+  - `SessionState` now tracks both `connect_confirm_sent` and `connect_confirm_flushed`, ArcNet only flips the flushed bit after a real TCP write succeeds, and UDP-only driver paths preserve the intended `queued-but-not-flushed` boundary
+  - remaining `U6` work is still deeper Java-equivalent lifecycle atomicity, not re-adding this first queued/flushed split
 
 ## Highest-Confidence Remaining Lanes
 
@@ -210,10 +222,10 @@ Write scope:
 ### U5 `effect` executor / contract table depth
 
 Remaining gap:
-- Rust has bounded runtime overlays, several contract-aware projections, and a first narrow `effect_id=142 -> drop_item` executor slice, but still not Java `Effect`-executor semantics.
+- Rust has bounded runtime overlays, several contract-aware projections, and narrow landed slices for `effect_id=142 -> drop_item` plus `effect_id=10 -> point_beam`, but still not Java `Effect`-executor semantics.
 
 Best bounded next slice:
-- add one narrow `effect_id -> contract/executor` family at a time
+- add one narrow `effect_id -> contract/executor` family at a time, with `261/262` segmented chain effects or `13` lightning path now the best next candidates
 - stay above raw packet decode and below full renderer parity
 
 Write scope:
@@ -224,14 +236,15 @@ Write scope:
 
 Remaining gap:
 - `mark_client_loaded()` now fail-closes deferred replay and auto-queues `connectConfirm` once the world becomes ready, and the resulting ready-state action ordering has been regression-revalidated across the full current `mdt-client-min` suite.
-- the remaining gap is narrower: deeper Java-equivalent transport/lifecycle atomicity across `finishConnecting`, replay side effects, reconnect edges, split-driver transport coordination, and higher-layer UI/runtime assumptions about when the queued `connectConfirm` is actually flushed.
+- the remaining gap is now narrower still: queued-vs-flushed `connectConfirm` observability is explicit and ArcNet marks flush only after a real TCP write, but Java-equivalent transport/lifecycle atomicity across `finishConnecting`, replay side effects, reconnect edges, split-driver coordination, and higher-layer UI/runtime assumptions is still incomplete.
 
 Best bounded next slice:
 - keep this serial-only and do not mix with snapshot/entity/world ownership work
 
 Write scope:
 - `rust/mdt-client-min/src/client_session.rs`
-- `rust/mdt-client-min/src/bootstrap_flow.rs`
+- `rust/mdt-client-min/src/arcnet_loop.rs`
+- `rust/mdt-client-min/src/udp_loop.rs`
 
 ## Conflict Notes
 

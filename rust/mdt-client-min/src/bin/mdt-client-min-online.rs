@@ -37,6 +37,8 @@ use std::time::{Duration, Instant};
 mod custom_packet_runtime;
 #[path = "../custom_packet_runtime_relay.rs"]
 mod custom_packet_runtime_relay;
+#[path = "../custom_packet_runtime_surface.rs"]
+mod custom_packet_runtime_surface;
 
 use custom_packet_runtime::{
     build_runtime_custom_packet_semantic_specs, install_runtime_custom_packet_semantics,
@@ -46,11 +48,15 @@ use custom_packet_runtime_relay::{
     build_runtime_custom_packet_relay_specs, install_runtime_custom_packet_relays,
     RuntimeCustomPacketRelayAction, RuntimeCustomPacketRelaySpec, RuntimeCustomPacketRelays,
 };
+use custom_packet_runtime_surface::{
+    install_runtime_custom_packet_surface, RuntimeCustomPacketSurface,
+};
 
 const LIVE_VIEW_TILES: (usize, usize) = (64, 32);
 const SERVER_RESTART_RETRY_BACKOFF_MS: u64 = 1_000;
 const DEFAULT_DISCOVER_PORT: u16 = 6567;
 const DEFAULT_DISCOVER_TIMEOUT_MS: u64 = 1_500;
+const RUNTIME_CUSTOM_PACKET_SURFACE_OVERLAY_MAX_ENTRIES: usize = 4;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let raw_args = env::args().collect::<Vec<_>>();
@@ -69,6 +75,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &mut session,
         &args.runtime_custom_packet_semantics,
     );
+    let mut custom_packet_surface =
+        install_runtime_custom_packet_surface(&mut session, &args.runtime_custom_packet_semantics);
     let mut custom_packet_relays =
         install_runtime_custom_packet_relays(&mut session, &args.runtime_custom_packet_relays);
     let connect_payload = load_connect_payload(&args.connect)?;
@@ -188,6 +196,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         maybe_print_client_packets(&args, &report.events);
         maybe_print_custom_packet_watch_events(custom_packet_watch.as_mut(), &report.events);
         maybe_print_custom_packet_semantic_events(custom_packet_semantics.as_mut(), &report.events);
+        maybe_print_custom_packet_surface_events(
+            custom_packet_surface.as_mut(),
+            &report.events,
+            now_ms,
+        );
         maybe_queue_runtime_custom_packet_relays(
             &mut session,
             custom_packet_relays.as_mut(),
@@ -208,11 +221,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     &connect_payload,
                     redirect_addr,
                 ) {
-                    Ok((redirected_session, redirected_watch, redirected_semantics)) => {
+                    Ok((
+                        redirected_session,
+                        redirected_watch,
+                        redirected_semantics,
+                        redirected_surface,
+                    )) => {
                         current_server_addr = redirect_addr;
                         session = redirected_session;
                         custom_packet_watch = redirected_watch;
                         custom_packet_semantics = redirected_semantics;
+                        custom_packet_surface = redirected_surface;
                         custom_packet_relays = install_runtime_custom_packet_relays(
                             &mut session,
                             &args.runtime_custom_packet_relays,
@@ -264,10 +283,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &connect_payload,
                 current_server_addr,
             ) {
-                Ok((reconnected_session, reconnected_watch, reconnected_semantics)) => {
+                Ok((
+                    reconnected_session,
+                    reconnected_watch,
+                    reconnected_semantics,
+                    reconnected_surface,
+                )) => {
                     session = reconnected_session;
                     custom_packet_watch = reconnected_watch;
                     custom_packet_semantics = reconnected_semantics;
+                    custom_packet_surface = reconnected_surface;
                     custom_packet_relays = install_runtime_custom_packet_relays(
                         &mut session,
                         &args.runtime_custom_packet_relays,
@@ -354,6 +379,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     maybe_print_custom_packet_watch_summary(custom_packet_watch.as_ref());
     maybe_print_custom_packet_semantic_summary(custom_packet_semantics.as_ref());
+    maybe_print_custom_packet_surface_summary(custom_packet_surface.as_ref());
     maybe_print_runtime_custom_packet_relay_summary(custom_packet_relays.as_ref());
     let final_input = session.snapshot_input_mut().clone();
     println!(
@@ -482,6 +508,7 @@ fn reconnect_runtime_session(
         ClientSession,
         Option<RuntimeCustomPacketWatch>,
         Option<RuntimeCustomPacketSemantics>,
+        Option<RuntimeCustomPacketSurface>,
     ),
     Box<dyn std::error::Error>,
 > {
@@ -495,7 +522,14 @@ fn reconnect_runtime_session(
         &mut session,
         &args.runtime_custom_packet_semantics,
     );
-    Ok((session, custom_packet_watch, custom_packet_semantics))
+    let custom_packet_surface =
+        install_runtime_custom_packet_surface(&mut session, &args.runtime_custom_packet_semantics);
+    Ok((
+        session,
+        custom_packet_watch,
+        custom_packet_semantics,
+        custom_packet_surface,
+    ))
 }
 
 struct CliArgs {
@@ -4316,6 +4350,81 @@ fn maybe_print_custom_packet_semantic_summary(
     }
 }
 
+fn maybe_print_custom_packet_surface_events(
+    custom_packet_surface: Option<&mut RuntimeCustomPacketSurface>,
+    events: &[ClientSessionEvent],
+    now_ms: u64,
+) {
+    let Some(custom_packet_surface) = custom_packet_surface else {
+        return;
+    };
+    custom_packet_surface.observe_events(events);
+    let lines = custom_packet_surface.drain_lines();
+    if lines.is_empty() {
+        return;
+    }
+    let emit_overlay = should_emit_runtime_custom_packet_surface_overlay(&lines);
+    for line in lines {
+        println!("{line}");
+    }
+    if emit_overlay {
+        println!(
+            "{}",
+            format_runtime_custom_packet_surface_overlay_line(
+                now_ms,
+                custom_packet_surface
+                    .overlay_summary_text(RUNTIME_CUSTOM_PACKET_SURFACE_OVERLAY_MAX_ENTRIES),
+            )
+        );
+    }
+}
+
+fn maybe_print_custom_packet_surface_summary(
+    custom_packet_surface: Option<&RuntimeCustomPacketSurface>,
+) {
+    let Some(custom_packet_surface) = custom_packet_surface else {
+        return;
+    };
+    for line in custom_packet_surface.summary_lines() {
+        println!("{line}");
+    }
+    println!(
+        "{}",
+        format_runtime_custom_packet_surface_summary_line(
+            custom_packet_surface
+                .overlay_summary_text(RUNTIME_CUSTOM_PACKET_SURFACE_OVERLAY_MAX_ENTRIES),
+        )
+    );
+}
+
+fn should_emit_runtime_custom_packet_surface_overlay(lines: &[String]) -> bool {
+    lines.iter().any(|line| {
+        line.starts_with("runtime_custom_packet_surface_update:")
+            || line.starts_with("runtime_custom_packet_surface_reset:")
+    })
+}
+
+fn format_runtime_custom_packet_surface_overlay_line(
+    now_ms: u64,
+    overlay_summary: Option<String>,
+) -> String {
+    match overlay_summary {
+        Some(summary) => {
+            format!("runtime_custom_packet_surface_overlay: tick={now_ms}ms summary={summary:?}")
+        }
+        None => format!("runtime_custom_packet_surface_overlay: tick={now_ms}ms summary=none"),
+    }
+}
+
+fn format_runtime_custom_packet_surface_summary_line(overlay_summary: Option<String>) -> String {
+    match overlay_summary {
+        Some(summary) => {
+            format!("runtime_custom_packet_surface_overlay_summary: summary={summary:?}")
+        }
+        None => "runtime_custom_packet_surface_overlay_summary: summary=none".to_string(),
+    }
+}
+
 fn maybe_queue_runtime_custom_packet_relays(
     session: &mut ClientSession,
     custom_packet_relays: Option<&mut RuntimeCustomPacketRelays>,
@@ -7998,6 +8107,45 @@ mod tests {
                     .to_string()
             ]
         );
+    }
+
+    #[test]
+    fn runtime_custom_packet_surface_overlay_helpers_format_present_and_empty_summary() {
+        assert_eq!(
+            format_runtime_custom_packet_surface_overlay_line(
+                42,
+                Some("logic:logic.pos=7,9 | text:custom.status=wave ready".to_string())
+            ),
+            "runtime_custom_packet_surface_overlay: tick=42ms summary=\"logic:logic.pos=7,9 | text:custom.status=wave ready\""
+        );
+        assert_eq!(
+            format_runtime_custom_packet_surface_overlay_line(43, None),
+            "runtime_custom_packet_surface_overlay: tick=43ms summary=none"
+        );
+        assert_eq!(
+            format_runtime_custom_packet_surface_summary_line(Some(
+                "logic:logic.pos=7,9".to_string()
+            )),
+            "runtime_custom_packet_surface_overlay_summary: summary=\"logic:logic.pos=7,9\""
+        );
+        assert_eq!(
+            format_runtime_custom_packet_surface_summary_line(None),
+            "runtime_custom_packet_surface_overlay_summary: summary=none"
+        );
+    }
+
+    #[test]
+    fn runtime_custom_packet_surface_overlay_helpers_emit_only_for_updates_and_resets() {
+        assert!(!should_emit_runtime_custom_packet_surface_overlay(&[
+            "runtime_custom_packet_surface_decode_error: encoding=text".to_string(),
+        ]));
+        assert!(should_emit_runtime_custom_packet_surface_overlay(&[
+            "runtime_custom_packet_surface_update: encoding=text".to_string(),
+        ]));
+        assert!(should_emit_runtime_custom_packet_surface_overlay(&[
+            "runtime_custom_packet_surface_reset: reason=world_data_begin cleared_routes=1"
+                .to_string(),
+        ]));
     }
 
     #[test]

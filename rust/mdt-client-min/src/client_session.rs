@@ -2408,7 +2408,9 @@ impl ClientSession {
 
         let bytes = encode_packet(self.connect_confirm_packet_id, &[], false)?;
         self.state.connect_confirm_sent = true;
+        self.state.connect_confirm_flushed = false;
         self.state.last_connect_confirm_at_ms = Some(self.clock_ms);
+        self.state.last_connect_confirm_flushed_at_ms = None;
         self.state
             .set_reconnect_phase(ReconnectPhaseProjection::Succeeded);
         if self.last_snapshot_at_ms.is_none() {
@@ -2435,6 +2437,14 @@ impl ClientSession {
             bytes,
         });
         Ok(())
+    }
+
+    pub(crate) fn mark_tcp_packet_flushed(&mut self, packet_id: u8, now_ms: u64) {
+        if packet_id != self.connect_confirm_packet_id || !self.state.connect_confirm_sent {
+            return;
+        }
+        self.state.connect_confirm_flushed = true;
+        self.state.last_connect_confirm_flushed_at_ms = Some(now_ms);
     }
 
     pub fn advance_time(
@@ -7487,7 +7497,9 @@ impl ClientSession {
         self.state.connection_timed_out = false;
         self.state.client_loaded = false;
         self.state.connect_confirm_sent = false;
+        self.state.connect_confirm_flushed = false;
         self.state.last_connect_confirm_at_ms = None;
+        self.state.last_connect_confirm_flushed_at_ms = None;
         self.state.last_ready_inbound_liveness_anchor_at_ms = None;
         self.state.ready_inbound_liveness_anchor_count = 0;
         self.state.bootstrap_stream_id = None;
@@ -10369,7 +10381,7 @@ fn derive_effect_business_projection(
         value: &TypeIoObject,
     ) -> Option<EffectBusinessProjection> {
         match contract {
-            RuntimeEffectContract::PositionTarget => {
+            RuntimeEffectContract::PositionTarget | RuntimeEffectContract::PointBeam => {
                 let target_projection = match value {
                     TypeIoObject::Point2 { .. }
                     | TypeIoObject::PackedPoint2Array(_)
@@ -32745,7 +32757,7 @@ mod tests {
             .ingest_packet_bytes(
                 &encode_packet(
                     effect_packet_id,
-                    &encode_effect_payload(9, 1.0, 2.0, 3.0, 0x01020304),
+                    &encode_effect_payload(10, 1.0, 2.0, 3.0, 0x01020304),
                     false,
                 )
                 .unwrap(),
@@ -32764,7 +32776,7 @@ mod tests {
 
         assert_eq!(
             session.state().last_effect_contract_name.as_deref(),
-            Some("position_target")
+            Some("point_beam")
         );
         assert_eq!(
             session
@@ -33062,6 +33074,37 @@ mod tests {
             })
         );
         assert_eq!(session.state().last_effect_business_path, Some(vec![1]));
+    }
+
+    #[test]
+    fn effect_packet_with_point_beam_contract_projects_position_target() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "effect" && entry.params.len() == 6)
+            .unwrap()
+            .packet_id;
+        let mut payload = encode_effect_payload(10, 32.5, 48.0, 90.0, 0x11223344);
+        write_typeio_object(&mut payload, &TypeIoObject::Point2 { x: 10, y: 20 });
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            session.state().last_effect_contract_name.as_deref(),
+            Some("point_beam")
+        );
+        assert_eq!(
+            session.state().last_effect_business_projection,
+            Some(EffectBusinessProjection::PositionTarget {
+                source_x_bits: 32.5f32.to_bits(),
+                source_y_bits: 48.0f32.to_bits(),
+                target_x_bits: 80.0f32.to_bits(),
+                target_y_bits: 160.0f32.to_bits(),
+            })
+        );
     }
 
     #[test]
@@ -34265,6 +34308,7 @@ mod tests {
         assert!(session.state().ready_to_enter_world);
         assert!(session.state().client_loaded);
         assert!(session.state().connect_confirm_sent);
+        assert!(!session.state().connect_confirm_flushed);
         assert!(session
             .pending_packets
             .iter()
@@ -34314,6 +34358,7 @@ mod tests {
         session.advance_time(1_000).unwrap();
         assert!(session.prepare_connect_confirm_packet().unwrap().is_none());
         assert!(session.state().connect_confirm_sent);
+        assert!(!session.state().connect_confirm_flushed);
 
         let actions = session.advance_time(1_201).unwrap();
 
@@ -35014,6 +35059,7 @@ mod tests {
         assert!(saw_world_ready);
         assert!(session.state().client_loaded);
         assert!(session.state().connect_confirm_sent);
+        assert!(!session.state().connect_confirm_flushed);
         assert!(session
             .pending_packets
             .iter()
@@ -35273,6 +35319,7 @@ mod tests {
         assert!(session.state().client_loaded);
         assert!(session.prepare_connect_confirm_packet().unwrap().is_some());
         assert!(session.state().connect_confirm_sent);
+        assert!(!session.state().connect_confirm_flushed);
         assert!(session.loaded_world_bundle().is_some());
         let state_snapshot_packet_id = manifest
             .remote_packets
@@ -35461,7 +35508,9 @@ mod tests {
         assert!(!session.state().ready_to_enter_world);
         assert!(!session.state().client_loaded);
         assert!(!session.state().connect_confirm_sent);
+        assert!(!session.state().connect_confirm_flushed);
         assert_eq!(session.state().last_connect_confirm_at_ms, None);
+        assert_eq!(session.state().last_connect_confirm_flushed_at_ms, None);
         assert_eq!(session.state().last_client_snapshot_at_ms, None);
         assert_eq!(session.state().received_snapshot_count, 0);
         assert_eq!(session.state().last_snapshot_packet_id, None);
@@ -35812,6 +35861,7 @@ mod tests {
         }
         assert!(session.state().world_stream_loaded);
         assert!(session.prepare_connect_confirm_packet().unwrap().is_some());
+        assert!(!session.state().connect_confirm_flushed);
         assert_eq!(
             session.reconnect_phase(),
             ReconnectPhaseProjection::Succeeded

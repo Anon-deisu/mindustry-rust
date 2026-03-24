@@ -231,6 +231,7 @@ mod tests {
         assert_eq!(session.state().world_map_width, 8);
         assert_eq!(session.state().world_map_height, 8);
         assert!(session.state().connect_confirm_sent);
+        assert!(!session.state().connect_confirm_flushed);
     }
 
     #[test]

@@ -491,6 +491,8 @@ pub fn observe_runtime_world_events(
                         *effect_id,
                         overlay_x,
                         overlay_y,
+                        *x,
+                        *y,
                         *rotation,
                         *color_rgba,
                         false,
@@ -510,6 +512,8 @@ pub fn observe_runtime_world_events(
                     runtime_world_overlay,
                     spawn_runtime_effect_overlay(
                         *effect_id,
+                        *x,
+                        *y,
                         *x,
                         *y,
                         *rotation,
@@ -3069,11 +3073,8 @@ fn append_runtime_world_overlay_objects(
     for overlay in &runtime_world_overlay.effect_overlays {
         let (x_bits, y_bits) =
             resolve_runtime_effect_overlay_position(overlay, session_state, snapshot_input);
-        let reliable = if overlay.reliable {
-            "reliable"
-        } else {
-            "normal"
-        };
+        append_runtime_effect_executor_objects(scene, overlay, x_bits, y_bits);
+        let reliable = runtime_effect_delivery_label(overlay.reliable);
         let data = if overlay.has_data { 1 } else { 0 };
         scene.objects.push(RenderObject {
             id: format!(
@@ -3088,6 +3089,72 @@ fn append_runtime_world_overlay_objects(
             y: f32::from_bits(y_bits),
         });
     }
+}
+
+fn append_runtime_effect_executor_objects(
+    scene: &mut RenderModel,
+    overlay: &RuntimeEffectOverlay,
+    target_x_bits: u32,
+    target_y_bits: u32,
+) {
+    let Some(line) = effect_contract_executor::line_projection_for_effect_overlay(
+        overlay,
+        target_x_bits,
+        target_y_bits,
+    ) else {
+        return;
+    };
+
+    let line_id = runtime_effect_line_object_id(
+        overlay.effect_id,
+        overlay.reliable,
+        line.source_x_bits,
+        line.source_y_bits,
+        line.target_x_bits,
+        line.target_y_bits,
+    );
+    scene.objects.push(RenderObject {
+        id: line_id.clone(),
+        layer: 25,
+        x: f32::from_bits(line.source_x_bits),
+        y: f32::from_bits(line.source_y_bits),
+    });
+
+    if (line.source_x_bits, line.source_y_bits) != (line.target_x_bits, line.target_y_bits) {
+        scene.objects.push(RenderObject {
+            id: format!("{line_id}:line-end"),
+            layer: 25,
+            x: f32::from_bits(line.target_x_bits),
+            y: f32::from_bits(line.target_y_bits),
+        });
+    }
+}
+
+fn runtime_effect_delivery_label(reliable: bool) -> &'static str {
+    if reliable {
+        "reliable"
+    } else {
+        "normal"
+    }
+}
+
+fn runtime_effect_line_object_id(
+    effect_id: Option<i16>,
+    reliable: bool,
+    source_x_bits: u32,
+    source_y_bits: u32,
+    target_x_bits: u32,
+    target_y_bits: u32,
+) -> String {
+    format!(
+        "marker:line:runtime-effect-point-beam:{}:{}:0x{:08x}:0x{:08x}:0x{:08x}:0x{:08x}",
+        runtime_effect_delivery_label(reliable),
+        effect_id.unwrap_or(-1),
+        source_x_bits,
+        source_y_bits,
+        target_x_bits,
+        target_y_bits,
+    )
 }
 
 fn append_block_snapshot_projection_objects(scene: &mut RenderModel, session_state: &SessionState) {
@@ -3206,6 +3273,32 @@ mod tests {
             .iter()
             .find(|object| object.id.starts_with("marker:runtime-effect:"))
             .expect("expected runtime effect marker")
+    }
+
+    fn first_runtime_effect_line(scene: &RenderModel) -> &RenderObject {
+        scene
+            .objects
+            .iter()
+            .find(|object| {
+                object
+                    .id
+                    .starts_with("marker:line:runtime-effect-point-beam:")
+                    && !object.id.ends_with(":line-end")
+            })
+            .expect("expected runtime effect line")
+    }
+
+    fn first_runtime_effect_line_end(scene: &RenderModel) -> &RenderObject {
+        scene
+            .objects
+            .iter()
+            .find(|object| {
+                object
+                    .id
+                    .starts_with("marker:line:runtime-effect-point-beam:")
+                    && object.id.ends_with(":line-end")
+            })
+            .expect("expected runtime effect line end")
     }
 
     #[test]
@@ -4339,6 +4432,65 @@ mod tests {
             .objects
             .iter()
             .any(|object| object.id.starts_with("marker:runtime-effect:")));
+    }
+
+    #[test]
+    fn render_runtime_adapter_renders_point_beam_executor_line_from_packet_origin_to_target() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
+
+        adapter.observe_events(&[ClientSessionEvent::EffectRequested {
+            effect_id: Some(10),
+            x: 12.0,
+            y: 20.0,
+            rotation: 45.0,
+            color_rgba: 0x11223344,
+            data_object: Some(mdt_typeio::TypeIoObject::Point2 { x: 10, y: 20 }),
+        }]);
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let marker = first_runtime_effect_marker(&scene);
+        assert_eq!(
+            marker.id,
+            format!(
+                "marker:runtime-effect:normal:10:0x{:08x}:0x{:08x}:1",
+                80.0f32.to_bits(),
+                160.0f32.to_bits()
+            )
+        );
+        assert_eq!(marker.x, 80.0);
+        assert_eq!(marker.y, 160.0);
+
+        let line = first_runtime_effect_line(&scene);
+        assert_eq!(
+            line.id,
+            format!(
+                "marker:line:runtime-effect-point-beam:normal:10:0x{:08x}:0x{:08x}:0x{:08x}:0x{:08x}",
+                12.0f32.to_bits(),
+                20.0f32.to_bits(),
+                80.0f32.to_bits(),
+                160.0f32.to_bits()
+            )
+        );
+        assert_eq!(line.x, 12.0);
+        assert_eq!(line.y, 20.0);
+
+        let line_end = first_runtime_effect_line_end(&scene);
+        assert_eq!(
+            line_end.id,
+            format!(
+                "marker:line:runtime-effect-point-beam:normal:10:0x{:08x}:0x{:08x}:0x{:08x}:0x{:08x}:line-end",
+                12.0f32.to_bits(),
+                20.0f32.to_bits(),
+                80.0f32.to_bits(),
+                160.0f32.to_bits()
+            )
+        );
+        assert_eq!(line_end.x, 80.0);
+        assert_eq!(line_end.y, 160.0);
     }
 
     #[test]

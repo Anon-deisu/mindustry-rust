@@ -1,4 +1,4 @@
-use crate::effect_runtime::RuntimeEffectContract;
+use crate::effect_runtime::{RuntimeEffectContract, RuntimeEffectOverlay};
 use crate::session_state::EffectBusinessProjection;
 use mdt_typeio::{TypeIoObject, TypeIoSemanticRef};
 
@@ -6,6 +6,7 @@ const EFFECT_CONTRACT_MAX_DEPTH: usize = 3;
 const EFFECT_CONTRACT_MAX_NODES: usize = 64;
 const ITEM_CONTENT_TYPE: u8 = 0;
 const DROP_ITEM_EFFECT_LENGTH: f32 = 20.0;
+const POINT_BEAM_EFFECT_ID: i16 = 10;
 
 type OverlayOriginProjector = fn(f32, f32, f32, &TypeIoObject) -> Option<(f32, f32)>;
 type BusinessWorldPositionProjector = fn(&EffectBusinessProjection) -> Option<(u32, u32)>;
@@ -16,8 +17,22 @@ struct RuntimeEffectContractExecutor {
     business_world_position: BusinessWorldPositionProjector,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RuntimeEffectLineProjection {
+    pub source_x_bits: u32,
+    pub source_y_bits: u32,
+    pub target_x_bits: u32,
+    pub target_y_bits: u32,
+}
+
 const POSITION_TARGET_EXECUTOR: RuntimeEffectContractExecutor = RuntimeEffectContractExecutor {
     contract_name: "position_target",
+    overlay_origin: position_target_overlay_origin,
+    business_world_position: position_target_business_world_position,
+};
+
+const POINT_BEAM_EXECUTOR: RuntimeEffectContractExecutor = RuntimeEffectContractExecutor {
+    contract_name: "point_beam",
     overlay_origin: position_target_overlay_origin,
     business_world_position: position_target_business_world_position,
 };
@@ -62,11 +77,28 @@ pub(crate) fn world_position_from_contract_business_projection(
         .or_else(|| generic_business_world_position(projection))
 }
 
+pub(crate) fn line_projection_for_effect_overlay(
+    overlay: &RuntimeEffectOverlay,
+    target_x_bits: u32,
+    target_y_bits: u32,
+) -> Option<RuntimeEffectLineProjection> {
+    match overlay.effect_id {
+        Some(POINT_BEAM_EFFECT_ID) => Some(RuntimeEffectLineProjection {
+            source_x_bits: overlay.source_x_bits,
+            source_y_bits: overlay.source_y_bits,
+            target_x_bits,
+            target_y_bits,
+        }),
+        _ => None,
+    }
+}
+
 fn executor_for_contract(
     contract: RuntimeEffectContract,
 ) -> &'static RuntimeEffectContractExecutor {
     match contract {
         RuntimeEffectContract::PositionTarget => &POSITION_TARGET_EXECUTOR,
+        RuntimeEffectContract::PointBeam => &POINT_BEAM_EXECUTOR,
         RuntimeEffectContract::DropItem => &DROP_ITEM_EXECUTOR,
         RuntimeEffectContract::FloatLength => &FLOAT_LENGTH_EXECUTOR,
         RuntimeEffectContract::UnitParent => &UNIT_PARENT_EXECUTOR,
@@ -76,6 +108,7 @@ fn executor_for_contract(
 fn executor_for_name(name: &str) -> Option<&'static RuntimeEffectContractExecutor> {
     for executor in [
         &POSITION_TARGET_EXECUTOR,
+        &POINT_BEAM_EXECUTOR,
         &DROP_ITEM_EXECUTOR,
         &FLOAT_LENGTH_EXECUTOR,
         &UNIT_PARENT_EXECUTOR,
@@ -267,10 +300,7 @@ fn ray_endpoint(
     let radians = effect_rotation.to_radians();
     let cos = snap_trig_component(radians.cos());
     let sin = snap_trig_component(radians.sin());
-    Some((
-        effect_x + cos * length,
-        effect_y + sin * length,
-    ))
+    Some((effect_x + cos * length, effect_y + sin * length))
 }
 
 fn snap_trig_component(value: f32) -> f32 {
@@ -351,6 +381,75 @@ mod tests {
                 Some(&projection),
             ),
             Some((80.0f32.to_bits(), 160.0f32.to_bits()))
+        );
+    }
+
+    #[test]
+    fn world_position_from_contract_business_projection_uses_point_beam_named_executor() {
+        let projection = EffectBusinessProjection::PositionTarget {
+            source_x_bits: 10.0f32.to_bits(),
+            source_y_bits: 20.0f32.to_bits(),
+            target_x_bits: 80.0f32.to_bits(),
+            target_y_bits: 160.0f32.to_bits(),
+        };
+
+        assert_eq!(
+            world_position_from_contract_business_projection(
+                Some(POINT_BEAM_EXECUTOR.contract_name),
+                Some(&projection),
+            ),
+            Some((80.0f32.to_bits(), 160.0f32.to_bits()))
+        );
+    }
+
+    #[test]
+    fn line_projection_for_effect_overlay_returns_point_beam_projection() {
+        let overlay = RuntimeEffectOverlay {
+            effect_id: Some(POINT_BEAM_EFFECT_ID),
+            source_x_bits: 12.0f32.to_bits(),
+            source_y_bits: 20.0f32.to_bits(),
+            x_bits: 80.0f32.to_bits(),
+            y_bits: 160.0f32.to_bits(),
+            rotation_bits: 0.0f32.to_bits(),
+            color_rgba: 0x11223344,
+            reliable: false,
+            has_data: true,
+            remaining_ticks: 3,
+            contract_name: Some("point_beam"),
+            binding: None,
+        };
+
+        assert_eq!(
+            line_projection_for_effect_overlay(&overlay, 80.0f32.to_bits(), 160.0f32.to_bits(),),
+            Some(RuntimeEffectLineProjection {
+                source_x_bits: 12.0f32.to_bits(),
+                source_y_bits: 20.0f32.to_bits(),
+                target_x_bits: 80.0f32.to_bits(),
+                target_y_bits: 160.0f32.to_bits(),
+            })
+        );
+    }
+
+    #[test]
+    fn line_projection_for_effect_overlay_ignores_other_effect_ids() {
+        let overlay = RuntimeEffectOverlay {
+            effect_id: Some(8),
+            source_x_bits: 12.0f32.to_bits(),
+            source_y_bits: 20.0f32.to_bits(),
+            x_bits: 80.0f32.to_bits(),
+            y_bits: 160.0f32.to_bits(),
+            rotation_bits: 0.0f32.to_bits(),
+            color_rgba: 0x11223344,
+            reliable: false,
+            has_data: true,
+            remaining_ticks: 3,
+            contract_name: Some("position_target"),
+            binding: None,
+        };
+
+        assert_eq!(
+            line_projection_for_effect_overlay(&overlay, 80.0f32.to_bits(), 160.0f32.to_bits(),),
+            None
         );
     }
 }

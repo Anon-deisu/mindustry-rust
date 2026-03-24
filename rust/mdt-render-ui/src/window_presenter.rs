@@ -546,6 +546,12 @@ fn compose_frame_panel_lines(
     if let Some(build_panel_text) = compose_build_config_panel_status_text(hud) {
         lines.push(format!("BUILD-CONFIG: {build_panel_text}"));
     }
+    for build_entry_text in compose_build_config_entry_status_lines(hud) {
+        lines.push(format!("BUILD-CONFIG-ENTRY: {build_entry_text}"));
+    }
+    if let Some(build_config_more_text) = compose_build_config_more_status_text(hud) {
+        lines.push(format!("BUILD-CONFIG-MORE: {build_config_more_text}"));
+    }
     if let Some(build_rollback_text) = compose_build_config_rollback_status_text(hud) {
         lines.push(format!("BUILD-ROLLBACK: {build_rollback_text}"));
     }
@@ -1140,6 +1146,33 @@ fn compose_build_config_panel_status_text(hud: &HudModel) -> Option<String> {
             entries
         },
     ))
+}
+
+fn compose_build_config_entry_status_lines(hud: &HudModel) -> Vec<String> {
+    let Some(panel) = build_build_config_panel(hud, 2) else {
+        return Vec::new();
+    };
+
+    panel
+        .entries
+        .iter()
+        .enumerate()
+        .map(|(index, entry)| {
+            format!(
+                "cfgentry:{}/{}:{}#{}@{}",
+                index + 1,
+                panel.tracked_family_count,
+                compact_runtime_ui_text(Some(entry.family.as_str())),
+                entry.tracked_count,
+                compact_build_inspector_text(entry.sample.as_str(), 28),
+            )
+        })
+        .collect()
+}
+
+fn compose_build_config_more_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_build_config_panel(hud, 2)?;
+    (panel.truncated_family_count > 0).then(|| format!("cfgmore:+{}", panel.truncated_family_count))
 }
 
 fn compose_build_config_rollback_status_text(hud: &HudModel) -> Option<String> {
@@ -2711,6 +2744,14 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
+            "BUILD-CONFIG-ENTRY: cfgentry:1/2:message#1@18:40:len=5:text=hello",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "BUILD-CONFIG-ENTRY: cfgentry:2/2:power-node#1@23:45:links=24:46|25:47",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
             "BUILD-ROLLBACK: cfgstrip:a3:rb1:last=23:45:src=construct:b1:cl1:lr1:pm=mismatch:out=applied:block=power-node",
         );
         assert_frame_line_contains(
@@ -2895,6 +2936,15 @@ mod tests {
             &frame.panel_lines,
             "BUILD-CONFIG: cfgpanel:sel301:r1:m1:p2/1:hist4/5:o6:h=queued@10:12:place:b301:r1:align=match:fam2/3:more1:t7@gamma#4,beta#2",
         );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "BUILD-CONFIG-ENTRY: cfgentry:1/3:gamma#4@four",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "BUILD-CONFIG-ENTRY: cfgentry:2/3:beta#2@two",
+        );
+        assert_frame_line_contains(&frame.panel_lines, "BUILD-CONFIG-MORE: cfgmore:+1");
         assert_frame_line_contains(
             &frame.panel_lines,
             "BUILD-ROLLBACK: cfgstrip:a4:rb2:last=10:12:src=tilecfg:b1:cl0:lr0:pm=match:out=rej-miss-build:block=gamma",

@@ -12,6 +12,7 @@ pub enum RuntimeEffectBinding {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeEffectContract {
     PositionTarget,
+    PointBeam,
     DropItem,
     FloatLength,
     UnitParent,
@@ -21,6 +22,7 @@ impl RuntimeEffectContract {
     pub const fn name(self) -> &'static str {
         match self {
             Self::PositionTarget => "position_target",
+            Self::PointBeam => "point_beam",
             Self::DropItem => "drop_item",
             Self::FloatLength => "float_length",
             Self::UnitParent => "unit_parent",
@@ -31,6 +33,8 @@ impl RuntimeEffectContract {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeEffectOverlay {
     pub effect_id: Option<i16>,
+    pub source_x_bits: u32,
+    pub source_y_bits: u32,
     pub x_bits: u32,
     pub y_bits: u32,
     pub rotation_bits: u32,
@@ -44,7 +48,8 @@ pub struct RuntimeEffectOverlay {
 
 pub fn effect_contract(effect_id: Option<i16>) -> Option<RuntimeEffectContract> {
     match effect_id {
-        Some(8 | 9 | 10 | 178 | 261 | 262) => Some(RuntimeEffectContract::PositionTarget),
+        Some(10) => Some(RuntimeEffectContract::PointBeam),
+        Some(8 | 9 | 178 | 261 | 262) => Some(RuntimeEffectContract::PositionTarget),
         Some(142) => Some(RuntimeEffectContract::DropItem),
         Some(200) => Some(RuntimeEffectContract::FloatLength),
         Some(257 | 260) => Some(RuntimeEffectContract::UnitParent),
@@ -60,6 +65,8 @@ pub fn spawn_runtime_effect_overlay(
     effect_id: Option<i16>,
     x: f32,
     y: f32,
+    source_x: f32,
+    source_y: f32,
     rotation: f32,
     color_rgba: u32,
     reliable: bool,
@@ -74,6 +81,8 @@ pub fn spawn_runtime_effect_overlay(
 
     RuntimeEffectOverlay {
         effect_id,
+        source_x_bits: source_x.to_bits(),
+        source_y_bits: source_y.to_bits(),
         x_bits,
         y_bits,
         rotation_bits: rotation.to_bits(),

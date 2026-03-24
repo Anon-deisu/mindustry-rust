@@ -164,10 +164,13 @@ impl ArcNetSessionDriver {
             for action in session.advance_time(now_ms)? {
                 match action {
                     ClientSessionAction::SendPacket {
-                        transport, bytes, ..
+                        packet_id,
+                        transport,
+                        bytes,
                     } => match transport {
                         ClientPacketTransport::Tcp => {
                             self.send_tcp_payload(&bytes)?;
+                            session.mark_tcp_packet_flushed(packet_id, now_ms);
                             report.outbound_tcp_frames += 1;
                         }
                         ClientPacketTransport::Udp => {
@@ -647,6 +650,8 @@ mod tests {
         assert!(session.state().world_stream_loaded);
         assert_eq!(session.state().world_map_width, 8);
         assert_eq!(session.state().world_map_height, 8);
+        assert!(session.state().connect_confirm_sent);
+        assert!(session.state().connect_confirm_flushed);
         server.join().unwrap();
     }
 
@@ -764,6 +769,8 @@ mod tests {
         }
 
         assert!(session.state().world_stream_loaded);
+        assert!(session.state().connect_confirm_sent);
+        assert!(session.state().connect_confirm_flushed);
         assert_eq!(session.state().sent_client_snapshot_count, 1);
         assert_eq!(session.state().last_sent_client_snapshot_id, Some(1));
         server.join().unwrap();
