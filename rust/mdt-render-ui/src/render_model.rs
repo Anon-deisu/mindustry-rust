@@ -77,6 +77,25 @@ pub enum RenderObjectSemanticKind {
     Unknown,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RenderSemanticDetailCount {
+    pub label: &'static str,
+    pub count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RenderSemanticSummary {
+    pub total_count: usize,
+    pub player_count: usize,
+    pub marker_count: usize,
+    pub plan_count: usize,
+    pub block_count: usize,
+    pub runtime_count: usize,
+    pub terrain_count: usize,
+    pub unknown_count: usize,
+    pub detail_counts: Vec<RenderSemanticDetailCount>,
+}
+
 impl RenderObject {
     pub fn semantic_kind(&self) -> RenderObjectSemanticKind {
         RenderObjectSemanticKind::from_id(&self.id)
@@ -102,6 +121,59 @@ impl RenderModel {
                     world_to_tile_index_floor(object.y, tile_size).max(0) as usize,
                 )
             })
+    }
+
+    pub fn semantic_summary(&self) -> RenderSemanticSummary {
+        let mut summary = RenderSemanticSummary::default();
+
+        for object in &self.objects {
+            summary.total_count += 1;
+            match object.semantic_family() {
+                RenderObjectSemanticFamily::Player => summary.player_count += 1,
+                RenderObjectSemanticFamily::Marker => summary.marker_count += 1,
+                RenderObjectSemanticFamily::Plan => summary.plan_count += 1,
+                RenderObjectSemanticFamily::Block => summary.block_count += 1,
+                RenderObjectSemanticFamily::Runtime => summary.runtime_count += 1,
+                RenderObjectSemanticFamily::Terrain => summary.terrain_count += 1,
+                RenderObjectSemanticFamily::Unknown => summary.unknown_count += 1,
+            }
+
+            let Some(label) = object.semantic_kind().detail_label() else {
+                continue;
+            };
+            if let Some(existing) = summary
+                .detail_counts
+                .iter_mut()
+                .find(|existing| existing.label == label)
+            {
+                existing.count += 1;
+            } else {
+                summary
+                    .detail_counts
+                    .push(RenderSemanticDetailCount { label, count: 1 });
+            }
+        }
+
+        summary
+            .detail_counts
+            .sort_by(|left, right| left.label.cmp(right.label));
+        summary
+    }
+}
+
+impl RenderSemanticSummary {
+    pub fn detail_text(&self) -> Option<String> {
+        if self.detail_counts.is_empty() {
+            return None;
+        }
+
+        Some(
+            self.detail_counts
+                .iter()
+                .map(|detail| format!("{}:{}", detail.label, detail.count))
+                .collect::<Vec<_>>()
+                .join(","),
+        )
     }
 }
 
@@ -241,7 +313,7 @@ fn world_to_tile_index_floor(world_position: f32, tile_size: f32) -> i32 {
 mod tests {
     use super::{
         RenderModel, RenderObject, RenderObjectSemanticFamily, RenderObjectSemanticKind,
-        RenderViewWindow, Viewport,
+        RenderSemanticDetailCount, RenderSemanticSummary, RenderViewWindow, Viewport,
     };
 
     #[test]
@@ -447,5 +519,95 @@ mod tests {
             })
         );
         assert_eq!(scene.player_focus_tile(8.0), Some((3, 4)));
+    }
+
+    #[test]
+    fn render_model_summarizes_semantic_families_and_detail_counts() {
+        let scene = RenderModel {
+            viewport: Viewport::default(),
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: "player:7".to_string(),
+                    layer: 40,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:line:77".to_string(),
+                    layer: 30,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:line:77:line-end".to_string(),
+                    layer: 30,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-config:3:2:string".to_string(),
+                    layer: 30,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "block:runtime-building:12:6:258".to_string(),
+                    layer: 10,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "terrain:8".to_string(),
+                    layer: 0,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "unknown".to_string(),
+                    layer: 0,
+                    x: 0.0,
+                    y: 0.0,
+                },
+            ],
+        };
+
+        let summary = scene.semantic_summary();
+
+        assert_eq!(
+            summary,
+            RenderSemanticSummary {
+                total_count: 7,
+                player_count: 1,
+                marker_count: 2,
+                plan_count: 0,
+                block_count: 0,
+                runtime_count: 2,
+                terrain_count: 1,
+                unknown_count: 1,
+                detail_counts: vec![
+                    RenderSemanticDetailCount {
+                        label: "marker-line",
+                        count: 1,
+                    },
+                    RenderSemanticDetailCount {
+                        label: "marker-line-end",
+                        count: 1,
+                    },
+                    RenderSemanticDetailCount {
+                        label: "runtime-building",
+                        count: 1,
+                    },
+                    RenderSemanticDetailCount {
+                        label: "runtime-config",
+                        count: 1,
+                    },
+                ],
+            }
+        );
+        assert_eq!(
+            summary.detail_text().as_deref(),
+            Some("marker-line:1,marker-line-end:1,runtime-building:1,runtime-config:1")
+        );
     }
 }

@@ -307,6 +307,11 @@ pub struct RemotePacketRegistry<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HighFrequencyRemoteRegistry {
+    by_packet_id: [(u8, HighFrequencyRemoteMethod); HIGH_FREQUENCY_REMOTE_METHOD_COUNT],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CustomChannelRemoteRegistry {
     by_packet_id: [(u8, CustomChannelRemoteDispatchSpec); CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT],
 }
@@ -774,11 +779,9 @@ pub fn high_frequency_remote_packets(
     let registry = RemotePacketRegistry::from_manifest(manifest)?;
     let mut packets = Vec::with_capacity(HIGH_FREQUENCY_REMOTE_METHOD_COUNT);
     for method in HighFrequencyRemoteMethod::ordered() {
-        let entry = registry
-            .first_matching(RemotePacketSelector::high_frequency(method))
-            .ok_or(RemoteManifestError::MissingHighFrequencyPacket(
-                method.method_name(),
-            ))?;
+        let entry = registry.first_high_frequency_method(method).ok_or(
+            RemoteManifestError::MissingHighFrequencyPacket(method.method_name()),
+        )?;
 
         packets.push(TypedRemotePacketSpec {
             method,
@@ -1388,6 +1391,13 @@ impl<'a> RemotePacketRegistry<'a> {
         self.packets_matching(selector).into_iter().next()
     }
 
+    pub fn first_high_frequency_method(
+        &self,
+        method: HighFrequencyRemoteMethod,
+    ) -> Option<&TypedRemotePacketMetadata<'a>> {
+        self.first_matching(method.selector())
+    }
+
     pub fn first_inbound_remote_family(
         &self,
         family: InboundRemoteFamily,
@@ -1404,6 +1414,59 @@ impl<'a> RemotePacketRegistry<'a> {
 
     pub fn into_packets(self) -> Vec<TypedRemotePacketMetadata<'a>> {
         self.packets
+    }
+}
+
+impl HighFrequencyRemoteRegistry {
+    pub fn from_manifest(manifest: &RemoteManifest) -> Result<Self, RemoteManifestError> {
+        let registry = RemotePacketRegistry::from_manifest(manifest)?;
+        let mut resolved_entries = Vec::with_capacity(HIGH_FREQUENCY_REMOTE_METHOD_COUNT);
+        let mut seen_packet_ids =
+            std::collections::HashSet::with_capacity(HIGH_FREQUENCY_REMOTE_METHOD_COUNT);
+
+        for method in HighFrequencyRemoteMethod::ordered() {
+            let packet_id = registry
+                .first_high_frequency_method(method)
+                .ok_or(RemoteManifestError::MissingHighFrequencyPacket(
+                    method.method_name(),
+                ))?
+                .packet_id;
+            if !seen_packet_ids.insert(packet_id) {
+                return Err(RemoteManifestError::InvalidPacketSequence(format!(
+                    "duplicate high-frequency remote packet id: {packet_id}",
+                )));
+            }
+            resolved_entries.push((packet_id, method));
+        }
+
+        let by_packet_id = resolved_entries
+            .try_into()
+            .expect("high-frequency remote registry length should stay fixed");
+        Ok(Self { by_packet_id })
+    }
+
+    pub fn classify(&self, packet_id: u8) -> Option<HighFrequencyRemoteMethod> {
+        self.by_packet_id
+            .iter()
+            .find_map(|(known_packet_id, method)| {
+                (*known_packet_id == packet_id).then_some(*method)
+            })
+    }
+
+    pub fn packet_id(&self, method: HighFrequencyRemoteMethod) -> Option<u8> {
+        self.by_packet_id
+            .iter()
+            .find_map(|(packet_id, known_method)| (*known_method == method).then_some(*packet_id))
+    }
+
+    pub fn contains_packet_id(&self, packet_id: u8) -> bool {
+        self.by_packet_id
+            .iter()
+            .any(|(known_packet_id, _)| *known_packet_id == packet_id)
+    }
+
+    pub fn len(&self) -> usize {
+        self.by_packet_id.len()
     }
 }
 
@@ -1465,18 +1528,19 @@ impl CustomChannelRemoteRegistry {
 
 impl InboundRemoteRegistry {
     pub fn from_manifest(manifest: &RemoteManifest) -> Result<Self, RemoteManifestError> {
-        let custom_registry = CustomChannelRemoteRegistry::from_manifest(manifest)?;
+        let registry = RemotePacketRegistry::from_manifest(manifest)?;
         let mut resolved_entries = Vec::with_capacity(INBOUND_REMOTE_FAMILY_COUNT);
         let mut seen_packet_ids =
             std::collections::HashSet::with_capacity(INBOUND_REMOTE_FAMILY_COUNT);
 
         for family in InboundRemoteFamily::ordered() {
-            let packet_id = custom_registry
-                .packet_id(family.custom_channel_family())
+            let packet_id = registry
+                .first_inbound_remote_family(family)
                 .ok_or(RemoteManifestError::InvalidRemotePacketMetadata(format!(
                     "missing inbound remote family packet in manifest: {}",
                     family.method_name(),
-                )))?;
+                )))?
+                .packet_id;
             if !seen_packet_ids.insert(packet_id) {
                 return Err(RemoteManifestError::InvalidPacketSequence(format!(
                     "duplicate inbound remote family packet id: {packet_id}",
@@ -1561,6 +1625,26 @@ impl HighFrequencyRemoteMethod {
             Self::BlockSnapshot => "blockSnapshot",
             Self::HiddenSnapshot => "hiddenSnapshot",
         }
+    }
+
+    pub fn flow(self) -> RemoteFlow {
+        match self {
+            Self::ClientSnapshot => RemoteFlow::ClientToServer,
+            Self::StateSnapshot
+            | Self::EntitySnapshot
+            | Self::BlockSnapshot
+            | Self::HiddenSnapshot => RemoteFlow::ServerToClient,
+        }
+    }
+
+    pub fn unreliable(self) -> bool {
+        true
+    }
+
+    pub fn selector(self) -> RemotePacketSelector<'static> {
+        RemotePacketSelector::high_frequency(self)
+            .with_flow(self.flow())
+            .with_unreliable(self.unreliable())
     }
 
     fn variant_name(self) -> &'static str {
@@ -2117,6 +2201,77 @@ mod tests {
     }
 
     #[test]
+    fn typed_high_frequency_lookup_rejects_flow_only_decoys() {
+        let manifest = RemoteManifest {
+            schema: REMOTE_MANIFEST_SCHEMA_V1.to_string(),
+            generator: RemoteGeneratorInfo {
+                source: "mindustry.annotations.remote".into(),
+                call_class: "mindustry.gen.Call".into(),
+            },
+            base_packets: vec![
+                BasePacketEntry {
+                    id: 0,
+                    class_name: "mindustry.net.Packets$StreamBegin".into(),
+                },
+                BasePacketEntry {
+                    id: 1,
+                    class_name: "mindustry.net.Packets$StreamChunk".into(),
+                },
+                BasePacketEntry {
+                    id: 2,
+                    class_name: "mindustry.net.Packets$WorldStream".into(),
+                },
+                BasePacketEntry {
+                    id: 3,
+                    class_name: "mindustry.net.Packets$ConnectPacket".into(),
+                },
+            ],
+            remote_packets: vec![
+                test_remote_packet(
+                    0,
+                    4,
+                    "mindustry.gen.StateSnapshotDecoyCallPacket",
+                    "mindustry.core.NetClient",
+                    "stateSnapshot",
+                    "client",
+                    "low",
+                    true,
+                    vec![test_param("coreData", "byte[]", true, true)],
+                ),
+                test_remote_packet(
+                    1,
+                    5,
+                    "mindustry.gen.StateSnapshotCallPacket",
+                    "mindustry.core.NetClient",
+                    "stateSnapshot",
+                    "server",
+                    "low",
+                    true,
+                    vec![test_param("coreData", "byte[]", true, true)],
+                ),
+            ],
+            wire: WireSpec {
+                packet_id_byte: "u8".into(),
+                length_field: "u16be".into(),
+                compression_flag: CompressionFlagSpec {
+                    none: "none".into(),
+                    lz4: "lz4".into(),
+                },
+                compression_threshold: 36,
+            },
+        };
+
+        let registry = RemotePacketRegistry::from_manifest(&manifest).unwrap();
+        let packet = registry
+            .first_high_frequency_method(HighFrequencyRemoteMethod::StateSnapshot)
+            .unwrap();
+
+        assert_eq!(packet.packet_id, 5);
+        assert_eq!(packet.flow, RemoteFlow::ServerToClient);
+        assert_eq!(packet.packet_class, "mindustry.gen.StateSnapshotCallPacket");
+    }
+
+    #[test]
     fn custom_channel_remote_registry_uses_typed_family_signatures() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
 
@@ -2138,6 +2293,30 @@ mod tests {
             Some(CustomChannelRemoteFamily::ClientLogicDataReliable)
         );
         assert_eq!(registry.classify(24), None);
+    }
+
+    #[test]
+    fn high_frequency_remote_registry_uses_typed_method_signatures() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+
+        let registry = HighFrequencyRemoteRegistry::from_manifest(&manifest).unwrap();
+        let state_packet_id = registry
+            .packet_id(HighFrequencyRemoteMethod::StateSnapshot)
+            .unwrap();
+        let entity_packet_id = registry
+            .packet_id(HighFrequencyRemoteMethod::EntitySnapshot)
+            .unwrap();
+        let block_packet_id = registry
+            .packet_id(HighFrequencyRemoteMethod::BlockSnapshot)
+            .unwrap();
+
+        assert_eq!(state_packet_id, 122);
+        assert_eq!(entity_packet_id, 44);
+        assert_eq!(
+            registry.classify(block_packet_id),
+            Some(HighFrequencyRemoteMethod::BlockSnapshot)
+        );
+        assert_eq!(registry.classify(250), None);
     }
 
     #[test]

@@ -3,15 +3,14 @@ use crate::{
         build_build_config_panel, build_build_interaction_panel, build_hud_status_panel,
         build_hud_visibility_panel, build_minimap_panel, build_runtime_admin_panel,
         build_runtime_chat_panel, build_runtime_command_mode_panel, build_runtime_dialog_panel,
-        build_runtime_kick_panel, build_runtime_live_effect_panel,
-        build_runtime_live_entity_panel, build_runtime_loading_panel, build_runtime_menu_panel,
-        build_runtime_reconnect_panel, build_runtime_rules_panel,
-        build_runtime_ui_notice_panel, build_runtime_world_label_panel, PresenterViewWindow,
-        RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
+        build_runtime_kick_panel, build_runtime_live_effect_panel, build_runtime_live_entity_panel,
+        build_runtime_loading_panel, build_runtime_menu_panel, build_runtime_reconnect_panel,
+        build_runtime_rules_panel, build_runtime_ui_notice_panel, build_runtime_world_label_panel,
+        PresenterViewWindow, RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
     },
     render_model::{RenderObjectSemanticFamily, RenderObjectSemanticKind},
-    BuildQueueHeadObservability, BuildQueueHeadStage, BuildUiObservability, HudModel,
-    RenderModel, RenderObject, RuntimeUiObservability, ScenePresenter,
+    BuildQueueHeadObservability, BuildQueueHeadStage, BuildUiObservability, HudModel, RenderModel,
+    RenderObject, RuntimeUiObservability, ScenePresenter,
 };
 use minifb::{Scale, Window, WindowOptions};
 use std::fs;
@@ -819,7 +818,10 @@ fn runtime_world_label_status_sample(value: Option<&str>) -> String {
 
 fn compose_runtime_kick_status_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_kick_panel(hud)?;
-    Some(format!("kick:{}", compose_runtime_kick_panel_status_text(&panel)))
+    Some(format!(
+        "kick:{}",
+        compose_runtime_kick_panel_status_text(&panel)
+    ))
 }
 
 fn compose_runtime_loading_status_text(hud: &HudModel) -> Option<String> {
@@ -907,7 +909,7 @@ fn compose_minimap_kind_status_text(scene: &RenderModel, hud: &HudModel) -> Opti
             height: 0,
         },
     )?;
-    Some(format!(
+    let mut text = format!(
         "minikind:obj{}@pl{}:mk{}:pn{}:bk{}:rt{}:tr{}:uk{}",
         panel.tracked_object_count,
         panel.player_count,
@@ -917,7 +919,12 @@ fn compose_minimap_kind_status_text(scene: &RenderModel, hud: &HudModel) -> Opti
         panel.runtime_count,
         panel.terrain_count,
         panel.unknown_count,
-    ))
+    );
+    if let Some(detail_text) = semantic_detail_text(&panel.detail_counts) {
+        text.push_str(" detail=");
+        text.push_str(&detail_text);
+    }
+    Some(text)
 }
 
 fn compose_build_config_panel_status_text(hud: &HudModel) -> Option<String> {
@@ -1380,79 +1387,37 @@ fn runtime_reconnect_reason_kind_status_text(
 }
 
 fn compose_overlay_semantics_status_text(scene: &RenderModel) -> Option<String> {
-    let counts = overlay_semantic_counts(scene);
-    let total = counts.iter().map(|(_, count)| count).sum::<usize>();
-    if total == 0 {
+    let summary = scene.semantic_summary();
+    if summary.total_count == 0 {
         return None;
     }
 
     let mut text = format!(
         "overlay:players={} markers={} plans={} blocks={} runtime={}",
-        overlay_semantic_count(&counts, RenderObjectSemanticKind::Player),
-        overlay_semantic_count(&counts, RenderObjectSemanticKind::Marker),
-        overlay_semantic_count(&counts, RenderObjectSemanticKind::Plan),
-        overlay_semantic_count(&counts, RenderObjectSemanticKind::Block),
-        overlay_semantic_count(&counts, RenderObjectSemanticKind::Runtime),
+        summary.player_count,
+        summary.marker_count,
+        summary.plan_count,
+        summary.block_count,
+        summary.runtime_count,
     );
-    if let Some(detail_text) = overlay_semantic_detail_text(scene) {
+    if let Some(detail_text) = summary.detail_text() {
         text.push_str(" detail=");
         text.push_str(&detail_text);
     }
     Some(text)
 }
 
-fn overlay_semantic_counts(scene: &RenderModel) -> Vec<(RenderObjectSemanticKind, usize)> {
-    let mut counts = Vec::with_capacity(6);
-    for object in &scene.objects {
-        let kind = match object.semantic_family() {
-            RenderObjectSemanticFamily::Player => RenderObjectSemanticKind::Player,
-            RenderObjectSemanticFamily::Runtime => RenderObjectSemanticKind::Runtime,
-            RenderObjectSemanticFamily::Marker => RenderObjectSemanticKind::Marker,
-            RenderObjectSemanticFamily::Plan => RenderObjectSemanticKind::Plan,
-            RenderObjectSemanticFamily::Block => RenderObjectSemanticKind::Block,
-            RenderObjectSemanticFamily::Terrain => RenderObjectSemanticKind::Terrain,
-            RenderObjectSemanticFamily::Unknown => RenderObjectSemanticKind::Unknown,
-        };
-        if let Some((_, count)) = counts.iter_mut().find(|(existing, _)| *existing == kind) {
-            *count += 1;
-        } else {
-            counts.push((kind, 1));
-        }
-    }
-    counts
-}
-
-fn overlay_semantic_count(
-    counts: &[(RenderObjectSemanticKind, usize)],
-    kind: RenderObjectSemanticKind,
-) -> usize {
-    counts
-        .iter()
-        .find(|(existing, _)| *existing == kind)
-        .map(|(_, count)| *count)
-        .unwrap_or_default()
-}
-
-fn overlay_semantic_detail_text(scene: &RenderModel) -> Option<String> {
-    let mut counts = Vec::<(String, usize)>::new();
-    for object in &scene.objects {
-        let Some(label) = object.semantic_kind().detail_label() else {
-            continue;
-        };
-        if let Some((_, count)) = counts.iter_mut().find(|(existing, _)| existing == label) {
-            *count += 1;
-        } else {
-            counts.push((label.to_string(), 1));
-        }
-    }
-    if counts.is_empty() {
+fn semantic_detail_text(
+    detail_counts: &[crate::render_model::RenderSemanticDetailCount],
+) -> Option<String> {
+    if detail_counts.is_empty() {
         return None;
     }
-    counts.sort_by(|left, right| left.0.cmp(&right.0));
+
     Some(
-        counts
-            .into_iter()
-            .map(|(label, count)| format!("{label}:{count}"))
+        detail_counts
+            .iter()
+            .map(|detail| format!("{}:{}", detail.label, detail.count))
             .collect::<Vec<_>>()
             .join(","),
     )
@@ -2034,6 +1999,54 @@ mod tests {
     }
 
     #[test]
+    fn present_once_surfaces_minimap_detail_semantics() {
+        let backend = RecordingBackend::default();
+        let mut presenter = WindowPresenter::new(backend);
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 16.0,
+                height: 16.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![
+                render_object("player:1"),
+                render_object("marker:line:7"),
+                render_object("marker:line:7:line-end"),
+                render_object("marker:runtime-config:3:2:string"),
+                render_object("block:runtime-building:1:2:3"),
+                render_object("plan:runtime-place:0:4:5"),
+                render_object("terrain:runtime-deconstruct:9:4"),
+            ],
+        };
+        let hud = HudModel {
+            summary: Some(crate::hud_model::HudSummary {
+                player_name: "operator".to_string(),
+                team_id: 2,
+                selected_block: "payload-router".to_string(),
+                plan_count: 0,
+                marker_count: 0,
+                map_width: 2,
+                map_height: 2,
+                overlay_visible: true,
+                fog_enabled: false,
+                visible_tile_count: 4,
+                hidden_tile_count: 0,
+            }),
+            ..HudModel::default()
+        };
+
+        presenter.present_once(&scene, &hud).unwrap();
+
+        let backend = presenter.into_backend();
+        let frame = backend.frames.last().unwrap();
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "MINIMAP-KINDS: minikind:obj7@pl1:mk2:pn0:bk0:rt4:tr0:uk0 detail=marker-line:1,marker-line-end:1,runtime-building:1,runtime-config:1,runtime-deconstruct:1,runtime-place:1",
+        );
+    }
+
+    #[test]
     fn present_once_keeps_crop_stable_around_half_tile_player_motion() {
         let backend = RecordingBackend::default();
         let mut presenter = WindowPresenter::new(backend).with_max_view_tiles(4, 4);
@@ -2537,10 +2550,7 @@ mod tests {
             &frame.panel_lines,
             "RUNTIME-LIVE-EFFECT: livefx:11/73@8:u19:kPoint2:cposition_tar~/unit_parent:pbiz@24.0:32.0",
         );
-        assert_frame_line_contains(
-            &frame.overlay_lines,
-            "OVERLAY: Plans 1",
-        );
+        assert_frame_line_contains(&frame.overlay_lines, "OVERLAY: Plans 1");
         assert_frame_line_contains(
             &frame.overlay_lines,
             "OVERLAY-KINDS: overlay:players=1 markers=1 plans=1 blocks=1 runtime=0",

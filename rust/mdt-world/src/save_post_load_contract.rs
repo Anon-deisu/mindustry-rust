@@ -1,8 +1,7 @@
 use crate::{
-    MarkerModel, SaveEntityChunkObservation, SaveEntityClassKind, SavePostLoadWorldObservation,
-    WorldLoadUnknownCoverageSummary,
+    MarkerModel, SaveEntityPostLoadSummary, SaveEntityRegionObservation,
+    SavePostLoadWorldObservation, WorldLoadUnknownCoverageSummary,
 };
-use std::collections::BTreeSet;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SavePostLoadWorldContract {
@@ -259,20 +258,7 @@ fn entity_surface_consistent(
     issues: &mut Vec<SavePostLoadWorldIssue>,
 ) -> bool {
     let chunks = &observation.world_entity_chunks;
-    let duplicates = duplicate_entity_ids(chunks);
-    let unique_count = chunks.len().saturating_sub(duplicates.len());
-    let builtin_count = chunks
-        .iter()
-        .filter(|chunk| chunk.class_kind() == SaveEntityClassKind::Builtin)
-        .count();
-    let custom_count = chunks
-        .iter()
-        .filter(|chunk| chunk.class_kind() == SaveEntityClassKind::Custom)
-        .count();
-    let unknown_count = chunks
-        .iter()
-        .filter(|chunk| chunk.class_kind() == SaveEntityClassKind::Unknown)
-        .count();
+    let actual_summary = recomputed_entity_summary(observation);
     let mut consistent = true;
 
     if observation.world_entity_count != chunks.len() {
@@ -280,20 +266,12 @@ fn entity_surface_consistent(
         consistent = false;
     }
 
-    if !duplicates.is_empty() {
+    if !actual_summary.duplicate_entity_ids.is_empty() {
         push_issue(issues, SavePostLoadWorldIssue::DuplicateWorldEntityIds);
         consistent = false;
     }
 
-    let summary = &observation.entity_summary;
-    if summary.total_entities != chunks.len()
-        || summary.unique_entity_ids != unique_count
-        || summary.duplicate_entity_ids != duplicates
-        || summary.builtin_entities != builtin_count
-        || summary.custom_entities != custom_count
-        || summary.unknown_entities != unknown_count
-        || summary.loadable_entities + summary.skipped_entities != summary.total_entities
-    {
+    if observation.entity_summary != actual_summary {
         push_issue(issues, SavePostLoadWorldIssue::EntitySummaryMismatch);
         consistent = false;
     }
@@ -301,15 +279,24 @@ fn entity_surface_consistent(
     consistent
 }
 
-fn duplicate_entity_ids(chunks: &[SaveEntityChunkObservation]) -> Vec<i32> {
-    let mut seen = BTreeSet::new();
-    let mut duplicates = BTreeSet::new();
-    for chunk in chunks {
-        if !seen.insert(chunk.entity_id) {
-            duplicates.insert(chunk.entity_id);
-        }
+fn recomputed_entity_summary(observation: &SavePostLoadWorldObservation) -> SaveEntityPostLoadSummary {
+    SaveEntityRegionObservation {
+        remap_count: observation.entity_remap_entries.len(),
+        remap_entries: observation.entity_remap_entries.clone(),
+        remap_bytes: observation.entity_remap_bytes.clone(),
+        team_count: observation.team_plan_groups.len(),
+        total_plans: observation
+            .team_plan_groups
+            .iter()
+            .map(|group| group.plans.len())
+            .sum(),
+        team_plan_groups: observation.team_plan_groups.clone(),
+        team_region_bytes: observation.team_region_bytes.clone(),
+        world_entity_count: observation.world_entity_count,
+        world_entity_bytes: observation.world_entity_bytes.clone(),
+        entity_chunks: observation.world_entity_chunks.clone(),
     }
-    duplicates.into_iter().collect()
+    .post_load_summary()
 }
 
 fn push_issue(issues: &mut Vec<SavePostLoadWorldIssue>, issue: SavePostLoadWorldIssue) {
@@ -324,9 +311,11 @@ mod tests {
     use crate::{
         BuildingBaseSnapshot, BuildingCenter, BuildingSnapshot, CustomChunkEntry, MarkerEntry,
         MarkerModel, ParsedBuildingTail, ParsedCustomChunk, PointMarkerModel,
-        SaveEntityPostLoadSummary, SaveEntityRemapSummary, SaveMapRegionObservation,
-        SavePostLoadWorldObservation, StaticFogChunk, StaticFogTeam, TeamPlan, TeamPlanGroup,
-        TileModel, TypeIoValue, WorldLoadUnknownCoverageSummary, WorldModel,
+        SaveEntityClassSummary, SaveEntityPostLoadClassSummary, SaveEntityPostLoadKind,
+        SaveEntityChunkObservation, SaveEntityPostLoadSummary, SaveEntityRemapSummary,
+        SaveMapRegionObservation, SavePostLoadWorldObservation, StaticFogChunk, StaticFogTeam,
+        TeamPlan, TeamPlanGroup, TileModel, TypeIoValue, WorldLoadUnknownCoverageSummary,
+        WorldModel,
     };
 
     #[test]
@@ -409,6 +398,20 @@ mod tests {
         assert!(contract
             .issues
             .contains(&SavePostLoadWorldIssue::EntitySummaryMismatch));
+    }
+
+    #[test]
+    fn projection_contract_flags_post_load_entity_summary_drift() {
+        let mut observation = test_observation();
+        observation.entity_summary.loadable_entities = 1;
+        observation.entity_summary.skipped_entities = 0;
+        observation.entity_summary.post_load_class_summaries.clear();
+
+        let contract = observation.projection_contract();
+
+        assert!(!contract.can_project_world_shell());
+        assert!(!contract.entity_surface_consistent);
+        assert_eq!(contract.issues, vec![SavePostLoadWorldIssue::EntitySummaryMismatch]);
     }
 
     #[test]
@@ -521,10 +524,21 @@ mod tests {
                 builtin_entities: 0,
                 custom_entities: 1,
                 unknown_entities: 0,
-                class_summaries: Vec::new(),
-                loadable_entities: 1,
-                skipped_entities: 0,
-                post_load_class_summaries: Vec::new(),
+                class_summaries: vec![SaveEntityClassSummary {
+                    class_id: 255,
+                    kind: crate::SaveEntityClassKind::Custom,
+                    resolved_name: "test-entity".to_string(),
+                    count: 1,
+                }],
+                loadable_entities: 0,
+                skipped_entities: 1,
+                post_load_class_summaries: vec![SaveEntityPostLoadClassSummary {
+                    source_class_ids: vec![255],
+                    effective_class_id: None,
+                    kind: SaveEntityPostLoadKind::UnresolvedCustom,
+                    resolved_name: "unresolved:test-entity".to_string(),
+                    count: 1,
+                }],
             },
         }
     }

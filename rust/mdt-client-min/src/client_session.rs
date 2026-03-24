@@ -6287,6 +6287,8 @@ impl ClientSession {
                     position.1.to_bits(),
                     false,
                 );
+            self.state
+                .refresh_runtime_typed_entity_from_tables(player_id);
         }
     }
 
@@ -6384,6 +6386,8 @@ impl ClientSession {
             false,
             self.state.received_entity_snapshot_count,
         );
+        self.state
+            .refresh_runtime_typed_entity_from_tables(player_id);
         self.snapshot_input.unit_id = sync.snapshot_unit_id();
         self.snapshot_input.dead = sync.is_dead();
         self.snapshot_input.position = Some((x, y));
@@ -6432,6 +6436,8 @@ impl ClientSession {
                 false,
                 self.state.received_entity_snapshot_count,
             );
+            self.state
+                .refresh_runtime_typed_entity_from_tables(row.entity_id);
         }
     }
 
@@ -6486,6 +6492,8 @@ impl ClientSession {
                 time_bits: None,
             }),
         );
+        self.state
+            .refresh_runtime_typed_entity_from_tables(entity_id);
     }
 
     fn apply_parseable_building_rows_from_entity_snapshot(
@@ -6543,6 +6551,8 @@ impl ClientSession {
                 block_name.as_deref(),
                 &row.sync.parsed_tail,
             );
+            self.state
+                .refresh_runtime_typed_entity_from_tables(row.entity_id);
         }
     }
 
@@ -6580,6 +6590,8 @@ impl ClientSession {
                     time_bits: None,
                 }),
             );
+            self.state
+                .refresh_runtime_typed_entity_from_tables(row.entity_id);
         }
     }
 
@@ -6620,6 +6632,8 @@ impl ClientSession {
                     time_bits: Some(row.sync.time_bits),
                 }),
             );
+            self.state
+                .refresh_runtime_typed_entity_from_tables(row.entity_id);
         }
     }
 
@@ -6660,6 +6674,8 @@ impl ClientSession {
                     time_bits: None,
                 }),
             );
+            self.state
+                .refresh_runtime_typed_entity_from_tables(row.entity_id);
         }
     }
 
@@ -6700,6 +6716,8 @@ impl ClientSession {
                     time_bits: None,
                 }),
             );
+            self.state
+                .refresh_runtime_typed_entity_from_tables(row.entity_id);
         }
     }
 
@@ -6729,6 +6747,8 @@ impl ClientSession {
                     time_bits: row.sync.time_bits,
                 }),
             );
+            self.state
+                .refresh_runtime_typed_entity_from_tables(row.entity_id);
         }
     }
 
@@ -6761,6 +6781,8 @@ impl ClientSession {
                     amount_bits: row.sync.amount_bits,
                 }),
             );
+            self.state
+                .refresh_runtime_typed_entity_from_tables(row.entity_id);
         }
     }
 
@@ -6796,6 +6818,8 @@ impl ClientSession {
                     wind_y_bits: row.sync.wind_y_bits,
                 }),
             );
+            self.state
+                .refresh_runtime_typed_entity_from_tables(row.entity_id);
         }
     }
 
@@ -6829,6 +6853,8 @@ impl ClientSession {
                     z_bits: row.sync.z_bits,
                 }),
             );
+            self.state
+                .refresh_runtime_typed_entity_from_tables(row.entity_id);
         }
     }
 
@@ -7355,6 +7381,8 @@ impl ClientSession {
         self.state
             .entity_table_projection
             .update_local_player_position(player_id, x.to_bits(), y.to_bits(), false);
+        self.state
+            .refresh_runtime_typed_entity_from_tables(player_id);
         self.snapshot_input.unit_id = None;
         self.snapshot_input.dead = false;
         self.snapshot_input.position = Some((x, y));
@@ -7365,6 +7393,7 @@ impl ClientSession {
     fn try_apply_player_disconnect(&mut self, player_id: i32) -> bool {
         self.state.record_entity_snapshot_tombstone(player_id);
         self.state.entity_table_projection.remove_entity(player_id);
+        self.state.remove_runtime_typed_entity(player_id);
         if Some(player_id) != self.state.world_player_id {
             return false;
         }
@@ -7564,6 +7593,9 @@ impl ClientSession {
         self.state.entity_table_projection.clear_for_world_reload();
         self.state
             .entity_semantic_projection
+            .clear_for_world_reload();
+        self.state
+            .runtime_typed_entity_apply_projection
             .clear_for_world_reload();
         self.state.rules_projection = Default::default();
         self.state.objectives_projection = Default::default();
@@ -9850,7 +9882,8 @@ fn remove_entity_projection_for_entity_id(state: &mut SessionState, entity_id: i
     state.record_entity_snapshot_tombstone(entity_id);
     let removed_entity = state.entity_table_projection.remove_entity(entity_id);
     let removed_semantic = state.entity_semantic_projection.remove_entity(entity_id);
-    removed_entity || removed_semantic
+    let removed_runtime = state.remove_runtime_typed_entity(entity_id);
+    removed_entity || removed_semantic || removed_runtime
 }
 
 fn remove_entity_projection_for_unit_ref(
@@ -15688,6 +15721,15 @@ mod tests {
             Some(local_player_id.max(99))
         );
         assert_eq!(projection.last_entity_id, projection.last_player_entity_id);
+        let runtime_projection = session.state().runtime_typed_entity_projection();
+        assert_eq!(runtime_projection.player_count, 2);
+        assert_eq!(runtime_projection.unit_count, 0);
+        assert_eq!(runtime_projection.local_player_entity_id, Some(local_player_id));
+        assert!(matches!(
+            runtime_projection.entity_at(99),
+            Some(crate::session_state::TypedRuntimeEntityModel::Player(player))
+                if player.base.entity_id == 99
+        ));
     }
 
     #[test]
@@ -15720,7 +15762,10 @@ mod tests {
         );
         let alpha_rows = try_parse_alpha_sync_rows_from_entity_snapshot_prefix(&payload);
         assert_eq!(
-            alpha_rows.iter().map(|row| row.entity_id).collect::<Vec<_>>(),
+            alpha_rows
+                .iter()
+                .map(|row| row.entity_id)
+                .collect::<Vec<_>>(),
             vec![100]
         );
         let alpha_sync = &alpha_rows[0].sync;
@@ -15758,6 +15803,15 @@ mod tests {
         );
         assert_eq!(projection.last_unit_entity_id, Some(100));
         assert!(projection.last_entity_id.is_some());
+        let runtime_projection = session.state().runtime_typed_entity_projection();
+        assert_eq!(runtime_projection.player_count, 1);
+        assert_eq!(runtime_projection.unit_count, 1);
+        assert_eq!(runtime_projection.last_unit_entity_id, Some(100));
+        assert!(matches!(
+            runtime_projection.entity_at(100),
+            Some(crate::session_state::TypedRuntimeEntityModel::Unit(unit))
+                if unit.semantic.unit_type_id == alpha_sync.unit_type_id
+        ));
     }
 
     #[test]
@@ -17406,6 +17460,11 @@ mod tests {
             .entity_table_projection
             .by_entity_id
             .contains_key(&99));
+        assert!(session
+            .state()
+            .runtime_typed_entity_projection()
+            .by_entity_id
+            .contains_key(&99));
 
         let unit_despawn_packet_id = manifest
             .remote_packets
@@ -17432,6 +17491,11 @@ mod tests {
         assert!(!session
             .state()
             .entity_table_projection
+            .by_entity_id
+            .contains_key(&99));
+        assert!(!session
+            .state()
+            .runtime_typed_entity_projection()
             .by_entity_id
             .contains_key(&99));
 
@@ -33742,6 +33806,13 @@ mod tests {
             .entity_table_projection
             .by_entity_id
             .contains_key(&local_player_id));
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_entity_projection()
+                .local_player_entity_id,
+            Some(local_player_id)
+        );
         assert!(session.state().world_player_unit_value.is_some());
         assert!(session.state().world_player_x_bits.is_some());
         assert!(session.state().world_player_y_bits.is_some());
@@ -33780,9 +33851,21 @@ mod tests {
                 .local_player_entity_id,
             None
         );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_entity_projection()
+                .local_player_entity_id,
+            None
+        );
         assert!(!session
             .state()
             .entity_table_projection
+            .by_entity_id
+            .contains_key(&local_player_id));
+        assert!(!session
+            .state()
+            .runtime_typed_entity_projection()
             .by_entity_id
             .contains_key(&local_player_id));
         assert!(session

@@ -73,6 +73,10 @@ These are already landed and should not be re-opened as if missing:
 - `typed_runtime_entity_projection()` is also landed as the first aggregate runtime model over those typed joins.
   - `SessionState` now exposes typed player/unit counts, hidden count, local-player id, and latest player/unit/entity ids
   - remaining `U1` work is deeper runtime ownership/apply, not re-adding the first typed summary/projection layer
+- `runtime-owned` typed entity apply state is now landed as a separate persistent layer.
+  - `SessionState` now keeps `runtime_typed_entity_apply_projection`, and `client_session` drives it from bootstrap local-player seed, `entitySnapshot` player/unit applies, hidden-snapshot rebuilds, despawn/disconnect removals, and `worldDataBegin` clear
+  - runtime HUD live-entity observability now prefers that persistent apply layer instead of only rebuilding typed player/unit joins on demand from the raw projection tables
+  - remaining `U1` work is deeper live ownership/group semantics, not re-adding the first persistent typed runtime apply layer
 - runtime live-entity HUD/presenter output now also consumes that typed projection layer.
   - live entity observability/panels now surface typed player/unit counts plus latest typed entity/player/unit ids
   - remaining M9/U1 work is deeper runtime/apply behavior and richer UI depth, not re-adding the first typed live-entity aggregate view
@@ -86,11 +90,23 @@ These are already landed and should not be re-opened as if missing:
 - builder queue tile-state validation is already landed in `mdt-input`.
   - local queued place/break entries can now be pruned against observed tile states when the tile is already air or already matches the requested block/rotation
   - remaining work is broader runtime integration and Java-equivalent `BuilderComp` depth, not re-adding the validation primitive
+- builder queue tile-state validation now also supports explicit rotation-irrelevant observations.
+  - `BuilderQueueTileStateObservation.requires_rotation_match` can now preserve or clear local place plans based on whether the observed tile family actually requires rotation equality
+  - remaining work is still broader runtime integration and Java-equivalent `BuilderComp` depth, not re-adding this validation refinement
 - building-table block identity carry-through is already landed.
   - `BuildingProjection` / `BuildingTableProjection` now include `block_name` and `last_block_name`
   - world baseline, entity building rows, loaded-world extra entry, `constructFinish`, and `deconstructFinish` already wire `block_name` into the building table
   - `render_runtime` build inspector now prefers the typed runtime view sourced from building table + `configured_block_projection`
   - remaining work is deeper live building ownership/runtime parity, not re-adding this field plumbing or inspector bridge
+- `mdt-world` post-load contract validation now cross-checks actual entity chunks against the summary.
+  - `SavePostLoadWorldObservation::projection_contract()` no longer accepts only `loadable + skipped == total`; it now re-derives the effective post-load entity summary from `world_entity_chunks` and rejects summary drift
+  - remaining `M7-3` work is deeper consumer-side runtime/world ownership, not re-adding this stricter passive contract check
+- typed high-frequency snapshot registry glue is now landed.
+  - `mdt-remote` now exposes `HighFrequencyRemoteRegistry`, `mdt-client-min` snapshot packet registry now consumes typed glue via `snapshot_registry_glue.rs`, and inbound-family registry construction no longer depends on unrelated outbound custom-channel families
+  - remaining `M6-1` work is broader typed registry consumption outside the first snapshot/inbound glue path, not re-adding this typed snapshot registry layer
+- `mdt-render-ui` minimap/overlay semantic detail breakdown is now landed.
+  - render/model panel presenters now expose deterministic family+detail counts for minimap and overlay summaries instead of only coarse kind buckets
+  - remaining `M9` work is still deeper renderer pipeline and interactive UI flow, not re-adding this detail-breakdown presentation slice
 
 ## Highest-Confidence Remaining Lanes
 

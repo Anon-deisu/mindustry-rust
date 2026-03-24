@@ -3,7 +3,7 @@ use crate::{
         RuntimeReconnectPhaseObservability, RuntimeReconnectReasonKind, RuntimeSessionResetKind,
         RuntimeSessionTimeoutKind,
     },
-    render_model::RenderObjectSemanticKind,
+    render_model::RenderSemanticDetailCount,
     BuildConfigAuthoritySourceObservability, BuildConfigOutcomeObservability, BuildQueueHeadStage,
     HudModel, RenderModel,
 };
@@ -46,6 +46,7 @@ pub struct MinimapPanelModel {
     pub runtime_count: usize,
     pub terrain_count: usize,
     pub unknown_count: usize,
+    pub detail_counts: Vec<RenderSemanticDetailCount>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -492,13 +493,7 @@ pub fn build_minimap_panel(
 ) -> Option<MinimapPanelModel> {
     let summary = hud.summary.as_ref()?;
     let window = resolve_presenter_window(scene, summary.map_width, summary.map_height, window);
-    let player_count = semantic_count(scene, RenderObjectSemanticKind::Player);
-    let marker_count = semantic_count(scene, RenderObjectSemanticKind::Marker);
-    let plan_count = semantic_count(scene, RenderObjectSemanticKind::Plan);
-    let block_count = semantic_count(scene, RenderObjectSemanticKind::Block);
-    let runtime_count = semantic_count(scene, RenderObjectSemanticKind::Runtime);
-    let terrain_count = semantic_count(scene, RenderObjectSemanticKind::Terrain);
-    let unknown_count = semantic_count(scene, RenderObjectSemanticKind::Unknown);
+    let semantics = scene.semantic_summary();
     let window_last_x = window
         .origin_x
         .saturating_add(window.width.saturating_sub(1));
@@ -540,20 +535,15 @@ pub fn build_minimap_panel(
         visible_known_percent: percent_of(summary.visible_tile_count, known_tile_count),
         hidden_tile_count: summary.hidden_tile_count,
         hidden_known_percent: percent_of(summary.hidden_tile_count, known_tile_count),
-        tracked_object_count: player_count
-            .saturating_add(marker_count)
-            .saturating_add(plan_count)
-            .saturating_add(block_count)
-            .saturating_add(runtime_count)
-            .saturating_add(terrain_count)
-            .saturating_add(unknown_count),
-        player_count,
-        marker_count,
-        plan_count,
-        block_count,
-        runtime_count,
-        terrain_count,
-        unknown_count,
+        tracked_object_count: semantics.total_count,
+        player_count: semantics.player_count,
+        marker_count: semantics.marker_count,
+        plan_count: semantics.plan_count,
+        block_count: semantics.block_count,
+        runtime_count: semantics.runtime_count,
+        terrain_count: semantics.terrain_count,
+        unknown_count: semantics.unknown_count,
+        detail_counts: semantics.detail_counts,
     })
 }
 
@@ -1085,14 +1075,6 @@ pub fn build_runtime_live_effect_panel(hud: &HudModel) -> Option<RuntimeLiveEffe
     })
 }
 
-fn semantic_count(scene: &RenderModel, kind: RenderObjectSemanticKind) -> usize {
-    scene
-        .objects
-        .iter()
-        .filter(|object| object.semantic_family() == kind.family())
-        .count()
-}
-
 fn resolve_presenter_window(
     scene: &RenderModel,
     map_width: usize,
@@ -1120,13 +1102,12 @@ mod tests {
         build_build_config_panel, build_build_interaction_panel, build_hud_status_panel,
         build_hud_visibility_panel, build_minimap_panel, build_runtime_admin_panel,
         build_runtime_chat_panel, build_runtime_command_mode_panel, build_runtime_dialog_panel,
-        build_runtime_kick_panel, build_runtime_live_effect_panel,
-        build_runtime_live_entity_panel, build_runtime_loading_panel, build_runtime_menu_panel,
-        build_runtime_reconnect_panel, build_runtime_rules_panel, build_runtime_session_panel,
-        build_runtime_ui_notice_panel, build_runtime_world_label_panel,
-        BuildInteractionAuthorityState, BuildInteractionMode, BuildInteractionQueueState,
-        BuildInteractionSelectionState, PresenterViewWindow, RuntimeDialogNoticeKind,
-        RuntimeDialogPromptKind, RuntimeWorldLabelPanelModel,
+        build_runtime_kick_panel, build_runtime_live_effect_panel, build_runtime_live_entity_panel,
+        build_runtime_loading_panel, build_runtime_menu_panel, build_runtime_reconnect_panel,
+        build_runtime_rules_panel, build_runtime_session_panel, build_runtime_ui_notice_panel,
+        build_runtime_world_label_panel, BuildInteractionAuthorityState, BuildInteractionMode,
+        BuildInteractionQueueState, BuildInteractionSelectionState, PresenterViewWindow,
+        RuntimeDialogNoticeKind, RuntimeDialogPromptKind, RuntimeWorldLabelPanelModel,
     };
     use crate::{
         hud_model::{
@@ -1141,10 +1122,10 @@ mod tests {
         BuildConfigAuthoritySourceObservability, BuildConfigInspectorEntryObservability,
         BuildConfigOutcomeObservability, BuildConfigRollbackStripObservability,
         BuildQueueHeadObservability, BuildQueueHeadStage, BuildUiObservability, HudModel,
-        RenderModel, RenderObject, RuntimeAdminObservability, RuntimeHudTextObservability,
-        RuntimeLiveSummaryObservability, RuntimeMenuObservability, RuntimeRulesObservability,
-        RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiObservability,
-        RuntimeWorldLabelObservability, Viewport,
+        RenderModel, RenderObject, RenderSemanticDetailCount, RuntimeAdminObservability,
+        RuntimeHudTextObservability, RuntimeLiveSummaryObservability, RuntimeMenuObservability,
+        RuntimeRulesObservability, RuntimeTextInputObservability, RuntimeToastObservability,
+        RuntimeUiObservability, RuntimeWorldLabelObservability, Viewport,
     };
 
     fn pack_point2(x: i32, y: i32) -> i32 {
@@ -1286,6 +1267,13 @@ mod tests {
         assert_eq!(panel.runtime_count, 1);
         assert_eq!(panel.terrain_count, 0);
         assert_eq!(panel.unknown_count, 0);
+        assert_eq!(
+            panel.detail_counts,
+            vec![RenderSemanticDetailCount {
+                label: "runtime-config",
+                count: 1,
+            }]
+        );
     }
 
     #[test]
@@ -2346,7 +2334,10 @@ mod tests {
 
         let reconnect =
             build_runtime_reconnect_panel(&hud).expect("expected runtime reconnect panel");
-        assert_eq!(reconnect.phase, RuntimeReconnectPhaseObservability::Attempting);
+        assert_eq!(
+            reconnect.phase,
+            RuntimeReconnectPhaseObservability::Attempting
+        );
         assert_eq!(
             reconnect.reason_kind,
             Some(RuntimeReconnectReasonKind::ConnectRedirect)

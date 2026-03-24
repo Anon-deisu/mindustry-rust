@@ -57,6 +57,7 @@ pub struct BuilderQueueTileStateObservation {
     pub y: i32,
     pub block_id: Option<i16>,
     pub rotation: Option<u8>,
+    pub requires_rotation_match: bool,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -438,10 +439,11 @@ impl BuilderQueueStateMachine {
             observation.block_id.is_none()
         } else {
             observation.block_id == entry.block_id
-                && observation
-                    .rotation
-                    .zip(entry.rotation)
-                    .is_some_and(|(lhs, rhs)| lhs == rhs)
+                && (!observation.requires_rotation_match
+                    || observation
+                        .rotation
+                        .zip(entry.rotation)
+                        .is_some_and(|(lhs, rhs)| lhs == rhs))
         }
     }
 
@@ -1424,18 +1426,21 @@ mod tests {
                 y: 1,
                 block_id: Some(10),
                 rotation: Some(2),
+                requires_rotation_match: true,
             },
             BuilderQueueTileStateObservation {
                 x: 2,
                 y: 2,
                 block_id: None,
                 rotation: None,
+                requires_rotation_match: false,
             },
             BuilderQueueTileStateObservation {
                 x: 3,
                 y: 3,
                 block_id: Some(30),
                 rotation: Some(0),
+                requires_rotation_match: true,
             },
         ]);
 
@@ -1479,12 +1484,14 @@ mod tests {
                 y: 4,
                 block_id: Some(40),
                 rotation: None,
+                requires_rotation_match: true,
             },
             BuilderQueueTileStateObservation {
                 x: 5,
                 y: 5,
                 block_id: Some(50),
                 rotation: Some(2),
+                requires_rotation_match: true,
             },
         ]);
 
@@ -1492,6 +1499,48 @@ mod tests {
         assert_eq!(queue.ordered_tiles, vec![(4, 4), (5, 5)]);
         assert_eq!(queue.head_tile, Some((4, 4)));
         assert_eq!(queue.queued_count, 2);
+        assert_eq!(queue.inflight_count, 0);
+    }
+
+    #[test]
+    fn validate_against_tile_states_removes_place_entry_when_rotation_match_is_not_required() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 6,
+                y: 6,
+                breaking: false,
+                block_id: Some(60),
+                rotation: 0,
+            },
+            BuilderQueueEntryObservation {
+                x: 7,
+                y: 7,
+                breaking: true,
+                block_id: None,
+                rotation: 0,
+            },
+        ]);
+
+        let validation = queue.validate_against_tile_states([BuilderQueueTileStateObservation {
+            x: 6,
+            y: 6,
+            block_id: Some(60),
+            rotation: None,
+            requires_rotation_match: false,
+        }]);
+
+        assert_eq!(
+            validation,
+            BuilderQueueValidationResult {
+                removed_count: 1,
+                removed_head: true,
+                removed_tiles: vec![(6, 6)],
+            }
+        );
+        assert_eq!(queue.ordered_tiles, vec![(7, 7)]);
+        assert_eq!(queue.head_tile, Some((7, 7)));
+        assert_eq!(queue.queued_count, 1);
         assert_eq!(queue.inflight_count, 0);
     }
 
@@ -1520,6 +1569,7 @@ mod tests {
             y: 6,
             block_id: Some(99),
             rotation: Some(0),
+            requires_rotation_match: true,
         }]);
 
         assert_eq!(validation, BuilderQueueValidationResult::default());

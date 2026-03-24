@@ -13,8 +13,7 @@ pub use hud_model::{
     BuildConfigAuthoritySourceObservability, BuildConfigInspectorEntryObservability,
     BuildConfigOutcomeObservability, BuildConfigRollbackStripObservability,
     BuildQueueHeadObservability, BuildQueueHeadStage, BuildUiObservability, HudModel,
-    RuntimeAdminObservability, RuntimeChatObservability,
-    RuntimeCommandControlGroupObservability,
+    RuntimeAdminObservability, RuntimeChatObservability, RuntimeCommandControlGroupObservability,
     RuntimeCommandModeObservability, RuntimeCommandRectObservability,
     RuntimeCommandSelectionObservability, RuntimeCommandStanceObservability,
     RuntimeCommandTargetObservability, RuntimeCommandUnitRefObservability,
@@ -32,7 +31,10 @@ pub use projection::{
     project_render_model_with_view_window, project_scene_models,
     project_scene_models_with_player_position, project_scene_models_with_view_window,
 };
-pub use render_model::{RenderModel, RenderObject, RenderViewWindow, Viewport};
+pub use render_model::{
+    RenderModel, RenderObject, RenderSemanticDetailCount, RenderSemanticSummary, RenderViewWindow,
+    Viewport,
+};
 pub use scene_present::ScenePresenter;
 pub use window_presenter::{
     BackendSignal, MinifbWindowBackend, PpmSequenceBackend, WindowBackend, WindowFrame,

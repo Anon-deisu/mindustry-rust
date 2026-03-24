@@ -2,11 +2,10 @@ use crate::panel_model::{
     build_build_config_panel, build_build_interaction_panel, build_hud_status_panel,
     build_hud_visibility_panel, build_minimap_panel, build_runtime_admin_panel,
     build_runtime_chat_panel, build_runtime_command_mode_panel, build_runtime_dialog_panel,
-    build_runtime_kick_panel, build_runtime_live_effect_panel,
-    build_runtime_live_entity_panel, build_runtime_loading_panel, build_runtime_menu_panel,
-    build_runtime_reconnect_panel, build_runtime_rules_panel, build_runtime_ui_notice_panel,
-    build_runtime_world_label_panel, PresenterViewWindow, RuntimeDialogNoticeKind,
-    RuntimeDialogPromptKind,
+    build_runtime_kick_panel, build_runtime_live_effect_panel, build_runtime_live_entity_panel,
+    build_runtime_loading_panel, build_runtime_menu_panel, build_runtime_reconnect_panel,
+    build_runtime_rules_panel, build_runtime_ui_notice_panel, build_runtime_world_label_panel,
+    PresenterViewWindow, RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
 };
 use crate::render_model::{RenderObjectSemanticFamily, RenderObjectSemanticKind};
 use crate::{HudModel, RenderModel, ScenePresenter};
@@ -614,7 +613,7 @@ fn compose_minimap_kind_line(scene: &RenderModel, hud: &HudModel) -> Option<Stri
             height: 0,
         },
     )?;
-    Some(format!(
+    let mut text = format!(
         "tracked={} player={} marker={} plan={} block={} runtime={} terrain={} unknown={}",
         panel.tracked_object_count,
         panel.player_count,
@@ -624,7 +623,12 @@ fn compose_minimap_kind_line(scene: &RenderModel, hud: &HudModel) -> Option<Stri
         panel.runtime_count,
         panel.terrain_count,
         panel.unknown_count,
-    ))
+    );
+    if let Some(detail_text) = semantic_detail_text(&panel.detail_counts) {
+        text.push_str(" detail=");
+        text.push_str(&detail_text);
+    }
+    Some(text)
 }
 
 fn compose_minimap_legend_line(hud: &HudModel) -> Option<String> {
@@ -1121,81 +1125,39 @@ fn runtime_reconnect_reason_kind_text(
 }
 
 fn compose_overlay_semantics_text(scene: &RenderModel) -> Option<String> {
-    let counts = overlay_semantic_counts(scene);
-    let total = counts.iter().map(|(_, count)| count).sum::<usize>();
-    if total == 0 {
+    let summary = scene.semantic_summary();
+    if summary.total_count == 0 {
         return None;
     }
 
     let mut text = format!(
         "players={} markers={} plans={} blocks={} runtime={} terrain={} unknown={}",
-        overlay_semantic_count(&counts, RenderObjectSemanticKind::Player),
-        overlay_semantic_count(&counts, RenderObjectSemanticKind::Marker),
-        overlay_semantic_count(&counts, RenderObjectSemanticKind::Plan),
-        overlay_semantic_count(&counts, RenderObjectSemanticKind::Block),
-        overlay_semantic_count(&counts, RenderObjectSemanticKind::Runtime),
-        overlay_semantic_count(&counts, RenderObjectSemanticKind::Terrain),
-        overlay_semantic_count(&counts, RenderObjectSemanticKind::Unknown),
+        summary.player_count,
+        summary.marker_count,
+        summary.plan_count,
+        summary.block_count,
+        summary.runtime_count,
+        summary.terrain_count,
+        summary.unknown_count,
     );
-    if let Some(detail_text) = overlay_semantic_detail_text(scene) {
+    if let Some(detail_text) = summary.detail_text() {
         text.push_str(" detail=");
         text.push_str(&detail_text);
     }
     Some(text)
 }
 
-fn overlay_semantic_counts(scene: &RenderModel) -> Vec<(RenderObjectSemanticKind, usize)> {
-    let mut counts = Vec::with_capacity(6);
-    for object in &scene.objects {
-        let kind = match object.semantic_family() {
-            RenderObjectSemanticFamily::Player => RenderObjectSemanticKind::Player,
-            RenderObjectSemanticFamily::Runtime => RenderObjectSemanticKind::Runtime,
-            RenderObjectSemanticFamily::Marker => RenderObjectSemanticKind::Marker,
-            RenderObjectSemanticFamily::Plan => RenderObjectSemanticKind::Plan,
-            RenderObjectSemanticFamily::Block => RenderObjectSemanticKind::Block,
-            RenderObjectSemanticFamily::Terrain => RenderObjectSemanticKind::Terrain,
-            RenderObjectSemanticFamily::Unknown => RenderObjectSemanticKind::Unknown,
-        };
-        if let Some((_, count)) = counts.iter_mut().find(|(existing, _)| *existing == kind) {
-            *count += 1;
-        } else {
-            counts.push((kind, 1));
-        }
-    }
-    counts
-}
-
-fn overlay_semantic_count(
-    counts: &[(RenderObjectSemanticKind, usize)],
-    kind: RenderObjectSemanticKind,
-) -> usize {
-    counts
-        .iter()
-        .find(|(existing, _)| *existing == kind)
-        .map(|(_, count)| *count)
-        .unwrap_or_default()
-}
-
-fn overlay_semantic_detail_text(scene: &RenderModel) -> Option<String> {
-    let mut counts = Vec::<(String, usize)>::new();
-    for object in &scene.objects {
-        let Some(label) = object.semantic_kind().detail_label() else {
-            continue;
-        };
-        if let Some((_, count)) = counts.iter_mut().find(|(existing, _)| existing == label) {
-            *count += 1;
-        } else {
-            counts.push((label.to_string(), 1));
-        }
-    }
-    if counts.is_empty() {
+fn semantic_detail_text(
+    detail_counts: &[crate::render_model::RenderSemanticDetailCount],
+) -> Option<String> {
+    if detail_counts.is_empty() {
         return None;
     }
-    counts.sort_by(|left, right| left.0.cmp(&right.0));
+
     Some(
-        counts
-            .into_iter()
-            .map(|(label, count)| format!("{label}:{count}"))
+        detail_counts
+            .iter()
+            .map(|detail| format!("{}:{}", detail.label, detail.count))
             .collect::<Vec<_>>()
             .join(","),
     )
@@ -1677,6 +1639,86 @@ mod tests {
         ));
         assert!(frame.contains(
             "detail=marker-line:1,marker-line-end:1,runtime-building:1,runtime-config:1,runtime-deconstruct:1,runtime-place:1"
+        ));
+    }
+
+    #[test]
+    fn ascii_presenter_surfaces_minimap_detail_semantics() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 16.0,
+                height: 16.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![
+                crate::RenderObject {
+                    id: "player:1".to_string(),
+                    layer: 1,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                crate::RenderObject {
+                    id: "marker:line:7".to_string(),
+                    layer: 1,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                crate::RenderObject {
+                    id: "marker:line:7:line-end".to_string(),
+                    layer: 1,
+                    x: 8.0,
+                    y: 8.0,
+                },
+                crate::RenderObject {
+                    id: "marker:runtime-config:3:2:string".to_string(),
+                    layer: 1,
+                    x: 8.0,
+                    y: 0.0,
+                },
+                crate::RenderObject {
+                    id: "block:runtime-building:1:2:3".to_string(),
+                    layer: 1,
+                    x: 0.0,
+                    y: 8.0,
+                },
+                crate::RenderObject {
+                    id: "plan:runtime-place:0:4:5".to_string(),
+                    layer: 1,
+                    x: 8.0,
+                    y: 8.0,
+                },
+                crate::RenderObject {
+                    id: "terrain:runtime-deconstruct:9:4".to_string(),
+                    layer: 0,
+                    x: 0.0,
+                    y: 8.0,
+                },
+            ],
+        };
+        let hud = HudModel {
+            summary: Some(HudSummary {
+                player_name: "operator".to_string(),
+                team_id: 2,
+                selected_block: "payload-router".to_string(),
+                plan_count: 0,
+                marker_count: 0,
+                map_width: 2,
+                map_height: 2,
+                overlay_visible: true,
+                fog_enabled: false,
+                visible_tile_count: 4,
+                hidden_tile_count: 0,
+            }),
+            ..HudModel::default()
+        };
+        let mut presenter = AsciiScenePresenter::default();
+
+        presenter.present(&scene, &hud);
+
+        let frame = presenter.last_frame();
+        assert!(frame.contains(
+            "MINIMAP-KINDS: tracked=7 player=1 marker=2 plan=0 block=0 runtime=4 terrain=0 unknown=0 detail=marker-line:1,marker-line-end:1,runtime-building:1,runtime-config:1,runtime-deconstruct:1,runtime-place:1"
         ));
     }
 

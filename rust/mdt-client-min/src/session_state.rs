@@ -3194,6 +3194,70 @@ impl TypedRuntimeEntityProjection {
             TypedRuntimeEntityModel::Unit(_) => None,
         }
     }
+
+    pub fn upsert_runtime_entity(&mut self, model: TypedRuntimeEntityModel) {
+        self.by_entity_id.insert(model.entity_id(), model);
+        self.rebuild_summary();
+    }
+
+    pub fn remove_runtime_entity(&mut self, entity_id: i32) -> bool {
+        let removed = self.by_entity_id.remove(&entity_id).is_some();
+        if removed {
+            self.rebuild_summary();
+        }
+        removed
+    }
+
+    pub fn clear_for_world_reload(&mut self) {
+        *self = Self::default();
+    }
+
+    fn rebuild_summary(&mut self) {
+        let mut player_count = 0usize;
+        let mut unit_count = 0usize;
+        let mut hidden_count = 0usize;
+        let mut last_entity = None::<(u64, i32)>;
+        let mut last_player = None::<(u64, i32)>;
+        let mut last_unit = None::<(u64, i32)>;
+        let mut local_player = None::<(u64, i32)>;
+
+        for (&entity_id, model) in &self.by_entity_id {
+            let base = model.base();
+            let priority = (base.last_seen_entity_snapshot_count, entity_id);
+            if base.hidden {
+                hidden_count = hidden_count.saturating_add(1);
+            }
+            if last_entity.is_none_or(|current| priority > current) {
+                last_entity = Some(priority);
+            }
+            match model.kind() {
+                TypedRuntimeEntityKind::Player => {
+                    player_count = player_count.saturating_add(1);
+                    if last_player.is_none_or(|current| priority > current) {
+                        last_player = Some(priority);
+                    }
+                    if base.is_local_player && local_player.is_none_or(|current| priority > current)
+                    {
+                        local_player = Some(priority);
+                    }
+                }
+                TypedRuntimeEntityKind::Unit => {
+                    unit_count = unit_count.saturating_add(1);
+                    if last_unit.is_none_or(|current| priority > current) {
+                        last_unit = Some(priority);
+                    }
+                }
+            }
+        }
+
+        self.player_count = player_count;
+        self.unit_count = unit_count;
+        self.hidden_count = hidden_count;
+        self.local_player_entity_id = local_player.map(|(_, entity_id)| entity_id);
+        self.last_entity_id = last_entity.map(|(_, entity_id)| entity_id);
+        self.last_player_entity_id = last_player.map(|(_, entity_id)| entity_id);
+        self.last_unit_entity_id = last_unit.map(|(_, entity_id)| entity_id);
+    }
 }
 
 fn typed_runtime_entity_base(entity_id: i32, entity: &EntityProjection) -> TypedRuntimeEntityBase {
@@ -4062,6 +4126,7 @@ pub struct SessionState {
     pub last_hidden_snapshot_parse_error_payload_len: Option<usize>,
     pub entity_table_projection: EntityTableProjection,
     pub entity_semantic_projection: EntitySemanticProjectionTable,
+    pub runtime_typed_entity_apply_projection: TypedRuntimeEntityProjection,
 }
 
 impl SessionState {
@@ -4139,6 +4204,63 @@ impl SessionState {
         projection.last_player_entity_id = last_player.map(|(_, entity_id)| entity_id);
         projection.last_unit_entity_id = last_unit.map(|(_, entity_id)| entity_id);
         projection
+    }
+
+    pub fn runtime_typed_entity_projection(&self) -> TypedRuntimeEntityProjection {
+        if self
+            .runtime_typed_entity_apply_projection
+            .by_entity_id
+            .is_empty()
+            && !self.entity_table_projection.by_entity_id.is_empty()
+        {
+            self.typed_runtime_entity_projection()
+        } else {
+            self.runtime_typed_entity_apply_projection.clone()
+        }
+    }
+
+    pub fn refresh_runtime_typed_entity_from_tables(&mut self, entity_id: i32) {
+        let model = self
+            .entity_table_projection
+            .by_entity_id
+            .get(&entity_id)
+            .and_then(|entity| {
+                typed_runtime_entity_model(
+                    entity_id,
+                    entity,
+                    self.entity_semantic_projection.by_entity_id.get(&entity_id),
+                )
+            });
+        match model {
+            Some(model) => self
+                .runtime_typed_entity_apply_projection
+                .upsert_runtime_entity(model),
+            None => {
+                self.runtime_typed_entity_apply_projection
+                    .remove_runtime_entity(entity_id);
+            }
+        }
+    }
+
+    pub fn rebuild_runtime_typed_entity_projection_from_tables(&mut self) {
+        let mut projection = TypedRuntimeEntityProjection::default();
+        for (&entity_id, entity) in &self.entity_table_projection.by_entity_id {
+            let model = typed_runtime_entity_model(
+                entity_id,
+                entity,
+                self.entity_semantic_projection.by_entity_id.get(&entity_id),
+            );
+            if let Some(model) = model {
+                projection.by_entity_id.insert(entity_id, model);
+            }
+        }
+        projection.rebuild_summary();
+        self.runtime_typed_entity_apply_projection = projection;
+    }
+
+    pub fn remove_runtime_typed_entity(&mut self, entity_id: i32) -> bool {
+        self.runtime_typed_entity_apply_projection
+            .remove_runtime_entity(entity_id)
     }
 
     pub fn set_reconnect_phase(&mut self, phase: ReconnectPhaseProjection) {
@@ -4481,6 +4603,7 @@ impl SessionState {
             added_sample_ids,
             removed_sample_ids,
         });
+        self.rebuild_runtime_typed_entity_projection_from_tables();
     }
 
     fn hidden_snapshot_auxiliary_cleanup_ids(
@@ -5149,9 +5272,150 @@ mod tests {
                     && unit.semantic.payload_count == Some(1)
         ));
         assert_eq!(
-            projection.local_player().map(|player| player.base.entity_id),
+            projection
+                .local_player()
+                .map(|player| player.base.entity_id),
             Some(101)
         );
         assert!(!projection.by_entity_id.contains_key(&303));
+    }
+
+    #[test]
+    fn session_state_runtime_typed_entity_projection_rebuilds_from_tables() {
+        let mut state = SessionState::default();
+        state.entity_table_projection.local_player_entity_id = Some(101);
+        state.entity_table_projection.by_entity_id.insert(
+            101,
+            EntityProjection {
+                class_id: EntityTableProjection::LOCAL_PLAYER_CLASS_ID,
+                hidden: false,
+                is_local_player: true,
+                unit_kind: 2,
+                unit_value: 1001,
+                x_bits: 10.0f32.to_bits(),
+                y_bits: 20.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 7,
+            },
+        );
+        state.entity_table_projection.by_entity_id.insert(
+            202,
+            EntityProjection {
+                class_id: 4,
+                hidden: true,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 202,
+                x_bits: 30.0f32.to_bits(),
+                y_bits: 40.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 9,
+            },
+        );
+        state.entity_semantic_projection.upsert(
+            202,
+            4,
+            9,
+            EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
+                team_id: 2,
+                unit_type_id: 55,
+                health_bits: 0x3f80_0000,
+                rotation_bits: 0x4000_0000,
+                shield_bits: 0x4040_0000,
+                mine_tile_pos: 77,
+                status_count: 3,
+                payload_count: Some(1),
+                building_pos: Some(88),
+                lifetime_bits: Some(0x4080_0000),
+                time_bits: Some(0x40a0_0000),
+            }),
+        );
+
+        state.rebuild_runtime_typed_entity_projection_from_tables();
+        let projection = state.runtime_typed_entity_projection();
+
+        assert_eq!(projection.player_count, 1);
+        assert_eq!(projection.unit_count, 1);
+        assert_eq!(projection.hidden_count, 1);
+        assert_eq!(projection.local_player_entity_id, Some(101));
+        assert_eq!(projection.last_entity_id, Some(202));
+        assert_eq!(projection.last_player_entity_id, Some(101));
+        assert_eq!(projection.last_unit_entity_id, Some(202));
+        assert!(matches!(
+            projection.entity_at(101),
+            Some(TypedRuntimeEntityModel::Player(player))
+                if player.base.is_local_player && player.base.unit_value == 1001
+        ));
+        assert!(matches!(
+            projection.entity_at(202),
+            Some(TypedRuntimeEntityModel::Unit(unit))
+                if unit.base.hidden && unit.semantic.unit_type_id == 55
+        ));
+    }
+
+    #[test]
+    fn hidden_snapshot_rebuilds_runtime_typed_entity_apply_projection() {
+        let mut state = SessionState::default();
+        state.entity_table_projection.local_player_entity_id = Some(101);
+        state.entity_table_projection.by_entity_id.insert(
+            101,
+            EntityProjection {
+                class_id: EntityTableProjection::LOCAL_PLAYER_CLASS_ID,
+                hidden: false,
+                is_local_player: true,
+                unit_kind: 2,
+                unit_value: 101,
+                x_bits: 1.0f32.to_bits(),
+                y_bits: 2.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
+        state.entity_table_projection.by_entity_id.insert(
+            202,
+            EntityProjection {
+                class_id: 4,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 202,
+                x_bits: 3.0f32.to_bits(),
+                y_bits: 4.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 2,
+            },
+        );
+        state.entity_semantic_projection.upsert(
+            202,
+            4,
+            2,
+            EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
+                team_id: 2,
+                unit_type_id: 55,
+                health_bits: 0x3f80_0000,
+                rotation_bits: 0x4000_0000,
+                shield_bits: 0x4040_0000,
+                mine_tile_pos: 0,
+                status_count: 0,
+                payload_count: None,
+                building_pos: None,
+                lifetime_bits: None,
+                time_bits: None,
+            }),
+        );
+        state.rebuild_runtime_typed_entity_projection_from_tables();
+
+        state.apply_hidden_snapshot(
+            AppliedHiddenSnapshotIds {
+                count: 1,
+                first_id: Some(202),
+                sample_ids: vec![202],
+            },
+            BTreeSet::from([202]),
+        );
+
+        let projection = state.runtime_typed_entity_projection();
+        assert_eq!(projection.player_count, 1);
+        assert_eq!(projection.unit_count, 0);
+        assert_eq!(projection.hidden_count, 0);
+        assert_eq!(projection.local_player_entity_id, Some(101));
+        assert!(projection.by_entity_id.contains_key(&101));
+        assert!(!projection.by_entity_id.contains_key(&202));
     }
 }

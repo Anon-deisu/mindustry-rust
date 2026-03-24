@@ -1787,17 +1787,8 @@ fn runtime_live_summary_observability(
 fn runtime_live_entity_summary_observability(
     session_state: &SessionState,
 ) -> RuntimeLiveEntitySummaryObservability {
-    let typed_projection = session_state.typed_runtime_entity_projection();
-    let local_entity = session_state
-        .entity_table_projection
-        .local_player_entity_id
-        .and_then(|entity_id| {
-            session_state
-                .entity_table_projection
-                .by_entity_id
-                .get(&entity_id)
-                .map(|entity| (entity_id, entity))
-        });
+    let typed_projection = session_state.runtime_typed_entity_projection();
+    let local_entity = typed_projection.local_player().map(|player| &player.base);
 
     RuntimeLiveEntitySummaryObservability {
         entity_count: session_state.entity_table_projection.by_entity_id.len(),
@@ -1807,13 +1798,13 @@ fn runtime_live_entity_summary_observability(
         last_entity_id: typed_projection.last_entity_id,
         last_player_entity_id: typed_projection.last_player_entity_id,
         last_unit_entity_id: typed_projection.last_unit_entity_id,
-        local_entity_id: local_entity.map(|(entity_id, _)| entity_id),
-        local_unit_kind: local_entity.map(|(_, entity)| entity.unit_kind),
-        local_unit_value: local_entity.map(|(_, entity)| entity.unit_value),
-        local_hidden: local_entity.map(|(_, entity)| entity.hidden),
+        local_entity_id: local_entity.map(|entity| entity.entity_id),
+        local_unit_kind: local_entity.map(|entity| entity.unit_kind),
+        local_unit_value: local_entity.map(|entity| entity.unit_value),
+        local_hidden: local_entity.map(|entity| entity.hidden),
         local_last_seen_entity_snapshot_count: local_entity
-            .map(|(_, entity)| entity.last_seen_entity_snapshot_count),
-        local_position: local_entity.map(|(_, entity)| RuntimeWorldPositionObservability {
+            .map(|entity| entity.last_seen_entity_snapshot_count),
+        local_position: local_entity.map(|entity| RuntimeWorldPositionObservability {
             x_bits: entity.x_bits,
             y_bits: entity.y_bits,
         }),

@@ -65,6 +65,7 @@ mod tests {
                 assert!(
                     message
                         .contains("duplicate high-frequency server-to-client snapshot packet id")
+                        || message.contains("duplicate high-frequency remote packet id")
                         || message
                             .contains("duplicate high-frequency server->client snapshot packet id"),
                     "unexpected duplicate packet-id error message: {message}"
