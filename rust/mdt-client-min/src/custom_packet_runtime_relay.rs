@@ -1,4 +1,4 @@
-use mdt_client_min::client_session::{
+use crate::client_session::{
     ClientLogicDataTransport, ClientPacketTransport, ClientSession, ClientSessionEvent,
 };
 use mdt_typeio::TypeIoObject;

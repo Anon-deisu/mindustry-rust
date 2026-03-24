@@ -8,6 +8,18 @@ use mdt_client_min::connect_packet::{
     default_connect_build, default_connect_version_type, ConnectCompatibilityWarning,
     ConnectPacketSpec,
 };
+use mdt_client_min::custom_packet_runtime::{
+    build_runtime_custom_packet_semantic_specs, install_runtime_custom_packet_semantics,
+    RuntimeCustomPacketSemanticEncoding, RuntimeCustomPacketSemanticKind,
+    RuntimeCustomPacketSemanticSpec, RuntimeCustomPacketSemantics,
+};
+use mdt_client_min::custom_packet_runtime_relay::{
+    build_runtime_custom_packet_relay_specs, install_runtime_custom_packet_relays,
+    RuntimeCustomPacketRelayAction, RuntimeCustomPacketRelaySpec, RuntimeCustomPacketRelays,
+};
+use mdt_client_min::custom_packet_runtime_surface::{
+    install_runtime_custom_packet_surface, RuntimeCustomPacketSurface,
+};
 use mdt_client_min::render_runtime::RenderRuntimeAdapter;
 use mdt_input::live_intent::RuntimeIntentTracker;
 use mdt_input::{
@@ -32,25 +44,6 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::thread;
 use std::time::{Duration, Instant};
-
-#[path = "../custom_packet_runtime.rs"]
-mod custom_packet_runtime;
-#[path = "../custom_packet_runtime_relay.rs"]
-mod custom_packet_runtime_relay;
-#[path = "../custom_packet_runtime_surface.rs"]
-mod custom_packet_runtime_surface;
-
-use custom_packet_runtime::{
-    build_runtime_custom_packet_semantic_specs, install_runtime_custom_packet_semantics,
-    RuntimeCustomPacketSemanticSpec, RuntimeCustomPacketSemantics,
-};
-use custom_packet_runtime_relay::{
-    build_runtime_custom_packet_relay_specs, install_runtime_custom_packet_relays,
-    RuntimeCustomPacketRelayAction, RuntimeCustomPacketRelaySpec, RuntimeCustomPacketRelays,
-};
-use custom_packet_runtime_surface::{
-    install_runtime_custom_packet_surface, RuntimeCustomPacketSurface,
-};
 
 const LIVE_VIEW_TILES: (usize, usize) = (64, 32);
 const SERVER_RESTART_RETRY_BACKOFF_MS: u64 = 1_000;
@@ -5939,18 +5932,18 @@ mod tests {
             vec![
                 RuntimeCustomPacketSemanticSpec {
                     key: "custom.status".to_string(),
-                    encoding: custom_packet_runtime::RuntimeCustomPacketSemanticEncoding::Text,
-                    semantic: custom_packet_runtime::RuntimeCustomPacketSemanticKind::HudText,
+                    encoding: RuntimeCustomPacketSemanticEncoding::Text,
+                    semantic: RuntimeCustomPacketSemanticKind::HudText,
                 },
                 RuntimeCustomPacketSemanticSpec {
                     key: "custom.uri".to_string(),
-                    encoding: custom_packet_runtime::RuntimeCustomPacketSemanticEncoding::Binary,
-                    semantic: custom_packet_runtime::RuntimeCustomPacketSemanticKind::OpenUri,
+                    encoding: RuntimeCustomPacketSemanticEncoding::Binary,
+                    semantic: RuntimeCustomPacketSemanticKind::OpenUri,
                 },
                 RuntimeCustomPacketSemanticSpec {
                     key: "logic.pos".to_string(),
-                    encoding: custom_packet_runtime::RuntimeCustomPacketSemanticEncoding::LogicData,
-                    semantic: custom_packet_runtime::RuntimeCustomPacketSemanticKind::WorldPos,
+                    encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+                    semantic: RuntimeCustomPacketSemanticKind::WorldPos,
                 },
             ]
         );

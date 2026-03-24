@@ -154,6 +154,9 @@ These are already landed and should not be re-opened as if missing:
 - narrow `effect_id=10` `point_beam` contract/executor wiring is now also landed.
   - `effect_contract(Some(10))` now resolves to `point_beam`, contract-aware business projection still reuses the existing `PositionTarget { source, target }` payload semantics, and runtime rendering now keeps the dedicated beam line behavior keyed to `effect_id=10`
   - remaining `U5` work is still landing additional narrow `effect_id -> contract/executor` families, not re-adding this `point_beam` slice
+- narrow `effect_id=261/262` `chainLightning` / `chainEmp` executor wiring is now also landed.
+  - Rust now keeps deterministic segmented chain line overlays for `261/262` on top of the existing `position_target` payload semantics instead of stopping at a single marker/target projection
+  - remaining `U5` work is still landing additional narrow `effect_id -> contract/executor` families, not re-adding these first chain-effect slices
 - `mdt-client-min-online` custom/logic runtime surface wiring is now landed as a narrow `M6-3` harness slice.
   - the online harness now reuses `custom_packet_runtime_surface` across `--consume-client-*` custom/logic flows, emits runtime/business overlay summaries on updates and resets, and re-installs that surface after reconnect/redirect rebuilds
   - remaining `M6-3` work is still deeper Java-equivalent business integration, not re-adding this harness/runtime summary bridge
@@ -222,10 +225,10 @@ Write scope:
 ### U5 `effect` executor / contract table depth
 
 Remaining gap:
-- Rust has bounded runtime overlays, several contract-aware projections, and narrow landed slices for `effect_id=142 -> drop_item` plus `effect_id=10 -> point_beam`, but still not Java `Effect`-executor semantics.
+- Rust has bounded runtime overlays, several contract-aware projections, and narrow landed slices for `effect_id=142 -> drop_item`, `effect_id=10 -> point_beam`, and `effect_id=261/262 -> chainLightning/chainEmp`, but still not Java `Effect`-executor semantics.
 
 Best bounded next slice:
-- add one narrow `effect_id -> contract/executor` family at a time, with `261/262` segmented chain effects or `13` lightning path now the best next candidates
+- add one narrow `effect_id -> contract/executor` family at a time, with `13` lightning path or `252` block-content icon now the best next candidates
 - stay above raw packet decode and below full renderer parity
 
 Write scope:

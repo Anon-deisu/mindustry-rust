@@ -3097,36 +3097,35 @@ fn append_runtime_effect_executor_objects(
     target_x_bits: u32,
     target_y_bits: u32,
 ) {
-    let Some(line) = effect_contract_executor::line_projection_for_effect_overlay(
+    for line in effect_contract_executor::line_projections_for_effect_overlay(
         overlay,
         target_x_bits,
         target_y_bits,
-    ) else {
-        return;
-    };
-
-    let line_id = runtime_effect_line_object_id(
-        overlay.effect_id,
-        overlay.reliable,
-        line.source_x_bits,
-        line.source_y_bits,
-        line.target_x_bits,
-        line.target_y_bits,
-    );
-    scene.objects.push(RenderObject {
-        id: line_id.clone(),
-        layer: 25,
-        x: f32::from_bits(line.source_x_bits),
-        y: f32::from_bits(line.source_y_bits),
-    });
-
-    if (line.source_x_bits, line.source_y_bits) != (line.target_x_bits, line.target_y_bits) {
+    ) {
+        let line_id = runtime_effect_line_object_id(
+            line.kind,
+            overlay.effect_id,
+            overlay.reliable,
+            line.source_x_bits,
+            line.source_y_bits,
+            line.target_x_bits,
+            line.target_y_bits,
+        );
         scene.objects.push(RenderObject {
-            id: format!("{line_id}:line-end"),
+            id: line_id.clone(),
             layer: 25,
-            x: f32::from_bits(line.target_x_bits),
-            y: f32::from_bits(line.target_y_bits),
+            x: f32::from_bits(line.source_x_bits),
+            y: f32::from_bits(line.source_y_bits),
         });
+
+        if (line.source_x_bits, line.source_y_bits) != (line.target_x_bits, line.target_y_bits) {
+            scene.objects.push(RenderObject {
+                id: format!("{line_id}:line-end"),
+                layer: 25,
+                x: f32::from_bits(line.target_x_bits),
+                y: f32::from_bits(line.target_y_bits),
+            });
+        }
     }
 }
 
@@ -3139,6 +3138,7 @@ fn runtime_effect_delivery_label(reliable: bool) -> &'static str {
 }
 
 fn runtime_effect_line_object_id(
+    kind: &str,
     effect_id: Option<i16>,
     reliable: bool,
     source_x_bits: u32,
@@ -3147,7 +3147,7 @@ fn runtime_effect_line_object_id(
     target_y_bits: u32,
 ) -> String {
     format!(
-        "marker:line:runtime-effect-point-beam:{}:{}:0x{:08x}:0x{:08x}:0x{:08x}:0x{:08x}",
+        "marker:line:runtime-effect-{kind}:{}:{}:0x{:08x}:0x{:08x}:0x{:08x}:0x{:08x}",
         runtime_effect_delivery_label(reliable),
         effect_id.unwrap_or(-1),
         source_x_bits,
@@ -3299,6 +3299,17 @@ mod tests {
                     && object.id.ends_with(":line-end")
             })
             .expect("expected runtime effect line end")
+    }
+
+    fn runtime_effect_lines_with_prefix<'a>(
+        scene: &'a RenderModel,
+        prefix: &str,
+    ) -> Vec<&'a RenderObject> {
+        scene
+            .objects
+            .iter()
+            .filter(|object| object.id.starts_with(prefix))
+            .collect()
     }
 
     #[test]
@@ -4491,6 +4502,45 @@ mod tests {
         );
         assert_eq!(line_end.x, 80.0);
         assert_eq!(line_end.y, 160.0);
+    }
+
+    #[test]
+    fn render_runtime_adapter_renders_chain_lightning_executor_segments() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
+
+        adapter.observe_events(&[ClientSessionEvent::EffectRequested {
+            effect_id: Some(261),
+            x: 12.0,
+            y: 20.0,
+            rotation: 0.0,
+            color_rgba: 0x11223344,
+            data_object: Some(mdt_typeio::TypeIoObject::Point2 { x: 10, y: 20 }),
+        }]);
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let marker = first_runtime_effect_marker(&scene);
+        assert_eq!(
+            marker.id,
+            format!(
+                "marker:runtime-effect:normal:261:0x{:08x}:0x{:08x}:1",
+                80.0f32.to_bits(),
+                160.0f32.to_bits()
+            )
+        );
+
+        let chain_prefix = "marker:line:runtime-effect-chain:";
+        let chain_lines = runtime_effect_lines_with_prefix(&scene, chain_prefix);
+        assert!(chain_lines.len() >= 6);
+        assert!(chain_lines.iter().any(|object| {
+            !object.id.ends_with(":line-end") && object.x == 12.0 && object.y == 20.0
+        }));
+        assert!(chain_lines.iter().any(|object| {
+            object.id.ends_with(":line-end") && object.x == 80.0 && object.y == 160.0
+        }));
     }
 
     #[test]

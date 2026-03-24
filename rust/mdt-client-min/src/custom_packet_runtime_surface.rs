@@ -2,7 +2,7 @@ use crate::custom_packet_runtime::{
     RuntimeCustomPacketSemanticEncoding, RuntimeCustomPacketSemanticKind,
     RuntimeCustomPacketSemanticSpec,
 };
-use mdt_client_min::client_session::{ClientLogicDataTransport, ClientSession, ClientSessionEvent};
+use crate::client_session::{ClientLogicDataTransport, ClientSession, ClientSessionEvent};
 use mdt_typeio::{unpack_point2, TypeIoObject};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, VecDeque};

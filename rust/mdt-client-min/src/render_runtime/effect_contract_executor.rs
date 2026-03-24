@@ -7,6 +7,11 @@ const EFFECT_CONTRACT_MAX_NODES: usize = 64;
 const ITEM_CONTENT_TYPE: u8 = 0;
 const DROP_ITEM_EFFECT_LENGTH: f32 = 20.0;
 const POINT_BEAM_EFFECT_ID: i16 = 10;
+const CHAIN_LIGHTNING_EFFECT_ID: i16 = 261;
+const CHAIN_EMP_EFFECT_ID: i16 = 262;
+const CHAIN_SEGMENT_TARGET_PIXELS: f32 = 24.0;
+const CHAIN_MIN_SEGMENTS: usize = 3;
+const CHAIN_MAX_SEGMENTS: usize = 8;
 
 type OverlayOriginProjector = fn(f32, f32, f32, &TypeIoObject) -> Option<(f32, f32)>;
 type BusinessWorldPositionProjector = fn(&EffectBusinessProjection) -> Option<(u32, u32)>;
@@ -19,6 +24,7 @@ struct RuntimeEffectContractExecutor {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct RuntimeEffectLineProjection {
+    pub kind: &'static str,
     pub source_x_bits: u32,
     pub source_y_bits: u32,
     pub target_x_bits: u32,
@@ -77,20 +83,88 @@ pub(crate) fn world_position_from_contract_business_projection(
         .or_else(|| generic_business_world_position(projection))
 }
 
-pub(crate) fn line_projection_for_effect_overlay(
+pub(crate) fn line_projections_for_effect_overlay(
     overlay: &RuntimeEffectOverlay,
     target_x_bits: u32,
     target_y_bits: u32,
-) -> Option<RuntimeEffectLineProjection> {
+) -> Vec<RuntimeEffectLineProjection> {
     match overlay.effect_id {
-        Some(POINT_BEAM_EFFECT_ID) => Some(RuntimeEffectLineProjection {
+        Some(POINT_BEAM_EFFECT_ID) => vec![RuntimeEffectLineProjection {
+            kind: "point-beam",
             source_x_bits: overlay.source_x_bits,
             source_y_bits: overlay.source_y_bits,
             target_x_bits,
             target_y_bits,
-        }),
-        _ => None,
+        }],
+        Some(CHAIN_LIGHTNING_EFFECT_ID | CHAIN_EMP_EFFECT_ID) => chain_line_projections(
+            overlay.source_x_bits,
+            overlay.source_y_bits,
+            target_x_bits,
+            target_y_bits,
+        ),
+        _ => Vec::new(),
     }
+}
+
+fn chain_line_projections(
+    source_x_bits: u32,
+    source_y_bits: u32,
+    target_x_bits: u32,
+    target_y_bits: u32,
+) -> Vec<RuntimeEffectLineProjection> {
+    let source_x = f32::from_bits(source_x_bits);
+    let source_y = f32::from_bits(source_y_bits);
+    let target_x = f32::from_bits(target_x_bits);
+    let target_y = f32::from_bits(target_y_bits);
+    if !source_x.is_finite() || !source_y.is_finite() || !target_x.is_finite() || !target_y.is_finite() {
+        return Vec::new();
+    }
+
+    let dx = target_x - source_x;
+    let dy = target_y - source_y;
+    let distance = (dx * dx + dy * dy).sqrt();
+    if !distance.is_finite() || distance <= f32::EPSILON {
+        return Vec::new();
+    }
+
+    let segment_count = ((distance / CHAIN_SEGMENT_TARGET_PIXELS).round() as usize)
+        .clamp(CHAIN_MIN_SEGMENTS, CHAIN_MAX_SEGMENTS);
+    let inv_distance = distance.recip();
+    let normal_x = -dy * inv_distance;
+    let normal_y = dx * inv_distance;
+    let amplitude = (distance / 8.0).clamp(2.0, 10.0);
+
+    let mut points = Vec::with_capacity(segment_count + 1);
+    points.push((source_x_bits, source_y_bits));
+    for index in 1..segment_count {
+        let t = index as f32 / segment_count as f32;
+        let base_x = source_x + dx * t;
+        let base_y = source_y + dy * t;
+        let wave = if index % 2 == 0 { -1.0 } else { 1.0 };
+        let taper = 1.0 - (2.0 * t - 1.0).abs() * 0.35;
+        let offset = amplitude * wave * taper;
+        points.push((
+            (base_x + normal_x * offset).to_bits(),
+            (base_y + normal_y * offset).to_bits(),
+        ));
+    }
+    points.push((target_x_bits, target_y_bits));
+
+    points
+        .windows(2)
+        .filter_map(|pair| {
+            let [(source_x_bits, source_y_bits), (target_x_bits, target_y_bits)] = pair else {
+                return None;
+            };
+            Some(RuntimeEffectLineProjection {
+                kind: "chain",
+                source_x_bits: *source_x_bits,
+                source_y_bits: *source_y_bits,
+                target_x_bits: *target_x_bits,
+                target_y_bits: *target_y_bits,
+            })
+        })
+        .collect()
 }
 
 fn executor_for_contract(
@@ -403,7 +477,7 @@ mod tests {
     }
 
     #[test]
-    fn line_projection_for_effect_overlay_returns_point_beam_projection() {
+    fn line_projections_for_effect_overlay_returns_point_beam_projection() {
         let overlay = RuntimeEffectOverlay {
             effect_id: Some(POINT_BEAM_EFFECT_ID),
             source_x_bits: 12.0f32.to_bits(),
@@ -420,18 +494,51 @@ mod tests {
         };
 
         assert_eq!(
-            line_projection_for_effect_overlay(&overlay, 80.0f32.to_bits(), 160.0f32.to_bits(),),
-            Some(RuntimeEffectLineProjection {
+            line_projections_for_effect_overlay(&overlay, 80.0f32.to_bits(), 160.0f32.to_bits(),),
+            vec![RuntimeEffectLineProjection {
+                kind: "point-beam",
                 source_x_bits: 12.0f32.to_bits(),
                 source_y_bits: 20.0f32.to_bits(),
                 target_x_bits: 80.0f32.to_bits(),
                 target_y_bits: 160.0f32.to_bits(),
-            })
+            }]
         );
     }
 
     #[test]
-    fn line_projection_for_effect_overlay_ignores_other_effect_ids() {
+    fn line_projections_for_effect_overlay_returns_chain_segments() {
+        let overlay = RuntimeEffectOverlay {
+            effect_id: Some(CHAIN_LIGHTNING_EFFECT_ID),
+            source_x_bits: 12.0f32.to_bits(),
+            source_y_bits: 20.0f32.to_bits(),
+            x_bits: 80.0f32.to_bits(),
+            y_bits: 160.0f32.to_bits(),
+            rotation_bits: 0.0f32.to_bits(),
+            color_rgba: 0x11223344,
+            reliable: false,
+            has_data: true,
+            remaining_ticks: 3,
+            contract_name: Some("position_target"),
+            binding: None,
+        };
+
+        let lines =
+            line_projections_for_effect_overlay(&overlay, 80.0f32.to_bits(), 160.0f32.to_bits());
+
+        assert!(lines.len() >= CHAIN_MIN_SEGMENTS);
+        assert_eq!(lines.first().map(|line| line.kind), Some("chain"));
+        assert_eq!(
+            lines.first().map(|line| (line.source_x_bits, line.source_y_bits)),
+            Some((12.0f32.to_bits(), 20.0f32.to_bits()))
+        );
+        assert_eq!(
+            lines.last().map(|line| (line.target_x_bits, line.target_y_bits)),
+            Some((80.0f32.to_bits(), 160.0f32.to_bits()))
+        );
+    }
+
+    #[test]
+    fn line_projections_for_effect_overlay_ignores_other_effect_ids() {
         let overlay = RuntimeEffectOverlay {
             effect_id: Some(8),
             source_x_bits: 12.0f32.to_bits(),
@@ -448,8 +555,8 @@ mod tests {
         };
 
         assert_eq!(
-            line_projection_for_effect_overlay(&overlay, 80.0f32.to_bits(), 160.0f32.to_bits(),),
-            None
+            line_projections_for_effect_overlay(&overlay, 80.0f32.to_bits(), 160.0f32.to_bits(),),
+            Vec::<RuntimeEffectLineProjection>::new()
         );
     }
 }

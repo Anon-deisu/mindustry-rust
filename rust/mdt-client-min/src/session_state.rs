@@ -939,6 +939,12 @@ fn resolve_hidden_snapshot_entity_policy(
     HiddenSnapshotEntityPolicy { typed, runtime }
 }
 
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+struct HiddenSnapshotRuntimeTransition {
+    auxiliary_cleanup_ids: BTreeSet<i32>,
+    lifecycle_remove_ids: BTreeSet<i32>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PayloadDroppedProjection {
     pub unit: Option<UnitRefProjection>,
@@ -4712,19 +4718,10 @@ impl SessionState {
         self.entity_table_projection
             .apply_hidden_ids(&trigger_hidden_ids);
         let local_player_entity_id = self.entity_table_projection.local_player_entity_id;
-        let hidden_auxiliary_cleanup_ids =
-            self.hidden_snapshot_auxiliary_cleanup_ids(&trigger_hidden_ids, local_player_entity_id);
-        let hidden_lifecycle_remove_ids =
-            self.hidden_snapshot_lifecycle_remove_ids(&trigger_hidden_ids, local_player_entity_id);
+        let runtime_transition =
+            self.hidden_snapshot_runtime_transition(&trigger_hidden_ids, local_player_entity_id);
         let hidden_removed_ids = self
-            .entity_table_projection
-            .remove_hidden_entities(&hidden_lifecycle_remove_ids);
-        self.entity_semantic_projection
-            .remove_hidden_entities(&hidden_lifecycle_remove_ids, local_player_entity_id);
-        self.resource_delta_projection
-            .remove_hidden_entities(&hidden_auxiliary_cleanup_ids, local_player_entity_id);
-        self.payload_lifecycle_projection
-            .remove_hidden_entities(&hidden_auxiliary_cleanup_ids, local_player_entity_id);
+            .apply_hidden_snapshot_runtime_transition(&runtime_transition, local_player_entity_id);
         self.hidden_lifecycle_remove_count = self
             .hidden_lifecycle_remove_count
             .saturating_add(hidden_removed_ids.len() as u64);
@@ -4741,6 +4738,40 @@ impl SessionState {
             removed_sample_ids,
         });
         self.rebuild_runtime_typed_entity_projection_from_tables();
+    }
+
+    fn hidden_snapshot_runtime_transition(
+        &self,
+        trigger_hidden_ids: &BTreeSet<i32>,
+        local_player_entity_id: Option<i32>,
+    ) -> HiddenSnapshotRuntimeTransition {
+        HiddenSnapshotRuntimeTransition {
+            auxiliary_cleanup_ids: self
+                .hidden_snapshot_auxiliary_cleanup_ids(trigger_hidden_ids, local_player_entity_id),
+            lifecycle_remove_ids: self
+                .hidden_snapshot_lifecycle_remove_ids(trigger_hidden_ids, local_player_entity_id),
+        }
+    }
+
+    fn apply_hidden_snapshot_runtime_transition(
+        &mut self,
+        transition: &HiddenSnapshotRuntimeTransition,
+        local_player_entity_id: Option<i32>,
+    ) -> Vec<i32> {
+        let hidden_removed_ids = self
+            .entity_table_projection
+            .remove_hidden_entities(&transition.lifecycle_remove_ids);
+        self.entity_semantic_projection
+            .remove_hidden_entities(&transition.lifecycle_remove_ids, local_player_entity_id);
+        self.resource_delta_projection.remove_hidden_entities(
+            &transition.auxiliary_cleanup_ids,
+            local_player_entity_id,
+        );
+        self.payload_lifecycle_projection.remove_hidden_entities(
+            &transition.auxiliary_cleanup_ids,
+            local_player_entity_id,
+        );
+        hidden_removed_ids
     }
 
     fn hidden_snapshot_auxiliary_cleanup_ids(
@@ -5301,6 +5332,46 @@ mod tests {
             state.hidden_snapshot_lifecycle_remove_ids(&BTreeSet::from([303, 404, 505, 606]), None);
 
         assert_eq!(remove_ids, BTreeSet::from([303, 404, 505]));
+    }
+
+    #[test]
+    fn hidden_snapshot_runtime_transition_separates_cleanup_from_lifecycle_remove() {
+        let mut state = SessionState::default();
+        state.entity_table_projection.local_player_entity_id = Some(101);
+        state.entity_table_projection.by_entity_id.insert(
+            101,
+            EntityProjection {
+                class_id: EntityTableProjection::LOCAL_PLAYER_CLASS_ID,
+                hidden: false,
+                is_local_player: true,
+                unit_kind: 2,
+                unit_value: 101,
+                x_bits: 0,
+                y_bits: 0,
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
+        for (entity_id, class_id) in [(202, 33), (303, 10), (404, 35)] {
+            state.entity_table_projection.by_entity_id.insert(
+                entity_id,
+                EntityProjection {
+                    class_id,
+                    hidden: false,
+                    is_local_player: false,
+                    unit_kind: 0,
+                    unit_value: 0,
+                    x_bits: 0,
+                    y_bits: 0,
+                    last_seen_entity_snapshot_count: 1,
+                },
+            );
+        }
+
+        let transition =
+            state.hidden_snapshot_runtime_transition(&BTreeSet::from([101, 202, 303, 404]), Some(101));
+
+        assert_eq!(transition.auxiliary_cleanup_ids, BTreeSet::from([202, 303, 404]));
+        assert_eq!(transition.lifecycle_remove_ids, BTreeSet::from([202, 303]));
     }
 
     #[test]
