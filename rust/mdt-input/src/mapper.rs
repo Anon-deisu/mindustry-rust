@@ -219,11 +219,7 @@ mod tests {
         let first = mapper.map_snapshot(&snapshot(
             (0.0, 0.0),
             (1.0, 1.0),
-            &[
-                BinaryAction::Chat,
-                BinaryAction::Boost,
-                BinaryAction::Fire,
-            ],
+            &[BinaryAction::Chat, BinaryAction::Boost, BinaryAction::Fire],
         ));
         assert_eq!(
             first,
@@ -240,11 +236,7 @@ mod tests {
         let second = mapper.map_snapshot(&snapshot(
             (0.0, 0.0),
             (1.0, 1.0),
-            &[
-                BinaryAction::Boost,
-                BinaryAction::Fire,
-                BinaryAction::Chat,
-            ],
+            &[BinaryAction::Boost, BinaryAction::Fire, BinaryAction::Chat],
         ));
         assert_eq!(
             second,
@@ -266,11 +258,7 @@ mod tests {
         mapper.map_snapshot(&snapshot(
             (0.0, 0.0),
             (0.0, 0.0),
-            &[
-                BinaryAction::Chat,
-                BinaryAction::Boost,
-                BinaryAction::Fire,
-            ],
+            &[BinaryAction::Chat, BinaryAction::Boost, BinaryAction::Fire],
         ));
 
         let released = mapper.map_snapshot(&snapshot((0.0, 0.0), (0.0, 0.0), &[]));

@@ -12,6 +12,7 @@ const STATUS_CONTENT_TYPE: u8 = 5;
 const UNIT_CONTENT_TYPE: u8 = 6;
 const WEATHER_CONTENT_TYPE: u8 = 7;
 const MAX_UNIT_PAYLOAD_DEPTH: usize = 8;
+const MSAV_HEADER: [u8; 4] = *b"MSAV";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorldLoadSummary {
@@ -900,6 +901,25 @@ pub struct UnknownMarkerModel {
     pub draw_layer_bits: Option<u32>,
     pub x_bits: Option<u32>,
     pub y_bits: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MsavZlibHeader {
+    pub cmf: u8,
+    pub flg: u8,
+    pub header_checksum_ok: bool,
+    pub preset_dictionary: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MsavEnvelopeObservation {
+    pub compressed_length: usize,
+    pub inflated_length: usize,
+    pub body_length: usize,
+    pub zlib_header: MsavZlibHeader,
+    pub header: [u8; 4],
+    pub save_version: i32,
+    pub leading_region_length: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -16350,7 +16370,13 @@ pub fn parse_marker_goldens(bytes: &[u8]) -> Result<MarkerSummary, String> {
         "markers.minimap",
         &markers
             .iter()
-            .map(|marker| if marker.marker.minimap_enabled() { "1" } else { "0" })
+            .map(|marker| {
+                if marker.marker.minimap_enabled() {
+                    "1"
+                } else {
+                    "0"
+                }
+            })
             .collect::<Vec<_>>()
             .join(","),
     );
@@ -23889,9 +23915,9 @@ fn parse_building_tail_with_context(
         Some("duct") | Some("armored-duct") => Ok(ParsedBuildingTail::OneI8(
             parse_one_i8_tail_snapshot(tail_bytes)?,
         )),
-        Some("illuminator") => Ok(ParsedBuildingTail::OneI32(
-            parse_one_i32_tail_snapshot(tail_bytes)?,
-        )),
+        Some("illuminator") => Ok(ParsedBuildingTail::OneI32(parse_one_i32_tail_snapshot(
+            tail_bytes,
+        )?)),
         Some("switch") | Some("world-switch") => Ok(ParsedBuildingTail::OneBool(
             parse_one_bool_tail_snapshot(revision, tail_bytes)?,
         )),
@@ -24964,7 +24990,9 @@ fn parse_message_tail_snapshot(tail_bytes: &[u8]) -> Result<MessageTailSnapshot,
     Ok(MessageTailSnapshot { message })
 }
 
-fn parse_duct_unloader_tail_snapshot(tail_bytes: &[u8]) -> Result<DuctUnloaderTailSnapshot, String> {
+fn parse_duct_unloader_tail_snapshot(
+    tail_bytes: &[u8],
+) -> Result<DuctUnloaderTailSnapshot, String> {
     let mut reader = Reader::new(tail_bytes);
     let item_id = {
         let value = reader.read_i16()?;
@@ -25533,6 +25561,50 @@ fn resolve_content_name<'a>(
         .find(|entry| entry.content_type == content_type)
         .and_then(|entry| entry.names.get(content_id as usize))
         .map(|name| name.as_str())
+}
+
+/// Reads only the outer `.msav` container envelope.
+/// This validates the zlib wrapper plus `MSAV` header/version, but does not
+/// perform save-version dispatch or region/body parsing.
+pub fn read_msav_envelope(bytes: &[u8]) -> Result<MsavEnvelopeObservation, String> {
+    let zlib_header = read_msav_zlib_header(bytes)?;
+    let inflated = inflate_zlib(bytes)?;
+    if inflated.len() < MSAV_HEADER.len() + 4 {
+        return Err(format!(
+            "inflated .msav envelope too short: expected at least {} bytes, got {}",
+            MSAV_HEADER.len() + 4,
+            inflated.len()
+        ));
+    }
+
+    let mut reader = Reader::new(&inflated);
+    let header = reader
+        .read_exact_vec(MSAV_HEADER.len())?
+        .try_into()
+        .map_err(|_| "failed to read .msav header bytes".to_string())?;
+    if header != MSAV_HEADER {
+        return Err(format!(
+            "unexpected .msav header: expected {:?}, got {:?}",
+            MSAV_HEADER, header
+        ));
+    }
+
+    let save_version = reader.read_i32()?;
+    let leading_region_length = if reader.position() + 4 <= inflated.len() {
+        Some(reader.read_u32()?)
+    } else {
+        None
+    };
+
+    Ok(MsavEnvelopeObservation {
+        compressed_length: bytes.len(),
+        inflated_length: inflated.len(),
+        body_length: inflated.len() - (MSAV_HEADER.len() + 4),
+        zlib_header,
+        header,
+        save_version,
+        leading_region_length,
+    })
 }
 
 pub fn parse_world_bundle(compressed: &[u8]) -> Result<WorldBundle, String> {
@@ -27651,6 +27723,38 @@ fn inflate_zlib(bytes: &[u8]) -> Result<Vec<u8>, String> {
     let mut out = Vec::new();
     decoder.read_to_end(&mut out).map_err(|e| e.to_string())?;
     Ok(out)
+}
+
+fn read_msav_zlib_header(bytes: &[u8]) -> Result<MsavZlibHeader, String> {
+    if bytes.len() < 2 {
+        return Err(format!(
+            ".msav envelope too short for zlib header: expected at least 2 bytes, got {}",
+            bytes.len()
+        ));
+    }
+
+    let cmf = bytes[0];
+    let flg = bytes[1];
+    if cmf & 0x0f != 8 {
+        return Err(format!(
+            "unsupported .msav zlib compression method: {}",
+            cmf & 0x0f
+        ));
+    }
+
+    let header_checksum_ok = (((cmf as u16) << 8) | flg as u16) % 31 == 0;
+    if !header_checksum_ok {
+        return Err(format!(
+            "invalid .msav zlib header checksum: cmf=0x{cmf:02x}, flg=0x{flg:02x}"
+        ));
+    }
+
+    Ok(MsavZlibHeader {
+        cmf,
+        flg,
+        header_checksum_ok,
+        preset_dictionary: flg & 0x20 != 0,
+    })
 }
 
 fn push_hex(lines: &mut Vec<(String, String)>, key: &str, value: u32, width: usize) {
@@ -37628,10 +37732,10 @@ fn marker_class_family(class_tag: Option<&str>) -> Option<&'static str> {
         Some("Point") | Some("point") | Some("PointMarker") | Some("pointMarker")
         | Some("Minimap") | Some("minimap") => Some("Point"),
         Some("Text") | Some("text") | Some("TextMarker") | Some("textMarker") => Some("Text"),
-        Some("Shape") | Some("shape") | Some("ShapeMarker") | Some("shapeMarker") => {
-            Some("Shape")
-        }
-        Some("ShapeText") | Some("shapeText") | Some("ShapeTextMarker")
+        Some("Shape") | Some("shape") | Some("ShapeMarker") | Some("shapeMarker") => Some("Shape"),
+        Some("ShapeText")
+        | Some("shapeText")
+        | Some("ShapeTextMarker")
         | Some("shapeTextMarker") => Some("ShapeText"),
         Some("Line") | Some("line") | Some("LineMarker") | Some("lineMarker") => Some("Line"),
         Some("Texture") | Some("texture") | Some("TextureMarker") | Some("textureMarker") => {
@@ -38414,6 +38518,21 @@ mod tests {
         parse_world_bundle(&compressed).unwrap()
     }
 
+    fn sample_msav_bytes(
+        save_version: i32,
+        leading_region_length: Option<u32>,
+        body_tail: &[u8],
+    ) -> Vec<u8> {
+        let mut inflated = Vec::new();
+        inflated.extend_from_slice(&MSAV_HEADER);
+        inflated.extend_from_slice(&save_version.to_be_bytes());
+        if let Some(length) = leading_region_length {
+            inflated.extend_from_slice(&length.to_be_bytes());
+        }
+        inflated.extend_from_slice(body_tail);
+        mdt_protocol::deflate_zlib(&inflated).unwrap()
+    }
+
     fn assert_no_duplicate_keys(label: &str, lines: &[(String, String)]) {
         let text = lines
             .iter()
@@ -38441,6 +38560,41 @@ mod tests {
             "{label} contains duplicate keys: {}",
             duplicates.join(", ")
         );
+    }
+
+    #[test]
+    fn reads_msav_envelope_version_and_lengths() {
+        let bytes = sample_msav_bytes(11, Some(0x20), &[1, 2, 3, 4]);
+        let envelope = read_msav_envelope(&bytes).unwrap();
+
+        assert_eq!(envelope.header, MSAV_HEADER);
+        assert_eq!(envelope.save_version, 11);
+        assert_eq!(envelope.leading_region_length, Some(0x20));
+        assert_eq!(envelope.compressed_length, bytes.len());
+        assert_eq!(envelope.inflated_length, 16);
+        assert_eq!(envelope.body_length, 8);
+        assert_eq!(envelope.zlib_header.cmf, 0x78);
+        assert!(envelope.zlib_header.header_checksum_ok);
+        assert!(!envelope.zlib_header.preset_dictionary);
+    }
+
+    #[test]
+    fn rejects_msav_envelope_with_wrong_header() {
+        let mut inflated = Vec::new();
+        inflated.extend_from_slice(b"NOPE");
+        inflated.extend_from_slice(&11i32.to_be_bytes());
+        let bytes = mdt_protocol::deflate_zlib(&inflated).unwrap();
+        let error = read_msav_envelope(&bytes).unwrap_err();
+
+        assert!(error.contains("unexpected .msav header"));
+    }
+
+    #[test]
+    fn rejects_truncated_msav_envelope() {
+        let bytes = mdt_protocol::deflate_zlib(b"MSA").unwrap();
+        let error = read_msav_envelope(&bytes).unwrap_err();
+
+        assert!(error.contains("inflated .msav envelope too short"));
     }
 
     fn test_building_center(
@@ -40998,7 +41152,10 @@ mod tests {
     #[test]
     fn parses_low_risk_integer_and_bool_tail_families() {
         let duct = parse_building_tail(Some("duct"), 1, &[5]).unwrap();
-        assert_eq!(duct, ParsedBuildingTail::OneI8(OneI8TailSnapshot { value: 5 }));
+        assert_eq!(
+            duct,
+            ParsedBuildingTail::OneI8(OneI8TailSnapshot { value: 5 })
+        );
 
         let armored_duct = parse_building_tail(Some("armored-duct"), 1, &[2]).unwrap();
         assert_eq!(

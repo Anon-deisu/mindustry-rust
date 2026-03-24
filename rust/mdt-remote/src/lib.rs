@@ -681,7 +681,8 @@ mod tests {
 
     #[test]
     fn rejects_wire_packet_id_byte_drift() {
-        let manifest = SAMPLE_MANIFEST.replace("\"packetIdByte\": \"u8\"", "\"packetIdByte\": \"u16\"");
+        let manifest =
+            SAMPLE_MANIFEST.replace("\"packetIdByte\": \"u8\"", "\"packetIdByte\": \"u16\"");
         let error = parse_remote_manifest(&manifest).unwrap_err();
         assert!(matches!(error, RemoteManifestError::InvalidWireSpec(_)));
         assert_eq!(
@@ -692,7 +693,8 @@ mod tests {
 
     #[test]
     fn rejects_wire_length_field_drift() {
-        let manifest = SAMPLE_MANIFEST.replace("\"lengthField\": \"u16be\"", "\"lengthField\": \"u32be\"");
+        let manifest =
+            SAMPLE_MANIFEST.replace("\"lengthField\": \"u16be\"", "\"lengthField\": \"u32be\"");
         let error = parse_remote_manifest(&manifest).unwrap_err();
         assert!(matches!(error, RemoteManifestError::InvalidWireSpec(_)));
         assert_eq!(
@@ -703,8 +705,10 @@ mod tests {
 
     #[test]
     fn rejects_wire_compression_flag_drift() {
-        let manifest =
-            SAMPLE_MANIFEST.replace("\"compressionFlag\": {\"0\": \"none\", \"1\": \"lz4\"}", "\"compressionFlag\": {\"0\": \"raw\", \"1\": \"lz4\"}");
+        let manifest = SAMPLE_MANIFEST.replace(
+            "\"compressionFlag\": {\"0\": \"none\", \"1\": \"lz4\"}",
+            "\"compressionFlag\": {\"0\": \"raw\", \"1\": \"lz4\"}",
+        );
         let error = parse_remote_manifest(&manifest).unwrap_err();
         assert!(matches!(error, RemoteManifestError::InvalidWireSpec(_)));
         assert_eq!(
@@ -715,7 +719,10 @@ mod tests {
 
     #[test]
     fn rejects_wire_compression_threshold_drift() {
-        let manifest = SAMPLE_MANIFEST.replace("\"compressionThreshold\": 36", "\"compressionThreshold\": 35");
+        let manifest = SAMPLE_MANIFEST.replace(
+            "\"compressionThreshold\": 36",
+            "\"compressionThreshold\": 35",
+        );
         let error = parse_remote_manifest(&manifest).unwrap_err();
         assert!(matches!(error, RemoteManifestError::InvalidWireSpec(_)));
         assert_eq!(

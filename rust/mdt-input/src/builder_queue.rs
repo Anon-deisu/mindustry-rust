@@ -476,7 +476,10 @@ mod tests {
         assert_eq!(queue.ordered_tiles, vec![(5, 5)]);
         assert_eq!(queue.head_tile, Some((5, 5)));
         assert_eq!(queue.queued_count, 1);
-        assert_eq!(queue.last_transition, Some(BuilderQueueTransition::Finished));
+        assert_eq!(
+            queue.last_transition,
+            Some(BuilderQueueTransition::Finished)
+        );
         assert_eq!(queue.orphan_authoritative_count, 4);
     }
 

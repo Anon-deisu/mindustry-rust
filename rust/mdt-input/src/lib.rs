@@ -2,6 +2,7 @@
 //! This crate is intentionally transport-agnostic.
 
 pub mod builder_queue;
+pub mod command_mode;
 pub mod intent;
 pub mod live_intent;
 pub mod mapper;
@@ -11,6 +12,10 @@ pub mod probe;
 pub use builder_queue::{
     BuilderQueueEntry, BuilderQueueEntryObservation, BuilderQueueStage, BuilderQueueStateMachine,
     BuilderQueueTransition,
+};
+pub use command_mode::{
+    CommandModeCommandSelection, CommandModePositionTarget, CommandModeProjection,
+    CommandModeStanceSelection, CommandModeState, CommandModeTargetProjection, CommandUnitRef,
 };
 pub use intent::{BinaryAction, PlayerIntent};
 pub use live_intent::LiveIntentState;

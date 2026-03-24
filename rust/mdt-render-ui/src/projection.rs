@@ -326,7 +326,10 @@ fn project_hud_model_with_visibility(
 
     HudModel {
         title,
-        wave_text: visibility.hud_visible.then(|| visibility.hud_wave_text.clone()).flatten(),
+        wave_text: visibility
+            .hud_visible
+            .then(|| visibility.hud_wave_text.clone())
+            .flatten(),
         status_text,
         overlay_summary_text: visibility
             .overlay_visible
@@ -384,23 +387,27 @@ fn tile_visible_under_fog(
             .unwrap_or(true)
 }
 
-fn fog_tile_counts(session: &LoadedWorldSession<'_>, fog_visibility: FogVisibility) -> (usize, usize) {
+fn fog_tile_counts(
+    session: &LoadedWorldSession<'_>,
+    fog_visibility: FogVisibility,
+) -> (usize, usize) {
     let grid = session.graph().grid();
     if !fog_visibility.enabled {
         return (grid.tile_count(), 0);
     }
 
-    grid.iter_tiles().fold((0usize, 0usize), |(visible, hidden), tile| {
-        if session
-            .graph()
-            .fog_revealed(fog_visibility.team_id, tile.x as usize, tile.y as usize)
-            .unwrap_or(true)
-        {
-            (visible + 1, hidden)
-        } else {
-            (visible, hidden + 1)
-        }
-    })
+    grid.iter_tiles()
+        .fold((0usize, 0usize), |(visible, hidden), tile| {
+            if session
+                .graph()
+                .fog_revealed(fog_visibility.team_id, tile.x as usize, tile.y as usize)
+                .unwrap_or(true)
+            {
+                (visible + 1, hidden)
+            } else {
+                (visible, hidden + 1)
+            }
+        })
 }
 
 fn project_team_plan(plan: TeamPlanRef<'_>) -> RenderObject {

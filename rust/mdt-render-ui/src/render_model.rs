@@ -151,6 +151,9 @@ mod tests {
             x: 0.0,
             y: 0.0,
         };
-        assert_eq!(runtime_marker.semantic_kind(), RenderObjectSemanticKind::Runtime);
+        assert_eq!(
+            runtime_marker.semantic_kind(),
+            RenderObjectSemanticKind::Runtime
+        );
     }
 }

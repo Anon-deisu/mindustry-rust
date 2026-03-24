@@ -52,6 +52,43 @@ pub enum SessionResetKind {
     Kick,
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum ReconnectPhaseProjection {
+    #[default]
+    Idle,
+    Scheduled,
+    Attempting,
+    Succeeded,
+    Aborted,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReconnectReasonKind {
+    ConnectRedirect,
+    Kick,
+    Timeout,
+    ManualConnect,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct ReconnectProjection {
+    pub phase: ReconnectPhaseProjection,
+    pub phase_transition_count: u64,
+    pub reason_kind: Option<ReconnectReasonKind>,
+    pub reason_text: Option<String>,
+    pub reason_ordinal: Option<i32>,
+    pub hint_text: Option<String>,
+}
+
+impl ReconnectProjection {
+    fn set_phase(&mut self, phase: ReconnectPhaseProjection) {
+        if self.phase != phase {
+            self.phase_transition_count = self.phase_transition_count.saturating_add(1);
+            self.phase = phase;
+        }
+    }
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct WorldReloadProjection {
     pub had_loaded_world: bool,
@@ -2520,6 +2557,7 @@ pub struct SessionState {
     pub kick_reset_count: u64,
     pub last_reset_kind: Option<SessionResetKind>,
     pub last_world_reload: Option<WorldReloadProjection>,
+    pub reconnect_projection: ReconnectProjection,
     pub received_snapshot_count: u64,
     pub last_snapshot_packet_id: Option<u8>,
     pub last_snapshot_method: Option<HighFrequencyRemoteMethod>,
@@ -3066,6 +3104,25 @@ impl SessionState {
         *self = Self::default();
     }
 
+    pub fn set_reconnect_phase(&mut self, phase: ReconnectPhaseProjection) {
+        self.reconnect_projection.set_phase(phase);
+    }
+
+    pub fn record_reconnect_projection(
+        &mut self,
+        phase: ReconnectPhaseProjection,
+        reason_kind: Option<ReconnectReasonKind>,
+        reason_text: Option<String>,
+        reason_ordinal: Option<i32>,
+        hint_text: Option<String>,
+    ) {
+        self.reconnect_projection.set_phase(phase);
+        self.reconnect_projection.reason_kind = reason_kind;
+        self.reconnect_projection.reason_text = reason_text;
+        self.reconnect_projection.reason_ordinal = reason_ordinal;
+        self.reconnect_projection.hint_text = hint_text;
+    }
+
     pub fn apply_state_snapshot_runtime(
         &mut self,
         snapshot: &AppliedStateSnapshot,
@@ -3422,6 +3479,52 @@ impl PayloadLifecycleProjection {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reconnect_projection_counts_only_distinct_phase_transitions() {
+        let mut state = SessionState::default();
+
+        assert_eq!(
+            state.reconnect_projection.phase,
+            ReconnectPhaseProjection::Idle
+        );
+        assert_eq!(state.reconnect_projection.phase_transition_count, 0);
+
+        state.record_reconnect_projection(
+            ReconnectPhaseProjection::Scheduled,
+            Some(ReconnectReasonKind::ConnectRedirect),
+            Some("connectRedirect".to_string()),
+            None,
+            Some("server requested redirect".to_string()),
+        );
+        state.set_reconnect_phase(ReconnectPhaseProjection::Scheduled);
+        state.set_reconnect_phase(ReconnectPhaseProjection::Attempting);
+        state.record_reconnect_projection(
+            ReconnectPhaseProjection::Aborted,
+            Some(ReconnectReasonKind::Timeout),
+            Some("connectOrLoadingTimeout".to_string()),
+            None,
+            Some("session timed out".to_string()),
+        );
+
+        assert_eq!(
+            state.reconnect_projection.phase,
+            ReconnectPhaseProjection::Aborted
+        );
+        assert_eq!(state.reconnect_projection.phase_transition_count, 3);
+        assert_eq!(
+            state.reconnect_projection.reason_kind,
+            Some(ReconnectReasonKind::Timeout)
+        );
+        assert_eq!(
+            state.reconnect_projection.reason_text.as_deref(),
+            Some("connectOrLoadingTimeout")
+        );
+        assert_eq!(
+            state.reconnect_projection.hint_text.as_deref(),
+            Some("session timed out")
+        );
+    }
 
     #[test]
     fn block_snapshot_head_stores_build_turret_plan_summary_and_construct_finish_preserves_it() {

@@ -62,6 +62,18 @@ Preflight enforcement is on by default for release-set verification. Use
 If you need to bypass the default Gradle `check` remote-freshness guard for
 local troubleshooting, run Gradle with `-PremoteFreshnessOnCheck=false`.
 
+If you want the PowerShell release gate to invoke the same freshness check
+explicitly, use:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\package-mdt-client-min-release-set.ps1 -Verify -VerifyRustWorkspaces -VerifyRemoteFreshness -AnimatePlayer
+```
+
+This routes the check through `tools\verify-rust-workspaces.ps1`, which now
+emits `remote_freshness_check: ...` and `verified_rust_workspaces: remote_freshness_checked=...`.
+If the current checkout is a minimal handoff repo without a Gradle wrapper, the
+same path reports `remote_freshness_check: status=skipped`.
+
 R+2 policy is canonical-only fixtures:
 
 - transitional fallback switches are removed from release-facing scripts

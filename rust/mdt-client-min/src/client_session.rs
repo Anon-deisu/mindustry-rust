@@ -8,11 +8,11 @@ use crate::session_state::{
     BuilderQueueEntryObservation, ConfiguredBlockOutcome, ConfiguredContentRef,
     EffectBusinessContentKind, EffectBusinessPositionSource, EffectBusinessProjection,
     EffectDataSemantic, GameplayStateProjection, PayloadDroppedProjection,
-    PickedBuildPayloadProjection, PickedUnitPayloadProjection, SessionResetKind, SessionState,
-    SessionTimeoutKind, SessionTimeoutProjection, TakeItemsProjection,
-    TileConfigAuthoritySource, TileConfigBusinessApply, TransferItemToProjection,
-    TransferItemToUnitProjection, UnitEnteredPayloadProjection, UnitRefProjection,
-    WorldReloadProjection,
+    PickedBuildPayloadProjection, PickedUnitPayloadProjection, ReconnectPhaseProjection,
+    ReconnectReasonKind, SessionResetKind, SessionState, SessionTimeoutKind,
+    SessionTimeoutProjection, TakeItemsProjection, TileConfigAuthoritySource,
+    TileConfigBusinessApply, TransferItemToProjection, TransferItemToUnitProjection,
+    UnitEnteredPayloadProjection, UnitRefProjection, WorldReloadProjection,
 };
 use mdt_protocol::{
     decode_packet, encode_framework_message, encode_packet, FrameworkMessage, PacketCodecError,
@@ -220,6 +220,37 @@ fn kick_reason_hint_from(
         _ => None,
     }
 }
+
+fn reconnect_phase_from_kick_hint(
+    hint_category: Option<KickReasonHintCategory>,
+) -> ReconnectPhaseProjection {
+    match hint_category {
+        Some(KickReasonHintCategory::ServerRestarting) => ReconnectPhaseProjection::Scheduled,
+        _ => ReconnectPhaseProjection::Aborted,
+    }
+}
+
+fn reconnect_timeout_reason_text(kind: SessionTimeoutKind) -> &'static str {
+    match kind {
+        SessionTimeoutKind::ConnectOrLoading => "connectOrLoadingTimeout",
+        SessionTimeoutKind::ReadySnapshotStall => "readySnapshotTimeout",
+    }
+}
+
+fn reconnect_timeout_hint_text(kind: SessionTimeoutKind, idle_ms: u64) -> String {
+    let scope = match kind {
+        SessionTimeoutKind::ConnectOrLoading => "while connecting or loading",
+        SessionTimeoutKind::ReadySnapshotStall => "while waiting for ready-state snapshots",
+    };
+    format!("session timed out after {idle_ms} ms {scope}.")
+}
+
+fn reconnect_redirect_hint_text(ip: &str, port: i32) -> String {
+    format!("server requested redirect to {ip}:{port}.")
+}
+
+const MANUAL_CONNECT_REASON_TEXT: &str = "manualConnect";
+const MANUAL_CONNECT_HINT_TEXT: &str = "client started a new connect attempt.";
 
 #[derive(Debug)]
 pub struct ClientSession {
@@ -1476,6 +1507,26 @@ impl ClientSession {
         self.last_kick_hint_text
     }
 
+    pub fn reconnect_phase(&self) -> ReconnectPhaseProjection {
+        self.state.reconnect_projection.phase
+    }
+
+    pub fn reconnect_reason_kind(&self) -> Option<ReconnectReasonKind> {
+        self.state.reconnect_projection.reason_kind
+    }
+
+    pub fn reconnect_reason_text(&self) -> Option<&str> {
+        self.state.reconnect_projection.reason_text.as_deref()
+    }
+
+    pub fn reconnect_reason_ordinal(&self) -> Option<i32> {
+        self.state.reconnect_projection.reason_ordinal
+    }
+
+    pub fn reconnect_hint_text(&self) -> Option<&str> {
+        self.state.reconnect_projection.hint_text.as_deref()
+    }
+
     pub fn set_clock_ms(&mut self, now_ms: u64) {
         self.clock_ms = now_ms;
     }
@@ -2360,6 +2411,8 @@ impl ClientSession {
         let bytes = encode_packet(self.connect_confirm_packet_id, &[], false)?;
         self.state.connect_confirm_sent = true;
         self.state.last_connect_confirm_at_ms = Some(self.clock_ms);
+        self.state
+            .set_reconnect_phase(ReconnectPhaseProjection::Succeeded);
         self.last_snapshot_at_ms = Some(self.clock_ms);
         self.record_outbound_activity(self.clock_ms);
         Ok(Some(bytes))
@@ -2558,6 +2611,13 @@ impl ClientSession {
                         self.state.received_connect_redirect_count.saturating_add(1);
                     self.state.last_connect_redirect_ip = Some(ip.clone());
                     self.state.last_connect_redirect_port = Some(port);
+                    self.state.record_reconnect_projection(
+                        ReconnectPhaseProjection::Scheduled,
+                        Some(ReconnectReasonKind::ConnectRedirect),
+                        Some("connectRedirect".to_string()),
+                        None,
+                        Some(reconnect_redirect_hint_text(&ip, port)),
+                    );
                     Ok(ClientSessionEvent::ConnectRedirectRequested { ip, port })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -5954,6 +6014,13 @@ impl ClientSession {
         self.last_kick_duration_ms = duration_ms;
         self.last_kick_hint_category = hint_category;
         self.last_kick_hint_text = hint_text;
+        self.state.record_reconnect_projection(
+            reconnect_phase_from_kick_hint(hint_category),
+            Some(ReconnectReasonKind::Kick),
+            self.last_kick_reason_text.clone(),
+            reason_ordinal,
+            hint_text.map(str::to_string),
+        );
         self.timed_out = false;
         self.state.connection_timed_out = false;
         self.record_reset(SessionResetKind::Kick);
@@ -5977,12 +6044,17 @@ impl ClientSession {
                     .saturating_add(1);
             }
             SessionTimeoutKind::ReadySnapshotStall => {
-                self.state.ready_snapshot_timeout_count = self
-                    .state
-                    .ready_snapshot_timeout_count
-                    .saturating_add(1);
+                self.state.ready_snapshot_timeout_count =
+                    self.state.ready_snapshot_timeout_count.saturating_add(1);
             }
         }
+        self.state.record_reconnect_projection(
+            ReconnectPhaseProjection::Aborted,
+            Some(ReconnectReasonKind::Timeout),
+            Some(reconnect_timeout_reason_text(kind).to_string()),
+            None,
+            Some(reconnect_timeout_hint_text(kind, idle_ms)),
+        );
         projection
     }
 
@@ -6766,6 +6838,7 @@ impl ClientSession {
     }
 
     fn quiet_reset_for_reconnect(&mut self) {
+        let reconnect_projection = self.state.reconnect_projection.clone();
         self.pending_packets.clear();
         self.deferred_inbound_packets.clear();
         self.replayed_loading_events.clear();
@@ -6790,6 +6863,19 @@ impl ClientSession {
         self.snapshot_input = ClientSnapshotInputState::default();
         self.state = SessionState::default();
         self.stats = NetLoopStats::default();
+        self.state.reconnect_projection = reconnect_projection;
+        if self.state.reconnect_projection.reason_kind.is_none() {
+            self.state.record_reconnect_projection(
+                ReconnectPhaseProjection::Attempting,
+                Some(ReconnectReasonKind::ManualConnect),
+                Some(MANUAL_CONNECT_REASON_TEXT.to_string()),
+                None,
+                Some(MANUAL_CONNECT_HINT_TEXT.to_string()),
+            );
+        } else {
+            self.state
+                .set_reconnect_phase(ReconnectPhaseProjection::Attempting);
+        }
         self.record_reset(SessionResetKind::Reconnect);
     }
 
@@ -17029,6 +17115,16 @@ mod tests {
             Some("127.0.0.1")
         );
         assert_eq!(session.state().last_connect_redirect_port, Some(6567));
+        assert_eq!(session.reconnect_phase(), ReconnectPhaseProjection::Scheduled);
+        assert_eq!(
+            session.reconnect_reason_kind(),
+            Some(ReconnectReasonKind::ConnectRedirect)
+        );
+        assert_eq!(session.reconnect_reason_text(), Some("connectRedirect"));
+        assert_eq!(
+            session.reconnect_hint_text(),
+            Some("server requested redirect to 127.0.0.1:6567.")
+        );
     }
 
     #[test]
@@ -29341,6 +29437,19 @@ mod tests {
         assert_eq!(session.state().timeout_count, 1);
         assert_eq!(session.state().connect_or_loading_timeout_count, 1);
         assert_eq!(session.state().ready_snapshot_timeout_count, 0);
+        assert_eq!(session.reconnect_phase(), ReconnectPhaseProjection::Aborted);
+        assert_eq!(
+            session.reconnect_reason_kind(),
+            Some(ReconnectReasonKind::Timeout)
+        );
+        assert_eq!(
+            session.reconnect_reason_text(),
+            Some("connectOrLoadingTimeout")
+        );
+        assert_eq!(
+            session.reconnect_hint_text(),
+            Some("session timed out after 1201 ms while connecting or loading.")
+        );
     }
 
     #[test]
@@ -29598,11 +29707,22 @@ mod tests {
         assert_eq!(session.last_kick_duration_ms(), None);
         assert_eq!(session.last_kick_hint_category(), None);
         assert_eq!(session.last_kick_hint_text(), None);
-        assert_eq!(session.state().last_reset_kind, Some(SessionResetKind::Kick));
+        assert_eq!(
+            session.state().last_reset_kind,
+            Some(SessionResetKind::Kick)
+        );
         assert_eq!(session.state().reset_count, 1);
         assert_eq!(session.state().kick_reset_count, 1);
         assert_eq!(session.state().reconnect_reset_count, 0);
         assert_eq!(session.state().world_reload_count, 0);
+        assert_eq!(session.reconnect_phase(), ReconnectPhaseProjection::Aborted);
+        assert_eq!(
+            session.reconnect_reason_kind(),
+            Some(ReconnectReasonKind::Kick)
+        );
+        assert_eq!(session.reconnect_reason_text(), Some("bye"));
+        assert_eq!(session.reconnect_reason_ordinal(), None);
+        assert_eq!(session.reconnect_hint_text(), None);
         let actions = session.advance_time(1_000).unwrap();
         assert!(actions.is_empty());
     }
@@ -29650,11 +29770,27 @@ mod tests {
                 "uuid or usid is already in use; wait for the old session to clear or regenerate the connect identity.",
             )
         );
-        assert_eq!(session.state().last_reset_kind, Some(SessionResetKind::Kick));
+        assert_eq!(
+            session.state().last_reset_kind,
+            Some(SessionResetKind::Kick)
+        );
         assert_eq!(session.state().reset_count, 1);
         assert_eq!(session.state().kick_reset_count, 1);
         assert_eq!(session.state().reconnect_reset_count, 0);
         assert_eq!(session.state().world_reload_count, 0);
+        assert_eq!(session.reconnect_phase(), ReconnectPhaseProjection::Aborted);
+        assert_eq!(
+            session.reconnect_reason_kind(),
+            Some(ReconnectReasonKind::Kick)
+        );
+        assert_eq!(session.reconnect_reason_text(), Some("idInUse"));
+        assert_eq!(session.reconnect_reason_ordinal(), Some(7));
+        assert_eq!(
+            session.reconnect_hint_text(),
+            Some(
+                "uuid or usid is already in use; wait for the old session to clear or regenerate the connect identity.",
+            )
+        );
         let actions = session.advance_time(1_000).unwrap();
         assert!(actions.is_empty());
     }
@@ -29704,11 +29840,28 @@ mod tests {
             session.last_kick_hint_text(),
             Some("server is restarting; retry connection shortly.")
         );
-        assert_eq!(session.state().last_reset_kind, Some(SessionResetKind::Kick));
+        assert_eq!(
+            session.state().last_reset_kind,
+            Some(SessionResetKind::Kick)
+        );
         assert_eq!(session.state().reset_count, 1);
         assert_eq!(session.state().kick_reset_count, 1);
         assert_eq!(session.state().reconnect_reset_count, 0);
         assert_eq!(session.state().world_reload_count, 0);
+        assert_eq!(session.reconnect_phase(), ReconnectPhaseProjection::Scheduled);
+        assert_eq!(
+            session.reconnect_reason_kind(),
+            Some(ReconnectReasonKind::Kick)
+        );
+        assert_eq!(session.reconnect_reason_text(), Some("serverRestarting"));
+        assert_eq!(
+            session.reconnect_reason_ordinal(),
+            Some(KICK_REASON_SERVER_RESTARTING_ORDINAL)
+        );
+        assert_eq!(
+            session.reconnect_hint_text(),
+            Some("server is restarting; retry connection shortly.")
+        );
     }
 
     #[test]
@@ -30041,10 +30194,11 @@ mod tests {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
         session.loading_world_data = true;
-        session.deferred_inbound_packets = std::collections::VecDeque::from([DeferredInboundPacket {
-            packet_id: STREAM_BEGIN_PACKET_ID,
-            payload: Vec::new(),
-        }]);
+        session.deferred_inbound_packets =
+            std::collections::VecDeque::from([DeferredInboundPacket {
+                packet_id: STREAM_BEGIN_PACKET_ID,
+                payload: Vec::new(),
+            }]);
 
         let result = session.mark_client_loaded();
 
@@ -30054,7 +30208,10 @@ mod tests {
         assert!(session.replayed_loading_events.is_empty());
         assert_eq!(session.deferred_inbound_packets.len(), 1);
         assert_eq!(
-            session.deferred_inbound_packets.front().map(|packet| packet.packet_id),
+            session
+                .deferred_inbound_packets
+                .front()
+                .map(|packet| packet.packet_id),
             Some(STREAM_BEGIN_PACKET_ID)
         );
     }
@@ -30219,7 +30376,10 @@ mod tests {
         assert!(!session.state().client_loaded);
         assert_eq!(session.state().deferred_inbound_packet_count, 0);
         assert!(session.take_replayed_loading_events().is_empty());
-        assert_eq!(session.state().last_reset_kind, Some(SessionResetKind::WorldReload));
+        assert_eq!(
+            session.state().last_reset_kind,
+            Some(SessionResetKind::WorldReload)
+        );
         assert_eq!(session.state().reset_count, 1);
         assert_eq!(session.state().world_reload_count, 1);
         assert_eq!(session.state().reconnect_reset_count, 0);
@@ -30539,7 +30699,10 @@ mod tests {
             session.state().entity_table_projection,
             crate::session_state::EntityTableProjection::default()
         );
-        assert_eq!(session.state().last_reset_kind, Some(SessionResetKind::WorldReload));
+        assert_eq!(
+            session.state().last_reset_kind,
+            Some(SessionResetKind::WorldReload)
+        );
         assert_eq!(session.state().reset_count, 1);
         assert_eq!(session.state().world_reload_count, 1);
         assert_eq!(session.state().reconnect_reset_count, 0);
@@ -30687,11 +30850,24 @@ mod tests {
         assert!(!session.timed_out);
         assert!(!session.loading_world_data);
         assert!(session.loaded_world_bundle().is_none());
-        assert_eq!(session.state().last_reset_kind, Some(SessionResetKind::Reconnect));
+        assert_eq!(
+            session.state().last_reset_kind,
+            Some(SessionResetKind::Reconnect)
+        );
         assert_eq!(session.state().reset_count, 1);
         assert_eq!(session.state().reconnect_reset_count, 1);
         assert_eq!(session.state().world_reload_count, 0);
         assert_eq!(session.state().kick_reset_count, 0);
+        assert_eq!(session.reconnect_phase(), ReconnectPhaseProjection::Attempting);
+        assert_eq!(
+            session.reconnect_reason_kind(),
+            Some(ReconnectReasonKind::ManualConnect)
+        );
+        assert_eq!(session.reconnect_reason_text(), Some("manualConnect"));
+        assert_eq!(
+            session.reconnect_hint_text(),
+            Some("client started a new connect attempt.")
+        );
 
         session.ingest_packet_bytes(&begin_packet).unwrap();
         for chunk in &chunk_packets {
@@ -30699,5 +30875,6 @@ mod tests {
         }
         assert!(session.state().world_stream_loaded);
         assert!(session.prepare_connect_confirm_packet().unwrap().is_some());
+        assert_eq!(session.reconnect_phase(), ReconnectPhaseProjection::Succeeded);
     }
 }

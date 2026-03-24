@@ -11,15 +11,16 @@ use crate::session_state::{
     ConfiguredBlockProjection, ConfiguredContentRef, EffectBusinessContentKind,
     EffectBusinessPositionSource, EffectBusinessProjection, EffectDataSemantic,
     HiddenSnapshotDeltaProjection, SessionResetKind, SessionState, SessionTimeoutKind,
-    StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection,
-    TileConfigAuthoritySource, TileConfigProjection, UnitRefProjection,
-    WorldBootstrapProjection, WorldReloadProjection,
+    StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection, TileConfigAuthoritySource,
+    TileConfigProjection, UnitRefProjection, WorldBootstrapProjection, WorldReloadProjection,
 };
 use mdt_remote::{HighFrequencyRemoteMethod, HIGH_FREQUENCY_REMOTE_METHOD_COUNT};
 use mdt_render_ui::{
-    BuildQueueHeadObservability, BuildQueueHeadStage, BuildUiObservability, HudModel,
-    RenderModel, RenderObject, RuntimeHudTextObservability, RuntimeTextInputObservability,
-    RuntimeToastObservability, RuntimeUiObservability,
+    BuildQueueHeadObservability, BuildQueueHeadStage, BuildUiObservability, HudModel, RenderModel,
+    RenderObject, RuntimeHudTextObservability, RuntimeLiveEffectPositionSource,
+    RuntimeLiveEffectSummaryObservability, RuntimeLiveEntitySummaryObservability,
+    RuntimeLiveSummaryObservability, RuntimeTextInputObservability, RuntimeToastObservability,
+    RuntimeUiObservability, RuntimeWorldPositionObservability,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -1413,7 +1414,127 @@ fn runtime_ui_observability(session_state: &SessionState) -> RuntimeUiObservabil
             last_numeric: session_state.last_text_input_numeric,
             last_allow_empty: session_state.last_text_input_allow_empty,
         },
+        live: runtime_live_summary_observability(session_state),
     }
+}
+
+fn runtime_live_summary_observability(
+    session_state: &SessionState,
+) -> RuntimeLiveSummaryObservability {
+    RuntimeLiveSummaryObservability {
+        entity: runtime_live_entity_summary_observability(session_state),
+        effect: runtime_live_effect_summary_observability(session_state),
+    }
+}
+
+fn runtime_live_entity_summary_observability(
+    session_state: &SessionState,
+) -> RuntimeLiveEntitySummaryObservability {
+    let local_entity = session_state
+        .entity_table_projection
+        .local_player_entity_id
+        .and_then(|entity_id| {
+            session_state
+                .entity_table_projection
+                .by_entity_id
+                .get(&entity_id)
+                .map(|entity| (entity_id, entity))
+        });
+
+    RuntimeLiveEntitySummaryObservability {
+        entity_count: session_state.entity_table_projection.by_entity_id.len(),
+        hidden_count: session_state.entity_table_projection.hidden_count,
+        local_entity_id: local_entity.map(|(entity_id, _)| entity_id),
+        local_unit_kind: local_entity.map(|(_, entity)| entity.unit_kind),
+        local_unit_value: local_entity.map(|(_, entity)| entity.unit_value),
+        local_hidden: local_entity.map(|(_, entity)| entity.hidden),
+        local_last_seen_entity_snapshot_count: local_entity
+            .map(|(_, entity)| entity.last_seen_entity_snapshot_count),
+        local_position: local_entity.map(|(_, entity)| RuntimeWorldPositionObservability {
+            x_bits: entity.x_bits,
+            y_bits: entity.y_bits,
+        }),
+    }
+}
+
+fn runtime_live_effect_summary_observability(
+    session_state: &SessionState,
+) -> RuntimeLiveEffectSummaryObservability {
+    let (last_position_source, last_position_hint) =
+        runtime_live_effect_position_hint_observability(session_state);
+    RuntimeLiveEffectSummaryObservability {
+        effect_count: session_state.received_effect_count,
+        spawn_effect_count: session_state.received_spawn_effect_count,
+        last_effect_id: session_state.last_effect_id,
+        last_spawn_effect_unit_type_id: session_state.last_spawn_effect_unit_type_id,
+        last_kind: session_state.last_effect_data_kind.clone(),
+        last_contract_name: session_state.last_effect_contract_name.clone(),
+        last_reliable_contract_name: session_state.last_effect_reliable_contract_name.clone(),
+        last_position_hint,
+        last_position_source,
+    }
+}
+
+fn runtime_live_effect_position_hint_observability(
+    session_state: &SessionState,
+) -> (
+    Option<RuntimeLiveEffectPositionSource>,
+    Option<RuntimeWorldPositionObservability>,
+) {
+    if let Some(position) = runtime_world_position_from_effect_business_projection(
+        session_state.last_effect_business_projection.as_ref(),
+    ) {
+        return (
+            Some(RuntimeLiveEffectPositionSource::BusinessProjection),
+            Some(position),
+        );
+    }
+    if let Some(position) = runtime_world_position_observability(
+        session_state.last_effect_x_bits,
+        session_state.last_effect_y_bits,
+    ) {
+        return (
+            Some(RuntimeLiveEffectPositionSource::EffectPacket),
+            Some(position),
+        );
+    }
+    if let Some(position) = runtime_world_position_observability(
+        session_state.last_spawn_effect_x_bits,
+        session_state.last_spawn_effect_y_bits,
+    ) {
+        return (
+            Some(RuntimeLiveEffectPositionSource::SpawnEffectPacket),
+            Some(position),
+        );
+    }
+    (None, None)
+}
+
+fn runtime_world_position_from_effect_business_projection(
+    projection: Option<&EffectBusinessProjection>,
+) -> Option<RuntimeWorldPositionObservability> {
+    match projection {
+        Some(EffectBusinessProjection::ParentRef { x_bits, y_bits, .. })
+        | Some(EffectBusinessProjection::WorldPosition { x_bits, y_bits, .. }) => {
+            Some(RuntimeWorldPositionObservability {
+                x_bits: *x_bits,
+                y_bits: *y_bits,
+            })
+        }
+        Some(EffectBusinessProjection::ContentRef { .. })
+        | Some(EffectBusinessProjection::FloatValue(_))
+        | None => None,
+    }
+}
+
+fn runtime_world_position_observability(
+    x_bits: Option<u32>,
+    y_bits: Option<u32>,
+) -> Option<RuntimeWorldPositionObservability> {
+    Some(RuntimeWorldPositionObservability {
+        x_bits: x_bits?,
+        y_bits: y_bits?,
+    })
 }
 
 fn runtime_build_ui_observability(
@@ -1816,10 +1937,7 @@ fn runtime_optional_runtime_point2_label(value: Option<i32>) -> String {
 }
 
 fn runtime_optional_bits_label(value: Option<u32>) -> String {
-    value.map_or_else(
-        || "none".to_string(),
-        |value| format!("0x{value:08x}"),
-    )
+    value.map_or_else(|| "none".to_string(), |value| format!("0x{value:08x}"))
 }
 
 fn runtime_optional_bits_pair_label(x_bits: Option<u32>, y_bits: Option<u32>) -> String {
@@ -1830,10 +1948,7 @@ fn runtime_optional_bits_pair_label(x_bits: Option<u32>, y_bits: Option<u32>) ->
 }
 
 fn runtime_optional_text_len_label(value: Option<&str>) -> String {
-    value.map_or_else(
-        || "none".to_string(),
-        |value| format!("len{}", value.len()),
-    )
+    value.map_or_else(|| "none".to_string(), |value| format!("len{}", value.len()))
 }
 
 fn runtime_optional_unit_ref_label(value: Option<UnitRefProjection>) -> String {
@@ -3749,6 +3864,15 @@ mod tests {
                 added_sample_ids: vec![303],
                 removed_sample_ids: vec![100, 202],
             });
+        state.entity_table_projection.upsert_local_player(
+            404,
+            2,
+            999,
+            20.0f32.to_bits(),
+            33.0f32.to_bits(),
+            false,
+            3,
+        );
         state.entity_snapshot_tombstone_skip_count = 5;
         state.last_entity_snapshot_tombstone_skipped_ids_sample = vec![100, 202];
         state.entity_snapshot_tombstones = BTreeMap::from([(100, 11), (202, 12)]);
@@ -3772,6 +3896,9 @@ mod tests {
         state.failed_block_snapshot_parse_count = 2;
         state.failed_hidden_snapshot_parse_count = 1;
         state.received_effect_count = 11;
+        state.last_effect_id = Some(8);
+        state.last_effect_x_bits = Some(22.0f32.to_bits());
+        state.last_effect_y_bits = Some(30.0f32.to_bits());
         state.last_effect_data_kind = Some("Point2".to_string());
         state.last_effect_contract_name = Some("position_target".to_string());
         state.last_effect_reliable_contract_name = Some("unit_parent".to_string());
@@ -3819,6 +3946,8 @@ mod tests {
         state.last_create_weather_id = Some(5);
         state.received_spawn_effect_count = 73;
         state.last_spawn_effect_unit_type_id = Some(19);
+        state.last_spawn_effect_x_bits = Some(18.0f32.to_bits());
+        state.last_spawn_effect_y_bits = Some(28.0f32.to_bits());
         state.received_logic_explosion_count = 79;
         state.last_logic_explosion_team_id = Some(2);
         state.last_logic_explosion_air = Some(true);
@@ -3937,19 +4066,30 @@ mod tests {
         state
             .resource_delta_projection
             .building_items_by_build
-            .insert(pack_runtime_point2(1, 1), std::collections::BTreeMap::from([(4, 6), (7, 8)]));
+            .insert(
+                pack_runtime_point2(1, 1),
+                std::collections::BTreeMap::from([(4, 6), (7, 8)]),
+            );
         state
             .resource_delta_projection
             .building_items_by_build
-            .insert(pack_runtime_point2(2, 2), std::collections::BTreeMap::from([(9, 10)]));
-        state.resource_delta_projection.entity_item_stack_by_entity_id.insert(
-            900,
-            crate::session_state::ResourceUnitItemStack {
-                item_id: Some(6),
-                amount: 3,
-            },
-        );
-        state.resource_delta_projection.authoritative_build_update_count = 4;
+            .insert(
+                pack_runtime_point2(2, 2),
+                std::collections::BTreeMap::from([(9, 10)]),
+            );
+        state
+            .resource_delta_projection
+            .entity_item_stack_by_entity_id
+            .insert(
+                900,
+                crate::session_state::ResourceUnitItemStack {
+                    item_id: Some(6),
+                    amount: 3,
+                },
+            );
+        state
+            .resource_delta_projection
+            .authoritative_build_update_count = 4;
         state.resource_delta_projection.delta_apply_count = 5;
         state.resource_delta_projection.delta_skip_count = 6;
         state.resource_delta_projection.delta_conflict_count = 7;
@@ -4201,7 +4341,10 @@ mod tests {
         assert_eq!(build_ui.finished_count, 3);
         assert_eq!(build_ui.removed_count, 4);
         assert_eq!(build_ui.orphan_authoritative_count, 1);
-        let head = build_ui.head.as_ref().expect("queue head should be present");
+        let head = build_ui
+            .head
+            .as_ref()
+            .expect("queue head should be present");
         assert_eq!((head.x, head.y), (100, 99));
         assert!(!head.breaking);
         assert_eq!(head.block_id, Some(301));
@@ -4329,6 +4472,54 @@ mod tests {
         assert_eq!(runtime_ui.text_input.last_length, Some(16));
         assert_eq!(runtime_ui.text_input.last_numeric, Some(true));
         assert_eq!(runtime_ui.text_input.last_allow_empty, Some(true));
+        assert_eq!(runtime_ui.live.entity.entity_count, 1);
+        assert_eq!(runtime_ui.live.entity.hidden_count, 0);
+        assert_eq!(runtime_ui.live.entity.local_entity_id, Some(404));
+        assert_eq!(runtime_ui.live.entity.local_unit_kind, Some(2));
+        assert_eq!(runtime_ui.live.entity.local_unit_value, Some(999));
+        assert_eq!(runtime_ui.live.entity.local_hidden, Some(false));
+        assert_eq!(
+            runtime_ui.live.entity.local_last_seen_entity_snapshot_count,
+            Some(3)
+        );
+        assert_eq!(
+            runtime_ui.live.entity.local_position,
+            Some(RuntimeWorldPositionObservability {
+                x_bits: 20.0f32.to_bits(),
+                y_bits: 33.0f32.to_bits(),
+            })
+        );
+        assert_eq!(runtime_ui.live.effect.effect_count, 11);
+        assert_eq!(runtime_ui.live.effect.spawn_effect_count, 73);
+        assert_eq!(runtime_ui.live.effect.last_effect_id, Some(8));
+        assert_eq!(
+            runtime_ui.live.effect.last_spawn_effect_unit_type_id,
+            Some(19)
+        );
+        assert_eq!(runtime_ui.live.effect.last_kind.as_deref(), Some("Point2"));
+        assert_eq!(
+            runtime_ui.live.effect.last_contract_name.as_deref(),
+            Some("position_target")
+        );
+        assert_eq!(
+            runtime_ui
+                .live
+                .effect
+                .last_reliable_contract_name
+                .as_deref(),
+            Some("unit_parent")
+        );
+        assert_eq!(
+            runtime_ui.live.effect.last_position_source,
+            Some(RuntimeLiveEffectPositionSource::BusinessProjection)
+        );
+        assert_eq!(
+            runtime_ui.live.effect.last_position_hint,
+            Some(RuntimeWorldPositionObservability {
+                x_bits: 24.0f32.to_bits(),
+                y_bits: 32.0f32.to_bits(),
+            })
+        );
         assert!(hud
             .status_text
             .contains("runtime_world_label=lbl19:lblr20:rml21"));
@@ -4631,16 +4822,11 @@ mod tests {
         state.last_building_control_select_build_pos = Some(pack_runtime_point2(3, 4));
         state.received_unit_clear_count = 6;
         state.received_unit_control_count = 7;
-        state.last_unit_control_target = Some(crate::session_state::UnitRefProjection {
-            kind: 2,
-            value: 88,
-        });
+        state.last_unit_control_target =
+            Some(crate::session_state::UnitRefProjection { kind: 2, value: 88 });
         state.received_unit_building_control_select_count = 8;
         state.last_unit_building_control_select_target =
-            Some(crate::session_state::UnitRefProjection {
-                kind: 1,
-                value: 77,
-            });
+            Some(crate::session_state::UnitRefProjection { kind: 1, value: 77 });
         state.last_unit_building_control_select_build_pos = Some(pack_runtime_point2(5, 6));
         state.received_command_building_count = 9;
         state.last_command_building_count = 2;

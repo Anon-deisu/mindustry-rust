@@ -33,6 +33,7 @@ pub struct RuntimeUiObservability {
     pub hud_text: RuntimeHudTextObservability,
     pub toast: RuntimeToastObservability,
     pub text_input: RuntimeTextInputObservability,
+    pub live: RuntimeLiveSummaryObservability,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -62,6 +63,51 @@ pub struct RuntimeTextInputObservability {
     pub last_length: Option<i32>,
     pub last_numeric: Option<bool>,
     pub last_allow_empty: Option<bool>,
+}
+
+/// Structured live runtime summary built from session entity/effect observability.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RuntimeLiveSummaryObservability {
+    pub entity: RuntimeLiveEntitySummaryObservability,
+    pub effect: RuntimeLiveEffectSummaryObservability,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RuntimeLiveEntitySummaryObservability {
+    pub entity_count: usize,
+    pub hidden_count: usize,
+    pub local_entity_id: Option<i32>,
+    pub local_unit_kind: Option<u8>,
+    pub local_unit_value: Option<u32>,
+    pub local_hidden: Option<bool>,
+    pub local_last_seen_entity_snapshot_count: Option<u64>,
+    pub local_position: Option<RuntimeWorldPositionObservability>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RuntimeLiveEffectSummaryObservability {
+    pub effect_count: u64,
+    pub spawn_effect_count: u64,
+    pub last_effect_id: Option<i16>,
+    pub last_spawn_effect_unit_type_id: Option<i16>,
+    pub last_kind: Option<String>,
+    pub last_contract_name: Option<String>,
+    pub last_reliable_contract_name: Option<String>,
+    pub last_position_hint: Option<RuntimeWorldPositionObservability>,
+    pub last_position_source: Option<RuntimeLiveEffectPositionSource>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeLiveEffectPositionSource {
+    BusinessProjection,
+    EffectPacket,
+    SpawnEffectPacket,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RuntimeWorldPositionObservability {
+    pub x_bits: u32,
+    pub y_bits: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

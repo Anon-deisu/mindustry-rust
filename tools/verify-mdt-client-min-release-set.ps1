@@ -23,6 +23,11 @@ Runs split-workspace Rust verification before smoke checks.
 When used with `-VerifyRustWorkspaces`, only checks workspace membership via
 `cargo metadata` and skips `cargo test --no-run`.
 
+.PARAMETER VerifyRemoteFreshness
+When used with `-VerifyRustWorkspaces` or standalone, asks the workspace
+verification script to run Gradle `verifyMdtRemoteFreshness` before smoke
+checks.
+
 .PARAMETER SkipPreflight
 Skips release preflight (`check-mdt-release-prereqs.ps1`). Use only for
 special-case verification workflows that intentionally bypass canonical
@@ -45,6 +50,7 @@ param(
     [switch]$FailOnLegacyStage,
     [switch]$VerifyRustWorkspaces,
     [switch]$RustWorkspaceMetadataOnly,
+    [switch]$VerifyRemoteFreshness,
     [switch]$SkipPreflight,
     [switch]$SkipPackage
 )
@@ -155,7 +161,7 @@ if (-not $SkipPackage) {
     }
 }
 
-if ($VerifyRustWorkspaces) {
+if ($VerifyRustWorkspaces -or $VerifyRemoteFreshness) {
     if (-not (Test-Path $workspaceVerifyScript)) {
         throw "workspace verify script not found: $workspaceVerifyScript"
     }
@@ -163,6 +169,9 @@ if ($VerifyRustWorkspaces) {
     $workspaceArgs = @{}
     if ($RustWorkspaceMetadataOnly) {
         $workspaceArgs['MetadataOnly'] = $true
+    }
+    if ($VerifyRemoteFreshness) {
+        $workspaceArgs['VerifyRemoteFreshness'] = $true
     }
     & $workspaceVerifyScript @workspaceArgs
 }
@@ -307,4 +316,4 @@ foreach ($needle in @('bench_window:', "frames=$BenchFrames")) {
     }
 }
 
-Write-Output "verified_windows_release_set: core_stage=$coreStageDir devtools_stage=$devtoolsStageDir core_zip=$coreZipPath devtools_zip=$devtoolsZipPath server=$Server duration_ms=$DurationMs tick_ms=$TickMs bench_frames=$BenchFrames animate_player=$([bool]$AnimatePlayer) preflight_enforced=$([bool](-not $SkipPreflight)) fixture_policy=canonical_only verify_rust_workspaces=$([bool]$VerifyRustWorkspaces) rust_workspace_metadata_only=$([bool]$RustWorkspaceMetadataOnly) legacy_stage_state=$(if($legacyStageHits.Count -gt 0){'warning'}else{'clean'})"
+Write-Output "verified_windows_release_set: core_stage=$coreStageDir devtools_stage=$devtoolsStageDir core_zip=$coreZipPath devtools_zip=$devtoolsZipPath server=$Server duration_ms=$DurationMs tick_ms=$TickMs bench_frames=$BenchFrames animate_player=$([bool]$AnimatePlayer) preflight_enforced=$([bool](-not $SkipPreflight)) fixture_policy=canonical_only verify_rust_workspaces=$([bool]$VerifyRustWorkspaces) verify_remote_freshness=$([bool]$VerifyRemoteFreshness) rust_workspace_metadata_only=$([bool]$RustWorkspaceMetadataOnly) legacy_stage_state=$(if($legacyStageHits.Count -gt 0){'warning'}else{'clean'})"

@@ -207,8 +207,9 @@ fn compose_runtime_ui_text(hud: &HudModel) -> Option<String> {
     let hud_text = &runtime_ui.hud_text;
     let toast = &runtime_ui.toast;
     let text_input = &runtime_ui.text_input;
+    let live = &runtime_ui.live;
     Some(format!(
-        "hud={}/{}/{}@{}/{} toast={}/{}@{}/{} tin={}@{}:{}/{}/{}#{}:n{}:e{}",
+        "hud={}/{}/{}@{}/{} toast={}/{}@{}/{} tin={}@{}:{}/{}/{}#{}:n{}:e{} live=ent={} fx={}",
         hud_text.set_count,
         hud_text.set_reliable_count,
         hud_text.hide_count,
@@ -226,6 +227,8 @@ fn compose_runtime_ui_text(hud: &HudModel) -> Option<String> {
         text_input.last_length.unwrap_or_default(),
         optional_bool_label(text_input.last_numeric),
         optional_bool_label(text_input.last_allow_empty),
+        compose_live_entity_text(&live.entity),
+        compose_live_effect_text(&live.effect),
     ))
 }
 
@@ -243,6 +246,35 @@ fn compose_build_ui_text(hud: &HudModel) -> Option<String> {
         build_ui.orphan_authoritative_count,
         build_queue_head_text(build_ui.head.as_ref()),
     ))
+}
+
+fn compose_live_entity_text(entity: &crate::RuntimeLiveEntitySummaryObservability) -> String {
+    format!(
+        "{}/{}@{}:u{}/{}:p{}:h{}:s{}",
+        entity.entity_count,
+        entity.hidden_count,
+        optional_i32_label(entity.local_entity_id),
+        optional_u8_label(entity.local_unit_kind),
+        optional_u32_label(entity.local_unit_value),
+        world_position_text(entity.local_position.as_ref()),
+        optional_bool_label(entity.local_hidden),
+        optional_u64_label(entity.local_last_seen_entity_snapshot_count),
+    )
+}
+
+fn compose_live_effect_text(effect: &crate::RuntimeLiveEffectSummaryObservability) -> String {
+    format!(
+        "{}/{}@{}:u{}:k{}:c{}/{}:p{}@{}",
+        effect.effect_count,
+        effect.spawn_effect_count,
+        optional_i16_label(effect.last_effect_id),
+        optional_i16_label(effect.last_spawn_effect_unit_type_id),
+        compact_runtime_ui_text(effect.last_kind.as_deref()),
+        compact_runtime_ui_text(effect.last_contract_name.as_deref()),
+        compact_runtime_ui_text(effect.last_reliable_contract_name.as_deref()),
+        live_effect_position_source_text(effect.last_position_source),
+        world_position_text(effect.last_position_hint.as_ref()),
+    )
 }
 
 fn compose_overlay_semantics_text(scene: &RenderModel) -> Option<String> {
@@ -351,6 +383,42 @@ fn optional_u8_label(value: Option<u8>) -> String {
         .unwrap_or_else(|| "none".to_string())
 }
 
+fn optional_u32_label(value: Option<u32>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "none".to_string())
+}
+
+fn optional_u64_label(value: Option<u64>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "none".to_string())
+}
+
+fn world_position_text(value: Option<&crate::RuntimeWorldPositionObservability>) -> String {
+    let Some(value) = value else {
+        return "none".to_string();
+    };
+    let x = f32::from_bits(value.x_bits);
+    let y = f32::from_bits(value.y_bits);
+    if x.is_finite() && y.is_finite() {
+        format!("{x:.1}:{y:.1}")
+    } else {
+        format!("0x{:08x}:0x{:08x}", value.x_bits, value.y_bits)
+    }
+}
+
+fn live_effect_position_source_text(
+    source: Option<crate::RuntimeLiveEffectPositionSource>,
+) -> &'static str {
+    match source {
+        Some(crate::RuntimeLiveEffectPositionSource::BusinessProjection) => "biz",
+        Some(crate::RuntimeLiveEffectPositionSource::EffectPacket) => "pkt",
+        Some(crate::RuntimeLiveEffectPositionSource::SpawnEffectPacket) => "spawn",
+        None => "none",
+    }
+}
+
 fn optional_bool_label(value: Option<bool>) -> char {
     match value {
         Some(true) => '1',
@@ -364,8 +432,8 @@ mod tests {
     use super::AsciiScenePresenter;
     use crate::{
         hud_model::HudSummary, project_scene_models, HudModel, RenderModel, RenderObject,
-        RuntimeHudTextObservability, RuntimeTextInputObservability,
-        RuntimeToastObservability, RuntimeUiObservability, ScenePresenter, Viewport,
+        RuntimeHudTextObservability, RuntimeTextInputObservability, RuntimeToastObservability,
+        RuntimeUiObservability, ScenePresenter, Viewport,
     };
     use mdt_world::parse_world_bundle;
 
@@ -608,6 +676,37 @@ mod tests {
                     last_numeric: Some(true),
                     last_allow_empty: Some(true),
                 },
+                live: crate::RuntimeLiveSummaryObservability {
+                    entity: crate::RuntimeLiveEntitySummaryObservability {
+                        entity_count: 1,
+                        hidden_count: 0,
+                        local_entity_id: Some(404),
+                        local_unit_kind: Some(2),
+                        local_unit_value: Some(999),
+                        local_hidden: Some(false),
+                        local_last_seen_entity_snapshot_count: Some(3),
+                        local_position: Some(crate::RuntimeWorldPositionObservability {
+                            x_bits: 20.0f32.to_bits(),
+                            y_bits: 33.0f32.to_bits(),
+                        }),
+                    },
+                    effect: crate::RuntimeLiveEffectSummaryObservability {
+                        effect_count: 11,
+                        spawn_effect_count: 73,
+                        last_effect_id: Some(8),
+                        last_spawn_effect_unit_type_id: Some(19),
+                        last_kind: Some("Point2".to_string()),
+                        last_contract_name: Some("position_target".to_string()),
+                        last_reliable_contract_name: Some("unit_parent".to_string()),
+                        last_position_hint: Some(crate::RuntimeWorldPositionObservability {
+                            x_bits: 24.0f32.to_bits(),
+                            y_bits: 32.0f32.to_bits(),
+                        }),
+                        last_position_source: Some(
+                            crate::RuntimeLiveEffectPositionSource::BusinessProjection,
+                        ),
+                    },
+                },
             }),
             build_ui: Some(crate::BuildUiObservability {
                 selected_block_id: Some(257),
@@ -644,6 +743,8 @@ mod tests {
         assert!(frame.contains("RUNTIME-UI: hud=9/10/11@hud_text/hud_rel"));
         assert!(frame.contains("toast=14/15@toast/warn"));
         assert!(frame.contains("tin=53@404:Digits/Only_numbers"));
+        assert!(frame.contains("live=ent=1/0@404:u2/999:p20.0:33.0:h0:s3"));
+        assert!(frame.contains("fx=11/73@8:u19:kPoint2:cposition_tar~/unit_parent:pbiz@24.0:32.0"));
     }
 
     fn decode_hex(text: &str) -> Vec<u8> {

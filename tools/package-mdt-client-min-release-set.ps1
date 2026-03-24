@@ -27,6 +27,10 @@ Runs split-workspace Rust verification as part of `-Verify`.
 When used with `-VerifyRustWorkspaces`, only checks workspace membership via
 `cargo metadata` and skips `cargo test --no-run`.
 
+.PARAMETER VerifyRemoteFreshness
+When used with `-Verify`, asks release verification to run Gradle
+`verifyMdtRemoteFreshness` through the workspace verification script.
+
 .PARAMETER SkipPreflight
 Skips release preflight (`check-mdt-release-prereqs.ps1`) when `-Verify` is
 used. Default behavior keeps preflight enforcement on.
@@ -48,6 +52,7 @@ param(
     [switch]$AllowLegacyStageWarning,
     [switch]$VerifyRustWorkspaces,
     [switch]$RustWorkspaceMetadataOnly,
+    [switch]$VerifyRemoteFreshness,
     [switch]$SkipPreflight,
     [switch]$Verify
 )
@@ -130,6 +135,9 @@ if ($Verify) {
         if ($RustWorkspaceMetadataOnly) {
             $verifyArgs['RustWorkspaceMetadataOnly'] = $true
         }
+    }
+    if ($VerifyRemoteFreshness) {
+        $verifyArgs['VerifyRemoteFreshness'] = $true
     }
     if ($SkipPreflight) {
         $verifyArgs['SkipPreflight'] = $true
