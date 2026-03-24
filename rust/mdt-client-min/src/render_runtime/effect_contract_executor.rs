@@ -4,6 +4,7 @@ use mdt_typeio::{TypeIoObject, TypeIoSemanticRef};
 
 const EFFECT_CONTRACT_MAX_DEPTH: usize = 3;
 const EFFECT_CONTRACT_MAX_NODES: usize = 64;
+const BLOCK_CONTENT_TYPE: u8 = 1;
 const ITEM_CONTENT_TYPE: u8 = 0;
 const DROP_ITEM_EFFECT_LENGTH: f32 = 20.0;
 const LIGHTNING_EFFECT_ID: i16 = 13;
@@ -32,6 +33,15 @@ pub(crate) struct RuntimeEffectLineProjection {
     pub target_y_bits: u32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RuntimeEffectContentProjection {
+    pub kind: &'static str,
+    pub content_type: u8,
+    pub content_id: i16,
+    pub x_bits: u32,
+    pub y_bits: u32,
+}
+
 const POSITION_TARGET_EXECUTOR: RuntimeEffectContractExecutor = RuntimeEffectContractExecutor {
     contract_name: "position_target",
     overlay_origin: position_target_overlay_origin,
@@ -48,6 +58,12 @@ const POINT_BEAM_EXECUTOR: RuntimeEffectContractExecutor = RuntimeEffectContract
     contract_name: "point_beam",
     overlay_origin: position_target_overlay_origin,
     business_world_position: position_target_business_world_position,
+};
+
+const BLOCK_CONTENT_ICON_EXECUTOR: RuntimeEffectContractExecutor = RuntimeEffectContractExecutor {
+    contract_name: "block_content_icon",
+    overlay_origin: unsupported_overlay_origin,
+    business_world_position: unsupported_business_world_position,
 };
 
 const DROP_ITEM_EXECUTOR: RuntimeEffectContractExecutor = RuntimeEffectContractExecutor {
@@ -110,6 +126,25 @@ pub(crate) fn line_projections_for_effect_overlay(
             target_x_bits,
             target_y_bits,
         ),
+        _ => Vec::new(),
+    }
+}
+
+pub(crate) fn content_projections_for_effect_overlay(
+    overlay: &RuntimeEffectOverlay,
+    target_x_bits: u32,
+    target_y_bits: u32,
+) -> Vec<RuntimeEffectContentProjection> {
+    match (overlay.contract_name, overlay.content_ref) {
+        (Some("block_content_icon"), Some((BLOCK_CONTENT_TYPE, content_id))) => {
+            vec![RuntimeEffectContentProjection {
+                kind: "block-content-icon",
+                content_type: BLOCK_CONTENT_TYPE,
+                content_id,
+                x_bits: target_x_bits,
+                y_bits: target_y_bits,
+            }]
+        }
         _ => Vec::new(),
     }
 }
@@ -200,6 +235,7 @@ fn executor_for_contract(
         RuntimeEffectContract::PositionTarget => &POSITION_TARGET_EXECUTOR,
         RuntimeEffectContract::LightningPath => &LIGHTNING_PATH_EXECUTOR,
         RuntimeEffectContract::PointBeam => &POINT_BEAM_EXECUTOR,
+        RuntimeEffectContract::BlockContentIcon => &BLOCK_CONTENT_ICON_EXECUTOR,
         RuntimeEffectContract::DropItem => &DROP_ITEM_EXECUTOR,
         RuntimeEffectContract::FloatLength => &FLOAT_LENGTH_EXECUTOR,
         RuntimeEffectContract::UnitParent => &UNIT_PARENT_EXECUTOR,
@@ -211,6 +247,7 @@ fn executor_for_name(name: &str) -> Option<&'static RuntimeEffectContractExecuto
         &POSITION_TARGET_EXECUTOR,
         &LIGHTNING_PATH_EXECUTOR,
         &POINT_BEAM_EXECUTOR,
+        &BLOCK_CONTENT_ICON_EXECUTOR,
         &DROP_ITEM_EXECUTOR,
         &FLOAT_LENGTH_EXECUTOR,
         &UNIT_PARENT_EXECUTOR,
@@ -570,6 +607,7 @@ mod tests {
             remaining_ticks: 3,
             contract_name: Some("point_beam"),
             binding: None,
+            content_ref: None,
             polyline_points: Vec::new(),
         };
 
@@ -600,6 +638,7 @@ mod tests {
             remaining_ticks: 3,
             contract_name: Some("position_target"),
             binding: None,
+            content_ref: None,
             polyline_points: Vec::new(),
         };
 
@@ -633,6 +672,7 @@ mod tests {
             remaining_ticks: 3,
             contract_name: Some("position_target"),
             binding: None,
+            content_ref: None,
             polyline_points: Vec::new(),
         };
 
@@ -661,6 +701,37 @@ mod tests {
     }
 
     #[test]
+    fn content_projections_for_effect_overlay_returns_block_content_icon_projection() {
+        let overlay = RuntimeEffectOverlay {
+            effect_id: Some(252),
+            source_x_bits: 12.0f32.to_bits(),
+            source_y_bits: 20.0f32.to_bits(),
+            x_bits: 12.0f32.to_bits(),
+            y_bits: 20.0f32.to_bits(),
+            rotation_bits: 0.0f32.to_bits(),
+            color_rgba: 0x11223344,
+            reliable: false,
+            has_data: true,
+            remaining_ticks: 3,
+            contract_name: Some("block_content_icon"),
+            binding: None,
+            content_ref: Some((BLOCK_CONTENT_TYPE, 42)),
+            polyline_points: Vec::new(),
+        };
+
+        assert_eq!(
+            content_projections_for_effect_overlay(&overlay, 12.0f32.to_bits(), 20.0f32.to_bits()),
+            vec![RuntimeEffectContentProjection {
+                kind: "block-content-icon",
+                content_type: BLOCK_CONTENT_TYPE,
+                content_id: 42,
+                x_bits: 12.0f32.to_bits(),
+                y_bits: 20.0f32.to_bits(),
+            }]
+        );
+    }
+
+    #[test]
     fn line_projections_for_effect_overlay_returns_lightning_path_segments() {
         let overlay = RuntimeEffectOverlay {
             effect_id: Some(LIGHTNING_EFFECT_ID),
@@ -675,6 +746,7 @@ mod tests {
             remaining_ticks: 3,
             contract_name: Some("lightning"),
             binding: None,
+            content_ref: None,
             polyline_points: vec![
                 (10.0f32.to_bits(), 20.0f32.to_bits()),
                 (30.0f32.to_bits(), 40.0f32.to_bits()),

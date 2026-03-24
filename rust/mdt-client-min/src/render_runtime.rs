@@ -3140,6 +3140,27 @@ fn append_runtime_effect_executor_objects(
             });
         }
     }
+
+    for content in effect_contract_executor::content_projections_for_effect_overlay(
+        overlay,
+        target_x_bits,
+        target_y_bits,
+    ) {
+        scene.objects.push(RenderObject {
+            id: runtime_effect_content_object_id(
+                content.kind,
+                overlay.effect_id,
+                overlay.reliable,
+                content.content_type,
+                content.content_id,
+                content.x_bits,
+                content.y_bits,
+            ),
+            layer: 27,
+            x: f32::from_bits(content.x_bits),
+            y: f32::from_bits(content.y_bits),
+        });
+    }
 }
 
 fn runtime_effect_delivery_label(reliable: bool) -> &'static str {
@@ -3167,6 +3188,26 @@ fn runtime_effect_line_object_id(
         source_y_bits,
         target_x_bits,
         target_y_bits,
+    )
+}
+
+fn runtime_effect_content_object_id(
+    kind: &str,
+    effect_id: Option<i16>,
+    reliable: bool,
+    content_type: u8,
+    content_id: i16,
+    x_bits: u32,
+    y_bits: u32,
+) -> String {
+    format!(
+        "marker:runtime-effect-icon:{kind}:{}:{}:{}:{}:0x{:08x}:0x{:08x}",
+        runtime_effect_delivery_label(reliable),
+        effect_id.unwrap_or(-1),
+        content_type,
+        content_id,
+        x_bits,
+        y_bits,
     )
 }
 
@@ -3286,6 +3327,14 @@ mod tests {
             .iter()
             .find(|object| object.id.starts_with("marker:runtime-effect:"))
             .expect("expected runtime effect marker")
+    }
+
+    fn first_runtime_effect_icon(scene: &RenderModel) -> &RenderObject {
+        scene
+            .objects
+            .iter()
+            .find(|object| object.id.starts_with("marker:runtime-effect-icon:"))
+            .expect("expected runtime effect icon")
     }
 
     fn first_runtime_effect_line(scene: &RenderModel) -> &RenderObject {
@@ -4689,6 +4738,52 @@ mod tests {
         );
         assert_eq!(marker.x, 30.0);
         assert_eq!(marker.y, 20.0);
+    }
+
+    #[test]
+    fn render_runtime_adapter_renders_block_content_icon_effect_marker() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
+
+        adapter.observe_events(&[ClientSessionEvent::EffectRequested {
+            effect_id: Some(252),
+            x: 12.0,
+            y: 20.0,
+            rotation: 0.0,
+            color_rgba: 0x11223344,
+            data_object: Some(mdt_typeio::TypeIoObject::ContentRaw {
+                content_type: 1,
+                content_id: 42,
+            }),
+        }]);
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let marker = first_runtime_effect_marker(&scene);
+        assert_eq!(
+            marker.id,
+            format!(
+                "marker:runtime-effect:normal:252:0x{:08x}:0x{:08x}:1",
+                12.0f32.to_bits(),
+                20.0f32.to_bits()
+            )
+        );
+        assert_eq!(marker.x, 12.0);
+        assert_eq!(marker.y, 20.0);
+
+        let icon = first_runtime_effect_icon(&scene);
+        assert_eq!(
+            icon.id,
+            format!(
+                "marker:runtime-effect-icon:block-content-icon:normal:252:1:42:0x{:08x}:0x{:08x}",
+                12.0f32.to_bits(),
+                20.0f32.to_bits()
+            )
+        );
+        assert_eq!(icon.x, 12.0);
+        assert_eq!(icon.y, 20.0);
     }
 
     #[test]

@@ -13,6 +13,15 @@ pub struct RuntimeCustomPacketSurface {
     state: Rc<RefCell<RuntimeCustomPacketSurfaceState>>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct RuntimeCustomPacketOverlayMarker {
+    pub key: String,
+    pub encoding: RuntimeCustomPacketSemanticEncoding,
+    pub semantic: RuntimeCustomPacketSemanticKind,
+    pub x: f32,
+    pub y: f32,
+}
+
 #[derive(Debug, Default)]
 struct RuntimeCustomPacketSurfaceState {
     text_routes: BTreeMap<String, Vec<RuntimeCustomPacketSurfaceRouteState>>,
@@ -22,7 +31,7 @@ struct RuntimeCustomPacketSurfaceState {
     next_update_serial: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 struct RuntimeCustomPacketSurfaceRouteState {
     semantic: RuntimeCustomPacketSemanticKind,
     handler_count: usize,
@@ -31,14 +40,16 @@ struct RuntimeCustomPacketSurfaceRouteState {
     decode_error_count: usize,
     last_overlay_value: Option<String>,
     last_stable_value: Option<String>,
+    last_marker: Option<RuntimeCustomPacketOverlayMarker>,
     last_update_serial: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 struct RenderedSurfaceValue {
     detail: String,
     stable_value: String,
     overlay_value: String,
+    marker: Option<RuntimeCustomPacketOverlayMarker>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,6 +58,12 @@ struct OverlayEntry {
     key: String,
     encoding: RuntimeCustomPacketSemanticEncoding,
     overlay_value: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct OverlayMarkerEntry {
+    serial: u64,
+    marker: RuntimeCustomPacketOverlayMarker,
 }
 
 impl RuntimeCustomPacketSurface {
@@ -64,6 +81,10 @@ impl RuntimeCustomPacketSurface {
 
     pub fn overlay_summary_text(&self, max_entries: usize) -> Option<String> {
         self.state.borrow().overlay_summary_text(max_entries)
+    }
+
+    pub fn overlay_markers(&self, max_entries: usize) -> Vec<RuntimeCustomPacketOverlayMarker> {
+        self.state.borrow().overlay_markers(max_entries)
     }
 }
 
@@ -87,6 +108,7 @@ impl RuntimeCustomPacketSurfaceState {
             decode_error_count: 0,
             last_overlay_value: None,
             last_stable_value: None,
+            last_marker: None,
             last_update_serial: 0,
         });
     }
@@ -104,6 +126,11 @@ impl RuntimeCustomPacketSurfaceState {
                     next_update_serial = next_update_serial.saturating_add(1);
                     route.last_overlay_value = Some(rendered.overlay_value.clone());
                     route.last_stable_value = Some(rendered.stable_value.clone());
+                    route.last_marker = attach_overlay_marker(
+                        key,
+                        RuntimeCustomPacketSemanticEncoding::Text,
+                        rendered.marker.clone(),
+                    );
                     route.last_update_serial = next_update_serial;
                     queued_lines.push(format!(
                         "runtime_custom_packet_surface_update: encoding={} key={key:?} semantic={} count={} {}",
@@ -154,6 +181,11 @@ impl RuntimeCustomPacketSurfaceState {
                     next_update_serial = next_update_serial.saturating_add(1);
                     route.last_overlay_value = Some(rendered.overlay_value.clone());
                     route.last_stable_value = Some(rendered.stable_value.clone());
+                    route.last_marker = attach_overlay_marker(
+                        key,
+                        RuntimeCustomPacketSemanticEncoding::Binary,
+                        rendered.marker.clone(),
+                    );
                     route.last_update_serial = next_update_serial;
                     queued_lines.push(format!(
                         "runtime_custom_packet_surface_update: encoding={} key={key:?} semantic={} count={} {}",
@@ -202,6 +234,11 @@ impl RuntimeCustomPacketSurfaceState {
                     next_update_serial = next_update_serial.saturating_add(1);
                     route.last_overlay_value = Some(rendered.overlay_value.clone());
                     route.last_stable_value = Some(rendered.stable_value.clone());
+                    route.last_marker = attach_overlay_marker(
+                        key,
+                        RuntimeCustomPacketSemanticEncoding::LogicData,
+                        rendered.marker.clone(),
+                    );
                     route.last_update_serial = next_update_serial;
                     queued_lines.push(format!(
                         "runtime_custom_packet_surface_update: encoding={} key={key:?} semantic={} count={} {}",
@@ -313,6 +350,7 @@ impl RuntimeCustomPacketSurfaceState {
                     cleared = cleared.saturating_add(1);
                 }
                 route.last_stable_value = None;
+                route.last_marker = None;
                 route.last_update_serial = 0;
             }
         }
@@ -391,6 +429,43 @@ impl RuntimeCustomPacketSurfaceState {
             .collect::<Vec<_>>()
             .join(" | ");
         (!text.is_empty()).then_some(text)
+    }
+
+    fn overlay_markers(&self, max_entries: usize) -> Vec<RuntimeCustomPacketOverlayMarker> {
+        if max_entries == 0 {
+            return Vec::new();
+        }
+        let mut entries = Vec::new();
+        collect_overlay_marker_entries(
+            &mut entries,
+            RuntimeCustomPacketSemanticEncoding::Text,
+            &self.text_routes,
+        );
+        collect_overlay_marker_entries(
+            &mut entries,
+            RuntimeCustomPacketSemanticEncoding::Binary,
+            &self.binary_routes,
+        );
+        collect_overlay_marker_entries(
+            &mut entries,
+            RuntimeCustomPacketSemanticEncoding::LogicData,
+            &self.logic_routes,
+        );
+        entries.sort_by(|left, right| {
+            right
+                .serial
+                .cmp(&left.serial)
+                .then_with(|| left.marker.key.cmp(&right.marker.key))
+                .then_with(|| {
+                    encoding_label(left.marker.encoding)
+                        .cmp(encoding_label(right.marker.encoding))
+                })
+        });
+        entries
+            .into_iter()
+            .take(max_entries)
+            .map(|entry| entry.marker)
+            .collect()
     }
 }
 
@@ -492,6 +567,39 @@ fn collect_overlay_entries(
     }
 }
 
+fn collect_overlay_marker_entries(
+    entries: &mut Vec<OverlayMarkerEntry>,
+    _encoding: RuntimeCustomPacketSemanticEncoding,
+    routes: &BTreeMap<String, Vec<RuntimeCustomPacketSurfaceRouteState>>,
+) {
+    for route_states in routes.values() {
+        for route in route_states {
+            let Some(marker) = route.last_marker.as_ref() else {
+                continue;
+            };
+            if route.last_update_serial == 0 {
+                continue;
+            }
+            entries.push(OverlayMarkerEntry {
+                serial: route.last_update_serial,
+                marker: marker.clone(),
+            });
+        }
+    }
+}
+
+fn attach_overlay_marker(
+    key: &str,
+    encoding: RuntimeCustomPacketSemanticEncoding,
+    marker: Option<RuntimeCustomPacketOverlayMarker>,
+) -> Option<RuntimeCustomPacketOverlayMarker> {
+    marker.map(|mut marker| {
+        marker.key = key.to_string();
+        marker.encoding = encoding;
+        marker
+    })
+}
+
 fn render_text_surface(
     semantic: RuntimeCustomPacketSemanticKind,
     text: &str,
@@ -504,7 +612,7 @@ fn render_text_surface(
         | RuntimeCustomPacketSemanticKind::Clipboard
         | RuntimeCustomPacketSemanticKind::OpenUri => render_message_like_surface(text),
         RuntimeCustomPacketSemanticKind::WorldPos => render_text_world_pos(text),
-        RuntimeCustomPacketSemanticKind::BuildPos => render_text_i32(text, "build_pos"),
+        RuntimeCustomPacketSemanticKind::BuildPos => render_text_build_pos(text),
         RuntimeCustomPacketSemanticKind::UnitId => render_text_i32(text, "unit_id"),
         RuntimeCustomPacketSemanticKind::Team => render_text_u8(text, "team"),
         RuntimeCustomPacketSemanticKind::Bool => render_text_bool(text),
@@ -543,6 +651,7 @@ fn render_message_like_surface(text: &str) -> Result<RenderedSurfaceValue, &'sta
         detail: format!("message={:?}", truncate_for_preview(&escaped, 96)),
         stable_value: text.to_string(),
         overlay_value: truncate_for_preview(&escaped, 32),
+        marker: None,
     })
 }
 
@@ -553,6 +662,30 @@ fn render_text_world_pos(text: &str) -> Result<RenderedSurfaceValue, &'static st
         detail: format!("x={x} y={y} source={source}"),
         stable_value: format!("{x},{y}"),
         overlay_value: overlay,
+        marker: Some(position_overlay_marker(
+            RuntimeCustomPacketSemanticKind::WorldPos,
+            x as f32,
+            y as f32,
+        )),
+    })
+}
+
+fn render_text_build_pos(text: &str) -> Result<RenderedSurfaceValue, &'static str> {
+    let build_pos = parse_text_i32(text).ok_or("invalid_integer")?;
+    let (world_x, world_y) = build_pos_world_pos(build_pos);
+    Ok(RenderedSurfaceValue {
+        detail: format!(
+            "build_pos={build_pos} tile_x={} tile_y={}",
+            world_x / 8.0,
+            world_y / 8.0
+        ),
+        stable_value: build_pos.to_string(),
+        overlay_value: build_pos.to_string(),
+        marker: Some(position_overlay_marker(
+            RuntimeCustomPacketSemanticKind::BuildPos,
+            world_x,
+            world_y,
+        )),
     })
 }
 
@@ -562,6 +695,7 @@ fn render_text_i32(text: &str, label: &str) -> Result<RenderedSurfaceValue, &'st
         detail: format!("{label}={value}"),
         stable_value: value.to_string(),
         overlay_value: value.to_string(),
+        marker: None,
     })
 }
 
@@ -571,6 +705,7 @@ fn render_text_u8(text: &str, label: &str) -> Result<RenderedSurfaceValue, &'sta
         detail: format!("{label}={value}"),
         stable_value: value.to_string(),
         overlay_value: value.to_string(),
+        marker: None,
     })
 }
 
@@ -580,6 +715,7 @@ fn render_text_bool(text: &str) -> Result<RenderedSurfaceValue, &'static str> {
         detail: format!("value={value}"),
         stable_value: value.to_string(),
         overlay_value: value.to_string(),
+        marker: None,
     })
 }
 
@@ -590,6 +726,7 @@ fn render_text_number(text: &str) -> Result<RenderedSurfaceValue, &'static str> 
         detail: format!("value={rendered}"),
         stable_value: rendered.clone(),
         overlay_value: rendered,
+        marker: None,
     })
 }
 
@@ -648,6 +785,11 @@ fn extract_logic_world_pos(value: &TypeIoObject) -> Result<RenderedSurfaceValue,
         detail: format!("x={x} y={y} source={source}"),
         stable_value: format!("{x},{y}"),
         overlay_value: overlay,
+        marker: Some(position_overlay_marker(
+            RuntimeCustomPacketSemanticKind::WorldPos,
+            x as f32,
+            y as f32,
+        )),
     })
 }
 
@@ -680,10 +822,16 @@ fn extract_logic_build_pos(value: &TypeIoObject) -> Result<RenderedSurfaceValue,
             })
             .ok_or("no_build_pos_payload")?,
     };
+    let (world_x, world_y) = build_pos_world_pos(build_pos);
     Ok(RenderedSurfaceValue {
         detail: format!("build_pos={build_pos} source={source}"),
         stable_value: build_pos.to_string(),
         overlay_value: build_pos.to_string(),
+        marker: Some(position_overlay_marker(
+            RuntimeCustomPacketSemanticKind::BuildPos,
+            world_x,
+            world_y,
+        )),
     })
 }
 
@@ -718,6 +866,7 @@ fn extract_logic_unit_id(value: &TypeIoObject) -> Result<RenderedSurfaceValue, &
         detail: format!("unit_id={unit_id} source={source}"),
         stable_value: unit_id.to_string(),
         overlay_value: unit_id.to_string(),
+        marker: None,
     })
 }
 
@@ -754,6 +903,7 @@ fn extract_logic_team(value: &TypeIoObject) -> Result<RenderedSurfaceValue, &'st
         detail: format!("team={team} source={source}"),
         stable_value: team.to_string(),
         overlay_value: team.to_string(),
+        marker: None,
     })
 }
 
@@ -777,6 +927,7 @@ fn extract_logic_bool(value: &TypeIoObject) -> Result<RenderedSurfaceValue, &'st
         detail: format!("value={flag} source={source}"),
         stable_value: flag.to_string(),
         overlay_value: flag.to_string(),
+        marker: None,
     })
 }
 
@@ -792,7 +943,27 @@ fn extract_logic_number(value: &TypeIoObject) -> Result<RenderedSurfaceValue, &'
         detail: format!("value={number}"),
         stable_value: number.clone(),
         overlay_value: number,
+        marker: None,
     })
+}
+
+fn position_overlay_marker(
+    semantic: RuntimeCustomPacketSemanticKind,
+    x: f32,
+    y: f32,
+) -> RuntimeCustomPacketOverlayMarker {
+    RuntimeCustomPacketOverlayMarker {
+        key: String::new(),
+        encoding: RuntimeCustomPacketSemanticEncoding::Text,
+        semantic,
+        x,
+        y,
+    }
+}
+
+fn build_pos_world_pos(build_pos: i32) -> (f32, f32) {
+    let (tile_x, tile_y) = unpack_point2(build_pos);
+    (tile_x as f32 * 8.0, tile_y as f32 * 8.0)
 }
 
 fn logic_number_value(value: &TypeIoObject) -> Option<String> {
@@ -807,6 +978,11 @@ fn logic_number_value(value: &TypeIoObject) -> Option<String> {
 
 fn parse_text_world_pos(text: &str) -> Option<(f64, f64, &'static str)> {
     let trimmed = text.trim();
+    if trimmed.starts_with('{') {
+        let x = extract_json_number_field(trimmed, "x")?;
+        let y = extract_json_number_field(trimmed, "y")?;
+        return Some((x, y, "json_xy"));
+    }
     if let Some((left, right)) = trimmed.split_once(':') {
         return Some((
             left.trim().parse().ok()?,
@@ -821,9 +997,7 @@ fn parse_text_world_pos(text: &str) -> Option<(f64, f64, &'static str)> {
             "pair_comma",
         ));
     }
-    let x = extract_json_number_field(trimmed, "x")?;
-    let y = extract_json_number_field(trimmed, "y")?;
-    Some((x, y, "json_xy"))
+    None
 }
 
 fn parse_text_i32(text: &str) -> Option<i32> {
@@ -989,6 +1163,7 @@ fn truncate_for_preview(text: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mdt_typeio::pack_point2;
 
     #[test]
     fn runtime_custom_packet_surface_overlay_summary_tracks_latest_updates_and_reset() {
@@ -1029,5 +1204,77 @@ mod tests {
             .iter()
             .any(|line| line.contains("runtime_custom_packet_surface_reset:")));
         assert_eq!(state.overlay_summary_text(4), None);
+    }
+
+    #[test]
+    fn runtime_custom_packet_surface_overlay_markers_export_world_and_build_positions() {
+        let mut state = RuntimeCustomPacketSurfaceState::default();
+        state.register(&RuntimeCustomPacketSemanticSpec {
+            key: "text.world".to_string(),
+            encoding: RuntimeCustomPacketSemanticEncoding::Text,
+            semantic: RuntimeCustomPacketSemanticKind::WorldPos,
+        });
+        state.register(&RuntimeCustomPacketSemanticSpec {
+            key: "text.build".to_string(),
+            encoding: RuntimeCustomPacketSemanticEncoding::Text,
+            semantic: RuntimeCustomPacketSemanticKind::BuildPos,
+        });
+        state.register(&RuntimeCustomPacketSemanticSpec {
+            key: "logic.build".to_string(),
+            encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+            semantic: RuntimeCustomPacketSemanticKind::BuildPos,
+        });
+
+        state.record_text_handler("text.world", "{\"x\":12.5,\"y\":-4}");
+        state.record_text_handler("text.build", &pack_point2(3, 5).to_string());
+        state.record_logic_data_handler(
+            "logic.build",
+            ClientLogicDataTransport::Reliable,
+            &TypeIoObject::BuildingPos(pack_point2(-2, 7)),
+        );
+
+        assert_eq!(
+            state.overlay_markers(4),
+            vec![
+                RuntimeCustomPacketOverlayMarker {
+                    key: "logic.build".to_string(),
+                    encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+                    semantic: RuntimeCustomPacketSemanticKind::BuildPos,
+                    x: -16.0,
+                    y: 56.0,
+                },
+                RuntimeCustomPacketOverlayMarker {
+                    key: "text.build".to_string(),
+                    encoding: RuntimeCustomPacketSemanticEncoding::Text,
+                    semantic: RuntimeCustomPacketSemanticKind::BuildPos,
+                    x: 24.0,
+                    y: 40.0,
+                },
+                RuntimeCustomPacketOverlayMarker {
+                    key: "text.world".to_string(),
+                    encoding: RuntimeCustomPacketSemanticEncoding::Text,
+                    semantic: RuntimeCustomPacketSemanticKind::WorldPos,
+                    x: 12.5,
+                    y: -4.0,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn runtime_custom_packet_surface_overlay_markers_reset_on_world_data_begin() {
+        let mut state = RuntimeCustomPacketSurfaceState::default();
+        state.register(&RuntimeCustomPacketSemanticSpec {
+            key: "text.build".to_string(),
+            encoding: RuntimeCustomPacketSemanticEncoding::Text,
+            semantic: RuntimeCustomPacketSemanticKind::BuildPos,
+        });
+
+        state.record_text_handler("text.build", &pack_point2(4, 6).to_string());
+        assert_eq!(state.overlay_markers(4).len(), 1);
+
+        state.observe_events(&[ClientSessionEvent::WorldDataBegin]);
+
+        assert!(state.overlay_markers(4).is_empty());
     }
 }

@@ -4,6 +4,7 @@ use mdt_typeio::{TypeIoEffectPositionHint, TypeIoObject, TypeIoSemanticRef};
 
 const EFFECT_PATH_MAX_DEPTH: usize = 3;
 const EFFECT_PATH_MAX_NODES: usize = 64;
+const BLOCK_CONTENT_TYPE: u8 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeEffectBinding {
@@ -17,6 +18,7 @@ pub enum RuntimeEffectContract {
     PositionTarget,
     LightningPath,
     PointBeam,
+    BlockContentIcon,
     DropItem,
     FloatLength,
     UnitParent,
@@ -28,6 +30,7 @@ impl RuntimeEffectContract {
             Self::PositionTarget => "position_target",
             Self::LightningPath => "lightning",
             Self::PointBeam => "point_beam",
+            Self::BlockContentIcon => "block_content_icon",
             Self::DropItem => "drop_item",
             Self::FloatLength => "float_length",
             Self::UnitParent => "unit_parent",
@@ -49,6 +52,7 @@ pub struct RuntimeEffectOverlay {
     pub remaining_ticks: u8,
     pub contract_name: Option<&'static str>,
     pub binding: Option<RuntimeEffectBinding>,
+    pub content_ref: Option<(u8, i16)>,
     pub polyline_points: Vec<(u32, u32)>,
 }
 
@@ -56,6 +60,7 @@ pub fn effect_contract(effect_id: Option<i16>) -> Option<RuntimeEffectContract> 
     match effect_id {
         Some(13) => Some(RuntimeEffectContract::LightningPath),
         Some(10) => Some(RuntimeEffectContract::PointBeam),
+        Some(252) => Some(RuntimeEffectContract::BlockContentIcon),
         Some(8 | 9 | 178 | 261 | 262) => Some(RuntimeEffectContract::PositionTarget),
         Some(142) => Some(RuntimeEffectContract::DropItem),
         Some(200) => Some(RuntimeEffectContract::FloatLength),
@@ -81,6 +86,7 @@ pub fn spawn_runtime_effect_overlay(
     remaining_ticks: u8,
 ) -> RuntimeEffectOverlay {
     let contract = effect_contract(effect_id);
+    let content_ref = contract.and_then(|contract| derive_runtime_effect_content_ref(contract, data_object));
     let polyline_points = contract
         .and_then(|contract| derive_runtime_effect_polyline(contract, data_object))
         .unwrap_or_default();
@@ -108,6 +114,7 @@ pub fn spawn_runtime_effect_overlay(
         remaining_ticks,
         contract_name: contract.map(RuntimeEffectContract::name),
         binding,
+        content_ref,
         polyline_points,
     }
 }
@@ -161,6 +168,29 @@ fn derive_runtime_effect_polyline(
             .and_then(|matched| lightning_path_points(matched.value)),
         RuntimeEffectContract::PositionTarget
         | RuntimeEffectContract::PointBeam
+        | RuntimeEffectContract::BlockContentIcon
+        | RuntimeEffectContract::DropItem
+        | RuntimeEffectContract::FloatLength
+        | RuntimeEffectContract::UnitParent => None,
+    }
+}
+
+fn derive_runtime_effect_content_ref(
+    contract: RuntimeEffectContract,
+    object: Option<&TypeIoObject>,
+) -> Option<(u8, i16)> {
+    let object = object?;
+    match contract {
+        RuntimeEffectContract::BlockContentIcon => object
+            .find_first_dfs_bounded(
+                EFFECT_PATH_MAX_DEPTH,
+                EFFECT_PATH_MAX_NODES,
+                block_content_candidate,
+            )
+            .and_then(|matched| block_content_ref(matched.value)),
+        RuntimeEffectContract::PositionTarget
+        | RuntimeEffectContract::LightningPath
+        | RuntimeEffectContract::PointBeam
         | RuntimeEffectContract::DropItem
         | RuntimeEffectContract::FloatLength
         | RuntimeEffectContract::UnitParent => None,
@@ -182,6 +212,29 @@ fn lightning_path_points(value: &TypeIoObject) -> Option<Vec<(u32, u32)>> {
         })
         .collect::<Vec<_>>();
     (!points.is_empty()).then_some(points)
+}
+
+fn block_content_candidate(value: &TypeIoObject) -> bool {
+    matches!(
+        value.semantic_ref(),
+        Some(TypeIoSemanticRef::Content {
+            content_type: BLOCK_CONTENT_TYPE,
+            ..
+        })
+    )
+}
+
+fn block_content_ref(value: &TypeIoObject) -> Option<(u8, i16)> {
+    match value.semantic_ref()? {
+        TypeIoSemanticRef::Content {
+            content_type: BLOCK_CONTENT_TYPE,
+            content_id,
+        } => Some((BLOCK_CONTENT_TYPE, content_id)),
+        TypeIoSemanticRef::Content { .. }
+        | TypeIoSemanticRef::TechNode { .. }
+        | TypeIoSemanticRef::Building { .. }
+        | TypeIoSemanticRef::Unit { .. } => None,
+    }
 }
 
 fn binding_from_position_hint(position_hint: &TypeIoEffectPositionHint) -> RuntimeEffectBinding {

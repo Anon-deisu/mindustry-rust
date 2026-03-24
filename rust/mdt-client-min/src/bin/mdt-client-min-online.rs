@@ -18,7 +18,8 @@ use mdt_client_min::custom_packet_runtime_relay::{
     RuntimeCustomPacketRelayAction, RuntimeCustomPacketRelaySpec, RuntimeCustomPacketRelays,
 };
 use mdt_client_min::custom_packet_runtime_surface::{
-    install_runtime_custom_packet_surface, RuntimeCustomPacketSurface,
+    install_runtime_custom_packet_surface, RuntimeCustomPacketOverlayMarker,
+    RuntimeCustomPacketSurface,
 };
 use mdt_client_min::render_runtime::RenderRuntimeAdapter;
 use mdt_input::live_intent::RuntimeIntentTracker;
@@ -30,8 +31,8 @@ use mdt_input::{
 use mdt_remote::HighFrequencyRemoteMethod;
 use mdt_remote::{read_remote_manifest, RemoteManifest};
 use mdt_render_ui::{
-    project_scene_models_with_view_window, AsciiScenePresenter, MinifbWindowBackend, RenderObject,
-    ScenePresenter, WindowPresenter,
+    project_scene_models_with_view_window, AsciiScenePresenter, MinifbWindowBackend, RenderModel,
+    RenderObject, ScenePresenter, WindowPresenter,
 };
 use mdt_typeio::{pack_point2, TypeIoObject};
 use mdt_world::{LoadedWorldState, ParsedBuildingTail, WorldGraph};
@@ -50,6 +51,7 @@ const SERVER_RESTART_RETRY_BACKOFF_MS: u64 = 1_000;
 const DEFAULT_DISCOVER_PORT: u16 = 6567;
 const DEFAULT_DISCOVER_TIMEOUT_MS: u64 = 1_500;
 const RUNTIME_CUSTOM_PACKET_SURFACE_OVERLAY_MAX_ENTRIES: usize = 4;
+const RUNTIME_CUSTOM_PACKET_SURFACE_SCENE_OBJECT_LAYER: i32 = 27;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let raw_args = env::args().collect::<Vec<_>>();
@@ -326,6 +328,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &report.events,
             &render_runtime_adapter,
             &runtime_command_mode,
+            custom_packet_surface.as_ref(),
             &mut ascii_scene_printed,
         );
         maybe_dump_world_stream_hex(&session, &args, &mut world_stream_dumped)?;
@@ -335,6 +338,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &report.events,
             &render_runtime_adapter,
             &runtime_command_mode,
+            custom_packet_surface.as_ref(),
             &mut window_scene_presenter,
             &mut window_scene_disabled,
         );
@@ -369,6 +373,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &args,
         &render_runtime_adapter,
         &runtime_command_mode,
+        custom_packet_surface.as_ref(),
     );
     maybe_print_custom_packet_watch_summary(custom_packet_watch.as_ref());
     maybe_print_custom_packet_semantic_summary(custom_packet_semantics.as_ref());
@@ -3293,6 +3298,7 @@ fn maybe_print_ascii_scene(
     events: &[ClientSessionEvent],
     render_runtime_adapter: &RenderRuntimeAdapter,
     runtime_command_mode: &CommandModeState,
+    custom_packet_surface: Option<&RuntimeCustomPacketSurface>,
     ascii_scene_printed: &mut bool,
 ) {
     if *ascii_scene_printed || !args.render_ascii_on_world_ready {
@@ -3324,6 +3330,7 @@ fn maybe_print_ascii_scene(
     );
     let input = render_snapshot_input(session, runtime_command_mode);
     render_runtime_adapter.apply(&mut scene, &mut hud, &input, session.state());
+    append_runtime_custom_packet_surface_scene_objects(&mut scene, custom_packet_surface);
     let mut presenter =
         AsciiScenePresenter::with_max_view_tiles(LIVE_VIEW_TILES.0, LIVE_VIEW_TILES.1);
     presenter.present(&scene, &hud);
@@ -3336,6 +3343,7 @@ fn maybe_print_final_ascii_scene(
     args: &CliArgs,
     render_runtime_adapter: &RenderRuntimeAdapter,
     runtime_command_mode: &CommandModeState,
+    custom_packet_surface: Option<&RuntimeCustomPacketSurface>,
 ) {
     if !args.render_ascii_on_world_ready {
         return;
@@ -3359,6 +3367,7 @@ fn maybe_print_final_ascii_scene(
     );
     let input = render_snapshot_input(session, runtime_command_mode);
     render_runtime_adapter.apply(&mut scene, &mut hud, &input, session.state());
+    append_runtime_custom_packet_surface_scene_objects(&mut scene, custom_packet_surface);
     let runtime_object_ids = collect_authoritative_runtime_scene_object_ids(&scene.objects);
     let mut presenter =
         AsciiScenePresenter::with_max_view_tiles(LIVE_VIEW_TILES.0, LIVE_VIEW_TILES.1);
@@ -3374,6 +3383,7 @@ fn collect_authoritative_runtime_scene_object_ids(objects: &[RenderObject]) -> V
             if object.id.starts_with("block:runtime-construct:")
                 || object.id.starts_with("terrain:runtime-deconstruct:")
                 || object.id.starts_with("marker:runtime-health:")
+                || object.id.starts_with("marker:runtime-custom-packet:")
             {
                 Some(object.id.clone())
             } else {
@@ -3389,6 +3399,7 @@ fn maybe_present_window_scene(
     events: &[ClientSessionEvent],
     render_runtime_adapter: &RenderRuntimeAdapter,
     runtime_command_mode: &CommandModeState,
+    custom_packet_surface: Option<&RuntimeCustomPacketSurface>,
     window_scene_presenter: &mut Option<WindowPresenter<MinifbWindowBackend>>,
     window_scene_disabled: &mut bool,
 ) {
@@ -3416,6 +3427,7 @@ fn maybe_present_window_scene(
     );
     let input = render_snapshot_input(session, runtime_command_mode);
     render_runtime_adapter.apply(&mut scene, &mut hud, &input, session.state());
+    append_runtime_custom_packet_surface_scene_objects(&mut scene, custom_packet_surface);
     let Some(presenter) = window_scene_presenter.as_mut() else {
         return;
     };
@@ -3432,6 +3444,75 @@ fn maybe_present_window_scene(
             *window_scene_disabled = true;
             *window_scene_presenter = None;
         }
+    }
+}
+
+fn append_runtime_custom_packet_surface_scene_objects(
+    scene: &mut RenderModel,
+    custom_packet_surface: Option<&RuntimeCustomPacketSurface>,
+) {
+    let Some(custom_packet_surface) = custom_packet_surface else {
+        return;
+    };
+    let markers =
+        custom_packet_surface.overlay_markers(RUNTIME_CUSTOM_PACKET_SURFACE_OVERLAY_MAX_ENTRIES);
+    scene.objects
+        .extend(runtime_custom_packet_surface_scene_objects(&markers));
+}
+
+fn runtime_custom_packet_surface_scene_objects(
+    markers: &[RuntimeCustomPacketOverlayMarker],
+) -> Vec<RenderObject> {
+    markers
+        .iter()
+        .map(|marker| RenderObject {
+            id: runtime_custom_packet_surface_scene_object_id(marker),
+            layer: RUNTIME_CUSTOM_PACKET_SURFACE_SCENE_OBJECT_LAYER,
+            x: marker.x,
+            y: marker.y,
+        })
+        .collect()
+}
+
+fn runtime_custom_packet_surface_scene_object_id(
+    marker: &RuntimeCustomPacketOverlayMarker,
+) -> String {
+    format!(
+        "marker:runtime-custom-packet:{}:{}:{}:0x{:08x}:0x{:08x}",
+        runtime_custom_packet_surface_encoding_label(marker.encoding),
+        runtime_custom_packet_surface_semantic_label(marker.semantic),
+        marker.key.escape_default(),
+        marker.x.to_bits(),
+        marker.y.to_bits(),
+    )
+}
+
+fn runtime_custom_packet_surface_encoding_label(
+    encoding: RuntimeCustomPacketSemanticEncoding,
+) -> &'static str {
+    match encoding {
+        RuntimeCustomPacketSemanticEncoding::Text => "text",
+        RuntimeCustomPacketSemanticEncoding::Binary => "binary",
+        RuntimeCustomPacketSemanticEncoding::LogicData => "logic",
+    }
+}
+
+fn runtime_custom_packet_surface_semantic_label(
+    semantic: RuntimeCustomPacketSemanticKind,
+) -> &'static str {
+    match semantic {
+        RuntimeCustomPacketSemanticKind::ServerMessage => "server_message",
+        RuntimeCustomPacketSemanticKind::ChatMessage => "chat_message",
+        RuntimeCustomPacketSemanticKind::HudText => "hud_text",
+        RuntimeCustomPacketSemanticKind::Announce => "announce",
+        RuntimeCustomPacketSemanticKind::Clipboard => "clipboard",
+        RuntimeCustomPacketSemanticKind::OpenUri => "open_uri",
+        RuntimeCustomPacketSemanticKind::WorldPos => "world_pos",
+        RuntimeCustomPacketSemanticKind::BuildPos => "build_pos",
+        RuntimeCustomPacketSemanticKind::UnitId => "unit_id",
+        RuntimeCustomPacketSemanticKind::Team => "team",
+        RuntimeCustomPacketSemanticKind::Bool => "bool",
+        RuntimeCustomPacketSemanticKind::Number => "number",
     }
 }
 
@@ -9552,6 +9633,13 @@ mod tests {
                 y: 0.0,
             },
             RenderObject {
+                id: "marker:runtime-custom-packet:text:world_pos:logic.pos:0x41c00000:0x42200000"
+                    .to_string(),
+                layer: 27,
+                x: 24.0,
+                y: 40.0,
+            },
+            RenderObject {
                 id: "plan:runtime-place:0:125:90".to_string(),
                 layer: 21,
                 x: 0.0,
@@ -9565,6 +9653,54 @@ mod tests {
                 "block:runtime-construct:125:90:257".to_string(),
                 "terrain:runtime-deconstruct:125:90".to_string(),
                 "marker:runtime-health:125:90".to_string(),
+                "marker:runtime-custom-packet:text:world_pos:logic.pos:0x41c00000:0x42200000"
+                    .to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn runtime_custom_packet_surface_scene_objects_project_markers_into_runtime_layer() {
+        let objects = runtime_custom_packet_surface_scene_objects(&[
+            RuntimeCustomPacketOverlayMarker {
+                key: "logic.pos".to_string(),
+                encoding: RuntimeCustomPacketSemanticEncoding::Text,
+                semantic: RuntimeCustomPacketSemanticKind::WorldPos,
+                x: 24.0,
+                y: 40.0,
+            },
+            RuntimeCustomPacketOverlayMarker {
+                key: "logic.build".to_string(),
+                encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+                semantic: RuntimeCustomPacketSemanticKind::BuildPos,
+                x: -16.0,
+                y: 56.0,
+            },
+        ]);
+
+        assert_eq!(
+            objects,
+            vec![
+                RenderObject {
+                    id: format!(
+                        "marker:runtime-custom-packet:text:world_pos:logic.pos:0x{:08x}:0x{:08x}",
+                        24.0f32.to_bits(),
+                        40.0f32.to_bits()
+                    ),
+                    layer: RUNTIME_CUSTOM_PACKET_SURFACE_SCENE_OBJECT_LAYER,
+                    x: 24.0,
+                    y: 40.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:runtime-custom-packet:logic:build_pos:logic.build:0x{:08x}:0x{:08x}",
+                        (-16.0f32).to_bits(),
+                        56.0f32.to_bits()
+                    ),
+                    layer: RUNTIME_CUSTOM_PACKET_SURFACE_SCENE_OBJECT_LAYER,
+                    x: -16.0,
+                    y: 56.0,
+                },
             ]
         );
     }

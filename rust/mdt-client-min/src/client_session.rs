@@ -10396,6 +10396,20 @@ fn derive_effect_business_projection(
     ) -> Option<EffectBusinessProjection> {
         match contract {
             RuntimeEffectContract::LightningPath => lightning_path_projection(value),
+            RuntimeEffectContract::BlockContentIcon => {
+                value
+                    .semantic_ref()
+                    .and_then(|semantic_ref| match semantic_ref {
+                        TypeIoSemanticRef::Content {
+                            content_type: BLOCK_CONTENT_TYPE,
+                            ..
+                        } => projection_from_semantic_ref(state, snapshot_input, semantic_ref),
+                        TypeIoSemanticRef::Content { .. }
+                        | TypeIoSemanticRef::TechNode { .. }
+                        | TypeIoSemanticRef::Building { .. }
+                        | TypeIoSemanticRef::Unit { .. } => None,
+                    })
+            }
             RuntimeEffectContract::PositionTarget | RuntimeEffectContract::PointBeam => {
                 let target_projection = match value {
                     TypeIoObject::Point2 { .. }
@@ -33306,6 +33320,77 @@ mod tests {
             Some("drop_item")
         );
         assert_eq!(session.state().last_effect_business_path, None);
+    }
+
+    #[test]
+    fn effect_packet_with_block_content_icon_contract_accepts_nested_block_content() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "effect" && entry.params.len() == 6)
+            .unwrap()
+            .packet_id;
+        let mut payload = encode_effect_payload(252, 32.5, 48.0, 90.0, 0x11223344);
+        write_typeio_object(
+            &mut payload,
+            &TypeIoObject::ObjectArray(vec![
+                TypeIoObject::Int(7),
+                TypeIoObject::ContentRaw {
+                    content_type: BLOCK_CONTENT_TYPE,
+                    content_id: 42,
+                },
+            ]),
+        );
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            session.state().last_effect_contract_name.as_deref(),
+            Some("block_content_icon")
+        );
+        assert_eq!(
+            session.state().last_effect_business_projection,
+            Some(EffectBusinessProjection::ContentRef {
+                kind: EffectBusinessContentKind::Content,
+                content_type: BLOCK_CONTENT_TYPE,
+                content_id: 42,
+            })
+        );
+        assert_eq!(session.state().last_effect_business_path, Some(vec![1]));
+    }
+
+    #[test]
+    fn effect_packet_with_block_content_icon_contract_rejects_non_block_content() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "effect" && entry.params.len() == 6)
+            .unwrap()
+            .packet_id;
+        let mut payload = encode_effect_payload(252, 32.5, 48.0, 90.0, 0x11223344);
+        write_typeio_object(
+            &mut payload,
+            &TypeIoObject::ContentRaw {
+                content_type: ITEM_CONTENT_TYPE,
+                content_id: 7,
+            },
+        );
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            session.state().last_effect_contract_name.as_deref(),
+            Some("block_content_icon")
+        );
+        assert_eq!(session.state().last_effect_business_projection, None);
+        assert_eq!(session.state().last_effect_business_path, None);
+        assert!(!session.state().last_effect_data_parse_failed);
     }
 
     #[test]
