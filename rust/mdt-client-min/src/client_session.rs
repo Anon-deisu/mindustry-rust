@@ -6892,8 +6892,15 @@ impl ClientSession {
             let landing_pad_config_item_id =
                 summarize_landing_pad_config_item_id(&building.parsed_tail);
             let message_text = summarize_message_tail_text(&building.parsed_tail);
+            let payload_source_content = summarize_payload_source_content(&building.parsed_tail);
             let payload_router_sorted_content =
                 summarize_payload_router_sorted_content(&building.parsed_tail);
+            let duct_unloader_item_id = summarize_duct_unloader_item_id(&building.parsed_tail);
+            let reconstructor_command_id =
+                summarize_reconstructor_command_id(&building.parsed_tail);
+            let canvas_bytes = summarize_canvas_bytes(&building.parsed_tail);
+            let payload_mass_driver_link =
+                summarize_payload_mass_driver_link(&building.parsed_tail);
 
             let entry = BlockSnapshotExtraEntrySummary {
                 build_pos,
@@ -6917,7 +6924,12 @@ impl ClientSession {
                 constructor_recipe_block_id,
                 landing_pad_config_item_id,
                 message_text,
+                payload_source_content,
                 payload_router_sorted_content,
+                duct_unloader_item_id,
+                reconstructor_command_id,
+                canvas_bytes,
+                payload_mass_driver_link,
             };
             entries.push(entry);
         }
@@ -6983,10 +6995,35 @@ impl ClientSession {
                 .configured_block_projection
                 .apply_message_text(build_pos, text);
         }
+        if let Some(content) = summarize_payload_source_content(parsed_tail) {
+            self.state
+                .configured_block_projection
+                .apply_payload_source_content(build_pos, content);
+        }
         if let Some(content) = summarize_payload_router_sorted_content(parsed_tail) {
             self.state
                 .configured_block_projection
                 .apply_payload_router_sorted_content(build_pos, content);
+        }
+        if let Some(item_id) = summarize_duct_unloader_item_id(parsed_tail) {
+            self.state
+                .configured_block_projection
+                .apply_duct_unloader_item(build_pos, item_id);
+        }
+        if let Some(command_id) = summarize_reconstructor_command_id(parsed_tail) {
+            self.state
+                .configured_block_projection
+                .apply_reconstructor_command(build_pos, command_id);
+        }
+        if let Some(bytes) = summarize_canvas_bytes(parsed_tail) {
+            self.state
+                .configured_block_projection
+                .apply_canvas_bytes(build_pos, bytes);
+        }
+        if let Some(link) = summarize_payload_mass_driver_link(parsed_tail) {
+            self.state
+                .configured_block_projection
+                .apply_payload_mass_driver_link(build_pos, Some(link));
         }
     }
 
@@ -7009,10 +7046,35 @@ impl ClientSession {
                 .configured_block_projection
                 .apply_message_text(entry.build_pos, text);
         }
+        if let Some(content) = entry.payload_source_content {
+            self.state
+                .configured_block_projection
+                .apply_payload_source_content(entry.build_pos, content);
+        }
         if let Some(content) = entry.payload_router_sorted_content {
             self.state
                 .configured_block_projection
                 .apply_payload_router_sorted_content(entry.build_pos, content);
+        }
+        if let Some(item_id) = entry.duct_unloader_item_id {
+            self.state
+                .configured_block_projection
+                .apply_duct_unloader_item(entry.build_pos, item_id);
+        }
+        if let Some(command_id) = entry.reconstructor_command_id {
+            self.state
+                .configured_block_projection
+                .apply_reconstructor_command(entry.build_pos, command_id);
+        }
+        if let Some(bytes) = entry.canvas_bytes.clone() {
+            self.state
+                .configured_block_projection
+                .apply_canvas_bytes(entry.build_pos, bytes);
+        }
+        if let Some(link) = entry.payload_mass_driver_link {
+            self.state
+                .configured_block_projection
+                .apply_payload_mass_driver_link(entry.build_pos, Some(link));
         }
     }
 
@@ -10809,7 +10871,12 @@ struct BlockSnapshotExtraEntrySummary {
     constructor_recipe_block_id: Option<Option<i16>>,
     landing_pad_config_item_id: Option<Option<i16>>,
     message_text: Option<String>,
+    payload_source_content: Option<Option<ConfiguredContentRef>>,
     payload_router_sorted_content: Option<Option<ConfiguredContentRef>>,
+    duct_unloader_item_id: Option<Option<i16>>,
+    reconstructor_command_id: Option<Option<u16>>,
+    canvas_bytes: Option<Vec<u8>>,
+    payload_mass_driver_link: Option<i32>,
 }
 
 fn summarize_build_turret_tail_fields(
@@ -10857,6 +10924,30 @@ fn summarize_message_tail_text(parsed_tail: &mdt_world::ParsedBuildingTail) -> O
     }
 }
 
+fn summarize_payload_source_content(
+    parsed_tail: &mdt_world::ParsedBuildingTail,
+) -> Option<Option<ConfiguredContentRef>> {
+    let mdt_world::ParsedBuildingTail::PayloadSource(source) = parsed_tail else {
+        return None;
+    };
+    match (source.config_block_id, source.unit_id) {
+        (None, None) => Some(None),
+        (Some(content_id), None) => i16::try_from(content_id).ok().map(|content_id| {
+            Some(ConfiguredContentRef {
+                content_type: BLOCK_CONTENT_TYPE,
+                content_id,
+            })
+        }),
+        (None, Some(content_id)) => i16::try_from(content_id).ok().map(|content_id| {
+            Some(ConfiguredContentRef {
+                content_type: UNIT_CONTENT_TYPE,
+                content_id,
+            })
+        }),
+        (Some(_), Some(_)) => None,
+    }
+}
+
 fn summarize_payload_router_sorted_content(
     parsed_tail: &mdt_world::ParsedBuildingTail,
 ) -> Option<Option<ConfiguredContentRef>> {
@@ -10877,6 +10968,40 @@ fn summarize_payload_router_sorted_content(
         }
         _ => None,
     }
+}
+
+fn summarize_duct_unloader_item_id(
+    parsed_tail: &mdt_world::ParsedBuildingTail,
+) -> Option<Option<i16>> {
+    let mdt_world::ParsedBuildingTail::DuctUnloader(duct_unloader) = parsed_tail else {
+        return None;
+    };
+    summarize_nullable_loaded_world_content_id(duct_unloader.item_id)
+}
+
+fn summarize_reconstructor_command_id(
+    parsed_tail: &mdt_world::ParsedBuildingTail,
+) -> Option<Option<u16>> {
+    let mdt_world::ParsedBuildingTail::Reconstructor(reconstructor) = parsed_tail else {
+        return None;
+    };
+    Some(reconstructor.command_id.map(u16::from))
+}
+
+fn summarize_canvas_bytes(parsed_tail: &mdt_world::ParsedBuildingTail) -> Option<Vec<u8>> {
+    let mdt_world::ParsedBuildingTail::Canvas(canvas) = parsed_tail else {
+        return None;
+    };
+    Some(canvas.data_bytes.clone())
+}
+
+fn summarize_payload_mass_driver_link(
+    parsed_tail: &mdt_world::ParsedBuildingTail,
+) -> Option<i32> {
+    let mdt_world::ParsedBuildingTail::PayloadMassDriver(driver) = parsed_tail else {
+        return None;
+    };
+    Some(driver.link)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -17209,7 +17334,12 @@ mod tests {
                 constructor_recipe_block_id: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
+                payload_source_content: None,
                 payload_router_sorted_content: None,
+                duct_unloader_item_id: None,
+                reconstructor_command_id: None,
+                canvas_bytes: None,
+                payload_mass_driver_link: None,
             },
         ]);
 
@@ -17377,6 +17507,156 @@ mod tests {
     }
 
     #[test]
+    fn loaded_world_tail_business_helper_applies_additional_configured_tail_projection() {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let payload_source_pos = pack_build_pos_for_block_snapshot_test(32, 33);
+        let duct_unloader_pos = pack_build_pos_for_block_snapshot_test(34, 35);
+        let reconstructor_pos = pack_build_pos_for_block_snapshot_test(36, 37);
+        let canvas_pos = pack_build_pos_for_block_snapshot_test(38, 39);
+        let payload_mass_driver_pos = pack_build_pos_for_block_snapshot_test(40, 41);
+        let unit_id = loaded_world_content_id_for_name(&session, UNIT_CONTENT_TYPE, "dagger");
+        let item_id = loaded_world_content_id_for_name(&session, ITEM_CONTENT_TYPE, "copper");
+        let canvas_bytes = vec![0x11, 0x22, 0x33, 0x44];
+
+        session.apply_loaded_world_parsed_tail_business(
+            payload_source_pos,
+            &mdt_world::ParsedBuildingTail::PayloadSource(mdt_world::PayloadSourceTailSnapshot {
+                payload_block: mdt_world::PayloadBlockTailSnapshot {
+                    pay_vector_x_bits: 0,
+                    pay_vector_y_bits: 0,
+                    pay_rotation_bits: 0,
+                    payload_present: false,
+                    payload_type: None,
+                    build_block_id: None,
+                    build_revision: None,
+                    build_payload: None,
+                    unit_class_id: None,
+                    unit_payload_len: None,
+                    unit_payload_sha256: None,
+                },
+                unit_id: Some(unit_id as u16),
+                config_block_id: None,
+                command_pos: mdt_world::NullableVec2TailSnapshot {
+                    present: false,
+                    x_bits: 0,
+                    y_bits: 0,
+                },
+            }),
+        );
+        session.apply_loaded_world_parsed_tail_business(
+            duct_unloader_pos,
+            &mdt_world::ParsedBuildingTail::DuctUnloader(mdt_world::DuctUnloaderTailSnapshot {
+                item_id: Some(item_id as u16),
+                offset: 0,
+            }),
+        );
+        session.apply_loaded_world_parsed_tail_business(
+            reconstructor_pos,
+            &mdt_world::ParsedBuildingTail::Reconstructor(mdt_world::ReconstructorTailSnapshot {
+                payload_block: mdt_world::PayloadBlockTailSnapshot {
+                    pay_vector_x_bits: 0,
+                    pay_vector_y_bits: 0,
+                    pay_rotation_bits: 0,
+                    payload_present: false,
+                    payload_type: None,
+                    build_block_id: None,
+                    build_revision: None,
+                    build_payload: None,
+                    unit_class_id: None,
+                    unit_payload_len: None,
+                    unit_payload_sha256: None,
+                },
+                progress_bits: 0,
+                command_pos: mdt_world::NullableVec2TailSnapshot {
+                    present: false,
+                    x_bits: 0,
+                    y_bits: 0,
+                },
+                command_id: Some(7),
+            }),
+        );
+        session.apply_loaded_world_parsed_tail_business(
+            canvas_pos,
+            &mdt_world::ParsedBuildingTail::Canvas(mdt_world::CanvasTailSnapshot {
+                data_len: canvas_bytes.len(),
+                data_sha256: String::new(),
+                data_bytes: canvas_bytes.clone(),
+            }),
+        );
+        session.apply_loaded_world_parsed_tail_business(
+            payload_mass_driver_pos,
+            &mdt_world::ParsedBuildingTail::PayloadMassDriver(
+                mdt_world::PayloadMassDriverTailSnapshot {
+                    payload_block: mdt_world::PayloadBlockTailSnapshot {
+                        pay_vector_x_bits: 0,
+                        pay_vector_y_bits: 0,
+                        pay_rotation_bits: 0,
+                        payload_present: false,
+                        payload_type: None,
+                        build_block_id: None,
+                        build_revision: None,
+                        build_payload: None,
+                        unit_class_id: None,
+                        unit_payload_len: None,
+                        unit_payload_sha256: None,
+                    },
+                    link: 10,
+                    turret_rotation_bits: 0,
+                    state_ordinal: 0,
+                    reload_counter_bits: 0,
+                    charge_bits: 0,
+                    loaded: false,
+                    charging: false,
+                },
+            ),
+        );
+
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .payload_source_content_by_build_pos
+                .get(&payload_source_pos),
+            Some(&Some(ConfiguredContentRef {
+                content_type: UNIT_CONTENT_TYPE,
+                content_id: unit_id,
+            }))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .duct_unloader_item_by_build_pos
+                .get(&duct_unloader_pos),
+            Some(&Some(item_id))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .reconstructor_command_by_build_pos
+                .get(&reconstructor_pos),
+            Some(&Some(7))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .canvas_bytes_by_build_pos
+                .get(&canvas_pos),
+            Some(&canvas_bytes)
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .payload_mass_driver_link_by_build_pos
+                .get(&payload_mass_driver_pos),
+            Some(&Some(10))
+        );
+    }
+
+    #[test]
     fn loaded_world_tail_business_helper_fail_closes_out_of_range_constructor_and_landing_pad_ids()
     {
         let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
@@ -17458,7 +17738,12 @@ mod tests {
                 constructor_recipe_block_id: None,
                 landing_pad_config_item_id: None,
                 message_text: Some("snapshot message".to_string()),
+                payload_source_content: None,
                 payload_router_sorted_content: None,
+                duct_unloader_item_id: None,
+                reconstructor_command_id: None,
+                canvas_bytes: None,
+                payload_mass_driver_link: None,
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: router_pos,
@@ -17482,10 +17767,15 @@ mod tests {
                 constructor_recipe_block_id: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
+                payload_source_content: None,
                 payload_router_sorted_content: Some(Some(ConfiguredContentRef {
                     content_type: BLOCK_CONTENT_TYPE,
                     content_id: payload_block_id,
                 })),
+                duct_unloader_item_id: None,
+                reconstructor_command_id: None,
+                canvas_bytes: None,
+                payload_mass_driver_link: None,
             },
         ]);
 
@@ -17542,7 +17832,12 @@ mod tests {
                 constructor_recipe_block_id: Some(Some(recipe_block_id)),
                 landing_pad_config_item_id: None,
                 message_text: None,
+                payload_source_content: None,
                 payload_router_sorted_content: None,
+                duct_unloader_item_id: None,
+                reconstructor_command_id: None,
+                canvas_bytes: None,
+                payload_mass_driver_link: None,
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: landing_pad_pos,
@@ -17566,7 +17861,12 @@ mod tests {
                 constructor_recipe_block_id: None,
                 landing_pad_config_item_id: Some(Some(item_id)),
                 message_text: None,
+                payload_source_content: None,
                 payload_router_sorted_content: None,
+                duct_unloader_item_id: None,
+                reconstructor_command_id: None,
+                canvas_bytes: None,
+                payload_mass_driver_link: None,
             },
         ]);
 
@@ -17585,6 +17885,214 @@ mod tests {
                 .landing_pad_item_by_build_pos
                 .get(&landing_pad_pos),
             Some(&Some(item_id))
+        );
+    }
+
+    #[test]
+    fn apply_loaded_world_block_snapshot_entries_forwards_additional_configured_summary() {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let payload_source_pos = pack_build_pos_for_block_snapshot_test(42, 43);
+        let duct_unloader_pos = pack_build_pos_for_block_snapshot_test(44, 45);
+        let reconstructor_pos = pack_build_pos_for_block_snapshot_test(46, 47);
+        let canvas_pos = pack_build_pos_for_block_snapshot_test(48, 49);
+        let payload_mass_driver_pos = pack_build_pos_for_block_snapshot_test(50, 51);
+        let unit_id = loaded_world_content_id_for_name(&session, UNIT_CONTENT_TYPE, "dagger");
+        let item_id = loaded_world_content_id_for_name(&session, ITEM_CONTENT_TYPE, "copper");
+        let canvas_bytes = vec![0xaa, 0xbb, 0xcc, 0xdd];
+
+        session.apply_block_snapshot_entries_from_loaded_world_entries(vec![
+            BlockSnapshotExtraEntrySummary {
+                build_pos: payload_source_pos,
+                block_id: 304,
+                health_bits: Some(0x3f80_0000),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                enabled: Some(true),
+                module_bitmask: Some(4),
+                time_scale_bits: Some(0x3f00_0000),
+                time_scale_duration_bits: Some(0x3e80_0000),
+                last_disabler_pos: Some(77),
+                legacy_consume_connected: Some(false),
+                efficiency: Some(0x40),
+                optional_efficiency: Some(0x20),
+                visible_flags: Some(9),
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                constructor_recipe_block_id: None,
+                landing_pad_config_item_id: None,
+                message_text: None,
+                payload_source_content: Some(Some(ConfiguredContentRef {
+                    content_type: UNIT_CONTENT_TYPE,
+                    content_id: unit_id,
+                })),
+                payload_router_sorted_content: None,
+                duct_unloader_item_id: None,
+                reconstructor_command_id: None,
+                canvas_bytes: None,
+                payload_mass_driver_link: None,
+            },
+            BlockSnapshotExtraEntrySummary {
+                build_pos: duct_unloader_pos,
+                block_id: 305,
+                health_bits: Some(0x3f80_0000),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                enabled: Some(true),
+                module_bitmask: Some(4),
+                time_scale_bits: Some(0x3f00_0000),
+                time_scale_duration_bits: Some(0x3e80_0000),
+                last_disabler_pos: Some(77),
+                legacy_consume_connected: Some(false),
+                efficiency: Some(0x40),
+                optional_efficiency: Some(0x20),
+                visible_flags: Some(9),
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                constructor_recipe_block_id: None,
+                landing_pad_config_item_id: None,
+                message_text: None,
+                payload_source_content: None,
+                payload_router_sorted_content: None,
+                duct_unloader_item_id: Some(Some(item_id)),
+                reconstructor_command_id: None,
+                canvas_bytes: None,
+                payload_mass_driver_link: None,
+            },
+            BlockSnapshotExtraEntrySummary {
+                build_pos: reconstructor_pos,
+                block_id: 306,
+                health_bits: Some(0x3f80_0000),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                enabled: Some(true),
+                module_bitmask: Some(4),
+                time_scale_bits: Some(0x3f00_0000),
+                time_scale_duration_bits: Some(0x3e80_0000),
+                last_disabler_pos: Some(77),
+                legacy_consume_connected: Some(false),
+                efficiency: Some(0x40),
+                optional_efficiency: Some(0x20),
+                visible_flags: Some(9),
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                constructor_recipe_block_id: None,
+                landing_pad_config_item_id: None,
+                message_text: None,
+                payload_source_content: None,
+                payload_router_sorted_content: None,
+                duct_unloader_item_id: None,
+                reconstructor_command_id: Some(Some(7)),
+                canvas_bytes: None,
+                payload_mass_driver_link: None,
+            },
+            BlockSnapshotExtraEntrySummary {
+                build_pos: canvas_pos,
+                block_id: 307,
+                health_bits: Some(0x3f80_0000),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                enabled: Some(true),
+                module_bitmask: Some(4),
+                time_scale_bits: Some(0x3f00_0000),
+                time_scale_duration_bits: Some(0x3e80_0000),
+                last_disabler_pos: Some(77),
+                legacy_consume_connected: Some(false),
+                efficiency: Some(0x40),
+                optional_efficiency: Some(0x20),
+                visible_flags: Some(9),
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                constructor_recipe_block_id: None,
+                landing_pad_config_item_id: None,
+                message_text: None,
+                payload_source_content: None,
+                payload_router_sorted_content: None,
+                duct_unloader_item_id: None,
+                reconstructor_command_id: None,
+                canvas_bytes: Some(canvas_bytes.clone()),
+                payload_mass_driver_link: None,
+            },
+            BlockSnapshotExtraEntrySummary {
+                build_pos: payload_mass_driver_pos,
+                block_id: 308,
+                health_bits: Some(0x3f80_0000),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                enabled: Some(true),
+                module_bitmask: Some(4),
+                time_scale_bits: Some(0x3f00_0000),
+                time_scale_duration_bits: Some(0x3e80_0000),
+                last_disabler_pos: Some(77),
+                legacy_consume_connected: Some(false),
+                efficiency: Some(0x40),
+                optional_efficiency: Some(0x20),
+                visible_flags: Some(9),
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                constructor_recipe_block_id: None,
+                landing_pad_config_item_id: None,
+                message_text: None,
+                payload_source_content: None,
+                payload_router_sorted_content: None,
+                duct_unloader_item_id: None,
+                reconstructor_command_id: None,
+                canvas_bytes: None,
+                payload_mass_driver_link: Some(10),
+            },
+        ]);
+
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .payload_source_content_by_build_pos
+                .get(&payload_source_pos),
+            Some(&Some(ConfiguredContentRef {
+                content_type: UNIT_CONTENT_TYPE,
+                content_id: unit_id,
+            }))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .duct_unloader_item_by_build_pos
+                .get(&duct_unloader_pos),
+            Some(&Some(item_id))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .reconstructor_command_by_build_pos
+                .get(&reconstructor_pos),
+            Some(&Some(7))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .canvas_bytes_by_build_pos
+                .get(&canvas_pos),
+            Some(&canvas_bytes)
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .payload_mass_driver_link_by_build_pos
+                .get(&payload_mass_driver_pos),
+            Some(&Some(10))
         );
     }
 
