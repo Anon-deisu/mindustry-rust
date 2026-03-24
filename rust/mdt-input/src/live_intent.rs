@@ -86,10 +86,29 @@ impl RuntimeIntentTracker {
     }
 
     pub fn sample_runtime_snapshot_batch(&mut self, runtime_snapshots: &[InputSnapshot]) -> bool {
-        if runtime_snapshots.is_empty() {
+        if runtime_snapshots.is_empty() && self.override_snapshot.is_none() {
             return false;
         }
-        let intents = self.mapper.map_snapshot_batch(runtime_snapshots);
+        let override_snapshot = self.override_snapshot.clone();
+        self.apply_runtime_batch(runtime_snapshots, override_snapshot.as_ref())
+    }
+
+    pub fn sample_runtime_snapshot_batch_with_override(
+        &mut self,
+        runtime_snapshots: &[InputSnapshot],
+        override_snapshot: &InputSnapshot,
+    ) -> bool {
+        self.apply_runtime_batch(runtime_snapshots, Some(override_snapshot))
+    }
+
+    fn apply_runtime_batch(
+        &mut self,
+        runtime_snapshots: &[InputSnapshot],
+        override_snapshot: Option<&InputSnapshot>,
+    ) -> bool {
+        let intents = self
+            .mapper
+            .map_snapshot_batch_or_override(runtime_snapshots, override_snapshot);
         let previous_key = runtime_snapshot_apply_key(&self.state);
         self.state.apply_intents(&intents);
         runtime_snapshot_apply_key(&self.state) != previous_key
@@ -465,5 +484,126 @@ mod tests {
         }));
         assert_eq!(tracker.state().last_config_tap_tile, Some((6, 7)));
         assert_eq!(tracker.state().config_tap_count, 2);
+    }
+
+    #[test]
+    fn runtime_intent_tracker_batch_uses_persistent_override_snapshot_when_present() {
+        let mut tracker = RuntimeIntentTracker::new(IntentSamplingMode::LiveSampling);
+        tracker.set_override_snapshot(Some(InputSnapshot {
+            move_axis: (-0.5, 0.25),
+            aim_axis: (10.0, 20.0),
+            mining_tile: Some((3, 4)),
+            building: true,
+            config_tap_tile: Some((7, 8)),
+            active_actions: vec![BinaryAction::Chat],
+        }));
+        let batch = vec![
+            InputSnapshot {
+                move_axis: (1.0, 0.0),
+                aim_axis: (2.0, 2.0),
+                mining_tile: None,
+                building: false,
+                config_tap_tile: None,
+                active_actions: vec![BinaryAction::Fire],
+            },
+            InputSnapshot {
+                move_axis: (0.0, 0.0),
+                aim_axis: (3.0, 4.0),
+                mining_tile: Some((9, 10)),
+                building: false,
+                config_tap_tile: None,
+                active_actions: vec![],
+            },
+        ];
+
+        assert!(tracker.sample_runtime_snapshot_batch(&batch));
+        assert_eq!(tracker.state().move_axis, (-0.5, 0.25));
+        assert_eq!(tracker.state().aim_axis, (10.0, 20.0));
+        assert_eq!(tracker.state().mining_tile, Some((3, 4)));
+        assert!(tracker.state().building);
+        assert_eq!(tracker.state().last_config_tap_tile, Some((7, 8)));
+        assert_eq!(tracker.state().config_tap_count, 1);
+        assert_eq!(tracker.state().pressed_actions, vec![BinaryAction::Chat]);
+        assert!(tracker.state().released_actions.is_empty());
+        assert!(tracker.state().is_action_active(BinaryAction::Chat));
+        assert!(!tracker.state().is_action_active(BinaryAction::Fire));
+    }
+
+    #[test]
+    fn runtime_intent_tracker_batch_supports_one_shot_override_without_persisting() {
+        let mut tracker = RuntimeIntentTracker::new(IntentSamplingMode::LiveSampling);
+        let runtime_batch = vec![
+            InputSnapshot {
+                move_axis: (1.0, 0.0),
+                aim_axis: (2.0, 2.0),
+                mining_tile: None,
+                building: false,
+                config_tap_tile: None,
+                active_actions: vec![BinaryAction::Fire],
+            },
+            InputSnapshot {
+                move_axis: (0.0, 0.0),
+                aim_axis: (3.0, 4.0),
+                mining_tile: None,
+                building: false,
+                config_tap_tile: None,
+                active_actions: vec![],
+            },
+        ];
+        let override_snapshot = InputSnapshot {
+            move_axis: (-1.0, -2.0),
+            aim_axis: (11.0, 12.0),
+            mining_tile: Some((5, 6)),
+            building: true,
+            config_tap_tile: Some((13, 14)),
+            active_actions: vec![BinaryAction::Boost],
+        };
+
+        assert!(tracker.sample_runtime_snapshot_batch_with_override(&runtime_batch, &override_snapshot));
+        assert_eq!(tracker.state().move_axis, (-1.0, -2.0));
+        assert_eq!(tracker.state().aim_axis, (11.0, 12.0));
+        assert_eq!(tracker.state().mining_tile, Some((5, 6)));
+        assert!(tracker.state().building);
+        assert_eq!(tracker.state().last_config_tap_tile, Some((13, 14)));
+        assert_eq!(tracker.state().config_tap_count, 1);
+        assert_eq!(tracker.state().pressed_actions, vec![BinaryAction::Boost]);
+        assert!(tracker.state().is_action_active(BinaryAction::Boost));
+        assert!(!tracker.state().is_action_active(BinaryAction::Fire));
+
+        assert!(tracker.sample_runtime_snapshot_batch(&runtime_batch));
+        assert_eq!(tracker.state().move_axis, (0.0, 0.0));
+        assert_eq!(tracker.state().aim_axis, (3.0, 4.0));
+        assert_eq!(tracker.state().mining_tile, None);
+        assert!(!tracker.state().building);
+        assert_eq!(tracker.state().pressed_actions, vec![BinaryAction::Fire]);
+        assert_eq!(
+            tracker.state().released_actions,
+            vec![BinaryAction::Boost, BinaryAction::Fire]
+        );
+        assert!(!tracker.state().is_action_active(BinaryAction::Boost));
+        assert!(!tracker.state().is_action_active(BinaryAction::Fire));
+    }
+
+    #[test]
+    fn runtime_intent_tracker_batch_allows_override_without_runtime_samples() {
+        let mut tracker = RuntimeIntentTracker::new(IntentSamplingMode::LiveSampling);
+        tracker.set_override_snapshot(Some(InputSnapshot {
+            move_axis: (0.25, -0.25),
+            aim_axis: (6.0, 7.0),
+            mining_tile: Some((1, 2)),
+            building: true,
+            config_tap_tile: None,
+            active_actions: vec![BinaryAction::Interact],
+        }));
+
+        assert!(tracker.sample_runtime_snapshot_batch(&[]));
+        assert_eq!(tracker.state().move_axis, (0.25, -0.25));
+        assert_eq!(tracker.state().aim_axis, (6.0, 7.0));
+        assert_eq!(tracker.state().mining_tile, Some((1, 2)));
+        assert!(tracker.state().building);
+        assert_eq!(tracker.state().pressed_actions, vec![BinaryAction::Interact]);
+        assert!(tracker.state().is_action_active(BinaryAction::Interact));
+
+        assert!(!tracker.sample_runtime_snapshot_batch(&[]));
     }
 }

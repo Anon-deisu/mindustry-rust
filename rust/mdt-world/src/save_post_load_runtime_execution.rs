@@ -1,8 +1,7 @@
 use crate::{
-    SavePostLoadRuntimeApplyScript, SavePostLoadRuntimeApplyStep,
-    SavePostLoadRuntimeBuildingSeed, SavePostLoadRuntimeCustomChunkSeed,
-    SavePostLoadRuntimeEntityRemapSeed, SavePostLoadRuntimeEntitySeed,
-    SavePostLoadRuntimeMarkerSeed, SavePostLoadRuntimeSeedPlan,
+    SavePostLoadRuntimeApplyScript, SavePostLoadRuntimeApplyStep, SavePostLoadRuntimeBuildingSeed,
+    SavePostLoadRuntimeCustomChunkSeed, SavePostLoadRuntimeEntityRemapSeed,
+    SavePostLoadRuntimeEntitySeed, SavePostLoadRuntimeMarkerSeed, SavePostLoadRuntimeSeedPlan,
     SavePostLoadRuntimeStaticFogSeed, SavePostLoadRuntimeTeamPlanSeed,
     SavePostLoadRuntimeWorldSeed, SavePostLoadWorldObservation,
 };
@@ -153,7 +152,9 @@ impl SavePostLoadRuntimeApplyExecution {
                 };
                 let Some(shell) = self.world_shell.as_mut() else {
                     self.issues
-                        .push(SavePostLoadRuntimeApplyIssue::MissingWorldShell(step.clone()));
+                        .push(SavePostLoadRuntimeApplyIssue::MissingWorldShell(
+                            step.clone(),
+                        ));
                     return false;
                 };
                 shell.team_plans.push(seed.clone());
@@ -176,7 +177,9 @@ impl SavePostLoadRuntimeApplyExecution {
                 };
                 let Some(shell) = self.world_shell.as_mut() else {
                     self.issues
-                        .push(SavePostLoadRuntimeApplyIssue::MissingWorldShell(step.clone()));
+                        .push(SavePostLoadRuntimeApplyIssue::MissingWorldShell(
+                            step.clone(),
+                        ));
                     return false;
                 };
                 match shell.markers_by_id.entry(seed.id) {
@@ -200,7 +203,9 @@ impl SavePostLoadRuntimeApplyExecution {
                 };
                 let Some(shell) = self.world_shell.as_mut() else {
                     self.issues
-                        .push(SavePostLoadRuntimeApplyIssue::MissingWorldShell(step.clone()));
+                        .push(SavePostLoadRuntimeApplyIssue::MissingWorldShell(
+                            step.clone(),
+                        ));
                     return false;
                 };
                 shell.static_fog = Some(seed.clone());
@@ -223,11 +228,10 @@ impl SavePostLoadRuntimeApplyExecution {
                         true
                     }
                     Entry::Occupied(_) => {
-                        self.issues.push(
-                            SavePostLoadRuntimeApplyIssue::DuplicateCustomChunkName(
+                        self.issues
+                            .push(SavePostLoadRuntimeApplyIssue::DuplicateCustomChunkName(
                                 seed.name.clone(),
-                            ),
-                        );
+                            ));
                         false
                     }
                 }
@@ -244,7 +248,9 @@ impl SavePostLoadRuntimeApplyExecution {
                 };
                 let Some(shell) = self.world_shell.as_mut() else {
                     self.issues
-                        .push(SavePostLoadRuntimeApplyIssue::MissingWorldShell(step.clone()));
+                        .push(SavePostLoadRuntimeApplyIssue::MissingWorldShell(
+                            step.clone(),
+                        ));
                     return false;
                 };
                 match shell
@@ -278,19 +284,25 @@ impl SavePostLoadRuntimeApplyExecution {
                 };
                 let Some(shell) = self.world_shell.as_mut() else {
                     self.issues
-                        .push(SavePostLoadRuntimeApplyIssue::MissingWorldShell(step.clone()));
+                        .push(SavePostLoadRuntimeApplyIssue::MissingWorldShell(
+                            step.clone(),
+                        ));
                     return false;
                 };
-                match shell.loadable_entities_by_id.entry(seed.activation.entity_id) {
+                match shell
+                    .loadable_entities_by_id
+                    .entry(seed.activation.entity_id)
+                {
                     Entry::Vacant(entry) => {
                         entry.insert(seed.clone());
                         shell.loadable_entities.push(seed.clone());
                         true
                     }
                     Entry::Occupied(_) => {
-                        self.issues.push(SavePostLoadRuntimeApplyIssue::DuplicateEntityId(
-                            seed.activation.entity_id,
-                        ));
+                        self.issues
+                            .push(SavePostLoadRuntimeApplyIssue::DuplicateEntityId(
+                                seed.activation.entity_id,
+                            ));
                         false
                     }
                 }

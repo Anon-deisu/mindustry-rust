@@ -1,8 +1,9 @@
+use crate::save_post_load_runtime_script::expand_stage_steps;
 use crate::{
     SavePostLoadConsumerApplyPlan, SavePostLoadConsumerBlocker,
     SavePostLoadConsumerRuntimeDisposition, SavePostLoadConsumerRuntimeHelper,
-    SavePostLoadConsumerRuntimeStageHelper, SavePostLoadRuntimeSeedPlan,
-    SavePostLoadWorldObservation,
+    SavePostLoadConsumerRuntimeStageHelper, SavePostLoadRuntimeApplyStep,
+    SavePostLoadRuntimeSeedPlan, SavePostLoadWorldObservation,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,15 +39,94 @@ impl SavePostLoadRuntimeApplyBatchView {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SavePostLoadRuntimeApplyBatchPlan {
+    pub batch_index: usize,
+    pub disposition: SavePostLoadConsumerRuntimeDisposition,
+    pub step_count: usize,
+    pub blockers: Vec<SavePostLoadConsumerBlocker>,
+    pub stages: Vec<SavePostLoadConsumerRuntimeStageHelper>,
+    pub steps: Vec<SavePostLoadRuntimeApplyStep>,
+}
+
+impl SavePostLoadRuntimeApplyBatchPlan {
+    pub fn has_blockers(&self) -> bool {
+        !self.blockers.is_empty()
+    }
+
+    pub fn can_apply_now(&self) -> bool {
+        self.step_count > 0 && self.disposition == SavePostLoadConsumerRuntimeDisposition::ApplyNow
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SavePostLoadRuntimeApplyBatchPlanView {
+    pub can_seed_runtime_apply: bool,
+    pub world_shell_ready: bool,
+    pub stage_count: usize,
+    pub batches: Vec<SavePostLoadRuntimeApplyBatchPlan>,
+}
+
+impl SavePostLoadRuntimeApplyBatchPlanView {
+    pub fn batch_count(&self) -> usize {
+        self.batches.len()
+    }
+
+    pub fn next_apply_now_batch(&self) -> Option<&SavePostLoadRuntimeApplyBatchPlan> {
+        self.batches.iter().find(|batch| batch.can_apply_now())
+    }
+}
+
 impl SavePostLoadWorldObservation {
     pub fn runtime_apply_batch_view(&self) -> SavePostLoadRuntimeApplyBatchView {
         self.runtime_seed_plan().runtime_apply_batch_view()
+    }
+
+    pub fn runtime_apply_batch_plan_view(&self) -> SavePostLoadRuntimeApplyBatchPlanView {
+        self.runtime_seed_plan().runtime_apply_batch_plan_view()
     }
 }
 
 impl SavePostLoadRuntimeSeedPlan {
     pub fn runtime_apply_batch_view(&self) -> SavePostLoadRuntimeApplyBatchView {
         self.consumer_runtime_helper().runtime_apply_batch_view()
+    }
+
+    pub fn runtime_apply_batch_plan_view(&self) -> SavePostLoadRuntimeApplyBatchPlanView {
+        let helper = self.consumer_runtime_helper();
+        let mut batches: Vec<SavePostLoadRuntimeApplyBatchPlan> = Vec::new();
+
+        for stage in helper.stages.iter().filter(|stage| stage.step_count > 0) {
+            let mut stage_steps = Vec::new();
+            expand_stage_steps(self, stage.kind, &mut stage_steps);
+            debug_assert_eq!(stage.step_count, stage_steps.len());
+
+            match batches.last_mut() {
+                Some(batch) if batch.disposition == stage.disposition => {
+                    batch.step_count += stage.step_count;
+                    extend_unique_blockers(&mut batch.blockers, &stage.blockers);
+                    batch.stages.push(stage.clone());
+                    batch.steps.extend(stage_steps);
+                }
+                _ => batches.push(SavePostLoadRuntimeApplyBatchPlan {
+                    batch_index: batches.len(),
+                    disposition: stage.disposition,
+                    step_count: stage.step_count,
+                    blockers: stage.blockers.clone(),
+                    stages: vec![stage.clone()],
+                    steps: stage_steps,
+                }),
+            }
+        }
+
+        let stage_count = batches.iter().map(|batch| batch.stages.len()).sum();
+
+        SavePostLoadRuntimeApplyBatchPlanView {
+            can_seed_runtime_apply: helper.can_seed_runtime_apply,
+            world_shell_ready: helper.world_shell_ready,
+            stage_count,
+            batches,
+        }
     }
 }
 
@@ -354,6 +434,187 @@ mod tests {
         assert!(batch_view.batches[1].can_apply_now());
         assert!(!batch_view.batches[4].can_apply_now());
         assert!(batch_view.batches[4].has_blockers());
+    }
+
+    #[test]
+    fn runtime_apply_batch_plan_view_expands_clean_batches_into_exact_steps() {
+        let mut observation = test_observation();
+        observation.world_entity_chunks[1].class_id = 3;
+        observation.world_entity_chunks[1].custom_name = None;
+        observation
+            .entity_remap_summary
+            .unresolved_effective_names
+            .clear();
+        observation.entity_summary.loadable_entities = 3;
+        observation.entity_summary.skipped_entities = 0;
+        observation.entity_summary.builtin_entities = 2;
+        observation.entity_summary.custom_entities = 1;
+        observation.entity_summary.class_summaries = vec![
+            SaveEntityClassSummary {
+                class_id: 3,
+                kind: SaveEntityClassKind::Builtin,
+                resolved_name: "flare".to_string(),
+                count: 1,
+            },
+            SaveEntityClassSummary {
+                class_id: 4,
+                kind: SaveEntityClassKind::Builtin,
+                resolved_name: "mace".to_string(),
+                count: 1,
+            },
+            SaveEntityClassSummary {
+                class_id: 255,
+                kind: SaveEntityClassKind::Custom,
+                resolved_name: "flare".to_string(),
+                count: 1,
+            },
+        ];
+        observation.entity_summary.post_load_class_summaries = vec![
+            SaveEntityPostLoadClassSummary {
+                source_class_ids: vec![3],
+                effective_class_id: Some(3),
+                kind: SaveEntityPostLoadKind::Builtin,
+                resolved_name: "flare".to_string(),
+                count: 1,
+            },
+            SaveEntityPostLoadClassSummary {
+                source_class_ids: vec![4],
+                effective_class_id: Some(4),
+                kind: SaveEntityPostLoadKind::Builtin,
+                resolved_name: "mace".to_string(),
+                count: 1,
+            },
+            SaveEntityPostLoadClassSummary {
+                source_class_ids: vec![255],
+                effective_class_id: Some(3),
+                kind: SaveEntityPostLoadKind::RemappedBuiltin,
+                resolved_name: "flare".to_string(),
+                count: 1,
+            },
+        ];
+
+        let batch_plan_view = observation.runtime_apply_batch_plan_view();
+
+        assert!(batch_plan_view.can_seed_runtime_apply);
+        assert!(batch_plan_view.world_shell_ready);
+        assert_eq!(batch_plan_view.stage_count, 8);
+        assert_eq!(batch_plan_view.batch_count(), 1);
+        assert_eq!(
+            batch_plan_view
+                .next_apply_now_batch()
+                .map(|batch| &batch.steps),
+            Some(&vec![
+                SavePostLoadRuntimeApplyStep::WorldShell,
+                SavePostLoadRuntimeApplyStep::EntityRemap { remap_index: 0 },
+                SavePostLoadRuntimeApplyStep::EntityRemap { remap_index: 1 },
+                SavePostLoadRuntimeApplyStep::TeamPlan {
+                    group_index: 0,
+                    plan_index: 0,
+                },
+                SavePostLoadRuntimeApplyStep::TeamPlan {
+                    group_index: 1,
+                    plan_index: 0,
+                },
+                SavePostLoadRuntimeApplyStep::Marker { marker_index: 0 },
+                SavePostLoadRuntimeApplyStep::Marker { marker_index: 1 },
+                SavePostLoadRuntimeApplyStep::StaticFog,
+                SavePostLoadRuntimeApplyStep::CustomChunk { chunk_index: 0 },
+                SavePostLoadRuntimeApplyStep::CustomChunk { chunk_index: 1 },
+                SavePostLoadRuntimeApplyStep::Building { center_index: 0 },
+                SavePostLoadRuntimeApplyStep::LoadableEntity { entity_index: 0 },
+                SavePostLoadRuntimeApplyStep::LoadableEntity { entity_index: 1 },
+                SavePostLoadRuntimeApplyStep::LoadableEntity { entity_index: 2 },
+            ])
+        );
+    }
+
+    #[test]
+    fn runtime_apply_batch_plan_view_preserves_exact_steps_for_applyable_and_pending_batches() {
+        let mut observation = test_observation();
+        observation.world_entity_chunks[2].entity_id = 42;
+        observation.entity_summary.duplicate_entity_ids = vec![42];
+        observation.entity_summary.unique_entity_ids = 2;
+        observation.map.world.tiles[0].building_center_index = None;
+
+        let batch_plan_view = observation.runtime_apply_batch_plan_view();
+
+        assert!(!batch_plan_view.can_seed_runtime_apply);
+        assert!(!batch_plan_view.world_shell_ready);
+        assert_eq!(batch_plan_view.stage_count, 9);
+        assert_eq!(batch_plan_view.batch_count(), 6);
+        assert_eq!(
+            batch_plan_view
+                .next_apply_now_batch()
+                .map(|batch| (batch.batch_index, batch.steps.clone())),
+            Some((
+                1,
+                vec![
+                    SavePostLoadRuntimeApplyStep::EntityRemap { remap_index: 0 },
+                    SavePostLoadRuntimeApplyStep::EntityRemap { remap_index: 1 },
+                ],
+            ))
+        );
+        assert_eq!(
+            batch_plan_view
+                .batches
+                .iter()
+                .map(|batch| (batch.batch_index, batch.disposition, batch.steps.clone(),))
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    0,
+                    SavePostLoadConsumerRuntimeDisposition::Blocked,
+                    vec![SavePostLoadRuntimeApplyStep::WorldShell],
+                ),
+                (
+                    1,
+                    SavePostLoadConsumerRuntimeDisposition::ApplyNow,
+                    vec![
+                        SavePostLoadRuntimeApplyStep::EntityRemap { remap_index: 0 },
+                        SavePostLoadRuntimeApplyStep::EntityRemap { remap_index: 1 },
+                    ],
+                ),
+                (
+                    2,
+                    SavePostLoadConsumerRuntimeDisposition::AwaitingWorldShell,
+                    vec![
+                        SavePostLoadRuntimeApplyStep::TeamPlan {
+                            group_index: 0,
+                            plan_index: 0,
+                        },
+                        SavePostLoadRuntimeApplyStep::TeamPlan {
+                            group_index: 1,
+                            plan_index: 0,
+                        },
+                        SavePostLoadRuntimeApplyStep::Marker { marker_index: 0 },
+                        SavePostLoadRuntimeApplyStep::Marker { marker_index: 1 },
+                        SavePostLoadRuntimeApplyStep::StaticFog,
+                    ],
+                ),
+                (
+                    3,
+                    SavePostLoadConsumerRuntimeDisposition::ApplyNow,
+                    vec![
+                        SavePostLoadRuntimeApplyStep::CustomChunk { chunk_index: 0 },
+                        SavePostLoadRuntimeApplyStep::CustomChunk { chunk_index: 1 },
+                    ],
+                ),
+                (
+                    4,
+                    SavePostLoadConsumerRuntimeDisposition::Blocked,
+                    vec![
+                        SavePostLoadRuntimeApplyStep::Building { center_index: 0 },
+                        SavePostLoadRuntimeApplyStep::LoadableEntity { entity_index: 0 },
+                        SavePostLoadRuntimeApplyStep::LoadableEntity { entity_index: 2 },
+                    ],
+                ),
+                (
+                    5,
+                    SavePostLoadConsumerRuntimeDisposition::Deferred,
+                    vec![SavePostLoadRuntimeApplyStep::SkippedEntity { entity_index: 1 }],
+                ),
+            ]
+        );
     }
 
     fn test_observation() -> SavePostLoadWorldObservation {

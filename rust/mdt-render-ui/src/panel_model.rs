@@ -438,6 +438,114 @@ impl RuntimeDialogPanelModel {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeUiStackForegroundKind {
+    Menu,
+    FollowUpMenu,
+    TextInput,
+    Chat,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeUiStackPanelModel {
+    pub foreground_kind: Option<RuntimeUiStackForegroundKind>,
+    pub menu_active: bool,
+    pub outstanding_follow_up_count: u64,
+    pub text_input_open_count: u64,
+    pub text_input_last_id: Option<i32>,
+    pub notice_kind: Option<RuntimeDialogNoticeKind>,
+    pub hud_notice_active: bool,
+    pub reliable_hud_notice_active: bool,
+    pub toast_info_active: bool,
+    pub toast_warning_active: bool,
+    pub chat_active: bool,
+    pub server_message_count: u64,
+    pub chat_message_count: u64,
+    pub last_chat_sender_entity_id: Option<i32>,
+}
+
+impl RuntimeUiStackPanelModel {
+    pub fn is_empty(&self) -> bool {
+        self.foreground_kind.is_none()
+            && !self.menu_active
+            && self.outstanding_follow_up_count == 0
+            && self.text_input_open_count == 0
+            && self.text_input_last_id.is_none()
+            && self.notice_kind.is_none()
+            && !self.hud_notice_active
+            && !self.reliable_hud_notice_active
+            && !self.toast_info_active
+            && !self.toast_warning_active
+            && !self.chat_active
+            && self.server_message_count == 0
+            && self.chat_message_count == 0
+            && self.last_chat_sender_entity_id.is_none()
+    }
+
+    pub fn foreground_label(&self) -> &'static str {
+        match self.foreground_kind {
+            Some(RuntimeUiStackForegroundKind::Menu) => "menu",
+            Some(RuntimeUiStackForegroundKind::FollowUpMenu) => "follow-up",
+            Some(RuntimeUiStackForegroundKind::TextInput) => "input",
+            Some(RuntimeUiStackForegroundKind::Chat) => "chat",
+            None => "none",
+        }
+    }
+
+    pub fn prompt_layer_labels(&self) -> Vec<&'static str> {
+        let mut labels = Vec::new();
+        if self.text_input_open_count > 0 {
+            labels.push("input");
+        }
+        if self.outstanding_follow_up_count > 0 {
+            labels.push("follow-up");
+        }
+        if self.menu_active {
+            labels.push("menu");
+        }
+        labels
+    }
+
+    pub fn notice_layer_labels(&self) -> Vec<&'static str> {
+        let mut labels = Vec::new();
+        if self.hud_notice_active {
+            labels.push("hud");
+        }
+        if self.reliable_hud_notice_active {
+            labels.push("reliable");
+        }
+        if self.toast_info_active {
+            labels.push("info");
+        }
+        if self.toast_warning_active {
+            labels.push("warn");
+        }
+        labels
+    }
+
+    pub fn prompt_depth(&self) -> usize {
+        self.prompt_layer_labels().len()
+    }
+
+    pub fn notice_depth(&self) -> usize {
+        self.notice_layer_labels().len()
+    }
+
+    pub fn chat_depth(&self) -> usize {
+        usize::from(self.chat_active)
+    }
+
+    pub fn total_depth(&self) -> usize {
+        self.prompt_depth() + self.notice_depth() + self.chat_depth()
+    }
+
+    pub fn active_group_count(&self) -> usize {
+        usize::from(self.prompt_depth() > 0)
+            + usize::from(self.notice_depth() > 0)
+            + usize::from(self.chat_active)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeCommandModePanelModel {
     pub active: bool,
@@ -1194,6 +1302,44 @@ pub fn build_runtime_dialog_panel(hud: &HudModel) -> Option<RuntimeDialogPanelMo
     })
 }
 
+pub fn build_runtime_ui_stack_panel(hud: &HudModel) -> Option<RuntimeUiStackPanelModel> {
+    let menu = build_runtime_menu_panel(hud)?;
+    let chat = build_runtime_chat_panel(hud)?;
+    let dialog = build_runtime_dialog_panel(hud)?;
+    let notice = build_runtime_ui_notice_panel(hud)?;
+    let menu_active = menu.menu_open_count > 0;
+    let outstanding_follow_up_count = menu.outstanding_follow_up_count();
+    let chat_active = !chat.is_empty();
+    let foreground_kind = if menu.text_input_open_count > 0 {
+        Some(RuntimeUiStackForegroundKind::TextInput)
+    } else if outstanding_follow_up_count > 0 {
+        Some(RuntimeUiStackForegroundKind::FollowUpMenu)
+    } else if menu_active {
+        Some(RuntimeUiStackForegroundKind::Menu)
+    } else if chat_active {
+        Some(RuntimeUiStackForegroundKind::Chat)
+    } else {
+        None
+    };
+
+    Some(RuntimeUiStackPanelModel {
+        foreground_kind,
+        menu_active,
+        outstanding_follow_up_count,
+        text_input_open_count: menu.text_input_open_count,
+        text_input_last_id: menu.text_input_last_id,
+        notice_kind: dialog.notice_kind,
+        hud_notice_active: notice.hud_last_message.is_some(),
+        reliable_hud_notice_active: notice.hud_last_reliable_message.is_some(),
+        toast_info_active: notice.toast_last_info_message.is_some(),
+        toast_warning_active: notice.toast_last_warning_text.is_some(),
+        chat_active,
+        server_message_count: chat.server_message_count,
+        chat_message_count: chat.chat_message_count,
+        last_chat_sender_entity_id: chat.last_chat_sender_entity_id,
+    })
+}
+
 pub fn build_runtime_command_mode_panel(hud: &HudModel) -> Option<RuntimeCommandModePanelModel> {
     let command_mode = &hud.runtime_ui.as_ref()?.command_mode;
     if !command_mode.active
@@ -1445,10 +1591,11 @@ mod tests {
         build_runtime_dialog_panel, build_runtime_kick_panel, build_runtime_live_effect_panel,
         build_runtime_live_entity_panel, build_runtime_loading_panel, build_runtime_menu_panel,
         build_runtime_reconnect_panel, build_runtime_rules_panel, build_runtime_session_panel,
-        build_runtime_ui_notice_panel, build_runtime_world_label_panel,
+        build_runtime_ui_notice_panel, build_runtime_ui_stack_panel,
+        build_runtime_world_label_panel,
         BuildInteractionAuthorityState, BuildInteractionMode, BuildInteractionQueueState,
         BuildInteractionSelectionState, PresenterViewWindow, RuntimeDialogNoticeKind,
-        RuntimeDialogPromptKind, RuntimeWorldLabelPanelModel,
+        RuntimeDialogPromptKind, RuntimeUiStackForegroundKind, RuntimeWorldLabelPanelModel,
     };
     use crate::{
         hud_model::{
@@ -3056,5 +3203,23 @@ mod tests {
         assert_eq!(dialog.prompt_message_len(), 12);
         assert_eq!(dialog.default_text_len(), 5);
         assert_eq!(dialog.notice_text_len(), 4);
+
+        let stack = build_runtime_ui_stack_panel(&hud).expect("expected runtime stack panel");
+        assert!(!stack.is_empty());
+        assert_eq!(
+            stack.foreground_kind,
+            Some(RuntimeUiStackForegroundKind::TextInput)
+        );
+        assert_eq!(stack.foreground_label(), "input");
+        assert_eq!(stack.prompt_layer_labels(), vec!["input", "follow-up", "menu"]);
+        assert_eq!(
+            stack.notice_layer_labels(),
+            vec!["hud", "reliable", "info", "warn"]
+        );
+        assert_eq!(stack.prompt_depth(), 3);
+        assert_eq!(stack.notice_depth(), 4);
+        assert_eq!(stack.chat_depth(), 1);
+        assert_eq!(stack.active_group_count(), 3);
+        assert_eq!(stack.total_depth(), 8);
     }
 }

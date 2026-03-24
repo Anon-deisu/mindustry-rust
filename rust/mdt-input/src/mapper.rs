@@ -75,6 +75,18 @@ impl StatelessIntentMapper {
         combined.extend(edge_intents);
         combined
     }
+
+    pub fn map_snapshot_batch_or_override(
+        &mut self,
+        snapshots: &[InputSnapshot],
+        override_snapshot: Option<&InputSnapshot>,
+    ) -> Vec<PlayerIntent> {
+        if let Some(snapshot) = override_snapshot {
+            self.map_snapshot(snapshot)
+        } else {
+            self.map_snapshot_batch(snapshots)
+        }
+    }
 }
 
 impl IntentMapper for StatelessIntentMapper {
@@ -643,6 +655,56 @@ mod tests {
                 PlayerIntent::SetMiningTile { tile: Some((5, 6)) },
                 PlayerIntent::SetBuilding { building: true },
                 PlayerIntent::ConfigTap { tile: (3, 4) },
+                PlayerIntent::ActionPressed(BinaryAction::Fire),
+                PlayerIntent::ActionReleased(BinaryAction::Fire),
+            ]
+        );
+    }
+
+    #[test]
+    fn map_snapshot_batch_or_override_prefers_override_snapshot_over_runtime_batch() {
+        let mut mapper = StatelessIntentMapper::new(IntentSamplingMode::LiveSampling);
+        let batch = vec![
+            snapshot((1.0, 0.0), (2.0, 2.0), &[BinaryAction::Fire]),
+            snapshot((0.0, 0.0), (3.0, 4.0), &[]),
+        ];
+        let override_snapshot = InputSnapshot {
+            move_axis: (-1.0, 0.5),
+            aim_axis: (9.0, 10.0),
+            mining_tile: Some((6, 7)),
+            building: true,
+            config_tap_tile: Some((11, 12)),
+            active_actions: vec![BinaryAction::Chat],
+        };
+
+        assert_eq!(
+            mapper.map_snapshot_batch_or_override(&batch, Some(&override_snapshot)),
+            vec![
+                PlayerIntent::SetMoveAxis { x: -1.0, y: 0.5 },
+                PlayerIntent::SetAimAxis { x: 9.0, y: 10.0 },
+                PlayerIntent::SetMiningTile { tile: Some((6, 7)) },
+                PlayerIntent::SetBuilding { building: true },
+                PlayerIntent::ConfigTap { tile: (11, 12) },
+                PlayerIntent::ActionPressed(BinaryAction::Chat),
+            ]
+        );
+    }
+
+    #[test]
+    fn map_snapshot_batch_or_override_falls_back_to_batch_when_override_is_absent() {
+        let mut mapper = StatelessIntentMapper::new(IntentSamplingMode::LiveSampling);
+        let batch = vec![
+            snapshot((1.0, 0.0), (2.0, 2.0), &[BinaryAction::Fire]),
+            snapshot((0.0, 0.0), (3.0, 4.0), &[]),
+        ];
+
+        assert_eq!(
+            mapper.map_snapshot_batch_or_override(&batch, None),
+            vec![
+                PlayerIntent::SetMoveAxis { x: 0.0, y: 0.0 },
+                PlayerIntent::SetAimAxis { x: 3.0, y: 4.0 },
+                PlayerIntent::SetMiningTile { tile: None },
+                PlayerIntent::SetBuilding { building: false },
                 PlayerIntent::ActionPressed(BinaryAction::Fire),
                 PlayerIntent::ActionReleased(BinaryAction::Fire),
             ]

@@ -111,7 +111,7 @@ impl SavePostLoadConsumerRuntimeHelper {
     }
 }
 
-fn expand_stage_steps(
+pub(crate) fn expand_stage_steps(
     plan: &SavePostLoadRuntimeSeedPlan,
     kind: SavePostLoadConsumerStageKind,
     out: &mut Vec<SavePostLoadRuntimeApplyStep>,

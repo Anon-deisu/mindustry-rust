@@ -99,6 +99,9 @@ These are already landed and should not be re-opened as if missing:
   - `mdt-client-min-online` now defaults to `RuntimeIntentTracker + IntentSamplingMode::LiveSampling`
   - `--intent-snapshot` now also carries the `building` bit explicitly
   - remaining M8 work is richer live input source parity and deeper command/build flow, not re-landing default live sampling
+- runtime batch intent sampling now also respects override semantics.
+  - `RuntimeIntentTracker` batch sampling now honors persistent and one-shot overrides the same way the single-snapshot path does, and `mdt-input` exposes `map_snapshot_batch_or_override(...)` so batch mapping no longer silently bypasses override state
+  - remaining M8 work is still richer live input source parity and deeper command/build flow, not re-adding this batch/override consistency slice
 - builder queue tile-state validation is already landed in `mdt-input`.
   - local queued place/break entries can now be pruned against observed tile states when the tile is already air or already matches the requested block/rotation
   - remaining work is broader runtime integration and Java-equivalent `BuilderComp` depth, not re-adding the validation primitive
@@ -111,6 +114,9 @@ These are already landed and should not be re-opened as if missing:
 - builder queue now also preserves bounded known progress on same-mode local replacement/progression paths.
   - `BuilderQueueEntry` now carries `progress_permyriad`, `observe_progress(...)` records exact tile+breaking progress with clamp-to-`10_000`, and same-tile replacement / begin / sync paths preserve progress only when the breaking mode still matches
   - remaining work is still broader runtime integration and Java-equivalent `BuilderComp` depth, not re-adding this pure queue-progress state slice
+- builder queue duplicate-tile batch sync ordering is now also corrected.
+  - `sync_local_entries(...)` no longer pushes a duplicate tile to the queue tail unconditionally; unique tiles keep prior relative order, and duplicate tiles are reinserted by their last incoming occurrence
+  - remaining work is still broader runtime integration and Java-equivalent `BuilderComp` depth, not re-adding this duplicate-tile ordering correction
 - building-table block identity carry-through is already landed.
   - `BuildingProjection` / `BuildingTableProjection` now include `block_name` and `last_block_name`
   - world baseline, entity building rows, loaded-world extra entry, `constructFinish`, and `deconstructFinish` already wire `block_name` into the building table
@@ -125,6 +131,9 @@ These are already landed and should not be re-opened as if missing:
 - typed inbound remote dispatch fixed-table glue is now also landed.
   - `mdt-remote::typed_inbound_remote_dispatch_specs(...)` now exposes a typed non-snapshot inbound dispatch table, and `mdt-client-min` packet registry consumes it through `inbound_remote_registry_glue.rs` instead of rebuilding that lookup only from string/manifest scans
   - remaining `M6-1` work is broader typed registry/session adoption beyond this fixed-table inbound dispatch slice, not re-adding the first fixed-table glue layer
+- typed runtime `packet_id -> family/spec` fixed-table consumption is now also landed for the non-snapshot inbound/custom-channel registries.
+  - `mdt-remote` now exposes `RemotePacketIdFixedTable`, and `mdt-client-min` `InboundRemotePacketRegistry` / `CustomChannelPacketRegistry` use that typed fixed-table for runtime `packet_id` lookup instead of falling back to manifest/string scans on the hot path
+  - remaining `M6-1` work is broader typed registry/session/business adoption, not re-adding this fixed-table hot-path lookup slice
 - `mdt-render-ui` minimap/overlay semantic detail breakdown is now landed.
   - render/model panel presenters now expose deterministic family+detail counts for minimap and overlay summaries instead of only coarse kind buckets
   - remaining `M9` work is still deeper renderer pipeline and interactive UI flow, not re-adding this detail-breakdown presentation slice
@@ -137,6 +146,9 @@ These are already landed and should not be re-opened as if missing:
 - `mdt-render-ui` runtime-session presenter summary is now landed.
   - panel/window/ascii presenters now expose deterministic `RUNTIME-SESSION` rows that aggregate existing kick/loading/reconnect observability without changing the existing `RUNTIME-KICK` / `RUNTIME-LOADING` / `RUNTIME-RECONNECT` detail rows
   - remaining `M9` work is still broader interactive UI and renderer/runtime parity, not re-adding this presenter-local session summary slice
+- `mdt-render-ui` runtime UI stack presenter summary is now also landed.
+  - panel/window/ascii presenters now expose deterministic `RUNTIME-STACK` and `RUNTIME-STACK-DETAIL` rows that surface current `text input / follow-up menu / menu / chat / notice` stack composition and depth from existing `runtime_ui` observability
+  - remaining `M9` work is still broader interactive UI and renderer/runtime parity, not re-adding this presenter-local stack summary slice
 - `mdt-render-ui` window build-config detail rows are now also landed.
   - window presentation now emits deterministic `BUILD-CONFIG-ENTRY` and `BUILD-CONFIG-MORE` rows on top of the existing capped build-config panel data instead of only the compact summary text
   - remaining `M9` work is still broader interactive UI and renderer/runtime parity, not re-adding this presenter-local detail slice

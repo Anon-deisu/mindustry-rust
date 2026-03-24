@@ -144,14 +144,16 @@ impl BuilderQueueStateMachine {
     {
         let mut next = BTreeMap::new();
         let mut incoming_counts = BTreeMap::new();
+        let mut incoming_last_index = BTreeMap::new();
         let mut incoming_order = Vec::new();
-        for entry in entries {
+        for (incoming_index, entry) in entries.into_iter().enumerate() {
             let key = (entry.x, entry.y);
             let previous = Self::matching_entry(self.active_by_tile.get(&key), entry.breaking);
             incoming_counts
                 .entry(key)
                 .and_modify(|count| *count += 1)
                 .or_insert(1usize);
+            incoming_last_index.insert(key, incoming_index);
             let stage = if previous.is_some_and(|plan| plan.stage == BuilderQueueStage::InFlight) {
                 BuilderQueueStage::InFlight
             } else {
@@ -181,7 +183,22 @@ impl BuilderQueueStateMachine {
             .collect::<Vec<_>>();
         for key in incoming_order {
             if !next_order.contains(&key) {
-                next_order.push(key);
+                let insert_at = if incoming_counts.get(&key).copied().unwrap_or_default() > 1 {
+                    let key_last_index = incoming_last_index.get(&key).copied().unwrap_or(usize::MAX);
+                    next_order
+                        .iter()
+                        .position(|existing| {
+                            incoming_last_index
+                                .get(existing)
+                                .copied()
+                                .unwrap_or(usize::MAX)
+                                > key_last_index
+                        })
+                        .unwrap_or(next_order.len())
+                } else {
+                    next_order.len()
+                };
+                next_order.insert(insert_at, key);
             }
         }
 
@@ -852,6 +869,168 @@ mod tests {
 
         assert_eq!(queue.ordered_tiles, vec![(5, 5), (4, 4), (6, 6), (7, 7)]);
         assert_eq!(queue.head_tile, Some((5, 5)));
+    }
+
+    #[test]
+    fn sync_local_entries_keeps_duplicate_tile_ahead_of_preserved_unique_tiles() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 1,
+                y: 1,
+                breaking: false,
+                block_id: Some(10),
+                rotation: 0,
+            },
+            BuilderQueueEntryObservation {
+                x: 2,
+                y: 2,
+                breaking: false,
+                block_id: Some(20),
+                rotation: 1,
+            },
+            BuilderQueueEntryObservation {
+                x: 3,
+                y: 3,
+                breaking: false,
+                block_id: Some(30),
+                rotation: 2,
+            },
+        ]);
+
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 1,
+                y: 1,
+                breaking: false,
+                block_id: Some(10),
+                rotation: 0,
+            },
+            BuilderQueueEntryObservation {
+                x: 1,
+                y: 1,
+                breaking: true,
+                block_id: None,
+                rotation: 3,
+            },
+            BuilderQueueEntryObservation {
+                x: 2,
+                y: 2,
+                breaking: false,
+                block_id: Some(20),
+                rotation: 1,
+            },
+            BuilderQueueEntryObservation {
+                x: 3,
+                y: 3,
+                breaking: false,
+                block_id: Some(30),
+                rotation: 2,
+            },
+        ]);
+
+        assert_eq!(queue.ordered_tiles, vec![(1, 1), (2, 2), (3, 3)]);
+        assert_eq!(queue.head_tile, Some((1, 1)));
+        assert_eq!(
+            queue.head_entry(),
+            Some(&BuilderQueueEntry {
+                x: 1,
+                y: 1,
+                breaking: true,
+                block_id: None,
+                rotation: Some(3),
+                progress_permyriad: None,
+                stage: BuilderQueueStage::Queued,
+            })
+        );
+    }
+
+    #[test]
+    fn sync_local_entries_reinserts_duplicate_tile_by_last_occurrence_between_unique_tiles() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 1,
+                y: 1,
+                breaking: false,
+                block_id: Some(10),
+                rotation: 0,
+            },
+            BuilderQueueEntryObservation {
+                x: 2,
+                y: 2,
+                breaking: false,
+                block_id: Some(20),
+                rotation: 1,
+            },
+            BuilderQueueEntryObservation {
+                x: 3,
+                y: 3,
+                breaking: false,
+                block_id: Some(30),
+                rotation: 2,
+            },
+            BuilderQueueEntryObservation {
+                x: 4,
+                y: 4,
+                breaking: false,
+                block_id: Some(40),
+                rotation: 3,
+            },
+        ]);
+
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 1,
+                y: 1,
+                breaking: false,
+                block_id: Some(10),
+                rotation: 0,
+            },
+            BuilderQueueEntryObservation {
+                x: 2,
+                y: 2,
+                breaking: false,
+                block_id: Some(20),
+                rotation: 1,
+            },
+            BuilderQueueEntryObservation {
+                x: 2,
+                y: 2,
+                breaking: true,
+                block_id: None,
+                rotation: 0,
+            },
+            BuilderQueueEntryObservation {
+                x: 3,
+                y: 3,
+                breaking: false,
+                block_id: Some(30),
+                rotation: 2,
+            },
+            BuilderQueueEntryObservation {
+                x: 4,
+                y: 4,
+                breaking: false,
+                block_id: Some(40),
+                rotation: 3,
+            },
+        ]);
+
+        assert_eq!(queue.ordered_tiles, vec![(1, 1), (2, 2), (3, 3), (4, 4)]);
+        assert_eq!(queue.head_tile, Some((1, 1)));
+        assert_eq!(
+            queue.active_by_tile.get(&(2, 2)),
+            Some(&BuilderQueueEntry {
+                x: 2,
+                y: 2,
+                breaking: true,
+                block_id: None,
+                rotation: Some(0),
+                progress_permyriad: None,
+                stage: BuilderQueueStage::Queued,
+            })
+        );
     }
 
     #[test]

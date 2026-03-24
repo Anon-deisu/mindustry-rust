@@ -39,6 +39,8 @@
     "RUST_RELEASE_AUDIT_FINDINGS.md",
     "audit/ci-gate-plan.md",
     "audit/release-unfinished-current-20260324f.md",
+    "audit/agent-render-snapshot-gap-refresh-20260324.md",
+    "audit/agent-protocol-input-gap-refresh-20260324.md",
     "audit/parity-gap-shard-session-world-20260324g.md",
     "audit/parity-gap-shard-input-render-ui-20260324g.md",
     "tests/src/test/resources/connect-packet.hex",

@@ -967,6 +967,11 @@ struct HiddenSnapshotRuntimeTransition {
     lifecycle_remove_ids: BTreeSet<i32>,
 }
 
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+struct HiddenSnapshotTypedRuntimeTransition {
+    refresh_ids: BTreeSet<i32>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PayloadDroppedProjection {
     pub unit: Option<UnitRefProjection>,
@@ -4884,6 +4889,13 @@ impl SessionState {
             .take(HIDDEN_SNAPSHOT_SAMPLE_LIMIT)
             .copied()
             .collect();
+        let typed_runtime_transition = HiddenSnapshotTypedRuntimeTransition {
+            refresh_ids: added_ids
+                .iter()
+                .chain(removed_ids.iter())
+                .copied()
+                .collect(),
+        };
 
         self.applied_hidden_snapshot_count = self.applied_hidden_snapshot_count.saturating_add(1);
         self.last_hidden_snapshot = Some(applied);
@@ -4909,7 +4921,7 @@ impl SessionState {
             added_sample_ids,
             removed_sample_ids,
         });
-        self.rebuild_runtime_typed_entity_projection_from_tables();
+        self.apply_hidden_snapshot_typed_runtime_transition(&typed_runtime_transition);
     }
 
     fn hidden_snapshot_runtime_transition(
@@ -4943,6 +4955,29 @@ impl SessionState {
             self.clear_entity_snapshot_tombstone(*entity_id);
         }
         hidden_removed_ids
+    }
+
+    fn apply_hidden_snapshot_typed_runtime_transition(
+        &mut self,
+        transition: &HiddenSnapshotTypedRuntimeTransition,
+    ) {
+        // Preserve the existing fallback for tests/setup that seed only raw tables, but once the
+        // runtime-owned apply layer exists, only mutate the ids touched by the hidden transition.
+        self.seed_runtime_typed_entity_apply_projection_from_tables_if_empty();
+        for entity_id in &transition.refresh_ids {
+            self.refresh_runtime_typed_entity_from_tables(*entity_id);
+        }
+    }
+
+    fn seed_runtime_typed_entity_apply_projection_from_tables_if_empty(&mut self) {
+        if self
+            .runtime_typed_entity_apply_projection
+            .by_entity_id
+            .is_empty()
+            && !self.entity_table_projection.by_entity_id.is_empty()
+        {
+            self.rebuild_runtime_typed_entity_projection_from_tables();
+        }
     }
 
     fn hidden_snapshot_auxiliary_cleanup_ids(
@@ -6126,5 +6161,87 @@ mod tests {
         assert_eq!(projection.local_player_entity_id, Some(101));
         assert!(projection.by_entity_id.contains_key(&101));
         assert!(!projection.by_entity_id.contains_key(&202));
+    }
+
+    #[test]
+    fn hidden_snapshot_runtime_typed_transition_does_not_reseed_unrelated_table_rows() {
+        let mut state = SessionState::default();
+        state.entity_table_projection.local_player_entity_id = Some(101);
+        state.entity_table_projection.by_entity_id.insert(
+            101,
+            EntityProjection {
+                class_id: EntityTableProjection::LOCAL_PLAYER_CLASS_ID,
+                hidden: false,
+                is_local_player: true,
+                unit_kind: 2,
+                unit_value: 101,
+                x_bits: 1.0f32.to_bits(),
+                y_bits: 2.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
+        for entity_id in [202, 303] {
+            state.entity_table_projection.by_entity_id.insert(
+                entity_id,
+                EntityProjection {
+                    class_id: 4,
+                    hidden: false,
+                    is_local_player: false,
+                    unit_kind: 2,
+                    unit_value: entity_id as u32,
+                    x_bits: (entity_id as f32).to_bits(),
+                    y_bits: (entity_id as f32 + 1.0).to_bits(),
+                    last_seen_entity_snapshot_count: entity_id as u64,
+                },
+            );
+            state.entity_semantic_projection.upsert(
+                entity_id,
+                4,
+                entity_id as u64,
+                EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
+                    team_id: 2,
+                    unit_type_id: 55,
+                    health_bits: 0x3f80_0000,
+                    rotation_bits: 0x4000_0000,
+                    shield_bits: 0x4040_0000,
+                    mine_tile_pos: 0,
+                    status_count: 0,
+                    payload_count: None,
+                    building_pos: None,
+                    lifetime_bits: None,
+                    time_bits: None,
+                }),
+            );
+        }
+
+        state.refresh_runtime_typed_entity_from_tables(101);
+        state.refresh_runtime_typed_entity_from_tables(202);
+
+        let before = state.runtime_typed_entity_projection();
+        assert!(before.by_entity_id.contains_key(&101));
+        assert!(before.by_entity_id.contains_key(&202));
+        assert!(!before.by_entity_id.contains_key(&303));
+
+        state.apply_hidden_snapshot(
+            AppliedHiddenSnapshotIds {
+                count: 1,
+                first_id: Some(202),
+                sample_ids: vec![202],
+            },
+            BTreeSet::from([202]),
+        );
+
+        let projection = state.runtime_typed_entity_projection();
+        assert!(state.entity_table_projection.by_entity_id.contains_key(&303));
+        assert!(state
+            .entity_semantic_projection
+            .by_entity_id
+            .contains_key(&303));
+        assert!(projection.by_entity_id.contains_key(&101));
+        assert!(!projection.by_entity_id.contains_key(&202));
+        assert!(!projection.by_entity_id.contains_key(&303));
+        assert_eq!(projection.player_count, 1);
+        assert_eq!(projection.unit_count, 0);
+        assert_eq!(projection.hidden_count, 0);
     }
 }

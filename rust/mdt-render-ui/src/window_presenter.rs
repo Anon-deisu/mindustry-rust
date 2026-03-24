@@ -6,8 +6,9 @@ use crate::{
         build_runtime_dialog_panel, build_runtime_kick_panel, build_runtime_live_effect_panel,
         build_runtime_live_entity_panel, build_runtime_loading_panel, build_runtime_menu_panel,
         build_runtime_reconnect_panel, build_runtime_rules_panel, build_runtime_session_panel,
-        build_runtime_ui_notice_panel, build_runtime_world_label_panel, MinimapPanelModel,
-        PresenterViewWindow, RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
+        build_runtime_ui_notice_panel, build_runtime_ui_stack_panel,
+        build_runtime_world_label_panel, MinimapPanelModel, PresenterViewWindow,
+        RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
     },
     render_model::{RenderObjectSemanticFamily, RenderObjectSemanticKind},
     BuildQueueHeadObservability, BuildQueueHeadStage, BuildUiObservability, HudModel, RenderModel,
@@ -585,6 +586,12 @@ fn compose_frame_panel_lines(
     if let Some(runtime_chat_detail_text) = compose_runtime_chat_detail_status_text(hud) {
         lines.push(format!("RUNTIME-CHAT-DETAIL: {runtime_chat_detail_text}"));
     }
+    if let Some(runtime_stack_text) = compose_runtime_stack_panel_status_text(hud) {
+        lines.push(format!("RUNTIME-STACK: {runtime_stack_text}"));
+    }
+    if let Some(runtime_stack_detail_text) = compose_runtime_stack_detail_status_text(hud) {
+        lines.push(format!("RUNTIME-STACK-DETAIL: {runtime_stack_detail_text}"));
+    }
     if let Some(runtime_command_text) = compose_runtime_command_mode_panel_status_text(hud) {
         lines.push(format!("RUNTIME-COMMAND: {runtime_command_text}"));
     }
@@ -861,6 +868,53 @@ fn compose_runtime_chat_detail_status_text(hud: &HudModel) -> Option<String> {
         panel.last_chat_message_len(),
         panel.last_chat_unformatted_len(),
         optional_bool_label(panel.formatted_matches_unformatted()),
+        optional_i32_label(panel.last_chat_sender_entity_id),
+    ))
+}
+
+fn compose_runtime_stack_panel_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_ui_stack_panel(hud)?;
+    if panel.is_empty() {
+        return None;
+    }
+    let prompt_layers = panel.prompt_layer_labels().join(">");
+    let notice_layers = panel.notice_layer_labels().join(">");
+    Some(format!(
+        "stack:f={}:p{}@{}:n={}@{}:c{}:g{}:t{}:tin{}:s{}",
+        panel.foreground_label(),
+        panel.prompt_depth(),
+        if prompt_layers.is_empty() {
+            "none"
+        } else {
+            prompt_layers.as_str()
+        },
+        runtime_dialog_notice_status_text(panel.notice_kind),
+        if notice_layers.is_empty() {
+            "none"
+        } else {
+            notice_layers.as_str()
+        },
+        panel.chat_depth(),
+        panel.active_group_count(),
+        panel.total_depth(),
+        optional_i32_label(panel.text_input_last_id),
+        optional_i32_label(panel.last_chat_sender_entity_id),
+    ))
+}
+
+fn compose_runtime_stack_detail_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_ui_stack_panel(hud)?;
+    if panel.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "stackd:m{}:fo{}:tin{}:nd{}:chat{}/{}:sid{}",
+        if panel.menu_active { 1 } else { 0 },
+        panel.outstanding_follow_up_count,
+        panel.text_input_open_count,
+        panel.notice_depth(),
+        panel.server_message_count,
+        panel.chat_message_count,
         optional_i32_label(panel.last_chat_sender_entity_id),
     ))
 }
@@ -2867,6 +2921,14 @@ mod tests {
         assert_frame_line_contains(
             &frame.panel_lines,
             "RUNTIME-CHAT-DETAIL: chatd:s11:c11:r5:eq0:sid404",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RUNTIME-STACK: stack:f=input:p2@input>menu:n=warn@hud>reliable>info>warn:c1:g3:t7:tin404:s404",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RUNTIME-STACK-DETAIL: stackd:m1:fo0:tin53:nd4:chat7/8:sid404",
         );
         assert_frame_line_contains(
             &frame.panel_lines,

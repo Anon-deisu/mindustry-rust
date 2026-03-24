@@ -5,6 +5,7 @@ pub const REMOTE_MANIFEST_SCHEMA_V1: &str = "mdt.remote.manifest.v1";
 pub const CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT: usize = 10;
 pub const HIGH_FREQUENCY_REMOTE_METHOD_COUNT: usize = 5;
 pub const INBOUND_REMOTE_FAMILY_COUNT: usize = 6;
+pub const REMOTE_PACKET_ID_SPACE: usize = u8::MAX as usize + 1;
 pub const REMOTE_WIRE_PACKET_ID_BYTE_U8: &str = "u8";
 pub const REMOTE_WIRE_LENGTH_FIELD_U16BE: &str = "u16be";
 pub const REMOTE_WIRE_COMPRESSION_NONE: &str = "none";
@@ -323,6 +324,11 @@ pub struct CustomChannelRemoteRegistry {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InboundRemoteRegistry {
     by_packet_id: [(u8, InboundRemoteDispatchSpec); INBOUND_REMOTE_FAMILY_COUNT],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemotePacketIdFixedTable<T: Copy> {
+    by_packet_id: [Option<T>; REMOTE_PACKET_ID_SPACE],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1480,6 +1486,24 @@ impl TypedRemoteRegistries {
     }
 }
 
+impl<T: Copy> RemotePacketIdFixedTable<T> {
+    fn from_entries<const N: usize>(entries: &[(u8, T); N]) -> Self {
+        let mut by_packet_id = [None; REMOTE_PACKET_ID_SPACE];
+        for (packet_id, value) in entries {
+            by_packet_id[*packet_id as usize] = Some(*value);
+        }
+        Self { by_packet_id }
+    }
+
+    pub fn get(&self, packet_id: u8) -> Option<T> {
+        self.by_packet_id[packet_id as usize]
+    }
+
+    pub fn contains_packet_id(&self, packet_id: u8) -> bool {
+        self.get(packet_id).is_some()
+    }
+}
+
 impl HighFrequencyRemoteRegistry {
     pub fn from_manifest(manifest: &RemoteManifest) -> Result<Self, RemoteManifestError> {
         let registry = RemotePacketRegistry::from_manifest(manifest)?;
@@ -1516,6 +1540,10 @@ impl HighFrequencyRemoteRegistry {
         &self,
     ) -> [(u8, HighFrequencyRemoteMethod); HIGH_FREQUENCY_REMOTE_METHOD_COUNT] {
         self.by_packet_id
+    }
+
+    pub fn packet_id_fixed_table(&self) -> RemotePacketIdFixedTable<HighFrequencyRemoteMethod> {
+        RemotePacketIdFixedTable::from_entries(&self.by_packet_id)
     }
 }
 
@@ -1558,6 +1586,12 @@ impl CustomChannelRemoteRegistry {
     ) -> [(u8, CustomChannelRemoteDispatchSpec); CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT] {
         self.by_packet_id
     }
+
+    pub fn packet_id_fixed_table(
+        &self,
+    ) -> RemotePacketIdFixedTable<CustomChannelRemoteDispatchSpec> {
+        RemotePacketIdFixedTable::from_entries(&self.by_packet_id)
+    }
 }
 
 impl InboundRemoteRegistry {
@@ -1598,6 +1632,10 @@ impl InboundRemoteRegistry {
         &self,
     ) -> [(u8, InboundRemoteDispatchSpec); INBOUND_REMOTE_FAMILY_COUNT] {
         self.by_packet_id
+    }
+
+    pub fn packet_id_fixed_table(&self) -> RemotePacketIdFixedTable<InboundRemoteDispatchSpec> {
+        RemotePacketIdFixedTable::from_entries(&self.by_packet_id)
     }
 }
 
@@ -2490,6 +2528,42 @@ mod tests {
                 .packet_id(HighFrequencyRemoteMethod::ClientSnapshot),
             Some(26)
         );
+    }
+
+    #[test]
+    fn custom_channel_remote_registry_exposes_packet_id_fixed_table() {
+        let manifest = custom_channel_manifest_with_decoys();
+        let registry = CustomChannelRemoteRegistry::from_manifest(&manifest).unwrap();
+        let fixed_table = registry.packet_id_fixed_table();
+
+        assert_eq!(
+            fixed_table.get(5),
+            Some(CustomChannelRemoteDispatchSpec {
+                family: CustomChannelRemoteFamily::ClientPacketReliable,
+                payload_kind: CustomChannelRemotePayloadKind::Text,
+            })
+        );
+        assert_eq!(fixed_table.get(4), None);
+        assert!(fixed_table.contains_packet_id(14));
+        assert!(!fixed_table.contains_packet_id(250));
+    }
+
+    #[test]
+    fn inbound_remote_registry_exposes_packet_id_fixed_table() {
+        let manifest = custom_channel_manifest_with_decoys();
+        let registry = InboundRemoteRegistry::from_manifest(&manifest).unwrap();
+        let fixed_table = registry.packet_id_fixed_table();
+
+        assert_eq!(
+            fixed_table.get(10),
+            Some(InboundRemoteDispatchSpec {
+                family: InboundRemoteFamily::ServerPacketReliable,
+                payload_kind: CustomChannelRemotePayloadKind::Text,
+            })
+        );
+        assert_eq!(fixed_table.get(9), None);
+        assert!(fixed_table.contains_packet_id(15));
+        assert!(!fixed_table.contains_packet_id(250));
     }
 
     #[test]

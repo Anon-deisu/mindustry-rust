@@ -2877,6 +2877,91 @@ mod tests {
     }
 
     #[test]
+    fn hidden_snapshot_ingest_does_not_reseed_unrelated_runtime_typed_rows() {
+        let payload = [
+            0x00, 0x00, 0x00, 0x01, // count
+            0x00, 0x00, 0x00, 0xCA, // 202 hidden non-local unit
+        ];
+        let mut state = SessionState::default();
+        state.entity_table_projection.local_player_entity_id = Some(101);
+        state.entity_table_projection.by_entity_id.insert(
+            101,
+            EntityProjection {
+                class_id: 12,
+                hidden: false,
+                is_local_player: true,
+                unit_kind: 2,
+                unit_value: 101,
+                x_bits: 1.0f32.to_bits(),
+                y_bits: 2.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
+        for entity_id in [202, 303] {
+            state.entity_table_projection.by_entity_id.insert(
+                entity_id,
+                EntityProjection {
+                    class_id: 4,
+                    hidden: false,
+                    is_local_player: false,
+                    unit_kind: 2,
+                    unit_value: entity_id as u32,
+                    x_bits: (entity_id as f32).to_bits(),
+                    y_bits: (entity_id as f32 + 1.0).to_bits(),
+                    last_seen_entity_snapshot_count: entity_id as u64,
+                },
+            );
+            state.entity_semantic_projection.upsert(
+                entity_id,
+                4,
+                entity_id as u64,
+                EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
+                    team_id: 2,
+                    unit_type_id: 55,
+                    health_bits: 0x3f80_0000,
+                    rotation_bits: 0x4000_0000,
+                    shield_bits: 0x4040_0000,
+                    mine_tile_pos: 0,
+                    status_count: 0,
+                    payload_count: None,
+                    building_pos: None,
+                    lifetime_bits: None,
+                    time_bits: None,
+                }),
+            );
+        }
+        state.refresh_runtime_typed_entity_from_tables(101);
+        state.refresh_runtime_typed_entity_from_tables(202);
+
+        assert!(state
+            .runtime_typed_entity_projection()
+            .by_entity_id
+            .contains_key(&202));
+        assert!(!state
+            .runtime_typed_entity_projection()
+            .by_entity_id
+            .contains_key(&303));
+
+        ingest_inbound_snapshot(
+            &mut state,
+            InboundSnapshot::new(HighFrequencyRemoteMethod::HiddenSnapshot, 49, &payload),
+        );
+
+        let projection = state.runtime_typed_entity_projection();
+        assert!(projection.by_entity_id.contains_key(&101));
+        assert!(!projection.by_entity_id.contains_key(&202));
+        assert!(!projection.by_entity_id.contains_key(&303));
+        assert!(state.entity_table_projection.by_entity_id.contains_key(&303));
+        assert!(state
+            .entity_semantic_projection
+            .by_entity_id
+            .contains_key(&303));
+        assert_eq!(projection.player_count, 1);
+        assert_eq!(projection.unit_count, 0);
+        assert_eq!(projection.hidden_count, 0);
+    }
+
+    #[test]
     fn malformed_hidden_snapshot_tracks_parse_error() {
         let payload = [0xFF, 0xFF, 0xFF, 0xFF];
         let mut state = SessionState::default();

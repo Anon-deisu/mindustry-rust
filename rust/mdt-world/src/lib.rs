@@ -31,11 +31,11 @@ pub use save_post_load_consumer_plan::{
 };
 pub use save_post_load_contract::{SavePostLoadWorldContract, SavePostLoadWorldIssue};
 pub use save_post_load_runtime_apply_batches::{
-    SavePostLoadRuntimeApplyBatch, SavePostLoadRuntimeApplyBatchView,
+    SavePostLoadRuntimeApplyBatch, SavePostLoadRuntimeApplyBatchPlan,
+    SavePostLoadRuntimeApplyBatchPlanView, SavePostLoadRuntimeApplyBatchView,
 };
 pub use save_post_load_runtime_execution::{
-    SavePostLoadRuntimeApplyExecution, SavePostLoadRuntimeApplyIssue,
-    SavePostLoadRuntimeWorldShell,
+    SavePostLoadRuntimeApplyExecution, SavePostLoadRuntimeApplyIssue, SavePostLoadRuntimeWorldShell,
 };
 pub use save_post_load_runtime_script::{
     SavePostLoadRuntimeApplyScript, SavePostLoadRuntimeApplyStep,
@@ -40086,16 +40086,51 @@ mod tests {
         );
         assert_eq!(
             shell.team_plans.len(),
-            shell.team_plans_by_team.values().map(Vec::len).sum::<usize>()
+            shell
+                .team_plans_by_team
+                .values()
+                .map(Vec::len)
+                .sum::<usize>()
         );
         assert_eq!(shell.markers.len(), shell.markers_by_id.len());
-        assert_eq!(
-            shell.buildings.len(),
-            shell.buildings_by_center_index.len()
-        );
+        assert_eq!(shell.buildings.len(), shell.buildings_by_center_index.len());
         assert_eq!(
             shell.loadable_entities.len(),
             shell.loadable_entities_by_id.len()
+        );
+    }
+
+    #[test]
+    fn msav_post_load_world_exposes_consumable_runtime_apply_batch_plan_for_save11_regions() {
+        let save = parse_msav_save(&sample_msav_post_load_save11_bytes()).unwrap();
+        let post_load = save.post_load_world().unwrap();
+        let batch_plan_view = post_load.runtime_apply_batch_plan_view();
+
+        assert!(!batch_plan_view.can_seed_runtime_apply);
+        assert!(batch_plan_view.world_shell_ready);
+        assert_eq!(batch_plan_view.batch_count(), 2);
+        assert_eq!(
+            batch_plan_view
+                .next_apply_now_batch()
+                .map(|batch| (batch.batch_index, batch.step_count)),
+            Some((0, batch_plan_view.batches[0].steps.len()))
+        );
+        assert_eq!(
+            batch_plan_view.batches[0].steps.first(),
+            Some(&SavePostLoadRuntimeApplyStep::WorldShell)
+        );
+        assert!(batch_plan_view.batches[0].can_apply_now());
+        assert!(!batch_plan_view.batches[0].has_blockers());
+        assert_eq!(
+            batch_plan_view
+                .batches
+                .iter()
+                .map(|batch| batch.disposition)
+                .collect::<Vec<_>>(),
+            vec![
+                SavePostLoadConsumerRuntimeDisposition::ApplyNow,
+                SavePostLoadConsumerRuntimeDisposition::Deferred,
+            ]
         );
     }
 
@@ -40198,7 +40233,10 @@ mod tests {
         let contract = post_load.projection_contract();
         let execution = post_load.execute_runtime_apply();
 
-        assert_eq!(contract.issues, vec![SavePostLoadWorldIssue::TeamPlanOutOfBounds]);
+        assert_eq!(
+            contract.issues,
+            vec![SavePostLoadWorldIssue::TeamPlanOutOfBounds]
+        );
         assert!(!contract.can_project_world_shell());
         assert!(!execution.world_shell_ready);
         assert!(!execution.has_world_shell());
@@ -40207,10 +40245,45 @@ mod tests {
         assert!(execution.executed_step_count() > 0);
         assert!(execution.custom_chunks.is_empty());
         assert!(execution.custom_chunks_by_name.is_empty());
-        assert!(
-            execution
-                .blocked_steps
-                .contains(&SavePostLoadRuntimeApplyStep::WorldShell)
+        assert!(execution
+            .blocked_steps
+            .contains(&SavePostLoadRuntimeApplyStep::WorldShell));
+    }
+
+    #[test]
+    fn msav_post_load_world_exposes_split_runtime_apply_batches_for_save6_legacy_regions() {
+        let save = parse_msav_save(&sample_msav_post_load_save6_bytes()).unwrap();
+        let post_load = save.post_load_world().unwrap();
+        let batch_plan_view = post_load.runtime_apply_batch_plan_view();
+
+        assert!(!batch_plan_view.can_seed_runtime_apply);
+        assert!(!batch_plan_view.world_shell_ready);
+        assert_eq!(
+            batch_plan_view
+                .batches
+                .iter()
+                .map(|batch| (batch.batch_index, batch.disposition, batch.step_count))
+                .collect::<Vec<_>>(),
+            vec![
+                (0, SavePostLoadConsumerRuntimeDisposition::Blocked, 1),
+                (1, SavePostLoadConsumerRuntimeDisposition::ApplyNow, 1),
+                (2, SavePostLoadConsumerRuntimeDisposition::Blocked, 1),
+                (
+                    3,
+                    SavePostLoadConsumerRuntimeDisposition::AwaitingWorldShell,
+                    1
+                ),
+                (4, SavePostLoadConsumerRuntimeDisposition::Deferred, 1),
+            ]
+        );
+        assert_eq!(
+            batch_plan_view
+                .next_apply_now_batch()
+                .map(|batch| (batch.batch_index, batch.steps.clone())),
+            Some((
+                1,
+                vec![SavePostLoadRuntimeApplyStep::EntityRemap { remap_index: 0 }],
+            ))
         );
     }
 

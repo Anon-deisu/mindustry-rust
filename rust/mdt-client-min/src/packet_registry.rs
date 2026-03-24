@@ -7,7 +7,8 @@ use mdt_remote::{
     CustomChannelRemoteDispatchSpec, CustomChannelRemoteFamily, CustomChannelRemoteRegistry,
     HighFrequencyRemoteMethod, HighFrequencyRemoteRegistry, InboundRemoteDispatchSpec,
     InboundRemoteFamily, InboundRemoteRegistry, RemoteManifest, RemoteManifestError,
-    TypedRemoteRegistries, CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT, INBOUND_REMOTE_FAMILY_COUNT,
+    RemotePacketIdFixedTable, TypedRemoteRegistries, CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT,
+    INBOUND_REMOTE_FAMILY_COUNT,
 };
 
 const INBOUND_SNAPSHOT_PACKET_SPECS: [(u8, HighFrequencyRemoteMethod); 4] = [
@@ -76,22 +77,6 @@ impl TypedRemoteLookup {
         })
     }
 
-    fn inbound_remote_packet_specs(
-        &self,
-    ) -> Result<[(u8, InboundRemoteDispatchSpec); INBOUND_REMOTE_FAMILY_COUNT], RemoteManifestError>
-    {
-        Ok(self.inbound_remote.resolved_dispatch_specs())
-    }
-
-    fn custom_channel_packet_specs(
-        &self,
-    ) -> Result<
-        [(u8, CustomChannelRemoteDispatchSpec); CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT],
-        RemoteManifestError,
-    > {
-        Ok(self.custom_channel.resolved_dispatch_specs())
-    }
-
     fn client_snapshot_packet_id(&self) -> Result<u8, RemoteManifestError> {
         self.high_frequency
             .packet_id(HighFrequencyRemoteMethod::ClientSnapshot)
@@ -108,12 +93,14 @@ pub struct InboundSnapshotPacketRegistry {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InboundRemotePacketRegistry {
-    by_packet_id: [(u8, InboundRemoteDispatchSpec); INBOUND_REMOTE_FAMILY_COUNT],
+    by_packet_id: RemotePacketIdFixedTable<InboundRemoteDispatchSpec>,
+    resolved_specs: [(u8, InboundRemoteDispatchSpec); INBOUND_REMOTE_FAMILY_COUNT],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CustomChannelPacketRegistry {
-    by_packet_id: [(u8, CustomChannelRemoteDispatchSpec); CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT],
+    by_packet_id: RemotePacketIdFixedTable<CustomChannelRemoteDispatchSpec>,
+    resolved_specs: [(u8, CustomChannelRemoteDispatchSpec); CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -163,9 +150,7 @@ impl InboundSnapshotPacketRegistry {
 impl CustomChannelPacketRegistry {
     pub fn from_remote_manifest(manifest: &RemoteManifest) -> Result<Self, RemoteManifestError> {
         let registry = CustomChannelRemoteRegistry::from_manifest(manifest)?;
-        Ok(Self {
-            by_packet_id: registry.resolved_dispatch_specs(),
-        })
+        Ok(Self::from_typed_registry(registry))
     }
 
     pub fn classify(&self, packet_id: u8) -> Option<CustomChannelRemoteFamily> {
@@ -173,34 +158,36 @@ impl CustomChannelPacketRegistry {
     }
 
     pub fn dispatch_spec(&self, packet_id: u8) -> Option<CustomChannelRemoteDispatchSpec> {
-        self.by_packet_id
-            .iter()
-            .find_map(|(known_packet_id, spec)| (*known_packet_id == packet_id).then_some(*spec))
+        self.by_packet_id.get(packet_id)
     }
 
     pub fn packet_id(&self, family: CustomChannelRemoteFamily) -> Option<u8> {
-        self.by_packet_id
+        self.resolved_specs
             .iter()
             .find_map(|(packet_id, spec)| (spec.family == family).then_some(*packet_id))
     }
 
     pub fn contains_packet_id(&self, packet_id: u8) -> bool {
-        self.by_packet_id
-            .iter()
-            .any(|(known_packet_id, _)| *known_packet_id == packet_id)
+        self.by_packet_id.contains_packet_id(packet_id)
     }
 
     pub fn len(&self) -> usize {
-        self.by_packet_id.len()
+        self.resolved_specs.len()
+    }
+
+    fn from_typed_registry(registry: CustomChannelRemoteRegistry) -> Self {
+        let resolved_specs = registry.resolved_dispatch_specs();
+        Self {
+            by_packet_id: registry.packet_id_fixed_table(),
+            resolved_specs,
+        }
     }
 }
 
 impl InboundRemotePacketRegistry {
     pub fn from_remote_manifest(manifest: &RemoteManifest) -> Result<Self, RemoteManifestError> {
         let registry = InboundRemoteRegistry::from_manifest(manifest)?;
-        Ok(Self {
-            by_packet_id: registry.resolved_dispatch_specs(),
-        })
+        Ok(Self::from_typed_registry(registry))
     }
 }
 
@@ -213,12 +200,8 @@ impl CombinedPacketRegistries {
             inbound_snapshot: InboundSnapshotPacketRegistry {
                 by_packet_id: lookup.inbound_snapshot_packet_specs()?,
             },
-            inbound_remote: InboundRemotePacketRegistry {
-                by_packet_id: lookup.inbound_remote_packet_specs()?,
-            },
-            custom_channel: CustomChannelPacketRegistry {
-                by_packet_id: lookup.custom_channel_packet_specs()?,
-            },
+            inbound_remote: InboundRemotePacketRegistry::from_typed_registry(lookup.inbound_remote),
+            custom_channel: CustomChannelPacketRegistry::from_typed_registry(lookup.custom_channel),
             client_snapshot_packet_id,
         })
     }
@@ -230,25 +213,29 @@ impl InboundRemotePacketRegistry {
     }
 
     pub fn packet_id(&self, family: InboundRemoteFamily) -> Option<u8> {
-        self.by_packet_id
+        self.resolved_specs
             .iter()
             .find_map(|(packet_id, spec)| (spec.family == family).then_some(*packet_id))
     }
 
     pub fn dispatch_spec(&self, packet_id: u8) -> Option<InboundRemoteDispatchSpec> {
-        self.by_packet_id
-            .iter()
-            .find_map(|(known_packet_id, spec)| (*known_packet_id == packet_id).then_some(*spec))
+        self.by_packet_id.get(packet_id)
     }
 
     pub fn contains_packet_id(&self, packet_id: u8) -> bool {
-        self.by_packet_id
-            .iter()
-            .any(|(known_packet_id, _)| *known_packet_id == packet_id)
+        self.by_packet_id.contains_packet_id(packet_id)
     }
 
     pub fn len(&self) -> usize {
-        self.by_packet_id.len()
+        self.resolved_specs.len()
+    }
+
+    fn from_typed_registry(registry: InboundRemoteRegistry) -> Self {
+        let resolved_specs = registry.resolved_dispatch_specs();
+        Self {
+            by_packet_id: registry.packet_id_fixed_table(),
+            resolved_specs,
+        }
     }
 }
 
