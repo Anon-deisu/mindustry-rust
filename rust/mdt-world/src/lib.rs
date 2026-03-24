@@ -14774,6 +14774,25 @@ pub struct MessageTailSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DuctUnloaderTailSnapshot {
+    pub item_id: Option<u16>,
+    pub offset: i16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemoryTailSnapshot {
+    pub len: usize,
+    pub values_bits: Vec<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CanvasTailSnapshot {
+    pub data_len: usize,
+    pub data_sha256: String,
+    pub data_bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParsedBuildingTail {
     Empty,
     Conveyor(ConveyorTailSnapshot),
@@ -14807,6 +14826,9 @@ pub enum ParsedBuildingTail {
     FiveF32(FiveF32TailSnapshot),
     LandingPad(LandingPadTailSnapshot),
     Message(MessageTailSnapshot),
+    DuctUnloader(DuctUnloaderTailSnapshot),
+    Memory(MemoryTailSnapshot),
+    Canvas(CanvasTailSnapshot),
     Unknown,
 }
 
@@ -15120,6 +15142,9 @@ fn building_tail_kind(parsed_tail: &ParsedBuildingTail) -> &'static str {
         ParsedBuildingTail::FiveF32(_) => "fiveF32",
         ParsedBuildingTail::LandingPad(_) => "landingPad",
         ParsedBuildingTail::Message(_) => "message",
+        ParsedBuildingTail::DuctUnloader(_) => "ductUnloader",
+        ParsedBuildingTail::Memory(_) => "memory",
+        ParsedBuildingTail::Canvas(_) => "canvas",
         ParsedBuildingTail::Unknown => "unknown",
     }
 }
@@ -23729,6 +23754,15 @@ fn parse_building_tail_with_context(
         Some("message") | Some("reinforced-message") | Some("world-message") => Ok(
             ParsedBuildingTail::Message(parse_message_tail_snapshot(tail_bytes)?),
         ),
+        Some("duct-unloader") => Ok(ParsedBuildingTail::DuctUnloader(
+            parse_duct_unloader_tail_snapshot(tail_bytes)?,
+        )),
+        Some("memory-cell") | Some("memory-bank") => Ok(ParsedBuildingTail::Memory(
+            parse_memory_tail_snapshot(tail_bytes)?,
+        )),
+        Some("canvas") | Some("large-canvas") => Ok(ParsedBuildingTail::Canvas(
+            parse_canvas_tail_snapshot(tail_bytes)?,
+        )),
         Some("tank-assembler") | Some("ship-assembler") | Some("mech-assembler") => {
             Ok(ParsedBuildingTail::UnitAssembler(
                 parse_unit_assembler_tail_snapshot(content_header, revision, tail_bytes)?,
@@ -23852,6 +23886,13 @@ fn parse_conveyor_tail_snapshot(
 }
 
 fn read_non_negative_byte_len(label: &str, value: i8) -> Result<usize, String> {
+    if value < 0 {
+        return Err(format!("negative {}: {}", label, value));
+    }
+    Ok(value as usize)
+}
+
+fn read_non_negative_i32_len(label: &str, value: i32) -> Result<usize, String> {
     if value < 0 {
         return Err(format!("negative {}: {}", label, value));
     }
@@ -24805,6 +24846,72 @@ fn parse_message_tail_snapshot(tail_bytes: &[u8]) -> Result<MessageTailSnapshot,
     Ok(MessageTailSnapshot { message })
 }
 
+fn parse_duct_unloader_tail_snapshot(tail_bytes: &[u8]) -> Result<DuctUnloaderTailSnapshot, String> {
+    let mut reader = Reader::new(tail_bytes);
+    let item_id = {
+        let value = reader.read_i16()?;
+        (value >= 0).then_some(value as u16)
+    };
+    let offset = reader.read_i16()?;
+    if !reader.remaining_bytes().is_empty() {
+        return Err(format!(
+            "unexpected duct-unloader tail remainder: {} bytes",
+            reader.remaining_bytes().len()
+        ));
+    }
+    Ok(DuctUnloaderTailSnapshot { item_id, offset })
+}
+
+fn parse_memory_tail_snapshot(tail_bytes: &[u8]) -> Result<MemoryTailSnapshot, String> {
+    let mut reader = Reader::new(tail_bytes);
+    let len = read_non_negative_i32_len("memory tail length", reader.read_i32()?)?;
+    let remaining = reader.remaining_bytes().len();
+    let required = len
+        .checked_mul(std::mem::size_of::<u64>())
+        .ok_or_else(|| format!("memory tail length too large: {len}"))?;
+    if remaining < required {
+        return Err(format!(
+            "truncated memory tail: declared {} values ({} bytes) but only {} bytes remain",
+            len, required, remaining
+        ));
+    }
+    let mut values_bits = Vec::with_capacity(len);
+    for _ in 0..len {
+        values_bits.push(reader.read_u64()?);
+    }
+    if !reader.remaining_bytes().is_empty() {
+        return Err(format!(
+            "unexpected memory tail remainder: {} bytes",
+            reader.remaining_bytes().len()
+        ));
+    }
+    Ok(MemoryTailSnapshot { len, values_bits })
+}
+
+fn parse_canvas_tail_snapshot(tail_bytes: &[u8]) -> Result<CanvasTailSnapshot, String> {
+    let mut reader = Reader::new(tail_bytes);
+    let data_len = read_non_negative_i32_len("canvas tail length", reader.read_i32()?)?;
+    let remaining = reader.remaining_bytes().len();
+    if remaining < data_len {
+        return Err(format!(
+            "truncated canvas tail: declared {} bytes but only {} bytes remain",
+            data_len, remaining
+        ));
+    }
+    let data_bytes = reader.read_exact_vec(data_len)?;
+    if !reader.remaining_bytes().is_empty() {
+        return Err(format!(
+            "unexpected canvas tail remainder: {} bytes",
+            reader.remaining_bytes().len()
+        ));
+    }
+    Ok(CanvasTailSnapshot {
+        data_len,
+        data_sha256: sha256_hex(&data_bytes),
+        data_bytes,
+    })
+}
+
 fn parse_unit_assembler_tail_snapshot(
     content_header: &[ContentHeaderEntry],
     revision: u8,
@@ -25729,6 +25836,9 @@ pub fn format_world_model_goldens(model: &WorldModel) -> String {
                 ParsedBuildingTail::FiveF32(_) => "fiveF32",
                 ParsedBuildingTail::LandingPad(_) => "landingPad",
                 ParsedBuildingTail::Message(_) => "message",
+                ParsedBuildingTail::DuctUnloader(_) => "ductUnloader",
+                ParsedBuildingTail::Memory(_) => "memory",
+                ParsedBuildingTail::Canvas(_) => "canvas",
                 ParsedBuildingTail::Unknown => "unknown",
             },
         );
@@ -26597,6 +26707,44 @@ pub fn format_world_model_goldens(model: &WorldModel) -> String {
                     &mut lines,
                     &format!("{prefix}.tail.message.textEscaped"),
                     &message.message.escape_default().to_string(),
+                );
+            }
+            ParsedBuildingTail::DuctUnloader(duct_unloader) => {
+                push_str(
+                    &mut lines,
+                    &format!("{prefix}.tail.ductUnloader.itemRef"),
+                    &format_optional_item_id(duct_unloader.item_id),
+                );
+                push_str(
+                    &mut lines,
+                    &format!("{prefix}.tail.ductUnloader.offset"),
+                    &format!("{:04x}", duct_unloader.offset as u16),
+                );
+            }
+            ParsedBuildingTail::Memory(memory) => {
+                push_hex(
+                    &mut lines,
+                    &format!("{prefix}.tail.memory.len"),
+                    memory.len as u32,
+                    8,
+                );
+                push_str(
+                    &mut lines,
+                    &format!("{prefix}.tail.memory.valuesSha256"),
+                    &sha256_hex(&u64s_to_bytes(&memory.values_bits)),
+                );
+            }
+            ParsedBuildingTail::Canvas(canvas) => {
+                push_hex(
+                    &mut lines,
+                    &format!("{prefix}.tail.canvas.dataLen"),
+                    canvas.data_len as u32,
+                    8,
+                );
+                push_str(
+                    &mut lines,
+                    &format!("{prefix}.tail.canvas.dataSha256"),
+                    &canvas.data_sha256,
                 );
             }
             ParsedBuildingTail::NullableItemRef(item_ref) => {
@@ -37018,6 +37166,14 @@ fn shorts_to_bytes(values: &[u16]) -> Vec<u8> {
     out
 }
 
+fn u64s_to_bytes(values: &[u64]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(values.len() * 8);
+    for value in values {
+        out.extend_from_slice(&value.to_be_bytes());
+    }
+    out
+}
+
 fn u32s_to_hex(values: &[u32]) -> String {
     let mut out = Vec::with_capacity(values.len() * 4);
     for value in values {
@@ -40563,6 +40719,105 @@ mod tests {
             world_switch,
             ParsedBuildingTail::OneBool(OneBoolTailSnapshot { value: false })
         );
+    }
+
+    #[test]
+    fn parses_duct_unloader_tail_with_nullable_item_and_offset() {
+        let with_item = parse_building_tail(Some("duct-unloader"), 1, &{
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&7i16.to_be_bytes());
+            bytes.extend_from_slice(&11i16.to_be_bytes());
+            bytes
+        })
+        .unwrap();
+        assert_eq!(
+            with_item,
+            ParsedBuildingTail::DuctUnloader(DuctUnloaderTailSnapshot {
+                item_id: Some(7),
+                offset: 11,
+            })
+        );
+
+        let without_item = parse_building_tail(Some("duct-unloader"), 1, &{
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&(-1i16).to_be_bytes());
+            bytes.extend_from_slice(&(-3i16).to_be_bytes());
+            bytes
+        })
+        .unwrap();
+        assert_eq!(
+            without_item,
+            ParsedBuildingTail::DuctUnloader(DuctUnloaderTailSnapshot {
+                item_id: None,
+                offset: -3,
+            })
+        );
+    }
+
+    #[test]
+    fn parses_memory_tail_families_as_raw_double_bits() {
+        let expected_bits = vec![1.5f64.to_bits(), f64::NAN.to_bits()];
+        for block_name in ["memory-cell", "memory-bank"] {
+            let parsed = parse_building_tail(Some(block_name), 1, &{
+                let mut bytes = Vec::new();
+                bytes.extend_from_slice(&(expected_bits.len() as i32).to_be_bytes());
+                for bits in &expected_bits {
+                    bytes.extend_from_slice(&bits.to_be_bytes());
+                }
+                bytes
+            })
+            .unwrap();
+            assert_eq!(
+                parsed,
+                ParsedBuildingTail::Memory(MemoryTailSnapshot {
+                    len: expected_bits.len(),
+                    values_bits: expected_bits.clone(),
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn parses_canvas_tail_families_as_raw_bytes() {
+        let data_bytes = vec![0x10, 0x20, 0x30, 0x40];
+        for block_name in ["canvas", "large-canvas"] {
+            let parsed = parse_building_tail(Some(block_name), 1, &{
+                let mut bytes = Vec::new();
+                bytes.extend_from_slice(&(data_bytes.len() as i32).to_be_bytes());
+                bytes.extend_from_slice(&data_bytes);
+                bytes
+            })
+            .unwrap();
+            assert_eq!(
+                parsed,
+                ParsedBuildingTail::Canvas(CanvasTailSnapshot {
+                    data_len: data_bytes.len(),
+                    data_sha256: sha256_hex(&data_bytes),
+                    data_bytes: data_bytes.clone(),
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_truncated_memory_and_canvas_tails() {
+        let memory_err = parse_building_tail(Some("memory-cell"), 1, &{
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&2i32.to_be_bytes());
+            bytes.extend_from_slice(&1.0f64.to_bits().to_be_bytes());
+            bytes
+        })
+        .unwrap_err();
+        assert!(memory_err.contains("truncated memory tail"));
+
+        let canvas_err = parse_building_tail(Some("canvas"), 1, &{
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&3i32.to_be_bytes());
+            bytes.extend_from_slice(&[0xaa, 0xbb]);
+            bytes
+        })
+        .unwrap_err();
+        assert!(canvas_err.contains("truncated canvas tail"));
     }
 
     #[test]

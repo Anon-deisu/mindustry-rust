@@ -1708,6 +1708,37 @@ fn runtime_optional_display_label<T: fmt::Display + Copy>(value: Option<T>) -> S
         .unwrap_or_else(|| "none".to_string())
 }
 
+fn runtime_optional_runtime_point2_label(value: Option<i32>) -> String {
+    value.map_or_else(
+        || "none".to_string(),
+        |value| {
+            let (x, y) = unpack_runtime_point2(value);
+            format!("{x}:{y}")
+        },
+    )
+}
+
+fn runtime_optional_bits_label(value: Option<u32>) -> String {
+    value.map_or_else(
+        || "none".to_string(),
+        |value| format!("0x{value:08x}"),
+    )
+}
+
+fn runtime_optional_bits_pair_label(x_bits: Option<u32>, y_bits: Option<u32>) -> String {
+    match (x_bits, y_bits) {
+        (Some(x_bits), Some(y_bits)) => format!("0x{x_bits:08x}:0x{y_bits:08x}"),
+        _ => "none".to_string(),
+    }
+}
+
+fn runtime_optional_text_len_label(value: Option<&str>) -> String {
+    value.map_or_else(
+        || "none".to_string(),
+        |value| format!("len{}", value.len()),
+    )
+}
+
 fn runtime_optional_unit_ref_label(value: Option<UnitRefProjection>) -> String {
     value.map_or_else(
         || "none".to_string(),
@@ -1821,27 +1852,77 @@ fn runtime_resource_delta_label(session_state: &SessionState) -> String {
 
 fn runtime_command_control_label(session_state: &SessionState) -> String {
     format!(
-        "spte{}:mc{}:tir{}:ri{}:bcs{}:ucl{}:uct{}:ubcs{}:cb{}:cu{}:suc{}:sus{}:rot{}:tinv{}:rbp{}:rdp{}:rup{}:drop{}:dpl{}:tap{}",
+        "spte{}@t{}:mc{}@{}/{}:tir{}@{}#{}:ri{}@{}#{}x{}:bcs{}@{}:ucl{}:uct{}@{}:ubcs{}@{}/{}:cb{}@n{}:{}->{}:cu{}@n{}:u{}:b{}:t{}:p{}:q{}:f{}:suc{}@n{}:u{}:c{}:sus{}@n{}:u{}:s{}:e{}:rot{}@{}:d{}:tinv{}@{}:rbp{}@{}:rdp{}@{}:rup{}@{}:drop{}@{}:dpl{}@n{}:{}:tap{}@{}",
         session_state.received_set_player_team_editor_count,
+        runtime_optional_display_label(session_state.last_set_player_team_editor_team_id),
         session_state.received_menu_choose_count,
+        runtime_optional_display_label(session_state.last_menu_choose_menu_id),
+        runtime_optional_display_label(session_state.last_menu_choose_option),
         session_state.received_text_input_result_count,
+        runtime_optional_display_label(session_state.last_text_input_result_id),
+        runtime_optional_text_len_label(session_state.last_text_input_result_text.as_deref()),
         session_state.received_request_item_count,
+        runtime_optional_runtime_point2_label(session_state.last_request_item_build_pos),
+        runtime_optional_display_label(session_state.last_request_item_item_id),
+        runtime_optional_display_label(session_state.last_request_item_amount),
         session_state.received_building_control_select_count,
+        runtime_optional_runtime_point2_label(session_state.last_building_control_select_build_pos),
         session_state.received_unit_clear_count,
         session_state.received_unit_control_count,
+        runtime_optional_unit_ref_label(session_state.last_unit_control_target),
         session_state.received_unit_building_control_select_count,
+        runtime_optional_unit_ref_label(session_state.last_unit_building_control_select_target),
+        runtime_optional_runtime_point2_label(
+            session_state.last_unit_building_control_select_build_pos,
+        ),
         session_state.received_command_building_count,
+        session_state.last_command_building_count,
+        runtime_optional_runtime_point2_label(session_state.last_command_building_first_build_pos),
+        runtime_optional_bits_pair_label(
+            session_state.last_command_building_x_bits,
+            session_state.last_command_building_y_bits,
+        ),
         session_state.received_command_units_count,
+        session_state.last_command_units_count,
+        runtime_optional_display_label(session_state.last_command_units_first_unit_id),
+        runtime_optional_runtime_point2_label(session_state.last_command_units_build_target),
+        runtime_optional_unit_ref_label(session_state.last_command_units_unit_target),
+        runtime_optional_bits_pair_label(
+            session_state.last_command_units_x_bits,
+            session_state.last_command_units_y_bits,
+        ),
+        runtime_optional_bool_label(session_state.last_command_units_queue),
+        runtime_optional_bool_label(session_state.last_command_units_final_batch),
         session_state.received_set_unit_command_count,
+        session_state.last_set_unit_command_count,
+        runtime_optional_display_label(session_state.last_set_unit_command_first_unit_id),
+        runtime_optional_display_label(session_state.last_set_unit_command_id),
         session_state.received_set_unit_stance_count,
+        session_state.last_set_unit_stance_count,
+        runtime_optional_display_label(session_state.last_set_unit_stance_first_unit_id),
+        runtime_optional_display_label(session_state.last_set_unit_stance_id),
+        runtime_optional_bool_label(session_state.last_set_unit_stance_enable),
         session_state.received_rotate_block_count,
+        runtime_optional_runtime_point2_label(session_state.last_rotate_block_build_pos),
+        runtime_optional_bool_label(session_state.last_rotate_block_direction),
         session_state.received_transfer_inventory_count,
+        runtime_optional_runtime_point2_label(session_state.last_transfer_inventory_build_pos),
         session_state.received_request_build_payload_count,
+        runtime_optional_runtime_point2_label(session_state.last_request_build_payload_build_pos),
         session_state.received_request_drop_payload_count,
+        runtime_optional_bits_pair_label(
+            session_state.last_request_drop_payload_x_bits,
+            session_state.last_request_drop_payload_y_bits,
+        ),
         session_state.received_request_unit_payload_count,
+        runtime_optional_unit_ref_label(session_state.last_request_unit_payload_target),
         session_state.received_drop_item_count,
+        runtime_optional_bits_label(session_state.last_drop_item_angle_bits),
         session_state.received_delete_plans_count,
+        session_state.last_delete_plans_count,
+        runtime_optional_runtime_point2_label(session_state.last_delete_plans_first_pos),
         session_state.received_tile_tap_count,
+        runtime_optional_runtime_point2_label(session_state.last_tile_tap_pos),
     )
 }
 
@@ -3798,23 +3879,78 @@ mod tests {
         state.last_text_input_length = Some(16);
         state.last_text_input_numeric = Some(true);
         state.last_text_input_allow_empty = Some(true);
+        state.last_set_player_team_editor_team_id = Some(7);
+        state.last_menu_choose_menu_id = Some(404);
+        state.last_menu_choose_option = Some(2);
+        state.last_text_input_result_id = Some(405);
+        state.last_text_input_result_text = Some("ok123".to_string());
         state.received_request_item_count = 31;
+        state.last_request_item_build_pos = Some(pack_runtime_point2(6, 7));
+        state.last_request_item_item_id = Some(9);
+        state.last_request_item_amount = Some(12);
         state.received_building_control_select_count = 32;
+        state.last_building_control_select_build_pos = Some(pack_runtime_point2(10, 11));
         state.received_unit_clear_count = 33;
         state.received_unit_control_count = 34;
+        state.last_unit_control_target = Some(crate::session_state::UnitRefProjection {
+            kind: 2,
+            value: 404,
+        });
         state.received_unit_building_control_select_count = 35;
+        state.last_unit_building_control_select_target =
+            Some(crate::session_state::UnitRefProjection {
+                kind: 1,
+                value: 505,
+            });
+        state.last_unit_building_control_select_build_pos = Some(pack_runtime_point2(12, 13));
         state.received_command_building_count = 36;
+        state.last_command_building_count = 2;
+        state.last_command_building_first_build_pos = Some(pack_runtime_point2(14, 15));
+        state.last_command_building_x_bits = Some(1.5f32.to_bits());
+        state.last_command_building_y_bits = Some(2.5f32.to_bits());
         state.received_command_units_count = 37;
+        state.last_command_units_count = 2;
+        state.last_command_units_first_unit_id = Some(700);
+        state.last_command_units_build_target = Some(pack_runtime_point2(16, 17));
+        state.last_command_units_unit_target = Some(crate::session_state::UnitRefProjection {
+            kind: 2,
+            value: 808,
+        });
+        state.last_command_units_x_bits = Some(3.5f32.to_bits());
+        state.last_command_units_y_bits = Some(4.5f32.to_bits());
+        state.last_command_units_queue = Some(true);
+        state.last_command_units_final_batch = Some(false);
         state.received_set_unit_command_count = 38;
+        state.last_set_unit_command_count = 3;
+        state.last_set_unit_command_first_unit_id = Some(701);
+        state.last_set_unit_command_id = Some(9);
         state.received_set_unit_stance_count = 39;
+        state.last_set_unit_stance_count = 4;
+        state.last_set_unit_stance_first_unit_id = Some(702);
+        state.last_set_unit_stance_id = Some(5);
+        state.last_set_unit_stance_enable = Some(true);
         state.received_rotate_block_count = 40;
+        state.last_rotate_block_build_pos = Some(pack_runtime_point2(18, 19));
+        state.last_rotate_block_direction = Some(false);
         state.received_transfer_inventory_count = 41;
+        state.last_transfer_inventory_build_pos = Some(pack_runtime_point2(20, 21));
         state.received_request_build_payload_count = 42;
+        state.last_request_build_payload_build_pos = Some(pack_runtime_point2(22, 23));
         state.received_request_unit_payload_count = 43;
+        state.last_request_unit_payload_target = Some(crate::session_state::UnitRefProjection {
+            kind: 1,
+            value: 909,
+        });
         state.received_drop_item_count = 44;
+        state.last_drop_item_angle_bits = Some(7.5f32.to_bits());
         state.received_delete_plans_count = 45;
+        state.last_delete_plans_count = 3;
+        state.last_delete_plans_first_pos = Some(pack_runtime_point2(24, 25));
         state.received_request_drop_payload_count = 46;
+        state.last_request_drop_payload_x_bits = Some(5.5f32.to_bits());
+        state.last_request_drop_payload_y_bits = Some(6.5f32.to_bits());
         state.received_tile_tap_count = 47;
+        state.last_tile_tap_pos = Some(pack_runtime_point2(26, 27));
         state.received_set_flag_count = 46;
         state.received_game_over_count = 47;
         state.received_update_game_over_count = 48;
@@ -4095,7 +4231,7 @@ mod tests {
         )));
         assert!(hud
             .status_text
-            .contains("runtime_command_ctrl=spte28:mc29:tir30:ri31:bcs32:ucl33:uct34:ubcs35:cb36:cu37:suc38:sus39:rot40:tinv41:rbp42:rdp46:rup43:drop44:dpl45:tap47"));
+            .contains("runtime_command_ctrl=spte28@t7:mc29@404/2:tir30@405#len5:ri31@6:7#9x12:bcs32@10:11:ucl33:uct34@2:404:ubcs35@1:505/12:13:cb36@n2:14:15->0x3fc00000:0x40200000:cu37@n2:u700:b16:17:t2:808:p0x40600000:0x40900000:q1:f0:suc38@n3:u701:c9:sus39@n4:u702:s5:e1:rot40@18:19:d0:tinv41@20:21:rbp42@22:23:rdp46@0x40b00000:0x40d00000:rup43@1:909:drop44@0x40f00000:dpl45@n3:24:25:tap47@26:27"));
         assert!(hud
             .status_text
             .contains("runtime_gameplay_signal=flag46:go47:ugo48:sc49:res50"));
@@ -4358,6 +4494,91 @@ mod tests {
         assert_eq!(
             runtime_entity_sync_label(&state),
             "lt3:tp44:ok1:amb0@1:miss2:fail5"
+        );
+    }
+
+    #[test]
+    fn runtime_command_control_label_compacts_last_targets_and_batches() {
+        let mut state = SessionState::default();
+        state.received_set_player_team_editor_count = 1;
+        state.last_set_player_team_editor_team_id = Some(9);
+        state.received_menu_choose_count = 2;
+        state.last_menu_choose_menu_id = Some(300);
+        state.last_menu_choose_option = Some(4);
+        state.received_text_input_result_count = 3;
+        state.last_text_input_result_id = Some(301);
+        state.last_text_input_result_text = Some("ready".to_string());
+        state.received_request_item_count = 4;
+        state.last_request_item_build_pos = Some(pack_runtime_point2(1, 2));
+        state.last_request_item_item_id = Some(6);
+        state.last_request_item_amount = Some(7);
+        state.received_building_control_select_count = 5;
+        state.last_building_control_select_build_pos = Some(pack_runtime_point2(3, 4));
+        state.received_unit_clear_count = 6;
+        state.received_unit_control_count = 7;
+        state.last_unit_control_target = Some(crate::session_state::UnitRefProjection {
+            kind: 2,
+            value: 88,
+        });
+        state.received_unit_building_control_select_count = 8;
+        state.last_unit_building_control_select_target =
+            Some(crate::session_state::UnitRefProjection {
+                kind: 1,
+                value: 77,
+            });
+        state.last_unit_building_control_select_build_pos = Some(pack_runtime_point2(5, 6));
+        state.received_command_building_count = 9;
+        state.last_command_building_count = 2;
+        state.last_command_building_first_build_pos = Some(pack_runtime_point2(7, 8));
+        state.last_command_building_x_bits = Some(1.0f32.to_bits());
+        state.last_command_building_y_bits = Some(2.0f32.to_bits());
+        state.received_command_units_count = 10;
+        state.last_command_units_count = 3;
+        state.last_command_units_first_unit_id = Some(500);
+        state.last_command_units_build_target = Some(pack_runtime_point2(9, 10));
+        state.last_command_units_unit_target = Some(crate::session_state::UnitRefProjection {
+            kind: 2,
+            value: 600,
+        });
+        state.last_command_units_x_bits = Some(3.0f32.to_bits());
+        state.last_command_units_y_bits = Some(4.0f32.to_bits());
+        state.last_command_units_queue = Some(false);
+        state.last_command_units_final_batch = Some(true);
+        state.received_set_unit_command_count = 11;
+        state.last_set_unit_command_count = 4;
+        state.last_set_unit_command_first_unit_id = Some(501);
+        state.last_set_unit_command_id = Some(12);
+        state.received_set_unit_stance_count = 13;
+        state.last_set_unit_stance_count = 5;
+        state.last_set_unit_stance_first_unit_id = Some(502);
+        state.last_set_unit_stance_id = Some(14);
+        state.last_set_unit_stance_enable = Some(false);
+        state.received_rotate_block_count = 15;
+        state.last_rotate_block_build_pos = Some(pack_runtime_point2(11, 12));
+        state.last_rotate_block_direction = Some(true);
+        state.received_transfer_inventory_count = 16;
+        state.last_transfer_inventory_build_pos = Some(pack_runtime_point2(13, 14));
+        state.received_request_build_payload_count = 17;
+        state.last_request_build_payload_build_pos = Some(pack_runtime_point2(15, 16));
+        state.received_request_drop_payload_count = 18;
+        state.last_request_drop_payload_x_bits = Some(5.0f32.to_bits());
+        state.last_request_drop_payload_y_bits = Some(6.0f32.to_bits());
+        state.received_request_unit_payload_count = 19;
+        state.last_request_unit_payload_target = Some(crate::session_state::UnitRefProjection {
+            kind: 1,
+            value: 700,
+        });
+        state.received_drop_item_count = 20;
+        state.last_drop_item_angle_bits = Some(7.0f32.to_bits());
+        state.received_delete_plans_count = 21;
+        state.last_delete_plans_count = 6;
+        state.last_delete_plans_first_pos = Some(pack_runtime_point2(17, 18));
+        state.received_tile_tap_count = 22;
+        state.last_tile_tap_pos = Some(pack_runtime_point2(19, 20));
+
+        assert_eq!(
+            runtime_command_control_label(&state),
+            "spte1@t9:mc2@300/4:tir3@301#len5:ri4@1:2#6x7:bcs5@3:4:ucl6:uct7@2:88:ubcs8@1:77/5:6:cb9@n2:7:8->0x3f800000:0x40000000:cu10@n3:u500:b9:10:t2:600:p0x40400000:0x40800000:q0:f1:suc11@n4:u501:c12:sus13@n5:u502:s14:e0:rot15@11:12:d1:tinv16@13:14:rbp17@15:16:rdp18@0x40a00000:0x40c00000:rup19@1:700:drop20@0x40e00000:dpl21@n6:17:18:tap22@19:20"
         );
     }
 }

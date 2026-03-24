@@ -45,6 +45,12 @@ impl AsciiScenePresenter {
             out.push_str(&format!("WAVE: {wave_text}\n"));
         }
         out.push_str(&format!("STATUS: {}\n", hud.status_text));
+        if let Some(summary_text) = compose_hud_summary_text(hud) {
+            out.push_str(&format!("SUMMARY: {summary_text}\n"));
+        }
+        if let Some(runtime_ui_text) = compose_runtime_ui_text(hud) {
+            out.push_str(&format!("RUNTIME-UI: {runtime_ui_text}\n"));
+        }
         if let Some(summary_text) = hud
             .overlay_summary_text
             .as_deref()
@@ -172,10 +178,97 @@ fn sprite_for_id(id: &str) -> char {
     }
 }
 
+fn compose_hud_summary_text(hud: &HudModel) -> Option<String> {
+    let summary = hud.summary.as_ref()?;
+    Some(format!(
+        "player={} team={} selected={} plans={} markers={} map={}x{} overlay={} fog={} vis={} hid={}",
+        compact_runtime_ui_text(Some(summary.player_name.as_str())),
+        summary.team_id,
+        compact_runtime_ui_text(Some(summary.selected_block.as_str())),
+        summary.plan_count,
+        summary.marker_count,
+        summary.map_width,
+        summary.map_height,
+        if summary.overlay_visible { 1 } else { 0 },
+        if summary.fog_enabled { 1 } else { 0 },
+        summary.visible_tile_count,
+        summary.hidden_tile_count,
+    ))
+}
+
+fn compose_runtime_ui_text(hud: &HudModel) -> Option<String> {
+    let runtime_ui = hud.runtime_ui.as_ref()?;
+    let hud_text = &runtime_ui.hud_text;
+    let toast = &runtime_ui.toast;
+    let text_input = &runtime_ui.text_input;
+    Some(format!(
+        "hud={}/{}/{}@{}/{} toast={}/{}@{}/{} tin={}@{}:{}/{}/{}#{}:n{}:e{}",
+        hud_text.set_count,
+        hud_text.set_reliable_count,
+        hud_text.hide_count,
+        compact_runtime_ui_text(hud_text.last_message.as_deref()),
+        compact_runtime_ui_text(hud_text.last_reliable_message.as_deref()),
+        toast.info_count,
+        toast.warning_count,
+        compact_runtime_ui_text(toast.last_info_message.as_deref()),
+        compact_runtime_ui_text(toast.last_warning_text.as_deref()),
+        text_input.open_count,
+        optional_i32_label(text_input.last_id),
+        compact_runtime_ui_text(text_input.last_title.as_deref()),
+        compact_runtime_ui_text(text_input.last_message.as_deref()),
+        compact_runtime_ui_text(text_input.last_default_text.as_deref()),
+        text_input.last_length.unwrap_or_default(),
+        optional_bool_label(text_input.last_numeric),
+        optional_bool_label(text_input.last_allow_empty),
+    ))
+}
+
+fn compact_runtime_ui_text(value: Option<&str>) -> String {
+    match value {
+        Some(value) => {
+            let mut compact = String::new();
+            for (index, ch) in value.chars().enumerate() {
+                if index == 12 {
+                    compact.push('~');
+                    break;
+                }
+                compact.push(match ch {
+                    ':' | ' ' | '\t' | '\r' | '\n' => '_',
+                    _ => ch,
+                });
+            }
+            if compact.is_empty() {
+                "-".to_string()
+            } else {
+                compact
+            }
+        }
+        None => "none".to_string(),
+    }
+}
+
+fn optional_i32_label(value: Option<i32>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "none".to_string())
+}
+
+fn optional_bool_label(value: Option<bool>) -> char {
+    match value {
+        Some(true) => '1',
+        Some(false) => '0',
+        None => 'n',
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::AsciiScenePresenter;
-    use crate::{project_scene_models, RenderModel, RenderObject, ScenePresenter, Viewport};
+    use crate::{
+        hud_model::HudSummary, project_scene_models, HudModel, RenderModel, RenderObject,
+        RuntimeHudTextObservability, RuntimeTextInputObservability,
+        RuntimeToastObservability, RuntimeUiObservability, ScenePresenter, Viewport,
+    };
     use mdt_world::parse_world_bundle;
 
     #[test]
@@ -274,7 +367,7 @@ mod tests {
                 },
             ],
         };
-        let hud = crate::HudModel::default();
+        let hud = HudModel::default();
         let mut presenter = AsciiScenePresenter::with_max_view_tiles(4, 4);
 
         presenter.present(&scene, &hud);
@@ -290,7 +383,7 @@ mod tests {
 
     #[test]
     fn ascii_presenter_keeps_crop_stable_around_half_tile_player_motion() {
-        let hud = crate::HudModel::default();
+        let hud = HudModel::default();
         let mut presenter = AsciiScenePresenter::with_max_view_tiles(4, 4);
         let base_scene = RenderModel {
             viewport: Viewport {
@@ -337,6 +430,73 @@ mod tests {
         assert_eq!(super::sprite_for_id("build-plan:1"), 'P');
         assert_eq!(super::sprite_for_id("building:1:2"), '#');
         assert_eq!(super::sprite_for_id("tile:1"), '.');
+    }
+
+    #[test]
+    fn ascii_presenter_emits_structured_summary_and_runtime_ui_lines() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 8.0,
+                height: 8.0,
+                zoom: 1.0,
+            },
+            objects: Vec::new(),
+        };
+        let hud = HudModel {
+            title: "demo".to_string(),
+            wave_text: Some("Wave 3".to_string()),
+            status_text: "base".to_string(),
+            overlay_summary_text: Some("Plans 2".to_string()),
+            fps: None,
+            summary: Some(HudSummary {
+                player_name: "operator".to_string(),
+                team_id: 2,
+                selected_block: "payload-router".to_string(),
+                plan_count: 3,
+                marker_count: 4,
+                map_width: 80,
+                map_height: 60,
+                overlay_visible: true,
+                fog_enabled: true,
+                visible_tile_count: 120,
+                hidden_tile_count: 24,
+            }),
+            runtime_ui: Some(RuntimeUiObservability {
+                hud_text: RuntimeHudTextObservability {
+                    set_count: 9,
+                    set_reliable_count: 10,
+                    hide_count: 11,
+                    last_message: Some("hud text".to_string()),
+                    last_reliable_message: Some("hud rel".to_string()),
+                },
+                toast: RuntimeToastObservability {
+                    info_count: 14,
+                    warning_count: 15,
+                    last_info_message: Some("toast".to_string()),
+                    last_warning_text: Some("warn".to_string()),
+                },
+                text_input: RuntimeTextInputObservability {
+                    open_count: 53,
+                    last_id: Some(404),
+                    last_title: Some("Digits".to_string()),
+                    last_message: Some("Only numbers".to_string()),
+                    last_default_text: Some("12345".to_string()),
+                    last_length: Some(16),
+                    last_numeric: Some(true),
+                    last_allow_empty: Some(true),
+                },
+            }),
+        };
+        let mut presenter = AsciiScenePresenter::default();
+
+        presenter.present(&scene, &hud);
+
+        let frame = presenter.last_frame();
+        assert!(frame.contains("SUMMARY: player=operator team=2 selected=payload-rout~"));
+        assert!(frame.contains("map=80x60 overlay=1 fog=1 vis=120 hid=24"));
+        assert!(frame.contains("RUNTIME-UI: hud=9/10/11@hud_text/hud_rel"));
+        assert!(frame.contains("toast=14/15@toast/warn"));
+        assert!(frame.contains("tin=53@404:Digits/Only_numbers"));
     }
 
     fn decode_hex(text: &str) -> Vec<u8> {

@@ -1,5 +1,6 @@
 use crate::{
-    render_model::RenderObjectSemanticKind, HudModel, RenderModel, RenderObject,
+    hud_model::HudSummary, render_model::RenderObjectSemanticKind, HudModel, RenderModel,
+    RenderObject,
     RuntimeUiObservability, ScenePresenter,
 };
 use minifb::{Scale, Window, WindowOptions};
@@ -443,20 +444,36 @@ fn compose_window_title(frame: &WindowFrame, title_prefix: &str) -> String {
 }
 
 fn compose_frame_status_text(hud: &HudModel) -> String {
-    let Some(runtime_ui) = hud.runtime_ui.as_ref() else {
-        return hud.status_text.clone();
-    };
-
-    let runtime_ui_text = compose_runtime_ui_status_text(runtime_ui);
-    if runtime_ui_text.is_empty() {
-        return hud.status_text.clone();
+    let mut parts = Vec::new();
+    if !hud.status_text.is_empty() {
+        parts.push(hud.status_text.clone());
     }
-
-    if hud.status_text.is_empty() {
-        runtime_ui_text
-    } else {
-        format!("{} {}", hud.status_text, runtime_ui_text)
+    if let Some(summary) = hud.summary.as_ref() {
+        parts.push(compose_hud_summary_status_text(summary));
     }
+    if let Some(runtime_ui) = hud.runtime_ui.as_ref() {
+        let runtime_ui_text = compose_runtime_ui_status_text(runtime_ui);
+        if !runtime_ui_text.is_empty() {
+            parts.push(runtime_ui_text);
+        }
+    }
+    parts.join(" ")
+}
+
+fn compose_hud_summary_status_text(summary: &HudSummary) -> String {
+    format!(
+        "hud:team={} sel={} plans={} mk={} map={}x{} ov{} fg{} vis{} hid{}",
+        summary.team_id,
+        compact_runtime_ui_text(Some(summary.selected_block.as_str())),
+        summary.plan_count,
+        summary.marker_count,
+        summary.map_width,
+        summary.map_height,
+        if summary.overlay_visible { 1 } else { 0 },
+        if summary.fog_enabled { 1 } else { 0 },
+        summary.visible_tile_count,
+        summary.hidden_tile_count,
+    )
 }
 
 fn compose_runtime_ui_status_text(runtime_ui: &RuntimeUiObservability) -> String {
@@ -566,7 +583,7 @@ mod tests {
         COLOR_RUNTIME, COLOR_TERRAIN, COLOR_UNKNOWN,
     };
     use crate::{
-        HudModel, RenderModel, RenderObject, RuntimeHudTextObservability,
+        hud_model::HudSummary, HudModel, RenderModel, RenderObject, RuntimeHudTextObservability,
         RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiObservability, Viewport,
     };
 
@@ -875,7 +892,7 @@ mod tests {
     }
 
     #[test]
-    fn present_once_appends_runtime_ui_slice_to_frame_status_text() {
+    fn present_once_appends_structured_hud_slices_to_frame_status_text() {
         let backend = RecordingBackend::default();
         let mut presenter = WindowPresenter::new(backend);
         let scene = RenderModel {
@@ -892,7 +909,19 @@ mod tests {
             status_text: "base".to_string(),
             overlay_summary_text: Some("Plans 1".to_string()),
             fps: None,
-            summary: None,
+            summary: Some(HudSummary {
+                player_name: "operator".to_string(),
+                team_id: 2,
+                selected_block: "payload-router".to_string(),
+                plan_count: 3,
+                marker_count: 4,
+                map_width: 80,
+                map_height: 60,
+                overlay_visible: true,
+                fog_enabled: true,
+                visible_tile_count: 120,
+                hidden_tile_count: 24,
+            }),
             runtime_ui: Some(RuntimeUiObservability {
                 hud_text: RuntimeHudTextObservability {
                     set_count: 9,
@@ -927,6 +956,9 @@ mod tests {
         assert_eq!(frame.wave_text.as_deref(), Some("Wave 7"));
         assert_eq!(frame.overlay_summary_text.as_deref(), Some("Plans 1"));
         assert!(frame.status_text.starts_with("base "));
+        assert!(frame
+            .status_text
+            .contains("hud:team=2 sel=payload-rout~ plans=3 mk=4 map=80x60 ov1 fg1 vis120 hid24"));
         assert!(frame
             .status_text
             .contains("ui:hud=9/10/11@hud_text/hud_rel"));
