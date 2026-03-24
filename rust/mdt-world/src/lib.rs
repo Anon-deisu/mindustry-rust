@@ -40066,6 +40066,40 @@ mod tests {
     }
 
     #[test]
+    fn msav_post_load_world_executes_runtime_apply_for_save11_regions() {
+        let save = parse_msav_save(&sample_msav_post_load_save11_bytes()).unwrap();
+        let post_load = save.post_load_world().unwrap();
+        let execution = post_load.execute_runtime_apply();
+        let shell = execution.world_shell.as_ref().unwrap();
+
+        assert!(execution.has_world_shell());
+        assert_eq!(execution.failed_step_count(), 0);
+        assert!(execution.issues.is_empty());
+        assert!(execution.executed_step_count() > 0);
+        assert_eq!(
+            execution.entity_remaps.len(),
+            execution.entity_remaps_by_custom_id.len()
+        );
+        assert_eq!(
+            execution.custom_chunks.len(),
+            execution.custom_chunks_by_name.len()
+        );
+        assert_eq!(
+            shell.team_plans.len(),
+            shell.team_plans_by_team.values().map(Vec::len).sum::<usize>()
+        );
+        assert_eq!(shell.markers.len(), shell.markers_by_id.len());
+        assert_eq!(
+            shell.buildings.len(),
+            shell.buildings_by_center_index.len()
+        );
+        assert_eq!(
+            shell.loadable_entities.len(),
+            shell.loadable_entities_by_id.len()
+        );
+    }
+
+    #[test]
     fn msav_post_load_world_exposes_graph_overlay_queries() {
         let save = parse_msav_save(&sample_msav_post_load_save11_bytes()).unwrap();
         let post_load = save.post_load_world().unwrap();
