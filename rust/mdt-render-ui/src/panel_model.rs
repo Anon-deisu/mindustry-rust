@@ -208,6 +208,25 @@ pub struct BuildInteractionPanelModel {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuildMinimapAssistPanelModel {
+    pub mode: BuildInteractionMode,
+    pub selection_state: BuildInteractionSelectionState,
+    pub queue_state: BuildInteractionQueueState,
+    pub place_ready: bool,
+    pub config_family_count: usize,
+    pub config_sample_count: usize,
+    pub top_config_family: Option<String>,
+    pub authority_state: BuildInteractionAuthorityState,
+    pub focus_tile: Option<(usize, usize)>,
+    pub focus_in_window: Option<bool>,
+    pub visible_map_percent: usize,
+    pub unknown_tile_percent: usize,
+    pub window_coverage_percent: usize,
+    pub tracked_object_count: usize,
+    pub runtime_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeUiNoticePanelModel {
     pub hud_set_count: u64,
     pub hud_set_reliable_count: u64,
@@ -800,6 +819,32 @@ pub fn build_build_interaction_panel(hud: &HudModel) -> Option<BuildInteractionP
             .rollback_strip
             .last_configured_block_name
             .clone(),
+        })
+}
+
+pub fn build_build_minimap_assist_panel(
+    scene: &RenderModel,
+    hud: &HudModel,
+    window: PresenterViewWindow,
+) -> Option<BuildMinimapAssistPanelModel> {
+    let interaction = build_build_interaction_panel(hud)?;
+    let minimap = build_minimap_panel(scene, hud, window)?;
+    Some(BuildMinimapAssistPanelModel {
+        mode: interaction.mode,
+        selection_state: interaction.selection_state,
+        queue_state: interaction.queue_state,
+        place_ready: interaction.place_ready,
+        config_family_count: interaction.config_family_count,
+        config_sample_count: interaction.config_sample_count,
+        top_config_family: interaction.top_config_family,
+        authority_state: interaction.authority_state,
+        focus_tile: minimap.focus_tile,
+        focus_in_window: minimap.focus_in_window,
+        visible_map_percent: minimap.visible_map_percent(),
+        unknown_tile_percent: minimap.unknown_tile_percent,
+        window_coverage_percent: minimap.window_coverage_percent,
+        tracked_object_count: minimap.tracked_object_count,
+        runtime_count: minimap.runtime_count,
     })
 }
 
@@ -1232,15 +1277,16 @@ fn resolve_presenter_window(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_build_config_panel, build_build_interaction_panel, build_hud_status_panel,
-        build_hud_visibility_panel, build_minimap_panel, build_runtime_admin_panel,
-        build_runtime_chat_panel, build_runtime_command_mode_panel, build_runtime_dialog_panel,
-        build_runtime_kick_panel, build_runtime_live_effect_panel, build_runtime_live_entity_panel,
-        build_runtime_loading_panel, build_runtime_menu_panel, build_runtime_reconnect_panel,
-        build_runtime_rules_panel, build_runtime_session_panel, build_runtime_ui_notice_panel,
-        build_runtime_world_label_panel, BuildInteractionAuthorityState, BuildInteractionMode,
-        BuildInteractionQueueState, BuildInteractionSelectionState, PresenterViewWindow,
-        RuntimeDialogNoticeKind, RuntimeDialogPromptKind, RuntimeWorldLabelPanelModel,
+        build_build_config_panel, build_build_interaction_panel, build_build_minimap_assist_panel,
+        build_hud_status_panel, build_hud_visibility_panel, build_minimap_panel,
+        build_runtime_admin_panel, build_runtime_chat_panel, build_runtime_command_mode_panel,
+        build_runtime_dialog_panel, build_runtime_kick_panel, build_runtime_live_effect_panel,
+        build_runtime_live_entity_panel, build_runtime_loading_panel, build_runtime_menu_panel,
+        build_runtime_reconnect_panel, build_runtime_rules_panel, build_runtime_session_panel,
+        build_runtime_ui_notice_panel, build_runtime_world_label_panel,
+        BuildInteractionAuthorityState, BuildInteractionMode, BuildInteractionQueueState,
+        BuildInteractionSelectionState, PresenterViewWindow, RuntimeDialogNoticeKind,
+        RuntimeDialogPromptKind, RuntimeWorldLabelPanelModel,
     };
     use crate::{
         hud_model::{
@@ -1613,6 +1659,137 @@ mod tests {
         assert!(!panel.config_available);
         assert_eq!(panel.config_family_count, 0);
         assert_eq!(panel.authority_state, BuildInteractionAuthorityState::None);
+    }
+
+    #[test]
+    fn builds_build_minimap_assist_panel_from_interaction_and_minimap_panels() {
+        let scene = RenderModel {
+            viewport: crate::Viewport {
+                width: 16.0,
+                height: 16.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: "player:1".to_string(),
+                    layer: 0,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "terrain:2".to_string(),
+                    layer: 0,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "unknown".to_string(),
+                    layer: 0,
+                    x: 0.0,
+                    y: 0.0,
+                },
+            ],
+        };
+        let hud = HudModel {
+            summary: Some(HudSummary {
+                player_name: "operator".to_string(),
+                team_id: 2,
+                selected_block: "payload-router".to_string(),
+                plan_count: 3,
+                marker_count: 4,
+                map_width: 80,
+                map_height: 60,
+                overlay_visible: false,
+                fog_enabled: false,
+                visible_tile_count: 0,
+                hidden_tile_count: 0,
+            }),
+            build_ui: Some(BuildUiObservability {
+                selected_block_id: Some(301),
+                selected_rotation: 1,
+                building: true,
+                queued_count: 2,
+                inflight_count: 1,
+                finished_count: 4,
+                removed_count: 5,
+                orphan_authoritative_count: 6,
+                head: Some(BuildQueueHeadObservability {
+                    x: 10,
+                    y: 12,
+                    breaking: false,
+                    block_id: Some(301),
+                    rotation: Some(1),
+                    stage: BuildQueueHeadStage::Queued,
+                }),
+                rollback_strip: BuildConfigRollbackStripObservability {
+                    applied_authoritative_count: 4,
+                    rollback_count: 2,
+                    last_build_tile: Some((10, 12)),
+                    last_business_applied: true,
+                    last_cleared_pending_local: false,
+                    last_was_rollback: false,
+                    last_pending_local_match: Some(true),
+                    last_source: Some(BuildConfigAuthoritySourceObservability::TileConfig),
+                    last_configured_outcome: Some(
+                        BuildConfigOutcomeObservability::RejectedMissingBuilding,
+                    ),
+                    last_configured_block_name: Some("gamma".to_string()),
+                },
+                inspector_entries: vec![
+                    BuildConfigInspectorEntryObservability {
+                        family: "alpha".to_string(),
+                        tracked_count: 1,
+                        sample: "one".to_string(),
+                    },
+                    BuildConfigInspectorEntryObservability {
+                        family: "gamma".to_string(),
+                        tracked_count: 4,
+                        sample: "four".to_string(),
+                    },
+                    BuildConfigInspectorEntryObservability {
+                        family: "beta".to_string(),
+                        tracked_count: 2,
+                        sample: "two".to_string(),
+                    },
+                ],
+            }),
+            ..HudModel::default()
+        };
+
+        let panel = build_build_minimap_assist_panel(
+            &scene,
+            &hud,
+            PresenterViewWindow {
+                origin_x: 0,
+                origin_y: 0,
+                width: 2,
+                height: 2,
+            },
+        )
+        .expect("expected build minimap assist panel");
+
+        assert_eq!(panel.mode, BuildInteractionMode::Place);
+        assert_eq!(
+            panel.selection_state,
+            BuildInteractionSelectionState::HeadAligned
+        );
+        assert_eq!(panel.queue_state, BuildInteractionQueueState::Mixed);
+        assert!(panel.place_ready);
+        assert_eq!(panel.config_family_count, 3);
+        assert_eq!(panel.config_sample_count, 7);
+        assert_eq!(panel.top_config_family.as_deref(), Some("gamma"));
+        assert_eq!(
+            panel.authority_state,
+            BuildInteractionAuthorityState::RejectedMissingBuilding
+        );
+        assert_eq!(panel.focus_tile, Some((0, 0)));
+        assert_eq!(panel.focus_in_window, Some(true));
+        assert_eq!(panel.visible_map_percent, 0);
+        assert_eq!(panel.unknown_tile_percent, 100);
+        assert_eq!(panel.window_coverage_percent, 0);
+        assert_eq!(panel.tracked_object_count, 3);
+        assert_eq!(panel.runtime_count, 0);
     }
 
     #[test]

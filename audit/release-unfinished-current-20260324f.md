@@ -1,6 +1,6 @@
 # Release Unfinished Current (2026-03-24f)
 
-Purpose: give later subagents a short, current, conflict-aware list of what is still unfinished after the latest M6-M9 parity slices landed.
+Purpose: give later subagents a short, current, conflict-aware list of what is still unfinished after the latest M6-M9/U5 parity slices landed.
 
 ## Do Not Re-Do
 
@@ -58,6 +58,9 @@ These are already landed and should not be re-opened as if missing:
 - `mdt-world` consumer-side post-load apply plan helper is now also landed.
   - `SavePostLoadConsumerApplyPlan::consumer_apply_plan()` now turns the stricter contract/activation/seed surfaces into a deterministic consumer-stage plan with explicit blocker reasons (`contract issue`, duplicate `entity_id`, invalid building-center refs, skipped entity)
   - remaining `M7-3` work is still wiring that passive plan into real runtime/world ownership, not re-adding this consumer-side helper layer
+- `mdt-world` consumer-runtime stage helper is now also landed.
+  - `consumer_runtime_helper()` now classifies each post-load consumer stage as `ApplyNow` / `AwaitingWorldShell` / `Blocked` / `Deferred`, preserves blocker reasons per stage, and exposes apply/await/block/defer step counts for later runtime owners
+  - remaining `M7-3` work is still real runtime/world ownership and stage execution, not re-adding this passive runtime-readiness helper
 - `mdt-typeio` raw `WeaponMount[]` codec is already landed.
   - remaining non-object codec gap is now more about `abilities/status` and wider unit-sync families than mounts specifically
 - `mdt-render-ui` runtime dialog summary is already landed.
@@ -119,11 +122,17 @@ These are already landed and should not be re-opened as if missing:
 - `mdt-render-ui` presenter-local HUD/chat/menu/dialog/minimap detail rows are now landed.
   - panel/window/ascii presenters now expose `HUD-DETAIL`, `MINIMAP-*DETAIL`, `RUNTIME-MENU-DETAIL`, `RUNTIME-DIALOG-DETAIL`, and `RUNTIME-CHAT-DETAIL` rows derived from existing runtime observability instead of only coarse summary rows
   - remaining `M9` work is still interactive UI/user-flow depth, not re-adding this presenter-local detail slice
+- `mdt-render-ui` build/minimap assist presenter slice is now landed.
+  - panel/window presenters now expose `BuildMinimapAssistPanelModel` and `BUILD-MINIMAP-AUX` rows that combine build head/reconcile/config/auth/runtime hints into a single deterministic presenter-local summary
+  - remaining `M9` work is still broader interactive UI and renderer/runtime parity, not re-adding this presenter-local assist summary slice
 - typed building runtime apply state is now landed as a separate persistent layer.
   - `SessionState` now keeps `runtime_typed_building_apply_projection` with fallback to the computed typed join when tests/setup mutate only raw tables
   - typed building models now carry already parsed base/head/turret fields (`rotation/team/io_version/module/time-scale/health/enabled/efficiency/visible_flags/build-turret summary`) in addition to the configured domain value
   - `client_session` now refreshes that layer from loaded-world tail/business folds, authoritative `constructFinish` / `tileConfig` / `buildHealthUpdate`, `deconstructFinish` / `removeTile`, and `worldDataBegin` clear, and `render_runtime` build inspector now consumes that runtime-owned projection instead of rebuilding only from the raw table join at the callsite
   - remaining `U3` work is still broader family depth and true Java-like `tile.build.readSync(..., version)` runtime ownership, not re-adding this first persistent typed building apply layer
+- narrow `effect_id=142` `drop_item` executor wiring is now landed.
+  - `effect_contract(Some(142))` now resolves to `drop_item`, and the runtime effect executor projects the overlay origin forward along rotation with fixed-length `dropItem` behavior instead of leaving it as a generic item-content packet summary
+  - remaining `U5` work is still landing additional narrow `effect_id -> contract/executor` families, not re-adding this first `drop_item` slice
 
 ## Highest-Confidence Remaining Lanes
 
@@ -186,7 +195,7 @@ Write scope:
 ### U5 `effect` executor / contract table depth
 
 Remaining gap:
-- Rust has bounded runtime overlays and several contract-aware projections, but still not Java `Effect`-executor semantics.
+- Rust has bounded runtime overlays, several contract-aware projections, and a first narrow `effect_id=142 -> drop_item` executor slice, but still not Java `Effect`-executor semantics.
 
 Best bounded next slice:
 - add one narrow `effect_id -> contract/executor` family at a time

@@ -189,9 +189,10 @@ mod tests {
     use crate::{
         BuildingBaseSnapshot, BuildingCenter, BuildingSnapshot, CustomChunkEntry, MarkerEntry,
         MarkerModel, ParsedCustomChunk, PointMarkerModel, SaveEntityChunkObservation,
-        SaveEntityPostLoadSummary, SaveEntityRemapSummary, SaveMapRegionObservation,
-        SavePostLoadWorldObservation, StaticFogChunk, StaticFogTeam, TeamPlan, TeamPlanGroup,
-        TileModel, TypeIoValue, WorldModel,
+        SaveEntityClassKind, SaveEntityClassSummary, SaveEntityPostLoadClassSummary,
+        SaveEntityPostLoadKind, SaveEntityPostLoadSummary, SaveEntityRemapSummary,
+        SaveMapRegionObservation, SavePostLoadWorldObservation, StaticFogChunk, StaticFogTeam,
+        TeamPlan, TeamPlanGroup, TileModel, TypeIoValue, WorldModel,
     };
 
     #[test]
@@ -394,10 +395,51 @@ mod tests {
                 builtin_entities: 1,
                 custom_entities: 2,
                 unknown_entities: 0,
-                class_summaries: Vec::new(),
+                class_summaries: vec![
+                    SaveEntityClassSummary {
+                        class_id: 4,
+                        kind: SaveEntityClassKind::Builtin,
+                        resolved_name: "mace".to_string(),
+                        count: 1,
+                    },
+                    SaveEntityClassSummary {
+                        class_id: 254,
+                        kind: SaveEntityClassKind::Custom,
+                        resolved_name: "mod-unit".to_string(),
+                        count: 1,
+                    },
+                    SaveEntityClassSummary {
+                        class_id: 255,
+                        kind: SaveEntityClassKind::Custom,
+                        resolved_name: "flare".to_string(),
+                        count: 1,
+                    },
+                ],
                 loadable_entities: 2,
                 skipped_entities: 1,
-                post_load_class_summaries: Vec::new(),
+                post_load_class_summaries: vec![
+                    SaveEntityPostLoadClassSummary {
+                        source_class_ids: vec![4],
+                        effective_class_id: Some(4),
+                        kind: SaveEntityPostLoadKind::Builtin,
+                        resolved_name: "mace".to_string(),
+                        count: 1,
+                    },
+                    SaveEntityPostLoadClassSummary {
+                        source_class_ids: vec![255],
+                        effective_class_id: Some(3),
+                        kind: SaveEntityPostLoadKind::RemappedBuiltin,
+                        resolved_name: "flare".to_string(),
+                        count: 1,
+                    },
+                    SaveEntityPostLoadClassSummary {
+                        source_class_ids: vec![254],
+                        effective_class_id: None,
+                        kind: SaveEntityPostLoadKind::UnresolvedCustom,
+                        resolved_name: "unresolved:mod-unit".to_string(),
+                        count: 1,
+                    },
+                ],
             },
         }
     }

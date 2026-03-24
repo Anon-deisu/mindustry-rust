@@ -44,6 +44,39 @@ pub struct SavePostLoadConsumerApplyPlan {
     pub blockers: Vec<SavePostLoadConsumerBlocker>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SavePostLoadConsumerRuntimeDisposition {
+    ApplyNow,
+    AwaitingWorldShell,
+    Blocked,
+    Deferred,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SavePostLoadConsumerRuntimeStageHelper {
+    pub kind: SavePostLoadConsumerStageKind,
+    pub step_count: usize,
+    pub disposition: SavePostLoadConsumerRuntimeDisposition,
+    pub blockers: Vec<SavePostLoadConsumerBlocker>,
+}
+
+impl SavePostLoadConsumerRuntimeStageHelper {
+    pub fn has_blockers(&self) -> bool {
+        !self.blockers.is_empty()
+    }
+
+    pub fn can_apply_now(&self) -> bool {
+        self.step_count > 0 && self.disposition == SavePostLoadConsumerRuntimeDisposition::ApplyNow
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SavePostLoadConsumerRuntimeHelper {
+    pub can_seed_runtime_apply: bool,
+    pub world_shell_ready: bool,
+    pub stages: Vec<SavePostLoadConsumerRuntimeStageHelper>,
+}
+
 impl SavePostLoadConsumerApplyPlan {
     pub fn has_blockers(&self) -> bool {
         !self.blockers.is_empty()
@@ -68,11 +101,76 @@ impl SavePostLoadConsumerApplyPlan {
             .map(|stage| stage.step_count)
             .sum()
     }
+
+    pub fn consumer_runtime_helper(&self) -> SavePostLoadConsumerRuntimeHelper {
+        let world_shell_ready =
+            stage_blockers(self, SavePostLoadConsumerStageKind::WorldShell).is_empty();
+        let stages = self
+            .stages
+            .iter()
+            .map(|stage| {
+                let blockers = stage_blockers(self, stage.kind);
+                let disposition = if stage.deferred {
+                    SavePostLoadConsumerRuntimeDisposition::Deferred
+                } else if !blockers.is_empty() {
+                    SavePostLoadConsumerRuntimeDisposition::Blocked
+                } else if stage_requires_world_shell(stage.kind) && !world_shell_ready {
+                    SavePostLoadConsumerRuntimeDisposition::AwaitingWorldShell
+                } else {
+                    SavePostLoadConsumerRuntimeDisposition::ApplyNow
+                };
+
+                SavePostLoadConsumerRuntimeStageHelper {
+                    kind: stage.kind,
+                    step_count: stage.step_count,
+                    disposition,
+                    blockers,
+                }
+            })
+            .collect();
+
+        SavePostLoadConsumerRuntimeHelper {
+            can_seed_runtime_apply: self.can_seed_runtime_apply,
+            world_shell_ready,
+            stages,
+        }
+    }
+}
+
+impl SavePostLoadConsumerRuntimeHelper {
+    pub fn has_blocked_stages(&self) -> bool {
+        self.stages
+            .iter()
+            .any(|stage| stage.disposition == SavePostLoadConsumerRuntimeDisposition::Blocked)
+    }
+
+    pub fn apply_now_step_count(&self) -> usize {
+        runtime_step_count(self, SavePostLoadConsumerRuntimeDisposition::ApplyNow)
+    }
+
+    pub fn awaiting_world_shell_step_count(&self) -> usize {
+        runtime_step_count(
+            self,
+            SavePostLoadConsumerRuntimeDisposition::AwaitingWorldShell,
+        )
+    }
+
+    pub fn blocked_step_count(&self) -> usize {
+        runtime_step_count(self, SavePostLoadConsumerRuntimeDisposition::Blocked)
+    }
+
+    pub fn deferred_step_count(&self) -> usize {
+        runtime_step_count(self, SavePostLoadConsumerRuntimeDisposition::Deferred)
+    }
 }
 
 impl SavePostLoadWorldObservation {
     pub fn consumer_apply_plan(&self) -> SavePostLoadConsumerApplyPlan {
         self.runtime_seed_plan().consumer_apply_plan()
+    }
+
+    pub fn consumer_runtime_helper(&self) -> SavePostLoadConsumerRuntimeHelper {
+        self.runtime_seed_plan().consumer_runtime_helper()
     }
 }
 
@@ -83,6 +181,10 @@ impl SavePostLoadRuntimeSeedPlan {
             stages: consumer_stages(self),
             blockers: consumer_blockers(self),
         }
+    }
+
+    pub fn consumer_runtime_helper(&self) -> SavePostLoadConsumerRuntimeHelper {
+        self.consumer_apply_plan().consumer_runtime_helper()
     }
 }
 
@@ -175,6 +277,121 @@ fn consumer_blockers(plan: &SavePostLoadRuntimeSeedPlan) -> Vec<SavePostLoadCons
     }));
 
     blockers
+}
+
+fn runtime_step_count(
+    helper: &SavePostLoadConsumerRuntimeHelper,
+    disposition: SavePostLoadConsumerRuntimeDisposition,
+) -> usize {
+    helper
+        .stages
+        .iter()
+        .filter(|stage| stage.disposition == disposition)
+        .map(|stage| stage.step_count)
+        .sum()
+}
+
+fn stage_requires_world_shell(kind: SavePostLoadConsumerStageKind) -> bool {
+    matches!(
+        kind,
+        SavePostLoadConsumerStageKind::TeamPlans
+            | SavePostLoadConsumerStageKind::Markers
+            | SavePostLoadConsumerStageKind::StaticFog
+            | SavePostLoadConsumerStageKind::Buildings
+            | SavePostLoadConsumerStageKind::LoadableEntities
+    )
+}
+
+fn stage_blockers(
+    plan: &SavePostLoadConsumerApplyPlan,
+    kind: SavePostLoadConsumerStageKind,
+) -> Vec<SavePostLoadConsumerBlocker> {
+    plan.blockers
+        .iter()
+        .filter(|blocker| blocker_blocks_stage(blocker, kind))
+        .cloned()
+        .collect()
+}
+
+fn blocker_blocks_stage(
+    blocker: &SavePostLoadConsumerBlocker,
+    kind: SavePostLoadConsumerStageKind,
+) -> bool {
+    match blocker {
+        SavePostLoadConsumerBlocker::ContractIssue(issue) => {
+            contract_issue_blocks_world_shell(*issue)
+                && kind == SavePostLoadConsumerStageKind::WorldShell
+                || contract_issue_blocks_stage(*issue, kind)
+        }
+        SavePostLoadConsumerBlocker::DuplicateEntityId(_) => {
+            kind == SavePostLoadConsumerStageKind::LoadableEntities
+        }
+        SavePostLoadConsumerBlocker::InvalidBuildingReference { .. } => {
+            kind == SavePostLoadConsumerStageKind::Buildings
+        }
+        SavePostLoadConsumerBlocker::SkippedEntity { .. } => {
+            kind == SavePostLoadConsumerStageKind::SkippedEntities
+        }
+    }
+}
+
+fn contract_issue_blocks_world_shell(issue: SavePostLoadWorldIssue) -> bool {
+    matches!(
+        issue,
+        SavePostLoadWorldIssue::EmptyWorldGraph
+            | SavePostLoadWorldIssue::TileSurfaceCountMismatch
+            | SavePostLoadWorldIssue::TileSurfaceIndexMismatch
+            | SavePostLoadWorldIssue::BuildingCenterReferenceMismatch
+            | SavePostLoadWorldIssue::TeamPlanOverlayMismatch
+            | SavePostLoadWorldIssue::TeamPlanOutOfBounds
+            | SavePostLoadWorldIssue::MarkerRegionMismatch
+            | SavePostLoadWorldIssue::MarkerOutOfBounds
+            | SavePostLoadWorldIssue::StaticFogDimensionMismatch
+            | SavePostLoadWorldIssue::StaticFogCoverageMismatch
+            | SavePostLoadWorldIssue::WorldEntityCountMismatch
+            | SavePostLoadWorldIssue::DuplicateWorldEntityIds
+            | SavePostLoadWorldIssue::EntitySummaryMismatch
+    )
+}
+
+fn contract_issue_blocks_stage(
+    issue: SavePostLoadWorldIssue,
+    kind: SavePostLoadConsumerStageKind,
+) -> bool {
+    matches!(
+        (issue, kind),
+        (
+            SavePostLoadWorldIssue::BuildingCenterReferenceMismatch,
+            SavePostLoadConsumerStageKind::Buildings,
+        ) | (
+            SavePostLoadWorldIssue::TeamPlanOverlayMismatch,
+            SavePostLoadConsumerStageKind::TeamPlans,
+        ) | (
+            SavePostLoadWorldIssue::TeamPlanOutOfBounds,
+            SavePostLoadConsumerStageKind::TeamPlans,
+        ) | (
+            SavePostLoadWorldIssue::MarkerRegionMismatch,
+            SavePostLoadConsumerStageKind::Markers,
+        ) | (
+            SavePostLoadWorldIssue::MarkerOutOfBounds,
+            SavePostLoadConsumerStageKind::Markers,
+        ) | (
+            SavePostLoadWorldIssue::StaticFogDimensionMismatch,
+            SavePostLoadConsumerStageKind::StaticFog,
+        ) | (
+            SavePostLoadWorldIssue::StaticFogCoverageMismatch,
+            SavePostLoadConsumerStageKind::StaticFog,
+        ) | (
+            SavePostLoadWorldIssue::WorldEntityCountMismatch,
+            SavePostLoadConsumerStageKind::LoadableEntities,
+        ) | (
+            SavePostLoadWorldIssue::DuplicateWorldEntityIds,
+            SavePostLoadConsumerStageKind::LoadableEntities,
+        ) | (
+            SavePostLoadWorldIssue::EntitySummaryMismatch,
+            SavePostLoadConsumerStageKind::LoadableEntities,
+        )
+    )
 }
 
 #[cfg(test)]
@@ -344,6 +561,243 @@ mod tests {
                     entity_id: 43,
                     source_name: "mod-unit".to_string(),
                     effective_name: None,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn consumer_runtime_helper_marks_clean_stages_apply_now() {
+        let mut observation = test_observation();
+        observation.world_entity_chunks[1].class_id = 3;
+        observation.world_entity_chunks[1].custom_name = None;
+        observation
+            .entity_remap_summary
+            .unresolved_effective_names
+            .clear();
+        observation.entity_summary.loadable_entities = 3;
+        observation.entity_summary.skipped_entities = 0;
+        observation.entity_summary.builtin_entities = 2;
+        observation.entity_summary.custom_entities = 1;
+        observation.entity_summary.class_summaries = vec![
+            SaveEntityClassSummary {
+                class_id: 3,
+                kind: SaveEntityClassKind::Builtin,
+                resolved_name: "flare".to_string(),
+                count: 1,
+            },
+            SaveEntityClassSummary {
+                class_id: 4,
+                kind: SaveEntityClassKind::Builtin,
+                resolved_name: "mace".to_string(),
+                count: 1,
+            },
+            SaveEntityClassSummary {
+                class_id: 255,
+                kind: SaveEntityClassKind::Custom,
+                resolved_name: "flare".to_string(),
+                count: 1,
+            },
+        ];
+        observation.entity_summary.post_load_class_summaries = vec![
+            SaveEntityPostLoadClassSummary {
+                source_class_ids: vec![3],
+                effective_class_id: Some(3),
+                kind: SaveEntityPostLoadKind::Builtin,
+                resolved_name: "flare".to_string(),
+                count: 1,
+            },
+            SaveEntityPostLoadClassSummary {
+                source_class_ids: vec![4],
+                effective_class_id: Some(4),
+                kind: SaveEntityPostLoadKind::Builtin,
+                resolved_name: "mace".to_string(),
+                count: 1,
+            },
+            SaveEntityPostLoadClassSummary {
+                source_class_ids: vec![255],
+                effective_class_id: Some(3),
+                kind: SaveEntityPostLoadKind::RemappedBuiltin,
+                resolved_name: "flare".to_string(),
+                count: 1,
+            },
+        ];
+
+        let helper = observation.consumer_runtime_helper();
+
+        assert!(helper.can_seed_runtime_apply);
+        assert!(helper.world_shell_ready);
+        assert!(!helper.has_blocked_stages());
+        assert_eq!(helper.apply_now_step_count(), 14);
+        assert_eq!(helper.awaiting_world_shell_step_count(), 0);
+        assert_eq!(helper.blocked_step_count(), 0);
+        assert_eq!(helper.deferred_step_count(), 0);
+        assert_eq!(
+            helper
+                .stages
+                .iter()
+                .map(|stage| (stage.kind, stage.disposition, stage.blockers.len()))
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    SavePostLoadConsumerStageKind::WorldShell,
+                    SavePostLoadConsumerRuntimeDisposition::ApplyNow,
+                    0,
+                ),
+                (
+                    SavePostLoadConsumerStageKind::EntityRemaps,
+                    SavePostLoadConsumerRuntimeDisposition::ApplyNow,
+                    0,
+                ),
+                (
+                    SavePostLoadConsumerStageKind::TeamPlans,
+                    SavePostLoadConsumerRuntimeDisposition::ApplyNow,
+                    0,
+                ),
+                (
+                    SavePostLoadConsumerStageKind::Markers,
+                    SavePostLoadConsumerRuntimeDisposition::ApplyNow,
+                    0,
+                ),
+                (
+                    SavePostLoadConsumerStageKind::StaticFog,
+                    SavePostLoadConsumerRuntimeDisposition::ApplyNow,
+                    0,
+                ),
+                (
+                    SavePostLoadConsumerStageKind::CustomChunks,
+                    SavePostLoadConsumerRuntimeDisposition::ApplyNow,
+                    0,
+                ),
+                (
+                    SavePostLoadConsumerStageKind::Buildings,
+                    SavePostLoadConsumerRuntimeDisposition::ApplyNow,
+                    0,
+                ),
+                (
+                    SavePostLoadConsumerStageKind::LoadableEntities,
+                    SavePostLoadConsumerRuntimeDisposition::ApplyNow,
+                    0,
+                ),
+                (
+                    SavePostLoadConsumerStageKind::SkippedEntities,
+                    SavePostLoadConsumerRuntimeDisposition::Deferred,
+                    0,
+                ),
+            ]
+        );
+        assert!(helper
+            .stages
+            .iter()
+            .filter(|stage| stage.kind != SavePostLoadConsumerStageKind::SkippedEntities)
+            .all(SavePostLoadConsumerRuntimeStageHelper::can_apply_now));
+    }
+
+    #[test]
+    fn consumer_runtime_helper_splits_apply_now_blocked_and_awaiting_stages() {
+        let mut observation = test_observation();
+        observation.world_entity_chunks[2].entity_id = 42;
+        observation.entity_summary.duplicate_entity_ids = vec![42];
+        observation.entity_summary.unique_entity_ids = 2;
+        observation.map.world.tiles[0].building_center_index = None;
+
+        let helper = observation.runtime_seed_plan().consumer_runtime_helper();
+
+        assert!(!helper.can_seed_runtime_apply);
+        assert!(!helper.world_shell_ready);
+        assert!(helper.has_blocked_stages());
+        assert_eq!(helper.apply_now_step_count(), 4);
+        assert_eq!(helper.awaiting_world_shell_step_count(), 5);
+        assert_eq!(helper.blocked_step_count(), 4);
+        assert_eq!(helper.deferred_step_count(), 1);
+        assert_eq!(
+            helper.stages,
+            vec![
+                SavePostLoadConsumerRuntimeStageHelper {
+                    kind: SavePostLoadConsumerStageKind::WorldShell,
+                    step_count: 1,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::Blocked,
+                    blockers: vec![
+                        SavePostLoadConsumerBlocker::ContractIssue(
+                            SavePostLoadWorldIssue::BuildingCenterReferenceMismatch,
+                        ),
+                        SavePostLoadConsumerBlocker::ContractIssue(
+                            SavePostLoadWorldIssue::DuplicateWorldEntityIds,
+                        ),
+                        SavePostLoadConsumerBlocker::ContractIssue(
+                            SavePostLoadWorldIssue::EntitySummaryMismatch,
+                        ),
+                    ],
+                },
+                SavePostLoadConsumerRuntimeStageHelper {
+                    kind: SavePostLoadConsumerStageKind::EntityRemaps,
+                    step_count: 2,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::ApplyNow,
+                    blockers: Vec::new(),
+                },
+                SavePostLoadConsumerRuntimeStageHelper {
+                    kind: SavePostLoadConsumerStageKind::TeamPlans,
+                    step_count: 2,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::AwaitingWorldShell,
+                    blockers: Vec::new(),
+                },
+                SavePostLoadConsumerRuntimeStageHelper {
+                    kind: SavePostLoadConsumerStageKind::Markers,
+                    step_count: 2,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::AwaitingWorldShell,
+                    blockers: Vec::new(),
+                },
+                SavePostLoadConsumerRuntimeStageHelper {
+                    kind: SavePostLoadConsumerStageKind::StaticFog,
+                    step_count: 1,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::AwaitingWorldShell,
+                    blockers: Vec::new(),
+                },
+                SavePostLoadConsumerRuntimeStageHelper {
+                    kind: SavePostLoadConsumerStageKind::CustomChunks,
+                    step_count: 2,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::ApplyNow,
+                    blockers: Vec::new(),
+                },
+                SavePostLoadConsumerRuntimeStageHelper {
+                    kind: SavePostLoadConsumerStageKind::Buildings,
+                    step_count: 1,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::Blocked,
+                    blockers: vec![
+                        SavePostLoadConsumerBlocker::ContractIssue(
+                            SavePostLoadWorldIssue::BuildingCenterReferenceMismatch,
+                        ),
+                        SavePostLoadConsumerBlocker::InvalidBuildingReference {
+                            center_index: 0,
+                            tile_index: 0,
+                            block_id: 0x0153,
+                        },
+                    ],
+                },
+                SavePostLoadConsumerRuntimeStageHelper {
+                    kind: SavePostLoadConsumerStageKind::LoadableEntities,
+                    step_count: 2,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::Blocked,
+                    blockers: vec![
+                        SavePostLoadConsumerBlocker::ContractIssue(
+                            SavePostLoadWorldIssue::DuplicateWorldEntityIds,
+                        ),
+                        SavePostLoadConsumerBlocker::ContractIssue(
+                            SavePostLoadWorldIssue::EntitySummaryMismatch,
+                        ),
+                        SavePostLoadConsumerBlocker::DuplicateEntityId(42),
+                    ],
+                },
+                SavePostLoadConsumerRuntimeStageHelper {
+                    kind: SavePostLoadConsumerStageKind::SkippedEntities,
+                    step_count: 1,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::Deferred,
+                    blockers: vec![SavePostLoadConsumerBlocker::SkippedEntity {
+                        entity_index: 1,
+                        entity_id: 43,
+                        source_name: "mod-unit".to_string(),
+                        effective_name: None,
+                    }],
                 },
             ]
         );

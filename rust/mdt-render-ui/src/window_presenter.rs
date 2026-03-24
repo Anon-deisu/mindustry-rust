@@ -1,12 +1,13 @@
 use crate::{
     panel_model::{
-        build_build_config_panel, build_build_interaction_panel, build_hud_status_panel,
-        build_hud_visibility_panel, build_minimap_panel, build_runtime_admin_panel,
-        build_runtime_chat_panel, build_runtime_command_mode_panel, build_runtime_dialog_panel,
-        build_runtime_kick_panel, build_runtime_live_effect_panel, build_runtime_live_entity_panel,
-        build_runtime_loading_panel, build_runtime_menu_panel, build_runtime_reconnect_panel,
-        build_runtime_rules_panel, build_runtime_ui_notice_panel, build_runtime_world_label_panel,
-        PresenterViewWindow, RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
+        build_build_config_panel, build_build_interaction_panel, build_build_minimap_assist_panel,
+        build_hud_status_panel, build_hud_visibility_panel, build_minimap_panel,
+        build_runtime_admin_panel, build_runtime_chat_panel, build_runtime_command_mode_panel,
+        build_runtime_dialog_panel, build_runtime_kick_panel, build_runtime_live_effect_panel,
+        build_runtime_live_entity_panel, build_runtime_loading_panel, build_runtime_menu_panel,
+        build_runtime_reconnect_panel, build_runtime_rules_panel, build_runtime_ui_notice_panel,
+        build_runtime_world_label_panel, PresenterViewWindow, RuntimeDialogNoticeKind,
+        RuntimeDialogPromptKind,
     },
     render_model::{RenderObjectSemanticFamily, RenderObjectSemanticKind},
     BuildQueueHeadObservability, BuildQueueHeadStage, BuildUiObservability, HudModel, RenderModel,
@@ -549,6 +550,9 @@ fn compose_frame_panel_lines(
     }
     if let Some(build_interaction_text) = compose_build_interaction_status_text(hud) {
         lines.push(format!("BUILD-INTERACTION: {build_interaction_text}"));
+    }
+    if let Some(build_minimap_aux_text) = compose_build_minimap_aux_status_text(scene, hud, window) {
+        lines.push(format!("BUILD-MINIMAP-AUX: {build_minimap_aux_text}"));
     }
     if let Some(runtime_ui_notice_text) = compose_runtime_ui_notice_panel_status_text(hud) {
         lines.push(format!("RUNTIME-NOTICE: {runtime_ui_notice_text}"));
@@ -1151,6 +1155,32 @@ fn compose_build_interaction_status_text(hud: &HudModel) -> Option<String> {
         build_config_tile_status_text(panel.authority_tile),
         compact_runtime_ui_text(panel.authority_block_name.as_deref()),
         panel.orphan_authoritative_count,
+    ))
+}
+
+fn compose_build_minimap_aux_status_text(
+    scene: &RenderModel,
+    hud: &HudModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let panel = build_build_minimap_assist_panel(scene, hud, window)?;
+    Some(format!(
+        "preb:m={}:s={}:q={}:r{}:cfg={}/{}@{}:auth={}:f={}@{}:v{}:u{}:w{}:obj{}:rt{}",
+        build_interaction_mode_status_text(panel.mode),
+        build_interaction_selection_status_text(panel.selection_state),
+        build_interaction_queue_status_text(panel.queue_state),
+        if panel.place_ready { 1 } else { 0 },
+        panel.config_family_count,
+        panel.config_sample_count,
+        compact_runtime_ui_text(panel.top_config_family.as_deref()),
+        build_interaction_authority_status_text(panel.authority_state),
+        optional_focus_tile_status_text(panel.focus_tile),
+        optional_bool_label(panel.focus_in_window),
+        panel.visible_map_percent,
+        panel.unknown_tile_percent,
+        panel.window_coverage_percent,
+        panel.tracked_object_count,
+        panel.runtime_count,
     ))
 }
 
@@ -2840,6 +2870,10 @@ mod tests {
         assert_frame_line_contains(
             &frame.panel_lines,
             "BUILD-INTERACTION: cfgflow:m=place:s=head-aligned:q=mixed:p=3:pr=1:cfg=3/7:top=gamma:h=queued@10:12:place:b301:r1:auth=rej-miss-build:pm=match:src=tilecfg:t=10:12:b=gamma:o=6",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "BUILD-MINIMAP-AUX: preb:m=place:s=head-aligned:q=mixed:r1:cfg=3/7@gamma:auth=rej-miss-build:f=0:0@1:v0:u100:w0:obj3:rt0",
         );
     }
 

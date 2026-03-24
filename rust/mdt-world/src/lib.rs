@@ -21,7 +21,9 @@ pub use save_post_load_activation::{
     SavePostLoadEntityActivationCandidate,
 };
 pub use save_post_load_consumer_plan::{
-    SavePostLoadConsumerApplyPlan, SavePostLoadConsumerBlocker, SavePostLoadConsumerStage,
+    SavePostLoadConsumerApplyPlan, SavePostLoadConsumerBlocker,
+    SavePostLoadConsumerRuntimeDisposition, SavePostLoadConsumerRuntimeHelper,
+    SavePostLoadConsumerRuntimeStageHelper, SavePostLoadConsumerStage,
     SavePostLoadConsumerStageKind,
 };
 pub use save_post_load_contract::{SavePostLoadWorldContract, SavePostLoadWorldIssue};

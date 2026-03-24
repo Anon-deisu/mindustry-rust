@@ -4,6 +4,8 @@ use mdt_typeio::{TypeIoObject, TypeIoSemanticRef};
 
 const EFFECT_CONTRACT_MAX_DEPTH: usize = 3;
 const EFFECT_CONTRACT_MAX_NODES: usize = 64;
+const ITEM_CONTENT_TYPE: u8 = 0;
+const DROP_ITEM_EFFECT_LENGTH: f32 = 20.0;
 
 type OverlayOriginProjector = fn(f32, f32, f32, &TypeIoObject) -> Option<(f32, f32)>;
 type BusinessWorldPositionProjector = fn(&EffectBusinessProjection) -> Option<(u32, u32)>;
@@ -20,9 +22,9 @@ const POSITION_TARGET_EXECUTOR: RuntimeEffectContractExecutor = RuntimeEffectCon
     business_world_position: position_target_business_world_position,
 };
 
-const ITEM_CONTENT_EXECUTOR: RuntimeEffectContractExecutor = RuntimeEffectContractExecutor {
-    contract_name: "item_content",
-    overlay_origin: unsupported_overlay_origin,
+const DROP_ITEM_EXECUTOR: RuntimeEffectContractExecutor = RuntimeEffectContractExecutor {
+    contract_name: "drop_item",
+    overlay_origin: drop_item_overlay_origin,
     business_world_position: unsupported_business_world_position,
 };
 
@@ -65,7 +67,7 @@ fn executor_for_contract(
 ) -> &'static RuntimeEffectContractExecutor {
     match contract {
         RuntimeEffectContract::PositionTarget => &POSITION_TARGET_EXECUTOR,
-        RuntimeEffectContract::ItemContent => &ITEM_CONTENT_EXECUTOR,
+        RuntimeEffectContract::DropItem => &DROP_ITEM_EXECUTOR,
         RuntimeEffectContract::FloatLength => &FLOAT_LENGTH_EXECUTOR,
         RuntimeEffectContract::UnitParent => &UNIT_PARENT_EXECUTOR,
     }
@@ -74,7 +76,7 @@ fn executor_for_contract(
 fn executor_for_name(name: &str) -> Option<&'static RuntimeEffectContractExecutor> {
     for executor in [
         &POSITION_TARGET_EXECUTOR,
-        &ITEM_CONTENT_EXECUTOR,
+        &DROP_ITEM_EXECUTOR,
         &FLOAT_LENGTH_EXECUTOR,
         &UNIT_PARENT_EXECUTOR,
     ] {
@@ -122,6 +124,21 @@ fn position_target_business_world_position(
         } => Some((*target_x_bits, *target_y_bits)),
         _ => None,
     }
+}
+
+fn drop_item_overlay_origin(
+    effect_x: f32,
+    effect_y: f32,
+    effect_rotation: f32,
+    object: &TypeIoObject,
+) -> Option<(f32, f32)> {
+    first_contract_match(object, drop_item_candidate)?;
+    ray_endpoint(
+        effect_x,
+        effect_y,
+        effect_rotation,
+        DROP_ITEM_EFFECT_LENGTH,
+    )
 }
 
 fn float_length_overlay_origin(
@@ -204,6 +221,13 @@ fn position_target_candidate(value: &TypeIoObject) -> bool {
             Some(TypeIoSemanticRef::Building { .. } | TypeIoSemanticRef::Unit { .. })
         ),
     }
+}
+
+fn drop_item_candidate(value: &TypeIoObject) -> bool {
+    matches!(
+        value.semantic_ref(),
+        Some(TypeIoSemanticRef::Content { content_type, .. }) if content_type == ITEM_CONTENT_TYPE
+    )
 }
 
 fn position_target_world_position(value: &TypeIoObject) -> Option<(u32, u32)> {

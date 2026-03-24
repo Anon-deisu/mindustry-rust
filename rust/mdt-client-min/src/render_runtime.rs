@@ -4396,6 +4396,74 @@ mod tests {
     }
 
     #[test]
+    fn render_runtime_adapter_projects_drop_item_effect_payload_along_zero_rotation() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
+
+        adapter.observe_events(&[ClientSessionEvent::EffectRequested {
+            effect_id: Some(142),
+            x: 10.0,
+            y: 20.0,
+            rotation: 0.0,
+            color_rgba: 0x11223344,
+            data_object: Some(mdt_typeio::TypeIoObject::ContentRaw {
+                content_type: 0,
+                content_id: 7,
+            }),
+        }]);
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let marker = first_runtime_effect_marker(&scene);
+        assert_eq!(
+            marker.id,
+            format!(
+                "marker:runtime-effect:normal:142:0x{:08x}:0x{:08x}:1",
+                30.0f32.to_bits(),
+                20.0f32.to_bits()
+            )
+        );
+        assert_eq!(marker.x, 30.0);
+        assert_eq!(marker.y, 20.0);
+    }
+
+    #[test]
+    fn render_runtime_adapter_projects_drop_item_effect_payload_along_ninety_degrees() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
+
+        adapter.observe_events(&[ClientSessionEvent::EffectRequested {
+            effect_id: Some(142),
+            x: 10.0,
+            y: 20.0,
+            rotation: 90.0,
+            color_rgba: 0x11223344,
+            data_object: Some(mdt_typeio::TypeIoObject::ContentRaw {
+                content_type: 0,
+                content_id: 7,
+            }),
+        }]);
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let marker = first_runtime_effect_marker(&scene);
+        assert_eq!(
+            marker.id,
+            format!(
+                "marker:runtime-effect:normal:142:0x{:08x}:0x{:08x}:1",
+                10.0f32.to_bits(),
+                40.0f32.to_bits()
+            )
+        );
+        assert_eq!(marker.x, 10.0);
+        assert_eq!(marker.y, 40.0);
+    }
+
+    #[test]
     fn render_runtime_adapter_projects_float_length_effect_payload_to_ray_endpoint() {
         let mut adapter = RenderRuntimeAdapter::default();
         let mut scene = RenderModel::default();

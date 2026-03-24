@@ -12,7 +12,7 @@ pub enum RuntimeEffectBinding {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeEffectContract {
     PositionTarget,
-    ItemContent,
+    DropItem,
     FloatLength,
     UnitParent,
 }
@@ -21,7 +21,7 @@ impl RuntimeEffectContract {
     pub const fn name(self) -> &'static str {
         match self {
             Self::PositionTarget => "position_target",
-            Self::ItemContent => "item_content",
+            Self::DropItem => "drop_item",
             Self::FloatLength => "float_length",
             Self::UnitParent => "unit_parent",
         }
@@ -45,7 +45,7 @@ pub struct RuntimeEffectOverlay {
 pub fn effect_contract(effect_id: Option<i16>) -> Option<RuntimeEffectContract> {
     match effect_id {
         Some(8 | 9 | 10 | 178 | 261 | 262) => Some(RuntimeEffectContract::PositionTarget),
-        Some(142) => Some(RuntimeEffectContract::ItemContent),
+        Some(142) => Some(RuntimeEffectContract::DropItem),
         Some(200) => Some(RuntimeEffectContract::FloatLength),
         Some(257 | 260) => Some(RuntimeEffectContract::UnitParent),
         _ => None,

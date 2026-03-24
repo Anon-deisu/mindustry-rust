@@ -10391,7 +10391,7 @@ fn derive_effect_business_projection(
                     target_y_bits,
                 })
             }
-            RuntimeEffectContract::ItemContent => {
+            RuntimeEffectContract::DropItem => {
                 value
                     .semantic_ref()
                     .and_then(|semantic_ref| match semantic_ref {
@@ -33049,7 +33049,7 @@ mod tests {
     }
 
     #[test]
-    fn effect_packet_with_item_content_contract_rejects_non_item_content() {
+    fn effect_packet_with_drop_item_contract_rejects_non_item_content() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
         let packet_id = manifest
@@ -33072,14 +33072,14 @@ mod tests {
 
         assert_eq!(
             session.state().last_effect_contract_name.as_deref(),
-            Some("item_content")
+            Some("drop_item")
         );
         assert_eq!(session.state().last_effect_business_projection, None);
         assert_eq!(session.state().last_effect_business_path, None);
     }
 
     #[test]
-    fn effect_packet_with_item_content_contract_accepts_item_content() {
+    fn effect_packet_with_drop_item_contract_accepts_item_content() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
         let packet_id = manifest
@@ -33107,6 +33107,10 @@ mod tests {
                 content_type: ITEM_CONTENT_TYPE,
                 content_id: 7,
             })
+        );
+        assert_eq!(
+            session.state().last_effect_contract_name.as_deref(),
+            Some("drop_item")
         );
         assert_eq!(session.state().last_effect_business_path, None);
     }
