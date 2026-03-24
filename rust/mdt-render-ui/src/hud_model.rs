@@ -8,6 +8,7 @@ pub struct HudModel {
     pub fps: Option<f32>,
     pub summary: Option<HudSummary>,
     pub runtime_ui: Option<RuntimeUiObservability>,
+    pub build_ui: Option<BuildUiObservability>,
 }
 
 /// Structured HUD summary that mirrors core status fields.
@@ -63,6 +64,37 @@ pub struct RuntimeTextInputObservability {
     pub last_allow_empty: Option<bool>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuildUiObservability {
+    pub selected_block_id: Option<i16>,
+    pub selected_rotation: i32,
+    pub building: bool,
+    pub queued_count: usize,
+    pub inflight_count: usize,
+    pub finished_count: u64,
+    pub removed_count: u64,
+    pub orphan_authoritative_count: u64,
+    pub head: Option<BuildQueueHeadObservability>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuildQueueHeadObservability {
+    pub x: i32,
+    pub y: i32,
+    pub breaking: bool,
+    pub block_id: Option<i16>,
+    pub rotation: Option<u8>,
+    pub stage: BuildQueueHeadStage,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuildQueueHeadStage {
+    Queued,
+    InFlight,
+    Finished,
+    Removed,
+}
+
 impl HudModel {
     pub fn hidden() -> Self {
         Self::default()
@@ -76,6 +108,7 @@ impl HudModel {
             && self.fps.is_none()
             && self.summary.is_none()
             && self.runtime_ui.is_none()
+            && self.build_ui.is_none()
     }
 
     pub fn is_visible(&self) -> bool {

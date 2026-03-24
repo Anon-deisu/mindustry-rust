@@ -347,6 +347,7 @@ fn project_hud_model_with_visibility(
             hidden_tile_count,
         }),
         runtime_ui: None,
+        build_ui: None,
     }
 }
 

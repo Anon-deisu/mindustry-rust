@@ -48,6 +48,9 @@ impl AsciiScenePresenter {
         if let Some(summary_text) = compose_hud_summary_text(hud) {
             out.push_str(&format!("SUMMARY: {summary_text}\n"));
         }
+        if let Some(build_text) = compose_build_ui_text(hud) {
+            out.push_str(&format!("BUILD: {build_text}\n"));
+        }
         if let Some(overlay_semantics_text) = compose_overlay_semantics_text(scene) {
             out.push_str(&format!("OVERLAY-KINDS: {overlay_semantics_text}\n"));
         }
@@ -226,6 +229,22 @@ fn compose_runtime_ui_text(hud: &HudModel) -> Option<String> {
     ))
 }
 
+fn compose_build_ui_text(hud: &HudModel) -> Option<String> {
+    let build_ui = hud.build_ui.as_ref()?;
+    Some(format!(
+        "sel={} rot={} building={} queue={}/{}/{}/{}/{} head={}",
+        optional_i16_label(build_ui.selected_block_id),
+        build_ui.selected_rotation,
+        if build_ui.building { 1 } else { 0 },
+        build_ui.queued_count,
+        build_ui.inflight_count,
+        build_ui.finished_count,
+        build_ui.removed_count,
+        build_ui.orphan_authoritative_count,
+        build_queue_head_text(build_ui.head.as_ref()),
+    ))
+}
+
 fn compose_overlay_semantics_text(scene: &RenderModel) -> Option<String> {
     let counts = overlay_semantic_counts(scene);
     let total = counts.iter().map(|(_, count)| count).sum::<usize>();
@@ -269,6 +288,27 @@ fn overlay_semantic_count(
         .unwrap_or_default()
 }
 
+fn build_queue_head_text(head: Option<&crate::BuildQueueHeadObservability>) -> String {
+    let Some(head) = head else {
+        return "none".to_string();
+    };
+
+    let stage = match head.stage {
+        crate::BuildQueueHeadStage::Queued => "queued",
+        crate::BuildQueueHeadStage::InFlight => "flight",
+        crate::BuildQueueHeadStage::Finished => "finish",
+        crate::BuildQueueHeadStage::Removed => "remove",
+    };
+    let mode = if head.breaking { "break" } else { "place" };
+    format!(
+        "{stage}@{}:{}:{mode}:b{}:r{}",
+        head.x,
+        head.y,
+        optional_i16_label(head.block_id),
+        optional_u8_label(head.rotation),
+    )
+}
+
 fn compact_runtime_ui_text(value: Option<&str>) -> String {
     match value {
         Some(value) => {
@@ -294,6 +334,18 @@ fn compact_runtime_ui_text(value: Option<&str>) -> String {
 }
 
 fn optional_i32_label(value: Option<i32>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "none".to_string())
+}
+
+fn optional_i16_label(value: Option<i16>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "none".to_string())
+}
+
+fn optional_u8_label(value: Option<u8>) -> String {
     value
         .map(|value| value.to_string())
         .unwrap_or_else(|| "none".to_string())
@@ -557,6 +609,24 @@ mod tests {
                     last_allow_empty: Some(true),
                 },
             }),
+            build_ui: Some(crate::BuildUiObservability {
+                selected_block_id: Some(257),
+                selected_rotation: 2,
+                building: true,
+                queued_count: 1,
+                inflight_count: 2,
+                finished_count: 3,
+                removed_count: 4,
+                orphan_authoritative_count: 1,
+                head: Some(crate::BuildQueueHeadObservability {
+                    x: 100,
+                    y: 99,
+                    breaking: false,
+                    block_id: Some(301),
+                    rotation: Some(1),
+                    stage: crate::BuildQueueHeadStage::InFlight,
+                }),
+            }),
         };
         let mut presenter = AsciiScenePresenter::default();
 
@@ -565,6 +635,9 @@ mod tests {
         let frame = presenter.last_frame();
         assert!(frame.contains("SUMMARY: player=operator team=2 selected=payload-rout~"));
         assert!(frame.contains("map=80x60 overlay=1 fog=1 vis=120 hid=24"));
+        assert!(frame.contains(
+            "BUILD: sel=257 rot=2 building=1 queue=1/2/3/4/1 head=flight@100:99:place:b301:r1"
+        ));
         assert!(frame.contains(
             "OVERLAY-KINDS: players=1 markers=1 plans=1 blocks=1 runtime=0 terrain=0 unknown=0"
         ));

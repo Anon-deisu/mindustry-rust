@@ -1,6 +1,6 @@
 use crate::{
-    hud_model::HudSummary, render_model::RenderObjectSemanticKind, HudModel, RenderModel,
-    RenderObject,
+    hud_model::HudSummary, render_model::RenderObjectSemanticKind, BuildQueueHeadObservability,
+    BuildQueueHeadStage, BuildUiObservability, HudModel, RenderModel, RenderObject,
     RuntimeUiObservability, ScenePresenter,
 };
 use minifb::{Scale, Window, WindowOptions};
@@ -451,6 +451,9 @@ fn compose_frame_status_text(scene: &RenderModel, hud: &HudModel) -> String {
     if let Some(summary) = hud.summary.as_ref() {
         parts.push(compose_hud_summary_status_text(summary));
     }
+    if let Some(build_ui) = hud.build_ui.as_ref() {
+        parts.push(compose_build_ui_status_text(build_ui));
+    }
     if let Some(runtime_ui) = hud.runtime_ui.as_ref() {
         let runtime_ui_text = compose_runtime_ui_status_text(runtime_ui);
         if !runtime_ui_text.is_empty() {
@@ -505,6 +508,21 @@ fn compose_runtime_ui_status_text(runtime_ui: &RuntimeUiObservability) -> String
     )
 }
 
+fn compose_build_ui_status_text(build_ui: &BuildUiObservability) -> String {
+    format!(
+        "build:sel={}:r{}:b{}:q{}/i{}/f{}/r{}/o{}:h={}",
+        optional_i16_label(build_ui.selected_block_id),
+        build_ui.selected_rotation,
+        if build_ui.building { 1 } else { 0 },
+        build_ui.queued_count,
+        build_ui.inflight_count,
+        build_ui.finished_count,
+        build_ui.removed_count,
+        build_ui.orphan_authoritative_count,
+        build_queue_head_status_text(build_ui.head.as_ref()),
+    )
+}
+
 fn compose_overlay_semantics_status_text(scene: &RenderModel) -> Option<String> {
     let counts = overlay_semantic_counts(scene);
     let total = counts.iter().map(|(_, count)| count).sum::<usize>();
@@ -546,6 +564,27 @@ fn overlay_semantic_count(
         .unwrap_or_default()
 }
 
+fn build_queue_head_status_text(head: Option<&BuildQueueHeadObservability>) -> String {
+    let Some(head) = head else {
+        return "none".to_string();
+    };
+
+    let stage = match head.stage {
+        BuildQueueHeadStage::Queued => "queued",
+        BuildQueueHeadStage::InFlight => "flight",
+        BuildQueueHeadStage::Finished => "finish",
+        BuildQueueHeadStage::Removed => "remove",
+    };
+    let mode = if head.breaking { "break" } else { "place" };
+    format!(
+        "{stage}@{}:{}:{mode}:b{}:r{}",
+        head.x,
+        head.y,
+        optional_i16_label(head.block_id),
+        optional_u8_label(head.rotation),
+    )
+}
+
 fn compact_runtime_ui_text(value: Option<&str>) -> String {
     match value {
         Some(value) => {
@@ -571,6 +610,18 @@ fn compact_runtime_ui_text(value: Option<&str>) -> String {
 }
 
 fn optional_i32_label(value: Option<i32>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "none".to_string())
+}
+
+fn optional_i16_label(value: Option<i16>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "none".to_string())
+}
+
+fn optional_u8_label(value: Option<u8>) -> String {
     value
         .map(|value| value.to_string())
         .unwrap_or_else(|| "none".to_string())
@@ -627,8 +678,10 @@ mod tests {
         COLOR_RUNTIME, COLOR_TERRAIN, COLOR_UNKNOWN,
     };
     use crate::{
-        hud_model::HudSummary, HudModel, RenderModel, RenderObject, RuntimeHudTextObservability,
-        RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiObservability, Viewport,
+        hud_model::HudSummary, BuildQueueHeadObservability, BuildQueueHeadStage,
+        BuildUiObservability, HudModel, RenderModel, RenderObject,
+        RuntimeHudTextObservability, RuntimeTextInputObservability,
+        RuntimeToastObservability, RuntimeUiObservability, Viewport,
     };
 
     #[derive(Default)]
@@ -690,6 +743,7 @@ mod tests {
             fps: Some(60.0),
             summary: None,
             runtime_ui: None,
+            build_ui: None,
         };
 
         presenter.present_once(&scene, &hud).unwrap();
@@ -733,6 +787,7 @@ mod tests {
                         fps: None,
                         summary: None,
                         runtime_ui: None,
+                        build_ui: None,
                     },
                 )
             })
@@ -996,6 +1051,24 @@ mod tests {
                     last_allow_empty: Some(true),
                 },
             }),
+            build_ui: Some(BuildUiObservability {
+                selected_block_id: Some(257),
+                selected_rotation: 2,
+                building: true,
+                queued_count: 1,
+                inflight_count: 2,
+                finished_count: 3,
+                removed_count: 4,
+                orphan_authoritative_count: 1,
+                head: Some(BuildQueueHeadObservability {
+                    x: 100,
+                    y: 99,
+                    breaking: false,
+                    block_id: Some(301),
+                    rotation: Some(1),
+                    stage: BuildQueueHeadStage::InFlight,
+                }),
+            }),
         };
 
         presenter.present_once(&scene, &hud).unwrap();
@@ -1008,6 +1081,9 @@ mod tests {
         assert!(frame
             .status_text
             .contains("hud:team=2 sel=payload-rout~ plans=3 mk=4 map=80x60 ov1 fg1 vis120 hid24"));
+        assert!(frame
+            .status_text
+            .contains("build:sel=257:r2:b1:q1/i2/f3/r4/o1:h=flight@100:99:place:b301:r1"));
         assert!(frame
             .status_text
             .contains("ui:hud=9/10/11@hud_text/hud_rel"));
