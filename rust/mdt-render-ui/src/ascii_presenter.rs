@@ -5,8 +5,8 @@ use crate::panel_model::{
     build_runtime_kick_panel, build_runtime_live_effect_panel, build_runtime_live_entity_panel,
     build_runtime_loading_panel, build_runtime_menu_panel, build_runtime_reconnect_panel,
     build_runtime_rules_panel, build_runtime_session_panel, build_runtime_ui_notice_panel,
-    build_runtime_world_label_panel, PresenterViewWindow, RuntimeDialogNoticeKind,
-    RuntimeDialogPromptKind,
+    build_runtime_world_label_panel, MinimapPanelModel, PresenterViewWindow,
+    RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
 };
 use crate::render_model::{RenderObjectSemanticFamily, RenderObjectSemanticKind};
 use crate::{HudModel, RenderModel, ScenePresenter};
@@ -801,7 +801,7 @@ fn compose_minimap_detail_lines(scene: &RenderModel, hud: &HudModel) -> Vec<Stri
     };
 
     let detail_count = panel.detail_counts.len();
-    panel
+    let mut lines = panel
         .detail_counts
         .iter()
         .enumerate()
@@ -814,7 +814,24 @@ fn compose_minimap_detail_lines(scene: &RenderModel, hud: &HudModel) -> Vec<Stri
                 detail.count
             )
         })
-        .collect()
+        .collect::<Vec<_>>();
+    lines.push(compose_minimap_window_distribution_line(&panel));
+    lines
+}
+
+fn compose_minimap_window_distribution_line(panel: &MinimapPanelModel) -> String {
+    format!(
+        "miniwin:win{}:off{}@pl{}:mk{}:pn{}:bk{}:rt{}:tr{}:uk{}",
+        panel.window_tracked_object_count,
+        panel.outside_window_count,
+        panel.window_player_count,
+        panel.window_marker_count,
+        panel.window_plan_count,
+        panel.window_block_count,
+        panel.window_runtime_count,
+        panel.window_terrain_count,
+        panel.window_unknown_count,
+    )
 }
 
 fn compose_minimap_legend_line(hud: &HudModel) -> Option<String> {

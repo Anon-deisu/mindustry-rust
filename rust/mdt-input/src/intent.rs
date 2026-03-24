@@ -16,6 +16,7 @@ pub enum PlayerIntent {
     SetAimAxis { x: f32, y: f32 },
     SetMiningTile { tile: Option<(i32, i32)> },
     SetBuilding { building: bool },
+    ConfigTap { tile: (i32, i32) },
     ActionPressed(BinaryAction),
     ActionHeld(BinaryAction),
     ActionReleased(BinaryAction),

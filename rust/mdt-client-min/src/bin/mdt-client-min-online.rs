@@ -1,3 +1,5 @@
+mod runtime_custom_packet_replay_bridge;
+
 use mdt_client_min::arcnet_loop::ArcNetSessionDriver;
 use mdt_client_min::client_session::{
     ClientBuildPlan, ClientBuildPlanConfig, ClientLogicDataTransport, ClientPacketTransport,
@@ -37,6 +39,7 @@ use mdt_render_ui::{
 };
 use mdt_typeio::{pack_point2, TypeIoObject};
 use mdt_world::{LoadedWorldState, ParsedBuildingTail, WorldGraph};
+use runtime_custom_packet_replay_bridge::RuntimeCustomPacketReplayBridge;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::env;
@@ -77,6 +80,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         RuntimeCustomPacketBridge::from_specs(&args.runtime_custom_packet_semantics);
     let mut custom_packet_relays =
         install_runtime_custom_packet_relays(&mut session, &args.runtime_custom_packet_relays);
+    let mut custom_packet_replay_bridge =
+        RuntimeCustomPacketReplayBridge::from_specs(&args.runtime_custom_packet_relays);
     let connect_payload = load_connect_payload(&args.connect)?;
     let connect = session.prepare_connect_packet(&connect_payload)?;
 
@@ -204,6 +209,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         maybe_queue_runtime_custom_packet_relays(
             &mut session,
             custom_packet_relays.as_mut(),
+            custom_packet_replay_bridge.as_mut(),
             &report.events,
             now_ms,
         )?;
@@ -230,6 +236,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         if let Some(custom_packet_bridge) = custom_packet_bridge.as_mut() {
                             custom_packet_bridge.note_reconnect_reset(now_ms, "redirect");
                             for line in custom_packet_bridge.drain_lines() {
+                                println!("{line}");
+                            }
+                        }
+                        if let Some(custom_packet_replay_bridge) =
+                            custom_packet_replay_bridge.as_mut()
+                        {
+                            custom_packet_replay_bridge.note_reconnect_reset(now_ms, "redirect");
+                            for line in custom_packet_replay_bridge.drain_lines() {
                                 println!("{line}");
                             }
                         }
@@ -298,6 +312,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if let Some(custom_packet_bridge) = custom_packet_bridge.as_mut() {
                         custom_packet_bridge.note_reconnect_reset(now_ms, "server_restart");
                         for line in custom_packet_bridge.drain_lines() {
+                            println!("{line}");
+                        }
+                    }
+                    if let Some(custom_packet_replay_bridge) = custom_packet_replay_bridge.as_mut()
+                    {
+                        custom_packet_replay_bridge
+                            .note_reconnect_reset(now_ms, "server_restart");
+                        for line in custom_packet_replay_bridge.drain_lines() {
                             println!("{line}");
                         }
                     }
@@ -397,6 +419,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     maybe_print_custom_packet_surface_summary(custom_packet_surface.as_ref());
     maybe_print_custom_packet_bridge_summary(custom_packet_bridge.as_ref());
     maybe_print_runtime_custom_packet_relay_summary(custom_packet_relays.as_ref());
+    maybe_print_custom_packet_replay_bridge_summary(custom_packet_replay_bridge.as_ref());
     let final_input = session.snapshot_input_mut().clone();
     println!(
         "final: packets_seen={} snapshots={} world_loaded={} ready={} keepalive_sent={} client_snapshot_sent={} timed_out={}",
@@ -2046,6 +2069,7 @@ fn parse_intent_snapshot_arg(value: &str) -> Result<InputSnapshot, String> {
         aim_axis,
         mining_tile,
         building,
+        config_tap_tile: None,
         active_actions,
     })
 }
@@ -4034,6 +4058,7 @@ fn sample_runtime_intent_snapshot(session: &mut ClientSession) -> InputSnapshot 
         aim_axis,
         mining_tile: input.mining_tile,
         building: input.building,
+        config_tap_tile: None,
         active_actions,
     }
 }
@@ -4639,6 +4664,33 @@ fn format_runtime_custom_packet_bridge_business_summary_line(summary: Option<Str
     }
 }
 
+fn format_runtime_custom_packet_replay_bridge_business_line(
+    now_ms: u64,
+    summary: Option<String>,
+) -> String {
+    match summary {
+        Some(summary) => format!(
+            "runtime_custom_packet_replay_bridge_business: tick={now_ms}ms summary={summary:?}"
+        ),
+        None => {
+            format!("runtime_custom_packet_replay_bridge_business: tick={now_ms}ms summary=none")
+        }
+    }
+}
+
+fn format_runtime_custom_packet_replay_bridge_business_summary_line(
+    summary: Option<String>,
+) -> String {
+    match summary {
+        Some(summary) => {
+            format!("runtime_custom_packet_replay_bridge_business_summary: summary={summary:?}")
+        }
+        None => {
+            "runtime_custom_packet_replay_bridge_business_summary: summary=none".to_string()
+        }
+    }
+}
+
 fn format_runtime_custom_packet_surface_business_entry(
     entry: &RuntimeCustomPacketSurfaceSummaryEntry,
 ) -> String {
@@ -4679,13 +4731,16 @@ fn format_runtime_custom_packet_surface_coord(value: f32) -> String {
 fn maybe_queue_runtime_custom_packet_relays(
     session: &mut ClientSession,
     custom_packet_relays: Option<&mut RuntimeCustomPacketRelays>,
+    custom_packet_replay_bridge: Option<&mut RuntimeCustomPacketReplayBridge>,
     events: &[ClientSessionEvent],
     now_ms: u64,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let Some(custom_packet_relays) = custom_packet_relays else {
         return Ok(());
     };
+    let mut custom_packet_replay_bridge = custom_packet_replay_bridge;
     custom_packet_relays.observe_events(events);
+    let mut replayed = false;
     for entry in custom_packet_relays.drain_entries() {
         queue_runtime_custom_packet_relay_action(session, &entry.action)?;
         println!("{} tick={}ms", entry.line, now_ms);
@@ -4695,6 +4750,24 @@ fn maybe_queue_runtime_custom_packet_relays(
                 now_ms
             );
         }
+        if let Some(custom_packet_replay_bridge) = custom_packet_replay_bridge.as_mut() {
+            custom_packet_replay_bridge.observe_action(now_ms, &entry.action);
+            for line in custom_packet_replay_bridge.drain_lines() {
+                println!("{line}");
+            }
+        }
+        replayed = true;
+    }
+    if replayed {
+        println!(
+            "{}",
+            format_runtime_custom_packet_replay_bridge_business_line(
+                now_ms,
+                custom_packet_replay_bridge.and_then(|bridge| {
+                    bridge.business_summary_text(RUNTIME_CUSTOM_PACKET_SURFACE_OVERLAY_MAX_ENTRIES)
+                }),
+            )
+        );
     }
     Ok(())
 }
@@ -4738,6 +4811,24 @@ fn maybe_print_runtime_custom_packet_relay_summary(
     for line in custom_packet_relays.summary_lines() {
         println!("{line}");
     }
+}
+
+fn maybe_print_custom_packet_replay_bridge_summary(
+    custom_packet_replay_bridge: Option<&RuntimeCustomPacketReplayBridge>,
+) {
+    let Some(custom_packet_replay_bridge) = custom_packet_replay_bridge else {
+        return;
+    };
+    for line in custom_packet_replay_bridge.summary_lines() {
+        println!("{line}");
+    }
+    println!(
+        "{}",
+        format_runtime_custom_packet_replay_bridge_business_summary_line(
+            custom_packet_replay_bridge
+                .business_summary_text(RUNTIME_CUSTOM_PACKET_SURFACE_OVERLAY_MAX_ENTRIES),
+        )
+    );
 }
 
 fn build_runtime_custom_packet_watch_specs(args: &CliArgs) -> Vec<CustomPacketWatchSpec> {
@@ -5700,6 +5791,7 @@ mod tests {
                         aim_axis: (16.0, 24.0),
                         mining_tile: Some((88, 99)),
                         building: false,
+                        config_tap_tile: None,
                         active_actions: vec![BinaryAction::Fire, BinaryAction::Boost],
                     },
                 },
@@ -5710,6 +5802,7 @@ mod tests {
                         aim_axis: (32.0, 48.0),
                         mining_tile: None,
                         building: false,
+                        config_tap_tile: None,
                         active_actions: vec![],
                     },
                 },
@@ -5728,6 +5821,7 @@ mod tests {
                 aim_axis: (16.0, 24.0),
                 mining_tile: None,
                 building: false,
+                config_tap_tile: None,
                 active_actions: vec![BinaryAction::Chat, BinaryAction::Interact],
             }
         );
@@ -5744,6 +5838,7 @@ mod tests {
                 aim_axis: (16.0, 24.0),
                 mining_tile: None,
                 building: true,
+                config_tap_tile: None,
                 active_actions: vec![BinaryAction::Fire],
             }
         );
@@ -5760,6 +5855,7 @@ mod tests {
                 aim_axis: (16.0, 24.0),
                 mining_tile: Some((88, 99)),
                 building: false,
+                config_tap_tile: None,
                 active_actions: vec![],
             }
         );
@@ -9636,6 +9732,8 @@ mod tests {
             aim_axis: (18.0, 30.0),
             mining_tile: Some((4, 6)),
             building: true,
+            last_config_tap_tile: None,
+            config_tap_count: 0,
             active_actions: vec![BinaryAction::Interact],
             pressed_actions: vec![BinaryAction::Interact],
             released_actions: Vec::new(),
@@ -9758,6 +9856,7 @@ mod tests {
             aim_axis: (9.0, 9.0),
             mining_tile: None,
             building: false,
+            config_tap_tile: None,
             active_actions: vec![],
         };
 
@@ -9789,6 +9888,7 @@ mod tests {
             aim_axis: (0.0, 0.0),
             mining_tile: None,
             building: true,
+            config_tap_tile: None,
             active_actions: vec![BinaryAction::Fire],
         };
 
@@ -9812,6 +9912,7 @@ mod tests {
                     aim_axis: (16.0, 24.0),
                     mining_tile: None,
                     building: true,
+                    config_tap_tile: None,
                     active_actions: vec![BinaryAction::Fire],
                 },
             },
@@ -9822,6 +9923,7 @@ mod tests {
                     aim_axis: (32.0, 48.0),
                     mining_tile: Some((9, 10)),
                     building: false,
+                    config_tap_tile: None,
                     active_actions: vec![],
                 },
             },
@@ -9833,6 +9935,7 @@ mod tests {
             aim_axis: (99.0, 99.0),
             mining_tile: None,
             building: false,
+            config_tap_tile: None,
             active_actions: vec![BinaryAction::Boost],
         };
 

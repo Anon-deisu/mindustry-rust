@@ -7,6 +7,8 @@ pub struct LiveIntentState {
     pub aim_axis: (f32, f32),
     pub mining_tile: Option<(i32, i32)>,
     pub building: bool,
+    pub last_config_tap_tile: Option<(i32, i32)>,
+    pub config_tap_count: u32,
     pub active_actions: Vec<BinaryAction>,
     pub pressed_actions: Vec<BinaryAction>,
     pub released_actions: Vec<BinaryAction>,
@@ -30,6 +32,10 @@ impl LiveIntentState {
                 }
                 PlayerIntent::SetBuilding { building } => {
                     self.building = *building;
+                }
+                PlayerIntent::ConfigTap { tile } => {
+                    self.last_config_tap_tile = Some(*tile);
+                    self.config_tap_count = self.config_tap_count.saturating_add(1);
                 }
                 PlayerIntent::ActionPressed(action) => {
                     push_unique(&mut self.active_actions, *action);
@@ -121,6 +127,8 @@ fn runtime_snapshot_apply_key(
     (f32, f32),
     Option<(i32, i32)>,
     bool,
+    Option<(i32, i32)>,
+    u32,
     Vec<BinaryAction>,
 ) {
     (
@@ -128,6 +136,8 @@ fn runtime_snapshot_apply_key(
         state.aim_axis,
         state.mining_tile,
         state.building,
+        state.last_config_tap_tile,
+        state.config_tap_count,
         state.active_actions.clone(),
     )
 }
@@ -158,6 +168,7 @@ mod tests {
             aim_axis: (16.0, 24.0),
             mining_tile: Some((7, 9)),
             building: true,
+            config_tap_tile: None,
             active_actions: vec![BinaryAction::Fire, BinaryAction::Boost],
         });
         state.apply_intents(&first);
@@ -178,6 +189,7 @@ mod tests {
             aim_axis: (32.0, 48.0),
             mining_tile: None,
             building: false,
+            config_tap_tile: None,
             active_actions: vec![BinaryAction::Boost],
         });
         state.apply_intents(&second);
@@ -201,6 +213,7 @@ mod tests {
             aim_axis: (8.0, 12.0),
             mining_tile: Some((4, 5)),
             building: true,
+            config_tap_tile: None,
             active_actions: vec![BinaryAction::Fire],
         });
         state.apply_intents(&first);
@@ -215,6 +228,7 @@ mod tests {
             aim_axis: (8.0, 12.0),
             mining_tile: Some((4, 5)),
             building: true,
+            config_tap_tile: None,
             active_actions: vec![BinaryAction::Fire],
         });
         state.apply_intents(&second);
@@ -227,6 +241,7 @@ mod tests {
             aim_axis: (16.0, 20.0),
             mining_tile: None,
             building: false,
+            config_tap_tile: None,
             active_actions: vec![],
         });
         state.apply_intents(&third);
@@ -246,6 +261,7 @@ mod tests {
             aim_axis: (16.0, 24.0),
             mining_tile: Some((7, 9)),
             building: true,
+            config_tap_tile: None,
             active_actions: vec![BinaryAction::Fire, BinaryAction::Boost],
         }));
         assert_eq!(tracker.state().move_axis, (1.0, 0.0));
@@ -263,6 +279,7 @@ mod tests {
             aim_axis: (32.0, 48.0),
             mining_tile: None,
             building: false,
+            config_tap_tile: None,
             active_actions: vec![],
         }));
         assert_eq!(tracker.state().move_axis, (0.0, 0.0));
@@ -284,6 +301,7 @@ mod tests {
             aim_axis: (10.0, 20.0),
             mining_tile: Some((3, 4)),
             building: true,
+            config_tap_tile: None,
             active_actions: vec![BinaryAction::Chat],
         }));
 
@@ -292,6 +310,7 @@ mod tests {
             aim_axis: (40.0, 50.0),
             mining_tile: None,
             building: false,
+            config_tap_tile: None,
             active_actions: vec![BinaryAction::Fire],
         }));
         assert_eq!(tracker.state().move_axis, (0.5, -0.5));
@@ -306,6 +325,7 @@ mod tests {
             aim_axis: (60.0, 70.0),
             mining_tile: Some((8, 9)),
             building: false,
+            config_tap_tile: None,
             active_actions: vec![BinaryAction::Boost],
         }));
         assert_eq!(tracker.state().move_axis, (0.5, -0.5));
@@ -316,6 +336,7 @@ mod tests {
             aim_axis: (60.0, 70.0),
             mining_tile: Some((8, 9)),
             building: false,
+            config_tap_tile: None,
             active_actions: vec![BinaryAction::Boost],
         }));
         assert_eq!(tracker.state().move_axis, (5.0, 6.0));
@@ -333,6 +354,7 @@ mod tests {
             aim_axis: (40.0, 50.0),
             mining_tile: None,
             building: false,
+            config_tap_tile: None,
             active_actions: vec![BinaryAction::Fire],
         };
         let override_snapshot = InputSnapshot {
@@ -340,6 +362,7 @@ mod tests {
             aim_axis: (10.0, 20.0),
             mining_tile: Some((3, 4)),
             building: true,
+            config_tap_tile: None,
             active_actions: vec![BinaryAction::Chat],
         };
 
@@ -369,6 +392,7 @@ mod tests {
             aim_axis: (0.0, 0.0),
             mining_tile: None,
             building: true,
+            config_tap_tile: None,
             active_actions: Vec::new(),
         }));
         assert!(tracker.state().building);
@@ -378,6 +402,7 @@ mod tests {
             aim_axis: (0.0, 0.0),
             mining_tile: None,
             building: false,
+            config_tap_tile: None,
             active_actions: Vec::new(),
         }));
         assert!(!tracker.state().building);
@@ -392,6 +417,7 @@ mod tests {
                 aim_axis: (2.0, 2.0),
                 mining_tile: None,
                 building: true,
+                config_tap_tile: None,
                 active_actions: vec![BinaryAction::Fire],
             },
             InputSnapshot {
@@ -399,6 +425,7 @@ mod tests {
                 aim_axis: (3.0, 4.0),
                 mining_tile: Some((7, 8)),
                 building: false,
+                config_tap_tile: None,
                 active_actions: vec![],
             },
         ];
@@ -411,5 +438,32 @@ mod tests {
         assert_eq!(tracker.state().pressed_actions, vec![BinaryAction::Fire]);
         assert_eq!(tracker.state().released_actions, vec![BinaryAction::Fire]);
         assert!(!tracker.state().is_action_active(BinaryAction::Fire));
+    }
+
+    #[test]
+    fn runtime_intent_tracker_records_config_tap_pulses_even_on_same_tile() {
+        let mut tracker = RuntimeIntentTracker::new(IntentSamplingMode::LiveSampling);
+
+        assert!(tracker.sample_runtime_snapshot(&InputSnapshot {
+            move_axis: (0.0, 0.0),
+            aim_axis: (1.0, 1.0),
+            mining_tile: None,
+            building: false,
+            config_tap_tile: Some((6, 7)),
+            active_actions: Vec::new(),
+        }));
+        assert_eq!(tracker.state().last_config_tap_tile, Some((6, 7)));
+        assert_eq!(tracker.state().config_tap_count, 1);
+
+        assert!(tracker.sample_runtime_snapshot(&InputSnapshot {
+            move_axis: (0.0, 0.0),
+            aim_axis: (1.0, 1.0),
+            mining_tile: None,
+            building: false,
+            config_tap_tile: Some((6, 7)),
+            active_actions: Vec::new(),
+        }));
+        assert_eq!(tracker.state().last_config_tap_tile, Some((6, 7)));
+        assert_eq!(tracker.state().config_tap_count, 2);
     }
 }

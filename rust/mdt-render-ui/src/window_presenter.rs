@@ -6,8 +6,8 @@ use crate::{
         build_runtime_dialog_panel, build_runtime_kick_panel, build_runtime_live_effect_panel,
         build_runtime_live_entity_panel, build_runtime_loading_panel, build_runtime_menu_panel,
         build_runtime_reconnect_panel, build_runtime_rules_panel, build_runtime_session_panel,
-        build_runtime_ui_notice_panel, build_runtime_world_label_panel, PresenterViewWindow,
-        RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
+        build_runtime_ui_notice_panel, build_runtime_world_label_panel, MinimapPanelModel,
+        PresenterViewWindow, RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
     },
     render_model::{RenderObjectSemanticFamily, RenderObjectSemanticKind},
     BuildQueueHeadObservability, BuildQueueHeadStage, BuildUiObservability, HudModel, RenderModel,
@@ -1140,7 +1140,7 @@ fn compose_minimap_detail_status_lines(scene: &RenderModel, hud: &HudModel) -> V
     };
 
     let detail_count = panel.detail_counts.len();
-    panel
+    let mut lines = panel
         .detail_counts
         .iter()
         .enumerate()
@@ -1153,7 +1153,24 @@ fn compose_minimap_detail_status_lines(scene: &RenderModel, hud: &HudModel) -> V
                 detail.count
             )
         })
-        .collect()
+        .collect::<Vec<_>>();
+    lines.push(compose_minimap_window_distribution_status_text(&panel));
+    lines
+}
+
+fn compose_minimap_window_distribution_status_text(panel: &MinimapPanelModel) -> String {
+    format!(
+        "miniwin:win{}:off{}@pl{}:mk{}:pn{}:bk{}:rt{}:tr{}:uk{}",
+        panel.window_tracked_object_count,
+        panel.outside_window_count,
+        panel.window_player_count,
+        panel.window_marker_count,
+        panel.window_plan_count,
+        panel.window_block_count,
+        panel.window_runtime_count,
+        panel.window_terrain_count,
+        panel.window_unknown_count,
+    )
 }
 
 fn compose_build_config_panel_status_text(hud: &HudModel) -> Option<String> {
@@ -2344,6 +2361,10 @@ mod tests {
         assert_frame_line_contains(
             &frame.panel_lines,
             "MINIMAP-DETAIL: minid:1/6:marker-line=1",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "MINIMAP-DETAIL: miniwin:win7:off0@pl1:mk2:pn0:bk0:rt4:tr0:uk0",
         );
     }
 

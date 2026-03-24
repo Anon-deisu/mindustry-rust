@@ -40192,6 +40192,29 @@ mod tests {
     }
 
     #[test]
+    fn msav_post_load_world_executes_runtime_apply_for_save6_legacy_regions() {
+        let save = parse_msav_save(&sample_msav_post_load_save6_bytes()).unwrap();
+        let post_load = save.post_load_world().unwrap();
+        let contract = post_load.projection_contract();
+        let execution = post_load.execute_runtime_apply();
+
+        assert_eq!(contract.issues, vec![SavePostLoadWorldIssue::TeamPlanOutOfBounds]);
+        assert!(!contract.can_project_world_shell());
+        assert!(!execution.world_shell_ready);
+        assert!(!execution.has_world_shell());
+        assert_eq!(execution.failed_step_count(), 0);
+        assert!(execution.issues.is_empty());
+        assert!(execution.executed_step_count() > 0);
+        assert!(execution.custom_chunks.is_empty());
+        assert!(execution.custom_chunks_by_name.is_empty());
+        assert!(
+            execution
+                .blocked_steps
+                .contains(&SavePostLoadRuntimeApplyStep::WorldShell)
+        );
+    }
+
+    #[test]
     fn save_entity_remap_summary_tracks_duplicate_ids_and_names() {
         let summary = SaveEntityRegionObservation {
             remap_count: 4,

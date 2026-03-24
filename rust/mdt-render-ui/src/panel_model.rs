@@ -3,10 +3,12 @@ use crate::{
         RuntimeReconnectPhaseObservability, RuntimeReconnectReasonKind, RuntimeSessionResetKind,
         RuntimeSessionTimeoutKind,
     },
-    render_model::RenderSemanticDetailCount,
+    render_model::{RenderObjectSemanticFamily, RenderSemanticDetailCount},
     BuildConfigAuthoritySourceObservability, BuildConfigOutcomeObservability, BuildQueueHeadStage,
     HudModel, RenderModel,
 };
+
+const MINIMAP_TILE_SIZE: f32 = 8.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PresenterViewWindow {
@@ -45,14 +47,35 @@ pub struct MinimapPanelModel {
     pub hidden_tile_count: usize,
     pub hidden_known_percent: usize,
     pub tracked_object_count: usize,
+    pub window_tracked_object_count: usize,
+    pub outside_window_count: usize,
     pub player_count: usize,
+    pub window_player_count: usize,
     pub marker_count: usize,
+    pub window_marker_count: usize,
     pub plan_count: usize,
+    pub window_plan_count: usize,
     pub block_count: usize,
+    pub window_block_count: usize,
     pub runtime_count: usize,
+    pub window_runtime_count: usize,
     pub terrain_count: usize,
+    pub window_terrain_count: usize,
     pub unknown_count: usize,
+    pub window_unknown_count: usize,
     pub detail_counts: Vec<RenderSemanticDetailCount>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+struct WindowSemanticCounts {
+    total_count: usize,
+    player_count: usize,
+    marker_count: usize,
+    plan_count: usize,
+    block_count: usize,
+    runtime_count: usize,
+    terrain_count: usize,
+    unknown_count: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -723,6 +746,7 @@ pub fn build_minimap_panel(
         .saturating_add(summary.hidden_tile_count);
     let unknown_tile_count = map_tile_count.saturating_sub(known_tile_count);
     let focus_tile = scene.player_focus_tile(8.0);
+    let window_semantics = minimap_window_semantic_counts(scene, window);
     let window_mid_x = window.origin_x.saturating_add(window_last_x) / 2;
     let window_mid_y = window.origin_y.saturating_add(window_last_y) / 2;
     let focus_in_window = focus_tile.map(|(focus_x, focus_y)| {
@@ -768,15 +792,69 @@ pub fn build_minimap_panel(
         hidden_tile_count: summary.hidden_tile_count,
         hidden_known_percent: percent_of(summary.hidden_tile_count, known_tile_count),
         tracked_object_count: semantics.total_count,
+        window_tracked_object_count: window_semantics.total_count,
+        outside_window_count: semantics.total_count.saturating_sub(window_semantics.total_count),
         player_count: semantics.player_count,
+        window_player_count: window_semantics.player_count,
         marker_count: semantics.marker_count,
+        window_marker_count: window_semantics.marker_count,
         plan_count: semantics.plan_count,
+        window_plan_count: window_semantics.plan_count,
         block_count: semantics.block_count,
+        window_block_count: window_semantics.block_count,
         runtime_count: semantics.runtime_count,
+        window_runtime_count: window_semantics.runtime_count,
         terrain_count: semantics.terrain_count,
+        window_terrain_count: window_semantics.terrain_count,
         unknown_count: semantics.unknown_count,
+        window_unknown_count: window_semantics.unknown_count,
         detail_counts: semantics.detail_counts,
     })
+}
+
+fn minimap_window_semantic_counts(
+    scene: &RenderModel,
+    window: PresenterViewWindow,
+) -> WindowSemanticCounts {
+    let mut counts = WindowSemanticCounts::default();
+    let window_last_x = window
+        .origin_x
+        .saturating_add(window.width.saturating_sub(1));
+    let window_last_y = window
+        .origin_y
+        .saturating_add(window.height.saturating_sub(1));
+
+    for object in &scene.objects {
+        let tile_x = world_to_tile_index_floor(object.x, MINIMAP_TILE_SIZE);
+        let tile_y = world_to_tile_index_floor(object.y, MINIMAP_TILE_SIZE);
+        if tile_x < window.origin_x as i32
+            || tile_x > window_last_x as i32
+            || tile_y < window.origin_y as i32
+            || tile_y > window_last_y as i32
+        {
+            continue;
+        }
+
+        counts.total_count += 1;
+        match object.semantic_family() {
+            RenderObjectSemanticFamily::Player => counts.player_count += 1,
+            RenderObjectSemanticFamily::Marker => counts.marker_count += 1,
+            RenderObjectSemanticFamily::Plan => counts.plan_count += 1,
+            RenderObjectSemanticFamily::Block => counts.block_count += 1,
+            RenderObjectSemanticFamily::Runtime => counts.runtime_count += 1,
+            RenderObjectSemanticFamily::Terrain => counts.terrain_count += 1,
+            RenderObjectSemanticFamily::Unknown => counts.unknown_count += 1,
+        }
+    }
+
+    counts
+}
+
+fn world_to_tile_index_floor(world_position: f32, tile_size: f32) -> i32 {
+    if !world_position.is_finite() || !tile_size.is_finite() || tile_size <= 0.0 {
+        return -1;
+    }
+    (world_position / tile_size).floor() as i32
 }
 
 fn percent_of(part: usize, total: usize) -> usize {
@@ -1530,12 +1608,21 @@ mod tests {
         assert_eq!(panel.visible_known_percent, 83);
         assert_eq!(panel.hidden_known_percent, 16);
         assert_eq!(panel.tracked_object_count, 5);
+        assert_eq!(panel.window_tracked_object_count, 3);
+        assert_eq!(panel.outside_window_count, 2);
         assert_eq!(panel.marker_count, 1);
+        assert_eq!(panel.window_marker_count, 0);
         assert_eq!(panel.plan_count, 1);
+        assert_eq!(panel.window_plan_count, 0);
         assert_eq!(panel.block_count, 1);
+        assert_eq!(panel.window_block_count, 1);
         assert_eq!(panel.runtime_count, 1);
+        assert_eq!(panel.window_runtime_count, 1);
         assert_eq!(panel.terrain_count, 0);
+        assert_eq!(panel.window_terrain_count, 0);
         assert_eq!(panel.unknown_count, 0);
+        assert_eq!(panel.window_unknown_count, 0);
+        assert_eq!(panel.window_player_count, 1);
         assert_eq!(
             panel.detail_counts,
             vec![RenderSemanticDetailCount {
