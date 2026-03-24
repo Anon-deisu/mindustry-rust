@@ -317,8 +317,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     if let Some(custom_packet_replay_bridge) = custom_packet_replay_bridge.as_mut()
                     {
-                        custom_packet_replay_bridge
-                            .note_reconnect_reset(now_ms, "server_restart");
+                        custom_packet_replay_bridge.note_reconnect_reset(now_ms, "server_restart");
                         for line in custom_packet_replay_bridge.drain_lines() {
                             println!("{line}");
                         }
@@ -4685,9 +4684,7 @@ fn format_runtime_custom_packet_replay_bridge_business_summary_line(
         Some(summary) => {
             format!("runtime_custom_packet_replay_bridge_business_summary: summary={summary:?}")
         }
-        None => {
-            "runtime_custom_packet_replay_bridge_business_summary: summary=none".to_string()
-        }
+        None => "runtime_custom_packet_replay_bridge_business_summary: summary=none".to_string(),
     }
 }
 

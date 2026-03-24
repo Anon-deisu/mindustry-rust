@@ -5182,6 +5182,44 @@ mod tests {
     }
 
     #[test]
+    fn render_runtime_adapter_renders_shield_break_executor_hexagon() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
+
+        adapter.observe_events(&[ClientSessionEvent::EffectRequested {
+            effect_id: Some(256),
+            x: 32.0,
+            y: 48.0,
+            rotation: 6.0,
+            color_rgba: 0x11223344,
+            data_object: None,
+        }]);
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let marker = first_runtime_effect_marker(&scene);
+        assert_eq!(
+            marker.id,
+            format!(
+                "marker:runtime-effect:normal:256:0x{:08x}:0x{:08x}:0",
+                32.0f32.to_bits(),
+                48.0f32.to_bits()
+            )
+        );
+        assert_eq!(marker.x, 32.0);
+        assert_eq!(marker.y, 48.0);
+
+        let shield_prefix = "marker:line:runtime-effect-shield-break:";
+        let shield_lines = runtime_effect_lines_with_prefix(&scene, shield_prefix);
+        assert_eq!(shield_lines.len(), 12);
+        assert!(shield_lines.iter().any(|object| {
+            !object.id.ends_with(":line-end") && object.x == 38.0 && object.y == 48.0
+        }));
+    }
+
+    #[test]
     fn render_runtime_adapter_renders_lightning_executor_polyline_segments() {
         let mut adapter = RenderRuntimeAdapter::default();
         let mut scene = RenderModel::default();

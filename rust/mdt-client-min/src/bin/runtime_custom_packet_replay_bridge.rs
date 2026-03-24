@@ -114,7 +114,11 @@ impl RuntimeCustomPacketReplayBridge {
         lines.push(format!(
             "runtime_custom_packet_replay_bridge_state: routes={} active_routes={} resets={}",
             self.state.routes.len(),
-            self.state.routes.values().filter(|route| route.active).count(),
+            self.state
+                .routes
+                .values()
+                .filter(|route| route.active)
+                .count(),
             self.state.reset_count
         ));
         lines
@@ -282,9 +286,7 @@ fn transport_label(transport: RuntimeCustomPacketReplayTransport) -> &'static st
     match transport {
         RuntimeCustomPacketReplayTransport::Packet(ClientPacketTransport::Tcp) => "tcp",
         RuntimeCustomPacketReplayTransport::Packet(ClientPacketTransport::Udp) => "udp",
-        RuntimeCustomPacketReplayTransport::Logic(ClientLogicDataTransport::Reliable) => {
-            "reliable"
-        }
+        RuntimeCustomPacketReplayTransport::Logic(ClientLogicDataTransport::Reliable) => "reliable",
         RuntimeCustomPacketReplayTransport::Logic(ClientLogicDataTransport::Unreliable) => {
             "unreliable"
         }

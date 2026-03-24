@@ -13,11 +13,14 @@ const PAYLOAD_DEPOSIT_EFFECT_ID: i16 = 26;
 const PAYLOAD_DEPOSIT_OVERLAY_TTL_TICKS: u8 = 3;
 const LIGHTNING_EFFECT_ID: i16 = 13;
 const POINT_BEAM_EFFECT_ID: i16 = 10;
+const SHIELD_BREAK_EFFECT_ID: i16 = 256;
 const CHAIN_LIGHTNING_EFFECT_ID: i16 = 261;
 const CHAIN_EMP_EFFECT_ID: i16 = 262;
 const CHAIN_SEGMENT_TARGET_PIXELS: f32 = 24.0;
 const CHAIN_MIN_SEGMENTS: usize = 3;
 const CHAIN_MAX_SEGMENTS: usize = 8;
+const SHIELD_BREAK_SIDE_COUNT: usize = 6;
+const SHIELD_BREAK_RADIUS_GROWTH: f32 = 1.0;
 
 type OverlayOriginProjector = fn(f32, f32, f32, &TypeIoObject) -> Option<(f32, f32)>;
 type BusinessWorldPositionProjector = fn(&EffectBusinessProjection) -> Option<(u32, u32)>;
@@ -62,6 +65,12 @@ const POINT_BEAM_EXECUTOR: RuntimeEffectContractExecutor = RuntimeEffectContract
     contract_name: "point_beam",
     overlay_origin: position_target_overlay_origin,
     business_world_position: position_target_business_world_position,
+};
+
+const SHIELD_BREAK_EXECUTOR: RuntimeEffectContractExecutor = RuntimeEffectContractExecutor {
+    contract_name: "shield_break",
+    overlay_origin: unsupported_overlay_origin,
+    business_world_position: unsupported_business_world_position,
 };
 
 const BLOCK_CONTENT_ICON_EXECUTOR: RuntimeEffectContractExecutor = RuntimeEffectContractExecutor {
@@ -137,6 +146,12 @@ pub(crate) fn line_projections_for_effect_overlay(
             target_x_bits,
             target_y_bits,
         }],
+        Some(SHIELD_BREAK_EFFECT_ID) => shield_break_line_projections(
+            target_x_bits,
+            target_y_bits,
+            overlay.rotation_bits,
+            overlay.remaining_ticks,
+        ),
         Some(effect_id @ (CHAIN_LIGHTNING_EFFECT_ID | CHAIN_EMP_EFFECT_ID)) => {
             chain_line_kind(effect_id)
                 .map(|kind| {
@@ -291,6 +306,65 @@ fn chain_line_projections(
         .collect()
 }
 
+fn shield_break_line_projections(
+    center_x_bits: u32,
+    center_y_bits: u32,
+    rotation_bits: u32,
+    remaining_ticks: u8,
+) -> Vec<RuntimeEffectLineProjection> {
+    let center_x = f32::from_bits(center_x_bits);
+    let center_y = f32::from_bits(center_y_bits);
+    let base_radius = f32::from_bits(rotation_bits);
+    if !center_x.is_finite() || !center_y.is_finite() || !base_radius.is_finite() {
+        return Vec::new();
+    }
+
+    let radius = (base_radius + shield_break_progress(remaining_ticks) * SHIELD_BREAK_RADIUS_GROWTH)
+        .max(0.0);
+    if radius <= f32::EPSILON {
+        return Vec::new();
+    }
+
+    let vertices = (0..SHIELD_BREAK_SIDE_COUNT)
+        .map(|index| {
+            let angle = index as f32 * std::f32::consts::TAU / SHIELD_BREAK_SIDE_COUNT as f32;
+            (
+                (center_x + angle.cos() * radius).to_bits(),
+                (center_y + angle.sin() * radius).to_bits(),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    vertices
+        .iter()
+        .copied()
+        .zip(vertices.iter().copied().cycle().skip(1))
+        .take(SHIELD_BREAK_SIDE_COUNT)
+        .map(
+            |((source_x_bits, source_y_bits), (target_x_bits, target_y_bits))| {
+                RuntimeEffectLineProjection {
+                    kind: "shield-break",
+                    source_x_bits,
+                    source_y_bits,
+                    target_x_bits,
+                    target_y_bits,
+                }
+            },
+        )
+        .collect()
+}
+
+fn shield_break_progress(remaining_ticks: u8) -> f32 {
+    let total_steps = PAYLOAD_DEPOSIT_OVERLAY_TTL_TICKS.saturating_sub(1);
+    if total_steps == 0 {
+        return 1.0;
+    }
+    let elapsed = PAYLOAD_DEPOSIT_OVERLAY_TTL_TICKS
+        .saturating_sub(remaining_ticks)
+        .min(total_steps);
+    elapsed as f32 / total_steps as f32
+}
+
 fn executor_for_contract(
     contract: RuntimeEffectContract,
 ) -> &'static RuntimeEffectContractExecutor {
@@ -298,6 +372,7 @@ fn executor_for_contract(
         RuntimeEffectContract::PositionTarget => &POSITION_TARGET_EXECUTOR,
         RuntimeEffectContract::LightningPath => &LIGHTNING_PATH_EXECUTOR,
         RuntimeEffectContract::PointBeam => &POINT_BEAM_EXECUTOR,
+        RuntimeEffectContract::ShieldBreak => &SHIELD_BREAK_EXECUTOR,
         RuntimeEffectContract::BlockContentIcon => &BLOCK_CONTENT_ICON_EXECUTOR,
         RuntimeEffectContract::ContentIcon => &CONTENT_ICON_EXECUTOR,
         RuntimeEffectContract::PayloadTargetContent => &PAYLOAD_TARGET_CONTENT_EXECUTOR,
@@ -312,6 +387,7 @@ fn executor_for_name(name: &str) -> Option<&'static RuntimeEffectContractExecuto
         &POSITION_TARGET_EXECUTOR,
         &LIGHTNING_PATH_EXECUTOR,
         &POINT_BEAM_EXECUTOR,
+        &SHIELD_BREAK_EXECUTOR,
         &BLOCK_CONTENT_ICON_EXECUTOR,
         &CONTENT_ICON_EXECUTOR,
         &PAYLOAD_TARGET_CONTENT_EXECUTOR,
@@ -838,6 +914,35 @@ mod tests {
                 target_y_bits: 160.0f32.to_bits(),
             }]
         );
+    }
+
+    #[test]
+    fn line_projections_for_effect_overlay_returns_shield_break_hexagon() {
+        let overlay = RuntimeEffectOverlay {
+            effect_id: Some(SHIELD_BREAK_EFFECT_ID),
+            source_x_bits: 12.0f32.to_bits(),
+            source_y_bits: 20.0f32.to_bits(),
+            x_bits: 32.0f32.to_bits(),
+            y_bits: 48.0f32.to_bits(),
+            rotation_bits: 6.0f32.to_bits(),
+            color_rgba: 0x11223344,
+            reliable: false,
+            has_data: false,
+            remaining_ticks: 3,
+            contract_name: Some("shield_break"),
+            binding: None,
+            content_ref: None,
+            polyline_points: Vec::new(),
+        };
+
+        let lines =
+            line_projections_for_effect_overlay(&overlay, 32.0f32.to_bits(), 48.0f32.to_bits());
+
+        assert_eq!(lines.len(), SHIELD_BREAK_SIDE_COUNT);
+        assert!(lines.iter().all(|line| line.kind == "shield-break"));
+        assert!(lines.iter().any(|line| {
+            line.source_x_bits == 38.0f32.to_bits() && line.source_y_bits == 48.0f32.to_bits()
+        }));
     }
 
     #[test]

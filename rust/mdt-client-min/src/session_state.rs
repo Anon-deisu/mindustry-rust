@@ -6232,7 +6232,10 @@ mod tests {
         );
 
         let projection = state.runtime_typed_entity_projection();
-        assert!(state.entity_table_projection.by_entity_id.contains_key(&303));
+        assert!(state
+            .entity_table_projection
+            .by_entity_id
+            .contains_key(&303));
         assert!(state
             .entity_semantic_projection
             .by_entity_id

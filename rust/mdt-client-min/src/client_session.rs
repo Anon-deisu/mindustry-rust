@@ -10839,6 +10839,7 @@ fn derive_effect_business_projection(
     ) -> Option<EffectBusinessProjection> {
         match contract {
             RuntimeEffectContract::LightningPath => lightning_path_projection(value),
+            RuntimeEffectContract::ShieldBreak => None,
             RuntimeEffectContract::BlockContentIcon => {
                 value
                     .semantic_ref()
@@ -35091,6 +35092,29 @@ mod tests {
         assert_eq!(
             session.state().last_effect_contract_name.as_deref(),
             Some("unit_parent")
+        );
+        assert_eq!(session.state().last_effect_business_projection, None);
+        assert_eq!(session.state().last_effect_business_path, None);
+    }
+
+    #[test]
+    fn effect_packet_with_shield_break_contract_keeps_executor_name_without_business_projection() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "effect" && entry.params.len() == 6)
+            .unwrap()
+            .packet_id;
+        let payload = encode_effect_payload(256, 32.5, 48.0, 12.0, 0x11223344);
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            session.state().last_effect_contract_name.as_deref(),
+            Some("shield_break")
         );
         assert_eq!(session.state().last_effect_business_projection, None);
         assert_eq!(session.state().last_effect_business_path, None);

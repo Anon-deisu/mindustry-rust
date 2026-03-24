@@ -102,6 +102,9 @@ These are already landed and should not be re-opened as if missing:
 - runtime batch intent sampling now also respects override semantics.
   - `RuntimeIntentTracker` batch sampling now honors persistent and one-shot overrides the same way the single-snapshot path does, and `mdt-input` exposes `map_snapshot_batch_or_override(...)` so batch mapping no longer silently bypasses override state
   - remaining M8 work is still richer live input source parity and deeper command/build flow, not re-adding this batch/override consistency slice
+- empty runtime intent batches now also clear transient action edges correctly.
+  - `RuntimeIntentTracker::sample_runtime_snapshot_batch()` now clears stale `pressed_actions` / `released_actions` even when the incoming runtime batch is empty and no override is active, while preserving persistent active/axis/build/mining state
+  - remaining M8 work is still richer live input source parity and deeper command/build flow, not re-adding this empty-batch edge cleanup slice
 - builder queue tile-state validation is already landed in `mdt-input`.
   - local queued place/break entries can now be pruned against observed tile states when the tile is already air or already matches the requested block/rotation
   - remaining work is broader runtime integration and Java-equivalent `BuilderComp` depth, not re-adding the validation primitive
@@ -149,6 +152,9 @@ These are already landed and should not be re-opened as if missing:
 - `mdt-render-ui` runtime UI stack presenter summary is now also landed.
   - panel/window/ascii presenters now expose deterministic `RUNTIME-STACK` and `RUNTIME-STACK-DETAIL` rows that surface current `text input / follow-up menu / menu / chat / notice` stack composition and depth from existing `runtime_ui` observability
   - remaining `M9` work is still broader interactive UI and renderer/runtime parity, not re-adding this presenter-local stack summary slice
+- `mdt-render-ui` build/minimap user-flow presenter summary is now also landed.
+  - panel/window/ascii presenters now expose deterministic `BUILD-FLOW` rows that compress current build interaction plus minimap assist state into a stable next-action label such as `arm / realign / seed / resolve / refocus / survey / commit / break / idle`
+  - remaining `M9` work is still broader interactive UI and renderer/runtime parity, not re-adding this presenter-local build-flow summary slice
 - `mdt-render-ui` window build-config detail rows are now also landed.
   - window presentation now emits deterministic `BUILD-CONFIG-ENTRY` and `BUILD-CONFIG-MORE` rows on top of the existing capped build-config panel data instead of only the compact summary text
   - remaining `M9` work is still broader interactive UI and renderer/runtime parity, not re-adding this presenter-local detail slice
@@ -171,6 +177,9 @@ These are already landed and should not be re-opened as if missing:
 - narrow `effect_id=13` `lightning` contract/executor wiring is now also landed.
   - Rust now maps `effect_id=13` to `lightning`, preserves `Vec2Array` polyline payloads in business/runtime projection, and renders per-overlay lightning segments instead of collapsing to a single first-point marker
   - remaining `U5` work is still landing additional narrow `effect_id -> contract/executor` families, not re-adding these first chain-effect slices
+- narrow `effect_id=256` `shieldBreak` executor wiring is now also landed.
+  - Rust now maps `effect_id=256` to `shield_break`, keeps the effect-specific runtime executor name on the session surface, and renders the Java fallback-style expanding hexagon as runtime line segments keyed by the effect origin plus `rotation`
+  - remaining `U5` work is still landing additional narrow `effect_id -> contract/executor` families, not re-adding this first shield-break fallback slice
 - `mdt-client-min-online` custom/logic runtime surface wiring is now landed as a narrow `M6-3` harness slice.
   - the online harness now reuses `custom_packet_runtime_surface` across `--consume-client-*` custom/logic flows, emits runtime/business overlay summaries on updates and resets, and re-installs that surface after reconnect/redirect rebuilds
   - remaining `M6-3` work is still deeper Java-equivalent business integration, not re-adding this harness/runtime summary bridge

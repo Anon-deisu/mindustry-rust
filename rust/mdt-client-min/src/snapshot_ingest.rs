@@ -2951,7 +2951,10 @@ mod tests {
         assert!(projection.by_entity_id.contains_key(&101));
         assert!(!projection.by_entity_id.contains_key(&202));
         assert!(!projection.by_entity_id.contains_key(&303));
-        assert!(state.entity_table_projection.by_entity_id.contains_key(&303));
+        assert!(state
+            .entity_table_projection
+            .by_entity_id
+            .contains_key(&303));
         assert!(state
             .entity_semantic_projection
             .by_entity_id

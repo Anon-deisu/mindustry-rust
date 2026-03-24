@@ -563,6 +563,9 @@ fn compose_frame_panel_lines(
     {
         lines.push(format!("BUILD-MINIMAP-AUX: {build_minimap_aux_text}"));
     }
+    if let Some(build_flow_text) = compose_build_flow_status_text(scene, hud, window) {
+        lines.push(format!("BUILD-FLOW: {build_flow_text}"));
+    }
     if let Some(runtime_ui_notice_text) = compose_runtime_ui_notice_panel_status_text(hud) {
         lines.push(format!("RUNTIME-NOTICE: {runtime_ui_notice_text}"));
     }
@@ -1359,6 +1362,28 @@ fn compose_build_minimap_aux_status_text(
         panel.window_coverage_percent,
         panel.tracked_object_count,
         panel.runtime_count,
+    ))
+}
+
+fn compose_build_flow_status_text(
+    scene: &RenderModel,
+    hud: &HudModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let panel = build_build_minimap_assist_panel(scene, hud, window)?;
+    Some(format!(
+        "cfgnext:{}:m={}:s={}:q={}:r{}:f={}:v={}:w={}:scope={}:auth={}:rt{}",
+        panel.next_action_label(),
+        build_interaction_mode_status_text(panel.mode),
+        build_interaction_selection_status_text(panel.selection_state),
+        build_interaction_queue_status_text(panel.queue_state),
+        if panel.place_ready { 1 } else { 0 },
+        panel.focus_state_label(),
+        panel.map_visibility_label(),
+        panel.window_coverage_label(),
+        panel.config_scope_label(),
+        build_interaction_authority_status_text(panel.authority_state),
+        panel.runtime_share_percent(),
     ))
 }
 
@@ -3104,6 +3129,10 @@ mod tests {
         assert_frame_line_contains(
             &frame.panel_lines,
             "BUILD-MINIMAP-AUX: preb:m=place:s=head-aligned:q=mixed:r1:cfg=3/7@gamma:auth=rej-miss-build:f=0:0@1:v0:u100:w0:obj3:rt0",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "BUILD-FLOW: cfgnext:resolve:m=place:s=head-aligned:q=mixed:r1:f=inside:v=unseen:w=offscreen:scope=multi:auth=rej-miss-build:rt0",
         );
     }
 

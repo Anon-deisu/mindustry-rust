@@ -25,6 +25,12 @@ Current Rust baseline:
 
 - Contracts currently implemented:
   - `position_target`
+  - `lightning`
+  - `point_beam`
+  - `shield_break`
+  - `block_content_icon`
+  - `content_icon`
+  - `payload_target_content`
   - `drop_item`
   - `float_length`
   - `unit_parent`
@@ -37,28 +43,22 @@ Current Rust baseline:
 
 | candidate effect_id | Java behavior summary | Rust status | recommended next narrow slice | involved Rust files |
 | --- | --- | --- | --- | --- |
-| `10` `Fx.pointBeam` | Declared at `core/src/mindustry/content/Fx.java:152`. Requires `e.data instanceof Position`; draws a straight beam from `e.x/e.y` to target and adds light. Used by `core/src/mindustry/type/weapons/PointDefenseWeapon.java:27` and `core/src/mindustry/world/blocks/defense/turrets/PointDefenseTurret.java:26`. | Already mapped to `position_target` in `rust/mdt-client-min/src/effect_runtime.rs:47`. Current executor only projects origin/target for overlay placement via `rust/mdt-client-min/src/render_runtime/effect_contract_executor.rs:19-24`, `:95-108`, `:233-257`; it does not execute a beam. | Do not add a new contract. Add an effect-specific beam executor for `effect_id=10` on top of existing `PositionTarget { source, target }` business projection. This is the cleanest executor-only slice. | `rust/mdt-client-min/src/render_runtime.rs`; `rust/mdt-client-min/src/render_runtime/effect_contract_executor.rs` |
-| `261` `Fx.chainLightning` and `262` `Fx.chainEmp` | Declared at `core/src/mindustry/content/Fx.java:2871` and `:2908`. Both require `e.data instanceof Position`; both render segmented jittered chains from source to target. Both explicitly use `.followParent(false).rotWithParent(false)`. Used by `core/src/mindustry/entities/abilities/EnergyFieldAbility.java:25` and `core/src/mindustry/entities/bullet/EmpBulletType.java:12`. | Both IDs are already in `position_target` at `rust/mdt-client-min/src/effect_runtime.rs:47`, so Rust can already recover source and target. Current runtime still stops at marker/overlay semantics and has no chain executor. | Reuse the existing `position_target` contract. Add a deterministic segmented chain executor for `effect_id=261/262`. First slice does not need Java-perfect jitter; it only needs effect-specific chain rendering. | `rust/mdt-client-min/src/render_runtime.rs`; `rust/mdt-client-min/src/render_runtime/effect_contract_executor.rs` |
-| `13` `Fx.lightning` | Declared at `core/src/mindustry/content/Fx.java:188`. Requires `e.data instanceof Seq<Vec2>`; Java renders the entire polyline and endpoint circles. Call site: `core/src/mindustry/entities/Lightning.java:94`. | No `effect_id=13` mapping exists in `rust/mdt-client-min/src/effect_runtime.rs:45-50`. Generic business projection in `rust/mdt-client-min/src/client_session.rs:10536-10589` can only keep a first hit or first hint, so full path semantics are lost. | Add a new strict `vec2_polyline` or `lightning_path` contract that only consumes `Vec2[]/Seq<Vec2>`, then add a narrow executor that draws connected segments and nodes. This is the clearest contract gap left in `effect(data)`. | `rust/mdt-client-min/src/effect_runtime.rs`; `rust/mdt-client-min/src/client_session.rs`; `rust/mdt-client-min/src/render_runtime/effect_contract_executor.rs`; `rust/mdt-client-min/src/render_runtime.rs` |
-| `252` `Fx.healBlockFull` | Declared at `core/src/mindustry/content/Fx.java:2781`. Requires `e.data instanceof Block`; Java mixes `e.color` and draws `block.fullIcon` at the effect origin. Used by `core/src/mindustry/world/blocks/defense/MendProjector.java:114`, `core/src/mindustry/entities/abilities/EnergyFieldAbility.java:168`, and `core/src/mindustry/entities/bullet/EmpBulletType.java:31`. | Rust generic parsing can already recover content references, but there is no `effect_id=252` contract in `rust/mdt-client-min/src/effect_runtime.rs:45-50`. Existing `drop_item` only covers item content semantics, not block icon semantics. | Add a `block_content_icon` contract limited to `Content(Block)` and a narrow executor that shows a block icon at the effect origin. This is a low-risk content-ref slice. | `rust/mdt-client-min/src/effect_runtime.rs`; `rust/mdt-client-min/src/client_session.rs`; `rust/mdt-client-min/src/render_runtime/effect_contract_executor.rs`; `rust/mdt-client-min/src/render_runtime.rs` |
-| `26` `Fx.payloadDeposit` | Declared at `core/src/mindustry/content/Fx.java:295`. Requires `YeetData(target, item)`; Java lerps from source to target and draws either block or unit payload content. Call site: `core/src/mindustry/world/blocks/units/UnitAssembler.java:675`. | No dedicated contract for `26`. Generic DFS may recover one `Vec2` or one `ContentRef`, but not the paired `target + payload content` semantics needed for motion and payload choice. | Add a `payload_target_content` contract that extracts one target position plus one payload content ref. First executor slice can just lerp an icon along the path; it does not need Java shadow fidelity. | `rust/mdt-client-min/src/effect_runtime.rs`; `rust/mdt-client-min/src/client_session.rs`; `rust/mdt-client-min/src/render_runtime/effect_contract_executor.rs`; `rust/mdt-client-min/src/render_runtime.rs` |
+| `256` `Fx.shieldBreak` | Declared at `core/src/mindustry/content/Fx.java:2807`. Java fallback path draws a hexagon at `e.x/e.y` using `e.rotation + e.fin()` even when no typed ability payload is available. | Rust now maps `effect_id=256` to `shield_break` and renders the fallback-style expanding hexagon as runtime line segments keyed by effect origin + `rotation`. | Landed. Keep as the current narrow fallback executor reference point for future parent/ability-aware shield work. | `rust/mdt-client-min/src/effect_runtime.rs`; `rust/mdt-client-min/src/client_session.rs`; `rust/mdt-client-min/src/render_runtime/effect_contract_executor.rs`; `rust/mdt-client-min/src/render_runtime.rs` |
+| `257` / `260` `Fx.arcShieldBreak` / `Fx.unitShieldBreak` | Declared at `core/src/mindustry/content/Fx.java:2818` and `:2852`. Java uses parent `Unit` plus ability/unit-derived geometry, not just origin markers. | Rust already maps these ids to `unit_parent` and follows parent position, but still stops at marker-level positioning rather than effect-shaped arcs/circles. | Next narrow slice can deepen `unit_parent` into effect-specific geometry while keeping the current parent-follow binding path. | `rust/mdt-client-min/src/effect_runtime.rs`; `rust/mdt-client-min/src/render_runtime/effect_contract_executor.rs`; `rust/mdt-client-min/src/render_runtime.rs` |
+| `263` `Fx.legDestroy` | Declared at `core/src/mindustry/content/Fx.java:2945`, called from `core/src/mindustry/entities/comp/LegsComp.java:79-80`. Java depends on `LegDestroyData` plus region/segment geometry. | Rust has no dedicated contract or executor for this family. | Defer until parent/segment executor depth is stronger; this is wider than the current shield slices. | `rust/mdt-client-min/src/effect_runtime.rs`; `rust/mdt-client-min/src/render_runtime/effect_contract_executor.rs`; `rust/mdt-client-min/src/render_runtime.rs` |
 
 ## Suggested Order
 
 Recommended implementation order:
 
-1. `10` `pointBeam`
-2. `261/262` `chainLightning` / `chainEmp`
-3. `13` `lightning`
-4. `252` `healBlockFull`
-5. `26` `payloadDeposit`
+1. `257` / `260` shield-break unit-parent geometry depth
+2. `263` `legDestroy`
 
 Why this order:
 
-- `10` and `261/262` are executor-only slices. They prove that existing contracts can graduate into effect-specific runtime behavior without expanding contract surface.
-- `13` is the clearest remaining `effect(data)` contract gap because generic first-hit projection cannot preserve the whole polyline.
-- `252` is a very clean content-ref slice.
-- `26` is still a good slice, but it needs paired target+content extraction, so it is slightly wider.
+- `252`, `26`, and now `256` are already landed as narrow executor-focused slices, so the clearest remaining gap shifts to the parent-shaped shield families and then `legDestroy`.
+- `257/260` can build directly on the already-landed `unit_parent` binding path.
+- `263` is still real value, but it depends on wider segment/region semantics.
 
 ## Defer For Now
 
@@ -66,8 +66,8 @@ These are real gaps, but they are less suitable for the next narrow slice becaus
 
 | candidate effect_id | reason to defer |
 | --- | --- |
-| `256` `Fx.shieldBreak` | Declared at `core/src/mindustry/content/Fx.java:2807`. Java uses `ForceFieldAbility` data, and `Effect.add(...)` parent binding in `core/src/mindustry/entities/Effect.java:162-170` matters. This is closer to parent-follow and ability-shape runtime work than to a narrow contract slice. |
-| `257` `Fx.arcShieldBreak` and `260` `Fx.unitShieldBreak` | Rust already maps these IDs to `unit_parent` in `rust/mdt-client-min/src/effect_runtime.rs:50`, but Java behavior still needs unit/ability-specific shape logic. Better after parent-follow executor infrastructure is stronger. |
+| `252` `Fx.healBlockFull` | Already landed as `block_content_icon`; do not re-open it as missing. |
+| `26` `Fx.payloadDeposit` | Already landed as `payload_target_content`; do not re-open it as missing. |
 | `263` `Fx.legDestroy` | Declared at `core/src/mindustry/content/Fx.java:2945`, called from `core/src/mindustry/entities/comp/LegsComp.java:79-80`. Java depends on `LegDestroyData` plus `TextureRegion`, so it is not a cheap next slice. |
 
 ## Backlog Alignment
@@ -81,11 +81,9 @@ These are real gaps, but they are less suitable for the next narrow slice becaus
 If the next PR must stay very narrow, the best two options are:
 
 - Executor-only PR
-  - `effect_id=10`
-  - `effect_id=261`
-  - `effect_id=262`
+  - `effect_id=257`
 - New-contract PR
-  - `effect_id=13`
-  - or `effect_id=252`
+  - `effect_id=257`
+  - or `effect_id=263`
 
 These options hit E1/E2 directly without expanding into the broader E3 runtime semantics.

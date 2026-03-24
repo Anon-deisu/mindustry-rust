@@ -16,8 +16,7 @@ pub struct LiveIntentState {
 
 impl LiveIntentState {
     pub fn apply_intents(&mut self, intents: &[PlayerIntent]) {
-        self.pressed_actions.clear();
-        self.released_actions.clear();
+        self.clear_transient_edges();
 
         for intent in intents {
             match intent {
@@ -55,6 +54,11 @@ impl LiveIntentState {
     pub fn is_action_active(&self, action: BinaryAction) -> bool {
         self.active_actions.contains(&action)
     }
+
+    pub fn clear_transient_edges(&mut self) {
+        self.pressed_actions.clear();
+        self.released_actions.clear();
+    }
 }
 
 #[derive(Debug)]
@@ -87,6 +91,7 @@ impl RuntimeIntentTracker {
 
     pub fn sample_runtime_snapshot_batch(&mut self, runtime_snapshots: &[InputSnapshot]) -> bool {
         if runtime_snapshots.is_empty() && self.override_snapshot.is_none() {
+            self.state.clear_transient_edges();
             return false;
         }
         let override_snapshot = self.override_snapshot.clone();
@@ -605,5 +610,68 @@ mod tests {
         assert!(tracker.state().is_action_active(BinaryAction::Interact));
 
         assert!(!tracker.sample_runtime_snapshot_batch(&[]));
+    }
+
+    #[test]
+    fn runtime_intent_tracker_empty_batch_clears_pressed_edges_without_dropping_active_actions() {
+        let mut tracker = RuntimeIntentTracker::new(IntentSamplingMode::LiveSampling);
+
+        assert!(tracker.sample_runtime_snapshot_batch(&[InputSnapshot {
+            move_axis: (1.0, 0.0),
+            aim_axis: (2.0, 3.0),
+            mining_tile: None,
+            building: false,
+            config_tap_tile: None,
+            active_actions: vec![BinaryAction::Fire],
+        }]));
+        assert_eq!(tracker.state().pressed_actions, vec![BinaryAction::Fire]);
+        assert!(tracker.state().released_actions.is_empty());
+        assert!(tracker.state().is_action_active(BinaryAction::Fire));
+
+        assert!(!tracker.sample_runtime_snapshot_batch(&[]));
+        assert!(tracker.state().pressed_actions.is_empty());
+        assert!(tracker.state().released_actions.is_empty());
+        assert!(tracker.state().is_action_active(BinaryAction::Fire));
+    }
+
+    #[test]
+    fn runtime_intent_tracker_empty_batch_clears_released_edges_after_batch_release() {
+        let mut tracker = RuntimeIntentTracker::new(IntentSamplingMode::LiveSampling);
+
+        assert!(tracker.sample_runtime_snapshot_batch(&[InputSnapshot {
+            move_axis: (1.0, 0.0),
+            aim_axis: (2.0, 3.0),
+            mining_tile: None,
+            building: false,
+            config_tap_tile: None,
+            active_actions: vec![BinaryAction::Fire],
+        }]));
+
+        assert!(tracker.sample_runtime_snapshot_batch(&[
+            InputSnapshot {
+                move_axis: (1.0, 0.0),
+                aim_axis: (2.0, 3.0),
+                mining_tile: None,
+                building: false,
+                config_tap_tile: None,
+                active_actions: vec![BinaryAction::Fire],
+            },
+            InputSnapshot {
+                move_axis: (0.0, 0.0),
+                aim_axis: (4.0, 5.0),
+                mining_tile: None,
+                building: false,
+                config_tap_tile: None,
+                active_actions: vec![],
+            },
+        ]));
+        assert!(tracker.state().pressed_actions.is_empty());
+        assert_eq!(tracker.state().released_actions, vec![BinaryAction::Fire]);
+        assert!(!tracker.state().is_action_active(BinaryAction::Fire));
+
+        assert!(!tracker.sample_runtime_snapshot_batch(&[]));
+        assert!(tracker.state().pressed_actions.is_empty());
+        assert!(tracker.state().released_actions.is_empty());
+        assert!(!tracker.state().is_action_active(BinaryAction::Fire));
     }
 }

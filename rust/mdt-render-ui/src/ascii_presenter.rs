@@ -1,13 +1,12 @@
 use crate::panel_model::{
-    build_build_config_panel, build_build_interaction_panel, build_hud_status_panel,
-    build_hud_visibility_panel, build_minimap_panel, build_runtime_admin_panel,
-    build_runtime_chat_panel, build_runtime_command_mode_panel, build_runtime_dialog_panel,
-    build_runtime_kick_panel, build_runtime_live_effect_panel, build_runtime_live_entity_panel,
-    build_runtime_loading_panel, build_runtime_menu_panel, build_runtime_reconnect_panel,
-    build_runtime_rules_panel, build_runtime_session_panel, build_runtime_ui_notice_panel,
-    build_runtime_ui_stack_panel, build_runtime_world_label_panel, MinimapPanelModel,
-    PresenterViewWindow,
-    RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
+    build_build_config_panel, build_build_interaction_panel, build_build_minimap_assist_panel,
+    build_hud_status_panel, build_hud_visibility_panel, build_minimap_panel,
+    build_runtime_admin_panel, build_runtime_chat_panel, build_runtime_command_mode_panel,
+    build_runtime_dialog_panel, build_runtime_kick_panel, build_runtime_live_effect_panel,
+    build_runtime_live_entity_panel, build_runtime_loading_panel, build_runtime_menu_panel,
+    build_runtime_reconnect_panel, build_runtime_rules_panel, build_runtime_session_panel,
+    build_runtime_ui_notice_panel, build_runtime_ui_stack_panel, build_runtime_world_label_panel,
+    MinimapPanelModel, PresenterViewWindow, RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
 };
 use crate::render_model::{RenderObjectSemanticFamily, RenderObjectSemanticKind};
 use crate::{HudModel, RenderModel, ScenePresenter};
@@ -99,6 +98,9 @@ impl AsciiScenePresenter {
         }
         if let Some(build_interaction_text) = compose_build_interaction_text(hud) {
             out.push_str(&format!("BUILD-INTERACTION: {build_interaction_text}\n"));
+        }
+        if let Some(build_flow_text) = compose_build_flow_text(scene, hud, window) {
+            out.push_str(&format!("BUILD-FLOW: {build_flow_text}\n"));
         }
         if let Some(build_text) = compose_build_ui_text(hud) {
             out.push_str(&format!("BUILD: {build_text}\n"));
@@ -983,6 +985,28 @@ fn compose_build_interaction_text(hud: &HudModel) -> Option<String> {
         build_config_tile_text(panel.authority_tile),
         compact_runtime_ui_text(panel.authority_block_name.as_deref()),
         panel.orphan_authoritative_count,
+    ))
+}
+
+fn compose_build_flow_text(
+    scene: &RenderModel,
+    hud: &HudModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let panel = build_build_minimap_assist_panel(scene, hud, window)?;
+    Some(format!(
+        "next={} mode={} select={} queue={} place-ready={} focus={} vis={} cover={} scope={} auth={} runtime-share={}%",
+        panel.next_action_label(),
+        build_interaction_mode_text(panel.mode),
+        build_interaction_selection_text(panel.selection_state),
+        build_interaction_queue_text(panel.queue_state),
+        if panel.place_ready { 1 } else { 0 },
+        panel.focus_state_label(),
+        panel.map_visibility_label(),
+        panel.window_coverage_label(),
+        panel.config_scope_label(),
+        build_interaction_authority_text(panel.authority_state),
+        panel.runtime_share_percent(),
     ))
 }
 
@@ -2542,6 +2566,9 @@ mod tests {
         ));
         assert!(frame.contains(
             "BUILD-INTERACTION: mode=place select=head-aligned queue=mixed pending=3 place-ready=1 cfg=4/8 top=gamma head=queued@10:12:place:b301:r1 auth=rejected-missing-building pending=match src=tileConfig tile=10:12 block=alpha orphan=6"
+        ));
+        assert!(frame.contains(
+            "BUILD-FLOW: next=resolve mode=place select=head-aligned queue=mixed place-ready=1 focus=inside vis=unseen cover=offscreen scope=multi auth=rejected-missing-building runtime-share=0%"
         ));
     }
 

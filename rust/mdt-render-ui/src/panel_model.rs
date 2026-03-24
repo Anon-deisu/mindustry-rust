@@ -263,6 +263,91 @@ pub struct BuildMinimapAssistPanelModel {
     pub runtime_count: usize,
 }
 
+impl BuildMinimapAssistPanelModel {
+    pub fn focus_state_label(&self) -> &'static str {
+        match (self.focus_tile, self.focus_in_window) {
+            (Some(_), Some(true)) => "inside",
+            (Some(_), Some(false)) => "outside",
+            (Some(_), None) => "tracked",
+            (None, _) => "none",
+        }
+    }
+
+    pub fn map_visibility_label(&self) -> &'static str {
+        if self.unknown_tile_percent == 100 {
+            "unseen"
+        } else if self.visible_map_percent == 0 {
+            "hidden"
+        } else if self.unknown_tile_percent == 0 {
+            "mapped"
+        } else {
+            "mixed"
+        }
+    }
+
+    pub fn window_coverage_label(&self) -> &'static str {
+        if self.window_coverage_percent == 0 {
+            "offscreen"
+        } else if self.window_coverage_percent == 100 {
+            "full"
+        } else {
+            "partial"
+        }
+    }
+
+    pub fn config_scope_label(&self) -> &'static str {
+        match self.config_family_count {
+            0 => "none",
+            1 => "single",
+            _ => "multi",
+        }
+    }
+
+    pub fn runtime_share_percent(&self) -> usize {
+        percent_of(self.runtime_count, self.tracked_object_count)
+    }
+
+    pub fn next_action_label(&self) -> &'static str {
+        match self.mode {
+            BuildInteractionMode::Idle => "idle",
+            BuildInteractionMode::Break => {
+                if self.focus_tile.is_none() || matches!(self.focus_in_window, Some(false)) {
+                    "refocus"
+                } else {
+                    "break"
+                }
+            }
+            BuildInteractionMode::Place => {
+                if !self.place_ready {
+                    "arm"
+                } else if matches!(
+                    self.selection_state,
+                    BuildInteractionSelectionState::HeadDiverged
+                ) {
+                    "realign"
+                } else if matches!(self.queue_state, BuildInteractionQueueState::Empty) {
+                    "seed"
+                } else if self.authority_needs_attention() {
+                    "resolve"
+                } else if self.focus_tile.is_none() || matches!(self.focus_in_window, Some(false)) {
+                    "refocus"
+                } else if matches!(self.map_visibility_label(), "unseen" | "hidden") {
+                    "survey"
+                } else {
+                    "commit"
+                }
+            }
+        }
+    }
+
+    fn authority_needs_attention(&self) -> bool {
+        !matches!(
+            self.authority_state,
+            BuildInteractionAuthorityState::None | BuildInteractionAuthorityState::Applied
+        )
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeUiNoticePanelModel {
     pub hud_set_count: u64,
@@ -901,7 +986,9 @@ pub fn build_minimap_panel(
         hidden_known_percent: percent_of(summary.hidden_tile_count, known_tile_count),
         tracked_object_count: semantics.total_count,
         window_tracked_object_count: window_semantics.total_count,
-        outside_window_count: semantics.total_count.saturating_sub(window_semantics.total_count),
+        outside_window_count: semantics
+            .total_count
+            .saturating_sub(window_semantics.total_count),
         player_count: semantics.player_count,
         window_player_count: window_semantics.player_count,
         marker_count: semantics.marker_count,
@@ -1592,10 +1679,10 @@ mod tests {
         build_runtime_live_entity_panel, build_runtime_loading_panel, build_runtime_menu_panel,
         build_runtime_reconnect_panel, build_runtime_rules_panel, build_runtime_session_panel,
         build_runtime_ui_notice_panel, build_runtime_ui_stack_panel,
-        build_runtime_world_label_panel,
-        BuildInteractionAuthorityState, BuildInteractionMode, BuildInteractionQueueState,
-        BuildInteractionSelectionState, PresenterViewWindow, RuntimeDialogNoticeKind,
-        RuntimeDialogPromptKind, RuntimeUiStackForegroundKind, RuntimeWorldLabelPanelModel,
+        build_runtime_world_label_panel, BuildInteractionAuthorityState, BuildInteractionMode,
+        BuildInteractionQueueState, BuildInteractionSelectionState, BuildMinimapAssistPanelModel,
+        PresenterViewWindow, RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
+        RuntimeUiStackForegroundKind, RuntimeWorldLabelPanelModel,
     };
     use crate::{
         hud_model::{
@@ -2114,6 +2201,68 @@ mod tests {
         assert_eq!(panel.window_coverage_percent, 0);
         assert_eq!(panel.tracked_object_count, 3);
         assert_eq!(panel.runtime_count, 0);
+        assert_eq!(panel.focus_state_label(), "inside");
+        assert_eq!(panel.map_visibility_label(), "unseen");
+        assert_eq!(panel.window_coverage_label(), "offscreen");
+        assert_eq!(panel.config_scope_label(), "multi");
+        assert_eq!(panel.runtime_share_percent(), 0);
+        assert_eq!(panel.next_action_label(), "resolve");
+    }
+
+    #[test]
+    fn build_minimap_assist_next_action_prioritizes_operator_flow() {
+        let mut panel = BuildMinimapAssistPanelModel {
+            mode: BuildInteractionMode::Place,
+            selection_state: BuildInteractionSelectionState::Armed,
+            queue_state: BuildInteractionQueueState::Empty,
+            place_ready: false,
+            config_family_count: 0,
+            config_sample_count: 0,
+            top_config_family: None,
+            authority_state: BuildInteractionAuthorityState::None,
+            focus_tile: Some((4, 6)),
+            focus_in_window: Some(true),
+            visible_map_percent: 100,
+            unknown_tile_percent: 0,
+            window_coverage_percent: 25,
+            tracked_object_count: 4,
+            runtime_count: 1,
+        };
+
+        assert_eq!(panel.next_action_label(), "arm");
+
+        panel.place_ready = true;
+        panel.selection_state = BuildInteractionSelectionState::HeadDiverged;
+        assert_eq!(panel.next_action_label(), "realign");
+
+        panel.selection_state = BuildInteractionSelectionState::HeadAligned;
+        assert_eq!(panel.next_action_label(), "seed");
+
+        panel.queue_state = BuildInteractionQueueState::Queued;
+        panel.authority_state = BuildInteractionAuthorityState::Rollback;
+        assert_eq!(panel.next_action_label(), "resolve");
+
+        panel.authority_state = BuildInteractionAuthorityState::Applied;
+        panel.focus_in_window = Some(false);
+        assert_eq!(panel.next_action_label(), "refocus");
+
+        panel.focus_in_window = Some(true);
+        panel.visible_map_percent = 0;
+        panel.unknown_tile_percent = 100;
+        assert_eq!(panel.next_action_label(), "survey");
+
+        panel.visible_map_percent = 55;
+        panel.unknown_tile_percent = 0;
+        assert_eq!(panel.next_action_label(), "commit");
+
+        panel.mode = BuildInteractionMode::Break;
+        assert_eq!(panel.next_action_label(), "break");
+
+        panel.focus_tile = None;
+        assert_eq!(panel.next_action_label(), "refocus");
+
+        panel.mode = BuildInteractionMode::Idle;
+        assert_eq!(panel.next_action_label(), "idle");
     }
 
     #[test]
@@ -3211,7 +3360,10 @@ mod tests {
             Some(RuntimeUiStackForegroundKind::TextInput)
         );
         assert_eq!(stack.foreground_label(), "input");
-        assert_eq!(stack.prompt_layer_labels(), vec!["input", "follow-up", "menu"]);
+        assert_eq!(
+            stack.prompt_layer_labels(),
+            vec!["input", "follow-up", "menu"]
+        );
         assert_eq!(
             stack.notice_layer_labels(),
             vec!["hud", "reliable", "info", "warn"]
