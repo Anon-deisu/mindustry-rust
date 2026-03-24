@@ -33,6 +33,14 @@ use std::rc::Rc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+#[path = "../custom_packet_runtime.rs"]
+mod custom_packet_runtime;
+
+use custom_packet_runtime::{
+    build_runtime_custom_packet_semantic_specs, install_runtime_custom_packet_semantics,
+    RuntimeCustomPacketSemanticSpec, RuntimeCustomPacketSemantics,
+};
+
 const LIVE_VIEW_TILES: (usize, usize) = (64, 32);
 const SERVER_RESTART_RETRY_BACKOFF_MS: u64 = 1_000;
 const DEFAULT_DISCOVER_PORT: u16 = 6567;
@@ -51,6 +59,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ClientSession::from_remote_manifest_with_timing(&manifest, args.locale.clone(), timing)?;
     apply_snapshot_overrides(&mut session, &args);
     let mut custom_packet_watch = install_runtime_custom_packet_watch(&mut session, &args);
+    let mut custom_packet_semantics = install_runtime_custom_packet_semantics(
+        &mut session,
+        &args.runtime_custom_packet_semantics,
+    );
     let connect_payload = load_connect_payload(&args.connect)?;
     let connect = session.prepare_connect_packet(&connect_payload)?;
 
@@ -168,6 +180,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         maybe_print_client_packets(&args, &report.events);
         maybe_print_custom_packet_watch_events(custom_packet_watch.as_mut(), &report.events);
+        maybe_print_custom_packet_semantic_events(custom_packet_semantics.as_mut(), &report.events);
         if let Some((redirect_ip, redirect_port)) = pending_redirect {
             if let Some(redirect_addr) = resolve_redirect_server_addr(&redirect_ip, redirect_port) {
                 println!(
@@ -182,10 +195,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     &connect_payload,
                     redirect_addr,
                 ) {
-                    Ok((redirected_session, redirected_watch)) => {
+                    Ok((redirected_session, redirected_watch, redirected_semantics)) => {
                         current_server_addr = redirect_addr;
                         session = redirected_session;
                         custom_packet_watch = redirected_watch;
+                        custom_packet_semantics = redirected_semantics;
                         relative_build_plans_applied = false;
                         auto_build_plans_applied = false;
                         ascii_scene_printed = false;
@@ -228,9 +242,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &connect_payload,
                 current_server_addr,
             ) {
-                Ok((reconnected_session, reconnected_watch)) => {
+                Ok((reconnected_session, reconnected_watch, reconnected_semantics)) => {
                     session = reconnected_session;
                     custom_packet_watch = reconnected_watch;
+                    custom_packet_semantics = reconnected_semantics;
                     relative_build_plans_applied = false;
                     auto_build_plans_applied = false;
                     ascii_scene_printed = false;
@@ -294,6 +309,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     maybe_print_final_ascii_scene(&session, &args, &render_runtime_adapter);
     maybe_print_custom_packet_watch_summary(custom_packet_watch.as_ref());
+    maybe_print_custom_packet_semantic_summary(custom_packet_semantics.as_ref());
     let final_input = session.snapshot_input_mut().clone();
     println!(
         "final: packets_seen={} snapshots={} world_loaded={} ready={} keepalive_sent={} client_snapshot_sent={} timed_out={}",
@@ -416,14 +432,25 @@ fn reconnect_runtime_session(
     timing: ClientSessionTiming,
     connect_payload: &[u8],
     server_addr: SocketAddr,
-) -> Result<(ClientSession, Option<RuntimeCustomPacketWatch>), Box<dyn std::error::Error>> {
+) -> Result<
+    (
+        ClientSession,
+        Option<RuntimeCustomPacketWatch>,
+        Option<RuntimeCustomPacketSemantics>,
+    ),
+    Box<dyn std::error::Error>,
+> {
     let mut session =
         ClientSession::from_remote_manifest_with_timing(manifest, args.locale.clone(), timing)?;
     apply_snapshot_overrides(&mut session, args);
     let connect = session.prepare_connect_packet(connect_payload)?;
     driver.reconnect(server_addr, &connect)?;
     let custom_packet_watch = install_runtime_custom_packet_watch(&mut session, args);
-    Ok((session, custom_packet_watch))
+    let custom_packet_semantics = install_runtime_custom_packet_semantics(
+        &mut session,
+        &args.runtime_custom_packet_semantics,
+    );
+    Ok((session, custom_packet_watch, custom_packet_semantics))
 }
 
 struct CliArgs {
@@ -455,6 +482,7 @@ struct CliArgs {
     watched_client_packet_types: Vec<String>,
     watched_client_binary_packet_types: Vec<String>,
     watched_client_logic_data_channels: Vec<String>,
+    runtime_custom_packet_semantics: Vec<RuntimeCustomPacketSemanticSpec>,
     render_window_live: bool,
     dump_world_stream_hex: Option<PathBuf>,
     chat_schedule: Vec<ScheduledChatEntry>,
@@ -777,6 +805,9 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
     let mut watched_client_packet_types = Vec::new();
     let mut watched_client_binary_packet_types = Vec::new();
     let mut watched_client_logic_data_channels = Vec::new();
+    let mut consumed_client_packet_types = Vec::new();
+    let mut consumed_client_binary_packet_types = Vec::new();
+    let mut consumed_client_logic_data_channels = Vec::new();
     let mut render_window_live = false;
     let mut dump_world_stream_hex = None;
     let mut live_intent_snapshots = Vec::new();
@@ -1100,6 +1131,30 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
                 watched_client_logic_data_channels.push(
                     args.get(i)
                         .ok_or("missing value for --watch-client-logic-data")?
+                        .to_string(),
+                );
+            }
+            "--consume-client-packet" => {
+                i += 1;
+                consumed_client_packet_types.push(
+                    args.get(i)
+                        .ok_or("missing value for --consume-client-packet")?
+                        .to_string(),
+                );
+            }
+            "--consume-client-binary-packet" => {
+                i += 1;
+                consumed_client_binary_packet_types.push(
+                    args.get(i)
+                        .ok_or("missing value for --consume-client-binary-packet")?
+                        .to_string(),
+                );
+            }
+            "--consume-client-logic-data" => {
+                i += 1;
+                consumed_client_logic_data_channels.push(
+                    args.get(i)
+                        .ok_or("missing value for --consume-client-logic-data")?
                         .to_string(),
                 );
             }
@@ -1469,6 +1524,11 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
         }),
         None => return Err(format!("missing --server or --discover-host\n{}", usage())),
     };
+    let runtime_custom_packet_semantics = build_runtime_custom_packet_semantic_specs(
+        &consumed_client_packet_types,
+        &consumed_client_binary_packet_types,
+        &consumed_client_logic_data_channels,
+    )?;
 
     Ok(CliArgs {
         manifest_path: manifest_path.ok_or(format!("missing --manifest\n{}", usage()))?,
@@ -1503,6 +1563,7 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
         watched_client_packet_types,
         watched_client_binary_packet_types,
         watched_client_logic_data_channels,
+        runtime_custom_packet_semantics,
         render_window_live,
         dump_world_stream_hex,
         chat_schedule: build_chat_schedule(chat_messages, chat_delay_ms, chat_spacing_ms),
@@ -1517,7 +1578,7 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
 
 fn usage() -> String {
     String::from(
-        "Usage: mdt-client-min-online --manifest <path> (--server <host:port> | --discover-host <host> [--discover-host <host> ...] [--discover-port <port>] [--discover-timeout-ms <ms>]) [--connect-hex <path> | --name <name> --uuid <base64> --usid <base64> --build <build> --version-type <type> --mobile --color-rgba <rgba> --mod <name:version> ...] [--locale <locale>] [--duration-ms <ms>] [--tick-ms <ms>] [--max-recv-packets <n>] [--snapshot-interval-ms <ms>] [--aim-x <f32> --aim-y <f32>] [--mine-tile <x:y>] [--snapshot-boosting|--snapshot-no-boosting] [--snapshot-shooting|--snapshot-no-shooting] [--snapshot-chatting|--snapshot-no-chatting] [--snapshot-building|--snapshot-no-building] [--view-size <w:h>] [--move-step-x <f32> --move-step-y <f32>] [--intent-snapshot <moveX:moveY:aimX:aimY:actions[:mineX,mineY|none]> ...] [--intent-live-sampling|--intent-edge-mapped] [--intent-delay-ms <ms>] [--intent-spacing-ms <ms>] [--plan-place <x:y:block[:rotation][;config]> ...] [--plan-break <x:y> ...] [--plan-place-relative <dx:dy:block[:rotation][;config]> ...] [--plan-break-relative <dx:dy> ...] config=<none|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|point2=<x:y>|point2-array=<x:y[,x:y...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|double=<f64>|building-pos=<i32>|laccess=<i16>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|vec2-array=<x:y[,x:y...]>|vec2=<x:y>|team=<u8>|int-array=<i32[,i32...]>|object-array=<value[|value...]>|unit-command=<u16>> [--plan-rotate <x:y:dir> ...] [--plan-flip-x <x:y> ...] [--plan-flip-y <x:y> ...] [--plan-edit-loop] [--plan-edit-delay-ms <ms>] [--plan-edit-spacing-ms <ms>] [--plan-break-near-player] [--plan-place-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--plan-place-conflict-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--render-ascii-on-world-ready] [--print-client-packets] [--watch-client-packet <type> ...] [--watch-client-binary-packet <type> ...] [--watch-client-logic-data <channel> ...] [--render-window-live] [--dump-world-stream-hex <path>] [--chat-delay-ms <ms>] [--chat-spacing-ms <ms>] [--chat-message <text> ...] [--action-delay-ms <ms>] [--action-spacing-ms <ms>] [--action-request-item <buildPos|none:itemId|none:amount> ...] [--action-request-unit-payload <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-clear ...] [--action-unit-control <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-building-control-select <none|unit:<id>|block:<pos>|<id>@buildPos|none> ...] [--action-building-control-select <buildPos|none> ...] [--action-clear-items <buildPos|none> ...] [--action-clear-liquids <buildPos|none> ...] [--action-transfer-inventory <buildPos|none> ...] [--action-request-build-payload <buildPos|none> ...] [--action-request-drop-payload <x:y> ...] [--action-rotate-block <buildPos|none:direction> ...] [--action-drop-item <angle> ...] [--action-tile-config <buildPos|none:value> ...] [--action-tile-tap <tilePos|none> ...] [--action-delete-plans <x:y[,x:y...]|none> ...] [--action-command-building <x:y[,x:y...]|none@x:y> ...] [--action-command-units <unitId[,unitId...]|none@buildPos@unitTarget@x:y@queueCommand[@finalBatch]> ...] [--action-set-unit-command <unitId[,unitId...]|none@commandId|none> ...] [--action-set-unit-stance <unitId[,unitId...]|none@stanceId|none@enable> ...] [--action-begin-break <none|unit:<id>|block:<pos>|<id>@teamId@x:y> ...] [--action-begin-place <none|unit:<id>|block:<pos>|<id>@blockId|none@teamId@x:y@rotation@value> ...] [--action-menu-choose <menuId@option> ...] [--action-text-input-result <textInputId@text|none> ...] [--action-client-packet <type@contents@reliable|unreliable> ...] [--action-client-binary-packet <type@hex@reliable|unreliable> ...] [--action-client-logic-data <channel@value@reliable|unreliable> ...] value=<null|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|point2=<x:y>|point2-array=<x:y[,x:y...]>|double=<f64>|building-pos=<i32>|laccess=<i16>|vec2=<x:y>|vec2-array=<x:y[,x:y...]>|team=<u8>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|int-array=<i32[,i32...]>|object-array=<value>|unit-command=<u16>|...>",
+        "Usage: mdt-client-min-online --manifest <path> (--server <host:port> | --discover-host <host> [--discover-host <host> ...] [--discover-port <port>] [--discover-timeout-ms <ms>]) [--connect-hex <path> | --name <name> --uuid <base64> --usid <base64> --build <build> --version-type <type> --mobile --color-rgba <rgba> --mod <name:version> ...] [--locale <locale>] [--duration-ms <ms>] [--tick-ms <ms>] [--max-recv-packets <n>] [--snapshot-interval-ms <ms>] [--aim-x <f32> --aim-y <f32>] [--mine-tile <x:y>] [--snapshot-boosting|--snapshot-no-boosting] [--snapshot-shooting|--snapshot-no-shooting] [--snapshot-chatting|--snapshot-no-chatting] [--snapshot-building|--snapshot-no-building] [--view-size <w:h>] [--move-step-x <f32> --move-step-y <f32>] [--intent-snapshot <moveX:moveY:aimX:aimY:actions[:mineX,mineY|none]> ...] [--intent-live-sampling|--intent-edge-mapped] [--intent-delay-ms <ms>] [--intent-spacing-ms <ms>] [--plan-place <x:y:block[:rotation][;config]> ...] [--plan-break <x:y> ...] [--plan-place-relative <dx:dy:block[:rotation][;config]> ...] [--plan-break-relative <dx:dy> ...] config=<none|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|point2=<x:y>|point2-array=<x:y[,x:y...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|double=<f64>|building-pos=<i32>|laccess=<i16>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|vec2-array=<x:y[,x:y...]>|vec2=<x:y>|team=<u8>|int-array=<i32[,i32...]>|object-array=<value[|value...]>|unit-command=<u16>> [--plan-rotate <x:y:dir> ...] [--plan-flip-x <x:y> ...] [--plan-flip-y <x:y> ...] [--plan-edit-loop] [--plan-edit-delay-ms <ms>] [--plan-edit-spacing-ms <ms>] [--plan-break-near-player] [--plan-place-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--plan-place-conflict-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--render-ascii-on-world-ready] [--print-client-packets] [--watch-client-packet <type> ...] [--watch-client-binary-packet <type> ...] [--watch-client-logic-data <channel> ...] [--consume-client-packet <type@semantic> ...] [--consume-client-binary-packet <type@semantic> ...] [--consume-client-logic-data <channel@semantic> ...] semantic=<server-message|chat-message|hud-text|announce|clipboard|open-uri|world-pos|build-pos|unit-id|team|bool|number> [--render-window-live] [--dump-world-stream-hex <path>] [--chat-delay-ms <ms>] [--chat-spacing-ms <ms>] [--chat-message <text> ...] [--action-delay-ms <ms>] [--action-spacing-ms <ms>] [--action-request-item <buildPos|none:itemId|none:amount> ...] [--action-request-unit-payload <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-clear ...] [--action-unit-control <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-building-control-select <none|unit:<id>|block:<pos>|<id>@buildPos|none> ...] [--action-building-control-select <buildPos|none> ...] [--action-clear-items <buildPos|none> ...] [--action-clear-liquids <buildPos|none> ...] [--action-transfer-inventory <buildPos|none> ...] [--action-request-build-payload <buildPos|none> ...] [--action-request-drop-payload <x:y> ...] [--action-rotate-block <buildPos|none:direction> ...] [--action-drop-item <angle> ...] [--action-tile-config <buildPos|none:value> ...] [--action-tile-tap <tilePos|none> ...] [--action-delete-plans <x:y[,x:y...]|none> ...] [--action-command-building <x:y[,x:y...]|none@x:y> ...] [--action-command-units <unitId[,unitId...]|none@buildPos@unitTarget@x:y@queueCommand[@finalBatch]> ...] [--action-set-unit-command <unitId[,unitId...]|none@commandId|none> ...] [--action-set-unit-stance <unitId[,unitId...]|none@stanceId|none@enable> ...] [--action-begin-break <none|unit:<id>|block:<pos>|<id>@teamId@x:y> ...] [--action-begin-place <none|unit:<id>|block:<pos>|<id>@blockId|none@teamId@x:y@rotation@value> ...] [--action-menu-choose <menuId@option> ...] [--action-text-input-result <textInputId@text|none> ...] [--action-client-packet <type@contents@reliable|unreliable> ...] [--action-client-binary-packet <type@hex@reliable|unreliable> ...] [--action-client-logic-data <channel@value@reliable|unreliable> ...] value=<null|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|point2=<x:y>|point2-array=<x:y[,x:y...]>|double=<f64>|building-pos=<i32>|laccess=<i16>|vec2=<x:y>|vec2-array=<x:y[,x:y...]>|team=<u8>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|int-array=<i32[,i32...]>|object-array=<value>|unit-command=<u16>|...>",
     )
 }
 
@@ -4001,6 +4062,30 @@ fn maybe_print_custom_packet_watch_summary(custom_packet_watch: Option<&RuntimeC
     }
 }
 
+fn maybe_print_custom_packet_semantic_events(
+    custom_packet_semantics: Option<&mut RuntimeCustomPacketSemantics>,
+    events: &[ClientSessionEvent],
+) {
+    let Some(custom_packet_semantics) = custom_packet_semantics else {
+        return;
+    };
+    custom_packet_semantics.observe_events(events);
+    for line in custom_packet_semantics.drain_lines() {
+        println!("{line}");
+    }
+}
+
+fn maybe_print_custom_packet_semantic_summary(
+    custom_packet_semantics: Option<&RuntimeCustomPacketSemantics>,
+) {
+    let Some(custom_packet_semantics) = custom_packet_semantics else {
+        return;
+    };
+    for line in custom_packet_semantics.summary_lines() {
+        println!("{line}");
+    }
+}
+
 fn build_runtime_custom_packet_watch_specs(args: &CliArgs) -> Vec<CustomPacketWatchSpec> {
     dedupe_packet_watch_types(&args.watched_client_packet_types)
         .into_iter()
@@ -4537,6 +4622,10 @@ mod tests {
         assert!(text.contains("--watch-client-packet <type> ..."));
         assert!(text.contains("--watch-client-binary-packet <type> ..."));
         assert!(text.contains("--watch-client-logic-data <channel> ..."));
+        assert!(text.contains("--consume-client-packet <type@semantic> ..."));
+        assert!(text.contains("--consume-client-binary-packet <type@semantic> ..."));
+        assert!(text.contains("--consume-client-logic-data <channel@semantic> ..."));
+        assert!(text.contains("semantic=<server-message|chat-message|hud-text|announce|clipboard|open-uri|world-pos|build-pos|unit-id|team|bool|number>"));
         assert!(text.contains("--plan-rotate <x:y:dir>"));
         assert!(text.contains("--plan-edit-loop"));
         assert!(text.contains("--plan-edit-delay-ms <ms>"));
@@ -5075,6 +5164,40 @@ mod tests {
         assert_eq!(
             args.watched_client_logic_data_channels,
             vec!["logic.alpha".to_string(), "logic.alpha".to_string()]
+        );
+    }
+
+    #[test]
+    fn parse_args_accepts_custom_packet_semantic_flags() {
+        let args = parse_args(sample_args(&[
+            "--consume-client-packet",
+            "custom.status@hud-text",
+            "--consume-client-binary-packet",
+            "custom.uri@open-uri",
+            "--consume-client-logic-data",
+            "logic.pos@world-pos",
+        ]))
+        .unwrap();
+
+        assert_eq!(
+            args.runtime_custom_packet_semantics,
+            vec![
+                RuntimeCustomPacketSemanticSpec {
+                    key: "custom.status".to_string(),
+                    encoding: custom_packet_runtime::RuntimeCustomPacketSemanticEncoding::Text,
+                    semantic: custom_packet_runtime::RuntimeCustomPacketSemanticKind::HudText,
+                },
+                RuntimeCustomPacketSemanticSpec {
+                    key: "custom.uri".to_string(),
+                    encoding: custom_packet_runtime::RuntimeCustomPacketSemanticEncoding::Binary,
+                    semantic: custom_packet_runtime::RuntimeCustomPacketSemanticKind::OpenUri,
+                },
+                RuntimeCustomPacketSemanticSpec {
+                    key: "logic.pos".to_string(),
+                    encoding: custom_packet_runtime::RuntimeCustomPacketSemanticEncoding::LogicData,
+                    semantic: custom_packet_runtime::RuntimeCustomPacketSemanticKind::WorldPos,
+                },
+            ]
         );
     }
 

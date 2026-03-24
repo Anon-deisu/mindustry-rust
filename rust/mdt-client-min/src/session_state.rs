@@ -329,6 +329,20 @@ pub enum EffectBusinessProjection {
         x_bits: u32,
         y_bits: u32,
     },
+    PositionTarget {
+        source_x_bits: u32,
+        source_y_bits: u32,
+        target_x_bits: u32,
+        target_y_bits: u32,
+    },
+    LengthRay {
+        source_x_bits: u32,
+        source_y_bits: u32,
+        target_x_bits: u32,
+        target_y_bits: u32,
+        rotation_bits: u32,
+        length_bits: u32,
+    },
     FloatValue(u32),
 }
 

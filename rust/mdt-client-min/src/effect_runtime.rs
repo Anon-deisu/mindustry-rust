@@ -9,6 +9,25 @@ pub enum RuntimeEffectBinding {
     ParentUnit { unit_id: i32 },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeEffectContract {
+    PositionTarget,
+    ItemContent,
+    FloatLength,
+    UnitParent,
+}
+
+impl RuntimeEffectContract {
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::PositionTarget => "position_target",
+            Self::ItemContent => "item_content",
+            Self::FloatLength => "float_length",
+            Self::UnitParent => "unit_parent",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeEffectOverlay {
     pub effect_id: Option<i16>,
@@ -23,14 +42,18 @@ pub struct RuntimeEffectOverlay {
     pub binding: Option<RuntimeEffectBinding>,
 }
 
-pub fn effect_contract_name(effect_id: Option<i16>) -> Option<&'static str> {
+pub fn effect_contract(effect_id: Option<i16>) -> Option<RuntimeEffectContract> {
     match effect_id {
-        Some(8 | 9 | 10 | 178 | 261 | 262) => Some("position_target"),
-        Some(142) => Some("item_content"),
-        Some(200) => Some("float_length"),
-        Some(257 | 260) => Some("unit_parent"),
+        Some(8 | 9 | 10 | 178 | 261 | 262) => Some(RuntimeEffectContract::PositionTarget),
+        Some(142) => Some(RuntimeEffectContract::ItemContent),
+        Some(200) => Some(RuntimeEffectContract::FloatLength),
+        Some(257 | 260) => Some(RuntimeEffectContract::UnitParent),
         _ => None,
     }
+}
+
+pub fn effect_contract_name(effect_id: Option<i16>) -> Option<&'static str> {
+    effect_contract(effect_id).map(RuntimeEffectContract::name)
 }
 
 pub fn spawn_runtime_effect_overlay(

@@ -1364,6 +1364,24 @@ fn runtime_effect_business_projection_label(
             };
             format!("pos:{source}:0x{x_bits:08x}:0x{y_bits:08x}")
         }
+        Some(EffectBusinessProjection::PositionTarget {
+            source_x_bits,
+            source_y_bits,
+            target_x_bits,
+            target_y_bits,
+        }) => format!(
+            "target:0x{source_x_bits:08x}:0x{source_y_bits:08x}:0x{target_x_bits:08x}:0x{target_y_bits:08x}"
+        ),
+        Some(EffectBusinessProjection::LengthRay {
+            source_x_bits,
+            source_y_bits,
+            target_x_bits,
+            target_y_bits,
+            rotation_bits,
+            length_bits,
+        }) => format!(
+            "ray:0x{source_x_bits:08x}:0x{source_y_bits:08x}:0x{target_x_bits:08x}:0x{target_y_bits:08x}:0x{rotation_bits:08x}:0x{length_bits:08x}"
+        ),
         Some(EffectBusinessProjection::FloatValue(bits)) => {
             format!("floatBits:0x{bits:08x}")
         }
@@ -1523,6 +1541,19 @@ fn runtime_world_position_from_effect_business_projection(
                 y_bits: *y_bits,
             })
         }
+        Some(EffectBusinessProjection::PositionTarget {
+            target_x_bits,
+            target_y_bits,
+            ..
+        })
+        | Some(EffectBusinessProjection::LengthRay {
+            target_x_bits,
+            target_y_bits,
+            ..
+        }) => Some(RuntimeWorldPositionObservability {
+            x_bits: *target_x_bits,
+            y_bits: *target_y_bits,
+        }),
         Some(EffectBusinessProjection::ContentRef { .. })
         | Some(EffectBusinessProjection::FloatValue(_))
         | None => None,
@@ -4206,7 +4237,63 @@ mod tests {
             ))),
             "floatBits:0x41480000"
         );
+        assert_eq!(
+            runtime_effect_business_projection_label(Some(
+                &EffectBusinessProjection::PositionTarget {
+                    source_x_bits: 32.5f32.to_bits(),
+                    source_y_bits: 48.0f32.to_bits(),
+                    target_x_bits: 80.0f32.to_bits(),
+                    target_y_bits: 160.0f32.to_bits(),
+                }
+            )),
+            "target:0x42020000:0x42400000:0x42a00000:0x43200000"
+        );
+        assert_eq!(
+            runtime_effect_business_projection_label(Some(&EffectBusinessProjection::LengthRay {
+                source_x_bits: 32.5f32.to_bits(),
+                source_y_bits: 48.0f32.to_bits(),
+                target_x_bits: 45.0f32.to_bits(),
+                target_y_bits: 48.0f32.to_bits(),
+                rotation_bits: 0.0f32.to_bits(),
+                length_bits: 12.5f32.to_bits(),
+            })),
+            "ray:0x42020000:0x42400000:0x42340000:0x42400000:0x00000000:0x41480000"
+        );
         assert_eq!(runtime_effect_business_projection_label(None), "none");
+    }
+
+    #[test]
+    fn runtime_world_position_from_contract_effect_projection_uses_target_position() {
+        assert_eq!(
+            runtime_world_position_from_effect_business_projection(Some(
+                &EffectBusinessProjection::PositionTarget {
+                    source_x_bits: 32.5f32.to_bits(),
+                    source_y_bits: 48.0f32.to_bits(),
+                    target_x_bits: 80.0f32.to_bits(),
+                    target_y_bits: 160.0f32.to_bits(),
+                }
+            )),
+            Some(RuntimeWorldPositionObservability {
+                x_bits: 80.0f32.to_bits(),
+                y_bits: 160.0f32.to_bits(),
+            })
+        );
+        assert_eq!(
+            runtime_world_position_from_effect_business_projection(Some(
+                &EffectBusinessProjection::LengthRay {
+                    source_x_bits: 32.5f32.to_bits(),
+                    source_y_bits: 48.0f32.to_bits(),
+                    target_x_bits: 45.0f32.to_bits(),
+                    target_y_bits: 48.0f32.to_bits(),
+                    rotation_bits: 0.0f32.to_bits(),
+                    length_bits: 12.5f32.to_bits(),
+                }
+            )),
+            Some(RuntimeWorldPositionObservability {
+                x_bits: 45.0f32.to_bits(),
+                y_bits: 48.0f32.to_bits(),
+            })
+        );
     }
 
     #[test]

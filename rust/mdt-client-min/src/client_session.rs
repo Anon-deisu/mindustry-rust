@@ -1,7 +1,7 @@
 use crate::bootstrap_flow::{
     apply_connect_packet, apply_world_bootstrap, ConnectPacketEnvelope, WorldStreamAssembler,
 };
-use crate::effect_runtime::effect_contract_name;
+use crate::effect_runtime::{effect_contract, effect_contract_name, RuntimeEffectContract};
 use crate::net_loop::{ingest_inbound_packet, NetLoopStats};
 use crate::packet_registry::InboundSnapshotPacketRegistry;
 use crate::session_state::{
@@ -5185,6 +5185,10 @@ impl ClientSession {
                     let business_projection = derive_effect_business_projection(
                         &self.state,
                         &self.snapshot_input,
+                        effect.effect_id,
+                        effect.x,
+                        effect.y,
+                        effect.rotation,
                         effect.data_object.as_ref(),
                     );
                     self.state.last_effect_business_path = business_projection.path;
@@ -9643,6 +9647,10 @@ struct EffectBusinessProjectionResult {
 fn derive_effect_business_projection(
     state: &SessionState,
     snapshot_input: &ClientSnapshotInputState,
+    effect_id: Option<i16>,
+    effect_x: f32,
+    effect_y: f32,
+    effect_rotation: f32,
     object: Option<&TypeIoObject>,
 ) -> EffectBusinessProjectionResult {
     fn resolve_local_or_entity_unit_projection(
@@ -9744,6 +9752,39 @@ fn derive_effect_business_projection(
         }
     }
 
+    fn position_bits_from_projection(projection: &EffectBusinessProjection) -> Option<(u32, u32)> {
+        match projection {
+            EffectBusinessProjection::ParentRef { x_bits, y_bits, .. }
+            | EffectBusinessProjection::WorldPosition { x_bits, y_bits, .. } => {
+                Some((*x_bits, *y_bits))
+            }
+            EffectBusinessProjection::ContentRef { .. }
+            | EffectBusinessProjection::PositionTarget { .. }
+            | EffectBusinessProjection::LengthRay { .. }
+            | EffectBusinessProjection::FloatValue(_) => None,
+        }
+    }
+
+    fn ray_endpoint(
+        effect_x: f32,
+        effect_y: f32,
+        effect_rotation: f32,
+        length: f32,
+    ) -> Option<(u32, u32)> {
+        if !effect_x.is_finite()
+            || !effect_y.is_finite()
+            || !effect_rotation.is_finite()
+            || !length.is_finite()
+        {
+            return None;
+        }
+        let radians = effect_rotation.to_radians();
+        Some((
+            (effect_x + radians.cos() * length).to_bits(),
+            (effect_y + radians.sin() * length).to_bits(),
+        ))
+    }
+
     fn projection_from_object(
         state: &SessionState,
         snapshot_input: &ClientSnapshotInputState,
@@ -9795,6 +9836,87 @@ fn derive_effect_business_projection(
         }
     }
 
+    fn projection_from_contract_object(
+        state: &SessionState,
+        snapshot_input: &ClientSnapshotInputState,
+        contract: RuntimeEffectContract,
+        effect_x: f32,
+        effect_y: f32,
+        effect_rotation: f32,
+        value: &TypeIoObject,
+    ) -> Option<EffectBusinessProjection> {
+        match contract {
+            RuntimeEffectContract::PositionTarget => {
+                let target_projection = match value {
+                    TypeIoObject::Point2 { .. }
+                    | TypeIoObject::PackedPoint2Array(_)
+                    | TypeIoObject::Vec2 { .. }
+                    | TypeIoObject::Vec2Array(_) => {
+                        projection_from_object(state, snapshot_input, value)
+                    }
+                    _ => value
+                        .semantic_ref()
+                        .and_then(|semantic_ref| match semantic_ref {
+                            TypeIoSemanticRef::Building { .. } | TypeIoSemanticRef::Unit { .. } => {
+                                projection_from_semantic_ref(state, snapshot_input, semantic_ref)
+                            }
+                            TypeIoSemanticRef::Content { .. }
+                            | TypeIoSemanticRef::TechNode { .. } => None,
+                        }),
+                }?;
+                let (target_x_bits, target_y_bits) =
+                    position_bits_from_projection(&target_projection)?;
+                Some(EffectBusinessProjection::PositionTarget {
+                    source_x_bits: effect_x.to_bits(),
+                    source_y_bits: effect_y.to_bits(),
+                    target_x_bits,
+                    target_y_bits,
+                })
+            }
+            RuntimeEffectContract::ItemContent => {
+                value
+                    .semantic_ref()
+                    .and_then(|semantic_ref| match semantic_ref {
+                        TypeIoSemanticRef::Content {
+                            content_type: ITEM_CONTENT_TYPE,
+                            ..
+                        } => projection_from_semantic_ref(state, snapshot_input, semantic_ref),
+                        TypeIoSemanticRef::Content { .. }
+                        | TypeIoSemanticRef::TechNode { .. }
+                        | TypeIoSemanticRef::Building { .. }
+                        | TypeIoSemanticRef::Unit { .. } => None,
+                    })
+            }
+            RuntimeEffectContract::FloatLength => match value {
+                TypeIoObject::Float(length) => {
+                    let (target_x_bits, target_y_bits) =
+                        ray_endpoint(effect_x, effect_y, effect_rotation, *length)?;
+                    Some(EffectBusinessProjection::LengthRay {
+                        source_x_bits: effect_x.to_bits(),
+                        source_y_bits: effect_y.to_bits(),
+                        target_x_bits,
+                        target_y_bits,
+                        rotation_bits: effect_rotation.to_bits(),
+                        length_bits: length.to_bits(),
+                    })
+                }
+                _ => None,
+            },
+            RuntimeEffectContract::UnitParent => {
+                value
+                    .semantic_ref()
+                    .and_then(|semantic_ref| match semantic_ref {
+                        TypeIoSemanticRef::Unit { .. } => {
+                            projection_from_semantic_ref(state, snapshot_input, semantic_ref)
+                        }
+                        TypeIoSemanticRef::Content { .. }
+                        | TypeIoSemanticRef::TechNode { .. }
+                        | TypeIoSemanticRef::Building { .. } => None,
+                    })
+            }
+        }
+    }
+
     fn first_resolvable_dfs_projection(
         state: &SessionState,
         snapshot_input: &ClientSnapshotInputState,
@@ -9809,6 +9931,44 @@ fn derive_effect_business_projection(
             .and_then(|matched| {
                 projection_from_object(state, snapshot_input, matched.value)
                     .map(|projection| (projection, matched.path))
+            })
+    }
+
+    fn first_contract_projection(
+        state: &SessionState,
+        snapshot_input: &ClientSnapshotInputState,
+        contract: RuntimeEffectContract,
+        effect_x: f32,
+        effect_y: f32,
+        effect_rotation: f32,
+        object: &TypeIoObject,
+        max_depth: usize,
+        max_nodes: usize,
+    ) -> Option<(EffectBusinessProjection, Vec<usize>)> {
+        object
+            .find_first_dfs_bounded(max_depth, max_nodes, |value| {
+                projection_from_contract_object(
+                    state,
+                    snapshot_input,
+                    contract,
+                    effect_x,
+                    effect_y,
+                    effect_rotation,
+                    value,
+                )
+                .is_some()
+            })
+            .and_then(|matched| {
+                projection_from_contract_object(
+                    state,
+                    snapshot_input,
+                    contract,
+                    effect_x,
+                    effect_y,
+                    effect_rotation,
+                    matched.value,
+                )
+                .map(|projection| (projection, matched.path))
             })
     }
 
@@ -9833,6 +9993,28 @@ fn derive_effect_business_projection(
             path: None,
         };
     };
+    if let Some(contract) = effect_contract(effect_id) {
+        return match first_contract_projection(
+            state,
+            snapshot_input,
+            contract,
+            effect_x,
+            effect_y,
+            effect_rotation,
+            object,
+            EFFECT_BUSINESS_MAX_DEPTH,
+            EFFECT_BUSINESS_MAX_NODES,
+        ) {
+            Some((projection, path)) => EffectBusinessProjectionResult {
+                projection: Some(projection),
+                path: normalize_effect_business_path(path),
+            },
+            None => EffectBusinessProjectionResult {
+                projection: None,
+                path: None,
+            },
+        };
+    }
     let summary = object.effect_summary();
     let unresolved_parent_hint = summary.first_parent_ref.as_ref().is_some_and(|matched| {
         matches!(matched.semantic_ref, TypeIoSemanticRef::Unit { unit_id } if resolve_local_or_entity_unit_projection(state, snapshot_input, unit_id).is_none())
@@ -22187,7 +22369,10 @@ mod tests {
             Some(TypeIoObject::Int(1))
         );
         assert_eq!(
-            session.state().tile_config_projection.last_replaced_local_value,
+            session
+                .state()
+                .tile_config_projection
+                .last_replaced_local_value,
             Some(TypeIoObject::Int(7))
         );
         assert_eq!(
@@ -29158,6 +29343,215 @@ mod tests {
             assert_eq!(session.state().last_effect_business_path, path);
             assert!(!session.state().last_effect_data_parse_failed);
         }
+    }
+
+    #[test]
+    fn effect_packet_with_position_target_contract_skips_content_and_picks_position() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "effect" && entry.params.len() == 6)
+            .unwrap()
+            .packet_id;
+        let mut payload = encode_effect_payload(8, 32.5, 48.0, 90.0, 0x11223344);
+        write_typeio_object(
+            &mut payload,
+            &TypeIoObject::ObjectArray(vec![
+                TypeIoObject::ContentRaw {
+                    content_type: ITEM_CONTENT_TYPE,
+                    content_id: 11,
+                },
+                TypeIoObject::Point2 { x: 10, y: 20 },
+            ]),
+        );
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            session.state().last_effect_contract_name.as_deref(),
+            Some("position_target")
+        );
+        assert_eq!(
+            session.state().last_effect_business_projection,
+            Some(EffectBusinessProjection::PositionTarget {
+                source_x_bits: 32.5f32.to_bits(),
+                source_y_bits: 48.0f32.to_bits(),
+                target_x_bits: 80.0f32.to_bits(),
+                target_y_bits: 160.0f32.to_bits(),
+            })
+        );
+        assert_eq!(session.state().last_effect_business_path, Some(vec![1]));
+    }
+
+    #[test]
+    fn effect_packet_with_item_content_contract_rejects_non_item_content() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "effect" && entry.params.len() == 6)
+            .unwrap()
+            .packet_id;
+        let mut payload = encode_effect_payload(142, 32.5, 48.0, 90.0, 0x11223344);
+        write_typeio_object(
+            &mut payload,
+            &TypeIoObject::ContentRaw {
+                content_type: BLOCK_CONTENT_TYPE,
+                content_id: 7,
+            },
+        );
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            session.state().last_effect_contract_name.as_deref(),
+            Some("item_content")
+        );
+        assert_eq!(session.state().last_effect_business_projection, None);
+        assert_eq!(session.state().last_effect_business_path, None);
+    }
+
+    #[test]
+    fn effect_packet_with_item_content_contract_accepts_item_content() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "effect" && entry.params.len() == 6)
+            .unwrap()
+            .packet_id;
+        let mut payload = encode_effect_payload(142, 32.5, 48.0, 90.0, 0x11223344);
+        write_typeio_object(
+            &mut payload,
+            &TypeIoObject::ContentRaw {
+                content_type: ITEM_CONTENT_TYPE,
+                content_id: 7,
+            },
+        );
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            session.state().last_effect_business_projection,
+            Some(EffectBusinessProjection::ContentRef {
+                kind: EffectBusinessContentKind::Content,
+                content_type: ITEM_CONTENT_TYPE,
+                content_id: 7,
+            })
+        );
+        assert_eq!(session.state().last_effect_business_path, None);
+    }
+
+    #[test]
+    fn effect_packet_with_float_length_contract_prefers_float_over_position_hint() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "effect" && entry.params.len() == 6)
+            .unwrap()
+            .packet_id;
+        let mut payload = encode_effect_payload(200, 32.5, 48.0, 0.0, 0x11223344);
+        write_typeio_object(
+            &mut payload,
+            &TypeIoObject::ObjectArray(vec![
+                TypeIoObject::Point2 { x: 10, y: 20 },
+                TypeIoObject::Float(12.5),
+            ]),
+        );
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            session.state().last_effect_contract_name.as_deref(),
+            Some("float_length")
+        );
+        assert_eq!(
+            session.state().last_effect_business_projection,
+            Some(EffectBusinessProjection::LengthRay {
+                source_x_bits: 32.5f32.to_bits(),
+                source_y_bits: 48.0f32.to_bits(),
+                target_x_bits: 45.0f32.to_bits(),
+                target_y_bits: 48.0f32.to_bits(),
+                rotation_bits: 0.0f32.to_bits(),
+                length_bits: 12.5f32.to_bits(),
+            })
+        );
+        assert_eq!(session.state().last_effect_business_path, Some(vec![1]));
+    }
+
+    #[test]
+    fn effect_packet_with_unit_parent_contract_rejects_building_parent_payload() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "effect" && entry.params.len() == 6)
+            .unwrap()
+            .packet_id;
+        let mut payload = encode_effect_payload(257, 32.5, 48.0, 90.0, 0x11223344);
+        write_typeio_object(&mut payload, &TypeIoObject::BuildingPos(pack_point2(7, 11)));
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            session.state().last_effect_contract_name.as_deref(),
+            Some("unit_parent")
+        );
+        assert_eq!(session.state().last_effect_business_projection, None);
+        assert_eq!(session.state().last_effect_business_path, None);
+    }
+
+    #[test]
+    fn effect_packet_with_unit_parent_contract_accepts_resolved_unit_parent() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "effect" && entry.params.len() == 6)
+            .unwrap()
+            .packet_id;
+        session.state.entity_table_projection.by_entity_id.insert(
+            4321,
+            crate::session_state::EntityProjection {
+                class_id: 12,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 88,
+                x_bits: 96.0f32.to_bits(),
+                y_bits: 104.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 3,
+            },
+        );
+        let mut payload = encode_effect_payload(257, 32.5, 48.0, 90.0, 0x11223344);
+        write_typeio_object(&mut payload, &TypeIoObject::UnitId(4321));
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            session.state().last_effect_business_projection,
+            Some(EffectBusinessProjection::ParentRef {
+                source: EffectBusinessPositionSource::EntityUnitId,
+                value: 4321,
+                x_bits: 96.0f32.to_bits(),
+                y_bits: 104.0f32.to_bits(),
+            })
+        );
+        assert_eq!(session.state().last_effect_business_path, None);
     }
 
     #[test]
