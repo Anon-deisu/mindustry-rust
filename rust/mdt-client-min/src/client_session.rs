@@ -1469,6 +1469,13 @@ impl ClientSession {
             .map(WorldBundle::loaded_state)
     }
 
+    fn loaded_world_block_name(&self, block_id: i16) -> Option<String> {
+        let block_content_id = usize::try_from(block_id).ok()?;
+        self.loaded_world_state()
+            .and_then(|loaded| loaded.content_name(BLOCK_CONTENT_TYPE, block_content_id))
+            .map(str::to_string)
+    }
+
     pub fn take_replayed_loading_events(&mut self) -> Vec<ClientSessionEvent> {
         self.replayed_loading_events.drain(..).collect()
     }
@@ -1889,13 +1896,10 @@ impl ClientSession {
         let Some(block_id) = building.block_id else {
             return (ConfiguredBlockOutcome::RejectedMissingBlockMetadata, None);
         };
-        let Ok(block_content_id) = usize::try_from(block_id) else {
-            return (ConfiguredBlockOutcome::RejectedMissingBlockMetadata, None);
-        };
-        let block_name = self
-            .loaded_world_state()
-            .and_then(|loaded| loaded.content_name(BLOCK_CONTENT_TYPE, block_content_id))
-            .map(str::to_string);
+        let block_name = building
+            .block_name
+            .clone()
+            .or_else(|| self.loaded_world_block_name(block_id));
         let Some(block_name) = block_name else {
             return (ConfiguredBlockOutcome::RejectedMissingBlockMetadata, None);
         };
@@ -2995,7 +2999,7 @@ impl ClientSession {
                             .clear_building_state(build_pos);
                         self.state
                             .building_table_projection
-                            .apply_deconstruct_finish(build_pos, None);
+                            .apply_deconstruct_finish(build_pos, None, None);
                         self.state
                             .record_remove_building_resource_delta(Some(build_pos));
                     }
@@ -4324,9 +4328,11 @@ impl ClientSession {
                     self.state.last_construct_finish_config_consumed_len =
                         Some(config_consumed_len);
                     self.state.last_construct_finish_config_object = Some(config_object);
+                    let block_name = block_id.and_then(|block_id| self.loaded_world_block_name(block_id));
                     self.state.building_table_projection.apply_construct_finish(
                         tile_pos,
                         block_id,
+                        block_name,
                         rotation,
                         team_id,
                         self.state
@@ -4389,9 +4395,11 @@ impl ClientSession {
                     self.state
                         .configured_block_projection
                         .clear_building_state(summary.tile_pos);
+                    let block_name =
+                        summary.block_id.and_then(|block_id| self.loaded_world_block_name(block_id));
                     self.state
                         .building_table_projection
-                        .apply_deconstruct_finish(summary.tile_pos, summary.block_id);
+                        .apply_deconstruct_finish(summary.tile_pos, summary.block_id, block_name);
                     self.state
                         .record_remove_building_resource_delta(Some(summary.tile_pos));
                     self.state.last_deconstruct_finish_removed_local_plan = removed_local_plan;
@@ -6291,9 +6299,11 @@ impl ClientSession {
             let build_pos = pack_point2(x, y);
             let block_id = i16::from_be_bytes(center.block_id.to_be_bytes());
             let base = &center.building.base;
+            let block_name = self.loaded_world_block_name(block_id);
             self.state.building_table_projection.seed_world_baseline(
                 build_pos,
                 block_id,
+                block_name.clone(),
                 base.rotation,
                 base.team_id,
                 base.save_version,
@@ -6308,14 +6318,6 @@ impl ClientSession {
                 base.optional_efficiency,
                 base.visible_flags,
             );
-            let block_name = self
-                .loaded_world_state()
-                .and_then(|loaded| {
-                    usize::try_from(block_id).ok().and_then(|block_content_id| {
-                        loaded.content_name(BLOCK_CONTENT_TYPE, block_content_id)
-                    })
-                })
-                .map(str::to_string);
             self.apply_loaded_world_parsed_tail_business(
                 build_pos,
                 block_name.as_deref(),
@@ -6503,16 +6505,7 @@ impl ClientSession {
                 false,
                 self.state.received_entity_snapshot_count,
             );
-            let block_name = self
-                .loaded_world_state()
-                .and_then(|loaded| {
-                    usize::try_from(row.block_id)
-                        .ok()
-                        .and_then(|block_content_id| {
-                            loaded.content_name(BLOCK_CONTENT_TYPE, block_content_id)
-                        })
-                })
-                .map(str::to_string);
+            let block_name = self.loaded_world_block_name(row.block_id);
             let (build_turret_rotation_bits, build_turret_plans_present, build_turret_plan_count) =
                 summarize_build_turret_tail_fields(&row.sync.parsed_tail);
             let config_object = loaded_world_config_object_from_parsed_tail(
@@ -6524,6 +6517,7 @@ impl ClientSession {
                 .apply_block_snapshot_head(
                     row.build_pos,
                     row.block_id,
+                    block_name.clone(),
                     Some(row.sync.base.rotation),
                     Some(row.sync.base.team_id),
                     row.sync.base.save_version,
@@ -7106,6 +7100,7 @@ impl ClientSession {
                 .apply_block_snapshot_head(
                     entry.build_pos,
                     entry.block_id,
+                    entry.block_name.clone(),
                     entry.rotation,
                     entry.team_id,
                     entry.io_version,
@@ -24246,7 +24241,14 @@ mod tests {
         session
             .state
             .building_table_projection
-            .apply_construct_finish(build_pos, Some(29), 1, 2, TypeIoObject::Int(7));
+            .apply_construct_finish(
+                build_pos,
+                Some(29),
+                Some(BLOCK_NAME_ITEM_SOURCE.to_string()),
+                1,
+                2,
+                TypeIoObject::Int(7),
+            );
         assert!(session
             .state()
             .tile_config_projection
@@ -28438,7 +28440,14 @@ mod tests {
         session
             .state
             .building_table_projection
-            .apply_construct_finish(pack_point2(100, 99), Some(0x0101), 0, 1, TypeIoObject::Null);
+            .apply_construct_finish(
+                pack_point2(100, 99),
+                Some(0x0101),
+                None,
+                0,
+                1,
+                TypeIoObject::Null,
+            );
         session.snapshot_input_mut().plans = Some(vec![ClientBuildPlan {
             tile: (100, 99),
             breaking: true,

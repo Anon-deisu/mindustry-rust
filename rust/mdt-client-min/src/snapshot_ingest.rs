@@ -1906,6 +1906,7 @@ mod tests {
         state.building_table_projection.apply_construct_finish(
             build_pos,
             Some(301),
+            Some("message".to_string()),
             1,
             2,
             mdt_typeio::TypeIoObject::Int(7),

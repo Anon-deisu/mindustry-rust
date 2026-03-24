@@ -17,7 +17,9 @@ use crate::session_state::{
     EntitySemanticProjection, HiddenSnapshotDeltaProjection, ReconnectPhaseProjection,
     ReconnectReasonKind, SessionResetKind, SessionState, SessionTimeoutKind,
     StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection, TileConfigAuthoritySource,
-    TileConfigProjection, UnitRefProjection, WorldBootstrapProjection, WorldReloadProjection,
+    TileConfigProjection, TypedBuildingRuntimeKind, TypedBuildingRuntimeModel,
+    TypedBuildingRuntimeValue, UnitRefProjection, WorldBootstrapProjection,
+    WorldReloadProjection,
 };
 use mdt_remote::{HighFrequencyRemoteMethod, HIGH_FREQUENCY_REMOTE_METHOD_COUNT};
 use mdt_render_ui::hud_model::{
@@ -83,6 +85,7 @@ impl RenderRuntimeAdapter {
         hud.build_ui = Some(runtime_build_ui_observability(
             snapshot_input,
             &session_state.builder_queue_projection,
+            &session_state.building_table_projection,
             &session_state.tile_config_projection,
             &session_state.configured_block_projection,
         ));
@@ -1138,7 +1141,7 @@ fn runtime_building_table_label(projection: &BuildingTableProjection) -> String 
         .map(|block_id| block_id.to_string())
         .unwrap_or_else(|| "none".to_string());
     format!(
-        "{}:b{}:c{}:{}@{}#{}:rm{}:on{}:e{}:oe{}:v{}:m{}:vf{}:trb{}",
+        "{}:b{}:c{}:{}@{}#{}:rm{}:on{}:e{}:oe{}:v{}:m{}:vf{}:trb{}:bn{}",
         projection.by_build_pos.len(),
         projection.block_known_count,
         projection.configured_count,
@@ -1165,6 +1168,7 @@ fn runtime_building_table_label(projection: &BuildingTableProjection) -> String 
             .last_build_turret_rotation_bits
             .map(|bits| format!("0x{bits:08x}"))
             .unwrap_or_else(|| "none".to_string()),
+        projection.last_block_name.as_deref().unwrap_or("none"),
     )
 }
 
@@ -1918,6 +1922,7 @@ fn runtime_world_position_observability(
 fn runtime_build_ui_observability(
     snapshot_input: &ClientSnapshotInputState,
     projection: &BuilderQueueProjection,
+    building_table_projection: &BuildingTableProjection,
     tile_config_projection: &TileConfigProjection,
     configured_block_projection: &ConfiguredBlockProjection,
 ) -> BuildUiObservability {
@@ -1932,7 +1937,10 @@ fn runtime_build_ui_observability(
         orphan_authoritative_count: projection.orphan_authoritative_count,
         head: runtime_build_queue_head_observability(projection),
         rollback_strip: runtime_build_config_rollback_strip_observability(tile_config_projection),
-        inspector_entries: runtime_build_config_inspector_entries(configured_block_projection),
+        inspector_entries: runtime_build_config_inspector_entries(
+            building_table_projection,
+            configured_block_projection,
+        ),
     }
 }
 
@@ -2015,14 +2023,70 @@ fn runtime_build_queue_head_stage(stage: BuilderPlanStage) -> BuildQueueHeadStag
 }
 
 fn runtime_build_config_inspector_entries(
+    building_table_projection: &BuildingTableProjection,
     projection: &ConfiguredBlockProjection,
 ) -> Vec<BuildConfigInspectorEntryObservability> {
-    let mut entries = Vec::new();
-    runtime_push_string_build_config_entry(
-        &mut entries,
-        "message",
-        &projection.message_text_by_build_pos,
-        |text| {
+    let mut grouped: BTreeMap<TypedBuildingRuntimeKind, (usize, String)> = BTreeMap::new();
+    for building in building_table_projection.typed_runtime_buildings(projection) {
+        let sample = runtime_typed_build_config_sample(&building);
+        grouped
+            .entry(building.kind)
+            .and_modify(|(count, current_sample)| {
+                *count += 1;
+                *current_sample = sample.clone();
+            })
+            .or_insert((1, sample));
+    }
+    grouped
+        .into_iter()
+        .map(|(kind, (tracked_count, sample))| BuildConfigInspectorEntryObservability {
+            family: kind.family_name().to_string(),
+            tracked_count,
+            sample,
+        })
+        .collect()
+}
+
+fn runtime_typed_build_config_sample(building: &TypedBuildingRuntimeModel) -> String {
+    let mut sample = runtime_build_config_pos_label(building.build_pos);
+    if building.block_name != building.kind.family_name() {
+        sample.push(':');
+        sample.push_str(&building.block_name);
+    }
+    sample.push(':');
+    sample.push_str(&runtime_typed_build_config_value_label(
+        building.kind,
+        &building.value,
+    ));
+    sample
+}
+
+fn runtime_typed_build_config_value_label(
+    kind: TypedBuildingRuntimeKind,
+    value: &TypedBuildingRuntimeValue,
+) -> String {
+    match value {
+        TypedBuildingRuntimeValue::Item(value) => format!(
+            "{}={}",
+            runtime_typed_build_config_item_label(kind),
+            value
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "clear".to_string())
+        ),
+        TypedBuildingRuntimeValue::Liquid(value) => format!(
+            "liquid={}",
+            value
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "clear".to_string())
+        ),
+        TypedBuildingRuntimeValue::Bool(value) => format!(
+            "{}={}",
+            runtime_typed_build_config_bool_label(kind),
+            value
+                .map(|value| if value { "1".to_string() } else { "0".to_string() })
+                .unwrap_or_else(|| "clear".to_string())
+        ),
+        TypedBuildingRuntimeValue::Text(text) => {
             if text.is_empty() {
                 "text=empty".to_string()
             } else {
@@ -2032,386 +2096,65 @@ fn runtime_build_config_inspector_entries(
                     runtime_build_config_text_sample(text, 24),
                 )
             }
-        },
-    );
-    runtime_push_canvas_build_config_entry(&mut entries, &projection.canvas_bytes_by_build_pos);
-    runtime_push_power_node_build_config_entry(
-        &mut entries,
-        &projection.power_node_links_by_build_pos,
-    );
-    runtime_push_u16_option_build_config_entry(
-        &mut entries,
-        "reconstructor",
-        &projection.reconstructor_command_by_build_pos,
-        "command",
-    );
-    runtime_push_raw_content_build_config_entry(
-        &mut entries,
-        "payload-source",
-        &projection.payload_source_content_by_build_pos,
-    );
-    runtime_push_raw_content_build_config_entry(
-        &mut entries,
-        "payload-router",
-        &projection.payload_router_sorted_content_by_build_pos,
-    );
-    runtime_push_i16_option_build_config_entry(
-        &mut entries,
-        "duct-router",
-        &projection.duct_router_item_by_build_pos,
-        "item",
-    );
-    runtime_push_i16_option_build_config_entry(
-        &mut entries,
-        "sorter",
-        &projection.sorter_item_by_build_pos,
-        "item",
-    );
-    runtime_push_i16_option_build_config_entry(
-        &mut entries,
-        "inverted-sorter",
-        &projection.inverted_sorter_item_by_build_pos,
-        "item",
-    );
-    runtime_push_i16_option_build_config_entry(
-        &mut entries,
-        "item-source",
-        &projection.item_source_item_by_build_pos,
-        "item",
-    );
-    runtime_push_i16_option_build_config_entry(
-        &mut entries,
-        "liquid-source",
-        &projection.liquid_source_liquid_by_build_pos,
-        "liquid",
-    );
-    runtime_push_i16_option_build_config_entry(
-        &mut entries,
-        "unit-cargo-unload-point",
-        &projection.unit_cargo_unload_point_item_by_build_pos,
-        "item",
-    );
-    runtime_push_i16_option_build_config_entry(
-        &mut entries,
-        "landing-pad",
-        &projection.landing_pad_item_by_build_pos,
-        "item",
-    );
-    runtime_push_bool_option_build_config_entry(
-        &mut entries,
-        "switch",
-        &projection.switch_enabled_by_build_pos,
-        "enabled",
-    );
-    runtime_push_bool_option_build_config_entry(
-        &mut entries,
-        "door",
-        &projection.door_open_by_build_pos,
-        "open",
-    );
-    runtime_push_i16_option_build_config_entry(
-        &mut entries,
-        "constructor",
-        &projection.constructor_recipe_block_by_build_pos,
-        "recipe",
-    );
-    runtime_push_i32_build_config_entry(
-        &mut entries,
-        "light",
-        &projection.light_color_by_build_pos,
-        |value| format!("color=0x{value:08x}"),
-    );
-    runtime_push_link_build_config_entry(
-        &mut entries,
-        "item-bridge",
-        &projection.item_bridge_link_by_build_pos,
-    );
-    runtime_push_i16_option_build_config_entry(
-        &mut entries,
-        "unloader",
-        &projection.unloader_item_by_build_pos,
-        "item",
-    );
-    runtime_push_i16_option_build_config_entry(
-        &mut entries,
-        "duct-unloader",
-        &projection.duct_unloader_item_by_build_pos,
-        "item",
-    );
-    runtime_push_link_build_config_entry(
-        &mut entries,
-        "mass-driver",
-        &projection.mass_driver_link_by_build_pos,
-    );
-    runtime_push_link_build_config_entry(
-        &mut entries,
-        "payload-mass-driver",
-        &projection.payload_mass_driver_link_by_build_pos,
-    );
-    entries
-}
-
-fn runtime_push_i16_option_build_config_entry(
-    entries: &mut Vec<BuildConfigInspectorEntryObservability>,
-    family: &str,
-    values: &BTreeMap<i32, Option<i16>>,
-    value_name: &str,
-) {
-    if values.is_empty() {
-        return;
-    }
-    let sample = match values.last_key_value() {
-        Some((build_pos, Some(value))) => {
-            format!(
-                "{}:{}={value}",
-                runtime_build_config_pos_label(*build_pos),
-                value_name
-            )
         }
-        Some((build_pos, None)) => {
-            format!(
-                "{}:{}=clear",
-                runtime_build_config_pos_label(*build_pos),
-                value_name
-            )
-        }
-        None => return,
-    };
-    entries.push(BuildConfigInspectorEntryObservability {
-        family: family.to_string(),
-        tracked_count: values.len(),
-        sample,
-    });
-}
-
-fn runtime_push_u16_option_build_config_entry(
-    entries: &mut Vec<BuildConfigInspectorEntryObservability>,
-    family: &str,
-    values: &BTreeMap<i32, Option<u16>>,
-    value_name: &str,
-) {
-    if values.is_empty() {
-        return;
-    }
-    let sample = match values.last_key_value() {
-        Some((build_pos, Some(value))) => {
-            format!(
-                "{}:{}={value}",
-                runtime_build_config_pos_label(*build_pos),
-                value_name
-            )
-        }
-        Some((build_pos, None)) => {
-            format!(
-                "{}:{}=clear",
-                runtime_build_config_pos_label(*build_pos),
-                value_name
-            )
-        }
-        None => return,
-    };
-    entries.push(BuildConfigInspectorEntryObservability {
-        family: family.to_string(),
-        tracked_count: values.len(),
-        sample,
-    });
-}
-
-fn runtime_push_bool_option_build_config_entry(
-    entries: &mut Vec<BuildConfigInspectorEntryObservability>,
-    family: &str,
-    values: &BTreeMap<i32, Option<bool>>,
-    value_name: &str,
-) {
-    if values.is_empty() {
-        return;
-    }
-    let sample = match values.last_key_value() {
-        Some((build_pos, Some(value))) => format!(
-            "{}:{}={}",
-            runtime_build_config_pos_label(*build_pos),
-            value_name,
-            if *value { 1 } else { 0 }
+        TypedBuildingRuntimeValue::Block(value) => format!(
+            "recipe={}",
+            value
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "clear".to_string())
         ),
-        Some((build_pos, None)) => {
-            format!(
-                "{}:{}=clear",
-                runtime_build_config_pos_label(*build_pos),
-                value_name
-            )
-        }
-        None => return,
-    };
-    entries.push(BuildConfigInspectorEntryObservability {
-        family: family.to_string(),
-        tracked_count: values.len(),
-        sample,
-    });
-}
-
-fn runtime_push_string_build_config_entry<F>(
-    entries: &mut Vec<BuildConfigInspectorEntryObservability>,
-    family: &str,
-    values: &BTreeMap<i32, String>,
-    describe: F,
-) where
-    F: Fn(&str) -> String,
-{
-    if values.is_empty() {
-        return;
-    }
-    let sample = match values.last_key_value() {
-        Some((build_pos, value)) => {
-            format!(
-                "{}:{}",
-                runtime_build_config_pos_label(*build_pos),
-                describe(value)
-            )
-        }
-        None => return,
-    };
-    entries.push(BuildConfigInspectorEntryObservability {
-        family: family.to_string(),
-        tracked_count: values.len(),
-        sample,
-    });
-}
-
-fn runtime_push_i32_build_config_entry<F>(
-    entries: &mut Vec<BuildConfigInspectorEntryObservability>,
-    family: &str,
-    values: &BTreeMap<i32, i32>,
-    describe: F,
-) where
-    F: Fn(i32) -> String,
-{
-    if values.is_empty() {
-        return;
-    }
-    let sample = match values.last_key_value() {
-        Some((build_pos, value)) => {
-            format!(
-                "{}:{}",
-                runtime_build_config_pos_label(*build_pos),
-                describe(*value)
-            )
-        }
-        None => return,
-    };
-    entries.push(BuildConfigInspectorEntryObservability {
-        family: family.to_string(),
-        tracked_count: values.len(),
-        sample,
-    });
-}
-
-fn runtime_push_raw_content_build_config_entry(
-    entries: &mut Vec<BuildConfigInspectorEntryObservability>,
-    family: &str,
-    values: &BTreeMap<i32, Option<ConfiguredContentRef>>,
-) {
-    if values.is_empty() {
-        return;
-    }
-    let sample = match values.last_key_value() {
-        Some((build_pos, Some(content))) => format!(
-            "{}:content={}",
-            runtime_build_config_pos_label(*build_pos),
-            runtime_build_config_content_ref_label(content),
+        TypedBuildingRuntimeValue::Color(value) => format!("color=0x{value:08x}"),
+        TypedBuildingRuntimeValue::Content(content) => format!(
+            "content={}",
+            content
+                .as_ref()
+                .map(runtime_build_config_content_ref_label)
+                .unwrap_or_else(|| "clear".to_string())
         ),
-        Some((build_pos, None)) => {
-            format!(
-                "{}:content=clear",
-                runtime_build_config_pos_label(*build_pos)
-            )
-        }
-        None => return,
-    };
-    entries.push(BuildConfigInspectorEntryObservability {
-        family: family.to_string(),
-        tracked_count: values.len(),
-        sample,
-    });
-}
-
-fn runtime_push_link_build_config_entry(
-    entries: &mut Vec<BuildConfigInspectorEntryObservability>,
-    family: &str,
-    values: &BTreeMap<i32, Option<i32>>,
-) {
-    if values.is_empty() {
-        return;
-    }
-    let sample = match values.last_key_value() {
-        Some((build_pos, Some(link_pos))) => format!(
-            "{}:link={}",
-            runtime_build_config_pos_label(*build_pos),
-            runtime_build_config_pos_label(*link_pos),
+        TypedBuildingRuntimeValue::Link(link) => format!(
+            "link={}",
+            link.map(runtime_build_config_pos_label)
+                .unwrap_or_else(|| "clear".to_string())
         ),
-        Some((build_pos, None)) => {
-            format!("{}:link=clear", runtime_build_config_pos_label(*build_pos))
+        TypedBuildingRuntimeValue::Links(targets) => {
+            if targets.is_empty() {
+                "links=clear".to_string()
+            } else {
+                let links = targets
+                    .iter()
+                    .map(|target_pos| runtime_build_config_pos_label(*target_pos))
+                    .collect::<Vec<_>>()
+                    .join("|");
+                format!("links={links}")
+            }
         }
-        None => return,
-    };
-    entries.push(BuildConfigInspectorEntryObservability {
-        family: family.to_string(),
-        tracked_count: values.len(),
-        sample,
-    });
-}
-
-fn runtime_push_power_node_build_config_entry(
-    entries: &mut Vec<BuildConfigInspectorEntryObservability>,
-    values: &BTreeMap<i32, BTreeSet<i32>>,
-) {
-    if values.is_empty() {
-        return;
-    }
-    let sample = match values.last_key_value() {
-        Some((build_pos, targets)) if targets.is_empty() => {
-            format!("{}:links=clear", runtime_build_config_pos_label(*build_pos))
-        }
-        Some((build_pos, targets)) => {
-            let links = targets
-                .iter()
-                .map(|target_pos| runtime_build_config_pos_label(*target_pos))
-                .collect::<Vec<_>>()
-                .join("|");
-            format!(
-                "{}:links={links}",
-                runtime_build_config_pos_label(*build_pos),
-            )
-        }
-        None => return,
-    };
-    entries.push(BuildConfigInspectorEntryObservability {
-        family: "power-node".to_string(),
-        tracked_count: values.len(),
-        sample,
-    });
-}
-
-fn runtime_push_canvas_build_config_entry(
-    entries: &mut Vec<BuildConfigInspectorEntryObservability>,
-    values: &BTreeMap<i32, Vec<u8>>,
-) {
-    if values.is_empty() {
-        return;
-    }
-    let sample = match values.last_key_value() {
-        Some((build_pos, bytes)) => format!(
-            "{}:len={}:hex={}",
-            runtime_build_config_pos_label(*build_pos),
+        TypedBuildingRuntimeValue::Command(command_id) => format!(
+            "command={}",
+            command_id
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "clear".to_string())
+        ),
+        TypedBuildingRuntimeValue::Bytes(bytes) => format!(
+            "len={}:hex={}",
             bytes.len(),
             runtime_build_config_bytes_sample(bytes, 8),
         ),
-        None => return,
-    };
-    entries.push(BuildConfigInspectorEntryObservability {
-        family: "canvas".to_string(),
-        tracked_count: values.len(),
-        sample,
-    });
+    }
+}
+
+fn runtime_typed_build_config_item_label(kind: TypedBuildingRuntimeKind) -> &'static str {
+    match kind {
+        TypedBuildingRuntimeKind::LiquidSource => "liquid",
+        TypedBuildingRuntimeKind::Constructor => "recipe",
+        _ => "item",
+    }
+}
+
+fn runtime_typed_build_config_bool_label(kind: TypedBuildingRuntimeKind) -> &'static str {
+    match kind {
+        TypedBuildingRuntimeKind::Door => "open",
+        _ => "enabled",
+    }
 }
 
 fn runtime_build_config_pos_label(build_pos: i32) -> String {
@@ -3977,6 +3720,7 @@ mod tests {
             pack_runtime_point2(12, 6),
             crate::session_state::BuildingProjection {
                 block_id: Some(0x0102),
+                block_name: Some("message".to_string()),
                 rotation: Some(1),
                 team_id: Some(2),
                 io_version: None,
@@ -4002,6 +3746,7 @@ mod tests {
         state.building_table_projection.construct_finish_apply_count = 1;
         state.building_table_projection.last_build_pos = Some(pack_runtime_point2(12, 6));
         state.building_table_projection.last_block_id = Some(0x0102);
+        state.building_table_projection.last_block_name = Some("message".to_string());
         state.building_table_projection.last_rotation = Some(1);
         state.building_table_projection.last_team_id = Some(2);
         state.building_table_projection.last_config = Some(mdt_typeio::TypeIoObject::Int(7));
@@ -4449,6 +4194,39 @@ mod tests {
             .configured_block_projection
             .reconstructor_command_by_build_pos
             .insert(pack_runtime_point2(26, 48), Some(12));
+        for (build_pos, block_name) in [
+            (pack_runtime_point2(18, 40), "message"),
+            (pack_runtime_point2(21, 43), "payload-source"),
+            (pack_runtime_point2(22, 44), "payload-router"),
+            (pack_runtime_point2(23, 45), "power-node"),
+            (pack_runtime_point2(26, 48), "additive-reconstructor"),
+        ] {
+            state.building_table_projection.by_build_pos.insert(
+                build_pos,
+                crate::session_state::BuildingProjection {
+                    block_id: Some(1),
+                    block_name: Some(block_name.to_string()),
+                    rotation: None,
+                    team_id: None,
+                    io_version: None,
+                    module_bitmask: None,
+                    time_scale_bits: None,
+                    time_scale_duration_bits: None,
+                    last_disabler_pos: None,
+                    legacy_consume_connected: None,
+                    config: None,
+                    health_bits: None,
+                    enabled: None,
+                    efficiency: None,
+                    optional_efficiency: None,
+                    visible_flags: None,
+                    build_turret_rotation_bits: None,
+                    build_turret_plans_present: None,
+                    build_turret_plan_count: None,
+                    last_update: crate::session_state::BuildingProjectionUpdateKind::TileConfig,
+                },
+            );
+        }
 
         adapter.apply(&mut scene, &mut hud, &input, &state);
 
@@ -4479,7 +4257,8 @@ mod tests {
             entry.family == "power-node" && entry.sample == "23:45:links=24:46|25:47"
         }));
         assert!(build_ui.inspector_entries.iter().any(|entry| {
-            entry.family == "reconstructor" && entry.sample == "26:48:command=12"
+            entry.family == "reconstructor"
+                && entry.sample == "26:48:additive-reconstructor:command=12"
         }));
     }
 
@@ -5465,6 +5244,7 @@ mod tests {
                 pack_runtime_point2(100, 99),
                 crate::session_state::BuildingProjection {
                     block_id: Some(301),
+                    block_name: Some("power-node".to_string()),
                     rotation: Some(1),
                     team_id: Some(2),
                     io_version: None,
@@ -5495,6 +5275,7 @@ mod tests {
             build_health_apply_count: 1,
             last_build_pos: Some(pack_runtime_point2(100, 99)),
             last_block_id: Some(301),
+            last_block_name: Some("power-node".to_string()),
             last_rotation: Some(1),
             last_team_id: Some(2),
             last_io_version: None,

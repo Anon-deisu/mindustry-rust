@@ -1511,6 +1511,7 @@ pub enum BuildingProjectionUpdateKind {
 #[derive(Debug, Clone, PartialEq)]
 pub struct BuildingProjection {
     pub block_id: Option<i16>,
+    pub block_name: Option<String>,
     pub rotation: Option<u8>,
     pub team_id: Option<u8>,
     pub io_version: Option<u8>,
@@ -1544,6 +1545,7 @@ pub struct BuildingTableProjection {
     pub build_health_apply_count: u64,
     pub last_build_pos: Option<i32>,
     pub last_block_id: Option<i16>,
+    pub last_block_name: Option<String>,
     pub last_rotation: Option<u8>,
     pub last_team_id: Option<u8>,
     pub last_io_version: Option<u8>,
@@ -1571,6 +1573,7 @@ impl BuildingTableProjection {
         &mut self,
         build_pos: i32,
         block_id: i16,
+        block_name: Option<String>,
         rotation: u8,
         team_id: u8,
         io_version: Option<u8>,
@@ -1590,6 +1593,11 @@ impl BuildingTableProjection {
             build_pos,
             BuildingProjection {
                 block_id: Some(block_id),
+                block_name: preserve_matching_block_name(
+                    previous.as_ref(),
+                    Some(block_id),
+                    block_name,
+                ),
                 rotation: Some(rotation),
                 team_id: Some(team_id),
                 io_version: io_version
@@ -1663,6 +1671,7 @@ impl BuildingTableProjection {
         &mut self,
         build_pos: i32,
         block_id: i16,
+        block_name: Option<String>,
         rotation: Option<u8>,
         team_id: Option<u8>,
         io_version: Option<u8>,
@@ -1724,6 +1733,11 @@ impl BuildingTableProjection {
             build_pos,
             BuildingProjection {
                 block_id: Some(block_id),
+                block_name: preserve_matching_block_name(
+                    previous.as_ref(),
+                    Some(block_id),
+                    block_name,
+                ),
                 rotation: rotation
                     .or_else(|| previous.as_ref().and_then(|building| building.rotation)),
                 team_id: team_id
@@ -1810,6 +1824,7 @@ impl BuildingTableProjection {
         &mut self,
         build_pos: i32,
         block_id: Option<i16>,
+        block_name: Option<String>,
         rotation: u8,
         team_id: u8,
         config: TypeIoObject,
@@ -1819,6 +1834,7 @@ impl BuildingTableProjection {
             build_pos,
             BuildingProjection {
                 block_id,
+                block_name: preserve_matching_block_name(previous.as_ref(), block_id, block_name),
                 rotation: Some(rotation),
                 team_id: Some(team_id),
                 io_version: previous.as_ref().and_then(|building| building.io_version),
@@ -1875,6 +1891,9 @@ impl BuildingTableProjection {
             build_pos,
             BuildingProjection {
                 block_id: previous.as_ref().and_then(|building| building.block_id),
+                block_name: previous
+                    .as_ref()
+                    .and_then(|building| building.block_name.clone()),
                 rotation: previous.as_ref().and_then(|building| building.rotation),
                 team_id: previous.as_ref().and_then(|building| building.team_id),
                 io_version: previous.as_ref().and_then(|building| building.io_version),
@@ -1925,13 +1944,19 @@ impl BuildingTableProjection {
         self.recount();
     }
 
-    pub fn apply_deconstruct_finish(&mut self, build_pos: i32, block_id: Option<i16>) {
+    pub fn apply_deconstruct_finish(
+        &mut self,
+        build_pos: i32,
+        block_id: Option<i16>,
+        block_name: Option<String>,
+    ) {
         let previous = self.by_build_pos.remove(&build_pos);
         self.deconstruct_finish_apply_count = self.deconstruct_finish_apply_count.saturating_add(1);
         self.sync_last_mirror_for_removed(
             build_pos,
             BuildingProjectionUpdateKind::DeconstructFinish,
             block_id,
+            block_name,
             previous.as_ref(),
         );
         self.recount();
@@ -1943,6 +1968,9 @@ impl BuildingTableProjection {
             build_pos,
             BuildingProjection {
                 block_id: previous.as_ref().and_then(|building| building.block_id),
+                block_name: previous
+                    .as_ref()
+                    .and_then(|building| building.block_name.clone()),
                 rotation: previous.as_ref().and_then(|building| building.rotation),
                 team_id: previous.as_ref().and_then(|building| building.team_id),
                 io_version: previous.as_ref().and_then(|building| building.io_version),
@@ -2009,6 +2037,7 @@ impl BuildingTableProjection {
         let building = self.by_build_pos.get(&build_pos);
         self.last_build_pos = Some(build_pos);
         self.last_block_id = building.and_then(|building| building.block_id);
+        self.last_block_name = building.and_then(|building| building.block_name.clone());
         self.last_rotation = building.and_then(|building| building.rotation);
         self.last_team_id = building.and_then(|building| building.team_id);
         self.last_io_version = building.and_then(|building| building.io_version);
@@ -2042,11 +2071,14 @@ impl BuildingTableProjection {
         build_pos: i32,
         last_update: BuildingProjectionUpdateKind,
         block_id_override: Option<i16>,
+        block_name_override: Option<String>,
         previous: Option<&BuildingProjection>,
     ) {
         self.last_build_pos = Some(build_pos);
         self.last_block_id =
             block_id_override.or_else(|| previous.and_then(|building| building.block_id));
+        self.last_block_name =
+            block_name_override.or_else(|| previous.and_then(|building| building.block_name.clone()));
         self.last_rotation = previous.and_then(|building| building.rotation);
         self.last_team_id = previous.and_then(|building| building.team_id);
         self.last_io_version = previous.and_then(|building| building.io_version);
@@ -2085,6 +2117,341 @@ impl BuildingTableProjection {
             .filter(|building| building.config.is_some())
             .count();
     }
+
+    pub fn typed_runtime_building_at(
+        &self,
+        build_pos: i32,
+        configured: &ConfiguredBlockProjection,
+    ) -> Option<TypedBuildingRuntimeModel> {
+        let building = self.by_build_pos.get(&build_pos)?;
+        typed_runtime_building_model(build_pos, building, configured)
+    }
+
+    pub fn typed_runtime_buildings(
+        &self,
+        configured: &ConfiguredBlockProjection,
+    ) -> Vec<TypedBuildingRuntimeModel> {
+        self.by_build_pos
+            .iter()
+            .filter_map(|(build_pos, building)| {
+                typed_runtime_building_model(*build_pos, building, configured)
+            })
+            .collect()
+    }
+}
+
+fn preserve_matching_block_name(
+    previous: Option<&BuildingProjection>,
+    block_id: Option<i16>,
+    block_name: Option<String>,
+) -> Option<String> {
+    block_name.or_else(|| match (previous, block_id) {
+        (Some(previous), Some(block_id)) if previous.block_id == Some(block_id) => {
+            previous.block_name.clone()
+        }
+        (Some(previous), None) if previous.block_id.is_none() => previous.block_name.clone(),
+        _ => None,
+    })
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum TypedBuildingRuntimeKind {
+    UnitCargoUnloadPoint,
+    ItemSource,
+    LiquidSource,
+    LandingPad,
+    Sorter,
+    InvertedSorter,
+    Switch,
+    Door,
+    Message,
+    Constructor,
+    Illuminator,
+    PayloadSource,
+    PayloadRouter,
+    ItemBridge,
+    Unloader,
+    DuctUnloader,
+    DuctRouter,
+    MassDriver,
+    PayloadMassDriver,
+    PowerNode,
+    Reconstructor,
+    Canvas,
+}
+
+impl TypedBuildingRuntimeKind {
+    pub fn family_name(self) -> &'static str {
+        match self {
+            Self::UnitCargoUnloadPoint => "unit-cargo-unload-point",
+            Self::ItemSource => "item-source",
+            Self::LiquidSource => "liquid-source",
+            Self::LandingPad => "landing-pad",
+            Self::Sorter => "sorter",
+            Self::InvertedSorter => "inverted-sorter",
+            Self::Switch => "switch",
+            Self::Door => "door",
+            Self::Message => "message",
+            Self::Constructor => "constructor",
+            Self::Illuminator => "illuminator",
+            Self::PayloadSource => "payload-source",
+            Self::PayloadRouter => "payload-router",
+            Self::ItemBridge => "item-bridge",
+            Self::Unloader => "unloader",
+            Self::DuctUnloader => "duct-unloader",
+            Self::DuctRouter => "duct-router",
+            Self::MassDriver => "mass-driver",
+            Self::PayloadMassDriver => "payload-mass-driver",
+            Self::PowerNode => "power-node",
+            Self::Reconstructor => "reconstructor",
+            Self::Canvas => "canvas",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TypedBuildingRuntimeValue {
+    Item(Option<i16>),
+    Liquid(Option<i16>),
+    Bool(Option<bool>),
+    Text(String),
+    Block(Option<i16>),
+    Color(i32),
+    Content(Option<ConfiguredContentRef>),
+    Link(Option<i32>),
+    Links(BTreeSet<i32>),
+    Command(Option<u16>),
+    Bytes(Vec<u8>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypedBuildingRuntimeModel {
+    pub build_pos: i32,
+    pub block_id: Option<i16>,
+    pub block_name: String,
+    pub kind: TypedBuildingRuntimeKind,
+    pub value: TypedBuildingRuntimeValue,
+    pub last_update: BuildingProjectionUpdateKind,
+}
+
+fn typed_runtime_building_model(
+    build_pos: i32,
+    building: &BuildingProjection,
+    configured: &ConfiguredBlockProjection,
+) -> Option<TypedBuildingRuntimeModel> {
+    let block_name = building.block_name.as_deref()?;
+    let (kind, value) = match block_name {
+        "unit-cargo-unload-point" => (
+            TypedBuildingRuntimeKind::UnitCargoUnloadPoint,
+            TypedBuildingRuntimeValue::Item(
+                configured
+                    .unit_cargo_unload_point_item_by_build_pos
+                    .get(&build_pos)
+                    .copied()?,
+            ),
+        ),
+        "item-source" => (
+            TypedBuildingRuntimeKind::ItemSource,
+            TypedBuildingRuntimeValue::Item(
+                configured
+                    .item_source_item_by_build_pos
+                    .get(&build_pos)
+                    .copied()?,
+            ),
+        ),
+        "liquid-source" => (
+            TypedBuildingRuntimeKind::LiquidSource,
+            TypedBuildingRuntimeValue::Liquid(
+                configured
+                    .liquid_source_liquid_by_build_pos
+                    .get(&build_pos)
+                    .copied()?,
+            ),
+        ),
+        "landing-pad" => (
+            TypedBuildingRuntimeKind::LandingPad,
+            TypedBuildingRuntimeValue::Item(
+                configured
+                    .landing_pad_item_by_build_pos
+                    .get(&build_pos)
+                    .copied()?,
+            ),
+        ),
+        "sorter" => (
+            TypedBuildingRuntimeKind::Sorter,
+            TypedBuildingRuntimeValue::Item(
+                configured
+                    .sorter_item_by_build_pos
+                    .get(&build_pos)
+                    .copied()?,
+            ),
+        ),
+        "inverted-sorter" => (
+            TypedBuildingRuntimeKind::InvertedSorter,
+            TypedBuildingRuntimeValue::Item(
+                configured
+                    .inverted_sorter_item_by_build_pos
+                    .get(&build_pos)
+                    .copied()?,
+            ),
+        ),
+        "switch" | "world-switch" => (
+            TypedBuildingRuntimeKind::Switch,
+            TypedBuildingRuntimeValue::Bool(
+                configured
+                    .switch_enabled_by_build_pos
+                    .get(&build_pos)
+                    .copied()?,
+            ),
+        ),
+        "door" | "door-large" => (
+            TypedBuildingRuntimeKind::Door,
+            TypedBuildingRuntimeValue::Bool(
+                configured
+                    .door_open_by_build_pos
+                    .get(&build_pos)
+                    .copied()?,
+            ),
+        ),
+        "message" | "reinforced-message" | "world-message" => (
+            TypedBuildingRuntimeKind::Message,
+            TypedBuildingRuntimeValue::Text(
+                configured
+                    .message_text_by_build_pos
+                    .get(&build_pos)
+                    .cloned()?,
+            ),
+        ),
+        "constructor" | "large-constructor" => (
+            TypedBuildingRuntimeKind::Constructor,
+            TypedBuildingRuntimeValue::Block(
+                configured
+                    .constructor_recipe_block_by_build_pos
+                    .get(&build_pos)
+                    .copied()?,
+            ),
+        ),
+        "illuminator" => (
+            TypedBuildingRuntimeKind::Illuminator,
+            TypedBuildingRuntimeValue::Color(
+                configured
+                    .light_color_by_build_pos
+                    .get(&build_pos)
+                    .copied()?,
+            ),
+        ),
+        "payload-source" => (
+            TypedBuildingRuntimeKind::PayloadSource,
+            TypedBuildingRuntimeValue::Content(
+                configured
+                    .payload_source_content_by_build_pos
+                    .get(&build_pos)
+                    .copied()?,
+            ),
+        ),
+        "payload-router" | "reinforced-payload-router" => (
+            TypedBuildingRuntimeKind::PayloadRouter,
+            TypedBuildingRuntimeValue::Content(
+                configured
+                    .payload_router_sorted_content_by_build_pos
+                    .get(&build_pos)
+                    .copied()?,
+            ),
+        ),
+        "bridge-conveyor" | "phase-conveyor" => (
+            TypedBuildingRuntimeKind::ItemBridge,
+            TypedBuildingRuntimeValue::Link(
+                configured
+                    .item_bridge_link_by_build_pos
+                    .get(&build_pos)
+                    .copied()?,
+            ),
+        ),
+        "unloader" => (
+            TypedBuildingRuntimeKind::Unloader,
+            TypedBuildingRuntimeValue::Item(
+                configured
+                    .unloader_item_by_build_pos
+                    .get(&build_pos)
+                    .copied()?,
+            ),
+        ),
+        "duct-unloader" => (
+            TypedBuildingRuntimeKind::DuctUnloader,
+            TypedBuildingRuntimeValue::Item(
+                configured
+                    .duct_unloader_item_by_build_pos
+                    .get(&build_pos)
+                    .copied()?,
+            ),
+        ),
+        "duct-router" => (
+            TypedBuildingRuntimeKind::DuctRouter,
+            TypedBuildingRuntimeValue::Item(
+                configured
+                    .duct_router_item_by_build_pos
+                    .get(&build_pos)
+                    .copied()?,
+            ),
+        ),
+        "mass-driver" => (
+            TypedBuildingRuntimeKind::MassDriver,
+            TypedBuildingRuntimeValue::Link(
+                configured
+                    .mass_driver_link_by_build_pos
+                    .get(&build_pos)
+                    .copied()?,
+            ),
+        ),
+        "payload-mass-driver" | "large-payload-mass-driver" => (
+            TypedBuildingRuntimeKind::PayloadMassDriver,
+            TypedBuildingRuntimeValue::Link(
+                configured
+                    .payload_mass_driver_link_by_build_pos
+                    .get(&build_pos)
+                    .copied()?,
+            ),
+        ),
+        "power-node" | "power-node-large" | "surge-tower" | "beam-link" => (
+            TypedBuildingRuntimeKind::PowerNode,
+            TypedBuildingRuntimeValue::Links(
+                configured
+                    .power_node_links_by_build_pos
+                    .get(&build_pos)
+                    .cloned()?,
+            ),
+        ),
+        "additive-reconstructor"
+        | "multiplicative-reconstructor"
+        | "exponential-reconstructor"
+        | "tetrative-reconstructor" => (
+            TypedBuildingRuntimeKind::Reconstructor,
+            TypedBuildingRuntimeValue::Command(
+                configured
+                    .reconstructor_command_by_build_pos
+                    .get(&build_pos)
+                    .copied()?,
+            ),
+        ),
+        "canvas" | "large-canvas" => (
+            TypedBuildingRuntimeKind::Canvas,
+            TypedBuildingRuntimeValue::Bytes(
+                configured
+                    .canvas_bytes_by_build_pos
+                    .get(&build_pos)
+                    .cloned()?,
+            ),
+        ),
+        _ => return None,
+    };
+    Some(TypedBuildingRuntimeModel {
+        build_pos,
+        block_id: building.block_id,
+        block_name: block_name.to_string(),
+        kind,
+        value,
+        last_update: building.last_update,
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -4249,6 +4616,7 @@ mod tests {
         table.apply_block_snapshot_head(
             build_pos,
             300,
+            Some("payload-router".to_string()),
             Some(1),
             Some(2),
             Some(3),
@@ -4277,8 +4645,10 @@ mod tests {
         assert_eq!(table.last_build_turret_plans_present, Some(true));
         assert_eq!(table.last_build_turret_plan_count, Some(7));
         assert_eq!(table.last_config, Some(TypeIoObject::Bool(true)));
+        assert_eq!(building.block_name.as_deref(), Some("payload-router"));
+        assert_eq!(table.last_block_name.as_deref(), Some("payload-router"));
 
-        table.apply_construct_finish(build_pos, Some(300), 1, 2, TypeIoObject::Int(9));
+        table.apply_construct_finish(build_pos, Some(300), None, 1, 2, TypeIoObject::Int(9));
         let building_after_construct = table.by_build_pos.get(&build_pos).unwrap();
         assert_eq!(
             building_after_construct.build_turret_rotation_bits,
@@ -4289,6 +4659,10 @@ mod tests {
             Some(true)
         );
         assert_eq!(building_after_construct.build_turret_plan_count, Some(7));
+        assert_eq!(
+            building_after_construct.block_name.as_deref(),
+            Some("payload-router")
+        );
     }
 
     #[test]

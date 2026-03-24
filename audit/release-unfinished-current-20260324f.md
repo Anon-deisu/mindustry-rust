@@ -61,6 +61,11 @@ These are already landed and should not be re-opened as if missing:
 - builder queue tile-state validation is already landed in `mdt-input`.
   - local queued place/break entries can now be pruned against observed tile states when the tile is already air or already matches the requested block/rotation
   - remaining work is broader runtime integration and Java-equivalent `BuilderComp` depth, not re-adding the validation primitive
+- building-table block identity carry-through is already landed.
+  - `BuildingProjection` / `BuildingTableProjection` now include `block_name` and `last_block_name`
+  - world baseline, entity building rows, loaded-world extra entry, `constructFinish`, and `deconstructFinish` already wire `block_name` into the building table
+  - `render_runtime` build inspector now prefers the typed runtime view sourced from building table + `configured_block_projection`
+  - remaining work is deeper live building ownership/runtime parity, not re-adding this field plumbing or inspector bridge
 
 ## Highest-Confidence Remaining Lanes
 
@@ -94,11 +99,11 @@ Write scope:
 ### U3 `blockSnapshot` typed building runtime model
 
 Remaining gap:
-- low-risk loaded-world tail/base folds are landed, but Rust still does not have Java-like `tile.build.readSync(..., version)` runtime ownership.
+- low-risk loaded-world tail/base folds, `block_name` carry-through, and the first typed build-inspector runtime view are landed, but Rust still does not have Java-like `tile.build.readSync(..., version)` runtime ownership.
 
 Best bounded next slice:
 - connect already parsed base/tail data into a stronger typed building runtime model
-- do not spend time re-landing already wired configured/resource folds
+- do not spend time re-landing already wired configured/resource folds, `block_name` / `last_block_name`, or the current build-inspector typed runtime consumer
 
 Write scope:
 - `rust/mdt-client-min/src/client_session.rs`
