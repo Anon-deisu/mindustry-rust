@@ -3077,6 +3077,10 @@ pub struct SessionState {
     pub received_researched_count: u64,
     pub last_researched_content_type: Option<u8>,
     pub last_researched_content_id: Option<i16>,
+    pub received_wave_advance_signal_count: u64,
+    pub last_wave_advance_signal_from: Option<i32>,
+    pub last_wave_advance_signal_to: Option<i32>,
+    pub last_wave_advance_signal_apply_count: Option<u64>,
     pub received_world_label_count: u64,
     pub received_world_label_reliable_count: u64,
     pub last_world_label_reliable: Option<bool>,
@@ -3411,6 +3415,26 @@ impl SessionState {
         self.reconnect_projection.reason_text = reason_text;
         self.reconnect_projection.reason_ordinal = reason_ordinal;
         self.reconnect_projection.hint_text = hint_text;
+    }
+
+    pub fn clear_wave_advance_signal(&mut self) {
+        self.received_wave_advance_signal_count = 0;
+        self.last_wave_advance_signal_from = None;
+        self.last_wave_advance_signal_to = None;
+        self.last_wave_advance_signal_apply_count = None;
+    }
+
+    pub fn record_wave_advance_signal(
+        &mut self,
+        from: Option<i32>,
+        to: Option<i32>,
+        apply_count: u64,
+    ) {
+        self.received_wave_advance_signal_count =
+            self.received_wave_advance_signal_count.saturating_add(1);
+        self.last_wave_advance_signal_from = from;
+        self.last_wave_advance_signal_to = to;
+        self.last_wave_advance_signal_apply_count = Some(apply_count);
     }
 
     pub fn apply_state_snapshot_runtime(

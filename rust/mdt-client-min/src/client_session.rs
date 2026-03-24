@@ -5514,6 +5514,13 @@ impl ClientSession {
                             > previous_applied_state_snapshot_count
                     {
                         if let Some(projection) = self.build_state_snapshot_applied_projection() {
+                            if projection.wave_advanced {
+                                self.state.record_wave_advance_signal(
+                                    projection.wave_advance_from,
+                                    projection.wave_advance_to,
+                                    projection.apply_count,
+                                );
+                            }
                             return Ok(ClientSessionEvent::StateSnapshotApplied { projection });
                         }
                     }
@@ -7174,6 +7181,7 @@ impl ClientSession {
         self.state.failed_state_snapshot_parse_count = 0;
         self.state.last_state_snapshot_parse_error = None;
         self.state.last_state_snapshot_parse_error_payload_len = None;
+        self.state.clear_wave_advance_signal();
         self.state.seen_state_snapshot = false;
         self.state.seen_entity_snapshot = false;
         self.state.received_entity_snapshot_count = 0;
@@ -13245,6 +13253,33 @@ mod tests {
             .collect()
     }
 
+    fn encode_state_snapshot_payload(
+        wave_time_bits: u32,
+        wave: i32,
+        enemies: i32,
+        paused: bool,
+        game_over: bool,
+        time_data: i32,
+        tps: u8,
+        rand0: i64,
+        rand1: i64,
+        core_data: &[u8],
+    ) -> Vec<u8> {
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&wave_time_bits.to_be_bytes());
+        payload.extend_from_slice(&wave.to_be_bytes());
+        payload.extend_from_slice(&enemies.to_be_bytes());
+        payload.push(u8::from(paused));
+        payload.push(u8::from(game_over));
+        payload.extend_from_slice(&time_data.to_be_bytes());
+        payload.push(tps);
+        payload.extend_from_slice(&rand0.to_be_bytes());
+        payload.extend_from_slice(&rand1.to_be_bytes());
+        payload.extend_from_slice(&(core_data.len() as u16).to_be_bytes());
+        payload.extend_from_slice(core_data);
+        payload
+    }
+
     fn sample_connect_payload() -> Vec<u8> {
         decode_hex_text(include_str!(
             "../../../tests/src/test/resources/connect-packet.hex"
@@ -17834,6 +17869,10 @@ mod tests {
         );
         assert!(session.state().seen_state_snapshot);
         assert_eq!(session.state().applied_state_snapshot_count, 1);
+        assert_eq!(session.state().received_wave_advance_signal_count, 1);
+        assert_eq!(session.state().last_wave_advance_signal_from, Some(0));
+        assert_eq!(session.state().last_wave_advance_signal_to, Some(7));
+        assert_eq!(session.state().last_wave_advance_signal_apply_count, Some(1));
         assert_eq!(
             session.state().last_state_snapshot,
             Some(AppliedStateSnapshot {
@@ -17849,37 +17888,14 @@ mod tests {
                 core_data: sample_snapshot_packet("stateSnapshot.coreData"),
             })
         );
+        assert_eq!(session.state().received_wave_advance_signal_count, 1);
+        assert_eq!(session.state().last_wave_advance_signal_from, Some(0));
+        assert_eq!(session.state().last_wave_advance_signal_to, Some(7));
+        assert_eq!(session.state().last_wave_advance_signal_apply_count, Some(1));
     }
 
     #[test]
     fn state_snapshot_packet_emits_applied_event_when_core_data_parse_failed() {
-        fn encode_state_snapshot_payload(
-            wave_time_bits: u32,
-            wave: i32,
-            enemies: i32,
-            paused: bool,
-            game_over: bool,
-            time_data: i32,
-            tps: u8,
-            rand0: i64,
-            rand1: i64,
-            core_data: &[u8],
-        ) -> Vec<u8> {
-            let mut payload = Vec::new();
-            payload.extend_from_slice(&wave_time_bits.to_be_bytes());
-            payload.extend_from_slice(&wave.to_be_bytes());
-            payload.extend_from_slice(&enemies.to_be_bytes());
-            payload.push(u8::from(paused));
-            payload.push(u8::from(game_over));
-            payload.extend_from_slice(&time_data.to_be_bytes());
-            payload.push(tps);
-            payload.extend_from_slice(&rand0.to_be_bytes());
-            payload.extend_from_slice(&rand1.to_be_bytes());
-            payload.extend_from_slice(&(core_data.len() as u16).to_be_bytes());
-            payload.extend_from_slice(core_data);
-            payload
-        }
-
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
         let packet_id = manifest
@@ -17942,6 +17958,166 @@ mod tests {
         );
         assert_eq!(session.state().last_state_snapshot_core_data, None);
         assert!(session.state().last_good_state_snapshot_core_data.is_some());
+        assert_eq!(session.state().received_wave_advance_signal_count, 2);
+        assert_eq!(session.state().last_wave_advance_signal_from, Some(7));
+        assert_eq!(session.state().last_wave_advance_signal_to, Some(8));
+        assert_eq!(session.state().last_wave_advance_signal_apply_count, Some(2));
+    }
+
+    #[test]
+    fn state_snapshot_packet_records_wave_advance_live_signal_once_per_strict_increase() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == HighFrequencyRemoteMethod::StateSnapshot.method_name())
+            .unwrap()
+            .packet_id;
+
+        let baseline_packet = encode_packet(
+            packet_id,
+            &sample_snapshot_packet("stateSnapshot.packet"),
+            false,
+        )
+        .unwrap();
+        session.ingest_packet_bytes(&baseline_packet).unwrap();
+
+        assert_eq!(session.state().received_wave_advance_signal_count, 1);
+        assert_eq!(session.state().last_wave_advance_signal_from, Some(0));
+        assert_eq!(session.state().last_wave_advance_signal_to, Some(7));
+        assert_eq!(session.state().last_wave_advance_signal_apply_count, Some(1));
+
+        let advanced_packet = encode_packet(
+            packet_id,
+            &encode_state_snapshot_payload(
+                222.0f32.to_bits(),
+                8,
+                2,
+                false,
+                false,
+                654_322,
+                60,
+                333_333_333,
+                444_444_444,
+                &sample_snapshot_packet("stateSnapshot.coreData"),
+            ),
+            false,
+        )
+        .unwrap();
+        session.ingest_packet_bytes(&advanced_packet).unwrap();
+
+        assert_eq!(session.state().received_wave_advance_signal_count, 2);
+        assert_eq!(session.state().last_wave_advance_signal_from, Some(7));
+        assert_eq!(session.state().last_wave_advance_signal_to, Some(8));
+        assert_eq!(session.state().last_wave_advance_signal_apply_count, Some(2));
+    }
+
+    #[test]
+    fn state_snapshot_packet_equal_wave_does_not_increment_wave_advance_live_signal() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == HighFrequencyRemoteMethod::StateSnapshot.method_name())
+            .unwrap()
+            .packet_id;
+
+        let baseline_packet = encode_packet(
+            packet_id,
+            &sample_snapshot_packet("stateSnapshot.packet"),
+            false,
+        )
+        .unwrap();
+        session.ingest_packet_bytes(&baseline_packet).unwrap();
+
+        let equal_wave_packet = encode_packet(
+            packet_id,
+            &encode_state_snapshot_payload(
+                333.0f32.to_bits(),
+                7,
+                4,
+                false,
+                false,
+                654_400,
+                60,
+                555_555_555,
+                666_666_666,
+                &sample_snapshot_packet("stateSnapshot.coreData"),
+            ),
+            false,
+        )
+        .unwrap();
+        let event = session.ingest_packet_bytes(&equal_wave_packet).unwrap();
+        let expected_projection = session.build_state_snapshot_applied_projection().unwrap();
+
+        assert_eq!(
+            event,
+            ClientSessionEvent::StateSnapshotApplied {
+                projection: expected_projection.clone(),
+            }
+        );
+        assert!(!expected_projection.wave_advanced);
+        assert_eq!(expected_projection.apply_count, 2);
+        assert_eq!(session.state().received_wave_advance_signal_count, 1);
+        assert_eq!(session.state().last_wave_advance_signal_from, Some(0));
+        assert_eq!(session.state().last_wave_advance_signal_to, Some(7));
+        assert_eq!(session.state().last_wave_advance_signal_apply_count, Some(1));
+    }
+
+    #[test]
+    fn state_snapshot_packet_regressed_wave_does_not_increment_wave_advance_live_signal() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == HighFrequencyRemoteMethod::StateSnapshot.method_name())
+            .unwrap()
+            .packet_id;
+
+        let baseline_packet = encode_packet(
+            packet_id,
+            &sample_snapshot_packet("stateSnapshot.packet"),
+            false,
+        )
+        .unwrap();
+        session.ingest_packet_bytes(&baseline_packet).unwrap();
+
+        let regressed_wave_packet = encode_packet(
+            packet_id,
+            &encode_state_snapshot_payload(
+                444.0f32.to_bits(),
+                6,
+                5,
+                false,
+                false,
+                654_200,
+                60,
+                777_777_777,
+                888_888_888,
+                &sample_snapshot_packet("stateSnapshot.coreData"),
+            ),
+            false,
+        )
+        .unwrap();
+        let event = session.ingest_packet_bytes(&regressed_wave_packet).unwrap();
+        let expected_projection = session.build_state_snapshot_applied_projection().unwrap();
+
+        assert_eq!(
+            event,
+            ClientSessionEvent::StateSnapshotApplied {
+                projection: expected_projection.clone(),
+            }
+        );
+        assert!(!expected_projection.wave_advanced);
+        assert_eq!(expected_projection.wave, 6);
+        assert_eq!(expected_projection.apply_count, 2);
+        assert_eq!(session.state().received_wave_advance_signal_count, 1);
+        assert_eq!(session.state().last_wave_advance_signal_from, Some(0));
+        assert_eq!(session.state().last_wave_advance_signal_to, Some(7));
+        assert_eq!(session.state().last_wave_advance_signal_apply_count, Some(1));
     }
 
     #[test]
@@ -32870,6 +33046,10 @@ mod tests {
             .state()
             .state_snapshot_authority_projection
             .is_some());
+        assert_eq!(session.state().received_wave_advance_signal_count, 1);
+        assert_eq!(session.state().last_wave_advance_signal_from, Some(0));
+        assert_eq!(session.state().last_wave_advance_signal_to, Some(7));
+        assert_eq!(session.state().last_wave_advance_signal_apply_count, Some(1));
 
         let world_data_begin_packet_id = manifest
             .remote_packets
@@ -32883,6 +33063,10 @@ mod tests {
 
         assert_eq!(session.state().authoritative_state_mirror, None);
         assert_eq!(session.state().state_snapshot_authority_projection, None);
+        assert_eq!(session.state().received_wave_advance_signal_count, 0);
+        assert_eq!(session.state().last_wave_advance_signal_from, None);
+        assert_eq!(session.state().last_wave_advance_signal_to, None);
+        assert_eq!(session.state().last_wave_advance_signal_apply_count, None);
     }
 
     #[test]

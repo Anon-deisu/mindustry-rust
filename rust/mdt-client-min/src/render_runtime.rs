@@ -2871,12 +2871,25 @@ fn runtime_command_control_label(session_state: &SessionState) -> String {
 
 fn runtime_gameplay_signal_label(session_state: &SessionState) -> String {
     format!(
-        "flag{}:go{}:ugo{}:sc{}:res{}",
+        "flag{}:go{}:ugo{}:sc{}:res{}:wave{}@{}>{}#{}",
         session_state.received_set_flag_count,
         session_state.received_game_over_count,
         session_state.received_update_game_over_count,
         session_state.received_sector_capture_count,
         session_state.received_researched_count,
+        session_state.received_wave_advance_signal_count,
+        session_state
+            .last_wave_advance_signal_from
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "none".to_string()),
+        session_state
+            .last_wave_advance_signal_to
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "none".to_string()),
+        session_state
+            .last_wave_advance_signal_apply_count
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "none".to_string()),
     )
 }
 
@@ -5039,6 +5052,10 @@ mod tests {
         state.received_update_game_over_count = 48;
         state.received_sector_capture_count = 49;
         state.received_researched_count = 50;
+        state.received_wave_advance_signal_count = 2;
+        state.last_wave_advance_signal_from = Some(7);
+        state.last_wave_advance_signal_to = Some(8);
+        state.last_wave_advance_signal_apply_count = Some(4);
         state.builder_queue_projection = crate::session_state::BuilderQueueProjection {
             active_by_tile: BTreeMap::new(),
             ordered_tiles: vec![(100, 99), (98, 97)],
@@ -5422,7 +5439,7 @@ mod tests {
             .contains("runtime_command_ctrl=spte28@t7:mc29@404/2:tir30@405#len5:ri31@6:7#9x12:bcs32@10:11:ucl33:uct34@2:404:ubcs35@1:505/12:13:cb36@n2:14:15->0x3fc00000:0x40200000:cu37@n2:u700:b16:17:t2:808:p0x40600000:0x40900000:q1:f0:suc38@n3:u701:c9:sus39@n4:u702:s5:e1:rot40@18:19:d0:tinv41@20:21:rbp42@22:23:rdp46@0x40b00000:0x40d00000:rup43@1:909:drop44@0x40f00000:dpl45@n3:24:25:tap47@26:27"));
         assert!(hud
             .status_text
-            .contains("runtime_gameplay_signal=flag46:go47:ugo48:sc49:res50"));
+            .contains("runtime_gameplay_signal=flag46:go47:ugo48:sc49:res50:wave2@7>8#4"));
     }
 
     #[test]
