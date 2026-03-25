@@ -128,6 +128,7 @@
 - Done when: all render/UI deltas are tagged as `release scope excluded` or assigned for follow-up.
 - Dispatch-first worker lanes: `audit/m6-m9-subagent-write-lanes-20260324.md` (`M9-1` .. `M9-3`)
 - Additive M9 low-risk closure: `mdt-render-ui` now exposes semantic-kind mapping (`player/marker/plan/block/terrain/unknown`) for render object classification, applies stable floor/clamp/zoom normalization in player-centered window crop math, and now also has presenter-local `MinimapPanelModel` / `BuildConfigPanelModel` summaries that surface existing structured HUD/build-inspector data through deterministic `MINIMAP` / `BUILD-CONFIG` panel text. Interactive minimap/UI parity remains backlog/excluded.
+- Additive M9 runtime-rich-UI closure: `RuntimeUiObservability` now also carries structured `announce` / `infoMessage` / `infoPopup` / `copyToClipboard` / `openURI` notice fields, `menu` / `followUpMenu` metadata, and `menuChoose` / `textInputResult` result fields instead of leaving them only in compact runtime strings or raw `SessionState`. `render_runtime` now projects those fields directly, while `mdt-render-ui` panel/window/ascii presenters surface them through richer `RUNTIME-NOTICE`, `RUNTIME-MENU`, and `RUNTIME-CHOICE` rows with deterministic detail output. This is observability/presenter depth, not Java dialog lifecycle parity.
 - Report: [audit/render-ui-parity.md](audit/render-ui-parity.md)
 
 ### 2026-03-23 High-Priority Parity Delta Refresh

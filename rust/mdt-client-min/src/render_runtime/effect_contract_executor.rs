@@ -684,7 +684,6 @@ fn effect_overlay_instance_seed(overlay: &RuntimeEffectOverlay) -> u32 {
         ^ overlay.rotation_bits.rotate_left(3)
         ^ overlay.color_rgba.rotate_left(11)
         ^ u32::from(overlay.lifetime_ticks).rotate_left(27)
-        ^ u32::from(overlay.remaining_ticks == overlay.lifetime_ticks).rotate_left(5)
         ^ u32::from(overlay.reliable).rotate_left(29)
         ^ u32::from(overlay.has_data).rotate_left(31)
         ^ u32::try_from(overlay.polyline_points.len())
@@ -2603,6 +2602,112 @@ mod tests {
                     < 0.01
             );
         }
+    }
+
+    #[test]
+    fn line_projections_for_effect_overlay_uses_stable_overlay_seed_for_item_transfer() {
+        let overlay = RuntimeEffectOverlay {
+            effect_id: Some(ITEM_TRANSFER_EFFECT_ID),
+            source_x_bits: 12.0f32.to_bits(),
+            source_y_bits: 20.0f32.to_bits(),
+            source_binding: None,
+            x_bits: 80.0f32.to_bits(),
+            y_bits: 160.0f32.to_bits(),
+            rotation_bits: 15.0f32.to_bits(),
+            color_rgba: 0x55667788,
+            reliable: false,
+            has_data: true,
+            lifetime_ticks: 20,
+            remaining_ticks: 10,
+            contract_name: Some("position_target"),
+            binding: None,
+            content_ref: None,
+            polyline_points: Vec::new(),
+        };
+
+        let first_lines = line_projections_for_effect_overlay(
+            &overlay,
+            12.0f32.to_bits(),
+            20.0f32.to_bits(),
+            80.0f32.to_bits(),
+            160.0f32.to_bits(),
+            &SessionState::default(),
+        );
+        let shifted_lines = line_projections_for_effect_overlay(
+            &overlay,
+            28.0f32.to_bits(),
+            44.0f32.to_bits(),
+            96.0f32.to_bits(),
+            184.0f32.to_bits(),
+            &SessionState::default(),
+        );
+
+        assert_eq!(first_lines.len(), shifted_lines.len());
+        for (first, shifted) in first_lines.iter().zip(shifted_lines.iter()) {
+            assert!(
+                (f32::from_bits(shifted.source_x_bits)
+                    - f32::from_bits(first.source_x_bits)
+                    - 16.0)
+                    .abs()
+                    < 0.01
+            );
+            assert!(
+                (f32::from_bits(shifted.source_y_bits)
+                    - f32::from_bits(first.source_y_bits)
+                    - 24.0)
+                    .abs()
+                    < 0.01
+            );
+            assert!(
+                (f32::from_bits(shifted.target_x_bits)
+                    - f32::from_bits(first.target_x_bits)
+                    - 16.0)
+                    .abs()
+                    < 0.01
+            );
+            assert!(
+                (f32::from_bits(shifted.target_y_bits)
+                    - f32::from_bits(first.target_y_bits)
+                    - 24.0)
+                    .abs()
+                    < 0.01
+            );
+        }
+    }
+
+    #[test]
+    fn stable_overlay_seed_ignores_overlay_progress_ticks() {
+        let initial_overlay = RuntimeEffectOverlay {
+            effect_id: Some(REGEN_SUPPRESS_SEEK_EFFECT_ID),
+            source_x_bits: 12.0f32.to_bits(),
+            source_y_bits: 20.0f32.to_bits(),
+            source_binding: None,
+            x_bits: 80.0f32.to_bits(),
+            y_bits: 160.0f32.to_bits(),
+            rotation_bits: 15.0f32.to_bits(),
+            color_rgba: 0x11223344,
+            reliable: false,
+            has_data: true,
+            lifetime_ticks: 140,
+            remaining_ticks: 140,
+            contract_name: Some("position_target"),
+            binding: None,
+            content_ref: None,
+            polyline_points: Vec::new(),
+        };
+        let progressed_overlay = RuntimeEffectOverlay {
+            remaining_ticks: 73,
+            ..initial_overlay.clone()
+        };
+
+        assert_eq!(
+            effect_overlay_instance_seed(&initial_overlay),
+            effect_overlay_instance_seed(&progressed_overlay)
+        );
+        assert_eq!(
+            effect_overlay_signed_seed(&initial_overlay, 0.0),
+            effect_overlay_signed_seed(&progressed_overlay, 0.0)
+        );
     }
 
     #[test]

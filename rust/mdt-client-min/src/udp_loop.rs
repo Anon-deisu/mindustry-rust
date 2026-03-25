@@ -226,7 +226,7 @@ mod tests {
         let report = driver.tick(&mut session, 1, 32).unwrap();
         assert!(report.inbound_packets >= 2);
         assert_eq!(report.outbound_packets, 0);
-        assert_eq!(report.outbound_framework_messages, 1);
+        assert_eq!(report.outbound_framework_messages, 0);
         assert!(session.state().world_stream_loaded);
         assert_eq!(session.state().world_map_width, 8);
         assert_eq!(session.state().world_map_height, 8);

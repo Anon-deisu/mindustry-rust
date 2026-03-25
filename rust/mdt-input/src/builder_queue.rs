@@ -577,7 +577,17 @@ impl BuilderQueueStateMachine {
         U: IntoIterator<Item = BuilderQueueActivityObservation>,
     {
         let validation = self.validate_against_tile_states(tile_state_observations);
+        let validation_removal_reasons = self.last_validation_removal_reasons.clone();
+        let validation_front_promotion =
+            (self.last_front_promotion == Some(BuilderQueueFrontPromotion::ValidationAdvancedHead))
+                .then_some(BuilderQueueFrontPromotion::ValidationAdvancedHead);
         let activity = self.update_local_activity(activity_observations);
+        if !validation_removal_reasons.is_empty() {
+            self.last_validation_removal_reasons = validation_removal_reasons;
+        }
+        if self.last_front_promotion.is_none() {
+            self.last_front_promotion = validation_front_promotion;
+        }
         BuilderQueueLocalStepResult {
             validation,
             activity,
@@ -2850,6 +2860,14 @@ mod tests {
         );
         assert_eq!(queue.ordered_tiles, vec![(3, 3), (2, 2)]);
         assert_eq!(queue.head_tile, Some((3, 3)));
+        assert_eq!(
+            queue.last_validation_removal_reasons.get(&(1, 1)),
+            Some(&BuilderQueueValidationRemovalReason::PlaceAlreadyMatchesRotation)
+        );
+        assert_eq!(
+            queue.last_front_promotion,
+            Some(BuilderQueueFrontPromotion::ActivityReorderedToReachable)
+        );
     }
 
     #[test]
@@ -2905,6 +2923,14 @@ mod tests {
         );
         assert!(queue.ordered_tiles.is_empty());
         assert_eq!(queue.head_tile, None);
+        assert_eq!(
+            queue.last_validation_removal_reasons.get(&(9, 9)),
+            Some(&BuilderQueueValidationRemovalReason::PlaceAlreadyMatchesRotation)
+        );
+        assert_eq!(
+            queue.last_front_promotion,
+            None
+        );
     }
 
     #[test]
@@ -3041,6 +3067,70 @@ mod tests {
     }
 
     #[test]
+    fn apply_local_builder_step_keeps_validation_promotion_when_new_head_is_skipped() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 1,
+                y: 1,
+                breaking: false,
+                block_id: Some(10),
+                rotation: 0,
+            },
+            BuilderQueueEntryObservation {
+                x: 2,
+                y: 2,
+                breaking: false,
+                block_id: Some(20),
+                rotation: 1,
+            },
+        ]);
+
+        let step = queue.apply_local_builder_step(
+            [BuilderQueueTileStateObservation {
+                x: 1,
+                y: 1,
+                block_id: Some(10),
+                rotation: Some(0),
+                requires_rotation_match: true,
+            }],
+            [BuilderQueueActivityObservation {
+                x: 2,
+                y: 2,
+                breaking: false,
+                in_range: true,
+                should_skip: true,
+                distance_sq: 4,
+            }],
+        );
+
+        assert_eq!(
+            step.activity,
+            BuilderQueueActivityState {
+                head_tile: Some((2, 2)),
+                actively_building: true,
+                head_in_range: true,
+                head_should_skip: true,
+                reordered: false,
+                used_closest_in_range_fallback: false,
+                head_selection: BuilderQueueHeadSelection::SkippedInRange,
+            }
+        );
+        assert_eq!(
+            queue.last_skip_reason,
+            Some(BuilderQueueSkipReason::RequestedSkip)
+        );
+        assert_eq!(
+            queue.last_validation_removal_reasons.get(&(1, 1)),
+            Some(&BuilderQueueValidationRemovalReason::PlaceAlreadyMatchesRotation)
+        );
+        assert_eq!(
+            queue.last_front_promotion,
+            Some(BuilderQueueFrontPromotion::ValidationAdvancedHead)
+        );
+    }
+
+    #[test]
     fn apply_local_builder_step_matches_separate_validation_and_activity_calls() {
         let mut sequential_queue = BuilderQueueStateMachine::default();
         sequential_queue.sync_local_entries([
@@ -3115,9 +3205,21 @@ mod tests {
                 activity,
             }
         );
-        assert_eq!(combined_queue, sequential_queue);
+        assert_eq!(combined_queue.active_by_tile, sequential_queue.active_by_tile);
         assert_eq!(combined_queue.ordered_tiles, vec![(3, 3), (2, 2)]);
         assert_eq!(combined_queue.head_tile, Some((3, 3)));
+        assert_eq!(combined_queue.queued_count, sequential_queue.queued_count);
+        assert_eq!(combined_queue.inflight_count, sequential_queue.inflight_count);
+        assert_eq!(combined_queue.last_skip_reason, sequential_queue.last_skip_reason);
+        assert_eq!(
+            combined_queue.last_front_promotion,
+            sequential_queue.last_front_promotion
+        );
+        assert_eq!(
+            combined_queue.last_validation_removal_reasons.get(&(1, 1)),
+            Some(&BuilderQueueValidationRemovalReason::PlaceAlreadyMatchesRotation)
+        );
+        assert!(sequential_queue.last_validation_removal_reasons.is_empty());
     }
 
     #[test]

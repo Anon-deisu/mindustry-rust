@@ -146,6 +146,10 @@ These are already landed and should not be re-opened as if missing:
 - `mdt-render-ui` runtime notice detail rows are now also landed.
   - panel/window/ascii presenters now expose deterministic `RUNTIME-NOTICE-DETAIL` rows derived from existing HUD/toast/text-input observability instead of leaving `RUNTIME-NOTICE` as a summary-only line
   - remaining `M9` work is still interactive UI/user-flow depth, not re-adding this presenter-local notice-detail slice
+- `mdt-render-ui` rich runtime UI observability bridge is now also landed.
+  - `RuntimeUiObservability` now carries structured `announce` / `infoMessage` / `infoPopup` / `copyToClipboard` / `openURI` notice data, `menu` / `followUpMenu` metadata, and `menuChoose` / `textInputResult` result fields instead of leaving them only in compact runtime text or raw `SessionState`
+  - `render_runtime` now projects those fields directly, and panel/window/ascii presenters expose them through richer `RUNTIME-NOTICE`, `RUNTIME-MENU`, and `RUNTIME-CHOICE` rows plus deterministic detail output
+  - remaining `M9` work is still deeper dialog/chat interaction and Java-equivalent UI lifecycle, not re-adding this observability bridge
 - `mdt-render-ui` build/minimap assist presenter slice is now landed.
   - panel/window presenters now expose `BuildMinimapAssistPanelModel` and `BUILD-MINIMAP-AUX` rows that combine build head/reconcile/config/auth/runtime hints into a single deterministic presenter-local summary
   - remaining `M9` work is still broader interactive UI and renderer/runtime parity, not re-adding this presenter-local assist summary slice

@@ -3284,6 +3284,10 @@ mod tests {
                     hide_count: 11,
                     last_message: Some("hud text".to_string()),
                     last_reliable_message: Some("hud rel".to_string()),
+                    announce_count: 12,
+                    last_announce_message: Some("announce".to_string()),
+                    info_message_count: 13,
+                    last_info_message: Some("info".to_string()),
                     ..RuntimeHudTextObservability::default()
                 },
                 toast: RuntimeToastObservability {
@@ -3291,6 +3295,21 @@ mod tests {
                     warning_count: 15,
                     last_info_message: Some("toast".to_string()),
                     last_warning_text: Some("warn".to_string()),
+                    info_popup_count: 16,
+                    info_popup_reliable_count: 17,
+                    last_info_popup_reliable: Some(true),
+                    last_info_popup_id: Some("popup-a".to_string()),
+                    last_info_popup_message: Some("popup text".to_string()),
+                    last_info_popup_duration_bits: Some(2.5f32.to_bits()),
+                    last_info_popup_align: Some(1),
+                    last_info_popup_top: Some(2),
+                    last_info_popup_left: Some(3),
+                    last_info_popup_bottom: Some(4),
+                    last_info_popup_right: Some(5),
+                    clipboard_count: 18,
+                    last_clipboard_text: Some("copied".to_string()),
+                    open_uri_count: 19,
+                    last_open_uri: Some("https://example.com".to_string()),
                     ..RuntimeToastObservability::default()
                 },
                 text_input: RuntimeTextInputObservability {
@@ -3325,6 +3344,23 @@ mod tests {
                     menu_open_count: 16,
                     follow_up_menu_open_count: 17,
                     hide_follow_up_menu_count: 18,
+                    last_menu_open_id: Some(40),
+                    last_menu_open_title: Some("main".to_string()),
+                    last_menu_open_message: Some("pick".to_string()),
+                    last_menu_open_option_rows: 2,
+                    last_menu_open_first_row_len: 3,
+                    last_follow_up_menu_open_id: Some(41),
+                    last_follow_up_menu_open_title: Some("follow".to_string()),
+                    last_follow_up_menu_open_message: Some("next".to_string()),
+                    last_follow_up_menu_open_option_rows: 1,
+                    last_follow_up_menu_open_first_row_len: 2,
+                    last_hide_follow_up_menu_id: Some(41),
+                    menu_choose_count: 29,
+                    last_menu_choose_menu_id: Some(404),
+                    last_menu_choose_option: Some(2),
+                    text_input_result_count: 30,
+                    last_text_input_result_id: Some(405),
+                    last_text_input_result_text: Some("ok123".to_string()),
                     ..RuntimeMenuObservability::default()
                 },
                 command_mode: crate::RuntimeCommandModeObservability {
@@ -3618,19 +3654,27 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "RUNTIME-NOTICE: notice:hud=9/10/11@hud_text/hud_rel:ann=0@none:info=0@none:toast=14/15@toast/warn:popup=0/0@n:none/none:clip=0@none:uri=0@none:none:tin=53@404:Digits/Only_numbers/12345#16:n1:e1",
+            "RUNTIME-NOTICE: notice:hud=9/10/11@hud_text/hud_rel:ann=12@announce:info=13@info:toast=14/15@toast/warn:popup=16/17@1:popup-a/popup_text:clip=18@copied:uri=19@https_//exam~:https:tin=53@404:Digits/Only_numbers/12345#16:n1:e1",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "RUNTIME-NOTICE-DETAIL: noticed:a1:h9/10/11:l8/7:ann0:a0:info0:i0:t14/15:l5/4:popup0/0:rn:pid0:pm0:pdnone:pbnone:none:none:none:none:clip0:0:uri0:0:none:tin53:id404:t6:m12:d5:n1:e1",
+            "RUNTIME-NOTICE-DETAIL: noticed:a1:h9/10/11:l8/7:ann12:a8:info13:i4:t14/15:l5/4:popup16/17:r1:pid7:pm10:pd1075838976:pb1:2:3:4:5:clip18:6:uri19:19:https:tin53:id404:t6:m12:d5:n1:e1",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "RUNTIME-MENU: menu:m16@none:none/none#0:0:fm17@none:none/none#0:0:h18@none:tin53@404:Digits/12345#16:n1:e1",
+            "RUNTIME-MENU: menu:m16@40:main/pick#2:3:fm17@41:follow/next#1:2:h18@41:tin53@404:Digits/12345#16:n1:e1",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "RUNTIME-MENU-DETAIL: menud:a1:fo0:mnone:0:0:0:0:fmnone:0:0:0:0:hidnone:tin53:id404:tDigits:d5:n1:e1",
+            "RUNTIME-MENU-DETAIL: menud:a1:fo0:m40:4:4:2:3:fm41:6:4:1:2:hid41:tin53:id404:tDigits:d5:n1:e1",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RUNTIME-CHOICE: choice:mc29@404/2:tir30@405/ok123",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RUNTIME-CHOICE-DETAIL: choiced:mid404:opt2:rid405:rlen5",
         );
         assert_frame_line_contains(
             &frame.panel_lines,

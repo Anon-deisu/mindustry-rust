@@ -1,15 +1,16 @@
 use crate::build_user_flow::build_build_user_flow_panel;
 use crate::minimap_user_flow::build_minimap_user_flow_panel;
 use crate::panel_model::{
-    build_build_config_panel, build_build_interaction_panel, build_hud_status_panel,
-    build_hud_visibility_panel, build_minimap_panel, build_runtime_admin_panel,
-    build_runtime_chat_panel, build_runtime_choice_panel, build_runtime_command_mode_panel,
-    build_runtime_dialog_panel, build_runtime_dialog_stack_panel, build_runtime_kick_panel,
-    build_runtime_live_effect_panel, build_runtime_live_entity_panel, build_runtime_loading_panel,
-    build_runtime_menu_panel, build_runtime_notice_state_panel, build_runtime_prompt_panel,
-    build_runtime_reconnect_panel, build_runtime_rules_panel, build_runtime_session_panel,
-    build_runtime_ui_notice_panel, build_runtime_ui_stack_panel, build_runtime_world_label_panel,
-    MinimapPanelModel, PresenterViewWindow, RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
+    build_build_config_panel, build_build_interaction_panel, build_build_minimap_assist_panel,
+    build_hud_status_panel, build_hud_visibility_panel, build_minimap_panel,
+    build_runtime_admin_panel, build_runtime_chat_panel, build_runtime_choice_panel,
+    build_runtime_command_mode_panel, build_runtime_dialog_panel,
+    build_runtime_dialog_stack_panel, build_runtime_kick_panel, build_runtime_live_effect_panel,
+    build_runtime_live_entity_panel, build_runtime_loading_panel, build_runtime_menu_panel,
+    build_runtime_notice_state_panel, build_runtime_prompt_panel, build_runtime_reconnect_panel,
+    build_runtime_rules_panel, build_runtime_session_panel, build_runtime_ui_notice_panel,
+    build_runtime_ui_stack_panel, build_runtime_world_label_panel, MinimapPanelModel,
+    PresenterViewWindow, RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
     RuntimeUiNoticePanelModel,
 };
 use crate::render_model::{RenderObjectSemanticFamily, RenderObjectSemanticKind};
@@ -105,6 +106,9 @@ impl AsciiScenePresenter {
         }
         if let Some(build_interaction_text) = compose_build_interaction_text(hud) {
             out.push_str(&format!("BUILD-INTERACTION: {build_interaction_text}\n"));
+        }
+        if let Some(build_minimap_aux_text) = compose_build_minimap_aux_text(scene, hud, window) {
+            out.push_str(&format!("BUILD-MINIMAP-AUX: {build_minimap_aux_text}\n"));
         }
         if let Some(build_flow_text) = compose_build_flow_text(scene, hud, window) {
             out.push_str(&format!("BUILD-FLOW: {build_flow_text}\n"));
@@ -1409,6 +1413,32 @@ fn compose_build_interaction_text(hud: &HudModel) -> Option<String> {
     ))
 }
 
+fn compose_build_minimap_aux_text(
+    scene: &RenderModel,
+    hud: &HudModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let panel = build_build_minimap_assist_panel(scene, hud, window)?;
+    Some(format!(
+        "mode={} select={} queue={} place-ready={} cfg={}/{} top={} auth={} focus={} in-window={} visible-map={} unknown-map={} window={} tracked={} runtime={}",
+        build_interaction_mode_text(panel.mode),
+        build_interaction_selection_text(panel.selection_state),
+        build_interaction_queue_text(panel.queue_state),
+        if panel.place_ready { 1 } else { 0 },
+        panel.config_family_count,
+        panel.config_sample_count,
+        compact_runtime_ui_text(panel.top_config_family.as_deref()),
+        build_interaction_authority_text(panel.authority_state),
+        optional_focus_tile_text(panel.focus_tile),
+        optional_bool_label(panel.focus_in_window),
+        panel.visible_map_percent,
+        panel.unknown_tile_percent,
+        panel.window_coverage_percent,
+        panel.tracked_object_count,
+        panel.runtime_count,
+    ))
+}
+
 fn compose_build_flow_text(
     scene: &RenderModel,
     hud: &HudModel,
@@ -2676,6 +2706,10 @@ mod tests {
                     hide_count: 11,
                     last_message: Some("hud text".to_string()),
                     last_reliable_message: Some("hud rel".to_string()),
+                    announce_count: 12,
+                    last_announce_message: Some("announce".to_string()),
+                    info_message_count: 13,
+                    last_info_message: Some("info".to_string()),
                     ..RuntimeHudTextObservability::default()
                 },
                 toast: RuntimeToastObservability {
@@ -2683,6 +2717,21 @@ mod tests {
                     warning_count: 15,
                     last_info_message: Some("toast".to_string()),
                     last_warning_text: Some("warn".to_string()),
+                    info_popup_count: 16,
+                    info_popup_reliable_count: 17,
+                    last_info_popup_reliable: Some(true),
+                    last_info_popup_id: Some("popup-a".to_string()),
+                    last_info_popup_message: Some("popup text".to_string()),
+                    last_info_popup_duration_bits: Some(2.5f32.to_bits()),
+                    last_info_popup_align: Some(1),
+                    last_info_popup_top: Some(2),
+                    last_info_popup_left: Some(3),
+                    last_info_popup_bottom: Some(4),
+                    last_info_popup_right: Some(5),
+                    clipboard_count: 18,
+                    last_clipboard_text: Some("copied".to_string()),
+                    open_uri_count: 19,
+                    last_open_uri: Some("https://example.com".to_string()),
                     ..RuntimeToastObservability::default()
                 },
                 text_input: RuntimeTextInputObservability {
@@ -2717,6 +2766,23 @@ mod tests {
                     menu_open_count: 16,
                     follow_up_menu_open_count: 17,
                     hide_follow_up_menu_count: 18,
+                    last_menu_open_id: Some(40),
+                    last_menu_open_title: Some("main".to_string()),
+                    last_menu_open_message: Some("pick".to_string()),
+                    last_menu_open_option_rows: 2,
+                    last_menu_open_first_row_len: 3,
+                    last_follow_up_menu_open_id: Some(41),
+                    last_follow_up_menu_open_title: Some("follow".to_string()),
+                    last_follow_up_menu_open_message: Some("next".to_string()),
+                    last_follow_up_menu_open_option_rows: 1,
+                    last_follow_up_menu_open_first_row_len: 2,
+                    last_hide_follow_up_menu_id: Some(41),
+                    menu_choose_count: 29,
+                    last_menu_choose_menu_id: Some(404),
+                    last_menu_choose_option: Some(2),
+                    text_input_result_count: 30,
+                    last_text_input_result_id: Some(405),
+                    last_text_input_result_text: Some("ok123".to_string()),
                     ..RuntimeMenuObservability::default()
                 },
                 command_mode: crate::RuntimeCommandModeObservability {
@@ -2977,18 +3043,28 @@ mod tests {
             "OVERLAY-KINDS: players=1 markers=1 plans=1 blocks=1 runtime=0 terrain=0 unknown=0"
         ));
         assert!(frame.contains("RUNTIME-UI: hud=9/10/11@hud_text/hud_rel"));
+        assert!(frame.contains("ann=12@announce"));
+        assert!(frame.contains("info=13@info"));
         assert!(frame.contains("toast=14/15@toast/warn"));
+        assert!(frame.contains("popup=16/17"));
+        assert!(frame.contains("choice=29/30"));
         assert!(frame.contains("tin=53@404:Digits/Only_numbers"));
         assert!(frame.contains(
-            "RUNTIME-NOTICE: hud=9/10/11@hud_text/hud_rel ann=0@none info=0@none toast=14/15@toast/warn popup=0/0@n:none/none clip=0@none uri=0@none:none tin=53@404:Digits/Only_numbers/12345#16:n1:e1"
+            "RUNTIME-NOTICE: hud=9/10/11@hud_text/hud_rel ann=12@announce info=13@info toast=14/15@toast/warn popup=16/17@1:popup-a/popup_text clip=18@copied uri=19@https_//exam~:https tin=53@404:Digits/Only_numbers/12345#16:n1:e1"
         ));
         assert!(frame.contains(
-            "RUNTIME-NOTICE-DETAIL: active=1 hud-events=9/10/11 hud-len=8/7 announce=0 len=0 info=0 len=0 toast-events=14/15 toast-len=5/4 popup=0/0 rel=n id-len=0 msg-len=0 dur=none box=none:none/none/none/none clip=0 len=0 uri=0 len=0 scheme=none text-input=53 id=404 title-len=6 msg-len=12 default-len=5 limit=16 numeric=1 allow-empty=1"
+            "RUNTIME-NOTICE-DETAIL: active=1 hud-events=9/10/11 hud-len=8/7 announce=12 len=8 info=13 len=4 toast-events=14/15 toast-len=5/4 popup=16/17 rel=1 id-len=7 msg-len=10 dur=1075838976 box=1:2/3/4/5 clip=18 len=6 uri=19 len=19 scheme=https text-input=53 id=404 title-len=6 msg-len=12 default-len=5 limit=16 numeric=1 allow-empty=1"
         ));
         assert!(frame
-            .contains("RUNTIME-MENU: menu=16@none:none/none#0:0 follow=17@none:none/none#0:0 hide=18@none tin=53@404:Digits/12345#16:n1:e1"));
+            .contains("RUNTIME-MENU: menu=16@40:main/pick#2:3 follow=17@41:follow/next#1:2 hide=18@41 tin=53@404:Digits/12345#16:n1:e1"));
         assert!(frame.contains(
-            "RUNTIME-MENU-DETAIL: active=1 outstanding-follow-up=0 menu=none title-len=0 message-len=0 rows=0/0 follow=none title-len=0 message-len=0 rows=0/0 hide-id=none text-input=53 id=404 title=Digits default-len=5 numeric=1 allow-empty=1"
+            "RUNTIME-MENU-DETAIL: active=1 outstanding-follow-up=0 menu=40 title-len=4 message-len=4 rows=2/3 follow=41 title-len=6 message-len=4 rows=1/2 hide-id=41 text-input=53 id=404 title=Digits default-len=5 numeric=1 allow-empty=1"
+        ));
+        assert!(frame.contains(
+            "RUNTIME-CHOICE: menu-choose=29@404/2 tin-result=30@405/ok123"
+        ));
+        assert!(frame.contains(
+            "RUNTIME-CHOICE-DETAIL: choose-menu=404 choose-option=2 result-id=405 result-len=5"
         ));
         assert!(frame.contains(
             "RUNTIME-DIALOG: prompt=input act=1 menu=16/17/18 tin=53@404:Digits/Only_numbers/12345#16:n1:e1 notice=warn@warn total=48"
@@ -3211,6 +3287,9 @@ mod tests {
         ));
         assert!(frame.contains(
             "BUILD-INTERACTION: mode=place select=head-aligned queue=mixed pending=3 place-ready=1 cfg=4/8 top=gamma head=queued@10:12:place:b301:r1 auth=rejected-missing-building pending=match src=tileConfig tile=10:12 block=alpha orphan=6"
+        ));
+        assert!(frame.contains(
+            "BUILD-MINIMAP-AUX: mode=place select=head-aligned queue=mixed place-ready=1 cfg=4/8 top=gamma auth=rejected-missing-building focus=1:1 in-window=1 visible-map=0 unknown-map=100 window=0 tracked=3 runtime=0"
         ));
         assert!(frame.contains(
             "BUILD-FLOW: next=resolve minimap=survey focus=inside pan=hold target=player scope=multi head=10:12 auth=rejected-missing-building"

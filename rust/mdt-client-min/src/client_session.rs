@@ -2570,7 +2570,8 @@ impl ClientSession {
             self.pending_packets = retained_packets;
         }
 
-        if self.should_send_keepalive(now_ms) {
+        if allow_tcp && !self.connect_confirm_flush_pending() && self.should_send_keepalive(now_ms)
+        {
             let message = FrameworkMessage::KeepAlive;
             let bytes = encode_framework_message(&message);
             self.last_keepalive_at_ms = Some(now_ms);
@@ -2580,7 +2581,11 @@ impl ClientSession {
             actions.push(ClientSessionAction::SendFramework { message, bytes });
         }
 
-        if interaction_ready && allow_tcp && self.should_send_remote_ping(now_ms) {
+        if interaction_ready
+            && self.state.connect_confirm_flushed
+            && allow_tcp
+            && self.should_send_remote_ping(now_ms)
+        {
             if let Some(packet_id) = self.ping_packet_id {
                 let payload = encode_ping_time_payload(now_ms);
                 let bytes = encode_packet(packet_id, &payload, false)?;
@@ -2594,7 +2599,11 @@ impl ClientSession {
             }
         }
 
-        if interaction_ready && allow_udp && self.should_send_client_snapshot(now_ms) {
+        if interaction_ready
+            && self.state.connect_confirm_flushed
+            && allow_udp
+            && self.should_send_client_snapshot(now_ms)
+        {
             let snapshot_id = self.next_client_snapshot_id;
             self.next_client_snapshot_id = self.next_client_snapshot_id.saturating_add(1);
             let payload =
@@ -2628,6 +2637,12 @@ impl ClientSession {
                     ClientPacketTransport::Udp => !allow_udp,
                 }
         })
+    }
+
+    fn connect_confirm_flush_pending(&self) -> bool {
+        self.state.ready_to_enter_world
+            && self.state.connect_confirm_sent
+            && !self.state.connect_confirm_flushed
     }
 
     pub fn ingest_packet_bytes(
@@ -15836,7 +15851,7 @@ mod tests {
             .packet_id;
 
         let first_actions = session.advance_time(1_000).unwrap();
-        assert_eq!(first_actions.len(), 4);
+        assert_eq!(first_actions.len(), 1);
         match &first_actions[0] {
             ClientSessionAction::SendPacket {
                 packet_id,
@@ -15851,14 +15866,21 @@ mod tests {
             }
             other => panic!("expected queued connectConfirm send action, got {other:?}"),
         }
+        assert_eq!(session.state().sent_keepalive_count, 0);
+        assert_eq!(session.state().sent_client_snapshot_count, 0);
+
+        session.mark_tcp_packet_flushed(session.connect_confirm_packet_id, 1_000);
+
+        let second_actions = session.advance_time(1_000).unwrap();
+        assert_eq!(second_actions.len(), 3);
         assert_eq!(
-            first_actions[1],
+            second_actions[0],
             ClientSessionAction::SendFramework {
                 message: FrameworkMessage::KeepAlive,
                 bytes: vec![0xfe, 2],
             }
         );
-        match &first_actions[2] {
+        match &second_actions[1] {
             ClientSessionAction::SendPacket {
                 packet_id,
                 transport,
@@ -15872,7 +15894,7 @@ mod tests {
             }
             other => panic!("expected ping send action, got {other:?}"),
         }
-        match &first_actions[3] {
+        match &second_actions[2] {
             ClientSessionAction::SendPacket {
                 packet_id,
                 transport,
@@ -15894,17 +15916,17 @@ mod tests {
         assert_eq!(session.state().sent_client_snapshot_count, 1);
         assert_eq!(session.state().last_sent_client_snapshot_id, Some(1));
 
-        let second_actions = session.advance_time(2_000).unwrap();
-        assert_eq!(second_actions.len(), 3);
+        let third_actions = session.advance_time(2_000).unwrap();
+        assert_eq!(third_actions.len(), 3);
         assert_eq!(
-            decode_framework_message(match &second_actions[0] {
+            decode_framework_message(match &third_actions[0] {
                 ClientSessionAction::SendFramework { bytes, .. } => bytes,
                 other => panic!("expected framework action, got {other:?}"),
             })
             .unwrap(),
             FrameworkMessage::KeepAlive
         );
-        match &second_actions[1] {
+        match &third_actions[1] {
             ClientSessionAction::SendPacket {
                 packet_id,
                 transport,
@@ -15917,7 +15939,7 @@ mod tests {
             }
             other => panic!("expected ping send action, got {other:?}"),
         }
-        match &second_actions[2] {
+        match &third_actions[2] {
             ClientSessionAction::SendPacket {
                 transport, bytes, ..
             } => {
@@ -15949,6 +15971,18 @@ mod tests {
             session.ingest_packet_bytes(&chunk).unwrap();
         }
         session.prepare_connect_confirm_packet().unwrap();
+        let connect_confirm_actions = session.advance_time(0).unwrap();
+        assert!(connect_confirm_actions.iter().any(|action| {
+            matches!(
+                action,
+                ClientSessionAction::SendPacket {
+                    packet_id,
+                    transport: ClientPacketTransport::Tcp,
+                    ..
+                } if *packet_id == session.connect_confirm_packet_id
+            )
+        }));
+        session.mark_tcp_packet_flushed(session.connect_confirm_packet_id, 0);
 
         let input = session.snapshot_input_mut();
         input.unit_id = Some(42);
@@ -16154,6 +16188,18 @@ mod tests {
             session.ingest_packet_bytes(&chunk).unwrap();
         }
         session.prepare_connect_confirm_packet().unwrap();
+        let connect_confirm_actions = session.advance_time(0).unwrap();
+        assert!(connect_confirm_actions.iter().any(|action| {
+            matches!(
+                action,
+                ClientSessionAction::SendPacket {
+                    packet_id,
+                    transport: ClientPacketTransport::Tcp,
+                    ..
+                } if *packet_id == session.connect_confirm_packet_id
+            )
+        }));
+        session.mark_tcp_packet_flushed(session.connect_confirm_packet_id, 0);
 
         let input = session.snapshot_input_mut();
         input.unit_id = Some(42);
@@ -16240,6 +16286,18 @@ mod tests {
             session.ingest_packet_bytes(&chunk).unwrap();
         }
         session.prepare_connect_confirm_packet().unwrap();
+        let connect_confirm_actions = session.advance_time(0).unwrap();
+        assert!(connect_confirm_actions.iter().any(|action| {
+            matches!(
+                action,
+                ClientSessionAction::SendPacket {
+                    packet_id,
+                    transport: ClientPacketTransport::Tcp,
+                    ..
+                } if *packet_id == session.connect_confirm_packet_id
+            )
+        }));
+        session.mark_tcp_packet_flushed(session.connect_confirm_packet_id, 0);
 
         let plans = vec![
             ClientBuildPlan {
@@ -31971,17 +32029,11 @@ mod tests {
         session.prepare_connect_confirm_packet().unwrap();
 
         let actions = session.advance_time(1_000).unwrap();
-        assert_eq!(actions.len(), 4);
+        assert_eq!(actions.len(), 2);
         let expected_connect_confirm_packet_id = manifest
             .remote_packets
             .iter()
             .find(|entry| entry.method == "connectConfirm")
-            .unwrap()
-            .packet_id;
-        let expected_ping_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "ping")
             .unwrap()
             .packet_id;
         match &actions[0] {
@@ -32017,34 +32069,6 @@ mod tests {
                 assert!(decoded.payload.is_empty());
             }
             other => panic!("expected queued connectConfirm packet, got {other:?}"),
-        }
-        match &actions[2] {
-            ClientSessionAction::SendPacket {
-                packet_id,
-                transport,
-                bytes,
-            } => {
-                assert_eq!(*packet_id, expected_ping_packet_id);
-                assert_eq!(*transport, ClientPacketTransport::Tcp);
-                let decoded = decode_packet(bytes).unwrap();
-                assert_eq!(decoded.packet_id, expected_ping_packet_id);
-                assert_eq!(decoded.payload, 1_000i64.to_be_bytes());
-            }
-            other => panic!("expected queued ping packet, got {other:?}"),
-        }
-        match &actions[3] {
-            ClientSessionAction::SendPacket {
-                packet_id,
-                transport,
-                bytes,
-            } => {
-                assert_eq!(*packet_id, session.client_snapshot_packet_id);
-                assert_eq!(*transport, ClientPacketTransport::Udp);
-                let decoded = decode_packet(bytes).unwrap();
-                assert_eq!(decoded.packet_id, session.client_snapshot_packet_id);
-                assert_eq!(&decoded.payload[0..4], &1i32.to_be_bytes());
-            }
-            other => panic!("expected queued client snapshot packet, got {other:?}"),
         }
     }
 
@@ -32594,7 +32618,7 @@ mod tests {
                 ),
             ),
         ];
-        assert!(actions.len() >= expected.len() + 3);
+        assert_eq!(actions.len(), expected.len() + 1);
         let expected_connect_confirm_packet_id = manifest
             .remote_packets
             .iter()
@@ -32634,40 +32658,6 @@ mod tests {
                 ..
             } if *packet_id == expected_connect_confirm_packet_id
         ));
-        let expected_ping_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "ping")
-            .unwrap()
-            .packet_id;
-        match &actions[expected.len() + 1] {
-            ClientSessionAction::SendPacket {
-                packet_id,
-                transport,
-                bytes,
-            } => {
-                assert_eq!(*packet_id, expected_ping_packet_id);
-                assert_eq!(*transport, ClientPacketTransport::Tcp);
-                let decoded = decode_packet(bytes).unwrap();
-                assert_eq!(decoded.packet_id, expected_ping_packet_id);
-                assert_eq!(decoded.payload, 1_000i64.to_be_bytes());
-            }
-            other => panic!("expected queued ping packet, got {other:?}"),
-        }
-        match &actions[expected.len() + 2] {
-            ClientSessionAction::SendPacket {
-                packet_id,
-                transport,
-                bytes,
-            } => {
-                assert_eq!(*packet_id, session.client_snapshot_packet_id);
-                assert_eq!(*transport, ClientPacketTransport::Udp);
-                let decoded = decode_packet(bytes).unwrap();
-                assert_eq!(decoded.packet_id, session.client_snapshot_packet_id);
-                assert_eq!(&decoded.payload[0..4], &1i32.to_be_bytes());
-            }
-            other => panic!("expected queued client snapshot packet, got {other:?}"),
-        }
     }
 
     #[test]
@@ -37844,6 +37834,7 @@ mod tests {
         let actions = session
             .advance_time_for_transport_scope(1_201, false, true)
             .unwrap();
+        assert!(actions.is_empty());
         assert!(!actions
             .iter()
             .any(|action| matches!(action, ClientSessionAction::TimedOut { .. })));
