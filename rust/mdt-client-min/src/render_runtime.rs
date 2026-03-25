@@ -8505,14 +8505,20 @@ mod tests {
             runtime_ui.toast.last_info_popup_message.as_deref(),
             Some("popup text")
         );
-        assert_eq!(runtime_ui.toast.last_info_popup_duration_bits, Some(2.5f32.to_bits()));
+        assert_eq!(
+            runtime_ui.toast.last_info_popup_duration_bits,
+            Some(2.5f32.to_bits())
+        );
         assert_eq!(runtime_ui.toast.last_info_popup_align, Some(1));
         assert_eq!(runtime_ui.toast.last_info_popup_top, Some(2));
         assert_eq!(runtime_ui.toast.last_info_popup_left, Some(3));
         assert_eq!(runtime_ui.toast.last_info_popup_bottom, Some(4));
         assert_eq!(runtime_ui.toast.last_info_popup_right, Some(5));
         assert_eq!(runtime_ui.toast.clipboard_count, 51);
-        assert_eq!(runtime_ui.toast.last_clipboard_text.as_deref(), Some("copied"));
+        assert_eq!(
+            runtime_ui.toast.last_clipboard_text.as_deref(),
+            Some("copied")
+        );
         assert_eq!(runtime_ui.toast.open_uri_count, 52);
         assert_eq!(
             runtime_ui.toast.last_open_uri.as_deref(),
@@ -8564,8 +8570,14 @@ mod tests {
         assert_eq!(runtime_ui.menu.follow_up_menu_open_count, 17);
         assert_eq!(runtime_ui.menu.hide_follow_up_menu_count, 18);
         assert_eq!(runtime_ui.menu.last_menu_open_id, Some(40));
-        assert_eq!(runtime_ui.menu.last_menu_open_title.as_deref(), Some("main"));
-        assert_eq!(runtime_ui.menu.last_menu_open_message.as_deref(), Some("pick"));
+        assert_eq!(
+            runtime_ui.menu.last_menu_open_title.as_deref(),
+            Some("main")
+        );
+        assert_eq!(
+            runtime_ui.menu.last_menu_open_message.as_deref(),
+            Some("pick")
+        );
         assert_eq!(runtime_ui.menu.last_menu_open_option_rows, 2);
         assert_eq!(runtime_ui.menu.last_menu_open_first_row_len, 3);
         assert_eq!(runtime_ui.menu.last_follow_up_menu_open_id, Some(41));

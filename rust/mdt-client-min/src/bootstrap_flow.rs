@@ -215,11 +215,24 @@ pub fn apply_connect_packet(state: &mut SessionState, connect: &ConnectPacketEnv
     state.connect_packet_len = connect.encoded_packet.len();
 }
 
+fn reset_finish_connecting_lifecycle(state: &mut SessionState) {
+    state.client_loaded = false;
+    state.connect_confirm_sent = false;
+    state.connect_confirm_flushed = false;
+    state.last_connect_confirm_at_ms = None;
+    state.last_connect_confirm_flushed_at_ms = None;
+    state.finish_connecting_commit_count = 0;
+    state.last_finish_connecting = None;
+    state.last_ready_inbound_liveness_anchor_at_ms = None;
+    state.ready_inbound_liveness_anchor_count = 0;
+}
+
 pub fn apply_world_bootstrap(
     state: &mut SessionState,
     stream_id: i32,
     bootstrap: &LoadedWorldBootstrap,
 ) {
+    reset_finish_connecting_lifecycle(state);
     state.bootstrap_stream_id = Some(stream_id);
     state.world_stream_expected_len = bootstrap.compressed_length;
     state.world_stream_received_len = bootstrap.compressed_length;
@@ -352,6 +365,7 @@ fn read_u16_be(bytes: &[u8]) -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::session_state::FinishConnectingProjection;
     use mdt_protocol::{decode_packet, CONNECT_PACKET_ID};
 
     fn decode_hex_text(text: &str) -> Vec<u8> {
@@ -591,6 +605,64 @@ mod tests {
             Some(login_second.bootstrap.player_id)
         );
         assert!(state.ready_to_enter_world);
+    }
+
+    #[test]
+    fn second_world_load_clears_loaded_lifecycle_markers_before_finish_connecting() {
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet_first, chunk_packets_first) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+        let (begin_packet_second, chunk_packets_second) =
+            encode_world_stream_packets(&compressed_world_stream, 99, 1024).unwrap();
+        let login_first = LoginBootstrap::from_stream_packets(
+            &[0x11, 0x22, 0x33, 0x44],
+            &begin_packet_first,
+            &chunk_packets_first,
+            "fr",
+        )
+        .unwrap();
+        let login_second = LoginBootstrap::from_stream_packets(
+            &[0x55, 0x66],
+            &begin_packet_second,
+            &chunk_packets_second,
+            "fr",
+        )
+        .unwrap();
+
+        let mut state = SessionState::default();
+        apply_login_bootstrap(&mut state, &login_first);
+        state.client_loaded = true;
+        state.connect_confirm_sent = true;
+        state.connect_confirm_flushed = true;
+        state.last_connect_confirm_at_ms = Some(11);
+        state.last_connect_confirm_flushed_at_ms = Some(12);
+        state.finish_connecting_commit_count = 3;
+        state.last_finish_connecting = Some(FinishConnectingProjection {
+            committed_at_ms: 10,
+            replayed_loading_packet_count: 2,
+            total_replayed_loading_packet_count: 4,
+            ready_to_enter_world: true,
+            client_loaded: true,
+            connect_confirm_queued: true,
+            connect_confirm_flushed: true,
+            snapshot_watchdog_armed_at_ms: Some(10),
+        });
+        state.last_ready_inbound_liveness_anchor_at_ms = Some(13);
+        state.ready_inbound_liveness_anchor_count = 5;
+
+        apply_login_bootstrap(&mut state, &login_second);
+
+        assert!(!state.client_loaded);
+        assert!(!state.connect_confirm_sent);
+        assert!(!state.connect_confirm_flushed);
+        assert_eq!(state.last_connect_confirm_at_ms, None);
+        assert_eq!(state.last_connect_confirm_flushed_at_ms, None);
+        assert_eq!(state.finish_connecting_commit_count, 0);
+        assert_eq!(state.last_finish_connecting, None);
+        assert_eq!(state.last_ready_inbound_liveness_anchor_at_ms, None);
+        assert_eq!(state.ready_inbound_liveness_anchor_count, 0);
+        assert_eq!(state.bootstrap_stream_id, Some(99));
+        assert!(state.world_stream_loaded);
     }
 
     #[test]

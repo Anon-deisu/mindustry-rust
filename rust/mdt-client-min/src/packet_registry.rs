@@ -9,8 +9,8 @@ use mdt_remote::{
     CustomChannelRemoteDispatchSpec, CustomChannelRemoteFamily, CustomChannelRemoteRegistry,
     HighFrequencyRemoteMethod, InboundRemoteDispatchSpec, InboundRemoteFamily,
     InboundRemoteRegistry, RemoteManifest, RemoteManifestError, RemotePacketIdFixedTable,
-    WellKnownRemoteMethod, WellKnownRemoteRegistry,
-    CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT, INBOUND_REMOTE_FAMILY_COUNT,
+    WellKnownRemoteMethod, WellKnownRemoteRegistry, CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT,
+    INBOUND_REMOTE_FAMILY_COUNT,
 };
 use typed_remote_glue::PacketRegistryTypedRemoteGlue;
 
@@ -610,14 +610,20 @@ mod tests {
                 .any(|spec| spec.packet_id == packet_id && spec.method == method)
         };
 
-        assert!(has_generated_spec(CLIENT_SNAPSHOT_CALL_PACKET_ID, "clientSnapshot"));
+        assert!(has_generated_spec(
+            CLIENT_SNAPSHOT_CALL_PACKET_ID,
+            "clientSnapshot"
+        ));
         assert!(has_generated_spec(PING_CALL_PACKET_ID, "ping"));
         assert!(has_generated_spec(TILE_CONFIG_CALL_PACKET_ID, "tileConfig"));
         assert!(has_generated_spec(
             WORLD_DATA_BEGIN_CALL_PACKET_ID,
             "worldDataBegin"
         ));
-        assert_eq!(combined.client_snapshot_packet_id, CLIENT_SNAPSHOT_PACKET_ID);
+        assert_eq!(
+            combined.client_snapshot_packet_id,
+            CLIENT_SNAPSHOT_PACKET_ID
+        );
         assert_eq!(
             combined.well_known_remote.ping_packet_id,
             Some(PING_CALL_PACKET_ID)

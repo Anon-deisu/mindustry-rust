@@ -31,16 +31,21 @@ use mdt_client_min::custom_packet_runtime_surface::{
     RuntimeCustomPacketSurface, RuntimeCustomPacketSurfaceSummaryEntry,
 };
 use mdt_client_min::render_runtime::{RenderRuntimeAdapter, RuntimeEffectClipView};
+use mdt_client_min::runtime_custom_packet_business::{
+    apply_runtime_custom_packet_command_target, resolve_runtime_custom_packet_business_marker,
+    resolve_runtime_custom_packet_command_target, RuntimeCustomPacketBusinessMarker,
+    RuntimeCustomPacketBusinessMarkerSource,
+};
 use mdt_client_min::session_state::SessionState;
 use mdt_input::live_intent::RuntimeIntentTracker;
 use mdt_input::{
     flip_plans, rotate_plans, sample_runtime_input_snapshot, valid_place_against_local_plans,
     BinaryAction, BuilderQueueActivityObservation, BuilderQueueBuildSelection,
     BuilderQueueEntryObservation, BuilderQueueStateMachine, BuilderQueueTileStateObservation,
-    CommandModeRectProjection, CommandModeState, CommandUnitRef, InputSnapshot, IntentSamplingMode,
-    LiveIntentState, LocalPlanPlacement, MovementProbeConfig, MovementProbeController,
-    PlacementRequest, PlanBlockMeta, PlanEditable, PlanPoint, RuntimeInputSample,
-    RuntimeInputState,
+    CommandModeRectProjection, CommandModeState, CommandModeTargetProjection, CommandUnitRef,
+    InputSnapshot, IntentSamplingMode, LiveIntentState, LocalPlanPlacement, MovementProbeConfig,
+    MovementProbeController, PlacementRequest, PlanBlockMeta, PlanEditable, PlanPoint,
+    RuntimeInputSample, RuntimeInputState,
 };
 use mdt_remote::HighFrequencyRemoteMethod;
 use mdt_remote::{read_remote_manifest, RemoteManifest};
@@ -241,6 +246,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             custom_packet_business_hooks.as_mut(),
             args.runtime_custom_packet_semantics.len(),
             session.state(),
+            &mut runtime_command_mode,
             &report.events,
             now_ms,
         );
@@ -685,6 +691,7 @@ struct RuntimeCustomPacketBusinessHooks {
 struct RuntimeCustomPacketBusinessHookState {
     routes: BTreeMap<RuntimeCustomPacketBusinessRouteKey, RuntimeCustomPacketBusinessRouteState>,
     pending_lines: VecDeque<String>,
+    pending_command_targets: VecDeque<RuntimeCustomPacketBusinessCommandTargetEntry>,
     next_update_serial: u64,
     surface_reset_count: usize,
     reconnect_reset_count: usize,
@@ -697,17 +704,12 @@ struct RuntimeCustomPacketBusinessRouteKey {
     semantic: RuntimeCustomPacketSemanticKind,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum RuntimeCustomPacketBusinessMarkerSource {
-    Surface,
-    RuntimeEntity,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-struct RuntimeCustomPacketBusinessMarker {
-    source: RuntimeCustomPacketBusinessMarkerSource,
-    x: f32,
-    y: f32,
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct RuntimeCustomPacketBusinessCommandTargetEntry {
+    key: String,
+    encoding: RuntimeCustomPacketSemanticEncoding,
+    semantic: RuntimeCustomPacketSemanticKind,
+    target: CommandModeTargetProjection,
 }
 
 #[derive(Debug, Default)]
@@ -716,6 +718,7 @@ struct RuntimeCustomPacketBusinessRouteState {
     active: bool,
     last_stable_value: Option<String>,
     last_marker: Option<RuntimeCustomPacketBusinessMarker>,
+    last_command_target: Option<CommandModeTargetProjection>,
     last_update_serial: u64,
 }
 
@@ -764,6 +767,10 @@ impl RuntimeCustomPacketBusinessHooks {
         self.state.pending_lines.drain(..).collect()
     }
 
+    fn drain_command_targets(&mut self) -> Vec<RuntimeCustomPacketBusinessCommandTargetEntry> {
+        self.state.pending_command_targets.drain(..).collect()
+    }
+
     fn summary_lines(&self) -> Vec<String> {
         let mut lines = self
             .state
@@ -771,7 +778,7 @@ impl RuntimeCustomPacketBusinessHooks {
             .iter()
             .map(|(route, state)| {
                 format!(
-                    "runtime_custom_packet_business_hook_summary: encoding={} key={:?} semantic={} apply_count={} active={} last={:?} marker={}",
+                    "runtime_custom_packet_business_hook_summary: encoding={} key={:?} semantic={} apply_count={} active={} last={:?} marker={} target={}",
                     runtime_custom_packet_surface_encoding_label(route.encoding),
                     route.key,
                     runtime_custom_packet_surface_semantic_label(route.semantic),
@@ -779,6 +786,7 @@ impl RuntimeCustomPacketBusinessHooks {
                     state.active,
                     state.last_stable_value,
                     format_runtime_custom_packet_business_marker(state.last_marker.as_ref()),
+                    format_runtime_custom_packet_command_target(state.last_command_target),
                 )
             })
             .collect::<Vec<_>>();
@@ -888,6 +896,9 @@ impl RuntimeCustomPacketBusinessHookState {
             state.active = true;
             state.last_stable_value = Some(entry.stable_value.clone());
             state.last_marker = marker.clone();
+            let command_target =
+                resolve_runtime_custom_packet_command_target(entry, session_state, marker.as_ref());
+            state.last_command_target = command_target;
             self.next_update_serial = self.next_update_serial.saturating_add(1);
             state.last_update_serial = self.next_update_serial;
             self.pending_lines.push_back(format!(
@@ -899,6 +910,23 @@ impl RuntimeCustomPacketBusinessHookState {
                 entry.stable_value,
                 format_runtime_custom_packet_business_marker(marker.as_ref()),
             ));
+            if let Some(target) = state.last_command_target {
+                self.pending_lines.push_back(format!(
+                    "runtime_custom_packet_business_hook_command_target: tick={now_ms}ms encoding={} key={:?} semantic={} target={}",
+                    runtime_custom_packet_surface_encoding_label(entry.encoding),
+                    entry.key,
+                    runtime_custom_packet_surface_semantic_label(entry.semantic),
+                    format_runtime_custom_packet_command_target(Some(target)),
+                ));
+                self.pending_command_targets.push_back(
+                    RuntimeCustomPacketBusinessCommandTargetEntry {
+                        key: entry.key.clone(),
+                        encoding: entry.encoding,
+                        semantic: entry.semantic,
+                        target,
+                    },
+                );
+            }
         }
     }
 
@@ -911,38 +939,16 @@ impl RuntimeCustomPacketBusinessHookState {
             route.active = false;
             route.last_stable_value = None;
             route.last_marker = None;
+            route.last_command_target = None;
             route.last_update_serial = 0;
         }
+        self.pending_command_targets.clear();
         if cleared_routes > 0 {
             self.pending_lines.push_back(format!(
                 "runtime_custom_packet_business_hook_clear: tick={now_ms}ms reason={reason} cleared_routes={cleared_routes}"
             ));
         }
     }
-}
-
-fn resolve_runtime_custom_packet_business_marker(
-    entry: &RuntimeCustomPacketSurfaceSummaryEntry,
-    session_state: &SessionState,
-) -> Option<RuntimeCustomPacketBusinessMarker> {
-    if let Some(marker) = entry.marker.as_ref() {
-        return Some(RuntimeCustomPacketBusinessMarker {
-            source: RuntimeCustomPacketBusinessMarkerSource::Surface,
-            x: marker.x,
-            y: marker.y,
-        });
-    }
-    if entry.semantic != RuntimeCustomPacketSemanticKind::UnitId {
-        return None;
-    }
-    let unit_id = entry.stable_value.parse::<i32>().ok()?;
-    let projection = session_state.runtime_typed_entity_projection();
-    let entity = projection.entity_at(unit_id)?;
-    Some(RuntimeCustomPacketBusinessMarker {
-        source: RuntimeCustomPacketBusinessMarkerSource::RuntimeEntity,
-        x: f32::from_bits(entity.base().x_bits),
-        y: f32::from_bits(entity.base().y_bits),
-    })
 }
 
 fn format_runtime_custom_packet_business_marker(
@@ -956,6 +962,42 @@ fn format_runtime_custom_packet_business_marker(
             format_runtime_custom_packet_surface_coord(marker.y),
         ),
         None => "none".to_string(),
+    }
+}
+
+fn format_runtime_custom_packet_command_target(
+    target: Option<CommandModeTargetProjection>,
+) -> String {
+    let Some(target) = target else {
+        return "none".to_string();
+    };
+    let mut parts = Vec::new();
+    if let Some(build_target) = target.build_target {
+        parts.push(format!("build_pos={build_target}"));
+    }
+    if let Some(unit_target) = target.unit_target {
+        parts.push(format!(
+            "unit=kind:{} value:{}",
+            unit_target.kind, unit_target.value
+        ));
+    }
+    if let Some(position_target) = target.position_target {
+        parts.push(format!(
+            "pos={},{}",
+            format_runtime_custom_packet_surface_coord(f32::from_bits(position_target.x_bits)),
+            format_runtime_custom_packet_surface_coord(f32::from_bits(position_target.y_bits)),
+        ));
+    }
+    if let Some(rect_target) = target.rect_target {
+        parts.push(format!(
+            "rect={}:{}:{}:{}",
+            rect_target.x0, rect_target.y0, rect_target.x1, rect_target.y1
+        ));
+    }
+    if parts.is_empty() {
+        "empty".to_string()
+    } else {
+        parts.join(" ")
     }
 }
 
@@ -5395,6 +5437,7 @@ fn maybe_apply_runtime_custom_packet_business_hooks(
     custom_packet_business_hooks: Option<&mut RuntimeCustomPacketBusinessHooks>,
     registered_semantic_count: usize,
     session_state: &SessionState,
+    runtime_command_mode: &mut CommandModeState,
     events: &[ClientSessionEvent],
     now_ms: u64,
 ) {
@@ -5412,11 +5455,22 @@ fn maybe_apply_runtime_custom_packet_business_hooks(
     let entries = custom_packet_surface.latest_summary_entries(registered_semantic_count.max(1));
     custom_packet_business_hooks.observe_surface_entries(now_ms, &entries, session_state);
     let lines = custom_packet_business_hooks.drain_lines();
-    if lines.is_empty() {
+    let command_targets = custom_packet_business_hooks.drain_command_targets();
+    if lines.is_empty() && command_targets.is_empty() {
         return;
     }
     for line in lines {
         println!("{line}");
+    }
+    for target in command_targets {
+        apply_runtime_custom_packet_command_target(runtime_command_mode, target.target);
+        println!(
+            "runtime_custom_packet_business_hook_command_target_apply: tick={now_ms}ms encoding={} key={:?} semantic={} target={}",
+            runtime_custom_packet_surface_encoding_label(target.encoding),
+            target.key,
+            runtime_custom_packet_surface_semantic_label(target.semantic),
+            format_runtime_custom_packet_command_target(Some(target.target)),
+        );
     }
     println!(
         "{}",
@@ -9854,6 +9908,143 @@ mod tests {
             .drain_lines()
             .iter()
             .any(|line| line.contains("marker=runtime_entity@48,120")));
+    }
+
+    #[test]
+    fn runtime_custom_packet_business_hooks_queue_runtime_command_targets() {
+        let specs = vec![
+            RuntimeCustomPacketSemanticSpec {
+                key: "logic.world".to_string(),
+                encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+                semantic: RuntimeCustomPacketSemanticKind::WorldPos,
+            },
+            RuntimeCustomPacketSemanticSpec {
+                key: "build.select".to_string(),
+                encoding: RuntimeCustomPacketSemanticEncoding::Text,
+                semantic: RuntimeCustomPacketSemanticKind::BuildPos,
+            },
+            RuntimeCustomPacketSemanticSpec {
+                key: "logic.unit".to_string(),
+                encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+                semantic: RuntimeCustomPacketSemanticKind::UnitId,
+            },
+        ];
+        let mut hooks = RuntimeCustomPacketBusinessHooks::from_specs(&specs).unwrap();
+        let build_pos = pack_point2(3, 5);
+        let mut state = SessionState::default();
+        state
+            .runtime_typed_entity_apply_projection
+            .by_entity_id
+            .insert(
+                77,
+                mdt_client_min::session_state::TypedRuntimeEntityModel::Player(
+                    mdt_client_min::session_state::TypedRuntimePlayerEntity {
+                        base: mdt_client_min::session_state::TypedRuntimeEntityBase {
+                            entity_id: 77,
+                            class_id: 0,
+                            hidden: false,
+                            is_local_player: false,
+                            unit_kind: 0,
+                            unit_value: 0,
+                            x_bits: 48.0f32.to_bits(),
+                            y_bits: 120.0f32.to_bits(),
+                            last_seen_entity_snapshot_count: 1,
+                        },
+                    },
+                ),
+            );
+
+        hooks.observe_surface_entries(
+            42,
+            &[
+                RuntimeCustomPacketSurfaceSummaryEntry {
+                    key: "logic.world".to_string(),
+                    encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+                    semantic: RuntimeCustomPacketSemanticKind::WorldPos,
+                    stable_value: "7,9".to_string(),
+                    marker: Some(RuntimeCustomPacketOverlayMarker {
+                        key: "logic.world".to_string(),
+                        encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+                        semantic: RuntimeCustomPacketSemanticKind::WorldPos,
+                        x: 12.5,
+                        y: -4.0,
+                    }),
+                },
+                RuntimeCustomPacketSurfaceSummaryEntry {
+                    key: "build.select".to_string(),
+                    encoding: RuntimeCustomPacketSemanticEncoding::Text,
+                    semantic: RuntimeCustomPacketSemanticKind::BuildPos,
+                    stable_value: build_pos.to_string(),
+                    marker: None,
+                },
+                RuntimeCustomPacketSurfaceSummaryEntry {
+                    key: "logic.unit".to_string(),
+                    encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+                    semantic: RuntimeCustomPacketSemanticKind::UnitId,
+                    stable_value: "77".to_string(),
+                    marker: None,
+                },
+            ],
+            &state,
+        );
+
+        assert_eq!(
+            hooks.drain_command_targets(),
+            vec![
+                RuntimeCustomPacketBusinessCommandTargetEntry {
+                    key: "logic.world".to_string(),
+                    encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+                    semantic: RuntimeCustomPacketSemanticKind::WorldPos,
+                    target: CommandModeTargetProjection {
+                        build_target: None,
+                        unit_target: None,
+                        position_target: Some(mdt_input::CommandModePositionTarget {
+                            x_bits: 12.5f32.to_bits(),
+                            y_bits: (-4.0f32).to_bits(),
+                        }),
+                        rect_target: None,
+                    },
+                },
+                RuntimeCustomPacketBusinessCommandTargetEntry {
+                    key: "build.select".to_string(),
+                    encoding: RuntimeCustomPacketSemanticEncoding::Text,
+                    semantic: RuntimeCustomPacketSemanticKind::BuildPos,
+                    target: CommandModeTargetProjection {
+                        build_target: Some(build_pos),
+                        unit_target: None,
+                        position_target: Some(mdt_input::CommandModePositionTarget {
+                            x_bits: 24.0f32.to_bits(),
+                            y_bits: 40.0f32.to_bits(),
+                        }),
+                        rect_target: None,
+                    },
+                },
+                RuntimeCustomPacketBusinessCommandTargetEntry {
+                    key: "logic.unit".to_string(),
+                    encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+                    semantic: RuntimeCustomPacketSemanticKind::UnitId,
+                    target: CommandModeTargetProjection {
+                        build_target: None,
+                        unit_target: Some(CommandUnitRef { kind: 2, value: 77 }),
+                        position_target: Some(mdt_input::CommandModePositionTarget {
+                            x_bits: 48.0f32.to_bits(),
+                            y_bits: 120.0f32.to_bits(),
+                        }),
+                        rect_target: None,
+                    },
+                },
+            ]
+        );
+        assert!(hooks.drain_lines().iter().any(|line| {
+            line.contains("runtime_custom_packet_business_hook_command_target:")
+                && line.contains("key=\"logic.unit\"")
+                && line.contains("target=unit=kind:2 value:77 pos=48,120")
+        }));
+        assert!(hooks.summary_lines().iter().any(|line| {
+            line.contains("key=\"build.select\"")
+                && line.contains("target=build_pos=")
+                && line.contains("pos=24,40")
+        }));
     }
 
     #[test]

@@ -15,6 +15,7 @@ pub mod net_loop;
 pub mod packet_registry;
 pub mod render_runtime;
 pub mod rules_objectives_semantics;
+pub mod runtime_custom_packet_business;
 pub mod session_state;
 pub mod snapshot_ingest;
 pub mod state_snapshot_semantics;

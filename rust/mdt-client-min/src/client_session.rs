@@ -2668,6 +2668,40 @@ impl ClientSession {
         self.process_inbound_packet(bytes, packet.packet_id, &packet.payload)
     }
 
+    fn needs_world_reload_reset_for_stream_begin(&self) -> bool {
+        self.state.client_loaded
+            || self.state.ready_to_enter_world
+            || self.state.connect_confirm_sent
+            || self.state.connect_confirm_flushed
+            || self.state.last_finish_connecting.is_some()
+            || self.loaded_world_bundle.is_some()
+            || self.state.world_stream_loaded
+    }
+
+    fn begin_world_stream_loading(&mut self, stream_id: i32, total_bytes: usize) {
+        if self.needs_world_reload_reset_for_stream_begin() {
+            self.begin_world_data_reload();
+        }
+
+        self.loading_world_data = true;
+        self.state.client_loaded = false;
+        self.state.connect_confirm_sent = false;
+        self.state.connect_confirm_flushed = false;
+        self.state.last_connect_confirm_at_ms = None;
+        self.state.last_connect_confirm_flushed_at_ms = None;
+        self.state.finish_connecting_commit_count = 0;
+        self.state.last_finish_connecting = None;
+        self.state.last_ready_inbound_liveness_anchor_at_ms = None;
+        self.state.ready_inbound_liveness_anchor_count = 0;
+        self.state.bootstrap_stream_id = Some(stream_id);
+        self.state.world_stream_expected_len = total_bytes;
+        self.state.world_stream_received_len = 0;
+        self.state.world_stream_loaded = false;
+        self.state.world_stream_compressed_len = 0;
+        self.state.world_stream_inflated_len = 0;
+        self.state.ready_to_enter_world = false;
+    }
+
     fn process_inbound_packet(
         &mut self,
         raw_bytes: &[u8],
@@ -2683,10 +2717,7 @@ impl ClientSession {
         match packet.packet_id {
             STREAM_BEGIN_PACKET_ID => {
                 let assembler = WorldStreamAssembler::from_stream_begin_packet(packet.raw_bytes)?;
-                self.loading_world_data = true;
-                self.state.bootstrap_stream_id = Some(assembler.stream_id);
-                self.state.world_stream_expected_len = assembler.total_bytes;
-                self.state.world_stream_received_len = 0;
+                self.begin_world_stream_loading(assembler.stream_id, assembler.total_bytes);
                 let event = ClientSessionEvent::WorldStreamStarted {
                     stream_id: assembler.stream_id,
                     total_bytes: assembler.total_bytes,
@@ -38888,6 +38919,122 @@ mod tests {
         assert_eq!(
             session.state().last_server_message.as_deref(),
             Some("[accent]queued")
+        );
+    }
+
+    #[test]
+    fn stream_begin_after_loaded_world_reopens_loading_gate_without_world_data_begin() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (first_begin_packet, first_chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+        let (second_begin_packet, second_chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 99, 1024).unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "sendMessage" && entry.params.len() == 1)
+            .unwrap()
+            .packet_id;
+        let packet = encode_packet(
+            packet_id,
+            &encode_typeio_string_payload("[accent]queued second load"),
+            false,
+        )
+        .unwrap();
+
+        session.ingest_packet_bytes(&first_begin_packet).unwrap();
+        for chunk in &first_chunk_packets {
+            session.ingest_packet_bytes(chunk).unwrap();
+        }
+
+        assert!(session.state().client_loaded);
+        assert!(session.state().ready_to_enter_world);
+        assert_eq!(session.state().finish_connecting_commit_count, 1);
+        assert!(session.prepare_connect_confirm_packet().unwrap().is_some());
+        assert!(session.state().connect_confirm_sent);
+        assert!(!session.pending_packets.is_empty());
+
+        let begin_event = session.ingest_packet_bytes(&second_begin_packet).unwrap();
+        assert_eq!(
+            begin_event,
+            ClientSessionEvent::WorldStreamStarted {
+                stream_id: 99,
+                total_bytes: compressed_world_stream.len(),
+            }
+        );
+        assert!(!session.state().client_loaded);
+        assert!(!session.state().ready_to_enter_world);
+        assert!(!session.state().connect_confirm_sent);
+        assert!(!session.state().connect_confirm_flushed);
+        assert_eq!(session.state().last_connect_confirm_at_ms, None);
+        assert_eq!(session.state().last_connect_confirm_flushed_at_ms, None);
+        assert_eq!(session.state().finish_connecting_commit_count, 0);
+        assert_eq!(session.state().last_finish_connecting, None);
+        assert!(session.pending_packets.is_empty());
+        assert_eq!(
+            session.state().last_world_reload,
+            Some(WorldReloadProjection {
+                had_loaded_world: true,
+                had_client_loaded: true,
+                was_ready_to_enter_world: true,
+                had_connect_confirm_sent: true,
+                cleared_pending_packets: 1,
+                cleared_deferred_inbound_packets: 0,
+                cleared_replayed_loading_events: 0,
+            })
+        );
+
+        let deferred = session.ingest_packet_bytes(&packet).unwrap();
+        assert_eq!(
+            deferred,
+            ClientSessionEvent::DeferredPacketWhileLoading {
+                packet_id,
+                remote: Some(IgnoredRemotePacketMeta {
+                    method: "sendMessage".to_string(),
+                    packet_class: "mindustry.gen.SendMessageCallPacket".to_string(),
+                }),
+            }
+        );
+        assert_eq!(session.state().deferred_inbound_packet_count, 1);
+        assert_eq!(session.state().received_server_message_count, 0);
+
+        let mut saw_world_ready = false;
+        for chunk in &second_chunk_packets {
+            if matches!(
+                session.ingest_packet_bytes(chunk).unwrap(),
+                ClientSessionEvent::WorldStreamReady { .. }
+            ) {
+                saw_world_ready = true;
+            }
+        }
+
+        assert!(saw_world_ready);
+        assert_eq!(session.state().bootstrap_stream_id, Some(99));
+        assert!(session.state().client_loaded);
+        assert!(session.state().ready_to_enter_world);
+        assert_eq!(session.state().finish_connecting_commit_count, 1);
+        assert_eq!(session.state().replayed_inbound_packet_count, 1);
+        assert_eq!(
+            session.state().last_replayed_packet_method.as_deref(),
+            Some("sendMessage")
+        );
+        assert!(session.state().connect_confirm_sent);
+        assert!(session
+            .pending_packets
+            .iter()
+            .any(|pending| pending.packet_id == session.connect_confirm_packet_id));
+        assert_eq!(
+            session.take_replayed_loading_events(),
+            vec![ClientSessionEvent::ServerMessage {
+                message: "[accent]queued second load".to_string()
+            }]
+        );
+        assert_eq!(session.state().received_server_message_count, 1);
+        assert_eq!(
+            session.state().last_server_message.as_deref(),
+            Some("[accent]queued second load")
         );
     }
 
