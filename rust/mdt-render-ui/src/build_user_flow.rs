@@ -277,7 +277,10 @@ mod tests {
         assert_eq!(panel.pan_label(), "right+down");
         assert_eq!(panel.target_kind, MinimapUserTargetKind::Plan);
         assert_eq!(panel.config_scope, "multi");
-        assert_eq!(panel.authority_state, BuildInteractionAuthorityState::Rollback);
+        assert_eq!(
+            panel.authority_state,
+            BuildInteractionAuthorityState::Rollback
+        );
         assert_eq!(panel.head_tile, Some((12, 18)));
     }
 

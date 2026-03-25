@@ -1631,7 +1631,9 @@ pub fn build_runtime_menu_panel(hud: &HudModel) -> Option<RuntimeMenuPanelModel>
         last_follow_up_menu_open_title: runtime_ui.menu.last_follow_up_menu_open_title.clone(),
         last_follow_up_menu_open_message: runtime_ui.menu.last_follow_up_menu_open_message.clone(),
         last_follow_up_menu_open_option_rows: runtime_ui.menu.last_follow_up_menu_open_option_rows,
-        last_follow_up_menu_open_first_row_len: runtime_ui.menu.last_follow_up_menu_open_first_row_len,
+        last_follow_up_menu_open_first_row_len: runtime_ui
+            .menu
+            .last_follow_up_menu_open_first_row_len,
         last_hide_follow_up_menu_id: runtime_ui.menu.last_hide_follow_up_menu_id,
         text_input_open_count: runtime_ui.text_input.open_count,
         text_input_last_id: runtime_ui.text_input.last_id,
@@ -2068,9 +2070,10 @@ mod tests {
     use super::{
         build_build_config_panel, build_build_interaction_panel, build_build_minimap_assist_panel,
         build_hud_status_panel, build_hud_visibility_panel, build_minimap_panel,
-        build_runtime_admin_panel, build_runtime_chat_panel, build_runtime_command_mode_panel,
-        build_runtime_choice_panel, build_runtime_dialog_panel, build_runtime_dialog_stack_panel,
-        build_runtime_kick_panel, build_runtime_live_effect_panel, build_runtime_live_entity_panel,
+        build_runtime_admin_panel, build_runtime_chat_panel, build_runtime_choice_panel,
+        build_runtime_command_mode_panel, build_runtime_dialog_panel,
+        build_runtime_dialog_stack_panel, build_runtime_kick_panel,
+        build_runtime_live_effect_panel, build_runtime_live_entity_panel,
         build_runtime_loading_panel, build_runtime_menu_panel, build_runtime_notice_state_panel,
         build_runtime_prompt_panel, build_runtime_reconnect_panel, build_runtime_rules_panel,
         build_runtime_session_panel, build_runtime_ui_notice_panel, build_runtime_ui_stack_panel,
@@ -2790,10 +2793,7 @@ mod tests {
         assert_eq!(panel.clipboard_count, 18);
         assert_eq!(panel.last_clipboard_text.as_deref(), Some("copied"));
         assert_eq!(panel.open_uri_count, 19);
-        assert_eq!(
-            panel.last_open_uri.as_deref(),
-            Some("https://example.com")
-        );
+        assert_eq!(panel.last_open_uri.as_deref(), Some("https://example.com"));
         assert_eq!(panel.text_input_open_count, 53);
         assert_eq!(panel.text_input_last_id, Some(404));
         assert_eq!(panel.text_input_last_title.as_deref(), Some("Digits"));
@@ -3174,8 +3174,14 @@ mod tests {
         assert_eq!(panel.last_menu_open_option_rows, 2);
         assert_eq!(panel.last_menu_open_first_row_len, 3);
         assert_eq!(panel.last_follow_up_menu_open_id, Some(41));
-        assert_eq!(panel.last_follow_up_menu_open_title.as_deref(), Some("follow"));
-        assert_eq!(panel.last_follow_up_menu_open_message.as_deref(), Some("next"));
+        assert_eq!(
+            panel.last_follow_up_menu_open_title.as_deref(),
+            Some("follow")
+        );
+        assert_eq!(
+            panel.last_follow_up_menu_open_message.as_deref(),
+            Some("next")
+        );
         assert_eq!(panel.last_follow_up_menu_open_option_rows, 1);
         assert_eq!(panel.last_follow_up_menu_open_first_row_len, 2);
         assert_eq!(panel.last_hide_follow_up_menu_id, Some(41));

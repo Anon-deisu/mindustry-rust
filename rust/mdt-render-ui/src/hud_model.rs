@@ -58,6 +58,135 @@ pub struct RuntimeUiObservability {
     pub live: RuntimeLiveSummaryObservability,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RuntimeUiPromptLayerKind {
+    Menu,
+    FollowUpMenu,
+    TextInput,
+}
+
+impl RuntimeUiPromptLayerKind {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Menu => "menu",
+            Self::FollowUpMenu => "follow-up",
+            Self::TextInput => "input",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RuntimeUiNoticeLayerKind {
+    Hud,
+    HudReliable,
+    ToastInfo,
+    ToastWarning,
+}
+
+impl RuntimeUiNoticeLayerKind {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Hud => "hud",
+            Self::HudReliable => "reliable",
+            Self::ToastInfo => "info",
+            Self::ToastWarning => "warn",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RuntimeUiStackForegroundSummaryKind {
+    Menu,
+    FollowUpMenu,
+    TextInput,
+    Chat,
+}
+
+impl RuntimeUiStackForegroundSummaryKind {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Menu => "menu",
+            Self::FollowUpMenu => "follow-up",
+            Self::TextInput => "input",
+            Self::Chat => "chat",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct RuntimeUiStackSummary {
+    pub foreground_kind: Option<RuntimeUiStackForegroundSummaryKind>,
+    pub prompt_kind: Option<RuntimeUiPromptLayerKind>,
+    pub prompt_layers: Vec<RuntimeUiPromptLayerKind>,
+    pub notice_kind: Option<RuntimeUiNoticeLayerKind>,
+    pub notice_layers: Vec<RuntimeUiNoticeLayerKind>,
+    pub chat_active: bool,
+    pub menu_open_count: u64,
+    pub outstanding_follow_up_count: u64,
+    pub text_input_open_count: u64,
+    pub text_input_last_id: Option<i32>,
+    pub server_message_count: u64,
+    pub chat_message_count: u64,
+    pub last_chat_sender_entity_id: Option<i32>,
+}
+
+impl RuntimeUiStackSummary {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.total_depth() == 0
+            && self.foreground_kind.is_none()
+            && self.text_input_last_id.is_none()
+            && self.last_chat_sender_entity_id.is_none()
+    }
+
+    pub(crate) fn foreground_label(&self) -> &'static str {
+        self.foreground_kind
+            .map(RuntimeUiStackForegroundSummaryKind::label)
+            .unwrap_or("none")
+    }
+
+    pub(crate) fn prompt_label(&self) -> &'static str {
+        self.prompt_kind
+            .map(RuntimeUiPromptLayerKind::label)
+            .unwrap_or("none")
+    }
+
+    pub(crate) fn notice_label(&self) -> &'static str {
+        self.notice_kind
+            .map(RuntimeUiNoticeLayerKind::label)
+            .unwrap_or("none")
+    }
+
+    pub(crate) fn prompt_layer_labels(&self) -> Vec<&'static str> {
+        self.prompt_layers.iter().map(|kind| kind.label()).collect()
+    }
+
+    pub(crate) fn notice_layer_labels(&self) -> Vec<&'static str> {
+        self.notice_layers.iter().map(|kind| kind.label()).collect()
+    }
+
+    pub(crate) fn prompt_depth(&self) -> usize {
+        self.prompt_layers.len()
+    }
+
+    pub(crate) fn notice_depth(&self) -> usize {
+        self.notice_layers.len()
+    }
+
+    pub(crate) fn chat_depth(&self) -> usize {
+        usize::from(self.chat_active)
+    }
+
+    pub(crate) fn active_group_count(&self) -> usize {
+        usize::from(self.prompt_depth() > 0)
+            + usize::from(self.notice_depth() > 0)
+            + self.chat_depth()
+    }
+
+    pub(crate) fn total_depth(&self) -> usize {
+        self.prompt_depth() + self.notice_depth() + self.chat_depth()
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct RuntimeUiStackDepthSummary {
     pub prompt_depth: usize,
@@ -473,24 +602,50 @@ impl HudModel {
     }
 
     pub(crate) fn runtime_ui_stack_depth_summary(&self) -> Option<RuntimeUiStackDepthSummary> {
-        let runtime_ui = self.runtime_ui.as_ref()?;
-        let prompt_depth = usize::from(runtime_ui.text_input.open_count > 0)
-            + usize::from(outstanding_follow_up_count(&runtime_ui.menu) > 0)
-            + usize::from(runtime_ui.menu.menu_open_count > 0);
-        let notice_depth = usize::from(runtime_ui.hud_text.last_message.is_some())
-            + usize::from(runtime_ui.hud_text.last_reliable_message.is_some())
-            + usize::from(runtime_ui.toast.last_info_message.is_some())
-            + usize::from(runtime_ui.toast.last_warning_text.is_some());
-        let chat_depth = usize::from(runtime_chat_active(&runtime_ui.chat));
-        let active_group_count =
-            usize::from(prompt_depth > 0) + usize::from(notice_depth > 0) + chat_depth;
+        let summary = self.runtime_ui_stack_summary()?;
 
         Some(RuntimeUiStackDepthSummary {
-            prompt_depth,
-            notice_depth,
-            chat_depth,
-            active_group_count,
-            total_depth: prompt_depth + notice_depth + chat_depth,
+            prompt_depth: summary.prompt_depth(),
+            notice_depth: summary.notice_depth(),
+            chat_depth: summary.chat_depth(),
+            active_group_count: summary.active_group_count(),
+            total_depth: summary.total_depth(),
+        })
+    }
+
+    pub(crate) fn runtime_ui_stack_summary(&self) -> Option<RuntimeUiStackSummary> {
+        let runtime_ui = self.runtime_ui.as_ref()?;
+        let prompt_layers = runtime_prompt_layers(runtime_ui);
+        let notice_layers = runtime_notice_layers(runtime_ui);
+        let prompt_kind = prompt_layers.first().copied();
+        let notice_kind = notice_layers.last().copied();
+        let chat_active = runtime_chat_active(&runtime_ui.chat);
+        let foreground_kind = match prompt_kind {
+            Some(RuntimeUiPromptLayerKind::TextInput) => {
+                Some(RuntimeUiStackForegroundSummaryKind::TextInput)
+            }
+            Some(RuntimeUiPromptLayerKind::FollowUpMenu) => {
+                Some(RuntimeUiStackForegroundSummaryKind::FollowUpMenu)
+            }
+            Some(RuntimeUiPromptLayerKind::Menu) => Some(RuntimeUiStackForegroundSummaryKind::Menu),
+            None if chat_active => Some(RuntimeUiStackForegroundSummaryKind::Chat),
+            None => None,
+        };
+
+        Some(RuntimeUiStackSummary {
+            foreground_kind,
+            prompt_kind,
+            prompt_layers,
+            notice_kind,
+            notice_layers,
+            chat_active,
+            menu_open_count: runtime_ui.menu.menu_open_count,
+            outstanding_follow_up_count: outstanding_follow_up_count(&runtime_ui.menu),
+            text_input_open_count: runtime_ui.text_input.open_count,
+            text_input_last_id: runtime_ui.text_input.last_id,
+            server_message_count: runtime_ui.chat.server_message_count,
+            chat_message_count: runtime_ui.chat.chat_message_count,
+            last_chat_sender_entity_id: runtime_ui.chat.last_chat_sender_entity_id,
         })
     }
 
@@ -515,6 +670,37 @@ fn outstanding_follow_up_count(menu: &RuntimeMenuObservability) -> u64 {
         .saturating_sub(menu.hide_follow_up_menu_count)
 }
 
+fn runtime_prompt_layers(runtime_ui: &RuntimeUiObservability) -> Vec<RuntimeUiPromptLayerKind> {
+    let mut layers = Vec::new();
+    if runtime_ui.text_input.open_count > 0 {
+        layers.push(RuntimeUiPromptLayerKind::TextInput);
+    }
+    if outstanding_follow_up_count(&runtime_ui.menu) > 0 {
+        layers.push(RuntimeUiPromptLayerKind::FollowUpMenu);
+    }
+    if runtime_ui.menu.menu_open_count > 0 {
+        layers.push(RuntimeUiPromptLayerKind::Menu);
+    }
+    layers
+}
+
+fn runtime_notice_layers(runtime_ui: &RuntimeUiObservability) -> Vec<RuntimeUiNoticeLayerKind> {
+    let mut layers = Vec::new();
+    if runtime_ui.hud_text.last_message.is_some() {
+        layers.push(RuntimeUiNoticeLayerKind::Hud);
+    }
+    if runtime_ui.hud_text.last_reliable_message.is_some() {
+        layers.push(RuntimeUiNoticeLayerKind::HudReliable);
+    }
+    if runtime_ui.toast.last_info_message.is_some() {
+        layers.push(RuntimeUiNoticeLayerKind::ToastInfo);
+    }
+    if runtime_ui.toast.last_warning_text.is_some() {
+        layers.push(RuntimeUiNoticeLayerKind::ToastWarning);
+    }
+    layers
+}
+
 fn runtime_chat_active(chat: &RuntimeChatObservability) -> bool {
     chat.server_message_count > 0
         || chat.last_server_message.is_some()
@@ -528,8 +714,99 @@ fn runtime_chat_active(chat: &RuntimeChatObservability) -> bool {
 mod tests {
     use super::{
         HudModel, RuntimeChatObservability, RuntimeHudTextObservability, RuntimeMenuObservability,
-        RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiObservability,
+        RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiNoticeLayerKind,
+        RuntimeUiObservability, RuntimeUiPromptLayerKind, RuntimeUiStackForegroundSummaryKind,
     };
+
+    #[test]
+    fn runtime_ui_stack_summary_tracks_foreground_and_layer_order() {
+        let hud = HudModel {
+            runtime_ui: Some(RuntimeUiObservability {
+                hud_text: RuntimeHudTextObservability {
+                    last_message: Some("hud".to_string()),
+                    last_reliable_message: Some("reliable".to_string()),
+                    ..RuntimeHudTextObservability::default()
+                },
+                toast: RuntimeToastObservability {
+                    last_info_message: Some("info".to_string()),
+                    last_warning_text: Some("warn".to_string()),
+                    ..RuntimeToastObservability::default()
+                },
+                text_input: RuntimeTextInputObservability {
+                    open_count: 2,
+                    last_id: Some(404),
+                    ..RuntimeTextInputObservability::default()
+                },
+                chat: RuntimeChatObservability {
+                    server_message_count: 1,
+                    chat_message_count: 2,
+                    last_chat_sender_entity_id: Some(77),
+                    ..RuntimeChatObservability::default()
+                },
+                menu: RuntimeMenuObservability {
+                    menu_open_count: 1,
+                    follow_up_menu_open_count: 3,
+                    hide_follow_up_menu_count: 1,
+                    ..RuntimeMenuObservability::default()
+                },
+                ..RuntimeUiObservability::default()
+            }),
+            ..HudModel::default()
+        };
+
+        let summary = hud
+            .runtime_ui_stack_summary()
+            .expect("runtime ui stack summary");
+        assert_eq!(
+            summary.foreground_kind,
+            Some(RuntimeUiStackForegroundSummaryKind::TextInput)
+        );
+        assert_eq!(
+            summary.prompt_kind,
+            Some(RuntimeUiPromptLayerKind::TextInput)
+        );
+        assert_eq!(
+            summary.prompt_layers,
+            vec![
+                RuntimeUiPromptLayerKind::TextInput,
+                RuntimeUiPromptLayerKind::FollowUpMenu,
+                RuntimeUiPromptLayerKind::Menu,
+            ]
+        );
+        assert_eq!(
+            summary.notice_kind,
+            Some(RuntimeUiNoticeLayerKind::ToastWarning)
+        );
+        assert_eq!(
+            summary.notice_layers,
+            vec![
+                RuntimeUiNoticeLayerKind::Hud,
+                RuntimeUiNoticeLayerKind::HudReliable,
+                RuntimeUiNoticeLayerKind::ToastInfo,
+                RuntimeUiNoticeLayerKind::ToastWarning,
+            ]
+        );
+        assert_eq!(
+            summary.prompt_layer_labels(),
+            vec!["input", "follow-up", "menu"]
+        );
+        assert_eq!(
+            summary.notice_layer_labels(),
+            vec!["hud", "reliable", "info", "warn"]
+        );
+        assert_eq!(summary.foreground_label(), "input");
+        assert_eq!(summary.prompt_label(), "input");
+        assert_eq!(summary.notice_label(), "warn");
+        assert_eq!(summary.outstanding_follow_up_count, 2);
+        assert_eq!(summary.text_input_last_id, Some(404));
+        assert_eq!(summary.last_chat_sender_entity_id, Some(77));
+        assert_eq!(summary.prompt_depth(), 3);
+        assert_eq!(summary.notice_depth(), 4);
+        assert_eq!(summary.chat_depth(), 1);
+        assert_eq!(summary.active_group_count(), 3);
+        assert_eq!(summary.total_depth(), 8);
+        assert!(!summary.is_empty());
+    }
 
     #[test]
     fn runtime_ui_stack_depth_summary_tracks_prompt_notice_and_chat_layers() {

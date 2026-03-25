@@ -513,7 +513,9 @@ fn compose_frame_panel_lines(
         lines.push(format!("RUNTIME-CHOICE: {runtime_choice_text}"));
     }
     if let Some(runtime_choice_detail_text) = compose_runtime_choice_detail_status_text(hud) {
-        lines.push(format!("RUNTIME-CHOICE-DETAIL: {runtime_choice_detail_text}"));
+        lines.push(format!(
+            "RUNTIME-CHOICE-DETAIL: {runtime_choice_detail_text}"
+        ));
     }
     if let Some(runtime_prompt_text) = compose_runtime_prompt_panel_status_text(hud) {
         lines.push(format!("RUNTIME-PROMPT: {runtime_prompt_text}"));
@@ -545,6 +547,9 @@ fn compose_frame_panel_lines(
     }
     if let Some(runtime_stack_detail_text) = compose_runtime_stack_detail_status_text(hud) {
         lines.push(format!("RUNTIME-STACK-DETAIL: {runtime_stack_detail_text}"));
+    }
+    if let Some(runtime_dialog_stack_text) = compose_runtime_dialog_stack_status_text(hud) {
+        lines.push(format!("RUNTIME-DIALOG-STACK: {runtime_dialog_stack_text}"));
     }
     if let Some(runtime_command_text) = compose_runtime_command_mode_panel_status_text(hud) {
         lines.push(format!("RUNTIME-COMMAND: {runtime_command_text}"));
@@ -1145,6 +1150,40 @@ fn compose_runtime_stack_depth_status_text(hud: &HudModel) -> Option<String> {
     ))
 }
 
+fn compose_runtime_dialog_stack_status_text(hud: &HudModel) -> Option<String> {
+    let summary = hud.runtime_ui_stack_summary()?;
+    if summary.is_empty() {
+        return None;
+    }
+    let prompt_layers = summary.prompt_layer_labels().join(">");
+    let notice_layers = summary.notice_layer_labels().join(">");
+    Some(format!(
+        "stackx:f={}:p={}@{}:m{}:fo{}:i{}:n={}@{}:c{}:{}/{}:tin{}:s{}:t{}",
+        summary.foreground_label(),
+        summary.prompt_label(),
+        if prompt_layers.is_empty() {
+            "none"
+        } else {
+            prompt_layers.as_str()
+        },
+        summary.menu_open_count,
+        summary.outstanding_follow_up_count,
+        summary.text_input_open_count,
+        summary.notice_label(),
+        if notice_layers.is_empty() {
+            "none"
+        } else {
+            notice_layers.as_str()
+        },
+        if summary.chat_active { 1 } else { 0 },
+        summary.server_message_count,
+        summary.chat_message_count,
+        optional_i32_label(summary.text_input_last_id),
+        optional_i32_label(summary.last_chat_sender_entity_id),
+        summary.total_depth(),
+    ))
+}
+
 fn compose_runtime_command_mode_panel_status_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_command_mode_panel(hud)?;
     Some(format!(
@@ -1729,7 +1768,11 @@ fn compose_build_flow_detail_status_text(
     Some(format!(
         "cfgflowd:b{}:route={}:focus={}:pan={}:target={}",
         panel.blocker_count(),
-        if route.is_empty() { "none" } else { route.as_str() },
+        if route.is_empty() {
+            "none"
+        } else {
+            route.as_str()
+        },
         panel.focus_state.label(),
         panel.pan_label(),
         panel.target_kind.label(),
@@ -3621,6 +3664,10 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
+            "RUNTIME-DIALOG-STACK: stackx:f=input:p=input@input>menu:m16:fo0:i53:n=warn@hud>reliable>info>warn:c1:7/8:tin404:s404:t7",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
             "RUNTIME-COMMAND: cmd:act1:sel4@11,22,33:bld2@327686:rect-3:4:12:18:grp2#3@11,4#1@99:tb589834:u2:808:p0x42400000:0x42c00000:r1:2:3:4:c5:s7/0",
         );
         assert_frame_line_contains(
@@ -3909,6 +3956,14 @@ mod tests {
                 .iter()
                 .all(|line| !line.starts_with("RUNTIME-COMMAND-DETAIL:")),
             "unexpected runtime command detail line in {:?}",
+            frame.panel_lines
+        );
+        assert!(
+            frame
+                .panel_lines
+                .iter()
+                .all(|line| !line.starts_with("RUNTIME-DIALOG-STACK:")),
+            "unexpected runtime dialog stack line in {:?}",
             frame.panel_lines
         );
         assert!(

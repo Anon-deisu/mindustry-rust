@@ -4,18 +4,15 @@ use crate::panel_model::{
     build_build_config_panel, build_build_interaction_panel, build_build_minimap_assist_panel,
     build_hud_status_panel, build_hud_visibility_panel, build_minimap_panel,
     build_runtime_admin_panel, build_runtime_chat_panel, build_runtime_choice_panel,
-    build_runtime_command_mode_panel, build_runtime_dialog_panel,
-    build_runtime_dialog_stack_panel, build_runtime_kick_panel, build_runtime_live_effect_panel,
-    build_runtime_live_entity_panel, build_runtime_loading_panel, build_runtime_menu_panel,
-    build_runtime_notice_state_panel, build_runtime_prompt_panel, build_runtime_reconnect_panel,
-    build_runtime_rules_panel, build_runtime_session_panel, build_runtime_ui_notice_panel,
-    build_runtime_ui_stack_panel, build_runtime_world_label_panel, MinimapPanelModel,
-    PresenterViewWindow, RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
-    RuntimeUiNoticePanelModel,
+    build_runtime_command_mode_panel, build_runtime_dialog_panel, build_runtime_dialog_stack_panel,
+    build_runtime_kick_panel, build_runtime_live_effect_panel, build_runtime_live_entity_panel,
+    build_runtime_loading_panel, build_runtime_menu_panel, build_runtime_notice_state_panel,
+    build_runtime_prompt_panel, build_runtime_reconnect_panel, build_runtime_rules_panel,
+    build_runtime_session_panel, build_runtime_ui_notice_panel, build_runtime_ui_stack_panel,
+    build_runtime_world_label_panel, MinimapPanelModel, PresenterViewWindow,
+    RuntimeDialogNoticeKind, RuntimeDialogPromptKind, RuntimeUiNoticePanelModel,
 };
-use crate::presenter_view::{
-    crop_window_to_focus, projected_window, visible_window_tile,
-};
+use crate::presenter_view::{crop_window_to_focus, projected_window, visible_window_tile};
 use crate::render_model::{RenderObjectSemanticFamily, RenderObjectSemanticKind};
 use crate::{HudModel, RenderModel, ScenePresenter};
 
@@ -194,6 +191,11 @@ impl AsciiScenePresenter {
         if let Some(runtime_stack_detail_text) = compose_runtime_stack_detail_text(hud) {
             out.push_str(&format!(
                 "RUNTIME-STACK-DETAIL: {runtime_stack_detail_text}\n"
+            ));
+        }
+        if let Some(runtime_dialog_stack_text) = compose_runtime_dialog_stack_text(hud) {
+            out.push_str(&format!(
+                "RUNTIME-DIALOG-STACK: {runtime_dialog_stack_text}\n"
             ));
         }
         if let Some(runtime_command_text) = compose_runtime_command_mode_panel_text(hud) {
@@ -858,6 +860,40 @@ fn compose_runtime_stack_depth_text(hud: &HudModel) -> Option<String> {
         summary.chat_depth,
         summary.active_group_count,
         summary.total_depth,
+    ))
+}
+
+fn compose_runtime_dialog_stack_text(hud: &HudModel) -> Option<String> {
+    let summary = hud.runtime_ui_stack_summary()?;
+    if summary.is_empty() {
+        return None;
+    }
+    let prompt_layers = summary.prompt_layer_labels().join(">");
+    let notice_layers = summary.notice_layer_labels().join(">");
+    Some(format!(
+        "front={} prompt={}@{} menu={} follow-up={} input={} notice={}@{} chat={} server={} local={} tin={} sender={} total={}",
+        summary.foreground_label(),
+        summary.prompt_label(),
+        if prompt_layers.is_empty() {
+            "none"
+        } else {
+            prompt_layers.as_str()
+        },
+        summary.menu_open_count,
+        summary.outstanding_follow_up_count,
+        summary.text_input_open_count,
+        summary.notice_label(),
+        if notice_layers.is_empty() {
+            "none"
+        } else {
+            notice_layers.as_str()
+        },
+        bool_flag(summary.chat_active),
+        summary.server_message_count,
+        summary.chat_message_count,
+        optional_i32_label(summary.text_input_last_id),
+        optional_i32_label(summary.last_chat_sender_entity_id),
+        summary.total_depth(),
     ))
 }
 
@@ -2988,9 +3024,7 @@ mod tests {
         assert!(frame.contains(
             "RUNTIME-MENU-DETAIL: active=1 outstanding-follow-up=0 menu=40 title-len=4 message-len=4 rows=2/3 follow=41 title-len=6 message-len=4 rows=1/2 hide-id=41 text-input=53 id=404 title=Digits default-len=5 numeric=1 allow-empty=1"
         ));
-        assert!(frame.contains(
-            "RUNTIME-CHOICE: menu-choose=29@404/2 tin-result=30@405/ok123"
-        ));
+        assert!(frame.contains("RUNTIME-CHOICE: menu-choose=29@404/2 tin-result=30@405/ok123"));
         assert!(frame.contains(
             "RUNTIME-CHOICE-DETAIL: choose-menu=404 choose-option=2 result-id=405 result-len=5"
         ));
@@ -3012,6 +3046,9 @@ mod tests {
         assert!(frame.contains("RUNTIME-STACK-DEPTH: prompt=2 notice=4 chat=1 groups=3 total=7"));
         assert!(frame.contains(
             "RUNTIME-STACK-DETAIL: dialog=front:input groups:3 total:7 prompt=input/menu:1/follow-up:0/input:53 notice=warn/hud:1/reliable:1/info:1/warn:1 chat=active:1/server:7/local:8 sender=404"
+        ));
+        assert!(frame.contains(
+            "RUNTIME-DIALOG-STACK: front=input prompt=input@input>menu menu=16 follow-up=0 input=53 notice=warn@hud>reliable>info>warn chat=1 server=7 local=8 tin=404 sender=404 total=7"
         ));
         assert!(frame.contains(
             "RUNTIME-COMMAND: act=1 sel=4@11,22,33 bld=2@327686 rect=-3:4:12:18 groups=2#3@11,4#1@99 target=b589834:u2:808:p0x42400000:0x42c00000:r1:2:3:4 cmd=5 stance=7/0"
@@ -3253,6 +3290,7 @@ mod tests {
         assert!(!presenter.last_frame().contains("RUNTIME-SESSION-DETAIL:"));
         assert!(!presenter.last_frame().contains("RUNTIME-NOTICE-DETAIL:"));
         assert!(!presenter.last_frame().contains("RUNTIME-COMMAND-DETAIL:"));
+        assert!(!presenter.last_frame().contains("RUNTIME-DIALOG-STACK:"));
         assert!(!presenter.last_frame().contains("BUILD-FLOW-DETAIL:"));
         assert!(!presenter
             .last_frame()

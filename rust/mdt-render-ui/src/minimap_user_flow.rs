@@ -156,7 +156,10 @@ pub(crate) fn build_minimap_user_flow_panel(
                 MinimapUserTargetKind::Plan
                     | MinimapUserTargetKind::Marker
                     | MinimapUserTargetKind::Runtime
-            ) => "inspect",
+            ) =>
+        {
+            "inspect"
+        }
         MinimapUserFocusState::Inside => "hold",
     };
 
@@ -209,8 +212,8 @@ mod tests {
         MinimapUserTargetKind,
     };
     use crate::hud_model::{HudMinimapSummary, HudSummary, HudViewWindowSummary};
-    use crate::{HudModel, RenderModel, RenderObject, Viewport};
     use crate::panel_model::PresenterViewWindow;
+    use crate::{HudModel, RenderModel, RenderObject, Viewport};
 
     #[test]
     fn minimap_user_flow_prefers_pan_when_focus_is_offscreen() {
