@@ -487,21 +487,22 @@ pub fn observe_runtime_world_events(
                     data_object.as_ref(),
                 );
                 let lifetime_ticks = runtime_effect_overlay_ttl_ticks(*effect_id);
-                push_runtime_effect_overlay(
-                    runtime_world_overlay,
-                    spawn_runtime_effect_overlay(
-                        *effect_id,
-                        overlay_x,
-                        overlay_y,
-                        *x,
-                        *y,
-                        *rotation,
-                        *color_rgba,
-                        false,
-                        data_object.as_ref(),
-                        lifetime_ticks,
-                    ),
+                let mut overlay = spawn_runtime_effect_overlay(
+                    *effect_id,
+                    overlay_x,
+                    overlay_y,
+                    *x,
+                    *y,
+                    *rotation,
+                    *color_rgba,
+                    false,
+                    data_object.as_ref(),
+                    lifetime_ticks,
                 );
+                overlay.remaining_ticks = overlay
+                    .remaining_ticks
+                    .saturating_add(runtime_effect_overlay_start_delay_ticks(*effect_id));
+                push_runtime_effect_overlay(runtime_world_overlay, overlay);
             }
             ClientSessionEvent::EffectReliableRequested {
                 effect_id,
@@ -510,21 +511,22 @@ pub fn observe_runtime_world_events(
                 rotation,
                 color_rgba,
             } => {
-                push_runtime_effect_overlay(
-                    runtime_world_overlay,
-                    spawn_runtime_effect_overlay(
-                        *effect_id,
-                        *x,
-                        *y,
-                        *x,
-                        *y,
-                        *rotation,
-                        *color_rgba,
-                        true,
-                        None,
-                        runtime_effect_overlay_ttl_ticks(*effect_id),
-                    ),
+                let mut overlay = spawn_runtime_effect_overlay(
+                    *effect_id,
+                    *x,
+                    *y,
+                    *x,
+                    *y,
+                    *rotation,
+                    *color_rgba,
+                    true,
+                    None,
+                    runtime_effect_overlay_ttl_ticks(*effect_id),
                 );
+                overlay.remaining_ticks = overlay
+                    .remaining_ticks
+                    .saturating_add(runtime_effect_overlay_start_delay_ticks(*effect_id));
+                push_runtime_effect_overlay(runtime_world_overlay, overlay);
             }
             ClientSessionEvent::SnapshotReceived(method) => {
                 runtime_world_overlay.snapshot_refresh_count = runtime_world_overlay
@@ -607,6 +609,7 @@ fn runtime_effect_overlay_ttl_ticks(effect_id: Option<i16>) -> u8 {
         Some(10) => 25,
         Some(11) => 8,
         Some(13) => 10,
+        Some(124) => 220,
         Some(67) => 80,
         Some(68) => 40,
         Some(122) => 120,
@@ -619,6 +622,13 @@ fn runtime_effect_overlay_ttl_ticks(effect_id: Option<i16>) -> u8 {
         Some(261) => 20,
         Some(262) => 30,
         _ => DEFAULT_EFFECT_OVERLAY_TTL_TICKS,
+    }
+}
+
+fn runtime_effect_overlay_start_delay_ticks(effect_id: Option<i16>) -> u8 {
+    match effect_id {
+        Some(124) => 30,
+        _ => 0,
     }
 }
 
@@ -3221,6 +3231,9 @@ fn append_runtime_world_overlay_objects(
     }
 
     for overlay in &mut runtime_world_overlay.effect_overlays {
+        if overlay.remaining_ticks > overlay.lifetime_ticks {
+            continue;
+        }
         let (source_x_bits, source_y_bits) =
             resolve_runtime_effect_overlay_source_position(overlay, session_state, snapshot_input);
         let (target_x_bits, target_y_bits) =
@@ -5963,6 +5976,54 @@ mod tests {
         assert_eq!(runtime_effect_overlay_ttl_ticks(Some(67)), 80);
         assert_eq!(runtime_effect_overlay_ttl_ticks(Some(68)), 40);
         assert_eq!(runtime_effect_overlay_ttl_ticks(Some(122)), 120);
+    }
+
+    #[test]
+    fn render_runtime_adapter_hides_drill_steam_until_start_delay_elapses() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
+
+        adapter.observe_events(&[ClientSessionEvent::EffectRequested {
+            effect_id: Some(124),
+            x: 32.0,
+            y: 48.0,
+            rotation: 0.0,
+            color_rgba: 0x11223344,
+            data_object: None,
+        }]);
+
+        let mut initial_scene = RenderModel::default();
+        let mut initial_hud = HudModel::default();
+        adapter.apply(&mut initial_scene, &mut initial_hud, &input, &state);
+        assert!(!initial_scene
+            .objects
+            .iter()
+            .any(|object| object.id.starts_with("marker:runtime-effect:")));
+
+        for _ in 0..29 {
+            adapter.observe_events(&[]);
+            let mut delayed_scene = RenderModel::default();
+            let mut delayed_hud = HudModel::default();
+            adapter.apply(&mut delayed_scene, &mut delayed_hud, &input, &state);
+            assert!(!delayed_scene
+                .objects
+                .iter()
+                .any(|object| object.id.starts_with("marker:runtime-effect:")));
+        }
+
+        adapter.observe_events(&[]);
+        let mut visible_scene = RenderModel::default();
+        let mut visible_hud = HudModel::default();
+        adapter.apply(&mut visible_scene, &mut visible_hud, &input, &state);
+
+        let marker = first_runtime_effect_marker(&visible_scene);
+        assert_eq!(
+            marker.id,
+            "marker:runtime-effect:normal:124:0x42000000:0x42400000:0"
+        );
+        assert_eq!(marker.x, 32.0);
+        assert_eq!(marker.y, 48.0);
     }
 
     #[test]
