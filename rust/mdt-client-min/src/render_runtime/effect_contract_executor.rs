@@ -214,24 +214,20 @@ pub(crate) fn line_projections_for_effect_overlay(
             overlay.lifetime_ticks,
         ),
         Some(ITEM_TRANSFER_EFFECT_ID) => item_transfer_line_projections(
+            overlay,
             source_x_bits,
             source_y_bits,
             target_x_bits,
             target_y_bits,
-            overlay.source_x_bits,
-            overlay.source_y_bits,
-            overlay.x_bits,
-            overlay.y_bits,
-            overlay.color_rgba,
             overlay.remaining_ticks,
             overlay.lifetime_ticks,
         ),
         Some(REGEN_SUPPRESS_SEEK_EFFECT_ID) => regen_suppress_seek_line_projections(
+            overlay,
             source_x_bits,
             source_y_bits,
             target_x_bits,
             target_y_bits,
-            overlay.color_rgba,
         ),
         Some(POINT_BEAM_EFFECT_ID) => vec![RuntimeEffectLineProjection {
             kind: "point-beam",
@@ -334,25 +330,21 @@ pub(crate) fn marker_position_for_effect_overlay(
 ) -> Option<(u32, u32)> {
     match overlay.effect_id {
         Some(ITEM_TRANSFER_EFFECT_ID) => item_transfer_geometry(
+            overlay,
             source_x_bits,
             source_y_bits,
             target_x_bits,
             target_y_bits,
-            overlay.source_x_bits,
-            overlay.source_y_bits,
-            overlay.x_bits,
-            overlay.y_bits,
-            overlay.color_rgba,
             overlay.remaining_ticks,
             overlay.lifetime_ticks,
         )
         .map(|(center_x, center_y, _, _)| (center_x.to_bits(), center_y.to_bits())),
         Some(REGEN_SUPPRESS_SEEK_EFFECT_ID) => regen_suppress_seek_marker_position(
+            overlay,
             source_x_bits,
             source_y_bits,
             target_x_bits,
             target_y_bits,
-            overlay.color_rgba,
             overlay.remaining_ticks,
             overlay.lifetime_ticks,
         ),
@@ -498,28 +490,20 @@ fn chain_line_projections(
 }
 
 fn item_transfer_line_projections(
+    overlay: &RuntimeEffectOverlay,
     source_x_bits: u32,
     source_y_bits: u32,
     target_x_bits: u32,
     target_y_bits: u32,
-    seed_source_x_bits: u32,
-    seed_source_y_bits: u32,
-    seed_target_x_bits: u32,
-    seed_target_y_bits: u32,
-    color_rgba: u32,
     remaining_ticks: u8,
     lifetime_ticks: u8,
 ) -> Vec<RuntimeEffectLineProjection> {
     let Some((center_x, center_y, outer_radius, inner_radius)) = item_transfer_geometry(
+        overlay,
         source_x_bits,
         source_y_bits,
         target_x_bits,
         target_y_bits,
-        seed_source_x_bits,
-        seed_source_y_bits,
-        seed_target_x_bits,
-        seed_target_y_bits,
-        color_rgba,
         remaining_ticks,
         lifetime_ticks,
     ) else {
@@ -550,19 +534,19 @@ fn item_transfer_line_projections(
 }
 
 fn regen_suppress_seek_line_projections(
+    overlay: &RuntimeEffectOverlay,
     source_x_bits: u32,
     source_y_bits: u32,
     target_x_bits: u32,
     target_y_bits: u32,
-    color_rgba: u32,
 ) -> Vec<RuntimeEffectLineProjection> {
     let Some((source_x, source_y, control_x, control_y, target_x, target_y)) =
         regen_suppress_seek_curve_points(
+            overlay,
             source_x_bits,
             source_y_bits,
             target_x_bits,
             target_y_bits,
-            color_rgba,
         )
     else {
         return Vec::new();
@@ -582,21 +566,21 @@ fn regen_suppress_seek_line_projections(
 }
 
 fn regen_suppress_seek_marker_position(
+    overlay: &RuntimeEffectOverlay,
     source_x_bits: u32,
     source_y_bits: u32,
     target_x_bits: u32,
     target_y_bits: u32,
-    color_rgba: u32,
     remaining_ticks: u8,
     lifetime_ticks: u8,
 ) -> Option<(u32, u32)> {
     let (source_x, source_y, control_x, control_y, target_x, target_y) =
         regen_suppress_seek_curve_points(
+            overlay,
             source_x_bits,
             source_y_bits,
             target_x_bits,
             target_y_bits,
-            color_rgba,
         )?;
     let curve_t = 1.0 - inclusive_overlay_progress(remaining_ticks, lifetime_ticks);
     let (x, y) = quadratic_bezier_point(
@@ -606,11 +590,11 @@ fn regen_suppress_seek_marker_position(
 }
 
 fn regen_suppress_seek_curve_points(
+    overlay: &RuntimeEffectOverlay,
     source_x_bits: u32,
     source_y_bits: u32,
     target_x_bits: u32,
     target_y_bits: u32,
-    color_rgba: u32,
 ) -> Option<(f32, f32, f32, f32, f32, f32)> {
     let source_x = f32::from_bits(source_x_bits);
     let source_y = f32::from_bits(source_y_bits);
@@ -628,13 +612,8 @@ fn regen_suppress_seek_curve_points(
     let dy = target_y - source_y;
     let distance = (dx * dx + dy * dy).sqrt();
     let (control_x, control_y) = if distance.is_finite() && distance > f32::EPSILON {
-        let lateral = regen_suppress_seek_pseudo_seed(
-            source_x_bits,
-            source_y_bits,
-            target_x_bits,
-            target_y_bits,
-            color_rgba,
-        ) * REGEN_SUPPRESS_SEEK_LATERAL_OFFSET_MAX;
+        let lateral =
+            effect_overlay_signed_seed(overlay, 0.0) * REGEN_SUPPRESS_SEEK_LATERAL_OFFSET_MAX;
         let normal_x = -dy / distance;
         let normal_y = dx / distance;
         (source_x + normal_x * lateral, source_y + normal_y * lateral)
@@ -645,38 +624,12 @@ fn regen_suppress_seek_curve_points(
     Some((source_x, source_y, control_x, control_y, target_x, target_y))
 }
 
-fn regen_suppress_seek_pseudo_seed(
-    source_x_bits: u32,
-    source_y_bits: u32,
-    target_x_bits: u32,
-    target_y_bits: u32,
-    color_rgba: u32,
-) -> f32 {
-    let mut hash = source_x_bits
-        ^ source_y_bits.rotate_left(7)
-        ^ target_x_bits.rotate_left(13)
-        ^ target_y_bits.rotate_left(21)
-        ^ color_rgba.rotate_left(3)
-        ^ (REGEN_SUPPRESS_SEEK_EFFECT_ID as u16 as u32).rotate_left(27);
-    hash ^= hash >> 16;
-    hash = hash.wrapping_mul(0x7feb_352d);
-    hash ^= hash >> 15;
-    hash = hash.wrapping_mul(0x846c_a68b);
-    hash ^= hash >> 16;
-
-    hash as f32 / u32::MAX as f32 * 2.0 - 1.0
-}
-
 fn item_transfer_geometry(
+    overlay: &RuntimeEffectOverlay,
     source_x_bits: u32,
     source_y_bits: u32,
     target_x_bits: u32,
     target_y_bits: u32,
-    seed_source_x_bits: u32,
-    seed_source_y_bits: u32,
-    seed_target_x_bits: u32,
-    seed_target_y_bits: u32,
-    color_rgba: u32,
     remaining_ticks: u8,
     lifetime_ticks: u8,
 ) -> Option<(f32, f32, f32, f32)> {
@@ -705,14 +658,8 @@ fn item_transfer_geometry(
     if distance.is_finite() && distance > f32::EPSILON {
         let normal_x = -dy / distance;
         let normal_y = dx / distance;
-        let lateral = item_transfer_pseudo_seed(
-            seed_source_x_bits,
-            seed_source_y_bits,
-            seed_target_x_bits,
-            seed_target_y_bits,
-            color_rgba,
-        ) * slope
-            * ITEM_TRANSFER_LATERAL_OFFSET_MAX;
+        let lateral =
+            effect_overlay_signed_seed(overlay, 0.25) * slope * ITEM_TRANSFER_LATERAL_OFFSET_MAX;
         center_x += normal_x * lateral;
         center_y += normal_y * lateral;
     }
@@ -725,31 +672,42 @@ fn item_transfer_geometry(
     ))
 }
 
-fn item_transfer_pseudo_seed(
-    source_x_bits: u32,
-    source_y_bits: u32,
-    target_x_bits: u32,
-    target_y_bits: u32,
-    color_rgba: u32,
-) -> f32 {
-    let mut hash = source_x_bits
-        ^ source_y_bits.rotate_left(7)
-        ^ target_x_bits.rotate_left(13)
-        ^ target_y_bits.rotate_left(21)
-        ^ color_rgba.rotate_left(3)
-        ^ (ITEM_TRANSFER_EFFECT_ID as u16 as u32).rotate_left(27);
+fn effect_overlay_instance_seed(overlay: &RuntimeEffectOverlay) -> u32 {
+    let mut hash = overlay
+        .effect_id
+        .map(|effect_id| effect_id as u16 as u32)
+        .unwrap_or_default()
+        ^ overlay.source_x_bits.rotate_left(7)
+        ^ overlay.source_y_bits.rotate_left(13)
+        ^ overlay.x_bits.rotate_left(19)
+        ^ overlay.y_bits.rotate_left(23)
+        ^ overlay.rotation_bits.rotate_left(3)
+        ^ overlay.color_rgba.rotate_left(11)
+        ^ u32::from(overlay.lifetime_ticks).rotate_left(27)
+        ^ u32::from(overlay.remaining_ticks == overlay.lifetime_ticks).rotate_left(5)
+        ^ u32::from(overlay.reliable).rotate_left(29)
+        ^ u32::from(overlay.has_data).rotate_left(31)
+        ^ u32::try_from(overlay.polyline_points.len())
+            .unwrap_or(u32::MAX)
+            .rotate_left(17);
+    if let Some((content_type, content_id)) = overlay.content_ref {
+        hash ^= u32::from(content_type).rotate_left(9) ^ (content_id as u16 as u32).rotate_left(15);
+    }
     hash ^= hash >> 16;
     hash = hash.wrapping_mul(0x7feb_352d);
     hash ^= hash >> 15;
     hash = hash.wrapping_mul(0x846c_a68b);
     hash ^= hash >> 16;
+    hash
+}
 
-    let signed = hash as f32 / u32::MAX as f32 * 2.0 - 1.0;
-    if signed.abs() < 0.25 {
+fn effect_overlay_signed_seed(overlay: &RuntimeEffectOverlay, min_abs: f32) -> f32 {
+    let signed = effect_overlay_instance_seed(overlay) as f32 / u32::MAX as f32 * 2.0 - 1.0;
+    if min_abs > 0.0 && signed.abs() < min_abs {
         if signed.is_sign_negative() {
-            -0.25
+            -min_abs
         } else {
-            0.25
+            min_abs
         }
     } else {
         signed
@@ -2222,11 +2180,11 @@ mod tests {
         );
         let (source_x, source_y, control_x, control_y, target_x, target_y) =
             regen_suppress_seek_curve_points(
+                &overlay,
                 overlay.source_x_bits,
                 overlay.source_y_bits,
                 overlay.x_bits,
                 overlay.y_bits,
-                overlay.color_rgba,
             )
             .expect("curve points should resolve");
         let first_curve_point = quadratic_bezier_point(
@@ -2282,11 +2240,11 @@ mod tests {
 
         let (source_x, source_y, control_x, control_y, target_x, target_y) =
             regen_suppress_seek_curve_points(
+                &overlay,
                 overlay.source_x_bits,
                 overlay.source_y_bits,
                 overlay.x_bits,
                 overlay.y_bits,
-                overlay.color_rgba,
             )
             .expect("curve points should resolve");
         let expected_curve_t =
@@ -2463,15 +2421,11 @@ mod tests {
             &SessionState::default(),
         );
         let (center_x, center_y, outer_radius, inner_radius) = item_transfer_geometry(
+            &overlay,
             overlay.source_x_bits,
             overlay.source_y_bits,
             80.0f32.to_bits(),
             160.0f32.to_bits(),
-            overlay.source_x_bits,
-            overlay.source_y_bits,
-            overlay.x_bits,
-            overlay.y_bits,
-            overlay.color_rgba,
             overlay.remaining_ticks,
             overlay.lifetime_ticks,
         )
@@ -2578,6 +2532,77 @@ mod tests {
         assert!(
             (f32::from_bits(shifted_marker.1) - f32::from_bits(first_marker.1) - 24.0).abs() < 0.01
         );
+    }
+
+    #[test]
+    fn line_projections_for_effect_overlay_uses_stable_overlay_seed_for_regen_suppress_seek() {
+        let overlay = RuntimeEffectOverlay {
+            effect_id: Some(REGEN_SUPPRESS_SEEK_EFFECT_ID),
+            source_x_bits: 12.0f32.to_bits(),
+            source_y_bits: 20.0f32.to_bits(),
+            source_binding: None,
+            x_bits: 80.0f32.to_bits(),
+            y_bits: 160.0f32.to_bits(),
+            rotation_bits: 15.0f32.to_bits(),
+            color_rgba: 0x11223344,
+            reliable: false,
+            has_data: true,
+            lifetime_ticks: 140,
+            remaining_ticks: 140,
+            contract_name: Some("position_target"),
+            binding: None,
+            content_ref: None,
+            polyline_points: Vec::new(),
+        };
+
+        let first_lines = line_projections_for_effect_overlay(
+            &overlay,
+            12.0f32.to_bits(),
+            20.0f32.to_bits(),
+            80.0f32.to_bits(),
+            160.0f32.to_bits(),
+            &SessionState::default(),
+        );
+        let shifted_lines = line_projections_for_effect_overlay(
+            &overlay,
+            28.0f32.to_bits(),
+            44.0f32.to_bits(),
+            96.0f32.to_bits(),
+            184.0f32.to_bits(),
+            &SessionState::default(),
+        );
+
+        assert_eq!(first_lines.len(), shifted_lines.len());
+        for (first, shifted) in first_lines.iter().zip(shifted_lines.iter()) {
+            assert!(
+                (f32::from_bits(shifted.source_x_bits)
+                    - f32::from_bits(first.source_x_bits)
+                    - 16.0)
+                    .abs()
+                    < 0.01
+            );
+            assert!(
+                (f32::from_bits(shifted.source_y_bits)
+                    - f32::from_bits(first.source_y_bits)
+                    - 24.0)
+                    .abs()
+                    < 0.01
+            );
+            assert!(
+                (f32::from_bits(shifted.target_x_bits)
+                    - f32::from_bits(first.target_x_bits)
+                    - 16.0)
+                    .abs()
+                    < 0.01
+            );
+            assert!(
+                (f32::from_bits(shifted.target_y_bits)
+                    - f32::from_bits(first.target_y_bits)
+                    - 24.0)
+                    .abs()
+                    < 0.01
+            );
+        }
     }
 
     #[test]
