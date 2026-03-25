@@ -12,8 +12,9 @@ pub mod probe;
 
 pub use builder_queue::{
     BuilderQueueActivityObservation, BuilderQueueActivityState, BuilderQueueBuildSelection,
-    BuilderQueueEntry, BuilderQueueEntryObservation, BuilderQueueStage, BuilderQueueStateMachine,
-    BuilderQueueTileStateObservation, BuilderQueueTransition, BuilderQueueValidationResult,
+    BuilderQueueEntry, BuilderQueueEntryObservation, BuilderQueueLocalStepResult,
+    BuilderQueueStage, BuilderQueueStateMachine, BuilderQueueTileStateObservation,
+    BuilderQueueTransition, BuilderQueueValidationResult,
 };
 pub use capability_gate::{
     CapabilityBuildRequest, CapabilityCommandRequest, CapabilityContext, CapabilityDecision,

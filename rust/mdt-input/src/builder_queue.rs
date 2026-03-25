@@ -65,6 +65,12 @@ pub struct BuilderQueueActivityState {
     pub head_selection: BuilderQueueHeadSelection,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuilderQueueLocalStepResult {
+    pub validation: BuilderQueueValidationResult,
+    pub activity: BuilderQueueActivityState,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BuilderQueueBuildSelection {
     pub building: bool,
@@ -467,6 +473,25 @@ impl BuilderQueueStateMachine {
         }
     }
 
+    /// Mirrors the low-risk Java `BuilderComp.updateBuildLogic()` ordering:
+    /// prune completed plans first, then evaluate the new head against local activity.
+    pub fn apply_local_builder_step<T, U>(
+        &mut self,
+        tile_state_observations: T,
+        activity_observations: U,
+    ) -> BuilderQueueLocalStepResult
+    where
+        T: IntoIterator<Item = BuilderQueueTileStateObservation>,
+        U: IntoIterator<Item = BuilderQueueActivityObservation>,
+    {
+        let validation = self.validate_against_tile_states(tile_state_observations);
+        let activity = self.update_local_activity(activity_observations);
+        BuilderQueueLocalStepResult {
+            validation,
+            activity,
+        }
+    }
+
     pub fn validate_against_tile_states<I>(
         &mut self,
         observations: I,
@@ -612,8 +637,9 @@ mod tests {
     use super::{
         BuilderQueueActivityObservation, BuilderQueueActivityState, BuilderQueueBuildSelection,
         BuilderQueueEntry, BuilderQueueEntryObservation, BuilderQueueHeadSelection,
-        BuilderQueueReconcileOutcome, BuilderQueueStage, BuilderQueueStateMachine,
-        BuilderQueueTileStateObservation, BuilderQueueTransition, BuilderQueueValidationResult,
+        BuilderQueueLocalStepResult, BuilderQueueReconcileOutcome, BuilderQueueStage,
+        BuilderQueueStateMachine, BuilderQueueTileStateObservation, BuilderQueueTransition,
+        BuilderQueueValidationResult,
     };
     use std::collections::BTreeMap;
 
@@ -2365,6 +2391,223 @@ mod tests {
         assert_eq!(queue.head_tile, Some((6, 6)));
         assert_eq!(queue.queued_count, 2);
         assert_eq!(queue.inflight_count, 0);
+    }
+
+    #[test]
+    fn apply_local_builder_step_validates_head_before_reordering_activity() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 1,
+                y: 1,
+                breaking: false,
+                block_id: Some(10),
+                rotation: 0,
+            },
+            BuilderQueueEntryObservation {
+                x: 2,
+                y: 2,
+                breaking: false,
+                block_id: Some(20),
+                rotation: 1,
+            },
+            BuilderQueueEntryObservation {
+                x: 3,
+                y: 3,
+                breaking: false,
+                block_id: Some(30),
+                rotation: 2,
+            },
+        ]);
+
+        let step = queue.apply_local_builder_step(
+            [BuilderQueueTileStateObservation {
+                x: 1,
+                y: 1,
+                block_id: Some(10),
+                rotation: Some(0),
+                requires_rotation_match: true,
+            }],
+            [
+                BuilderQueueActivityObservation {
+                    x: 2,
+                    y: 2,
+                    breaking: false,
+                    in_range: false,
+                    should_skip: false,
+                    distance_sq: 25,
+                },
+                BuilderQueueActivityObservation {
+                    x: 3,
+                    y: 3,
+                    breaking: false,
+                    in_range: true,
+                    should_skip: false,
+                    distance_sq: 4,
+                },
+            ],
+        );
+
+        assert_eq!(
+            step,
+            BuilderQueueLocalStepResult {
+                validation: BuilderQueueValidationResult {
+                    removed_count: 1,
+                    removed_head: true,
+                    removed_tiles: vec![(1, 1)],
+                    head_tile_before: Some((1, 1)),
+                    head_tile_after: Some((2, 2)),
+                    reconcile_outcome: BuilderQueueReconcileOutcome::AdvancedHead,
+                },
+                activity: BuilderQueueActivityState {
+                    head_tile: Some((3, 3)),
+                    actively_building: true,
+                    head_in_range: true,
+                    head_should_skip: false,
+                    reordered: true,
+                    used_closest_in_range_fallback: false,
+                    head_selection: BuilderQueueHeadSelection::ReorderedToInRange,
+                },
+            }
+        );
+        assert_eq!(queue.ordered_tiles, vec![(3, 3), (2, 2)]);
+        assert_eq!(queue.head_tile, Some((3, 3)));
+    }
+
+    #[test]
+    fn apply_local_builder_step_reports_queue_empty_after_last_head_is_removed() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([BuilderQueueEntryObservation {
+            x: 9,
+            y: 9,
+            breaking: false,
+            block_id: Some(90),
+            rotation: 2,
+        }]);
+
+        let step = queue.apply_local_builder_step(
+            [BuilderQueueTileStateObservation {
+                x: 9,
+                y: 9,
+                block_id: Some(90),
+                rotation: Some(2),
+                requires_rotation_match: true,
+            }],
+            [BuilderQueueActivityObservation {
+                x: 9,
+                y: 9,
+                breaking: false,
+                in_range: true,
+                should_skip: false,
+                distance_sq: 0,
+            }],
+        );
+
+        assert_eq!(
+            step,
+            BuilderQueueLocalStepResult {
+                validation: BuilderQueueValidationResult {
+                    removed_count: 1,
+                    removed_head: true,
+                    removed_tiles: vec![(9, 9)],
+                    head_tile_before: Some((9, 9)),
+                    head_tile_after: None,
+                    reconcile_outcome: BuilderQueueReconcileOutcome::ClearedQueue,
+                },
+                activity: BuilderQueueActivityState {
+                    head_tile: None,
+                    actively_building: false,
+                    head_in_range: false,
+                    head_should_skip: false,
+                    reordered: false,
+                    used_closest_in_range_fallback: false,
+                    head_selection: BuilderQueueHeadSelection::QueueEmpty,
+                },
+            }
+        );
+        assert!(queue.ordered_tiles.is_empty());
+        assert_eq!(queue.head_tile, None);
+    }
+
+    #[test]
+    fn apply_local_builder_step_matches_separate_validation_and_activity_calls() {
+        let mut sequential_queue = BuilderQueueStateMachine::default();
+        sequential_queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 1,
+                y: 1,
+                breaking: false,
+                block_id: Some(10),
+                rotation: 0,
+            },
+            BuilderQueueEntryObservation {
+                x: 2,
+                y: 2,
+                breaking: false,
+                block_id: Some(20),
+                rotation: 1,
+            },
+            BuilderQueueEntryObservation {
+                x: 3,
+                y: 3,
+                breaking: false,
+                block_id: Some(30),
+                rotation: 2,
+            },
+        ]);
+
+        let mut combined_queue = sequential_queue.clone();
+        let tile_state_observations = [
+            BuilderQueueTileStateObservation {
+                x: 1,
+                y: 1,
+                block_id: Some(10),
+                rotation: Some(0),
+                requires_rotation_match: true,
+            },
+            BuilderQueueTileStateObservation {
+                x: 3,
+                y: 3,
+                block_id: Some(31),
+                rotation: Some(2),
+                requires_rotation_match: true,
+            },
+        ];
+        let activity_observations = [
+            BuilderQueueActivityObservation {
+                x: 2,
+                y: 2,
+                breaking: false,
+                in_range: false,
+                should_skip: false,
+                distance_sq: 16,
+            },
+            BuilderQueueActivityObservation {
+                x: 3,
+                y: 3,
+                breaking: false,
+                in_range: true,
+                should_skip: false,
+                distance_sq: 1,
+            },
+        ];
+
+        let validation =
+            sequential_queue.validate_against_tile_states(tile_state_observations);
+        let activity = sequential_queue.update_local_activity(activity_observations);
+        let combined =
+            combined_queue.apply_local_builder_step(tile_state_observations, activity_observations);
+
+        assert_eq!(
+            combined,
+            BuilderQueueLocalStepResult {
+                validation,
+                activity,
+            }
+        );
+        assert_eq!(combined_queue, sequential_queue);
+        assert_eq!(combined_queue.ordered_tiles, vec![(3, 3), (2, 2)]);
+        assert_eq!(combined_queue.head_tile, Some((3, 3)));
     }
 
     #[test]
