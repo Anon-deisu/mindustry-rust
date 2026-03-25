@@ -2472,6 +2472,36 @@ fn runtime_typed_build_config_value_label(
                 )
             }
         }
+        TypedBuildingRuntimeValue::Constructor {
+            recipe_block_id,
+            progress_bits,
+            payload_present,
+            pay_rotation_bits,
+            payload_build_block_id,
+            payload_unit_class_id,
+        } => {
+            let mut parts = vec![format!(
+                "recipe={}",
+                recipe_block_id
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "clear".to_string())
+            )];
+            if let Some(progress_bits) = progress_bits {
+                parts.push(format!("p{progress_bits:08x}"));
+            }
+            if let Some(payload_present) = payload_present {
+                parts.push(format!("y{}", if *payload_present { 1 } else { 0 }));
+            }
+            if let Some(pay_rotation_bits) = pay_rotation_bits {
+                parts.push(format!("r{pay_rotation_bits:08x}"));
+            }
+            if let Some(payload_build_block_id) = payload_build_block_id {
+                parts.push(format!("payload=b:{payload_build_block_id}"));
+            } else if let Some(payload_unit_class_id) = payload_unit_class_id {
+                parts.push(format!("payload=uc:{payload_unit_class_id}"));
+            }
+            parts.join(":")
+        }
         TypedBuildingRuntimeValue::Block(value) => format!(
             "recipe={}",
             value
@@ -5390,6 +5420,19 @@ mod tests {
             .insert(pack_runtime_point2(19, 41), Some(5));
         state
             .configured_block_projection
+            .constructor_runtime_by_build_pos
+            .insert(
+                pack_runtime_point2(19, 41),
+                crate::session_state::ConstructorRuntimeProjection {
+                    progress_bits: 0x3f20_0000,
+                    payload_present: true,
+                    pay_rotation_bits: 0x4020_0000,
+                    payload_build_block_id: Some(11),
+                    payload_unit_class_id: None,
+                },
+            );
+        state
+            .configured_block_projection
             .light_color_by_build_pos
             .insert(pack_runtime_point2(20, 42), 0x11223344);
         state
@@ -5464,6 +5507,7 @@ mod tests {
             );
         for (build_pos, block_name) in [
             (pack_runtime_point2(18, 40), "message"),
+            (pack_runtime_point2(19, 41), "constructor"),
             (pack_runtime_point2(21, 43), "payload-source"),
             (pack_runtime_point2(22, 44), "payload-router"),
             (pack_runtime_point2(23, 45), "power-node"),
@@ -5525,6 +5569,10 @@ mod tests {
             .expect("build_ui observability should be present");
         assert!(build_ui.inspector_entries.iter().any(|entry| {
             entry.family == "message" && entry.sample == "18:40:len=5:text=hello"
+        }));
+        assert!(build_ui.inspector_entries.iter().any(|entry| {
+            entry.family == "constructor"
+                && entry.sample == "19:41:recipe=5:p3f200000:y1:r40200000:payload=b:11"
         }));
         assert!(build_ui.inspector_entries.iter().any(|entry| {
             entry.family == "payload-source" && entry.sample == "21:43:content=b:7"

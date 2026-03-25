@@ -15,18 +15,18 @@ use crate::packet_registry::{
 };
 use crate::session_state::{
     BuilderQueueEntryObservation, BuildingTailSummaryProjection, ConfiguredBlockOutcome,
-    ConfiguredContentRef, CreateBulletProjection, DestroyPayloadProjection,
-    EffectBusinessContentKind, EffectBusinessPositionSource, EffectBusinessProjection,
-    EntityFireSemanticProjection, EntityPuddleSemanticProjection, EntitySemanticProjection,
-    EntityUnitSemanticProjection, EntityWeatherStateSemanticProjection,
+    ConfiguredContentRef, ConstructorRuntimeProjection, CreateBulletProjection,
+    DestroyPayloadProjection, EffectBusinessContentKind, EffectBusinessPositionSource,
+    EffectBusinessProjection, EntityFireSemanticProjection, EntityPuddleSemanticProjection,
+    EntitySemanticProjection, EntityUnitSemanticProjection, EntityWeatherStateSemanticProjection,
     EntityWorldLabelSemanticProjection, FinishConnectingProjection, GameplayStateProjection,
     PayloadDroppedProjection, PickedBuildPayloadProjection, PickedUnitPayloadProjection,
     ReconnectPhaseProjection, ReconnectReasonKind, ReconstructorRuntimeProjection,
-    RemotePlanSnapshotFirstPlanProjection, SessionResetKind, SessionState,
-    SessionTimeoutKind, SessionTimeoutProjection, TakeItemsProjection,
-    TileConfigAuthoritySource, TileConfigBusinessApply, TransferItemEffectProjection,
-    TransferItemToProjection, TransferItemToUnitProjection, UnitAssemblerRuntimeProjection,
-    UnitEnteredPayloadProjection, UnitRefProjection, WorldReloadProjection,
+    RemotePlanSnapshotFirstPlanProjection, SessionResetKind, SessionState, SessionTimeoutKind,
+    SessionTimeoutProjection, TakeItemsProjection, TileConfigAuthoritySource,
+    TileConfigBusinessApply, TransferItemEffectProjection, TransferItemToProjection,
+    TransferItemToUnitProjection, UnitAssemblerRuntimeProjection, UnitEnteredPayloadProjection,
+    UnitRefProjection, WorldReloadProjection,
 };
 use mdt_input::CommandModeProjection;
 use mdt_protocol::{
@@ -5998,7 +5998,10 @@ impl ClientSession {
 
         let mut first_core_build_by_team = BTreeMap::new();
         for center in &world_bundle.world.building_centers {
-            if !matches!(center.building.parsed_tail, mdt_world::ParsedBuildingTail::Core(_)) {
+            if !matches!(
+                center.building.parsed_tail,
+                mdt_world::ParsedBuildingTail::Core(_)
+            ) {
                 continue;
             }
             first_core_build_by_team
@@ -6021,12 +6024,7 @@ impl ClientSession {
                 .items
                 .iter()
                 .filter(|item| item.amount != 0)
-                .map(|item| {
-                    (
-                        i16::from_be_bytes(item.item_id.to_be_bytes()),
-                        item.amount,
-                    )
-                })
+                .map(|item| (i16::from_be_bytes(item.item_id.to_be_bytes()), item.amount))
                 .collect::<BTreeMap<_, _>>();
             if !build_items.is_empty() {
                 self.state
@@ -6034,7 +6032,8 @@ impl ClientSession {
                     .building_items_by_build
                     .insert(build_pos, build_items);
             }
-            self.state.refresh_runtime_typed_building_from_tables(build_pos);
+            self.state
+                .refresh_runtime_typed_building_from_tables(build_pos);
         }
     }
 
@@ -7492,6 +7491,7 @@ impl ClientSession {
                 summarize_build_turret_tail_fields(&building.parsed_tail);
             let constructor_recipe_block_id =
                 summarize_constructor_recipe_block_id(&building.parsed_tail);
+            let constructor_runtime = summarize_constructor_projection(&building.parsed_tail);
             let landing_pad_config_item_id =
                 summarize_landing_pad_config_item_id(&building.parsed_tail);
             let message_text = summarize_message_tail_text(&building.parsed_tail);
@@ -7528,6 +7528,7 @@ impl ClientSession {
                 build_turret_plans_present,
                 build_turret_plan_count,
                 constructor_recipe_block_id,
+                constructor_runtime,
                 landing_pad_config_item_id,
                 message_text,
                 payload_source_content,
@@ -7601,6 +7602,11 @@ impl ClientSession {
             self.state
                 .configured_block_projection
                 .apply_constructor_recipe_block(build_pos, block_id);
+        }
+        if let Some(projection) = summarize_constructor_projection(parsed_tail) {
+            self.state
+                .configured_block_projection
+                .apply_constructor_runtime(build_pos, projection);
         }
         if let Some(item_id) = summarize_landing_pad_config_item_id(parsed_tail) {
             self.state
@@ -7734,6 +7740,11 @@ impl ClientSession {
             self.state
                 .configured_block_projection
                 .apply_constructor_recipe_block(entry.build_pos, block_id);
+        }
+        if let Some(projection) = entry.constructor_runtime.clone() {
+            self.state
+                .configured_block_projection
+                .apply_constructor_runtime(entry.build_pos, projection);
         }
         if let Some(item_id) = entry.landing_pad_config_item_id {
             self.state
@@ -12149,6 +12160,7 @@ struct BlockSnapshotExtraEntrySummary {
     build_turret_plans_present: Option<bool>,
     build_turret_plan_count: Option<u16>,
     constructor_recipe_block_id: Option<Option<i16>>,
+    constructor_runtime: Option<ConstructorRuntimeProjection>,
     landing_pad_config_item_id: Option<Option<i16>>,
     message_text: Option<String>,
     payload_source_content: Option<Option<ConfiguredContentRef>>,
@@ -12403,6 +12415,24 @@ fn summarize_constructor_recipe_block_id(
     summarize_nullable_loaded_world_content_id(constructor.recipe_block_id)
 }
 
+fn summarize_constructor_projection(
+    parsed_tail: &mdt_world::ParsedBuildingTail,
+) -> Option<ConstructorRuntimeProjection> {
+    let mdt_world::ParsedBuildingTail::Constructor(constructor) = parsed_tail else {
+        return None;
+    };
+    Some(ConstructorRuntimeProjection {
+        progress_bits: constructor.progress_bits,
+        payload_present: constructor.payload_block.payload_present,
+        pay_rotation_bits: constructor.payload_block.pay_rotation_bits,
+        payload_build_block_id: constructor
+            .payload_block
+            .build_block_id
+            .and_then(|content_id| i16::try_from(content_id).ok()),
+        payload_unit_class_id: constructor.payload_block.unit_class_id,
+    })
+}
+
 fn summarize_landing_pad_config_item_id(
     parsed_tail: &mdt_world::ParsedBuildingTail,
 ) -> Option<Option<i16>> {
@@ -12491,10 +12521,10 @@ fn summarize_reconstructor_projection(
     };
     Some(ReconstructorRuntimeProjection {
         progress_bits: reconstructor.progress_bits,
-        command_pos: reconstructor
-            .command_pos
-            .present
-            .then_some((reconstructor.command_pos.x_bits, reconstructor.command_pos.y_bits)),
+        command_pos: reconstructor.command_pos.present.then_some((
+            reconstructor.command_pos.x_bits,
+            reconstructor.command_pos.y_bits,
+        )),
         payload_present: reconstructor.payload_block.payload_present,
         pay_rotation_bits: reconstructor.payload_block.pay_rotation_bits,
     })
@@ -19831,6 +19861,7 @@ mod tests {
                 build_turret_plans_present: Some(true),
                 build_turret_plan_count: Some(5),
                 constructor_recipe_block_id: None,
+                constructor_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -19909,6 +19940,7 @@ mod tests {
                 build_turret_plans_present: None,
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
+                constructor_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -19945,6 +19977,100 @@ mod tests {
     }
 
     #[test]
+    fn apply_loaded_world_block_snapshot_entries_seed_constructor_runtime_projection() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let build_pos = pack_build_pos_for_block_snapshot_test(7, 8);
+
+        session.apply_block_snapshot_entries_from_loaded_world_entries(vec![
+            BlockSnapshotExtraEntrySummary {
+                build_pos,
+                block_id: 301,
+                block_name: Some(BLOCK_NAME_CONSTRUCTOR.to_string()),
+                health_bits: Some(0x3f80_0000),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                enabled: Some(true),
+                module_bitmask: Some(4),
+                time_scale_bits: Some(0x3f00_0000),
+                time_scale_duration_bits: Some(0x3e80_0000),
+                last_disabler_pos: Some(77),
+                legacy_consume_connected: Some(false),
+                efficiency: Some(0x40),
+                optional_efficiency: Some(0x20),
+                visible_flags: Some(9),
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                constructor_recipe_block_id: Some(Some(5)),
+                constructor_runtime: Some(ConstructorRuntimeProjection {
+                    progress_bits: 0x3f20_0000,
+                    payload_present: true,
+                    pay_rotation_bits: 0x4020_0000,
+                    payload_build_block_id: Some(11),
+                    payload_unit_class_id: None,
+                }),
+                landing_pad_config_item_id: None,
+                message_text: None,
+                payload_source_content: None,
+                payload_router_sorted_content: None,
+                duct_unloader_item_id: None,
+                reconstructor_command_id: None,
+                memory_values_bits: None,
+                canvas_bytes: None,
+                mass_driver_link: None,
+                payload_mass_driver_link: None,
+                nullable_item_id: None,
+                item_bridge_link: None,
+                light_color: None,
+                switch_enabled: None,
+                build_item_stacks: Vec::new(),
+            },
+        ]);
+
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .constructor_recipe_block_by_build_pos
+                .get(&build_pos),
+            Some(&Some(5))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .constructor_runtime_by_build_pos
+                .get(&build_pos),
+            Some(&ConstructorRuntimeProjection {
+                progress_bits: 0x3f20_0000,
+                payload_present: true,
+                pay_rotation_bits: 0x4020_0000,
+                payload_build_block_id: Some(11),
+                payload_unit_class_id: None,
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_projection()
+                .building_at(build_pos)
+                .map(|building| building.value.clone()),
+            Some(
+                crate::session_state::TypedBuildingRuntimeValue::Constructor {
+                    recipe_block_id: Some(5),
+                    progress_bits: Some(0x3f20_0000),
+                    payload_present: Some(true),
+                    pay_rotation_bits: Some(0x4020_0000),
+                    payload_build_block_id: Some(11),
+                    payload_unit_class_id: None,
+                }
+            )
+        );
+    }
+
+    #[test]
     fn apply_loaded_world_block_snapshot_entries_refresh_resource_delta_item_baselines() {
         let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let build_pos = pack_build_pos_for_block_snapshot_test(8, 9);
@@ -19976,6 +20102,7 @@ mod tests {
                 build_turret_plans_present: None,
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
+                constructor_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -20026,6 +20153,7 @@ mod tests {
                 build_turret_plans_present: None,
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
+                constructor_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -20373,6 +20501,8 @@ mod tests {
         let landing_pad_pos = pack_build_pos_for_block_snapshot_test(18, 19);
         let recipe_block_id =
             loaded_world_content_id_for_name(&session, BLOCK_CONTENT_TYPE, "copper-wall");
+        let payload_block_id =
+            loaded_world_content_id_for_name(&session, BLOCK_CONTENT_TYPE, "copper-wall-large");
         let item_id = loaded_world_content_id_for_name(&session, ITEM_CONTENT_TYPE, "copper");
 
         session.apply_loaded_world_parsed_tail_business(
@@ -20382,17 +20512,17 @@ mod tests {
                 payload_block: mdt_world::PayloadBlockTailSnapshot {
                     pay_vector_x_bits: 0,
                     pay_vector_y_bits: 0,
-                    pay_rotation_bits: 0,
-                    payload_present: false,
-                    payload_type: None,
-                    build_block_id: None,
-                    build_revision: None,
+                    pay_rotation_bits: 0x4020_0000,
+                    payload_present: true,
+                    payload_type: Some(1),
+                    build_block_id: Some(payload_block_id as u16),
+                    build_revision: Some(3),
                     build_payload: None,
                     unit_class_id: None,
                     unit_payload_len: None,
                     unit_payload_sha256: None,
                 },
-                progress_bits: 0,
+                progress_bits: 0x3f20_0000,
                 recipe_block_id: Some(recipe_block_id as u16),
             }),
         );
@@ -20416,6 +20546,20 @@ mod tests {
                 .constructor_recipe_block_by_build_pos
                 .get(&constructor_pos),
             Some(&Some(recipe_block_id))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .constructor_runtime_by_build_pos
+                .get(&constructor_pos),
+            Some(&crate::session_state::ConstructorRuntimeProjection {
+                progress_bits: 0x3f20_0000,
+                payload_present: true,
+                pay_rotation_bits: 0x4020_0000,
+                payload_build_block_id: Some(payload_block_id),
+                payload_unit_class_id: None,
+            })
         );
         assert_eq!(
             session
@@ -20813,8 +20957,7 @@ mod tests {
     fn loaded_world_tail_business_helper_applies_reconstructor_projection() {
         let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let build_pos = pack_build_pos_for_block_snapshot_test(56, 57);
-        let block_id =
-            loaded_world_block_id_for_name(&session, BLOCK_NAME_ADDITIVE_RECONSTRUCTOR);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_ADDITIVE_RECONSTRUCTOR);
 
         session.state.building_table_projection.seed_world_baseline(
             build_pos,
@@ -21124,6 +21267,7 @@ mod tests {
                 build_turret_plans_present: None,
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
+                constructor_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: Some("snapshot message".to_string()),
                 payload_source_content: None,
@@ -21161,6 +21305,7 @@ mod tests {
                 build_turret_plans_present: None,
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
+                constructor_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -21201,6 +21346,7 @@ mod tests {
                 build_turret_plans_present: None,
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
+                constructor_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -21279,6 +21425,7 @@ mod tests {
                 build_turret_plans_present: None,
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: Some(Some(recipe_block_id)),
+                constructor_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -21316,6 +21463,7 @@ mod tests {
                 build_turret_plans_present: None,
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
+                constructor_runtime: None,
                 landing_pad_config_item_id: Some(Some(item_id)),
                 message_text: None,
                 payload_source_content: None,
@@ -21387,6 +21535,7 @@ mod tests {
                 build_turret_plans_present: None,
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
+                constructor_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -21424,6 +21573,7 @@ mod tests {
                 build_turret_plans_present: None,
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
+                constructor_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -21461,6 +21611,7 @@ mod tests {
                 build_turret_plans_present: None,
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
+                constructor_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -21498,6 +21649,7 @@ mod tests {
                 build_turret_plans_present: None,
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
+                constructor_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -21535,6 +21687,7 @@ mod tests {
                 build_turret_plans_present: None,
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
+                constructor_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -21572,6 +21725,7 @@ mod tests {
                 build_turret_plans_present: None,
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
+                constructor_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -21609,6 +21763,7 @@ mod tests {
                 build_turret_plans_present: None,
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
+                constructor_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -21646,6 +21801,7 @@ mod tests {
                 build_turret_plans_present: None,
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
+                constructor_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -21768,6 +21924,7 @@ mod tests {
                 build_turret_plans_present: None,
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
+                constructor_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: Some(Some(ConfiguredContentRef {
@@ -21808,6 +21965,7 @@ mod tests {
                 build_turret_plans_present: None,
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
+                constructor_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -21845,6 +22003,7 @@ mod tests {
                 build_turret_plans_present: None,
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
+                constructor_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -21882,6 +22041,7 @@ mod tests {
                 build_turret_plans_present: None,
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
+                constructor_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -21919,6 +22079,7 @@ mod tests {
                 build_turret_plans_present: None,
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
+                constructor_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -21956,6 +22117,7 @@ mod tests {
                 build_turret_plans_present: None,
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
+                constructor_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -21993,6 +22155,7 @@ mod tests {
                 build_turret_plans_present: None,
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
+                constructor_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -22030,6 +22193,7 @@ mod tests {
                 build_turret_plans_present: None,
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
+                constructor_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -22473,7 +22637,12 @@ mod tests {
             .world
             .building_centers
             .iter()
-            .find(|center| matches!(center.building.parsed_tail, mdt_world::ParsedBuildingTail::Core(_)))
+            .find(|center| {
+                matches!(
+                    center.building.parsed_tail,
+                    mdt_world::ParsedBuildingTail::Core(_)
+                )
+            })
             .unwrap()
             .clone();
         let core_build_pos = pack_point2(core_center.x as i32, core_center.y as i32);
@@ -22522,7 +22691,10 @@ mod tests {
                 .resource_delta_projection
                 .building_items_by_build
                 .get(&core_build_pos)
-                .map(|items| items.iter().map(|(&item_id, &amount)| (item_id, amount)).collect::<Vec<_>>()),
+                .map(|items| items
+                    .iter()
+                    .map(|(&item_id, &amount)| (item_id, amount))
+                    .collect::<Vec<_>>()),
             Some(expected_inventory.clone())
         );
         assert_eq!(
@@ -25270,7 +25442,11 @@ mod tests {
                 removed_local_plan: false,
             }
         );
-        assert!(session.state().builder_queue_projection.active_by_tile.is_empty());
+        assert!(session
+            .state()
+            .builder_queue_projection
+            .active_by_tile
+            .is_empty());
         assert!(session.snapshot_input_mut().building);
     }
 
@@ -39553,7 +39729,10 @@ mod tests {
         assert_eq!(session.state().last_connect_confirm_flushed_at_ms, None);
         assert_eq!(session.last_snapshot_at_ms, Some(0));
         assert_eq!(session.pending_packets.len(), 1);
-        assert_eq!(session.pending_packets.front().unwrap().bytes, queued_confirm);
+        assert_eq!(
+            session.pending_packets.front().unwrap().bytes,
+            queued_confirm
+        );
         assert_eq!(
             projection,
             FinishConnectingProjection {

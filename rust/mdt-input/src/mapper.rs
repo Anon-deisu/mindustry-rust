@@ -197,7 +197,7 @@ mod tests {
             mining_tile,
             building,
             config_tap_tile: None,
-                build_pulse: None,
+            build_pulse: None,
             active_actions: active_actions.to_vec(),
         }
     }
@@ -564,7 +564,7 @@ mod tests {
             mining_tile: Some((7, 9)),
             building: false,
             config_tap_tile: None,
-                build_pulse: None,
+            build_pulse: None,
             active_actions: vec![BinaryAction::Interact],
         });
 
@@ -590,7 +590,7 @@ mod tests {
             mining_tile: None,
             building: true,
             config_tap_tile: None,
-                build_pulse: None,
+            build_pulse: None,
             active_actions: Vec::new(),
         });
 
@@ -704,6 +704,50 @@ mod tests {
     }
 
     #[test]
+    fn map_snapshot_batch_preserves_transient_build_pulse_from_earlier_sample() {
+        let mut mapper = StatelessIntentMapper::new(IntentSamplingMode::LiveSampling);
+        let batch = vec![
+            InputSnapshot {
+                move_axis: (0.0, 0.0),
+                aim_axis: (1.0, 2.0),
+                mining_tile: None,
+                building: false,
+                config_tap_tile: None,
+                build_pulse: Some(BuildPulse {
+                    tile: (3, 4),
+                    breaking: true,
+                }),
+                active_actions: vec![BinaryAction::Fire],
+            },
+            InputSnapshot {
+                move_axis: (7.0, 8.0),
+                aim_axis: (9.0, 10.0),
+                mining_tile: Some((5, 6)),
+                building: true,
+                config_tap_tile: None,
+                build_pulse: None,
+                active_actions: vec![],
+            },
+        ];
+
+        assert_eq!(
+            mapper.map_snapshot_batch(&batch),
+            vec![
+                PlayerIntent::SetMoveAxis { x: 7.0, y: 8.0 },
+                PlayerIntent::SetAimAxis { x: 9.0, y: 10.0 },
+                PlayerIntent::SetMiningTile { tile: Some((5, 6)) },
+                PlayerIntent::SetBuilding { building: true },
+                PlayerIntent::BuildPulse(BuildPulse {
+                    tile: (3, 4),
+                    breaking: true,
+                }),
+                PlayerIntent::ActionPressed(BinaryAction::Fire),
+                PlayerIntent::ActionReleased(BinaryAction::Fire),
+            ]
+        );
+    }
+
+    #[test]
     fn map_snapshot_batch_with_final_snapshot_keeps_runtime_state_and_transient_edges() {
         let mut mapper = StatelessIntentMapper::new(IntentSamplingMode::LiveSampling);
         let transient = vec![
@@ -744,6 +788,60 @@ mod tests {
                 PlayerIntent::SetMiningTile { tile: Some((7, 8)) },
                 PlayerIntent::SetBuilding { building: true },
                 PlayerIntent::ConfigTap { tile: (5, 6) },
+                PlayerIntent::ActionPressed(BinaryAction::Fire),
+                PlayerIntent::ActionReleased(BinaryAction::Fire),
+                PlayerIntent::ActionPressed(BinaryAction::Boost),
+            ]
+        );
+    }
+
+    #[test]
+    fn map_snapshot_batch_with_final_snapshot_preserves_transient_build_pulse() {
+        let mut mapper = StatelessIntentMapper::new(IntentSamplingMode::LiveSampling);
+        let transient = vec![
+            InputSnapshot {
+                move_axis: (1.0, 0.0),
+                aim_axis: (16.0, 24.0),
+                mining_tile: Some((3, 4)),
+                building: true,
+                config_tap_tile: None,
+                build_pulse: Some(BuildPulse {
+                    tile: (5, 6),
+                    breaking: false,
+                }),
+                active_actions: vec![BinaryAction::Fire],
+            },
+            InputSnapshot {
+                move_axis: (0.0, 0.0),
+                aim_axis: (32.0, 48.0),
+                mining_tile: None,
+                building: false,
+                config_tap_tile: None,
+                build_pulse: None,
+                active_actions: vec![],
+            },
+        ];
+        let runtime_snapshot = InputSnapshot {
+            move_axis: (9.0, 9.0),
+            aim_axis: (99.0, 99.0),
+            mining_tile: Some((7, 8)),
+            building: true,
+            config_tap_tile: None,
+            build_pulse: None,
+            active_actions: vec![BinaryAction::Boost],
+        };
+
+        assert_eq!(
+            mapper.map_snapshot_batch_with_final_snapshot(&transient, &runtime_snapshot),
+            vec![
+                PlayerIntent::SetMoveAxis { x: 9.0, y: 9.0 },
+                PlayerIntent::SetAimAxis { x: 99.0, y: 99.0 },
+                PlayerIntent::SetMiningTile { tile: Some((7, 8)) },
+                PlayerIntent::SetBuilding { building: true },
+                PlayerIntent::BuildPulse(BuildPulse {
+                    tile: (5, 6),
+                    breaking: false,
+                }),
                 PlayerIntent::ActionPressed(BinaryAction::Fire),
                 PlayerIntent::ActionReleased(BinaryAction::Fire),
                 PlayerIntent::ActionPressed(BinaryAction::Boost),
@@ -802,5 +900,3 @@ mod tests {
         );
     }
 }
-
-

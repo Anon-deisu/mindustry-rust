@@ -337,6 +337,15 @@ pub struct ConfiguredContentRef {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConstructorRuntimeProjection {
+    pub progress_bits: u32,
+    pub payload_present: bool,
+    pub pay_rotation_bits: u32,
+    pub payload_build_block_id: Option<i16>,
+    pub payload_unit_class_id: Option<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnitAssemblerRuntimeProjection {
     pub progress_bits: u32,
     pub unit_ids: Vec<i32>,
@@ -1549,6 +1558,7 @@ pub struct ConfiguredBlockProjection {
     pub door_open_by_build_pos: BTreeMap<i32, Option<bool>>,
     pub message_text_by_build_pos: BTreeMap<i32, String>,
     pub constructor_recipe_block_by_build_pos: BTreeMap<i32, Option<i16>>,
+    pub constructor_runtime_by_build_pos: BTreeMap<i32, ConstructorRuntimeProjection>,
     pub light_color_by_build_pos: BTreeMap<i32, i32>,
     pub payload_source_content_by_build_pos: BTreeMap<i32, Option<ConfiguredContentRef>>,
     pub payload_router_sorted_content_by_build_pos: BTreeMap<i32, Option<ConfiguredContentRef>>,
@@ -1611,6 +1621,15 @@ impl ConfiguredBlockProjection {
     pub fn apply_constructor_recipe_block(&mut self, build_pos: i32, block_id: Option<i16>) {
         self.constructor_recipe_block_by_build_pos
             .insert(build_pos, block_id);
+    }
+
+    pub fn apply_constructor_runtime(
+        &mut self,
+        build_pos: i32,
+        projection: ConstructorRuntimeProjection,
+    ) {
+        self.constructor_runtime_by_build_pos
+            .insert(build_pos, projection);
     }
 
     pub fn apply_light_color(&mut self, build_pos: i32, color: i32) {
@@ -1722,6 +1741,7 @@ impl ConfiguredBlockProjection {
         self.message_text_by_build_pos.remove(&build_pos);
         self.constructor_recipe_block_by_build_pos
             .remove(&build_pos);
+        self.constructor_runtime_by_build_pos.remove(&build_pos);
         self.light_color_by_build_pos.remove(&build_pos);
         self.payload_source_content_by_build_pos.remove(&build_pos);
         self.payload_router_sorted_content_by_build_pos
@@ -2638,6 +2658,14 @@ pub enum TypedBuildingRuntimeValue {
     Liquid(Option<i16>),
     Bool(Option<bool>),
     Text(String),
+    Constructor {
+        recipe_block_id: Option<i16>,
+        progress_bits: Option<u32>,
+        payload_present: Option<bool>,
+        pay_rotation_bits: Option<u32>,
+        payload_build_block_id: Option<i16>,
+        payload_unit_class_id: Option<u8>,
+    },
     Block(Option<i16>),
     Color(i32),
     Content(Option<ConfiguredContentRef>),
@@ -2748,9 +2776,10 @@ fn typed_runtime_building_model(
 ) -> Option<TypedBuildingRuntimeModel> {
     let block_name = building.block_name.as_deref()?;
     let (kind, value) = match block_name {
-        block_name if block_name.starts_with("core-") => {
-            (TypedBuildingRuntimeKind::Core, TypedBuildingRuntimeValue::Core)
-        }
+        block_name if block_name.starts_with("core-") => (
+            TypedBuildingRuntimeKind::Core,
+            TypedBuildingRuntimeValue::Core,
+        ),
         "unit-cargo-unload-point" => (
             TypedBuildingRuntimeKind::UnitCargoUnloadPoint,
             TypedBuildingRuntimeValue::Item(
@@ -2831,12 +2860,32 @@ fn typed_runtime_building_model(
         ),
         "constructor" | "large-constructor" => (
             TypedBuildingRuntimeKind::Constructor,
-            TypedBuildingRuntimeValue::Block(
-                configured
+            TypedBuildingRuntimeValue::Constructor {
+                recipe_block_id: configured
                     .constructor_recipe_block_by_build_pos
                     .get(&build_pos)
                     .copied()?,
-            ),
+                progress_bits: configured
+                    .constructor_runtime_by_build_pos
+                    .get(&build_pos)
+                    .map(|projection| projection.progress_bits),
+                payload_present: configured
+                    .constructor_runtime_by_build_pos
+                    .get(&build_pos)
+                    .map(|projection| projection.payload_present),
+                pay_rotation_bits: configured
+                    .constructor_runtime_by_build_pos
+                    .get(&build_pos)
+                    .map(|projection| projection.pay_rotation_bits),
+                payload_build_block_id: configured
+                    .constructor_runtime_by_build_pos
+                    .get(&build_pos)
+                    .and_then(|projection| projection.payload_build_block_id),
+                payload_unit_class_id: configured
+                    .constructor_runtime_by_build_pos
+                    .get(&build_pos)
+                    .and_then(|projection| projection.payload_unit_class_id),
+            },
         ),
         "illuminator" => (
             TypedBuildingRuntimeKind::Illuminator,
@@ -2951,7 +3000,9 @@ fn typed_runtime_building_model(
                 .reconstructor_command_by_build_pos
                 .get(&build_pos)
                 .copied();
-            let runtime = configured.reconstructor_runtime_by_build_pos.get(&build_pos);
+            let runtime = configured
+                .reconstructor_runtime_by_build_pos
+                .get(&build_pos);
             if command_id.is_none() && runtime.is_none() {
                 return None;
             }
@@ -6183,6 +6234,87 @@ mod tests {
                 efficiency: Some(0x20),
                 optional_efficiency: Some(0x10),
                 visible_flags: Some(77),
+                turret_reload_counter_bits: None,
+                turret_rotation_bits: None,
+                item_turret_ammo_count: None,
+                continuous_turret_last_length_bits: None,
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                last_update: BuildingProjectionUpdateKind::BlockSnapshotHead,
+            })
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_constructor_family_runtime() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0008_000ai32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            303,
+            Some("constructor".to_string()),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(6),
+            Some(0x3f80_0000),
+            Some(0x3f00_0000),
+            Some(126),
+            Some(false),
+            None,
+            Some(0x40a0_0000),
+            Some(true),
+            Some(0x50),
+            Some(0x28),
+            Some(66),
+            None,
+            None,
+            None,
+        );
+        state
+            .configured_block_projection
+            .apply_constructor_recipe_block(build_pos, Some(7));
+        state.configured_block_projection.apply_constructor_runtime(
+            build_pos,
+            ConstructorRuntimeProjection {
+                progress_bits: 0x3f40_0000,
+                payload_present: true,
+                pay_rotation_bits: 0x4000_0000,
+                payload_build_block_id: Some(11),
+                payload_unit_class_id: None,
+            },
+        );
+
+        assert_eq!(
+            state.typed_runtime_building_at(build_pos),
+            Some(TypedBuildingRuntimeModel {
+                build_pos,
+                block_id: Some(303),
+                block_name: "constructor".to_string(),
+                kind: TypedBuildingRuntimeKind::Constructor,
+                value: TypedBuildingRuntimeValue::Constructor {
+                    recipe_block_id: Some(7),
+                    progress_bits: Some(0x3f40_0000),
+                    payload_present: Some(true),
+                    pay_rotation_bits: Some(0x4000_0000),
+                    payload_build_block_id: Some(11),
+                    payload_unit_class_id: None,
+                },
+                inventory_item_stacks: Vec::new(),
+                rotation: Some(3),
+                team_id: Some(4),
+                io_version: Some(5),
+                module_bitmask: Some(6),
+                time_scale_bits: Some(0x3f80_0000),
+                time_scale_duration_bits: Some(0x3f00_0000),
+                last_disabler_pos: Some(126),
+                legacy_consume_connected: Some(false),
+                health_bits: Some(0x40a0_0000),
+                enabled: Some(true),
+                efficiency: Some(0x50),
+                optional_efficiency: Some(0x28),
+                visible_flags: Some(66),
                 turret_reload_counter_bits: None,
                 turret_rotation_bits: None,
                 item_turret_ammo_count: None,
