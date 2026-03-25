@@ -4344,6 +4344,7 @@ pub struct SessionState {
     pub received_block_snapshot_count: u64,
     pub last_block_snapshot_payload_len: Option<usize>,
     pub applied_block_snapshot_count: u64,
+    pub suppress_block_snapshot_head_table_apply: bool,
     pub last_block_snapshot: Option<AppliedBlockSnapshotEnvelope>,
     pub block_snapshot_head_projection: Option<BlockSnapshotHeadProjection>,
     pub applied_loaded_world_block_snapshot_extra_entry_count: u64,

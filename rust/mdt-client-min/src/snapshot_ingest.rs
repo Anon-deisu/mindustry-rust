@@ -140,10 +140,8 @@ pub fn ingest_inbound_snapshot(state: &mut SessionState, snapshot: InboundSnapsh
                 Ok(parsed) => {
                     state.applied_block_snapshot_count =
                         state.applied_block_snapshot_count.saturating_add(1);
-                    state.block_snapshot_head_projection = parsed
-                        .first_build_pos
-                        .zip(parsed.first_block_id)
-                        .map(|(build_pos, block_id)| BlockSnapshotHeadProjection {
+                    let head_projection = parsed.first_build_pos.zip(parsed.first_block_id).map(
+                        |(build_pos, block_id)| BlockSnapshotHeadProjection {
                             build_pos,
                             block_id,
                             health_bits: parsed.first_health_bits,
@@ -159,7 +157,36 @@ pub fn ingest_inbound_snapshot(state: &mut SessionState, snapshot: InboundSnapsh
                             efficiency: parsed.first_efficiency,
                             optional_efficiency: parsed.first_optional_efficiency,
                             visible_flags: parsed.first_visible_flags,
-                        });
+                        },
+                    );
+                    if !state.suppress_block_snapshot_head_table_apply {
+                        if let Some(head) = head_projection.as_ref() {
+                            state.building_table_projection.apply_block_snapshot_head(
+                                head.build_pos,
+                                head.block_id,
+                                None,
+                                head.rotation,
+                                head.team_id,
+                                head.io_version,
+                                head.module_bitmask,
+                                head.time_scale_bits,
+                                head.time_scale_duration_bits,
+                                head.last_disabler_pos,
+                                head.legacy_consume_connected,
+                                None,
+                                head.health_bits,
+                                head.enabled,
+                                head.efficiency,
+                                head.optional_efficiency,
+                                head.visible_flags,
+                                None,
+                                None,
+                                None,
+                            );
+                            state.refresh_runtime_typed_building_from_tables(head.build_pos);
+                        }
+                    }
+                    state.block_snapshot_head_projection = head_projection;
                     state.last_block_snapshot = Some(parsed);
                     state.last_block_snapshot_parse_error = None;
                     state.last_block_snapshot_parse_error_payload_len = None;
@@ -772,9 +799,9 @@ mod tests {
     use crate::session_state::{
         AppliedBlockSnapshotEnvelope, AppliedHiddenSnapshotIds, AppliedStateSnapshotCoreData,
         AppliedStateSnapshotCoreDataItem, AppliedStateSnapshotCoreDataTeam,
-        AuthoritativeStateMirror, BlockSnapshotHeadProjection, EntityFireSemanticProjection,
-        EntityProjection, EntityPuddleSemanticProjection, EntitySemanticProjection,
-        EntitySemanticProjectionEntry, EntityUnitSemanticProjection,
+        AuthoritativeStateMirror, BlockSnapshotHeadProjection, BuildingProjectionUpdateKind,
+        EntityFireSemanticProjection, EntityProjection, EntityPuddleSemanticProjection,
+        EntitySemanticProjection, EntitySemanticProjectionEntry, EntityUnitSemanticProjection,
         EntityWeatherStateSemanticProjection, EntityWorldLabelSemanticProjection,
         GameplayStateProjection, HiddenSnapshotDeltaProjection, PayloadLifecycleCarrierProjection,
         ResourceUnitItemStack, SessionState, StateSnapshotAuthorityProjection,
@@ -1803,8 +1830,25 @@ mod tests {
         );
         assert_eq!(state.failed_block_snapshot_parse_count, 0);
         assert_eq!(state.last_block_snapshot_parse_error, None);
-        assert_eq!(state.building_table_projection.by_build_pos.len(), 0);
-        assert_eq!(state.building_table_projection.last_update, None);
+        assert_eq!(state.building_table_projection.by_build_pos.len(), 1);
+        assert_eq!(
+            state
+                .building_table_projection
+                .by_build_pos
+                .get(&0x0064_0063)
+                .and_then(|building| building.block_id),
+            Some(301)
+        );
+        assert_eq!(
+            state.building_table_projection.last_update,
+            Some(BuildingProjectionUpdateKind::BlockSnapshotHead)
+        );
+        assert_eq!(
+            state
+                .building_table_projection
+                .block_snapshot_head_apply_count,
+            1
+        );
     }
 
     #[test]
@@ -1882,7 +1926,13 @@ mod tests {
             InboundSnapshot::new(HighFrequencyRemoteMethod::BlockSnapshot, 11, &clear_payload),
         );
         assert_eq!(state.block_snapshot_head_projection, None);
-        assert_eq!(state.building_table_projection.by_build_pos.len(), 0);
+        assert_eq!(state.building_table_projection.by_build_pos.len(), 1);
+        assert_eq!(
+            state
+                .building_table_projection
+                .block_snapshot_head_apply_count,
+            1
+        );
     }
 
     #[test]
@@ -1958,10 +2008,10 @@ mod tests {
             state
                 .building_table_projection
                 .block_snapshot_head_conflict_skip_count,
-            0
+            1
         );
         assert!(
-            !state
+            state
                 .building_table_projection
                 .last_block_snapshot_head_conflict
         );

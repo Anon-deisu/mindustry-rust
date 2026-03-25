@@ -5528,13 +5528,20 @@ impl ClientSession {
             }
             _ => {
                 let previous_applied_state_snapshot_count = self.state.applied_state_snapshot_count;
-                if let Some(snapshot) = ingest_inbound_packet(
+                let previous_block_snapshot_head_table_apply =
+                    self.state.suppress_block_snapshot_head_table_apply;
+                self.state.suppress_block_snapshot_head_table_apply =
+                    self.loaded_world_bundle().is_some();
+                let snapshot = ingest_inbound_packet(
                     &mut self.stats,
                     &mut self.state,
                     &self.registry,
                     packet.packet_id,
                     &packet.payload,
-                ) {
+                );
+                self.state.suppress_block_snapshot_head_table_apply =
+                    previous_block_snapshot_head_table_apply;
+                if let Some(snapshot) = snapshot {
                     if snapshot.method == HighFrequencyRemoteMethod::EntitySnapshot {
                         self.last_snapshot_at_ms = Some(self.clock_ms);
                         self.state.received_entity_snapshot_count =
