@@ -5,6 +5,7 @@ use crate::client_session::{
     BuildHealthPair, ClientBuildPlan, ClientBuildPlanConfig, ClientSessionEvent,
     ClientSnapshotInputState, StateSnapshotAppliedProjection,
 };
+use crate::effect_data_runtime::EffectDataBusinessHint;
 use crate::effect_runtime::{
     effect_contract, resolve_runtime_effect_overlay_position,
     resolve_runtime_effect_overlay_source_position, spawn_runtime_effect_overlay,
@@ -105,7 +106,7 @@ impl RenderRuntimeAdapter {
             &session_state.runtime_typed_building_projection(),
         ));
         hud.status_text = format!(
-            "{} runtime_selected={} runtime_plans={} runtime_cfg_int={} runtime_cfg_long={} runtime_cfg_float={} runtime_cfg_bool={} runtime_cfg_int_seq={} runtime_cfg_point2={} runtime_cfg_point2_array={} runtime_cfg_tech_node={} runtime_cfg_double={} runtime_cfg_building_pos={} runtime_cfg_laccess={} runtime_cfg_string={} runtime_cfg_bytes={} runtime_cfg_legacy_unit_command_null={} runtime_cfg_bool_array={} runtime_cfg_unit_id={} runtime_cfg_vec2_array={} runtime_cfg_vec2={} runtime_cfg_team={} runtime_cfg_int_array={} runtime_cfg_object_array={} runtime_cfg_content={} runtime_cfg_unit_command={} runtime_world_tiles={} runtime_health={} building={} runtime_builder={} runtime_builder_head={} runtime_entity_local={} runtime_entity_hidden={} runtime_entity_gate={} runtime_entity_sync={} runtime_snap_last={} runtime_snap_events={} runtime_snap_apply={} runtime_wave={} runtime_enemies={} runtime_tps={} runtime_state_apply={} runtime_core_teams={} runtime_core_items={} runtime_buildings={} runtime_block={} runtime_block_fail={} runtime_hidden={} runtime_hidden_delta={} runtime_hidden_fail={} runtime_effects={} runtime_effect_data_kind={} runtime_effect_contract={} runtime_effect_data_semantic={} runtime_effect_apply={} runtime_effect_path={} runtime_effect_data_fail={} bootstrap_rules={} bootstrap_tags={} bootstrap_locales={} bootstrap_teams={} bootstrap_markers={} bootstrap_chunks={} bootstrap_patches={} bootstrap_plans={} bootstrap_fog_teams={} runtime_view_center={} runtime_view_size={} runtime_position={} runtime_pointer={} runtime_selected_rotation={} runtime_input_flags={} runtime_snap_client={} runtime_snap_state={} runtime_snap_entity={} runtime_snap_block={} runtime_snap_hidden={} runtime_tilecfg_events={} runtime_tilecfg_parse_fail={} runtime_tilecfg_noapply={} runtime_tilecfg_rollback={} runtime_tilecfg_pending_mismatch={} runtime_tilecfg_apply={} runtime_configured={} runtime_take_items={} runtime_transfer_item={} runtime_transfer_item_unit={} runtime_payload_drop={} runtime_payload_pick_build={} runtime_payload_pick_unit={} runtime_unit_entered_payload={} runtime_unit_despawn={} runtime_unit_lifecycle={} runtime_spawn_fx={} runtime_audio={} runtime_admin={} runtime_kick={} runtime_loading={} runtime_rules={} runtime_ui_notice={} runtime_ui_menu={} runtime_chat={} runtime_world_label={} runtime_marker={} runtime_logic_sync={} runtime_resource_delta={} runtime_command_ctrl={} runtime_gameplay_signal={}",
+            "{} runtime_selected={} runtime_plans={} runtime_cfg_int={} runtime_cfg_long={} runtime_cfg_float={} runtime_cfg_bool={} runtime_cfg_int_seq={} runtime_cfg_point2={} runtime_cfg_point2_array={} runtime_cfg_tech_node={} runtime_cfg_double={} runtime_cfg_building_pos={} runtime_cfg_laccess={} runtime_cfg_string={} runtime_cfg_bytes={} runtime_cfg_legacy_unit_command_null={} runtime_cfg_bool_array={} runtime_cfg_unit_id={} runtime_cfg_vec2_array={} runtime_cfg_vec2={} runtime_cfg_team={} runtime_cfg_int_array={} runtime_cfg_object_array={} runtime_cfg_content={} runtime_cfg_unit_command={} runtime_world_tiles={} runtime_health={} building={} runtime_builder={} runtime_builder_head={} runtime_entity_local={} runtime_entity_hidden={} runtime_entity_gate={} runtime_entity_sync={} runtime_snap_last={} runtime_snap_events={} runtime_snap_apply={} runtime_wave={} runtime_enemies={} runtime_tps={} runtime_state_apply={} runtime_core_teams={} runtime_core_items={} runtime_buildings={} runtime_block={} runtime_block_fail={} runtime_hidden={} runtime_hidden_delta={} runtime_hidden_fail={} runtime_effects={} runtime_effect_data_kind={} runtime_effect_contract={} runtime_effect_data_semantic={} runtime_effect_data_hint={} runtime_effect_apply={} runtime_effect_path={} runtime_effect_data_fail={} bootstrap_rules={} bootstrap_tags={} bootstrap_locales={} bootstrap_teams={} bootstrap_markers={} bootstrap_chunks={} bootstrap_patches={} bootstrap_plans={} bootstrap_fog_teams={} runtime_view_center={} runtime_view_size={} runtime_position={} runtime_pointer={} runtime_selected_rotation={} runtime_input_flags={} runtime_snap_client={} runtime_snap_state={} runtime_snap_entity={} runtime_snap_block={} runtime_snap_hidden={} runtime_tilecfg_events={} runtime_tilecfg_parse_fail={} runtime_tilecfg_noapply={} runtime_tilecfg_rollback={} runtime_tilecfg_pending_mismatch={} runtime_tilecfg_apply={} runtime_configured={} runtime_take_items={} runtime_transfer_item={} runtime_transfer_item_unit={} runtime_payload_drop={} runtime_payload_pick_build={} runtime_payload_pick_unit={} runtime_unit_entered_payload={} runtime_unit_despawn={} runtime_unit_lifecycle={} runtime_spawn_fx={} runtime_audio={} runtime_admin={} runtime_kick={} runtime_loading={} runtime_rules={} runtime_ui_notice={} runtime_ui_menu={} runtime_chat={} runtime_world_label={} runtime_marker={} runtime_logic_sync={} runtime_resource_delta={} runtime_command_ctrl={} runtime_gameplay_signal={}",
             hud.status_text,
             runtime_selected_block_label(snapshot_input.selected_block_id),
             snapshot_input.plans.as_ref().map_or(0, Vec::len),
@@ -222,6 +223,9 @@ impl RenderRuntimeAdapter {
             runtime_effect_data_kind_label(session_state.last_effect_data_kind.as_deref()),
             runtime_effect_contract_label(session_state),
             runtime_effect_data_semantic_label(session_state.last_effect_data_semantic.as_ref()),
+            runtime_effect_business_hint_label(
+                session_state.last_effect_data_business_hint.as_ref(),
+            ),
             runtime_effect_business_projection_label(
                 session_state.last_effect_business_projection.as_ref(),
             ),
@@ -1589,6 +1593,145 @@ fn runtime_effect_business_projection_label(
     }
 }
 
+fn runtime_effect_business_hint_label(hint: Option<&EffectDataBusinessHint>) -> String {
+    match hint {
+        Some(EffectDataBusinessHint::ContentRef {
+            kind,
+            content_type,
+            content_id,
+            path,
+        }) => format!(
+            "content:{}:{content_type}:{content_id}@{}",
+            runtime_effect_content_kind_label(*kind),
+            runtime_effect_hint_path_label(path)
+        ),
+        Some(EffectDataBusinessHint::ParentRef { semantic_ref, path }) => format!(
+            "parent:{}@{}",
+            runtime_effect_semantic_ref_label(*semantic_ref),
+            runtime_effect_hint_path_label(path)
+        ),
+        Some(EffectDataBusinessHint::PositionHint(position)) => {
+            runtime_effect_position_hint_label(position)
+        }
+        Some(EffectDataBusinessHint::FloatBits { bits, path }) => format!(
+            "float:0x{bits:08x}@{}",
+            runtime_effect_hint_path_label(path)
+        ),
+        Some(EffectDataBusinessHint::Polyline { points, path }) => {
+            let tail = points
+                .last()
+                .map(|(x_bits, y_bits)| format!(":0x{x_bits:08x}:0x{y_bits:08x}"))
+                .unwrap_or_default();
+            format!(
+                "poly:{}{}@{}",
+                points.len(),
+                tail,
+                runtime_effect_hint_path_label(path)
+            )
+        }
+        Some(EffectDataBusinessHint::PayloadTargetContent {
+            content_kind,
+            content_type,
+            content_id,
+            content_path,
+            target,
+        }) => format!(
+            "payload:{}:{content_type}:{content_id}@{}>{}",
+            runtime_effect_content_kind_label(*content_kind),
+            runtime_effect_hint_path_label(content_path),
+            runtime_effect_target_hint_label(target)
+        ),
+        None => "none".to_string(),
+    }
+}
+
+fn runtime_effect_content_kind_label(kind: EffectBusinessContentKind) -> &'static str {
+    match kind {
+        EffectBusinessContentKind::Content => "content",
+        EffectBusinessContentKind::TechNode => "techNode",
+    }
+}
+
+fn runtime_effect_hint_path_label(path: &[usize]) -> String {
+    if path.is_empty() {
+        "root".to_string()
+    } else {
+        path.iter()
+            .map(usize::to_string)
+            .collect::<Vec<_>>()
+            .join("/")
+    }
+}
+
+fn runtime_effect_semantic_ref_label(semantic_ref: mdt_typeio::TypeIoSemanticRef) -> String {
+    match semantic_ref {
+        mdt_typeio::TypeIoSemanticRef::Content {
+            content_type,
+            content_id,
+        } => format!("content:{content_type}:{content_id}"),
+        mdt_typeio::TypeIoSemanticRef::TechNode {
+            content_type,
+            content_id,
+        } => format!("techNode:{content_type}:{content_id}"),
+        mdt_typeio::TypeIoSemanticRef::Unit { unit_id } => format!("unit:{unit_id}"),
+        mdt_typeio::TypeIoSemanticRef::Building { build_pos } => format!("building:{build_pos}"),
+    }
+}
+
+fn runtime_effect_position_hint_label(position: &mdt_typeio::TypeIoEffectPositionHint) -> String {
+    match position {
+        mdt_typeio::TypeIoEffectPositionHint::Point2 { x, y, path } => {
+            format!(
+                "pos:point2:{x}:{y}@{}",
+                runtime_effect_hint_path_label(path)
+            )
+        }
+        mdt_typeio::TypeIoEffectPositionHint::PackedPoint2ArrayFirst {
+            packed_point2,
+            path,
+        } => {
+            let (x, y) = unpack_runtime_point2(*packed_point2);
+            format!(
+                "pos:point2Array:{x}:{y}@{}",
+                runtime_effect_hint_path_label(path)
+            )
+        }
+        mdt_typeio::TypeIoEffectPositionHint::Vec2 {
+            x_bits,
+            y_bits,
+            path,
+        } => format!(
+            "pos:vec2:0x{x_bits:08x}:0x{y_bits:08x}@{}",
+            runtime_effect_hint_path_label(path)
+        ),
+        mdt_typeio::TypeIoEffectPositionHint::Vec2ArrayFirst {
+            x_bits,
+            y_bits,
+            path,
+        } => format!(
+            "pos:vec2Array:0x{x_bits:08x}:0x{y_bits:08x}@{}",
+            runtime_effect_hint_path_label(path)
+        ),
+    }
+}
+
+fn runtime_effect_target_hint_label(
+    target: &crate::effect_data_runtime::EffectDataBusinessTargetHint,
+) -> String {
+    match target {
+        crate::effect_data_runtime::EffectDataBusinessTargetHint::SemanticRef(matched) => {
+            format!(
+                "{}@{}",
+                runtime_effect_semantic_ref_label(matched.semantic_ref),
+                runtime_effect_hint_path_label(&matched.path)
+            )
+        }
+        crate::effect_data_runtime::EffectDataBusinessTargetHint::PositionHint(position) => {
+            runtime_effect_position_hint_label(position)
+        }
+    }
+}
+
 fn runtime_effect_data_fail_label(session_state: &SessionState) -> String {
     format!(
         "{}@{}",
@@ -1974,6 +2117,10 @@ fn runtime_live_effect_summary_observability(
         last_kind: session_state.last_effect_data_kind.clone(),
         last_contract_name: session_state.last_effect_contract_name.clone(),
         last_reliable_contract_name: session_state.last_effect_reliable_contract_name.clone(),
+        last_business_hint: Some(runtime_effect_business_hint_label(
+            session_state.last_effect_data_business_hint.as_ref(),
+        ))
+        .filter(|label| label != "none"),
         last_position_hint,
         last_position_source,
     }
@@ -6838,6 +6985,15 @@ mod tests {
         state.last_effect_reliable_contract_name = Some("unit_parent".to_string());
         state.last_effect_data_semantic =
             Some(crate::session_state::EffectDataSemantic::Point2 { x: 3, y: 4 });
+        state.last_effect_data_business_hint = Some(
+            crate::effect_data_runtime::EffectDataBusinessHint::PositionHint(
+                mdt_typeio::TypeIoEffectPositionHint::Point2 {
+                    x: 3,
+                    y: 4,
+                    path: vec![1, 0],
+                },
+            ),
+        );
         state.last_effect_business_projection = Some(EffectBusinessProjection::WorldPosition {
             source: EffectBusinessPositionSource::Point2,
             x_bits: 24.0f32.to_bits(),
@@ -7326,6 +7482,9 @@ mod tests {
         assert!(hud
             .status_text
             .contains("runtime_effect_data_semantic=point2:3:4"));
+        assert!(hud
+            .status_text
+            .contains("runtime_effect_data_hint=pos:point2:3:4@1/0"));
         assert!(hud
             .status_text
             .contains("runtime_effect_apply=pos:point2:0x41c00000:0x42000000"));

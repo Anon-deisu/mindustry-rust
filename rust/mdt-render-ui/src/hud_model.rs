@@ -329,6 +329,7 @@ pub struct RuntimeLiveEffectSummaryObservability {
     pub last_kind: Option<String>,
     pub last_contract_name: Option<String>,
     pub last_reliable_contract_name: Option<String>,
+    pub last_business_hint: Option<String>,
     pub last_position_hint: Option<RuntimeWorldPositionObservability>,
     pub last_position_source: Option<RuntimeLiveEffectPositionSource>,
 }

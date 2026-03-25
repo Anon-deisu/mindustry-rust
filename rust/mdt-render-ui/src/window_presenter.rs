@@ -5,10 +5,10 @@ use crate::{
         build_hud_status_panel, build_hud_visibility_panel, build_minimap_panel,
         build_runtime_admin_panel, build_runtime_chat_panel, build_runtime_command_mode_panel,
         build_runtime_dialog_panel, build_runtime_dialog_stack_panel, build_runtime_kick_panel,
-        build_runtime_live_effect_panel, build_runtime_live_entity_panel, build_runtime_loading_panel,
-        build_runtime_menu_panel, build_runtime_notice_state_panel, build_runtime_prompt_panel,
-        build_runtime_reconnect_panel, build_runtime_rules_panel, build_runtime_session_panel,
-        build_runtime_ui_notice_panel, build_runtime_ui_stack_panel,
+        build_runtime_live_effect_panel, build_runtime_live_entity_panel,
+        build_runtime_loading_panel, build_runtime_menu_panel, build_runtime_notice_state_panel,
+        build_runtime_prompt_panel, build_runtime_reconnect_panel, build_runtime_rules_panel,
+        build_runtime_session_panel, build_runtime_ui_notice_panel, build_runtime_ui_stack_panel,
         build_runtime_world_label_panel, MinimapPanelModel, PresenterViewWindow,
         RuntimeDialogNoticeKind, RuntimeDialogPromptKind, RuntimeUiNoticePanelModel,
     },
@@ -993,9 +993,17 @@ fn compose_runtime_stack_detail_status_text(hud: &HudModel) -> Option<String> {
         panel.prompt.text_input_open_count,
         runtime_dialog_notice_status_text(panel.notice.kind),
         if panel.notice.hud_active { 1 } else { 0 },
-        if panel.notice.reliable_hud_active { 1 } else { 0 },
+        if panel.notice.reliable_hud_active {
+            1
+        } else {
+            0
+        },
         if panel.notice.toast_info_active { 1 } else { 0 },
-        if panel.notice.toast_warning_active { 1 } else { 0 },
+        if panel.notice.toast_warning_active {
+            1
+        } else {
+            0
+        },
         if !panel.chat.is_empty() { 1 } else { 0 },
         panel.chat.server_message_count,
         panel.chat.chat_message_count,
@@ -1770,7 +1778,7 @@ fn compose_live_effect_status_text(
     effect: &crate::RuntimeLiveEffectSummaryObservability,
 ) -> String {
     format!(
-        "{}/{}@{}:u{}:k{}:c{}/{}:p{}@{}",
+        "{}/{}@{}:u{}:k{}:c{}/{}:h{}:p{}@{}",
         effect.effect_count,
         effect.spawn_effect_count,
         optional_i16_label(effect.last_effect_id),
@@ -1778,6 +1786,7 @@ fn compose_live_effect_status_text(
         compact_runtime_ui_text(effect.last_kind.as_deref()),
         compact_runtime_ui_text(effect.last_contract_name.as_deref()),
         compact_runtime_ui_text(effect.last_reliable_contract_name.as_deref()),
+        effect.last_business_hint.as_deref().unwrap_or("none"),
         live_effect_position_source_status_text(effect.last_position_source),
         world_position_status_text(effect.last_position_hint.as_ref()),
     )
@@ -1787,7 +1796,7 @@ fn compose_live_effect_panel_status_text(
     effect: &crate::panel_model::RuntimeLiveEffectPanelModel,
 ) -> String {
     format!(
-        "{}/{}@{}:u{}:k{}:c{}/{}:p{}@{}",
+        "{}/{}@{}:u{}:k{}:c{}/{}:h{}:p{}@{}",
         effect.effect_count,
         effect.spawn_effect_count,
         optional_i16_label(effect.last_effect_id),
@@ -1795,6 +1804,7 @@ fn compose_live_effect_panel_status_text(
         compact_runtime_ui_text(effect.last_kind.as_deref()),
         compact_runtime_ui_text(effect.last_contract_name.as_deref()),
         compact_runtime_ui_text(effect.last_reliable_contract_name.as_deref()),
+        effect.last_business_hint.as_deref().unwrap_or("none"),
         live_effect_position_source_status_text(effect.last_position_source),
         world_position_status_text(effect.last_position_hint.as_ref()),
     )
@@ -2991,6 +3001,7 @@ mod tests {
                         last_kind: Some("Point2".to_string()),
                         last_contract_name: Some("position_target".to_string()),
                         last_reliable_contract_name: Some("unit_parent".to_string()),
+                        last_business_hint: Some("pos:point2:3:4@1/0".to_string()),
                         last_position_hint: Some(crate::RuntimeWorldPositionObservability {
                             x_bits: 24.0f32.to_bits(),
                             y_bits: 32.0f32.to_bits(),
@@ -3074,7 +3085,9 @@ mod tests {
             .contains("live=ent=1/0@404:u2/999:p20.0:33.0:h0:s3"));
         assert!(frame
             .status_text
-            .contains("fx=11/73@8:u19:kPoint2:cposition_tar~/unit_parent:pbiz@24.0:32.0"));
+            .contains(
+                "fx=11/73@8:u19:kPoint2:cposition_tar~/unit_parent:hpos:point2:3:4@1/0:pbiz@24.0:32.0"
+            ));
         assert!(frame
             .status_text
             .contains("tin=53@404:Digits/Only_numbers/12345#16:n1:e1"));
@@ -3216,7 +3229,7 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "RUNTIME-LIVE-EFFECT: livefx:11/73@8:u19:kPoint2:cposition_tar~/unit_parent:pbiz@24.0:32.0",
+            "RUNTIME-LIVE-EFFECT: livefx:11/73@8:u19:kPoint2:cposition_tar~/unit_parent:hpos:point2:3:4@1/0:pbiz@24.0:32.0",
         );
         assert_frame_line_contains(&frame.overlay_lines, "OVERLAY: Plans 1");
         assert_frame_line_contains(

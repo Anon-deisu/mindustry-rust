@@ -1086,6 +1086,7 @@ pub struct RuntimeLiveEffectPanelModel {
     pub last_kind: Option<String>,
     pub last_contract_name: Option<String>,
     pub last_reliable_contract_name: Option<String>,
+    pub last_business_hint: Option<String>,
     pub last_position_hint: Option<crate::RuntimeWorldPositionObservability>,
     pub last_position_source: Option<crate::RuntimeLiveEffectPositionSource>,
 }
@@ -1892,6 +1893,7 @@ pub fn build_runtime_live_effect_panel(hud: &HudModel) -> Option<RuntimeLiveEffe
         last_kind: effect.last_kind.clone(),
         last_contract_name: effect.last_contract_name.clone(),
         last_reliable_contract_name: effect.last_reliable_contract_name.clone(),
+        last_business_hint: effect.last_business_hint.clone(),
         last_position_hint: effect.last_position_hint,
         last_position_source: effect.last_position_source,
     })
@@ -1925,10 +1927,10 @@ mod tests {
         build_hud_status_panel, build_hud_visibility_panel, build_minimap_panel,
         build_runtime_admin_panel, build_runtime_chat_panel, build_runtime_command_mode_panel,
         build_runtime_dialog_panel, build_runtime_dialog_stack_panel, build_runtime_kick_panel,
-        build_runtime_live_effect_panel, build_runtime_live_entity_panel, build_runtime_loading_panel,
-        build_runtime_menu_panel, build_runtime_notice_state_panel, build_runtime_prompt_panel,
-        build_runtime_reconnect_panel, build_runtime_rules_panel, build_runtime_session_panel,
-        build_runtime_ui_notice_panel, build_runtime_ui_stack_panel,
+        build_runtime_live_effect_panel, build_runtime_live_entity_panel,
+        build_runtime_loading_panel, build_runtime_menu_panel, build_runtime_notice_state_panel,
+        build_runtime_prompt_panel, build_runtime_reconnect_panel, build_runtime_rules_panel,
+        build_runtime_session_panel, build_runtime_ui_notice_panel, build_runtime_ui_stack_panel,
         build_runtime_world_label_panel, BuildInteractionAuthorityState, BuildInteractionMode,
         BuildInteractionQueueState, BuildInteractionSelectionState, BuildMinimapAssistPanelModel,
         PresenterViewWindow, RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
@@ -2854,6 +2856,7 @@ mod tests {
                         last_kind: Some("Point2".to_string()),
                         last_contract_name: Some("position_target".to_string()),
                         last_reliable_contract_name: Some("unit_parent".to_string()),
+                        last_business_hint: Some("pos:point2:3:4@1/0".to_string()),
                         last_position_hint: Some(crate::RuntimeWorldPositionObservability {
                             x_bits: 24.0f32.to_bits(),
                             y_bits: 32.0f32.to_bits(),
@@ -2879,6 +2882,10 @@ mod tests {
         assert_eq!(
             panel.last_reliable_contract_name.as_deref(),
             Some("unit_parent")
+        );
+        assert_eq!(
+            panel.last_business_hint.as_deref(),
+            Some("pos:point2:3:4@1/0")
         );
         assert_eq!(
             panel.last_position_hint,
@@ -3635,7 +3642,10 @@ mod tests {
         assert!(!notice.is_empty());
         assert!(notice.is_active());
         assert_eq!(notice.kind, Some(RuntimeDialogNoticeKind::ToastWarning));
-        assert_eq!(notice.layer_labels(), vec!["hud", "reliable", "info", "warn"]);
+        assert_eq!(
+            notice.layer_labels(),
+            vec!["hud", "reliable", "info", "warn"]
+        );
         assert_eq!(notice.depth(), 4);
         assert_eq!(notice.text_len(), 4);
 
@@ -3654,7 +3664,10 @@ mod tests {
             Some(RuntimeUiStackForegroundKind::TextInput)
         );
         assert_eq!(dialog_stack.foreground_label(), "input");
-        assert_eq!(dialog_stack.prompt.kind, Some(RuntimeDialogPromptKind::TextInput));
+        assert_eq!(
+            dialog_stack.prompt.kind,
+            Some(RuntimeDialogPromptKind::TextInput)
+        );
         assert_eq!(
             dialog_stack.notice.kind,
             Some(RuntimeDialogNoticeKind::ToastWarning)
@@ -3701,8 +3714,14 @@ mod tests {
             chat_only_dialog.foreground_kind,
             Some(RuntimeUiStackForegroundKind::Chat)
         );
-        assert_eq!(chat_only_dialog.prompt.layer_labels(), Vec::<&'static str>::new());
-        assert_eq!(chat_only_dialog.notice.layer_labels(), Vec::<&'static str>::new());
+        assert_eq!(
+            chat_only_dialog.prompt.layer_labels(),
+            Vec::<&'static str>::new()
+        );
+        assert_eq!(
+            chat_only_dialog.notice.layer_labels(),
+            Vec::<&'static str>::new()
+        );
         assert_eq!(chat_only_dialog.chat_depth(), 1);
         assert_eq!(chat_only_dialog.active_group_count(), 1);
         assert_eq!(chat_only_dialog.total_depth(), 1);
@@ -3728,7 +3747,10 @@ mod tests {
             Some(RuntimeUiStackForegroundKind::Menu)
         );
         assert_eq!(menu_only_dialog.prompt.layer_labels(), vec!["menu"]);
-        assert_eq!(menu_only_dialog.notice.layer_labels(), Vec::<&'static str>::new());
+        assert_eq!(
+            menu_only_dialog.notice.layer_labels(),
+            Vec::<&'static str>::new()
+        );
         assert_eq!(menu_only_dialog.chat_depth(), 0);
         assert_eq!(menu_only_dialog.active_group_count(), 1);
         assert_eq!(menu_only_dialog.total_depth(), 1);
@@ -3753,7 +3775,10 @@ mod tests {
             follow_up_only_dialog.foreground_kind,
             Some(RuntimeUiStackForegroundKind::FollowUpMenu)
         );
-        assert_eq!(follow_up_only_dialog.prompt.layer_labels(), vec!["follow-up"]);
+        assert_eq!(
+            follow_up_only_dialog.prompt.layer_labels(),
+            vec!["follow-up"]
+        );
         assert_eq!(
             follow_up_only_dialog.notice.layer_labels(),
             Vec::<&'static str>::new()
@@ -3788,7 +3813,10 @@ mod tests {
             input_notice_chat_dialog.foreground_kind,
             Some(RuntimeUiStackForegroundKind::TextInput)
         );
-        assert_eq!(input_notice_chat_dialog.prompt.layer_labels(), vec!["input"]);
+        assert_eq!(
+            input_notice_chat_dialog.prompt.layer_labels(),
+            vec!["input"]
+        );
         assert_eq!(
             input_notice_chat_dialog.notice.kind,
             Some(RuntimeDialogNoticeKind::ToastWarning)

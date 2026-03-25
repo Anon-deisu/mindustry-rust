@@ -1428,7 +1428,7 @@ fn compose_live_entity_panel_text(
 
 fn compose_live_effect_text(effect: &crate::RuntimeLiveEffectSummaryObservability) -> String {
     format!(
-        "{}/{}@{}:u{}:k{}:c{}/{}:p{}@{}",
+        "{}/{}@{}:u{}:k{}:c{}/{}:h{}:p{}@{}",
         effect.effect_count,
         effect.spawn_effect_count,
         optional_i16_label(effect.last_effect_id),
@@ -1436,6 +1436,7 @@ fn compose_live_effect_text(effect: &crate::RuntimeLiveEffectSummaryObservabilit
         compact_runtime_ui_text(effect.last_kind.as_deref()),
         compact_runtime_ui_text(effect.last_contract_name.as_deref()),
         compact_runtime_ui_text(effect.last_reliable_contract_name.as_deref()),
+        effect.last_business_hint.as_deref().unwrap_or("none"),
         live_effect_position_source_text(effect.last_position_source),
         world_position_text(effect.last_position_hint.as_ref()),
     )
@@ -1445,7 +1446,7 @@ fn compose_live_effect_panel_text(
     effect: &crate::panel_model::RuntimeLiveEffectPanelModel,
 ) -> String {
     format!(
-        "{}/{}@{}:u{}:k{}:c{}/{}:p{}@{}",
+        "{}/{}@{}:u{}:k{}:c{}/{}:h{}:p{}@{}",
         effect.effect_count,
         effect.spawn_effect_count,
         optional_i16_label(effect.last_effect_id),
@@ -1453,6 +1454,7 @@ fn compose_live_effect_panel_text(
         compact_runtime_ui_text(effect.last_kind.as_deref()),
         compact_runtime_ui_text(effect.last_contract_name.as_deref()),
         compact_runtime_ui_text(effect.last_reliable_contract_name.as_deref()),
+        effect.last_business_hint.as_deref().unwrap_or("none"),
         live_effect_position_source_text(effect.last_position_source),
         world_position_text(effect.last_position_hint.as_ref()),
     )
@@ -2492,6 +2494,7 @@ mod tests {
                         last_kind: Some("Point2".to_string()),
                         last_contract_name: Some("position_target".to_string()),
                         last_reliable_contract_name: Some("unit_parent".to_string()),
+                        last_business_hint: Some("pos:point2:3:4@1/0".to_string()),
                         last_position_hint: Some(crate::RuntimeWorldPositionObservability {
                             x_bits: 24.0f32.to_bits(),
                             y_bits: 32.0f32.to_bits(),
@@ -2657,10 +2660,12 @@ mod tests {
             "RUNTIME-LIVE-ENTITY: 1/0@404:u2/999:p20.0:33.0:h0:s3:tp1/0:last404/404/none"
         ));
         assert!(frame.contains(
-            "RUNTIME-LIVE-EFFECT: 11/73@8:u19:kPoint2:cposition_tar~/unit_parent:pbiz@24.0:32.0"
+            "RUNTIME-LIVE-EFFECT: 11/73@8:u19:kPoint2:cposition_tar~/unit_parent:hpos:point2:3:4@1/0:pbiz@24.0:32.0"
         ));
         assert!(frame.contains("live=ent=1/0@404:u2/999:p20.0:33.0:h0:s3"));
-        assert!(frame.contains("fx=11/73@8:u19:kPoint2:cposition_tar~/unit_parent:pbiz@24.0:32.0"));
+        assert!(frame.contains(
+            "fx=11/73@8:u19:kPoint2:cposition_tar~/unit_parent:hpos:point2:3:4@1/0:pbiz@24.0:32.0"
+        ));
     }
 
     #[test]
