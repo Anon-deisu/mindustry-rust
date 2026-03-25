@@ -169,8 +169,18 @@ impl AsciiScenePresenter {
         if let Some(runtime_admin_text) = compose_runtime_admin_panel_text(hud) {
             out.push_str(&format!("RUNTIME-ADMIN: {runtime_admin_text}\n"));
         }
+        if let Some(runtime_admin_detail_text) = compose_runtime_admin_detail_text(hud) {
+            out.push_str(&format!(
+                "RUNTIME-ADMIN-DETAIL: {runtime_admin_detail_text}\n"
+            ));
+        }
         if let Some(runtime_rules_text) = compose_runtime_rules_panel_text(hud) {
             out.push_str(&format!("RUNTIME-RULES: {runtime_rules_text}\n"));
+        }
+        if let Some(runtime_rules_detail_text) = compose_runtime_rules_detail_text(hud) {
+            out.push_str(&format!(
+                "RUNTIME-RULES-DETAIL: {runtime_rules_detail_text}\n"
+            ));
         }
         if let Some(runtime_world_label_text) = compose_runtime_world_label_panel_text(hud) {
             out.push_str(&format!(
@@ -503,6 +513,21 @@ fn compose_runtime_rules_panel_text(hud: &HudModel) -> Option<String> {
     ))
 }
 
+fn compose_runtime_rules_detail_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_rules_panel(hud)?;
+    if panel.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "set-rules={} set-objectives={} set-rule={} clear-objectives={} complete-objective={}",
+        panel.set_rules_count,
+        panel.set_objectives_count,
+        panel.set_rule_count,
+        panel.clear_objectives_count,
+        panel.complete_objective_count,
+    ))
+}
+
 fn compose_runtime_menu_panel_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_menu_panel(hud)?;
     Some(format!(
@@ -707,6 +732,24 @@ fn compose_runtime_admin_panel_text(hud: &HudModel) -> Option<String> {
         panel.debug_status_client_unreliable_count,
         optional_i32_label(panel.last_debug_status_value),
         panel.parse_fail_count,
+    ))
+}
+
+fn compose_runtime_admin_detail_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_admin_panel(hud)?;
+    if panel.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "trace={} fail={} last-player={} debug={} fail={} unreliable={} fail={} last-value={}",
+        panel.trace_info_count,
+        panel.trace_info_parse_fail_count,
+        optional_i32_label(panel.last_trace_info_player_id),
+        panel.debug_status_client_count,
+        panel.debug_status_client_parse_fail_count,
+        panel.debug_status_client_unreliable_count,
+        panel.debug_status_client_unreliable_parse_fail_count,
+        optional_i32_label(panel.last_debug_status_value),
     ))
 }
 
@@ -2542,7 +2585,13 @@ mod tests {
         ));
         assert!(frame.contains("RUNTIME-ADMIN: trace=56@123456 fail=76 dbg=57/58@12 fail=231"));
         assert!(frame.contains(
+            "RUNTIME-ADMIN-DETAIL: trace=56 fail=76 last-player=123456 debug=57 fail=77 unreliable=58 fail=78 last-value=12"
+        ));
+        assert!(frame.contains(
             "RUNTIME-RULES: mut=354 fail=210 set=67/69/71 clear=73 complete=74 state=wv1:pvp0 obj=2 qual=1 parents=1 flags=2 oor=75 last=9"
+        ));
+        assert!(frame.contains(
+            "RUNTIME-RULES-DETAIL: set-rules=67 set-objectives=69 set-rule=71 clear-objectives=73 complete-objective=74"
         ));
         assert!(frame.contains(
             "RUNTIME-WORLD-LABEL: set=19 rel=20 remove=21 total=60 active=2 inactive=58 last=904 flags=3 font=1094713344@12.0 z=1082130432@4.0 pos=40.0:60.0 text=world label lines=1 len=11"

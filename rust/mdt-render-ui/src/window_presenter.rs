@@ -613,8 +613,14 @@ fn compose_frame_panel_lines(
     if let Some(runtime_admin_text) = compose_runtime_admin_panel_status_text(hud) {
         lines.push(format!("RUNTIME-ADMIN: {runtime_admin_text}"));
     }
+    if let Some(runtime_admin_detail_text) = compose_runtime_admin_detail_status_text(hud) {
+        lines.push(format!("RUNTIME-ADMIN-DETAIL: {runtime_admin_detail_text}"));
+    }
     if let Some(runtime_rules_text) = compose_runtime_rules_panel_status_text(hud) {
         lines.push(format!("RUNTIME-RULES: {runtime_rules_text}"));
+    }
+    if let Some(runtime_rules_detail_text) = compose_runtime_rules_detail_status_text(hud) {
+        lines.push(format!("RUNTIME-RULES-DETAIL: {runtime_rules_detail_text}"));
     }
     if let Some(runtime_world_label_text) = compose_runtime_world_label_panel_status_text(hud) {
         lines.push(format!("RUNTIME-WORLD-LABEL: {runtime_world_label_text}"));
@@ -800,6 +806,21 @@ fn compose_runtime_rules_panel_status_text(hud: &HudModel) -> Option<String> {
         panel.objective_flag_count,
         panel.complete_out_of_range_count,
         optional_i32_label(panel.last_completed_index),
+    ))
+}
+
+fn compose_runtime_rules_detail_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_rules_panel(hud)?;
+    if panel.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "rulesd:set{}:obj{}:rule{}:clr{}:done{}",
+        panel.set_rules_count,
+        panel.set_objectives_count,
+        panel.set_rule_count,
+        panel.clear_objectives_count,
+        panel.complete_objective_count,
     ))
 }
 
@@ -1007,6 +1028,24 @@ fn compose_runtime_admin_panel_status_text(hud: &HudModel) -> Option<String> {
         panel.debug_status_client_unreliable_count,
         optional_i32_label(panel.last_debug_status_value),
         panel.parse_fail_count,
+    ))
+}
+
+fn compose_runtime_admin_detail_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_admin_panel(hud)?;
+    if panel.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "admind:tr{}/{}@{}:dbg{}/{}:udbg{}/{}:last{}",
+        panel.trace_info_count,
+        panel.trace_info_parse_fail_count,
+        optional_i32_label(panel.last_trace_info_player_id),
+        panel.debug_status_client_count,
+        panel.debug_status_client_parse_fail_count,
+        panel.debug_status_client_unreliable_count,
+        panel.debug_status_client_unreliable_parse_fail_count,
+        optional_i32_label(panel.last_debug_status_value),
     ))
 }
 
@@ -3093,7 +3132,15 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
+            "RUNTIME-ADMIN-DETAIL: admind:tr56/76@123456:dbg57/77:udbg58/78:last12",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
             "RUNTIME-RULES: rules:mut354:fail210:wv1:pvp0:obj2:q1:par1:fg2:oor75:last9",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RUNTIME-RULES-DETAIL: rulesd:set67:obj69:rule71:clr73:done74",
         );
         assert_frame_line_contains(
             &frame.panel_lines,

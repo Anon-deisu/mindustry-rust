@@ -220,9 +220,7 @@ impl RenderObjectSemanticKind {
             | Self::MarkerLineEnd
             | Self::MarkerTexture
             | Self::MarkerQuad
-            | Self::MarkerUnknown => {
-                RenderObjectSemanticFamily::Marker
-            }
+            | Self::MarkerUnknown => RenderObjectSemanticFamily::Marker,
             Self::Plan | Self::PlanBuild => RenderObjectSemanticFamily::Plan,
             Self::Block => RenderObjectSemanticFamily::Block,
             Self::Terrain => RenderObjectSemanticFamily::Terrain,

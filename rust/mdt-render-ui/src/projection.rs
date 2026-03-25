@@ -610,10 +610,9 @@ mod tests {
             .objects
             .iter()
             .any(|object| object.id == format!("player:{}", session.player().id)));
-        assert!(render
-            .objects
+        assert!(render.objects.iter().any(|object| expected_plan_ids
             .iter()
-            .any(|object| expected_plan_ids.iter().any(|expected| object.id == *expected)));
+            .any(|expected| object.id == *expected)));
         assert_eq!(hud.title, "Golden Deterministic");
         assert_eq!(hud.wave_text.as_deref(), contract.hud.wave_text.as_deref());
         assert_eq!(

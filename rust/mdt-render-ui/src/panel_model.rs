@@ -665,6 +665,20 @@ pub struct RuntimeAdminPanelModel {
     pub parse_fail_count: u64,
 }
 
+impl RuntimeAdminPanelModel {
+    pub fn is_empty(&self) -> bool {
+        self.trace_info_count == 0
+            && self.trace_info_parse_fail_count == 0
+            && self.last_trace_info_player_id.is_none()
+            && self.debug_status_client_count == 0
+            && self.debug_status_client_parse_fail_count == 0
+            && self.debug_status_client_unreliable_count == 0
+            && self.debug_status_client_unreliable_parse_fail_count == 0
+            && self.last_debug_status_value.is_none()
+            && self.parse_fail_count == 0
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeRulesPanelModel {
     pub mutation_count: u64,
@@ -682,6 +696,26 @@ pub struct RuntimeRulesPanelModel {
     pub objective_flag_count: usize,
     pub complete_out_of_range_count: u64,
     pub last_completed_index: Option<i32>,
+}
+
+impl RuntimeRulesPanelModel {
+    pub fn is_empty(&self) -> bool {
+        self.mutation_count == 0
+            && self.parse_fail_count == 0
+            && self.set_rules_count == 0
+            && self.set_objectives_count == 0
+            && self.set_rule_count == 0
+            && self.clear_objectives_count == 0
+            && self.complete_objective_count == 0
+            && self.waves.is_none()
+            && self.pvp.is_none()
+            && self.objective_count == 0
+            && self.qualified_objective_count == 0
+            && self.objective_parent_edge_count == 0
+            && self.objective_flag_count == 0
+            && self.complete_out_of_range_count == 0
+            && self.last_completed_index.is_none()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2431,6 +2465,7 @@ mod tests {
         assert_eq!(panel.objective_flag_count, 2);
         assert_eq!(panel.complete_out_of_range_count, 75);
         assert_eq!(panel.last_completed_index, Some(9));
+        assert!(!panel.is_empty());
     }
 
     #[test]
@@ -2940,6 +2975,21 @@ mod tests {
         assert_eq!(panel.debug_status_client_unreliable_parse_fail_count, 78);
         assert_eq!(panel.last_debug_status_value, Some(12));
         assert_eq!(panel.parse_fail_count, 231);
+        assert!(!panel.is_empty());
+    }
+
+    #[test]
+    fn runtime_admin_and_rules_panels_report_empty_for_default_runtime_ui() {
+        let hud = HudModel {
+            runtime_ui: Some(RuntimeUiObservability::default()),
+            ..HudModel::default()
+        };
+
+        let admin = build_runtime_admin_panel(&hud).expect("expected runtime admin panel");
+        let rules = build_runtime_rules_panel(&hud).expect("expected runtime rules panel");
+
+        assert!(admin.is_empty());
+        assert!(rules.is_empty());
     }
 
     #[test]
