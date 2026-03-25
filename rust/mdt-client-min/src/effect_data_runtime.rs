@@ -168,6 +168,7 @@ fn derive_contract_business_hint(
         RuntimeEffectContract::PositionTarget
         | RuntimeEffectContract::PointBeam
         | RuntimeEffectContract::PointHit
+        | RuntimeEffectContract::LegDestroy
         | RuntimeEffectContract::ShieldBreak => {
             summary_position_hint(object).or_else(|| summary_parent_hint(object))
         }

@@ -10715,6 +10715,140 @@ fn derive_effect_business_projection(
         }
     }
 
+    fn explicit_position_projection(value: &TypeIoObject) -> Option<EffectBusinessProjection> {
+        match value {
+            TypeIoObject::Point2 { x, y } => {
+                let (world_x, world_y) = point2_world_coords(*x, *y);
+                Some(EffectBusinessProjection::WorldPosition {
+                    source: EffectBusinessPositionSource::Point2,
+                    x_bits: world_x.to_bits(),
+                    y_bits: world_y.to_bits(),
+                })
+            }
+            TypeIoObject::PackedPoint2Array(values) => values.first().map(|first| {
+                let (tile_x, tile_y) = unpack_point2(*first);
+                let (world_x, world_y) = point2_world_coords(i32::from(tile_x), i32::from(tile_y));
+                EffectBusinessProjection::WorldPosition {
+                    source: EffectBusinessPositionSource::Point2,
+                    x_bits: world_x.to_bits(),
+                    y_bits: world_y.to_bits(),
+                }
+            }),
+            TypeIoObject::Vec2 { x, y } => Some(EffectBusinessProjection::WorldPosition {
+                source: EffectBusinessPositionSource::Vec2,
+                x_bits: x.to_bits(),
+                y_bits: y.to_bits(),
+            }),
+            TypeIoObject::Vec2Array(values) => {
+                values
+                    .first()
+                    .map(|(x, y)| EffectBusinessProjection::WorldPosition {
+                        source: EffectBusinessPositionSource::Vec2,
+                        x_bits: x.to_bits(),
+                        y_bits: y.to_bits(),
+                    })
+            }
+            _ => None,
+        }
+    }
+
+    fn nth_explicit_position_projection_visit(
+        value: &TypeIoObject,
+        depth: usize,
+        max_depth: usize,
+        remaining_nodes: &mut usize,
+        target_index: usize,
+        seen_count: &mut usize,
+        path: &mut Vec<usize>,
+    ) -> Option<(EffectBusinessProjection, Vec<usize>)> {
+        if depth > max_depth || *remaining_nodes == 0 {
+            return None;
+        }
+
+        *remaining_nodes -= 1;
+        if let Some(projection) = explicit_position_projection(value) {
+            if *seen_count == target_index {
+                return Some((projection, path.clone()));
+            }
+            *seen_count += 1;
+        }
+
+        if depth == max_depth {
+            return None;
+        }
+
+        let TypeIoObject::ObjectArray(values) = value else {
+            return None;
+        };
+
+        for (index, nested) in values.iter().enumerate() {
+            path.push(index);
+            if let Some(found) = nth_explicit_position_projection_visit(
+                nested,
+                depth + 1,
+                max_depth,
+                remaining_nodes,
+                target_index,
+                seen_count,
+                path,
+            ) {
+                return Some(found);
+            }
+            path.pop();
+            if *remaining_nodes == 0 {
+                break;
+            }
+        }
+
+        None
+    }
+
+    fn nth_explicit_position_projection(
+        object: &TypeIoObject,
+        max_depth: usize,
+        max_nodes: usize,
+        target_index: usize,
+    ) -> Option<(EffectBusinessProjection, Vec<usize>)> {
+        let mut remaining_nodes = max_nodes;
+        let mut seen_count = 0usize;
+        let mut path = Vec::new();
+        nth_explicit_position_projection_visit(
+            object,
+            0,
+            max_depth,
+            &mut remaining_nodes,
+            target_index,
+            &mut seen_count,
+            &mut path,
+        )
+    }
+
+    fn leg_destroy_projection(
+        effect_x: f32,
+        effect_y: f32,
+        object: &TypeIoObject,
+        max_depth: usize,
+        max_nodes: usize,
+    ) -> Option<(EffectBusinessProjection, Vec<usize>)> {
+        let (target_projection, path) = nth_explicit_position_projection(
+            object,
+            max_depth,
+            max_nodes,
+            1,
+        )
+        .or_else(|| nth_explicit_position_projection(object, max_depth, max_nodes, 0))?;
+        let (target_x_bits, target_y_bits) = position_bits_from_projection(&target_projection)?;
+        Some((
+            EffectBusinessProjection::PositionTarget {
+                source_x_bits: effect_x.to_bits(),
+                source_y_bits: effect_y.to_bits(),
+                target_x_bits,
+                target_y_bits,
+            },
+            path,
+        ))
+    }
+
     fn lightning_path_projection(value: &TypeIoObject) -> Option<EffectBusinessProjection> {
         let TypeIoObject::Vec2Array(values) = value else {
             return None;
@@ -10822,6 +10956,7 @@ fn derive_effect_business_projection(
         match contract {
             RuntimeEffectContract::LightningPath => lightning_path_projection(value),
             RuntimeEffectContract::PointHit => None,
+            RuntimeEffectContract::LegDestroy => None,
             RuntimeEffectContract::ShieldBreak => None,
             RuntimeEffectContract::BlockContentIcon => {
                 value
@@ -10956,6 +11091,15 @@ fn derive_effect_business_projection(
             return payload_target_content_projection(
                 state,
                 snapshot_input,
+                effect_x,
+                effect_y,
+                object,
+                max_depth,
+                max_nodes,
+            );
+        }
+        if matches!(contract, RuntimeEffectContract::LegDestroy) {
+            return leg_destroy_projection(
                 effect_x,
                 effect_y,
                 object,
@@ -14547,7 +14691,7 @@ mod tests {
     use crate::bootstrap_flow::encode_world_stream_packets;
     use crate::session_state::AppliedStateSnapshot;
     use mdt_protocol::{decode_framework_message, decode_packet, encode_packet, FrameworkMessage};
-    use mdt_remote::read_remote_manifest;
+    use mdt_remote::{read_remote_manifest, RemotePacketRegistry, WellKnownRemoteMethod};
     use std::cell::RefCell;
     use std::collections::BTreeSet;
     use std::fs;
@@ -35440,6 +35584,45 @@ mod tests {
     }
 
     #[test]
+    fn effect_packet_with_leg_destroy_contract_targets_second_explicit_position() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "effect" && entry.params.len() == 6)
+            .unwrap()
+            .packet_id;
+        let mut payload = encode_effect_payload(263, 32.5, 48.0, 0.0, 0x11223344);
+        write_typeio_object(
+            &mut payload,
+            &TypeIoObject::ObjectArray(vec![
+                TypeIoObject::Vec2 { x: 40.0, y: 60.0 },
+                TypeIoObject::Vec2 { x: 72.0, y: 96.0 },
+                TypeIoObject::Null,
+            ]),
+        );
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            session.state().last_effect_contract_name.as_deref(),
+            Some("leg_destroy")
+        );
+        assert_eq!(
+            session.state().last_effect_business_projection,
+            Some(EffectBusinessProjection::PositionTarget {
+                source_x_bits: 32.5f32.to_bits(),
+                source_y_bits: 48.0f32.to_bits(),
+                target_x_bits: 72.0f32.to_bits(),
+                target_y_bits: 96.0f32.to_bits(),
+            })
+        );
+        assert_eq!(session.state().last_effect_business_path, Some(vec![1]));
+    }
+
+    #[test]
     fn effect_packet_with_payload_target_content_contract_accepts_block_payload() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
@@ -37666,30 +37849,52 @@ mod tests {
     fn v156_remote_manifest_discovers_new_packet_ids() {
         let manifest = read_remote_manifest(v156_manifest_path()).unwrap();
         let session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let registry = RemotePacketRegistry::from_manifest(&manifest).unwrap();
+        let expected = |method| {
+            registry
+                .first_well_known_method(method)
+                .map(|packet| packet.packet_id)
+        };
 
         assert_eq!(
+            session.ping_packet_id,
+            expected(WellKnownRemoteMethod::Ping)
+        );
+        assert_eq!(
             session.client_plan_snapshot_packet_id,
-            manifest
-                .remote_packets
-                .iter()
-                .find(|entry| entry.method == "clientPlanSnapshot")
-                .map(|entry| entry.packet_id)
+            expected(WellKnownRemoteMethod::ClientPlanSnapshot)
         );
         assert_eq!(
             session.client_plan_snapshot_received_packet_id,
-            manifest
-                .remote_packets
-                .iter()
-                .find(|entry| entry.method == "clientPlanSnapshotReceived")
-                .map(|entry| entry.packet_id)
+            expected(WellKnownRemoteMethod::ClientPlanSnapshotReceived)
+        );
+        assert_eq!(
+            session.ping_response_packet_id,
+            expected(WellKnownRemoteMethod::PingResponse)
         );
         assert_eq!(
             session.ping_location_packet_id,
-            manifest
-                .remote_packets
-                .iter()
-                .find(|entry| entry.method == "pingLocation")
-                .map(|entry| entry.packet_id)
+            expected(WellKnownRemoteMethod::PingLocation)
+        );
+        assert_eq!(
+            session.debug_status_client_unreliable_packet_id,
+            expected(WellKnownRemoteMethod::DebugStatusClientUnreliable)
+        );
+        assert_eq!(
+            session.trace_info_packet_id,
+            expected(WellKnownRemoteMethod::TraceInfo)
+        );
+        assert_eq!(
+            session.set_rules_packet_id,
+            expected(WellKnownRemoteMethod::SetRules)
+        );
+        assert_eq!(
+            session.set_objectives_packet_id,
+            expected(WellKnownRemoteMethod::SetObjectives)
+        );
+        assert_eq!(
+            session.set_rule_packet_id,
+            expected(WellKnownRemoteMethod::SetRule)
         );
     }
 

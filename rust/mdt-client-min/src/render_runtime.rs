@@ -679,6 +679,7 @@ fn runtime_effect_overlay_ttl_ticks(effect_id: Option<i16>) -> u8 {
         Some(10) => 25,
         Some(11) => 8,
         Some(13) => 10,
+        Some(263) => 90,
         Some(124) => 220,
         Some(67) => 80,
         Some(68) => 40,
@@ -5761,6 +5762,71 @@ mod tests {
     }
 
     #[test]
+    fn render_runtime_adapter_renders_leg_destroy_executor_line_to_second_position() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
+
+        adapter.observe_events(&[ClientSessionEvent::EffectRequested {
+            effect_id: Some(263),
+            x: 12.0,
+            y: 20.0,
+            rotation: 0.0,
+            color_rgba: 0x11223344,
+            data_object: Some(mdt_typeio::TypeIoObject::ObjectArray(vec![
+                mdt_typeio::TypeIoObject::Vec2 { x: 40.0, y: 60.0 },
+                mdt_typeio::TypeIoObject::Vec2 { x: 72.0, y: 96.0 },
+                mdt_typeio::TypeIoObject::Null,
+            ])),
+        }]);
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let marker = first_runtime_effect_marker(&scene);
+        assert_eq!(
+            marker.id,
+            format!(
+                "marker:runtime-effect:normal:263:0x{:08x}:0x{:08x}:1",
+                72.0f32.to_bits(),
+                96.0f32.to_bits()
+            )
+        );
+        assert_eq!(marker.x, 72.0);
+        assert_eq!(marker.y, 96.0);
+
+        let leg_destroy_prefix = "marker:line:runtime-effect-leg-destroy:";
+        let leg_destroy_lines = runtime_effect_lines_with_prefix(&scene, leg_destroy_prefix);
+        assert_eq!(leg_destroy_lines.len(), 2);
+        assert!(leg_destroy_lines.iter().any(|line| {
+            !line.id.ends_with(":line-end")
+                && line.id
+                    == format!(
+                        "marker:line:runtime-effect-leg-destroy:normal:263:0x{:08x}:0x{:08x}:0x{:08x}:0x{:08x}",
+                        12.0f32.to_bits(),
+                        20.0f32.to_bits(),
+                        72.0f32.to_bits(),
+                        96.0f32.to_bits()
+                    )
+                && line.x == 12.0
+                && line.y == 20.0
+        }));
+        assert!(leg_destroy_lines.iter().any(|line| {
+            line.id.ends_with(":line-end")
+                && line.id
+                    == format!(
+                        "marker:line:runtime-effect-leg-destroy:normal:263:0x{:08x}:0x{:08x}:0x{:08x}:0x{:08x}:line-end",
+                        12.0f32.to_bits(),
+                        20.0f32.to_bits(),
+                        72.0f32.to_bits(),
+                        96.0f32.to_bits()
+                    )
+                && line.x == 72.0
+                && line.y == 96.0
+        }));
+    }
+
+    #[test]
     fn render_runtime_adapter_renders_chain_lightning_executor_segments() {
         let mut adapter = RenderRuntimeAdapter::default();
         let mut scene = RenderModel::default();
@@ -6492,6 +6558,22 @@ mod tests {
         );
         assert_eq!(marker.x, 26.0);
         assert_eq!(marker.y, 20.0);
+
+        let line_id = format!(
+            "marker:line:runtime-effect-float-length:normal:200:0x{:08x}:0x{:08x}:0x{:08x}:0x{:08x}",
+            10.0f32.to_bits(),
+            20.0f32.to_bits(),
+            26.0f32.to_bits(),
+            20.0f32.to_bits()
+        );
+        let line = scene_object_by_id(&scene, &line_id).expect("expected float_length line");
+        assert_eq!(line.x, 10.0);
+        assert_eq!(line.y, 20.0);
+
+        let line_end = scene_object_by_id(&scene, &format!("{line_id}:line-end"))
+            .expect("expected float_length line end");
+        assert_eq!(line_end.x, 26.0);
+        assert_eq!(line_end.y, 20.0);
     }
 
     #[test]
@@ -6564,6 +6646,11 @@ mod tests {
         assert_eq!(runtime_effect_overlay_ttl_ticks(Some(67)), 80);
         assert_eq!(runtime_effect_overlay_ttl_ticks(Some(68)), 40);
         assert_eq!(runtime_effect_overlay_ttl_ticks(Some(122)), 120);
+    }
+
+    #[test]
+    fn runtime_effect_overlay_ttl_ticks_match_leg_destroy_lifetime() {
+        assert_eq!(runtime_effect_overlay_ttl_ticks(Some(263)), 90);
     }
 
     #[test]

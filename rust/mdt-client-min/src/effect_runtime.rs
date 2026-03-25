@@ -56,6 +56,7 @@ pub enum RuntimeEffectContract {
     LightningPath,
     PointBeam,
     PointHit,
+    LegDestroy,
     ShieldBreak,
     BlockContentIcon,
     ContentIcon,
@@ -72,6 +73,7 @@ impl RuntimeEffectContract {
             Self::LightningPath => "lightning",
             Self::PointBeam => "point_beam",
             Self::PointHit => "point_hit",
+            Self::LegDestroy => "leg_destroy",
             Self::ShieldBreak => "shield_break",
             Self::BlockContentIcon => "block_content_icon",
             Self::ContentIcon => "content_icon",
@@ -115,6 +117,7 @@ pub fn effect_contract(effect_id: Option<i16>) -> Option<RuntimeEffectContract> 
         Some(13) => Some(RuntimeEffectContract::LightningPath),
         Some(10) => Some(RuntimeEffectContract::PointBeam),
         Some(11) => Some(RuntimeEffectContract::PointHit),
+        Some(263) => Some(RuntimeEffectContract::LegDestroy),
         Some(256) => Some(RuntimeEffectContract::ShieldBreak),
         Some(15 | 20 | 252) => Some(RuntimeEffectContract::BlockContentIcon),
         Some(3 | 35) => Some(RuntimeEffectContract::ContentIcon),
@@ -275,6 +278,10 @@ fn derive_runtime_effect_binding(
         }
     }
 
+    if matches!(effect_contract(effect_id), Some(RuntimeEffectContract::LegDestroy)) {
+        return None;
+    }
+
     position_hint_bits.map(|(x_bits, y_bits)| DerivedRuntimeEffectBinding {
         binding: RuntimeEffectBinding::WorldPosition { x_bits, y_bits },
         initial_position_bits: Some((x_bits, y_bits)),
@@ -331,6 +338,7 @@ fn derive_runtime_effect_polyline(
         RuntimeEffectContract::PositionTarget
         | RuntimeEffectContract::PointBeam
         | RuntimeEffectContract::PointHit
+        | RuntimeEffectContract::LegDestroy
         | RuntimeEffectContract::ShieldBreak
         | RuntimeEffectContract::BlockContentIcon
         | RuntimeEffectContract::ContentIcon
@@ -368,6 +376,7 @@ fn derive_runtime_effect_payload_target_content(
         | RuntimeEffectContract::LightningPath
         | RuntimeEffectContract::PointBeam
         | RuntimeEffectContract::PointHit
+        | RuntimeEffectContract::LegDestroy
         | RuntimeEffectContract::ShieldBreak
         | RuntimeEffectContract::BlockContentIcon
         | RuntimeEffectContract::ContentIcon
@@ -401,6 +410,7 @@ fn derive_runtime_effect_content_ref(
         | RuntimeEffectContract::LightningPath
         | RuntimeEffectContract::PointBeam
         | RuntimeEffectContract::PointHit
+        | RuntimeEffectContract::LegDestroy
         | RuntimeEffectContract::ShieldBreak
         | RuntimeEffectContract::DropItem
         | RuntimeEffectContract::FloatLength

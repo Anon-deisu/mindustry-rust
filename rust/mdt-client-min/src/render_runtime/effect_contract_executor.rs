@@ -15,6 +15,8 @@ const UNIT_SPIRIT_EFFECT_ID: i16 = 8;
 const ITEM_TRANSFER_EFFECT_ID: i16 = 9;
 const POINT_BEAM_EFFECT_ID: i16 = 10;
 const POINT_HIT_EFFECT_ID: i16 = 11;
+const FLOAT_LENGTH_EFFECT_ID: i16 = 200;
+const LEG_DESTROY_EFFECT_ID: i16 = 263;
 const DRILL_STEAM_EFFECT_ID: i16 = 124;
 const GREEN_LASER_CHARGE_EFFECT_ID: i16 = 67;
 const GREEN_LASER_CHARGE_SMALL_EFFECT_ID: i16 = 68;
@@ -119,6 +121,12 @@ const POINT_HIT_EXECUTOR: RuntimeEffectContractExecutor = RuntimeEffectContractE
     business_world_position: unsupported_business_world_position,
 };
 
+const LEG_DESTROY_EXECUTOR: RuntimeEffectContractExecutor = RuntimeEffectContractExecutor {
+    contract_name: "leg_destroy",
+    overlay_origin: leg_destroy_overlay_origin,
+    business_world_position: position_target_business_world_position,
+};
+
 const SHIELD_BREAK_EXECUTOR: RuntimeEffectContractExecutor = RuntimeEffectContractExecutor {
     contract_name: "shield_break",
     overlay_origin: unsupported_overlay_origin,
@@ -217,6 +225,20 @@ pub(crate) fn line_projections_for_effect_overlay(
         ),
         Some(POINT_BEAM_EFFECT_ID) => vec![RuntimeEffectLineProjection {
             kind: "point-beam",
+            source_x_bits,
+            source_y_bits,
+            target_x_bits,
+            target_y_bits,
+        }],
+        Some(FLOAT_LENGTH_EFFECT_ID) => vec![RuntimeEffectLineProjection {
+            kind: "float-length",
+            source_x_bits,
+            source_y_bits,
+            target_x_bits,
+            target_y_bits,
+        }],
+        Some(LEG_DESTROY_EFFECT_ID) => vec![RuntimeEffectLineProjection {
+            kind: "leg-destroy",
             source_x_bits,
             source_y_bits,
             target_x_bits,
@@ -1095,6 +1117,7 @@ fn executor_for_contract(
         RuntimeEffectContract::LightningPath => &LIGHTNING_PATH_EXECUTOR,
         RuntimeEffectContract::PointBeam => &POINT_BEAM_EXECUTOR,
         RuntimeEffectContract::PointHit => &POINT_HIT_EXECUTOR,
+        RuntimeEffectContract::LegDestroy => &LEG_DESTROY_EXECUTOR,
         RuntimeEffectContract::ShieldBreak => &SHIELD_BREAK_EXECUTOR,
         RuntimeEffectContract::BlockContentIcon => &BLOCK_CONTENT_ICON_EXECUTOR,
         RuntimeEffectContract::ContentIcon => &CONTENT_ICON_EXECUTOR,
@@ -1111,6 +1134,7 @@ fn executor_for_name(name: &str) -> Option<&'static RuntimeEffectContractExecuto
         &LIGHTNING_PATH_EXECUTOR,
         &POINT_BEAM_EXECUTOR,
         &POINT_HIT_EXECUTOR,
+        &LEG_DESTROY_EXECUTOR,
         &SHIELD_BREAK_EXECUTOR,
         &BLOCK_CONTENT_ICON_EXECUTOR,
         &CONTENT_ICON_EXECUTOR,
@@ -1160,6 +1184,17 @@ fn lightning_path_overlay_origin(
 ) -> Option<(f32, f32)> {
     first_contract_match(object, lightning_path_candidate)
         .and_then(lightning_path_world_position)
+        .map(bits_to_world_position)
+}
+
+fn leg_destroy_overlay_origin(
+    _effect_x: f32,
+    _effect_y: f32,
+    _effect_rotation: f32,
+    object: &TypeIoObject,
+) -> Option<(f32, f32)> {
+    nth_contract_world_position(object, explicit_position_candidate, 1)
+        .or_else(|| nth_contract_world_position(object, explicit_position_candidate, 0))
         .map(bits_to_world_position)
 }
 
@@ -1340,16 +1375,105 @@ where
         .map(|matched| matched.value)
 }
 
-fn position_target_candidate(value: &TypeIoObject) -> bool {
+fn nth_contract_match_visit<'a, P>(
+    value: &'a TypeIoObject,
+    predicate: &P,
+    depth: usize,
+    max_depth: usize,
+    remaining_nodes: &mut usize,
+    target_index: usize,
+    seen_count: &mut usize,
+) -> Option<&'a TypeIoObject>
+where
+    P: Fn(&TypeIoObject) -> bool,
+{
+    if depth > max_depth || *remaining_nodes == 0 {
+        return None;
+    }
+
+    *remaining_nodes -= 1;
+    if predicate(value) {
+        if *seen_count == target_index {
+            return Some(value);
+        }
+        *seen_count += 1;
+    }
+
+    if depth == max_depth {
+        return None;
+    }
+
+    let TypeIoObject::ObjectArray(values) = value else {
+        return None;
+    };
+
+    for nested in values {
+        if let Some(found) = nth_contract_match_visit(
+            nested,
+            predicate,
+            depth + 1,
+            max_depth,
+            remaining_nodes,
+            target_index,
+            seen_count,
+        ) {
+            return Some(found);
+        }
+        if *remaining_nodes == 0 {
+            break;
+        }
+    }
+
+    None
+}
+
+fn nth_contract_match<'a, P>(
+    object: &'a TypeIoObject,
+    predicate: P,
+    target_index: usize,
+) -> Option<&'a TypeIoObject>
+where
+    P: Fn(&TypeIoObject) -> bool,
+{
+    let mut remaining_nodes = EFFECT_CONTRACT_MAX_NODES;
+    let mut seen_count = 0usize;
+    nth_contract_match_visit(
+        object,
+        &predicate,
+        0,
+        EFFECT_CONTRACT_MAX_DEPTH,
+        &mut remaining_nodes,
+        target_index,
+        &mut seen_count,
+    )
+}
+
+fn nth_contract_world_position<P>(
+    object: &TypeIoObject,
+    predicate: P,
+    target_index: usize,
+) -> Option<(u32, u32)>
+where
+    P: Fn(&TypeIoObject) -> bool,
+{
+    nth_contract_match(object, predicate, target_index).and_then(position_target_world_position)
+}
+
+fn explicit_position_candidate(value: &TypeIoObject) -> bool {
     match value {
         TypeIoObject::Point2 { .. } | TypeIoObject::Vec2 { .. } => true,
         TypeIoObject::PackedPoint2Array(values) => !values.is_empty(),
         TypeIoObject::Vec2Array(values) => !values.is_empty(),
-        _ => matches!(
+        _ => false,
+    }
+}
+
+fn position_target_candidate(value: &TypeIoObject) -> bool {
+    explicit_position_candidate(value)
+        || matches!(
             value.semantic_ref(),
             Some(TypeIoSemanticRef::Building { .. } | TypeIoSemanticRef::Unit { .. })
-        ),
-    }
+        )
 }
 
 fn block_content_icon_candidate(value: &TypeIoObject) -> bool {
@@ -1741,6 +1865,24 @@ mod tests {
     }
 
     #[test]
+    fn world_position_from_contract_business_projection_uses_leg_destroy_named_executor() {
+        let projection = EffectBusinessProjection::PositionTarget {
+            source_x_bits: 12.0f32.to_bits(),
+            source_y_bits: 20.0f32.to_bits(),
+            target_x_bits: 72.0f32.to_bits(),
+            target_y_bits: 96.0f32.to_bits(),
+        };
+
+        assert_eq!(
+            world_position_from_contract_business_projection(
+                Some(LEG_DESTROY_EXECUTOR.contract_name),
+                Some(&projection),
+            ),
+            Some((72.0f32.to_bits(), 96.0f32.to_bits()))
+        );
+    }
+
+    #[test]
     fn lightning_path_overlay_origin_projects_last_vec2_point() {
         let object = TypeIoObject::ObjectArray(vec![
             TypeIoObject::Int(7),
@@ -1756,6 +1898,26 @@ mod tests {
                 Some(&object),
             ),
             Some((80.0, 160.0))
+        );
+    }
+
+    #[test]
+    fn leg_destroy_overlay_origin_projects_second_explicit_position() {
+        let object = TypeIoObject::ObjectArray(vec![
+            TypeIoObject::Vec2 { x: 40.0, y: 60.0 },
+            TypeIoObject::ObjectArray(vec![TypeIoObject::Vec2 { x: 72.0, y: 96.0 }]),
+            TypeIoObject::Null,
+        ]);
+
+        assert_eq!(
+            overlay_origin_from_contract(
+                RuntimeEffectContract::LegDestroy,
+                12.0,
+                20.0,
+                0.0,
+                Some(&object),
+            ),
+            Some((72.0, 96.0))
         );
     }
 
@@ -1793,6 +1955,82 @@ mod tests {
                 source_y_bits: 20.0f32.to_bits(),
                 target_x_bits: 80.0f32.to_bits(),
                 target_y_bits: 160.0f32.to_bits(),
+            }]
+        );
+    }
+
+    #[test]
+    fn line_projections_for_effect_overlay_returns_leg_destroy_projection() {
+        let overlay = RuntimeEffectOverlay {
+            effect_id: Some(LEG_DESTROY_EFFECT_ID),
+            source_x_bits: 12.0f32.to_bits(),
+            source_y_bits: 20.0f32.to_bits(),
+            x_bits: 72.0f32.to_bits(),
+            y_bits: 96.0f32.to_bits(),
+            rotation_bits: 0.0f32.to_bits(),
+            color_rgba: 0x11223344,
+            reliable: false,
+            has_data: true,
+            lifetime_ticks: 90,
+            remaining_ticks: 90,
+            contract_name: Some("leg_destroy"),
+            source_binding: None,
+            binding: None,
+            content_ref: None,
+            polyline_points: Vec::new(),
+        };
+
+        assert_eq!(
+            test_line_projections_for_overlay(
+                &overlay,
+                72.0f32.to_bits(),
+                96.0f32.to_bits(),
+                &SessionState::default(),
+            ),
+            vec![RuntimeEffectLineProjection {
+                kind: "leg-destroy",
+                source_x_bits: 12.0f32.to_bits(),
+                source_y_bits: 20.0f32.to_bits(),
+                target_x_bits: 72.0f32.to_bits(),
+                target_y_bits: 96.0f32.to_bits(),
+            }]
+        );
+    }
+
+    #[test]
+    fn line_projections_for_effect_overlay_returns_float_length_projection() {
+        let overlay = RuntimeEffectOverlay {
+            effect_id: Some(FLOAT_LENGTH_EFFECT_ID),
+            source_x_bits: 10.0f32.to_bits(),
+            source_y_bits: 20.0f32.to_bits(),
+            source_binding: None,
+            x_bits: 26.0f32.to_bits(),
+            y_bits: 20.0f32.to_bits(),
+            rotation_bits: 0.0f32.to_bits(),
+            color_rgba: 0x11223344,
+            reliable: false,
+            has_data: true,
+            lifetime_ticks: 3,
+            remaining_ticks: 3,
+            contract_name: Some("float_length"),
+            binding: None,
+            content_ref: None,
+            polyline_points: Vec::new(),
+        };
+
+        assert_eq!(
+            test_line_projections_for_overlay(
+                &overlay,
+                26.0f32.to_bits(),
+                20.0f32.to_bits(),
+                &SessionState::default(),
+            ),
+            vec![RuntimeEffectLineProjection {
+                kind: "float-length",
+                source_x_bits: 10.0f32.to_bits(),
+                source_y_bits: 20.0f32.to_bits(),
+                target_x_bits: 26.0f32.to_bits(),
+                target_y_bits: 20.0f32.to_bits(),
             }]
         );
     }
