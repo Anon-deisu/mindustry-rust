@@ -637,12 +637,58 @@ mod tests {
                 .first_well_known_method(WellKnownRemoteMethod::Ping)
                 .map(|packet| packet.packet_id)
         );
-        assert_eq!(
-            combined.well_known_remote.set_rules_packet_id,
-            well_known_registry
-                .first_well_known_method(WellKnownRemoteMethod::SetRules)
-                .map(|packet| packet.packet_id)
-        );
+        let expected = [
+            (
+                WellKnownRemoteMethod::Ping,
+                combined.well_known_remote.ping_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::ClientPlanSnapshot,
+                combined.well_known_remote.client_plan_snapshot_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::ClientPlanSnapshotReceived,
+                combined.well_known_remote.client_plan_snapshot_received_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::PingResponse,
+                combined.well_known_remote.ping_response_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::PingLocation,
+                combined.well_known_remote.ping_location_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::DebugStatusClientUnreliable,
+                combined.well_known_remote.debug_status_client_unreliable_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::TraceInfo,
+                combined.well_known_remote.trace_info_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::SetRules,
+                combined.well_known_remote.set_rules_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::SetObjectives,
+                combined.well_known_remote.set_objectives_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::SetRule,
+                combined.well_known_remote.set_rule_packet_id,
+            ),
+        ];
+        for (method, packet_id) in expected {
+            assert_eq!(
+                packet_id,
+                well_known_registry
+                    .first_well_known_method(method)
+                    .map(|packet| packet.packet_id),
+                "well-known packet id mismatch for {}",
+                method.method_name()
+            );
+        }
     }
 
     #[test]

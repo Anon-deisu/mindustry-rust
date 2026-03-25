@@ -2787,6 +2787,7 @@ mod tests {
             HighFrequencyRemoteRegistry::from_manifest(&manifest).unwrap();
         let custom_registry = CustomChannelRemoteRegistry::from_manifest(&manifest).unwrap();
         let inbound_registry = InboundRemoteRegistry::from_manifest(&manifest).unwrap();
+        let well_known_registry = WellKnownRemoteRegistry::from_manifest(&manifest).unwrap();
 
         assert_eq!(
             bundle.high_frequency.resolved_packet_ids(),
@@ -2799,6 +2800,10 @@ mod tests {
         assert_eq!(
             bundle.inbound_remote.resolved_dispatch_specs(),
             inbound_registry.resolved_dispatch_specs()
+        );
+        assert_eq!(
+            bundle.well_known.resolved_packet_ids(),
+            well_known_registry.resolved_packet_ids()
         );
         assert_eq!(
             bundle
@@ -2818,6 +2823,60 @@ mod tests {
                 .packet_id(HighFrequencyRemoteMethod::ClientSnapshot),
             Some(26)
         );
+        assert_eq!(
+            bundle.well_known.packet_id(WellKnownRemoteMethod::Ping),
+            well_known_registry.packet_id(WellKnownRemoteMethod::Ping)
+        );
+    }
+
+    #[test]
+    fn well_known_remote_registry_exposes_expected_lookup_tables() {
+        let manifest = well_known_manifest_with_decoys();
+        let registry = WellKnownRemoteRegistry::from_manifest(&manifest).unwrap();
+
+        let expected = [
+            (WellKnownRemoteMethod::Ping, Some(5)),
+            (WellKnownRemoteMethod::ClientPlanSnapshot, Some(7)),
+            (WellKnownRemoteMethod::ClientPlanSnapshotReceived, Some(8)),
+            (WellKnownRemoteMethod::PingResponse, Some(10)),
+            (WellKnownRemoteMethod::PingLocation, Some(11)),
+            (WellKnownRemoteMethod::DebugStatusClientUnreliable, Some(13)),
+            (WellKnownRemoteMethod::TraceInfo, Some(15)),
+            (WellKnownRemoteMethod::SetRules, Some(16)),
+            (WellKnownRemoteMethod::SetObjectives, Some(17)),
+            (WellKnownRemoteMethod::SetRule, Some(19)),
+        ];
+
+        assert_eq!(registry.len(), expected.len());
+        assert_eq!(registry.resolved_packet_ids(), expected);
+
+        for (method, packet_id) in expected {
+            let packet_id = packet_id.expect("decoy fixture should resolve every method");
+            assert_eq!(registry.packet_id(method), Some(packet_id));
+            assert_eq!(registry.classify(packet_id), Some(method));
+            assert!(registry.contains_packet_id(packet_id));
+        }
+
+        assert_eq!(registry.classify(4), None);
+        assert_eq!(registry.classify(18), None);
+        assert!(!registry.contains_packet_id(4));
+        assert!(!registry.contains_packet_id(250));
+    }
+
+    #[test]
+    fn well_known_remote_registry_exposes_packet_id_fixed_table() {
+        let manifest = well_known_manifest_with_decoys();
+        let registry = WellKnownRemoteRegistry::from_manifest(&manifest).unwrap();
+        let fixed_table = registry.packet_id_fixed_table();
+
+        assert_eq!(fixed_table.get(5), Some(WellKnownRemoteMethod::Ping));
+        assert_eq!(
+            fixed_table.get(17),
+            Some(WellKnownRemoteMethod::SetObjectives)
+        );
+        assert_eq!(fixed_table.get(18), None);
+        assert!(fixed_table.contains_packet_id(19));
+        assert!(!fixed_table.contains_packet_id(250));
     }
 
     #[test]
