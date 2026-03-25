@@ -2436,6 +2436,7 @@ fn runtime_typed_build_config_value_label(
     value: &TypedBuildingRuntimeValue,
 ) -> String {
     match value {
+        TypedBuildingRuntimeValue::Core => "core".to_string(),
         TypedBuildingRuntimeValue::Item(value) => format!(
             "{}={}",
             runtime_typed_build_config_item_label(kind),
@@ -2502,12 +2503,33 @@ fn runtime_typed_build_config_value_label(
                 format!("links={links}")
             }
         }
-        TypedBuildingRuntimeValue::Command(command_id) => format!(
-            "command={}",
-            command_id
-                .map(|value| value.to_string())
-                .unwrap_or_else(|| "clear".to_string())
-        ),
+        TypedBuildingRuntimeValue::Reconstructor {
+            command_id,
+            progress_bits,
+            command_pos,
+            payload_present,
+            pay_rotation_bits,
+        } => {
+            let mut parts = vec![format!(
+                "command={}",
+                command_id
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "clear".to_string())
+            )];
+            if let Some(progress_bits) = progress_bits {
+                parts.push(format!("p{progress_bits:08x}"));
+            }
+            if let Some((x_bits, y_bits)) = command_pos {
+                parts.push(format!("c0x{x_bits:08x}:0x{y_bits:08x}"));
+            }
+            if let Some(payload_present) = payload_present {
+                parts.push(format!("y{}", if *payload_present { 1 } else { 0 }));
+            }
+            if let Some(pay_rotation_bits) = pay_rotation_bits {
+                parts.push(format!("r{pay_rotation_bits:08x}"));
+            }
+            parts.join(":")
+        }
         TypedBuildingRuntimeValue::UnitAssembler {
             progress_bits,
             unit_count,
@@ -5405,6 +5427,18 @@ mod tests {
             .insert(pack_runtime_point2(26, 48), Some(12));
         state
             .configured_block_projection
+            .reconstructor_runtime_by_build_pos
+            .insert(
+                pack_runtime_point2(26, 48),
+                crate::session_state::ReconstructorRuntimeProjection {
+                    progress_bits: 0x3f40_0000,
+                    command_pos: Some((12.5f32.to_bits(), 18.0f32.to_bits())),
+                    payload_present: true,
+                    pay_rotation_bits: 0x4000_0000,
+                },
+            );
+        state
+            .configured_block_projection
             .memory_values_bits_by_build_pos
             .insert(
                 pack_runtime_point2(27, 49),
@@ -5503,7 +5537,8 @@ mod tests {
         }));
         assert!(build_ui.inspector_entries.iter().any(|entry| {
             entry.family == "reconstructor"
-                && entry.sample == "26:48:additive-reconstructor:command=12"
+                && entry.sample
+                    == "26:48:additive-reconstructor:command=12:p3f400000:c0x41480000:0x41900000:y1:r40000000"
         }));
         assert!(build_ui.inspector_entries.iter().any(|entry| {
             entry.family == "memory"

@@ -21,12 +21,12 @@ use crate::session_state::{
     EntityUnitSemanticProjection, EntityWeatherStateSemanticProjection,
     EntityWorldLabelSemanticProjection, FinishConnectingProjection, GameplayStateProjection,
     PayloadDroppedProjection, PickedBuildPayloadProjection, PickedUnitPayloadProjection,
-    ReconnectPhaseProjection, ReconnectReasonKind, RemotePlanSnapshotFirstPlanProjection,
-    SessionResetKind, SessionState, SessionTimeoutKind, SessionTimeoutProjection,
-    TakeItemsProjection, TileConfigAuthoritySource, TileConfigBusinessApply,
-    TransferItemEffectProjection, TransferItemToProjection, TransferItemToUnitProjection,
-    UnitAssemblerRuntimeProjection, UnitEnteredPayloadProjection, UnitRefProjection,
-    WorldReloadProjection,
+    ReconnectPhaseProjection, ReconnectReasonKind, ReconstructorRuntimeProjection,
+    RemotePlanSnapshotFirstPlanProjection, SessionResetKind, SessionState,
+    SessionTimeoutKind, SessionTimeoutProjection, TakeItemsProjection,
+    TileConfigAuthoritySource, TileConfigBusinessApply, TransferItemEffectProjection,
+    TransferItemToProjection, TransferItemToUnitProjection, UnitAssemblerRuntimeProjection,
+    UnitEnteredPayloadProjection, UnitRefProjection, WorldReloadProjection,
 };
 use mdt_input::CommandModeProjection;
 use mdt_protocol::{
@@ -2503,7 +2503,9 @@ impl ClientSession {
             return Ok(());
         };
         if !already_queued {
-            self.pending_packets.push_back(PendingClientPacket {
+            // Java posts connectConfirm from finishConnecting() before later queued gameplay/chat
+            // traffic drains, so keep the confirm at the head of the ready-to-flush backlog.
+            self.pending_packets.push_front(PendingClientPacket {
                 packet_id: self.connect_confirm_packet_id,
                 transport: ClientPacketTransport::Tcp,
                 bytes,
@@ -5872,6 +5874,7 @@ impl ClientSession {
                         && self.state.applied_state_snapshot_count
                             > previous_applied_state_snapshot_count
                     {
+                        self.apply_state_snapshot_core_inventory_to_runtime_buildings();
                         if let Some(projection) = self.build_state_snapshot_applied_projection() {
                             if projection.wave_advanced {
                                 self.state.record_wave_advance_signal(
@@ -5983,6 +5986,56 @@ impl ClientSession {
             used_last_good_core_fallback: core_parse_failed
                 && self.state.last_good_state_snapshot_core_data.is_some(),
         })
+    }
+
+    fn apply_state_snapshot_core_inventory_to_runtime_buildings(&mut self) {
+        let Some(core_data) = self.state.last_state_snapshot_core_data.clone() else {
+            return;
+        };
+        let Some(world_bundle) = self.loaded_world_bundle.as_ref() else {
+            return;
+        };
+
+        let mut first_core_build_by_team = BTreeMap::new();
+        for center in &world_bundle.world.building_centers {
+            if !matches!(center.building.parsed_tail, mdt_world::ParsedBuildingTail::Core(_)) {
+                continue;
+            }
+            first_core_build_by_team
+                .entry(center.building.base.team_id)
+                .or_insert_with(|| pack_point2(center.x as i32, center.y as i32));
+        }
+        if first_core_build_by_team.is_empty() {
+            return;
+        }
+
+        for team in &core_data.teams {
+            let Some(&build_pos) = first_core_build_by_team.get(&team.team_id) else {
+                continue;
+            };
+            self.state
+                .resource_delta_projection
+                .building_items_by_build
+                .remove(&build_pos);
+            let build_items = team
+                .items
+                .iter()
+                .filter(|item| item.amount != 0)
+                .map(|item| {
+                    (
+                        i16::from_be_bytes(item.item_id.to_be_bytes()),
+                        item.amount,
+                    )
+                })
+                .collect::<BTreeMap<_, _>>();
+            if !build_items.is_empty() {
+                self.state
+                    .resource_delta_projection
+                    .building_items_by_build
+                    .insert(build_pos, build_items);
+            }
+            self.state.refresh_runtime_typed_building_from_tables(build_pos);
+        }
     }
 
     fn handle_custom_channel_packet(
@@ -6629,7 +6682,10 @@ impl ClientSession {
             let build_pos = pack_point2(x, y);
             let block_id = i16::from_be_bytes(center.block_id.to_be_bytes());
             let base = &center.building.base;
-            let block_name = self.loaded_world_block_name(block_id);
+            let block_name = usize::try_from(block_id)
+                .ok()
+                .and_then(|content_id| world_bundle.content_name(BLOCK_CONTENT_TYPE, content_id))
+                .map(str::to_string);
             self.state.building_table_projection.seed_world_baseline(
                 build_pos,
                 block_id,
@@ -7575,6 +7631,11 @@ impl ClientSession {
             self.state
                 .configured_block_projection
                 .apply_reconstructor_command(build_pos, command_id);
+        }
+        if let Some(projection) = summarize_reconstructor_projection(parsed_tail) {
+            self.state
+                .configured_block_projection
+                .apply_reconstructor_runtime(build_pos, projection);
         }
         if let Some(values_bits) = summarize_memory_values_bits(parsed_tail) {
             self.state
@@ -12422,6 +12483,23 @@ fn summarize_reconstructor_command_id(
     Some(reconstructor.command_id.map(u16::from))
 }
 
+fn summarize_reconstructor_projection(
+    parsed_tail: &mdt_world::ParsedBuildingTail,
+) -> Option<ReconstructorRuntimeProjection> {
+    let mdt_world::ParsedBuildingTail::Reconstructor(reconstructor) = parsed_tail else {
+        return None;
+    };
+    Some(ReconstructorRuntimeProjection {
+        progress_bits: reconstructor.progress_bits,
+        command_pos: reconstructor
+            .command_pos
+            .present
+            .then_some((reconstructor.command_pos.x_bits, reconstructor.command_pos.y_bits)),
+        payload_present: reconstructor.payload_block.payload_present,
+        pay_rotation_bits: reconstructor.payload_block.pay_rotation_bits,
+    })
+}
+
 fn summarize_memory_values_bits(parsed_tail: &mdt_world::ParsedBuildingTail) -> Option<Vec<u64>> {
     let mdt_world::ParsedBuildingTail::Memory(memory) = parsed_tail else {
         return None;
@@ -15776,6 +15854,12 @@ mod tests {
         assert_eq!(
             projection.block_id,
             Some(i16::from_be_bytes(first_center.block_id.to_be_bytes()))
+        );
+        assert_eq!(
+            projection.block_name.as_deref(),
+            usize::from(first_center.block_id)
+                .checked_sub(0)
+                .and_then(|content_id| bundle.content_name(BLOCK_CONTENT_TYPE, content_id))
         );
         assert_eq!(
             projection.rotation,
@@ -20726,6 +20810,92 @@ mod tests {
     }
 
     #[test]
+    fn loaded_world_tail_business_helper_applies_reconstructor_projection() {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_build_pos_for_block_snapshot_test(56, 57);
+        let block_id =
+            loaded_world_block_id_for_name(&session, BLOCK_NAME_ADDITIVE_RECONSTRUCTOR);
+
+        session.state.building_table_projection.seed_world_baseline(
+            build_pos,
+            block_id,
+            Some(BLOCK_NAME_ADDITIVE_RECONSTRUCTOR.to_string()),
+            1,
+            2,
+            Some(3),
+            Some(4),
+            Some(0x3f80_0000),
+            Some(0x3f00_0000),
+            Some(123),
+            Some(true),
+            0x4040_0000,
+            Some(true),
+            Some(0x20),
+            Some(0x10),
+            Some(77),
+        );
+
+        session.apply_loaded_world_parsed_tail_business(
+            build_pos,
+            Some(BLOCK_NAME_ADDITIVE_RECONSTRUCTOR),
+            &mdt_world::ParsedBuildingTail::Reconstructor(mdt_world::ReconstructorTailSnapshot {
+                payload_block: mdt_world::PayloadBlockTailSnapshot {
+                    pay_vector_x_bits: 0x4120_0000,
+                    pay_vector_y_bits: 0x41a0_0000,
+                    pay_rotation_bits: 0x4000_0000,
+                    payload_present: true,
+                    payload_type: Some(1),
+                    build_block_id: Some(block_id as u16),
+                    build_revision: Some(1),
+                    build_payload: None,
+                    unit_class_id: None,
+                    unit_payload_len: None,
+                    unit_payload_sha256: None,
+                },
+                progress_bits: 0x3f40_0000,
+                command_pos: mdt_world::NullableVec2TailSnapshot {
+                    present: true,
+                    x_bits: 12.5f32.to_bits(),
+                    y_bits: 18.0f32.to_bits(),
+                },
+                command_id: Some(7),
+            }),
+        );
+
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .reconstructor_runtime_by_build_pos
+                .get(&build_pos),
+            Some(&ReconstructorRuntimeProjection {
+                progress_bits: 0x3f40_0000,
+                command_pos: Some((12.5f32.to_bits(), 18.0f32.to_bits())),
+                payload_present: true,
+                pay_rotation_bits: 0x4000_0000,
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos)
+                .map(|building| (&building.kind, &building.value, building.health_bits)),
+            Some((
+                &crate::session_state::TypedBuildingRuntimeKind::Reconstructor,
+                &crate::session_state::TypedBuildingRuntimeValue::Reconstructor {
+                    command_id: Some(7),
+                    progress_bits: Some(0x3f40_0000),
+                    command_pos: Some((12.5f32.to_bits(), 18.0f32.to_bits())),
+                    payload_present: Some(true),
+                    pay_rotation_bits: Some(0x4000_0000),
+                },
+                Some(0x4040_0000),
+            ))
+        );
+    }
+
+    #[test]
     fn loaded_world_tail_business_helper_fail_closes_out_of_range_constructor_and_landing_pad_ids()
     {
         let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
@@ -22291,6 +22461,77 @@ mod tests {
         assert_eq!(
             session.state().last_wave_advance_signal_apply_count,
             Some(1)
+        );
+    }
+
+    #[test]
+    fn state_snapshot_packet_applies_core_data_to_first_core_runtime_inventory() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let core_center = session
+            .loaded_world_bundle()
+            .unwrap()
+            .world
+            .building_centers
+            .iter()
+            .find(|center| matches!(center.building.parsed_tail, mdt_world::ParsedBuildingTail::Core(_)))
+            .unwrap()
+            .clone();
+        let core_build_pos = pack_point2(core_center.x as i32, core_center.y as i32);
+        let expected_inventory = vec![(0i16, 321i32), (1i16, 45i32)];
+        let mut core_data = Vec::new();
+        core_data.push(1);
+        core_data.push(core_center.building.base.team_id);
+        core_data.extend_from_slice(&2u16.to_be_bytes());
+        core_data.extend_from_slice(&0u16.to_be_bytes());
+        core_data.extend_from_slice(&321i32.to_be_bytes());
+        core_data.extend_from_slice(&1u16.to_be_bytes());
+        core_data.extend_from_slice(&45i32.to_be_bytes());
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == HighFrequencyRemoteMethod::StateSnapshot.method_name())
+            .unwrap()
+            .packet_id;
+        let packet = encode_packet(
+            packet_id,
+            &encode_state_snapshot_payload(
+                123.5f32.to_bits(),
+                7,
+                0,
+                false,
+                false,
+                654_321,
+                60,
+                111_111_111,
+                222_222_222,
+                &core_data,
+            ),
+            false,
+        )
+        .unwrap();
+
+        let event = session.ingest_packet_bytes(&packet).unwrap();
+
+        assert!(matches!(
+            event,
+            ClientSessionEvent::StateSnapshotApplied { .. }
+        ));
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .building_items_by_build
+                .get(&core_build_pos)
+                .map(|items| items.iter().map(|(&item_id, &amount)| (item_id, amount)).collect::<Vec<_>>()),
+            Some(expected_inventory.clone())
+        );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_projection()
+                .building_at(core_build_pos)
+                .map(|building| building.inventory_item_stacks.clone()),
+            Some(expected_inventory)
         );
     }
 
@@ -32201,6 +32442,20 @@ mod tests {
                 transport,
                 bytes,
             } => {
+                assert_eq!(*packet_id, expected_connect_confirm_packet_id);
+                assert_eq!(*transport, ClientPacketTransport::Tcp);
+                let decoded = decode_packet(bytes).unwrap();
+                assert_eq!(decoded.packet_id, expected_connect_confirm_packet_id);
+                assert!(decoded.payload.is_empty());
+            }
+            other => panic!("expected queued connectConfirm packet, got {other:?}"),
+        }
+        match &actions[1] {
+            ClientSessionAction::SendPacket {
+                packet_id,
+                transport,
+                bytes,
+            } => {
                 assert_eq!(*transport, ClientPacketTransport::Tcp);
                 let expected_packet_id = manifest
                     .remote_packets
@@ -32214,20 +32469,6 @@ mod tests {
                 assert_eq!(decoded.payload, encode_typeio_string_payload("/sync"));
             }
             other => panic!("expected queued chat packet, got {other:?}"),
-        }
-        match &actions[1] {
-            ClientSessionAction::SendPacket {
-                packet_id,
-                transport,
-                bytes,
-            } => {
-                assert_eq!(*packet_id, expected_connect_confirm_packet_id);
-                assert_eq!(*transport, ClientPacketTransport::Tcp);
-                let decoded = decode_packet(bytes).unwrap();
-                assert_eq!(decoded.packet_id, expected_connect_confirm_packet_id);
-                assert!(decoded.payload.is_empty());
-            }
-            other => panic!("expected queued connectConfirm packet, got {other:?}"),
         }
     }
 
@@ -32784,9 +33025,17 @@ mod tests {
             .find(|entry| entry.method == "connectConfirm")
             .unwrap()
             .packet_id;
+        assert!(matches!(
+            &actions[0],
+            ClientSessionAction::SendPacket {
+                packet_id,
+                transport: ClientPacketTransport::Tcp,
+                ..
+            } if *packet_id == expected_connect_confirm_packet_id
+        ));
 
         for (action, (method, expected_transport, expected_payload)) in
-            actions.iter().zip(expected.iter())
+            actions.iter().skip(1).zip(expected.iter())
         {
             let expected_packet_id = manifest
                 .remote_packets
@@ -32809,14 +33058,6 @@ mod tests {
                 other => panic!("expected queued gameplay packet, got {other:?}"),
             }
         }
-        assert!(matches!(
-            &actions[expected.len()],
-            ClientSessionAction::SendPacket {
-                packet_id,
-                transport: ClientPacketTransport::Tcp,
-                ..
-            } if *packet_id == expected_connect_confirm_packet_id
-        ));
     }
 
     #[test]
@@ -39287,6 +39528,44 @@ mod tests {
                 .map(|packet| packet.packet_id)
                 .collect::<Vec<_>>(),
             vec![send_message_packet_id, STREAM_BEGIN_PACKET_ID]
+        );
+    }
+
+    #[test]
+    fn finish_connecting_reconciles_prequeued_connect_confirm_state() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let queued_confirm = encode_packet(session.connect_confirm_packet_id, &[], false).unwrap();
+        session.loading_world_data = true;
+        session.state.ready_to_enter_world = true;
+        session.pending_packets.push_back(PendingClientPacket {
+            packet_id: session.connect_confirm_packet_id,
+            transport: ClientPacketTransport::Tcp,
+            bytes: queued_confirm.clone(),
+        });
+
+        let projection = session.finish_connecting().unwrap();
+
+        assert!(session.state().client_loaded);
+        assert!(session.state().connect_confirm_sent);
+        assert!(!session.state().connect_confirm_flushed);
+        assert_eq!(session.state().last_connect_confirm_at_ms, Some(0));
+        assert_eq!(session.state().last_connect_confirm_flushed_at_ms, None);
+        assert_eq!(session.last_snapshot_at_ms, Some(0));
+        assert_eq!(session.pending_packets.len(), 1);
+        assert_eq!(session.pending_packets.front().unwrap().bytes, queued_confirm);
+        assert_eq!(
+            projection,
+            FinishConnectingProjection {
+                committed_at_ms: 0,
+                replayed_loading_packet_count: 0,
+                total_replayed_loading_packet_count: 0,
+                ready_to_enter_world: true,
+                client_loaded: true,
+                connect_confirm_queued: true,
+                connect_confirm_flushed: false,
+                snapshot_watchdog_armed_at_ms: Some(0),
+            }
         );
     }
 
