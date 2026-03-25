@@ -3320,6 +3320,10 @@ impl ClientSession {
                         summary.item_id,
                         summary.amount,
                     );
+                    if let Some(build_pos) = summary.build_pos {
+                        self.state
+                            .refresh_runtime_typed_building_from_tables(build_pos);
+                    }
                     Ok(ClientSessionEvent::SetItem {
                         build_pos: summary.build_pos,
                         item_id: summary.item_id,
@@ -3342,6 +3346,10 @@ impl ClientSession {
                     self.state.last_set_items_first_amount = summary.first_amount;
                     self.state
                         .record_set_items_resource_delta(summary.build_pos, &summary.stacks);
+                    if let Some(build_pos) = summary.build_pos {
+                        self.state
+                            .refresh_runtime_typed_building_from_tables(build_pos);
+                    }
                     Ok(ClientSessionEvent::SetItems {
                         build_pos: summary.build_pos,
                         stack_count: summary.stack_count,
@@ -3562,6 +3570,10 @@ impl ClientSession {
                         summary.amount,
                         &summary.positions,
                     );
+                    for build_pos in &summary.positions {
+                        self.state
+                            .refresh_runtime_typed_building_from_tables(*build_pos);
+                    }
                     Ok(ClientSessionEvent::SetTileItems {
                         item_id: summary.item_id,
                         amount: summary.amount,
@@ -3951,6 +3963,10 @@ impl ClientSession {
                         self.state.received_clear_items_count.saturating_add(1);
                     self.state.last_clear_items_build_pos = build_pos;
                     self.state.record_clear_items_resource_delta(build_pos);
+                    if let Some(build_pos) = build_pos {
+                        self.state
+                            .refresh_runtime_typed_building_from_tables(build_pos);
+                    }
                     Ok(ClientSessionEvent::ClearItems { build_pos })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -4678,6 +4694,10 @@ impl ClientSession {
                         self.state.received_take_items_count.saturating_add(1);
                     self.state.last_take_items = Some(projection.clone());
                     self.state.record_take_items_resource_delta(&projection);
+                    if let Some(build_pos) = projection.build_pos {
+                        self.state
+                            .refresh_runtime_typed_building_from_tables(build_pos);
+                    }
                     Ok(ClientSessionEvent::TakeItems { projection })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -4693,6 +4713,10 @@ impl ClientSession {
                     self.state.last_transfer_item_to = Some(projection.clone());
                     self.state
                         .record_transfer_item_to_resource_delta(&projection);
+                    if let Some(build_pos) = projection.build_pos {
+                        self.state
+                            .refresh_runtime_typed_building_from_tables(build_pos);
+                    }
                     Ok(ClientSessionEvent::TransferItemTo { projection })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -10830,13 +10854,9 @@ fn derive_effect_business_projection(
         max_depth: usize,
         max_nodes: usize,
     ) -> Option<(EffectBusinessProjection, Vec<usize>)> {
-        let (target_projection, path) = nth_explicit_position_projection(
-            object,
-            max_depth,
-            max_nodes,
-            1,
-        )
-        .or_else(|| nth_explicit_position_projection(object, max_depth, max_nodes, 0))?;
+        let (target_projection, path) =
+            nth_explicit_position_projection(object, max_depth, max_nodes, 1)
+                .or_else(|| nth_explicit_position_projection(object, max_depth, max_nodes, 0))?;
         let (target_x_bits, target_y_bits) = position_bits_from_projection(&target_projection)?;
         Some((
             EffectBusinessProjection::PositionTarget {
@@ -11099,13 +11119,7 @@ fn derive_effect_business_projection(
             );
         }
         if matches!(contract, RuntimeEffectContract::LegDestroy) {
-            return leg_destroy_projection(
-                effect_x,
-                effect_y,
-                object,
-                max_depth,
-                max_nodes,
-            );
+            return leg_destroy_projection(effect_x, effect_y, object, max_depth, max_nodes);
         }
         if let Some(projection) = projection_from_contract_object(
             state,
@@ -19716,6 +19730,7 @@ mod tests {
                 value: crate::session_state::TypedBuildingRuntimeValue::Text(
                     "loaded-world note".to_string()
                 ),
+                inventory_item_stacks: Vec::new(),
                 rotation: Some(1),
                 team_id: Some(2),
                 io_version: Some(3),
@@ -30308,6 +30323,7 @@ mod tests {
                 block_name: BLOCK_NAME_MESSAGE.to_string(),
                 kind: crate::session_state::TypedBuildingRuntimeKind::Message,
                 value: crate::session_state::TypedBuildingRuntimeValue::Text("hello".to_string()),
+                inventory_item_stacks: Vec::new(),
                 rotation: Some(0),
                 team_id: Some(1),
                 io_version: None,
@@ -32809,6 +32825,28 @@ mod tests {
             .packet_id;
 
         let build_pos = pack_point2(2, 3);
+        session.state.building_table_projection.seed_world_baseline(
+            build_pos,
+            300,
+            Some(BLOCK_NAME_MESSAGE.to_string()),
+            0,
+            1,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            0x3f80_0000,
+            Some(true),
+            None,
+            None,
+            None,
+        );
+        session
+            .state
+            .configured_block_projection
+            .apply_message_text(build_pos, "tracked".to_string());
         let mut set_item_payload = encode_building_payload(Some(build_pos));
         set_item_payload.extend_from_slice(&7i16.to_be_bytes());
         set_item_payload.extend_from_slice(&25i32.to_be_bytes());
@@ -32829,6 +32867,14 @@ mod tests {
                 &encode_packet(set_items_packet_id, &set_items_payload, false).unwrap(),
             )
             .unwrap();
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos)
+                .map(|building| building.inventory_item_stacks.clone()),
+            Some(vec![(4, 3), (7, 11)])
+        );
 
         let mut set_tile_items_payload = Vec::new();
         set_tile_items_payload.extend_from_slice(&6i16.to_be_bytes());
@@ -32907,6 +32953,22 @@ mod tests {
                 .resource_delta_projection
                 .last_changed_amount,
             Some(0)
+        );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos)
+                .map(|building| {
+                    (
+                        building.value.clone(),
+                        building.inventory_item_stacks.clone(),
+                    )
+                }),
+            Some((
+                crate::session_state::TypedBuildingRuntimeValue::Text("tracked".to_string()),
+                Vec::new(),
+            ))
         );
     }
 

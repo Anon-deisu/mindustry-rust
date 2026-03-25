@@ -278,7 +278,10 @@ fn derive_runtime_effect_binding(
         }
     }
 
-    if matches!(effect_contract(effect_id), Some(RuntimeEffectContract::LegDestroy)) {
+    if matches!(
+        effect_contract(effect_id),
+        Some(RuntimeEffectContract::LegDestroy)
+    ) {
         return None;
     }
 

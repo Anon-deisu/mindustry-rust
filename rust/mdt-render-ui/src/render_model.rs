@@ -170,6 +170,28 @@ impl RenderModel {
 }
 
 impl RenderSemanticSummary {
+    pub fn family_text(&self) -> String {
+        format!(
+            "players={} markers={} plans={} blocks={} runtime={} terrain={} unknown={}",
+            self.player_count,
+            self.marker_count,
+            self.plan_count,
+            self.block_count,
+            self.runtime_count,
+            self.terrain_count,
+            self.unknown_count,
+        )
+    }
+
+    pub fn family_and_detail_text(&self) -> String {
+        let mut text = self.family_text();
+        if let Some(detail_text) = self.detail_text() {
+            text.push_str(" detail=");
+            text.push_str(&detail_text);
+        }
+        text
+    }
+
     pub fn detail_text(&self) -> Option<String> {
         if self.detail_counts.is_empty() {
             return None;
@@ -734,6 +756,14 @@ mod tests {
             Some(
                 "marker-line:1,marker-line-end:1,marker-text:1,plan-build:1,runtime-building:1,runtime-config:1"
             )
+        );
+        assert_eq!(
+            summary.family_text(),
+            "players=1 markers=3 plans=1 blocks=0 runtime=2 terrain=1 unknown=1"
+        );
+        assert_eq!(
+            summary.family_and_detail_text(),
+            "players=1 markers=3 plans=1 blocks=0 runtime=2 terrain=1 unknown=1 detail=marker-line:1,marker-line-end:1,marker-text:1,plan-build:1,runtime-building:1,runtime-config:1"
         );
     }
 

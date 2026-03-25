@@ -634,6 +634,7 @@ fn runtime_effect_overlay_clip_size(effect_id: Option<i16>) -> f32 {
     match effect_id {
         Some(10) => 300.0,
         Some(13) => 500.0,
+        Some(178) => 200.0,
         Some(67) | Some(68) => 100.0,
         _ => DEFAULT_EFFECT_OVERLAY_CLIP_SIZE,
     }
@@ -679,6 +680,7 @@ fn runtime_effect_overlay_ttl_ticks(effect_id: Option<i16>) -> u8 {
         Some(10) => 25,
         Some(11) => 8,
         Some(13) => 10,
+        Some(178) => 140,
         Some(263) => 90,
         Some(124) => 220,
         Some(67) => 80,
@@ -5827,6 +5829,61 @@ mod tests {
     }
 
     #[test]
+    fn render_runtime_adapter_renders_regen_suppress_seek_executor_curve() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
+
+        adapter.observe_events(&[ClientSessionEvent::EffectRequested {
+            effect_id: Some(178),
+            x: 12.0,
+            y: 20.0,
+            rotation: 0.0,
+            color_rgba: 0x11223344,
+            data_object: Some(mdt_typeio::TypeIoObject::Vec2 { x: 80.0, y: 160.0 }),
+        }]);
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let overlay = adapter
+            .world_overlay()
+            .effect_overlays
+            .first()
+            .expect("missing regen suppress seek overlay");
+        let expected_marker = effect_contract_executor::marker_position_for_effect_overlay(
+            overlay,
+            overlay.source_x_bits,
+            overlay.source_y_bits,
+            overlay.x_bits,
+            overlay.y_bits,
+        )
+        .expect("regen suppress seek should override marker position");
+        let marker = first_runtime_effect_marker(&scene);
+        assert_eq!(
+            marker.id,
+            format!(
+                "marker:runtime-effect:normal:178:0x{:08x}:0x{:08x}:1",
+                expected_marker.0, expected_marker.1
+            )
+        );
+        assert_eq!(marker.x.to_bits(), expected_marker.0);
+        assert_eq!(marker.y.to_bits(), expected_marker.1);
+
+        let seek_prefix = "marker:line:runtime-effect-regen-suppress-seek:";
+        let seek_lines = runtime_effect_lines_with_prefix(&scene, seek_prefix);
+        assert_eq!(seek_lines.len(), 12);
+        assert!(seek_lines.iter().any(|line| {
+            !line.id.ends_with(":line-end")
+                && line.id.starts_with(
+                    "marker:line:runtime-effect-regen-suppress-seek:normal:178:0x41400000:0x41a00000:"
+                )
+                && line.x == 12.0
+                && line.y == 20.0
+        }));
+    }
+
+    #[test]
     fn render_runtime_adapter_renders_chain_lightning_executor_segments() {
         let mut adapter = RenderRuntimeAdapter::default();
         let mut scene = RenderModel::default();
@@ -6651,6 +6708,11 @@ mod tests {
     #[test]
     fn runtime_effect_overlay_ttl_ticks_match_leg_destroy_lifetime() {
         assert_eq!(runtime_effect_overlay_ttl_ticks(Some(263)), 90);
+    }
+
+    #[test]
+    fn runtime_effect_overlay_ttl_ticks_match_regen_suppress_seek_lifetime() {
+        assert_eq!(runtime_effect_overlay_ttl_ticks(Some(178)), 140);
     }
 
     #[test]

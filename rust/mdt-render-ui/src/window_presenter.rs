@@ -1988,19 +1988,7 @@ fn compose_overlay_semantics_status_text(scene: &RenderModel) -> Option<String> 
         return None;
     }
 
-    let mut text = format!(
-        "overlay:players={} markers={} plans={} blocks={} runtime={}",
-        summary.player_count,
-        summary.marker_count,
-        summary.plan_count,
-        summary.block_count,
-        summary.runtime_count,
-    );
-    if let Some(detail_text) = summary.detail_text() {
-        text.push_str(" detail=");
-        text.push_str(&detail_text);
-    }
-    Some(text)
+    Some(format!("overlay:{}", summary.family_and_detail_text()))
 }
 
 fn semantic_detail_text(
@@ -2684,7 +2672,7 @@ mod tests {
         let frame = backend.frames.last().unwrap();
         assert_frame_line_contains(
             &frame.overlay_lines,
-            "OVERLAY-KINDS: overlay:players=1 markers=2 plans=0 blocks=0 runtime=4",
+            "OVERLAY-KINDS: overlay:players=1 markers=2 plans=0 blocks=0 runtime=4 terrain=0 unknown=0",
         );
         assert_frame_line_contains(
             &frame.overlay_lines,

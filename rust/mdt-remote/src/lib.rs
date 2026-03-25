@@ -1657,23 +1657,23 @@ impl<'a> RemotePacketRegistry<'a> {
 impl TypedRemoteRegistries {
     pub fn from_manifest(manifest: &RemoteManifest) -> Result<Self, RemoteManifestError> {
         let registry = RemotePacketRegistry::from_manifest(manifest)?;
+        Self::from_remote_registry(&registry)
+    }
+
+    pub fn from_remote_registry(
+        registry: &RemotePacketRegistry<'_>,
+    ) -> Result<Self, RemoteManifestError> {
         Ok(Self {
-            high_frequency: HighFrequencyRemoteRegistry {
-                by_packet_id: resolve_high_frequency_remote_registry_entries(&registry)?,
-            },
-            custom_channel: CustomChannelRemoteRegistry {
-                by_packet_id: resolve_custom_channel_remote_dispatch_entries(&registry)?,
-            },
-            inbound_remote: InboundRemoteRegistry {
-                by_packet_id: resolve_inbound_remote_dispatch_entries(&registry)?,
-            },
-            well_known: WellKnownRemoteRegistry::from_remote_registry(&registry)?,
+            high_frequency: HighFrequencyRemoteRegistry::from_remote_registry(registry)?,
+            custom_channel: CustomChannelRemoteRegistry::from_remote_registry(registry)?,
+            inbound_remote: InboundRemoteRegistry::from_remote_registry(registry)?,
+            well_known: WellKnownRemoteRegistry::from_remote_registry(registry)?,
         })
     }
 }
 
 impl<T: Copy> RemotePacketIdFixedTable<T> {
-    fn from_entries<const N: usize>(entries: &[(u8, T); N]) -> Self {
+    pub fn from_entries<const N: usize>(entries: &[(u8, T); N]) -> Self {
         Self::from_iter(entries.iter().copied())
     }
 
@@ -1697,8 +1697,14 @@ impl<T: Copy> RemotePacketIdFixedTable<T> {
 impl HighFrequencyRemoteRegistry {
     pub fn from_manifest(manifest: &RemoteManifest) -> Result<Self, RemoteManifestError> {
         let registry = RemotePacketRegistry::from_manifest(manifest)?;
+        Self::from_remote_registry(&registry)
+    }
+
+    pub fn from_remote_registry(
+        registry: &RemotePacketRegistry<'_>,
+    ) -> Result<Self, RemoteManifestError> {
         Ok(Self {
-            by_packet_id: resolve_high_frequency_remote_registry_entries(&registry)?,
+            by_packet_id: resolve_high_frequency_remote_registry_entries(registry)?,
         })
     }
 
@@ -1740,8 +1746,14 @@ impl HighFrequencyRemoteRegistry {
 impl CustomChannelRemoteRegistry {
     pub fn from_manifest(manifest: &RemoteManifest) -> Result<Self, RemoteManifestError> {
         let registry = RemotePacketRegistry::from_manifest(manifest)?;
+        Self::from_remote_registry(&registry)
+    }
+
+    pub fn from_remote_registry(
+        registry: &RemotePacketRegistry<'_>,
+    ) -> Result<Self, RemoteManifestError> {
         Ok(Self {
-            by_packet_id: resolve_custom_channel_remote_dispatch_entries(&registry)?,
+            by_packet_id: resolve_custom_channel_remote_dispatch_entries(registry)?,
         })
     }
 
@@ -1787,8 +1799,14 @@ impl CustomChannelRemoteRegistry {
 impl InboundRemoteRegistry {
     pub fn from_manifest(manifest: &RemoteManifest) -> Result<Self, RemoteManifestError> {
         let registry = RemotePacketRegistry::from_manifest(manifest)?;
+        Self::from_remote_registry(&registry)
+    }
+
+    pub fn from_remote_registry(
+        registry: &RemotePacketRegistry<'_>,
+    ) -> Result<Self, RemoteManifestError> {
         Ok(Self {
-            by_packet_id: resolve_inbound_remote_dispatch_entries(&registry)?,
+            by_packet_id: resolve_inbound_remote_dispatch_entries(registry)?,
         })
     }
 
@@ -1867,7 +1885,7 @@ impl WellKnownRemoteRegistry {
         self.by_packet_id.clone()
     }
 
-    fn from_remote_registry(
+    pub fn from_remote_registry(
         registry: &RemotePacketRegistry<'_>,
     ) -> Result<Self, RemoteManifestError> {
         let by_method = resolve_well_known_remote_registry_entries(registry)?;
@@ -1984,7 +2002,8 @@ fn resolve_well_known_remote_registry_entries(
     RemoteManifestError,
 > {
     let mut resolved_entries = Vec::with_capacity(WELL_KNOWN_REMOTE_METHOD_COUNT);
-    let mut seen_packet_ids = std::collections::HashSet::with_capacity(WELL_KNOWN_REMOTE_METHOD_COUNT);
+    let mut seen_packet_ids =
+        std::collections::HashSet::with_capacity(WELL_KNOWN_REMOTE_METHOD_COUNT);
 
     for method in WellKnownRemoteMethod::ordered() {
         let packet_id = registry
@@ -2826,6 +2845,31 @@ mod tests {
         assert_eq!(
             bundle.well_known.packet_id(WellKnownRemoteMethod::Ping),
             well_known_registry.packet_id(WellKnownRemoteMethod::Ping)
+        );
+    }
+
+    #[test]
+    fn typed_remote_registries_bundle_can_reuse_single_parsed_remote_registry() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let remote_registry = RemotePacketRegistry::from_manifest(&manifest).unwrap();
+        let bundle = TypedRemoteRegistries::from_remote_registry(&remote_registry).unwrap();
+        let from_manifest = TypedRemoteRegistries::from_manifest(&manifest).unwrap();
+
+        assert_eq!(
+            bundle.high_frequency.resolved_packet_ids(),
+            from_manifest.high_frequency.resolved_packet_ids()
+        );
+        assert_eq!(
+            bundle.custom_channel.resolved_dispatch_specs(),
+            from_manifest.custom_channel.resolved_dispatch_specs()
+        );
+        assert_eq!(
+            bundle.inbound_remote.resolved_dispatch_specs(),
+            from_manifest.inbound_remote.resolved_dispatch_specs()
+        );
+        assert_eq!(
+            bundle.well_known.resolved_packet_ids(),
+            from_manifest.well_known.resolved_packet_ids()
         );
     }
 

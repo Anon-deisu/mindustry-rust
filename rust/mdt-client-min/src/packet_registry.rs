@@ -3,13 +3,16 @@ use crate::generated::remote_high_frequency_gen::{
     STATE_SNAPSHOT_PACKET_ID,
 };
 use crate::snapshot_ingest::InboundSnapshot;
+#[path = "packet_registry_typed_remote_glue.rs"]
+mod typed_remote_glue;
 use mdt_remote::{
     CustomChannelRemoteDispatchSpec, CustomChannelRemoteFamily, CustomChannelRemoteRegistry,
-    HighFrequencyRemoteMethod, HighFrequencyRemoteRegistry, InboundRemoteDispatchSpec,
-    InboundRemoteFamily, InboundRemoteRegistry, RemoteManifest, RemoteManifestError,
-    RemotePacketIdFixedTable, TypedRemoteRegistries, WellKnownRemoteMethod,
-    WellKnownRemoteRegistry, CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT, INBOUND_REMOTE_FAMILY_COUNT,
+    HighFrequencyRemoteMethod, InboundRemoteDispatchSpec, InboundRemoteFamily,
+    InboundRemoteRegistry, RemoteManifest, RemoteManifestError, RemotePacketIdFixedTable,
+    RemotePacketRegistry, WellKnownRemoteMethod, WellKnownRemoteRegistry,
+    CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT, INBOUND_REMOTE_FAMILY_COUNT,
 };
+use typed_remote_glue::PacketRegistryTypedRemoteGlue;
 
 const INBOUND_SNAPSHOT_PACKET_SPECS: [(u8, HighFrequencyRemoteMethod); 4] = [
     (
@@ -31,64 +34,9 @@ const INBOUND_SNAPSHOT_PACKET_SPECS: [(u8, HighFrequencyRemoteMethod); 4] = [
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct TypedRemoteLookup {
-    high_frequency: HighFrequencyRemoteRegistry,
-    inbound_remote: InboundRemoteRegistry,
-    custom_channel: CustomChannelRemoteRegistry,
-}
-
-impl TypedRemoteLookup {
-    fn from_remote_manifest(manifest: &RemoteManifest) -> Result<Self, RemoteManifestError> {
-        let registries = TypedRemoteRegistries::from_manifest(manifest)?;
-        Ok(Self {
-            high_frequency: registries.high_frequency,
-            inbound_remote: registries.inbound_remote,
-            custom_channel: registries.custom_channel,
-        })
-    }
-
-    fn inbound_snapshot_packet_specs(
-        &self,
-    ) -> Result<[(u8, HighFrequencyRemoteMethod); 4], RemoteManifestError> {
-        let mut resolved = Vec::with_capacity(4);
-        let mut seen_packet_ids = std::collections::HashSet::with_capacity(4);
-
-        for method in [
-            HighFrequencyRemoteMethod::StateSnapshot,
-            HighFrequencyRemoteMethod::EntitySnapshot,
-            HighFrequencyRemoteMethod::BlockSnapshot,
-            HighFrequencyRemoteMethod::HiddenSnapshot,
-        ] {
-            let packet_id = self.high_frequency.packet_id(method).ok_or(
-                RemoteManifestError::MissingHighFrequencyPacket(method.method_name()),
-            )?;
-            if !seen_packet_ids.insert(packet_id) {
-                return Err(RemoteManifestError::InvalidPacketSequence(format!(
-                    "duplicate high-frequency server->client snapshot packet id: {packet_id}"
-                )));
-            }
-            resolved.push((packet_id, method));
-        }
-
-        resolved.try_into().map_err(|_| {
-            RemoteManifestError::InvalidPacketSequence(
-                "high-frequency server->client snapshot registry length drifted".into(),
-            )
-        })
-    }
-
-    fn client_snapshot_packet_id(&self) -> Result<u8, RemoteManifestError> {
-        self.high_frequency
-            .packet_id(HighFrequencyRemoteMethod::ClientSnapshot)
-            .ok_or(RemoteManifestError::MissingHighFrequencyPacket(
-                HighFrequencyRemoteMethod::ClientSnapshot.method_name(),
-            ))
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InboundSnapshotPacketRegistry {
-    by_packet_id: [(u8, HighFrequencyRemoteMethod); 4],
+    by_packet_id: RemotePacketIdFixedTable<HighFrequencyRemoteMethod>,
+    resolved_packet_ids: [(u8, HighFrequencyRemoteMethod); 4],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -129,36 +77,35 @@ pub struct CombinedPacketRegistries {
 impl Default for InboundSnapshotPacketRegistry {
     fn default() -> Self {
         Self {
-            by_packet_id: INBOUND_SNAPSHOT_PACKET_SPECS,
+            by_packet_id: RemotePacketIdFixedTable::from_entries(&INBOUND_SNAPSHOT_PACKET_SPECS),
+            resolved_packet_ids: INBOUND_SNAPSHOT_PACKET_SPECS,
         }
     }
 }
 
 impl InboundSnapshotPacketRegistry {
     pub fn from_remote_manifest(manifest: &RemoteManifest) -> Result<Self, RemoteManifestError> {
-        let high_frequency = HighFrequencyRemoteRegistry::from_manifest(manifest)?;
+        let remote_registry = RemotePacketRegistry::from_manifest(manifest)?;
+        let resolved_packet_ids =
+            inbound_snapshot_packet_specs_from_remote_registry(&remote_registry)?;
         Ok(Self {
-            by_packet_id: inbound_snapshot_packet_specs_from_registry(&high_frequency)?,
+            by_packet_id: RemotePacketIdFixedTable::from_entries(&resolved_packet_ids),
+            resolved_packet_ids,
         })
     }
 
     pub fn classify<'a>(&self, packet_id: u8, payload: &'a [u8]) -> Option<InboundSnapshot<'a>> {
         self.by_packet_id
-            .iter()
-            .find_map(|(known_packet_id, method)| {
-                (*known_packet_id == packet_id).then_some(*method)
-            })
+            .get(packet_id)
             .map(|method| InboundSnapshot::new(method, packet_id, payload))
     }
 
     pub fn contains_packet_id(&self, packet_id: u8) -> bool {
-        self.by_packet_id
-            .iter()
-            .any(|(known_packet_id, _)| *known_packet_id == packet_id)
+        self.by_packet_id.contains_packet_id(packet_id)
     }
 
     pub fn len(&self) -> usize {
-        self.by_packet_id.len()
+        self.resolved_packet_ids.len()
     }
 }
 
@@ -213,24 +160,27 @@ impl InboundRemotePacketRegistry {
 
 impl CombinedPacketRegistries {
     pub fn from_remote_manifest(manifest: &RemoteManifest) -> Result<Self, RemoteManifestError> {
-        let lookup = TypedRemoteLookup::from_remote_manifest(manifest)?;
-        let client_snapshot_packet_id = lookup.client_snapshot_packet_id()?;
+        let glue = PacketRegistryTypedRemoteGlue::from_remote_manifest(manifest)?;
+        let client_snapshot_packet_id = glue.client_snapshot_packet_id()?;
+        let inbound_snapshot_packet_ids = glue.inbound_snapshot_packet_specs()?;
 
         Ok(Self {
             inbound_snapshot: InboundSnapshotPacketRegistry {
-                by_packet_id: lookup.inbound_snapshot_packet_specs()?,
+                by_packet_id: RemotePacketIdFixedTable::from_entries(&inbound_snapshot_packet_ids),
+                resolved_packet_ids: inbound_snapshot_packet_ids,
             },
-            inbound_remote: InboundRemotePacketRegistry::from_typed_registry(lookup.inbound_remote),
-            custom_channel: CustomChannelPacketRegistry::from_typed_registry(lookup.custom_channel),
+            inbound_remote: InboundRemotePacketRegistry::from_typed_registry(glue.inbound_remote),
+            custom_channel: CustomChannelPacketRegistry::from_typed_registry(glue.custom_channel),
             client_snapshot_packet_id,
-            well_known_remote: WellKnownRemotePacketIds::from_remote_manifest(manifest)?,
+            well_known_remote: WellKnownRemotePacketIds::from_typed_registry(glue.well_known),
         })
     }
 }
 
 impl WellKnownRemotePacketIds {
     pub fn from_remote_manifest(manifest: &RemoteManifest) -> Result<Self, RemoteManifestError> {
-        let registry = WellKnownRemoteRegistry::from_manifest(manifest)?;
+        let remote_registry = RemotePacketRegistry::from_manifest(manifest)?;
+        let registry = WellKnownRemoteRegistry::from_remote_registry(&remote_registry)?;
         Ok(Self::from_typed_registry(registry))
     }
 
@@ -285,8 +235,8 @@ impl InboundRemotePacketRegistry {
     }
 }
 
-fn inbound_snapshot_packet_specs_from_registry(
-    high_frequency: &HighFrequencyRemoteRegistry,
+fn inbound_snapshot_packet_specs_from_remote_registry(
+    remote_registry: &RemotePacketRegistry<'_>,
 ) -> Result<[(u8, HighFrequencyRemoteMethod); 4], RemoteManifestError> {
     let mut resolved = Vec::with_capacity(4);
     let mut seen_packet_ids = std::collections::HashSet::with_capacity(4);
@@ -297,9 +247,12 @@ fn inbound_snapshot_packet_specs_from_registry(
         HighFrequencyRemoteMethod::BlockSnapshot,
         HighFrequencyRemoteMethod::HiddenSnapshot,
     ] {
-        let packet_id = high_frequency.packet_id(method).ok_or(
-            RemoteManifestError::MissingHighFrequencyPacket(method.method_name()),
-        )?;
+        let packet_id = remote_registry
+            .first_high_frequency_method(method)
+            .map(|packet| packet.packet_id)
+            .ok_or(RemoteManifestError::MissingHighFrequencyPacket(
+                method.method_name(),
+            ))?;
         if !seen_packet_ids.insert(packet_id) {
             return Err(RemoteManifestError::InvalidPacketSequence(format!(
                 "duplicate high-frequency server->client snapshot packet id: {packet_id}"
@@ -617,7 +570,9 @@ mod tests {
             ),
             (
                 WellKnownRemoteMethod::ClientPlanSnapshotReceived,
-                combined.well_known_remote.client_plan_snapshot_received_packet_id,
+                combined
+                    .well_known_remote
+                    .client_plan_snapshot_received_packet_id,
             ),
             (
                 WellKnownRemoteMethod::PingResponse,
@@ -629,7 +584,9 @@ mod tests {
             ),
             (
                 WellKnownRemoteMethod::DebugStatusClientUnreliable,
-                combined.well_known_remote.debug_status_client_unreliable_packet_id,
+                combined
+                    .well_known_remote
+                    .debug_status_client_unreliable_packet_id,
             ),
             (
                 WellKnownRemoteMethod::TraceInfo,
@@ -696,10 +653,7 @@ mod tests {
         let typed_registry = WellKnownRemoteRegistry::from_manifest(&manifest).unwrap();
 
         let expected = [
-            (
-                WellKnownRemoteMethod::Ping,
-                well_known.ping_packet_id,
-            ),
+            (WellKnownRemoteMethod::Ping, well_known.ping_packet_id),
             (
                 WellKnownRemoteMethod::ClientPlanSnapshot,
                 well_known.client_plan_snapshot_packet_id,

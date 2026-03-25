@@ -4258,21 +4258,24 @@ fn maybe_apply_runtime_snapshot_overrides(
     }
 
     if let Some(live_intent_mapper) = live_intent_mapper {
-        let runtime_snapshot = sample_runtime_input_snapshot(runtime_input_sample(session));
+        let runtime_snapshot = sample_runtime_input_snapshot(runtime_input_sample(session, args));
         if live_intent_mapper.advance(&runtime_snapshot, now_ms) {
             apply_live_intents_to_snapshot(session, live_intent_mapper.state());
         }
     }
 }
 
-fn runtime_input_sample(session: &ClientSession) -> RuntimeInputSample {
+fn runtime_input_sample(session: &ClientSession, args: &CliArgs) -> RuntimeInputSample {
     let input = session.snapshot_input();
+    let queue_selection = snapshot_builder_queue_selection(session);
     RuntimeInputSample {
         position: input.position,
         pointer: input.pointer,
         velocity: input.velocity,
         mining_tile: input.mining_tile,
-        building: input.building,
+        building: args
+            .snapshot_building
+            .unwrap_or(input.building || queue_selection.building),
         shooting: input.shooting,
         boosting: input.boosting,
         chatting: input.chatting,
@@ -10131,7 +10134,8 @@ mod tests {
             input.chatting = true;
         }
 
-        let sampled = sample_runtime_input_snapshot(runtime_input_sample(&session));
+        let args = parse_args(sample_args(&[])).unwrap();
+        let sampled = sample_runtime_input_snapshot(runtime_input_sample(&session, &args));
         assert_eq!(sampled.move_axis, (1.5, -2.5));
         assert_eq!(sampled.aim_axis, (5.0, 6.0));
         assert_eq!(sampled.mining_tile, Some((9, 11)));
@@ -10140,6 +10144,42 @@ mod tests {
             sampled.active_actions,
             vec![BinaryAction::Fire, BinaryAction::Chat]
         );
+    }
+
+    #[test]
+    fn runtime_input_sampling_infers_building_from_local_plan_queue() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
+        let args = parse_args(sample_args(&[])).unwrap();
+        session.snapshot_input_mut().plans = Some(vec![ClientBuildPlan {
+            tile: (4, 4),
+            breaking: false,
+            block_id: Some(0x0102),
+            rotation: 1,
+            config: ClientBuildPlanConfig::None,
+        }]);
+
+        let sampled = sample_runtime_input_snapshot(runtime_input_sample(&session, &args));
+
+        assert!(sampled.building);
+    }
+
+    #[test]
+    fn runtime_input_sampling_respects_snapshot_building_override_over_local_plan_queue() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
+        let args = parse_args(sample_args(&["--snapshot-no-building"])).unwrap();
+        session.snapshot_input_mut().plans = Some(vec![ClientBuildPlan {
+            tile: (4, 4),
+            breaking: false,
+            block_id: Some(0x0102),
+            rotation: 1,
+            config: ClientBuildPlanConfig::None,
+        }]);
+
+        let sampled = sample_runtime_input_snapshot(runtime_input_sample(&session, &args));
+
+        assert!(!sampled.building);
     }
 
     #[test]

@@ -1636,21 +1636,7 @@ fn compose_overlay_semantics_text(scene: &RenderModel) -> Option<String> {
         return None;
     }
 
-    let mut text = format!(
-        "players={} markers={} plans={} blocks={} runtime={} terrain={} unknown={}",
-        summary.player_count,
-        summary.marker_count,
-        summary.plan_count,
-        summary.block_count,
-        summary.runtime_count,
-        summary.terrain_count,
-        summary.unknown_count,
-    );
-    if let Some(detail_text) = summary.detail_text() {
-        text.push_str(" detail=");
-        text.push_str(&detail_text);
-    }
-    Some(text)
+    Some(summary.family_and_detail_text())
 }
 
 fn semantic_detail_text(

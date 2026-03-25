@@ -2259,19 +2259,21 @@ impl BuildingTableProjection {
         &self,
         build_pos: i32,
         configured: &ConfiguredBlockProjection,
+        resource_delta: &ResourceDeltaProjection,
     ) -> Option<TypedBuildingRuntimeModel> {
         let building = self.by_build_pos.get(&build_pos)?;
-        typed_runtime_building_model(build_pos, building, configured)
+        typed_runtime_building_model(build_pos, building, configured, resource_delta)
     }
 
     pub fn typed_runtime_buildings(
         &self,
         configured: &ConfiguredBlockProjection,
+        resource_delta: &ResourceDeltaProjection,
     ) -> Vec<TypedBuildingRuntimeModel> {
         self.by_build_pos
             .iter()
             .filter_map(|(build_pos, building)| {
-                typed_runtime_building_model(*build_pos, building, configured)
+                typed_runtime_building_model(*build_pos, building, configured, resource_delta)
             })
             .collect()
     }
@@ -2389,6 +2391,7 @@ pub struct TypedBuildingRuntimeModel {
     pub block_name: String,
     pub kind: TypedBuildingRuntimeKind,
     pub value: TypedBuildingRuntimeValue,
+    pub inventory_item_stacks: Vec<(i16, i32)>,
     pub rotation: Option<u8>,
     pub team_id: Option<u8>,
     pub io_version: Option<u8>,
@@ -2439,6 +2442,7 @@ fn typed_runtime_building_model(
     build_pos: i32,
     building: &BuildingProjection,
     configured: &ConfiguredBlockProjection,
+    resource_delta: &ResourceDeltaProjection,
 ) -> Option<TypedBuildingRuntimeModel> {
     let block_name = building.block_name.as_deref()?;
     let (kind, value) = match block_name {
@@ -2680,6 +2684,10 @@ fn typed_runtime_building_model(
         block_name: block_name.to_string(),
         kind,
         value,
+        inventory_item_stacks: typed_runtime_building_inventory_item_stacks(
+            build_pos,
+            resource_delta,
+        ),
         rotation: building.rotation,
         team_id: building.team_id,
         io_version: building.io_version,
@@ -2698,6 +2706,22 @@ fn typed_runtime_building_model(
         build_turret_plan_count: building.build_turret_plan_count,
         last_update: building.last_update,
     })
+}
+
+fn typed_runtime_building_inventory_item_stacks(
+    build_pos: i32,
+    resource_delta: &ResourceDeltaProjection,
+) -> Vec<(i16, i32)> {
+    resource_delta
+        .building_items_by_build
+        .get(&build_pos)
+        .map(|items| {
+            items
+                .iter()
+                .map(|(&item_id, &amount)| (item_id, amount))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -4447,7 +4471,12 @@ impl SessionState {
             .building_table_projection
             .by_build_pos
             .get(&build_pos)?;
-        typed_runtime_building_model(build_pos, building, &self.configured_block_projection)
+        typed_runtime_building_model(
+            build_pos,
+            building,
+            &self.configured_block_projection,
+            &self.resource_delta_projection,
+        )
     }
 
     pub fn typed_runtime_buildings(&self) -> Vec<TypedBuildingRuntimeModel> {
@@ -4459,6 +4488,7 @@ impl SessionState {
                     *build_pos,
                     building,
                     &self.configured_block_projection,
+                    &self.resource_delta_projection,
                 )
             })
             .collect()
@@ -4576,7 +4606,12 @@ impl SessionState {
             .by_build_pos
             .get(&build_pos)
             .and_then(|building| {
-                typed_runtime_building_model(build_pos, building, &self.configured_block_projection)
+                typed_runtime_building_model(
+                    build_pos,
+                    building,
+                    &self.configured_block_projection,
+                    &self.resource_delta_projection,
+                )
             });
         match model {
             Some(model) => self
@@ -5430,6 +5465,9 @@ mod tests {
         state
             .configured_block_projection
             .apply_message_text(build_pos, "hello".to_string());
+        state
+            .resource_delta_projection
+            .seed_world_build_items(build_pos, &[(4, 12), (6, 0), (7, 3)]);
 
         let expected = TypedBuildingRuntimeModel {
             build_pos,
@@ -5437,6 +5475,7 @@ mod tests {
             block_name: "message".to_string(),
             kind: TypedBuildingRuntimeKind::Message,
             value: TypedBuildingRuntimeValue::Text("hello".to_string()),
+            inventory_item_stacks: vec![(4, 12), (7, 3)],
             rotation: Some(1),
             team_id: Some(2),
             io_version: Some(3),
@@ -5526,6 +5565,7 @@ mod tests {
                 block_name: "phase-conduit".to_string(),
                 kind: TypedBuildingRuntimeKind::ItemBridge,
                 value: TypedBuildingRuntimeValue::Link(Some(target_pos)),
+                inventory_item_stacks: Vec::new(),
                 rotation: Some(1),
                 team_id: Some(2),
                 io_version: Some(3),
@@ -5586,6 +5626,7 @@ mod tests {
                 block_name: "memory-cell".to_string(),
                 kind: TypedBuildingRuntimeKind::Memory,
                 value: TypedBuildingRuntimeValue::Memory(values_bits),
+                inventory_item_stacks: Vec::new(),
                 rotation: Some(2),
                 team_id: Some(3),
                 io_version: Some(4),
@@ -5646,6 +5687,7 @@ mod tests {
                     plans_present: Some(true),
                     plan_count: Some(5),
                 },
+                inventory_item_stacks: Vec::new(),
                 rotation: Some(3),
                 team_id: Some(4),
                 io_version: Some(5),
