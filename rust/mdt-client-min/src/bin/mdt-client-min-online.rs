@@ -29,12 +29,13 @@ use mdt_client_min::custom_packet_runtime_surface::{
 use mdt_client_min::render_runtime::{RenderRuntimeAdapter, RuntimeEffectClipView};
 use mdt_input::live_intent::RuntimeIntentTracker;
 use mdt_input::{
-    flip_plans, rotate_plans, sample_runtime_input_snapshot, BinaryAction,
-    BuilderQueueActivityObservation, BuilderQueueBuildSelection, BuilderQueueEntryObservation,
-    BuilderQueueStateMachine, BuilderQueueTileStateObservation, CommandModeRectProjection,
-    CommandModeState, CommandUnitRef, InputSnapshot, IntentSamplingMode, LiveIntentState,
-    MovementProbeConfig, MovementProbeController, PlanBlockMeta, PlanEditable, PlanPoint,
-    RuntimeInputSample, RuntimeInputState,
+    flip_plans, rotate_plans, sample_runtime_input_snapshot, valid_place_against_local_plans,
+    BinaryAction, BuilderQueueActivityObservation, BuilderQueueBuildSelection,
+    BuilderQueueEntryObservation, BuilderQueueStateMachine, BuilderQueueTileStateObservation,
+    CommandModeRectProjection, CommandModeState, CommandUnitRef, InputSnapshot, IntentSamplingMode,
+    LiveIntentState, LocalPlanPlacement, MovementProbeConfig, MovementProbeController,
+    PlacementRequest, PlanBlockMeta, PlanEditable, PlanPoint, RuntimeInputSample,
+    RuntimeInputState,
 };
 use mdt_remote::HighFrequencyRemoteMethod;
 use mdt_remote::{read_remote_manifest, RemoteManifest};
@@ -61,6 +62,7 @@ const DEFAULT_DISCOVER_PORT: u16 = 6567;
 const DEFAULT_DISCOVER_TIMEOUT_MS: u64 = 1_500;
 const RUNTIME_CUSTOM_PACKET_SURFACE_OVERLAY_MAX_ENTRIES: usize = 4;
 const RUNTIME_CUSTOM_PACKET_SURFACE_SCENE_OBJECT_LAYER: i32 = 27;
+const BLOCK_CONTENT_TYPE: u8 = 1;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let raw_args = env::args().collect::<Vec<_>>();
@@ -3724,6 +3726,7 @@ fn maybe_apply_auto_build_plans(
         let Some(world) = session.loaded_world_state() else {
             return;
         };
+        let existing_plans = session.snapshot_input().plans.clone();
         let selected_block_id = session.snapshot_input().selected_block_id;
         let selected_rotation = u8::try_from(session.snapshot_input().selected_rotation)
             .ok()
@@ -3779,7 +3782,7 @@ fn maybe_apply_auto_build_plans(
             });
         }
 
-        plans
+        filter_overlapping_auto_place_plans(&world, existing_plans.as_deref(), plans)
     };
 
     if resolved.is_empty() {
@@ -3802,6 +3805,82 @@ fn maybe_apply_auto_build_plans(
         "build_plans_auto_applied: origin_tile={:?} plans={:?}",
         origin_tile, resolved
     );
+}
+
+fn filter_overlapping_auto_place_plans(
+    world: &LoadedWorldState<'_>,
+    existing: Option<&[ClientBuildPlan]>,
+    incoming: Vec<ClientBuildPlan>,
+) -> Vec<ClientBuildPlan> {
+    let mut local_plans = existing
+        .into_iter()
+        .flatten()
+        .map(|plan| local_plan_placement(world, plan))
+        .collect::<Vec<_>>();
+    let mut filtered = Vec::with_capacity(incoming.len());
+
+    for plan in incoming {
+        let placement = local_plan_placement(world, &plan);
+        let allow = if plan.breaking {
+            true
+        } else {
+            valid_place_against_local_plans(
+                PlacementRequest {
+                    x: placement.x,
+                    y: placement.y,
+                    size: placement.size,
+                },
+                &local_plans,
+                None,
+            )
+        };
+
+        if allow {
+            local_plans.push(placement);
+            filtered.push(plan);
+        }
+    }
+
+    filtered
+}
+
+fn local_plan_placement(
+    world: &LoadedWorldState<'_>,
+    plan: &ClientBuildPlan,
+) -> LocalPlanPlacement {
+    LocalPlanPlacement {
+        x: plan.tile.0,
+        y: plan.tile.1,
+        size: local_plan_block_size(world, plan),
+        breaking: plan.breaking,
+        candidate_can_replace_plan: false,
+    }
+}
+
+fn local_plan_block_size(world: &LoadedWorldState<'_>, plan: &ClientBuildPlan) -> i32 {
+    plan.block_id
+        .and_then(|block_id| resolve_loaded_world_block_name(world, block_id))
+        .map(block_name_size_hint)
+        .unwrap_or(1)
+}
+
+fn resolve_loaded_world_block_name<'a>(
+    world: &'a LoadedWorldState<'_>,
+    block_id: i16,
+) -> Option<&'a str> {
+    usize::try_from(block_id)
+        .ok()
+        .and_then(|content_id| world.content_name(BLOCK_CONTENT_TYPE, content_id))
+}
+
+fn block_name_size_hint(block_name: &str) -> i32 {
+    match block_name {
+        "core-shard" => 3,
+        "core-foundation" => 4,
+        "core-nucleus" => 5,
+        _ if block_name.ends_with("-large") => 2,
+        _ => 1,
+    }
 }
 
 fn sync_runtime_build_selection_state(session: &mut ClientSession, args: &CliArgs) {
@@ -9635,6 +9714,83 @@ mod tests {
         assert_eq!(plans[1].block_id, Some(0x0103));
         assert_eq!(plans[1].rotation, 2);
         assert_eq!(plans[1].config, ClientBuildPlanConfig::Bytes(vec![1, 2]));
+    }
+
+    #[test]
+    fn maybe_apply_auto_build_plans_skips_place_near_player_when_local_plan_overlaps() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
+        ingest_sample_world(&mut session);
+        let args = parse_args(sample_args(&["--plan-place-near-player", "0x0101:1"])).unwrap();
+        let existing_plan = {
+            let world = session.loaded_world_state().unwrap();
+            let overlap_tile = select_place_near_player_tile(&world, (4, 4)).unwrap();
+            let core_block_id =
+                i16::try_from(world.graph().building_center_at(4, 4).unwrap().block_id).unwrap();
+            ClientBuildPlan {
+                tile: overlap_tile,
+                breaking: false,
+                block_id: Some(core_block_id),
+                rotation: 0,
+                config: ClientBuildPlanConfig::None,
+            }
+        };
+        session.snapshot_input_mut().plans = Some(vec![existing_plan.clone()]);
+        let mut applied = false;
+
+        maybe_apply_auto_build_plans(
+            &mut session,
+            &args,
+            &[ClientSessionEvent::PlayerSpawned {
+                player_id: 7,
+                x: 32.0,
+                y: 32.0,
+            }],
+            &mut applied,
+        );
+
+        assert!(!applied);
+        assert_eq!(session.snapshot_input().plans, Some(vec![existing_plan]));
+    }
+
+    #[test]
+    fn maybe_apply_auto_build_plans_skips_conflict_place_when_local_plan_overlaps() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
+        ingest_sample_world(&mut session);
+        let args = parse_args(sample_args(&[
+            "--plan-place-conflict-near-player",
+            "0x0101:1",
+        ]))
+        .unwrap();
+        let existing_plan = {
+            let world = session.loaded_world_state().unwrap();
+            let core_block_id =
+                i16::try_from(world.graph().building_center_at(4, 4).unwrap().block_id).unwrap();
+            ClientBuildPlan {
+                tile: (4, 4),
+                breaking: false,
+                block_id: Some(core_block_id),
+                rotation: 0,
+                config: ClientBuildPlanConfig::None,
+            }
+        };
+        session.snapshot_input_mut().plans = Some(vec![existing_plan.clone()]);
+        let mut applied = false;
+
+        maybe_apply_auto_build_plans(
+            &mut session,
+            &args,
+            &[ClientSessionEvent::PlayerSpawned {
+                player_id: 7,
+                x: 32.0,
+                y: 32.0,
+            }],
+            &mut applied,
+        );
+
+        assert!(!applied);
+        assert_eq!(session.snapshot_input().plans, Some(vec![existing_plan]));
     }
 
     #[test]

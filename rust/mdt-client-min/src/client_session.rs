@@ -7078,6 +7078,7 @@ impl ClientSession {
                 self.apply_block_snapshot_entries_from_loaded_world_entries(entries);
             }
             Ok(LoadedWorldBlockSnapshotEntryCollection::Partial { entries, error }) => {
+                self.apply_loaded_world_block_snapshot_head_fallback();
                 self.state
                     .last_loaded_world_block_snapshot_extra_entry_count = entries.len();
                 self.state
@@ -7089,6 +7090,7 @@ impl ClientSession {
                     .last_loaded_world_block_snapshot_extra_entry_parse_error = Some(error);
             }
             Err(error) => {
+                self.apply_loaded_world_block_snapshot_head_fallback();
                 self.state
                     .last_loaded_world_block_snapshot_extra_entry_count = 0;
                 self.state
@@ -7100,6 +7102,39 @@ impl ClientSession {
                     .last_loaded_world_block_snapshot_extra_entry_parse_error = Some(error);
             }
         }
+    }
+
+    fn apply_loaded_world_block_snapshot_head_fallback(&mut self) {
+        let Some(head) = self.state.block_snapshot_head_projection.clone() else {
+            return;
+        };
+
+        self.state
+            .building_table_projection
+            .apply_block_snapshot_head(
+                head.build_pos,
+                head.block_id,
+                None,
+                head.rotation,
+                head.team_id,
+                head.io_version,
+                head.module_bitmask,
+                head.time_scale_bits,
+                head.time_scale_duration_bits,
+                head.last_disabler_pos,
+                head.legacy_consume_connected,
+                None,
+                head.health_bits,
+                head.enabled,
+                head.efficiency,
+                head.optional_efficiency,
+                head.visible_flags,
+                None,
+                None,
+                None,
+            );
+        self.state
+            .refresh_runtime_typed_building_from_tables(head.build_pos);
     }
 
     fn collect_block_snapshot_entries_from_loaded_world(
@@ -21293,9 +21328,25 @@ mod tests {
                 .state()
                 .building_table_projection
                 .by_build_pos
+                .get(&first_build_pos)
+                .map(|building| building.last_update),
+            Some(crate::session_state::BuildingProjectionUpdateKind::BlockSnapshotHead)
+        );
+        assert_eq!(
+            session
+                .state()
+                .building_table_projection
+                .by_build_pos
                 .get(&second_build_pos)
                 .cloned(),
             second_before
+        );
+        assert_eq!(
+            session
+                .state()
+                .building_table_projection
+                .block_snapshot_head_apply_count,
+            1
         );
         assert_eq!(
             session
@@ -21339,17 +21390,9 @@ mod tests {
                 world.building_centers[1].block_id,
             )
         };
-        let first_health_bits = 0x4000_0000u32;
-        payload[10..14].copy_from_slice(&first_health_bits.to_be_bytes());
         let second_block_id_offset = 4 + first_entry_len + 4;
         payload[second_block_id_offset..second_block_id_offset + 2]
             .copy_from_slice(&second_block_id.wrapping_add(1).to_be_bytes());
-        let first_before = session
-            .state()
-            .building_table_projection
-            .by_build_pos
-            .get(&first_build_pos)
-            .cloned();
         let second_before = session
             .state()
             .building_table_projection
@@ -21376,8 +21419,8 @@ mod tests {
                 .building_table_projection
                 .by_build_pos
                 .get(&first_build_pos)
-                .cloned(),
-            first_before
+                .map(|building| building.last_update),
+            Some(crate::session_state::BuildingProjectionUpdateKind::BlockSnapshotHead)
         );
         assert_eq!(
             session
@@ -21387,6 +21430,13 @@ mod tests {
                 .get(&second_build_pos)
                 .cloned(),
             second_before
+        );
+        assert_eq!(
+            session
+                .state()
+                .building_table_projection
+                .block_snapshot_head_apply_count,
+            1
         );
         assert_eq!(
             session
