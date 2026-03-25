@@ -607,6 +607,9 @@ fn runtime_effect_overlay_ttl_ticks(effect_id: Option<i16>) -> u8 {
         Some(10) => 25,
         Some(11) => 8,
         Some(13) => 10,
+        Some(67) => 80,
+        Some(68) => 40,
+        Some(122) => 120,
         Some(26) => 30,
         Some(142) => 20,
         Some(252) => 20,
@@ -5953,6 +5956,13 @@ mod tests {
         );
         assert_eq!(updated_marker.x, 32.0);
         assert_eq!(updated_marker.y, 36.0);
+    }
+
+    #[test]
+    fn runtime_effect_overlay_ttl_ticks_match_rot_with_parent_effect_lifetimes() {
+        assert_eq!(runtime_effect_overlay_ttl_ticks(Some(67)), 80);
+        assert_eq!(runtime_effect_overlay_ttl_ticks(Some(68)), 40);
+        assert_eq!(runtime_effect_overlay_ttl_ticks(Some(122)), 120);
     }
 
     #[test]

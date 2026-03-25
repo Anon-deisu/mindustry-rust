@@ -25,6 +25,10 @@ pub enum RuntimeEffectBinding {
         offset_initialized: bool,
         preserve_spawn_offset: bool,
         allow_fallback_offset_initialization: bool,
+        rotate_with_parent: bool,
+        parent_rotation_reference_bits: u32,
+        rotation_offset_bits: u32,
+        rotation_initialized: bool,
     },
 }
 
@@ -39,6 +43,12 @@ enum ParentUnitPositionSource {
     EntityTable,
     SnapshotInput,
     WorldPlayer,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ParentUnitRotationSource {
+    EntitySemantic,
+    SnapshotInput,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -106,7 +116,7 @@ pub fn effect_contract(effect_id: Option<i16>) -> Option<RuntimeEffectContract> 
         Some(8 | 9 | 178 | 261 | 262) => Some(RuntimeEffectContract::PositionTarget),
         Some(142) => Some(RuntimeEffectContract::DropItem),
         Some(200) => Some(RuntimeEffectContract::FloatLength),
-        Some(257 | 260) => Some(RuntimeEffectContract::UnitParent),
+        Some(67 | 68 | 122 | 257 | 260) => Some(RuntimeEffectContract::UnitParent),
         _ => None,
     }
 }
@@ -188,7 +198,14 @@ pub fn resolve_runtime_effect_overlay_position(
     overlay
         .binding
         .as_mut()
-        .and_then(|binding| resolve_binding_position(binding, session_state, snapshot_input))
+        .and_then(|binding| {
+            resolve_binding_position(
+                binding,
+                session_state,
+                snapshot_input,
+                Some(&mut overlay.rotation_bits),
+            )
+        })
         .unwrap_or(overlay_position)
 }
 
@@ -201,7 +218,7 @@ pub fn resolve_runtime_effect_overlay_source_position(
     overlay
         .source_binding
         .as_mut()
-        .and_then(|binding| resolve_binding_position(binding, session_state, snapshot_input))
+        .and_then(|binding| resolve_binding_position(binding, session_state, snapshot_input, None))
         .unwrap_or(overlay_position)
 }
 
@@ -238,7 +255,12 @@ fn derive_runtime_effect_binding(
                         offset_y_bits: 0.0f32.to_bits(),
                         offset_initialized: false,
                         preserve_spawn_offset: parent_binding_preserves_spawn_offset(effect_id),
-                        allow_fallback_offset_initialization: false,
+                        allow_fallback_offset_initialization:
+                            parent_binding_allows_fallback_offset_initialization(effect_id),
+                        rotate_with_parent: parent_binding_rotates_with_parent(effect_id),
+                        parent_rotation_reference_bits: 0.0f32.to_bits(),
+                        rotation_offset_bits: 0.0f32.to_bits(),
+                        rotation_initialized: false,
                     },
                     initial_position_bits,
                 });
@@ -276,6 +298,10 @@ fn derive_runtime_effect_source_binding(
             offset_initialized: false,
             preserve_spawn_offset: true,
             allow_fallback_offset_initialization: true,
+            rotate_with_parent: false,
+            parent_rotation_reference_bits: 0.0f32.to_bits(),
+            rotation_offset_bits: 0.0f32.to_bits(),
+            rotation_initialized: false,
         }),
         TypeIoSemanticRef::Building { .. }
         | TypeIoSemanticRef::Content { .. }
@@ -487,7 +513,9 @@ fn resolve_binding_position(
     binding: &mut RuntimeEffectBinding,
     session_state: &SessionState,
     snapshot_input: &ClientSnapshotInputState,
+    overlay_rotation_bits: Option<&mut u32>,
 ) -> Option<(u32, u32)> {
+    let mut overlay_rotation_bits = overlay_rotation_bits;
     match binding {
         RuntimeEffectBinding::WorldPosition { x_bits, y_bits } => Some((*x_bits, *y_bits)),
         RuntimeEffectBinding::ParentBuilding { build_pos } => {
@@ -502,9 +530,18 @@ fn resolve_binding_position(
             offset_initialized,
             preserve_spawn_offset,
             allow_fallback_offset_initialization,
+            rotate_with_parent,
+            parent_rotation_reference_bits,
+            rotation_offset_bits,
+            rotation_initialized,
         } => {
             let (parent_x_bits, parent_y_bits, position_source) =
                 resolve_parent_unit_position(*unit_id, session_state, snapshot_input)?;
+            let parent_rotation = if *rotate_with_parent {
+                resolve_parent_unit_rotation(*unit_id, session_state, snapshot_input)
+            } else {
+                None
+            };
             if !*offset_initialized {
                 if !*preserve_spawn_offset {
                     return Some((parent_x_bits, parent_y_bits));
@@ -523,10 +560,25 @@ fn resolve_binding_position(
                 *offset_y_bits = coordinate_delta_bits(*spawn_y_bits, parent_y_bits);
                 *offset_initialized = true;
             }
+            let (resolved_offset_x_bits, resolved_offset_y_bits) = if *preserve_spawn_offset {
+                resolve_parent_unit_offset_bits(
+                    *offset_x_bits,
+                    *offset_y_bits,
+                    *rotate_with_parent,
+                    parent_rotation,
+                    *allow_fallback_offset_initialization,
+                    parent_rotation_reference_bits,
+                    rotation_offset_bits,
+                    rotation_initialized,
+                    &mut overlay_rotation_bits,
+                )
+            } else {
+                (*offset_x_bits, *offset_y_bits)
+            };
             if *preserve_spawn_offset {
                 Some((
-                    apply_coordinate_offset_bits(parent_x_bits, *offset_x_bits),
-                    apply_coordinate_offset_bits(parent_y_bits, *offset_y_bits),
+                    apply_coordinate_offset_bits(parent_x_bits, resolved_offset_x_bits),
+                    apply_coordinate_offset_bits(parent_y_bits, resolved_offset_y_bits),
                 ))
             } else {
                 Some((parent_x_bits, parent_y_bits))
@@ -569,6 +621,69 @@ fn resolve_parent_unit_position(
     None
 }
 
+fn resolve_parent_unit_rotation(
+    unit_id: i32,
+    session_state: &SessionState,
+    snapshot_input: &ClientSnapshotInputState,
+) -> Option<(u32, ParentUnitRotationSource)> {
+    if let Some(entity) = session_state
+        .entity_semantic_projection
+        .by_entity_id
+        .get(&unit_id)
+    {
+        if let crate::session_state::EntitySemanticProjection::Unit(unit) = &entity.projection {
+            return Some((unit.rotation_bits, ParentUnitRotationSource::EntitySemantic));
+        }
+    }
+    (snapshot_input.unit_id == Some(unit_id)).then_some((
+        snapshot_input.rotation.to_bits(),
+        ParentUnitRotationSource::SnapshotInput,
+    ))
+}
+
+fn resolve_parent_unit_offset_bits(
+    offset_x_bits: u32,
+    offset_y_bits: u32,
+    rotate_with_parent: bool,
+    parent_rotation: Option<(u32, ParentUnitRotationSource)>,
+    allow_fallback_offset_initialization: bool,
+    parent_rotation_reference_bits: &mut u32,
+    rotation_offset_bits: &mut u32,
+    rotation_initialized: &mut bool,
+    overlay_rotation_bits: &mut Option<&mut u32>,
+) -> (u32, u32) {
+    if !rotate_with_parent {
+        return (offset_x_bits, offset_y_bits);
+    }
+    let Some((parent_rotation_bits, rotation_source)) = parent_rotation else {
+        return (offset_x_bits, offset_y_bits);
+    };
+    if !*rotation_initialized {
+        let can_initialize_rotation = match rotation_source {
+            ParentUnitRotationSource::EntitySemantic => true,
+            ParentUnitRotationSource::SnapshotInput => allow_fallback_offset_initialization,
+        };
+        if can_initialize_rotation {
+            *parent_rotation_reference_bits = parent_rotation_bits;
+            if let Some(rotation_bits_ref) = overlay_rotation_bits.as_deref_mut() {
+                *rotation_offset_bits =
+                    rotation_delta_bits(*rotation_bits_ref, parent_rotation_bits);
+            }
+            *rotation_initialized = true;
+        }
+    }
+    if !*rotation_initialized {
+        return (offset_x_bits, offset_y_bits);
+    }
+    if let Some(rotation_bits_ref) = overlay_rotation_bits.as_deref_mut() {
+        *rotation_bits_ref =
+            apply_rotation_offset_bits(parent_rotation_bits, *rotation_offset_bits);
+    }
+    let parent_rotation_delta_bits =
+        rotation_delta_bits(parent_rotation_bits, *parent_rotation_reference_bits);
+    rotate_coordinate_offset_bits(offset_x_bits, offset_y_bits, parent_rotation_delta_bits)
+}
+
 fn coordinate_delta_bits(value_bits: u32, base_bits: u32) -> u32 {
     let value = f32::from_bits(value_bits);
     let base = f32::from_bits(base_bits);
@@ -589,6 +704,34 @@ fn apply_coordinate_offset_bits(base_bits: u32, offset_bits: u32) -> u32 {
     }
 }
 
+fn rotate_coordinate_offset_bits(
+    offset_x_bits: u32,
+    offset_y_bits: u32,
+    rotation_bits: u32,
+) -> (u32, u32) {
+    let offset_x = f32::from_bits(offset_x_bits);
+    let offset_y = f32::from_bits(offset_y_bits);
+    let rotation = f32::from_bits(rotation_bits);
+    if !(offset_x.is_finite() && offset_y.is_finite() && rotation.is_finite()) {
+        return (offset_x_bits, offset_y_bits);
+    }
+    let radians = rotation.to_radians();
+    let sin = radians.sin();
+    let cos = radians.cos();
+    (
+        (offset_x * cos - offset_y * sin).to_bits(),
+        (offset_x * sin + offset_y * cos).to_bits(),
+    )
+}
+
+fn rotation_delta_bits(value_bits: u32, base_bits: u32) -> u32 {
+    coordinate_delta_bits(value_bits, base_bits)
+}
+
+fn apply_rotation_offset_bits(base_bits: u32, offset_bits: u32) -> u32 {
+    apply_coordinate_offset_bits(base_bits, offset_bits)
+}
+
 fn world_bits_from_tile_pos(tile_pos: i32) -> (u32, u32) {
     let (world_x, world_y) = world_coords_from_tile_pos(tile_pos);
     (world_x.to_bits(), world_y.to_bits())
@@ -599,6 +742,14 @@ fn parent_binding_preserves_spawn_offset(effect_id: Option<i16>) -> bool {
         effect_contract(effect_id),
         Some(RuntimeEffectContract::UnitParent)
     )
+}
+
+fn parent_binding_allows_fallback_offset_initialization(effect_id: Option<i16>) -> bool {
+    matches!(effect_id, Some(67 | 68 | 122))
+}
+
+fn parent_binding_rotates_with_parent(effect_id: Option<i16>) -> bool {
+    matches!(effect_id, Some(67 | 68 | 122))
 }
 
 fn source_binding_enabled(effect_id: Option<i16>) -> bool {
@@ -627,7 +778,10 @@ mod tests {
         spawn_runtime_effect_overlay, RuntimeEffectBinding,
     };
     use crate::client_session::ClientSnapshotInputState;
-    use crate::session_state::{EntityProjection, SessionState};
+    use crate::session_state::{
+        EntityProjection, EntitySemanticProjection, EntitySemanticProjectionEntry,
+        EntityUnitSemanticProjection, SessionState,
+    };
     use mdt_typeio::TypeIoObject;
 
     #[test]
@@ -661,6 +815,10 @@ mod tests {
                 offset_initialized: false,
                 preserve_spawn_offset: false,
                 allow_fallback_offset_initialization: false,
+                rotate_with_parent: false,
+                parent_rotation_reference_bits: 0.0f32.to_bits(),
+                rotation_offset_bits: 0.0f32.to_bits(),
+                rotation_initialized: false,
             })
         );
     }
@@ -708,6 +866,10 @@ mod tests {
                 offset_initialized: true,
                 preserve_spawn_offset: true,
                 allow_fallback_offset_initialization: false,
+                rotate_with_parent: false,
+                parent_rotation_reference_bits: 0.0f32.to_bits(),
+                rotation_offset_bits: 0.0f32.to_bits(),
+                rotation_initialized: false,
             })
         );
 
@@ -773,6 +935,10 @@ mod tests {
                 offset_initialized: true,
                 preserve_spawn_offset: true,
                 allow_fallback_offset_initialization: true,
+                rotate_with_parent: false,
+                parent_rotation_reference_bits: 0.0f32.to_bits(),
+                rotation_offset_bits: 0.0f32.to_bits(),
+                rotation_initialized: false,
             })
         );
 
@@ -830,6 +996,10 @@ mod tests {
                 offset_initialized: true,
                 preserve_spawn_offset: true,
                 allow_fallback_offset_initialization: true,
+                rotate_with_parent: false,
+                parent_rotation_reference_bits: 0.0f32.to_bits(),
+                rotation_offset_bits: 0.0f32.to_bits(),
+                rotation_initialized: false,
             })
         );
 
@@ -850,5 +1020,108 @@ mod tests {
         let second_position =
             resolve_runtime_effect_overlay_source_position(&mut overlay, &state, &input);
         assert_eq!(second_position, (28.0f32.to_bits(), 44.0f32.to_bits()));
+    }
+
+    #[test]
+    fn effect_runtime_resolve_runtime_effect_overlay_position_rotates_offset_with_parent_unit() {
+        let mut overlay = spawn_runtime_effect_overlay(
+            Some(67),
+            12.0,
+            20.0,
+            12.0,
+            20.0,
+            15.0,
+            0,
+            false,
+            Some(&TypeIoObject::UnitId(404)),
+            10,
+        );
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        state.entity_table_projection.by_entity_id.insert(
+            404,
+            EntityProjection {
+                class_id: 12,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 0,
+                unit_value: 0,
+                x_bits: 10.0f32.to_bits(),
+                y_bits: 20.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
+        state.entity_semantic_projection.by_entity_id.insert(
+            404,
+            EntitySemanticProjectionEntry {
+                class_id: 12,
+                last_seen_entity_snapshot_count: 1,
+                projection: EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
+                    team_id: 1,
+                    unit_type_id: 55,
+                    health_bits: 0,
+                    rotation_bits: 0.0f32.to_bits(),
+                    shield_bits: 0,
+                    mine_tile_pos: 0,
+                    status_count: 0,
+                    payload_count: None,
+                    building_pos: None,
+                    lifetime_bits: None,
+                    time_bits: None,
+                }),
+            },
+        );
+
+        let first_position = resolve_runtime_effect_overlay_position(&mut overlay, &state, &input);
+        assert_eq!(first_position, (12.0f32.to_bits(), 20.0f32.to_bits()));
+        assert_eq!(overlay.rotation_bits, 15.0f32.to_bits());
+        assert_eq!(
+            overlay.binding,
+            Some(RuntimeEffectBinding::ParentUnit {
+                unit_id: 404,
+                spawn_x_bits: 12.0f32.to_bits(),
+                spawn_y_bits: 20.0f32.to_bits(),
+                offset_x_bits: 2.0f32.to_bits(),
+                offset_y_bits: 0.0f32.to_bits(),
+                offset_initialized: true,
+                preserve_spawn_offset: true,
+                allow_fallback_offset_initialization: true,
+                rotate_with_parent: true,
+                parent_rotation_reference_bits: 0.0f32.to_bits(),
+                rotation_offset_bits: 15.0f32.to_bits(),
+                rotation_initialized: true,
+            })
+        );
+
+        state
+            .entity_table_projection
+            .by_entity_id
+            .get_mut(&404)
+            .expect("missing entity 404")
+            .x_bits = 16.0f32.to_bits();
+        state.entity_semantic_projection.by_entity_id.insert(
+            404,
+            EntitySemanticProjectionEntry {
+                class_id: 12,
+                last_seen_entity_snapshot_count: 2,
+                projection: EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
+                    team_id: 1,
+                    unit_type_id: 55,
+                    health_bits: 0,
+                    rotation_bits: 90.0f32.to_bits(),
+                    shield_bits: 0,
+                    mine_tile_pos: 0,
+                    status_count: 0,
+                    payload_count: None,
+                    building_pos: None,
+                    lifetime_bits: None,
+                    time_bits: None,
+                }),
+            },
+        );
+
+        let second_position = resolve_runtime_effect_overlay_position(&mut overlay, &state, &input);
+        assert_eq!(second_position, (16.0f32.to_bits(), 22.0f32.to_bits()));
+        assert_eq!(overlay.rotation_bits, 105.0f32.to_bits());
     }
 }
