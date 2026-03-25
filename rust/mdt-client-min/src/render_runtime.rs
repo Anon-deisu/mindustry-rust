@@ -7990,14 +7990,38 @@ mod tests {
         state.last_set_hud_text_message = Some("hud".to_string());
         state.last_set_hud_text_reliable_message = Some("hud reliable".to_string());
         state.received_announce_count = 12;
+        state.last_announce_message = Some("announce".to_string());
         state.received_info_message_count = 13;
+        state.last_info_message = Some("info".to_string());
         state.received_info_toast_count = 14;
         state.received_warning_toast_count = 15;
+        state.received_info_popup_count = 16;
+        state.received_info_popup_reliable_count = 17;
         state.last_info_toast_message = Some("toast".to_string());
         state.last_warning_toast_text = Some("warning".to_string());
+        state.last_info_popup_reliable = Some(true);
+        state.last_info_popup_id = Some("popup-a".to_string());
+        state.last_info_popup_message = Some("popup text".to_string());
+        state.last_info_popup_duration_bits = Some(2.5f32.to_bits());
+        state.last_info_popup_align = Some(1);
+        state.last_info_popup_top = Some(2);
+        state.last_info_popup_left = Some(3);
+        state.last_info_popup_bottom = Some(4);
+        state.last_info_popup_right = Some(5);
         state.received_menu_open_count = 16;
         state.received_follow_up_menu_open_count = 17;
         state.received_hide_follow_up_menu_count = 18;
+        state.last_menu_open_id = Some(40);
+        state.last_menu_open_title = Some("main".to_string());
+        state.last_menu_open_message = Some("pick".to_string());
+        state.last_menu_open_option_rows = 2;
+        state.last_menu_open_first_row_len = 3;
+        state.last_follow_up_menu_open_id = Some(41);
+        state.last_follow_up_menu_open_title = Some("follow".to_string());
+        state.last_follow_up_menu_open_message = Some("next".to_string());
+        state.last_follow_up_menu_open_option_rows = 1;
+        state.last_follow_up_menu_open_first_row_len = 2;
+        state.last_hide_follow_up_menu_id = Some(41);
         state.received_server_message_count = 7;
         state.last_server_message = Some("server text".to_string());
         state.received_chat_message_count = 8;
@@ -8430,7 +8454,7 @@ mod tests {
             "runtime_rules=sr67:srf68:so69:sof70:rule71:rf72:clr73:cmp74:wv1:pvp0:obj2:q1:par1:fg2:oor75:last9"
         ));
         assert!(hud.status_text.contains(
-            "runtime_ui_notice=hud9:hudr10:hide11:ann12:info13:toast14:warn15:popup0:popr0:clip51@copied#6:uri52@https_//exam~#19:https"
+            "runtime_ui_notice=hud9:hudr10:hide11:ann12:info13:toast14:warn15:popup16:popr17:clip51@copied#6:uri52@https_//exam~#19:https"
         ));
         assert!(hud
             .status_text
@@ -8453,12 +8477,46 @@ mod tests {
             runtime_ui.hud_text.last_reliable_message.as_deref(),
             Some("hud reliable")
         );
+        assert_eq!(runtime_ui.hud_text.announce_count, 12);
+        assert_eq!(
+            runtime_ui.hud_text.last_announce_message.as_deref(),
+            Some("announce")
+        );
+        assert_eq!(runtime_ui.hud_text.info_message_count, 13);
+        assert_eq!(
+            runtime_ui.hud_text.last_info_message.as_deref(),
+            Some("info")
+        );
         assert_eq!(runtime_ui.toast.info_count, 14);
         assert_eq!(runtime_ui.toast.warning_count, 15);
         assert_eq!(runtime_ui.toast.last_info_message.as_deref(), Some("toast"));
         assert_eq!(
             runtime_ui.toast.last_warning_text.as_deref(),
             Some("warning")
+        );
+        assert_eq!(runtime_ui.toast.info_popup_count, 16);
+        assert_eq!(runtime_ui.toast.info_popup_reliable_count, 17);
+        assert_eq!(runtime_ui.toast.last_info_popup_reliable, Some(true));
+        assert_eq!(
+            runtime_ui.toast.last_info_popup_id.as_deref(),
+            Some("popup-a")
+        );
+        assert_eq!(
+            runtime_ui.toast.last_info_popup_message.as_deref(),
+            Some("popup text")
+        );
+        assert_eq!(runtime_ui.toast.last_info_popup_duration_bits, Some(2.5f32.to_bits()));
+        assert_eq!(runtime_ui.toast.last_info_popup_align, Some(1));
+        assert_eq!(runtime_ui.toast.last_info_popup_top, Some(2));
+        assert_eq!(runtime_ui.toast.last_info_popup_left, Some(3));
+        assert_eq!(runtime_ui.toast.last_info_popup_bottom, Some(4));
+        assert_eq!(runtime_ui.toast.last_info_popup_right, Some(5));
+        assert_eq!(runtime_ui.toast.clipboard_count, 51);
+        assert_eq!(runtime_ui.toast.last_clipboard_text.as_deref(), Some("copied"));
+        assert_eq!(runtime_ui.toast.open_uri_count, 52);
+        assert_eq!(
+            runtime_ui.toast.last_open_uri.as_deref(),
+            Some("https://example.com")
         );
         assert_eq!(runtime_ui.chat.server_message_count, 7);
         assert_eq!(
@@ -8505,6 +8563,32 @@ mod tests {
         assert_eq!(runtime_ui.menu.menu_open_count, 16);
         assert_eq!(runtime_ui.menu.follow_up_menu_open_count, 17);
         assert_eq!(runtime_ui.menu.hide_follow_up_menu_count, 18);
+        assert_eq!(runtime_ui.menu.last_menu_open_id, Some(40));
+        assert_eq!(runtime_ui.menu.last_menu_open_title.as_deref(), Some("main"));
+        assert_eq!(runtime_ui.menu.last_menu_open_message.as_deref(), Some("pick"));
+        assert_eq!(runtime_ui.menu.last_menu_open_option_rows, 2);
+        assert_eq!(runtime_ui.menu.last_menu_open_first_row_len, 3);
+        assert_eq!(runtime_ui.menu.last_follow_up_menu_open_id, Some(41));
+        assert_eq!(
+            runtime_ui.menu.last_follow_up_menu_open_title.as_deref(),
+            Some("follow")
+        );
+        assert_eq!(
+            runtime_ui.menu.last_follow_up_menu_open_message.as_deref(),
+            Some("next")
+        );
+        assert_eq!(runtime_ui.menu.last_follow_up_menu_open_option_rows, 1);
+        assert_eq!(runtime_ui.menu.last_follow_up_menu_open_first_row_len, 2);
+        assert_eq!(runtime_ui.menu.last_hide_follow_up_menu_id, Some(41));
+        assert_eq!(runtime_ui.menu.menu_choose_count, 29);
+        assert_eq!(runtime_ui.menu.last_menu_choose_menu_id, Some(404));
+        assert_eq!(runtime_ui.menu.last_menu_choose_option, Some(2));
+        assert_eq!(runtime_ui.menu.text_input_result_count, 30);
+        assert_eq!(runtime_ui.menu.last_text_input_result_id, Some(405));
+        assert_eq!(
+            runtime_ui.menu.last_text_input_result_text.as_deref(),
+            Some("ok123")
+        );
         assert_eq!(runtime_ui.rules.set_rules_count, 67);
         assert_eq!(runtime_ui.rules.set_rules_parse_fail_count, 68);
         assert_eq!(runtime_ui.rules.set_objectives_count, 69);

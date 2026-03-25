@@ -2069,8 +2069,8 @@ mod tests {
         build_build_config_panel, build_build_interaction_panel, build_build_minimap_assist_panel,
         build_hud_status_panel, build_hud_visibility_panel, build_minimap_panel,
         build_runtime_admin_panel, build_runtime_chat_panel, build_runtime_command_mode_panel,
-        build_runtime_dialog_panel, build_runtime_dialog_stack_panel, build_runtime_kick_panel,
-        build_runtime_live_effect_panel, build_runtime_live_entity_panel,
+        build_runtime_choice_panel, build_runtime_dialog_panel, build_runtime_dialog_stack_panel,
+        build_runtime_kick_panel, build_runtime_live_effect_panel, build_runtime_live_entity_panel,
         build_runtime_loading_panel, build_runtime_menu_panel, build_runtime_notice_state_panel,
         build_runtime_prompt_panel, build_runtime_reconnect_panel, build_runtime_rules_panel,
         build_runtime_session_panel, build_runtime_ui_notice_panel, build_runtime_ui_stack_panel,
@@ -2704,6 +2704,10 @@ mod tests {
                     hide_count: 11,
                     last_message: Some("hud text".to_string()),
                     last_reliable_message: Some("hud rel".to_string()),
+                    announce_count: 12,
+                    last_announce_message: Some("ann".to_string()),
+                    info_message_count: 13,
+                    last_info_message: Some("info".to_string()),
                     ..RuntimeHudTextObservability::default()
                 },
                 toast: RuntimeToastObservability {
@@ -2711,6 +2715,21 @@ mod tests {
                     warning_count: 15,
                     last_info_message: Some("toast".to_string()),
                     last_warning_text: Some("warn".to_string()),
+                    info_popup_count: 16,
+                    info_popup_reliable_count: 17,
+                    last_info_popup_reliable: Some(true),
+                    last_info_popup_id: Some("popup-a".to_string()),
+                    last_info_popup_message: Some("popup text".to_string()),
+                    last_info_popup_duration_bits: Some(2.5f32.to_bits()),
+                    last_info_popup_align: Some(1),
+                    last_info_popup_top: Some(2),
+                    last_info_popup_left: Some(3),
+                    last_info_popup_bottom: Some(4),
+                    last_info_popup_right: Some(5),
+                    clipboard_count: 18,
+                    last_clipboard_text: Some("copied".to_string()),
+                    open_uri_count: 19,
+                    last_open_uri: Some("https://example.com".to_string()),
                     ..RuntimeToastObservability::default()
                 },
                 text_input: RuntimeTextInputObservability {
@@ -2749,10 +2768,32 @@ mod tests {
         assert_eq!(panel.hud_hide_count, 11);
         assert_eq!(panel.hud_last_message.as_deref(), Some("hud text"));
         assert_eq!(panel.hud_last_reliable_message.as_deref(), Some("hud rel"));
+        assert_eq!(panel.announce_count, 12);
+        assert_eq!(panel.last_announce_message.as_deref(), Some("ann"));
+        assert_eq!(panel.info_message_count, 13);
+        assert_eq!(panel.last_info_message.as_deref(), Some("info"));
         assert_eq!(panel.toast_info_count, 14);
         assert_eq!(panel.toast_warning_count, 15);
         assert_eq!(panel.toast_last_info_message.as_deref(), Some("toast"));
         assert_eq!(panel.toast_last_warning_text.as_deref(), Some("warn"));
+        assert_eq!(panel.info_popup_count, 16);
+        assert_eq!(panel.info_popup_reliable_count, 17);
+        assert_eq!(panel.last_info_popup_reliable, Some(true));
+        assert_eq!(panel.last_info_popup_id.as_deref(), Some("popup-a"));
+        assert_eq!(panel.last_info_popup_message.as_deref(), Some("popup text"));
+        assert_eq!(panel.last_info_popup_duration_bits, Some(2.5f32.to_bits()));
+        assert_eq!(panel.last_info_popup_align, Some(1));
+        assert_eq!(panel.last_info_popup_top, Some(2));
+        assert_eq!(panel.last_info_popup_left, Some(3));
+        assert_eq!(panel.last_info_popup_bottom, Some(4));
+        assert_eq!(panel.last_info_popup_right, Some(5));
+        assert_eq!(panel.clipboard_count, 18);
+        assert_eq!(panel.last_clipboard_text.as_deref(), Some("copied"));
+        assert_eq!(panel.open_uri_count, 19);
+        assert_eq!(
+            panel.last_open_uri.as_deref(),
+            Some("https://example.com")
+        );
         assert_eq!(panel.text_input_open_count, 53);
         assert_eq!(panel.text_input_last_id, Some(404));
         assert_eq!(panel.text_input_last_title.as_deref(), Some("Digits"));
@@ -3094,6 +3135,23 @@ mod tests {
                     menu_open_count: 16,
                     follow_up_menu_open_count: 17,
                     hide_follow_up_menu_count: 18,
+                    last_menu_open_id: Some(40),
+                    last_menu_open_title: Some("main".to_string()),
+                    last_menu_open_message: Some("pick".to_string()),
+                    last_menu_open_option_rows: 2,
+                    last_menu_open_first_row_len: 3,
+                    last_follow_up_menu_open_id: Some(41),
+                    last_follow_up_menu_open_title: Some("follow".to_string()),
+                    last_follow_up_menu_open_message: Some("next".to_string()),
+                    last_follow_up_menu_open_option_rows: 1,
+                    last_follow_up_menu_open_first_row_len: 2,
+                    last_hide_follow_up_menu_id: Some(41),
+                    menu_choose_count: 29,
+                    last_menu_choose_menu_id: Some(404),
+                    last_menu_choose_option: Some(2),
+                    text_input_result_count: 30,
+                    last_text_input_result_id: Some(405),
+                    last_text_input_result_text: Some("ok123".to_string()),
                     ..RuntimeMenuObservability::default()
                 },
                 command_mode: RuntimeCommandModeObservability::default(),
@@ -3110,6 +3168,17 @@ mod tests {
         assert_eq!(panel.menu_open_count, 16);
         assert_eq!(panel.follow_up_menu_open_count, 17);
         assert_eq!(panel.hide_follow_up_menu_count, 18);
+        assert_eq!(panel.last_menu_open_id, Some(40));
+        assert_eq!(panel.last_menu_open_title.as_deref(), Some("main"));
+        assert_eq!(panel.last_menu_open_message.as_deref(), Some("pick"));
+        assert_eq!(panel.last_menu_open_option_rows, 2);
+        assert_eq!(panel.last_menu_open_first_row_len, 3);
+        assert_eq!(panel.last_follow_up_menu_open_id, Some(41));
+        assert_eq!(panel.last_follow_up_menu_open_title.as_deref(), Some("follow"));
+        assert_eq!(panel.last_follow_up_menu_open_message.as_deref(), Some("next"));
+        assert_eq!(panel.last_follow_up_menu_open_option_rows, 1);
+        assert_eq!(panel.last_follow_up_menu_open_first_row_len, 2);
+        assert_eq!(panel.last_hide_follow_up_menu_id, Some(41));
         assert_eq!(panel.text_input_open_count, 53);
         assert_eq!(panel.text_input_last_id, Some(404));
         assert_eq!(panel.text_input_last_title.as_deref(), Some("Digits"));
@@ -3117,6 +3186,14 @@ mod tests {
         assert_eq!(panel.text_input_last_length, Some(16));
         assert_eq!(panel.text_input_last_numeric, Some(true));
         assert_eq!(panel.text_input_last_allow_empty, Some(true));
+
+        let choice = build_runtime_choice_panel(&hud).expect("expected runtime choice panel");
+        assert_eq!(choice.menu_choose_count, 29);
+        assert_eq!(choice.last_menu_choose_menu_id, Some(404));
+        assert_eq!(choice.last_menu_choose_option, Some(2));
+        assert_eq!(choice.text_input_result_count, 30);
+        assert_eq!(choice.last_text_input_result_id, Some(405));
+        assert_eq!(choice.last_text_input_result_text.as_deref(), Some("ok123"));
     }
 
     #[test]
