@@ -20,8 +20,9 @@ use crate::session_state::{
     ReconnectReasonKind, SessionResetKind, SessionState, SessionTimeoutKind,
     StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection, TileConfigAuthoritySource,
     TileConfigProjection, TypedBuildingRuntimeKind, TypedBuildingRuntimeModel,
-    TypedBuildingRuntimeProjection, TypedBuildingRuntimeValue, UnitAssemblerRuntimeProjection,
-    UnitRefProjection, WorldBootstrapProjection, WorldReloadProjection,
+    TypedBuildingRuntimeProjection, TypedBuildingRuntimeValue, TypedRuntimeEntityModel,
+    TypedRuntimeEntityProjection, UnitAssemblerRuntimeProjection, UnitRefProjection,
+    WorldBootstrapProjection, WorldReloadProjection,
 };
 use mdt_remote::{HighFrequencyRemoteMethod, HIGH_FREQUENCY_REMOTE_METHOD_COUNT};
 use mdt_render_ui::hud_model::{
@@ -90,6 +91,7 @@ impl RenderRuntimeAdapter {
         );
         append_building_table_projection_objects(scene, session_state);
         append_block_snapshot_projection_objects(scene, session_state);
+        append_runtime_live_entity_objects(scene, session_state);
         let bootstrap_projection = session_state.world_bootstrap_projection.as_ref();
         let runtime_state_mirror = session_state.authoritative_state_mirror.as_ref();
         let state_authority_projection = session_state.state_snapshot_authority_projection.as_ref();
@@ -3624,6 +3626,85 @@ fn append_block_snapshot_projection_objects(scene: &mut RenderModel, session_sta
     });
 }
 
+fn append_runtime_live_entity_objects(scene: &mut RenderModel, session_state: &SessionState) {
+    let projection = session_state.runtime_typed_entity_projection();
+    if projection.by_entity_id.is_empty() {
+        return;
+    }
+
+    let has_player_focus_object = scene
+        .objects
+        .iter()
+        .any(|object| object.id.starts_with("player:") || object.id.starts_with("unit:"));
+
+    let local_player_entity_id = projection
+        .local_player()
+        .map(|player| player.base.entity_id);
+    if !has_player_focus_object {
+        if let Some(local_player_entity_id) = local_player_entity_id {
+            if let Some(model) = projection.entity_at(local_player_entity_id) {
+                if let Some(object) = runtime_live_entity_scene_object(model) {
+                    scene.objects.push(object);
+                }
+            }
+        }
+    }
+
+    append_runtime_live_entity_non_local_objects(scene, &projection, local_player_entity_id);
+}
+
+fn append_runtime_live_entity_non_local_objects(
+    scene: &mut RenderModel,
+    projection: &TypedRuntimeEntityProjection,
+    local_player_entity_id: Option<i32>,
+) {
+    for (&entity_id, model) in &projection.by_entity_id {
+        if Some(entity_id) == local_player_entity_id {
+            continue;
+        }
+        if let Some(object) = runtime_live_entity_scene_object(model) {
+            scene.objects.push(object);
+        }
+    }
+}
+
+fn runtime_live_entity_scene_object(model: &TypedRuntimeEntityModel) -> Option<RenderObject> {
+    let base = model.base();
+    if base.hidden {
+        return None;
+    }
+
+    let (x, y) = runtime_live_entity_world_xy(model)?;
+    Some(RenderObject {
+        id: runtime_live_entity_scene_object_id(model),
+        layer: runtime_live_entity_layer(model),
+        x,
+        y,
+    })
+}
+
+fn runtime_live_entity_scene_object_id(model: &TypedRuntimeEntityModel) -> String {
+    let entity_id = model.entity_id();
+    match model {
+        TypedRuntimeEntityModel::Player(_) => format!("player:{entity_id}"),
+        TypedRuntimeEntityModel::Unit(_) => format!("unit:{entity_id}"),
+    }
+}
+
+fn runtime_live_entity_world_xy(model: &TypedRuntimeEntityModel) -> Option<(f32, f32)> {
+    let base = model.base();
+    let x = f32::from_bits(base.x_bits);
+    let y = f32::from_bits(base.y_bits);
+    (x.is_finite() && y.is_finite()).then_some((x, y))
+}
+
+fn runtime_live_entity_layer(model: &TypedRuntimeEntityModel) -> i32 {
+    match model {
+        TypedRuntimeEntityModel::Player(_) => 41,
+        TypedRuntimeEntityModel::Unit(_) => 40,
+    }
+}
+
 fn append_building_table_projection_objects(scene: &mut RenderModel, session_state: &SessionState) {
     const TILE_SIZE: f32 = 8.0;
 
@@ -4003,6 +4084,171 @@ mod tests {
             .iter()
             .filter(|object| object.id.starts_with(prefix))
             .collect()
+    }
+
+    fn scene_object_by_id<'a>(scene: &'a RenderModel, id: &str) -> Option<&'a RenderObject> {
+        scene.objects.iter().find(|object| object.id == id)
+    }
+
+    #[test]
+    fn render_runtime_adapter_appends_visible_runtime_live_unit_object() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        state
+            .runtime_typed_entity_apply_projection
+            .upsert_runtime_entity(crate::session_state::TypedRuntimeEntityModel::Unit(
+                crate::session_state::TypedRuntimeUnitEntity {
+                    base: crate::session_state::TypedRuntimeEntityBase {
+                        entity_id: 202,
+                        class_id: 4,
+                        hidden: false,
+                        is_local_player: false,
+                        unit_kind: 2,
+                        unit_value: 202,
+                        x_bits: 30.0f32.to_bits(),
+                        y_bits: 40.0f32.to_bits(),
+                        last_seen_entity_snapshot_count: 3,
+                    },
+                    semantic: crate::session_state::EntityUnitSemanticProjection {
+                        team_id: 2,
+                        unit_type_id: 55,
+                        health_bits: 0,
+                        rotation_bits: 0.0f32.to_bits(),
+                        shield_bits: 0,
+                        mine_tile_pos: 0,
+                        status_count: 0,
+                        payload_count: None,
+                        building_pos: None,
+                        lifetime_bits: None,
+                        time_bits: None,
+                    },
+                },
+            ));
+
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let unit = scene_object_by_id(&scene, "unit:202").expect("missing runtime unit object");
+        assert_eq!(unit.layer, 40);
+        assert_eq!(unit.x, 30.0);
+        assert_eq!(unit.y, 40.0);
+    }
+
+    #[test]
+    fn render_runtime_adapter_skips_hidden_runtime_live_unit_object() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        state
+            .runtime_typed_entity_apply_projection
+            .upsert_runtime_entity(crate::session_state::TypedRuntimeEntityModel::Unit(
+                crate::session_state::TypedRuntimeUnitEntity {
+                    base: crate::session_state::TypedRuntimeEntityBase {
+                        entity_id: 202,
+                        class_id: 4,
+                        hidden: true,
+                        is_local_player: false,
+                        unit_kind: 2,
+                        unit_value: 202,
+                        x_bits: 30.0f32.to_bits(),
+                        y_bits: 40.0f32.to_bits(),
+                        last_seen_entity_snapshot_count: 3,
+                    },
+                    semantic: crate::session_state::EntityUnitSemanticProjection {
+                        team_id: 2,
+                        unit_type_id: 55,
+                        health_bits: 0,
+                        rotation_bits: 0.0f32.to_bits(),
+                        shield_bits: 0,
+                        mine_tile_pos: 0,
+                        status_count: 0,
+                        payload_count: None,
+                        building_pos: None,
+                        lifetime_bits: None,
+                        time_bits: None,
+                    },
+                },
+            ));
+
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        assert!(scene_object_by_id(&scene, "unit:202").is_none());
+    }
+
+    #[test]
+    fn render_runtime_adapter_appends_local_runtime_player_when_scene_has_no_player_focus() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        state
+            .runtime_typed_entity_apply_projection
+            .upsert_runtime_entity(crate::session_state::TypedRuntimeEntityModel::Player(
+                crate::session_state::TypedRuntimePlayerEntity {
+                    base: crate::session_state::TypedRuntimeEntityBase {
+                        entity_id: 101,
+                        class_id: 12,
+                        hidden: false,
+                        is_local_player: true,
+                        unit_kind: 2,
+                        unit_value: 101,
+                        x_bits: 24.0f32.to_bits(),
+                        y_bits: 32.0f32.to_bits(),
+                        last_seen_entity_snapshot_count: 5,
+                    },
+                },
+            ));
+
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let player =
+            scene_object_by_id(&scene, "player:101").expect("missing runtime local player");
+        assert_eq!(player.layer, 41);
+        assert_eq!(player.x, 24.0);
+        assert_eq!(player.y, 32.0);
+        assert_eq!(scene.player_focus_tile(8.0), Some((3, 4)));
+    }
+
+    #[test]
+    fn render_runtime_adapter_preserves_existing_player_focus_when_runtime_local_player_exists() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        scene.objects.push(RenderObject {
+            id: "player:7".to_string(),
+            layer: 40,
+            x: 24.0,
+            y: 32.0,
+        });
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        state
+            .runtime_typed_entity_apply_projection
+            .upsert_runtime_entity(crate::session_state::TypedRuntimeEntityModel::Player(
+                crate::session_state::TypedRuntimePlayerEntity {
+                    base: crate::session_state::TypedRuntimeEntityBase {
+                        entity_id: 101,
+                        class_id: 12,
+                        hidden: false,
+                        is_local_player: true,
+                        unit_kind: 2,
+                        unit_value: 101,
+                        x_bits: 80.0f32.to_bits(),
+                        y_bits: 96.0f32.to_bits(),
+                        last_seen_entity_snapshot_count: 5,
+                    },
+                },
+            ));
+
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        assert!(scene_object_by_id(&scene, "player:101").is_none());
+        assert_eq!(scene.player_focus_tile(8.0), Some((3, 4)));
     }
 
     #[test]
