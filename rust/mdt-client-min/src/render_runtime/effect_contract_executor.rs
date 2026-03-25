@@ -12,6 +12,7 @@ const DROP_ITEM_EFFECT_LENGTH: f32 = 20.0;
 const PAYLOAD_DEPOSIT_EFFECT_ID: i16 = 26;
 const PAYLOAD_DEPOSIT_OVERLAY_TTL_TICKS: u8 = 3;
 const LIGHTNING_EFFECT_ID: i16 = 13;
+const UNIT_SPIRIT_EFFECT_ID: i16 = 8;
 const POINT_BEAM_EFFECT_ID: i16 = 10;
 const POINT_HIT_EFFECT_ID: i16 = 11;
 const SHIELD_BREAK_EFFECT_ID: i16 = 256;
@@ -22,6 +23,9 @@ const CHAIN_EMP_EFFECT_ID: i16 = 262;
 const CHAIN_SEGMENT_TARGET_PIXELS: f32 = 24.0;
 const CHAIN_MIN_SEGMENTS: usize = 3;
 const CHAIN_MAX_SEGMENTS: usize = 8;
+const UNIT_SPIRIT_SIDE_COUNT: usize = 4;
+const UNIT_SPIRIT_BASE_RADIUS: f32 = 2.5;
+const UNIT_SPIRIT_OUTER_RADIUS_SCALE: f32 = 1.5;
 const SHIELD_BREAK_SIDE_COUNT: usize = 6;
 const SHIELD_BREAK_RADIUS_GROWTH: f32 = 1.0;
 const ARC_SHIELD_BREAK_SEGMENT_COUNT: usize = 8;
@@ -163,6 +167,13 @@ pub(crate) fn line_projections_for_effect_overlay(
 ) -> Vec<RuntimeEffectLineProjection> {
     match overlay.effect_id {
         Some(LIGHTNING_EFFECT_ID) => lightning_line_projections(&overlay.polyline_points),
+        Some(UNIT_SPIRIT_EFFECT_ID) => unit_spirit_line_projections(
+            overlay.source_x_bits,
+            overlay.source_y_bits,
+            target_x_bits,
+            target_y_bits,
+            overlay.remaining_ticks,
+        ),
         Some(POINT_BEAM_EFFECT_ID) => vec![RuntimeEffectLineProjection {
             kind: "point-beam",
             source_x_bits: overlay.source_x_bits,
@@ -342,6 +353,61 @@ fn chain_line_projections(
         .collect()
 }
 
+fn unit_spirit_line_projections(
+    source_x_bits: u32,
+    source_y_bits: u32,
+    target_x_bits: u32,
+    target_y_bits: u32,
+    remaining_ticks: u8,
+) -> Vec<RuntimeEffectLineProjection> {
+    let source_x = f32::from_bits(source_x_bits);
+    let source_y = f32::from_bits(source_y_bits);
+    let target_x = f32::from_bits(target_x_bits);
+    let target_y = f32::from_bits(target_y_bits);
+    if !source_x.is_finite()
+        || !source_y.is_finite()
+        || !target_x.is_finite()
+        || !target_y.is_finite()
+    {
+        return Vec::new();
+    }
+
+    let progress = inclusive_overlay_progress(remaining_ticks);
+    let outer_center = lerp_point(
+        source_x,
+        source_y,
+        target_x,
+        target_y,
+        progress.powi(2),
+    );
+    let inner_center = lerp_point(
+        source_x,
+        source_y,
+        target_x,
+        target_y,
+        progress.powi(5),
+    );
+    let base_radius = UNIT_SPIRIT_BASE_RADIUS * progress;
+    let outer_points = regular_polygon_points(
+        outer_center.0,
+        outer_center.1,
+        base_radius * UNIT_SPIRIT_OUTER_RADIUS_SCALE,
+        UNIT_SPIRIT_SIDE_COUNT,
+        std::f32::consts::FRAC_PI_4,
+    );
+    let inner_points = regular_polygon_points(
+        inner_center.0,
+        inner_center.1,
+        base_radius,
+        UNIT_SPIRIT_SIDE_COUNT,
+        std::f32::consts::FRAC_PI_4,
+    );
+
+    let mut lines = closed_polyline_line_projections("unit-spirit", &outer_points);
+    lines.extend(closed_polyline_line_projections("unit-spirit", &inner_points));
+    lines
+}
+
 fn shield_break_line_projections(
     center_x_bits: u32,
     center_y_bits: u32,
@@ -519,13 +585,24 @@ fn shield_break_progress(remaining_ticks: u8) -> f32 {
     elapsed as f32 / total_steps as f32
 }
 
-fn point_hit_progress(remaining_ticks: u8) -> f32 {
+fn inclusive_overlay_progress(remaining_ticks: u8) -> f32 {
     let total_steps = PAYLOAD_DEPOSIT_OVERLAY_TTL_TICKS.max(1);
     let elapsed = PAYLOAD_DEPOSIT_OVERLAY_TTL_TICKS
         .saturating_sub(remaining_ticks)
         .saturating_add(1)
         .min(total_steps);
     elapsed as f32 / total_steps as f32
+}
+
+fn point_hit_progress(remaining_ticks: u8) -> f32 {
+    inclusive_overlay_progress(remaining_ticks)
+}
+
+fn lerp_point(source_x: f32, source_y: f32, target_x: f32, target_y: f32, t: f32) -> (f32, f32) {
+    (
+        source_x + (target_x - source_x) * t,
+        source_y + (target_y - source_y) * t,
+    )
 }
 
 fn unit_parent_rotation_bits(overlay: &RuntimeEffectOverlay, session_state: &SessionState) -> Option<u32> {
@@ -1213,6 +1290,61 @@ mod tests {
     }
 
     #[test]
+    fn line_projections_for_effect_overlay_returns_unit_spirit_double_diamond() {
+        let overlay = RuntimeEffectOverlay {
+            effect_id: Some(UNIT_SPIRIT_EFFECT_ID),
+            source_x_bits: 12.0f32.to_bits(),
+            source_y_bits: 20.0f32.to_bits(),
+            x_bits: 80.0f32.to_bits(),
+            y_bits: 160.0f32.to_bits(),
+            rotation_bits: 0.0f32.to_bits(),
+            color_rgba: 0x11223344,
+            reliable: false,
+            has_data: true,
+            remaining_ticks: 3,
+            contract_name: Some("position_target"),
+            binding: None,
+            content_ref: None,
+            polyline_points: Vec::new(),
+        };
+
+        let lines = line_projections_for_effect_overlay(
+            &overlay,
+            80.0f32.to_bits(),
+            160.0f32.to_bits(),
+            &SessionState::default(),
+        );
+        let progress = inclusive_overlay_progress(overlay.remaining_ticks);
+        let outer_points = regular_polygon_points(
+            12.0 + (80.0 - 12.0) * progress.powi(2),
+            20.0 + (160.0 - 20.0) * progress.powi(2),
+            UNIT_SPIRIT_BASE_RADIUS * progress * UNIT_SPIRIT_OUTER_RADIUS_SCALE,
+            UNIT_SPIRIT_SIDE_COUNT,
+            std::f32::consts::FRAC_PI_4,
+        );
+        let inner_points = regular_polygon_points(
+            12.0 + (80.0 - 12.0) * progress.powi(5),
+            20.0 + (160.0 - 20.0) * progress.powi(5),
+            UNIT_SPIRIT_BASE_RADIUS * progress,
+            UNIT_SPIRIT_SIDE_COUNT,
+            std::f32::consts::FRAC_PI_4,
+        );
+
+        assert_eq!(lines.len(), UNIT_SPIRIT_SIDE_COUNT * 2);
+        assert!(lines.iter().all(|line| line.kind == "unit-spirit"));
+        assert!(lines.contains(&line_projection(
+            "unit-spirit",
+            outer_points[0],
+            outer_points[1],
+        )));
+        assert!(lines.contains(&line_projection(
+            "unit-spirit",
+            inner_points[0],
+            inner_points[1],
+        )));
+    }
+
+    #[test]
     fn line_projections_for_effect_overlay_returns_point_hit_circle() {
         let overlay = RuntimeEffectOverlay {
             effect_id: Some(POINT_HIT_EFFECT_ID),
@@ -1482,7 +1614,7 @@ mod tests {
     #[test]
     fn line_projections_for_effect_overlay_ignores_other_effect_ids() {
         let overlay = RuntimeEffectOverlay {
-            effect_id: Some(8),
+            effect_id: Some(12),
             source_x_bits: 12.0f32.to_bits(),
             source_y_bits: 20.0f32.to_bits(),
             x_bits: 80.0f32.to_bits(),

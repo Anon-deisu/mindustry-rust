@@ -5332,6 +5332,40 @@ mod tests {
     }
 
     #[test]
+    fn render_runtime_adapter_renders_unit_spirit_executor_double_diamond() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
+
+        adapter.observe_events(&[ClientSessionEvent::EffectRequested {
+            effect_id: Some(8),
+            x: 1.0,
+            y: 2.0,
+            rotation: 0.0,
+            color_rgba: 0x11223344,
+            data_object: Some(mdt_typeio::TypeIoObject::Point2 { x: 10, y: 20 }),
+        }]);
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let marker = first_runtime_effect_marker(&scene);
+        assert_eq!(
+            marker.id,
+            "marker:runtime-effect:normal:8:0x42a00000:0x43200000:1"
+        );
+        assert_eq!(marker.x, 80.0);
+        assert_eq!(marker.y, 160.0);
+
+        let unit_spirit_prefix = "marker:line:runtime-effect-unit-spirit:";
+        let unit_spirit_lines = runtime_effect_lines_with_prefix(&scene, unit_spirit_prefix);
+        assert_eq!(unit_spirit_lines.len(), 16);
+        assert!(unit_spirit_lines.iter().any(|object| {
+            !object.id.ends_with(":line-end") && object.x < 20.0 && object.y < 40.0
+        }));
+    }
+
+    #[test]
     fn render_runtime_adapter_projects_building_pos_effect_payload_to_tile_world_position() {
         let mut adapter = RenderRuntimeAdapter::default();
         let mut scene = RenderModel::default();
