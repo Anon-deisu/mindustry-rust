@@ -40109,8 +40109,15 @@ mod tests {
     fn msav_post_load_world_executes_narrow_world_semantics_for_save11_regions() {
         let save = parse_msav_save(&sample_msav_post_load_save11_bytes()).unwrap();
         let post_load = save.post_load_world().unwrap();
+        let script = post_load.runtime_apply_script();
         let execution = post_load.execute_runtime_world_semantics();
         let shell = execution.world_shell.as_ref().unwrap();
+        let expected_steps = script
+            .apply_now_steps
+            .iter()
+            .filter(|step| step.targets_world_semantics())
+            .cloned()
+            .collect::<Vec<_>>();
 
         assert!(execution.world_shell_ready);
         assert!(execution.can_apply_world_semantics());
@@ -40118,6 +40125,15 @@ mod tests {
         assert_eq!(execution.failed_step_count(), 0);
         assert_eq!(execution.pending_step_count(), 0);
         assert!(execution.issues.is_empty());
+        assert_eq!(execution.executed_steps, expected_steps);
+        assert!(execution
+            .executed_steps
+            .iter()
+            .all(SavePostLoadRuntimeApplyStep::targets_world_semantics));
+        assert!(script
+            .deferred_steps
+            .iter()
+            .all(|step| !step.targets_world_semantics()));
         assert_eq!(
             shell.buildings.len(),
             post_load.map.world.building_centers.len()

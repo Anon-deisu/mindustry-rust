@@ -31,6 +31,20 @@ pub enum SavePostLoadRuntimeApplyStep {
     },
 }
 
+impl SavePostLoadRuntimeApplyStep {
+    pub fn targets_world_semantics(&self) -> bool {
+        matches!(
+            self,
+            SavePostLoadRuntimeApplyStep::WorldShell
+                | SavePostLoadRuntimeApplyStep::TeamPlan { .. }
+                | SavePostLoadRuntimeApplyStep::Marker { .. }
+                | SavePostLoadRuntimeApplyStep::StaticFog
+                | SavePostLoadRuntimeApplyStep::Building { .. }
+                | SavePostLoadRuntimeApplyStep::LoadableEntity { .. }
+        )
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SavePostLoadRuntimeApplyScript {
     pub can_seed_runtime_apply: bool,

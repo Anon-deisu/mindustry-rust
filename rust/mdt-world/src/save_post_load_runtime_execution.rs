@@ -439,17 +439,7 @@ fn filter_world_semantics_steps(
 ) -> Vec<SavePostLoadRuntimeApplyStep> {
     steps
         .iter()
-        .filter(|step| {
-            matches!(
-                step,
-                SavePostLoadRuntimeApplyStep::WorldShell
-                    | SavePostLoadRuntimeApplyStep::TeamPlan { .. }
-                    | SavePostLoadRuntimeApplyStep::Marker { .. }
-                    | SavePostLoadRuntimeApplyStep::StaticFog
-                    | SavePostLoadRuntimeApplyStep::Building { .. }
-                    | SavePostLoadRuntimeApplyStep::LoadableEntity { .. }
-            )
-        })
+        .filter(|step| step.targets_world_semantics())
         .cloned()
         .collect()
 }
