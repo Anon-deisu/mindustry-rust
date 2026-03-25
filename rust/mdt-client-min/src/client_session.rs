@@ -6481,6 +6481,21 @@ impl ClientSession {
                 base.optional_efficiency,
                 base.visible_flags,
             );
+            if let Some(item_module) = &base.item_module {
+                let stacks = item_module
+                    .entries
+                    .iter()
+                    .map(|entry| {
+                        (
+                            i16::from_be_bytes(entry.item_id.to_be_bytes()),
+                            entry.amount,
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                self.state
+                    .resource_delta_projection
+                    .seed_world_build_items(build_pos, &stacks);
+            }
             self.apply_loaded_world_parsed_tail_business(
                 build_pos,
                 block_name.as_deref(),
@@ -15241,6 +15256,73 @@ mod tests {
         assert_eq!(
             projection.last_update,
             crate::session_state::BuildingProjectionUpdateKind::WorldBaseline
+        );
+    }
+
+    #[test]
+    fn world_stream_ready_seeds_resource_delta_projection_from_world_item_modules() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+
+        session.ingest_packet_bytes(&begin_packet).unwrap();
+        for chunk in chunk_packets {
+            session.ingest_packet_bytes(&chunk).unwrap();
+        }
+
+        let bundle = session.loaded_world_bundle().unwrap();
+        let expected_builds = bundle
+            .world
+            .building_centers
+            .iter()
+            .filter_map(|center| {
+                let item_module = center.building.base.item_module.as_ref()?;
+                let build_items = item_module
+                    .entries
+                    .iter()
+                    .filter(|entry| entry.amount != 0)
+                    .map(|entry| {
+                        (
+                            i16::from_be_bytes(entry.item_id.to_be_bytes()),
+                            entry.amount,
+                        )
+                    })
+                    .collect::<std::collections::BTreeMap<_, _>>();
+                if build_items.is_empty() {
+                    None
+                } else {
+                    Some((pack_point2(center.x as i32, center.y as i32), build_items))
+                }
+            })
+            .collect::<Vec<_>>();
+
+        assert!(
+            !expected_builds.is_empty(),
+            "expected world-stream fixture to expose at least one building item module"
+        );
+        assert_eq!(
+            session.state().resource_delta_projection.build_count(),
+            expected_builds.len()
+        );
+        for (build_pos, build_items) in expected_builds {
+            assert_eq!(
+                session
+                    .state()
+                    .resource_delta_projection
+                    .building_items_by_build
+                    .get(&build_pos)
+                    .cloned(),
+                Some(build_items)
+            );
+        }
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .authoritative_build_update_count,
+            0
         );
     }
 

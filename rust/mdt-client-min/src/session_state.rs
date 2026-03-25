@@ -538,6 +538,20 @@ impl ResourceDeltaProjection {
         }
     }
 
+    pub fn seed_world_build_items(&mut self, build_pos: i32, stacks: &[(i16, i32)]) {
+        let mut build_items = BTreeMap::new();
+        for &(item_id, amount) in stacks {
+            if amount != 0 {
+                build_items.insert(item_id, amount);
+            }
+        }
+        if build_items.is_empty() {
+            self.building_items_by_build.remove(&build_pos);
+        } else {
+            self.building_items_by_build.insert(build_pos, build_items);
+        }
+    }
+
     pub fn clear_build_items(&mut self, build_pos: Option<i32>) {
         let Some(build_pos) = build_pos else {
             return;
@@ -5247,6 +5261,7 @@ impl PayloadLifecycleProjection {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mdt_typeio::pack_point2;
 
     #[test]
     fn reconnect_projection_counts_only_distinct_phase_transitions() {
@@ -5661,6 +5676,31 @@ mod tests {
             state.hidden_snapshot_lifecycle_remove_ids(&BTreeSet::from([303, 404, 505, 606]), None);
 
         assert_eq!(remove_ids, BTreeSet::from([303, 404, 505]));
+    }
+
+    #[test]
+    fn resource_delta_projection_seed_world_build_items_sets_baseline_without_counter_drift() {
+        let mut projection = ResourceDeltaProjection::default();
+        projection.authoritative_build_update_count = 7;
+        projection.last_changed_build_pos = Some(pack_point2(1, 1));
+        projection.last_changed_item_id = Some(5);
+        projection.last_changed_amount = Some(9);
+
+        let build_pos = pack_point2(8, 9);
+        projection.seed_world_build_items(build_pos, &[(4, 12), (6, 0), (7, 3)]);
+
+        assert_eq!(
+            projection.building_items_by_build.get(&build_pos).cloned(),
+            Some(BTreeMap::from([(4, 12), (7, 3)]))
+        );
+        assert_eq!(projection.authoritative_build_update_count, 7);
+        assert_eq!(projection.last_changed_build_pos, Some(pack_point2(1, 1)));
+        assert_eq!(projection.last_changed_item_id, Some(5));
+        assert_eq!(projection.last_changed_amount, Some(9));
+
+        projection.seed_world_build_items(build_pos, &[]);
+        assert!(!projection.building_items_by_build.contains_key(&build_pos));
+        assert_eq!(projection.authoritative_build_update_count, 7);
     }
 
     #[test]
