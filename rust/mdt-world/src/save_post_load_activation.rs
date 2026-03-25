@@ -152,6 +152,7 @@ pub(crate) fn building_tail_kind(parsed_tail: &ParsedBuildingTail) -> &'static s
         ParsedBuildingTail::NullableItemRef(_) => "nullableItemRef",
         ParsedBuildingTail::ItemBridge(_) => "itemBridge",
         ParsedBuildingTail::BufferedItemBridge(_) => "bufferedItemBridge",
+        ParsedBuildingTail::MassDriver(_) => "massDriver",
         ParsedBuildingTail::Junction(_) => "junction",
         ParsedBuildingTail::SorterLegacy(_) => "sorterLegacy",
         ParsedBuildingTail::Turret(_) => "turret",

@@ -6481,21 +6481,10 @@ impl ClientSession {
                 base.optional_efficiency,
                 base.visible_flags,
             );
-            if let Some(item_module) = &base.item_module {
-                let stacks = item_module
-                    .entries
-                    .iter()
-                    .map(|entry| {
-                        (
-                            i16::from_be_bytes(entry.item_id.to_be_bytes()),
-                            entry.amount,
-                        )
-                    })
-                    .collect::<Vec<_>>();
-                self.state
-                    .resource_delta_projection
-                    .seed_world_build_items(build_pos, &stacks);
-            }
+            let build_item_stacks = summarize_item_module_stacks(base.item_module.as_ref());
+            self.state
+                .resource_delta_projection
+                .seed_world_build_items(build_pos, &build_item_stacks);
             self.apply_loaded_world_parsed_tail_business(
                 build_pos,
                 block_name.as_deref(),
@@ -6725,6 +6714,20 @@ impl ClientSession {
                 block_name.as_deref(),
                 &row.sync.parsed_tail,
             );
+            let build_item_stacks =
+                summarize_item_module_stacks(row.sync.base.item_module.as_ref());
+            if !build_item_stacks.is_empty()
+                || self
+                    .state
+                    .resource_delta_projection
+                    .building_items_by_build
+                    .contains_key(&row.build_pos)
+            {
+                self.state.record_replace_build_items_resource_delta(
+                    Some(row.build_pos),
+                    &build_item_stacks,
+                );
+            }
             self.state
                 .refresh_runtime_typed_building_from_tables(row.build_pos);
             self.state
@@ -7244,6 +7247,7 @@ impl ClientSession {
                 summarize_reconstructor_command_id(&building.parsed_tail);
             let memory_values_bits = summarize_memory_values_bits(&building.parsed_tail);
             let canvas_bytes = summarize_canvas_bytes(&building.parsed_tail);
+            let mass_driver_link = summarize_mass_driver_link(&building.parsed_tail);
             let payload_mass_driver_link =
                 summarize_payload_mass_driver_link(&building.parsed_tail);
 
@@ -7276,11 +7280,13 @@ impl ClientSession {
                 reconstructor_command_id,
                 memory_values_bits,
                 canvas_bytes,
+                mass_driver_link,
                 payload_mass_driver_link,
                 nullable_item_id: summarize_nullable_item_config_item_id(&building.parsed_tail),
                 item_bridge_link: summarize_item_bridge_link(&building.parsed_tail),
                 light_color: summarize_one_i32_tail_value(&building.parsed_tail),
                 switch_enabled: summarize_one_bool_tail_value(&building.parsed_tail),
+                build_item_stacks: summarize_item_module_stacks(building.base.item_module.as_ref()),
             };
             entries.push(entry);
         }
@@ -7414,11 +7420,23 @@ impl ClientSession {
         if let Some(link) = summarize_item_bridge_link(parsed_tail) {
             if matches!(
                 block_name,
-                Some(BLOCK_NAME_BRIDGE_CONVEYOR | BLOCK_NAME_PHASE_CONVEYOR)
+                Some(
+                    BLOCK_NAME_BRIDGE_CONVEYOR
+                        | BLOCK_NAME_PHASE_CONVEYOR
+                        | BLOCK_NAME_BRIDGE_CONDUIT
+                        | BLOCK_NAME_PHASE_CONDUIT
+                )
             ) {
                 self.state
                     .configured_block_projection
                     .apply_item_bridge_link(build_pos, Some(link));
+            }
+        }
+        if let Some(link) = summarize_mass_driver_link(parsed_tail) {
+            if block_name == Some(BLOCK_NAME_MASS_DRIVER) {
+                self.state
+                    .configured_block_projection
+                    .apply_mass_driver_link(build_pos, Some(link));
             }
         }
         if let Some(color) = summarize_one_i32_tail_value(parsed_tail) {
@@ -7525,11 +7543,23 @@ impl ClientSession {
         if let Some(link) = entry.item_bridge_link {
             if matches!(
                 entry.block_name.as_deref(),
-                Some(BLOCK_NAME_BRIDGE_CONVEYOR | BLOCK_NAME_PHASE_CONVEYOR)
+                Some(
+                    BLOCK_NAME_BRIDGE_CONVEYOR
+                        | BLOCK_NAME_PHASE_CONVEYOR
+                        | BLOCK_NAME_BRIDGE_CONDUIT
+                        | BLOCK_NAME_PHASE_CONDUIT
+                )
             ) {
                 self.state
                     .configured_block_projection
                     .apply_item_bridge_link(entry.build_pos, Some(link));
+            }
+        }
+        if let Some(link) = entry.mass_driver_link {
+            if entry.block_name.as_deref() == Some(BLOCK_NAME_MASS_DRIVER) {
+                self.state
+                    .configured_block_projection
+                    .apply_mass_driver_link(entry.build_pos, Some(link));
             }
         }
         if let Some(color) = entry.light_color {
@@ -7557,6 +7587,9 @@ impl ClientSession {
                     .apply_door_open(entry.build_pos, Some(enabled));
             }
         }
+        self.state
+            .resource_delta_projection
+            .seed_world_build_items(entry.build_pos, &entry.build_item_stacks);
         self.state
             .refresh_runtime_typed_building_from_tables(entry.build_pos);
     }
@@ -11661,11 +11694,13 @@ struct BlockSnapshotExtraEntrySummary {
     reconstructor_command_id: Option<Option<u16>>,
     memory_values_bits: Option<Vec<u64>>,
     canvas_bytes: Option<Vec<u8>>,
+    mass_driver_link: Option<i32>,
     payload_mass_driver_link: Option<i32>,
     nullable_item_id: Option<Option<i16>>,
     item_bridge_link: Option<i32>,
     light_color: Option<i32>,
     switch_enabled: Option<bool>,
+    build_item_stacks: Vec<(i16, i32)>,
 }
 
 fn loaded_world_nullable_content_object(content_type: u8, content_id: Option<i16>) -> TypeIoObject {
@@ -11698,6 +11733,7 @@ fn loaded_world_config_object_from_summary(
     duct_unloader_item_id: Option<Option<i16>>,
     reconstructor_command_id: Option<Option<u16>>,
     canvas_bytes: Option<&[u8]>,
+    mass_driver_link: Option<i32>,
     payload_mass_driver_link: Option<i32>,
     nullable_item_id: Option<Option<i16>>,
     item_bridge_link: Option<i32>,
@@ -11741,6 +11777,11 @@ fn loaded_world_config_object_from_summary(
     if let Some(bytes) = canvas_bytes {
         return Some(TypeIoObject::Bytes(bytes.to_vec()));
     }
+    if let Some(link) = mass_driver_link {
+        if block_name == Some(BLOCK_NAME_MASS_DRIVER) {
+            return Some(TypeIoObject::BuildingPos(link));
+        }
+    }
     if let Some(link) = payload_mass_driver_link {
         return Some(TypeIoObject::BuildingPos(link));
     }
@@ -11763,7 +11804,12 @@ fn loaded_world_config_object_from_summary(
     if let Some(link) = item_bridge_link {
         if matches!(
             block_name,
-            Some(BLOCK_NAME_BRIDGE_CONVEYOR | BLOCK_NAME_PHASE_CONVEYOR)
+            Some(
+                BLOCK_NAME_BRIDGE_CONVEYOR
+                    | BLOCK_NAME_PHASE_CONVEYOR
+                    | BLOCK_NAME_BRIDGE_CONDUIT
+                    | BLOCK_NAME_PHASE_CONDUIT
+            )
         ) {
             return Some(TypeIoObject::BuildingPos(link));
         }
@@ -11803,6 +11849,7 @@ fn loaded_world_config_object_from_parsed_tail(
         summarize_duct_unloader_item_id(parsed_tail),
         summarize_reconstructor_command_id(parsed_tail),
         summarize_canvas_bytes(parsed_tail).as_deref(),
+        summarize_mass_driver_link(parsed_tail),
         summarize_payload_mass_driver_link(parsed_tail),
         summarize_nullable_item_config_item_id(parsed_tail),
         summarize_item_bridge_link(parsed_tail),
@@ -11824,6 +11871,7 @@ fn loaded_world_config_object_from_block_snapshot_entry(
         entry.duct_unloader_item_id,
         entry.reconstructor_command_id,
         entry.canvas_bytes.as_deref(),
+        entry.mass_driver_link,
         entry.payload_mass_driver_link,
         entry.nullable_item_id,
         entry.item_bridge_link,
@@ -11962,6 +12010,13 @@ fn summarize_payload_mass_driver_link(parsed_tail: &mdt_world::ParsedBuildingTai
     Some(driver.link)
 }
 
+fn summarize_mass_driver_link(parsed_tail: &mdt_world::ParsedBuildingTail) -> Option<i32> {
+    let mdt_world::ParsedBuildingTail::MassDriver(driver) = parsed_tail else {
+        return None;
+    };
+    Some(driver.link)
+}
+
 fn summarize_unit_assembler_projection(
     parsed_tail: &mdt_world::ParsedBuildingTail,
 ) -> Option<UnitAssemblerRuntimeProjection> {
@@ -12023,6 +12078,21 @@ fn summarize_one_bool_tail_value(parsed_tail: &mdt_world::ParsedBuildingTail) ->
         return None;
     };
     Some(value.value)
+}
+
+fn summarize_item_module_stacks(
+    item_module: Option<&mdt_world::BuildingItemModuleSnapshot>,
+) -> Vec<(i16, i32)> {
+    item_module
+        .into_iter()
+        .flat_map(|module| module.entries.iter())
+        .map(|entry| {
+            (
+                i16::from_be_bytes(entry.item_id.to_be_bytes()),
+                entry.amount,
+            )
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -16741,6 +16811,157 @@ mod tests {
     }
 
     #[test]
+    fn entity_snapshot_building_rows_replace_stale_resource_items_from_item_module() {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(40, 62);
+        let block_id = loaded_world_block_id_for_name(&session, "router");
+        let copper_id = loaded_world_content_id_for_name(&session, ITEM_CONTENT_TYPE, "copper");
+        let lead_id = loaded_world_content_id_for_name(&session, ITEM_CONTENT_TYPE, "lead");
+        session
+            .state
+            .resource_delta_projection
+            .building_items_by_build
+            .insert(
+                build_pos,
+                std::collections::BTreeMap::from([(copper_id, 4), (lead_id, 7)]),
+            );
+        session.state.received_entity_snapshot_count = 1;
+
+        let row = EntityBuildingSyncRow {
+            entity_id: build_pos,
+            class_id: 6,
+            build_pos,
+            block_id,
+            sync: mdt_world::BuildingSnapshot {
+                revision: 0,
+                base_len: 0,
+                base: mdt_world::BuildingBaseSnapshot {
+                    health_bits: 0x4120_0000,
+                    rotation: 1,
+                    team_id: 1,
+                    legacy: false,
+                    save_version: None,
+                    enabled: Some(true),
+                    module_bitmask: Some(1),
+                    item_module: Some(mdt_world::BuildingItemModuleSnapshot {
+                        count: 1,
+                        entries: vec![mdt_world::BuildingItemEntry {
+                            item_id: u16::from_be_bytes(copper_id.to_be_bytes()),
+                            amount: 12,
+                        }],
+                    }),
+                    power_module: None,
+                    liquid_module: None,
+                    time_scale_bits: None,
+                    time_scale_duration_bits: None,
+                    last_disabler_pos: None,
+                    legacy_consume_connected: None,
+                    efficiency: None,
+                    optional_efficiency: None,
+                    visible_flags: None,
+                },
+                tail_len: 0,
+                tail_bytes: Vec::new(),
+                tail_sha256: String::new(),
+                parsed_tail: mdt_world::ParsedBuildingTail::Empty,
+            },
+            x_bits: (40.0f32 * 8.0).to_bits(),
+            y_bits: (62.0f32 * 8.0).to_bits(),
+            start: 0,
+            end: 0,
+        };
+
+        session.apply_parseable_building_rows_from_entity_snapshot(&[row]);
+
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .building_items_by_build
+                .get(&build_pos)
+                .cloned(),
+            Some(std::collections::BTreeMap::from([(copper_id, 12)]))
+        );
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .authoritative_build_update_count,
+            1
+        );
+    }
+
+    #[test]
+    fn entity_snapshot_building_rows_clear_stale_resource_items_when_item_module_is_absent() {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(41, 63);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_MESSAGE);
+        let copper_id = loaded_world_content_id_for_name(&session, ITEM_CONTENT_TYPE, "copper");
+        session
+            .state
+            .resource_delta_projection
+            .building_items_by_build
+            .insert(
+                build_pos,
+                std::collections::BTreeMap::from([(copper_id, 9)]),
+            );
+        session.state.received_entity_snapshot_count = 1;
+
+        let row = EntityBuildingSyncRow {
+            entity_id: build_pos,
+            class_id: 6,
+            build_pos,
+            block_id,
+            sync: mdt_world::BuildingSnapshot {
+                revision: 0,
+                base_len: 0,
+                base: mdt_world::BuildingBaseSnapshot {
+                    health_bits: 0x4120_0000,
+                    rotation: 1,
+                    team_id: 1,
+                    legacy: false,
+                    save_version: None,
+                    enabled: Some(true),
+                    module_bitmask: Some(0),
+                    item_module: None,
+                    power_module: None,
+                    liquid_module: None,
+                    time_scale_bits: None,
+                    time_scale_duration_bits: None,
+                    last_disabler_pos: None,
+                    legacy_consume_connected: None,
+                    efficiency: None,
+                    optional_efficiency: None,
+                    visible_flags: None,
+                },
+                tail_len: 0,
+                tail_bytes: Vec::new(),
+                tail_sha256: String::new(),
+                parsed_tail: mdt_world::ParsedBuildingTail::Empty,
+            },
+            x_bits: (41.0f32 * 8.0).to_bits(),
+            y_bits: (63.0f32 * 8.0).to_bits(),
+            start: 0,
+            end: 0,
+        };
+
+        session.apply_parseable_building_rows_from_entity_snapshot(&[row]);
+
+        assert!(!session
+            .state()
+            .resource_delta_projection
+            .building_items_by_build
+            .contains_key(&build_pos));
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .authoritative_build_update_count,
+            1
+        );
+    }
+
+    #[test]
     fn entity_snapshot_packet_applies_parseable_mech_rows_to_entity_table() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
@@ -18759,11 +18980,13 @@ mod tests {
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
+                mass_driver_link: None,
                 payload_mass_driver_link: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
                 switch_enabled: None,
+                build_item_stacks: Vec::new(),
             },
         ]);
 
@@ -18835,11 +19058,13 @@ mod tests {
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
+                mass_driver_link: None,
                 payload_mass_driver_link: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
                 switch_enabled: Some(true),
+                build_item_stacks: Vec::new(),
             },
         ]);
 
@@ -18858,6 +19083,113 @@ mod tests {
             session.state().building_table_projection.last_update,
             Some(crate::session_state::BuildingProjectionUpdateKind::BlockSnapshotHead)
         );
+    }
+
+    #[test]
+    fn apply_loaded_world_block_snapshot_entries_refresh_resource_delta_item_baselines() {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_build_pos_for_block_snapshot_test(8, 9);
+
+        session
+            .state
+            .resource_delta_projection
+            .seed_world_build_items(build_pos, &[(4, 9)]);
+
+        session.apply_block_snapshot_entries_from_loaded_world_entries(vec![
+            BlockSnapshotExtraEntrySummary {
+                build_pos,
+                block_id: 302,
+                block_name: Some(BLOCK_NAME_SORTER.to_string()),
+                health_bits: Some(0x3f80_0000),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                enabled: Some(true),
+                module_bitmask: Some(4),
+                time_scale_bits: Some(0x3f00_0000),
+                time_scale_duration_bits: Some(0x3e80_0000),
+                last_disabler_pos: Some(77),
+                legacy_consume_connected: Some(false),
+                efficiency: Some(0x40),
+                optional_efficiency: Some(0x20),
+                visible_flags: Some(9),
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                constructor_recipe_block_id: None,
+                landing_pad_config_item_id: None,
+                message_text: None,
+                payload_source_content: None,
+                payload_router_sorted_content: None,
+                duct_unloader_item_id: None,
+                reconstructor_command_id: None,
+                memory_values_bits: None,
+                canvas_bytes: None,
+                mass_driver_link: None,
+                payload_mass_driver_link: None,
+                nullable_item_id: Some(Some(7)),
+                item_bridge_link: None,
+                light_color: None,
+                switch_enabled: None,
+                build_item_stacks: vec![(7, 11), (8, 0)],
+            },
+        ]);
+
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .building_items_by_build
+                .get(&build_pos)
+                .cloned(),
+            Some(std::collections::BTreeMap::from([(7, 11)]))
+        );
+
+        session.apply_block_snapshot_entries_from_loaded_world_entries(vec![
+            BlockSnapshotExtraEntrySummary {
+                build_pos,
+                block_id: 302,
+                block_name: Some(BLOCK_NAME_SORTER.to_string()),
+                health_bits: Some(0x3f80_0000),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                enabled: Some(true),
+                module_bitmask: Some(4),
+                time_scale_bits: Some(0x3f00_0000),
+                time_scale_duration_bits: Some(0x3e80_0000),
+                last_disabler_pos: Some(77),
+                legacy_consume_connected: Some(false),
+                efficiency: Some(0x40),
+                optional_efficiency: Some(0x20),
+                visible_flags: Some(9),
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                constructor_recipe_block_id: None,
+                landing_pad_config_item_id: None,
+                message_text: None,
+                payload_source_content: None,
+                payload_router_sorted_content: None,
+                duct_unloader_item_id: None,
+                reconstructor_command_id: None,
+                memory_values_bits: None,
+                canvas_bytes: None,
+                mass_driver_link: None,
+                payload_mass_driver_link: None,
+                nullable_item_id: None,
+                item_bridge_link: None,
+                light_color: None,
+                switch_enabled: None,
+                build_item_stacks: Vec::new(),
+            },
+        ]);
+
+        assert!(!session
+            .state()
+            .resource_delta_projection
+            .building_items_by_build
+            .contains_key(&build_pos));
     }
 
     #[test]
@@ -19672,6 +20004,8 @@ mod tests {
         let sorter_pos = pack_build_pos_for_block_snapshot_test(52, 53);
         let duct_router_pos = pack_build_pos_for_block_snapshot_test(54, 55);
         let bridge_pos = pack_build_pos_for_block_snapshot_test(56, 57);
+        let conduit_pos = pack_build_pos_for_block_snapshot_test(57, 58);
+        let mass_driver_pos = pack_build_pos_for_block_snapshot_test(57, 59);
         let illuminator_pos = pack_build_pos_for_block_snapshot_test(58, 59);
         let switch_pos = pack_build_pos_for_block_snapshot_test(60, 61);
         let door_pos = pack_build_pos_for_block_snapshot_test(62, 63);
@@ -19701,6 +20035,25 @@ mod tests {
                 warmup_bits: 0,
                 incoming: Vec::new(),
                 moved: false,
+            }),
+        );
+        session.apply_loaded_world_parsed_tail_business(
+            conduit_pos,
+            Some(BLOCK_NAME_PHASE_CONDUIT),
+            &mdt_world::ParsedBuildingTail::ItemBridge(mdt_world::ItemBridgeTailSnapshot {
+                link: 18,
+                warmup_bits: 0,
+                incoming: Vec::new(),
+                moved: false,
+            }),
+        );
+        session.apply_loaded_world_parsed_tail_business(
+            mass_driver_pos,
+            Some(BLOCK_NAME_MASS_DRIVER),
+            &mdt_world::ParsedBuildingTail::MassDriver(mdt_world::MassDriverTailSnapshot {
+                link: 24,
+                rotation_bits: 0x41200000,
+                state_ordinal: 2,
             }),
         );
         session.apply_loaded_world_parsed_tail_business(
@@ -19746,6 +20099,22 @@ mod tests {
                 .item_bridge_link_by_build_pos
                 .get(&bridge_pos),
             Some(&Some(12))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .item_bridge_link_by_build_pos
+                .get(&conduit_pos),
+            Some(&Some(18))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .mass_driver_link_by_build_pos
+                .get(&mass_driver_pos),
+            Some(&Some(24))
         );
         assert_eq!(
             session
@@ -19813,11 +20182,13 @@ mod tests {
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
+                mass_driver_link: None,
                 payload_mass_driver_link: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
                 switch_enabled: None,
+                build_item_stacks: Vec::new(),
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: router_pos,
@@ -19851,11 +20222,13 @@ mod tests {
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
+                mass_driver_link: None,
                 payload_mass_driver_link: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
                 switch_enabled: None,
+                build_item_stacks: Vec::new(),
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: memory_pos,
@@ -19886,11 +20259,13 @@ mod tests {
                 reconstructor_command_id: None,
                 memory_values_bits: Some(memory_values_bits.clone()),
                 canvas_bytes: None,
+                mass_driver_link: None,
                 payload_mass_driver_link: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
                 switch_enabled: None,
+                build_item_stacks: Vec::new(),
             },
         ]);
 
@@ -19962,11 +20337,13 @@ mod tests {
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
+                mass_driver_link: None,
                 payload_mass_driver_link: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
                 switch_enabled: None,
+                build_item_stacks: Vec::new(),
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: landing_pad_pos,
@@ -19997,11 +20374,13 @@ mod tests {
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
+                mass_driver_link: None,
                 payload_mass_driver_link: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
                 switch_enabled: None,
+                build_item_stacks: Vec::new(),
             },
         ]);
 
@@ -20029,6 +20408,8 @@ mod tests {
         let sorter_pos = pack_build_pos_for_block_snapshot_test(62, 63);
         let duct_router_pos = pack_build_pos_for_block_snapshot_test(64, 65);
         let bridge_pos = pack_build_pos_for_block_snapshot_test(66, 67);
+        let conduit_pos = pack_build_pos_for_block_snapshot_test(67, 68);
+        let mass_driver_pos = pack_build_pos_for_block_snapshot_test(67, 69);
         let illuminator_pos = pack_build_pos_for_block_snapshot_test(68, 69);
         let switch_pos = pack_build_pos_for_block_snapshot_test(70, 71);
         let door_pos = pack_build_pos_for_block_snapshot_test(72, 73);
@@ -20064,11 +20445,13 @@ mod tests {
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
+                mass_driver_link: None,
                 payload_mass_driver_link: None,
                 nullable_item_id: Some(Some(item_id)),
                 item_bridge_link: None,
                 light_color: None,
                 switch_enabled: None,
+                build_item_stacks: Vec::new(),
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: duct_router_pos,
@@ -20099,11 +20482,13 @@ mod tests {
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
+                mass_driver_link: None,
                 payload_mass_driver_link: None,
                 nullable_item_id: Some(None),
                 item_bridge_link: None,
                 light_color: None,
                 switch_enabled: None,
+                build_item_stacks: Vec::new(),
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: bridge_pos,
@@ -20134,11 +20519,87 @@ mod tests {
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
+                mass_driver_link: None,
                 payload_mass_driver_link: None,
                 nullable_item_id: None,
                 item_bridge_link: Some(14),
                 light_color: None,
                 switch_enabled: None,
+                build_item_stacks: Vec::new(),
+            },
+            BlockSnapshotExtraEntrySummary {
+                build_pos: conduit_pos,
+                block_id: 311,
+                block_name: Some(BLOCK_NAME_BRIDGE_CONDUIT.to_string()),
+                health_bits: Some(0x3f80_0000),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                enabled: Some(true),
+                module_bitmask: Some(4),
+                time_scale_bits: Some(0x3f00_0000),
+                time_scale_duration_bits: Some(0x3e80_0000),
+                last_disabler_pos: Some(77),
+                legacy_consume_connected: Some(false),
+                efficiency: Some(0x40),
+                optional_efficiency: Some(0x20),
+                visible_flags: Some(9),
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                constructor_recipe_block_id: None,
+                landing_pad_config_item_id: None,
+                message_text: None,
+                payload_source_content: None,
+                payload_router_sorted_content: None,
+                duct_unloader_item_id: None,
+                reconstructor_command_id: None,
+                memory_values_bits: None,
+                canvas_bytes: None,
+                mass_driver_link: None,
+                payload_mass_driver_link: None,
+                nullable_item_id: None,
+                item_bridge_link: Some(16),
+                light_color: None,
+                switch_enabled: None,
+                build_item_stacks: Vec::new(),
+            },
+            BlockSnapshotExtraEntrySummary {
+                build_pos: mass_driver_pos,
+                block_id: 312,
+                block_name: Some(BLOCK_NAME_MASS_DRIVER.to_string()),
+                health_bits: Some(0x3f80_0000),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                enabled: Some(true),
+                module_bitmask: Some(4),
+                time_scale_bits: Some(0x3f00_0000),
+                time_scale_duration_bits: Some(0x3e80_0000),
+                last_disabler_pos: Some(77),
+                legacy_consume_connected: Some(false),
+                efficiency: Some(0x40),
+                optional_efficiency: Some(0x20),
+                visible_flags: Some(9),
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                constructor_recipe_block_id: None,
+                landing_pad_config_item_id: None,
+                message_text: None,
+                payload_source_content: None,
+                payload_router_sorted_content: None,
+                duct_unloader_item_id: None,
+                reconstructor_command_id: None,
+                memory_values_bits: None,
+                canvas_bytes: None,
+                mass_driver_link: Some(22),
+                payload_mass_driver_link: None,
+                nullable_item_id: None,
+                item_bridge_link: None,
+                light_color: None,
+                switch_enabled: None,
+                build_item_stacks: Vec::new(),
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: illuminator_pos,
@@ -20169,11 +20630,13 @@ mod tests {
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
+                mass_driver_link: None,
                 payload_mass_driver_link: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: Some(0x55667788),
                 switch_enabled: None,
+                build_item_stacks: Vec::new(),
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: switch_pos,
@@ -20204,11 +20667,13 @@ mod tests {
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
+                mass_driver_link: None,
                 payload_mass_driver_link: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
                 switch_enabled: Some(false),
+                build_item_stacks: Vec::new(),
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: door_pos,
@@ -20239,11 +20704,13 @@ mod tests {
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
+                mass_driver_link: None,
                 payload_mass_driver_link: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
                 switch_enabled: Some(true),
+                build_item_stacks: Vec::new(),
             },
         ]);
 
@@ -20270,6 +20737,22 @@ mod tests {
                 .item_bridge_link_by_build_pos
                 .get(&bridge_pos),
             Some(&Some(14))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .item_bridge_link_by_build_pos
+                .get(&conduit_pos),
+            Some(&Some(16))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .mass_driver_link_by_build_pos
+                .get(&mass_driver_pos),
+            Some(&Some(22))
         );
         assert_eq!(
             session
@@ -20346,11 +20829,13 @@ mod tests {
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
+                mass_driver_link: None,
                 payload_mass_driver_link: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
                 switch_enabled: None,
+                build_item_stacks: Vec::new(),
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: duct_unloader_pos,
@@ -20381,11 +20866,13 @@ mod tests {
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
+                mass_driver_link: None,
                 payload_mass_driver_link: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
                 switch_enabled: None,
+                build_item_stacks: Vec::new(),
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: reconstructor_pos,
@@ -20416,11 +20903,13 @@ mod tests {
                 reconstructor_command_id: Some(Some(7)),
                 memory_values_bits: None,
                 canvas_bytes: None,
+                mass_driver_link: None,
                 payload_mass_driver_link: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
                 switch_enabled: None,
+                build_item_stacks: Vec::new(),
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: canvas_pos,
@@ -20451,11 +20940,13 @@ mod tests {
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: Some(canvas_bytes.clone()),
+                mass_driver_link: None,
                 payload_mass_driver_link: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
                 switch_enabled: None,
+                build_item_stacks: Vec::new(),
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: payload_mass_driver_pos,
@@ -20486,11 +20977,13 @@ mod tests {
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
+                mass_driver_link: None,
                 payload_mass_driver_link: Some(10),
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
                 switch_enabled: None,
+                build_item_stacks: Vec::new(),
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: sorter_pos,
@@ -20521,11 +21014,13 @@ mod tests {
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
+                mass_driver_link: None,
                 payload_mass_driver_link: None,
                 nullable_item_id: Some(Some(item_id)),
                 item_bridge_link: None,
                 light_color: None,
                 switch_enabled: None,
+                build_item_stacks: Vec::new(),
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: illuminator_pos,
@@ -20556,11 +21051,13 @@ mod tests {
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
+                mass_driver_link: None,
                 payload_mass_driver_link: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: Some(0x2233_4455),
                 switch_enabled: None,
+                build_item_stacks: Vec::new(),
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: phase_conveyor_pos,
@@ -20591,11 +21088,13 @@ mod tests {
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
+                mass_driver_link: None,
                 payload_mass_driver_link: None,
                 nullable_item_id: None,
                 item_bridge_link: Some(phase_link),
                 light_color: None,
                 switch_enabled: None,
+                build_item_stacks: Vec::new(),
             },
         ]);
 

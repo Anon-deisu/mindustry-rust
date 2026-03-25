@@ -15178,6 +15178,13 @@ pub struct BufferedItemBridgeTailSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MassDriverTailSnapshot {
+    pub link: i32,
+    pub rotation_bits: u32,
+    pub state_ordinal: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DirectionalBufferEntrySnapshot {
     pub raw: u64,
     pub item_id: i16,
@@ -15451,6 +15458,7 @@ pub enum ParsedBuildingTail {
     NullableItemRef(NullableItemRefTailSnapshot),
     ItemBridge(ItemBridgeTailSnapshot),
     BufferedItemBridge(BufferedItemBridgeTailSnapshot),
+    MassDriver(MassDriverTailSnapshot),
     Junction(JunctionTailSnapshot),
     SorterLegacy(SorterLegacyTailSnapshot),
     Turret(TurretTailSnapshot),
@@ -15767,6 +15775,7 @@ fn building_tail_kind(parsed_tail: &ParsedBuildingTail) -> &'static str {
         ParsedBuildingTail::NullableItemRef(_) => "nullableItemRef",
         ParsedBuildingTail::ItemBridge(_) => "itemBridge",
         ParsedBuildingTail::BufferedItemBridge(_) => "bufferedItemBridge",
+        ParsedBuildingTail::MassDriver(_) => "massDriver",
         ParsedBuildingTail::Junction(_) => "junction",
         ParsedBuildingTail::SorterLegacy(_) => "sorterLegacy",
         ParsedBuildingTail::Turret(_) => "turret",
@@ -24326,11 +24335,14 @@ fn parse_building_tail_with_context(
         Some("conveyor") => Ok(ParsedBuildingTail::Conveyor(parse_conveyor_tail_snapshot(
             revision, tail_bytes,
         )?)),
-        Some("phase-conveyor") => Ok(ParsedBuildingTail::ItemBridge(
-            parse_item_bridge_tail_snapshot(revision, tail_bytes)?,
-        )),
+        Some("phase-conveyor") | Some("bridge-conduit") | Some("phase-conduit") => Ok(
+            ParsedBuildingTail::ItemBridge(parse_item_bridge_tail_snapshot(revision, tail_bytes)?),
+        ),
         Some("bridge-conveyor") => Ok(ParsedBuildingTail::BufferedItemBridge(
             parse_buffered_item_bridge_tail_snapshot(revision, tail_bytes)?,
+        )),
+        Some("mass-driver") => Ok(ParsedBuildingTail::MassDriver(
+            parse_mass_driver_tail_snapshot(tail_bytes)?,
         )),
         Some("junction") => Ok(ParsedBuildingTail::Junction(parse_junction_tail_snapshot(
             revision, tail_bytes,
@@ -24620,6 +24632,22 @@ fn parse_item_buffer_tail_snapshot(
         normalized_index: i32::from(index).min(i32::from(capacity_raw) - 1),
         entries,
     })
+}
+
+fn parse_mass_driver_tail_snapshot(tail_bytes: &[u8]) -> Result<MassDriverTailSnapshot, String> {
+    let mut reader = Reader::new(tail_bytes);
+    let snapshot = MassDriverTailSnapshot {
+        link: reader.read_i32()?,
+        rotation_bits: reader.read_u32()?,
+        state_ordinal: reader.read_u8()?,
+    };
+    if !reader.remaining_bytes().is_empty() {
+        return Err(format!(
+            "unexpected mass driver tail remainder: {} bytes",
+            reader.remaining_bytes().len()
+        ));
+    }
+    Ok(snapshot)
 }
 
 fn parse_buffered_item_bridge_tail_snapshot(
@@ -26921,6 +26949,7 @@ pub fn format_world_model_goldens(model: &WorldModel) -> String {
                 ParsedBuildingTail::NullableItemRef(_) => "nullableItemRef",
                 ParsedBuildingTail::ItemBridge(_) => "itemBridge",
                 ParsedBuildingTail::BufferedItemBridge(_) => "bufferedItemBridge",
+                ParsedBuildingTail::MassDriver(_) => "massDriver",
                 ParsedBuildingTail::Junction(_) => "junction",
                 ParsedBuildingTail::SorterLegacy(_) => "sorterLegacy",
                 ParsedBuildingTail::Turret(_) => "turret",
@@ -27104,6 +27133,23 @@ pub fn format_world_model_goldens(model: &WorldModel) -> String {
                             .map(|entry| entry.time_bits)
                             .collect::<Vec<_>>(),
                     ),
+                );
+            }
+            ParsedBuildingTail::MassDriver(driver) => {
+                push_str(
+                    &mut lines,
+                    &format!("{prefix}.tail.massDriver.link"),
+                    &format!("{:08x}", driver.link as u32),
+                );
+                push_str(
+                    &mut lines,
+                    &format!("{prefix}.tail.massDriver.rotationBits"),
+                    &format!("{:08x}", driver.rotation_bits),
+                );
+                push_str(
+                    &mut lines,
+                    &format!("{prefix}.tail.massDriver.state"),
+                    &format!("{:02x}", driver.state_ordinal),
                 );
             }
             ParsedBuildingTail::Junction(junction) => {
@@ -42476,6 +42522,46 @@ mod tests {
                         },
                     ],
                 },
+            })
+        );
+
+        let liquid_bridge = parse_building_tail(Some("phase-conduit"), 1, &{
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&0x31323334i32.to_be_bytes());
+            bytes.extend_from_slice(&0x3f000000u32.to_be_bytes());
+            bytes.push(1);
+            bytes.extend_from_slice(&0x41424344i32.to_be_bytes());
+            bytes.push(0);
+            bytes
+        })
+        .unwrap();
+        assert_eq!(
+            liquid_bridge,
+            ParsedBuildingTail::ItemBridge(ItemBridgeTailSnapshot {
+                link: 0x31323334,
+                warmup_bits: 0x3f000000,
+                incoming: vec![0x41424344],
+                moved: false,
+            })
+        );
+    }
+
+    #[test]
+    fn parses_mass_driver_tail() {
+        let mass_driver = parse_building_tail(Some("mass-driver"), 0, &{
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&0x51525354i32.to_be_bytes());
+            bytes.extend_from_slice(&0x41200000u32.to_be_bytes());
+            bytes.push(2);
+            bytes
+        })
+        .unwrap();
+        assert_eq!(
+            mass_driver,
+            ParsedBuildingTail::MassDriver(MassDriverTailSnapshot {
+                link: 0x51525354,
+                rotation_bits: 0x41200000,
+                state_ordinal: 2,
             })
         );
     }

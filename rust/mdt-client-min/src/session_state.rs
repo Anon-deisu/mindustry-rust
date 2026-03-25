@@ -552,6 +552,33 @@ impl ResourceDeltaProjection {
         }
     }
 
+    pub fn replace_build_items_exact(&mut self, build_pos: Option<i32>, stacks: &[(i16, i32)]) {
+        let Some(build_pos) = build_pos else {
+            return;
+        };
+        let mut build_items = BTreeMap::new();
+        for &(item_id, amount) in stacks {
+            if amount != 0 {
+                build_items.insert(item_id, amount);
+            }
+        }
+        let (last_item_id, last_amount) = match build_items.iter().next_back() {
+            Some((&item_id, &amount)) => (Some(item_id), Some(amount)),
+            None => (None, Some(0)),
+        };
+        if build_items.is_empty() {
+            self.building_items_by_build.remove(&build_pos);
+        } else {
+            self.building_items_by_build.insert(build_pos, build_items);
+        }
+        self.authoritative_build_update_count =
+            self.authoritative_build_update_count.saturating_add(1);
+        self.last_changed_build_pos = Some(build_pos);
+        self.last_changed_entity_id = None;
+        self.last_changed_item_id = last_item_id;
+        self.last_changed_amount = last_amount;
+    }
+
     pub fn clear_build_items(&mut self, build_pos: Option<i32>) {
         let Some(build_pos) = build_pos else {
             return;
@@ -5121,6 +5148,15 @@ impl SessionState {
             .apply_set_items(build_pos, stacks);
     }
 
+    pub fn record_replace_build_items_resource_delta(
+        &mut self,
+        build_pos: Option<i32>,
+        stacks: &[(i16, i32)],
+    ) {
+        self.resource_delta_projection
+            .replace_build_items_exact(build_pos, stacks);
+    }
+
     pub fn record_set_tile_items_resource_delta(
         &mut self,
         item_id: Option<i16>,
@@ -5701,6 +5737,35 @@ mod tests {
         projection.seed_world_build_items(build_pos, &[]);
         assert!(!projection.building_items_by_build.contains_key(&build_pos));
         assert_eq!(projection.authoritative_build_update_count, 7);
+    }
+
+    #[test]
+    fn resource_delta_projection_replace_build_items_exact_full_replaces_and_counts_once() {
+        let mut projection = ResourceDeltaProjection::default();
+        let build_pos = pack_point2(8, 9);
+        projection
+            .building_items_by_build
+            .insert(build_pos, BTreeMap::from([(1, 4), (3, 7)]));
+        projection.authoritative_build_update_count = 2;
+
+        projection.replace_build_items_exact(Some(build_pos), &[(4, 12), (6, 0)]);
+
+        assert_eq!(
+            projection.building_items_by_build.get(&build_pos).cloned(),
+            Some(BTreeMap::from([(4, 12)]))
+        );
+        assert_eq!(projection.authoritative_build_update_count, 3);
+        assert_eq!(projection.last_changed_build_pos, Some(build_pos));
+        assert_eq!(projection.last_changed_item_id, Some(4));
+        assert_eq!(projection.last_changed_amount, Some(12));
+
+        projection.replace_build_items_exact(Some(build_pos), &[]);
+
+        assert!(!projection.building_items_by_build.contains_key(&build_pos));
+        assert_eq!(projection.authoritative_build_update_count, 4);
+        assert_eq!(projection.last_changed_build_pos, Some(build_pos));
+        assert_eq!(projection.last_changed_item_id, None);
+        assert_eq!(projection.last_changed_amount, Some(0));
     }
 
     #[test]
