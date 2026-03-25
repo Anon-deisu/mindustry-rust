@@ -1,6 +1,7 @@
-use crate::packet_registry::InboundRemotePacketRegistry;
+use crate::packet_registry::{CustomChannelPacketRegistry, InboundRemotePacketRegistry};
 use mdt_remote::{
-    CustomChannelRemotePayloadKind, InboundRemoteFamily, RemoteManifest, RemoteManifestError,
+    CustomChannelRemoteFamily, CustomChannelRemotePayloadKind, InboundRemoteFamily, RemoteManifest,
+    RemoteManifestError,
 };
 use mdt_typeio::{read_object_prefix, read_string_prefix, TypeIoObject, TypeIoReadError};
 use std::fmt;
@@ -19,6 +20,25 @@ pub enum TypedInboundRemoteDispatch {
     },
     LogicData {
         family: InboundRemoteFamily,
+        channel: String,
+        value: TypeIoObject,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypedCustomChannelRemoteDispatch {
+    Text {
+        family: CustomChannelRemoteFamily,
+        packet_type: String,
+        contents: String,
+    },
+    Binary {
+        family: CustomChannelRemoteFamily,
+        packet_type: String,
+        contents: Vec<u8>,
+    },
+    LogicData {
+        family: CustomChannelRemoteFamily,
         channel: String,
         value: TypeIoObject,
     },
@@ -45,15 +65,44 @@ impl fmt::Display for TypedInboundRemoteDispatchError {
 impl std::error::Error for TypedInboundRemoteDispatchError {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypedCustomChannelRemoteDispatchError {
+    pub family: CustomChannelRemoteFamily,
+    pub packet_id: u8,
+    pub payload_kind: CustomChannelRemotePayloadKind,
+    pub reason: String,
+}
+
+impl fmt::Display for TypedCustomChannelRemoteDispatchError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "failed to decode {:?} custom-channel remote packet {} as {:?}: {}",
+            self.family, self.packet_id, self.payload_kind, self.reason
+        )
+    }
+}
+
+impl std::error::Error for TypedCustomChannelRemoteDispatchError {}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypedInboundRemoteDispatcher {
     registry: InboundRemotePacketRegistry,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypedCustomChannelRemoteDispatcher {
+    registry: CustomChannelPacketRegistry,
+}
+
 impl TypedInboundRemoteDispatcher {
     pub fn from_remote_manifest(manifest: &RemoteManifest) -> Result<Self, RemoteManifestError> {
-        Ok(Self {
-            registry: InboundRemotePacketRegistry::from_remote_manifest(manifest)?,
-        })
+        Ok(Self::from_packet_registry(
+            InboundRemotePacketRegistry::from_remote_manifest(manifest)?,
+        ))
+    }
+
+    pub fn from_packet_registry(registry: InboundRemotePacketRegistry) -> Self {
+        Self { registry }
     }
 
     pub fn registry(&self) -> &InboundRemotePacketRegistry {
@@ -69,52 +118,150 @@ impl TypedInboundRemoteDispatcher {
             return Ok(None);
         };
 
-        match spec.payload_kind {
-            CustomChannelRemotePayloadKind::Text => {
-                let (packet_type, contents) = decode_text_payload(payload).map_err(|reason| {
-                    TypedInboundRemoteDispatchError {
-                        family: spec.family,
-                        packet_id,
-                        payload_kind: spec.payload_kind,
-                        reason,
-                    }
-                })?;
-                Ok(Some(TypedInboundRemoteDispatch::Text {
-                    family: spec.family,
-                    packet_type,
-                    contents,
-                }))
+        let decoded = decode_payload(spec.payload_kind, payload).map_err(|reason| {
+            TypedInboundRemoteDispatchError {
+                family: spec.family,
+                packet_id,
+                payload_kind: spec.payload_kind,
+                reason,
             }
-            CustomChannelRemotePayloadKind::Binary => {
-                let (packet_type, contents) = decode_binary_payload(payload).map_err(|reason| {
-                    TypedInboundRemoteDispatchError {
-                        family: spec.family,
-                        packet_id,
-                        payload_kind: spec.payload_kind,
-                        reason,
-                    }
-                })?;
-                Ok(Some(TypedInboundRemoteDispatch::Binary {
-                    family: spec.family,
-                    packet_type,
-                    contents,
-                }))
+        })?;
+        Ok(Some(decoded.into_inbound_dispatch(spec.family)))
+    }
+}
+
+impl TypedCustomChannelRemoteDispatcher {
+    pub fn from_remote_manifest(manifest: &RemoteManifest) -> Result<Self, RemoteManifestError> {
+        Ok(Self {
+            registry: CustomChannelPacketRegistry::from_remote_manifest(manifest)?,
+        })
+    }
+
+    pub fn from_packet_registry(registry: CustomChannelPacketRegistry) -> Self {
+        Self { registry }
+    }
+
+    pub fn registry(&self) -> &CustomChannelPacketRegistry {
+        &self.registry
+    }
+
+    pub fn dispatch(
+        &self,
+        packet_id: u8,
+        payload: &[u8],
+    ) -> Result<Option<TypedCustomChannelRemoteDispatch>, TypedCustomChannelRemoteDispatchError>
+    {
+        let Some(spec) = self.registry.dispatch_spec(packet_id) else {
+            return Ok(None);
+        };
+
+        let decoded = decode_payload(spec.payload_kind, payload).map_err(|reason| {
+            TypedCustomChannelRemoteDispatchError {
+                family: spec.family,
+                packet_id,
+                payload_kind: spec.payload_kind,
+                reason,
             }
-            CustomChannelRemotePayloadKind::LogicData => {
-                let (channel, value) = decode_logic_data_payload(payload).map_err(|reason| {
-                    TypedInboundRemoteDispatchError {
-                        family: spec.family,
-                        packet_id,
-                        payload_kind: spec.payload_kind,
-                        reason,
-                    }
-                })?;
-                Ok(Some(TypedInboundRemoteDispatch::LogicData {
-                    family: spec.family,
-                    channel,
-                    value,
-                }))
-            }
+        })?;
+        Ok(Some(decoded.into_custom_channel_dispatch(spec.family)))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum DecodedRemotePayload {
+    Text {
+        packet_type: String,
+        contents: String,
+    },
+    Binary {
+        packet_type: String,
+        contents: Vec<u8>,
+    },
+    LogicData {
+        channel: String,
+        value: TypeIoObject,
+    },
+}
+
+impl DecodedRemotePayload {
+    fn into_inbound_dispatch(self, family: InboundRemoteFamily) -> TypedInboundRemoteDispatch {
+        match self {
+            Self::Text {
+                packet_type,
+                contents,
+            } => TypedInboundRemoteDispatch::Text {
+                family,
+                packet_type,
+                contents,
+            },
+            Self::Binary {
+                packet_type,
+                contents,
+            } => TypedInboundRemoteDispatch::Binary {
+                family,
+                packet_type,
+                contents,
+            },
+            Self::LogicData { channel, value } => TypedInboundRemoteDispatch::LogicData {
+                family,
+                channel,
+                value,
+            },
+        }
+    }
+
+    fn into_custom_channel_dispatch(
+        self,
+        family: CustomChannelRemoteFamily,
+    ) -> TypedCustomChannelRemoteDispatch {
+        match self {
+            Self::Text {
+                packet_type,
+                contents,
+            } => TypedCustomChannelRemoteDispatch::Text {
+                family,
+                packet_type,
+                contents,
+            },
+            Self::Binary {
+                packet_type,
+                contents,
+            } => TypedCustomChannelRemoteDispatch::Binary {
+                family,
+                packet_type,
+                contents,
+            },
+            Self::LogicData { channel, value } => TypedCustomChannelRemoteDispatch::LogicData {
+                family,
+                channel,
+                value,
+            },
+        }
+    }
+}
+
+fn decode_payload(
+    payload_kind: CustomChannelRemotePayloadKind,
+    payload: &[u8],
+) -> Result<DecodedRemotePayload, String> {
+    match payload_kind {
+        CustomChannelRemotePayloadKind::Text => {
+            let (packet_type, contents) = decode_text_payload(payload)?;
+            Ok(DecodedRemotePayload::Text {
+                packet_type,
+                contents,
+            })
+        }
+        CustomChannelRemotePayloadKind::Binary => {
+            let (packet_type, contents) = decode_binary_payload(payload)?;
+            Ok(DecodedRemotePayload::Binary {
+                packet_type,
+                contents,
+            })
+        }
+        CustomChannelRemotePayloadKind::LogicData => {
+            let (channel, value) = decode_logic_data_payload(payload)?;
+            Ok(DecodedRemotePayload::LogicData { channel, value })
         }
     }
 }
@@ -175,23 +322,26 @@ fn typeio_error_to_string(error: TypeIoReadError) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{TypedInboundRemoteDispatch, TypedInboundRemoteDispatcher};
+    use super::{
+        TypedCustomChannelRemoteDispatch, TypedCustomChannelRemoteDispatcher,
+        TypedInboundRemoteDispatch, TypedInboundRemoteDispatcher,
+    };
     use mdt_remote::{
-        BasePacketEntry, CompressionFlagSpec, CustomChannelRemotePayloadKind, InboundRemoteFamily,
-        RemoteGeneratorInfo, RemoteManifest, RemotePacketEntry, RemoteParamEntry, WireSpec,
-        REMOTE_MANIFEST_SCHEMA_V1,
+        BasePacketEntry, CompressionFlagSpec, CustomChannelRemoteFamily,
+        CustomChannelRemotePayloadKind, InboundRemoteFamily, RemoteGeneratorInfo, RemoteManifest,
+        RemotePacketEntry, RemoteParamEntry, WireSpec, REMOTE_MANIFEST_SCHEMA_V1,
     };
     use mdt_typeio::{write_object, write_string, TypeIoObject};
 
     #[test]
     fn typed_dispatch_ignores_method_only_decoy_packet_ids() {
-        let manifest = inbound_remote_manifest_with_decoy_text_family();
+        let manifest = custom_channel_manifest_with_decoys();
         let dispatcher = TypedInboundRemoteDispatcher::from_remote_manifest(&manifest).unwrap();
         let payload = encode_text_payload("mod.echo", "hello");
 
-        assert_eq!(dispatcher.dispatch(4, &payload).unwrap(), None);
+        assert_eq!(dispatcher.dispatch(9, &payload).unwrap(), None);
         assert_eq!(
-            dispatcher.dispatch(5, &payload).unwrap(),
+            dispatcher.dispatch(10, &payload).unwrap(),
             Some(TypedInboundRemoteDispatch::Text {
                 family: InboundRemoteFamily::ServerPacketReliable,
                 packet_type: "mod.echo".to_string(),
@@ -202,7 +352,7 @@ mod tests {
 
     #[test]
     fn typed_dispatch_decodes_client_logic_data_payloads() {
-        let manifest = inbound_remote_manifest_with_decoy_text_family();
+        let manifest = custom_channel_manifest_with_decoys();
         let dispatcher = TypedInboundRemoteDispatcher::from_remote_manifest(&manifest).unwrap();
         let value = TypeIoObject::ObjectArray(vec![
             TypeIoObject::Int(7),
@@ -212,7 +362,7 @@ mod tests {
         let payload = encode_logic_payload("logic.alpha", &value);
 
         assert_eq!(
-            dispatcher.dispatch(6, &payload).unwrap(),
+            dispatcher.dispatch(15, &payload).unwrap(),
             Some(TypedInboundRemoteDispatch::LogicData {
                 family: InboundRemoteFamily::ClientLogicDataUnreliable,
                 channel: "logic.alpha".to_string(),
@@ -223,11 +373,84 @@ mod tests {
 
     #[test]
     fn typed_dispatch_reports_payload_shape_errors_with_family_context() {
-        let manifest = inbound_remote_manifest_with_decoy_text_family();
+        let manifest = custom_channel_manifest_with_decoys();
         let dispatcher = TypedInboundRemoteDispatcher::from_remote_manifest(&manifest).unwrap();
-        let error = dispatcher.dispatch(5, &[1, 0, 3, b'a']).unwrap_err();
+        let error = dispatcher.dispatch(10, &[1, 0, 3, b'a']).unwrap_err();
 
         assert_eq!(error.family, InboundRemoteFamily::ServerPacketReliable);
+        assert_eq!(error.packet_id, 10);
+        assert_eq!(error.payload_kind, CustomChannelRemotePayloadKind::Text);
+        assert_eq!(
+            error.reason,
+            "unexpected EOF at 3: need 3 bytes, only 1 remaining".to_string()
+        );
+    }
+
+    #[test]
+    fn custom_channel_typed_dispatch_ignores_method_only_decoy_packet_ids() {
+        let manifest = custom_channel_manifest_with_decoys();
+        let dispatcher =
+            TypedCustomChannelRemoteDispatcher::from_remote_manifest(&manifest).unwrap();
+        let payload = encode_text_payload("mod.client", "hello");
+
+        assert_eq!(dispatcher.dispatch(4, &payload).unwrap(), None);
+        assert_eq!(
+            dispatcher.dispatch(5, &payload).unwrap(),
+            Some(TypedCustomChannelRemoteDispatch::Text {
+                family: CustomChannelRemoteFamily::ClientPacketReliable,
+                packet_type: "mod.client".to_string(),
+                contents: "hello".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn custom_channel_typed_dispatch_decodes_client_binary_payloads() {
+        let manifest = custom_channel_manifest_with_decoys();
+        let dispatcher =
+            TypedCustomChannelRemoteDispatcher::from_remote_manifest(&manifest).unwrap();
+        let payload = encode_binary_payload("mod.bin", &[1, 2, 3, 4]);
+
+        assert_eq!(
+            dispatcher.dispatch(8, &payload).unwrap(),
+            Some(TypedCustomChannelRemoteDispatch::Binary {
+                family: CustomChannelRemoteFamily::ClientBinaryPacketUnreliable,
+                packet_type: "mod.bin".to_string(),
+                contents: vec![1, 2, 3, 4],
+            })
+        );
+    }
+
+    #[test]
+    fn custom_channel_typed_dispatch_decodes_logic_payloads() {
+        let manifest = custom_channel_manifest_with_decoys();
+        let dispatcher =
+            TypedCustomChannelRemoteDispatcher::from_remote_manifest(&manifest).unwrap();
+        let value =
+            TypeIoObject::ObjectArray(vec![TypeIoObject::Int(3), TypeIoObject::Bool(false)]);
+        let payload = encode_logic_payload("logic.beta", &value);
+
+        assert_eq!(
+            dispatcher.dispatch(14, &payload).unwrap(),
+            Some(TypedCustomChannelRemoteDispatch::LogicData {
+                family: CustomChannelRemoteFamily::ClientLogicDataReliable,
+                channel: "logic.beta".to_string(),
+                value,
+            })
+        );
+    }
+
+    #[test]
+    fn custom_channel_typed_dispatch_reports_payload_shape_errors_with_family_context() {
+        let manifest = custom_channel_manifest_with_decoys();
+        let dispatcher =
+            TypedCustomChannelRemoteDispatcher::from_remote_manifest(&manifest).unwrap();
+        let error = dispatcher.dispatch(5, &[1, 0, 3, b'a']).unwrap_err();
+
+        assert_eq!(
+            error.family,
+            CustomChannelRemoteFamily::ClientPacketReliable
+        );
         assert_eq!(error.packet_id, 5);
         assert_eq!(error.payload_kind, CustomChannelRemotePayloadKind::Text);
         assert_eq!(
@@ -236,7 +459,7 @@ mod tests {
         );
     }
 
-    fn inbound_remote_manifest_with_decoy_text_family() -> RemoteManifest {
+    fn custom_channel_manifest_with_decoys() -> RemoteManifest {
         RemoteManifest {
             schema: REMOTE_MANIFEST_SCHEMA_V1.to_string(),
             generator: RemoteGeneratorInfo {
@@ -265,6 +488,76 @@ mod tests {
                 remote_packet(
                     0,
                     4,
+                    "mindustry.gen.ClientPacketReliableDecoyCallPacket",
+                    "mindustry.core.NetClient",
+                    "clientPacketReliable",
+                    "server",
+                    "client",
+                    false,
+                    vec![
+                        param("player", "Player", false, false),
+                        param("contents", "java.lang.String", true, true),
+                    ],
+                ),
+                remote_packet(
+                    1,
+                    5,
+                    "mindustry.gen.ClientPacketReliableCallPacket",
+                    "mindustry.core.NetClient",
+                    "clientPacketReliable",
+                    "server",
+                    "client",
+                    false,
+                    vec![
+                        param("type", "java.lang.String", true, true),
+                        param("contents", "java.lang.String", true, true),
+                    ],
+                ),
+                remote_packet(
+                    2,
+                    6,
+                    "mindustry.gen.ClientPacketUnreliableCallPacket",
+                    "mindustry.core.NetClient",
+                    "clientPacketUnreliable",
+                    "server",
+                    "client",
+                    true,
+                    vec![
+                        param("type", "java.lang.String", true, true),
+                        param("contents", "java.lang.String", true, true),
+                    ],
+                ),
+                remote_packet(
+                    3,
+                    7,
+                    "mindustry.gen.ClientBinaryPacketReliableCallPacket",
+                    "mindustry.core.NetClient",
+                    "clientBinaryPacketReliable",
+                    "server",
+                    "client",
+                    false,
+                    vec![
+                        param("type", "java.lang.String", true, true),
+                        param("contents", "byte[]", true, true),
+                    ],
+                ),
+                remote_packet(
+                    4,
+                    8,
+                    "mindustry.gen.ClientBinaryPacketUnreliableCallPacket",
+                    "mindustry.core.NetClient",
+                    "clientBinaryPacketUnreliable",
+                    "server",
+                    "client",
+                    true,
+                    vec![
+                        param("type", "java.lang.String", true, true),
+                        param("contents", "byte[]", true, true),
+                    ],
+                ),
+                remote_packet(
+                    5,
+                    9,
                     "mindustry.gen.ServerPacketReliableDecoyCallPacket",
                     "mindustry.core.NetServer",
                     "serverPacketReliable",
@@ -278,8 +571,8 @@ mod tests {
                     ],
                 ),
                 remote_packet(
-                    1,
-                    5,
+                    6,
+                    10,
                     "mindustry.gen.ServerPacketReliableCallPacket",
                     "mindustry.core.NetServer",
                     "serverPacketReliable",
@@ -293,23 +586,8 @@ mod tests {
                     ],
                 ),
                 remote_packet(
-                    2,
-                    6,
-                    "mindustry.gen.ClientLogicDataUnreliableCallPacket",
-                    "mindustry.core.NetServer",
-                    "clientLogicDataUnreliable",
-                    "client",
-                    "server",
-                    true,
-                    vec![
-                        param("player", "Player", false, false),
-                        param("channel", "java.lang.String", true, true),
-                        param("value", "java.lang.Object", true, true),
-                    ],
-                ),
-                remote_packet(
-                    3,
                     7,
+                    11,
                     "mindustry.gen.ServerPacketUnreliableCallPacket",
                     "mindustry.core.NetServer",
                     "serverPacketUnreliable",
@@ -323,8 +601,8 @@ mod tests {
                     ],
                 ),
                 remote_packet(
-                    4,
                     8,
+                    12,
                     "mindustry.gen.ServerBinaryPacketReliableCallPacket",
                     "mindustry.core.NetServer",
                     "serverBinaryPacketReliable",
@@ -338,8 +616,8 @@ mod tests {
                     ],
                 ),
                 remote_packet(
-                    5,
                     9,
+                    13,
                     "mindustry.gen.ServerBinaryPacketUnreliableCallPacket",
                     "mindustry.core.NetServer",
                     "serverBinaryPacketUnreliable",
@@ -353,14 +631,29 @@ mod tests {
                     ],
                 ),
                 remote_packet(
-                    6,
                     10,
+                    14,
                     "mindustry.gen.ClientLogicDataReliableCallPacket",
                     "mindustry.core.NetServer",
                     "clientLogicDataReliable",
                     "client",
                     "server",
                     false,
+                    vec![
+                        param("player", "Player", false, false),
+                        param("channel", "java.lang.String", true, true),
+                        param("value", "java.lang.Object", true, true),
+                    ],
+                ),
+                remote_packet(
+                    11,
+                    15,
+                    "mindustry.gen.ClientLogicDataUnreliableCallPacket",
+                    "mindustry.core.NetServer",
+                    "clientLogicDataUnreliable",
+                    "client",
+                    "server",
+                    true,
                     vec![
                         param("player", "Player", false, false),
                         param("channel", "java.lang.String", true, true),
@@ -422,6 +715,14 @@ mod tests {
         let mut payload = Vec::new();
         write_string(&mut payload, Some(packet_type));
         write_string(&mut payload, Some(contents));
+        payload
+    }
+
+    fn encode_binary_payload(packet_type: &str, contents: &[u8]) -> Vec<u8> {
+        let mut payload = Vec::new();
+        write_string(&mut payload, Some(packet_type));
+        payload.extend_from_slice(&(contents.len() as u16).to_be_bytes());
+        payload.extend_from_slice(contents);
         payload
     }
 

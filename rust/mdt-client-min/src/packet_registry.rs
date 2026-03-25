@@ -157,6 +157,11 @@ impl CustomChannelPacketRegistry {
         self.dispatch_spec(packet_id).map(|spec| spec.family)
     }
 
+    pub fn classify_inbound(&self, packet_id: u8) -> Option<InboundRemoteFamily> {
+        self.classify(packet_id)
+            .and_then(CustomChannelRemoteFamily::inbound_remote_family)
+    }
+
     pub fn dispatch_spec(&self, packet_id: u8) -> Option<CustomChannelRemoteDispatchSpec> {
         self.by_packet_id.get(packet_id)
     }
@@ -348,6 +353,22 @@ mod tests {
             Some(CustomChannelRemoteFamily::ClientLogicDataReliable)
         );
         assert!(!registry.contains_packet_id(client_snapshot_packet_id));
+        assert_eq!(
+            registry.classify_inbound(
+                registry
+                    .packet_id(CustomChannelRemoteFamily::ServerPacketReliable)
+                    .unwrap()
+            ),
+            Some(InboundRemoteFamily::ServerPacketReliable)
+        );
+        assert_eq!(
+            registry.classify_inbound(
+                registry
+                    .packet_id(CustomChannelRemoteFamily::ClientPacketReliable)
+                    .unwrap()
+            ),
+            None
+        );
     }
 
     #[test]
@@ -405,6 +426,7 @@ mod tests {
     fn inbound_remote_family_registry_reuses_custom_channel_typed_lookup() {
         let manifest = custom_channel_remote_family_manifest_with_decoys();
         let registry = InboundRemotePacketRegistry::from_remote_manifest(&manifest).unwrap();
+        let custom_registry = CustomChannelPacketRegistry::from_remote_manifest(&manifest).unwrap();
 
         assert_eq!(
             registry.packet_id(InboundRemoteFamily::ServerPacketReliable),
@@ -415,6 +437,8 @@ mod tests {
             registry.classify(10),
             Some(InboundRemoteFamily::ServerPacketReliable)
         );
+        assert_eq!(custom_registry.classify_inbound(10), registry.classify(10));
+        assert_eq!(custom_registry.classify_inbound(5), None);
     }
 
     #[test]

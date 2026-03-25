@@ -550,6 +550,25 @@ impl CustomChannelRemoteFamily {
             .with_wire_param_kinds(self.wire_param_kinds())
     }
 
+    pub fn inbound_remote_family(self) -> Option<InboundRemoteFamily> {
+        match self {
+            Self::ServerPacketReliable => Some(InboundRemoteFamily::ServerPacketReliable),
+            Self::ServerPacketUnreliable => Some(InboundRemoteFamily::ServerPacketUnreliable),
+            Self::ServerBinaryPacketReliable => {
+                Some(InboundRemoteFamily::ServerBinaryPacketReliable)
+            }
+            Self::ServerBinaryPacketUnreliable => {
+                Some(InboundRemoteFamily::ServerBinaryPacketUnreliable)
+            }
+            Self::ClientLogicDataReliable => Some(InboundRemoteFamily::ClientLogicDataReliable),
+            Self::ClientLogicDataUnreliable => Some(InboundRemoteFamily::ClientLogicDataUnreliable),
+            Self::ClientPacketReliable
+            | Self::ClientPacketUnreliable
+            | Self::ClientBinaryPacketReliable
+            | Self::ClientBinaryPacketUnreliable => None,
+        }
+    }
+
     fn selector_flow(self) -> RemoteFlow {
         // Manifest `targets=client` packets currently normalize to
         // `RemoteFlow::ClientToServer`, while `targets=server` packets normalize to
@@ -2347,6 +2366,22 @@ mod tests {
         assert_eq!(
             InboundRemoteFamily::ClientLogicDataUnreliable.payload_kind(),
             CustomChannelRemotePayloadKind::LogicData
+        );
+        assert_eq!(
+            CustomChannelRemoteFamily::ServerPacketReliable.inbound_remote_family(),
+            Some(InboundRemoteFamily::ServerPacketReliable)
+        );
+        assert_eq!(
+            CustomChannelRemoteFamily::ClientLogicDataReliable.inbound_remote_family(),
+            Some(InboundRemoteFamily::ClientLogicDataReliable)
+        );
+        assert_eq!(
+            CustomChannelRemoteFamily::ClientPacketReliable.inbound_remote_family(),
+            None
+        );
+        assert_eq!(
+            InboundRemoteFamily::ServerBinaryPacketUnreliable.custom_channel_family(),
+            CustomChannelRemoteFamily::ServerBinaryPacketUnreliable
         );
     }
 
