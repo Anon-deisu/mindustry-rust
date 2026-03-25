@@ -95,6 +95,35 @@ pub struct BuilderQueueLocalStepResult {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuilderQueueHeadExecutionObservation {
+    OutOfRange,
+    PendingBegin,
+    ActiveConstruct,
+    BlockedByUnit,
+    InvalidPlan,
+    ConstructMismatch,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuilderQueueHeadExecutionAction {
+    QueueEmpty,
+    OutOfRange,
+    BeginPlace,
+    BeginBreak,
+    ContinueConstruct,
+    DeferredBlockedByUnit,
+    RemovedInvalidHead,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuilderQueueHeadExecutionResult {
+    pub action: BuilderQueueHeadExecutionAction,
+    pub head_tile_before: Option<(i32, i32)>,
+    pub head_tile_after: Option<(i32, i32)>,
+    pub removed_entry: Option<BuilderQueueEntry>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BuilderQueueBuildSelection {
     pub building: bool,
     pub selected_tile: Option<(i32, i32)>,
@@ -142,6 +171,7 @@ pub enum BuilderQueueFrontPromotion {
     EnqueueFront,
     BeginInFlight,
     ExplicitMoveToFront,
+    ExecutionDeferredToTail,
     ActivityReorderedToReachable,
     ActivityClosestInRangeFallback,
     ValidationAdvancedHead,
@@ -162,8 +192,7 @@ pub struct BuilderQueueStateMachine {
     pub last_orphan_authoritative: bool,
     pub last_skip_reason: Option<BuilderQueueSkipReason>,
     pub last_front_promotion: Option<BuilderQueueFrontPromotion>,
-    pub last_validation_removal_reasons:
-        BTreeMap<(i32, i32), BuilderQueueValidationRemovalReason>,
+    pub last_validation_removal_reasons: BTreeMap<(i32, i32), BuilderQueueValidationRemovalReason>,
 }
 
 impl BuilderQueueStateMachine {
@@ -578,9 +607,9 @@ impl BuilderQueueStateMachine {
     {
         let validation = self.validate_against_tile_states(tile_state_observations);
         let validation_removal_reasons = self.last_validation_removal_reasons.clone();
-        let validation_front_promotion =
-            (self.last_front_promotion == Some(BuilderQueueFrontPromotion::ValidationAdvancedHead))
-                .then_some(BuilderQueueFrontPromotion::ValidationAdvancedHead);
+        let validation_front_promotion = (self.last_front_promotion
+            == Some(BuilderQueueFrontPromotion::ValidationAdvancedHead))
+        .then_some(BuilderQueueFrontPromotion::ValidationAdvancedHead);
         let activity = self.update_local_activity(activity_observations);
         if !validation_removal_reasons.is_empty() {
             self.last_validation_removal_reasons = validation_removal_reasons;
@@ -591,6 +620,66 @@ impl BuilderQueueStateMachine {
         BuilderQueueLocalStepResult {
             validation,
             activity,
+        }
+    }
+
+    /// Mirrors the low-risk `BuilderComp.updateBuildLogic()` head-resolution cases after
+    /// validation/reorder:
+    /// - keep an out-of-range head in place,
+    /// - emit a `beginPlace` / `beginBreak` intent when the tile is ready,
+    /// - defer a temporarily blocked place plan to queue tail,
+    /// - drop a head that is no longer buildable or whose construct state diverged.
+    pub fn apply_head_execution_observation(
+        &mut self,
+        observation: BuilderQueueHeadExecutionObservation,
+    ) -> BuilderQueueHeadExecutionResult {
+        let head_tile_before = self.head_tile;
+        let head_entry = self.head_entry().cloned();
+        let mut removed_entry = None;
+
+        let action = match (head_entry, observation) {
+            (None, _) => BuilderQueueHeadExecutionAction::QueueEmpty,
+            (Some(_), BuilderQueueHeadExecutionObservation::OutOfRange) => {
+                BuilderQueueHeadExecutionAction::OutOfRange
+            }
+            (Some(entry), BuilderQueueHeadExecutionObservation::PendingBegin) => {
+                if entry.breaking {
+                    BuilderQueueHeadExecutionAction::BeginBreak
+                } else if entry.block_id.is_some() {
+                    BuilderQueueHeadExecutionAction::BeginPlace
+                } else {
+                    removed_entry = self.remove_matching_entry(entry.x, entry.y, entry.breaking);
+                    self.recount();
+                    BuilderQueueHeadExecutionAction::RemovedInvalidHead
+                }
+            }
+            (Some(_), BuilderQueueHeadExecutionObservation::ActiveConstruct) => {
+                BuilderQueueHeadExecutionAction::ContinueConstruct
+            }
+            (Some(_), BuilderQueueHeadExecutionObservation::BlockedByUnit) => {
+                self.defer_head_to_tail();
+                self.recount();
+                BuilderQueueHeadExecutionAction::DeferredBlockedByUnit
+            }
+            (Some(entry), BuilderQueueHeadExecutionObservation::InvalidPlan)
+            | (Some(entry), BuilderQueueHeadExecutionObservation::ConstructMismatch) => {
+                removed_entry = self.remove_matching_entry(entry.x, entry.y, entry.breaking);
+                self.recount();
+                BuilderQueueHeadExecutionAction::RemovedInvalidHead
+            }
+        };
+
+        self.last_skip_reason = None;
+        self.last_validation_removal_reasons.clear();
+        self.last_front_promotion = (action
+            == BuilderQueueHeadExecutionAction::DeferredBlockedByUnit)
+            .then_some(BuilderQueueFrontPromotion::ExecutionDeferredToTail);
+
+        BuilderQueueHeadExecutionResult {
+            action,
+            head_tile_before,
+            head_tile_after: self.head_tile,
+            removed_entry,
         }
     }
 
@@ -681,6 +770,13 @@ impl BuilderQueueStateMachine {
         self.ordered_tiles.insert(0, key);
     }
 
+    fn defer_head_to_tail(&mut self) {
+        if let Some(head) = self.head_tile {
+            self.ordered_tiles.retain(|tile| *tile != head);
+            self.ordered_tiles.push(head);
+        }
+    }
+
     fn matching_entry<'a>(
         entry: Option<&'a BuilderQueueEntry>,
         breaking: bool,
@@ -733,7 +829,9 @@ impl BuilderQueueStateMachine {
                 return None;
             }
             if !observation.requires_rotation_match {
-                return Some(BuilderQueueValidationRemovalReason::PlaceAlreadyMatchesIgnoringRotation);
+                return Some(
+                    BuilderQueueValidationRemovalReason::PlaceAlreadyMatchesIgnoringRotation,
+                );
             }
             observation
                 .rotation
@@ -765,9 +863,10 @@ mod tests {
     use super::{
         BuilderQueueActivityObservation, BuilderQueueActivityState, BuilderQueueBuildSelection,
         BuilderQueueEntry, BuilderQueueEntryObservation, BuilderQueueFrontPromotion,
-        BuilderQueueHeadSelection, BuilderQueueLocalStepResult, BuilderQueueReconcileOutcome,
-        BuilderQueueSkipReason, BuilderQueueStage, BuilderQueueStateMachine,
-        BuilderQueueTileStateObservation, BuilderQueueTransition,
+        BuilderQueueHeadExecutionAction, BuilderQueueHeadExecutionObservation,
+        BuilderQueueHeadExecutionResult, BuilderQueueHeadSelection, BuilderQueueLocalStepResult,
+        BuilderQueueReconcileOutcome, BuilderQueueSkipReason, BuilderQueueStage,
+        BuilderQueueStateMachine, BuilderQueueTileStateObservation, BuilderQueueTransition,
         BuilderQueueValidationRemovalReason, BuilderQueueValidationResult,
     };
     use std::collections::BTreeMap;
@@ -2927,10 +3026,7 @@ mod tests {
             queue.last_validation_removal_reasons.get(&(9, 9)),
             Some(&BuilderQueueValidationRemovalReason::PlaceAlreadyMatchesRotation)
         );
-        assert_eq!(
-            queue.last_front_promotion,
-            None
-        );
+        assert_eq!(queue.last_front_promotion, None);
     }
 
     #[test]
@@ -3205,12 +3301,21 @@ mod tests {
                 activity,
             }
         );
-        assert_eq!(combined_queue.active_by_tile, sequential_queue.active_by_tile);
+        assert_eq!(
+            combined_queue.active_by_tile,
+            sequential_queue.active_by_tile
+        );
         assert_eq!(combined_queue.ordered_tiles, vec![(3, 3), (2, 2)]);
         assert_eq!(combined_queue.head_tile, Some((3, 3)));
         assert_eq!(combined_queue.queued_count, sequential_queue.queued_count);
-        assert_eq!(combined_queue.inflight_count, sequential_queue.inflight_count);
-        assert_eq!(combined_queue.last_skip_reason, sequential_queue.last_skip_reason);
+        assert_eq!(
+            combined_queue.inflight_count,
+            sequential_queue.inflight_count
+        );
+        assert_eq!(
+            combined_queue.last_skip_reason,
+            sequential_queue.last_skip_reason
+        );
         assert_eq!(
             combined_queue.last_front_promotion,
             sequential_queue.last_front_promotion
@@ -3220,6 +3325,200 @@ mod tests {
             Some(&BuilderQueueValidationRemovalReason::PlaceAlreadyMatchesRotation)
         );
         assert!(sequential_queue.last_validation_removal_reasons.is_empty());
+    }
+
+    #[test]
+    fn apply_head_execution_observation_emits_begin_place_for_build_head() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.enqueue_local(
+            BuilderQueueEntryObservation {
+                x: 12,
+                y: 12,
+                breaking: false,
+                block_id: Some(120),
+                rotation: 3,
+            },
+            true,
+        );
+
+        let result = queue
+            .apply_head_execution_observation(BuilderQueueHeadExecutionObservation::PendingBegin);
+
+        assert_eq!(
+            result,
+            BuilderQueueHeadExecutionResult {
+                action: BuilderQueueHeadExecutionAction::BeginPlace,
+                head_tile_before: Some((12, 12)),
+                head_tile_after: Some((12, 12)),
+                removed_entry: None,
+            }
+        );
+        assert_eq!(queue.ordered_tiles, vec![(12, 12)]);
+        assert_eq!(queue.head_tile, Some((12, 12)));
+        assert_eq!(queue.last_front_promotion, None);
+    }
+
+    #[test]
+    fn apply_head_execution_observation_emits_begin_break_for_breaking_head() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.enqueue_local(
+            BuilderQueueEntryObservation {
+                x: 13,
+                y: 13,
+                breaking: true,
+                block_id: None,
+                rotation: 0,
+            },
+            true,
+        );
+
+        let result = queue
+            .apply_head_execution_observation(BuilderQueueHeadExecutionObservation::PendingBegin);
+
+        assert_eq!(
+            result,
+            BuilderQueueHeadExecutionResult {
+                action: BuilderQueueHeadExecutionAction::BeginBreak,
+                head_tile_before: Some((13, 13)),
+                head_tile_after: Some((13, 13)),
+                removed_entry: None,
+            }
+        );
+        assert_eq!(queue.ordered_tiles, vec![(13, 13)]);
+        assert_eq!(queue.head_tile, Some((13, 13)));
+    }
+
+    #[test]
+    fn apply_head_execution_observation_defers_blocked_head_to_queue_tail() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 1,
+                y: 1,
+                breaking: false,
+                block_id: Some(10),
+                rotation: 0,
+            },
+            BuilderQueueEntryObservation {
+                x: 2,
+                y: 2,
+                breaking: false,
+                block_id: Some(20),
+                rotation: 1,
+            },
+            BuilderQueueEntryObservation {
+                x: 3,
+                y: 3,
+                breaking: true,
+                block_id: None,
+                rotation: 2,
+            },
+        ]);
+
+        let result = queue
+            .apply_head_execution_observation(BuilderQueueHeadExecutionObservation::BlockedByUnit);
+
+        assert_eq!(
+            result,
+            BuilderQueueHeadExecutionResult {
+                action: BuilderQueueHeadExecutionAction::DeferredBlockedByUnit,
+                head_tile_before: Some((1, 1)),
+                head_tile_after: Some((2, 2)),
+                removed_entry: None,
+            }
+        );
+        assert_eq!(queue.ordered_tiles, vec![(2, 2), (3, 3), (1, 1)]);
+        assert_eq!(queue.head_tile, Some((2, 2)));
+        assert_eq!(
+            queue.last_front_promotion,
+            Some(BuilderQueueFrontPromotion::ExecutionDeferredToTail)
+        );
+    }
+
+    #[test]
+    fn apply_head_execution_observation_removes_invalid_head_and_advances_queue() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 4,
+                y: 4,
+                breaking: false,
+                block_id: Some(40),
+                rotation: 0,
+            },
+            BuilderQueueEntryObservation {
+                x: 5,
+                y: 5,
+                breaking: true,
+                block_id: None,
+                rotation: 1,
+            },
+        ]);
+
+        let result = queue
+            .apply_head_execution_observation(BuilderQueueHeadExecutionObservation::InvalidPlan);
+
+        assert_eq!(
+            result,
+            BuilderQueueHeadExecutionResult {
+                action: BuilderQueueHeadExecutionAction::RemovedInvalidHead,
+                head_tile_before: Some((4, 4)),
+                head_tile_after: Some((5, 5)),
+                removed_entry: Some(BuilderQueueEntry {
+                    x: 4,
+                    y: 4,
+                    breaking: false,
+                    block_id: Some(40),
+                    rotation: Some(0),
+                    progress_permyriad: None,
+                    stage: BuilderQueueStage::Queued,
+                }),
+            }
+        );
+        assert_eq!(queue.ordered_tiles, vec![(5, 5)]);
+        assert_eq!(queue.head_tile, Some((5, 5)));
+        assert_eq!(queue.queued_count, 1);
+        assert_eq!(queue.inflight_count, 0);
+        assert_eq!(queue.last_front_promotion, None);
+    }
+
+    #[test]
+    fn apply_head_execution_observation_drops_blockless_place_head_instead_of_emitting_begin() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.enqueue_local(
+            BuilderQueueEntryObservation {
+                x: 14,
+                y: 14,
+                breaking: false,
+                block_id: None,
+                rotation: 2,
+            },
+            true,
+        );
+
+        let result = queue
+            .apply_head_execution_observation(BuilderQueueHeadExecutionObservation::PendingBegin);
+
+        assert_eq!(
+            result,
+            BuilderQueueHeadExecutionResult {
+                action: BuilderQueueHeadExecutionAction::RemovedInvalidHead,
+                head_tile_before: Some((14, 14)),
+                head_tile_after: None,
+                removed_entry: Some(BuilderQueueEntry {
+                    x: 14,
+                    y: 14,
+                    breaking: false,
+                    block_id: None,
+                    rotation: Some(2),
+                    progress_permyriad: None,
+                    stage: BuilderQueueStage::Queued,
+                }),
+            }
+        );
+        assert!(queue.ordered_tiles.is_empty());
+        assert_eq!(queue.head_tile, None);
+        assert_eq!(queue.queued_count, 0);
     }
 
     #[test]
