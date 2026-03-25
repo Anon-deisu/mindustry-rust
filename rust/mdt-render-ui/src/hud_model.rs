@@ -54,6 +54,7 @@ pub struct RuntimeUiObservability {
     pub command_mode: RuntimeCommandModeObservability,
     pub rules: RuntimeRulesObservability,
     pub world_labels: RuntimeWorldLabelObservability,
+    pub markers: RuntimeMarkerObservability,
     pub session: RuntimeSessionObservability,
     pub live: RuntimeLiveSummaryObservability,
 }
@@ -379,6 +380,18 @@ pub struct RuntimeWorldLabelObservability {
     pub last_font_size_bits: Option<u32>,
     pub last_z_bits: Option<u32>,
     pub last_position: Option<RuntimeWorldPositionObservability>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RuntimeMarkerObservability {
+    pub create_count: u64,
+    pub remove_count: u64,
+    pub update_count: u64,
+    pub update_text_count: u64,
+    pub update_texture_count: u64,
+    pub decode_fail_count: u64,
+    pub last_marker_id: Option<i32>,
+    pub last_control_name: Option<String>,
 }
 
 /// Structured session/runtime lifecycle summary for kick/loading/reconnect state.

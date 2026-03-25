@@ -15,18 +15,19 @@ use crate::packet_registry::{
 };
 use crate::session_state::{
     BuilderQueueEntryObservation, BuildingTailSummaryProjection, ConfiguredBlockOutcome,
-    ConfiguredContentRef, ConstructorRuntimeProjection, CreateBulletProjection,
-    DestroyPayloadProjection, EffectBusinessContentKind, EffectBusinessPositionSource,
-    EffectBusinessProjection, EntityFireSemanticProjection, EntityPuddleSemanticProjection,
-    EntitySemanticProjection, EntityUnitSemanticProjection, EntityWeatherStateSemanticProjection,
-    EntityWorldLabelSemanticProjection, FinishConnectingProjection, GameplayStateProjection,
-    PayloadDroppedProjection, PickedBuildPayloadProjection, PickedUnitPayloadProjection,
-    ReconnectPhaseProjection, ReconnectReasonKind, ReconstructorRuntimeProjection,
-    RemotePlanSnapshotFirstPlanProjection, SessionResetKind, SessionState, SessionTimeoutKind,
-    SessionTimeoutProjection, TakeItemsProjection, TileConfigAuthoritySource,
-    TileConfigBusinessApply, TransferItemEffectProjection, TransferItemToProjection,
-    TransferItemToUnitProjection, UnitAssemblerRuntimeProjection, UnitEnteredPayloadProjection,
-    UnitRefProjection, WorldReloadProjection,
+    ConfiguredContentRef, ConstructorRuntimeProjection, CoreInventoryRuntimeBindingKind,
+    CreateBulletProjection, DestroyPayloadProjection, EffectBusinessContentKind,
+    EffectBusinessPositionSource, EffectBusinessProjection, EntityFireSemanticProjection,
+    EntityPuddleSemanticProjection, EntitySemanticProjection, EntityUnitSemanticProjection,
+    EntityWeatherStateSemanticProjection, EntityWorldLabelSemanticProjection,
+    FinishConnectingProjection, GameplayStateProjection, PayloadDroppedProjection,
+    PickedBuildPayloadProjection, PickedUnitPayloadProjection, ReconnectPhaseProjection,
+    ReconnectReasonKind, ReconstructorRuntimeProjection, RemotePlanSnapshotFirstPlanProjection,
+    SessionResetKind, SessionState, SessionTimeoutKind, SessionTimeoutProjection,
+    TakeItemsProjection, TileConfigAuthoritySource, TileConfigBusinessApply,
+    TransferItemEffectProjection, TransferItemToProjection, TransferItemToUnitProjection,
+    UnitAssemblerRuntimeProjection, UnitEnteredPayloadProjection, UnitRefProjection,
+    WorldReloadProjection,
 };
 use mdt_input::CommandModeProjection;
 use mdt_protocol::{
@@ -5901,6 +5902,47 @@ impl ClientSession {
         self.custom_channel_registry.contains_packet_id(packet_id)
     }
 
+    fn summarize_state_snapshot_core_inventory_runtime_binding(
+        &self,
+        core_data: &crate::session_state::AppliedStateSnapshotCoreData,
+    ) -> StateSnapshotCoreInventoryRuntimeBindingSummary {
+        let Some(world_bundle) = self.loaded_world_bundle.as_ref() else {
+            return StateSnapshotCoreInventoryRuntimeBindingSummary::default();
+        };
+
+        let mut core_builds_by_team = BTreeMap::<u8, Vec<i32>>::new();
+        for center in &world_bundle.world.building_centers {
+            if !matches!(
+                center.building.parsed_tail,
+                mdt_world::ParsedBuildingTail::Core(_)
+            ) {
+                continue;
+            }
+            core_builds_by_team
+                .entry(center.building.base.team_id)
+                .or_default()
+                .push(pack_point2(center.x as i32, center.y as i32));
+        }
+
+        let mut summary = StateSnapshotCoreInventoryRuntimeBindingSummary::default();
+        for (&team_id, build_positions) in &core_builds_by_team {
+            if let Some(&build_pos) = build_positions.first() {
+                summary.first_core_build_by_team.insert(team_id, build_pos);
+            }
+            if build_positions.len() > 1 {
+                summary.ambiguous_team_count = summary.ambiguous_team_count.saturating_add(1);
+                summary.ambiguous_team_sample.push(team_id);
+            }
+        }
+        for team in &core_data.teams {
+            if !summary.first_core_build_by_team.contains_key(&team.team_id) {
+                summary.missing_team_count = summary.missing_team_count.saturating_add(1);
+                summary.missing_team_sample.push(team.team_id);
+            }
+        }
+        summary
+    }
+
     fn build_state_snapshot_applied_projection(&self) -> Option<StateSnapshotAppliedProjection> {
         let business = self.state.state_snapshot_business_projection.as_ref()?;
         let authority = self.state.state_snapshot_authority_projection.as_ref();
@@ -5989,31 +6031,36 @@ impl ClientSession {
     }
 
     fn apply_state_snapshot_core_inventory_to_runtime_buildings(&mut self) {
+        self.state.core_inventory_runtime_binding_kind = None;
+        self.state.core_inventory_runtime_ambiguous_team_count = 0;
+        self.state
+            .core_inventory_runtime_ambiguous_team_sample
+            .clear();
+        self.state.core_inventory_runtime_missing_team_count = 0;
+        self.state
+            .core_inventory_runtime_missing_team_sample
+            .clear();
+
         let Some(core_data) = self.state.last_state_snapshot_core_data.clone() else {
             return;
         };
-        let Some(world_bundle) = self.loaded_world_bundle.as_ref() else {
+        if self.loaded_world_bundle.is_none() {
             return;
-        };
-
-        let mut first_core_build_by_team = BTreeMap::new();
-        for center in &world_bundle.world.building_centers {
-            if !matches!(
-                center.building.parsed_tail,
-                mdt_world::ParsedBuildingTail::Core(_)
-            ) {
-                continue;
-            }
-            first_core_build_by_team
-                .entry(center.building.base.team_id)
-                .or_insert_with(|| pack_point2(center.x as i32, center.y as i32));
         }
-        if first_core_build_by_team.is_empty() {
+        let binding = self.summarize_state_snapshot_core_inventory_runtime_binding(&core_data);
+        self.state.core_inventory_runtime_binding_kind =
+            Some(CoreInventoryRuntimeBindingKind::FirstCorePerTeamApproximation);
+        self.state.core_inventory_runtime_ambiguous_team_count = binding.ambiguous_team_count;
+        self.state.core_inventory_runtime_ambiguous_team_sample = binding.ambiguous_team_sample;
+        self.state.core_inventory_runtime_missing_team_count = binding.missing_team_count;
+        self.state.core_inventory_runtime_missing_team_sample = binding.missing_team_sample;
+
+        if binding.first_core_build_by_team.is_empty() {
             return;
         }
 
         for team in &core_data.teams {
-            let Some(&build_pos) = first_core_build_by_team.get(&team.team_id) else {
+            let Some(&build_pos) = binding.first_core_build_by_team.get(&team.team_id) else {
                 continue;
             };
             self.state
@@ -8020,6 +8067,15 @@ impl ClientSession {
         self.state.last_state_snapshot = None;
         self.state.last_state_snapshot_core_data = None;
         self.state.last_good_state_snapshot_core_data = None;
+        self.state.core_inventory_runtime_binding_kind = None;
+        self.state.core_inventory_runtime_ambiguous_team_count = 0;
+        self.state
+            .core_inventory_runtime_ambiguous_team_sample
+            .clear();
+        self.state.core_inventory_runtime_missing_team_count = 0;
+        self.state
+            .core_inventory_runtime_missing_team_sample
+            .clear();
         self.state
             .last_state_snapshot_core_data_duplicate_team_count = 0;
         self.state
@@ -8168,6 +8224,15 @@ impl ClientSession {
         });
         Ok(())
     }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+struct StateSnapshotCoreInventoryRuntimeBindingSummary {
+    first_core_build_by_team: BTreeMap<u8, i32>,
+    ambiguous_team_count: usize,
+    ambiguous_team_sample: Vec<u8>,
+    missing_team_count: usize,
+    missing_team_sample: Vec<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22704,6 +22769,129 @@ mod tests {
                 .building_at(core_build_pos)
                 .map(|building| building.inventory_item_stacks.clone()),
             Some(expected_inventory)
+        );
+        assert_eq!(
+            session.state().core_inventory_runtime_binding_kind,
+            Some(CoreInventoryRuntimeBindingKind::FirstCorePerTeamApproximation)
+        );
+        assert_eq!(
+            session.state().core_inventory_runtime_ambiguous_team_count,
+            0
+        );
+        assert!(session
+            .state()
+            .core_inventory_runtime_ambiguous_team_sample
+            .is_empty());
+        assert_eq!(session.state().core_inventory_runtime_missing_team_count, 0);
+        assert!(session
+            .state()
+            .core_inventory_runtime_missing_team_sample
+            .is_empty());
+    }
+
+    #[test]
+    fn state_snapshot_packet_records_core_inventory_runtime_binding_gaps_and_ambiguity() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let core_center = session
+            .loaded_world_bundle()
+            .unwrap()
+            .world
+            .building_centers
+            .iter()
+            .find(|center| {
+                matches!(
+                    center.building.parsed_tail,
+                    mdt_world::ParsedBuildingTail::Core(_)
+                )
+            })
+            .unwrap()
+            .clone();
+        let duplicate_core_pos = pack_point2(core_center.x as i32 + 2, core_center.y as i32 + 2);
+        let missing_team_id = core_center.building.base.team_id.wrapping_add(1);
+        let mut duplicate_center = core_center.clone();
+        duplicate_center.x = core_center.x + 2;
+        duplicate_center.y = core_center.y + 2;
+        session
+            .loaded_world_bundle
+            .as_mut()
+            .unwrap()
+            .world
+            .building_centers
+            .push(duplicate_center);
+        session.state.building_table_projection.seed_world_baseline(
+            duplicate_core_pos,
+            i16::from_be_bytes(core_center.block_id.to_be_bytes()),
+            Some("core-shard".to_string()),
+            core_center.building.base.rotation,
+            core_center.building.base.team_id,
+            core_center.building.base.save_version,
+            core_center.building.base.module_bitmask,
+            core_center.building.base.time_scale_bits,
+            core_center.building.base.time_scale_duration_bits,
+            core_center.building.base.last_disabler_pos,
+            core_center.building.base.legacy_consume_connected,
+            core_center.building.base.health_bits,
+            core_center.building.base.enabled,
+            core_center.building.base.efficiency,
+            core_center.building.base.optional_efficiency,
+            core_center.building.base.visible_flags,
+        );
+        let mut core_data = Vec::new();
+        core_data.push(2);
+        core_data.push(core_center.building.base.team_id);
+        core_data.extend_from_slice(&1u16.to_be_bytes());
+        core_data.extend_from_slice(&0u16.to_be_bytes());
+        core_data.extend_from_slice(&321i32.to_be_bytes());
+        core_data.push(missing_team_id);
+        core_data.extend_from_slice(&1u16.to_be_bytes());
+        core_data.extend_from_slice(&1u16.to_be_bytes());
+        core_data.extend_from_slice(&45i32.to_be_bytes());
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == HighFrequencyRemoteMethod::StateSnapshot.method_name())
+            .unwrap()
+            .packet_id;
+        let packet = encode_packet(
+            packet_id,
+            &encode_state_snapshot_payload(
+                123.5f32.to_bits(),
+                7,
+                0,
+                false,
+                false,
+                654_321,
+                60,
+                111_111_111,
+                222_222_222,
+                &core_data,
+            ),
+            false,
+        )
+        .unwrap();
+
+        let event = session.ingest_packet_bytes(&packet).unwrap();
+
+        assert!(matches!(
+            event,
+            ClientSessionEvent::StateSnapshotApplied { .. }
+        ));
+        assert_eq!(
+            session.state().core_inventory_runtime_binding_kind,
+            Some(CoreInventoryRuntimeBindingKind::FirstCorePerTeamApproximation)
+        );
+        assert_eq!(
+            session.state().core_inventory_runtime_ambiguous_team_count,
+            1
+        );
+        assert_eq!(
+            session.state().core_inventory_runtime_ambiguous_team_sample,
+            vec![core_center.building.base.team_id]
+        );
+        assert_eq!(session.state().core_inventory_runtime_missing_team_count, 1);
+        assert_eq!(
+            session.state().core_inventory_runtime_missing_team_sample,
+            vec![missing_team_id]
         );
     }
 

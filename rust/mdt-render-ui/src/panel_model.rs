@@ -1016,6 +1016,49 @@ impl RuntimeWorldLabelPanelModel {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeMarkerPanelModel {
+    pub create_count: u64,
+    pub remove_count: u64,
+    pub update_count: u64,
+    pub update_text_count: u64,
+    pub update_texture_count: u64,
+    pub decode_fail_count: u64,
+    pub last_marker_id: Option<i32>,
+    pub last_control_name: Option<String>,
+}
+
+impl RuntimeMarkerPanelModel {
+    pub fn is_empty(&self) -> bool {
+        self.create_count == 0
+            && self.remove_count == 0
+            && self.update_count == 0
+            && self.update_text_count == 0
+            && self.update_texture_count == 0
+            && self.decode_fail_count == 0
+            && self.last_marker_id.is_none()
+            && self.last_control_name.is_none()
+    }
+
+    pub fn total_count(&self) -> u64 {
+        self.create_count
+            .saturating_add(self.remove_count)
+            .saturating_add(self.update_count)
+            .saturating_add(self.update_text_count)
+            .saturating_add(self.update_texture_count)
+    }
+
+    pub fn mutate_count(&self) -> u64 {
+        self.create_count
+            .saturating_add(self.remove_count)
+            .saturating_add(self.update_count)
+    }
+
+    pub fn control_name_len(&self) -> usize {
+        text_char_count(self.last_control_name.as_deref())
+    }
+}
+
 impl MinimapPanelModel {
     pub fn visible_map_percent(&self) -> usize {
         percent_of(self.visible_tile_count, self.map_tile_count)
@@ -1918,6 +1961,20 @@ pub fn build_runtime_world_label_panel(hud: &HudModel) -> Option<RuntimeWorldLab
     })
 }
 
+pub fn build_runtime_marker_panel(hud: &HudModel) -> Option<RuntimeMarkerPanelModel> {
+    let markers = &hud.runtime_ui.as_ref()?.markers;
+    Some(RuntimeMarkerPanelModel {
+        create_count: markers.create_count,
+        remove_count: markers.remove_count,
+        update_count: markers.update_count,
+        update_text_count: markers.update_text_count,
+        update_texture_count: markers.update_texture_count,
+        decode_fail_count: markers.decode_fail_count,
+        last_marker_id: markers.last_marker_id,
+        last_control_name: markers.last_control_name.clone(),
+    })
+}
+
 pub fn build_runtime_kick_panel(hud: &HudModel) -> Option<RuntimeKickPanelModel> {
     Some(build_runtime_session_panel(hud)?.kick)
 }
@@ -2074,13 +2131,14 @@ mod tests {
         build_runtime_command_mode_panel, build_runtime_dialog_panel,
         build_runtime_dialog_stack_panel, build_runtime_kick_panel,
         build_runtime_live_effect_panel, build_runtime_live_entity_panel,
-        build_runtime_loading_panel, build_runtime_menu_panel, build_runtime_notice_state_panel,
-        build_runtime_prompt_panel, build_runtime_reconnect_panel, build_runtime_rules_panel,
-        build_runtime_session_panel, build_runtime_ui_notice_panel, build_runtime_ui_stack_panel,
+        build_runtime_loading_panel, build_runtime_marker_panel, build_runtime_menu_panel,
+        build_runtime_notice_state_panel, build_runtime_prompt_panel,
+        build_runtime_reconnect_panel, build_runtime_rules_panel, build_runtime_session_panel,
+        build_runtime_ui_notice_panel, build_runtime_ui_stack_panel,
         build_runtime_world_label_panel, BuildInteractionAuthorityState, BuildInteractionMode,
         BuildInteractionQueueState, BuildInteractionSelectionState, BuildMinimapAssistPanelModel,
         PresenterViewWindow, RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
-        RuntimeUiStackForegroundKind, RuntimeWorldLabelPanelModel,
+        RuntimeMarkerPanelModel, RuntimeUiStackForegroundKind, RuntimeWorldLabelPanelModel,
     };
     use crate::{
         hud_model::{
@@ -2758,6 +2816,7 @@ mod tests {
                 command_mode: RuntimeCommandModeObservability::default(),
                 rules: RuntimeRulesObservability::default(),
                 world_labels: RuntimeWorldLabelObservability::default(),
+                markers: crate::hud_model::RuntimeMarkerObservability::default(),
                 session: RuntimeSessionObservability::default(),
                 live: RuntimeLiveSummaryObservability::default(),
             }),
@@ -2827,6 +2886,7 @@ mod tests {
                 command_mode: RuntimeCommandModeObservability::default(),
                 rules: RuntimeRulesObservability::default(),
                 world_labels: RuntimeWorldLabelObservability::default(),
+                markers: crate::hud_model::RuntimeMarkerObservability::default(),
                 session: RuntimeSessionObservability::default(),
                 live: RuntimeLiveSummaryObservability::default(),
             }),
@@ -2873,6 +2933,7 @@ mod tests {
                     last_completed_index: Some(9),
                 },
                 world_labels: RuntimeWorldLabelObservability::default(),
+                markers: crate::hud_model::RuntimeMarkerObservability::default(),
                 session: RuntimeSessionObservability::default(),
                 live: RuntimeLiveSummaryObservability::default(),
             }),
@@ -2926,6 +2987,7 @@ mod tests {
                         y_bits: 60.0f32.to_bits(),
                     }),
                 },
+                markers: crate::hud_model::RuntimeMarkerObservability::default(),
                 session: RuntimeSessionObservability::default(),
                 live: RuntimeLiveSummaryObservability::default(),
             }),
@@ -2983,6 +3045,70 @@ mod tests {
     }
 
     #[test]
+    fn builds_runtime_marker_panel_from_runtime_ui_observability() {
+        let hud = HudModel {
+            runtime_ui: Some(RuntimeUiObservability {
+                hud_text: RuntimeHudTextObservability::default(),
+                toast: RuntimeToastObservability::default(),
+                text_input: RuntimeTextInputObservability::default(),
+                chat: crate::RuntimeChatObservability::default(),
+                admin: RuntimeAdminObservability::default(),
+                menu: RuntimeMenuObservability::default(),
+                command_mode: RuntimeCommandModeObservability::default(),
+                rules: RuntimeRulesObservability::default(),
+                world_labels: RuntimeWorldLabelObservability::default(),
+                markers: crate::hud_model::RuntimeMarkerObservability {
+                    create_count: 54,
+                    remove_count: 55,
+                    update_count: 56,
+                    update_text_count: 57,
+                    update_texture_count: 58,
+                    decode_fail_count: 2,
+                    last_marker_id: Some(808),
+                    last_control_name: Some("flushText".to_string()),
+                },
+                session: RuntimeSessionObservability::default(),
+                live: RuntimeLiveSummaryObservability::default(),
+            }),
+            ..HudModel::default()
+        };
+
+        let panel = build_runtime_marker_panel(&hud).expect("expected runtime marker panel");
+
+        assert_eq!(panel.create_count, 54);
+        assert_eq!(panel.remove_count, 55);
+        assert_eq!(panel.update_count, 56);
+        assert_eq!(panel.update_text_count, 57);
+        assert_eq!(panel.update_texture_count, 58);
+        assert_eq!(panel.decode_fail_count, 2);
+        assert_eq!(panel.last_marker_id, Some(808));
+        assert_eq!(panel.last_control_name.as_deref(), Some("flushText"));
+        assert_eq!(panel.total_count(), 280);
+        assert_eq!(panel.mutate_count(), 165);
+        assert_eq!(panel.control_name_len(), 9);
+        assert!(!panel.is_empty());
+    }
+
+    #[test]
+    fn runtime_marker_panel_derived_metrics_handle_default_state() {
+        let panel = RuntimeMarkerPanelModel {
+            create_count: 0,
+            remove_count: 0,
+            update_count: 0,
+            update_text_count: 0,
+            update_texture_count: 0,
+            decode_fail_count: 0,
+            last_marker_id: None,
+            last_control_name: None,
+        };
+
+        assert!(panel.is_empty());
+        assert_eq!(panel.total_count(), 0);
+        assert_eq!(panel.mutate_count(), 0);
+        assert_eq!(panel.control_name_len(), 0);
+    }
+
+    #[test]
     fn builds_runtime_live_entity_panel_from_runtime_ui_observability() {
         let hud = HudModel {
             runtime_ui: Some(RuntimeUiObservability {
@@ -2995,6 +3121,7 @@ mod tests {
                 command_mode: RuntimeCommandModeObservability::default(),
                 rules: RuntimeRulesObservability::default(),
                 world_labels: RuntimeWorldLabelObservability::default(),
+                markers: crate::hud_model::RuntimeMarkerObservability::default(),
                 session: RuntimeSessionObservability::default(),
                 live: RuntimeLiveSummaryObservability {
                     entity: crate::RuntimeLiveEntitySummaryObservability {
@@ -3058,6 +3185,7 @@ mod tests {
                 command_mode: RuntimeCommandModeObservability::default(),
                 rules: RuntimeRulesObservability::default(),
                 world_labels: RuntimeWorldLabelObservability::default(),
+                markers: crate::hud_model::RuntimeMarkerObservability::default(),
                 session: RuntimeSessionObservability::default(),
                 live: RuntimeLiveSummaryObservability {
                     entity: crate::RuntimeLiveEntitySummaryObservability::default(),
@@ -3157,6 +3285,7 @@ mod tests {
                 command_mode: RuntimeCommandModeObservability::default(),
                 rules: RuntimeRulesObservability::default(),
                 world_labels: RuntimeWorldLabelObservability::default(),
+                markers: crate::hud_model::RuntimeMarkerObservability::default(),
                 session: RuntimeSessionObservability::default(),
                 live: RuntimeLiveSummaryObservability::default(),
             }),
@@ -3242,6 +3371,7 @@ mod tests {
                 command_mode: RuntimeCommandModeObservability::default(),
                 rules: RuntimeRulesObservability::default(),
                 world_labels: RuntimeWorldLabelObservability::default(),
+                markers: crate::hud_model::RuntimeMarkerObservability::default(),
                 session: RuntimeSessionObservability::default(),
                 live: RuntimeLiveSummaryObservability::default(),
             }),
@@ -3331,6 +3461,7 @@ mod tests {
                 },
                 rules: RuntimeRulesObservability::default(),
                 world_labels: RuntimeWorldLabelObservability::default(),
+                markers: crate::hud_model::RuntimeMarkerObservability::default(),
                 session: RuntimeSessionObservability::default(),
                 live: RuntimeLiveSummaryObservability::default(),
             }),
@@ -3409,6 +3540,7 @@ mod tests {
                 command_mode: RuntimeCommandModeObservability::default(),
                 rules: RuntimeRulesObservability::default(),
                 world_labels: RuntimeWorldLabelObservability::default(),
+                markers: crate::hud_model::RuntimeMarkerObservability::default(),
                 session: RuntimeSessionObservability::default(),
                 live: RuntimeLiveSummaryObservability::default(),
             }),
@@ -3440,6 +3572,7 @@ mod tests {
                 command_mode: RuntimeCommandModeObservability::default(),
                 rules: RuntimeRulesObservability::default(),
                 world_labels: RuntimeWorldLabelObservability::default(),
+                markers: crate::hud_model::RuntimeMarkerObservability::default(),
                 session: RuntimeSessionObservability::default(),
                 live: RuntimeLiveSummaryObservability::default(),
             }),
@@ -3487,6 +3620,7 @@ mod tests {
                 command_mode: RuntimeCommandModeObservability::default(),
                 rules: RuntimeRulesObservability::default(),
                 world_labels: RuntimeWorldLabelObservability::default(),
+                markers: crate::hud_model::RuntimeMarkerObservability::default(),
                 session: RuntimeSessionObservability {
                     kick: crate::hud_model::RuntimeKickObservability {
                         reason_text: Some("idInUse".to_string()),
@@ -3592,6 +3726,7 @@ mod tests {
                 command_mode: RuntimeCommandModeObservability::default(),
                 rules: RuntimeRulesObservability::default(),
                 world_labels: RuntimeWorldLabelObservability::default(),
+                markers: crate::hud_model::RuntimeMarkerObservability::default(),
                 session: RuntimeSessionObservability {
                     kick: crate::hud_model::RuntimeKickObservability {
                         reason_text: Some("idInUse".to_string()),
@@ -3680,6 +3815,7 @@ mod tests {
                 command_mode: RuntimeCommandModeObservability::default(),
                 rules: RuntimeRulesObservability::default(),
                 world_labels: RuntimeWorldLabelObservability::default(),
+                markers: crate::hud_model::RuntimeMarkerObservability::default(),
                 session: RuntimeSessionObservability::default(),
                 live: RuntimeLiveSummaryObservability::default(),
             }),
@@ -3703,6 +3839,7 @@ mod tests {
                 command_mode: RuntimeCommandModeObservability::default(),
                 rules: RuntimeRulesObservability::default(),
                 world_labels: RuntimeWorldLabelObservability::default(),
+                markers: crate::hud_model::RuntimeMarkerObservability::default(),
                 session: RuntimeSessionObservability {
                     kick: crate::hud_model::RuntimeKickObservability {
                         reason_text: Some("idInUse".to_string()),
@@ -3879,6 +4016,7 @@ mod tests {
                 command_mode: RuntimeCommandModeObservability::default(),
                 rules: RuntimeRulesObservability::default(),
                 world_labels: RuntimeWorldLabelObservability::default(),
+                markers: crate::hud_model::RuntimeMarkerObservability::default(),
                 session: RuntimeSessionObservability::default(),
                 live: RuntimeLiveSummaryObservability::default(),
             }),

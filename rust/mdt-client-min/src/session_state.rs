@@ -364,6 +364,19 @@ pub struct ReconstructorRuntimeProjection {
     pub pay_rotation_bits: u32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CoreInventoryRuntimeBindingKind {
+    FirstCorePerTeamApproximation,
+}
+
+impl CoreInventoryRuntimeBindingKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::FirstCorePerTeamApproximation => "first-core-per-team",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EffectBusinessProjection {
     ContentRef {
@@ -4391,6 +4404,11 @@ pub struct SessionState {
     pub last_state_snapshot: Option<AppliedStateSnapshot>,
     pub last_state_snapshot_core_data: Option<AppliedStateSnapshotCoreData>,
     pub last_good_state_snapshot_core_data: Option<AppliedStateSnapshotCoreData>,
+    pub core_inventory_runtime_binding_kind: Option<CoreInventoryRuntimeBindingKind>,
+    pub core_inventory_runtime_ambiguous_team_count: usize,
+    pub core_inventory_runtime_ambiguous_team_sample: Vec<u8>,
+    pub core_inventory_runtime_missing_team_count: usize,
+    pub core_inventory_runtime_missing_team_sample: Vec<u8>,
     pub last_state_snapshot_core_data_duplicate_team_count: usize,
     pub last_state_snapshot_core_data_duplicate_item_count: usize,
     pub state_snapshot_core_data_duplicate_team_count_total: u64,

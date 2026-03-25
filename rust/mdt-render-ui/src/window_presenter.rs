@@ -8,9 +8,10 @@ use crate::{
         build_runtime_command_mode_panel, build_runtime_dialog_panel,
         build_runtime_dialog_stack_panel, build_runtime_kick_panel,
         build_runtime_live_effect_panel, build_runtime_live_entity_panel,
-        build_runtime_loading_panel, build_runtime_menu_panel, build_runtime_notice_state_panel,
-        build_runtime_prompt_panel, build_runtime_reconnect_panel, build_runtime_rules_panel,
-        build_runtime_session_panel, build_runtime_ui_notice_panel, build_runtime_ui_stack_panel,
+        build_runtime_loading_panel, build_runtime_marker_panel, build_runtime_menu_panel,
+        build_runtime_notice_state_panel, build_runtime_prompt_panel,
+        build_runtime_reconnect_panel, build_runtime_rules_panel, build_runtime_session_panel,
+        build_runtime_ui_notice_panel, build_runtime_ui_stack_panel,
         build_runtime_world_label_panel, MinimapPanelModel, PresenterViewWindow,
         RuntimeDialogNoticeKind, RuntimeDialogPromptKind, RuntimeUiNoticePanelModel,
     },
@@ -586,6 +587,14 @@ fn compose_frame_panel_lines(
     {
         lines.push(format!(
             "RUNTIME-WORLD-LABEL-DETAIL: {runtime_world_label_detail_text}"
+        ));
+    }
+    if let Some(runtime_marker_text) = compose_runtime_marker_panel_status_text(hud) {
+        lines.push(format!("RUNTIME-MARKER: {runtime_marker_text}"));
+    }
+    if let Some(runtime_marker_detail_text) = compose_runtime_marker_detail_status_text(hud) {
+        lines.push(format!(
+            "RUNTIME-MARKER-DETAIL: {runtime_marker_detail_text}"
         ));
     }
     if let Some(runtime_session_text) = compose_runtime_session_status_text(hud) {
@@ -1326,6 +1335,41 @@ fn runtime_world_label_status_sample(value: Option<&str>) -> String {
     } else {
         sample
     }
+}
+
+fn compose_runtime_marker_panel_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_marker_panel(hud)?;
+    if panel.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "marker:cr{}:rm{}:up{}:txt{}:tex{}:f{}:last{}:ctl{}",
+        panel.create_count,
+        panel.remove_count,
+        panel.update_count,
+        panel.update_text_count,
+        panel.update_texture_count,
+        panel.decode_fail_count,
+        optional_i32_label(panel.last_marker_id),
+        compact_runtime_ui_text(panel.last_control_name.as_deref()),
+    ))
+}
+
+fn compose_runtime_marker_detail_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_marker_panel(hud)?;
+    if panel.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "markerd:tot{}:mut{}:txt{}:tex{}:f{}:last{}:c{}",
+        panel.total_count(),
+        panel.mutate_count(),
+        panel.update_text_count,
+        panel.update_texture_count,
+        panel.decode_fail_count,
+        optional_i32_label(panel.last_marker_id),
+        panel.control_name_len(),
+    ))
 }
 
 fn compose_runtime_kick_status_text(hud: &HudModel) -> Option<String> {
@@ -3564,6 +3608,16 @@ mod tests {
                         y_bits: 60.0f32.to_bits(),
                     }),
                 },
+                markers: crate::hud_model::RuntimeMarkerObservability {
+                    create_count: 54,
+                    remove_count: 55,
+                    update_count: 56,
+                    update_text_count: 57,
+                    update_texture_count: 58,
+                    decode_fail_count: 2,
+                    last_marker_id: Some(808),
+                    last_control_name: Some("flushText".to_string()),
+                },
                 session: RuntimeSessionObservability {
                     kick: crate::hud_model::RuntimeKickObservability {
                         reason_text: Some("idInUse".to_string()),
@@ -3859,6 +3913,14 @@ mod tests {
         assert_frame_line_contains(
             &frame.panel_lines,
             "RUNTIME-WORLD-LABEL-DETAIL: wlabeld:set19:rel20:rm21:act2:in58:last904:f3:txt11x1:fs1094713344@12.0:z1082130432@4.0:p40.0:60.0",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RUNTIME-MARKER: marker:cr54:rm55:up56:txt57:tex58:f2:last808:ctlflushText",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RUNTIME-MARKER-DETAIL: markerd:tot280:mut165:txt57:tex58:f2:last808:c9",
         );
         assert_frame_line_contains(
             &frame.panel_lines,

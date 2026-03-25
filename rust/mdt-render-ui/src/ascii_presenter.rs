@@ -6,11 +6,12 @@ use crate::panel_model::{
     build_runtime_admin_panel, build_runtime_chat_panel, build_runtime_choice_panel,
     build_runtime_command_mode_panel, build_runtime_dialog_panel, build_runtime_dialog_stack_panel,
     build_runtime_kick_panel, build_runtime_live_effect_panel, build_runtime_live_entity_panel,
-    build_runtime_loading_panel, build_runtime_menu_panel, build_runtime_notice_state_panel,
-    build_runtime_prompt_panel, build_runtime_reconnect_panel, build_runtime_rules_panel,
-    build_runtime_session_panel, build_runtime_ui_notice_panel, build_runtime_ui_stack_panel,
-    build_runtime_world_label_panel, MinimapPanelModel, PresenterViewWindow,
-    RuntimeDialogNoticeKind, RuntimeDialogPromptKind, RuntimeUiNoticePanelModel,
+    build_runtime_loading_panel, build_runtime_marker_panel, build_runtime_menu_panel,
+    build_runtime_notice_state_panel, build_runtime_prompt_panel, build_runtime_reconnect_panel,
+    build_runtime_rules_panel, build_runtime_session_panel, build_runtime_ui_notice_panel,
+    build_runtime_ui_stack_panel, build_runtime_world_label_panel, MinimapPanelModel,
+    PresenterViewWindow, RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
+    RuntimeUiNoticePanelModel,
 };
 use crate::presenter_view::{crop_window_to_focus, projected_window, visible_window_tile};
 use crate::render_model::{RenderObjectSemanticFamily, RenderObjectSemanticKind};
@@ -237,6 +238,14 @@ impl AsciiScenePresenter {
         {
             out.push_str(&format!(
                 "RUNTIME-WORLD-LABEL-DETAIL: {runtime_world_label_detail_text}\n"
+            ));
+        }
+        if let Some(runtime_marker_text) = compose_runtime_marker_panel_text(hud) {
+            out.push_str(&format!("RUNTIME-MARKER: {runtime_marker_text}\n"));
+        }
+        if let Some(runtime_marker_detail_text) = compose_runtime_marker_detail_text(hud) {
+            out.push_str(&format!(
+                "RUNTIME-MARKER-DETAIL: {runtime_marker_detail_text}\n"
             ));
         }
         if let Some(runtime_session_text) = compose_runtime_session_row_text(hud) {
@@ -1038,6 +1047,41 @@ fn runtime_world_label_text_sample(value: Option<&str>) -> String {
     } else {
         sample
     }
+}
+
+fn compose_runtime_marker_panel_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_marker_panel(hud)?;
+    if panel.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "create={} remove={} update={} text={} texture={} fail={} last={} control={}",
+        panel.create_count,
+        panel.remove_count,
+        panel.update_count,
+        panel.update_text_count,
+        panel.update_texture_count,
+        panel.decode_fail_count,
+        optional_i32_label(panel.last_marker_id),
+        compact_runtime_ui_text(panel.last_control_name.as_deref()),
+    ))
+}
+
+fn compose_runtime_marker_detail_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_marker_panel(hud)?;
+    if panel.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "total={} mutate={} text={} texture={} fail={} last={} control-len={}",
+        panel.total_count(),
+        panel.mutate_count(),
+        panel.update_text_count,
+        panel.update_texture_count,
+        panel.decode_fail_count,
+        optional_i32_label(panel.last_marker_id),
+        panel.control_name_len(),
+    ))
 }
 
 fn compose_runtime_kick_row_text(hud: &HudModel) -> Option<String> {
@@ -2981,6 +3025,16 @@ mod tests {
                         y_bits: 60.0f32.to_bits(),
                     }),
                 },
+                markers: crate::hud_model::RuntimeMarkerObservability {
+                    create_count: 54,
+                    remove_count: 55,
+                    update_count: 56,
+                    update_text_count: 57,
+                    update_texture_count: 58,
+                    decode_fail_count: 2,
+                    last_marker_id: Some(808),
+                    last_control_name: Some("flushText".to_string()),
+                },
                 session: RuntimeSessionObservability {
                     kick: crate::hud_model::RuntimeKickObservability {
                         reason_text: Some("idInUse".to_string()),
@@ -3222,6 +3276,12 @@ mod tests {
         ));
         assert!(frame.contains(
             "RUNTIME-WORLD-LABEL-DETAIL: set=19 rel=20 remove=21 active=2 inactive=58 last=904 flags=3 text-len=11 lines=1 font=1094713344@12.0 z=1082130432@4.0 pos=40.0:60.0"
+        ));
+        assert!(frame.contains(
+            "RUNTIME-MARKER: create=54 remove=55 update=56 text=57 texture=58 fail=2 last=808 control=flushText"
+        ));
+        assert!(frame.contains(
+            "RUNTIME-MARKER-DETAIL: total=280 mutate=165 text=57 texture=58 fail=2 last=808 control-len=9"
         ));
         assert!(frame.contains(
             "RUNTIME-SESSION: kick=idInUse@7:IdInUse:wait_for_old~; loading=defer5 replay6 drop7 qdrop8 sfail9 scfail10 efail11 rdy12@1300 to2/1/1 ltready@20000 rs3/1/1/1 lrreload lwr@lw1:cl0:rd1:cc0:p4:d5:r6; reconnect=attempt#3 redirect redirect=1@127.0.0.1:6567 reason=connectRedir~#none hint=server_reque~"
