@@ -13,9 +13,10 @@ pub mod probe;
 
 pub use builder_queue::{
     BuilderQueueActivityObservation, BuilderQueueActivityState, BuilderQueueBuildSelection,
-    BuilderQueueEntry, BuilderQueueEntryObservation, BuilderQueueLocalStepResult,
-    BuilderQueueStage, BuilderQueueStateMachine, BuilderQueueTileStateObservation,
-    BuilderQueueTransition, BuilderQueueValidationResult,
+    BuilderQueueEntry, BuilderQueueEntryObservation, BuilderQueueFrontPromotion,
+    BuilderQueueLocalStepResult, BuilderQueueSkipReason, BuilderQueueStage,
+    BuilderQueueStateMachine, BuilderQueueTileStateObservation, BuilderQueueTransition,
+    BuilderQueueValidationRemovalReason, BuilderQueueValidationResult,
 };
 pub use capability_gate::{
     CapabilityBuildRequest, CapabilityCommandRequest, CapabilityContext, CapabilityDecision,

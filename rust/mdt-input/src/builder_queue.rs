@@ -55,6 +55,13 @@ pub enum BuilderQueueHeadSelection {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuilderQueueSkipReason {
+    ObservationMissing,
+    OutOfRange,
+    RequestedSkip,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BuilderQueueActivityState {
     pub head_tile: Option<(i32, i32)>,
     pub actively_building: bool,
@@ -63,6 +70,22 @@ pub struct BuilderQueueActivityState {
     pub reordered: bool,
     pub used_closest_in_range_fallback: bool,
     pub head_selection: BuilderQueueHeadSelection,
+}
+
+impl BuilderQueueActivityState {
+    pub fn skip_reason(&self) -> Option<BuilderQueueSkipReason> {
+        if self.head_tile.is_none() {
+            None
+        } else if self.head_selection == BuilderQueueHeadSelection::ObservationMissing {
+            Some(BuilderQueueSkipReason::ObservationMissing)
+        } else if self.head_should_skip {
+            Some(BuilderQueueSkipReason::RequestedSkip)
+        } else if !self.head_in_range {
+            Some(BuilderQueueSkipReason::OutOfRange)
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -98,6 +121,13 @@ pub struct BuilderQueueValidationResult {
     pub reconcile_outcome: BuilderQueueReconcileOutcome,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuilderQueueValidationRemovalReason {
+    BreakAlreadyAir,
+    PlaceAlreadyMatchesRotation,
+    PlaceAlreadyMatchesIgnoringRotation,
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum BuilderQueueReconcileOutcome {
     #[default]
@@ -105,6 +135,16 @@ pub enum BuilderQueueReconcileOutcome {
     RemovedNonHead,
     AdvancedHead,
     ClearedQueue,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuilderQueueFrontPromotion {
+    EnqueueFront,
+    BeginInFlight,
+    ExplicitMoveToFront,
+    ActivityReorderedToReachable,
+    ActivityClosestInRangeFallback,
+    ValidationAdvancedHead,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -120,6 +160,10 @@ pub struct BuilderQueueStateMachine {
     pub last_transition: Option<BuilderQueueTransition>,
     pub last_removed_local_plan: bool,
     pub last_orphan_authoritative: bool,
+    pub last_skip_reason: Option<BuilderQueueSkipReason>,
+    pub last_front_promotion: Option<BuilderQueueFrontPromotion>,
+    pub last_validation_removal_reasons:
+        BTreeMap<(i32, i32), BuilderQueueValidationRemovalReason>,
 }
 
 impl BuilderQueueStateMachine {
@@ -161,6 +205,9 @@ impl BuilderQueueStateMachine {
         } else {
             self.ordered_tiles.insert(0, key);
         }
+        self.last_skip_reason = None;
+        self.last_validation_removal_reasons.clear();
+        self.last_front_promotion = (!tail).then_some(BuilderQueueFrontPromotion::EnqueueFront);
         self.recount();
         previous
     }
@@ -232,6 +279,9 @@ impl BuilderQueueStateMachine {
 
         self.active_by_tile = next;
         self.ordered_tiles = next_order;
+        self.last_skip_reason = None;
+        self.last_front_promotion = None;
+        self.last_validation_removal_reasons.clear();
         self.recount();
     }
 
@@ -261,6 +311,9 @@ impl BuilderQueueStateMachine {
         self.last_transition = Some(BuilderQueueTransition::Started);
         self.last_removed_local_plan = false;
         self.last_orphan_authoritative = false;
+        self.last_skip_reason = None;
+        self.last_validation_removal_reasons.clear();
+        self.last_front_promotion = Some(BuilderQueueFrontPromotion::BeginInFlight);
         self.recount();
     }
 
@@ -274,6 +327,9 @@ impl BuilderQueueStateMachine {
         self.last_transition = Some(BuilderQueueTransition::Rejected);
         self.last_removed_local_plan = removed_local_plan;
         self.last_orphan_authoritative = orphan_authoritative;
+        self.last_skip_reason = None;
+        self.last_front_promotion = None;
+        self.last_validation_removal_reasons.clear();
         self.recount();
     }
 
@@ -287,6 +343,9 @@ impl BuilderQueueStateMachine {
         self.last_transition = Some(BuilderQueueTransition::Finished);
         self.last_removed_local_plan = removed_local_plan;
         self.last_orphan_authoritative = orphan_authoritative;
+        self.last_skip_reason = None;
+        self.last_front_promotion = None;
+        self.last_validation_removal_reasons.clear();
         self.recount();
     }
 
@@ -298,6 +357,9 @@ impl BuilderQueueStateMachine {
             .is_some_and(|entry| entry.breaking == breaking)
         {
             self.promote_to_front(key);
+            self.last_skip_reason = None;
+            self.last_validation_removal_reasons.clear();
+            self.last_front_promotion = Some(BuilderQueueFrontPromotion::ExplicitMoveToFront);
             self.recount();
             true
         } else {
@@ -313,6 +375,9 @@ impl BuilderQueueStateMachine {
     ) -> Option<BuilderQueueEntry> {
         let removed = self.remove_matching_entry(x, y, breaking);
         if removed.is_some() {
+            self.last_skip_reason = None;
+            self.last_front_promotion = None;
+            self.last_validation_removal_reasons.clear();
             self.recount();
         }
         removed
@@ -479,7 +544,7 @@ impl BuilderQueueStateMachine {
         } else {
             BuilderQueueHeadSelection::HeadOutOfRange
         };
-        BuilderQueueActivityState {
+        let activity = BuilderQueueActivityState {
             head_tile: self.head_tile,
             actively_building: head_in_range,
             head_in_range,
@@ -487,7 +552,17 @@ impl BuilderQueueStateMachine {
             reordered,
             used_closest_in_range_fallback,
             head_selection,
-        }
+        };
+        self.last_skip_reason = activity.skip_reason();
+        self.last_validation_removal_reasons.clear();
+        self.last_front_promotion = if used_closest_in_range_fallback {
+            Some(BuilderQueueFrontPromotion::ActivityClosestInRangeFallback)
+        } else if reordered {
+            Some(BuilderQueueFrontPromotion::ActivityReorderedToReachable)
+        } else {
+            None
+        };
+        activity
     }
 
     /// Mirrors the low-risk Java `BuilderComp.updateBuildLogic()` ordering:
@@ -522,6 +597,7 @@ impl BuilderQueueStateMachine {
             .collect::<BTreeMap<_, _>>();
         let original_head = self.head_tile;
         let mut removed_tiles = Vec::new();
+        let mut removed_reasons = BTreeMap::new();
 
         self.ordered_tiles.retain(|tile| {
             let Some(entry) = self.active_by_tile.get(tile) else {
@@ -530,11 +606,12 @@ impl BuilderQueueStateMachine {
             let Some(observation) = observations_by_tile.get(tile) else {
                 return true;
             };
-            let should_remove = Self::entry_matches_tile_state(entry, observation);
-            if should_remove {
+            let removal_reason = Self::entry_removal_reason(entry, observation);
+            if let Some(reason) = removal_reason {
                 removed_tiles.push(*tile);
+                removed_reasons.insert(*tile, reason);
             }
-            !should_remove
+            removal_reason.is_none()
         });
 
         for tile in &removed_tiles {
@@ -555,6 +632,11 @@ impl BuilderQueueStateMachine {
         } else {
             BuilderQueueReconcileOutcome::RemovedNonHead
         };
+        self.last_skip_reason = None;
+        self.last_validation_removal_reasons = removed_reasons;
+        self.last_front_promotion = (reconcile_outcome
+            == BuilderQueueReconcileOutcome::AdvancedHead)
+            .then_some(BuilderQueueFrontPromotion::ValidationAdvancedHead);
         BuilderQueueValidationResult {
             removed_count: removed_tiles.len(),
             removed_head,
@@ -626,19 +708,28 @@ impl BuilderQueueStateMachine {
         observations_by_key.get(&(entry.x, entry.y, entry.breaking))
     }
 
-    fn entry_matches_tile_state(
+    fn entry_removal_reason(
         entry: &BuilderQueueEntry,
         observation: &BuilderQueueTileStateObservation,
-    ) -> bool {
+    ) -> Option<BuilderQueueValidationRemovalReason> {
         if entry.breaking {
-            observation.block_id.is_none()
+            observation
+                .block_id
+                .is_none()
+                .then_some(BuilderQueueValidationRemovalReason::BreakAlreadyAir)
         } else {
-            observation.block_id == entry.block_id
-                && (!observation.requires_rotation_match
-                    || observation
-                        .rotation
-                        .zip(entry.rotation)
-                        .is_some_and(|(lhs, rhs)| lhs == rhs))
+            let same_block = observation.block_id == entry.block_id;
+            if !same_block {
+                return None;
+            }
+            if !observation.requires_rotation_match {
+                return Some(BuilderQueueValidationRemovalReason::PlaceAlreadyMatchesIgnoringRotation);
+            }
+            observation
+                .rotation
+                .zip(entry.rotation)
+                .is_some_and(|(lhs, rhs)| lhs == rhs)
+                .then_some(BuilderQueueValidationRemovalReason::PlaceAlreadyMatchesRotation)
         }
     }
 
@@ -663,10 +754,11 @@ impl BuilderQueueStateMachine {
 mod tests {
     use super::{
         BuilderQueueActivityObservation, BuilderQueueActivityState, BuilderQueueBuildSelection,
-        BuilderQueueEntry, BuilderQueueEntryObservation, BuilderQueueHeadSelection,
-        BuilderQueueLocalStepResult, BuilderQueueReconcileOutcome, BuilderQueueStage,
-        BuilderQueueStateMachine, BuilderQueueTileStateObservation, BuilderQueueTransition,
-        BuilderQueueValidationResult,
+        BuilderQueueEntry, BuilderQueueEntryObservation, BuilderQueueFrontPromotion,
+        BuilderQueueHeadSelection, BuilderQueueLocalStepResult, BuilderQueueReconcileOutcome,
+        BuilderQueueSkipReason, BuilderQueueStage, BuilderQueueStateMachine,
+        BuilderQueueTileStateObservation, BuilderQueueTransition,
+        BuilderQueueValidationRemovalReason, BuilderQueueValidationResult,
     };
     use std::collections::BTreeMap;
 
@@ -3067,6 +3159,215 @@ mod tests {
                 selected_block_id: Some(22),
                 selected_rotation: 3,
             }
+        );
+    }
+
+    #[test]
+    fn update_local_activity_records_skip_reason_and_reorder_promotion() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 1,
+                y: 1,
+                breaking: false,
+                block_id: Some(10),
+                rotation: 0,
+            },
+            BuilderQueueEntryObservation {
+                x: 2,
+                y: 2,
+                breaking: false,
+                block_id: Some(20),
+                rotation: 1,
+            },
+            BuilderQueueEntryObservation {
+                x: 3,
+                y: 3,
+                breaking: false,
+                block_id: Some(30),
+                rotation: 2,
+            },
+        ]);
+
+        let activity = queue.update_local_activity([
+            BuilderQueueActivityObservation {
+                x: 1,
+                y: 1,
+                breaking: false,
+                in_range: false,
+                should_skip: false,
+                distance_sq: 36,
+            },
+            BuilderQueueActivityObservation {
+                x: 2,
+                y: 2,
+                breaking: false,
+                in_range: true,
+                should_skip: true,
+                distance_sq: 4,
+            },
+            BuilderQueueActivityObservation {
+                x: 3,
+                y: 3,
+                breaking: false,
+                in_range: true,
+                should_skip: false,
+                distance_sq: 1,
+            },
+        ]);
+
+        assert_eq!(activity.skip_reason(), None);
+        assert_eq!(queue.last_skip_reason, None);
+        assert_eq!(
+            queue.last_front_promotion,
+            Some(BuilderQueueFrontPromotion::ActivityReorderedToReachable)
+        );
+    }
+
+    #[test]
+    fn update_local_activity_records_requested_skip_reason_for_fallback_head() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 1,
+                y: 1,
+                breaking: false,
+                block_id: Some(10),
+                rotation: 0,
+            },
+            BuilderQueueEntryObservation {
+                x: 2,
+                y: 2,
+                breaking: false,
+                block_id: Some(20),
+                rotation: 1,
+            },
+            BuilderQueueEntryObservation {
+                x: 3,
+                y: 3,
+                breaking: true,
+                block_id: None,
+                rotation: 2,
+            },
+        ]);
+
+        let activity = queue.update_local_activity([
+            BuilderQueueActivityObservation {
+                x: 1,
+                y: 1,
+                breaking: false,
+                in_range: false,
+                should_skip: false,
+                distance_sq: 100,
+            },
+            BuilderQueueActivityObservation {
+                x: 2,
+                y: 2,
+                breaking: false,
+                in_range: true,
+                should_skip: true,
+                distance_sq: 16,
+            },
+            BuilderQueueActivityObservation {
+                x: 3,
+                y: 3,
+                breaking: true,
+                in_range: true,
+                should_skip: true,
+                distance_sq: 4,
+            },
+        ]);
+
+        assert_eq!(
+            activity.skip_reason(),
+            Some(BuilderQueueSkipReason::RequestedSkip)
+        );
+        assert_eq!(
+            queue.last_skip_reason,
+            Some(BuilderQueueSkipReason::RequestedSkip)
+        );
+        assert_eq!(
+            queue.last_front_promotion,
+            Some(BuilderQueueFrontPromotion::ActivityClosestInRangeFallback)
+        );
+    }
+
+    #[test]
+    fn validate_against_tile_states_records_removal_reason_and_head_advance_promotion() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 1,
+                y: 1,
+                breaking: false,
+                block_id: Some(10),
+                rotation: 0,
+            },
+            BuilderQueueEntryObservation {
+                x: 2,
+                y: 2,
+                breaking: false,
+                block_id: Some(20),
+                rotation: 1,
+            },
+        ]);
+
+        let validation = queue.validate_against_tile_states([BuilderQueueTileStateObservation {
+            x: 1,
+            y: 1,
+            block_id: Some(10),
+            rotation: Some(0),
+            requires_rotation_match: true,
+        }]);
+
+        assert_eq!(
+            validation.reconcile_outcome,
+            BuilderQueueReconcileOutcome::AdvancedHead
+        );
+        assert_eq!(
+            queue.last_validation_removal_reasons.get(&(1, 1)),
+            Some(&BuilderQueueValidationRemovalReason::PlaceAlreadyMatchesRotation)
+        );
+        assert_eq!(
+            queue.last_front_promotion,
+            Some(BuilderQueueFrontPromotion::ValidationAdvancedHead)
+        );
+    }
+
+    #[test]
+    fn mark_begin_and_move_to_front_record_explicit_front_promotions() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.enqueue_local(
+            BuilderQueueEntryObservation {
+                x: 1,
+                y: 1,
+                breaking: false,
+                block_id: Some(10),
+                rotation: 0,
+            },
+            true,
+        );
+        queue.enqueue_local(
+            BuilderQueueEntryObservation {
+                x: 2,
+                y: 2,
+                breaking: false,
+                block_id: Some(20),
+                rotation: 1,
+            },
+            true,
+        );
+
+        queue.mark_begin(2, 2, false, Some(20), 1);
+        assert_eq!(
+            queue.last_front_promotion,
+            Some(BuilderQueueFrontPromotion::BeginInFlight)
+        );
+
+        assert!(queue.move_to_front(1, 1, false));
+        assert_eq!(
+            queue.last_front_promotion,
+            Some(BuilderQueueFrontPromotion::ExplicitMoveToFront)
         );
     }
 }
