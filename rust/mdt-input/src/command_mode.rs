@@ -28,6 +28,17 @@ pub struct CommandModeRectProjection {
     pub y1: i32,
 }
 
+impl CommandModeRectProjection {
+    pub fn normalized(self) -> Self {
+        Self {
+            x0: self.x0.min(self.x1),
+            y0: self.y0.min(self.y1),
+            x1: self.x0.max(self.x1),
+            y1: self.y0.max(self.y1),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandModeControlGroupProjection {
     pub index: u8,
@@ -60,6 +71,13 @@ pub struct CommandModeCommandSelection {
 pub struct CommandModeStanceSelection {
     pub stance_id: Option<u8>,
     pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandModeSelectionOp {
+    Replace,
+    Add,
+    Toggle,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -201,6 +219,39 @@ impl CommandModeState {
         });
     }
 
+    pub fn select_unit_target(
+        &mut self,
+        target: Option<CommandUnitRef>,
+        selected_unit_ids: &[i32],
+        op: CommandModeSelectionOp,
+    ) {
+        self.active = true;
+        self.selected_units = merge_selected_units(&self.selected_units, selected_unit_ids, op);
+        self.command_buildings.clear();
+        self.command_rect = None;
+        self.last_target = Some(CommandModeTargetProjection {
+            unit_target: target,
+            ..CommandModeTargetProjection::default()
+        });
+    }
+
+    pub fn select_units_rect(
+        &mut self,
+        rect: CommandModeRectProjection,
+        selected_unit_ids: &[i32],
+        op: CommandModeSelectionOp,
+    ) {
+        let rect = rect.normalized();
+        self.active = true;
+        self.selected_units = merge_selected_units(&self.selected_units, selected_unit_ids, op);
+        self.command_buildings.clear();
+        self.command_rect = Some(rect);
+        self.last_target = Some(CommandModeTargetProjection {
+            rect_target: Some(rect),
+            ..CommandModeTargetProjection::default()
+        });
+    }
+
     pub fn record_command_building(&mut self, buildings: &[i32], position: (f32, f32)) {
         self.active = true;
         self.command_buildings = dedupe_i32(buildings);
@@ -262,6 +313,38 @@ impl CommandModeState {
             last_target: self.last_target,
             last_command_selection: self.last_command_selection,
             last_stance_selection: self.last_stance_selection,
+        }
+    }
+}
+
+pub fn merge_selected_units(
+    current_unit_ids: &[i32],
+    incoming_unit_ids: &[i32],
+    op: CommandModeSelectionOp,
+) -> Vec<i32> {
+    let current = dedupe_i32(current_unit_ids);
+    let incoming = dedupe_i32(incoming_unit_ids);
+    match op {
+        CommandModeSelectionOp::Replace => incoming,
+        CommandModeSelectionOp::Add => {
+            let mut merged = current;
+            for unit_id in incoming {
+                if !merged.contains(&unit_id) {
+                    merged.push(unit_id);
+                }
+            }
+            merged
+        }
+        CommandModeSelectionOp::Toggle => {
+            let mut merged = current;
+            for unit_id in incoming {
+                if let Some(index) = merged.iter().position(|existing| *existing == unit_id) {
+                    merged.remove(index);
+                } else {
+                    merged.push(unit_id);
+                }
+            }
+            merged
         }
     }
 }
@@ -382,6 +465,95 @@ mod tests {
             vec![CommandModeControlGroupProjection {
                 index: 1,
                 unit_ids: vec![44, 55],
+            }]
+        );
+    }
+
+    #[test]
+    fn merge_selected_units_applies_replace_add_and_toggle_stably() {
+        assert_eq!(
+            merge_selected_units(&[11, 22], &[33, 22, 44], CommandModeSelectionOp::Replace),
+            vec![33, 22, 44]
+        );
+        assert_eq!(
+            merge_selected_units(&[11, 22], &[22, 33, 11, 44], CommandModeSelectionOp::Add),
+            vec![11, 22, 33, 44]
+        );
+        assert_eq!(
+            merge_selected_units(&[11, 22, 33], &[22, 44, 11], CommandModeSelectionOp::Toggle),
+            vec![33, 44]
+        );
+    }
+
+    #[test]
+    fn select_units_rect_normalizes_bounds_and_merges_additively() {
+        let mut state = CommandModeState::default();
+        state.select_unit_target(
+            Some(unit(2, 11)),
+            &[11, 22],
+            CommandModeSelectionOp::Replace,
+        );
+
+        state.select_units_rect(
+            CommandModeRectProjection {
+                x0: 8,
+                y0: 9,
+                x1: 3,
+                y1: 4,
+            },
+            &[22, 33, 44],
+            CommandModeSelectionOp::Add,
+        );
+
+        assert_eq!(state.projection().selected_units, vec![11, 22, 33, 44]);
+        assert_eq!(
+            state.projection().command_rect,
+            Some(CommandModeRectProjection {
+                x0: 3,
+                y0: 4,
+                x1: 8,
+                y1: 9,
+            })
+        );
+        assert_eq!(
+            state.projection().last_target,
+            Some(CommandModeTargetProjection {
+                rect_target: Some(CommandModeRectProjection {
+                    x0: 3,
+                    y0: 4,
+                    x1: 8,
+                    y1: 9,
+                }),
+                ..CommandModeTargetProjection::default()
+            })
+        );
+    }
+
+    #[test]
+    fn select_unit_target_toggle_updates_selection_without_touching_control_groups() {
+        let mut state = CommandModeState::default();
+        state.bind_control_group(4, &[10, 20]);
+        state.select_unit_target(
+            Some(unit(2, 10)),
+            &[10, 20],
+            CommandModeSelectionOp::Replace,
+        );
+        state.select_unit_target(Some(unit(2, 30)), &[20, 30], CommandModeSelectionOp::Toggle);
+
+        assert_eq!(state.projection().selected_units, vec![10, 30]);
+        assert_eq!(state.projection().command_rect, None);
+        assert_eq!(
+            state.projection().last_target,
+            Some(CommandModeTargetProjection {
+                unit_target: Some(unit(2, 30)),
+                ..CommandModeTargetProjection::default()
+            })
+        );
+        assert_eq!(
+            state.projection().control_groups,
+            vec![CommandModeControlGroupProjection {
+                index: 4,
+                unit_ids: vec![10, 20],
             }]
         );
     }

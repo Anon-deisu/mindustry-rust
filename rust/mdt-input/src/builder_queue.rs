@@ -3011,8 +3011,7 @@ mod tests {
             },
         ];
 
-        let validation =
-            sequential_queue.validate_against_tile_states(tile_state_observations);
+        let validation = sequential_queue.validate_against_tile_states(tile_state_observations);
         let activity = sequential_queue.update_local_activity(activity_observations);
         let combined =
             combined_queue.apply_local_builder_step(tile_state_observations, activity_observations);

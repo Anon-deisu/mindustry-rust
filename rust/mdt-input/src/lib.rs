@@ -21,8 +21,9 @@ pub use capability_gate::{
     CapabilityDenyReason, CapabilityGate,
 };
 pub use command_mode::{
-    CommandModeCommandSelection, CommandModeControlGroupProjection, CommandModePositionTarget,
-    CommandModeProjection, CommandModeRectProjection, CommandModeStanceSelection, CommandModeState,
+    merge_selected_units, CommandModeCommandSelection, CommandModeControlGroupProjection,
+    CommandModePositionTarget, CommandModeProjection, CommandModeRectProjection,
+    CommandModeSelectionOp, CommandModeStanceSelection, CommandModeState,
     CommandModeTargetProjection, CommandUnitRef,
 };
 pub use intent::{BinaryAction, PlayerIntent};
