@@ -8,7 +8,7 @@ use crate::client_session::{
 use crate::effect_runtime::{
     effect_contract, resolve_runtime_effect_overlay_position,
     resolve_runtime_effect_overlay_source_position, spawn_runtime_effect_overlay,
-    RuntimeEffectOverlay,
+    EffectRuntimeInputView, RuntimeEffectOverlay,
 };
 use crate::session_state::{
     AuthoritativeStateMirror, BuilderPlanStage, BuilderQueueProjection,
@@ -3230,14 +3230,23 @@ fn append_runtime_world_overlay_objects(
         }
     }
 
+    let effect_input_view = EffectRuntimeInputView {
+        unit_id: snapshot_input.unit_id,
+        position: snapshot_input.position,
+        rotation: snapshot_input.rotation,
+    };
+
     for overlay in &mut runtime_world_overlay.effect_overlays {
         if overlay.remaining_ticks > overlay.lifetime_ticks {
             continue;
         }
-        let (source_x_bits, source_y_bits) =
-            resolve_runtime_effect_overlay_source_position(overlay, session_state, snapshot_input);
+        let (source_x_bits, source_y_bits) = resolve_runtime_effect_overlay_source_position(
+            overlay,
+            session_state,
+            &effect_input_view,
+        );
         let (target_x_bits, target_y_bits) =
-            resolve_runtime_effect_overlay_position(overlay, session_state, snapshot_input);
+            resolve_runtime_effect_overlay_position(overlay, session_state, &effect_input_view);
         append_runtime_effect_executor_objects(
             scene,
             overlay,

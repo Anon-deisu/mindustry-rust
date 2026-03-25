@@ -1,4 +1,3 @@
-use crate::client_session::ClientSnapshotInputState;
 use crate::session_state::SessionState;
 use mdt_typeio::{TypeIoEffectPositionHint, TypeIoObject, TypeIoSemanticRef};
 
@@ -104,6 +103,13 @@ pub struct RuntimeEffectOverlay {
     pub polyline_points: Vec<(u32, u32)>,
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub struct EffectRuntimeInputView {
+    pub unit_id: Option<i32>,
+    pub position: Option<(f32, f32)>,
+    pub rotation: f32,
+}
+
 pub fn effect_contract(effect_id: Option<i16>) -> Option<RuntimeEffectContract> {
     match effect_id {
         Some(13) => Some(RuntimeEffectContract::LightningPath),
@@ -192,7 +198,7 @@ pub fn spawn_runtime_effect_overlay(
 pub fn resolve_runtime_effect_overlay_position(
     overlay: &mut RuntimeEffectOverlay,
     session_state: &SessionState,
-    snapshot_input: &ClientSnapshotInputState,
+    input_view: &EffectRuntimeInputView,
 ) -> (u32, u32) {
     let overlay_position = (overlay.x_bits, overlay.y_bits);
     overlay
@@ -202,7 +208,7 @@ pub fn resolve_runtime_effect_overlay_position(
             resolve_binding_position(
                 binding,
                 session_state,
-                snapshot_input,
+                input_view,
                 Some(&mut overlay.rotation_bits),
             )
         })
@@ -212,13 +218,13 @@ pub fn resolve_runtime_effect_overlay_position(
 pub fn resolve_runtime_effect_overlay_source_position(
     overlay: &mut RuntimeEffectOverlay,
     session_state: &SessionState,
-    snapshot_input: &ClientSnapshotInputState,
+    input_view: &EffectRuntimeInputView,
 ) -> (u32, u32) {
     let overlay_position = (overlay.source_x_bits, overlay.source_y_bits);
     overlay
         .source_binding
         .as_mut()
-        .and_then(|binding| resolve_binding_position(binding, session_state, snapshot_input, None))
+        .and_then(|binding| resolve_binding_position(binding, session_state, input_view, None))
         .unwrap_or(overlay_position)
 }
 
@@ -512,7 +518,7 @@ fn position_hint_world_bits(position_hint: &TypeIoEffectPositionHint) -> (u32, u
 fn resolve_binding_position(
     binding: &mut RuntimeEffectBinding,
     session_state: &SessionState,
-    snapshot_input: &ClientSnapshotInputState,
+    input_view: &EffectRuntimeInputView,
     overlay_rotation_bits: Option<&mut u32>,
 ) -> Option<(u32, u32)> {
     let mut overlay_rotation_bits = overlay_rotation_bits;
@@ -536,9 +542,9 @@ fn resolve_binding_position(
             rotation_initialized,
         } => {
             let (parent_x_bits, parent_y_bits, position_source) =
-                resolve_parent_unit_position(*unit_id, session_state, snapshot_input)?;
+                resolve_parent_unit_position(*unit_id, session_state, input_view)?;
             let parent_rotation = if *rotate_with_parent {
-                resolve_parent_unit_rotation(*unit_id, session_state, snapshot_input)
+                resolve_parent_unit_rotation(*unit_id, session_state, input_view)
             } else {
                 None
             };
@@ -590,7 +596,7 @@ fn resolve_binding_position(
 fn resolve_parent_unit_position(
     unit_id: i32,
     session_state: &SessionState,
-    snapshot_input: &ClientSnapshotInputState,
+    input_view: &EffectRuntimeInputView,
 ) -> Option<(u32, u32, ParentUnitPositionSource)> {
     if let Some(entity) = session_state
         .entity_table_projection
@@ -603,8 +609,8 @@ fn resolve_parent_unit_position(
             ParentUnitPositionSource::EntityTable,
         ));
     }
-    if snapshot_input.unit_id == Some(unit_id) {
-        if let Some((x, y)) = snapshot_input.position {
+    if input_view.unit_id == Some(unit_id) {
+        if let Some((x, y)) = input_view.position {
             return Some((
                 x.to_bits(),
                 y.to_bits(),
@@ -624,7 +630,7 @@ fn resolve_parent_unit_position(
 fn resolve_parent_unit_rotation(
     unit_id: i32,
     session_state: &SessionState,
-    snapshot_input: &ClientSnapshotInputState,
+    input_view: &EffectRuntimeInputView,
 ) -> Option<(u32, ParentUnitRotationSource)> {
     if let Some(entity) = session_state
         .entity_semantic_projection
@@ -635,8 +641,8 @@ fn resolve_parent_unit_rotation(
             return Some((unit.rotation_bits, ParentUnitRotationSource::EntitySemantic));
         }
     }
-    (snapshot_input.unit_id == Some(unit_id)).then_some((
-        snapshot_input.rotation.to_bits(),
+    (input_view.unit_id == Some(unit_id)).then_some((
+        input_view.rotation.to_bits(),
         ParentUnitRotationSource::SnapshotInput,
     ))
 }
@@ -775,9 +781,8 @@ fn unpack_point2(value: i32) -> (i16, i16) {
 mod tests {
     use super::{
         resolve_runtime_effect_overlay_position, resolve_runtime_effect_overlay_source_position,
-        spawn_runtime_effect_overlay, RuntimeEffectBinding,
+        spawn_runtime_effect_overlay, EffectRuntimeInputView, RuntimeEffectBinding,
     };
-    use crate::client_session::ClientSnapshotInputState;
     use crate::session_state::{
         EntityProjection, EntitySemanticProjection, EntitySemanticProjectionEntry,
         EntityUnitSemanticProjection, SessionState,
@@ -837,7 +842,7 @@ mod tests {
             Some(&TypeIoObject::UnitId(404)),
             10,
         );
-        let input = ClientSnapshotInputState::default();
+        let input = EffectRuntimeInputView::default();
         let mut state = SessionState::default();
         state.entity_table_projection.by_entity_id.insert(
             404,
@@ -905,7 +910,7 @@ mod tests {
             Some(&TypeIoObject::UnitId(404)),
             10,
         );
-        let input = ClientSnapshotInputState::default();
+        let input = EffectRuntimeInputView::default();
         let mut state = SessionState::default();
         state.entity_table_projection.by_entity_id.insert(
             404,
@@ -975,10 +980,10 @@ mod tests {
             Some(&TypeIoObject::UnitId(404)),
             10,
         );
-        let input = ClientSnapshotInputState {
+        let input = EffectRuntimeInputView {
             unit_id: Some(404),
             position: Some((80.0, 160.0)),
-            ..ClientSnapshotInputState::default()
+            ..EffectRuntimeInputView::default()
         };
         let mut state = SessionState::default();
 
@@ -1036,7 +1041,7 @@ mod tests {
             Some(&TypeIoObject::UnitId(404)),
             10,
         );
-        let input = ClientSnapshotInputState::default();
+        let input = EffectRuntimeInputView::default();
         let mut state = SessionState::default();
         state.entity_table_projection.by_entity_id.insert(
             404,
