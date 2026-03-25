@@ -128,6 +128,15 @@ impl BuilderQueueStateMachine {
         entry: BuilderQueueEntryObservation,
         tail: bool,
     ) -> Option<BuilderQueueEntry> {
+        self.enqueue_local_with_progress(entry, tail, None)
+    }
+
+    pub fn enqueue_local_with_progress(
+        &mut self,
+        entry: BuilderQueueEntryObservation,
+        tail: bool,
+        progress_permyriad: Option<u16>,
+    ) -> Option<BuilderQueueEntry> {
         let key = (entry.x, entry.y);
         let previous = self.active_by_tile.remove(&key);
         self.ordered_tiles.retain(|tile| *tile != key);
@@ -139,7 +148,11 @@ impl BuilderQueueStateMachine {
                 breaking: entry.breaking,
                 block_id: Self::resolve_block_id(entry.block_id, previous.as_ref(), entry.breaking),
                 rotation: Some(entry.rotation),
-                progress_permyriad: Self::resolve_progress(previous.as_ref(), entry.breaking),
+                progress_permyriad: Self::resolve_enqueue_progress(
+                    progress_permyriad,
+                    previous.as_ref(),
+                    entry.breaking,
+                ),
                 stage: BuilderQueueStage::Queued,
             },
         );
@@ -590,6 +603,16 @@ impl BuilderQueueStateMachine {
 
     fn resolve_progress(previous: Option<&BuilderQueueEntry>, breaking: bool) -> Option<u16> {
         Self::matching_entry(previous, breaking).and_then(|entry| entry.progress_permyriad)
+    }
+
+    fn resolve_enqueue_progress(
+        progress_permyriad: Option<u16>,
+        previous: Option<&BuilderQueueEntry>,
+        breaking: bool,
+    ) -> Option<u16> {
+        progress_permyriad
+            .map(|progress| progress.min(10_000))
+            .or_else(|| Self::resolve_progress(previous, breaking))
     }
 
     fn activity_observation<'a>(
@@ -1492,6 +1515,139 @@ mod tests {
             })
         );
         assert_eq!(queue.ordered_tiles, vec![(15, 15)]);
+        assert_eq!(queue.queued_count, 1);
+        assert_eq!(queue.inflight_count, 0);
+    }
+
+    #[test]
+    fn enqueue_local_with_progress_seeds_fresh_entry_and_clamps_progress() {
+        let mut queue = BuilderQueueStateMachine::default();
+
+        queue.enqueue_local_with_progress(
+            BuilderQueueEntryObservation {
+                x: 17,
+                y: 17,
+                breaking: false,
+                block_id: Some(170),
+                rotation: 1,
+            },
+            true,
+            Some(12_345),
+        );
+
+        assert_eq!(
+            queue.head_entry(),
+            Some(&BuilderQueueEntry {
+                x: 17,
+                y: 17,
+                breaking: false,
+                block_id: Some(170),
+                rotation: Some(1),
+                progress_permyriad: Some(10_000),
+                stage: BuilderQueueStage::Queued,
+            })
+        );
+        assert_eq!(queue.ordered_tiles, vec![(17, 17)]);
+        assert_eq!(queue.queued_count, 1);
+        assert_eq!(queue.inflight_count, 0);
+    }
+
+    #[test]
+    fn enqueue_local_with_progress_overrides_stale_same_mode_progress() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.enqueue_local(
+            BuilderQueueEntryObservation {
+                x: 18,
+                y: 18,
+                breaking: false,
+                block_id: Some(180),
+                rotation: 0,
+            },
+            true,
+        );
+        assert!(queue.observe_progress(18, 18, false, 4_500));
+
+        queue.enqueue_local_with_progress(
+            BuilderQueueEntryObservation {
+                x: 18,
+                y: 18,
+                breaking: false,
+                block_id: Some(181),
+                rotation: 2,
+            },
+            false,
+            Some(6_200),
+        );
+
+        assert_eq!(
+            queue.head_entry(),
+            Some(&BuilderQueueEntry {
+                x: 18,
+                y: 18,
+                breaking: false,
+                block_id: Some(181),
+                rotation: Some(2),
+                progress_permyriad: Some(6_200),
+                stage: BuilderQueueStage::Queued,
+            })
+        );
+        assert_eq!(queue.ordered_tiles, vec![(18, 18)]);
+        assert_eq!(queue.queued_count, 1);
+        assert_eq!(queue.inflight_count, 0);
+    }
+
+    #[test]
+    fn enqueue_local_with_progress_seeds_mode_switch_from_live_construct_progress() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.enqueue_local(
+            BuilderQueueEntryObservation {
+                x: 19,
+                y: 19,
+                breaking: false,
+                block_id: Some(190),
+                rotation: 3,
+            },
+            true,
+        );
+        assert!(queue.observe_progress(19, 19, false, 3_300));
+
+        let replaced = queue.enqueue_local_with_progress(
+            BuilderQueueEntryObservation {
+                x: 19,
+                y: 19,
+                breaking: true,
+                block_id: None,
+                rotation: 1,
+            },
+            false,
+            Some(7_700),
+        );
+
+        assert_eq!(
+            replaced,
+            Some(BuilderQueueEntry {
+                x: 19,
+                y: 19,
+                breaking: false,
+                block_id: Some(190),
+                rotation: Some(3),
+                progress_permyriad: Some(3_300),
+                stage: BuilderQueueStage::Queued,
+            })
+        );
+        assert_eq!(
+            queue.head_entry(),
+            Some(&BuilderQueueEntry {
+                x: 19,
+                y: 19,
+                breaking: true,
+                block_id: None,
+                rotation: Some(1),
+                progress_permyriad: Some(7_700),
+                stage: BuilderQueueStage::Queued,
+            })
+        );
+        assert_eq!(queue.ordered_tiles, vec![(19, 19)]);
         assert_eq!(queue.queued_count, 1);
         assert_eq!(queue.inflight_count, 0);
     }
