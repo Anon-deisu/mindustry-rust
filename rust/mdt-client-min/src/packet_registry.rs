@@ -7,8 +7,8 @@ use mdt_remote::{
     CustomChannelRemoteDispatchSpec, CustomChannelRemoteFamily, CustomChannelRemoteRegistry,
     HighFrequencyRemoteMethod, HighFrequencyRemoteRegistry, InboundRemoteDispatchSpec,
     InboundRemoteFamily, InboundRemoteRegistry, RemoteManifest, RemoteManifestError,
-    RemotePacketIdFixedTable, RemotePacketRegistry, TypedRemoteRegistries, WellKnownRemoteMethod,
-    CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT, INBOUND_REMOTE_FAMILY_COUNT,
+    RemotePacketIdFixedTable, TypedRemoteRegistries, WellKnownRemoteMethod,
+    WellKnownRemoteRegistry, CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT, INBOUND_REMOTE_FAMILY_COUNT,
 };
 
 const INBOUND_SNAPSHOT_PACKET_SPECS: [(u8, HighFrequencyRemoteMethod); 4] = [
@@ -230,46 +230,25 @@ impl CombinedPacketRegistries {
 
 impl WellKnownRemotePacketIds {
     pub fn from_remote_manifest(manifest: &RemoteManifest) -> Result<Self, RemoteManifestError> {
-        let registry = RemotePacketRegistry::from_manifest(manifest)?;
-        Ok(Self::from_remote_registry(&registry))
+        let registry = WellKnownRemoteRegistry::from_manifest(manifest)?;
+        Ok(Self::from_typed_registry(registry))
     }
 
-    fn from_remote_registry(registry: &RemotePacketRegistry<'_>) -> Self {
+    fn from_typed_registry(registry: WellKnownRemoteRegistry) -> Self {
         Self {
-            ping_packet_id: packet_id_for_well_known(registry, WellKnownRemoteMethod::Ping),
-            client_plan_snapshot_packet_id: packet_id_for_well_known(
-                registry,
-                WellKnownRemoteMethod::ClientPlanSnapshot,
-            ),
-            client_plan_snapshot_received_packet_id: packet_id_for_well_known(
-                registry,
-                WellKnownRemoteMethod::ClientPlanSnapshotReceived,
-            ),
-            ping_response_packet_id: packet_id_for_well_known(
-                registry,
-                WellKnownRemoteMethod::PingResponse,
-            ),
-            ping_location_packet_id: packet_id_for_well_known(
-                registry,
-                WellKnownRemoteMethod::PingLocation,
-            ),
-            debug_status_client_unreliable_packet_id: packet_id_for_well_known(
-                registry,
-                WellKnownRemoteMethod::DebugStatusClientUnreliable,
-            ),
-            trace_info_packet_id: packet_id_for_well_known(
-                registry,
-                WellKnownRemoteMethod::TraceInfo,
-            ),
-            set_rules_packet_id: packet_id_for_well_known(
-                registry,
-                WellKnownRemoteMethod::SetRules,
-            ),
-            set_objectives_packet_id: packet_id_for_well_known(
-                registry,
-                WellKnownRemoteMethod::SetObjectives,
-            ),
-            set_rule_packet_id: packet_id_for_well_known(registry, WellKnownRemoteMethod::SetRule),
+            ping_packet_id: registry.packet_id(WellKnownRemoteMethod::Ping),
+            client_plan_snapshot_packet_id: registry
+                .packet_id(WellKnownRemoteMethod::ClientPlanSnapshot),
+            client_plan_snapshot_received_packet_id: registry
+                .packet_id(WellKnownRemoteMethod::ClientPlanSnapshotReceived),
+            ping_response_packet_id: registry.packet_id(WellKnownRemoteMethod::PingResponse),
+            ping_location_packet_id: registry.packet_id(WellKnownRemoteMethod::PingLocation),
+            debug_status_client_unreliable_packet_id: registry
+                .packet_id(WellKnownRemoteMethod::DebugStatusClientUnreliable),
+            trace_info_packet_id: registry.packet_id(WellKnownRemoteMethod::TraceInfo),
+            set_rules_packet_id: registry.packet_id(WellKnownRemoteMethod::SetRules),
+            set_objectives_packet_id: registry.packet_id(WellKnownRemoteMethod::SetObjectives),
+            set_rule_packet_id: registry.packet_id(WellKnownRemoteMethod::SetRule),
         }
     }
 }
@@ -336,15 +315,6 @@ fn inbound_snapshot_packet_specs_from_registry(
     })
 }
 
-fn packet_id_for_well_known(
-    registry: &RemotePacketRegistry<'_>,
-    method: WellKnownRemoteMethod,
-) -> Option<u8> {
-    registry
-        .first_well_known_method(method)
-        .map(|packet| packet.packet_id)
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
@@ -356,7 +326,8 @@ mod tests {
         CustomChannelRemoteDispatchSpec, CustomChannelRemoteFamily, CustomChannelRemotePayloadKind,
         CustomChannelRemoteRegistry, HighFrequencyRemoteMethod, HighFrequencyRemoteRegistry,
         InboundRemoteRegistry, RemoteGeneratorInfo, RemoteManifest, RemoteManifestError,
-        RemotePacketEntry, RemotePacketRegistry, RemoteParamEntry, WellKnownRemoteMethod, WireSpec,
+        RemotePacketEntry, RemoteParamEntry, WellKnownRemoteMethod, WellKnownRemoteRegistry,
+        WireSpec,
     };
     use std::path::PathBuf;
 
@@ -609,7 +580,7 @@ mod tests {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let combined = CombinedPacketRegistries::from_remote_manifest(&manifest).unwrap();
         let remote_registry = HighFrequencyRemoteRegistry::from_manifest(&manifest).unwrap();
-        let well_known_registry = RemotePacketRegistry::from_manifest(&manifest).unwrap();
+        let well_known_registry = WellKnownRemoteRegistry::from_manifest(&manifest).unwrap();
 
         assert_eq!(
             combined.client_snapshot_packet_id,
@@ -633,9 +604,7 @@ mod tests {
         );
         assert_eq!(
             combined.well_known_remote.ping_packet_id,
-            well_known_registry
-                .first_well_known_method(WellKnownRemoteMethod::Ping)
-                .map(|packet| packet.packet_id)
+            well_known_registry.packet_id(WellKnownRemoteMethod::Ping)
         );
         let expected = [
             (
@@ -682,9 +651,7 @@ mod tests {
         for (method, packet_id) in expected {
             assert_eq!(
                 packet_id,
-                well_known_registry
-                    .first_well_known_method(method)
-                    .map(|packet| packet.packet_id),
+                well_known_registry.packet_id(method),
                 "well-known packet id mismatch for {}",
                 method.method_name()
             );
@@ -720,6 +687,65 @@ mod tests {
         assert_eq!(well_known.set_rules_packet_id, Some(16));
         assert_eq!(well_known.set_objectives_packet_id, Some(17));
         assert_eq!(well_known.set_rule_packet_id, Some(19));
+    }
+
+    #[test]
+    fn well_known_remote_packet_ids_match_typed_registry() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let well_known = WellKnownRemotePacketIds::from_remote_manifest(&manifest).unwrap();
+        let typed_registry = WellKnownRemoteRegistry::from_manifest(&manifest).unwrap();
+
+        let expected = [
+            (
+                WellKnownRemoteMethod::Ping,
+                well_known.ping_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::ClientPlanSnapshot,
+                well_known.client_plan_snapshot_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::ClientPlanSnapshotReceived,
+                well_known.client_plan_snapshot_received_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::PingResponse,
+                well_known.ping_response_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::PingLocation,
+                well_known.ping_location_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::DebugStatusClientUnreliable,
+                well_known.debug_status_client_unreliable_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::TraceInfo,
+                well_known.trace_info_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::SetRules,
+                well_known.set_rules_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::SetObjectives,
+                well_known.set_objectives_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::SetRule,
+                well_known.set_rule_packet_id,
+            ),
+        ];
+
+        for (method, packet_id) in expected {
+            assert_eq!(
+                packet_id,
+                typed_registry.packet_id(method),
+                "typed well-known packet id mismatch for {}",
+                method.method_name()
+            );
+        }
     }
 
     fn custom_channel_remote_family_manifest_with_decoys() -> RemoteManifest {
