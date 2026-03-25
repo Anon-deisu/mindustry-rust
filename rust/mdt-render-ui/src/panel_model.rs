@@ -1059,6 +1059,29 @@ impl RuntimeMarkerPanelModel {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeCoreBindingPanelModel {
+    pub kind: Option<crate::RuntimeCoreBindingKindObservability>,
+    pub ambiguous_team_count: usize,
+    pub ambiguous_team_sample: Vec<u8>,
+    pub missing_team_count: usize,
+    pub missing_team_sample: Vec<u8>,
+}
+
+impl RuntimeCoreBindingPanelModel {
+    pub fn is_empty(&self) -> bool {
+        self.kind.is_none()
+            && self.ambiguous_team_count == 0
+            && self.ambiguous_team_sample.is_empty()
+            && self.missing_team_count == 0
+            && self.missing_team_sample.is_empty()
+    }
+
+    pub fn kind_label(&self) -> &'static str {
+        self.kind.map(|kind| kind.label()).unwrap_or("none")
+    }
+}
+
 impl MinimapPanelModel {
     pub fn visible_map_percent(&self) -> usize {
         percent_of(self.visible_tile_count, self.map_tile_count)
@@ -1071,6 +1094,7 @@ impl MinimapPanelModel {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeSessionPanelModel {
+    pub core_binding: RuntimeCoreBindingPanelModel,
     pub kick: RuntimeKickPanelModel,
     pub loading: RuntimeLoadingPanelModel,
     pub reconnect: RuntimeReconnectPanelModel,
@@ -1975,6 +1999,17 @@ pub fn build_runtime_marker_panel(hud: &HudModel) -> Option<RuntimeMarkerPanelMo
     })
 }
 
+pub fn build_runtime_core_binding_panel(hud: &HudModel) -> Option<RuntimeCoreBindingPanelModel> {
+    let core_binding = &hud.runtime_ui.as_ref()?.session.core_binding;
+    Some(RuntimeCoreBindingPanelModel {
+        kind: core_binding.kind,
+        ambiguous_team_count: core_binding.ambiguous_team_count,
+        ambiguous_team_sample: core_binding.ambiguous_team_sample.clone(),
+        missing_team_count: core_binding.missing_team_count,
+        missing_team_sample: core_binding.missing_team_sample.clone(),
+    })
+}
+
 pub fn build_runtime_kick_panel(hud: &HudModel) -> Option<RuntimeKickPanelModel> {
     Some(build_runtime_session_panel(hud)?.kick)
 }
@@ -1990,6 +2025,13 @@ pub fn build_runtime_reconnect_panel(hud: &HudModel) -> Option<RuntimeReconnectP
 pub fn build_runtime_session_panel(hud: &HudModel) -> Option<RuntimeSessionPanelModel> {
     let session = &hud.runtime_ui.as_ref()?.session;
     Some(RuntimeSessionPanelModel {
+        core_binding: RuntimeCoreBindingPanelModel {
+            kind: session.core_binding.kind,
+            ambiguous_team_count: session.core_binding.ambiguous_team_count,
+            ambiguous_team_sample: session.core_binding.ambiguous_team_sample.clone(),
+            missing_team_count: session.core_binding.missing_team_count,
+            missing_team_sample: session.core_binding.missing_team_sample.clone(),
+        },
         kick: RuntimeKickPanelModel {
             reason_text: session.kick.reason_text.clone(),
             reason_ordinal: session.kick.reason_ordinal,
@@ -2128,8 +2170,8 @@ mod tests {
         build_build_config_panel, build_build_interaction_panel, build_build_minimap_assist_panel,
         build_hud_status_panel, build_hud_visibility_panel, build_minimap_panel,
         build_runtime_admin_panel, build_runtime_chat_panel, build_runtime_choice_panel,
-        build_runtime_command_mode_panel, build_runtime_dialog_panel,
-        build_runtime_dialog_stack_panel, build_runtime_kick_panel,
+        build_runtime_command_mode_panel, build_runtime_core_binding_panel,
+        build_runtime_dialog_panel, build_runtime_dialog_stack_panel, build_runtime_kick_panel,
         build_runtime_live_effect_panel, build_runtime_live_entity_panel,
         build_runtime_loading_panel, build_runtime_marker_panel, build_runtime_menu_panel,
         build_runtime_notice_state_panel, build_runtime_prompt_panel,
@@ -2137,15 +2179,17 @@ mod tests {
         build_runtime_ui_notice_panel, build_runtime_ui_stack_panel,
         build_runtime_world_label_panel, BuildInteractionAuthorityState, BuildInteractionMode,
         BuildInteractionQueueState, BuildInteractionSelectionState, BuildMinimapAssistPanelModel,
-        PresenterViewWindow, RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
-        RuntimeMarkerPanelModel, RuntimeUiStackForegroundKind, RuntimeWorldLabelPanelModel,
+        PresenterViewWindow, RuntimeCoreBindingPanelModel, RuntimeDialogNoticeKind,
+        RuntimeDialogPromptKind, RuntimeMarkerPanelModel, RuntimeUiStackForegroundKind,
+        RuntimeWorldLabelPanelModel,
     };
     use crate::{
         hud_model::{
             HudSummary, RuntimeCommandControlGroupObservability, RuntimeCommandModeObservability,
             RuntimeCommandRectObservability, RuntimeCommandSelectionObservability,
             RuntimeCommandStanceObservability, RuntimeCommandTargetObservability,
-            RuntimeCommandUnitRefObservability, RuntimeReconnectObservability,
+            RuntimeCommandUnitRefObservability, RuntimeCoreBindingKindObservability,
+            RuntimeCoreBindingObservability, RuntimeReconnectObservability,
             RuntimeReconnectPhaseObservability, RuntimeReconnectReasonKind,
             RuntimeSessionObservability, RuntimeSessionResetKind, RuntimeSessionTimeoutKind,
             RuntimeWorldReloadObservability,
@@ -3622,6 +3666,15 @@ mod tests {
                 world_labels: RuntimeWorldLabelObservability::default(),
                 markers: crate::hud_model::RuntimeMarkerObservability::default(),
                 session: RuntimeSessionObservability {
+                    core_binding: RuntimeCoreBindingObservability {
+                        kind: Some(
+                            RuntimeCoreBindingKindObservability::FirstCorePerTeamApproximation,
+                        ),
+                        ambiguous_team_count: 1,
+                        ambiguous_team_sample: vec![1],
+                        missing_team_count: 1,
+                        missing_team_sample: vec![4],
+                    },
                     kick: crate::hud_model::RuntimeKickObservability {
                         reason_text: Some("idInUse".to_string()),
                         reason_ordinal: Some(7),
@@ -3676,7 +3729,29 @@ mod tests {
         };
 
         let panel = build_runtime_session_panel(&hud).expect("expected runtime session panel");
+        let core_binding =
+            build_runtime_core_binding_panel(&hud).expect("expected runtime core binding panel");
 
+        assert_eq!(
+            panel.core_binding.kind,
+            Some(RuntimeCoreBindingKindObservability::FirstCorePerTeamApproximation)
+        );
+        assert_eq!(panel.core_binding.ambiguous_team_count, 1);
+        assert_eq!(panel.core_binding.ambiguous_team_sample, vec![1]);
+        assert_eq!(panel.core_binding.missing_team_count, 1);
+        assert_eq!(panel.core_binding.missing_team_sample, vec![4]);
+        assert_eq!(
+            core_binding,
+            RuntimeCoreBindingPanelModel {
+                kind: Some(RuntimeCoreBindingKindObservability::FirstCorePerTeamApproximation,),
+                ambiguous_team_count: 1,
+                ambiguous_team_sample: vec![1],
+                missing_team_count: 1,
+                missing_team_sample: vec![4],
+            }
+        );
+        assert!(!core_binding.is_empty());
+        assert_eq!(core_binding.kind_label(), "first-core-per-team");
         assert_eq!(panel.kick.reason_text.as_deref(), Some("idInUse"));
         assert_eq!(panel.kick.reason_ordinal, Some(7));
         assert_eq!(panel.kick.hint_category.as_deref(), Some("IdInUse"));
@@ -3728,6 +3803,7 @@ mod tests {
                 world_labels: RuntimeWorldLabelObservability::default(),
                 markers: crate::hud_model::RuntimeMarkerObservability::default(),
                 session: RuntimeSessionObservability {
+                    core_binding: RuntimeCoreBindingObservability::default(),
                     kick: crate::hud_model::RuntimeKickObservability {
                         reason_text: Some("idInUse".to_string()),
                         reason_ordinal: Some(7),
@@ -3823,7 +3899,10 @@ mod tests {
         };
         let empty_panel =
             build_runtime_session_panel(&empty_hud).expect("expected runtime session panel");
+        let empty_core_binding = build_runtime_core_binding_panel(&empty_hud)
+            .expect("expected runtime core binding panel");
         assert!(empty_panel.is_empty());
+        assert!(empty_core_binding.is_empty());
         assert!(empty_panel.kick.is_empty());
         assert!(empty_panel.loading.is_empty());
         assert!(empty_panel.reconnect.is_empty());
@@ -3841,6 +3920,7 @@ mod tests {
                 world_labels: RuntimeWorldLabelObservability::default(),
                 markers: crate::hud_model::RuntimeMarkerObservability::default(),
                 session: RuntimeSessionObservability {
+                    core_binding: RuntimeCoreBindingObservability::default(),
                     kick: crate::hud_model::RuntimeKickObservability {
                         reason_text: Some("idInUse".to_string()),
                         reason_ordinal: Some(7),

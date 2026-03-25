@@ -14,22 +14,23 @@ use crate::effect_runtime::{
 use crate::session_state::{
     AuthoritativeStateMirror, BuilderPlanStage, BuilderQueueProjection,
     BuildingProjectionUpdateKind, BuildingTableProjection, ConfiguredBlockOutcome,
-    ConfiguredBlockProjection, ConfiguredContentRef, EffectBusinessContentKind,
-    EffectBusinessPositionSource, EffectBusinessProjection, EffectDataSemantic,
-    EntitySemanticProjection, HiddenSnapshotDeltaProjection, ReconnectPhaseProjection,
-    ReconnectReasonKind, SessionResetKind, SessionState, SessionTimeoutKind,
-    StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection, TileConfigAuthoritySource,
-    TileConfigProjection, TypedBuildingRuntimeKind, TypedBuildingRuntimeModel,
-    TypedBuildingRuntimeProjection, TypedBuildingRuntimeValue, TypedRuntimeEntityModel,
-    TypedRuntimeEntityProjection, UnitAssemblerRuntimeProjection, UnitRefProjection,
-    WorldBootstrapProjection, WorldReloadProjection,
+    ConfiguredBlockProjection, ConfiguredContentRef, CoreInventoryRuntimeBindingKind,
+    EffectBusinessContentKind, EffectBusinessPositionSource, EffectBusinessProjection,
+    EffectDataSemantic, EntitySemanticProjection, HiddenSnapshotDeltaProjection,
+    ReconnectPhaseProjection, ReconnectReasonKind, SessionResetKind, SessionState,
+    SessionTimeoutKind, StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection,
+    TileConfigAuthoritySource, TileConfigProjection, TypedBuildingRuntimeKind,
+    TypedBuildingRuntimeModel, TypedBuildingRuntimeProjection, TypedBuildingRuntimeValue,
+    TypedRuntimeEntityModel, TypedRuntimeEntityProjection, UnitAssemblerRuntimeProjection,
+    UnitRefProjection, WorldBootstrapProjection, WorldReloadProjection,
 };
 use mdt_remote::{HighFrequencyRemoteMethod, HIGH_FREQUENCY_REMOTE_METHOD_COUNT};
 use mdt_render_ui::hud_model::{
-    RuntimeChatObservability, RuntimeKickObservability, RuntimeLoadingObservability,
-    RuntimeMarkerObservability, RuntimeReconnectObservability, RuntimeReconnectPhaseObservability,
-    RuntimeReconnectReasonKind, RuntimeSessionObservability, RuntimeSessionResetKind,
-    RuntimeSessionTimeoutKind, RuntimeWorldReloadObservability,
+    RuntimeChatObservability, RuntimeCoreBindingKindObservability, RuntimeCoreBindingObservability,
+    RuntimeKickObservability, RuntimeLoadingObservability, RuntimeMarkerObservability,
+    RuntimeReconnectObservability, RuntimeReconnectPhaseObservability, RuntimeReconnectReasonKind,
+    RuntimeSessionObservability, RuntimeSessionResetKind, RuntimeSessionTimeoutKind,
+    RuntimeWorldReloadObservability,
 };
 use mdt_render_ui::{
     BuildConfigAuthoritySourceObservability, BuildConfigInspectorEntryObservability,
@@ -2059,6 +2060,19 @@ fn runtime_session_observability(
     world_overlay: &RuntimeWorldOverlay,
 ) -> RuntimeSessionObservability {
     RuntimeSessionObservability {
+        core_binding: RuntimeCoreBindingObservability {
+            kind: session_state
+                .core_inventory_runtime_binding_kind
+                .map(runtime_core_binding_kind_observability),
+            ambiguous_team_count: session_state.core_inventory_runtime_ambiguous_team_count,
+            ambiguous_team_sample: session_state
+                .core_inventory_runtime_ambiguous_team_sample
+                .clone(),
+            missing_team_count: session_state.core_inventory_runtime_missing_team_count,
+            missing_team_sample: session_state
+                .core_inventory_runtime_missing_team_sample
+                .clone(),
+        },
         kick: RuntimeKickObservability {
             reason_text: world_overlay.last_kick_reason_text.clone(),
             reason_ordinal: world_overlay.last_kick_reason_ordinal,
@@ -2133,6 +2147,16 @@ fn runtime_session_timeout_kind_observability(
     match kind {
         SessionTimeoutKind::ConnectOrLoading => RuntimeSessionTimeoutKind::ConnectOrLoading,
         SessionTimeoutKind::ReadySnapshotStall => RuntimeSessionTimeoutKind::ReadySnapshotStall,
+    }
+}
+
+fn runtime_core_binding_kind_observability(
+    kind: CoreInventoryRuntimeBindingKind,
+) -> RuntimeCoreBindingKindObservability {
+    match kind {
+        CoreInventoryRuntimeBindingKind::FirstCorePerTeamApproximation => {
+            RuntimeCoreBindingKindObservability::FirstCorePerTeamApproximation
+        }
     }
 }
 
@@ -8743,6 +8767,17 @@ mod tests {
             78
         );
         assert_eq!(runtime_ui.admin.last_debug_status_value, Some(12));
+        assert_eq!(
+            runtime_ui.session.core_binding.kind,
+            Some(RuntimeCoreBindingKindObservability::FirstCorePerTeamApproximation)
+        );
+        assert_eq!(runtime_ui.session.core_binding.ambiguous_team_count, 1);
+        assert_eq!(
+            runtime_ui.session.core_binding.ambiguous_team_sample,
+            vec![1]
+        );
+        assert_eq!(runtime_ui.session.core_binding.missing_team_count, 1);
+        assert_eq!(runtime_ui.session.core_binding.missing_team_sample, vec![4]);
         assert_eq!(runtime_ui.menu.menu_open_count, 16);
         assert_eq!(runtime_ui.menu.follow_up_menu_open_count, 17);
         assert_eq!(runtime_ui.menu.hide_follow_up_menu_count, 18);

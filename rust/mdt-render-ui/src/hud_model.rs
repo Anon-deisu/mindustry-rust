@@ -394,9 +394,32 @@ pub struct RuntimeMarkerObservability {
     pub last_control_name: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeCoreBindingKindObservability {
+    FirstCorePerTeamApproximation,
+}
+
+impl RuntimeCoreBindingKindObservability {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::FirstCorePerTeamApproximation => "first-core-per-team",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RuntimeCoreBindingObservability {
+    pub kind: Option<RuntimeCoreBindingKindObservability>,
+    pub ambiguous_team_count: usize,
+    pub ambiguous_team_sample: Vec<u8>,
+    pub missing_team_count: usize,
+    pub missing_team_sample: Vec<u8>,
+}
+
 /// Structured session/runtime lifecycle summary for kick/loading/reconnect state.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RuntimeSessionObservability {
+    pub core_binding: RuntimeCoreBindingObservability,
     pub kick: RuntimeKickObservability,
     pub loading: RuntimeLoadingObservability,
     pub reconnect: RuntimeReconnectObservability,

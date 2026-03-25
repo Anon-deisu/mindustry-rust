@@ -4,13 +4,13 @@ use crate::panel_model::{
     build_build_config_panel, build_build_interaction_panel, build_build_minimap_assist_panel,
     build_hud_status_panel, build_hud_visibility_panel, build_minimap_panel,
     build_runtime_admin_panel, build_runtime_chat_panel, build_runtime_choice_panel,
-    build_runtime_command_mode_panel, build_runtime_dialog_panel, build_runtime_dialog_stack_panel,
-    build_runtime_kick_panel, build_runtime_live_effect_panel, build_runtime_live_entity_panel,
-    build_runtime_loading_panel, build_runtime_marker_panel, build_runtime_menu_panel,
-    build_runtime_notice_state_panel, build_runtime_prompt_panel, build_runtime_reconnect_panel,
-    build_runtime_rules_panel, build_runtime_session_panel, build_runtime_ui_notice_panel,
-    build_runtime_ui_stack_panel, build_runtime_world_label_panel, MinimapPanelModel,
-    PresenterViewWindow, RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
+    build_runtime_command_mode_panel, build_runtime_core_binding_panel, build_runtime_dialog_panel,
+    build_runtime_dialog_stack_panel, build_runtime_kick_panel, build_runtime_live_effect_panel,
+    build_runtime_live_entity_panel, build_runtime_loading_panel, build_runtime_marker_panel,
+    build_runtime_menu_panel, build_runtime_notice_state_panel, build_runtime_prompt_panel,
+    build_runtime_reconnect_panel, build_runtime_rules_panel, build_runtime_session_panel,
+    build_runtime_ui_notice_panel, build_runtime_ui_stack_panel, build_runtime_world_label_panel,
+    MinimapPanelModel, PresenterViewWindow, RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
     RuntimeUiNoticePanelModel,
 };
 use crate::presenter_view::{crop_window_to_focus, projected_window, visible_window_tile};
@@ -270,6 +270,18 @@ impl AsciiScenePresenter {
         if let Some(runtime_loading_detail_text) = compose_runtime_loading_detail_text(hud) {
             out.push_str(&format!(
                 "RUNTIME-LOADING-DETAIL: {runtime_loading_detail_text}\n"
+            ));
+        }
+        if let Some(runtime_core_binding_text) = compose_runtime_core_binding_panel_text(hud) {
+            out.push_str(&format!(
+                "RUNTIME-CORE-BINDING: {runtime_core_binding_text}\n"
+            ));
+        }
+        if let Some(runtime_core_binding_detail_text) =
+            compose_runtime_core_binding_detail_text(hud)
+        {
+            out.push_str(&format!(
+                "RUNTIME-CORE-BINDING-DETAIL: {runtime_core_binding_detail_text}\n"
             ));
         }
         if let Some(runtime_reconnect_text) = compose_runtime_reconnect_row_text(hud) {
@@ -1128,6 +1140,36 @@ fn compose_runtime_kick_detail_text(hud: &HudModel) -> Option<String> {
 fn compose_runtime_loading_detail_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_loading_panel(hud)?;
     (!panel.is_empty()).then(|| compose_runtime_loading_detail_panel_text(&panel))
+}
+
+fn compose_runtime_core_binding_panel_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_core_binding_panel(hud)?;
+    if panel.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "kind={} ambiguous={}@{} missing={}@{}",
+        panel.kind_label(),
+        panel.ambiguous_team_count,
+        team_u8_sample_text(&panel.ambiguous_team_sample),
+        panel.missing_team_count,
+        team_u8_sample_text(&panel.missing_team_sample),
+    ))
+}
+
+fn compose_runtime_core_binding_detail_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_core_binding_panel(hud)?;
+    if panel.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "kind={} ambiguous-count={} ambiguous-sample={} missing-count={} missing-sample={}",
+        panel.kind_label(),
+        panel.ambiguous_team_count,
+        team_u8_sample_text(&panel.ambiguous_team_sample),
+        panel.missing_team_count,
+        team_u8_sample_text(&panel.missing_team_sample),
+    ))
 }
 
 fn compose_runtime_reconnect_row_text(hud: &HudModel) -> Option<String> {
@@ -2204,6 +2246,18 @@ fn optional_u8_label(value: Option<u8>) -> String {
         .unwrap_or_else(|| "none".to_string())
 }
 
+fn team_u8_sample_text(values: &[u8]) -> String {
+    if values.is_empty() {
+        "none".to_string()
+    } else {
+        values
+            .iter()
+            .map(|value| value.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+}
+
 fn optional_u32_label(value: Option<u32>) -> String {
     value
         .map(|value| value.to_string())
@@ -3036,6 +3090,15 @@ mod tests {
                     last_control_name: Some("flushText".to_string()),
                 },
                 session: RuntimeSessionObservability {
+                    core_binding: crate::RuntimeCoreBindingObservability {
+                        kind: Some(
+                            crate::RuntimeCoreBindingKindObservability::FirstCorePerTeamApproximation,
+                        ),
+                        ambiguous_team_count: 1,
+                        ambiguous_team_sample: vec![1],
+                        missing_team_count: 1,
+                        missing_team_sample: vec![4],
+                    },
                     kick: crate::hud_model::RuntimeKickObservability {
                         reason_text: Some("idInUse".to_string()),
                         reason_ordinal: Some(7),
@@ -3297,6 +3360,11 @@ mod tests {
         ));
         assert!(frame.contains(
             "RUNTIME-LOADING-DETAIL: ready=12@1300 timeout=2/1/1 kind=ready idle=20000 resets=3/1/1/1 last-reset=reload world=@lw1:cl0:rd1:cc0:p4:d5:r6"
+        ));
+        assert!(frame
+            .contains("RUNTIME-CORE-BINDING: kind=first-core-per-team ambiguous=1@1 missing=1@4"));
+        assert!(frame.contains(
+            "RUNTIME-CORE-BINDING-DETAIL: kind=first-core-per-team ambiguous-count=1 ambiguous-sample=1 missing-count=1 missing-sample=4"
         ));
         assert!(frame.contains(
             "RUNTIME-RECONNECT: attempt#3 redirect redirect=1@127.0.0.1:6567 reason=connectRedir~#none hint=server_reque~"
