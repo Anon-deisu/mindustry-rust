@@ -1282,7 +1282,7 @@ fn runtime_building_table_label(projection: &BuildingTableProjection) -> String 
         .map(|block_id| block_id.to_string())
         .unwrap_or_else(|| "none".to_string());
     format!(
-        "{}:b{}:c{}:{}@{}#{}:rm{}:on{}:e{}:oe{}:v{}:m{}:vf{}:trb{}:bn{}",
+        "{}:b{}:c{}:{}@{}#{}:rm{}:on{}:e{}:oe{}:v{}:m{}:vf{}:tur{}:trb{}:bn{}",
         projection.by_build_pos.len(),
         projection.block_known_count,
         projection.configured_count,
@@ -1305,12 +1305,33 @@ fn runtime_building_table_label(projection: &BuildingTableProjection) -> String 
             .last_visible_flags
             .map(|flags| flags.to_string())
             .unwrap_or_else(|| "-1".to_string()),
+        runtime_building_table_turret_tail_label(projection),
         projection
             .last_build_turret_rotation_bits
             .map(|bits| format!("0x{bits:08x}"))
             .unwrap_or_else(|| "none".to_string()),
         projection.last_block_name.as_deref().unwrap_or("none"),
     )
+}
+
+fn runtime_building_table_turret_tail_label(projection: &BuildingTableProjection) -> String {
+    let reload = projection
+        .last_turret_reload_counter_bits
+        .map(|bits| format!("r0x{bits:08x}"))
+        .unwrap_or_else(|| "rnone".to_string());
+    let rotation = projection
+        .last_turret_rotation_bits
+        .map(|bits| format!("t0x{bits:08x}"))
+        .unwrap_or_else(|| "tnone".to_string());
+    let ammo = projection
+        .last_item_turret_ammo_count
+        .map(|count| count.to_string())
+        .unwrap_or_else(|| "none".to_string());
+    let length = projection
+        .last_continuous_turret_last_length_bits
+        .map(|bits| format!("0x{bits:08x}"))
+        .unwrap_or_else(|| "none".to_string());
+    format!("{reload}:{rotation}:a{ammo}:l{length}")
 }
 
 fn runtime_tile_config_business_label(projection: &TileConfigProjection) -> String {
@@ -8327,6 +8348,9 @@ mod tests {
         assert!(hud
             .status_text
             .contains("runtime_buildings=1:b1:c1:config@100:99#301:rm0:on1:e128:oe64"));
+        assert!(hud
+            .status_text
+            .contains(":turrnone:tnone:anone:lnone:trb0x42100000"));
         assert!(hud.status_text.contains(":trb0x42100000"));
         assert!(hud
             .status_text
