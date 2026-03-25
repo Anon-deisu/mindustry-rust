@@ -18773,6 +18773,12 @@ mod tests {
             .entity_table_projection
             .by_entity_id
             .contains_key(&99));
+        let stale_runtime_model = session
+            .state()
+            .runtime_typed_entity_projection()
+            .entity_at(99)
+            .cloned()
+            .expect("expected runtime typed entity before hidden snapshot");
 
         let hidden_packet_id = manifest
             .remote_packets
@@ -18792,6 +18798,13 @@ mod tests {
             .entity_table_projection
             .by_entity_id
             .contains_key(&99));
+        assert!(matches!(
+            session
+                .state()
+                .runtime_typed_entity_projection()
+                .entity_at(99),
+            Some(model) if model.base().hidden
+        ));
         assert_eq!(
             session
                 .state()
@@ -18825,6 +18838,38 @@ mod tests {
             vec![99]
         );
         assert_eq!(session.state().entity_snapshot_tombstone_skip_count, 0);
+
+        session
+            .state
+            .runtime_typed_entity_apply_projection
+            .upsert_runtime_entity(stale_runtime_model);
+        assert!(matches!(
+            session
+                .state()
+                .runtime_typed_entity_projection()
+                .entity_at(99),
+            Some(model) if !model.base().hidden
+        ));
+
+        session.ingest_packet_bytes(&hidden_packet).unwrap();
+        assert!(session.state().hidden_snapshot_ids.contains(&99));
+        assert!(matches!(
+            session
+                .state()
+                .runtime_typed_entity_projection()
+                .entity_at(99),
+            Some(model) if model.base().hidden
+        ));
+        assert_eq!(
+            session.state().hidden_snapshot_delta_projection,
+            Some(crate::session_state::HiddenSnapshotDeltaProjection {
+                active_count: 1,
+                added_count: 0,
+                removed_count: 0,
+                added_sample_ids: Vec::new(),
+                removed_sample_ids: Vec::new(),
+            })
+        );
 
         session.ingest_packet_bytes(&entity_packet).unwrap();
         assert!(session

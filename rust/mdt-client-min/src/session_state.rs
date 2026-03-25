@@ -4934,7 +4934,7 @@ impl SessionState {
             .copied()
             .collect();
         let typed_runtime_transition = HiddenSnapshotTypedRuntimeTransition {
-            refresh_ids: added_ids
+            refresh_ids: trigger_hidden_ids
                 .iter()
                 .chain(removed_ids.iter())
                 .copied()
@@ -5005,8 +5005,8 @@ impl SessionState {
         &mut self,
         transition: &HiddenSnapshotTypedRuntimeTransition,
     ) {
-        // Preserve the existing fallback for tests/setup that seed only raw tables, but once the
-        // runtime-owned apply layer exists, only mutate the ids touched by the hidden transition.
+        // Reassert the full current hidden-id set so repeated hidden snapshots can suppress stale
+        // runtime-owned rows that were reintroduced by other apply paths.
         self.seed_runtime_typed_entity_apply_projection_from_tables_if_empty();
         for entity_id in &transition.refresh_ids {
             self.refresh_runtime_typed_entity_from_tables(*entity_id);
@@ -6354,5 +6354,105 @@ mod tests {
         assert_eq!(projection.player_count, 1);
         assert_eq!(projection.unit_count, 0);
         assert_eq!(projection.hidden_count, 0);
+    }
+
+    #[test]
+    fn repeated_hidden_snapshot_reasserts_runtime_typed_entity_suppression() {
+        let mut state = SessionState::default();
+        state.entity_table_projection.local_player_entity_id = Some(101);
+        state.entity_table_projection.by_entity_id.insert(
+            101,
+            EntityProjection {
+                class_id: EntityTableProjection::LOCAL_PLAYER_CLASS_ID,
+                hidden: false,
+                is_local_player: true,
+                unit_kind: 2,
+                unit_value: 101,
+                x_bits: 1.0f32.to_bits(),
+                y_bits: 2.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
+        state.entity_table_projection.by_entity_id.insert(
+            202,
+            EntityProjection {
+                class_id: 4,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 202,
+                x_bits: 3.0f32.to_bits(),
+                y_bits: 4.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 2,
+            },
+        );
+        state.entity_semantic_projection.upsert(
+            202,
+            4,
+            2,
+            EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
+                team_id: 2,
+                unit_type_id: 55,
+                health_bits: 0x3f80_0000,
+                rotation_bits: 0x4000_0000,
+                shield_bits: 0x4040_0000,
+                mine_tile_pos: 0,
+                status_count: 0,
+                payload_count: None,
+                building_pos: None,
+                lifetime_bits: None,
+                time_bits: None,
+            }),
+        );
+        state.rebuild_runtime_typed_entity_projection_from_tables();
+        let stale_model = state
+            .runtime_typed_entity_projection()
+            .entity_at(202)
+            .cloned()
+            .expect("expected runtime entity before hidden snapshot");
+
+        state.apply_hidden_snapshot(
+            AppliedHiddenSnapshotIds {
+                count: 1,
+                first_id: Some(202),
+                sample_ids: vec![202],
+            },
+            BTreeSet::from([202]),
+        );
+        assert!(!state
+            .runtime_typed_entity_projection()
+            .by_entity_id
+            .contains_key(&202));
+
+        state
+            .runtime_typed_entity_apply_projection
+            .upsert_runtime_entity(stale_model);
+        assert!(state
+            .runtime_typed_entity_projection()
+            .by_entity_id
+            .contains_key(&202));
+
+        state.apply_hidden_snapshot(
+            AppliedHiddenSnapshotIds {
+                count: 1,
+                first_id: Some(202),
+                sample_ids: vec![202],
+            },
+            BTreeSet::from([202]),
+        );
+
+        assert_eq!(
+            state.hidden_snapshot_delta_projection,
+            Some(HiddenSnapshotDeltaProjection {
+                active_count: 1,
+                added_count: 0,
+                removed_count: 0,
+                added_sample_ids: Vec::new(),
+                removed_sample_ids: Vec::new(),
+            })
+        );
+        let projection = state.runtime_typed_entity_projection();
+        assert!(projection.by_entity_id.contains_key(&101));
+        assert!(!projection.by_entity_id.contains_key(&202));
     }
 }

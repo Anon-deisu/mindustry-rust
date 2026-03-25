@@ -215,6 +215,13 @@ impl AsciiScenePresenter {
                 "RUNTIME-LIVE-ENTITY: {runtime_live_entity_text}\n"
             ));
         }
+        if let Some(runtime_live_entity_detail_text) =
+            compose_runtime_live_entity_detail_row_text(hud)
+        {
+            out.push_str(&format!(
+                "RUNTIME-LIVE-ENTITY-DETAIL: {runtime_live_entity_detail_text}\n"
+            ));
+        }
         if let Some(runtime_live_effect_text) = compose_runtime_live_effect_panel_text(hud) {
             out.push_str(&format!(
                 "RUNTIME-LIVE-EFFECT: {runtime_live_effect_text}\n"
@@ -879,6 +886,24 @@ fn compose_runtime_reconnect_row_text(hud: &HudModel) -> Option<String> {
 fn compose_runtime_live_entity_panel_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_live_entity_panel(hud)?;
     Some(compose_live_entity_panel_text(&panel))
+}
+
+fn compose_runtime_live_entity_detail_row_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_live_entity_panel(hud)?;
+    Some(format!(
+        "local={} unit={}/{} pos={} hidden={} seen={} players={} units={} last={}/{}/{}",
+        optional_i32_label(panel.local_entity_id),
+        optional_u8_label(panel.local_unit_kind),
+        optional_u32_label(panel.local_unit_value),
+        world_position_text(panel.local_position.as_ref()),
+        optional_bool_label(panel.local_hidden),
+        optional_u64_label(panel.local_last_seen_entity_snapshot_count),
+        panel.player_count,
+        panel.unit_count,
+        optional_i32_label(panel.last_entity_id),
+        optional_i32_label(panel.last_player_entity_id),
+        optional_i32_label(panel.last_unit_entity_id),
+    ))
 }
 
 fn compose_runtime_live_effect_panel_text(hud: &HudModel) -> Option<String> {
@@ -2677,6 +2702,9 @@ mod tests {
         ));
         assert!(frame.contains(
             "RUNTIME-LIVE-ENTITY: 1/0@404:u2/999:p20.0:33.0:h0:s3:tp1/0:last404/404/none"
+        ));
+        assert!(frame.contains(
+            "RUNTIME-LIVE-ENTITY-DETAIL: local=404 unit=2/999 pos=20.0:33.0 hidden=0 seen=3 players=1 units=0 last=404/404/none"
         ));
         assert!(frame.contains(
             "RUNTIME-LIVE-EFFECT: 11/73@8:u19:kPoint2:cposition_tar~/unit_parent:hpos:point2:3:4@1/0:pbiz@24.0:32.0"

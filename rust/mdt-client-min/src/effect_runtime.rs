@@ -765,7 +765,7 @@ fn parent_binding_allows_fallback_offset_initialization(effect_id: Option<i16>) 
 }
 
 fn parent_binding_rotates_with_parent(effect_id: Option<i16>) -> bool {
-    matches!(effect_id, Some(67 | 68 | 122))
+    matches!(effect_id, Some(67 | 68 | 122 | 257 | 260))
 }
 
 fn source_binding_enabled(effect_id: Option<i16>) -> bool {
@@ -881,7 +881,7 @@ mod tests {
                 offset_initialized: true,
                 preserve_spawn_offset: true,
                 allow_fallback_offset_initialization: false,
-                rotate_with_parent: false,
+                rotate_with_parent: true,
                 parent_rotation_reference_bits: 0.0f32.to_bits(),
                 rotation_offset_bits: 0.0f32.to_bits(),
                 rotation_initialized: false,
@@ -1037,10 +1037,12 @@ mod tests {
         assert_eq!(second_position, (28.0f32.to_bits(), 44.0f32.to_bits()));
     }
 
-    #[test]
-    fn effect_runtime_resolve_runtime_effect_overlay_position_rotates_offset_with_parent_unit() {
+    fn assert_effect_runtime_rotates_offset_with_parent_unit(
+        effect_id: i16,
+        allow_fallback_offset_initialization: bool,
+    ) {
         let mut overlay = spawn_runtime_effect_overlay(
-            Some(67),
+            Some(effect_id),
             12.0,
             20.0,
             12.0,
@@ -1100,7 +1102,7 @@ mod tests {
                 offset_y_bits: 0.0f32.to_bits(),
                 offset_initialized: true,
                 preserve_spawn_offset: true,
-                allow_fallback_offset_initialization: true,
+                allow_fallback_offset_initialization,
                 rotate_with_parent: true,
                 parent_rotation_reference_bits: 0.0f32.to_bits(),
                 rotation_offset_bits: 15.0f32.to_bits(),
@@ -1138,5 +1140,22 @@ mod tests {
         let second_position = resolve_runtime_effect_overlay_position(&mut overlay, &state, &input);
         assert_eq!(second_position, (16.0f32.to_bits(), 22.0f32.to_bits()));
         assert_eq!(overlay.rotation_bits, 105.0f32.to_bits());
+    }
+
+    #[test]
+    fn effect_runtime_resolve_runtime_effect_overlay_position_rotates_offset_with_parent_unit() {
+        assert_effect_runtime_rotates_offset_with_parent_unit(67, true);
+    }
+
+    #[test]
+    fn effect_runtime_resolve_runtime_effect_overlay_position_rotates_offset_with_parent_unit_for_arc_shield_break(
+    ) {
+        assert_effect_runtime_rotates_offset_with_parent_unit(257, false);
+    }
+
+    #[test]
+    fn effect_runtime_resolve_runtime_effect_overlay_position_rotates_offset_with_parent_unit_for_unit_shield_break(
+    ) {
+        assert_effect_runtime_rotates_offset_with_parent_unit(260, false);
     }
 }

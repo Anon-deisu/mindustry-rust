@@ -652,6 +652,13 @@ fn compose_frame_panel_lines(
     if let Some(runtime_live_entity_text) = compose_runtime_live_entity_panel_status_text(hud) {
         lines.push(format!("RUNTIME-LIVE-ENTITY: {runtime_live_entity_text}"));
     }
+    if let Some(runtime_live_entity_detail_text) =
+        compose_runtime_live_entity_detail_status_text(hud)
+    {
+        lines.push(format!(
+            "RUNTIME-LIVE-ENTITY-DETAIL: {runtime_live_entity_detail_text}"
+        ));
+    }
     if let Some(runtime_live_effect_text) = compose_runtime_live_effect_panel_status_text(hud) {
         lines.push(format!("RUNTIME-LIVE-EFFECT: {runtime_live_effect_text}"));
     }
@@ -1195,6 +1202,24 @@ fn compose_runtime_live_entity_panel_status_text(hud: &HudModel) -> Option<Strin
     Some(format!(
         "liveent:{}",
         compose_live_entity_panel_status_text(&panel)
+    ))
+}
+
+fn compose_runtime_live_entity_detail_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_live_entity_panel(hud)?;
+    Some(format!(
+        "liveentd:loc{}:u{}/{}:p{}:h{}:s{}:cnt{}/{}:last{}/{}/{}",
+        optional_i32_label(panel.local_entity_id),
+        optional_u8_label(panel.local_unit_kind),
+        optional_u32_label(panel.local_unit_value),
+        world_position_status_text(panel.local_position.as_ref()),
+        optional_bool_label(panel.local_hidden),
+        optional_u64_label(panel.local_last_seen_entity_snapshot_count),
+        panel.player_count,
+        panel.unit_count,
+        optional_i32_label(panel.last_entity_id),
+        optional_i32_label(panel.last_player_entity_id),
+        optional_i32_label(panel.last_unit_entity_id),
     ))
 }
 
@@ -3333,6 +3358,10 @@ mod tests {
         assert_frame_line_contains(
             &frame.panel_lines,
             "RUNTIME-LIVE-ENTITY: liveent:1/0@404:u2/999:p20.0:33.0:h0:s3:tp1/0:last404/404/none",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RUNTIME-LIVE-ENTITY-DETAIL: liveentd:loc404:u2/999:p20.0:33.0:h0:s3:cnt1/0:last404/404/none",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
