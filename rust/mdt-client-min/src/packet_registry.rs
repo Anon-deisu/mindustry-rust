@@ -594,6 +594,53 @@ mod tests {
     }
 
     #[test]
+    fn generated_remote_registry_constants_match_manifest_and_combined_views() {
+        use crate::generated::remote_high_frequency_gen::CLIENT_SNAPSHOT_PACKET_ID;
+        use crate::generated::remote_registry_gen::{
+            CLIENT_SNAPSHOT_CALL_PACKET_ID, PING_CALL_PACKET_ID, REMOTE_PACKET_SPECS,
+            TILE_CONFIG_CALL_PACKET_ID, WORLD_DATA_BEGIN_CALL_PACKET_ID,
+        };
+
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let combined = CombinedPacketRegistries::from_remote_manifest(&manifest).unwrap();
+
+        let has_generated_spec = |packet_id, method| {
+            REMOTE_PACKET_SPECS
+                .iter()
+                .any(|spec| spec.packet_id == packet_id && spec.method == method)
+        };
+
+        assert!(has_generated_spec(CLIENT_SNAPSHOT_CALL_PACKET_ID, "clientSnapshot"));
+        assert!(has_generated_spec(PING_CALL_PACKET_ID, "ping"));
+        assert!(has_generated_spec(TILE_CONFIG_CALL_PACKET_ID, "tileConfig"));
+        assert!(has_generated_spec(
+            WORLD_DATA_BEGIN_CALL_PACKET_ID,
+            "worldDataBegin"
+        ));
+        assert_eq!(combined.client_snapshot_packet_id, CLIENT_SNAPSHOT_PACKET_ID);
+        assert_eq!(
+            combined.well_known_remote.ping_packet_id,
+            Some(PING_CALL_PACKET_ID)
+        );
+        assert_eq!(
+            manifest
+                .remote_packets
+                .iter()
+                .find(|entry| entry.method == "tileConfig")
+                .map(|entry| entry.packet_id),
+            Some(TILE_CONFIG_CALL_PACKET_ID)
+        );
+        assert_eq!(
+            manifest
+                .remote_packets
+                .iter()
+                .find(|entry| entry.method == "worldDataBegin")
+                .map(|entry| entry.packet_id),
+            Some(WORLD_DATA_BEGIN_CALL_PACKET_ID)
+        );
+    }
+
+    #[test]
     fn combined_packet_registries_require_snapshot_and_client_snapshot_entries() {
         let manifest = custom_channel_remote_family_manifest_with_decoys();
         let error = CombinedPacketRegistries::from_remote_manifest(&manifest).unwrap_err();
