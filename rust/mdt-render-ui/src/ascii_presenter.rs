@@ -220,6 +220,13 @@ impl AsciiScenePresenter {
                 "RUNTIME-LIVE-EFFECT: {runtime_live_effect_text}\n"
             ));
         }
+        if let Some(runtime_live_effect_detail_text) =
+            compose_runtime_live_effect_detail_row_text(hud)
+        {
+            out.push_str(&format!(
+                "RUNTIME-LIVE-EFFECT-DETAIL: {runtime_live_effect_detail_text}\n"
+            ));
+        }
         if let Some(summary_text) = hud
             .overlay_summary_text
             .as_deref()
@@ -877,6 +884,18 @@ fn compose_runtime_live_entity_panel_text(hud: &HudModel) -> Option<String> {
 fn compose_runtime_live_effect_panel_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_live_effect_panel(hud)?;
     Some(compose_live_effect_panel_text(&panel))
+}
+
+fn compose_runtime_live_effect_detail_row_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_live_effect_panel(hud)?;
+    Some(format!(
+        "hint={} source={} pos={} contract={} reliable={}",
+        panel.last_business_hint.as_deref().unwrap_or("none"),
+        live_effect_position_source_text(panel.last_position_source),
+        world_position_text(panel.last_position_hint.as_ref()),
+        compact_runtime_ui_text(panel.last_contract_name.as_deref()),
+        compact_runtime_ui_text(panel.last_reliable_contract_name.as_deref()),
+    ))
 }
 
 fn compose_build_ui_text(hud: &HudModel) -> Option<String> {
@@ -2661,6 +2680,9 @@ mod tests {
         ));
         assert!(frame.contains(
             "RUNTIME-LIVE-EFFECT: 11/73@8:u19:kPoint2:cposition_tar~/unit_parent:hpos:point2:3:4@1/0:pbiz@24.0:32.0"
+        ));
+        assert!(frame.contains(
+            "RUNTIME-LIVE-EFFECT-DETAIL: hint=pos:point2:3:4@1/0 source=biz pos=24.0:32.0 contract=position_tar~ reliable=unit_parent"
         ));
         assert!(frame.contains("live=ent=1/0@404:u2/999:p20.0:33.0:h0:s3"));
         assert!(frame.contains(

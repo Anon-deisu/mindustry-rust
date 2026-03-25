@@ -655,6 +655,13 @@ fn compose_frame_panel_lines(
     if let Some(runtime_live_effect_text) = compose_runtime_live_effect_panel_status_text(hud) {
         lines.push(format!("RUNTIME-LIVE-EFFECT: {runtime_live_effect_text}"));
     }
+    if let Some(runtime_live_effect_detail_text) =
+        compose_runtime_live_effect_detail_status_text(hud)
+    {
+        lines.push(format!(
+            "RUNTIME-LIVE-EFFECT-DETAIL: {runtime_live_effect_detail_text}"
+        ));
+    }
     lines
 }
 
@@ -1196,6 +1203,18 @@ fn compose_runtime_live_effect_panel_status_text(hud: &HudModel) -> Option<Strin
     Some(format!(
         "livefx:{}",
         compose_live_effect_panel_status_text(&panel)
+    ))
+}
+
+fn compose_runtime_live_effect_detail_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_live_effect_panel(hud)?;
+    Some(format!(
+        "livefxd:hint{}:src{}:pos{}:ctr{}:rel{}",
+        panel.last_business_hint.as_deref().unwrap_or("none"),
+        live_effect_position_source_status_text(panel.last_position_source),
+        world_position_status_text(panel.last_position_hint.as_ref()),
+        compact_runtime_ui_text(panel.last_contract_name.as_deref()),
+        compact_runtime_ui_text(panel.last_reliable_contract_name.as_deref()),
     ))
 }
 
@@ -3083,11 +3102,9 @@ mod tests {
         assert!(frame
             .status_text
             .contains("live=ent=1/0@404:u2/999:p20.0:33.0:h0:s3"));
-        assert!(frame
-            .status_text
-            .contains(
-                "fx=11/73@8:u19:kPoint2:cposition_tar~/unit_parent:hpos:point2:3:4@1/0:pbiz@24.0:32.0"
-            ));
+        assert!(frame.status_text.contains(
+            "fx=11/73@8:u19:kPoint2:cposition_tar~/unit_parent:hpos:point2:3:4@1/0:pbiz@24.0:32.0"
+        ));
         assert!(frame
             .status_text
             .contains("tin=53@404:Digits/Only_numbers/12345#16:n1:e1"));
@@ -3230,6 +3247,10 @@ mod tests {
         assert_frame_line_contains(
             &frame.panel_lines,
             "RUNTIME-LIVE-EFFECT: livefx:11/73@8:u19:kPoint2:cposition_tar~/unit_parent:hpos:point2:3:4@1/0:pbiz@24.0:32.0",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RUNTIME-LIVE-EFFECT-DETAIL: livefxd:hintpos:point2:3:4@1/0:srcbiz:pos24.0:32.0:ctrposition_tar~:relunit_parent",
         );
         assert_frame_line_contains(&frame.overlay_lines, "OVERLAY: Plans 1");
         assert_frame_line_contains(
