@@ -6,7 +6,8 @@ use crate::client_session::{
     ClientSnapshotInputState, StateSnapshotAppliedProjection,
 };
 use crate::effect_runtime::{
-    effect_contract, resolve_runtime_effect_overlay_position, spawn_runtime_effect_overlay,
+    effect_contract, resolve_runtime_effect_overlay_position,
+    resolve_runtime_effect_overlay_source_position, spawn_runtime_effect_overlay,
     RuntimeEffectOverlay,
 };
 use crate::session_state::{
@@ -3217,11 +3218,15 @@ fn append_runtime_world_overlay_objects(
     }
 
     for overlay in &mut runtime_world_overlay.effect_overlays {
+        let (source_x_bits, source_y_bits) =
+            resolve_runtime_effect_overlay_source_position(overlay, session_state, snapshot_input);
         let (target_x_bits, target_y_bits) =
             resolve_runtime_effect_overlay_position(overlay, session_state, snapshot_input);
         append_runtime_effect_executor_objects(
             scene,
             overlay,
+            source_x_bits,
+            source_y_bits,
             target_x_bits,
             target_y_bits,
             session_state,
@@ -3229,6 +3234,8 @@ fn append_runtime_world_overlay_objects(
         let (marker_x_bits, marker_y_bits) =
             effect_contract_executor::marker_position_for_effect_overlay(
                 overlay,
+                source_x_bits,
+                source_y_bits,
                 target_x_bits,
                 target_y_bits,
             )
@@ -3253,12 +3260,16 @@ fn append_runtime_world_overlay_objects(
 fn append_runtime_effect_executor_objects(
     scene: &mut RenderModel,
     overlay: &RuntimeEffectOverlay,
+    source_x_bits: u32,
+    source_y_bits: u32,
     target_x_bits: u32,
     target_y_bits: u32,
     session_state: &SessionState,
 ) {
     for line in effect_contract_executor::line_projections_for_effect_overlay(
         overlay,
+        source_x_bits,
+        source_y_bits,
         target_x_bits,
         target_y_bits,
         session_state,
@@ -5406,6 +5417,91 @@ mod tests {
     }
 
     #[test]
+    fn render_runtime_adapter_moves_unit_spirit_geometry_with_parent_unit_source_follow() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        state.entity_table_projection.by_entity_id.insert(
+            404,
+            crate::session_state::EntityProjection {
+                class_id: 12,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 88,
+                x_bits: 80.0f32.to_bits(),
+                y_bits: 160.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 3,
+            },
+        );
+
+        adapter.observe_events(&[ClientSessionEvent::EffectRequested {
+            effect_id: Some(8),
+            x: 12.0,
+            y: 20.0,
+            rotation: 0.0,
+            color_rgba: 0x11223344,
+            data_object: Some(mdt_typeio::TypeIoObject::UnitId(404)),
+        }]);
+
+        let mut first_scene = RenderModel::default();
+        let mut first_hud = HudModel::default();
+        adapter.apply(&mut first_scene, &mut first_hud, &input, &state);
+
+        let first_marker = first_runtime_effect_marker(&first_scene);
+        assert_eq!(first_marker.x, 80.0);
+        assert_eq!(first_marker.y, 160.0);
+
+        let unit_spirit_prefix = "marker:line:runtime-effect-unit-spirit:";
+        let mut first_points = runtime_effect_lines_with_prefix(&first_scene, unit_spirit_prefix)
+            .into_iter()
+            .map(|object| (object.x, object.y))
+            .collect::<Vec<_>>();
+        first_points.sort_by(|left, right| {
+            left.0
+                .total_cmp(&right.0)
+                .then_with(|| left.1.total_cmp(&right.1))
+        });
+
+        state
+            .entity_table_projection
+            .by_entity_id
+            .get_mut(&404)
+            .expect("missing entity 404")
+            .x_bits = 96.0f32.to_bits();
+        state
+            .entity_table_projection
+            .by_entity_id
+            .get_mut(&404)
+            .expect("missing entity 404")
+            .y_bits = 184.0f32.to_bits();
+
+        let mut second_scene = RenderModel::default();
+        let mut second_hud = HudModel::default();
+        adapter.apply(&mut second_scene, &mut second_hud, &input, &state);
+
+        let second_marker = first_runtime_effect_marker(&second_scene);
+        assert_eq!(second_marker.x, 96.0);
+        assert_eq!(second_marker.y, 184.0);
+
+        let mut second_points = runtime_effect_lines_with_prefix(&second_scene, unit_spirit_prefix)
+            .into_iter()
+            .map(|object| (object.x, object.y))
+            .collect::<Vec<_>>();
+        second_points.sort_by(|left, right| {
+            left.0
+                .total_cmp(&right.0)
+                .then_with(|| left.1.total_cmp(&right.1))
+        });
+
+        assert_eq!(first_points.len(), second_points.len());
+        for (first, second) in first_points.iter().zip(second_points.iter()) {
+            assert!(((second.0 - first.0) - 16.0).abs() < 0.01);
+            assert!(((second.1 - first.1) - 24.0).abs() < 0.01);
+        }
+    }
+
+    #[test]
     fn render_runtime_adapter_renders_item_transfer_executor_rings() {
         let mut adapter = RenderRuntimeAdapter::default();
         let mut scene = RenderModel::default();
@@ -5433,6 +5529,61 @@ mod tests {
         assert!(item_transfer_lines.iter().any(|object| {
             !object.id.ends_with(":line-end") && object.x < 20.0 && object.y < 40.0
         }));
+    }
+
+    #[test]
+    fn render_runtime_adapter_moves_item_transfer_marker_with_parent_unit_source_follow() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        state.entity_table_projection.by_entity_id.insert(
+            404,
+            crate::session_state::EntityProjection {
+                class_id: 12,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 88,
+                x_bits: 80.0f32.to_bits(),
+                y_bits: 160.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 3,
+            },
+        );
+
+        adapter.observe_events(&[ClientSessionEvent::EffectRequested {
+            effect_id: Some(9),
+            x: 12.0,
+            y: 20.0,
+            rotation: 0.0,
+            color_rgba: 0x55667788,
+            data_object: Some(mdt_typeio::TypeIoObject::UnitId(404)),
+        }]);
+
+        let mut first_scene = RenderModel::default();
+        let mut first_hud = HudModel::default();
+        adapter.apply(&mut first_scene, &mut first_hud, &input, &state);
+        let first_marker = first_runtime_effect_marker(&first_scene);
+
+        state
+            .entity_table_projection
+            .by_entity_id
+            .get_mut(&404)
+            .expect("missing entity 404")
+            .x_bits = 96.0f32.to_bits();
+        state
+            .entity_table_projection
+            .by_entity_id
+            .get_mut(&404)
+            .expect("missing entity 404")
+            .y_bits = 184.0f32.to_bits();
+
+        let mut second_scene = RenderModel::default();
+        let mut second_hud = HudModel::default();
+        adapter.apply(&mut second_scene, &mut second_hud, &input, &state);
+        let second_marker = first_runtime_effect_marker(&second_scene);
+
+        assert!(((second_marker.x - first_marker.x) - 16.0).abs() < 0.01);
+        assert!(((second_marker.y - first_marker.y) - 24.0).abs() < 0.01);
     }
 
     #[test]

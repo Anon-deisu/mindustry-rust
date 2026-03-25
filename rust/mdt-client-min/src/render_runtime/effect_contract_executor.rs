@@ -165,6 +165,8 @@ pub(crate) fn world_position_from_contract_business_projection(
 
 pub(crate) fn line_projections_for_effect_overlay(
     overlay: &RuntimeEffectOverlay,
+    source_x_bits: u32,
+    source_y_bits: u32,
     target_x_bits: u32,
     target_y_bits: u32,
     session_state: &SessionState,
@@ -172,26 +174,30 @@ pub(crate) fn line_projections_for_effect_overlay(
     match overlay.effect_id {
         Some(LIGHTNING_EFFECT_ID) => lightning_line_projections(&overlay.polyline_points),
         Some(UNIT_SPIRIT_EFFECT_ID) => unit_spirit_line_projections(
-            overlay.source_x_bits,
-            overlay.source_y_bits,
+            source_x_bits,
+            source_y_bits,
             target_x_bits,
             target_y_bits,
             overlay.remaining_ticks,
             overlay.lifetime_ticks,
         ),
         Some(ITEM_TRANSFER_EFFECT_ID) => item_transfer_line_projections(
-            overlay.source_x_bits,
-            overlay.source_y_bits,
+            source_x_bits,
+            source_y_bits,
             target_x_bits,
             target_y_bits,
+            overlay.source_x_bits,
+            overlay.source_y_bits,
+            overlay.x_bits,
+            overlay.y_bits,
             overlay.color_rgba,
             overlay.remaining_ticks,
             overlay.lifetime_ticks,
         ),
         Some(POINT_BEAM_EFFECT_ID) => vec![RuntimeEffectLineProjection {
             kind: "point-beam",
-            source_x_bits: overlay.source_x_bits,
-            source_y_bits: overlay.source_y_bits,
+            source_x_bits,
+            source_y_bits,
             target_x_bits,
             target_y_bits,
         }],
@@ -226,8 +232,8 @@ pub(crate) fn line_projections_for_effect_overlay(
                 .map(|kind| {
                     chain_line_projections(
                         kind,
-                        overlay.source_x_bits,
-                        overlay.source_y_bits,
+                        source_x_bits,
+                        source_y_bits,
                         target_x_bits,
                         target_y_bits,
                     )
@@ -240,15 +246,21 @@ pub(crate) fn line_projections_for_effect_overlay(
 
 pub(crate) fn marker_position_for_effect_overlay(
     overlay: &RuntimeEffectOverlay,
+    source_x_bits: u32,
+    source_y_bits: u32,
     target_x_bits: u32,
     target_y_bits: u32,
 ) -> Option<(u32, u32)> {
     match overlay.effect_id {
         Some(ITEM_TRANSFER_EFFECT_ID) => item_transfer_geometry(
-            overlay.source_x_bits,
-            overlay.source_y_bits,
+            source_x_bits,
+            source_y_bits,
             target_x_bits,
             target_y_bits,
+            overlay.source_x_bits,
+            overlay.source_y_bits,
+            overlay.x_bits,
+            overlay.y_bits,
             overlay.color_rgba,
             overlay.remaining_ticks,
             overlay.lifetime_ticks,
@@ -400,6 +412,10 @@ fn item_transfer_line_projections(
     source_y_bits: u32,
     target_x_bits: u32,
     target_y_bits: u32,
+    seed_source_x_bits: u32,
+    seed_source_y_bits: u32,
+    seed_target_x_bits: u32,
+    seed_target_y_bits: u32,
     color_rgba: u32,
     remaining_ticks: u8,
     lifetime_ticks: u8,
@@ -409,6 +425,10 @@ fn item_transfer_line_projections(
         source_y_bits,
         target_x_bits,
         target_y_bits,
+        seed_source_x_bits,
+        seed_source_y_bits,
+        seed_target_x_bits,
+        seed_target_y_bits,
         color_rgba,
         remaining_ticks,
         lifetime_ticks,
@@ -444,6 +464,10 @@ fn item_transfer_geometry(
     source_y_bits: u32,
     target_x_bits: u32,
     target_y_bits: u32,
+    seed_source_x_bits: u32,
+    seed_source_y_bits: u32,
+    seed_target_x_bits: u32,
+    seed_target_y_bits: u32,
     color_rgba: u32,
     remaining_ticks: u8,
     lifetime_ticks: u8,
@@ -474,10 +498,10 @@ fn item_transfer_geometry(
         let normal_x = -dy / distance;
         let normal_y = dx / distance;
         let lateral = item_transfer_pseudo_seed(
-            source_x_bits,
-            source_y_bits,
-            target_x_bits,
-            target_y_bits,
+            seed_source_x_bits,
+            seed_source_y_bits,
+            seed_target_x_bits,
+            seed_target_y_bits,
             color_rgba,
         ) * slope
             * ITEM_TRANSFER_LATERAL_OFFSET_MAX;
@@ -1273,6 +1297,36 @@ fn tile_world_coords(x: i32, y: i32) -> (f32, f32) {
 mod tests {
     use super::*;
 
+    fn test_line_projections_for_overlay(
+        overlay: &RuntimeEffectOverlay,
+        target_x_bits: u32,
+        target_y_bits: u32,
+        session_state: &SessionState,
+    ) -> Vec<RuntimeEffectLineProjection> {
+        line_projections_for_effect_overlay(
+            overlay,
+            overlay.source_x_bits,
+            overlay.source_y_bits,
+            target_x_bits,
+            target_y_bits,
+            session_state,
+        )
+    }
+
+    fn test_marker_position_for_overlay(
+        overlay: &RuntimeEffectOverlay,
+        target_x_bits: u32,
+        target_y_bits: u32,
+    ) -> Option<(u32, u32)> {
+        marker_position_for_effect_overlay(
+            overlay,
+            overlay.source_x_bits,
+            overlay.source_y_bits,
+            target_x_bits,
+            target_y_bits,
+        )
+    }
+
     #[test]
     fn position_target_overlay_origin_projects_nested_building_payload() {
         let object = TypeIoObject::ObjectArray(vec![TypeIoObject::ObjectArray(vec![
@@ -1444,13 +1498,14 @@ mod tests {
             lifetime_ticks: 3,
             remaining_ticks: 3,
             contract_name: Some("point_beam"),
+            source_binding: None,
             binding: None,
             content_ref: None,
             polyline_points: Vec::new(),
         };
 
         assert_eq!(
-            line_projections_for_effect_overlay(
+            test_line_projections_for_overlay(
                 &overlay,
                 80.0f32.to_bits(),
                 160.0f32.to_bits(),
@@ -1472,6 +1527,7 @@ mod tests {
             effect_id: Some(UNIT_SPIRIT_EFFECT_ID),
             source_x_bits: 12.0f32.to_bits(),
             source_y_bits: 20.0f32.to_bits(),
+            source_binding: None,
             x_bits: 80.0f32.to_bits(),
             y_bits: 160.0f32.to_bits(),
             rotation_bits: 0.0f32.to_bits(),
@@ -1486,7 +1542,7 @@ mod tests {
             polyline_points: Vec::new(),
         };
 
-        let lines = line_projections_for_effect_overlay(
+        let lines = test_line_projections_for_overlay(
             &overlay,
             80.0f32.to_bits(),
             160.0f32.to_bits(),
@@ -1523,11 +1579,83 @@ mod tests {
     }
 
     #[test]
+    fn line_projections_for_effect_overlay_uses_resolved_source_for_unit_spirit() {
+        let overlay = RuntimeEffectOverlay {
+            effect_id: Some(UNIT_SPIRIT_EFFECT_ID),
+            source_x_bits: 12.0f32.to_bits(),
+            source_y_bits: 20.0f32.to_bits(),
+            source_binding: None,
+            x_bits: 80.0f32.to_bits(),
+            y_bits: 160.0f32.to_bits(),
+            rotation_bits: 0.0f32.to_bits(),
+            color_rgba: 0x11223344,
+            reliable: false,
+            has_data: true,
+            lifetime_ticks: 3,
+            remaining_ticks: 3,
+            contract_name: Some("position_target"),
+            binding: None,
+            content_ref: None,
+            polyline_points: Vec::new(),
+        };
+
+        let first_lines = line_projections_for_effect_overlay(
+            &overlay,
+            12.0f32.to_bits(),
+            20.0f32.to_bits(),
+            80.0f32.to_bits(),
+            160.0f32.to_bits(),
+            &SessionState::default(),
+        );
+        let shifted_lines = line_projections_for_effect_overlay(
+            &overlay,
+            28.0f32.to_bits(),
+            44.0f32.to_bits(),
+            96.0f32.to_bits(),
+            184.0f32.to_bits(),
+            &SessionState::default(),
+        );
+
+        assert_eq!(first_lines.len(), shifted_lines.len());
+        for (first, shifted) in first_lines.iter().zip(shifted_lines.iter()) {
+            assert!(
+                (f32::from_bits(shifted.source_x_bits)
+                    - f32::from_bits(first.source_x_bits)
+                    - 16.0)
+                    .abs()
+                    < 0.01
+            );
+            assert!(
+                (f32::from_bits(shifted.source_y_bits)
+                    - f32::from_bits(first.source_y_bits)
+                    - 24.0)
+                    .abs()
+                    < 0.01
+            );
+            assert!(
+                (f32::from_bits(shifted.target_x_bits)
+                    - f32::from_bits(first.target_x_bits)
+                    - 16.0)
+                    .abs()
+                    < 0.01
+            );
+            assert!(
+                (f32::from_bits(shifted.target_y_bits)
+                    - f32::from_bits(first.target_y_bits)
+                    - 24.0)
+                    .abs()
+                    < 0.01
+            );
+        }
+    }
+
+    #[test]
     fn line_projections_for_effect_overlay_returns_item_transfer_rings() {
         let overlay = RuntimeEffectOverlay {
             effect_id: Some(ITEM_TRANSFER_EFFECT_ID),
             source_x_bits: 12.0f32.to_bits(),
             source_y_bits: 20.0f32.to_bits(),
+            source_binding: None,
             x_bits: 80.0f32.to_bits(),
             y_bits: 160.0f32.to_bits(),
             rotation_bits: 0.0f32.to_bits(),
@@ -1542,7 +1670,7 @@ mod tests {
             polyline_points: Vec::new(),
         };
 
-        let lines = line_projections_for_effect_overlay(
+        let lines = test_line_projections_for_overlay(
             &overlay,
             80.0f32.to_bits(),
             160.0f32.to_bits(),
@@ -1553,6 +1681,10 @@ mod tests {
             overlay.source_y_bits,
             80.0f32.to_bits(),
             160.0f32.to_bits(),
+            overlay.source_x_bits,
+            overlay.source_y_bits,
+            overlay.x_bits,
+            overlay.y_bits,
             overlay.color_rgba,
             overlay.remaining_ticks,
             overlay.lifetime_ticks,
@@ -1593,6 +1725,7 @@ mod tests {
             effect_id: Some(ITEM_TRANSFER_EFFECT_ID),
             source_x_bits: 12.0f32.to_bits(),
             source_y_bits: 20.0f32.to_bits(),
+            source_binding: None,
             x_bits: 80.0f32.to_bits(),
             y_bits: 160.0f32.to_bits(),
             rotation_bits: 0.0f32.to_bits(),
@@ -1608,11 +1741,57 @@ mod tests {
         };
 
         let marker =
-            marker_position_for_effect_overlay(&overlay, 80.0f32.to_bits(), 160.0f32.to_bits())
+            test_marker_position_for_overlay(&overlay, 80.0f32.to_bits(), 160.0f32.to_bits())
                 .expect("item transfer marker override");
 
         assert_ne!(marker, (80.0f32.to_bits(), 160.0f32.to_bits()));
         assert_ne!(marker, (12.0f32.to_bits(), 20.0f32.to_bits()));
+    }
+
+    #[test]
+    fn marker_position_for_effect_overlay_uses_resolved_source_for_item_transfer() {
+        let overlay = RuntimeEffectOverlay {
+            effect_id: Some(ITEM_TRANSFER_EFFECT_ID),
+            source_x_bits: 12.0f32.to_bits(),
+            source_y_bits: 20.0f32.to_bits(),
+            source_binding: None,
+            x_bits: 80.0f32.to_bits(),
+            y_bits: 160.0f32.to_bits(),
+            rotation_bits: 0.0f32.to_bits(),
+            color_rgba: 0x55667788,
+            reliable: false,
+            has_data: true,
+            lifetime_ticks: 3,
+            remaining_ticks: 3,
+            contract_name: Some("position_target"),
+            binding: None,
+            content_ref: None,
+            polyline_points: Vec::new(),
+        };
+
+        let first_marker = marker_position_for_effect_overlay(
+            &overlay,
+            12.0f32.to_bits(),
+            20.0f32.to_bits(),
+            80.0f32.to_bits(),
+            160.0f32.to_bits(),
+        )
+        .expect("first marker");
+        let shifted_marker = marker_position_for_effect_overlay(
+            &overlay,
+            28.0f32.to_bits(),
+            44.0f32.to_bits(),
+            96.0f32.to_bits(),
+            184.0f32.to_bits(),
+        )
+        .expect("shifted marker");
+
+        assert!(
+            (f32::from_bits(shifted_marker.0) - f32::from_bits(first_marker.0) - 16.0).abs() < 0.01
+        );
+        assert!(
+            (f32::from_bits(shifted_marker.1) - f32::from_bits(first_marker.1) - 24.0).abs() < 0.01
+        );
     }
 
     #[test]
@@ -1630,12 +1809,13 @@ mod tests {
             lifetime_ticks: 3,
             remaining_ticks: 3,
             contract_name: Some("point_hit"),
+            source_binding: None,
             binding: None,
             content_ref: None,
             polyline_points: Vec::new(),
         };
 
-        let lines = line_projections_for_effect_overlay(
+        let lines = test_line_projections_for_overlay(
             &overlay,
             32.0f32.to_bits(),
             48.0f32.to_bits(),
@@ -1664,12 +1844,13 @@ mod tests {
             lifetime_ticks: 3,
             remaining_ticks: 3,
             contract_name: Some("shield_break"),
+            source_binding: None,
             binding: None,
             content_ref: None,
             polyline_points: Vec::new(),
         };
 
-        let lines = line_projections_for_effect_overlay(
+        let lines = test_line_projections_for_overlay(
             &overlay,
             32.0f32.to_bits(),
             48.0f32.to_bits(),
@@ -1698,12 +1879,13 @@ mod tests {
             lifetime_ticks: 3,
             remaining_ticks: 3,
             contract_name: Some("unit_parent"),
+            source_binding: None,
             binding: None,
             content_ref: None,
             polyline_points: Vec::new(),
         };
 
-        let lines = line_projections_for_effect_overlay(
+        let lines = test_line_projections_for_overlay(
             &overlay,
             32.0f32.to_bits(),
             48.0f32.to_bits(),
@@ -1755,12 +1937,13 @@ mod tests {
             lifetime_ticks: 3,
             remaining_ticks: 3,
             contract_name: Some("unit_parent"),
+            source_binding: None,
             binding: None,
             content_ref: None,
             polyline_points: Vec::new(),
         };
 
-        let lines = line_projections_for_effect_overlay(
+        let lines = test_line_projections_for_overlay(
             &overlay,
             32.0f32.to_bits(),
             48.0f32.to_bits(),
@@ -1817,12 +2000,13 @@ mod tests {
             lifetime_ticks: 3,
             remaining_ticks: 3,
             contract_name: Some("position_target"),
+            source_binding: None,
             binding: None,
             content_ref: None,
             polyline_points: Vec::new(),
         };
 
-        let lines = line_projections_for_effect_overlay(
+        let lines = test_line_projections_for_overlay(
             &overlay,
             80.0f32.to_bits(),
             160.0f32.to_bits(),
@@ -1860,12 +2044,13 @@ mod tests {
             lifetime_ticks: 3,
             remaining_ticks: 3,
             contract_name: Some("position_target"),
+            source_binding: None,
             binding: None,
             content_ref: None,
             polyline_points: Vec::new(),
         };
 
-        let lines = line_projections_for_effect_overlay(
+        let lines = test_line_projections_for_overlay(
             &overlay,
             80.0f32.to_bits(),
             160.0f32.to_bits(),
@@ -1903,13 +2088,14 @@ mod tests {
             lifetime_ticks: 3,
             remaining_ticks: 3,
             contract_name: Some("position_target"),
+            source_binding: None,
             binding: None,
             content_ref: None,
             polyline_points: Vec::new(),
         };
 
         assert_eq!(
-            line_projections_for_effect_overlay(
+            test_line_projections_for_overlay(
                 &overlay,
                 80.0f32.to_bits(),
                 160.0f32.to_bits(),
@@ -1952,6 +2138,7 @@ mod tests {
             lifetime_ticks: 3,
             remaining_ticks: 3,
             contract_name: Some("block_content_icon"),
+            source_binding: None,
             binding: None,
             content_ref: Some((BLOCK_CONTENT_TYPE, 42)),
             polyline_points: Vec::new(),
@@ -1984,6 +2171,7 @@ mod tests {
             lifetime_ticks: 3,
             remaining_ticks: 2,
             contract_name: Some("payload_target_content"),
+            source_binding: None,
             binding: None,
             content_ref: Some((UNIT_CONTENT_TYPE, 9)),
             polyline_points: Vec::new(),
@@ -2016,6 +2204,7 @@ mod tests {
             lifetime_ticks: 3,
             remaining_ticks: 3,
             contract_name: Some("content_icon"),
+            source_binding: None,
             binding: None,
             content_ref: Some((UNIT_CONTENT_TYPE, 9)),
             polyline_points: Vec::new(),
@@ -2048,6 +2237,7 @@ mod tests {
             lifetime_ticks: 3,
             remaining_ticks: 3,
             contract_name: Some("lightning"),
+            source_binding: None,
             binding: None,
             content_ref: None,
             polyline_points: vec![
@@ -2058,7 +2248,7 @@ mod tests {
         };
 
         assert_eq!(
-            line_projections_for_effect_overlay(
+            test_line_projections_for_overlay(
                 &overlay,
                 50.0f32.to_bits(),
                 60.0f32.to_bits(),
@@ -2098,6 +2288,7 @@ mod tests {
             lifetime_ticks: 3,
             remaining_ticks: 3,
             contract_name: Some("unit_parent"),
+            source_binding: None,
             binding: Some(RuntimeEffectBinding::ParentUnit {
                 unit_id: 404,
                 spawn_x_bits: 12.0f32.to_bits(),
@@ -2105,6 +2296,7 @@ mod tests {
                 offset_x_bits: 0.0f32.to_bits(),
                 offset_y_bits: 0.0f32.to_bits(),
                 offset_initialized: true,
+                preserve_spawn_offset: true,
             }),
             content_ref: None,
             polyline_points: Vec::new(),
@@ -2133,7 +2325,7 @@ mod tests {
             },
         );
 
-        let lines = line_projections_for_effect_overlay(
+        let lines = test_line_projections_for_overlay(
             &overlay,
             32.0f32.to_bits(),
             48.0f32.to_bits(),

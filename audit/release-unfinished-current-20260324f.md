@@ -180,10 +180,12 @@ These are already landed and should not be re-opened as if missing:
   - remaining `U5` work is still landing additional narrow `effect_id -> contract/executor` families, not re-adding this `pointHit` slice
 - narrow `effect_id=8` `unitSpirit` executor wiring is now also landed.
   - Rust keeps `effect_id=8` on the existing `position_target` contract, and runtime rendering now emits the effect-specific double-diamond fallback from the captured source/target bits instead of stopping at the target marker alone
-  - remaining `U5` work is still landing additional narrow `effect_id -> contract/executor` families, not re-adding this `unitSpirit` slice
+  - Rust now also carries a narrow source-follow binding for `effect_id=8` when `data` is a parent `Unit`, so the spawned source point and rendered diamonds move with the parent instead of freezing at the original world source
+  - remaining `U5` work is now parity depth rather than first-pass absence: `rotWithParent` and wider parent-follow families are still open, but `unitSpirit` no longer stops at static-source fallback behavior
 - narrow `effect_id=9` `itemTransfer` executor wiring is now also landed.
   - Rust keeps `effect_id=9` on the existing `position_target` contract, and runtime rendering now emits a conservative pseudo-seeded double-ring fallback plus marker-position override instead of leaving only a target marker
-  - remaining `U5` work for this family is now exact-parity depth rather than total absence: Java-like per-instance lateral offset still needs a stable effect-instance seed equivalent to `e.id`
+  - Rust now also carries a narrow source-follow binding for `effect_id=9` when `data` is a parent `Unit`, so the spawned source point and curve/marker geometry move with the parent instead of freezing at the original world source
+  - remaining `U5` work for this family is now exact-parity depth rather than total absence: Java-like per-instance lateral offset still needs a stable effect-instance seed equivalent to `e.id`, and wider parent-follow/rotation semantics are still incomplete outside this narrow slice
 - runtime effect overlay lifetime behavior is no longer fixed to one global `3 tick` decay.
   - `RuntimeEffectOverlay` now carries both `lifetime_ticks` and `remaining_ticks`, and `render_runtime` seeds effect-shaped TTLs for the currently landed runtime families instead of forcing every effect through the same fixed short-lived decay
   - remaining `E3` work is now narrower: Rust still lacks full `position_target` source-follow parity, `rotWithParent`, `startDelay`, `clip`, and deeper effect-instance parity, but the first lifetime-aware overlay path is already landed
