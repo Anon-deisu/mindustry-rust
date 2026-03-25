@@ -1,3 +1,4 @@
+use crate::effect_data_runtime::EffectDataBusinessHint;
 use crate::entity_snapshot_families::{
     ALPHA_SHAPE_ENTITY_CLASS_IDS, BUILDING_TETHER_PAYLOAD_ENTITY_CLASS_IDS, FIRE_ENTITY_CLASS_IDS,
     MECH_SHAPE_ENTITY_CLASS_IDS, MISSILE_SHAPE_ENTITY_CLASS_IDS, PAYLOAD_SHAPE_ENTITY_CLASS_IDS,
@@ -3944,6 +3945,7 @@ pub struct SessionState {
     pub last_effect_data_consumed_len: Option<usize>,
     pub last_effect_data_object: Option<TypeIoObject>,
     pub last_effect_data_semantic: Option<EffectDataSemantic>,
+    pub last_effect_data_business_hint: Option<EffectDataBusinessHint>,
     pub last_effect_business_projection: Option<EffectBusinessProjection>,
     pub last_effect_business_path: Option<Vec<usize>>,
     pub last_effect_data_parse_failed: bool,

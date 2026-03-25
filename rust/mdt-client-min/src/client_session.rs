@@ -1,7 +1,7 @@
 use crate::bootstrap_flow::{
     apply_connect_packet, apply_world_bootstrap, ConnectPacketEnvelope, WorldStreamAssembler,
 };
-use crate::effect_data_runtime::{derive_effect_data_semantic, effect_data_kind_label};
+use crate::effect_data_runtime::{derive_effect_data_business_input, effect_data_kind_label};
 use crate::effect_runtime::{effect_contract, effect_contract_name, RuntimeEffectContract};
 use crate::entity_snapshot_families::{
     is_building_entity_class_id, ALPHA_SHAPE_ENTITY_CLASS_IDS,
@@ -5219,6 +5219,7 @@ impl ClientSession {
                     self.state.last_effect_data_consumed_len = None;
                     self.state.last_effect_data_object = None;
                     self.state.last_effect_data_semantic = None;
+                    self.state.last_effect_data_business_hint = None;
                     self.state.last_effect_business_projection = None;
                     self.state.last_effect_business_path = None;
                     self.state.last_effect_data_parse_failed = false;
@@ -5248,18 +5249,21 @@ impl ClientSession {
                     self.state.last_effect_rotation_bits = Some(effect.rotation.to_bits());
                     self.state.last_effect_color_rgba = Some(effect.color_rgba);
                     self.state.last_effect_data_len = Some(effect.data_len);
-                    self.state.last_effect_data_type_tag = effect.data_type_tag;
-                    self.state.last_effect_data_kind =
-                        effect.data_kind.map(|kind| kind.to_string());
-                    self.state.last_effect_contract_name =
-                        effect_contract_name(effect.effect_id).map(str::to_string);
-                    self.state.last_effect_data_consumed_len = effect.data_consumed_len;
-                    self.state.last_effect_data_object = effect.data_object.clone();
-                    self.state.last_effect_data_semantic = derive_effect_data_semantic(
+                    let business_input = derive_effect_data_business_input(
+                        effect.effect_id,
                         effect.data_object.as_ref(),
                         effect.data_type_tag,
                         effect.parse_failed,
+                        effect.parse_error.as_deref(),
                     );
+                    self.state.last_effect_data_type_tag = business_input.data_type_tag;
+                    self.state.last_effect_data_kind = business_input.data_kind.clone();
+                    self.state.last_effect_contract_name =
+                        business_input.contract_name.map(str::to_string);
+                    self.state.last_effect_data_consumed_len = effect.data_consumed_len;
+                    self.state.last_effect_data_object = effect.data_object.clone();
+                    self.state.last_effect_data_semantic = business_input.semantic.clone();
+                    self.state.last_effect_data_business_hint = business_input.primary.clone();
                     let business_projection = derive_effect_business_projection(
                         &self.state,
                         &self.snapshot_input,
@@ -5271,12 +5275,12 @@ impl ClientSession {
                     );
                     self.state.last_effect_business_path = business_projection.path;
                     self.state.last_effect_business_projection = business_projection.projection;
-                    self.state.last_effect_data_parse_failed = effect.parse_failed;
-                    if effect.parse_failed {
+                    self.state.last_effect_data_parse_failed = business_input.parse_failed;
+                    if business_input.parse_failed {
                         self.state.failed_effect_data_parse_count =
                             self.state.failed_effect_data_parse_count.saturating_add(1);
                     }
-                    self.state.last_effect_data_parse_error = effect.parse_error.clone();
+                    self.state.last_effect_data_parse_error = business_input.parse_error.clone();
                     Ok(ClientSessionEvent::EffectRequested {
                         effect_id: effect.effect_id,
                         x: effect.x,
@@ -7784,6 +7788,7 @@ impl ClientSession {
         self.state.objectives_projection = Default::default();
         self.state.clear_runtime_ui_transients_for_world_reload();
         self.state.resource_delta_projection = Default::default();
+        self.state.last_effect_data_business_hint = None;
         self.state.last_effect_business_projection = None;
         self.state.last_effect_business_path = None;
         self.state.tile_config_projection.clear_for_world_reload();
@@ -34196,6 +34201,7 @@ mod tests {
         assert_eq!(session.state().last_effect_data_consumed_len, None);
         assert_eq!(session.state().last_effect_data_object, None);
         assert_eq!(session.state().last_effect_data_semantic, None);
+        assert_eq!(session.state().last_effect_data_business_hint, None);
         assert!(!session.state().last_effect_data_parse_failed);
         assert_eq!(session.state().failed_effect_data_parse_count, 0);
         assert_eq!(session.state().last_effect_data_parse_error, None);
@@ -34354,6 +34360,7 @@ mod tests {
             session.state().last_effect_data_semantic,
             Some(EffectDataSemantic::String(Some("spark".to_string())))
         );
+        assert_eq!(session.state().last_effect_data_business_hint, None);
         assert_eq!(session.state().last_effect_business_projection, None);
         assert!(!session.state().last_effect_data_parse_failed);
         assert_eq!(session.state().failed_effect_data_parse_count, 0);
@@ -34443,6 +34450,18 @@ mod tests {
         assert_eq!(
             session.state().last_effect_data_semantic,
             Some(EffectDataSemantic::Point2 { x: 3, y: 4 })
+        );
+        assert_eq!(
+            session.state().last_effect_data_business_hint,
+            Some(
+                crate::effect_data_runtime::EffectDataBusinessHint::PositionHint(
+                    TypeIoEffectPositionHint::Point2 {
+                        x: 3,
+                        y: 4,
+                        path: vec![],
+                    },
+                )
+            )
         );
         assert_eq!(
             session.state().last_effect_business_projection,
