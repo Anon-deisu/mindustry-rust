@@ -1737,6 +1737,17 @@ pub enum BuildingProjectionUpdateKind {
     BuildHealthUpdate,
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct BuildingTailSummaryProjection {
+    pub turret_reload_counter_bits: Option<u32>,
+    pub turret_rotation_bits: Option<u32>,
+    pub item_turret_ammo_count: Option<u16>,
+    pub continuous_turret_last_length_bits: Option<u32>,
+    pub build_turret_rotation_bits: Option<u32>,
+    pub build_turret_plans_present: Option<bool>,
+    pub build_turret_plan_count: Option<u16>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct BuildingProjection {
     pub block_id: Option<i16>,
@@ -1755,6 +1766,10 @@ pub struct BuildingProjection {
     pub efficiency: Option<u8>,
     pub optional_efficiency: Option<u8>,
     pub visible_flags: Option<u64>,
+    pub turret_reload_counter_bits: Option<u32>,
+    pub turret_rotation_bits: Option<u32>,
+    pub item_turret_ammo_count: Option<u16>,
+    pub continuous_turret_last_length_bits: Option<u32>,
     pub build_turret_rotation_bits: Option<u32>,
     pub build_turret_plans_present: Option<bool>,
     pub build_turret_plan_count: Option<u16>,
@@ -1789,6 +1804,10 @@ pub struct BuildingTableProjection {
     pub last_efficiency: Option<u8>,
     pub last_optional_efficiency: Option<u8>,
     pub last_visible_flags: Option<u64>,
+    pub last_turret_reload_counter_bits: Option<u32>,
+    pub last_turret_rotation_bits: Option<u32>,
+    pub last_item_turret_ammo_count: Option<u16>,
+    pub last_continuous_turret_last_length_bits: Option<u32>,
     pub last_build_turret_rotation_bits: Option<u32>,
     pub last_build_turret_plans_present: Option<bool>,
     pub last_build_turret_plan_count: Option<u16>,
@@ -1874,6 +1893,18 @@ impl BuildingTableProjection {
                         .as_ref()
                         .and_then(|building| building.visible_flags)
                 }),
+                turret_reload_counter_bits: previous
+                    .as_ref()
+                    .and_then(|building| building.turret_reload_counter_bits),
+                turret_rotation_bits: previous
+                    .as_ref()
+                    .and_then(|building| building.turret_rotation_bits),
+                item_turret_ammo_count: previous
+                    .as_ref()
+                    .and_then(|building| building.item_turret_ammo_count),
+                continuous_turret_last_length_bits: previous
+                    .as_ref()
+                    .and_then(|building| building.continuous_turret_last_length_bits),
                 build_turret_rotation_bits: previous
                     .as_ref()
                     .and_then(|building| building.build_turret_rotation_bits),
@@ -1919,6 +1950,54 @@ impl BuildingTableProjection {
         build_turret_plans_present: Option<bool>,
         build_turret_plan_count: Option<u16>,
     ) {
+        self.apply_block_snapshot_head_with_tail_summary(
+            build_pos,
+            block_id,
+            block_name,
+            rotation,
+            team_id,
+            io_version,
+            module_bitmask,
+            time_scale_bits,
+            time_scale_duration_bits,
+            last_disabler_pos,
+            legacy_consume_connected,
+            config,
+            health_bits,
+            enabled,
+            efficiency,
+            optional_efficiency,
+            visible_flags,
+            BuildingTailSummaryProjection {
+                build_turret_rotation_bits,
+                build_turret_plans_present,
+                build_turret_plan_count,
+                ..BuildingTailSummaryProjection::default()
+            },
+        );
+    }
+
+    pub fn apply_block_snapshot_head_with_tail_summary(
+        &mut self,
+        build_pos: i32,
+        block_id: i16,
+        block_name: Option<String>,
+        rotation: Option<u8>,
+        team_id: Option<u8>,
+        io_version: Option<u8>,
+        module_bitmask: Option<u8>,
+        time_scale_bits: Option<u32>,
+        time_scale_duration_bits: Option<u32>,
+        last_disabler_pos: Option<i32>,
+        legacy_consume_connected: Option<bool>,
+        config: Option<TypeIoObject>,
+        health_bits: Option<u32>,
+        enabled: Option<bool>,
+        efficiency: Option<u8>,
+        optional_efficiency: Option<u8>,
+        visible_flags: Option<u64>,
+        tail_summary: BuildingTailSummaryProjection,
+    ) {
         if self.by_build_pos.get(&build_pos).is_some_and(|existing| {
             existing
                 .block_id
@@ -1951,9 +2030,14 @@ impl BuildingTableProjection {
             self.last_efficiency = efficiency;
             self.last_optional_efficiency = optional_efficiency;
             self.last_visible_flags = visible_flags;
-            self.last_build_turret_rotation_bits = build_turret_rotation_bits;
-            self.last_build_turret_plans_present = build_turret_plans_present;
-            self.last_build_turret_plan_count = build_turret_plan_count;
+            self.last_turret_reload_counter_bits = tail_summary.turret_reload_counter_bits;
+            self.last_turret_rotation_bits = tail_summary.turret_rotation_bits;
+            self.last_item_turret_ammo_count = tail_summary.item_turret_ammo_count;
+            self.last_continuous_turret_last_length_bits =
+                tail_summary.continuous_turret_last_length_bits;
+            self.last_build_turret_rotation_bits = tail_summary.build_turret_rotation_bits;
+            self.last_build_turret_plans_present = tail_summary.build_turret_plans_present;
+            self.last_build_turret_plan_count = tail_summary.build_turret_plan_count;
             self.last_removed = false;
             return;
         }
@@ -2019,17 +2103,39 @@ impl BuildingTableProjection {
                         .as_ref()
                         .and_then(|building| building.visible_flags)
                 }),
-                build_turret_rotation_bits: build_turret_rotation_bits.or_else(|| {
+                turret_reload_counter_bits: tail_summary.turret_reload_counter_bits.or_else(|| {
+                    previous
+                        .as_ref()
+                        .and_then(|building| building.turret_reload_counter_bits)
+                }),
+                turret_rotation_bits: tail_summary.turret_rotation_bits.or_else(|| {
+                    previous
+                        .as_ref()
+                        .and_then(|building| building.turret_rotation_bits)
+                }),
+                item_turret_ammo_count: tail_summary.item_turret_ammo_count.or_else(|| {
+                    previous
+                        .as_ref()
+                        .and_then(|building| building.item_turret_ammo_count)
+                }),
+                continuous_turret_last_length_bits: tail_summary
+                    .continuous_turret_last_length_bits
+                    .or_else(|| {
+                        previous
+                            .as_ref()
+                            .and_then(|building| building.continuous_turret_last_length_bits)
+                    }),
+                build_turret_rotation_bits: tail_summary.build_turret_rotation_bits.or_else(|| {
                     previous
                         .as_ref()
                         .and_then(|building| building.build_turret_rotation_bits)
                 }),
-                build_turret_plans_present: build_turret_plans_present.or_else(|| {
+                build_turret_plans_present: tail_summary.build_turret_plans_present.or_else(|| {
                     previous
                         .as_ref()
                         .and_then(|building| building.build_turret_plans_present)
                 }),
-                build_turret_plan_count: build_turret_plan_count.or_else(|| {
+                build_turret_plan_count: tail_summary.build_turret_plan_count.or_else(|| {
                     previous
                         .as_ref()
                         .and_then(|building| building.build_turret_plan_count)
@@ -2092,6 +2198,18 @@ impl BuildingTableProjection {
                 visible_flags: previous
                     .as_ref()
                     .and_then(|building| building.visible_flags),
+                turret_reload_counter_bits: previous
+                    .as_ref()
+                    .and_then(|building| building.turret_reload_counter_bits),
+                turret_rotation_bits: previous
+                    .as_ref()
+                    .and_then(|building| building.turret_rotation_bits),
+                item_turret_ammo_count: previous
+                    .as_ref()
+                    .and_then(|building| building.item_turret_ammo_count),
+                continuous_turret_last_length_bits: previous
+                    .as_ref()
+                    .and_then(|building| building.continuous_turret_last_length_bits),
                 build_turret_rotation_bits: previous
                     .as_ref()
                     .and_then(|building| building.build_turret_rotation_bits),
@@ -2151,6 +2269,18 @@ impl BuildingTableProjection {
                 visible_flags: previous
                     .as_ref()
                     .and_then(|building| building.visible_flags),
+                turret_reload_counter_bits: previous
+                    .as_ref()
+                    .and_then(|building| building.turret_reload_counter_bits),
+                turret_rotation_bits: previous
+                    .as_ref()
+                    .and_then(|building| building.turret_rotation_bits),
+                item_turret_ammo_count: previous
+                    .as_ref()
+                    .and_then(|building| building.item_turret_ammo_count),
+                continuous_turret_last_length_bits: previous
+                    .as_ref()
+                    .and_then(|building| building.continuous_turret_last_length_bits),
                 build_turret_rotation_bits: previous
                     .as_ref()
                     .and_then(|building| building.build_turret_rotation_bits),
@@ -2230,6 +2360,18 @@ impl BuildingTableProjection {
                 visible_flags: previous
                     .as_ref()
                     .and_then(|building| building.visible_flags),
+                turret_reload_counter_bits: previous
+                    .as_ref()
+                    .and_then(|building| building.turret_reload_counter_bits),
+                turret_rotation_bits: previous
+                    .as_ref()
+                    .and_then(|building| building.turret_rotation_bits),
+                item_turret_ammo_count: previous
+                    .as_ref()
+                    .and_then(|building| building.item_turret_ammo_count),
+                continuous_turret_last_length_bits: previous
+                    .as_ref()
+                    .and_then(|building| building.continuous_turret_last_length_bits),
                 build_turret_rotation_bits: previous
                     .as_ref()
                     .and_then(|building| building.build_turret_rotation_bits),
@@ -2285,6 +2427,14 @@ impl BuildingTableProjection {
         self.last_efficiency = building.and_then(|building| building.efficiency);
         self.last_optional_efficiency = building.and_then(|building| building.optional_efficiency);
         self.last_visible_flags = building.and_then(|building| building.visible_flags);
+        self.last_turret_reload_counter_bits =
+            building.and_then(|building| building.turret_reload_counter_bits);
+        self.last_turret_rotation_bits =
+            building.and_then(|building| building.turret_rotation_bits);
+        self.last_item_turret_ammo_count =
+            building.and_then(|building| building.item_turret_ammo_count);
+        self.last_continuous_turret_last_length_bits =
+            building.and_then(|building| building.continuous_turret_last_length_bits);
         self.last_build_turret_rotation_bits =
             building.and_then(|building| building.build_turret_rotation_bits);
         self.last_build_turret_plans_present =
@@ -2324,6 +2474,14 @@ impl BuildingTableProjection {
         self.last_efficiency = previous.and_then(|building| building.efficiency);
         self.last_optional_efficiency = previous.and_then(|building| building.optional_efficiency);
         self.last_visible_flags = previous.and_then(|building| building.visible_flags);
+        self.last_turret_reload_counter_bits =
+            previous.and_then(|building| building.turret_reload_counter_bits);
+        self.last_turret_rotation_bits =
+            previous.and_then(|building| building.turret_rotation_bits);
+        self.last_item_turret_ammo_count =
+            previous.and_then(|building| building.item_turret_ammo_count);
+        self.last_continuous_turret_last_length_bits =
+            previous.and_then(|building| building.continuous_turret_last_length_bits);
         self.last_build_turret_rotation_bits =
             previous.and_then(|building| building.build_turret_rotation_bits);
         self.last_build_turret_plans_present =
@@ -2409,6 +2567,9 @@ pub enum TypedBuildingRuntimeKind {
     UnitAssembler,
     PowerNode,
     Reconstructor,
+    Turret,
+    ItemTurret,
+    ContinuousTurret,
     BuildTower,
     Memory,
     Canvas,
@@ -2439,6 +2600,9 @@ impl TypedBuildingRuntimeKind {
             Self::UnitAssembler => "unit-assembler",
             Self::PowerNode => "power-node",
             Self::Reconstructor => "reconstructor",
+            Self::Turret => "turret",
+            Self::ItemTurret => "item-turret",
+            Self::ContinuousTurret => "continuous-turret",
             Self::BuildTower => "build-tower",
             Self::Memory => "memory",
             Self::Canvas => "canvas",
@@ -2466,6 +2630,20 @@ pub enum TypedBuildingRuntimeValue {
         command_pos: Option<(u32, u32)>,
         payload_present: bool,
         pay_rotation_bits: u32,
+    },
+    Turret {
+        reload_counter_bits: Option<u32>,
+        rotation_bits: Option<u32>,
+    },
+    ItemTurret {
+        reload_counter_bits: Option<u32>,
+        rotation_bits: Option<u32>,
+        ammo_count: Option<u16>,
+    },
+    ContinuousTurret {
+        reload_counter_bits: Option<u32>,
+        rotation_bits: Option<u32>,
+        last_length_bits: Option<u32>,
     },
     BuildTower {
         rotation_bits: Option<u32>,
@@ -2497,6 +2675,10 @@ pub struct TypedBuildingRuntimeModel {
     pub efficiency: Option<u8>,
     pub optional_efficiency: Option<u8>,
     pub visible_flags: Option<u64>,
+    pub turret_reload_counter_bits: Option<u32>,
+    pub turret_rotation_bits: Option<u32>,
+    pub item_turret_ammo_count: Option<u16>,
+    pub continuous_turret_last_length_bits: Option<u32>,
     pub build_turret_rotation_bits: Option<u32>,
     pub build_turret_plans_present: Option<bool>,
     pub build_turret_plan_count: Option<u16>,
@@ -2742,6 +2924,31 @@ fn typed_runtime_building_model(
                     .copied()?,
             ),
         ),
+        "wave" | "tsunami" | "lancer" | "arc" | "meltdown" | "afflict" | "malign" => (
+            TypedBuildingRuntimeKind::Turret,
+            TypedBuildingRuntimeValue::Turret {
+                reload_counter_bits: building.turret_reload_counter_bits,
+                rotation_bits: building.turret_rotation_bits,
+            },
+        ),
+        "duo" | "scatter" | "scorch" | "hail" | "swarmer" | "salvo" | "fuse" | "ripple"
+        | "cyclone" | "foreshadow" | "spectre" | "breach" | "diffuse" | "titan" | "disperse"
+        | "scathe" | "smite" => (
+            TypedBuildingRuntimeKind::ItemTurret,
+            TypedBuildingRuntimeValue::ItemTurret {
+                reload_counter_bits: building.turret_reload_counter_bits,
+                rotation_bits: building.turret_rotation_bits,
+                ammo_count: building.item_turret_ammo_count,
+            },
+        ),
+        "lustre" | "sublimate" => (
+            TypedBuildingRuntimeKind::ContinuousTurret,
+            TypedBuildingRuntimeValue::ContinuousTurret {
+                reload_counter_bits: building.turret_reload_counter_bits,
+                rotation_bits: building.turret_rotation_bits,
+                last_length_bits: building.continuous_turret_last_length_bits,
+            },
+        ),
         "build-tower" => (
             TypedBuildingRuntimeKind::BuildTower,
             TypedBuildingRuntimeValue::BuildTower {
@@ -2793,6 +3000,10 @@ fn typed_runtime_building_model(
         efficiency: building.efficiency,
         optional_efficiency: building.optional_efficiency,
         visible_flags: building.visible_flags,
+        turret_reload_counter_bits: building.turret_reload_counter_bits,
+        turret_rotation_bits: building.turret_rotation_bits,
+        item_turret_ammo_count: building.item_turret_ammo_count,
+        continuous_turret_last_length_bits: building.continuous_turret_last_length_bits,
         build_turret_rotation_bits: building.build_turret_rotation_bits,
         build_turret_plans_present: building.build_turret_plans_present,
         build_turret_plan_count: building.build_turret_plan_count,
@@ -5699,6 +5910,10 @@ mod tests {
             efficiency: Some(0x40),
             optional_efficiency: Some(0x20),
             visible_flags: Some(99),
+            turret_reload_counter_bits: None,
+            turret_rotation_bits: None,
+            item_turret_ammo_count: None,
+            continuous_turret_last_length_bits: None,
             build_turret_rotation_bits: Some(0x4260_0000),
             build_turret_plans_present: Some(true),
             build_turret_plan_count: Some(7),
@@ -5789,6 +6004,10 @@ mod tests {
                 efficiency: Some(0x30),
                 optional_efficiency: Some(0x10),
                 visible_flags: Some(88),
+                turret_reload_counter_bits: None,
+                turret_rotation_bits: None,
+                item_turret_ammo_count: None,
+                continuous_turret_last_length_bits: None,
                 build_turret_rotation_bits: None,
                 build_turret_plans_present: None,
                 build_turret_plan_count: None,
@@ -5850,6 +6069,10 @@ mod tests {
                 efficiency: Some(0x20),
                 optional_efficiency: Some(0x10),
                 visible_flags: Some(77),
+                turret_reload_counter_bits: None,
+                turret_rotation_bits: None,
+                item_turret_ammo_count: None,
+                continuous_turret_last_length_bits: None,
                 build_turret_rotation_bits: None,
                 build_turret_plans_present: None,
                 build_turret_plan_count: None,
@@ -5911,9 +6134,211 @@ mod tests {
                 efficiency: Some(0x50),
                 optional_efficiency: Some(0x28),
                 visible_flags: Some(66),
+                turret_reload_counter_bits: None,
+                turret_rotation_bits: None,
+                item_turret_ammo_count: None,
+                continuous_turret_last_length_bits: None,
                 build_turret_rotation_bits: Some(0x4210_0000),
                 build_turret_plans_present: Some(true),
                 build_turret_plan_count: Some(5),
+                last_update: BuildingProjectionUpdateKind::BlockSnapshotHead,
+            })
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_turret_family_variants() {
+        let mut state = SessionState::default();
+
+        let turret_pos = 0x0009_000bi32;
+        state
+            .building_table_projection
+            .apply_block_snapshot_head_with_tail_summary(
+                turret_pos,
+                304,
+                Some("lancer".to_string()),
+                Some(1),
+                Some(2),
+                Some(3),
+                Some(4),
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(0x40b0_0000),
+                Some(true),
+                Some(0x10),
+                Some(0x08),
+                Some(11),
+                BuildingTailSummaryProjection {
+                    turret_reload_counter_bits: Some(0x3f80_0000),
+                    turret_rotation_bits: Some(0x4120_0000),
+                    ..BuildingTailSummaryProjection::default()
+                },
+            );
+        assert_eq!(
+            state.typed_runtime_building_at(turret_pos),
+            Some(TypedBuildingRuntimeModel {
+                build_pos: turret_pos,
+                block_id: Some(304),
+                block_name: "lancer".to_string(),
+                kind: TypedBuildingRuntimeKind::Turret,
+                value: TypedBuildingRuntimeValue::Turret {
+                    reload_counter_bits: Some(0x3f80_0000),
+                    rotation_bits: Some(0x4120_0000),
+                },
+                inventory_item_stacks: Vec::new(),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                module_bitmask: Some(4),
+                time_scale_bits: None,
+                time_scale_duration_bits: None,
+                last_disabler_pos: None,
+                legacy_consume_connected: None,
+                health_bits: Some(0x40b0_0000),
+                enabled: Some(true),
+                efficiency: Some(0x10),
+                optional_efficiency: Some(0x08),
+                visible_flags: Some(11),
+                turret_reload_counter_bits: Some(0x3f80_0000),
+                turret_rotation_bits: Some(0x4120_0000),
+                item_turret_ammo_count: None,
+                continuous_turret_last_length_bits: None,
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                last_update: BuildingProjectionUpdateKind::BlockSnapshotHead,
+            })
+        );
+
+        let item_turret_pos = 0x000a_000ci32;
+        state
+            .building_table_projection
+            .apply_block_snapshot_head_with_tail_summary(
+                item_turret_pos,
+                305,
+                Some("duo".to_string()),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(5),
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(0x40c0_0000),
+                Some(true),
+                Some(0x20),
+                Some(0x10),
+                Some(12),
+                BuildingTailSummaryProjection {
+                    turret_reload_counter_bits: Some(0x4000_0000),
+                    turret_rotation_bits: Some(0x4130_0000),
+                    item_turret_ammo_count: Some(7),
+                    ..BuildingTailSummaryProjection::default()
+                },
+            );
+        assert_eq!(
+            state.typed_runtime_building_at(item_turret_pos),
+            Some(TypedBuildingRuntimeModel {
+                build_pos: item_turret_pos,
+                block_id: Some(305),
+                block_name: "duo".to_string(),
+                kind: TypedBuildingRuntimeKind::ItemTurret,
+                value: TypedBuildingRuntimeValue::ItemTurret {
+                    reload_counter_bits: Some(0x4000_0000),
+                    rotation_bits: Some(0x4130_0000),
+                    ammo_count: Some(7),
+                },
+                inventory_item_stacks: Vec::new(),
+                rotation: Some(2),
+                team_id: Some(3),
+                io_version: Some(4),
+                module_bitmask: Some(5),
+                time_scale_bits: None,
+                time_scale_duration_bits: None,
+                last_disabler_pos: None,
+                legacy_consume_connected: None,
+                health_bits: Some(0x40c0_0000),
+                enabled: Some(true),
+                efficiency: Some(0x20),
+                optional_efficiency: Some(0x10),
+                visible_flags: Some(12),
+                turret_reload_counter_bits: Some(0x4000_0000),
+                turret_rotation_bits: Some(0x4130_0000),
+                item_turret_ammo_count: Some(7),
+                continuous_turret_last_length_bits: None,
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                last_update: BuildingProjectionUpdateKind::BlockSnapshotHead,
+            })
+        );
+
+        let continuous_turret_pos = 0x000b_000di32;
+        state
+            .building_table_projection
+            .apply_block_snapshot_head_with_tail_summary(
+                continuous_turret_pos,
+                306,
+                Some("lustre".to_string()),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(6),
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(0x40d0_0000),
+                Some(true),
+                Some(0x30),
+                Some(0x18),
+                Some(13),
+                BuildingTailSummaryProjection {
+                    turret_reload_counter_bits: Some(0x4040_0000),
+                    turret_rotation_bits: Some(0x4140_0000),
+                    continuous_turret_last_length_bits: Some(0x40c0_0000),
+                    ..BuildingTailSummaryProjection::default()
+                },
+            );
+        assert_eq!(
+            state.typed_runtime_building_at(continuous_turret_pos),
+            Some(TypedBuildingRuntimeModel {
+                build_pos: continuous_turret_pos,
+                block_id: Some(306),
+                block_name: "lustre".to_string(),
+                kind: TypedBuildingRuntimeKind::ContinuousTurret,
+                value: TypedBuildingRuntimeValue::ContinuousTurret {
+                    reload_counter_bits: Some(0x4040_0000),
+                    rotation_bits: Some(0x4140_0000),
+                    last_length_bits: Some(0x40c0_0000),
+                },
+                inventory_item_stacks: Vec::new(),
+                rotation: Some(3),
+                team_id: Some(4),
+                io_version: Some(5),
+                module_bitmask: Some(6),
+                time_scale_bits: None,
+                time_scale_duration_bits: None,
+                last_disabler_pos: None,
+                legacy_consume_connected: None,
+                health_bits: Some(0x40d0_0000),
+                enabled: Some(true),
+                efficiency: Some(0x30),
+                optional_efficiency: Some(0x18),
+                visible_flags: Some(13),
+                turret_reload_counter_bits: Some(0x4040_0000),
+                turret_rotation_bits: Some(0x4140_0000),
+                item_turret_ammo_count: None,
+                continuous_turret_last_length_bits: Some(0x40c0_0000),
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
                 last_update: BuildingProjectionUpdateKind::BlockSnapshotHead,
             })
         );

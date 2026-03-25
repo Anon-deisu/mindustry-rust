@@ -14,18 +14,19 @@ use crate::packet_registry::{
     CombinedPacketRegistries, CustomChannelPacketRegistry, InboundSnapshotPacketRegistry,
 };
 use crate::session_state::{
-    BuilderQueueEntryObservation, ConfiguredBlockOutcome, ConfiguredContentRef,
-    CreateBulletProjection, DestroyPayloadProjection, EffectBusinessContentKind,
-    EffectBusinessPositionSource, EffectBusinessProjection, EntityFireSemanticProjection,
-    EntityPuddleSemanticProjection, EntitySemanticProjection, EntityUnitSemanticProjection,
-    EntityWeatherStateSemanticProjection, EntityWorldLabelSemanticProjection,
-    FinishConnectingProjection, GameplayStateProjection, PayloadDroppedProjection,
-    PickedBuildPayloadProjection, PickedUnitPayloadProjection, ReconnectPhaseProjection,
-    ReconnectReasonKind, RemotePlanSnapshotFirstPlanProjection, SessionResetKind, SessionState,
-    SessionTimeoutKind, SessionTimeoutProjection, TakeItemsProjection, TileConfigAuthoritySource,
-    TileConfigBusinessApply, TransferItemEffectProjection, TransferItemToProjection,
-    TransferItemToUnitProjection, UnitAssemblerRuntimeProjection, UnitEnteredPayloadProjection,
-    UnitRefProjection, WorldReloadProjection,
+    BuilderQueueEntryObservation, BuildingTailSummaryProjection, ConfiguredBlockOutcome,
+    ConfiguredContentRef, CreateBulletProjection, DestroyPayloadProjection,
+    EffectBusinessContentKind, EffectBusinessPositionSource, EffectBusinessProjection,
+    EntityFireSemanticProjection, EntityPuddleSemanticProjection, EntitySemanticProjection,
+    EntityUnitSemanticProjection, EntityWeatherStateSemanticProjection,
+    EntityWorldLabelSemanticProjection, FinishConnectingProjection, GameplayStateProjection,
+    PayloadDroppedProjection, PickedBuildPayloadProjection, PickedUnitPayloadProjection,
+    ReconnectPhaseProjection, ReconnectReasonKind, RemotePlanSnapshotFirstPlanProjection,
+    SessionResetKind, SessionState, SessionTimeoutKind, SessionTimeoutProjection,
+    TakeItemsProjection, TileConfigAuthoritySource, TileConfigBusinessApply,
+    TransferItemEffectProjection, TransferItemToProjection, TransferItemToUnitProjection,
+    UnitAssemblerRuntimeProjection, UnitEnteredPayloadProjection, UnitRefProjection,
+    WorldReloadProjection,
 };
 use mdt_input::CommandModeProjection;
 use mdt_protocol::{
@@ -6767,15 +6768,14 @@ impl ClientSession {
                 self.state.received_entity_snapshot_count,
             );
             let block_name = self.loaded_world_block_name(row.block_id);
-            let (build_turret_rotation_bits, build_turret_plans_present, build_turret_plan_count) =
-                summarize_build_turret_tail_fields(&row.sync.parsed_tail);
+            let tail_summary = summarize_building_turret_tail_fields(&row.sync.parsed_tail);
             let config_object = loaded_world_config_object_from_parsed_tail(
                 block_name.as_deref(),
                 &row.sync.parsed_tail,
             );
             self.state
                 .building_table_projection
-                .apply_block_snapshot_head(
+                .apply_block_snapshot_head_with_tail_summary(
                     row.build_pos,
                     row.block_id,
                     block_name.clone(),
@@ -6793,9 +6793,7 @@ impl ClientSession {
                     row.sync.base.efficiency,
                     row.sync.base.optional_efficiency,
                     row.sync.base.visible_flags,
-                    build_turret_rotation_bits,
-                    build_turret_plans_present,
-                    build_turret_plan_count,
+                    tail_summary,
                 );
             self.apply_loaded_world_parsed_tail_business(
                 row.build_pos,
@@ -12216,6 +12214,37 @@ fn summarize_build_turret_tail_fields(
             u16::try_from(turret.plan_count).ok(),
         ),
         _ => (None, None, None),
+    }
+}
+
+fn summarize_building_turret_tail_fields(
+    parsed_tail: &mdt_world::ParsedBuildingTail,
+) -> BuildingTailSummaryProjection {
+    match parsed_tail {
+        mdt_world::ParsedBuildingTail::Turret(turret) => BuildingTailSummaryProjection {
+            turret_reload_counter_bits: Some(turret.reload_counter_bits),
+            turret_rotation_bits: Some(turret.rotation_bits),
+            ..BuildingTailSummaryProjection::default()
+        },
+        mdt_world::ParsedBuildingTail::ItemTurret(turret) => BuildingTailSummaryProjection {
+            turret_reload_counter_bits: Some(turret.turret.reload_counter_bits),
+            turret_rotation_bits: Some(turret.turret.rotation_bits),
+            item_turret_ammo_count: u16::try_from(turret.ammo_count).ok(),
+            ..BuildingTailSummaryProjection::default()
+        },
+        mdt_world::ParsedBuildingTail::ContinuousTurret(turret) => BuildingTailSummaryProjection {
+            turret_reload_counter_bits: Some(turret.turret.reload_counter_bits),
+            turret_rotation_bits: Some(turret.turret.rotation_bits),
+            continuous_turret_last_length_bits: Some(turret.last_length_bits),
+            ..BuildingTailSummaryProjection::default()
+        },
+        mdt_world::ParsedBuildingTail::BuildTurret(turret) => BuildingTailSummaryProjection {
+            build_turret_rotation_bits: Some(turret.rotation_bits),
+            build_turret_plans_present: Some(turret.plans_present),
+            build_turret_plan_count: u16::try_from(turret.plan_count).ok(),
+            ..BuildingTailSummaryProjection::default()
+        },
+        _ => BuildingTailSummaryProjection::default(),
     }
 }
 
@@ -19460,6 +19489,60 @@ mod tests {
     }
 
     #[test]
+    fn summarize_building_turret_tail_fields_covers_turret_item_and_continuous_families() {
+        assert_eq!(
+            summarize_building_turret_tail_fields(&mdt_world::ParsedBuildingTail::Turret(
+                mdt_world::TurretTailSnapshot {
+                    reload_counter_bits: 0x3f80_0000,
+                    rotation_bits: 0x4120_0000,
+                }
+            )),
+            BuildingTailSummaryProjection {
+                turret_reload_counter_bits: Some(0x3f80_0000),
+                turret_rotation_bits: Some(0x4120_0000),
+                ..BuildingTailSummaryProjection::default()
+            }
+        );
+        assert_eq!(
+            summarize_building_turret_tail_fields(&mdt_world::ParsedBuildingTail::ItemTurret(
+                mdt_world::ItemTurretTailSnapshot {
+                    turret: mdt_world::TurretTailSnapshot {
+                        reload_counter_bits: 0x4000_0000,
+                        rotation_bits: 0x4130_0000,
+                    },
+                    ammo_count: 7,
+                    ammo: Vec::new(),
+                }
+            )),
+            BuildingTailSummaryProjection {
+                turret_reload_counter_bits: Some(0x4000_0000),
+                turret_rotation_bits: Some(0x4130_0000),
+                item_turret_ammo_count: Some(7),
+                ..BuildingTailSummaryProjection::default()
+            }
+        );
+        assert_eq!(
+            summarize_building_turret_tail_fields(
+                &mdt_world::ParsedBuildingTail::ContinuousTurret(
+                    mdt_world::ContinuousTurretTailSnapshot {
+                        turret: mdt_world::TurretTailSnapshot {
+                            reload_counter_bits: 0x4040_0000,
+                            rotation_bits: 0x4140_0000,
+                        },
+                        last_length_bits: 0x40c0_0000,
+                    }
+                )
+            ),
+            BuildingTailSummaryProjection {
+                turret_reload_counter_bits: Some(0x4040_0000),
+                turret_rotation_bits: Some(0x4140_0000),
+                continuous_turret_last_length_bits: Some(0x40c0_0000),
+                ..BuildingTailSummaryProjection::default()
+            }
+        );
+    }
+
+    #[test]
     fn apply_loaded_world_block_snapshot_entries_forwards_build_turret_tail_summary() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
@@ -19956,6 +20039,10 @@ mod tests {
                 efficiency: Some(0x40),
                 optional_efficiency: Some(0x20),
                 visible_flags: Some(99),
+                turret_reload_counter_bits: None,
+                turret_rotation_bits: None,
+                item_turret_ammo_count: None,
+                continuous_turret_last_length_bits: None,
                 build_turret_rotation_bits: None,
                 build_turret_plans_present: None,
                 build_turret_plan_count: None,
@@ -30738,6 +30825,10 @@ mod tests {
                 efficiency: None,
                 optional_efficiency: None,
                 visible_flags: None,
+                turret_reload_counter_bits: None,
+                turret_rotation_bits: None,
+                item_turret_ammo_count: None,
+                continuous_turret_last_length_bits: None,
                 build_turret_rotation_bits: None,
                 build_turret_plans_present: None,
                 build_turret_plan_count: None,
