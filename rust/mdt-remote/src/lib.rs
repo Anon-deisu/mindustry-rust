@@ -5,6 +5,7 @@ pub const REMOTE_MANIFEST_SCHEMA_V1: &str = "mdt.remote.manifest.v1";
 pub const CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT: usize = 10;
 pub const HIGH_FREQUENCY_REMOTE_METHOD_COUNT: usize = 5;
 pub const INBOUND_REMOTE_FAMILY_COUNT: usize = 6;
+pub const WELL_KNOWN_REMOTE_METHOD_COUNT: usize = 10;
 pub const REMOTE_PACKET_ID_SPACE: usize = u8::MAX as usize + 1;
 pub const REMOTE_WIRE_PACKET_ID_BYTE_U8: &str = "u8";
 pub const REMOTE_WIRE_LENGTH_FIELD_U16BE: &str = "u16be";
@@ -159,6 +160,20 @@ pub enum HighFrequencyRemoteMethod {
     EntitySnapshot,
     BlockSnapshot,
     HiddenSnapshot,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WellKnownRemoteMethod {
+    Ping,
+    ClientPlanSnapshot,
+    ClientPlanSnapshotReceived,
+    PingResponse,
+    PingLocation,
+    DebugStatusClientUnreliable,
+    TraceInfo,
+    SetRules,
+    SetObjectives,
+    SetRule,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -355,6 +370,50 @@ const SERVER_PACKET_BINARY_WIRE_PARAM_KINDS: [RemoteParamKind; 2] =
     [RemoteParamKind::Opaque, RemoteParamKind::Bytes];
 const CLIENT_LOGIC_DATA_WIRE_PARAM_KINDS: [RemoteParamKind; 2] =
     [RemoteParamKind::Opaque, RemoteParamKind::Opaque];
+const PING_PARAM_JAVA_TYPES: [&str; 2] = ["Player", "long"];
+const PING_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Long];
+const CLIENT_PLAN_SNAPSHOT_PARAM_JAVA_TYPES: [&str; 3] = [
+    "Player",
+    "int",
+    "arc.struct.Queue<mindustry.entities.units.BuildPlan>",
+];
+const CLIENT_PLAN_SNAPSHOT_WIRE_PARAM_KINDS: [RemoteParamKind; 2] =
+    [RemoteParamKind::Int, RemoteParamKind::BuildPlanQueue];
+const CLIENT_PLAN_SNAPSHOT_RECEIVED_PARAM_JAVA_TYPES: [&str; 3] = [
+    "Player",
+    "int",
+    "arc.struct.Queue<mindustry.entities.units.BuildPlan>",
+];
+const CLIENT_PLAN_SNAPSHOT_RECEIVED_WIRE_PARAM_KINDS: [RemoteParamKind; 3] = [
+    RemoteParamKind::Opaque,
+    RemoteParamKind::Int,
+    RemoteParamKind::BuildPlanQueue,
+];
+const PING_RESPONSE_PARAM_JAVA_TYPES: [&str; 1] = ["long"];
+const PING_RESPONSE_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Long];
+const PING_LOCATION_PARAM_JAVA_TYPES: [&str; 4] = ["Player", "float", "float", "java.lang.String"];
+const PING_LOCATION_WIRE_PARAM_KINDS: [RemoteParamKind; 4] = [
+    RemoteParamKind::Opaque,
+    RemoteParamKind::Float,
+    RemoteParamKind::Float,
+    RemoteParamKind::Opaque,
+];
+const DEBUG_STATUS_CLIENT_UNRELIABLE_PARAM_JAVA_TYPES: [&str; 3] = ["int", "int", "int"];
+const DEBUG_STATUS_CLIENT_UNRELIABLE_WIRE_PARAM_KINDS: [RemoteParamKind; 3] = [
+    RemoteParamKind::Int,
+    RemoteParamKind::Int,
+    RemoteParamKind::Int,
+];
+const TRACE_INFO_PARAM_JAVA_TYPES: [&str; 2] = ["Player", "mindustry.net.Administration.TraceInfo"];
+const TRACE_INFO_WIRE_PARAM_KINDS: [RemoteParamKind; 2] =
+    [RemoteParamKind::Opaque, RemoteParamKind::Opaque];
+const SET_RULES_PARAM_JAVA_TYPES: [&str; 1] = ["mindustry.game.Rules"];
+const SET_RULES_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Opaque];
+const SET_OBJECTIVES_PARAM_JAVA_TYPES: [&str; 1] = ["mindustry.game.MapObjectives"];
+const SET_OBJECTIVES_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Opaque];
+const SET_RULE_PARAM_JAVA_TYPES: [&str; 2] = ["java.lang.String", "java.lang.String"];
+const SET_RULE_WIRE_PARAM_KINDS: [RemoteParamKind; 2] =
+    [RemoteParamKind::Opaque, RemoteParamKind::Opaque];
 
 impl<'a> RemoteMethodSelector<'a> {
     fn matches(self, method: &str) -> bool {
@@ -404,6 +463,99 @@ impl<'a> RemotePacketSelector<'a> {
     pub fn with_wire_param_kinds(mut self, wire_param_kinds: &'a [RemoteParamKind]) -> Self {
         self.wire_param_kinds = wire_param_kinds;
         self
+    }
+}
+
+impl WellKnownRemoteMethod {
+    pub fn ordered() -> [Self; WELL_KNOWN_REMOTE_METHOD_COUNT] {
+        [
+            Self::Ping,
+            Self::ClientPlanSnapshot,
+            Self::ClientPlanSnapshotReceived,
+            Self::PingResponse,
+            Self::PingLocation,
+            Self::DebugStatusClientUnreliable,
+            Self::TraceInfo,
+            Self::SetRules,
+            Self::SetObjectives,
+            Self::SetRule,
+        ]
+    }
+
+    pub fn method_name(self) -> &'static str {
+        match self {
+            Self::Ping => "ping",
+            Self::ClientPlanSnapshot => "clientPlanSnapshot",
+            Self::ClientPlanSnapshotReceived => "clientPlanSnapshotReceived",
+            Self::PingResponse => "pingResponse",
+            Self::PingLocation => "pingLocation",
+            Self::DebugStatusClientUnreliable => "debugStatusClientUnreliable",
+            Self::TraceInfo => "traceInfo",
+            Self::SetRules => "setRules",
+            Self::SetObjectives => "setObjectives",
+            Self::SetRule => "setRule",
+        }
+    }
+
+    pub fn flow(self) -> RemoteFlow {
+        match self {
+            Self::Ping | Self::ClientPlanSnapshot => RemoteFlow::ClientToServer,
+            Self::PingLocation => RemoteFlow::Bidirectional,
+            Self::ClientPlanSnapshotReceived
+            | Self::PingResponse
+            | Self::DebugStatusClientUnreliable
+            | Self::TraceInfo
+            | Self::SetRules
+            | Self::SetObjectives
+            | Self::SetRule => RemoteFlow::ServerToClient,
+        }
+    }
+
+    pub fn unreliable(self) -> bool {
+        matches!(
+            self,
+            Self::ClientPlanSnapshot
+                | Self::ClientPlanSnapshotReceived
+                | Self::DebugStatusClientUnreliable
+        )
+    }
+
+    pub fn param_java_types(self) -> &'static [&'static str] {
+        match self {
+            Self::Ping => &PING_PARAM_JAVA_TYPES,
+            Self::ClientPlanSnapshot => &CLIENT_PLAN_SNAPSHOT_PARAM_JAVA_TYPES,
+            Self::ClientPlanSnapshotReceived => &CLIENT_PLAN_SNAPSHOT_RECEIVED_PARAM_JAVA_TYPES,
+            Self::PingResponse => &PING_RESPONSE_PARAM_JAVA_TYPES,
+            Self::PingLocation => &PING_LOCATION_PARAM_JAVA_TYPES,
+            Self::DebugStatusClientUnreliable => &DEBUG_STATUS_CLIENT_UNRELIABLE_PARAM_JAVA_TYPES,
+            Self::TraceInfo => &TRACE_INFO_PARAM_JAVA_TYPES,
+            Self::SetRules => &SET_RULES_PARAM_JAVA_TYPES,
+            Self::SetObjectives => &SET_OBJECTIVES_PARAM_JAVA_TYPES,
+            Self::SetRule => &SET_RULE_PARAM_JAVA_TYPES,
+        }
+    }
+
+    pub fn wire_param_kinds(self) -> &'static [RemoteParamKind] {
+        match self {
+            Self::Ping => &PING_WIRE_PARAM_KINDS,
+            Self::ClientPlanSnapshot => &CLIENT_PLAN_SNAPSHOT_WIRE_PARAM_KINDS,
+            Self::ClientPlanSnapshotReceived => &CLIENT_PLAN_SNAPSHOT_RECEIVED_WIRE_PARAM_KINDS,
+            Self::PingResponse => &PING_RESPONSE_WIRE_PARAM_KINDS,
+            Self::PingLocation => &PING_LOCATION_WIRE_PARAM_KINDS,
+            Self::DebugStatusClientUnreliable => &DEBUG_STATUS_CLIENT_UNRELIABLE_WIRE_PARAM_KINDS,
+            Self::TraceInfo => &TRACE_INFO_WIRE_PARAM_KINDS,
+            Self::SetRules => &SET_RULES_WIRE_PARAM_KINDS,
+            Self::SetObjectives => &SET_OBJECTIVES_WIRE_PARAM_KINDS,
+            Self::SetRule => &SET_RULE_WIRE_PARAM_KINDS,
+        }
+    }
+
+    pub fn selector(self) -> RemotePacketSelector<'static> {
+        RemotePacketSelector::method(self.method_name())
+            .with_flow(self.flow())
+            .with_unreliable(self.unreliable())
+            .with_param_java_types(self.param_java_types())
+            .with_wire_param_kinds(self.wire_param_kinds())
     }
 }
 
@@ -1481,6 +1633,13 @@ impl<'a> RemotePacketRegistry<'a> {
         family: CustomChannelRemoteFamily,
     ) -> Option<&TypedRemotePacketMetadata<'a>> {
         self.first_matching(family.selector())
+    }
+
+    pub fn first_well_known_method(
+        &self,
+        method: WellKnownRemoteMethod,
+    ) -> Option<&TypedRemotePacketMetadata<'a>> {
+        self.first_matching(method.selector())
     }
 
     pub fn into_packets(self) -> Vec<TypedRemotePacketMetadata<'a>> {
@@ -2876,6 +3035,57 @@ mod tests {
     }
 
     #[test]
+    fn well_known_remote_lookup_rejects_method_name_decoys() {
+        let manifest = well_known_manifest_with_decoys();
+        let registry = RemotePacketRegistry::from_manifest(&manifest).unwrap();
+
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::Ping)
+                .map(|packet| packet.packet_id),
+            Some(5)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::ClientPlanSnapshot)
+                .map(|packet| packet.packet_id),
+            Some(7)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::PingResponse)
+                .map(|packet| packet.packet_id),
+            Some(10)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::DebugStatusClientUnreliable)
+                .map(|packet| packet.packet_id),
+            Some(13)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::SetRule)
+                .map(|packet| packet.packet_id),
+            Some(19)
+        );
+    }
+
+    #[test]
+    fn well_known_remote_lookup_matches_real_manifest_signatures() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let registry = RemotePacketRegistry::from_manifest(&manifest).unwrap();
+
+        for method in WellKnownRemoteMethod::ordered() {
+            assert!(
+                registry.first_well_known_method(method).is_some(),
+                "missing well-known packet lookup for {}",
+                method.method_name()
+            );
+        }
+    }
+
+    #[test]
     fn generates_high_frequency_rust_module() {
         let manifest = parse_remote_manifest(
             r#"{
@@ -3117,6 +3327,274 @@ mod tests {
                         test_param("player", "Player", false, false),
                         test_param("channel", "java.lang.String", true, true),
                         test_param("value", "java.lang.Object", true, true),
+                    ],
+                ),
+            ],
+            wire: WireSpec {
+                packet_id_byte: "u8".into(),
+                length_field: "u16be".into(),
+                compression_flag: CompressionFlagSpec {
+                    none: "none".into(),
+                    lz4: "lz4".into(),
+                },
+                compression_threshold: 36,
+            },
+        }
+    }
+
+    fn well_known_manifest_with_decoys() -> RemoteManifest {
+        RemoteManifest {
+            schema: REMOTE_MANIFEST_SCHEMA_V1.to_string(),
+            generator: RemoteGeneratorInfo {
+                source: "mindustry.annotations.remote".into(),
+                call_class: "mindustry.gen.Call".into(),
+            },
+            base_packets: vec![
+                BasePacketEntry {
+                    id: 0,
+                    class_name: "mindustry.net.Packets$StreamBegin".into(),
+                },
+                BasePacketEntry {
+                    id: 1,
+                    class_name: "mindustry.net.Packets$StreamChunk".into(),
+                },
+                BasePacketEntry {
+                    id: 2,
+                    class_name: "mindustry.net.Packets$WorldStream".into(),
+                },
+                BasePacketEntry {
+                    id: 3,
+                    class_name: "mindustry.net.Packets$ConnectPacket".into(),
+                },
+            ],
+            remote_packets: vec![
+                test_remote_packet(
+                    0,
+                    4,
+                    "mindustry.gen.PingDecoyCallPacket",
+                    "mindustry.core.NetClient",
+                    "ping",
+                    "client",
+                    "high",
+                    true,
+                    vec![test_param("time", "long", true, true)],
+                ),
+                test_remote_packet(
+                    1,
+                    5,
+                    "mindustry.gen.PingCallPacket",
+                    "mindustry.core.NetClient",
+                    "ping",
+                    "client",
+                    "high",
+                    false,
+                    vec![
+                        test_param("player", "Player", false, false),
+                        test_param("time", "long", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    2,
+                    6,
+                    "mindustry.gen.ClientPlanSnapshotDecoyCallPacket",
+                    "mindustry.core.NetServer",
+                    "clientPlanSnapshot",
+                    "client",
+                    "low",
+                    true,
+                    vec![
+                        test_param("player", "Player", false, false),
+                        test_param("groupId", "int", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    3,
+                    7,
+                    "mindustry.gen.ClientPlanSnapshotCallPacket",
+                    "mindustry.core.NetServer",
+                    "clientPlanSnapshot",
+                    "client",
+                    "low",
+                    true,
+                    vec![
+                        test_param("player", "Player", false, false),
+                        test_param("groupId", "int", true, true),
+                        test_param(
+                            "plans",
+                            "arc.struct.Queue<mindustry.entities.units.BuildPlan>",
+                            true,
+                            true,
+                        ),
+                    ],
+                ),
+                test_remote_packet(
+                    4,
+                    8,
+                    "mindustry.gen.ClientPlanSnapshotReceivedCallPacket",
+                    "mindustry.core.NetClient",
+                    "clientPlanSnapshotReceived",
+                    "server",
+                    "low",
+                    true,
+                    vec![
+                        test_param("player", "Player", true, true),
+                        test_param("groupId", "int", true, true),
+                        test_param(
+                            "plans",
+                            "arc.struct.Queue<mindustry.entities.units.BuildPlan>",
+                            true,
+                            true,
+                        ),
+                    ],
+                ),
+                test_remote_packet(
+                    5,
+                    9,
+                    "mindustry.gen.PingResponseDecoyCallPacket",
+                    "mindustry.core.NetClient",
+                    "pingResponse",
+                    "server",
+                    "normal",
+                    false,
+                    vec![test_param("time", "int", true, true)],
+                ),
+                test_remote_packet(
+                    6,
+                    10,
+                    "mindustry.gen.PingResponseCallPacket",
+                    "mindustry.core.NetClient",
+                    "pingResponse",
+                    "server",
+                    "normal",
+                    false,
+                    vec![test_param("time", "long", true, true)],
+                ),
+                test_remote_packet(
+                    7,
+                    11,
+                    "mindustry.gen.PingLocationCallPacket",
+                    "mindustry.core.NetClient",
+                    "pingLocation",
+                    "both",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("player", "Player", false, true),
+                        test_param("x", "float", true, true),
+                        test_param("y", "float", true, true),
+                        test_param("text", "java.lang.String", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    8,
+                    12,
+                    "mindustry.gen.DebugStatusClientUnreliableDecoyCallPacket",
+                    "mindustry.core.NetClient",
+                    "debugStatusClientUnreliable",
+                    "server",
+                    "high",
+                    false,
+                    vec![
+                        test_param("value", "int", true, true),
+                        test_param("lastClientSnapshot", "int", true, true),
+                        test_param("snapshotsSent", "int", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    9,
+                    13,
+                    "mindustry.gen.DebugStatusClientUnreliableCallPacket",
+                    "mindustry.core.NetClient",
+                    "debugStatusClientUnreliable",
+                    "server",
+                    "high",
+                    true,
+                    vec![
+                        test_param("value", "int", true, true),
+                        test_param("lastClientSnapshot", "int", true, true),
+                        test_param("snapshotsSent", "int", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    10,
+                    14,
+                    "mindustry.gen.TraceInfoDecoyCallPacket",
+                    "mindustry.core.NetClient",
+                    "traceInfo",
+                    "server",
+                    "normal",
+                    false,
+                    vec![test_param(
+                        "info",
+                        "mindustry.net.Administration.TraceInfo",
+                        true,
+                        true,
+                    )],
+                ),
+                test_remote_packet(
+                    11,
+                    15,
+                    "mindustry.gen.TraceInfoCallPacket",
+                    "mindustry.core.NetClient",
+                    "traceInfo",
+                    "server",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("player", "Player", true, true),
+                        test_param("info", "mindustry.net.Administration.TraceInfo", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    12,
+                    16,
+                    "mindustry.gen.SetRulesCallPacket",
+                    "mindustry.core.NetClient",
+                    "setRules",
+                    "server",
+                    "normal",
+                    false,
+                    vec![test_param("rules", "mindustry.game.Rules", true, true)],
+                ),
+                test_remote_packet(
+                    13,
+                    17,
+                    "mindustry.gen.SetObjectivesCallPacket",
+                    "mindustry.core.NetClient",
+                    "setObjectives",
+                    "server",
+                    "normal",
+                    false,
+                    vec![test_param(
+                        "executor",
+                        "mindustry.game.MapObjectives",
+                        true,
+                        true,
+                    )],
+                ),
+                test_remote_packet(
+                    14,
+                    18,
+                    "mindustry.gen.SetRuleDecoyCallPacket",
+                    "mindustry.core.NetClient",
+                    "setRule",
+                    "server",
+                    "normal",
+                    false,
+                    vec![test_param("rule", "java.lang.String", true, true)],
+                ),
+                test_remote_packet(
+                    15,
+                    19,
+                    "mindustry.gen.SetRuleCallPacket",
+                    "mindustry.core.NetClient",
+                    "setRule",
+                    "server",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("rule", "java.lang.String", true, true),
+                        test_param("jsonData", "java.lang.String", true, true),
                     ],
                 ),
             ],

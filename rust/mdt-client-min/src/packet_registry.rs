@@ -7,8 +7,8 @@ use mdt_remote::{
     CustomChannelRemoteDispatchSpec, CustomChannelRemoteFamily, CustomChannelRemoteRegistry,
     HighFrequencyRemoteMethod, HighFrequencyRemoteRegistry, InboundRemoteDispatchSpec,
     InboundRemoteFamily, InboundRemoteRegistry, RemoteManifest, RemoteManifestError,
-    RemotePacketIdFixedTable, TypedRemoteRegistries, CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT,
-    INBOUND_REMOTE_FAMILY_COUNT,
+    RemotePacketIdFixedTable, RemotePacketRegistry, TypedRemoteRegistries, WellKnownRemoteMethod,
+    CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT, INBOUND_REMOTE_FAMILY_COUNT,
 };
 
 const INBOUND_SNAPSHOT_PACKET_SPECS: [(u8, HighFrequencyRemoteMethod); 4] = [
@@ -103,12 +103,27 @@ pub struct CustomChannelPacketRegistry {
     resolved_specs: [(u8, CustomChannelRemoteDispatchSpec); CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT],
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WellKnownRemotePacketIds {
+    pub ping_packet_id: Option<u8>,
+    pub client_plan_snapshot_packet_id: Option<u8>,
+    pub client_plan_snapshot_received_packet_id: Option<u8>,
+    pub ping_response_packet_id: Option<u8>,
+    pub ping_location_packet_id: Option<u8>,
+    pub debug_status_client_unreliable_packet_id: Option<u8>,
+    pub trace_info_packet_id: Option<u8>,
+    pub set_rules_packet_id: Option<u8>,
+    pub set_objectives_packet_id: Option<u8>,
+    pub set_rule_packet_id: Option<u8>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CombinedPacketRegistries {
     pub inbound_snapshot: InboundSnapshotPacketRegistry,
     pub inbound_remote: InboundRemotePacketRegistry,
     pub custom_channel: CustomChannelPacketRegistry,
     pub client_snapshot_packet_id: u8,
+    pub well_known_remote: WellKnownRemotePacketIds,
 }
 
 impl Default for InboundSnapshotPacketRegistry {
@@ -208,7 +223,54 @@ impl CombinedPacketRegistries {
             inbound_remote: InboundRemotePacketRegistry::from_typed_registry(lookup.inbound_remote),
             custom_channel: CustomChannelPacketRegistry::from_typed_registry(lookup.custom_channel),
             client_snapshot_packet_id,
+            well_known_remote: WellKnownRemotePacketIds::from_remote_manifest(manifest)?,
         })
+    }
+}
+
+impl WellKnownRemotePacketIds {
+    pub fn from_remote_manifest(manifest: &RemoteManifest) -> Result<Self, RemoteManifestError> {
+        let registry = RemotePacketRegistry::from_manifest(manifest)?;
+        Ok(Self::from_remote_registry(&registry))
+    }
+
+    fn from_remote_registry(registry: &RemotePacketRegistry<'_>) -> Self {
+        Self {
+            ping_packet_id: packet_id_for_well_known(registry, WellKnownRemoteMethod::Ping),
+            client_plan_snapshot_packet_id: packet_id_for_well_known(
+                registry,
+                WellKnownRemoteMethod::ClientPlanSnapshot,
+            ),
+            client_plan_snapshot_received_packet_id: packet_id_for_well_known(
+                registry,
+                WellKnownRemoteMethod::ClientPlanSnapshotReceived,
+            ),
+            ping_response_packet_id: packet_id_for_well_known(
+                registry,
+                WellKnownRemoteMethod::PingResponse,
+            ),
+            ping_location_packet_id: packet_id_for_well_known(
+                registry,
+                WellKnownRemoteMethod::PingLocation,
+            ),
+            debug_status_client_unreliable_packet_id: packet_id_for_well_known(
+                registry,
+                WellKnownRemoteMethod::DebugStatusClientUnreliable,
+            ),
+            trace_info_packet_id: packet_id_for_well_known(
+                registry,
+                WellKnownRemoteMethod::TraceInfo,
+            ),
+            set_rules_packet_id: packet_id_for_well_known(
+                registry,
+                WellKnownRemoteMethod::SetRules,
+            ),
+            set_objectives_packet_id: packet_id_for_well_known(
+                registry,
+                WellKnownRemoteMethod::SetObjectives,
+            ),
+            set_rule_packet_id: packet_id_for_well_known(registry, WellKnownRemoteMethod::SetRule),
+        }
     }
 }
 
@@ -274,18 +336,27 @@ fn inbound_snapshot_packet_specs_from_registry(
     })
 }
 
+fn packet_id_for_well_known(
+    registry: &RemotePacketRegistry<'_>,
+    method: WellKnownRemoteMethod,
+) -> Option<u8> {
+    registry
+        .first_well_known_method(method)
+        .map(|packet| packet.packet_id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         CombinedPacketRegistries, CustomChannelPacketRegistry, InboundRemoteDispatchSpec,
-        InboundRemoteFamily, InboundRemotePacketRegistry,
+        InboundRemoteFamily, InboundRemotePacketRegistry, WellKnownRemotePacketIds,
     };
     use mdt_remote::{
         read_remote_manifest, BasePacketEntry, CompressionFlagSpec,
         CustomChannelRemoteDispatchSpec, CustomChannelRemoteFamily, CustomChannelRemotePayloadKind,
         CustomChannelRemoteRegistry, HighFrequencyRemoteMethod, HighFrequencyRemoteRegistry,
         InboundRemoteRegistry, RemoteGeneratorInfo, RemoteManifest, RemoteManifestError,
-        RemotePacketEntry, RemoteParamEntry, WireSpec,
+        RemotePacketEntry, RemotePacketRegistry, RemoteParamEntry, WellKnownRemoteMethod, WireSpec,
     };
     use std::path::PathBuf;
 
@@ -538,6 +609,7 @@ mod tests {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let combined = CombinedPacketRegistries::from_remote_manifest(&manifest).unwrap();
         let remote_registry = HighFrequencyRemoteRegistry::from_manifest(&manifest).unwrap();
+        let well_known_registry = RemotePacketRegistry::from_manifest(&manifest).unwrap();
 
         assert_eq!(
             combined.client_snapshot_packet_id,
@@ -559,6 +631,18 @@ mod tests {
                     .unwrap()
             )
         );
+        assert_eq!(
+            combined.well_known_remote.ping_packet_id,
+            well_known_registry
+                .first_well_known_method(WellKnownRemoteMethod::Ping)
+                .map(|packet| packet.packet_id)
+        );
+        assert_eq!(
+            combined.well_known_remote.set_rules_packet_id,
+            well_known_registry
+                .first_well_known_method(WellKnownRemoteMethod::SetRules)
+                .map(|packet| packet.packet_id)
+        );
     }
 
     #[test]
@@ -570,6 +654,26 @@ mod tests {
             error,
             RemoteManifestError::MissingHighFrequencyPacket("clientSnapshot")
         ));
+    }
+
+    #[test]
+    fn well_known_remote_packet_ids_reject_method_name_decoys() {
+        let manifest = well_known_remote_manifest_with_decoys();
+        let well_known = WellKnownRemotePacketIds::from_remote_manifest(&manifest).unwrap();
+
+        assert_eq!(well_known.ping_packet_id, Some(5));
+        assert_eq!(well_known.client_plan_snapshot_packet_id, Some(7));
+        assert_eq!(well_known.client_plan_snapshot_received_packet_id, Some(8));
+        assert_eq!(well_known.ping_response_packet_id, Some(10));
+        assert_eq!(well_known.ping_location_packet_id, Some(11));
+        assert_eq!(
+            well_known.debug_status_client_unreliable_packet_id,
+            Some(13)
+        );
+        assert_eq!(well_known.trace_info_packet_id, Some(15));
+        assert_eq!(well_known.set_rules_packet_id, Some(16));
+        assert_eq!(well_known.set_objectives_packet_id, Some(17));
+        assert_eq!(well_known.set_rule_packet_id, Some(19));
     }
 
     fn custom_channel_remote_family_manifest_with_decoys() -> RemoteManifest {
@@ -771,6 +875,274 @@ mod tests {
                         param("player", "Player", false, false),
                         param("channel", "java.lang.String", true, true),
                         param("value", "java.lang.Object", true, true),
+                    ],
+                ),
+            ],
+            wire: WireSpec {
+                packet_id_byte: "u8".into(),
+                length_field: "u16be".into(),
+                compression_flag: CompressionFlagSpec {
+                    none: "none".into(),
+                    lz4: "lz4".into(),
+                },
+                compression_threshold: 36,
+            },
+        }
+    }
+
+    fn well_known_remote_manifest_with_decoys() -> RemoteManifest {
+        RemoteManifest {
+            schema: "mdt.remote.manifest.v1".into(),
+            generator: RemoteGeneratorInfo {
+                source: "mindustry.annotations.remote".into(),
+                call_class: "mindustry.gen.Call".into(),
+            },
+            base_packets: vec![
+                BasePacketEntry {
+                    id: 0,
+                    class_name: "mindustry.net.Packets$StreamBegin".into(),
+                },
+                BasePacketEntry {
+                    id: 1,
+                    class_name: "mindustry.net.Packets$StreamChunk".into(),
+                },
+                BasePacketEntry {
+                    id: 2,
+                    class_name: "mindustry.net.Packets$WorldStream".into(),
+                },
+                BasePacketEntry {
+                    id: 3,
+                    class_name: "mindustry.net.Packets$ConnectPacket".into(),
+                },
+            ],
+            remote_packets: vec![
+                remote_packet(
+                    0,
+                    4,
+                    "mindustry.gen.PingDecoyCallPacket",
+                    "mindustry.core.NetClient",
+                    "ping",
+                    "client",
+                    "none",
+                    true,
+                    vec![param("time", "long", true, true)],
+                ),
+                remote_packet(
+                    1,
+                    5,
+                    "mindustry.gen.PingCallPacket",
+                    "mindustry.core.NetClient",
+                    "ping",
+                    "client",
+                    "none",
+                    false,
+                    vec![
+                        param("player", "Player", false, false),
+                        param("time", "long", true, true),
+                    ],
+                ),
+                remote_packet(
+                    2,
+                    6,
+                    "mindustry.gen.ClientPlanSnapshotDecoyCallPacket",
+                    "mindustry.core.NetServer",
+                    "clientPlanSnapshot",
+                    "client",
+                    "none",
+                    true,
+                    vec![
+                        param("player", "Player", false, false),
+                        param("groupId", "int", true, true),
+                    ],
+                ),
+                remote_packet(
+                    3,
+                    7,
+                    "mindustry.gen.ClientPlanSnapshotCallPacket",
+                    "mindustry.core.NetServer",
+                    "clientPlanSnapshot",
+                    "client",
+                    "none",
+                    true,
+                    vec![
+                        param("player", "Player", false, false),
+                        param("groupId", "int", true, true),
+                        param(
+                            "plans",
+                            "arc.struct.Queue<mindustry.entities.units.BuildPlan>",
+                            true,
+                            true,
+                        ),
+                    ],
+                ),
+                remote_packet(
+                    4,
+                    8,
+                    "mindustry.gen.ClientPlanSnapshotReceivedCallPacket",
+                    "mindustry.core.NetClient",
+                    "clientPlanSnapshotReceived",
+                    "server",
+                    "none",
+                    true,
+                    vec![
+                        param("player", "Player", true, true),
+                        param("groupId", "int", true, true),
+                        param(
+                            "plans",
+                            "arc.struct.Queue<mindustry.entities.units.BuildPlan>",
+                            true,
+                            true,
+                        ),
+                    ],
+                ),
+                remote_packet(
+                    5,
+                    9,
+                    "mindustry.gen.PingResponseDecoyCallPacket",
+                    "mindustry.core.NetClient",
+                    "pingResponse",
+                    "server",
+                    "none",
+                    false,
+                    vec![param("time", "int", true, true)],
+                ),
+                remote_packet(
+                    6,
+                    10,
+                    "mindustry.gen.PingResponseCallPacket",
+                    "mindustry.core.NetClient",
+                    "pingResponse",
+                    "server",
+                    "none",
+                    false,
+                    vec![param("time", "long", true, true)],
+                ),
+                remote_packet(
+                    7,
+                    11,
+                    "mindustry.gen.PingLocationCallPacket",
+                    "mindustry.core.NetClient",
+                    "pingLocation",
+                    "both",
+                    "server",
+                    false,
+                    vec![
+                        param("player", "Player", false, true),
+                        param("x", "float", true, true),
+                        param("y", "float", true, true),
+                        param("text", "java.lang.String", true, true),
+                    ],
+                ),
+                remote_packet(
+                    8,
+                    12,
+                    "mindustry.gen.DebugStatusClientUnreliableDecoyCallPacket",
+                    "mindustry.core.NetClient",
+                    "debugStatusClientUnreliable",
+                    "server",
+                    "none",
+                    false,
+                    vec![
+                        param("value", "int", true, true),
+                        param("lastClientSnapshot", "int", true, true),
+                        param("snapshotsSent", "int", true, true),
+                    ],
+                ),
+                remote_packet(
+                    9,
+                    13,
+                    "mindustry.gen.DebugStatusClientUnreliableCallPacket",
+                    "mindustry.core.NetClient",
+                    "debugStatusClientUnreliable",
+                    "server",
+                    "none",
+                    true,
+                    vec![
+                        param("value", "int", true, true),
+                        param("lastClientSnapshot", "int", true, true),
+                        param("snapshotsSent", "int", true, true),
+                    ],
+                ),
+                remote_packet(
+                    10,
+                    14,
+                    "mindustry.gen.TraceInfoDecoyCallPacket",
+                    "mindustry.core.NetClient",
+                    "traceInfo",
+                    "server",
+                    "none",
+                    false,
+                    vec![param(
+                        "info",
+                        "mindustry.net.Administration.TraceInfo",
+                        true,
+                        true,
+                    )],
+                ),
+                remote_packet(
+                    11,
+                    15,
+                    "mindustry.gen.TraceInfoCallPacket",
+                    "mindustry.core.NetClient",
+                    "traceInfo",
+                    "server",
+                    "none",
+                    false,
+                    vec![
+                        param("player", "Player", true, true),
+                        param("info", "mindustry.net.Administration.TraceInfo", true, true),
+                    ],
+                ),
+                remote_packet(
+                    12,
+                    16,
+                    "mindustry.gen.SetRulesCallPacket",
+                    "mindustry.core.NetClient",
+                    "setRules",
+                    "server",
+                    "none",
+                    false,
+                    vec![param("rules", "mindustry.game.Rules", true, true)],
+                ),
+                remote_packet(
+                    13,
+                    17,
+                    "mindustry.gen.SetObjectivesCallPacket",
+                    "mindustry.core.NetClient",
+                    "setObjectives",
+                    "server",
+                    "none",
+                    false,
+                    vec![param(
+                        "executor",
+                        "mindustry.game.MapObjectives",
+                        true,
+                        true,
+                    )],
+                ),
+                remote_packet(
+                    14,
+                    18,
+                    "mindustry.gen.SetRuleDecoyCallPacket",
+                    "mindustry.core.NetClient",
+                    "setRule",
+                    "server",
+                    "none",
+                    false,
+                    vec![param("rule", "java.lang.String", true, true)],
+                ),
+                remote_packet(
+                    15,
+                    19,
+                    "mindustry.gen.SetRuleCallPacket",
+                    "mindustry.core.NetClient",
+                    "setRule",
+                    "server",
+                    "none",
+                    false,
+                    vec![
+                        param("rule", "java.lang.String", true, true),
+                        param("jsonData", "java.lang.String", true, true),
                     ],
                 ),
             ],

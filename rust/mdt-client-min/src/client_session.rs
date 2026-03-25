@@ -463,6 +463,7 @@ impl ClientSession {
         let registry = combined_registries.inbound_snapshot;
         let custom_channel_registry = combined_registries.custom_channel;
         let client_snapshot_packet_id = combined_registries.client_snapshot_packet_id;
+        let well_known_remote = combined_registries.well_known_remote;
         let known_remote_packets = manifest
             .remote_packets
             .iter()
@@ -488,31 +489,12 @@ impl ClientSession {
                 (entry.packet_id, priority)
             })
             .collect::<BTreeMap<_, _>>();
-        let ping_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "ping")
-            .map(|entry| entry.packet_id);
-        let client_plan_snapshot_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "clientPlanSnapshot")
-            .map(|entry| entry.packet_id);
-        let client_plan_snapshot_received_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "clientPlanSnapshotReceived")
-            .map(|entry| entry.packet_id);
-        let ping_response_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "pingResponse")
-            .map(|entry| entry.packet_id);
-        let ping_location_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "pingLocation")
-            .map(|entry| entry.packet_id);
+        let ping_packet_id = well_known_remote.ping_packet_id;
+        let client_plan_snapshot_packet_id = well_known_remote.client_plan_snapshot_packet_id;
+        let client_plan_snapshot_received_packet_id =
+            well_known_remote.client_plan_snapshot_received_packet_id;
+        let ping_response_packet_id = well_known_remote.ping_response_packet_id;
+        let ping_location_packet_id = well_known_remote.ping_location_packet_id;
         let kick_string_packet_id = manifest
             .remote_packets
             .iter()
@@ -1165,22 +1147,9 @@ impl ClientSession {
                     && entry.params[2].java_type == "int"
             })
             .map(|entry| entry.packet_id);
-        let debug_status_client_unreliable_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
-                entry.method == "debugStatusClientUnreliable"
-                    && entry.params.len() == 3
-                    && entry.params[0].java_type == "int"
-                    && entry.params[1].java_type == "int"
-                    && entry.params[2].java_type == "int"
-            })
-            .map(|entry| entry.packet_id);
-        let trace_info_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "traceInfo")
-            .map(|entry| entry.packet_id);
+        let debug_status_client_unreliable_packet_id =
+            well_known_remote.debug_status_client_unreliable_packet_id;
+        let trace_info_packet_id = well_known_remote.trace_info_packet_id;
         let client_packet_reliable_packet_id =
             custom_channel_registry.packet_id(CustomChannelRemoteFamily::ClientPacketReliable);
         let client_packet_unreliable_packet_id =
@@ -1193,26 +1162,9 @@ impl ClientSession {
             custom_channel_registry.packet_id(CustomChannelRemoteFamily::ClientLogicDataReliable);
         let client_logic_data_unreliable_packet_id =
             custom_channel_registry.packet_id(CustomChannelRemoteFamily::ClientLogicDataUnreliable);
-        let set_rules_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "setRules")
-            .map(|entry| entry.packet_id);
-        let set_objectives_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "setObjectives")
-            .map(|entry| entry.packet_id);
-        let set_rule_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
-                entry.method == "setRule"
-                    && entry.params.len() == 2
-                    && entry.params[0].java_type == "java.lang.String"
-                    && entry.params[1].java_type == "java.lang.String"
-            })
-            .map(|entry| entry.packet_id);
+        let set_rules_packet_id = well_known_remote.set_rules_packet_id;
+        let set_objectives_packet_id = well_known_remote.set_objectives_packet_id;
+        let set_rule_packet_id = well_known_remote.set_rule_packet_id;
         let clear_objectives_packet_id = manifest
             .remote_packets
             .iter()
