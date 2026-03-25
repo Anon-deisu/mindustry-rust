@@ -29,11 +29,12 @@ use mdt_client_min::custom_packet_runtime_surface::{
 use mdt_client_min::render_runtime::{RenderRuntimeAdapter, RuntimeEffectClipView};
 use mdt_input::live_intent::RuntimeIntentTracker;
 use mdt_input::{
-    flip_plans, rotate_plans, BinaryAction, BuilderQueueActivityObservation,
-    BuilderQueueBuildSelection, BuilderQueueEntryObservation, BuilderQueueStateMachine,
-    BuilderQueueTileStateObservation, CommandModeRectProjection, CommandModeState, CommandUnitRef,
-    InputSnapshot, IntentSamplingMode, LiveIntentState, MovementProbeConfig,
-    MovementProbeController, PlanBlockMeta, PlanEditable, PlanPoint, RuntimeInputState,
+    flip_plans, rotate_plans, sample_runtime_input_snapshot, BinaryAction,
+    BuilderQueueActivityObservation, BuilderQueueBuildSelection, BuilderQueueEntryObservation,
+    BuilderQueueStateMachine, BuilderQueueTileStateObservation, CommandModeRectProjection,
+    CommandModeState, CommandUnitRef, InputSnapshot, IntentSamplingMode, LiveIntentState,
+    MovementProbeConfig, MovementProbeController, PlanBlockMeta, PlanEditable, PlanPoint,
+    RuntimeInputSample, RuntimeInputState,
 };
 use mdt_remote::HighFrequencyRemoteMethod;
 use mdt_remote::{read_remote_manifest, RemoteManifest};
@@ -4178,34 +4179,24 @@ fn maybe_apply_runtime_snapshot_overrides(
     }
 
     if let Some(live_intent_mapper) = live_intent_mapper {
-        let runtime_snapshot = sample_runtime_intent_snapshot(session);
+        let runtime_snapshot = sample_runtime_input_snapshot(runtime_input_sample(session));
         if live_intent_mapper.advance(&runtime_snapshot, now_ms) {
             apply_live_intents_to_snapshot(session, live_intent_mapper.state());
         }
     }
 }
 
-fn sample_runtime_intent_snapshot(session: &mut ClientSession) -> InputSnapshot {
-    let input = session.snapshot_input_mut().clone();
-    let aim_axis = input.pointer.or(input.position).unwrap_or((0.0, 0.0));
-    let mut active_actions = Vec::with_capacity(3);
-    if input.shooting {
-        active_actions.push(BinaryAction::Fire);
-    }
-    if input.boosting {
-        active_actions.push(BinaryAction::Boost);
-    }
-    if input.chatting {
-        active_actions.push(BinaryAction::Chat);
-    }
-
-    InputSnapshot {
-        move_axis: input.velocity,
-        aim_axis,
+fn runtime_input_sample(session: &ClientSession) -> RuntimeInputSample {
+    let input = session.snapshot_input();
+    RuntimeInputSample {
+        position: input.position,
+        pointer: input.pointer,
+        velocity: input.velocity,
         mining_tile: input.mining_tile,
         building: input.building,
-        config_tap_tile: None,
-        active_actions,
+        shooting: input.shooting,
+        boosting: input.boosting,
+        chatting: input.chatting,
     }
 }
 
@@ -9970,7 +9961,7 @@ mod tests {
     }
 
     #[test]
-    fn sample_runtime_intent_snapshot_reads_current_snapshot_flags() {
+    fn runtime_input_sampling_reads_current_snapshot_flags() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
         {
@@ -9984,7 +9975,7 @@ mod tests {
             input.chatting = true;
         }
 
-        let sampled = sample_runtime_intent_snapshot(&mut session);
+        let sampled = sample_runtime_input_snapshot(runtime_input_sample(&session));
         assert_eq!(sampled.move_axis, (1.5, -2.5));
         assert_eq!(sampled.aim_axis, (5.0, 6.0));
         assert_eq!(sampled.mining_tile, Some((9, 11)));
@@ -10055,6 +10046,45 @@ mod tests {
             vec![BinaryAction::Fire, BinaryAction::Boost]
         );
         assert!(!live_intent_mapper.state().building);
+    }
+
+    #[test]
+    fn movement_probe_updates_runtime_sample_before_live_intent_mapping() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
+        let args = parse_args(sample_args(&[
+            "--move-step-x",
+            "2.0",
+            "--move-step-y",
+            "3.0",
+            "--intent-live-sampling",
+        ]))
+        .unwrap();
+        let mut movement_probe = MovementProbeController::new(args.movement_probe.unwrap());
+        let mut live_intent_mapper = build_live_intent_mapper(&args)
+            .expect("live sampling flag should enable runtime capture");
+
+        {
+            let input = session.snapshot_input_mut();
+            input.unit_id = Some(77);
+            input.dead = false;
+            input.position = Some((10.0, 20.0));
+            input.pointer = None;
+        }
+
+        maybe_apply_runtime_snapshot_overrides(
+            &mut session,
+            &args,
+            Some(&mut movement_probe),
+            Some(&mut live_intent_mapper),
+            500,
+            1_000,
+        );
+
+        assert_eq!(live_intent_mapper.state().move_axis, (2.0, 3.0));
+        assert_eq!(live_intent_mapper.state().aim_axis, (12.0, 23.0));
+        assert_eq!(session.snapshot_input().position, Some((12.0, 23.0)));
+        assert_eq!(session.snapshot_input().pointer, Some((12.0, 23.0)));
     }
 
     #[test]

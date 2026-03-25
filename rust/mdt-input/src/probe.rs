@@ -1,9 +1,24 @@
+use crate::intent::BinaryAction;
+use crate::mapper::InputSnapshot;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RuntimeInputState {
     pub unit_id: Option<i32>,
     pub dead: bool,
     pub position: Option<(f32, f32)>,
     pub pointer: Option<(f32, f32)>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RuntimeInputSample {
+    pub position: Option<(f32, f32)>,
+    pub pointer: Option<(f32, f32)>,
+    pub velocity: (f32, f32),
+    pub mining_tile: Option<(i32, i32)>,
+    pub building: bool,
+    pub shooting: bool,
+    pub boosting: bool,
+    pub chatting: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -78,6 +93,28 @@ impl MovementProbeController {
             Some(last) => now_ms.saturating_sub(last) >= min_step_interval_ms,
             None => true,
         }
+    }
+}
+
+pub fn sample_runtime_input_snapshot(sample: RuntimeInputSample) -> InputSnapshot {
+    let mut active_actions = Vec::with_capacity(3);
+    if sample.shooting {
+        active_actions.push(BinaryAction::Fire);
+    }
+    if sample.boosting {
+        active_actions.push(BinaryAction::Boost);
+    }
+    if sample.chatting {
+        active_actions.push(BinaryAction::Chat);
+    }
+
+    InputSnapshot {
+        move_axis: sample.velocity,
+        aim_axis: sample.pointer.or(sample.position).unwrap_or((0.0, 0.0)),
+        mining_tile: sample.mining_tile,
+        building: sample.building,
+        config_tap_tile: None,
+        active_actions,
     }
 }
 
@@ -241,5 +278,63 @@ mod tests {
 
         assert_eq!(update.position, (12.0, 21.0));
         assert_eq!(update.pointer, (12.0, 21.0));
+    }
+
+    #[test]
+    fn sample_runtime_input_snapshot_prefers_pointer_and_maps_actions() {
+        let snapshot = sample_runtime_input_snapshot(RuntimeInputSample {
+            position: Some((5.0, 6.0)),
+            pointer: Some((16.0, 24.0)),
+            velocity: (1.5, -2.5),
+            mining_tile: Some((9, 11)),
+            building: true,
+            shooting: true,
+            boosting: true,
+            chatting: false,
+        });
+
+        assert_eq!(snapshot.move_axis, (1.5, -2.5));
+        assert_eq!(snapshot.aim_axis, (16.0, 24.0));
+        assert_eq!(snapshot.mining_tile, Some((9, 11)));
+        assert!(snapshot.building);
+        assert_eq!(
+            snapshot.active_actions,
+            vec![BinaryAction::Fire, BinaryAction::Boost]
+        );
+    }
+
+    #[test]
+    fn sample_runtime_input_snapshot_falls_back_to_position_for_aim_axis() {
+        let snapshot = sample_runtime_input_snapshot(RuntimeInputSample {
+            position: Some((5.0, 6.0)),
+            pointer: None,
+            velocity: (0.0, 0.0),
+            mining_tile: None,
+            building: false,
+            shooting: false,
+            boosting: false,
+            chatting: true,
+        });
+
+        assert_eq!(snapshot.aim_axis, (5.0, 6.0));
+        assert_eq!(snapshot.active_actions, vec![BinaryAction::Chat]);
+        assert_eq!(snapshot.config_tap_tile, None);
+    }
+
+    #[test]
+    fn sample_runtime_input_snapshot_defaults_aim_axis_when_runtime_has_no_position_or_pointer() {
+        let snapshot = sample_runtime_input_snapshot(RuntimeInputSample {
+            position: None,
+            pointer: None,
+            velocity: (0.0, 0.0),
+            mining_tile: None,
+            building: false,
+            shooting: false,
+            boosting: false,
+            chatting: false,
+        });
+
+        assert_eq!(snapshot.aim_axis, (0.0, 0.0));
+        assert!(snapshot.active_actions.is_empty());
     }
 }
