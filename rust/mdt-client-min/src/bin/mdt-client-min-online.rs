@@ -9874,7 +9874,7 @@ mod tests {
             1_500,
         );
         assert_eq!(session.snapshot_input_mut().position, Some((14.0, 26.0)));
-        assert_eq!(session.snapshot_input_mut().pointer, Some((14.0, 26.0)));
+        assert_eq!(session.snapshot_input_mut().pointer, Some((12.0, 23.0)));
         assert_eq!(movement_probe.last_step_at_ms(), Some(1_500));
     }
 

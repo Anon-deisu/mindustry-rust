@@ -6,6 +6,7 @@ pub mod custom_packet_runtime;
 pub mod custom_packet_runtime_bridge;
 pub mod custom_packet_runtime_relay;
 pub mod custom_packet_runtime_surface;
+pub mod effect_data_runtime;
 pub mod effect_runtime;
 pub mod entity_snapshot_families;
 pub mod event_summary;

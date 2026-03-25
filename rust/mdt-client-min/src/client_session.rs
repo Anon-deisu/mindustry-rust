@@ -1,6 +1,7 @@
 use crate::bootstrap_flow::{
     apply_connect_packet, apply_world_bootstrap, ConnectPacketEnvelope, WorldStreamAssembler,
 };
+use crate::effect_data_runtime::{derive_effect_data_semantic, effect_data_kind_label};
 use crate::effect_runtime::{effect_contract, effect_contract_name, RuntimeEffectContract};
 use crate::entity_snapshot_families::{
     is_building_entity_class_id, ALPHA_SHAPE_ENTITY_CLASS_IDS,
@@ -15,13 +16,13 @@ use crate::packet_registry::{
 use crate::session_state::{
     BuilderQueueEntryObservation, ConfiguredBlockOutcome, ConfiguredContentRef,
     CreateBulletProjection, DestroyPayloadProjection, EffectBusinessContentKind,
-    EffectBusinessPositionSource, EffectBusinessProjection, EffectDataSemantic,
-    EntityFireSemanticProjection, EntityPuddleSemanticProjection, EntitySemanticProjection,
-    EntityUnitSemanticProjection, EntityWeatherStateSemanticProjection,
-    EntityWorldLabelSemanticProjection, GameplayStateProjection, PayloadDroppedProjection,
-    PickedBuildPayloadProjection, PickedUnitPayloadProjection, ReconnectPhaseProjection,
-    ReconnectReasonKind, RemotePlanSnapshotFirstPlanProjection, SessionResetKind, SessionState,
-    SessionTimeoutKind, SessionTimeoutProjection, TakeItemsProjection, TileConfigAuthoritySource,
+    EffectBusinessPositionSource, EffectBusinessProjection, EntityFireSemanticProjection,
+    EntityPuddleSemanticProjection, EntitySemanticProjection, EntityUnitSemanticProjection,
+    EntityWeatherStateSemanticProjection, EntityWorldLabelSemanticProjection,
+    GameplayStateProjection, PayloadDroppedProjection, PickedBuildPayloadProjection,
+    PickedUnitPayloadProjection, ReconnectPhaseProjection, ReconnectReasonKind,
+    RemotePlanSnapshotFirstPlanProjection, SessionResetKind, SessionState, SessionTimeoutKind,
+    SessionTimeoutProjection, TakeItemsProjection, TileConfigAuthoritySource,
     TileConfigBusinessApply, TransferItemEffectProjection, TransferItemToProjection,
     TransferItemToUnitProjection, UnitAssemblerRuntimeProjection, UnitEnteredPayloadProjection,
     UnitRefProjection, WorldReloadProjection,
@@ -51,6 +52,9 @@ use mdt_world::{
 };
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
+
+#[cfg(test)]
+use crate::session_state::EffectDataSemantic;
 
 // Java `Packets.KickReason.serverRestarting` ordinal.
 pub const KICK_REASON_SERVER_RESTARTING_ORDINAL: i32 = 15;
@@ -10414,78 +10418,6 @@ fn decode_effect_payload(payload: &[u8], allow_trailing: bool) -> Option<EffectS
         parse_failed,
         parse_error,
     })
-}
-
-fn effect_data_kind_label(object: &TypeIoObject) -> String {
-    object.effect_summary().kind
-}
-
-fn derive_effect_data_semantic(
-    object: Option<&TypeIoObject>,
-    data_type_tag: Option<u8>,
-    parse_failed: bool,
-) -> Option<EffectDataSemantic> {
-    let object = match object {
-        Some(object) => object,
-        None if parse_failed => return data_type_tag.map(EffectDataSemantic::OpaqueTypeTag),
-        None => return None,
-    };
-
-    if let Some(semantic_ref) = object.semantic_ref() {
-        let semantic = match semantic_ref {
-            TypeIoSemanticRef::Content {
-                content_type,
-                content_id,
-            } => EffectDataSemantic::ContentRaw {
-                content_type,
-                content_id,
-            },
-            TypeIoSemanticRef::TechNode {
-                content_type,
-                content_id,
-            } => EffectDataSemantic::TechNodeRaw {
-                content_type,
-                content_id,
-            },
-            TypeIoSemanticRef::Unit { unit_id } => EffectDataSemantic::UnitId(unit_id),
-            TypeIoSemanticRef::Building { build_pos } => EffectDataSemantic::BuildingPos(build_pos),
-        };
-        return Some(semantic);
-    }
-
-    match object {
-        TypeIoObject::Null => Some(EffectDataSemantic::Null),
-        TypeIoObject::Int(value) => Some(EffectDataSemantic::Int(*value)),
-        TypeIoObject::Long(value) => Some(EffectDataSemantic::Long(*value)),
-        TypeIoObject::Float(value) => Some(EffectDataSemantic::FloatBits(value.to_bits())),
-        TypeIoObject::String(value) => Some(EffectDataSemantic::String(value.clone())),
-        TypeIoObject::IntSeq(values) => Some(EffectDataSemantic::IntSeqLen(values.len())),
-        TypeIoObject::Point2 { x, y } => Some(EffectDataSemantic::Point2 { x: *x, y: *y }),
-        TypeIoObject::PackedPoint2Array(values) => {
-            Some(EffectDataSemantic::PackedPoint2ArrayLen(values.len()))
-        }
-        TypeIoObject::Bool(value) => Some(EffectDataSemantic::Bool(*value)),
-        TypeIoObject::Double(value) => Some(EffectDataSemantic::DoubleBits(value.to_bits())),
-        TypeIoObject::LAccess(value) => Some(EffectDataSemantic::LAccess(*value)),
-        TypeIoObject::Bytes(values) => Some(EffectDataSemantic::BytesLen(values.len())),
-        TypeIoObject::LegacyUnitCommandNull(value) => {
-            Some(EffectDataSemantic::LegacyUnitCommandNull(*value))
-        }
-        TypeIoObject::BoolArray(values) => Some(EffectDataSemantic::BoolArrayLen(values.len())),
-        TypeIoObject::Vec2Array(values) => Some(EffectDataSemantic::Vec2ArrayLen(values.len())),
-        TypeIoObject::Vec2 { x, y } => Some(EffectDataSemantic::Vec2 {
-            x_bits: x.to_bits(),
-            y_bits: y.to_bits(),
-        }),
-        TypeIoObject::Team(id) => Some(EffectDataSemantic::Team(*id)),
-        TypeIoObject::IntArray(values) => Some(EffectDataSemantic::IntArrayLen(values.len())),
-        TypeIoObject::ObjectArray(values) => Some(EffectDataSemantic::ObjectArrayLen(values.len())),
-        TypeIoObject::UnitCommand(id) => Some(EffectDataSemantic::UnitCommand(*id)),
-        TypeIoObject::ContentRaw { .. }
-        | TypeIoObject::TechNodeRaw { .. }
-        | TypeIoObject::BuildingPos(_)
-        | TypeIoObject::UnitId(_) => None,
-    }
 }
 
 struct EffectBusinessProjectionResult {
