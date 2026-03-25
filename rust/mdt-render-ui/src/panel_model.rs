@@ -356,10 +356,29 @@ pub struct RuntimeUiNoticePanelModel {
     pub hud_hide_count: u64,
     pub hud_last_message: Option<String>,
     pub hud_last_reliable_message: Option<String>,
+    pub announce_count: u64,
+    pub last_announce_message: Option<String>,
+    pub info_message_count: u64,
+    pub last_info_message: Option<String>,
     pub toast_info_count: u64,
     pub toast_warning_count: u64,
     pub toast_last_info_message: Option<String>,
     pub toast_last_warning_text: Option<String>,
+    pub info_popup_count: u64,
+    pub info_popup_reliable_count: u64,
+    pub last_info_popup_reliable: Option<bool>,
+    pub last_info_popup_id: Option<String>,
+    pub last_info_popup_message: Option<String>,
+    pub last_info_popup_duration_bits: Option<u32>,
+    pub last_info_popup_align: Option<i32>,
+    pub last_info_popup_top: Option<i32>,
+    pub last_info_popup_left: Option<i32>,
+    pub last_info_popup_bottom: Option<i32>,
+    pub last_info_popup_right: Option<i32>,
+    pub clipboard_count: u64,
+    pub last_clipboard_text: Option<String>,
+    pub open_uri_count: u64,
+    pub last_open_uri: Option<String>,
     pub text_input_open_count: u64,
     pub text_input_last_id: Option<i32>,
     pub text_input_last_title: Option<String>,
@@ -375,6 +394,17 @@ pub struct RuntimeMenuPanelModel {
     pub menu_open_count: u64,
     pub follow_up_menu_open_count: u64,
     pub hide_follow_up_menu_count: u64,
+    pub last_menu_open_id: Option<i32>,
+    pub last_menu_open_title: Option<String>,
+    pub last_menu_open_message: Option<String>,
+    pub last_menu_open_option_rows: usize,
+    pub last_menu_open_first_row_len: usize,
+    pub last_follow_up_menu_open_id: Option<i32>,
+    pub last_follow_up_menu_open_title: Option<String>,
+    pub last_follow_up_menu_open_message: Option<String>,
+    pub last_follow_up_menu_open_option_rows: usize,
+    pub last_follow_up_menu_open_first_row_len: usize,
+    pub last_hide_follow_up_menu_id: Option<i32>,
     pub text_input_open_count: u64,
     pub text_input_last_id: Option<i32>,
     pub text_input_last_title: Option<String>,
@@ -389,6 +419,17 @@ impl RuntimeMenuPanelModel {
         self.menu_open_count == 0
             && self.follow_up_menu_open_count == 0
             && self.hide_follow_up_menu_count == 0
+            && self.last_menu_open_id.is_none()
+            && self.last_menu_open_title.is_none()
+            && self.last_menu_open_message.is_none()
+            && self.last_menu_open_option_rows == 0
+            && self.last_menu_open_first_row_len == 0
+            && self.last_follow_up_menu_open_id.is_none()
+            && self.last_follow_up_menu_open_title.is_none()
+            && self.last_follow_up_menu_open_message.is_none()
+            && self.last_follow_up_menu_open_option_rows == 0
+            && self.last_follow_up_menu_open_first_row_len == 0
+            && self.last_hide_follow_up_menu_id.is_none()
             && self.text_input_open_count == 0
             && self.text_input_last_id.is_none()
             && self.text_input_last_title.is_none()
@@ -405,6 +446,47 @@ impl RuntimeMenuPanelModel {
 
     pub fn default_text_len(&self) -> usize {
         text_char_count(self.text_input_last_default_text.as_deref())
+    }
+
+    pub fn menu_title_len(&self) -> usize {
+        text_char_count(self.last_menu_open_title.as_deref())
+    }
+
+    pub fn menu_message_len(&self) -> usize {
+        text_char_count(self.last_menu_open_message.as_deref())
+    }
+
+    pub fn follow_up_title_len(&self) -> usize {
+        text_char_count(self.last_follow_up_menu_open_title.as_deref())
+    }
+
+    pub fn follow_up_message_len(&self) -> usize {
+        text_char_count(self.last_follow_up_menu_open_message.as_deref())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeChoicePanelModel {
+    pub menu_choose_count: u64,
+    pub last_menu_choose_menu_id: Option<i32>,
+    pub last_menu_choose_option: Option<i32>,
+    pub text_input_result_count: u64,
+    pub last_text_input_result_id: Option<i32>,
+    pub last_text_input_result_text: Option<String>,
+}
+
+impl RuntimeChoicePanelModel {
+    pub fn is_empty(&self) -> bool {
+        self.menu_choose_count == 0
+            && self.last_menu_choose_menu_id.is_none()
+            && self.last_menu_choose_option.is_none()
+            && self.text_input_result_count == 0
+            && self.last_text_input_result_id.is_none()
+            && self.last_text_input_result_text.is_none()
+    }
+
+    pub fn text_input_result_len(&self) -> usize {
+        text_char_count(self.last_text_input_result_text.as_deref())
     }
 }
 
@@ -1500,10 +1582,29 @@ pub fn build_runtime_ui_notice_panel(hud: &HudModel) -> Option<RuntimeUiNoticePa
         hud_hide_count: runtime_ui.hud_text.hide_count,
         hud_last_message: runtime_ui.hud_text.last_message.clone(),
         hud_last_reliable_message: runtime_ui.hud_text.last_reliable_message.clone(),
+        announce_count: runtime_ui.hud_text.announce_count,
+        last_announce_message: runtime_ui.hud_text.last_announce_message.clone(),
+        info_message_count: runtime_ui.hud_text.info_message_count,
+        last_info_message: runtime_ui.hud_text.last_info_message.clone(),
         toast_info_count: runtime_ui.toast.info_count,
         toast_warning_count: runtime_ui.toast.warning_count,
         toast_last_info_message: runtime_ui.toast.last_info_message.clone(),
         toast_last_warning_text: runtime_ui.toast.last_warning_text.clone(),
+        info_popup_count: runtime_ui.toast.info_popup_count,
+        info_popup_reliable_count: runtime_ui.toast.info_popup_reliable_count,
+        last_info_popup_reliable: runtime_ui.toast.last_info_popup_reliable,
+        last_info_popup_id: runtime_ui.toast.last_info_popup_id.clone(),
+        last_info_popup_message: runtime_ui.toast.last_info_popup_message.clone(),
+        last_info_popup_duration_bits: runtime_ui.toast.last_info_popup_duration_bits,
+        last_info_popup_align: runtime_ui.toast.last_info_popup_align,
+        last_info_popup_top: runtime_ui.toast.last_info_popup_top,
+        last_info_popup_left: runtime_ui.toast.last_info_popup_left,
+        last_info_popup_bottom: runtime_ui.toast.last_info_popup_bottom,
+        last_info_popup_right: runtime_ui.toast.last_info_popup_right,
+        clipboard_count: runtime_ui.toast.clipboard_count,
+        last_clipboard_text: runtime_ui.toast.last_clipboard_text.clone(),
+        open_uri_count: runtime_ui.toast.open_uri_count,
+        last_open_uri: runtime_ui.toast.last_open_uri.clone(),
         text_input_open_count: runtime_ui.text_input.open_count,
         text_input_last_id: runtime_ui.text_input.last_id,
         text_input_last_title: runtime_ui.text_input.last_title.clone(),
@@ -1521,6 +1622,17 @@ pub fn build_runtime_menu_panel(hud: &HudModel) -> Option<RuntimeMenuPanelModel>
         menu_open_count: runtime_ui.menu.menu_open_count,
         follow_up_menu_open_count: runtime_ui.menu.follow_up_menu_open_count,
         hide_follow_up_menu_count: runtime_ui.menu.hide_follow_up_menu_count,
+        last_menu_open_id: runtime_ui.menu.last_menu_open_id,
+        last_menu_open_title: runtime_ui.menu.last_menu_open_title.clone(),
+        last_menu_open_message: runtime_ui.menu.last_menu_open_message.clone(),
+        last_menu_open_option_rows: runtime_ui.menu.last_menu_open_option_rows,
+        last_menu_open_first_row_len: runtime_ui.menu.last_menu_open_first_row_len,
+        last_follow_up_menu_open_id: runtime_ui.menu.last_follow_up_menu_open_id,
+        last_follow_up_menu_open_title: runtime_ui.menu.last_follow_up_menu_open_title.clone(),
+        last_follow_up_menu_open_message: runtime_ui.menu.last_follow_up_menu_open_message.clone(),
+        last_follow_up_menu_open_option_rows: runtime_ui.menu.last_follow_up_menu_open_option_rows,
+        last_follow_up_menu_open_first_row_len: runtime_ui.menu.last_follow_up_menu_open_first_row_len,
+        last_hide_follow_up_menu_id: runtime_ui.menu.last_hide_follow_up_menu_id,
         text_input_open_count: runtime_ui.text_input.open_count,
         text_input_last_id: runtime_ui.text_input.last_id,
         text_input_last_title: runtime_ui.text_input.last_title.clone(),
@@ -1528,6 +1640,18 @@ pub fn build_runtime_menu_panel(hud: &HudModel) -> Option<RuntimeMenuPanelModel>
         text_input_last_length: runtime_ui.text_input.last_length,
         text_input_last_numeric: runtime_ui.text_input.last_numeric,
         text_input_last_allow_empty: runtime_ui.text_input.last_allow_empty,
+    })
+}
+
+pub fn build_runtime_choice_panel(hud: &HudModel) -> Option<RuntimeChoicePanelModel> {
+    let runtime_ui = hud.runtime_ui.as_ref()?;
+    Some(RuntimeChoicePanelModel {
+        menu_choose_count: runtime_ui.menu.menu_choose_count,
+        last_menu_choose_menu_id: runtime_ui.menu.last_menu_choose_menu_id,
+        last_menu_choose_option: runtime_ui.menu.last_menu_choose_option,
+        text_input_result_count: runtime_ui.menu.text_input_result_count,
+        last_text_input_result_id: runtime_ui.menu.last_text_input_result_id,
+        last_text_input_result_text: runtime_ui.menu.last_text_input_result_text.clone(),
     })
 }
 
@@ -2580,12 +2704,14 @@ mod tests {
                     hide_count: 11,
                     last_message: Some("hud text".to_string()),
                     last_reliable_message: Some("hud rel".to_string()),
+                    ..RuntimeHudTextObservability::default()
                 },
                 toast: RuntimeToastObservability {
                     info_count: 14,
                     warning_count: 15,
                     last_info_message: Some("toast".to_string()),
                     last_warning_text: Some("warn".to_string()),
+                    ..RuntimeToastObservability::default()
                 },
                 text_input: RuntimeTextInputObservability {
                     open_count: 53,
@@ -2968,6 +3094,7 @@ mod tests {
                     menu_open_count: 16,
                     follow_up_menu_open_count: 17,
                     hide_follow_up_menu_count: 18,
+                    ..RuntimeMenuObservability::default()
                 },
                 command_mode: RuntimeCommandModeObservability::default(),
                 rules: RuntimeRulesObservability::default(),
@@ -3002,12 +3129,14 @@ mod tests {
                     hide_count: 11,
                     last_message: Some("hud text".to_string()),
                     last_reliable_message: Some("hud rel".to_string()),
+                    ..RuntimeHudTextObservability::default()
                 },
                 toast: RuntimeToastObservability {
                     info_count: 14,
                     warning_count: 15,
                     last_info_message: Some("toast".to_string()),
                     last_warning_text: Some("warn".to_string()),
+                    ..RuntimeToastObservability::default()
                 },
                 text_input: RuntimeTextInputObservability {
                     open_count: 53,
@@ -3025,6 +3154,7 @@ mod tests {
                     menu_open_count: 16,
                     follow_up_menu_open_count: 17,
                     hide_follow_up_menu_count: 18,
+                    ..RuntimeMenuObservability::default()
                 },
                 command_mode: RuntimeCommandModeObservability::default(),
                 rules: RuntimeRulesObservability::default(),
@@ -3629,12 +3759,14 @@ mod tests {
                     hide_count: 11,
                     last_message: Some("hud text".to_string()),
                     last_reliable_message: Some("hud rel".to_string()),
+                    ..RuntimeHudTextObservability::default()
                 },
                 toast: RuntimeToastObservability {
                     info_count: 14,
                     warning_count: 15,
                     last_info_message: Some("toast".to_string()),
                     last_warning_text: Some("warn".to_string()),
+                    ..RuntimeToastObservability::default()
                 },
                 text_input: RuntimeTextInputObservability {
                     open_count: 53,
@@ -3659,6 +3791,7 @@ mod tests {
                     menu_open_count: 16,
                     follow_up_menu_open_count: 17,
                     hide_follow_up_menu_count: 15,
+                    ..RuntimeMenuObservability::default()
                 },
                 command_mode: RuntimeCommandModeObservability::default(),
                 rules: RuntimeRulesObservability::default(),

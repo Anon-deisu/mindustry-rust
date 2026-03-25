@@ -1769,12 +1769,31 @@ fn runtime_ui_observability(
             hide_count: session_state.received_hide_hud_text_count,
             last_message: session_state.last_set_hud_text_message.clone(),
             last_reliable_message: session_state.last_set_hud_text_reliable_message.clone(),
+            announce_count: session_state.received_announce_count,
+            last_announce_message: session_state.last_announce_message.clone(),
+            info_message_count: session_state.received_info_message_count,
+            last_info_message: session_state.last_info_message.clone(),
         },
         toast: RuntimeToastObservability {
             info_count: session_state.received_info_toast_count,
             warning_count: session_state.received_warning_toast_count,
             last_info_message: session_state.last_info_toast_message.clone(),
             last_warning_text: session_state.last_warning_toast_text.clone(),
+            info_popup_count: session_state.received_info_popup_count,
+            info_popup_reliable_count: session_state.received_info_popup_reliable_count,
+            last_info_popup_reliable: session_state.last_info_popup_reliable,
+            last_info_popup_id: session_state.last_info_popup_id.clone(),
+            last_info_popup_message: session_state.last_info_popup_message.clone(),
+            last_info_popup_duration_bits: session_state.last_info_popup_duration_bits,
+            last_info_popup_align: session_state.last_info_popup_align,
+            last_info_popup_top: session_state.last_info_popup_top,
+            last_info_popup_left: session_state.last_info_popup_left,
+            last_info_popup_bottom: session_state.last_info_popup_bottom,
+            last_info_popup_right: session_state.last_info_popup_right,
+            clipboard_count: session_state.received_copy_to_clipboard_count,
+            last_clipboard_text: session_state.last_copy_to_clipboard_text.clone(),
+            open_uri_count: session_state.received_open_uri_count,
+            last_open_uri: session_state.last_open_uri.clone(),
         },
         text_input: RuntimeTextInputObservability {
             open_count: session_state.received_text_input_count,
@@ -1892,6 +1911,24 @@ fn runtime_menu_observability(session_state: &SessionState) -> RuntimeMenuObserv
         menu_open_count: session_state.received_menu_open_count,
         follow_up_menu_open_count: session_state.received_follow_up_menu_open_count,
         hide_follow_up_menu_count: session_state.received_hide_follow_up_menu_count,
+        last_menu_open_id: session_state.last_menu_open_id,
+        last_menu_open_title: session_state.last_menu_open_title.clone(),
+        last_menu_open_message: session_state.last_menu_open_message.clone(),
+        last_menu_open_option_rows: session_state.last_menu_open_option_rows,
+        last_menu_open_first_row_len: session_state.last_menu_open_first_row_len,
+        last_follow_up_menu_open_id: session_state.last_follow_up_menu_open_id,
+        last_follow_up_menu_open_title: session_state.last_follow_up_menu_open_title.clone(),
+        last_follow_up_menu_open_message: session_state.last_follow_up_menu_open_message.clone(),
+        last_follow_up_menu_open_option_rows: session_state.last_follow_up_menu_open_option_rows,
+        last_follow_up_menu_open_first_row_len: session_state
+            .last_follow_up_menu_open_first_row_len,
+        last_hide_follow_up_menu_id: session_state.last_hide_follow_up_menu_id,
+        menu_choose_count: session_state.received_menu_choose_count,
+        last_menu_choose_menu_id: session_state.last_menu_choose_menu_id,
+        last_menu_choose_option: session_state.last_menu_choose_option,
+        text_input_result_count: session_state.received_text_input_result_count,
+        last_text_input_result_id: session_state.last_text_input_result_id,
+        last_text_input_result_text: session_state.last_text_input_result_text.clone(),
     }
 }
 
@@ -2466,6 +2503,50 @@ fn runtime_typed_build_config_value_label(
                 .unwrap_or_else(|| "none".to_string()),
             runtime_optional_command_pos_bits_label(*command_pos),
             if *payload_present { 1 } else { 0 },
+        ),
+        TypedBuildingRuntimeValue::Turret {
+            reload_counter_bits,
+            rotation_bits,
+        } => format!(
+            "reload={}:rot={}",
+            reload_counter_bits
+                .map(|bits| format!("0x{bits:08x}"))
+                .unwrap_or_else(|| "none".to_string()),
+            rotation_bits
+                .map(|bits| format!("0x{bits:08x}"))
+                .unwrap_or_else(|| "none".to_string())
+        ),
+        TypedBuildingRuntimeValue::ItemTurret {
+            reload_counter_bits,
+            rotation_bits,
+            ammo_count,
+        } => format!(
+            "reload={}:rot={}:ammo={}",
+            reload_counter_bits
+                .map(|bits| format!("0x{bits:08x}"))
+                .unwrap_or_else(|| "none".to_string()),
+            rotation_bits
+                .map(|bits| format!("0x{bits:08x}"))
+                .unwrap_or_else(|| "none".to_string()),
+            ammo_count
+                .map(|count| count.to_string())
+                .unwrap_or_else(|| "unknown".to_string())
+        ),
+        TypedBuildingRuntimeValue::ContinuousTurret {
+            reload_counter_bits,
+            rotation_bits,
+            last_length_bits,
+        } => format!(
+            "reload={}:rot={}:len={}",
+            reload_counter_bits
+                .map(|bits| format!("0x{bits:08x}"))
+                .unwrap_or_else(|| "none".to_string()),
+            rotation_bits
+                .map(|bits| format!("0x{bits:08x}"))
+                .unwrap_or_else(|| "none".to_string()),
+            last_length_bits
+                .map(|bits| format!("0x{bits:08x}"))
+                .unwrap_or_else(|| "none".to_string())
         ),
         TypedBuildingRuntimeValue::BuildTower {
             rotation_bits,
@@ -4785,6 +4866,10 @@ mod tests {
                 efficiency: Some(0x80),
                 optional_efficiency: Some(0x40),
                 visible_flags: None,
+                turret_reload_counter_bits: None,
+                turret_rotation_bits: None,
+                item_turret_ammo_count: None,
+                continuous_turret_last_length_bits: None,
                 build_turret_rotation_bits: None,
                 build_turret_plans_present: None,
                 build_turret_plan_count: None,
@@ -5303,6 +5388,10 @@ mod tests {
                     efficiency: None,
                     optional_efficiency: None,
                     visible_flags: None,
+                    turret_reload_counter_bits: None,
+                    turret_rotation_bits: None,
+                    item_turret_ammo_count: None,
+                    continuous_turret_last_length_bits: None,
                     build_turret_rotation_bits: (block_name == "build-tower")
                         .then_some(0x4210_0000),
                     build_turret_plans_present: (block_name == "build-tower").then_some(true),
@@ -5448,6 +5537,10 @@ mod tests {
                     efficiency: None,
                     optional_efficiency: None,
                     visible_flags: None,
+                    turret_reload_counter_bits: None,
+                    turret_rotation_bits: None,
+                    item_turret_ammo_count: None,
+                    continuous_turret_last_length_bits: None,
                     build_turret_rotation_bits: None,
                     build_turret_plans_present: None,
                     build_turret_plan_count: None,
@@ -8107,6 +8200,10 @@ mod tests {
                     efficiency: Some(0x80),
                     optional_efficiency: Some(0x40),
                     visible_flags: None,
+                    turret_reload_counter_bits: None,
+                    turret_rotation_bits: None,
+                    item_turret_ammo_count: None,
+                    continuous_turret_last_length_bits: None,
                     build_turret_rotation_bits: Some(0x4210_0000),
                     build_turret_plans_present: None,
                     build_turret_plan_count: None,
@@ -8138,6 +8235,10 @@ mod tests {
             last_efficiency: Some(0x80),
             last_optional_efficiency: Some(0x40),
             last_visible_flags: None,
+            last_turret_reload_counter_bits: None,
+            last_turret_rotation_bits: None,
+            last_item_turret_ammo_count: None,
+            last_continuous_turret_last_length_bits: None,
             last_build_turret_rotation_bits: Some(0x4210_0000),
             last_build_turret_plans_present: None,
             last_build_turret_plan_count: None,

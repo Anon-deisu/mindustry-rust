@@ -3,8 +3,8 @@ use crate::minimap_user_flow::build_minimap_user_flow_panel;
 use crate::panel_model::{
     build_build_config_panel, build_build_interaction_panel, build_hud_status_panel,
     build_hud_visibility_panel, build_minimap_panel, build_runtime_admin_panel,
-    build_runtime_chat_panel, build_runtime_command_mode_panel, build_runtime_dialog_panel,
-    build_runtime_dialog_stack_panel, build_runtime_kick_panel,
+    build_runtime_chat_panel, build_runtime_choice_panel, build_runtime_command_mode_panel,
+    build_runtime_dialog_panel, build_runtime_dialog_stack_panel, build_runtime_kick_panel,
     build_runtime_live_effect_panel, build_runtime_live_entity_panel, build_runtime_loading_panel,
     build_runtime_menu_panel, build_runtime_notice_state_panel, build_runtime_prompt_panel,
     build_runtime_reconnect_panel, build_runtime_rules_panel, build_runtime_session_panel,
@@ -141,6 +141,14 @@ impl AsciiScenePresenter {
         if let Some(runtime_menu_detail_text) = compose_runtime_menu_detail_text(hud) {
             out.push_str(&format!(
                 "RUNTIME-MENU-DETAIL: {runtime_menu_detail_text}\n"
+            ));
+        }
+        if let Some(runtime_choice_text) = compose_runtime_choice_panel_text(hud) {
+            out.push_str(&format!("RUNTIME-CHOICE: {runtime_choice_text}\n"));
+        }
+        if let Some(runtime_choice_detail_text) = compose_runtime_choice_detail_text(hud) {
+            out.push_str(&format!(
+                "RUNTIME-CHOICE-DETAIL: {runtime_choice_detail_text}\n"
             ));
         }
         if let Some(runtime_prompt_text) = compose_runtime_prompt_panel_text(hud) {
@@ -471,19 +479,30 @@ fn compose_runtime_ui_text(hud: &HudModel) -> Option<String> {
     let runtime_ui = hud.runtime_ui.as_ref()?;
     let hud_text = &runtime_ui.hud_text;
     let toast = &runtime_ui.toast;
+    let menu = &runtime_ui.menu;
     let text_input = &runtime_ui.text_input;
     let live = &runtime_ui.live;
     Some(format!(
-        "hud={}/{}/{}@{}/{} toast={}/{}@{}/{} tin={}@{}:{}/{}/{}#{}:n{}:e{} live=ent={} fx={}",
+        "hud={}/{}/{}@{}/{} ann={}@{} info={}@{} toast={}/{}@{}/{} popup={}/{} clip={} uri={} choice={}/{} tin={}@{}:{}/{}/{}#{}:n{}:e{} live=ent={} fx={}",
         hud_text.set_count,
         hud_text.set_reliable_count,
         hud_text.hide_count,
         compact_runtime_ui_text(hud_text.last_message.as_deref()),
         compact_runtime_ui_text(hud_text.last_reliable_message.as_deref()),
+        hud_text.announce_count,
+        compact_runtime_ui_text(hud_text.last_announce_message.as_deref()),
+        hud_text.info_message_count,
+        compact_runtime_ui_text(hud_text.last_info_message.as_deref()),
         toast.info_count,
         toast.warning_count,
         compact_runtime_ui_text(toast.last_info_message.as_deref()),
         compact_runtime_ui_text(toast.last_warning_text.as_deref()),
+        toast.info_popup_count,
+        toast.info_popup_reliable_count,
+        toast.clipboard_count,
+        toast.open_uri_count,
+        menu.menu_choose_count,
+        menu.text_input_result_count,
         text_input.open_count,
         optional_i32_label(text_input.last_id),
         compact_runtime_ui_text(text_input.last_title.as_deref()),
@@ -500,16 +519,30 @@ fn compose_runtime_ui_text(hud: &HudModel) -> Option<String> {
 fn compose_runtime_ui_notice_panel_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_ui_notice_panel(hud)?;
     Some(format!(
-        "hud={}/{}/{}@{}/{} toast={}/{}@{}/{} tin={}@{}:{}/{}/{}#{}:n{}:e{}",
+        "hud={}/{}/{}@{}/{} ann={}@{} info={}@{} toast={}/{}@{}/{} popup={}/{}@{}:{}/{} clip={}@{} uri={}@{}:{} tin={}@{}:{}/{}/{}#{}:n{}:e{}",
         panel.hud_set_count,
         panel.hud_set_reliable_count,
         panel.hud_hide_count,
         compact_runtime_ui_text(panel.hud_last_message.as_deref()),
         compact_runtime_ui_text(panel.hud_last_reliable_message.as_deref()),
+        panel.announce_count,
+        compact_runtime_ui_text(panel.last_announce_message.as_deref()),
+        panel.info_message_count,
+        compact_runtime_ui_text(panel.last_info_message.as_deref()),
         panel.toast_info_count,
         panel.toast_warning_count,
         compact_runtime_ui_text(panel.toast_last_info_message.as_deref()),
         compact_runtime_ui_text(panel.toast_last_warning_text.as_deref()),
+        panel.info_popup_count,
+        panel.info_popup_reliable_count,
+        optional_bool_label(panel.last_info_popup_reliable),
+        compact_runtime_ui_text(panel.last_info_popup_id.as_deref()),
+        compact_runtime_ui_text(panel.last_info_popup_message.as_deref()),
+        panel.clipboard_count,
+        compact_runtime_ui_text(panel.last_clipboard_text.as_deref()),
+        panel.open_uri_count,
+        compact_runtime_ui_text(panel.last_open_uri.as_deref()),
+        runtime_ui_uri_scheme(panel.last_open_uri.as_deref()),
         panel.text_input_open_count,
         optional_i32_label(panel.text_input_last_id),
         compact_runtime_ui_text(panel.text_input_last_title.as_deref()),
@@ -527,21 +560,42 @@ fn compose_runtime_ui_notice_detail_text(hud: &HudModel) -> Option<String> {
         return None;
     }
     Some(format!(
-        "active=1 hud-events={}/{}/{} hud-len={}/{} toast-events={}/{} toast-len={}/{} text-input={} id={} title-len={} msg-len={} default-len={} numeric={} allow-empty={}",
+        "active=1 hud-events={}/{}/{} hud-len={}/{} announce={} len={} info={} len={} toast-events={}/{} toast-len={}/{} popup={}/{} rel={} id-len={} msg-len={} dur={} box={}:{}/{}/{}/{} clip={} len={} uri={} len={} scheme={} text-input={} id={} title-len={} msg-len={} default-len={} limit={} numeric={} allow-empty={}",
         panel.hud_set_count,
         panel.hud_set_reliable_count,
         panel.hud_hide_count,
         runtime_ui_text_len(panel.hud_last_message.as_deref()),
         runtime_ui_text_len(panel.hud_last_reliable_message.as_deref()),
+        panel.announce_count,
+        runtime_ui_text_len(panel.last_announce_message.as_deref()),
+        panel.info_message_count,
+        runtime_ui_text_len(panel.last_info_message.as_deref()),
         panel.toast_info_count,
         panel.toast_warning_count,
         runtime_ui_text_len(panel.toast_last_info_message.as_deref()),
         runtime_ui_text_len(panel.toast_last_warning_text.as_deref()),
+        panel.info_popup_count,
+        panel.info_popup_reliable_count,
+        optional_bool_label(panel.last_info_popup_reliable),
+        runtime_ui_text_len(panel.last_info_popup_id.as_deref()),
+        runtime_ui_text_len(panel.last_info_popup_message.as_deref()),
+        optional_u32_label(panel.last_info_popup_duration_bits),
+        optional_i32_label(panel.last_info_popup_align),
+        optional_i32_label(panel.last_info_popup_top),
+        optional_i32_label(panel.last_info_popup_left),
+        optional_i32_label(panel.last_info_popup_bottom),
+        optional_i32_label(panel.last_info_popup_right),
+        panel.clipboard_count,
+        runtime_ui_text_len(panel.last_clipboard_text.as_deref()),
+        panel.open_uri_count,
+        runtime_ui_text_len(panel.last_open_uri.as_deref()),
+        runtime_ui_uri_scheme(panel.last_open_uri.as_deref()),
         panel.text_input_open_count,
         optional_i32_label(panel.text_input_last_id),
         runtime_ui_text_len(panel.text_input_last_title.as_deref()),
         runtime_ui_text_len(panel.text_input_last_message.as_deref()),
         runtime_ui_text_len(panel.text_input_last_default_text.as_deref()),
+        optional_i32_label(panel.text_input_last_length),
         optional_bool_label(panel.text_input_last_numeric),
         optional_bool_label(panel.text_input_last_allow_empty),
     ))
@@ -587,10 +641,21 @@ fn compose_runtime_rules_detail_text(hud: &HudModel) -> Option<String> {
 fn compose_runtime_menu_panel_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_menu_panel(hud)?;
     Some(format!(
-        "menu={} fmenu={} hide={} tin={}@{}:{}/{}#{}:n{}:e{}",
+        "menu={}@{}:{}/{}#{}:{} follow={}@{}:{}/{}#{}:{} hide={}@{} tin={}@{}:{}/{}#{}:n{}:e{}",
         panel.menu_open_count,
+        optional_i32_label(panel.last_menu_open_id),
+        compact_runtime_ui_text(panel.last_menu_open_title.as_deref()),
+        compact_runtime_ui_text(panel.last_menu_open_message.as_deref()),
+        panel.last_menu_open_option_rows,
+        panel.last_menu_open_first_row_len,
         panel.follow_up_menu_open_count,
+        optional_i32_label(panel.last_follow_up_menu_open_id),
+        compact_runtime_ui_text(panel.last_follow_up_menu_open_title.as_deref()),
+        compact_runtime_ui_text(panel.last_follow_up_menu_open_message.as_deref()),
+        panel.last_follow_up_menu_open_option_rows,
+        panel.last_follow_up_menu_open_first_row_len,
         panel.hide_follow_up_menu_count,
+        optional_i32_label(panel.last_hide_follow_up_menu_id),
         panel.text_input_open_count,
         optional_i32_label(panel.text_input_last_id),
         compact_runtime_ui_text(panel.text_input_last_title.as_deref()),
@@ -607,7 +672,7 @@ fn compose_runtime_menu_detail_text(hud: &HudModel) -> Option<String> {
         return None;
     }
     Some(format!(
-        "active={} outstanding-follow-up={} text-input={} id={} title={} default-len={} numeric={} allow-empty={}",
+        "active={} outstanding-follow-up={} menu={} title-len={} message-len={} rows={}/{} follow={} title-len={} message-len={} rows={}/{} hide-id={} text-input={} id={} title={} default-len={} numeric={} allow-empty={}",
         if panel.text_input_open_count > 0
             || panel.menu_open_count > 0
             || panel.outstanding_follow_up_count() > 0
@@ -617,12 +682,53 @@ fn compose_runtime_menu_detail_text(hud: &HudModel) -> Option<String> {
             0
         },
         panel.outstanding_follow_up_count(),
+        optional_i32_label(panel.last_menu_open_id),
+        panel.menu_title_len(),
+        panel.menu_message_len(),
+        panel.last_menu_open_option_rows,
+        panel.last_menu_open_first_row_len,
+        optional_i32_label(panel.last_follow_up_menu_open_id),
+        panel.follow_up_title_len(),
+        panel.follow_up_message_len(),
+        panel.last_follow_up_menu_open_option_rows,
+        panel.last_follow_up_menu_open_first_row_len,
+        optional_i32_label(panel.last_hide_follow_up_menu_id),
         panel.text_input_open_count,
         optional_i32_label(panel.text_input_last_id),
         compact_runtime_ui_text(panel.text_input_last_title.as_deref()),
         panel.default_text_len(),
         optional_bool_label(panel.text_input_last_numeric),
         optional_bool_label(panel.text_input_last_allow_empty),
+    ))
+}
+
+fn compose_runtime_choice_panel_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_choice_panel(hud)?;
+    if panel.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "menu-choose={}@{}/{} tin-result={}@{}/{}",
+        panel.menu_choose_count,
+        optional_i32_label(panel.last_menu_choose_menu_id),
+        optional_i32_label(panel.last_menu_choose_option),
+        panel.text_input_result_count,
+        optional_i32_label(panel.last_text_input_result_id),
+        compact_runtime_ui_text(panel.last_text_input_result_text.as_deref()),
+    ))
+}
+
+fn compose_runtime_choice_detail_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_choice_panel(hud)?;
+    if panel.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "choose-menu={} choose-option={} result-id={} result-len={}",
+        optional_i32_label(panel.last_menu_choose_menu_id),
+        optional_i32_label(panel.last_menu_choose_option),
+        optional_i32_label(panel.last_text_input_result_id),
+        panel.text_input_result_len(),
     ))
 }
 
@@ -1905,16 +2011,43 @@ fn runtime_ui_text_len(value: Option<&str>) -> usize {
         .unwrap_or_default()
 }
 
+fn runtime_ui_uri_scheme(value: Option<&str>) -> String {
+    value
+        .and_then(|uri| uri.split_once(':').map(|(scheme, _)| scheme))
+        .filter(|scheme| !scheme.is_empty())
+        .map(|scheme| compact_runtime_ui_text(Some(scheme)))
+        .unwrap_or_else(|| "none".to_string())
+}
+
 fn runtime_ui_notice_panel_is_empty(panel: &RuntimeUiNoticePanelModel) -> bool {
     panel.hud_set_count == 0
         && panel.hud_set_reliable_count == 0
         && panel.hud_hide_count == 0
         && panel.hud_last_message.is_none()
         && panel.hud_last_reliable_message.is_none()
+        && panel.announce_count == 0
+        && panel.last_announce_message.is_none()
+        && panel.info_message_count == 0
+        && panel.last_info_message.is_none()
         && panel.toast_info_count == 0
         && panel.toast_warning_count == 0
         && panel.toast_last_info_message.is_none()
         && panel.toast_last_warning_text.is_none()
+        && panel.info_popup_count == 0
+        && panel.info_popup_reliable_count == 0
+        && panel.last_info_popup_reliable.is_none()
+        && panel.last_info_popup_id.is_none()
+        && panel.last_info_popup_message.is_none()
+        && panel.last_info_popup_duration_bits.is_none()
+        && panel.last_info_popup_align.is_none()
+        && panel.last_info_popup_top.is_none()
+        && panel.last_info_popup_left.is_none()
+        && panel.last_info_popup_bottom.is_none()
+        && panel.last_info_popup_right.is_none()
+        && panel.clipboard_count == 0
+        && panel.last_clipboard_text.is_none()
+        && panel.open_uri_count == 0
+        && panel.last_open_uri.is_none()
         && panel.text_input_open_count == 0
         && panel.text_input_last_id.is_none()
         && panel.text_input_last_title.is_none()
@@ -2543,12 +2676,14 @@ mod tests {
                     hide_count: 11,
                     last_message: Some("hud text".to_string()),
                     last_reliable_message: Some("hud rel".to_string()),
+                    ..RuntimeHudTextObservability::default()
                 },
                 toast: RuntimeToastObservability {
                     info_count: 14,
                     warning_count: 15,
                     last_info_message: Some("toast".to_string()),
                     last_warning_text: Some("warn".to_string()),
+                    ..RuntimeToastObservability::default()
                 },
                 text_input: RuntimeTextInputObservability {
                     open_count: 53,
@@ -2582,6 +2717,7 @@ mod tests {
                     menu_open_count: 16,
                     follow_up_menu_open_count: 17,
                     hide_follow_up_menu_count: 18,
+                    ..RuntimeMenuObservability::default()
                 },
                 command_mode: crate::RuntimeCommandModeObservability {
                     active: true,
@@ -2844,15 +2980,15 @@ mod tests {
         assert!(frame.contains("toast=14/15@toast/warn"));
         assert!(frame.contains("tin=53@404:Digits/Only_numbers"));
         assert!(frame.contains(
-            "RUNTIME-NOTICE: hud=9/10/11@hud_text/hud_rel toast=14/15@toast/warn tin=53@404:Digits/Only_numbers/12345#16:n1:e1"
+            "RUNTIME-NOTICE: hud=9/10/11@hud_text/hud_rel ann=0@none info=0@none toast=14/15@toast/warn popup=0/0@n:none/none clip=0@none uri=0@none:none tin=53@404:Digits/Only_numbers/12345#16:n1:e1"
         ));
         assert!(frame.contains(
-            "RUNTIME-NOTICE-DETAIL: active=1 hud-events=9/10/11 hud-len=8/7 toast-events=14/15 toast-len=5/4 text-input=53 id=404 title-len=6 msg-len=12 default-len=5 numeric=1 allow-empty=1"
+            "RUNTIME-NOTICE-DETAIL: active=1 hud-events=9/10/11 hud-len=8/7 announce=0 len=0 info=0 len=0 toast-events=14/15 toast-len=5/4 popup=0/0 rel=n id-len=0 msg-len=0 dur=none box=none:none/none/none/none clip=0 len=0 uri=0 len=0 scheme=none text-input=53 id=404 title-len=6 msg-len=12 default-len=5 limit=16 numeric=1 allow-empty=1"
         ));
         assert!(frame
-            .contains("RUNTIME-MENU: menu=16 fmenu=17 hide=18 tin=53@404:Digits/12345#16:n1:e1"));
+            .contains("RUNTIME-MENU: menu=16@none:none/none#0:0 follow=17@none:none/none#0:0 hide=18@none tin=53@404:Digits/12345#16:n1:e1"));
         assert!(frame.contains(
-            "RUNTIME-MENU-DETAIL: active=1 outstanding-follow-up=0 text-input=53 id=404 title=Digits default-len=5 numeric=1 allow-empty=1"
+            "RUNTIME-MENU-DETAIL: active=1 outstanding-follow-up=0 menu=none title-len=0 message-len=0 rows=0/0 follow=none title-len=0 message-len=0 rows=0/0 hide-id=none text-input=53 id=404 title=Digits default-len=5 numeric=1 allow-empty=1"
         ));
         assert!(frame.contains(
             "RUNTIME-DIALOG: prompt=input act=1 menu=16/17/18 tin=53@404:Digits/Only_numbers/12345#16:n1:e1 notice=warn@warn total=48"

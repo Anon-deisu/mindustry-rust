@@ -80,6 +80,10 @@ pub struct RuntimeHudTextObservability {
     pub hide_count: u64,
     pub last_message: Option<String>,
     pub last_reliable_message: Option<String>,
+    pub announce_count: u64,
+    pub last_announce_message: Option<String>,
+    pub info_message_count: u64,
+    pub last_info_message: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -88,6 +92,21 @@ pub struct RuntimeToastObservability {
     pub warning_count: u64,
     pub last_info_message: Option<String>,
     pub last_warning_text: Option<String>,
+    pub info_popup_count: u64,
+    pub info_popup_reliable_count: u64,
+    pub last_info_popup_reliable: Option<bool>,
+    pub last_info_popup_id: Option<String>,
+    pub last_info_popup_message: Option<String>,
+    pub last_info_popup_duration_bits: Option<u32>,
+    pub last_info_popup_align: Option<i32>,
+    pub last_info_popup_top: Option<i32>,
+    pub last_info_popup_left: Option<i32>,
+    pub last_info_popup_bottom: Option<i32>,
+    pub last_info_popup_right: Option<i32>,
+    pub clipboard_count: u64,
+    pub last_clipboard_text: Option<String>,
+    pub open_uri_count: u64,
+    pub last_open_uri: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -117,6 +136,23 @@ pub struct RuntimeMenuObservability {
     pub menu_open_count: u64,
     pub follow_up_menu_open_count: u64,
     pub hide_follow_up_menu_count: u64,
+    pub last_menu_open_id: Option<i32>,
+    pub last_menu_open_title: Option<String>,
+    pub last_menu_open_message: Option<String>,
+    pub last_menu_open_option_rows: usize,
+    pub last_menu_open_first_row_len: usize,
+    pub last_follow_up_menu_open_id: Option<i32>,
+    pub last_follow_up_menu_open_title: Option<String>,
+    pub last_follow_up_menu_open_message: Option<String>,
+    pub last_follow_up_menu_open_option_rows: usize,
+    pub last_follow_up_menu_open_first_row_len: usize,
+    pub last_hide_follow_up_menu_id: Option<i32>,
+    pub menu_choose_count: u64,
+    pub last_menu_choose_menu_id: Option<i32>,
+    pub last_menu_choose_option: Option<i32>,
+    pub text_input_result_count: u64,
+    pub last_text_input_result_id: Option<i32>,
+    pub last_text_input_result_text: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -522,6 +558,7 @@ mod tests {
                     menu_open_count: 1,
                     follow_up_menu_open_count: 3,
                     hide_follow_up_menu_count: 1,
+                    ..RuntimeMenuObservability::default()
                 },
                 ..RuntimeUiObservability::default()
             }),
