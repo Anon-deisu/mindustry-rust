@@ -566,6 +566,10 @@ fn compose_frame_panel_lines(
     if let Some(build_flow_text) = compose_build_flow_status_text(scene, hud, window) {
         lines.push(format!("BUILD-FLOW: {build_flow_text}"));
     }
+    if let Some(build_flow_detail_text) = compose_build_flow_detail_status_text(scene, hud, window)
+    {
+        lines.push(format!("BUILD-FLOW-DETAIL: {build_flow_detail_text}"));
+    }
     if let Some(runtime_ui_notice_text) = compose_runtime_ui_notice_panel_status_text(hud) {
         lines.push(format!("RUNTIME-NOTICE: {runtime_ui_notice_text}"));
     }
@@ -1415,6 +1419,27 @@ fn compose_build_flow_status_text(
         panel.config_scope_label(),
         build_interaction_authority_status_text(panel.authority_state),
         panel.runtime_share_percent(),
+    ))
+}
+
+fn compose_build_flow_detail_status_text(
+    scene: &RenderModel,
+    hud: &HudModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let panel = build_build_minimap_assist_panel(scene, hud, window)?;
+    Some(format!(
+        "cfgflowd:f={}@{}:v{}:u{}:w{}:obj{}:rt{}:cfg{}/{}@{}",
+        optional_focus_tile_status_text(panel.focus_tile),
+        optional_bool_label(panel.focus_in_window),
+        panel.visible_map_percent,
+        panel.unknown_tile_percent,
+        panel.window_coverage_percent,
+        panel.tracked_object_count,
+        panel.runtime_count,
+        panel.config_family_count,
+        panel.config_sample_count,
+        compact_runtime_ui_text(panel.top_config_family.as_deref()),
     ))
 }
 
@@ -3215,6 +3240,10 @@ mod tests {
             &frame.panel_lines,
             "BUILD-FLOW: cfgnext:resolve:m=place:s=head-aligned:q=mixed:r1:f=inside:v=unseen:w=offscreen:scope=multi:auth=rej-miss-build:rt0",
         );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "BUILD-FLOW-DETAIL: cfgflowd:f=0:0@1:v0:u100:w0:obj3:rt0:cfg3/7@gamma",
+        );
     }
 
     #[test]
@@ -3253,6 +3282,14 @@ mod tests {
                 .iter()
                 .all(|line| !line.starts_with("RUNTIME-NOTICE-DETAIL:")),
             "unexpected runtime notice detail line in {:?}",
+            frame.panel_lines
+        );
+        assert!(
+            frame
+                .panel_lines
+                .iter()
+                .all(|line| !line.starts_with("BUILD-FLOW-DETAIL:")),
+            "unexpected build flow detail line in {:?}",
             frame.panel_lines
         );
         assert!(

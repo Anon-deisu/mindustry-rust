@@ -103,6 +103,9 @@ impl AsciiScenePresenter {
         if let Some(build_flow_text) = compose_build_flow_text(scene, hud, window) {
             out.push_str(&format!("BUILD-FLOW: {build_flow_text}\n"));
         }
+        if let Some(build_flow_detail_text) = compose_build_flow_detail_text(scene, hud, window) {
+            out.push_str(&format!("BUILD-FLOW-DETAIL: {build_flow_detail_text}\n"));
+        }
         if let Some(build_text) = compose_build_ui_text(hud) {
             out.push_str(&format!("BUILD: {build_text}\n"));
         }
@@ -1042,6 +1045,27 @@ fn compose_build_flow_text(
     ))
 }
 
+fn compose_build_flow_detail_text(
+    scene: &RenderModel,
+    hud: &HudModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let panel = build_build_minimap_assist_panel(scene, hud, window)?;
+    Some(format!(
+        "focus-tile={} in-window={} visible-map={} unknown-map={} window-cover={} tracked={} runtime={} cfg={}/{} top={}",
+        build_flow_focus_tile_text(panel.focus_tile),
+        optional_bool_label(panel.focus_in_window),
+        panel.visible_map_percent,
+        panel.unknown_tile_percent,
+        panel.window_coverage_percent,
+        panel.tracked_object_count,
+        panel.runtime_count,
+        panel.config_family_count,
+        panel.config_sample_count,
+        compact_runtime_ui_text(panel.top_config_family.as_deref()),
+    ))
+}
+
 fn compose_build_ui_inspector_lines(hud: &HudModel) -> Vec<String> {
     let Some(build_ui) = hud.build_ui.as_ref() else {
         return Vec::new();
@@ -1117,6 +1141,13 @@ fn build_config_head_text(head: Option<&crate::panel_model::BuildConfigHeadModel
 }
 
 fn build_config_tile_text(value: Option<(i32, i32)>) -> String {
+    match value {
+        Some((x, y)) => format!("{x}:{y}"),
+        None => "none".to_string(),
+    }
+}
+
+fn build_flow_focus_tile_text(value: Option<(usize, usize)>) -> String {
     match value {
         Some((x, y)) => format!("{x}:{y}"),
         None => "none".to_string(),
@@ -2651,6 +2682,9 @@ mod tests {
         assert!(frame.contains(
             "BUILD-FLOW: next=resolve mode=place select=head-aligned queue=mixed place-ready=1 focus=inside vis=unseen cover=offscreen scope=multi auth=rejected-missing-building runtime-share=0%"
         ));
+        assert!(frame.contains(
+            "BUILD-FLOW-DETAIL: focus-tile=1:1 in-window=1 visible-map=0 unknown-map=100 window-cover=0 tracked=3 runtime=0 cfg=4/8 top=gamma"
+        ));
     }
 
     #[test]
@@ -2674,6 +2708,7 @@ mod tests {
 
         assert!(!presenter.last_frame().contains("RUNTIME-SESSION:"));
         assert!(!presenter.last_frame().contains("RUNTIME-NOTICE-DETAIL:"));
+        assert!(!presenter.last_frame().contains("BUILD-FLOW-DETAIL:"));
         assert!(!presenter
             .last_frame()
             .contains("RUNTIME-WORLD-LABEL-DETAIL:"));
