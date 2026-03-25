@@ -500,6 +500,7 @@ pub struct ResourceDeltaProjection {
     pub last_x_bits: Option<u32>,
     pub last_y_bits: Option<u32>,
     pub building_items_by_build: BTreeMap<i32, BTreeMap<i16, i32>>,
+    pub building_liquids_by_build: BTreeMap<i32, BTreeMap<i16, u32>>,
     pub entity_item_stack_by_entity_id: BTreeMap<i32, ResourceUnitItemStack>,
     pub authoritative_build_update_count: u64,
     pub delta_apply_count: u64,
@@ -548,6 +549,21 @@ impl ResourceDeltaProjection {
         self.mark_build_change(build_pos, item_id, amount);
     }
 
+    pub fn apply_set_liquid(
+        &mut self,
+        build_pos: Option<i32>,
+        liquid_id: Option<i16>,
+        amount_bits: u32,
+    ) {
+        let (Some(build_pos), Some(liquid_id)) = (build_pos, liquid_id) else {
+            return;
+        };
+        self.set_build_liquid_exact(build_pos, liquid_id, amount_bits);
+        self.authoritative_build_update_count =
+            self.authoritative_build_update_count.saturating_add(1);
+        self.mark_build_liquid_change(build_pos);
+    }
+
     pub fn apply_set_items(&mut self, build_pos: Option<i32>, stacks: &[(Option<i16>, i32)]) {
         let Some(build_pos) = build_pos else {
             return;
@@ -567,6 +583,29 @@ impl ResourceDeltaProjection {
         }
     }
 
+    pub fn apply_set_liquids(
+        &mut self,
+        build_pos: Option<i32>,
+        stacks: &[(Option<i16>, u32)],
+    ) {
+        let Some(build_pos) = build_pos else {
+            return;
+        };
+        let mut applied = false;
+        for &(liquid_id, amount_bits) in stacks {
+            let Some(liquid_id) = liquid_id else {
+                continue;
+            };
+            self.set_build_liquid_exact(build_pos, liquid_id, amount_bits);
+            applied = true;
+        }
+        if applied {
+            self.authoritative_build_update_count =
+                self.authoritative_build_update_count.saturating_add(1);
+            self.mark_build_liquid_change(build_pos);
+        }
+    }
+
     pub fn apply_set_tile_items(&mut self, item_id: Option<i16>, amount: i32, positions: &[i32]) {
         let Some(item_id) = item_id else {
             return;
@@ -575,6 +614,27 @@ impl ResourceDeltaProjection {
         for &build_pos in positions {
             self.set_build_item_exact(build_pos, item_id, amount);
             self.mark_build_change(build_pos, item_id, amount);
+            applied = true;
+        }
+        if applied {
+            self.authoritative_build_update_count =
+                self.authoritative_build_update_count.saturating_add(1);
+        }
+    }
+
+    pub fn apply_set_tile_liquids(
+        &mut self,
+        liquid_id: Option<i16>,
+        amount_bits: u32,
+        positions: &[i32],
+    ) {
+        let Some(liquid_id) = liquid_id else {
+            return;
+        };
+        let mut applied = false;
+        for &build_pos in positions {
+            self.set_build_liquid_exact(build_pos, liquid_id, amount_bits);
+            self.mark_build_liquid_change(build_pos);
             applied = true;
         }
         if applied {
@@ -594,6 +654,20 @@ impl ResourceDeltaProjection {
             self.building_items_by_build.remove(&build_pos);
         } else {
             self.building_items_by_build.insert(build_pos, build_items);
+        }
+    }
+
+    pub fn seed_world_build_liquids(&mut self, build_pos: i32, stacks: &[(i16, u32)]) {
+        let mut build_liquids = BTreeMap::new();
+        for &(liquid_id, amount_bits) in stacks {
+            if !liquid_amount_bits_is_zero(amount_bits) {
+                build_liquids.insert(liquid_id, amount_bits);
+            }
+        }
+        if build_liquids.is_empty() {
+            self.building_liquids_by_build.remove(&build_pos);
+        } else {
+            self.building_liquids_by_build.insert(build_pos, build_liquids);
         }
     }
 
@@ -624,6 +698,26 @@ impl ResourceDeltaProjection {
         self.last_changed_amount = last_amount;
     }
 
+    pub fn replace_build_liquids_exact(&mut self, build_pos: Option<i32>, stacks: &[(i16, u32)]) {
+        let Some(build_pos) = build_pos else {
+            return;
+        };
+        let mut build_liquids = BTreeMap::new();
+        for &(liquid_id, amount_bits) in stacks {
+            if !liquid_amount_bits_is_zero(amount_bits) {
+                build_liquids.insert(liquid_id, amount_bits);
+            }
+        }
+        if build_liquids.is_empty() {
+            self.building_liquids_by_build.remove(&build_pos);
+        } else {
+            self.building_liquids_by_build.insert(build_pos, build_liquids);
+        }
+        self.authoritative_build_update_count =
+            self.authoritative_build_update_count.saturating_add(1);
+        self.mark_build_liquid_change(build_pos);
+    }
+
     pub fn clear_build_items(&mut self, build_pos: Option<i32>) {
         let Some(build_pos) = build_pos else {
             return;
@@ -637,8 +731,31 @@ impl ResourceDeltaProjection {
         self.last_changed_amount = Some(0);
     }
 
+    pub fn clear_build_liquids(&mut self, build_pos: Option<i32>) {
+        let Some(build_pos) = build_pos else {
+            return;
+        };
+        self.building_liquids_by_build.remove(&build_pos);
+        self.authoritative_build_update_count =
+            self.authoritative_build_update_count.saturating_add(1);
+        self.last_changed_build_pos = Some(build_pos);
+        self.last_changed_entity_id = None;
+        self.last_changed_item_id = None;
+        self.last_changed_amount = Some(0);
+    }
+
     pub fn remove_building(&mut self, build_pos: Option<i32>) {
-        self.clear_build_items(build_pos);
+        let Some(build_pos) = build_pos else {
+            return;
+        };
+        self.building_items_by_build.remove(&build_pos);
+        self.building_liquids_by_build.remove(&build_pos);
+        self.authoritative_build_update_count =
+            self.authoritative_build_update_count.saturating_add(1);
+        self.last_changed_build_pos = Some(build_pos);
+        self.last_changed_entity_id = None;
+        self.last_changed_item_id = None;
+        self.last_changed_amount = Some(0);
     }
 
     pub fn remove_standard_entity_item(&mut self, unit: Option<UnitRefProjection>) {
@@ -819,6 +936,25 @@ impl ResourceDeltaProjection {
             .insert(item_id, amount);
     }
 
+    fn set_build_liquid_exact(&mut self, build_pos: i32, liquid_id: i16, amount_bits: u32) {
+        if liquid_amount_bits_is_zero(amount_bits) {
+            let mut remove_build = false;
+            if let Some(build_liquids) = self.building_liquids_by_build.get_mut(&build_pos) {
+                build_liquids.remove(&liquid_id);
+                remove_build = build_liquids.is_empty();
+            }
+            if remove_build {
+                self.building_liquids_by_build.remove(&build_pos);
+            }
+            return;
+        }
+
+        self.building_liquids_by_build
+            .entry(build_pos)
+            .or_default()
+            .insert(liquid_id, amount_bits);
+    }
+
     fn add_known_build_item(&mut self, build_pos: i32, item_id: i16, amount: i32) -> bool {
         let mut applied = false;
         let mut remove_build = false;
@@ -934,12 +1070,23 @@ impl ResourceDeltaProjection {
         self.last_changed_amount = Some(amount);
     }
 
+    fn mark_build_liquid_change(&mut self, build_pos: i32) {
+        self.last_changed_build_pos = Some(build_pos);
+        self.last_changed_entity_id = None;
+        self.last_changed_item_id = None;
+        self.last_changed_amount = None;
+    }
+
     fn mark_entity_change(&mut self, entity_id: i32, item_id: i16, amount: i32) {
         self.last_changed_build_pos = None;
         self.last_changed_entity_id = Some(entity_id);
         self.last_changed_item_id = Some(item_id);
         self.last_changed_amount = Some(amount);
     }
+}
+
+fn liquid_amount_bits_is_zero(amount_bits: u32) -> bool {
+    f32::from_bits(amount_bits) == 0.0
 }
 
 fn resource_delta_standard_entity_id(unit: Option<UnitRefProjection>) -> Option<i32> {
@@ -2731,6 +2878,7 @@ pub struct TypedBuildingRuntimeModel {
     pub kind: TypedBuildingRuntimeKind,
     pub value: TypedBuildingRuntimeValue,
     pub inventory_item_stacks: Vec<(i16, i32)>,
+    pub inventory_liquid_stacks: Vec<(i16, u32)>,
     pub rotation: Option<u8>,
     pub team_id: Option<u8>,
     pub io_version: Option<u8>,
@@ -2757,6 +2905,68 @@ pub struct TypedBuildingRuntimeModel {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct TypedBuildingRuntimeProjection {
     pub by_build_pos: BTreeMap<i32, TypedBuildingRuntimeModel>,
+}
+
+fn build_typed_runtime_model(
+    build_pos: i32,
+    block_id: Option<i16>,
+    block_name: String,
+    kind: TypedBuildingRuntimeKind,
+    value: TypedBuildingRuntimeValue,
+    inventory_item_stacks: Vec<(i16, i32)>,
+    inventory_liquid_stacks: Vec<(i16, u32)>,
+    rotation: Option<u8>,
+    team_id: Option<u8>,
+    io_version: Option<u8>,
+    module_bitmask: Option<u8>,
+    time_scale_bits: Option<u32>,
+    time_scale_duration_bits: Option<u32>,
+    last_disabler_pos: Option<i32>,
+    legacy_consume_connected: Option<bool>,
+    health_bits: Option<u32>,
+    enabled: Option<bool>,
+    efficiency: Option<u8>,
+    optional_efficiency: Option<u8>,
+    visible_flags: Option<u64>,
+    turret_reload_counter_bits: Option<u32>,
+    turret_rotation_bits: Option<u32>,
+    item_turret_ammo_count: Option<u16>,
+    continuous_turret_last_length_bits: Option<u32>,
+    build_turret_rotation_bits: Option<u32>,
+    build_turret_plans_present: Option<bool>,
+    build_turret_plan_count: Option<u16>,
+    last_update: BuildingProjectionUpdateKind,
+) -> TypedBuildingRuntimeModel {
+    TypedBuildingRuntimeModel {
+        build_pos,
+        block_id,
+        block_name,
+        kind,
+        value,
+        inventory_item_stacks,
+        inventory_liquid_stacks,
+        rotation,
+        team_id,
+        io_version,
+        module_bitmask,
+        time_scale_bits,
+        time_scale_duration_bits,
+        last_disabler_pos,
+        legacy_consume_connected,
+        health_bits,
+        enabled,
+        efficiency,
+        optional_efficiency,
+        visible_flags,
+        turret_reload_counter_bits,
+        turret_rotation_bits,
+        item_turret_ammo_count,
+        continuous_turret_last_length_bits,
+        build_turret_rotation_bits,
+        build_turret_plans_present,
+        build_turret_plan_count,
+        last_update,
+    }
 }
 
 impl TypedBuildingRuntimeProjection {
@@ -3083,38 +3293,36 @@ fn typed_runtime_building_model(
         ),
         _ => return None,
     };
-    Some(TypedBuildingRuntimeModel {
+    Some(build_typed_runtime_model(
         build_pos,
-        block_id: building.block_id,
-        block_name: block_name.to_string(),
+        building.block_id,
+        block_name.to_string(),
         kind,
         value,
-        inventory_item_stacks: typed_runtime_building_inventory_item_stacks(
-            build_pos,
-            resource_delta,
-        ),
-        rotation: building.rotation,
-        team_id: building.team_id,
-        io_version: building.io_version,
-        module_bitmask: building.module_bitmask,
-        time_scale_bits: building.time_scale_bits,
-        time_scale_duration_bits: building.time_scale_duration_bits,
-        last_disabler_pos: building.last_disabler_pos,
-        legacy_consume_connected: building.legacy_consume_connected,
-        health_bits: building.health_bits,
-        enabled: building.enabled,
-        efficiency: building.efficiency,
-        optional_efficiency: building.optional_efficiency,
-        visible_flags: building.visible_flags,
-        turret_reload_counter_bits: building.turret_reload_counter_bits,
-        turret_rotation_bits: building.turret_rotation_bits,
-        item_turret_ammo_count: building.item_turret_ammo_count,
-        continuous_turret_last_length_bits: building.continuous_turret_last_length_bits,
-        build_turret_rotation_bits: building.build_turret_rotation_bits,
-        build_turret_plans_present: building.build_turret_plans_present,
-        build_turret_plan_count: building.build_turret_plan_count,
-        last_update: building.last_update,
-    })
+        typed_runtime_building_inventory_item_stacks(build_pos, resource_delta),
+        typed_runtime_building_inventory_liquid_stacks(build_pos, resource_delta),
+        building.rotation,
+        building.team_id,
+        building.io_version,
+        building.module_bitmask,
+        building.time_scale_bits,
+        building.time_scale_duration_bits,
+        building.last_disabler_pos,
+        building.legacy_consume_connected,
+        building.health_bits,
+        building.enabled,
+        building.efficiency,
+        building.optional_efficiency,
+        building.visible_flags,
+        building.turret_reload_counter_bits,
+        building.turret_rotation_bits,
+        building.item_turret_ammo_count,
+        building.continuous_turret_last_length_bits,
+        building.build_turret_rotation_bits,
+        building.build_turret_plans_present,
+        building.build_turret_plan_count,
+        building.last_update,
+    ))
 }
 
 fn typed_runtime_building_inventory_item_stacks(
@@ -3128,6 +3336,22 @@ fn typed_runtime_building_inventory_item_stacks(
             items
                 .iter()
                 .map(|(&item_id, &amount)| (item_id, amount))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn typed_runtime_building_inventory_liquid_stacks(
+    build_pos: i32,
+    resource_delta: &ResourceDeltaProjection,
+) -> Vec<(i16, u32)> {
+    resource_delta
+        .building_liquids_by_build
+        .get(&build_pos)
+        .map(|liquids| {
+            liquids
+                .iter()
+                .map(|(&liquid_id, &amount_bits)| (liquid_id, amount_bits))
                 .collect()
         })
         .unwrap_or_default()
@@ -5787,6 +6011,25 @@ impl SessionState {
             .apply_set_items(build_pos, stacks);
     }
 
+    pub fn record_set_liquid_resource_delta(
+        &mut self,
+        build_pos: Option<i32>,
+        liquid_id: Option<i16>,
+        amount_bits: u32,
+    ) {
+        self.resource_delta_projection
+            .apply_set_liquid(build_pos, liquid_id, amount_bits);
+    }
+
+    pub fn record_set_liquids_resource_delta(
+        &mut self,
+        build_pos: Option<i32>,
+        stacks: &[(Option<i16>, u32)],
+    ) {
+        self.resource_delta_projection
+            .apply_set_liquids(build_pos, stacks);
+    }
+
     pub fn record_replace_build_items_resource_delta(
         &mut self,
         build_pos: Option<i32>,
@@ -5794,6 +6037,15 @@ impl SessionState {
     ) {
         self.resource_delta_projection
             .replace_build_items_exact(build_pos, stacks);
+    }
+
+    pub fn record_replace_build_liquids_resource_delta(
+        &mut self,
+        build_pos: Option<i32>,
+        stacks: &[(i16, u32)],
+    ) {
+        self.resource_delta_projection
+            .replace_build_liquids_exact(build_pos, stacks);
     }
 
     pub fn record_set_tile_items_resource_delta(
@@ -5806,8 +6058,22 @@ impl SessionState {
             .apply_set_tile_items(item_id, amount, positions);
     }
 
+    pub fn record_set_tile_liquids_resource_delta(
+        &mut self,
+        liquid_id: Option<i16>,
+        amount_bits: u32,
+        positions: &[i32],
+    ) {
+        self.resource_delta_projection
+            .apply_set_tile_liquids(liquid_id, amount_bits, positions);
+    }
+
     pub fn record_clear_items_resource_delta(&mut self, build_pos: Option<i32>) {
         self.resource_delta_projection.clear_build_items(build_pos);
+    }
+
+    pub fn record_clear_liquids_resource_delta(&mut self, build_pos: Option<i32>) {
+        self.resource_delta_projection.clear_build_liquids(build_pos);
     }
 
     pub fn record_remove_building_resource_delta(&mut self, build_pos: Option<i32>) {
@@ -5937,6 +6203,67 @@ impl PayloadLifecycleProjection {
 mod tests {
     use super::*;
     use mdt_typeio::pack_point2;
+
+    fn expected_typed_runtime_building(
+        build_pos: i32,
+        block_id: i16,
+        block_name: &str,
+        kind: TypedBuildingRuntimeKind,
+        value: TypedBuildingRuntimeValue,
+        inventory_item_stacks: Vec<(i16, i32)>,
+        rotation: Option<u8>,
+        team_id: Option<u8>,
+        io_version: Option<u8>,
+        module_bitmask: Option<u8>,
+        time_scale_bits: Option<u32>,
+        time_scale_duration_bits: Option<u32>,
+        last_disabler_pos: Option<i32>,
+        legacy_consume_connected: Option<bool>,
+        health_bits: Option<u32>,
+        enabled: Option<bool>,
+        efficiency: Option<u8>,
+        optional_efficiency: Option<u8>,
+        visible_flags: Option<u64>,
+        turret_reload_counter_bits: Option<u32>,
+        turret_rotation_bits: Option<u32>,
+        item_turret_ammo_count: Option<u16>,
+        continuous_turret_last_length_bits: Option<u32>,
+        build_turret_rotation_bits: Option<u32>,
+        build_turret_plans_present: Option<bool>,
+        build_turret_plan_count: Option<u16>,
+        last_update: BuildingProjectionUpdateKind,
+    ) -> TypedBuildingRuntimeModel {
+        build_typed_runtime_model(
+            build_pos,
+            Some(block_id),
+            block_name.to_string(),
+            kind,
+            value,
+            inventory_item_stacks,
+            Vec::new(),
+            rotation,
+            team_id,
+            io_version,
+            module_bitmask,
+            time_scale_bits,
+            time_scale_duration_bits,
+            last_disabler_pos,
+            legacy_consume_connected,
+            health_bits,
+            enabled,
+            efficiency,
+            optional_efficiency,
+            visible_flags,
+            turret_reload_counter_bits,
+            turret_rotation_bits,
+            item_turret_ammo_count,
+            continuous_turret_last_length_bits,
+            build_turret_rotation_bits,
+            build_turret_plans_present,
+            build_turret_plan_count,
+            last_update,
+        )
+    }
 
     #[test]
     fn reconnect_projection_counts_only_distinct_phase_transitions() {
@@ -6072,36 +6399,41 @@ mod tests {
         state
             .resource_delta_projection
             .seed_world_build_items(build_pos, &[(4, 12), (6, 0), (7, 3)]);
-
-        let expected = TypedBuildingRuntimeModel {
+        state.resource_delta_projection.seed_world_build_liquids(
             build_pos,
-            block_id: Some(300),
-            block_name: "message".to_string(),
-            kind: TypedBuildingRuntimeKind::Message,
-            value: TypedBuildingRuntimeValue::Text("hello".to_string()),
-            inventory_item_stacks: vec![(4, 12), (7, 3)],
-            rotation: Some(1),
-            team_id: Some(2),
-            io_version: Some(3),
-            module_bitmask: Some(4),
-            time_scale_bits: Some(0x3f80_0000),
-            time_scale_duration_bits: Some(0x3f00_0000),
-            last_disabler_pos: Some(123),
-            legacy_consume_connected: Some(true),
-            health_bits: Some(0x4000_0000),
-            enabled: Some(false),
-            efficiency: Some(0x40),
-            optional_efficiency: Some(0x20),
-            visible_flags: Some(99),
-            turret_reload_counter_bits: None,
-            turret_rotation_bits: None,
-            item_turret_ammo_count: None,
-            continuous_turret_last_length_bits: None,
-            build_turret_rotation_bits: Some(0x4260_0000),
-            build_turret_plans_present: Some(true),
-            build_turret_plan_count: Some(7),
-            last_update: BuildingProjectionUpdateKind::BlockSnapshotHead,
-        };
+            &[(5, 1.25f32.to_bits()), (8, 0.0f32.to_bits())],
+        );
+
+        let mut expected = expected_typed_runtime_building(
+            build_pos,
+            300,
+            "message",
+            TypedBuildingRuntimeKind::Message,
+            TypedBuildingRuntimeValue::Text("hello".to_string()),
+            vec![(4, 12), (7, 3)],
+            Some(1),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(0x3f80_0000),
+            Some(0x3f00_0000),
+            Some(123),
+            Some(true),
+            Some(0x4000_0000),
+            Some(false),
+            Some(0x40),
+            Some(0x20),
+            Some(99),
+            None,
+            None,
+            None,
+            None,
+            Some(0x4260_0000),
+            Some(true),
+            Some(7),
+            BuildingProjectionUpdateKind::BlockSnapshotHead,
+        );
+        expected.inventory_liquid_stacks = vec![(5, 1.25f32.to_bits())];
         assert_eq!(
             state.typed_runtime_building_at(build_pos),
             Some(expected.clone())
@@ -6131,6 +6463,77 @@ mod tests {
                 .runtime_typed_building_apply_projection
                 .building_at(build_pos),
             None
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_liquid_source_family() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0005_0008i32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            300,
+            Some("liquid-source".to_string()),
+            Some(1),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(0x3f80_0000),
+            Some(0x3f00_0000),
+            Some(122),
+            Some(true),
+            Some(TypeIoObject::Null),
+            Some(0x4000_0000),
+            Some(false),
+            Some(0x40),
+            Some(0x20),
+            Some(98),
+            None,
+            None,
+            None,
+        );
+        state
+            .configured_block_projection
+            .apply_liquid_source_liquid(build_pos, Some(9));
+        state.resource_delta_projection.seed_world_build_liquids(
+            build_pos,
+            &[(6, 0.5f32.to_bits()), (7, 0.0f32.to_bits())],
+        );
+
+        let mut expected = expected_typed_runtime_building(
+            build_pos,
+            300,
+            "liquid-source",
+            TypedBuildingRuntimeKind::LiquidSource,
+            TypedBuildingRuntimeValue::Liquid(Some(9)),
+            Vec::new(),
+            Some(1),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(0x3f80_0000),
+            Some(0x3f00_0000),
+            Some(122),
+            Some(true),
+            Some(0x4000_0000),
+            Some(false),
+            Some(0x40),
+            Some(0x20),
+            Some(98),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            BuildingProjectionUpdateKind::BlockSnapshotHead,
+        );
+        expected.inventory_liquid_stacks = vec![(6, 0.5f32.to_bits())];
+
+        assert_eq!(
+            state.typed_runtime_building_at(build_pos),
+            Some(expected)
         );
     }
 
@@ -6167,35 +6570,35 @@ mod tests {
 
         assert_eq!(
             state.typed_runtime_building_at(build_pos),
-            Some(TypedBuildingRuntimeModel {
+            Some(expected_typed_runtime_building(
                 build_pos,
-                block_id: Some(301),
-                block_name: "phase-conduit".to_string(),
-                kind: TypedBuildingRuntimeKind::ItemBridge,
-                value: TypedBuildingRuntimeValue::Link(Some(target_pos)),
-                inventory_item_stacks: Vec::new(),
-                rotation: Some(1),
-                team_id: Some(2),
-                io_version: Some(3),
-                module_bitmask: Some(4),
-                time_scale_bits: Some(0x3f80_0000),
-                time_scale_duration_bits: Some(0x3f00_0000),
-                last_disabler_pos: Some(124),
-                legacy_consume_connected: Some(false),
-                health_bits: Some(0x4040_0000),
-                enabled: Some(true),
-                efficiency: Some(0x30),
-                optional_efficiency: Some(0x10),
-                visible_flags: Some(88),
-                turret_reload_counter_bits: None,
-                turret_rotation_bits: None,
-                item_turret_ammo_count: None,
-                continuous_turret_last_length_bits: None,
-                build_turret_rotation_bits: None,
-                build_turret_plans_present: None,
-                build_turret_plan_count: None,
-                last_update: BuildingProjectionUpdateKind::BlockSnapshotHead,
-            })
+                301,
+                "phase-conduit",
+                TypedBuildingRuntimeKind::ItemBridge,
+                TypedBuildingRuntimeValue::Link(Some(target_pos)),
+                Vec::new(),
+                Some(1),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(0x3f80_0000),
+                Some(0x3f00_0000),
+                Some(124),
+                Some(false),
+                Some(0x4040_0000),
+                Some(true),
+                Some(0x30),
+                Some(0x10),
+                Some(88),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
         );
     }
 
@@ -6232,35 +6635,35 @@ mod tests {
 
         assert_eq!(
             state.typed_runtime_building_at(build_pos),
-            Some(TypedBuildingRuntimeModel {
+            Some(expected_typed_runtime_building(
                 build_pos,
-                block_id: Some(302),
-                block_name: "memory-cell".to_string(),
-                kind: TypedBuildingRuntimeKind::Memory,
-                value: TypedBuildingRuntimeValue::Memory(values_bits),
-                inventory_item_stacks: Vec::new(),
-                rotation: Some(2),
-                team_id: Some(3),
-                io_version: Some(4),
-                module_bitmask: Some(5),
-                time_scale_bits: Some(0x3f80_0000),
-                time_scale_duration_bits: Some(0x3f00_0000),
-                last_disabler_pos: Some(125),
-                legacy_consume_connected: Some(true),
-                health_bits: Some(0x4080_0000),
-                enabled: Some(true),
-                efficiency: Some(0x20),
-                optional_efficiency: Some(0x10),
-                visible_flags: Some(77),
-                turret_reload_counter_bits: None,
-                turret_rotation_bits: None,
-                item_turret_ammo_count: None,
-                continuous_turret_last_length_bits: None,
-                build_turret_rotation_bits: None,
-                build_turret_plans_present: None,
-                build_turret_plan_count: None,
-                last_update: BuildingProjectionUpdateKind::BlockSnapshotHead,
-            })
+                302,
+                "memory-cell",
+                TypedBuildingRuntimeKind::Memory,
+                TypedBuildingRuntimeValue::Memory(values_bits),
+                Vec::new(),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(0x3f80_0000),
+                Some(0x3f00_0000),
+                Some(125),
+                Some(true),
+                Some(0x4080_0000),
+                Some(true),
+                Some(0x20),
+                Some(0x10),
+                Some(77),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
         );
     }
 
@@ -6306,12 +6709,12 @@ mod tests {
 
         assert_eq!(
             state.typed_runtime_building_at(build_pos),
-            Some(TypedBuildingRuntimeModel {
+            Some(expected_typed_runtime_building(
                 build_pos,
-                block_id: Some(303),
-                block_name: "constructor".to_string(),
-                kind: TypedBuildingRuntimeKind::Constructor,
-                value: TypedBuildingRuntimeValue::Constructor {
+                303,
+                "constructor",
+                TypedBuildingRuntimeKind::Constructor,
+                TypedBuildingRuntimeValue::Constructor {
                     recipe_block_id: Some(7),
                     progress_bits: Some(0x3f40_0000),
                     payload_present: Some(true),
@@ -6319,29 +6722,29 @@ mod tests {
                     payload_build_block_id: Some(11),
                     payload_unit_class_id: None,
                 },
-                inventory_item_stacks: Vec::new(),
-                rotation: Some(3),
-                team_id: Some(4),
-                io_version: Some(5),
-                module_bitmask: Some(6),
-                time_scale_bits: Some(0x3f80_0000),
-                time_scale_duration_bits: Some(0x3f00_0000),
-                last_disabler_pos: Some(126),
-                legacy_consume_connected: Some(false),
-                health_bits: Some(0x40a0_0000),
-                enabled: Some(true),
-                efficiency: Some(0x50),
-                optional_efficiency: Some(0x28),
-                visible_flags: Some(66),
-                turret_reload_counter_bits: None,
-                turret_rotation_bits: None,
-                item_turret_ammo_count: None,
-                continuous_turret_last_length_bits: None,
-                build_turret_rotation_bits: None,
-                build_turret_plans_present: None,
-                build_turret_plan_count: None,
-                last_update: BuildingProjectionUpdateKind::BlockSnapshotHead,
-            })
+                Vec::new(),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(6),
+                Some(0x3f80_0000),
+                Some(0x3f00_0000),
+                Some(126),
+                Some(false),
+                Some(0x40a0_0000),
+                Some(true),
+                Some(0x50),
+                Some(0x28),
+                Some(66),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
         );
     }
 
@@ -6388,41 +6791,41 @@ mod tests {
 
         assert_eq!(
             state.typed_runtime_building_at(build_pos),
-            Some(TypedBuildingRuntimeModel {
+            Some(expected_typed_runtime_building(
                 build_pos,
-                block_id: Some(303),
-                block_name: "additive-reconstructor".to_string(),
-                kind: TypedBuildingRuntimeKind::Reconstructor,
-                value: TypedBuildingRuntimeValue::Reconstructor {
+                303,
+                "additive-reconstructor",
+                TypedBuildingRuntimeKind::Reconstructor,
+                TypedBuildingRuntimeValue::Reconstructor {
                     command_id: Some(7),
                     progress_bits: Some(0x3f40_0000),
                     command_pos: Some((12.5f32.to_bits(), 18.0f32.to_bits())),
                     payload_present: Some(true),
                     pay_rotation_bits: Some(0x4000_0000),
                 },
-                inventory_item_stacks: Vec::new(),
-                rotation: Some(3),
-                team_id: Some(4),
-                io_version: Some(5),
-                module_bitmask: Some(6),
-                time_scale_bits: Some(0x3f80_0000),
-                time_scale_duration_bits: Some(0x3f00_0000),
-                last_disabler_pos: Some(126),
-                legacy_consume_connected: Some(false),
-                health_bits: Some(0x40a0_0000),
-                enabled: Some(true),
-                efficiency: Some(0x50),
-                optional_efficiency: Some(0x28),
-                visible_flags: Some(66),
-                turret_reload_counter_bits: None,
-                turret_rotation_bits: None,
-                item_turret_ammo_count: None,
-                continuous_turret_last_length_bits: None,
-                build_turret_rotation_bits: None,
-                build_turret_plans_present: None,
-                build_turret_plan_count: None,
-                last_update: BuildingProjectionUpdateKind::BlockSnapshotHead,
-            })
+                Vec::new(),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(6),
+                Some(0x3f80_0000),
+                Some(0x3f00_0000),
+                Some(126),
+                Some(false),
+                Some(0x40a0_0000),
+                Some(true),
+                Some(0x50),
+                Some(0x28),
+                Some(66),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
         );
     }
 
@@ -6455,39 +6858,39 @@ mod tests {
 
         assert_eq!(
             state.typed_runtime_building_at(build_pos),
-            Some(TypedBuildingRuntimeModel {
+            Some(expected_typed_runtime_building(
                 build_pos,
-                block_id: Some(303),
-                block_name: "build-tower".to_string(),
-                kind: TypedBuildingRuntimeKind::BuildTower,
-                value: TypedBuildingRuntimeValue::BuildTower {
+                303,
+                "build-tower",
+                TypedBuildingRuntimeKind::BuildTower,
+                TypedBuildingRuntimeValue::BuildTower {
                     rotation_bits: Some(0x4210_0000),
                     plans_present: Some(true),
                     plan_count: Some(5),
                 },
-                inventory_item_stacks: Vec::new(),
-                rotation: Some(3),
-                team_id: Some(4),
-                io_version: Some(5),
-                module_bitmask: Some(6),
-                time_scale_bits: Some(0x3f80_0000),
-                time_scale_duration_bits: Some(0x3f00_0000),
-                last_disabler_pos: Some(126),
-                legacy_consume_connected: Some(false),
-                health_bits: Some(0x40a0_0000),
-                enabled: Some(true),
-                efficiency: Some(0x50),
-                optional_efficiency: Some(0x28),
-                visible_flags: Some(66),
-                turret_reload_counter_bits: None,
-                turret_rotation_bits: None,
-                item_turret_ammo_count: None,
-                continuous_turret_last_length_bits: None,
-                build_turret_rotation_bits: Some(0x4210_0000),
-                build_turret_plans_present: Some(true),
-                build_turret_plan_count: Some(5),
-                last_update: BuildingProjectionUpdateKind::BlockSnapshotHead,
-            })
+                Vec::new(),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(6),
+                Some(0x3f80_0000),
+                Some(0x3f00_0000),
+                Some(126),
+                Some(false),
+                Some(0x40a0_0000),
+                Some(true),
+                Some(0x50),
+                Some(0x28),
+                Some(66),
+                None,
+                None,
+                None,
+                None,
+                Some(0x4210_0000),
+                Some(true),
+                Some(5),
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
         );
     }
 
@@ -6524,38 +6927,38 @@ mod tests {
             );
         assert_eq!(
             state.typed_runtime_building_at(turret_pos),
-            Some(TypedBuildingRuntimeModel {
-                build_pos: turret_pos,
-                block_id: Some(304),
-                block_name: "lancer".to_string(),
-                kind: TypedBuildingRuntimeKind::Turret,
-                value: TypedBuildingRuntimeValue::Turret {
+            Some(expected_typed_runtime_building(
+                turret_pos,
+                304,
+                "lancer",
+                TypedBuildingRuntimeKind::Turret,
+                TypedBuildingRuntimeValue::Turret {
                     reload_counter_bits: Some(0x3f80_0000),
                     rotation_bits: Some(0x4120_0000),
                 },
-                inventory_item_stacks: Vec::new(),
-                rotation: Some(1),
-                team_id: Some(2),
-                io_version: Some(3),
-                module_bitmask: Some(4),
-                time_scale_bits: None,
-                time_scale_duration_bits: None,
-                last_disabler_pos: None,
-                legacy_consume_connected: None,
-                health_bits: Some(0x40b0_0000),
-                enabled: Some(true),
-                efficiency: Some(0x10),
-                optional_efficiency: Some(0x08),
-                visible_flags: Some(11),
-                turret_reload_counter_bits: Some(0x3f80_0000),
-                turret_rotation_bits: Some(0x4120_0000),
-                item_turret_ammo_count: None,
-                continuous_turret_last_length_bits: None,
-                build_turret_rotation_bits: None,
-                build_turret_plans_present: None,
-                build_turret_plan_count: None,
-                last_update: BuildingProjectionUpdateKind::BlockSnapshotHead,
-            })
+                Vec::new(),
+                Some(1),
+                Some(2),
+                Some(3),
+                Some(4),
+                None,
+                None,
+                None,
+                None,
+                Some(0x40b0_0000),
+                Some(true),
+                Some(0x10),
+                Some(0x08),
+                Some(11),
+                Some(0x3f80_0000),
+                Some(0x4120_0000),
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
         );
 
         let item_turret_pos = 0x000a_000ci32;
@@ -6588,39 +6991,39 @@ mod tests {
             );
         assert_eq!(
             state.typed_runtime_building_at(item_turret_pos),
-            Some(TypedBuildingRuntimeModel {
-                build_pos: item_turret_pos,
-                block_id: Some(305),
-                block_name: "duo".to_string(),
-                kind: TypedBuildingRuntimeKind::ItemTurret,
-                value: TypedBuildingRuntimeValue::ItemTurret {
+            Some(expected_typed_runtime_building(
+                item_turret_pos,
+                305,
+                "duo",
+                TypedBuildingRuntimeKind::ItemTurret,
+                TypedBuildingRuntimeValue::ItemTurret {
                     reload_counter_bits: Some(0x4000_0000),
                     rotation_bits: Some(0x4130_0000),
                     ammo_count: Some(7),
                 },
-                inventory_item_stacks: Vec::new(),
-                rotation: Some(2),
-                team_id: Some(3),
-                io_version: Some(4),
-                module_bitmask: Some(5),
-                time_scale_bits: None,
-                time_scale_duration_bits: None,
-                last_disabler_pos: None,
-                legacy_consume_connected: None,
-                health_bits: Some(0x40c0_0000),
-                enabled: Some(true),
-                efficiency: Some(0x20),
-                optional_efficiency: Some(0x10),
-                visible_flags: Some(12),
-                turret_reload_counter_bits: Some(0x4000_0000),
-                turret_rotation_bits: Some(0x4130_0000),
-                item_turret_ammo_count: Some(7),
-                continuous_turret_last_length_bits: None,
-                build_turret_rotation_bits: None,
-                build_turret_plans_present: None,
-                build_turret_plan_count: None,
-                last_update: BuildingProjectionUpdateKind::BlockSnapshotHead,
-            })
+                Vec::new(),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(5),
+                None,
+                None,
+                None,
+                None,
+                Some(0x40c0_0000),
+                Some(true),
+                Some(0x20),
+                Some(0x10),
+                Some(12),
+                Some(0x4000_0000),
+                Some(0x4130_0000),
+                Some(7),
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
         );
 
         let continuous_turret_pos = 0x000b_000di32;
@@ -6653,39 +7056,39 @@ mod tests {
             );
         assert_eq!(
             state.typed_runtime_building_at(continuous_turret_pos),
-            Some(TypedBuildingRuntimeModel {
-                build_pos: continuous_turret_pos,
-                block_id: Some(306),
-                block_name: "lustre".to_string(),
-                kind: TypedBuildingRuntimeKind::ContinuousTurret,
-                value: TypedBuildingRuntimeValue::ContinuousTurret {
+            Some(expected_typed_runtime_building(
+                continuous_turret_pos,
+                306,
+                "lustre",
+                TypedBuildingRuntimeKind::ContinuousTurret,
+                TypedBuildingRuntimeValue::ContinuousTurret {
                     reload_counter_bits: Some(0x4040_0000),
                     rotation_bits: Some(0x4140_0000),
                     last_length_bits: Some(0x40c0_0000),
                 },
-                inventory_item_stacks: Vec::new(),
-                rotation: Some(3),
-                team_id: Some(4),
-                io_version: Some(5),
-                module_bitmask: Some(6),
-                time_scale_bits: None,
-                time_scale_duration_bits: None,
-                last_disabler_pos: None,
-                legacy_consume_connected: None,
-                health_bits: Some(0x40d0_0000),
-                enabled: Some(true),
-                efficiency: Some(0x30),
-                optional_efficiency: Some(0x18),
-                visible_flags: Some(13),
-                turret_reload_counter_bits: Some(0x4040_0000),
-                turret_rotation_bits: Some(0x4140_0000),
-                item_turret_ammo_count: None,
-                continuous_turret_last_length_bits: Some(0x40c0_0000),
-                build_turret_rotation_bits: None,
-                build_turret_plans_present: None,
-                build_turret_plan_count: None,
-                last_update: BuildingProjectionUpdateKind::BlockSnapshotHead,
-            })
+                Vec::new(),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(6),
+                None,
+                None,
+                None,
+                None,
+                Some(0x40d0_0000),
+                Some(true),
+                Some(0x30),
+                Some(0x18),
+                Some(13),
+                Some(0x4040_0000),
+                Some(0x4140_0000),
+                None,
+                Some(0x40c0_0000),
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
         );
     }
 
@@ -6765,6 +7168,34 @@ mod tests {
     }
 
     #[test]
+    fn resource_delta_projection_seed_world_build_liquids_sets_baseline_without_counter_drift() {
+        let mut projection = ResourceDeltaProjection::default();
+        projection.authoritative_build_update_count = 7;
+        projection.last_changed_build_pos = Some(pack_point2(1, 1));
+        projection.last_changed_item_id = Some(5);
+        projection.last_changed_amount = Some(9);
+
+        let build_pos = pack_point2(8, 9);
+        projection.seed_world_build_liquids(
+            build_pos,
+            &[(4, 1.25f32.to_bits()), (6, 0.0f32.to_bits()), (7, 3.5f32.to_bits())],
+        );
+
+        assert_eq!(
+            projection.building_liquids_by_build.get(&build_pos).cloned(),
+            Some(BTreeMap::from([(4, 1.25f32.to_bits()), (7, 3.5f32.to_bits())]))
+        );
+        assert_eq!(projection.authoritative_build_update_count, 7);
+        assert_eq!(projection.last_changed_build_pos, Some(pack_point2(1, 1)));
+        assert_eq!(projection.last_changed_item_id, Some(5));
+        assert_eq!(projection.last_changed_amount, Some(9));
+
+        projection.seed_world_build_liquids(build_pos, &[]);
+        assert!(!projection.building_liquids_by_build.contains_key(&build_pos));
+        assert_eq!(projection.authoritative_build_update_count, 7);
+    }
+
+    #[test]
     fn resource_delta_projection_replace_build_items_exact_full_replaces_and_counts_once() {
         let mut projection = ResourceDeltaProjection::default();
         let build_pos = pack_point2(8, 9);
@@ -6791,6 +7222,39 @@ mod tests {
         assert_eq!(projection.last_changed_build_pos, Some(build_pos));
         assert_eq!(projection.last_changed_item_id, None);
         assert_eq!(projection.last_changed_amount, Some(0));
+    }
+
+    #[test]
+    fn resource_delta_projection_replace_build_liquids_exact_full_replaces_and_counts_once() {
+        let mut projection = ResourceDeltaProjection::default();
+        let build_pos = pack_point2(8, 9);
+        projection.building_liquids_by_build.insert(
+            build_pos,
+            BTreeMap::from([(1, 0.25f32.to_bits()), (3, 0.75f32.to_bits())]),
+        );
+        projection.authoritative_build_update_count = 2;
+
+        projection.replace_build_liquids_exact(
+            Some(build_pos),
+            &[(4, 1.5f32.to_bits()), (6, 0.0f32.to_bits())],
+        );
+
+        assert_eq!(
+            projection.building_liquids_by_build.get(&build_pos).cloned(),
+            Some(BTreeMap::from([(4, 1.5f32.to_bits())]))
+        );
+        assert_eq!(projection.authoritative_build_update_count, 3);
+        assert_eq!(projection.last_changed_build_pos, Some(build_pos));
+        assert_eq!(projection.last_changed_item_id, None);
+        assert_eq!(projection.last_changed_amount, None);
+
+        projection.replace_build_liquids_exact(Some(build_pos), &[]);
+
+        assert!(!projection.building_liquids_by_build.contains_key(&build_pos));
+        assert_eq!(projection.authoritative_build_update_count, 4);
+        assert_eq!(projection.last_changed_build_pos, Some(build_pos));
+        assert_eq!(projection.last_changed_item_id, None);
+        assert_eq!(projection.last_changed_amount, None);
     }
 
     #[test]

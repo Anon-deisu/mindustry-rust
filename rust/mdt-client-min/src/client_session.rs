@@ -1899,6 +1899,39 @@ impl ClientSession {
             )
     }
 
+    fn record_set_liquid_resource_delta(
+        &mut self,
+        build_pos: Option<i32>,
+        liquid_id: Option<i16>,
+        amount_bits: u32,
+    ) {
+        self.state
+            .record_set_liquid_resource_delta(build_pos, liquid_id, amount_bits);
+    }
+
+    fn record_set_liquids_resource_delta(
+        &mut self,
+        build_pos: Option<i32>,
+        stacks: &[(Option<i16>, u32)],
+    ) {
+        self.state
+            .record_set_liquids_resource_delta(build_pos, stacks);
+    }
+
+    fn record_set_tile_liquids_resource_delta(
+        &mut self,
+        liquid_id: Option<i16>,
+        amount_bits: u32,
+        positions: &[i32],
+    ) {
+        self.state
+            .record_set_tile_liquids_resource_delta(liquid_id, amount_bits, positions);
+    }
+
+    fn record_clear_liquids_resource_delta(&mut self, build_pos: Option<i32>) {
+        self.state.record_clear_liquids_resource_delta(build_pos);
+    }
+
     fn authoritative_config_pending_match_mode(
         &self,
         build_pos: i32,
@@ -3484,6 +3517,15 @@ impl ClientSession {
                     self.state.last_set_liquid_build_pos = summary.build_pos;
                     self.state.last_set_liquid_liquid_id = summary.liquid_id;
                     self.state.last_set_liquid_amount_bits = Some(summary.amount.to_bits());
+                    self.record_set_liquid_resource_delta(
+                        summary.build_pos,
+                        summary.liquid_id,
+                        summary.amount.to_bits(),
+                    );
+                    if let Some(build_pos) = summary.build_pos {
+                        self.state
+                            .refresh_runtime_typed_building_from_tables(build_pos);
+                    }
                     Ok(ClientSessionEvent::SetLiquid {
                         build_pos: summary.build_pos,
                         liquid_id: summary.liquid_id,
@@ -3504,6 +3546,11 @@ impl ClientSession {
                     self.state.last_set_liquids_count = summary.stack_count;
                     self.state.last_set_liquids_first_liquid_id = summary.first_liquid_id;
                     self.state.last_set_liquids_first_amount_bits = summary.first_amount_bits;
+                    self.record_set_liquids_resource_delta(summary.build_pos, &summary.stacks);
+                    if let Some(build_pos) = summary.build_pos {
+                        self.state
+                            .refresh_runtime_typed_building_from_tables(build_pos);
+                    }
                     Ok(ClientSessionEvent::SetLiquids {
                         build_pos: summary.build_pos,
                         stack_count: summary.stack_count,
@@ -3690,6 +3737,15 @@ impl ClientSession {
                     self.state.last_set_tile_liquids_amount_bits = Some(summary.amount_bits);
                     self.state.last_set_tile_liquids_count = summary.position_count;
                     self.state.last_set_tile_liquids_first_position = summary.first_position;
+                    self.record_set_tile_liquids_resource_delta(
+                        summary.liquid_id,
+                        summary.amount_bits,
+                        &summary.positions,
+                    );
+                    for build_pos in &summary.positions {
+                        self.state
+                            .refresh_runtime_typed_building_from_tables(*build_pos);
+                    }
                     Ok(ClientSessionEvent::SetTileLiquids {
                         liquid_id: summary.liquid_id,
                         amount_bits: summary.amount_bits,
@@ -4075,6 +4131,11 @@ impl ClientSession {
                     self.state.received_clear_liquids_count =
                         self.state.received_clear_liquids_count.saturating_add(1);
                     self.state.last_clear_liquids_build_pos = build_pos;
+                    self.record_clear_liquids_resource_delta(build_pos);
+                    if let Some(build_pos) = build_pos {
+                        self.state
+                            .refresh_runtime_typed_building_from_tables(build_pos);
+                    }
                     Ok(ClientSessionEvent::ClearLiquids { build_pos })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -6751,9 +6812,13 @@ impl ClientSession {
                 base.visible_flags,
             );
             let build_item_stacks = summarize_item_module_stacks(base.item_module.as_ref());
+            let build_liquid_stacks = summarize_liquid_module_stacks(base.liquid_module.as_ref());
             self.state
                 .resource_delta_projection
                 .seed_world_build_items(build_pos, &build_item_stacks);
+            self.state
+                .resource_delta_projection
+                .seed_world_build_liquids(build_pos, &build_liquid_stacks);
             self.apply_loaded_world_parsed_tail_business(
                 build_pos,
                 block_name.as_deref(),
@@ -6982,6 +7047,8 @@ impl ClientSession {
             );
             let build_item_stacks =
                 summarize_item_module_stacks(row.sync.base.item_module.as_ref());
+            let build_liquid_stacks =
+                summarize_liquid_module_stacks(row.sync.base.liquid_module.as_ref());
             if !build_item_stacks.is_empty()
                 || self
                     .state
@@ -6992,6 +7059,18 @@ impl ClientSession {
                 self.state.record_replace_build_items_resource_delta(
                     Some(row.build_pos),
                     &build_item_stacks,
+                );
+            }
+            if !build_liquid_stacks.is_empty()
+                || self
+                    .state
+                    .resource_delta_projection
+                    .building_liquids_by_build
+                    .contains_key(&row.build_pos)
+            {
+                self.state.record_replace_build_liquids_resource_delta(
+                    Some(row.build_pos),
+                    &build_liquid_stacks,
                 );
             }
             self.state
@@ -7591,6 +7670,9 @@ impl ClientSession {
                 light_color: summarize_one_i32_tail_value(&building.parsed_tail),
                 switch_enabled: summarize_one_bool_tail_value(&building.parsed_tail),
                 build_item_stacks: summarize_item_module_stacks(building.base.item_module.as_ref()),
+                build_liquid_stacks: summarize_liquid_module_stacks(
+                    building.base.liquid_module.as_ref(),
+                ),
             };
             entries.push(entry);
         }
@@ -7909,6 +7991,9 @@ impl ClientSession {
         self.state
             .resource_delta_projection
             .seed_world_build_items(entry.build_pos, &entry.build_item_stacks);
+        self.state
+            .resource_delta_projection
+            .seed_world_build_liquids(entry.build_pos, &entry.build_liquid_stacks);
         self.state
             .refresh_runtime_typed_building_from_tables(entry.build_pos);
     }
@@ -9997,6 +10082,7 @@ fn decode_set_liquids_payload(payload: &[u8]) -> Option<SetLiquidsSummary> {
     let stack_count = usize::try_from(stack_count).ok()?;
     let mut first_liquid_id = None;
     let mut first_amount_bits = None;
+    let mut stacks = Vec::with_capacity(stack_count);
     for index in 0..stack_count {
         let liquid_id = read_optional_liquid_id(payload, &mut cursor)?;
         let amount = read_f32(payload, &mut cursor)?;
@@ -10004,12 +10090,14 @@ fn decode_set_liquids_payload(payload: &[u8]) -> Option<SetLiquidsSummary> {
             first_liquid_id = liquid_id;
             first_amount_bits = Some(amount.to_bits());
         }
+        stacks.push((liquid_id, amount.to_bits()));
     }
     (cursor == payload.len()).then_some(SetLiquidsSummary {
         build_pos,
         stack_count,
         first_liquid_id,
         first_amount_bits,
+        stacks,
     })
 }
 
@@ -10086,6 +10174,7 @@ fn decode_set_tile_liquids_payload(payload: &[u8]) -> Option<SetTileLiquidsSumma
         amount_bits: amount.to_bits(),
         position_count: positions.len(),
         first_position: positions.first().copied(),
+        positions,
     })
 }
 
@@ -11787,6 +11876,7 @@ struct SetLiquidsSummary {
     stack_count: usize,
     first_liquid_id: Option<i16>,
     first_amount_bits: Option<u32>,
+    stacks: Vec<(Option<i16>, u32)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -11838,6 +11928,7 @@ struct SetTileLiquidsSummary {
     amount_bits: u32,
     position_count: usize,
     first_position: Option<i32>,
+    positions: Vec<i32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -12241,6 +12332,7 @@ struct BlockSnapshotExtraEntrySummary {
     light_color: Option<i32>,
     switch_enabled: Option<bool>,
     build_item_stacks: Vec<(i16, i32)>,
+    build_liquid_stacks: Vec<(i16, u32)>,
 }
 
 fn loaded_world_nullable_content_object(content_type: u8, content_id: Option<i16>) -> TypeIoObject {
@@ -12696,6 +12788,21 @@ fn summarize_item_module_stacks(
             (
                 i16::from_be_bytes(entry.item_id.to_be_bytes()),
                 entry.amount,
+            )
+        })
+        .collect()
+}
+
+fn summarize_liquid_module_stacks(
+    liquid_module: Option<&mdt_world::BuildingLiquidModuleSnapshot>,
+) -> Vec<(i16, u32)> {
+    liquid_module
+        .into_iter()
+        .flat_map(|module| module.entries.iter())
+        .map(|entry| {
+            (
+                i16::from_be_bytes(entry.liquid_id.to_be_bytes()),
+                entry.amount_bits,
             )
         })
         .collect()
@@ -19942,6 +20049,7 @@ mod tests {
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
+                build_liquid_stacks: Vec::new(),
             },
         ]);
 
@@ -20021,6 +20129,7 @@ mod tests {
                 light_color: None,
                 switch_enabled: Some(true),
                 build_item_stacks: Vec::new(),
+                build_liquid_stacks: Vec::new(),
             },
         ]);
 
@@ -20091,6 +20200,7 @@ mod tests {
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
+                build_liquid_stacks: Vec::new(),
             },
         ]);
 
@@ -20183,6 +20293,7 @@ mod tests {
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: vec![(7, 11), (8, 0)],
+                build_liquid_stacks: Vec::new(),
             },
         ]);
 
@@ -20234,6 +20345,7 @@ mod tests {
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
+                build_liquid_stacks: Vec::new(),
             },
         ]);
 
@@ -20480,6 +20592,7 @@ mod tests {
                     "loaded-world note".to_string()
                 ),
                 inventory_item_stacks: Vec::new(),
+                inventory_liquid_stacks: Vec::new(),
                 rotation: Some(1),
                 team_id: Some(2),
                 io_version: Some(3),
@@ -21348,6 +21461,7 @@ mod tests {
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
+                build_liquid_stacks: Vec::new(),
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: router_pos,
@@ -21389,6 +21503,7 @@ mod tests {
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
+                build_liquid_stacks: Vec::new(),
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: memory_pos,
@@ -21427,6 +21542,7 @@ mod tests {
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
+                build_liquid_stacks: Vec::new(),
             },
         ]);
 
@@ -21506,6 +21622,7 @@ mod tests {
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
+                build_liquid_stacks: Vec::new(),
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: landing_pad_pos,
@@ -21544,6 +21661,7 @@ mod tests {
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
+                build_liquid_stacks: Vec::new(),
             },
         ]);
 
@@ -21616,6 +21734,7 @@ mod tests {
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
+                build_liquid_stacks: Vec::new(),
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: duct_router_pos,
@@ -21654,6 +21773,7 @@ mod tests {
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
+                build_liquid_stacks: Vec::new(),
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: bridge_pos,
@@ -21692,6 +21812,7 @@ mod tests {
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
+                build_liquid_stacks: Vec::new(),
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: conduit_pos,
@@ -21730,6 +21851,7 @@ mod tests {
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
+                build_liquid_stacks: Vec::new(),
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: mass_driver_pos,
@@ -21768,6 +21890,7 @@ mod tests {
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
+                build_liquid_stacks: Vec::new(),
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: illuminator_pos,
@@ -21806,6 +21929,7 @@ mod tests {
                 light_color: Some(0x55667788),
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
+                build_liquid_stacks: Vec::new(),
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: switch_pos,
@@ -21844,6 +21968,7 @@ mod tests {
                 light_color: None,
                 switch_enabled: Some(false),
                 build_item_stacks: Vec::new(),
+                build_liquid_stacks: Vec::new(),
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: door_pos,
@@ -21882,6 +22007,7 @@ mod tests {
                 light_color: None,
                 switch_enabled: Some(true),
                 build_item_stacks: Vec::new(),
+                build_liquid_stacks: Vec::new(),
             },
         ]);
 
@@ -22008,6 +22134,7 @@ mod tests {
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
+                build_liquid_stacks: Vec::new(),
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: duct_unloader_pos,
@@ -22046,6 +22173,7 @@ mod tests {
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
+                build_liquid_stacks: Vec::new(),
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: reconstructor_pos,
@@ -22084,6 +22212,7 @@ mod tests {
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
+                build_liquid_stacks: Vec::new(),
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: canvas_pos,
@@ -22122,6 +22251,7 @@ mod tests {
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
+                build_liquid_stacks: Vec::new(),
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: payload_mass_driver_pos,
@@ -22160,6 +22290,7 @@ mod tests {
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
+                build_liquid_stacks: Vec::new(),
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: sorter_pos,
@@ -22198,6 +22329,7 @@ mod tests {
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
+                build_liquid_stacks: Vec::new(),
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: illuminator_pos,
@@ -22236,6 +22368,7 @@ mod tests {
                 light_color: Some(0x2233_4455),
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
+                build_liquid_stacks: Vec::new(),
             },
             BlockSnapshotExtraEntrySummary {
                 build_pos: phase_conveyor_pos,
@@ -22274,6 +22407,7 @@ mod tests {
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
+                build_liquid_stacks: Vec::new(),
             },
         ]);
 
@@ -31626,6 +31760,7 @@ mod tests {
                 kind: crate::session_state::TypedBuildingRuntimeKind::Message,
                 value: crate::session_state::TypedBuildingRuntimeValue::Text("hello".to_string()),
                 inventory_item_stacks: Vec::new(),
+                inventory_liquid_stacks: Vec::new(),
                 rotation: Some(0),
                 team_id: Some(1),
                 io_version: None,
@@ -34214,6 +34349,172 @@ mod tests {
             Some((
                 crate::session_state::TypedBuildingRuntimeValue::Text("tracked".to_string()),
                 Vec::new(),
+            ))
+        );
+    }
+
+    #[test]
+    fn liquid_authoritative_packets_mark_resource_delta_and_refresh_runtime_typed_buildings() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let set_liquid_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setLiquid")
+            .unwrap()
+            .packet_id;
+        let set_liquids_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setLiquids")
+            .unwrap()
+            .packet_id;
+        let set_tile_liquids_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setTileLiquids")
+            .unwrap()
+            .packet_id;
+        let clear_liquids_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "clearLiquids")
+            .unwrap()
+            .packet_id;
+
+        let build_pos = pack_point2(2, 3);
+        let tile_liquid_a = pack_point2(1, 2);
+        let tile_liquid_b = pack_point2(3, 4);
+        for (pos, text) in [
+            (build_pos, "tracked"),
+            (tile_liquid_a, "alpha"),
+            (tile_liquid_b, "beta"),
+        ] {
+            session.state.building_table_projection.seed_world_baseline(
+                pos,
+                300,
+                Some(BLOCK_NAME_MESSAGE.to_string()),
+                0,
+                1,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                0x3f80_0000,
+                Some(true),
+                None,
+                None,
+                None,
+            );
+            session
+                .state
+                .configured_block_projection
+                .apply_message_text(pos, text.to_string());
+        }
+
+        let mut set_liquid_payload = encode_building_payload(Some(build_pos));
+        set_liquid_payload.extend_from_slice(&3i16.to_be_bytes());
+        set_liquid_payload.extend_from_slice(&2.5f32.to_be_bytes());
+        session
+            .ingest_packet_bytes(
+                &encode_packet(set_liquid_packet_id, &set_liquid_payload, false).unwrap(),
+            )
+            .unwrap();
+
+        let mut set_liquids_payload = encode_building_payload(Some(build_pos));
+        set_liquids_payload.extend_from_slice(&2i16.to_be_bytes());
+        set_liquids_payload.extend_from_slice(&5i16.to_be_bytes());
+        set_liquids_payload.extend_from_slice(&1.25f32.to_be_bytes());
+        set_liquids_payload.extend_from_slice(&7i16.to_be_bytes());
+        set_liquids_payload.extend_from_slice(&3.5f32.to_be_bytes());
+        session
+            .ingest_packet_bytes(
+                &encode_packet(set_liquids_packet_id, &set_liquids_payload, false).unwrap(),
+            )
+            .unwrap();
+
+        let mut set_tile_liquids_payload = Vec::new();
+        set_tile_liquids_payload.extend_from_slice(&4i16.to_be_bytes());
+        set_tile_liquids_payload.extend_from_slice(&0.75f32.to_be_bytes());
+        set_tile_liquids_payload.extend_from_slice(&2i16.to_be_bytes());
+        set_tile_liquids_payload.extend_from_slice(&tile_liquid_a.to_be_bytes());
+        set_tile_liquids_payload.extend_from_slice(&tile_liquid_b.to_be_bytes());
+        session
+            .ingest_packet_bytes(
+                &encode_packet(set_tile_liquids_packet_id, &set_tile_liquids_payload, false)
+                    .unwrap(),
+            )
+            .unwrap();
+
+        session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    clear_liquids_packet_id,
+                    &encode_building_payload(Some(build_pos)),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .authoritative_build_update_count,
+            4
+        );
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .last_changed_build_pos,
+            Some(build_pos)
+        );
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .last_changed_item_id,
+            None
+        );
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .last_changed_amount,
+            Some(0)
+        );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos)
+                .map(|building| building.value.clone()),
+            Some(crate::session_state::TypedBuildingRuntimeValue::Text(
+                "tracked".to_string()
+            ))
+        );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(tile_liquid_a)
+                .map(|building| building.value.clone()),
+            Some(crate::session_state::TypedBuildingRuntimeValue::Text(
+                "alpha".to_string()
+            ))
+        );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(tile_liquid_b)
+                .map(|building| building.value.clone()),
+            Some(crate::session_state::TypedBuildingRuntimeValue::Text(
+                "beta".to_string()
             ))
         );
     }
@@ -40702,3 +41003,6 @@ mod tests {
         );
     }
 }
+
+
+
