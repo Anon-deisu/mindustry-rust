@@ -6744,6 +6744,8 @@ impl ClientSession {
                 &row.sync.parsed_tail,
             );
             self.state
+                .refresh_runtime_typed_building_from_tables(row.build_pos);
+            self.state
                 .refresh_runtime_typed_entity_from_tables(row.entity_id);
         }
     }
@@ -16639,6 +16641,124 @@ mod tests {
         assert_eq!(
             session.state().building_table_projection.last_build_pos,
             Some(build_pos)
+        );
+    }
+
+    #[test]
+    fn entity_snapshot_building_rows_refresh_runtime_typed_building_apply_projection() {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(39, 61);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_MESSAGE);
+        session.state.building_table_projection.seed_world_baseline(
+            build_pos,
+            block_id,
+            Some(BLOCK_NAME_MESSAGE.to_string()),
+            0,
+            1,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            0x4000_0000,
+            Some(true),
+            None,
+            None,
+            None,
+        );
+        session.apply_loaded_world_parsed_tail_business(
+            build_pos,
+            Some(BLOCK_NAME_MESSAGE),
+            &mdt_world::ParsedBuildingTail::Message(mdt_world::MessageTailSnapshot {
+                message: "stale".to_string(),
+            }),
+        );
+        let mut stale_runtime_building = session
+            .state()
+            .runtime_typed_building_apply_projection
+            .building_at(build_pos)
+            .cloned()
+            .expect("expected seeded runtime typed building");
+        stale_runtime_building.health_bits = Some(0x3f80_0000);
+        stale_runtime_building.rotation = Some(3);
+        session
+            .state
+            .runtime_typed_building_apply_projection
+            .upsert_runtime_building(stale_runtime_building);
+        session.state.received_entity_snapshot_count = 1;
+
+        let row = EntityBuildingSyncRow {
+            entity_id: build_pos,
+            class_id: 6,
+            build_pos,
+            block_id,
+            sync: mdt_world::BuildingSnapshot {
+                revision: 0,
+                base_len: 0,
+                base: mdt_world::BuildingBaseSnapshot {
+                    health_bits: 0x4120_0000,
+                    rotation: 1,
+                    team_id: 1,
+                    legacy: false,
+                    save_version: None,
+                    enabled: Some(true),
+                    module_bitmask: None,
+                    item_module: None,
+                    power_module: None,
+                    liquid_module: None,
+                    time_scale_bits: None,
+                    time_scale_duration_bits: None,
+                    last_disabler_pos: None,
+                    legacy_consume_connected: None,
+                    efficiency: None,
+                    optional_efficiency: None,
+                    visible_flags: None,
+                },
+                tail_len: 0,
+                tail_bytes: Vec::new(),
+                tail_sha256: String::new(),
+                parsed_tail: mdt_world::ParsedBuildingTail::Message(
+                    mdt_world::MessageTailSnapshot {
+                        message: "fresh".to_string(),
+                    },
+                ),
+            },
+            x_bits: (39.0f32 * 8.0).to_bits(),
+            y_bits: (61.0f32 * 8.0).to_bits(),
+            start: 0,
+            end: 0,
+        };
+
+        session.apply_parseable_building_rows_from_entity_snapshot(&[row]);
+
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos)
+                .map(|building| (
+                    building.block_id,
+                    building.health_bits,
+                    building.rotation,
+                    building.last_update
+                )),
+            Some((
+                Some(block_id),
+                Some(0x4120_0000),
+                Some(1),
+                crate::session_state::BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
+        );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos)
+                .map(|building| building.value.clone()),
+            Some(crate::session_state::TypedBuildingRuntimeValue::Text(
+                "fresh".to_string(),
+            ))
         );
     }
 
