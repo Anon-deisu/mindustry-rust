@@ -1,196 +1,174 @@
 use crate::{
-    SavePostLoadConsumerRuntimeDisposition, SavePostLoadConsumerRuntimeHelper,
-    SavePostLoadConsumerStageKind, SavePostLoadRuntimeSeedPlan, SavePostLoadWorldObservation,
+    SavePostLoadRuntimeApplyExecution, SavePostLoadRuntimeApplyStep, SavePostLoadRuntimeSeedPlan,
+    SavePostLoadRuntimeWorldSemanticsExecution, SavePostLoadWorldObservation,
 };
+use std::collections::BTreeMap;
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub enum SavePostLoadRuntimeApplyStep {
-    WorldShell,
-    EntityRemap {
-        remap_index: usize,
-    },
-    TeamPlan {
-        group_index: usize,
-        plan_index: usize,
-    },
-    Marker {
-        marker_index: usize,
-    },
-    StaticFog,
-    CustomChunk {
-        chunk_index: usize,
-    },
-    Building {
-        center_index: usize,
-    },
-    LoadableEntity {
-        entity_index: usize,
-    },
-    SkippedEntity {
-        entity_index: usize,
-    },
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SavePostLoadRuntimeExecutionStepStatus {
+    Executed,
+    Failed,
+    AwaitingWorldShell,
+    Blocked,
+    Deferred,
 }
 
-impl SavePostLoadRuntimeApplyStep {
-    pub fn targets_world_semantics(&self) -> bool {
-        matches!(
-            self,
-            SavePostLoadRuntimeApplyStep::WorldShell
-                | SavePostLoadRuntimeApplyStep::TeamPlan { .. }
-                | SavePostLoadRuntimeApplyStep::Marker { .. }
-                | SavePostLoadRuntimeApplyStep::StaticFog
-                | SavePostLoadRuntimeApplyStep::Building { .. }
-                | SavePostLoadRuntimeApplyStep::LoadableEntity { .. }
-        )
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SavePostLoadRuntimeApplyExecutionView {
+    pub can_seed_runtime_apply: bool,
+    pub world_shell_ready: bool,
+    pub step_status_lookup:
+        BTreeMap<SavePostLoadRuntimeApplyStep, SavePostLoadRuntimeExecutionStepStatus>,
+}
+
+impl SavePostLoadRuntimeApplyExecutionView {
+    pub fn step_status(
+        &self,
+        step: &SavePostLoadRuntimeApplyStep,
+    ) -> Option<SavePostLoadRuntimeExecutionStepStatus> {
+        self.step_status_lookup.get(step).copied()
+    }
+
+    pub fn step_count(&self, status: SavePostLoadRuntimeExecutionStepStatus) -> usize {
+        self.step_status_lookup
+            .values()
+            .filter(|candidate| **candidate == status)
+            .count()
+    }
+
+    pub fn total_step_count(&self) -> usize {
+        self.step_status_lookup.len()
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SavePostLoadRuntimeApplyScript {
-    pub can_seed_runtime_apply: bool,
+pub struct SavePostLoadRuntimeWorldSemanticsExecutionView {
+    pub can_apply_world_semantics: bool,
     pub world_shell_ready: bool,
-    pub apply_now_steps: Vec<SavePostLoadRuntimeApplyStep>,
-    pub awaiting_world_shell_steps: Vec<SavePostLoadRuntimeApplyStep>,
-    pub blocked_steps: Vec<SavePostLoadRuntimeApplyStep>,
-    pub deferred_steps: Vec<SavePostLoadRuntimeApplyStep>,
+    pub step_status_lookup:
+        BTreeMap<SavePostLoadRuntimeApplyStep, SavePostLoadRuntimeExecutionStepStatus>,
 }
 
-impl SavePostLoadRuntimeApplyScript {
-    pub fn apply_now_step_count(&self) -> usize {
-        self.apply_now_steps.len()
+impl SavePostLoadRuntimeWorldSemanticsExecutionView {
+    pub fn step_status(
+        &self,
+        step: &SavePostLoadRuntimeApplyStep,
+    ) -> Option<SavePostLoadRuntimeExecutionStepStatus> {
+        self.step_status_lookup.get(step).copied()
     }
 
-    pub fn awaiting_world_shell_step_count(&self) -> usize {
-        self.awaiting_world_shell_steps.len()
-    }
-
-    pub fn blocked_step_count(&self) -> usize {
-        self.blocked_steps.len()
-    }
-
-    pub fn deferred_step_count(&self) -> usize {
-        self.deferred_steps.len()
+    pub fn step_count(&self, status: SavePostLoadRuntimeExecutionStepStatus) -> usize {
+        self.step_status_lookup
+            .values()
+            .filter(|candidate| **candidate == status)
+            .count()
     }
 
     pub fn total_step_count(&self) -> usize {
-        self.apply_now_step_count()
-            + self.awaiting_world_shell_step_count()
-            + self.blocked_step_count()
-            + self.deferred_step_count()
+        self.step_status_lookup.len()
     }
 }
 
 impl SavePostLoadWorldObservation {
-    pub fn runtime_apply_script(&self) -> SavePostLoadRuntimeApplyScript {
-        self.runtime_seed_plan().runtime_apply_script()
+    pub fn runtime_apply_execution_view(&self) -> SavePostLoadRuntimeApplyExecutionView {
+        self.runtime_seed_plan().runtime_apply_execution_view()
+    }
+
+    pub fn runtime_world_semantics_execution_view(
+        &self,
+    ) -> SavePostLoadRuntimeWorldSemanticsExecutionView {
+        self.runtime_seed_plan()
+            .runtime_world_semantics_execution_view()
     }
 }
 
 impl SavePostLoadRuntimeSeedPlan {
-    pub fn runtime_apply_script(&self) -> SavePostLoadRuntimeApplyScript {
-        self.consumer_runtime_helper().runtime_apply_script(self)
+    pub fn runtime_apply_execution_view(&self) -> SavePostLoadRuntimeApplyExecutionView {
+        self.execute_runtime_apply().view()
+    }
+
+    pub fn runtime_world_semantics_execution_view(
+        &self,
+    ) -> SavePostLoadRuntimeWorldSemanticsExecutionView {
+        self.execute_runtime_world_semantics().view()
     }
 }
 
-impl SavePostLoadConsumerRuntimeHelper {
-    pub fn runtime_apply_script(
-        &self,
-        plan: &SavePostLoadRuntimeSeedPlan,
-    ) -> SavePostLoadRuntimeApplyScript {
-        let mut apply_now_steps = Vec::new();
-        let mut awaiting_world_shell_steps = Vec::new();
-        let mut blocked_steps = Vec::new();
-        let mut deferred_steps = Vec::new();
-
-        for stage in &self.stages {
-            let target = match stage.disposition {
-                SavePostLoadConsumerRuntimeDisposition::ApplyNow => &mut apply_now_steps,
-                SavePostLoadConsumerRuntimeDisposition::AwaitingWorldShell => {
-                    &mut awaiting_world_shell_steps
-                }
-                SavePostLoadConsumerRuntimeDisposition::Blocked => &mut blocked_steps,
-                SavePostLoadConsumerRuntimeDisposition::Deferred => &mut deferred_steps,
-            };
-            expand_stage_steps(plan, stage.kind, target);
-        }
-
-        SavePostLoadRuntimeApplyScript {
+impl SavePostLoadRuntimeApplyExecution {
+    pub fn view(&self) -> SavePostLoadRuntimeApplyExecutionView {
+        SavePostLoadRuntimeApplyExecutionView {
             can_seed_runtime_apply: self.can_seed_runtime_apply,
             world_shell_ready: self.world_shell_ready,
-            apply_now_steps,
-            awaiting_world_shell_steps,
-            blocked_steps,
-            deferred_steps,
+            step_status_lookup: build_step_status_lookup(
+                &self.executed_steps,
+                &self.failed_steps,
+                &self.awaiting_world_shell_steps,
+                &self.blocked_steps,
+                &self.deferred_steps,
+            ),
         }
     }
 }
 
-pub(crate) fn expand_stage_steps(
-    plan: &SavePostLoadRuntimeSeedPlan,
-    kind: SavePostLoadConsumerStageKind,
-    out: &mut Vec<SavePostLoadRuntimeApplyStep>,
+impl SavePostLoadRuntimeWorldSemanticsExecution {
+    pub fn view(&self) -> SavePostLoadRuntimeWorldSemanticsExecutionView {
+        SavePostLoadRuntimeWorldSemanticsExecutionView {
+            can_apply_world_semantics: self.can_apply_world_semantics(),
+            world_shell_ready: self.world_shell_ready,
+            step_status_lookup: build_step_status_lookup(
+                &self.executed_steps,
+                &self.failed_steps,
+                &self.awaiting_world_shell_steps,
+                &self.blocked_steps,
+                &[],
+            ),
+        }
+    }
+}
+
+fn build_step_status_lookup(
+    executed_steps: &[SavePostLoadRuntimeApplyStep],
+    failed_steps: &[SavePostLoadRuntimeApplyStep],
+    awaiting_world_shell_steps: &[SavePostLoadRuntimeApplyStep],
+    blocked_steps: &[SavePostLoadRuntimeApplyStep],
+    deferred_steps: &[SavePostLoadRuntimeApplyStep],
+) -> BTreeMap<SavePostLoadRuntimeApplyStep, SavePostLoadRuntimeExecutionStepStatus> {
+    let mut lookup = BTreeMap::new();
+    insert_statuses(
+        &mut lookup,
+        executed_steps,
+        SavePostLoadRuntimeExecutionStepStatus::Executed,
+    );
+    insert_statuses(
+        &mut lookup,
+        failed_steps,
+        SavePostLoadRuntimeExecutionStepStatus::Failed,
+    );
+    insert_statuses(
+        &mut lookup,
+        awaiting_world_shell_steps,
+        SavePostLoadRuntimeExecutionStepStatus::AwaitingWorldShell,
+    );
+    insert_statuses(
+        &mut lookup,
+        blocked_steps,
+        SavePostLoadRuntimeExecutionStepStatus::Blocked,
+    );
+    insert_statuses(
+        &mut lookup,
+        deferred_steps,
+        SavePostLoadRuntimeExecutionStepStatus::Deferred,
+    );
+    lookup
+}
+
+fn insert_statuses(
+    lookup: &mut BTreeMap<SavePostLoadRuntimeApplyStep, SavePostLoadRuntimeExecutionStepStatus>,
+    steps: &[SavePostLoadRuntimeApplyStep],
+    status: SavePostLoadRuntimeExecutionStepStatus,
 ) {
-    match kind {
-        SavePostLoadConsumerStageKind::WorldShell => {
-            out.push(SavePostLoadRuntimeApplyStep::WorldShell);
-        }
-        SavePostLoadConsumerStageKind::EntityRemaps => {
-            out.extend(plan.entity_remap_seeds.iter().map(|seed| {
-                SavePostLoadRuntimeApplyStep::EntityRemap {
-                    remap_index: seed.remap_index,
-                }
-            }));
-        }
-        SavePostLoadConsumerStageKind::TeamPlans => {
-            out.extend(plan.team_plan_seeds.iter().map(|seed| {
-                SavePostLoadRuntimeApplyStep::TeamPlan {
-                    group_index: seed.group_index,
-                    plan_index: seed.plan_index,
-                }
-            }));
-        }
-        SavePostLoadConsumerStageKind::Markers => {
-            out.extend(
-                plan.marker_seeds
-                    .iter()
-                    .map(|seed| SavePostLoadRuntimeApplyStep::Marker {
-                        marker_index: seed.marker_index,
-                    }),
-            );
-        }
-        SavePostLoadConsumerStageKind::StaticFog => {
-            if plan.static_fog_seed.is_some() {
-                out.push(SavePostLoadRuntimeApplyStep::StaticFog);
-            }
-        }
-        SavePostLoadConsumerStageKind::CustomChunks => {
-            out.extend(plan.custom_chunk_seeds.iter().map(|seed| {
-                SavePostLoadRuntimeApplyStep::CustomChunk {
-                    chunk_index: seed.chunk_index,
-                }
-            }));
-        }
-        SavePostLoadConsumerStageKind::Buildings => {
-            out.extend(plan.building_seeds.iter().map(|seed| {
-                SavePostLoadRuntimeApplyStep::Building {
-                    center_index: seed.activation.center_index,
-                }
-            }));
-        }
-        SavePostLoadConsumerStageKind::LoadableEntities => {
-            out.extend(plan.loadable_entity_seeds.iter().map(|seed| {
-                SavePostLoadRuntimeApplyStep::LoadableEntity {
-                    entity_index: seed.entity_index,
-                }
-            }));
-        }
-        SavePostLoadConsumerStageKind::SkippedEntities => {
-            out.extend(plan.skipped_entity_seeds.iter().map(|seed| {
-                SavePostLoadRuntimeApplyStep::SkippedEntity {
-                    entity_index: seed.entity_index,
-                }
-            }));
-        }
+    for step in steps {
+        lookup.insert(step.clone(), status);
     }
 }
 
@@ -208,126 +186,87 @@ mod tests {
     };
 
     #[test]
-    fn runtime_apply_script_counts_align_with_runtime_helper() {
+    fn runtime_apply_execution_view_indexes_clean_execution_statuses() {
         let mut observation = test_observation();
         make_observation_seedable(&mut observation);
 
-        let helper = observation.consumer_runtime_helper();
-        let script = observation.runtime_apply_script();
+        let view = observation.runtime_apply_execution_view();
 
-        assert!(script.can_seed_runtime_apply);
-        assert!(script.world_shell_ready);
-        assert_eq!(script.apply_now_step_count(), helper.apply_now_step_count());
+        assert!(view.can_seed_runtime_apply);
+        assert!(view.world_shell_ready);
         assert_eq!(
-            script.awaiting_world_shell_step_count(),
-            helper.awaiting_world_shell_step_count()
+            view.step_count(SavePostLoadRuntimeExecutionStepStatus::Executed),
+            14
         );
-        assert_eq!(script.blocked_step_count(), helper.blocked_step_count());
-        assert_eq!(script.deferred_step_count(), helper.deferred_step_count());
         assert_eq!(
-            script.total_step_count(),
-            observation.runtime_seed_plan().seed_step_count()
+            view.step_count(SavePostLoadRuntimeExecutionStepStatus::Failed),
+            0
+        );
+        assert_eq!(
+            view.step_status(&SavePostLoadRuntimeApplyStep::WorldShell),
+            Some(SavePostLoadRuntimeExecutionStepStatus::Executed)
+        );
+        assert_eq!(
+            view.step_status(&SavePostLoadRuntimeApplyStep::Building { center_index: 0 }),
+            Some(SavePostLoadRuntimeExecutionStepStatus::Executed)
         );
     }
 
     #[test]
-    fn runtime_apply_script_preserves_step_order_for_clean_seedable_plan() {
-        let mut observation = test_observation();
-        make_observation_seedable(&mut observation);
-
-        let script = observation.runtime_apply_script();
-
-        assert!(script.awaiting_world_shell_steps.is_empty());
-        assert!(script.blocked_steps.is_empty());
-        assert!(script.deferred_steps.is_empty());
-        assert_eq!(
-            script.apply_now_steps,
-            vec![
-                SavePostLoadRuntimeApplyStep::WorldShell,
-                SavePostLoadRuntimeApplyStep::EntityRemap { remap_index: 0 },
-                SavePostLoadRuntimeApplyStep::EntityRemap { remap_index: 1 },
-                SavePostLoadRuntimeApplyStep::TeamPlan {
-                    group_index: 0,
-                    plan_index: 0,
-                },
-                SavePostLoadRuntimeApplyStep::TeamPlan {
-                    group_index: 1,
-                    plan_index: 0,
-                },
-                SavePostLoadRuntimeApplyStep::Marker { marker_index: 0 },
-                SavePostLoadRuntimeApplyStep::Marker { marker_index: 1 },
-                SavePostLoadRuntimeApplyStep::StaticFog,
-                SavePostLoadRuntimeApplyStep::CustomChunk { chunk_index: 0 },
-                SavePostLoadRuntimeApplyStep::CustomChunk { chunk_index: 1 },
-                SavePostLoadRuntimeApplyStep::Building { center_index: 0 },
-                SavePostLoadRuntimeApplyStep::LoadableEntity { entity_index: 0 },
-                SavePostLoadRuntimeApplyStep::LoadableEntity { entity_index: 1 },
-                SavePostLoadRuntimeApplyStep::LoadableEntity { entity_index: 2 },
-            ]
-        );
-    }
-
-    #[test]
-    fn runtime_apply_script_classifies_steps_by_runtime_disposition() {
+    fn runtime_apply_execution_view_preserves_pending_and_deferred_lookup() {
         let mut observation = test_observation();
         observation.world_entity_chunks[2].entity_id = 42;
         observation.entity_summary.duplicate_entity_ids = vec![42];
         observation.entity_summary.unique_entity_ids = 2;
         observation.map.world.tiles[0].building_center_index = None;
 
-        let helper = observation.consumer_runtime_helper();
-        let script = observation.runtime_apply_script();
+        let view = observation.runtime_apply_execution_view();
 
-        assert!(!script.can_seed_runtime_apply);
-        assert!(!script.world_shell_ready);
-        assert_eq!(script.apply_now_step_count(), helper.apply_now_step_count());
+        assert!(!view.can_seed_runtime_apply);
+        assert!(!view.world_shell_ready);
         assert_eq!(
-            script.awaiting_world_shell_step_count(),
-            helper.awaiting_world_shell_step_count()
-        );
-        assert_eq!(script.blocked_step_count(), helper.blocked_step_count());
-        assert_eq!(script.deferred_step_count(), helper.deferred_step_count());
-        assert_eq!(
-            script.blocked_steps,
-            vec![
-                SavePostLoadRuntimeApplyStep::WorldShell,
-                SavePostLoadRuntimeApplyStep::Building { center_index: 0 },
-                SavePostLoadRuntimeApplyStep::LoadableEntity { entity_index: 0 },
-                SavePostLoadRuntimeApplyStep::LoadableEntity { entity_index: 2 },
-            ]
+            view.step_count(SavePostLoadRuntimeExecutionStepStatus::Executed),
+            4
         );
         assert_eq!(
-            script.awaiting_world_shell_steps,
-            vec![
-                SavePostLoadRuntimeApplyStep::TeamPlan {
-                    group_index: 0,
-                    plan_index: 0,
-                },
-                SavePostLoadRuntimeApplyStep::TeamPlan {
-                    group_index: 1,
-                    plan_index: 0,
-                },
-                SavePostLoadRuntimeApplyStep::Marker { marker_index: 0 },
-                SavePostLoadRuntimeApplyStep::Marker { marker_index: 1 },
-                SavePostLoadRuntimeApplyStep::StaticFog,
-            ]
+            view.step_status(&SavePostLoadRuntimeApplyStep::WorldShell),
+            Some(SavePostLoadRuntimeExecutionStepStatus::Blocked)
         );
         assert_eq!(
-            script.apply_now_steps,
-            vec![
-                SavePostLoadRuntimeApplyStep::EntityRemap { remap_index: 0 },
-                SavePostLoadRuntimeApplyStep::EntityRemap { remap_index: 1 },
-                SavePostLoadRuntimeApplyStep::CustomChunk { chunk_index: 0 },
-                SavePostLoadRuntimeApplyStep::CustomChunk { chunk_index: 1 },
-            ]
+            view.step_status(&SavePostLoadRuntimeApplyStep::StaticFog),
+            Some(SavePostLoadRuntimeExecutionStepStatus::AwaitingWorldShell)
         );
         assert_eq!(
-            script.deferred_steps,
-            vec![SavePostLoadRuntimeApplyStep::SkippedEntity { entity_index: 1 }]
+            view.step_status(&SavePostLoadRuntimeApplyStep::SkippedEntity { entity_index: 1 }),
+            Some(SavePostLoadRuntimeExecutionStepStatus::Deferred)
         );
     }
 
-    fn make_observation_seedable(observation: &mut SavePostLoadWorldObservation) {
+    #[test]
+    fn runtime_world_semantics_execution_view_tracks_failed_world_steps() {
+        let mut observation = test_observation();
+        make_observation_seedable(&mut observation);
+        observation.markers[1].id = observation.markers[0].id;
+
+        let view = observation.runtime_world_semantics_execution_view();
+
+        assert!(view.world_shell_ready);
+        assert!(!view.can_apply_world_semantics);
+        assert_eq!(
+            view.step_count(SavePostLoadRuntimeExecutionStepStatus::Failed),
+            1
+        );
+        assert_eq!(
+            view.step_status(&SavePostLoadRuntimeApplyStep::Marker { marker_index: 1 }),
+            Some(SavePostLoadRuntimeExecutionStepStatus::Failed)
+        );
+        assert_eq!(
+            view.step_status(&SavePostLoadRuntimeApplyStep::CustomChunk { chunk_index: 0 }),
+            None
+        );
+    }
+
+    fn make_observation_seedable(observation: &mut crate::SavePostLoadWorldObservation) {
         observation.world_entity_chunks[1].class_id = 3;
         observation.world_entity_chunks[1].custom_name = None;
         observation
@@ -383,19 +322,19 @@ mod tests {
         ];
     }
 
-    fn test_observation() -> SavePostLoadWorldObservation {
-        SavePostLoadWorldObservation {
+    fn test_observation() -> crate::SavePostLoadWorldObservation {
+        crate::SavePostLoadWorldObservation {
             save_version: 11,
             content_header: vec![ContentHeaderEntry {
                 content_type: 1,
-                names: vec!["core-nucleus".to_string(), "duo".to_string()],
+                names: vec!["core-nucleus".to_string()],
             }],
-            patches: vec![vec![0xaa, 0xbb]],
+            patches: vec![vec![1, 2, 3]],
             map: SaveMapRegionObservation {
                 floor_runs: 1,
-                floor_region_bytes: vec![1],
+                floor_region_bytes: vec![0],
                 block_runs: 1,
-                block_region_bytes: vec![2],
+                block_region_bytes: vec![0],
                 world: test_world(),
             },
             entity_remap_entries: vec![
@@ -408,7 +347,7 @@ mod tests {
                     name: "mod-unit".to_string(),
                 },
             ],
-            entity_remap_bytes: Vec::new(),
+            entity_remap_bytes: vec![1, 2],
             entity_remap_summary: SaveEntityRemapSummary {
                 remap_count: 2,
                 unique_custom_ids: 2,
@@ -424,26 +363,26 @@ mod tests {
                     team_id: 1,
                     plan_count: 1,
                     plans: vec![TeamPlan {
-                        x: 1,
-                        y: 1,
+                        x: 0,
+                        y: 0,
                         rotation: 0,
-                        block_id: 0x0101,
-                        config: TypeIoValue::Null,
-                        config_bytes: Vec::new(),
-                        config_sha256: "plan-a".to_string(),
+                        block_id: 0x0153,
+                        config: TypeIoValue::Integer(9),
+                        config_bytes: vec![9],
+                        config_sha256: "cfg-0".to_string(),
                     }],
                 },
                 TeamPlanGroup {
                     team_id: 2,
                     plan_count: 1,
                     plans: vec![TeamPlan {
-                        x: 0,
+                        x: 1,
                         y: 1,
                         rotation: 1,
-                        block_id: 0x0102,
-                        config: TypeIoValue::Integer(7),
-                        config_bytes: vec![7],
-                        config_sha256: "plan-b".to_string(),
+                        block_id: 0x0001,
+                        config: TypeIoValue::Null,
+                        config_bytes: Vec::new(),
+                        config_sha256: "cfg-1".to_string(),
                     }],
                 },
             ],

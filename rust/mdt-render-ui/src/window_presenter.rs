@@ -648,14 +648,32 @@ fn compose_frame_panel_lines(
     if let Some(runtime_session_text) = compose_runtime_session_status_text(hud) {
         lines.push(format!("RUNTIME-SESSION: {runtime_session_text}"));
     }
+    if let Some(runtime_session_detail_text) = compose_runtime_session_detail_status_text(hud) {
+        lines.push(format!(
+            "RUNTIME-SESSION-DETAIL: {runtime_session_detail_text}"
+        ));
+    }
     if let Some(runtime_kick_text) = compose_runtime_kick_status_text(hud) {
         lines.push(format!("RUNTIME-KICK: {runtime_kick_text}"));
+    }
+    if let Some(runtime_kick_detail_text) = compose_runtime_kick_detail_status_text(hud) {
+        lines.push(format!("RUNTIME-KICK-DETAIL: {runtime_kick_detail_text}"));
     }
     if let Some(runtime_loading_text) = compose_runtime_loading_status_text(hud) {
         lines.push(format!("RUNTIME-LOADING: {runtime_loading_text}"));
     }
+    if let Some(runtime_loading_detail_text) = compose_runtime_loading_detail_status_text(hud) {
+        lines.push(format!(
+            "RUNTIME-LOADING-DETAIL: {runtime_loading_detail_text}"
+        ));
+    }
     if let Some(runtime_reconnect_text) = compose_runtime_reconnect_status_text(hud) {
         lines.push(format!("RUNTIME-RECONNECT: {runtime_reconnect_text}"));
+    }
+    if let Some(runtime_reconnect_detail_text) = compose_runtime_reconnect_detail_status_text(hud) {
+        lines.push(format!(
+            "RUNTIME-RECONNECT-DETAIL: {runtime_reconnect_detail_text}"
+        ));
     }
     if let Some(runtime_live_entity_text) = compose_runtime_live_entity_panel_status_text(hud) {
         lines.push(format!("RUNTIME-LIVE-ENTITY: {runtime_live_entity_text}"));
@@ -1239,6 +1257,19 @@ fn compose_runtime_session_status_text(hud: &HudModel) -> Option<String> {
     ))
 }
 
+fn compose_runtime_session_detail_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_session_panel(hud)?;
+    if panel.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "sessd:k({}):l({}):r({})",
+        compose_runtime_kick_detail_panel_status_text(&panel.kick),
+        compose_runtime_loading_detail_panel_status_text(&panel.loading),
+        compose_runtime_reconnect_detail_panel_status_text(&panel.reconnect),
+    ))
+}
+
 fn compose_runtime_loading_status_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_loading_panel(hud)?;
     Some(format!(
@@ -1247,12 +1278,27 @@ fn compose_runtime_loading_status_text(hud: &HudModel) -> Option<String> {
     ))
 }
 
+fn compose_runtime_kick_detail_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_kick_panel(hud)?;
+    (!panel.is_empty()).then(|| compose_runtime_kick_detail_panel_status_text(&panel))
+}
+
+fn compose_runtime_loading_detail_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_loading_panel(hud)?;
+    (!panel.is_empty()).then(|| compose_runtime_loading_detail_panel_status_text(&panel))
+}
+
 fn compose_runtime_reconnect_status_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_reconnect_panel(hud)?;
     Some(format!(
         "reconnect:{}",
         compose_runtime_reconnect_panel_status_text(&panel)
     ))
+}
+
+fn compose_runtime_reconnect_detail_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_reconnect_panel(hud)?;
+    (!panel.is_empty()).then(|| compose_runtime_reconnect_detail_panel_status_text(&panel))
 }
 
 fn compose_runtime_live_entity_panel_status_text(hud: &HudModel) -> Option<String> {
@@ -1966,6 +2012,56 @@ fn compose_runtime_reconnect_panel_status_text(
         compact_runtime_ui_text(reconnect.reason_text.as_deref()),
         optional_i32_label(reconnect.reason_ordinal),
         compact_runtime_ui_text(reconnect.hint_text.as_deref()),
+    )
+}
+
+fn compose_runtime_kick_detail_panel_status_text(
+    kick: &crate::panel_model::RuntimeKickPanelModel,
+) -> String {
+    format!(
+        "kickd:r{}:o{}:c{}:h{}",
+        runtime_ui_text_len(kick.reason_text.as_deref()),
+        optional_i32_label(kick.reason_ordinal),
+        runtime_ui_text_len(kick.hint_category.as_deref()),
+        runtime_ui_text_len(kick.hint_text.as_deref()),
+    )
+}
+
+fn compose_runtime_loading_detail_panel_status_text(
+    loading: &crate::panel_model::RuntimeLoadingPanelModel,
+) -> String {
+    format!(
+        "loadingd:rdy{}@{}:to{}/{}/{}:{}@{}:rs{}/{}/{}/{}:{}:{}",
+        loading.ready_inbound_liveness_anchor_count,
+        optional_u64_label(loading.last_ready_inbound_liveness_anchor_at_ms),
+        loading.timeout_count,
+        loading.connect_or_loading_timeout_count,
+        loading.ready_snapshot_timeout_count,
+        runtime_session_timeout_kind_status_text(loading.last_timeout_kind),
+        optional_u64_label(loading.last_timeout_idle_ms),
+        loading.reset_count,
+        loading.reconnect_reset_count,
+        loading.world_reload_count,
+        loading.kick_reset_count,
+        runtime_session_reset_kind_status_text(loading.last_reset_kind),
+        runtime_world_reload_panel_status_text(loading.last_world_reload.as_ref()),
+    )
+}
+
+fn compose_runtime_reconnect_detail_panel_status_text(
+    reconnect: &crate::panel_model::RuntimeReconnectPanelModel,
+) -> String {
+    format!(
+        "reconnectd:{}#{}:{}:r{}@{}:h{}:rd{}@{}:{}",
+        runtime_reconnect_phase_status_text(reconnect.phase),
+        reconnect.phase_transition_count,
+        runtime_reconnect_reason_kind_status_text(reconnect.reason_kind),
+        runtime_ui_text_len(reconnect.reason_text.as_deref()),
+        optional_i32_label(reconnect.reason_ordinal),
+        runtime_ui_text_len(reconnect.hint_text.as_deref()),
+        reconnect.redirect_count,
+        compact_runtime_ui_text(reconnect.last_redirect_ip.as_deref()),
+        optional_i32_label(reconnect.last_redirect_port),
     )
 }
 
@@ -3391,7 +3487,15 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
+            "RUNTIME-SESSION-DETAIL: sessd:k(kickd:r7:o7:c7:h20):l(loadingd:rdy12@1300:to2/1/1:ready@20000:rs3/1/1/1:reload:@lw1:cl0:rd1:cc0:p4:d5:r6):r(reconnectd:attempt#3:redirect:r15@none:h25:rd1@127.0.0.1:6567)",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
             "RUNTIME-KICK: kick:idInUse@7:IdInUse:wait_for_old~",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RUNTIME-KICK-DETAIL: kickd:r7:o7:c7:h20",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
@@ -3399,7 +3503,15 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
+            "RUNTIME-LOADING-DETAIL: loadingd:rdy12@1300:to2/1/1:ready@20000:rs3/1/1/1:reload:@lw1:cl0:rd1:cc0:p4:d5:r6",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
             "RUNTIME-RECONNECT: reconnect:attempt3:redirect@1/127.0.0.1:6567:connectRedir~@none:server_reque~",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RUNTIME-RECONNECT-DETAIL: reconnectd:attempt#3:redirect:r15@none:h25:rd1@127.0.0.1:6567",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
@@ -3590,6 +3702,14 @@ mod tests {
                 .iter()
                 .all(|line| !line.starts_with("RUNTIME-SESSION:")),
             "unexpected runtime session line in {:?}",
+            frame.panel_lines
+        );
+        assert!(
+            frame
+                .panel_lines
+                .iter()
+                .all(|line| !line.starts_with("RUNTIME-SESSION-DETAIL:")),
+            "unexpected runtime session detail line in {:?}",
             frame.panel_lines
         );
         assert!(

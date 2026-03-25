@@ -209,14 +209,34 @@ impl AsciiScenePresenter {
         if let Some(runtime_session_text) = compose_runtime_session_row_text(hud) {
             out.push_str(&format!("RUNTIME-SESSION: {runtime_session_text}\n"));
         }
+        if let Some(runtime_session_detail_text) = compose_runtime_session_detail_text(hud) {
+            out.push_str(&format!(
+                "RUNTIME-SESSION-DETAIL: {runtime_session_detail_text}\n"
+            ));
+        }
         if let Some(runtime_kick_text) = compose_runtime_kick_row_text(hud) {
             out.push_str(&format!("RUNTIME-KICK: {runtime_kick_text}\n"));
+        }
+        if let Some(runtime_kick_detail_text) = compose_runtime_kick_detail_text(hud) {
+            out.push_str(&format!(
+                "RUNTIME-KICK-DETAIL: {runtime_kick_detail_text}\n"
+            ));
         }
         if let Some(runtime_loading_text) = compose_runtime_loading_row_text(hud) {
             out.push_str(&format!("RUNTIME-LOADING: {runtime_loading_text}\n"));
         }
+        if let Some(runtime_loading_detail_text) = compose_runtime_loading_detail_text(hud) {
+            out.push_str(&format!(
+                "RUNTIME-LOADING-DETAIL: {runtime_loading_detail_text}\n"
+            ));
+        }
         if let Some(runtime_reconnect_text) = compose_runtime_reconnect_row_text(hud) {
             out.push_str(&format!("RUNTIME-RECONNECT: {runtime_reconnect_text}\n"));
+        }
+        if let Some(runtime_reconnect_detail_text) = compose_runtime_reconnect_detail_text(hud) {
+            out.push_str(&format!(
+                "RUNTIME-RECONNECT-DETAIL: {runtime_reconnect_detail_text}\n"
+            ));
         }
         if let Some(runtime_live_entity_text) = compose_runtime_live_entity_panel_text(hud) {
             out.push_str(&format!(
@@ -931,14 +951,42 @@ fn compose_runtime_session_row_text(hud: &HudModel) -> Option<String> {
     ))
 }
 
+fn compose_runtime_session_detail_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_session_panel(hud)?;
+    if panel.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "kick=[{}] loading=[{}] reconnect=[{}]",
+        compose_runtime_kick_detail_panel_text(&panel.kick),
+        compose_runtime_loading_detail_panel_text(&panel.loading),
+        compose_runtime_reconnect_detail_panel_text(&panel.reconnect),
+    ))
+}
+
 fn compose_runtime_loading_row_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_loading_panel(hud)?;
     Some(compose_runtime_loading_panel_text(&panel))
 }
 
+fn compose_runtime_kick_detail_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_kick_panel(hud)?;
+    (!panel.is_empty()).then(|| compose_runtime_kick_detail_panel_text(&panel))
+}
+
+fn compose_runtime_loading_detail_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_loading_panel(hud)?;
+    (!panel.is_empty()).then(|| compose_runtime_loading_detail_panel_text(&panel))
+}
+
 fn compose_runtime_reconnect_row_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_reconnect_panel(hud)?;
     Some(compose_runtime_reconnect_panel_text(&panel))
+}
+
+fn compose_runtime_reconnect_detail_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_reconnect_panel(hud)?;
+    (!panel.is_empty()).then(|| compose_runtime_reconnect_detail_panel_text(&panel))
 }
 
 fn compose_runtime_live_entity_panel_text(hud: &HudModel) -> Option<String> {
@@ -1614,6 +1662,56 @@ fn compose_runtime_reconnect_panel_text(
         compact_runtime_ui_text(reconnect.reason_text.as_deref()),
         optional_i32_label(reconnect.reason_ordinal),
         compact_runtime_ui_text(reconnect.hint_text.as_deref()),
+    )
+}
+
+fn compose_runtime_kick_detail_panel_text(
+    kick: &crate::panel_model::RuntimeKickPanelModel,
+) -> String {
+    format!(
+        "reason-len={} ordinal={} category-len={} hint-len={}",
+        runtime_ui_text_len(kick.reason_text.as_deref()),
+        optional_i32_label(kick.reason_ordinal),
+        runtime_ui_text_len(kick.hint_category.as_deref()),
+        runtime_ui_text_len(kick.hint_text.as_deref()),
+    )
+}
+
+fn compose_runtime_loading_detail_panel_text(
+    loading: &crate::panel_model::RuntimeLoadingPanelModel,
+) -> String {
+    format!(
+        "ready={}@{} timeout={}/{}/{} kind={} idle={} resets={}/{}/{}/{} last-reset={} world={}",
+        loading.ready_inbound_liveness_anchor_count,
+        optional_u64_label(loading.last_ready_inbound_liveness_anchor_at_ms),
+        loading.timeout_count,
+        loading.connect_or_loading_timeout_count,
+        loading.ready_snapshot_timeout_count,
+        runtime_session_timeout_kind_text(loading.last_timeout_kind),
+        optional_u64_label(loading.last_timeout_idle_ms),
+        loading.reset_count,
+        loading.reconnect_reset_count,
+        loading.world_reload_count,
+        loading.kick_reset_count,
+        runtime_session_reset_kind_text(loading.last_reset_kind),
+        runtime_world_reload_panel_text(loading.last_world_reload.as_ref()),
+    )
+}
+
+fn compose_runtime_reconnect_detail_panel_text(
+    reconnect: &crate::panel_model::RuntimeReconnectPanelModel,
+) -> String {
+    format!(
+        "phase={} transitions={} reason-kind={} reason-len={} ordinal={} hint-len={} redirect={}@{}:{}",
+        runtime_reconnect_phase_text(reconnect.phase),
+        reconnect.phase_transition_count,
+        runtime_reconnect_reason_kind_text(reconnect.reason_kind),
+        runtime_ui_text_len(reconnect.reason_text.as_deref()),
+        optional_i32_label(reconnect.reason_ordinal),
+        runtime_ui_text_len(reconnect.hint_text.as_deref()),
+        reconnect.redirect_count,
+        compact_runtime_ui_text(reconnect.last_redirect_ip.as_deref()),
+        optional_i32_label(reconnect.last_redirect_port),
     )
 }
 
@@ -2737,12 +2835,23 @@ mod tests {
         assert!(frame.contains(
             "RUNTIME-SESSION: kick=idInUse@7:IdInUse:wait_for_old~; loading=defer5 replay6 drop7 qdrop8 sfail9 scfail10 efail11 rdy12@1300 to2/1/1 ltready@20000 rs3/1/1/1 lrreload lwr@lw1:cl0:rd1:cc0:p4:d5:r6; reconnect=attempt#3 redirect redirect=1@127.0.0.1:6567 reason=connectRedir~#none hint=server_reque~"
         ));
+        assert!(frame.contains(
+            "RUNTIME-SESSION-DETAIL: kick=[reason-len=7 ordinal=7 category-len=7 hint-len=20] loading=[ready=12@1300 timeout=2/1/1 kind=ready idle=20000 resets=3/1/1/1 last-reset=reload world=@lw1:cl0:rd1:cc0:p4:d5:r6] reconnect=[phase=attempt transitions=3 reason-kind=redirect reason-len=15 ordinal=none hint-len=25 redirect=1@127.0.0.1:6567]"
+        ));
         assert!(frame.contains("RUNTIME-KICK: idInUse@7:IdInUse:wait_for_old~"));
+        assert!(frame
+            .contains("RUNTIME-KICK-DETAIL: reason-len=7 ordinal=7 category-len=7 hint-len=20"));
         assert!(frame.contains(
             "RUNTIME-LOADING: defer5 replay6 drop7 qdrop8 sfail9 scfail10 efail11 rdy12@1300 to2/1/1 ltready@20000 rs3/1/1/1 lrreload lwr@lw1:cl0:rd1:cc0:p4:d5:r6"
         ));
         assert!(frame.contains(
+            "RUNTIME-LOADING-DETAIL: ready=12@1300 timeout=2/1/1 kind=ready idle=20000 resets=3/1/1/1 last-reset=reload world=@lw1:cl0:rd1:cc0:p4:d5:r6"
+        ));
+        assert!(frame.contains(
             "RUNTIME-RECONNECT: attempt#3 redirect redirect=1@127.0.0.1:6567 reason=connectRedir~#none hint=server_reque~"
+        ));
+        assert!(frame.contains(
+            "RUNTIME-RECONNECT-DETAIL: phase=attempt transitions=3 reason-kind=redirect reason-len=15 ordinal=none hint-len=25 redirect=1@127.0.0.1:6567"
         ));
         assert!(frame.contains(
             "RUNTIME-LIVE-ENTITY: 1/0@404:u2/999:p20.0:33.0:h0:s3:tp1/0:last404/404/none"
@@ -2923,6 +3032,7 @@ mod tests {
         presenter.present(&scene, &hud);
 
         assert!(!presenter.last_frame().contains("RUNTIME-SESSION:"));
+        assert!(!presenter.last_frame().contains("RUNTIME-SESSION-DETAIL:"));
         assert!(!presenter.last_frame().contains("RUNTIME-NOTICE-DETAIL:"));
         assert!(!presenter.last_frame().contains("BUILD-FLOW-DETAIL:"));
         assert!(!presenter

@@ -14,6 +14,11 @@ pub enum RuntimeEffectBinding {
     },
     ParentBuilding {
         build_pos: i32,
+        spawn_x_bits: u32,
+        spawn_y_bits: u32,
+        offset_x_bits: u32,
+        offset_y_bits: u32,
+        offset_initialized: bool,
     },
     ParentUnit {
         unit_id: i32,
@@ -247,9 +252,28 @@ fn derive_runtime_effect_binding(
     if let Some(parent_ref) = summary.first_parent_ref {
         match parent_ref.semantic_ref {
             TypeIoSemanticRef::Building { build_pos } => {
+                let world_position_bits = world_bits_from_tile_pos(build_pos);
+                if !parent_building_binding_enabled(effect_id) {
+                    return Some(DerivedRuntimeEffectBinding {
+                        binding: RuntimeEffectBinding::WorldPosition {
+                            x_bits: world_position_bits.0,
+                            y_bits: world_position_bits.1,
+                        },
+                        initial_position_bits: Some(world_position_bits),
+                    });
+                }
+                let initial_position_bits = Some((effect_x_bits, effect_y_bits));
+                let (spawn_x_bits, spawn_y_bits) = (effect_x_bits, effect_y_bits);
                 return Some(DerivedRuntimeEffectBinding {
-                    binding: RuntimeEffectBinding::ParentBuilding { build_pos },
-                    initial_position_bits: Some(world_bits_from_tile_pos(build_pos)),
+                    binding: RuntimeEffectBinding::ParentBuilding {
+                        build_pos,
+                        spawn_x_bits,
+                        spawn_y_bits,
+                        offset_x_bits: 0.0f32.to_bits(),
+                        offset_y_bits: 0.0f32.to_bits(),
+                        offset_initialized: false,
+                    },
+                    initial_position_bits,
                 });
             }
             TypeIoSemanticRef::Unit { unit_id } => {
@@ -537,8 +561,24 @@ fn resolve_binding_position(
     let mut overlay_rotation_bits = overlay_rotation_bits;
     match binding {
         RuntimeEffectBinding::WorldPosition { x_bits, y_bits } => Some((*x_bits, *y_bits)),
-        RuntimeEffectBinding::ParentBuilding { build_pos } => {
-            Some(world_bits_from_tile_pos(*build_pos))
+        RuntimeEffectBinding::ParentBuilding {
+            build_pos,
+            spawn_x_bits,
+            spawn_y_bits,
+            offset_x_bits,
+            offset_y_bits,
+            offset_initialized,
+        } => {
+            let (parent_x_bits, parent_y_bits) = world_bits_from_tile_pos(*build_pos);
+            if !*offset_initialized {
+                *offset_x_bits = coordinate_delta_bits(*spawn_x_bits, parent_x_bits);
+                *offset_y_bits = coordinate_delta_bits(*spawn_y_bits, parent_y_bits);
+                *offset_initialized = true;
+            }
+            Some((
+                apply_coordinate_offset_bits(parent_x_bits, *offset_x_bits),
+                apply_coordinate_offset_bits(parent_y_bits, *offset_y_bits),
+            ))
         }
         RuntimeEffectBinding::ParentUnit {
             unit_id,
@@ -763,6 +803,13 @@ fn parent_binding_preserves_spawn_offset(effect_id: Option<i16>) -> bool {
     )
 }
 
+fn parent_building_binding_enabled(effect_id: Option<i16>) -> bool {
+    matches!(
+        effect_contract(effect_id),
+        Some(RuntimeEffectContract::PositionTarget | RuntimeEffectContract::UnitParent)
+    )
+}
+
 fn parent_binding_allows_fallback_offset_initialization(effect_id: Option<i16>) -> bool {
     matches!(effect_id, Some(67 | 68 | 122))
 }
@@ -837,6 +884,72 @@ mod tests {
                 parent_rotation_reference_bits: 0.0f32.to_bits(),
                 rotation_offset_bits: 0.0f32.to_bits(),
                 rotation_initialized: false,
+            })
+        );
+    }
+
+    #[test]
+    fn effect_runtime_spawn_runtime_effect_overlay_preserves_parent_building_spawn_position() {
+        let build_pos = (10_i32 << 16) | 20_i32;
+        let overlay = spawn_runtime_effect_overlay(
+            Some(67),
+            92.0,
+            148.0,
+            92.0,
+            148.0,
+            0.0,
+            0,
+            false,
+            Some(&TypeIoObject::BuildingPos(build_pos)),
+            10,
+        );
+
+        assert_eq!(overlay.x_bits, 92.0f32.to_bits());
+        assert_eq!(overlay.y_bits, 148.0f32.to_bits());
+        assert_eq!(
+            overlay.binding,
+            Some(RuntimeEffectBinding::ParentBuilding {
+                build_pos,
+                spawn_x_bits: 92.0f32.to_bits(),
+                spawn_y_bits: 148.0f32.to_bits(),
+                offset_x_bits: 0.0f32.to_bits(),
+                offset_y_bits: 0.0f32.to_bits(),
+                offset_initialized: false,
+            })
+        );
+    }
+
+    #[test]
+    fn effect_runtime_resolve_runtime_effect_overlay_position_lazily_freezes_parent_building_offset(
+    ) {
+        let build_pos = (10_i32 << 16) | 20_i32;
+        let mut overlay = spawn_runtime_effect_overlay(
+            Some(67),
+            92.0,
+            148.0,
+            92.0,
+            148.0,
+            0.0,
+            0,
+            false,
+            Some(&TypeIoObject::BuildingPos(build_pos)),
+            10,
+        );
+        let state = SessionState::default();
+        let input = EffectRuntimeInputView::default();
+
+        let resolved = resolve_runtime_effect_overlay_position(&mut overlay, &state, &input);
+
+        assert_eq!(resolved, (92.0f32.to_bits(), 148.0f32.to_bits()));
+        assert_eq!(
+            overlay.binding,
+            Some(RuntimeEffectBinding::ParentBuilding {
+                build_pos,
+                spawn_x_bits: 92.0f32.to_bits(),
+                spawn_y_bits: 148.0f32.to_bits(),
+                offset_x_bits: 12.0f32.to_bits(),
+                offset_y_bits: (-12.0f32).to_bits(),
+                offset_initialized: true,
             })
         );
     }
