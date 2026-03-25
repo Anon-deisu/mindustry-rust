@@ -7108,13 +7108,14 @@ impl ClientSession {
         let Some(head) = self.state.block_snapshot_head_projection.clone() else {
             return;
         };
+        let block_name = self.loaded_world_block_name(head.block_id);
 
         self.state
             .building_table_projection
             .apply_block_snapshot_head(
                 head.build_pos,
                 head.block_id,
-                None,
+                block_name,
                 head.rotation,
                 head.team_id,
                 head.io_version,
@@ -18949,6 +18950,70 @@ mod tests {
     }
 
     #[test]
+    fn loaded_world_block_snapshot_head_fallback_uses_loaded_world_block_name_for_runtime_refresh()
+    {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_build_pos_for_block_snapshot_test(20, 21);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_MESSAGE);
+
+        session
+            .state
+            .configured_block_projection
+            .apply_message_text(build_pos, "loaded-world fallback".to_string());
+        session.state.block_snapshot_head_projection =
+            Some(crate::session_state::BlockSnapshotHeadProjection {
+                build_pos,
+                block_id,
+                health_bits: Some(0x4000_0000),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                enabled: Some(true),
+                module_bitmask: Some(4),
+                time_scale_bits: Some(0x3f80_0000),
+                time_scale_duration_bits: Some(0x3f00_0000),
+                last_disabler_pos: Some(123),
+                legacy_consume_connected: Some(true),
+                efficiency: Some(0x40),
+                optional_efficiency: Some(0x20),
+                visible_flags: Some(99),
+            });
+
+        session.apply_loaded_world_block_snapshot_head_fallback();
+
+        assert_eq!(
+            session
+                .state()
+                .building_table_projection
+                .by_build_pos
+                .get(&build_pos)
+                .and_then(|building| building.block_name.clone()),
+            Some(BLOCK_NAME_MESSAGE.to_string())
+        );
+        let runtime = session
+            .state()
+            .runtime_typed_building_apply_projection
+            .building_at(build_pos)
+            .expect("message runtime building should refresh from fallback");
+        assert_eq!(runtime.block_id, Some(block_id));
+        assert_eq!(runtime.block_name, BLOCK_NAME_MESSAGE);
+        assert_eq!(
+            runtime.kind,
+            crate::session_state::TypedBuildingRuntimeKind::Message
+        );
+        assert_eq!(
+            runtime.value,
+            crate::session_state::TypedBuildingRuntimeValue::Text(
+                "loaded-world fallback".to_string()
+            )
+        );
+        assert_eq!(
+            runtime.last_update,
+            crate::session_state::BuildingProjectionUpdateKind::BlockSnapshotHead
+        );
+    }
+
+    #[test]
     fn summarize_build_turret_tail_fields_extracts_rotation_presence_and_safe_count_conversion() {
         let tail = mdt_world::ParsedBuildingTail::BuildTurret(mdt_world::BuildTurretTailSnapshot {
             rotation_bits: 0x4234_0000,
@@ -21290,6 +21355,7 @@ mod tests {
         let (mut payload, entries) = build_loaded_world_block_snapshot_payload(&session, 2);
         let (first_build_pos, first_block_id, _) = entries[0];
         let (second_build_pos, _, _) = entries[1];
+        let first_block_name = session.loaded_world_block_name(first_block_id);
         let second_before = session
             .state()
             .building_table_projection
@@ -21322,6 +21388,15 @@ mod tests {
                 .get(&first_build_pos)
                 .and_then(|building| building.block_id),
             Some(first_block_id)
+        );
+        assert_eq!(
+            session
+                .state()
+                .building_table_projection
+                .by_build_pos
+                .get(&first_build_pos)
+                .and_then(|building| building.block_name.clone()),
+            first_block_name
         );
         assert_eq!(
             session
@@ -21378,8 +21453,9 @@ mod tests {
     fn loaded_world_block_snapshot_does_not_apply_prefix_before_later_entry_parse_failure() {
         let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let (mut payload, entries) = build_loaded_world_block_snapshot_payload(&session, 2);
-        let (first_build_pos, _, _) = entries[0];
+        let (first_build_pos, first_block_id, _) = entries[0];
         let (second_build_pos, second_block_id, _) = entries[1];
+        let first_block_name = session.loaded_world_block_name(first_block_id);
         let (first_entry_len, second_center_block_id) = {
             let world = &session.loaded_world_bundle().unwrap().world;
             (
@@ -21421,6 +21497,15 @@ mod tests {
                 .get(&first_build_pos)
                 .map(|building| building.last_update),
             Some(crate::session_state::BuildingProjectionUpdateKind::BlockSnapshotHead)
+        );
+        assert_eq!(
+            session
+                .state()
+                .building_table_projection
+                .by_build_pos
+                .get(&first_build_pos)
+                .and_then(|building| building.block_name.clone()),
+            first_block_name
         );
         assert_eq!(
             session
