@@ -40126,9 +40126,12 @@ mod tests {
             shell.loadable_entities.len(),
             post_load.entity_summary.loadable_entities
         );
-        assert!(shell.team_plans.is_empty());
-        assert!(shell.markers.is_empty());
-        assert!(shell.static_fog.is_none());
+        assert_eq!(shell.team_plans.len(), post_load.map.world.total_plans);
+        assert_eq!(shell.markers.len(), post_load.markers.len());
+        assert_eq!(
+            shell.static_fog.as_ref().map(|fog| fog.teams.len()),
+            post_load.static_fog_chunk().map(|chunk| chunk.teams.len())
+        );
     }
 
     #[test]

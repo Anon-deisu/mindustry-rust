@@ -443,6 +443,9 @@ fn filter_world_semantics_steps(
             matches!(
                 step,
                 SavePostLoadRuntimeApplyStep::WorldShell
+                    | SavePostLoadRuntimeApplyStep::TeamPlan { .. }
+                    | SavePostLoadRuntimeApplyStep::Marker { .. }
+                    | SavePostLoadRuntimeApplyStep::StaticFog
                     | SavePostLoadRuntimeApplyStep::Building { .. }
                     | SavePostLoadRuntimeApplyStep::LoadableEntity { .. }
             )
@@ -582,7 +585,8 @@ mod tests {
     }
 
     #[test]
-    fn execute_runtime_world_semantics_ignores_non_world_stages_and_skipped_entities() {
+    fn execute_runtime_world_semantics_keeps_world_shell_overlay_steps_and_ignores_non_world_tail()
+    {
         let mut observation = test_observation();
         make_observation_seedable(&mut observation);
         let mut plan = observation.runtime_seed_plan();
@@ -595,14 +599,25 @@ mod tests {
 
         assert!(execution.world_shell_ready);
         assert!(execution.can_apply_world_semantics());
-        assert_eq!(execution.executed_step_count(), 5);
+        assert_eq!(execution.executed_step_count(), 10);
         assert_eq!(execution.failed_step_count(), 0);
         assert_eq!(execution.pending_step_count(), 0);
-        assert_eq!(execution.targeted_step_count(), 5);
+        assert_eq!(execution.targeted_step_count(), 10);
         assert_eq!(
             execution.executed_steps,
             vec![
                 SavePostLoadRuntimeApplyStep::WorldShell,
+                SavePostLoadRuntimeApplyStep::TeamPlan {
+                    group_index: 0,
+                    plan_index: 0,
+                },
+                SavePostLoadRuntimeApplyStep::TeamPlan {
+                    group_index: 1,
+                    plan_index: 0,
+                },
+                SavePostLoadRuntimeApplyStep::Marker { marker_index: 0 },
+                SavePostLoadRuntimeApplyStep::Marker { marker_index: 1 },
+                SavePostLoadRuntimeApplyStep::StaticFog,
                 SavePostLoadRuntimeApplyStep::Building { center_index: 0 },
                 SavePostLoadRuntimeApplyStep::LoadableEntity { entity_index: 0 },
                 SavePostLoadRuntimeApplyStep::LoadableEntity { entity_index: 1 },
@@ -610,13 +625,23 @@ mod tests {
             ]
         );
         assert!(execution.issues.is_empty());
-        assert!(shell.team_plans.is_empty());
-        assert!(shell.markers.is_empty());
-        assert!(shell.static_fog.is_none());
+        assert_eq!(shell.team_plans.len(), 2);
+        assert_eq!(shell.team_plans_by_team.len(), 2);
+        assert_eq!(shell.markers.len(), 2);
+        assert_eq!(shell.markers_by_id.len(), 2);
+        assert!(shell.static_fog.is_some());
         assert_eq!(shell.buildings.len(), 1);
         assert_eq!(shell.buildings_by_center_index.len(), 1);
         assert_eq!(shell.loadable_entities.len(), 3);
         assert_eq!(shell.loadable_entities_by_id.len(), 3);
+        assert!(!execution.executed_steps.iter().any(|step| {
+            matches!(
+                step,
+                SavePostLoadRuntimeApplyStep::EntityRemap { .. }
+                    | SavePostLoadRuntimeApplyStep::CustomChunk { .. }
+                    | SavePostLoadRuntimeApplyStep::SkippedEntity { .. }
+            )
+        }));
     }
 
     #[test]
@@ -634,7 +659,22 @@ mod tests {
         assert!(!execution.has_world_shell());
         assert!(execution.failed_steps.is_empty());
         assert!(execution.issues.is_empty());
-        assert!(execution.awaiting_world_shell_steps.is_empty());
+        assert_eq!(
+            execution.awaiting_world_shell_steps,
+            vec![
+                SavePostLoadRuntimeApplyStep::TeamPlan {
+                    group_index: 0,
+                    plan_index: 0,
+                },
+                SavePostLoadRuntimeApplyStep::TeamPlan {
+                    group_index: 1,
+                    plan_index: 0,
+                },
+                SavePostLoadRuntimeApplyStep::Marker { marker_index: 0 },
+                SavePostLoadRuntimeApplyStep::Marker { marker_index: 1 },
+                SavePostLoadRuntimeApplyStep::StaticFog,
+            ]
+        );
         assert_eq!(
             execution.blocked_steps,
             vec![
@@ -645,8 +685,8 @@ mod tests {
             ]
         );
         assert_eq!(execution.executed_step_count(), 0);
-        assert_eq!(execution.pending_step_count(), 4);
-        assert_eq!(execution.targeted_step_count(), 4);
+        assert_eq!(execution.pending_step_count(), 9);
+        assert_eq!(execution.targeted_step_count(), 9);
     }
 
     fn make_observation_seedable(observation: &mut crate::SavePostLoadWorldObservation) {
