@@ -1,38 +1,27 @@
 use mdt_remote::{
     CustomChannelRemoteRegistry, HighFrequencyRemoteMethod, HighFrequencyRemoteRegistry,
-    InboundRemoteRegistry, RemoteManifest, RemoteManifestError, TypedRemoteRegistries,
+    InboundRemoteRegistry, RemoteManifest, RemoteManifestError, RemotePacketRegistry,
     WellKnownRemoteRegistry,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct PacketRegistryTypedRemoteGlue {
-    pub(super) high_frequency: HighFrequencyRemoteRegistry,
-    pub(super) inbound_remote: InboundRemoteRegistry,
-    pub(super) custom_channel: CustomChannelRemoteRegistry,
-    pub(super) well_known: WellKnownRemoteRegistry,
+#[derive(Debug, Clone)]
+pub(super) struct PacketRegistryTypedRemoteGlue<'a> {
+    remote_registry: RemotePacketRegistry<'a>,
 }
 
-impl PacketRegistryTypedRemoteGlue {
+impl<'a> PacketRegistryTypedRemoteGlue<'a> {
     pub(super) fn from_remote_manifest(
-        manifest: &RemoteManifest,
+        manifest: &'a RemoteManifest,
     ) -> Result<Self, RemoteManifestError> {
-        Ok(Self::from_typed_registries(
-            TypedRemoteRegistries::from_manifest(manifest)?,
-        ))
-    }
-
-    pub(super) fn from_typed_registries(registries: TypedRemoteRegistries) -> Self {
-        Self {
-            high_frequency: registries.high_frequency,
-            inbound_remote: registries.inbound_remote,
-            custom_channel: registries.custom_channel,
-            well_known: registries.well_known,
-        }
+        Ok(Self {
+            remote_registry: RemotePacketRegistry::from_manifest(manifest)?,
+        })
     }
 
     pub(super) fn inbound_snapshot_packet_specs(
         &self,
     ) -> Result<[(u8, HighFrequencyRemoteMethod); 4], RemoteManifestError> {
+        let high_frequency = HighFrequencyRemoteRegistry::from_remote_registry(&self.remote_registry)?;
         let mut resolved = Vec::with_capacity(4);
         let mut seen_packet_ids = std::collections::HashSet::with_capacity(4);
 
@@ -42,7 +31,7 @@ impl PacketRegistryTypedRemoteGlue {
             HighFrequencyRemoteMethod::BlockSnapshot,
             HighFrequencyRemoteMethod::HiddenSnapshot,
         ] {
-            let packet_id = self.high_frequency.packet_id(method).ok_or(
+            let packet_id = high_frequency.packet_id(method).ok_or(
                 RemoteManifestError::MissingHighFrequencyPacket(method.method_name()),
             )?;
             if !seen_packet_ids.insert(packet_id) {
@@ -61,10 +50,24 @@ impl PacketRegistryTypedRemoteGlue {
     }
 
     pub(super) fn client_snapshot_packet_id(&self) -> Result<u8, RemoteManifestError> {
-        self.high_frequency
+        HighFrequencyRemoteRegistry::from_remote_registry(&self.remote_registry)?
             .packet_id(HighFrequencyRemoteMethod::ClientSnapshot)
             .ok_or(RemoteManifestError::MissingHighFrequencyPacket(
                 HighFrequencyRemoteMethod::ClientSnapshot.method_name(),
             ))
+    }
+
+    pub(super) fn inbound_remote_registry(&self) -> Result<InboundRemoteRegistry, RemoteManifestError> {
+        InboundRemoteRegistry::from_remote_registry(&self.remote_registry)
+    }
+
+    pub(super) fn custom_channel_registry(
+        &self,
+    ) -> Result<CustomChannelRemoteRegistry, RemoteManifestError> {
+        CustomChannelRemoteRegistry::from_remote_registry(&self.remote_registry)
+    }
+
+    pub(super) fn well_known_registry(&self) -> Result<WellKnownRemoteRegistry, RemoteManifestError> {
+        WellKnownRemoteRegistry::from_remote_registry(&self.remote_registry)
     }
 }

@@ -4,6 +4,7 @@ mod build_user_flow;
 pub mod hud_model;
 mod minimap_user_flow;
 mod panel_model;
+mod presenter_view;
 pub mod projection;
 pub mod render_model;
 pub mod scene_present;

@@ -13,6 +13,9 @@ use crate::panel_model::{
     PresenterViewWindow, RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
     RuntimeUiNoticePanelModel,
 };
+use crate::presenter_view::{
+    crop_window_to_focus, projected_window, visible_window_tile,
+};
 use crate::render_model::{RenderObjectSemanticFamily, RenderObjectSemanticKind};
 use crate::{HudModel, RenderModel, ScenePresenter};
 
@@ -47,6 +50,7 @@ impl AsciiScenePresenter {
             .filter_map(|object| {
                 visible_window_tile(
                     object,
+                    TILE_SIZE,
                     window.origin_x,
                     window.origin_y,
                     window.width,
@@ -340,85 +344,9 @@ fn crop_window(
         return base_window;
     }
 
-    let focus = scene.player_focus_tile(TILE_SIZE).unwrap_or((
-        base_window.origin_x.saturating_add(base_window.width / 2),
-        base_window.origin_y.saturating_add(base_window.height / 2),
-    ));
-
     let window_width = max_width.min(base_window.width);
     let window_height = max_height.min(base_window.height);
-    PresenterViewWindow {
-        origin_x: crop_origin(
-            focus.0,
-            base_window.origin_x,
-            base_window.width,
-            window_width,
-        ),
-        origin_y: crop_origin(
-            focus.1,
-            base_window.origin_y,
-            base_window.height,
-            window_height,
-        ),
-        width: window_width,
-        height: window_height,
-    }
-}
-
-fn projected_window(scene: &RenderModel, width: usize, height: usize) -> PresenterViewWindow {
-    scene
-        .view_window
-        .map(|window| PresenterViewWindow {
-            origin_x: window.origin_x,
-            origin_y: window.origin_y,
-            width: window.width.min(width),
-            height: window.height.min(height),
-        })
-        .unwrap_or(PresenterViewWindow {
-            origin_x: 0,
-            origin_y: 0,
-            width,
-            height,
-        })
-}
-
-fn crop_origin(focus: usize, origin: usize, bound: usize, window: usize) -> usize {
-    let half = window / 2;
-    focus
-        .saturating_sub(half)
-        .clamp(origin, origin.saturating_add(bound.saturating_sub(window)))
-}
-
-fn visible_window_tile(
-    object: &crate::RenderObject,
-    window_x: usize,
-    window_y: usize,
-    window_width: usize,
-    window_height: usize,
-) -> Option<(&crate::RenderObject, usize, usize)> {
-    let tile_x = world_to_tile_index_floor(object.x) as isize;
-    let tile_y = world_to_tile_index_floor(object.y) as isize;
-    if tile_x < 0 || tile_y < 0 {
-        return None;
-    }
-
-    let (tile_x, tile_y) = (tile_x as usize, tile_y as usize);
-    if tile_x < window_x
-        || tile_y < window_y
-        || tile_x >= window_x.saturating_add(window_width)
-        || tile_y >= window_y.saturating_add(window_height)
-    {
-        return None;
-    }
-
-    Some((object, tile_x - window_x, tile_y - window_y))
-}
-
-fn world_to_tile_index_floor(world_position: f32) -> i32 {
-    if !world_position.is_finite() {
-        return 0;
-    }
-    (world_position / TILE_SIZE).floor() as i32
+    crop_window_to_focus(scene, TILE_SIZE, base_window, window_width, window_height)
 }
 
 fn sprite_for_id(id: &str) -> char {
