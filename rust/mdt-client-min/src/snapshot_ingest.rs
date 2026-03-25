@@ -805,7 +805,7 @@ mod tests {
         EntityWeatherStateSemanticProjection, EntityWorldLabelSemanticProjection,
         GameplayStateProjection, HiddenSnapshotDeltaProjection, PayloadLifecycleCarrierProjection,
         ResourceUnitItemStack, SessionState, StateSnapshotAuthorityProjection,
-        StateSnapshotBusinessProjection, UnitRefProjection,
+        StateSnapshotBusinessProjection, TypedRuntimeEntityModel, UnitRefProjection,
     };
     use mdt_remote::HighFrequencyRemoteMethod;
     use std::collections::BTreeMap;
@@ -2526,6 +2526,10 @@ mod tests {
             state.last_hidden_lifecycle_removed_ids_sample,
             vec![303, 404, 505]
         );
+        let runtime_projection = state.runtime_typed_entity_projection();
+        assert!(!runtime_projection.by_entity_id.contains_key(&303));
+        assert!(!runtime_projection.by_entity_id.contains_key(&404));
+        assert!(!runtime_projection.by_entity_id.contains_key(&505));
     }
 
     #[test]
@@ -2578,6 +2582,12 @@ mod tests {
             .contains_key(&303));
         assert_eq!(state.hidden_lifecycle_remove_count, 0);
         assert!(state.last_hidden_lifecycle_removed_ids_sample.is_empty());
+        assert!(matches!(
+            state.runtime_typed_entity_projection().entity_at(303),
+            Some(TypedRuntimeEntityModel::WorldLabel(world_label))
+                if world_label.base.hidden
+                    && world_label.semantic.text.as_deref() == Some("hidden")
+        ));
     }
 
     #[test]

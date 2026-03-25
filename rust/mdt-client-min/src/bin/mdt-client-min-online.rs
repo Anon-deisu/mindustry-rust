@@ -53,7 +53,7 @@ use mdt_render_ui::{
     project_scene_models_with_view_window, AsciiScenePresenter, MinifbWindowBackend, RenderModel,
     RenderObject, ScenePresenter, WindowPresenter,
 };
-use mdt_typeio::{pack_point2, TypeIoObject};
+use mdt_typeio::{pack_point2, unpack_point2, TypeIoObject};
 use mdt_world::{LoadedWorldState, ParsedBuildingTail, WorldGraph};
 use runtime_custom_packet_replay_bridge::RuntimeCustomPacketReplayBridge;
 use std::cell::RefCell;
@@ -504,14 +504,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
         maybe_apply_runtime_plan_edit_loop(&mut session, runtime_plan_edit_loop.as_mut(), now_ms);
         sync_runtime_build_selection_state(&mut session, &args);
-        maybe_queue_chat_messages(&mut session, &args, now_ms, &mut next_chat_index)?;
+        maybe_queue_chat_messages(
+            &mut session,
+            &args,
+            now_ms,
+            &mut next_chat_index,
+            live_intent_mapper.as_mut(),
+        )?;
         maybe_queue_outbound_actions(
             &mut session,
             &args,
             now_ms,
             &mut next_outbound_action_index,
+            live_intent_mapper.as_mut(),
             &mut runtime_command_mode,
         )?;
+        maybe_observe_live_runtime_snapshot(&session, &args, live_intent_mapper.as_mut(), now_ms);
 
         thread::sleep(args.tick);
     }
@@ -1268,6 +1276,7 @@ struct LiveIntentMapperController {
     tracker: RuntimeIntentTracker,
     schedule: Vec<ScheduledIntentSnapshot>,
     next_snapshot_index: usize,
+    pending_runtime_snapshots: Vec<ObservedIntentSnapshot>,
 }
 
 impl LiveIntentMapperController {
@@ -1276,6 +1285,7 @@ impl LiveIntentMapperController {
             tracker: RuntimeIntentTracker::new(sampling_mode),
             schedule,
             next_snapshot_index: 0,
+            pending_runtime_snapshots: Vec::new(),
         }
     }
 
@@ -1283,19 +1293,54 @@ impl LiveIntentMapperController {
         self.tracker.state()
     }
 
+    fn observe_runtime_snapshot(&mut self, snapshot: InputSnapshot, observed_at_ms: u64) {
+        if self
+            .pending_runtime_snapshots
+            .last()
+            .is_some_and(|last| last.snapshot == snapshot)
+        {
+            return;
+        }
+        self.pending_runtime_snapshots.push(ObservedIntentSnapshot {
+            observed_at_ms,
+            snapshot,
+        });
+    }
+
+    fn push_transient_snapshot(&mut self, snapshot: InputSnapshot, observed_at_ms: u64) {
+        self.pending_runtime_snapshots.push(ObservedIntentSnapshot {
+            observed_at_ms,
+            snapshot,
+        });
+    }
+
     fn advance(&mut self, runtime_snapshot: &InputSnapshot, now_ms: u64) -> bool {
-        let due =
-            collect_due_intent_snapshots(&self.schedule, now_ms, &mut self.next_snapshot_index);
-        if due.is_empty() {
+        let mut transient_snapshots = std::mem::take(&mut self.pending_runtime_snapshots);
+        transient_snapshots.extend(
+            collect_due_intent_snapshots(&self.schedule, now_ms, &mut self.next_snapshot_index)
+                .into_iter()
+                .map(|entry| ObservedIntentSnapshot {
+                    observed_at_ms: entry.not_before_ms,
+                    snapshot: entry.snapshot,
+                }),
+        );
+        transient_snapshots.sort_by_key(|entry| entry.observed_at_ms);
+        if transient_snapshots.is_empty() {
             return self.tracker.sample_runtime_snapshot(runtime_snapshot);
         }
-        let transient_snapshots = due
+        let transient_snapshots = transient_snapshots
             .into_iter()
             .map(|entry| entry.snapshot)
             .collect::<Vec<_>>();
         self.tracker
             .sample_runtime_snapshot_with_transient_batch(&transient_snapshots, runtime_snapshot)
     }
+}
+
+#[derive(Debug)]
+struct ObservedIntentSnapshot {
+    observed_at_ms: u64,
+    snapshot: InputSnapshot,
 }
 
 fn build_live_intent_mapper(args: &CliArgs) -> Option<LiveIntentMapperController> {
@@ -4538,11 +4583,19 @@ fn block_name_size_hint(block_name: &str) -> i32 {
 
 fn sync_runtime_build_selection_state(session: &mut ClientSession, args: &CliArgs) {
     let previous_building = session.snapshot_input().building;
+    let has_snapshot_plan_state = session.snapshot_input().plans.is_some();
     let queue_selection = snapshot_builder_queue_selection(session);
     let input = session.snapshot_input_mut();
-    input.building = args
-        .snapshot_building
-        .unwrap_or(queue_selection.building || previous_building);
+    let selected_block_id = queue_selection
+        .selected_block_id
+        .or(input.selected_block_id);
+    input.building = synced_runtime_building_flag(
+        args,
+        previous_building,
+        has_snapshot_plan_state,
+        queue_selection.building,
+        selected_block_id,
+    );
 
     if let Some(block_id) = queue_selection.selected_block_id {
         input.selected_block_id = Some(block_id);
@@ -4926,13 +4979,40 @@ fn runtime_input_sample(session: &ClientSession, args: &CliArgs) -> RuntimeInput
         pointer: input.pointer,
         velocity: input.velocity,
         mining_tile: input.mining_tile,
-        building: args
-            .snapshot_building
-            .unwrap_or(input.building || queue_selection.building),
+        building: sampled_runtime_building_flag(
+            args,
+            input.building,
+            queue_selection.building,
+            input.selected_block_id,
+        ),
         shooting: input.shooting,
         boosting: input.boosting,
         chatting: input.chatting,
     }
+}
+
+fn sampled_runtime_building_flag(
+    args: &CliArgs,
+    current_building: bool,
+    queue_building: bool,
+    selected_block_id: Option<i16>,
+) -> bool {
+    args.snapshot_building
+        .unwrap_or(current_building || queue_building || selected_block_id.is_some())
+}
+
+fn synced_runtime_building_flag(
+    args: &CliArgs,
+    current_building: bool,
+    has_snapshot_plan_state: bool,
+    queue_building: bool,
+    selected_block_id: Option<i16>,
+) -> bool {
+    args.snapshot_building.unwrap_or(
+        queue_building
+            || selected_block_id.is_some()
+            || (current_building && has_snapshot_plan_state),
+    )
 }
 
 fn apply_live_intents_to_snapshot(session: &mut ClientSession, state: &LiveIntentState) {
@@ -4949,6 +5029,93 @@ fn apply_live_intents_to_snapshot(session: &mut ClientSession, state: &LiveInten
     input.shooting = state.is_action_active(BinaryAction::Fire);
     input.boosting = state.is_action_active(BinaryAction::Boost);
     input.chatting = state.is_action_active(BinaryAction::Chat);
+}
+
+fn sample_current_runtime_snapshot(session: &ClientSession, args: &CliArgs) -> InputSnapshot {
+    sample_runtime_input_snapshot(runtime_input_sample(session, args))
+}
+
+fn maybe_observe_live_runtime_snapshot(
+    session: &ClientSession,
+    args: &CliArgs,
+    live_intent_mapper: Option<&mut LiveIntentMapperController>,
+    now_ms: u64,
+) {
+    if let Some(live_intent_mapper) = live_intent_mapper {
+        live_intent_mapper
+            .observe_runtime_snapshot(sample_current_runtime_snapshot(session, args), now_ms);
+    }
+}
+
+fn maybe_capture_live_transient_chat_pulse(
+    session: &ClientSession,
+    args: &CliArgs,
+    live_intent_mapper: Option<&mut LiveIntentMapperController>,
+    now_ms: u64,
+) {
+    if let Some(live_intent_mapper) = live_intent_mapper {
+        let mut snapshot = sample_current_runtime_snapshot(session, args);
+        snapshot.active_actions.push(BinaryAction::Chat);
+        live_intent_mapper.push_transient_snapshot(snapshot, now_ms);
+    }
+}
+
+fn maybe_capture_live_transient_outbound_action(
+    session: &ClientSession,
+    args: &CliArgs,
+    live_intent_mapper: Option<&mut LiveIntentMapperController>,
+    now_ms: u64,
+    action: &OutboundAction,
+) {
+    let Some(live_intent_mapper) = live_intent_mapper else {
+        return;
+    };
+    let mut snapshot = sample_current_runtime_snapshot(session, args);
+    match action {
+        OutboundAction::TileTap { tile_pos } => {
+            snapshot.active_actions.push(BinaryAction::Interact);
+            if let Some(tile_pos) = tile_pos {
+                snapshot.config_tap_tile = Some(unpack_point2(*tile_pos));
+            }
+            live_intent_mapper.push_transient_snapshot(snapshot, now_ms);
+        }
+        OutboundAction::TileConfig { build_pos, .. } => {
+            snapshot.active_actions.push(BinaryAction::Interact);
+            if let Some(build_pos) = build_pos {
+                snapshot.config_tap_tile = Some(unpack_point2(*build_pos));
+            }
+            live_intent_mapper.push_transient_snapshot(snapshot, now_ms);
+        }
+        OutboundAction::RequestItem { .. }
+        | OutboundAction::RequestUnitPayload { .. }
+        | OutboundAction::UnitClear
+        | OutboundAction::UnitControl { .. }
+        | OutboundAction::UnitBuildingControlSelect { .. }
+        | OutboundAction::BuildingControlSelect { .. }
+        | OutboundAction::ClearItems { .. }
+        | OutboundAction::ClearLiquids { .. }
+        | OutboundAction::TransferInventory { .. }
+        | OutboundAction::RequestBuildPayload { .. }
+        | OutboundAction::RequestDropPayload { .. }
+        | OutboundAction::RotateBlock { .. }
+        | OutboundAction::DropItem { .. }
+        | OutboundAction::DeletePlans { .. }
+        | OutboundAction::CommandBuilding { .. }
+        | OutboundAction::CommandUnits { .. }
+        | OutboundAction::CommandUnitsChunked { .. }
+        | OutboundAction::SetUnitCommand { .. }
+        | OutboundAction::SetUnitStance { .. }
+        | OutboundAction::BeginBreak { .. }
+        | OutboundAction::BeginPlace { .. }
+        | OutboundAction::MenuChoose { .. }
+        | OutboundAction::TextInputResult { .. } => {
+            snapshot.active_actions.push(BinaryAction::Interact);
+            live_intent_mapper.push_transient_snapshot(snapshot, now_ms);
+        }
+        OutboundAction::ClientPacket { .. }
+        | OutboundAction::ClientBinaryPacket { .. }
+        | OutboundAction::ClientLogicData { .. } => {}
+    }
 }
 
 fn maybe_print_runtime_input(
@@ -6072,6 +6239,7 @@ fn maybe_queue_chat_messages(
     args: &CliArgs,
     now_ms: u64,
     next_chat_index: &mut usize,
+    mut live_intent_mapper: Option<&mut LiveIntentMapperController>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if args.chat_schedule.is_empty()
         || !session.state().ready_to_enter_world
@@ -6084,6 +6252,12 @@ fn maybe_queue_chat_messages(
     let queued_start_index = next_chat_index.saturating_sub(queued_messages.len());
     for (offset, message) in queued_messages.into_iter().enumerate() {
         session.queue_send_chat_message(message.text.clone())?;
+        maybe_capture_live_transient_chat_pulse(
+            session,
+            args,
+            live_intent_mapper.as_deref_mut(),
+            now_ms,
+        );
         println!(
             "chat_message_queued: index={} tick={}ms scheduled={}ms text={:?}",
             queued_start_index + offset,
@@ -6100,6 +6274,7 @@ fn maybe_queue_outbound_actions(
     args: &CliArgs,
     now_ms: u64,
     next_action_index: &mut usize,
+    mut live_intent_mapper: Option<&mut LiveIntentMapperController>,
     runtime_command_mode: &mut CommandModeState,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if args.outbound_action_schedule.is_empty()
@@ -6114,6 +6289,13 @@ fn maybe_queue_outbound_actions(
     let queued_start_index = next_action_index.saturating_sub(queued_actions.len());
     for (offset, entry) in queued_actions.into_iter().enumerate() {
         queue_outbound_action_with_command_mode(session, &entry.action, runtime_command_mode)?;
+        maybe_capture_live_transient_outbound_action(
+            session,
+            args,
+            live_intent_mapper.as_deref_mut(),
+            now_ms,
+            &entry.action,
+        );
         println!(
             "outbound_action_queued: index={} tick={}ms scheduled={}ms action={:?}",
             queued_start_index + offset,
@@ -11613,6 +11795,120 @@ mod tests {
         assert!(!live_intent_mapper
             .state()
             .is_action_active(BinaryAction::Fire));
+    }
+
+    #[test]
+    fn live_intent_mapper_flushes_buffered_runtime_snapshots_without_intent_schedule() {
+        let mut live_intent_mapper =
+            LiveIntentMapperController::new(Vec::new(), IntentSamplingMode::LiveSampling);
+        let pressed_snapshot = InputSnapshot {
+            move_axis: (1.0, 0.0),
+            aim_axis: (16.0, 24.0),
+            mining_tile: None,
+            building: false,
+            config_tap_tile: None,
+            active_actions: vec![BinaryAction::Fire],
+        };
+        let released_snapshot = InputSnapshot {
+            move_axis: (0.0, 0.0),
+            aim_axis: (32.0, 48.0),
+            mining_tile: None,
+            building: false,
+            config_tap_tile: None,
+            active_actions: vec![],
+        };
+
+        live_intent_mapper.observe_runtime_snapshot(pressed_snapshot.clone(), 25);
+        assert!(live_intent_mapper.advance(&pressed_snapshot, 50));
+        assert_eq!(
+            live_intent_mapper.state().pressed_actions,
+            vec![BinaryAction::Fire]
+        );
+        assert!(live_intent_mapper
+            .state()
+            .is_action_active(BinaryAction::Fire));
+
+        live_intent_mapper.observe_runtime_snapshot(released_snapshot.clone(), 75);
+        assert!(live_intent_mapper.advance(&released_snapshot, 100));
+        assert!(live_intent_mapper.state().pressed_actions.is_empty());
+        assert_eq!(
+            live_intent_mapper.state().released_actions,
+            vec![BinaryAction::Fire]
+        );
+        assert!(!live_intent_mapper
+            .state()
+            .is_action_active(BinaryAction::Fire));
+    }
+
+    #[test]
+    fn outbound_tile_tap_is_captured_as_live_runtime_transient_without_intent_schedule() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
+        let args = parse_args(sample_args(&[])).unwrap();
+        let mut live_intent_mapper =
+            build_live_intent_mapper(&args).expect("default args should enable runtime capture");
+
+        maybe_capture_live_transient_outbound_action(
+            &session,
+            &args,
+            Some(&mut live_intent_mapper),
+            0,
+            &OutboundAction::TileTap {
+                tile_pos: Some(pack_point2(6, 7)),
+            },
+        );
+
+        let runtime_snapshot = sample_current_runtime_snapshot(&session, &args);
+        assert!(live_intent_mapper.advance(&runtime_snapshot, 0));
+        assert_eq!(
+            live_intent_mapper.state().last_config_tap_tile,
+            Some((6, 7))
+        );
+        assert_eq!(live_intent_mapper.state().config_tap_count, 1);
+        assert_eq!(
+            live_intent_mapper.state().pressed_actions,
+            vec![BinaryAction::Interact]
+        );
+        assert_eq!(
+            live_intent_mapper.state().released_actions,
+            vec![BinaryAction::Interact]
+        );
+        assert!(!live_intent_mapper
+            .state()
+            .is_action_active(BinaryAction::Interact));
+    }
+
+    #[test]
+    fn runtime_input_sampling_treats_selected_block_as_building_signal() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
+        let args = parse_args(sample_args(&[])).unwrap();
+        {
+            let input = session.snapshot_input_mut();
+            input.building = false;
+            input.selected_block_id = Some(0x0102);
+        }
+
+        let sampled = sample_runtime_input_snapshot(runtime_input_sample(&session, &args));
+
+        assert!(sampled.building);
+    }
+
+    #[test]
+    fn sync_runtime_build_selection_state_treats_selected_block_as_building_signal() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
+        let args = parse_args(sample_args(&[])).unwrap();
+        {
+            let input = session.snapshot_input_mut();
+            input.building = false;
+            input.selected_block_id = Some(0x0102);
+            input.plans = None;
+        }
+
+        sync_runtime_build_selection_state(&mut session, &args);
+
+        assert!(session.snapshot_input().building);
     }
 
     #[test]

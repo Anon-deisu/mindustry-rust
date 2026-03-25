@@ -3743,9 +3743,37 @@ pub struct TypedRuntimeUnitEntity {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypedRuntimeFireEntity {
+    pub base: TypedRuntimeEntityBase,
+    pub semantic: EntityFireSemanticProjection,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypedRuntimePuddleEntity {
+    pub base: TypedRuntimeEntityBase,
+    pub semantic: EntityPuddleSemanticProjection,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypedRuntimeWeatherStateEntity {
+    pub base: TypedRuntimeEntityBase,
+    pub semantic: EntityWeatherStateSemanticProjection,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypedRuntimeWorldLabelEntity {
+    pub base: TypedRuntimeEntityBase,
+    pub semantic: EntityWorldLabelSemanticProjection,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypedRuntimeEntityModel {
     Player(TypedRuntimePlayerEntity),
     Unit(TypedRuntimeUnitEntity),
+    Fire(TypedRuntimeFireEntity),
+    Puddle(TypedRuntimePuddleEntity),
+    WeatherState(TypedRuntimeWeatherStateEntity),
+    WorldLabel(TypedRuntimeWorldLabelEntity),
 }
 
 impl TypedRuntimeEntityModel {
@@ -3753,6 +3781,10 @@ impl TypedRuntimeEntityModel {
         match self {
             Self::Player(player) => &player.base,
             Self::Unit(unit) => &unit.base,
+            Self::Fire(fire) => &fire.base,
+            Self::Puddle(puddle) => &puddle.base,
+            Self::WeatherState(weather) => &weather.base,
+            Self::WorldLabel(world_label) => &world_label.base,
         }
     }
 
@@ -3764,6 +3796,10 @@ impl TypedRuntimeEntityModel {
         match self {
             Self::Player(_) => TypedRuntimeEntityKind::Player,
             Self::Unit(_) => TypedRuntimeEntityKind::Unit,
+            Self::Fire(_) => TypedRuntimeEntityKind::Fire,
+            Self::Puddle(_) => TypedRuntimeEntityKind::Puddle,
+            Self::WeatherState(_) => TypedRuntimeEntityKind::WeatherState,
+            Self::WorldLabel(_) => TypedRuntimeEntityKind::WorldLabel,
         }
     }
 }
@@ -3772,6 +3808,10 @@ impl TypedRuntimeEntityModel {
 pub enum TypedRuntimeEntityKind {
     Player,
     Unit,
+    Fire,
+    Puddle,
+    WeatherState,
+    WorldLabel,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -3802,7 +3842,11 @@ impl TypedRuntimeEntityProjection {
         let entity_id = self.local_player_entity_id?;
         match self.by_entity_id.get(&entity_id)? {
             TypedRuntimeEntityModel::Player(player) => Some(player),
-            TypedRuntimeEntityModel::Unit(_) => None,
+            TypedRuntimeEntityModel::Unit(_)
+            | TypedRuntimeEntityModel::Fire(_)
+            | TypedRuntimeEntityModel::Puddle(_)
+            | TypedRuntimeEntityModel::WeatherState(_)
+            | TypedRuntimeEntityModel::WorldLabel(_) => None,
         }
     }
 
@@ -3870,6 +3914,10 @@ impl TypedRuntimeEntityProjection {
                         last_unit = Some(priority);
                     }
                 }
+                TypedRuntimeEntityKind::Fire
+                | TypedRuntimeEntityKind::Puddle
+                | TypedRuntimeEntityKind::WeatherState
+                | TypedRuntimeEntityKind::WorldLabel => {}
             }
         }
 
@@ -3927,6 +3975,30 @@ fn typed_runtime_entity_model(
                 semantic: unit.clone(),
             }))
         }
+        Some(EntitySemanticProjection::Fire(fire)) => {
+            Some(TypedRuntimeEntityModel::Fire(TypedRuntimeFireEntity {
+                base,
+                semantic: fire.clone(),
+            }))
+        }
+        Some(EntitySemanticProjection::Puddle(puddle)) => {
+            Some(TypedRuntimeEntityModel::Puddle(TypedRuntimePuddleEntity {
+                base,
+                semantic: puddle.clone(),
+            }))
+        }
+        Some(EntitySemanticProjection::WeatherState(weather)) => Some(
+            TypedRuntimeEntityModel::WeatherState(TypedRuntimeWeatherStateEntity {
+                base,
+                semantic: weather.clone(),
+            }),
+        ),
+        Some(EntitySemanticProjection::WorldLabel(world_label)) => Some(
+            TypedRuntimeEntityModel::WorldLabel(TypedRuntimeWorldLabelEntity {
+                base,
+                semantic: world_label.clone(),
+            }),
+        ),
         _ if entity.class_id == EntityTableProjection::LOCAL_PLAYER_CLASS_ID => {
             Some(TypedRuntimeEntityModel::Player(TypedRuntimePlayerEntity {
                 base,
@@ -6845,6 +6917,61 @@ mod tests {
     }
 
     #[test]
+    fn session_state_typed_runtime_entity_at_joins_world_label_semantic_projection() {
+        let mut state = SessionState::default();
+        state.entity_table_projection.by_entity_id.insert(
+            303,
+            EntityProjection {
+                class_id: 35,
+                hidden: true,
+                is_local_player: false,
+                unit_kind: 0,
+                unit_value: 0,
+                x_bits: 5.5f32.to_bits(),
+                y_bits: 6.5f32.to_bits(),
+                last_seen_entity_snapshot_count: 11,
+            },
+        );
+        state.entity_semantic_projection.upsert(
+            303,
+            35,
+            11,
+            EntitySemanticProjection::WorldLabel(EntityWorldLabelSemanticProjection {
+                flags: 3,
+                font_size_bits: 1.5f32.to_bits(),
+                text: Some("hello world".to_string()),
+                z_bits: 120.0f32.to_bits(),
+            }),
+        );
+
+        assert_eq!(
+            state.typed_runtime_entity_at(303),
+            Some(TypedRuntimeEntityModel::WorldLabel(
+                TypedRuntimeWorldLabelEntity {
+                    base: TypedRuntimeEntityBase {
+                        entity_id: 303,
+                        class_id: 35,
+                        hidden: true,
+                        is_local_player: false,
+                        unit_kind: 0,
+                        unit_value: 0,
+                        x_bits: 5.5f32.to_bits(),
+                        y_bits: 6.5f32.to_bits(),
+                        last_seen_entity_snapshot_count: 11,
+                    },
+                    semantic: EntityWorldLabelSemanticProjection {
+                        flags: 3,
+                        font_size_bits: 1.5f32.to_bits(),
+                        text: Some("hello world".to_string()),
+                        z_bits: 120.0f32.to_bits(),
+                    },
+                }
+            ))
+        );
+        assert_eq!(state.typed_runtime_entities().len(), 1);
+    }
+
+    #[test]
     fn entity_table_apply_hidden_ids_clears_stale_hidden_flags_for_removed_ids() {
         let mut table = EntityTableProjection::default();
         table.by_entity_id.insert(
@@ -6971,6 +7098,17 @@ mod tests {
                 time_bits: Some(0x40a0_0000),
             }),
         );
+        state.entity_semantic_projection.upsert(
+            303,
+            35,
+            10,
+            EntitySemanticProjection::WorldLabel(EntityWorldLabelSemanticProjection {
+                flags: 1,
+                font_size_bits: 12.0f32.to_bits(),
+                text: Some("world".to_string()),
+                z_bits: 0.5f32.to_bits(),
+            }),
+        );
 
         let projection = state.typed_runtime_entity_projection();
 
@@ -6978,7 +7116,7 @@ mod tests {
         assert_eq!(projection.unit_count, 1);
         assert_eq!(projection.hidden_count, 1);
         assert_eq!(projection.local_player_entity_id, Some(101));
-        assert_eq!(projection.last_entity_id, Some(202));
+        assert_eq!(projection.last_entity_id, Some(303));
         assert_eq!(projection.last_player_entity_id, Some(102));
         assert_eq!(projection.last_unit_entity_id, Some(202));
         assert!(matches!(
@@ -6992,6 +7130,12 @@ mod tests {
                 if unit.semantic.unit_type_id == 55
                     && unit.semantic.payload_count == Some(1)
         ));
+        assert!(matches!(
+            projection.entity_at(303),
+            Some(TypedRuntimeEntityModel::WorldLabel(world_label))
+                if world_label.base.hidden == false
+                    && world_label.semantic.text.as_deref() == Some("world")
+        ));
         assert_eq!(
             projection
                 .local_player()
@@ -7001,7 +7145,6 @@ mod tests {
         assert_eq!(projection.local_player_owned_unit_entity_id, None);
         assert_eq!(projection.player_with_owned_unit_count, 0);
         assert_eq!(projection.owned_unit_count, 0);
-        assert!(!projection.by_entity_id.contains_key(&303));
     }
 
     #[test]

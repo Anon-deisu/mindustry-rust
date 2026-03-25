@@ -90,6 +90,12 @@ impl AsciiScenePresenter {
         for minimap_detail_text in compose_minimap_detail_lines(scene, hud) {
             out.push_str(&format!("MINIMAP-DETAIL: {minimap_detail_text}\n"));
         }
+        if let Some(render_pipeline_text) = compose_render_pipeline_text(scene, window) {
+            out.push_str(&format!("RENDER-PIPELINE: {render_pipeline_text}\n"));
+        }
+        for render_layer_text in compose_render_layer_lines(scene, window) {
+            out.push_str(&format!("RENDER-LAYER: {render_layer_text}\n"));
+        }
         if let Some(minimap_legend_text) = compose_minimap_legend_line(hud) {
             out.push_str(&format!("MINIMAP-LEGEND: {minimap_legend_text}\n"));
         }
@@ -1937,6 +1943,90 @@ fn compose_overlay_semantics_text(scene: &RenderModel) -> Option<String> {
     Some(summary.family_and_detail_text())
 }
 
+fn compose_render_pipeline_text(
+    scene: &RenderModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let summary = render_pipeline_summary(scene, window)?;
+    let window = summary.window?;
+    let span_text = summary
+        .layer_span
+        .map(|(min, max)| format!("{min}..{max}"))
+        .unwrap_or_else(|| "none".to_string());
+    let focus_text = summary
+        .focus_tile
+        .map(|(x, y)| format!("{x}:{y}"))
+        .unwrap_or_else(|| "none".to_string());
+
+    Some(format!(
+        "total={} visible={} clipped={} layers={} span={} focus={} window={}:{}+{}x{} kinds={}",
+        summary.total_object_count,
+        summary.visible_object_count,
+        summary.clipped_object_count,
+        summary.layers.len(),
+        span_text,
+        focus_text,
+        window.origin_x,
+        window.origin_y,
+        window.width,
+        window.height,
+        summary.visible_semantics.family_and_detail_text(),
+    ))
+}
+
+fn compose_render_layer_lines(scene: &RenderModel, window: PresenterViewWindow) -> Vec<String> {
+    let Some(summary) = render_pipeline_summary(scene, window) else {
+        return Vec::new();
+    };
+
+    let layer_count = summary.layers.len();
+    summary
+        .layers
+        .iter()
+        .enumerate()
+        .map(|(index, layer)| {
+            let mut text = format!(
+                "{}/{} layer={} objects={} player={} marker={} plan={} block={} runtime={} terrain={} unknown={}",
+                index + 1,
+                layer_count,
+                layer.layer,
+                layer.object_count,
+                layer.player_count,
+                layer.marker_count,
+                layer.plan_count,
+                layer.block_count,
+                layer.runtime_count,
+                layer.terrain_count,
+                layer.unknown_count,
+            );
+            if let Some(detail_text) = layer.detail_text() {
+                text.push_str(" detail=");
+                text.push_str(&detail_text);
+            }
+            text
+        })
+        .collect()
+}
+
+fn render_pipeline_summary(
+    scene: &RenderModel,
+    window: PresenterViewWindow,
+) -> Option<crate::render_model::RenderPipelineSummary> {
+    if scene.objects.is_empty() {
+        return None;
+    }
+
+    Some(scene.pipeline_summary_for_window(
+        TILE_SIZE,
+        crate::RenderViewWindow {
+            origin_x: window.origin_x,
+            origin_y: window.origin_y,
+            width: window.width,
+            height: window.height,
+        },
+    ))
+}
+
 fn semantic_detail_text(
     detail_counts: &[crate::render_model::RenderSemanticDetailCount],
 ) -> Option<String> {
@@ -2597,6 +2687,67 @@ mod tests {
             "MINIMAP-KINDS: tracked=7 player=1 marker=2 plan=0 block=0 runtime=4 terrain=0 unknown=0 detail=marker-line:1,marker-line-end:1,runtime-building:1,runtime-config:1,runtime-deconstruct:1,runtime-place:1"
         ));
         assert!(frame.contains("MINIMAP-DETAIL: 1/6 marker-line=1"));
+    }
+
+    #[test]
+    fn ascii_presenter_surfaces_render_pipeline_layer_summary_for_visible_window() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 32.0,
+                height: 32.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![
+                crate::RenderObject {
+                    id: "terrain:0".to_string(),
+                    layer: 0,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                crate::RenderObject {
+                    id: "marker:line:7".to_string(),
+                    layer: 30,
+                    x: 8.0,
+                    y: 8.0,
+                },
+                crate::RenderObject {
+                    id: "player:focus".to_string(),
+                    layer: 40,
+                    x: 8.0,
+                    y: 8.0,
+                },
+                crate::RenderObject {
+                    id: "plan:build:1:3:3:257".to_string(),
+                    layer: 20,
+                    x: 24.0,
+                    y: 24.0,
+                },
+                crate::RenderObject {
+                    id: "block:runtime-building:1:3:3".to_string(),
+                    layer: 35,
+                    x: 24.0,
+                    y: 0.0,
+                },
+            ],
+        };
+        let mut presenter = AsciiScenePresenter::with_max_view_tiles(2, 2);
+
+        presenter.present(&scene, &HudModel::default());
+
+        let frame = presenter.last_frame();
+        assert!(frame.contains(
+            "RENDER-PIPELINE: total=5 visible=3 clipped=2 layers=3 span=0..40 focus=1:1 window=0:0+2x2 kinds=players=1 markers=1 plans=0 blocks=0 runtime=0 terrain=1 unknown=0 detail=marker-line:1"
+        ));
+        assert!(frame.contains(
+            "RENDER-LAYER: 1/3 layer=0 objects=1 player=0 marker=0 plan=0 block=0 runtime=0 terrain=1 unknown=0"
+        ));
+        assert!(frame.contains(
+            "RENDER-LAYER: 2/3 layer=30 objects=1 player=0 marker=1 plan=0 block=0 runtime=0 terrain=0 unknown=0 detail=marker-line:1"
+        ));
+        assert!(frame.contains(
+            "RENDER-LAYER: 3/3 layer=40 objects=1 player=1 marker=0 plan=0 block=0 runtime=0 terrain=0 unknown=0"
+        ));
     }
 
     #[test]

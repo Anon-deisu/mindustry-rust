@@ -466,6 +466,12 @@ fn compose_frame_panel_lines(
     for minimap_detail_text in compose_minimap_detail_status_lines(scene, hud) {
         lines.push(format!("MINIMAP-DETAIL: {minimap_detail_text}"));
     }
+    if let Some(render_pipeline_text) = compose_render_pipeline_status_text(scene, window) {
+        lines.push(format!("RENDER-PIPELINE: {render_pipeline_text}"));
+    }
+    for render_layer_text in compose_render_layer_status_lines(scene, window) {
+        lines.push(format!("RENDER-LAYER: {render_layer_text}"));
+    }
     if let Some(build_panel_text) = compose_build_config_panel_status_text(hud) {
         lines.push(format!("BUILD-CONFIG: {build_panel_text}"));
     }
@@ -2253,6 +2259,93 @@ fn compose_overlay_semantics_status_text(scene: &RenderModel) -> Option<String> 
     Some(format!("overlay:{}", summary.family_and_detail_text()))
 }
 
+fn compose_render_pipeline_status_text(
+    scene: &RenderModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let summary = render_pipeline_summary(scene, window)?;
+    let window = summary.window?;
+    let span_text = summary
+        .layer_span
+        .map(|(min, max)| format!("{min}..{max}"))
+        .unwrap_or_else(|| "none".to_string());
+    let focus_text = summary
+        .focus_tile
+        .map(|(x, y)| format!("{x},{y}"))
+        .unwrap_or_else(|| "none".to_string());
+
+    Some(format!(
+        "pipe:tot{}:vis{}:clip{}:ly{}:span{}:f{}:w{},{}+{}x{}:{}",
+        summary.total_object_count,
+        summary.visible_object_count,
+        summary.clipped_object_count,
+        summary.layers.len(),
+        span_text,
+        focus_text,
+        window.origin_x,
+        window.origin_y,
+        window.width,
+        window.height,
+        summary.visible_semantics.family_and_detail_text(),
+    ))
+}
+
+fn compose_render_layer_status_lines(
+    scene: &RenderModel,
+    window: PresenterViewWindow,
+) -> Vec<String> {
+    let Some(summary) = render_pipeline_summary(scene, window) else {
+        return Vec::new();
+    };
+
+    let layer_count = summary.layers.len();
+    summary
+        .layers
+        .iter()
+        .enumerate()
+        .map(|(index, layer)| {
+            let mut text = format!(
+                "lay:{}/{}:l{}:o{}@pl{}:mk{}:pn{}:bk{}:rt{}:tr{}:uk{}",
+                index + 1,
+                layer_count,
+                layer.layer,
+                layer.object_count,
+                layer.player_count,
+                layer.marker_count,
+                layer.plan_count,
+                layer.block_count,
+                layer.runtime_count,
+                layer.terrain_count,
+                layer.unknown_count,
+            );
+            if let Some(detail_text) = layer.detail_text() {
+                text.push_str(":detail=");
+                text.push_str(&detail_text);
+            }
+            text
+        })
+        .collect()
+}
+
+fn render_pipeline_summary(
+    scene: &RenderModel,
+    window: PresenterViewWindow,
+) -> Option<crate::render_model::RenderPipelineSummary> {
+    if scene.objects.is_empty() {
+        return None;
+    }
+
+    Some(scene.pipeline_summary_for_window(
+        TILE_SIZE,
+        crate::RenderViewWindow {
+            origin_x: window.origin_x,
+            origin_y: window.origin_y,
+            width: window.width,
+            height: window.height,
+        },
+    ))
+}
+
 fn semantic_detail_text(
     detail_counts: &[crate::render_model::RenderSemanticDetailCount],
 ) -> Option<String> {
@@ -3040,6 +3133,75 @@ mod tests {
         assert_frame_line_contains(
             &frame.panel_lines,
             "MINIMAP-DETAIL: miniwin:win7:off0@pl1:mk2:pn0:bk0:rt4:tr0:uk0",
+        );
+    }
+
+    #[test]
+    fn present_once_surfaces_render_pipeline_layer_summary_for_visible_window() {
+        let backend = RecordingBackend::default();
+        let mut presenter = WindowPresenter::new(backend).with_max_view_tiles(2, 2);
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 32.0,
+                height: 32.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: "terrain:0".to_string(),
+                    layer: 0,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:line:7".to_string(),
+                    layer: 30,
+                    x: 8.0,
+                    y: 8.0,
+                },
+                RenderObject {
+                    id: "player:focus".to_string(),
+                    layer: 40,
+                    x: 8.0,
+                    y: 8.0,
+                },
+                RenderObject {
+                    id: "plan:build:1:3:3:257".to_string(),
+                    layer: 20,
+                    x: 24.0,
+                    y: 24.0,
+                },
+                RenderObject {
+                    id: "block:runtime-building:1:3:3".to_string(),
+                    layer: 35,
+                    x: 24.0,
+                    y: 0.0,
+                },
+            ],
+        };
+
+        presenter
+            .present_once(&scene, &HudModel::default())
+            .unwrap();
+
+        let backend = presenter.into_backend();
+        let frame = backend.frames.last().unwrap();
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RENDER-PIPELINE: pipe:tot5:vis3:clip2:ly3:span0..40:f1,1:w0,0+2x2:players=1 markers=1 plans=0 blocks=0 runtime=0 terrain=1 unknown=0 detail=marker-line:1",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RENDER-LAYER: lay:1/3:l0:o1@pl0:mk0:pn0:bk0:rt0:tr1:uk0",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RENDER-LAYER: lay:2/3:l30:o1@pl0:mk1:pn0:bk0:rt0:tr0:uk0:detail=marker-line:1",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RENDER-LAYER: lay:3/3:l40:o1@pl1:mk0:pn0:bk0:rt0:tr0:uk0",
         );
     }
 

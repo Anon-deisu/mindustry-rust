@@ -1,6 +1,8 @@
 /// Render-facing projection of world state for UI drawing.
 ///
 /// This crate intentionally avoids protocol parsing and transport concerns.
+use std::collections::BTreeMap;
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct RenderModel {
     pub viewport: Viewport,
@@ -104,6 +106,32 @@ pub struct RenderSemanticSummary {
     pub detail_counts: Vec<RenderSemanticDetailCount>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RenderPipelineLayerSummary {
+    pub layer: i32,
+    pub object_count: usize,
+    pub player_count: usize,
+    pub marker_count: usize,
+    pub plan_count: usize,
+    pub block_count: usize,
+    pub runtime_count: usize,
+    pub terrain_count: usize,
+    pub unknown_count: usize,
+    pub detail_counts: Vec<RenderSemanticDetailCount>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RenderPipelineSummary {
+    pub total_object_count: usize,
+    pub visible_object_count: usize,
+    pub clipped_object_count: usize,
+    pub visible_semantics: RenderSemanticSummary,
+    pub focus_tile: Option<(usize, usize)>,
+    pub window: Option<RenderViewWindow>,
+    pub layer_span: Option<(i32, i32)>,
+    pub layers: Vec<RenderPipelineLayerSummary>,
+}
+
 impl RenderObject {
     pub fn semantic_kind(&self) -> RenderObjectSemanticKind {
         RenderObjectSemanticKind::from_id(&self.id)
@@ -135,37 +163,59 @@ impl RenderModel {
         let mut summary = RenderSemanticSummary::default();
 
         for object in &self.objects {
-            summary.total_count += 1;
-            match object.semantic_family() {
-                RenderObjectSemanticFamily::Player => summary.player_count += 1,
-                RenderObjectSemanticFamily::Marker => summary.marker_count += 1,
-                RenderObjectSemanticFamily::Plan => summary.plan_count += 1,
-                RenderObjectSemanticFamily::Block => summary.block_count += 1,
-                RenderObjectSemanticFamily::Runtime => summary.runtime_count += 1,
-                RenderObjectSemanticFamily::Terrain => summary.terrain_count += 1,
-                RenderObjectSemanticFamily::Unknown => summary.unknown_count += 1,
-            }
-
-            let Some(label) = object.semantic_kind().detail_label() else {
-                continue;
-            };
-            if let Some(existing) = summary
-                .detail_counts
-                .iter_mut()
-                .find(|existing| existing.label == label)
-            {
-                existing.count += 1;
-            } else {
-                summary
-                    .detail_counts
-                    .push(RenderSemanticDetailCount { label, count: 1 });
-            }
+            accumulate_semantic_summary(&mut summary, object);
         }
 
+        sort_detail_counts(&mut summary.detail_counts);
         summary
-            .detail_counts
-            .sort_by(|left, right| left.label.cmp(right.label));
-        summary
+    }
+
+    pub fn pipeline_summary_for_window(
+        &self,
+        tile_size: f32,
+        window: RenderViewWindow,
+    ) -> RenderPipelineSummary {
+        let mut visible_semantics = RenderSemanticSummary::default();
+        let mut layers = BTreeMap::<i32, RenderPipelineLayerSummary>::new();
+        let mut visible_object_count = 0usize;
+
+        for object in &self.objects {
+            if !object_visible_in_window(object, tile_size, window) {
+                continue;
+            }
+
+            visible_object_count += 1;
+            accumulate_semantic_summary(&mut visible_semantics, object);
+            let layer = layers
+                .entry(object.layer)
+                .or_insert_with(|| RenderPipelineLayerSummary {
+                    layer: object.layer,
+                    ..RenderPipelineLayerSummary::default()
+                });
+            accumulate_pipeline_layer_summary(layer, object);
+        }
+
+        let mut layers = layers.into_values().collect::<Vec<_>>();
+        for layer in &mut layers {
+            sort_detail_counts(&mut layer.detail_counts);
+        }
+        sort_detail_counts(&mut visible_semantics.detail_counts);
+
+        let layer_span = layers
+            .first()
+            .zip(layers.last())
+            .map(|(first, last)| (first.layer, last.layer));
+
+        RenderPipelineSummary {
+            total_object_count: self.objects.len(),
+            visible_object_count,
+            clipped_object_count: self.objects.len().saturating_sub(visible_object_count),
+            visible_semantics,
+            focus_tile: self.player_focus_tile(tile_size),
+            window: Some(window),
+            layer_span,
+            layers,
+        }
     }
 }
 
@@ -193,17 +243,35 @@ impl RenderSemanticSummary {
     }
 
     pub fn detail_text(&self) -> Option<String> {
-        if self.detail_counts.is_empty() {
-            return None;
-        }
+        detail_counts_text(&self.detail_counts)
+    }
+}
 
-        Some(
-            self.detail_counts
-                .iter()
-                .map(|detail| format!("{}:{}", detail.label, detail.count))
-                .collect::<Vec<_>>()
-                .join(","),
+impl RenderPipelineLayerSummary {
+    pub fn family_text(&self) -> String {
+        format!(
+            "players={} markers={} plans={} blocks={} runtime={} terrain={} unknown={}",
+            self.player_count,
+            self.marker_count,
+            self.plan_count,
+            self.block_count,
+            self.runtime_count,
+            self.terrain_count,
+            self.unknown_count,
         )
+    }
+
+    pub fn family_and_detail_text(&self) -> String {
+        let mut text = self.family_text();
+        if let Some(detail_text) = self.detail_text() {
+            text.push_str(" detail=");
+            text.push_str(&detail_text);
+        }
+        text
+    }
+
+    pub fn detail_text(&self) -> Option<String> {
+        detail_counts_text(&self.detail_counts)
     }
 }
 
@@ -356,17 +424,113 @@ fn terrain_semantic_kind(second: &str) -> RenderObjectSemanticKind {
 }
 
 fn world_to_tile_index_floor(world_position: f32, tile_size: f32) -> i32 {
-    if !world_position.is_finite() {
+    if !world_position.is_finite() || !tile_size.is_finite() || tile_size <= 0.0 {
         return 0;
     }
     (world_position / tile_size).floor() as i32
+}
+
+fn accumulate_semantic_summary(summary: &mut RenderSemanticSummary, object: &RenderObject) {
+    summary.total_count += 1;
+    match object.semantic_family() {
+        RenderObjectSemanticFamily::Player => summary.player_count += 1,
+        RenderObjectSemanticFamily::Marker => summary.marker_count += 1,
+        RenderObjectSemanticFamily::Plan => summary.plan_count += 1,
+        RenderObjectSemanticFamily::Block => summary.block_count += 1,
+        RenderObjectSemanticFamily::Runtime => summary.runtime_count += 1,
+        RenderObjectSemanticFamily::Terrain => summary.terrain_count += 1,
+        RenderObjectSemanticFamily::Unknown => summary.unknown_count += 1,
+    }
+    increment_detail_count(
+        &mut summary.detail_counts,
+        object.semantic_kind().detail_label(),
+    );
+}
+
+fn accumulate_pipeline_layer_summary(
+    summary: &mut RenderPipelineLayerSummary,
+    object: &RenderObject,
+) {
+    summary.object_count += 1;
+    match object.semantic_family() {
+        RenderObjectSemanticFamily::Player => summary.player_count += 1,
+        RenderObjectSemanticFamily::Marker => summary.marker_count += 1,
+        RenderObjectSemanticFamily::Plan => summary.plan_count += 1,
+        RenderObjectSemanticFamily::Block => summary.block_count += 1,
+        RenderObjectSemanticFamily::Runtime => summary.runtime_count += 1,
+        RenderObjectSemanticFamily::Terrain => summary.terrain_count += 1,
+        RenderObjectSemanticFamily::Unknown => summary.unknown_count += 1,
+    }
+    increment_detail_count(
+        &mut summary.detail_counts,
+        object.semantic_kind().detail_label(),
+    );
+}
+
+fn increment_detail_count(
+    detail_counts: &mut Vec<RenderSemanticDetailCount>,
+    label: Option<&'static str>,
+) {
+    let Some(label) = label else {
+        return;
+    };
+
+    if let Some(existing) = detail_counts
+        .iter_mut()
+        .find(|existing| existing.label == label)
+    {
+        existing.count += 1;
+    } else {
+        detail_counts.push(RenderSemanticDetailCount { label, count: 1 });
+    }
+}
+
+fn sort_detail_counts(detail_counts: &mut [RenderSemanticDetailCount]) {
+    detail_counts.sort_by(|left, right| left.label.cmp(right.label));
+}
+
+fn detail_counts_text(detail_counts: &[RenderSemanticDetailCount]) -> Option<String> {
+    if detail_counts.is_empty() {
+        return None;
+    }
+
+    Some(
+        detail_counts
+            .iter()
+            .map(|detail| format!("{}:{}", detail.label, detail.count))
+            .collect::<Vec<_>>()
+            .join(","),
+    )
+}
+
+fn object_visible_in_window(
+    object: &RenderObject,
+    tile_size: f32,
+    window: RenderViewWindow,
+) -> bool {
+    if !tile_size.is_finite() || tile_size <= 0.0 {
+        return true;
+    }
+
+    let tile_x = world_to_tile_index_floor(object.x, tile_size);
+    let tile_y = world_to_tile_index_floor(object.y, tile_size);
+    if tile_x < 0 || tile_y < 0 {
+        return false;
+    }
+
+    let (tile_x, tile_y) = (tile_x as usize, tile_y as usize);
+    tile_x >= window.origin_x
+        && tile_y >= window.origin_y
+        && tile_x < window.origin_x.saturating_add(window.width)
+        && tile_y < window.origin_y.saturating_add(window.height)
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
         RenderModel, RenderObject, RenderObjectSemanticFamily, RenderObjectSemanticKind,
-        RenderSemanticDetailCount, RenderSemanticSummary, RenderViewWindow, Viewport,
+        RenderPipelineLayerSummary, RenderPipelineSummary, RenderSemanticDetailCount,
+        RenderSemanticSummary, RenderViewWindow, Viewport,
     };
 
     #[test]
@@ -784,5 +948,162 @@ mod tests {
         assert_eq!(summary.total_count, 1);
         assert_eq!(summary.player_count, 1);
         assert_eq!(summary.unknown_count, 0);
+    }
+
+    #[test]
+    fn render_model_pipeline_summary_tracks_visible_window_layers_and_clipped_objects() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 64.0,
+                height: 64.0,
+                zoom: 1.0,
+            },
+            view_window: Some(RenderViewWindow {
+                origin_x: 1,
+                origin_y: 1,
+                width: 3,
+                height: 3,
+            }),
+            objects: vec![
+                RenderObject {
+                    id: "terrain:1".to_string(),
+                    layer: 0,
+                    x: 8.0,
+                    y: 8.0,
+                },
+                RenderObject {
+                    id: "marker:line:77".to_string(),
+                    layer: 30,
+                    x: 16.0,
+                    y: 16.0,
+                },
+                RenderObject {
+                    id: "marker:line:77:line-end".to_string(),
+                    layer: 30,
+                    x: 24.0,
+                    y: 24.0,
+                },
+                RenderObject {
+                    id: "player:7".to_string(),
+                    layer: 40,
+                    x: 24.0,
+                    y: 8.0,
+                },
+                RenderObject {
+                    id: "plan:build:1:6:6:257".to_string(),
+                    layer: 20,
+                    x: 48.0,
+                    y: 48.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-config:3:2:string".to_string(),
+                    layer: 35,
+                    x: 56.0,
+                    y: 56.0,
+                },
+            ],
+        };
+
+        let summary = scene.pipeline_summary_for_window(
+            8.0,
+            RenderViewWindow {
+                origin_x: 1,
+                origin_y: 1,
+                width: 3,
+                height: 3,
+            },
+        );
+
+        assert_eq!(
+            summary,
+            RenderPipelineSummary {
+                total_object_count: 6,
+                visible_object_count: 4,
+                clipped_object_count: 2,
+                visible_semantics: RenderSemanticSummary {
+                    total_count: 4,
+                    player_count: 1,
+                    marker_count: 2,
+                    plan_count: 0,
+                    block_count: 0,
+                    runtime_count: 0,
+                    terrain_count: 1,
+                    unknown_count: 0,
+                    detail_counts: vec![
+                        RenderSemanticDetailCount {
+                            label: "marker-line",
+                            count: 1,
+                        },
+                        RenderSemanticDetailCount {
+                            label: "marker-line-end",
+                            count: 1,
+                        },
+                    ],
+                },
+                focus_tile: Some((3, 1)),
+                window: Some(RenderViewWindow {
+                    origin_x: 1,
+                    origin_y: 1,
+                    width: 3,
+                    height: 3,
+                }),
+                layer_span: Some((0, 40)),
+                layers: vec![
+                    RenderPipelineLayerSummary {
+                        layer: 0,
+                        object_count: 1,
+                        player_count: 0,
+                        marker_count: 0,
+                        plan_count: 0,
+                        block_count: 0,
+                        runtime_count: 0,
+                        terrain_count: 1,
+                        unknown_count: 0,
+                        detail_counts: Vec::new(),
+                    },
+                    RenderPipelineLayerSummary {
+                        layer: 30,
+                        object_count: 2,
+                        player_count: 0,
+                        marker_count: 2,
+                        plan_count: 0,
+                        block_count: 0,
+                        runtime_count: 0,
+                        terrain_count: 0,
+                        unknown_count: 0,
+                        detail_counts: vec![
+                            RenderSemanticDetailCount {
+                                label: "marker-line",
+                                count: 1,
+                            },
+                            RenderSemanticDetailCount {
+                                label: "marker-line-end",
+                                count: 1,
+                            },
+                        ],
+                    },
+                    RenderPipelineLayerSummary {
+                        layer: 40,
+                        object_count: 1,
+                        player_count: 1,
+                        marker_count: 0,
+                        plan_count: 0,
+                        block_count: 0,
+                        runtime_count: 0,
+                        terrain_count: 0,
+                        unknown_count: 0,
+                        detail_counts: Vec::new(),
+                    },
+                ],
+            }
+        );
+        assert_eq!(
+            summary.visible_semantics.family_text(),
+            "players=1 markers=2 plans=0 blocks=0 runtime=0 terrain=1 unknown=0"
+        );
+        assert_eq!(
+            summary.layers[1].family_and_detail_text(),
+            "players=0 markers=2 plans=0 blocks=0 runtime=0 terrain=0 unknown=0 detail=marker-line:1,marker-line-end:1"
+        );
     }
 }

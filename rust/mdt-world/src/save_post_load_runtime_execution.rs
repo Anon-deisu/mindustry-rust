@@ -2,14 +2,17 @@ use crate::{
     SavePostLoadRuntimeApplyScript, SavePostLoadRuntimeApplyStep, SavePostLoadRuntimeBuildingSeed,
     SavePostLoadRuntimeCustomChunkSeed, SavePostLoadRuntimeEntityRemapSeed,
     SavePostLoadRuntimeEntitySeed, SavePostLoadRuntimeMarkerSeed, SavePostLoadRuntimeSeedPlan,
+    SavePostLoadRuntimeWorldOwnership, SavePostLoadRuntimeWorldSurfaceKind,
     SavePostLoadRuntimeStaticFogSeed, SavePostLoadRuntimeTeamPlanSeed,
     SavePostLoadRuntimeWorldSeed, SavePostLoadWorldObservation,
 };
+use crate::save_post_load_runtime_world_ownership::build_runtime_world_ownership;
 use std::collections::{btree_map::Entry, BTreeMap};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SavePostLoadRuntimeWorldShell {
     pub seed: SavePostLoadRuntimeWorldSeed,
+    pub ownership_claim_steps: BTreeMap<SavePostLoadRuntimeWorldSurfaceKind, usize>,
     pub team_plans: Vec<SavePostLoadRuntimeTeamPlanSeed>,
     pub team_plans_by_team: BTreeMap<u32, Vec<SavePostLoadRuntimeTeamPlanSeed>>,
     pub markers: Vec<SavePostLoadRuntimeMarkerSeed>,
@@ -31,6 +34,14 @@ impl SavePostLoadRuntimeWorldShell {
             + usize::from(self.static_fog.is_some())
             + self.buildings.len()
             + self.loadable_entities.len()
+    }
+
+    pub fn owned_step_count(&self, kind: SavePostLoadRuntimeWorldSurfaceKind) -> usize {
+        self.ownership_claim_steps.get(&kind).copied().unwrap_or_default()
+    }
+
+    fn claim_world_surface_step(&mut self, kind: SavePostLoadRuntimeWorldSurfaceKind) {
+        *self.ownership_claim_steps.entry(kind).or_default() += 1;
     }
 
     pub fn loadable_entities_for_effective_class_id(
@@ -89,16 +100,13 @@ pub struct SavePostLoadRuntimeWorldSemanticsExecution {
     pub awaiting_world_shell_steps: Vec<SavePostLoadRuntimeApplyStep>,
     pub blocked_steps: Vec<SavePostLoadRuntimeApplyStep>,
     pub world_shell: Option<SavePostLoadRuntimeWorldShell>,
+    pub ownership: SavePostLoadRuntimeWorldOwnership,
     pub issues: Vec<SavePostLoadRuntimeApplyIssue>,
 }
 
 impl SavePostLoadRuntimeWorldSemanticsExecution {
     pub fn can_apply_world_semantics(&self) -> bool {
-        self.world_shell_ready
-            && self.failed_steps.is_empty()
-            && self.awaiting_world_shell_steps.is_empty()
-            && self.blocked_steps.is_empty()
-            && self.has_world_shell()
+        self.ownership.can_apply_world_semantics()
     }
 
     pub fn targeted_step_count(&self) -> usize {
@@ -170,6 +178,7 @@ impl SavePostLoadRuntimeApplyExecution {
             SavePostLoadRuntimeApplyStep::WorldShell => {
                 self.world_shell = Some(SavePostLoadRuntimeWorldShell {
                     seed: plan.world_seed.clone(),
+                    ownership_claim_steps: BTreeMap::new(),
                     team_plans: Vec::new(),
                     team_plans_by_team: BTreeMap::new(),
                     markers: Vec::new(),
@@ -182,6 +191,10 @@ impl SavePostLoadRuntimeApplyExecution {
                     loadable_entities_by_effective_class_id: BTreeMap::new(),
                     loadable_entities_by_effective_name: BTreeMap::new(),
                 });
+                self.world_shell
+                    .as_mut()
+                    .expect("world shell just inserted")
+                    .claim_world_surface_step(SavePostLoadRuntimeWorldSurfaceKind::WorldShell);
                 true
             }
             SavePostLoadRuntimeApplyStep::EntityRemap { remap_index } => {
@@ -230,6 +243,7 @@ impl SavePostLoadRuntimeApplyExecution {
                     .entry(seed.team_id)
                     .or_default()
                     .push(seed.clone());
+                shell.claim_world_surface_step(SavePostLoadRuntimeWorldSurfaceKind::TeamPlans);
                 true
             }
             SavePostLoadRuntimeApplyStep::Marker { marker_index } => {
@@ -253,6 +267,7 @@ impl SavePostLoadRuntimeApplyExecution {
                     Entry::Vacant(entry) => {
                         entry.insert(seed.clone());
                         shell.markers.push(seed.clone());
+                        shell.claim_world_surface_step(SavePostLoadRuntimeWorldSurfaceKind::Markers);
                         true
                     }
                     Entry::Occupied(_) => {
@@ -276,6 +291,7 @@ impl SavePostLoadRuntimeApplyExecution {
                     return false;
                 };
                 shell.static_fog = Some(seed.clone());
+                shell.claim_world_surface_step(SavePostLoadRuntimeWorldSurfaceKind::StaticFog);
                 true
             }
             SavePostLoadRuntimeApplyStep::CustomChunk { chunk_index } => {
@@ -327,6 +343,7 @@ impl SavePostLoadRuntimeApplyExecution {
                     Entry::Vacant(entry) => {
                         entry.insert(seed.clone());
                         shell.buildings.push(seed.clone());
+                        shell.claim_world_surface_step(SavePostLoadRuntimeWorldSurfaceKind::Buildings);
                         true
                     }
                     Entry::Occupied(_) => {
@@ -377,6 +394,9 @@ impl SavePostLoadRuntimeApplyExecution {
                                 .or_default()
                                 .push(seed.clone());
                         }
+                        shell.claim_world_surface_step(
+                            SavePostLoadRuntimeWorldSurfaceKind::LoadableEntities,
+                        );
                         true
                     }
                     Entry::Occupied(_) => {
@@ -459,7 +479,7 @@ impl SavePostLoadRuntimeSeedPlan {
             }
         }
 
-        SavePostLoadRuntimeWorldSemanticsExecution {
+        let mut world_execution = SavePostLoadRuntimeWorldSemanticsExecution {
             world_shell_ready: execution.world_shell_ready,
             executed_steps: execution.executed_steps,
             failed_steps: execution.failed_steps,
@@ -467,7 +487,13 @@ impl SavePostLoadRuntimeSeedPlan {
             blocked_steps: execution.blocked_steps,
             world_shell: execution.world_shell,
             issues: execution.issues,
-        }
+            ownership: SavePostLoadRuntimeWorldOwnership {
+                world_shell_ready: execution.world_shell_ready,
+                surfaces: Vec::new(),
+            },
+        };
+        world_execution.ownership = build_runtime_world_ownership(self, &world_execution);
+        world_execution
     }
 }
 
@@ -490,8 +516,9 @@ mod tests {
         ParsedCustomChunk, PointMarkerModel, SaveEntityChunkObservation, SaveEntityClassKind,
         SaveEntityClassSummary, SaveEntityPostLoadClassSummary, SaveEntityPostLoadKind,
         SaveEntityPostLoadSummary, SaveEntityRemapEntry, SaveEntityRemapSummary,
-        SaveMapRegionObservation, StaticFogChunk, StaticFogTeam, TeamPlan, TeamPlanGroup,
-        TileModel, TypeIoValue, WorldModel,
+        SaveMapRegionObservation, SavePostLoadRuntimeWorldOwnershipStatus,
+        SavePostLoadRuntimeWorldSurfaceKind, StaticFogChunk, StaticFogTeam, TeamPlan,
+        TeamPlanGroup, TileModel, TypeIoValue, WorldModel,
     };
 
     #[test]
@@ -644,6 +671,10 @@ mod tests {
             execution.issues,
             vec![SavePostLoadRuntimeApplyIssue::DuplicateMarkerId(11)]
         );
+        assert_eq!(
+            shell.owned_step_count(SavePostLoadRuntimeWorldSurfaceKind::Markers),
+            1
+        );
         assert_eq!(shell.markers.len(), 1);
         assert_eq!(shell.markers_by_id.len(), 1);
         assert!(shell.markers_by_id.contains_key(&11));
@@ -664,6 +695,7 @@ mod tests {
 
         assert!(execution.world_shell_ready);
         assert!(execution.can_apply_world_semantics());
+        assert!(execution.ownership.can_apply_world_semantics());
         assert_eq!(execution.executed_step_count(), 10);
         assert_eq!(execution.failed_step_count(), 0);
         assert_eq!(execution.pending_step_count(), 0);
@@ -690,6 +722,14 @@ mod tests {
             ]
         );
         assert!(execution.issues.is_empty());
+        assert_eq!(
+            execution
+                .ownership
+                .surface(SavePostLoadRuntimeWorldSurfaceKind::Markers)
+                .unwrap()
+                .status,
+            SavePostLoadRuntimeWorldOwnershipStatus::Owned
+        );
         assert_eq!(shell.team_plans.len(), 2);
         assert_eq!(shell.team_plans_by_team.len(), 2);
         assert_eq!(shell.markers.len(), 2);
@@ -699,6 +739,10 @@ mod tests {
         assert_eq!(shell.buildings_by_center_index.len(), 1);
         assert_eq!(shell.loadable_entities.len(), 3);
         assert_eq!(shell.loadable_entities_by_id.len(), 3);
+        assert_eq!(
+            shell.owned_step_count(SavePostLoadRuntimeWorldSurfaceKind::LoadableEntities),
+            3
+        );
         assert_eq!(shell.loadable_entities_by_effective_class_id.len(), 2);
         assert_eq!(
             shell
@@ -740,6 +784,14 @@ mod tests {
 
         assert!(!execution.world_shell_ready);
         assert!(!execution.can_apply_world_semantics());
+        assert_eq!(
+            execution
+                .ownership
+                .surface(SavePostLoadRuntimeWorldSurfaceKind::WorldShell)
+                .unwrap()
+                .status,
+            SavePostLoadRuntimeWorldOwnershipStatus::Blocked
+        );
         assert!(!execution.has_world_shell());
         assert!(execution.failed_steps.is_empty());
         assert!(execution.issues.is_empty());

@@ -20,6 +20,7 @@ mod save_post_load_runtime_execution_view;
 mod save_post_load_runtime_readiness;
 mod save_post_load_runtime_script;
 mod save_post_load_runtime_seed_plan;
+mod save_post_load_runtime_world_ownership;
 
 pub use save_post_load_activation::{
     SavePostLoadActivationSurface, SavePostLoadBuildingActivationCandidate,
@@ -56,6 +57,10 @@ pub use save_post_load_runtime_seed_plan::{
     SavePostLoadRuntimeMarkerSeed, SavePostLoadRuntimeSeedPlan, SavePostLoadRuntimeStaticFogSeed,
     SavePostLoadRuntimeStaticFogTeamSeed, SavePostLoadRuntimeTeamPlanSeed,
     SavePostLoadRuntimeWorldSeed,
+};
+pub use save_post_load_runtime_world_ownership::{
+    SavePostLoadRuntimeWorldOwnership, SavePostLoadRuntimeWorldOwnershipStatus,
+    SavePostLoadRuntimeWorldOwnershipSurface, SavePostLoadRuntimeWorldSurfaceKind,
 };
 
 const BLOCK_CONTENT_TYPE: u8 = 1;
@@ -40227,6 +40232,32 @@ mod tests {
     }
 
     #[test]
+    fn msav_post_load_world_reports_owned_runtime_world_surfaces_for_save11_regions() {
+        let save = parse_msav_save(&sample_msav_post_load_save11_bytes()).unwrap();
+        let post_load = save.post_load_world().unwrap();
+        let ownership = post_load.runtime_world_ownership();
+
+        assert!(ownership.world_shell_ready);
+        assert!(ownership.can_apply_world_semantics());
+        assert_eq!(ownership.owned_surface_count(), 6);
+        assert_eq!(ownership.required_step_count(), ownership.claimed_step_count());
+        assert_eq!(
+            ownership
+                .surface(SavePostLoadRuntimeWorldSurfaceKind::WorldShell)
+                .unwrap()
+                .status,
+            SavePostLoadRuntimeWorldOwnershipStatus::Owned
+        );
+        assert_eq!(
+            ownership
+                .surface(SavePostLoadRuntimeWorldSurfaceKind::LoadableEntities)
+                .unwrap()
+                .claimed_step_count,
+            post_load.entity_summary.loadable_entities
+        );
+    }
+
+    #[test]
     fn msav_post_load_world_exposes_consumable_runtime_apply_batch_plan_for_save11_regions() {
         let save = parse_msav_save(&sample_msav_post_load_save11_bytes()).unwrap();
         let post_load = save.post_load_world().unwrap();
@@ -40396,6 +40427,31 @@ mod tests {
             .blocked_steps
             .contains(&SavePostLoadRuntimeApplyStep::WorldShell));
         assert!(execution.pending_step_count() > 0);
+    }
+
+    #[test]
+    fn msav_post_load_world_reports_blocked_runtime_world_surfaces_for_save6_legacy_regions() {
+        let save = parse_msav_save(&sample_msav_post_load_save6_bytes()).unwrap();
+        let post_load = save.post_load_world().unwrap();
+        let ownership = post_load.runtime_world_ownership();
+
+        assert!(!ownership.world_shell_ready);
+        assert!(!ownership.can_apply_world_semantics());
+        assert_eq!(ownership.claimed_step_count(), 0);
+        assert_eq!(
+            ownership
+                .surface(SavePostLoadRuntimeWorldSurfaceKind::WorldShell)
+                .unwrap()
+                .status,
+            SavePostLoadRuntimeWorldOwnershipStatus::Blocked
+        );
+        assert_eq!(
+            ownership
+                .surface(SavePostLoadRuntimeWorldSurfaceKind::LoadableEntities)
+                .unwrap()
+                .status,
+            SavePostLoadRuntimeWorldOwnershipStatus::AwaitingWorldShell
+        );
     }
 
     #[test]

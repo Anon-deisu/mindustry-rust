@@ -3793,6 +3793,10 @@ fn runtime_live_entity_scene_object_id(model: &TypedRuntimeEntityModel) -> Strin
     match model {
         TypedRuntimeEntityModel::Player(_) => format!("player:{entity_id}"),
         TypedRuntimeEntityModel::Unit(_) => format!("unit:{entity_id}"),
+        TypedRuntimeEntityModel::Fire(_) => format!("fire:{entity_id}"),
+        TypedRuntimeEntityModel::Puddle(_) => format!("puddle:{entity_id}"),
+        TypedRuntimeEntityModel::WeatherState(_) => format!("weather:{entity_id}"),
+        TypedRuntimeEntityModel::WorldLabel(_) => format!("world-label:{entity_id}"),
     }
 }
 
@@ -3807,6 +3811,10 @@ fn runtime_live_entity_layer(model: &TypedRuntimeEntityModel) -> i32 {
     match model {
         TypedRuntimeEntityModel::Player(_) => 41,
         TypedRuntimeEntityModel::Unit(_) => 40,
+        TypedRuntimeEntityModel::WorldLabel(_) => 39,
+        TypedRuntimeEntityModel::WeatherState(_) => 38,
+        TypedRuntimeEntityModel::Puddle(_) => 37,
+        TypedRuntimeEntityModel::Fire(_) => 36,
     }
 }
 
@@ -4282,6 +4290,46 @@ mod tests {
         adapter.apply(&mut scene, &mut hud, &input, &state);
 
         assert!(scene_object_by_id(&scene, "unit:202").is_none());
+    }
+
+    #[test]
+    fn render_runtime_adapter_appends_visible_runtime_world_label_object() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        state
+            .runtime_typed_entity_apply_projection
+            .upsert_runtime_entity(crate::session_state::TypedRuntimeEntityModel::WorldLabel(
+                crate::session_state::TypedRuntimeWorldLabelEntity {
+                    base: crate::session_state::TypedRuntimeEntityBase {
+                        entity_id: 404,
+                        class_id: 35,
+                        hidden: false,
+                        is_local_player: false,
+                        unit_kind: 0,
+                        unit_value: 0,
+                        x_bits: 56.0f32.to_bits(),
+                        y_bits: 72.0f32.to_bits(),
+                        last_seen_entity_snapshot_count: 3,
+                    },
+                    semantic: crate::session_state::EntityWorldLabelSemanticProjection {
+                        flags: 1,
+                        font_size_bits: 12.0f32.to_bits(),
+                        text: Some("runtime".to_string()),
+                        z_bits: 0.5f32.to_bits(),
+                    },
+                },
+            ));
+
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let world_label = scene_object_by_id(&scene, "world-label:404")
+            .expect("missing runtime world-label object");
+        assert_eq!(world_label.layer, 39);
+        assert_eq!(world_label.x, 56.0);
+        assert_eq!(world_label.y, 72.0);
     }
 
     #[test]
@@ -8643,7 +8691,7 @@ mod tests {
         assert_eq!(runtime_ui.live.entity.hidden_count, 0);
         assert_eq!(runtime_ui.live.entity.player_count, 1);
         assert_eq!(runtime_ui.live.entity.unit_count, 0);
-        assert_eq!(runtime_ui.live.entity.last_entity_id, Some(404));
+        assert_eq!(runtime_ui.live.entity.last_entity_id, Some(904));
         assert_eq!(runtime_ui.live.entity.last_player_entity_id, Some(404));
         assert_eq!(runtime_ui.live.entity.last_unit_entity_id, None);
         assert_eq!(runtime_ui.live.entity.local_entity_id, Some(404));

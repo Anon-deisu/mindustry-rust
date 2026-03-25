@@ -18850,6 +18850,27 @@ mod tests {
                 ),
             })
         );
+        let runtime_projection = session.state().runtime_typed_entity_projection();
+        assert!(matches!(
+            runtime_projection.entity_at(901),
+            Some(crate::session_state::TypedRuntimeEntityModel::Fire(fire))
+                if fire.semantic.tile_pos == fire_sync.tile_pos
+        ));
+        assert!(matches!(
+            runtime_projection.entity_at(902),
+            Some(crate::session_state::TypedRuntimeEntityModel::Puddle(puddle))
+                if puddle.semantic.liquid_id == puddle_sync.liquid_id
+        ));
+        assert!(matches!(
+            runtime_projection.entity_at(903),
+            Some(crate::session_state::TypedRuntimeEntityModel::WeatherState(weather))
+                if weather.semantic.weather_id == weather_sync.weather_id
+        ));
+        assert!(matches!(
+            runtime_projection.entity_at(904),
+            Some(crate::session_state::TypedRuntimeEntityModel::WorldLabel(world_label))
+                if world_label.semantic.text.as_deref() == Some("hello world")
+        ));
     }
 
     #[test]
