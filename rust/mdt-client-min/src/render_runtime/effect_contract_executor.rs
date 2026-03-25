@@ -13,6 +13,7 @@ const PAYLOAD_DEPOSIT_EFFECT_ID: i16 = 26;
 const PAYLOAD_DEPOSIT_OVERLAY_TTL_TICKS: u8 = 3;
 const LIGHTNING_EFFECT_ID: i16 = 13;
 const POINT_BEAM_EFFECT_ID: i16 = 10;
+const POINT_HIT_EFFECT_ID: i16 = 11;
 const SHIELD_BREAK_EFFECT_ID: i16 = 256;
 const ARC_SHIELD_BREAK_EFFECT_ID: i16 = 257;
 const UNIT_SHIELD_BREAK_EFFECT_ID: i16 = 260;
@@ -35,6 +36,8 @@ const UNIT_SHIELD_BREAK_BURST_COUNT: usize = 8;
 const UNIT_SHIELD_BREAK_BURST_INSET: f32 = 4.0;
 const UNIT_SHIELD_BREAK_BURST_LENGTH: f32 = 6.0;
 const UNIT_SHIELD_BREAK_BURST_GROWTH: f32 = 5.0;
+const POINT_HIT_CIRCLE_SEGMENT_COUNT: usize = 12;
+const POINT_HIT_MAX_RADIUS: f32 = 6.0;
 
 type OverlayOriginProjector = fn(f32, f32, f32, &TypeIoObject) -> Option<(f32, f32)>;
 type BusinessWorldPositionProjector = fn(&EffectBusinessProjection) -> Option<(u32, u32)>;
@@ -79,6 +82,12 @@ const POINT_BEAM_EXECUTOR: RuntimeEffectContractExecutor = RuntimeEffectContract
     contract_name: "point_beam",
     overlay_origin: position_target_overlay_origin,
     business_world_position: position_target_business_world_position,
+};
+
+const POINT_HIT_EXECUTOR: RuntimeEffectContractExecutor = RuntimeEffectContractExecutor {
+    contract_name: "point_hit",
+    overlay_origin: unsupported_overlay_origin,
+    business_world_position: unsupported_business_world_position,
 };
 
 const SHIELD_BREAK_EXECUTOR: RuntimeEffectContractExecutor = RuntimeEffectContractExecutor {
@@ -161,6 +170,9 @@ pub(crate) fn line_projections_for_effect_overlay(
             target_x_bits,
             target_y_bits,
         }],
+        Some(POINT_HIT_EFFECT_ID) => {
+            point_hit_line_projections(target_x_bits, target_y_bits, overlay.remaining_ticks)
+        }
         Some(SHIELD_BREAK_EFFECT_ID) => shield_break_line_projections(
             target_x_bits,
             target_y_bits,
@@ -378,6 +390,28 @@ fn shield_break_line_projections(
         .collect()
 }
 
+fn point_hit_line_projections(
+    center_x_bits: u32,
+    center_y_bits: u32,
+    remaining_ticks: u8,
+) -> Vec<RuntimeEffectLineProjection> {
+    let center_x = f32::from_bits(center_x_bits);
+    let center_y = f32::from_bits(center_y_bits);
+    if !center_x.is_finite() || !center_y.is_finite() {
+        return Vec::new();
+    }
+
+    let radius = point_hit_progress(remaining_ticks) * POINT_HIT_MAX_RADIUS;
+    let circle_points = regular_polygon_points(
+        center_x,
+        center_y,
+        radius,
+        POINT_HIT_CIRCLE_SEGMENT_COUNT,
+        0.0,
+    );
+    closed_polyline_line_projections("point-hit", &circle_points)
+}
+
 fn arc_shield_break_line_projections(
     center_x_bits: u32,
     center_y_bits: u32,
@@ -485,6 +519,15 @@ fn shield_break_progress(remaining_ticks: u8) -> f32 {
     elapsed as f32 / total_steps as f32
 }
 
+fn point_hit_progress(remaining_ticks: u8) -> f32 {
+    let total_steps = PAYLOAD_DEPOSIT_OVERLAY_TTL_TICKS.max(1);
+    let elapsed = PAYLOAD_DEPOSIT_OVERLAY_TTL_TICKS
+        .saturating_sub(remaining_ticks)
+        .saturating_add(1)
+        .min(total_steps);
+    elapsed as f32 / total_steps as f32
+}
+
 fn unit_parent_rotation_bits(overlay: &RuntimeEffectOverlay, session_state: &SessionState) -> Option<u32> {
     let RuntimeEffectBinding::ParentUnit { unit_id } = overlay.binding.as_ref()? else {
         return None;
@@ -507,6 +550,7 @@ fn executor_for_contract(
         RuntimeEffectContract::PositionTarget => &POSITION_TARGET_EXECUTOR,
         RuntimeEffectContract::LightningPath => &LIGHTNING_PATH_EXECUTOR,
         RuntimeEffectContract::PointBeam => &POINT_BEAM_EXECUTOR,
+        RuntimeEffectContract::PointHit => &POINT_HIT_EXECUTOR,
         RuntimeEffectContract::ShieldBreak => &SHIELD_BREAK_EXECUTOR,
         RuntimeEffectContract::BlockContentIcon => &BLOCK_CONTENT_ICON_EXECUTOR,
         RuntimeEffectContract::ContentIcon => &CONTENT_ICON_EXECUTOR,
@@ -522,6 +566,7 @@ fn executor_for_name(name: &str) -> Option<&'static RuntimeEffectContractExecuto
         &POSITION_TARGET_EXECUTOR,
         &LIGHTNING_PATH_EXECUTOR,
         &POINT_BEAM_EXECUTOR,
+        &POINT_HIT_EXECUTOR,
         &SHIELD_BREAK_EXECUTOR,
         &BLOCK_CONTENT_ICON_EXECUTOR,
         &CONTENT_ICON_EXECUTOR,
@@ -1165,6 +1210,39 @@ mod tests {
                 target_y_bits: 160.0f32.to_bits(),
             }]
         );
+    }
+
+    #[test]
+    fn line_projections_for_effect_overlay_returns_point_hit_circle() {
+        let overlay = RuntimeEffectOverlay {
+            effect_id: Some(POINT_HIT_EFFECT_ID),
+            source_x_bits: 12.0f32.to_bits(),
+            source_y_bits: 20.0f32.to_bits(),
+            x_bits: 32.0f32.to_bits(),
+            y_bits: 48.0f32.to_bits(),
+            rotation_bits: 0.0f32.to_bits(),
+            color_rgba: 0x11223344,
+            reliable: false,
+            has_data: false,
+            remaining_ticks: 3,
+            contract_name: Some("point_hit"),
+            binding: None,
+            content_ref: None,
+            polyline_points: Vec::new(),
+        };
+
+        let lines = line_projections_for_effect_overlay(
+            &overlay,
+            32.0f32.to_bits(),
+            48.0f32.to_bits(),
+            &SessionState::default(),
+        );
+
+        assert_eq!(lines.len(), POINT_HIT_CIRCLE_SEGMENT_COUNT);
+        assert!(lines.iter().all(|line| line.kind == "point-hit"));
+        assert!(lines.iter().any(|line| {
+            line.source_x_bits == 34.0f32.to_bits() && line.source_y_bits == 48.0f32.to_bits()
+        }));
     }
 
     #[test]

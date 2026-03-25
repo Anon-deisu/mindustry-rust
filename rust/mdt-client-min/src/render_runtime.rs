@@ -5222,6 +5222,44 @@ mod tests {
     }
 
     #[test]
+    fn render_runtime_adapter_renders_point_hit_executor_circle() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
+
+        adapter.observe_events(&[ClientSessionEvent::EffectRequested {
+            effect_id: Some(11),
+            x: 32.0,
+            y: 48.0,
+            rotation: 0.0,
+            color_rgba: 0x11223344,
+            data_object: None,
+        }]);
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let marker = first_runtime_effect_marker(&scene);
+        assert_eq!(
+            marker.id,
+            format!(
+                "marker:runtime-effect:normal:11:0x{:08x}:0x{:08x}:0",
+                32.0f32.to_bits(),
+                48.0f32.to_bits()
+            )
+        );
+        assert_eq!(marker.x, 32.0);
+        assert_eq!(marker.y, 48.0);
+
+        let point_hit_prefix = "marker:line:runtime-effect-point-hit:";
+        let point_hit_lines = runtime_effect_lines_with_prefix(&scene, point_hit_prefix);
+        assert_eq!(point_hit_lines.len(), 24);
+        assert!(point_hit_lines.iter().any(|object| {
+            !object.id.ends_with(":line-end") && object.x == 34.0 && object.y == 48.0
+        }));
+    }
+
+    #[test]
     fn render_runtime_adapter_renders_lightning_executor_polyline_segments() {
         let mut adapter = RenderRuntimeAdapter::default();
         let mut scene = RenderModel::default();

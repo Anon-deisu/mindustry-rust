@@ -19,6 +19,7 @@ pub enum RuntimeEffectContract {
     PositionTarget,
     LightningPath,
     PointBeam,
+    PointHit,
     ShieldBreak,
     BlockContentIcon,
     ContentIcon,
@@ -34,6 +35,7 @@ impl RuntimeEffectContract {
             Self::PositionTarget => "position_target",
             Self::LightningPath => "lightning",
             Self::PointBeam => "point_beam",
+            Self::PointHit => "point_hit",
             Self::ShieldBreak => "shield_break",
             Self::BlockContentIcon => "block_content_icon",
             Self::ContentIcon => "content_icon",
@@ -67,6 +69,7 @@ pub fn effect_contract(effect_id: Option<i16>) -> Option<RuntimeEffectContract> 
     match effect_id {
         Some(13) => Some(RuntimeEffectContract::LightningPath),
         Some(10) => Some(RuntimeEffectContract::PointBeam),
+        Some(11) => Some(RuntimeEffectContract::PointHit),
         Some(256) => Some(RuntimeEffectContract::ShieldBreak),
         Some(15 | 20 | 252) => Some(RuntimeEffectContract::BlockContentIcon),
         Some(3 | 35) => Some(RuntimeEffectContract::ContentIcon),
@@ -184,6 +187,7 @@ fn derive_runtime_effect_polyline(
             .and_then(|matched| lightning_path_points(matched.value)),
         RuntimeEffectContract::PositionTarget
         | RuntimeEffectContract::PointBeam
+        | RuntimeEffectContract::PointHit
         | RuntimeEffectContract::ShieldBreak
         | RuntimeEffectContract::BlockContentIcon
         | RuntimeEffectContract::ContentIcon
@@ -220,6 +224,7 @@ fn derive_runtime_effect_payload_target_content(
         RuntimeEffectContract::PositionTarget
         | RuntimeEffectContract::LightningPath
         | RuntimeEffectContract::PointBeam
+        | RuntimeEffectContract::PointHit
         | RuntimeEffectContract::ShieldBreak
         | RuntimeEffectContract::BlockContentIcon
         | RuntimeEffectContract::ContentIcon
@@ -252,6 +257,7 @@ fn derive_runtime_effect_content_ref(
         RuntimeEffectContract::PositionTarget
         | RuntimeEffectContract::LightningPath
         | RuntimeEffectContract::PointBeam
+        | RuntimeEffectContract::PointHit
         | RuntimeEffectContract::ShieldBreak
         | RuntimeEffectContract::DropItem
         | RuntimeEffectContract::FloatLength

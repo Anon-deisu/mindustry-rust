@@ -175,6 +175,9 @@ These are already landed and should not be re-opened as if missing:
 - narrow `effect_id=10` `point_beam` contract/executor wiring is now also landed.
   - `effect_contract(Some(10))` now resolves to `point_beam`, contract-aware business projection still reuses the existing `PositionTarget { source, target }` payload semantics, and runtime rendering now keeps the dedicated beam line behavior keyed to `effect_id=10`
   - remaining `U5` work is still landing additional narrow `effect_id -> contract/executor` families, not re-adding this `point_beam` slice
+- narrow `effect_id=11` `pointHit` contract/executor wiring is now also landed.
+  - `effect_contract(Some(11))` now resolves to `point_hit`, session/runtime surfaces keep the dedicated contract name, and runtime rendering now emits an expanding hit-ring fallback from the effect position instead of stopping at a generic marker
+  - remaining `U5` work is still landing additional narrow `effect_id -> contract/executor` families, not re-adding this `pointHit` slice
 - narrow `effect_id=261/262` `chainLightning` / `chainEmp` executor wiring is now also landed.
   - Rust now keeps deterministic segmented chain line overlays for `261/262` on top of the existing `position_target` payload semantics instead of stopping at a single marker/target projection
 - narrow `effect_id=13` `lightning` contract/executor wiring is now also landed.
@@ -254,10 +257,11 @@ Write scope:
 ### U5 `effect` executor / contract table depth
 
 Remaining gap:
-- Rust has bounded runtime overlays, several contract-aware projections, and narrow landed slices for `effect_id=142 -> drop_item`, `effect_id=10 -> point_beam`, `effect_id=13 -> lightning`, and `effect_id=261/262 -> chainLightning/chainEmp`, but still not Java `Effect`-executor semantics.
+- Rust has bounded runtime overlays, several contract-aware projections, and narrow landed slices for `effect_id=142 -> drop_item`, `effect_id=10 -> point_beam`, `effect_id=11 -> point_hit`, `effect_id=13 -> lightning`, and `effect_id=261/262 -> chainLightning/chainEmp`, but still not Java `Effect`-executor semantics.
 
 Best bounded next slice:
-- add one narrow `effect_id -> contract/executor` family at a time, with `252` block-content icon or `26` payload target/content now the best next candidates
+- add one narrow `effect_id -> contract/executor` family at a time, with `8` `unitSpirit` now the best next candidate because it can reuse the existing `position_target` contract without widening overlay state
+- keep `9` `itemTransfer` behind that until Rust carries a stable per-overlay or per-effect-instance seed for the Java lateral-offset look
 - stay above raw packet decode and below full renderer parity
 
 Write scope:
