@@ -772,7 +772,7 @@ fn parent_binding_rotates_with_parent(effect_id: Option<i16>) -> bool {
 }
 
 fn source_binding_enabled(effect_id: Option<i16>) -> bool {
-    matches!(effect_id, Some(8 | 9))
+    matches!(effect_id, Some(8 | 9 | 178 | 261 | 262))
 }
 
 fn world_coords_from_tile_pos(tile_pos: i32) -> (f32, f32) {
@@ -959,6 +959,129 @@ mod tests {
                 rotation_initialized: false,
             })
         );
+
+        state
+            .entity_table_projection
+            .by_entity_id
+            .get_mut(&404)
+            .expect("missing entity 404")
+            .x_bits = 96.0f32.to_bits();
+        state
+            .entity_table_projection
+            .by_entity_id
+            .get_mut(&404)
+            .expect("missing entity 404")
+            .y_bits = 184.0f32.to_bits();
+
+        let second_position =
+            resolve_runtime_effect_overlay_source_position(&mut overlay, &state, &input);
+        assert_eq!(second_position, (28.0f32.to_bits(), 44.0f32.to_bits()));
+    }
+
+    #[test]
+    fn effect_runtime_resolve_runtime_effect_overlay_source_position_follows_parent_unit_for_regen_suppress_seek(
+    ) {
+        let mut overlay = spawn_runtime_effect_overlay(
+            Some(178),
+            80.0,
+            160.0,
+            12.0,
+            20.0,
+            0.0,
+            0,
+            false,
+            Some(&TypeIoObject::UnitId(404)),
+            10,
+        );
+        let input = EffectRuntimeInputView::default();
+        let mut state = SessionState::default();
+        state.entity_table_projection.by_entity_id.insert(
+            404,
+            EntityProjection {
+                class_id: 12,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 0,
+                unit_value: 0,
+                x_bits: 80.0f32.to_bits(),
+                y_bits: 160.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
+
+        let first_position =
+            resolve_runtime_effect_overlay_source_position(&mut overlay, &state, &input);
+        assert_eq!(first_position, (12.0f32.to_bits(), 20.0f32.to_bits()));
+        assert_eq!(
+            overlay.source_binding,
+            Some(RuntimeEffectBinding::ParentUnit {
+                unit_id: 404,
+                spawn_x_bits: 12.0f32.to_bits(),
+                spawn_y_bits: 20.0f32.to_bits(),
+                offset_x_bits: (-68.0f32).to_bits(),
+                offset_y_bits: (-140.0f32).to_bits(),
+                offset_initialized: true,
+                preserve_spawn_offset: true,
+                allow_fallback_offset_initialization: true,
+                rotate_with_parent: false,
+                parent_rotation_reference_bits: 0.0f32.to_bits(),
+                rotation_offset_bits: 0.0f32.to_bits(),
+                rotation_initialized: false,
+            })
+        );
+
+        state
+            .entity_table_projection
+            .by_entity_id
+            .get_mut(&404)
+            .expect("missing entity 404")
+            .x_bits = 96.0f32.to_bits();
+        state
+            .entity_table_projection
+            .by_entity_id
+            .get_mut(&404)
+            .expect("missing entity 404")
+            .y_bits = 184.0f32.to_bits();
+
+        let second_position =
+            resolve_runtime_effect_overlay_source_position(&mut overlay, &state, &input);
+        assert_eq!(second_position, (28.0f32.to_bits(), 44.0f32.to_bits()));
+    }
+
+    #[test]
+    fn effect_runtime_resolve_runtime_effect_overlay_source_position_follows_parent_unit_for_chain_lightning(
+    ) {
+        let mut overlay = spawn_runtime_effect_overlay(
+            Some(261),
+            80.0,
+            160.0,
+            12.0,
+            20.0,
+            0.0,
+            0,
+            false,
+            Some(&TypeIoObject::UnitId(404)),
+            10,
+        );
+        let input = EffectRuntimeInputView::default();
+        let mut state = SessionState::default();
+        state.entity_table_projection.by_entity_id.insert(
+            404,
+            EntityProjection {
+                class_id: 12,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 0,
+                unit_value: 0,
+                x_bits: 80.0f32.to_bits(),
+                y_bits: 160.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
+
+        let first_position =
+            resolve_runtime_effect_overlay_source_position(&mut overlay, &state, &input);
+        assert_eq!(first_position, (12.0f32.to_bits(), 20.0f32.to_bits()));
 
         state
             .entity_table_projection

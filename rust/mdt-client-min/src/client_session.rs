@@ -1787,8 +1787,12 @@ impl ClientSession {
         config_object: TypeIoObject,
         source: TileConfigAuthoritySource,
     ) -> TileConfigBusinessApply {
-        let uses_single_link_match =
-            self.authoritative_config_pending_match_uses_single_link(build_pos);
+        let pending_match_mode = self.authoritative_config_pending_match_mode(build_pos);
+        let canonical_authoritative_value = authoritative_config_canonical_authority_value(
+            build_pos,
+            &pending_match_mode,
+            &config_object,
+        );
         let (configured_block_outcome, configured_block_name) =
             self.project_authoritative_config_business(build_pos, &config_object, source);
         self.state
@@ -1796,13 +1800,14 @@ impl ClientSession {
             .apply_authoritative_update_with_match(
                 build_pos,
                 config_object,
+                canonical_authoritative_value,
                 source,
                 Some(configured_block_outcome),
                 configured_block_name,
-                |pending, authoritative| {
+                move |pending, authoritative| {
                     authoritative_config_pending_local_matches(
                         build_pos,
-                        uses_single_link_match,
+                        &pending_match_mode,
                         pending,
                         authoritative,
                     )
@@ -1839,10 +1844,9 @@ impl ClientSession {
     ) -> TileConfigBusinessApply {
         let mut configured_block_outcome = None;
         let mut configured_block_name = None;
-        let mut uses_single_link_match = false;
+        let mut pending_match_mode = AuthoritativeConfigPendingMatchMode::Exact;
         if let Some(build_pos) = build_pos {
-            uses_single_link_match =
-                self.authoritative_config_pending_match_uses_single_link(build_pos);
+            pending_match_mode = self.authoritative_config_pending_match_mode(build_pos);
             let has_pending_local = self
                 .state
                 .tile_config_projection
@@ -1851,9 +1855,16 @@ impl ClientSession {
             let authoritative_value = self
                 .state
                 .tile_config_projection
-                .authoritative_by_build_pos
+                .canonical_authoritative_by_build_pos
                 .get(&build_pos)
-                .cloned();
+                .cloned()
+                .or_else(|| {
+                    self.state
+                        .tile_config_projection
+                        .authoritative_by_build_pos
+                        .get(&build_pos)
+                        .cloned()
+                });
             if has_pending_local {
                 if let Some(authoritative_value) = authoritative_value.as_ref() {
                     let (outcome, name) = self.project_authoritative_config_business(
@@ -1873,11 +1884,11 @@ impl ClientSession {
                 source,
                 configured_block_outcome,
                 configured_block_name,
-                |pending, authoritative| {
+                move |pending, authoritative| {
                     build_pos.is_some_and(|build_pos| {
                         authoritative_config_pending_local_matches(
                             build_pos,
-                            uses_single_link_match,
+                            &pending_match_mode,
                             pending,
                             authoritative,
                         )
@@ -1886,7 +1897,10 @@ impl ClientSession {
             )
     }
 
-    fn authoritative_config_pending_match_uses_single_link(&self, build_pos: i32) -> bool {
+    fn authoritative_config_pending_match_mode(
+        &self,
+        build_pos: i32,
+    ) -> AuthoritativeConfigPendingMatchMode {
         let block_name = self
             .state
             .building_table_projection
@@ -1899,18 +1913,31 @@ impl ClientSession {
                         .and_then(|block_id| self.loaded_world_block_name(block_id))
                 })
             });
-        matches!(
-            block_name.as_deref(),
+        match block_name.as_deref() {
             Some(
                 BLOCK_NAME_BRIDGE_CONVEYOR
-                    | BLOCK_NAME_PHASE_CONVEYOR
-                    | BLOCK_NAME_BRIDGE_CONDUIT
-                    | BLOCK_NAME_PHASE_CONDUIT
-                    | BLOCK_NAME_MASS_DRIVER
-                    | BLOCK_NAME_PAYLOAD_MASS_DRIVER
-                    | BLOCK_NAME_LARGE_PAYLOAD_MASS_DRIVER
-            )
-        )
+                | BLOCK_NAME_PHASE_CONVEYOR
+                | BLOCK_NAME_BRIDGE_CONDUIT
+                | BLOCK_NAME_PHASE_CONDUIT
+                | BLOCK_NAME_MASS_DRIVER
+                | BLOCK_NAME_PAYLOAD_MASS_DRIVER
+                | BLOCK_NAME_LARGE_PAYLOAD_MASS_DRIVER,
+            ) => AuthoritativeConfigPendingMatchMode::SingleLink,
+            Some(
+                BLOCK_NAME_POWER_NODE
+                | BLOCK_NAME_POWER_NODE_LARGE
+                | BLOCK_NAME_SURGE_TOWER
+                | BLOCK_NAME_BEAM_LINK,
+            ) => AuthoritativeConfigPendingMatchMode::PowerNode(
+                self.state
+                    .configured_block_projection
+                    .power_node_links_by_build_pos
+                    .get(&build_pos)
+                    .cloned()
+                    .unwrap_or_default(),
+            ),
+            _ => AuthoritativeConfigPendingMatchMode::Exact,
+        }
     }
 
     fn apply_configured_block_business(
@@ -9419,22 +9446,88 @@ fn configured_link_build_pos(build_pos: i32, config_object: &TypeIoObject) -> Op
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum AuthoritativeConfigPendingMatchMode {
+    Exact,
+    SingleLink,
+    PowerNode(BTreeSet<i32>),
+}
+
+fn authoritative_config_canonical_authority_value(
+    build_pos: i32,
+    pending_match_mode: &AuthoritativeConfigPendingMatchMode,
+    authoritative: &TypeIoObject,
+) -> Option<TypeIoObject> {
+    match pending_match_mode {
+        AuthoritativeConfigPendingMatchMode::PowerNode(baseline_links) => {
+            configured_power_node_canonical_value(build_pos, baseline_links, authoritative)
+        }
+        _ => None,
+    }
+}
+
 fn authoritative_config_pending_local_matches(
     build_pos: i32,
-    uses_single_link_match: bool,
+    pending_match_mode: &AuthoritativeConfigPendingMatchMode,
     pending_local: &TypeIoObject,
     authoritative: &TypeIoObject,
 ) -> bool {
-    if uses_single_link_match {
-        match (
+    match pending_match_mode {
+        AuthoritativeConfigPendingMatchMode::SingleLink => match (
             configured_link_build_pos(build_pos, pending_local),
             configured_link_build_pos(build_pos, authoritative),
         ) {
             (Some(pending_link), Some(authoritative_link)) => pending_link == authoritative_link,
             _ => pending_local == authoritative,
+        },
+        AuthoritativeConfigPendingMatchMode::PowerNode(baseline_links) => match (
+            configured_power_node_canonical_value(build_pos, baseline_links, pending_local),
+            configured_power_node_canonical_value(build_pos, baseline_links, authoritative),
+        ) {
+            (Some(pending_links), Some(authoritative_links)) => {
+                pending_links == authoritative_links
+            }
+            _ => pending_local == authoritative,
+        },
+        AuthoritativeConfigPendingMatchMode::Exact => pending_local == authoritative,
+    }
+}
+
+fn configured_power_node_canonical_value(
+    build_pos: i32,
+    baseline_links: &BTreeSet<i32>,
+    config_object: &TypeIoObject,
+) -> Option<TypeIoObject> {
+    let targets = configured_power_node_result_links(build_pos, baseline_links, config_object)?;
+    let (tile_x, tile_y) = unpack_point2(build_pos);
+    Some(TypeIoObject::PackedPoint2Array(
+        targets
+            .iter()
+            .map(|target_pos| {
+                let (target_x, target_y) = unpack_point2(*target_pos);
+                pack_point2(
+                    i32::from(target_x) - i32::from(tile_x),
+                    i32::from(target_y) - i32::from(tile_y),
+                )
+            })
+            .collect(),
+    ))
+}
+
+fn configured_power_node_result_links(
+    build_pos: i32,
+    baseline_links: &BTreeSet<i32>,
+    config_object: &TypeIoObject,
+) -> Option<BTreeSet<i32>> {
+    match configured_power_node_op(build_pos, config_object)? {
+        ConfiguredPowerNodeOp::Toggle(target_pos) => {
+            let mut targets = baseline_links.clone();
+            if !targets.remove(&target_pos) {
+                targets.insert(target_pos);
+            }
+            Some(targets)
         }
-    } else {
-        pending_local == authoritative
+        ConfiguredPowerNodeOp::FullReplace(targets) => Some(targets),
     }
 }
 
@@ -16749,17 +16842,97 @@ mod tests {
             projection.local_player_entity_id,
             session.state().world_player_id
         );
+        assert_eq!(projection.local_player_owned_unit_entity_id, Some(100));
+        assert_eq!(projection.player_with_owned_unit_count, 1);
+        assert_eq!(projection.owned_unit_count, 1);
+        assert_eq!(
+            projection.owned_unit_entity_id_for_player(session.state().world_player_id.unwrap()),
+            Some(100)
+        );
+        assert_eq!(
+            projection.owner_player_entity_id_for_unit(100),
+            session.state().world_player_id
+        );
         assert_eq!(projection.last_unit_entity_id, Some(100));
         assert!(projection.last_entity_id.is_some());
         let runtime_projection = session.state().runtime_typed_entity_projection();
         assert_eq!(runtime_projection.player_count, 1);
         assert_eq!(runtime_projection.unit_count, 1);
+        assert_eq!(
+            runtime_projection.local_player_owned_unit_entity_id,
+            Some(100)
+        );
+        assert_eq!(runtime_projection.player_with_owned_unit_count, 1);
+        assert_eq!(runtime_projection.owned_unit_count, 1);
         assert_eq!(runtime_projection.last_unit_entity_id, Some(100));
         assert!(matches!(
             runtime_projection.entity_at(100),
             Some(crate::session_state::TypedRuntimeEntityModel::Unit(unit))
                 if unit.semantic.unit_type_id == alpha_sync.unit_type_id
         ));
+    }
+
+    #[test]
+    fn unit_despawn_clears_runtime_typed_player_unit_ownership() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+
+        session.ingest_packet_bytes(&begin_packet).unwrap();
+        for chunk in chunk_packets {
+            session.ingest_packet_bytes(&chunk).unwrap();
+        }
+
+        let entity_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == HighFrequencyRemoteMethod::EntitySnapshot.method_name())
+            .unwrap()
+            .packet_id;
+        let entity_packet = encode_packet(
+            entity_packet_id,
+            &sample_snapshot_packet("entitySnapshot.packet"),
+            false,
+        )
+        .unwrap();
+        session.ingest_packet_bytes(&entity_packet).unwrap();
+
+        let local_player_id = session.state().world_player_id.unwrap();
+        let before = session.state().runtime_typed_entity_projection();
+        assert_eq!(before.local_player_owned_unit_entity_id, Some(100));
+        assert_eq!(
+            before.owned_unit_entity_id_for_player(local_player_id),
+            Some(100)
+        );
+        assert_eq!(
+            before.owner_player_entity_id_for_unit(100),
+            Some(local_player_id)
+        );
+
+        let unit_despawn_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "unitDespawn")
+            .unwrap()
+            .packet_id;
+        let unit_despawn_packet = encode_packet(
+            unit_despawn_packet_id,
+            &encode_unit_payload(ClientUnitRef::Standard(100)),
+            false,
+        )
+        .unwrap();
+        session.ingest_packet_bytes(&unit_despawn_packet).unwrap();
+
+        let after = session.state().runtime_typed_entity_projection();
+        assert!(after.by_entity_id.contains_key(&local_player_id));
+        assert!(!after.by_entity_id.contains_key(&100));
+        assert_eq!(after.local_player_owned_unit_entity_id, None);
+        assert_eq!(after.player_with_owned_unit_count, 0);
+        assert_eq!(after.owned_unit_count, 0);
+        assert_eq!(after.owned_unit_entity_id_for_player(local_player_id), None);
+        assert_eq!(after.owner_player_entity_id_for_unit(100), None);
     }
 
     #[test]
@@ -29785,6 +29958,84 @@ mod tests {
     }
 
     #[test]
+    fn power_node_tile_config_authoritative_toggle_matches_pending_building_pos_intent_and_stores_canonical_authority(
+    ) {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(57, 79);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_POWER_NODE);
+        let target_pos = pack_point2(58, 80);
+        let authoritative_value = TypeIoObject::Int(target_pos);
+        let canonical_authoritative_value =
+            TypeIoObject::PackedPoint2Array(vec![pack_point2(1, 1)]);
+
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+            &TypeIoObject::PackedPoint2Array(Vec::new()),
+        );
+
+        session
+            .queue_tile_config(Some(build_pos), TypeIoObject::BuildingPos(target_pos))
+            .unwrap();
+
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &authoritative_value,
+        );
+
+        let expected_targets = [target_pos].into_iter().collect::<BTreeSet<_>>();
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .power_node_links_by_build_pos
+                .get(&build_pos),
+            Some(&expected_targets)
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_pending_local_match,
+            Some(true)
+        );
+        assert!(!session.state().tile_config_projection.last_was_rollback);
+        assert_eq!(session.state().tile_config_projection.rollback_count, 0);
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .authoritative_by_build_pos
+                .get(&build_pos),
+            Some(&authoritative_value)
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .canonical_authoritative_by_build_pos
+                .get(&build_pos),
+            Some(&canonical_authoritative_value)
+        );
+        assert!(matches!(
+            session
+                .state()
+                .runtime_typed_building_projection()
+                .building_at(build_pos),
+            Some(model)
+                if matches!(
+                    &model.value,
+                    crate::session_state::TypedBuildingRuntimeValue::Links(links)
+                        if links == &expected_targets
+                )
+        ));
+    }
+
+    #[test]
     fn power_node_tile_config_authoritative_full_replace_rolls_back_pending_toggle_intent() {
         let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let build_pos = pack_point2(57, 79);
@@ -29885,6 +30136,117 @@ mod tests {
                 .last_configured_block_outcome,
             Some(crate::session_state::ConfiguredBlockOutcome::Applied)
         );
+    }
+
+    #[test]
+    fn power_node_tile_config_parse_failure_reapplies_canonical_authority_without_double_toggle() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(58, 80);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_POWER_NODE_LARGE);
+        let authoritative_target = pack_point2(59, 80);
+        let pending_target = pack_point2(58, 82);
+        let authoritative_value = TypeIoObject::Int(authoritative_target);
+        let canonical_authoritative_value =
+            TypeIoObject::PackedPoint2Array(vec![pack_point2(1, 0)]);
+
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+            &TypeIoObject::PackedPoint2Array(Vec::new()),
+        );
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &authoritative_value,
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .power_node_links_by_build_pos
+                .get(&build_pos),
+            Some(&[authoritative_target].into_iter().collect::<BTreeSet<_>>())
+        );
+
+        session
+            .queue_tile_config(Some(build_pos), TypeIoObject::Int(pending_target))
+            .unwrap();
+
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "tileConfig")
+            .unwrap()
+            .packet_id;
+        let mut payload =
+            encode_tile_config_payload(Some(build_pos), &TypeIoObject::Int(pending_target));
+        payload.push(0xff);
+        let event = session
+            .ingest_packet_bytes(&encode_packet(packet_id, &payload, false).unwrap())
+            .unwrap();
+
+        assert_eq!(
+            event,
+            ClientSessionEvent::TileConfig {
+                build_pos: Some(build_pos),
+                config_kind: Some(1),
+                config_kind_name: Some("int".to_string()),
+                parse_failed: true,
+                business_applied: true,
+                cleared_pending_local: true,
+                was_rollback: true,
+                pending_local_match: Some(false),
+                configured_block_outcome: Some(
+                    crate::session_state::ConfiguredBlockOutcome::Applied,
+                ),
+                configured_block_name: Some(BLOCK_NAME_POWER_NODE_LARGE.to_string()),
+            }
+        );
+
+        let expected_targets = [authoritative_target].into_iter().collect::<BTreeSet<_>>();
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .power_node_links_by_build_pos
+                .get(&build_pos),
+            Some(&expected_targets)
+        );
+        assert_eq!(
+            session.state().tile_config_projection.last_business_value,
+            Some(canonical_authoritative_value.clone())
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .authoritative_by_build_pos
+                .get(&build_pos),
+            Some(&authoritative_value)
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .canonical_authoritative_by_build_pos
+                .get(&build_pos),
+            Some(&canonical_authoritative_value)
+        );
+        assert!(matches!(
+            session
+                .state()
+                .runtime_typed_building_projection()
+                .building_at(build_pos),
+            Some(model)
+                if matches!(
+                    &model.value,
+                    crate::session_state::TypedBuildingRuntimeValue::Links(links)
+                        if links == &expected_targets
+                )
+        ));
     }
 
     #[test]

@@ -12,6 +12,9 @@ use mdt_remote::HighFrequencyRemoteMethod;
 use mdt_typeio::TypeIoObject;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
+#[path = "runtime_entity_ownership.rs"]
+mod runtime_entity_ownership;
+
 const ENTITY_SNAPSHOT_TOMBSTONE_TTL_SNAPSHOTS: u64 = 1;
 const ENTITY_SNAPSHOT_TOMBSTONE_SKIP_SAMPLE_LIMIT: usize = 4;
 const CORE_INVENTORY_CHANGED_TEAM_SAMPLE_LIMIT: usize = 4;
@@ -633,6 +636,24 @@ impl ResourceDeltaProjection {
         removed_ids
     }
 
+    pub fn clear_hidden_entity_refs(
+        &mut self,
+        hidden_ids: &BTreeSet<i32>,
+        local_player_entity_id: Option<i32>,
+    ) {
+        clear_hidden_non_local_unit_ref(&mut self.last_unit, hidden_ids, local_player_entity_id);
+        clear_hidden_non_local_entity_id(
+            &mut self.last_to_entity_id,
+            hidden_ids,
+            local_player_entity_id,
+        );
+        clear_hidden_non_local_entity_id(
+            &mut self.last_changed_entity_id,
+            hidden_ids,
+            local_player_entity_id,
+        );
+    }
+
     pub fn apply_take_items(&mut self, projection: &TakeItemsProjection) {
         let Some(item_id) = projection.item_id else {
             self.delta_skip_count = self.delta_skip_count.saturating_add(1);
@@ -909,6 +930,34 @@ fn hidden_lifecycle_hidden_non_local_unit_entity_id(
     .then_some(unit.value)
 }
 
+fn clear_hidden_non_local_entity_id(
+    entity_id: &mut Option<i32>,
+    hidden_ids: &BTreeSet<i32>,
+    local_player_entity_id: Option<i32>,
+) {
+    if entity_id.is_some_and(|entity_id| {
+        hidden_lifecycle_matches_hidden_non_local_entity_id(
+            hidden_ids,
+            local_player_entity_id,
+            entity_id,
+        )
+    }) {
+        *entity_id = None;
+    }
+}
+
+fn clear_hidden_non_local_unit_ref(
+    unit: &mut Option<UnitRefProjection>,
+    hidden_ids: &BTreeSet<i32>,
+    local_player_entity_id: Option<i32>,
+) {
+    if hidden_lifecycle_hidden_non_local_unit_entity_id(*unit, hidden_ids, local_player_entity_id)
+        .is_some()
+    {
+        *unit = None;
+    }
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 enum HiddenSnapshotTypedPolicy {
     #[default]
@@ -1123,6 +1172,7 @@ pub struct TileConfigProjection {
     pub pending_local_by_build_pos: BTreeMap<i32, TypeIoObject>,
     pub pending_local_request_queue_by_build_pos: BTreeMap<i32, VecDeque<TypeIoObject>>,
     pub authoritative_by_build_pos: BTreeMap<i32, TypeIoObject>,
+    pub canonical_authoritative_by_build_pos: BTreeMap<i32, TypeIoObject>,
     pub queued_local_count: u64,
     pub applied_authoritative_count: u64,
     pub applied_tile_config_packet_count: u64,
@@ -1193,6 +1243,7 @@ impl TileConfigProjection {
         &mut self,
         build_pos: i32,
         value: TypeIoObject,
+        canonical_authoritative_value: Option<TypeIoObject>,
         source: TileConfigAuthoritySource,
         configured_block_outcome: Option<ConfiguredBlockOutcome>,
         configured_block_name: Option<String>,
@@ -1200,6 +1251,7 @@ impl TileConfigProjection {
         self.apply_authoritative_update_with_match(
             build_pos,
             value,
+            canonical_authoritative_value,
             source,
             configured_block_outcome,
             configured_block_name,
@@ -1211,6 +1263,7 @@ impl TileConfigProjection {
         &mut self,
         build_pos: i32,
         value: TypeIoObject,
+        canonical_authoritative_value: Option<TypeIoObject>,
         source: TileConfigAuthoritySource,
         configured_block_outcome: Option<ConfiguredBlockOutcome>,
         configured_block_name: Option<String>,
@@ -1231,10 +1284,12 @@ impl TileConfigProjection {
             }
         }
 
+        let canonical_authoritative_value =
+            canonical_authoritative_value.unwrap_or_else(|| value.clone());
         let pending_local = self.pop_next_pending_local_request(build_pos);
         let pending_local_match = pending_local
             .as_ref()
-            .map(|pending| pending_local_matches(pending, &value));
+            .map(|pending| pending_local_matches(pending, &canonical_authoritative_value));
         let cleared_pending_local = pending_local.is_some();
         let was_rollback = pending_local_match == Some(false);
         if was_rollback {
@@ -1243,6 +1298,8 @@ impl TileConfigProjection {
 
         self.authoritative_by_build_pos
             .insert(build_pos, value.clone());
+        self.canonical_authoritative_by_build_pos
+            .insert(build_pos, canonical_authoritative_value);
         self.last_business_build_pos = Some(build_pos);
         self.last_business_value = Some(value.clone());
         self.last_business_applied = true;
@@ -1291,7 +1348,10 @@ impl TileConfigProjection {
 
     pub fn seed_authoritative_state(&mut self, build_pos: i32, value: TypeIoObject) {
         self.clear_all_pending_local_requests(build_pos);
-        self.authoritative_by_build_pos.insert(build_pos, value);
+        self.authoritative_by_build_pos
+            .insert(build_pos, value.clone());
+        self.canonical_authoritative_by_build_pos
+            .insert(build_pos, value);
     }
 
     pub fn clear_pending_local_without_business_apply(
@@ -1354,7 +1414,11 @@ impl TileConfigProjection {
             return self.clear_pending_local_without_business_apply(None);
         };
         let pending_local = self.pop_next_pending_local_request(build_pos);
-        let authoritative_value = self.authoritative_by_build_pos.get(&build_pos).cloned();
+        let authoritative_value = self
+            .canonical_authoritative_by_build_pos
+            .get(&build_pos)
+            .cloned()
+            .or_else(|| self.authoritative_by_build_pos.get(&build_pos).cloned());
         let cleared_pending_local = pending_local.is_some();
 
         if pending_local.is_none() || authoritative_value.is_none() {
@@ -1425,12 +1489,14 @@ impl TileConfigProjection {
     pub fn remove_building_state(&mut self, build_pos: i32) {
         self.clear_all_pending_local_requests(build_pos);
         self.authoritative_by_build_pos.remove(&build_pos);
+        self.canonical_authoritative_by_build_pos.remove(&build_pos);
     }
 
     pub fn clear_for_world_reload(&mut self) {
         self.pending_local_request_queue_by_build_pos.clear();
         self.pending_local_by_build_pos.clear();
         self.authoritative_by_build_pos.clear();
+        self.canonical_authoritative_by_build_pos.clear();
         self.last_queued_build_pos = None;
         self.last_queued_value = None;
         self.mark_packet_without_business_apply();
@@ -3475,9 +3541,16 @@ pub enum TypedRuntimeEntityKind {
 pub struct TypedRuntimeEntityProjection {
     pub by_entity_id: BTreeMap<i32, TypedRuntimeEntityModel>,
     pub local_player_entity_id: Option<i32>,
+    pub local_player_owned_unit_entity_id: Option<i32>,
     pub player_count: usize,
     pub unit_count: usize,
     pub hidden_count: usize,
+    pub player_with_owned_unit_count: usize,
+    pub owned_unit_count: usize,
+    pub ownership_conflict_count: usize,
+    pub ownership_conflict_unit_sample: Vec<i32>,
+    pub player_owned_unit_by_player_entity_id: BTreeMap<i32, i32>,
+    pub unit_owner_player_by_unit_entity_id: BTreeMap<i32, i32>,
     pub last_entity_id: Option<i32>,
     pub last_player_entity_id: Option<i32>,
     pub last_unit_entity_id: Option<i32>,
@@ -3494,6 +3567,18 @@ impl TypedRuntimeEntityProjection {
             TypedRuntimeEntityModel::Player(player) => Some(player),
             TypedRuntimeEntityModel::Unit(_) => None,
         }
+    }
+
+    pub fn owned_unit_entity_id_for_player(&self, player_entity_id: i32) -> Option<i32> {
+        self.player_owned_unit_by_player_entity_id
+            .get(&player_entity_id)
+            .copied()
+    }
+
+    pub fn owner_player_entity_id_for_unit(&self, unit_entity_id: i32) -> Option<i32> {
+        self.unit_owner_player_by_unit_entity_id
+            .get(&unit_entity_id)
+            .copied()
     }
 
     pub fn upsert_runtime_entity(&mut self, model: TypedRuntimeEntityModel) {
@@ -3555,6 +3640,23 @@ impl TypedRuntimeEntityProjection {
         self.unit_count = unit_count;
         self.hidden_count = hidden_count;
         self.local_player_entity_id = local_player.map(|(_, entity_id)| entity_id);
+        let ownership =
+            runtime_entity_ownership::resolve_typed_runtime_entity_ownership(&self.by_entity_id);
+        self.local_player_owned_unit_entity_id = self
+            .local_player_entity_id
+            .and_then(|entity_id| {
+                ownership
+                    .player_owned_unit_by_player_entity_id
+                    .get(&entity_id)
+            })
+            .copied();
+        self.player_with_owned_unit_count = ownership.player_owned_unit_by_player_entity_id.len();
+        self.owned_unit_count = ownership.unit_owner_player_by_unit_entity_id.len();
+        self.ownership_conflict_count = ownership.ownership_conflict_count;
+        self.ownership_conflict_unit_sample = ownership.ownership_conflict_unit_sample;
+        self.player_owned_unit_by_player_entity_id =
+            ownership.player_owned_unit_by_player_entity_id;
+        self.unit_owner_player_by_unit_entity_id = ownership.unit_owner_player_by_unit_entity_id;
         self.last_entity_id = last_entity.map(|(_, entity_id)| entity_id);
         self.last_player_entity_id = last_player.map(|(_, entity_id)| entity_id);
         self.last_unit_entity_id = last_unit.map(|(_, entity_id)| entity_id);
@@ -4496,50 +4598,10 @@ impl SessionState {
 
     pub fn typed_runtime_entity_projection(&self) -> TypedRuntimeEntityProjection {
         let mut projection = TypedRuntimeEntityProjection::default();
-        let mut last_entity = None::<(u64, i32)>;
-        let mut last_player = None::<(u64, i32)>;
-        let mut last_unit = None::<(u64, i32)>;
-
         for model in self.typed_runtime_entities() {
-            let entity_id = model.entity_id();
-            let base = model.base();
-            let last_seen = base.last_seen_entity_snapshot_count;
-            let priority = (last_seen, entity_id);
-            if base.hidden {
-                projection.hidden_count = projection.hidden_count.saturating_add(1);
-            }
-            if last_entity.is_none_or(|current| priority > current) {
-                last_entity = Some(priority);
-            }
-            match model.kind() {
-                TypedRuntimeEntityKind::Player => {
-                    projection.player_count = projection.player_count.saturating_add(1);
-                    if last_player.is_none_or(|current| priority > current) {
-                        last_player = Some(priority);
-                    }
-                }
-                TypedRuntimeEntityKind::Unit => {
-                    projection.unit_count = projection.unit_count.saturating_add(1);
-                    if last_unit.is_none_or(|current| priority > current) {
-                        last_unit = Some(priority);
-                    }
-                }
-            }
-            projection.by_entity_id.insert(entity_id, model);
+            projection.by_entity_id.insert(model.entity_id(), model);
         }
-
-        projection.local_player_entity_id = self
-            .entity_table_projection
-            .local_player_entity_id
-            .filter(|entity_id| {
-                matches!(
-                    projection.by_entity_id.get(entity_id),
-                    Some(TypedRuntimeEntityModel::Player(_))
-                )
-            });
-        projection.last_entity_id = last_entity.map(|(_, entity_id)| entity_id);
-        projection.last_player_entity_id = last_player.map(|(_, entity_id)| entity_id);
-        projection.last_unit_entity_id = last_unit.map(|(_, entity_id)| entity_id);
+        projection.rebuild_summary();
         projection
     }
 
@@ -5028,8 +5090,14 @@ impl SessionState {
             .remove_hidden_entities(&transition.lifecycle_remove_ids, local_player_entity_id);
         self.resource_delta_projection
             .remove_hidden_entities(&transition.auxiliary_cleanup_ids, local_player_entity_id);
+        self.resource_delta_projection
+            .clear_hidden_entity_refs(&transition.auxiliary_cleanup_ids, local_player_entity_id);
         self.payload_lifecycle_projection
             .remove_hidden_entities(&transition.auxiliary_cleanup_ids, local_player_entity_id);
+        self.clear_hidden_resource_and_payload_event_refs(
+            &transition.auxiliary_cleanup_ids,
+            local_player_entity_id,
+        );
         for entity_id in &hidden_removed_ids {
             self.clear_entity_snapshot_tombstone(*entity_id);
         }
@@ -5069,6 +5137,70 @@ impl SessionState {
             .copied()
             .filter(|entity_id| Some(*entity_id) != local_player_entity_id)
             .collect()
+    }
+
+    fn clear_hidden_resource_and_payload_event_refs(
+        &mut self,
+        hidden_ids: &BTreeSet<i32>,
+        local_player_entity_id: Option<i32>,
+    ) {
+        if let Some(projection) = self.last_take_items.as_mut() {
+            clear_hidden_non_local_unit_ref(&mut projection.to, hidden_ids, local_player_entity_id);
+        }
+        if let Some(projection) = self.last_transfer_item_to.as_mut() {
+            clear_hidden_non_local_unit_ref(
+                &mut projection.unit,
+                hidden_ids,
+                local_player_entity_id,
+            );
+        }
+        if let Some(projection) = self.last_transfer_item_to_unit.as_mut() {
+            clear_hidden_non_local_entity_id(
+                &mut projection.to_entity_id,
+                hidden_ids,
+                local_player_entity_id,
+            );
+        }
+        if let Some(projection) = self.last_transfer_item_effect.as_mut() {
+            clear_hidden_non_local_entity_id(
+                &mut projection.to_entity_id,
+                hidden_ids,
+                local_player_entity_id,
+            );
+        }
+        if let Some(projection) = self.last_payload_dropped.as_mut() {
+            clear_hidden_non_local_unit_ref(
+                &mut projection.unit,
+                hidden_ids,
+                local_player_entity_id,
+            );
+        }
+        if let Some(projection) = self.last_picked_build_payload.as_mut() {
+            clear_hidden_non_local_unit_ref(
+                &mut projection.unit,
+                hidden_ids,
+                local_player_entity_id,
+            );
+        }
+        if let Some(projection) = self.last_picked_unit_payload.as_mut() {
+            clear_hidden_non_local_unit_ref(
+                &mut projection.unit,
+                hidden_ids,
+                local_player_entity_id,
+            );
+            clear_hidden_non_local_unit_ref(
+                &mut projection.target,
+                hidden_ids,
+                local_player_entity_id,
+            );
+        }
+        if let Some(projection) = self.last_unit_entered_payload.as_mut() {
+            clear_hidden_non_local_unit_ref(
+                &mut projection.unit,
+                hidden_ids,
+                local_player_entity_id,
+            );
+        }
     }
 
     fn hidden_snapshot_lifecycle_remove_ids(
@@ -5915,6 +6047,184 @@ mod tests {
     }
 
     #[test]
+    fn hidden_snapshot_clears_non_local_resource_event_refs_without_touching_local_refs() {
+        let mut state = SessionState::default();
+        state.entity_table_projection.local_player_entity_id = Some(101);
+        state.resource_delta_projection.last_unit = Some(UnitRefProjection {
+            kind: 2,
+            value: 202,
+        });
+        state.resource_delta_projection.last_to_entity_id = Some(202);
+        state.resource_delta_projection.last_changed_entity_id = Some(202);
+        state.last_take_items = Some(TakeItemsProjection {
+            build_pos: Some(pack_point2(1, 1)),
+            item_id: Some(4),
+            amount: 3,
+            to: Some(UnitRefProjection {
+                kind: 2,
+                value: 101,
+            }),
+        });
+        state.last_transfer_item_to = Some(TransferItemToProjection {
+            unit: Some(UnitRefProjection {
+                kind: 2,
+                value: 202,
+            }),
+            item_id: Some(4),
+            amount: 1,
+            x_bits: 0,
+            y_bits: 0,
+            build_pos: Some(pack_point2(2, 2)),
+        });
+        state.last_transfer_item_to_unit = Some(TransferItemToUnitProjection {
+            item_id: Some(4),
+            x_bits: 0,
+            y_bits: 0,
+            to_entity_id: Some(202),
+        });
+        state.last_transfer_item_effect = Some(TransferItemEffectProjection {
+            item_id: Some(4),
+            x_bits: 0,
+            y_bits: 0,
+            to_entity_id: Some(101),
+        });
+
+        state.apply_hidden_snapshot(
+            AppliedHiddenSnapshotIds {
+                count: 1,
+                first_id: Some(202),
+                sample_ids: vec![202],
+            },
+            BTreeSet::from([202]),
+        );
+
+        assert_eq!(state.resource_delta_projection.last_unit, None);
+        assert_eq!(state.resource_delta_projection.last_to_entity_id, None);
+        assert_eq!(state.resource_delta_projection.last_changed_entity_id, None);
+        assert_eq!(
+            state
+                .last_take_items
+                .as_ref()
+                .and_then(|projection| projection.to),
+            Some(UnitRefProjection {
+                kind: 2,
+                value: 101,
+            })
+        );
+        assert_eq!(
+            state
+                .last_transfer_item_to
+                .as_ref()
+                .and_then(|projection| projection.unit),
+            None
+        );
+        assert_eq!(
+            state
+                .last_transfer_item_to_unit
+                .as_ref()
+                .and_then(|projection| projection.to_entity_id),
+            None
+        );
+        assert_eq!(
+            state
+                .last_transfer_item_effect
+                .as_ref()
+                .and_then(|projection| projection.to_entity_id),
+            Some(101)
+        );
+    }
+
+    #[test]
+    fn hidden_snapshot_clears_non_local_payload_event_refs_without_touching_local_refs() {
+        let mut state = SessionState::default();
+        state.entity_table_projection.local_player_entity_id = Some(101);
+        state.last_payload_dropped = Some(PayloadDroppedProjection {
+            unit: Some(UnitRefProjection {
+                kind: 2,
+                value: 202,
+            }),
+            x_bits: 0,
+            y_bits: 0,
+        });
+        state.last_picked_build_payload = Some(PickedBuildPayloadProjection {
+            unit: Some(UnitRefProjection {
+                kind: 2,
+                value: 101,
+            }),
+            build_pos: Some(pack_point2(3, 3)),
+            on_ground: false,
+        });
+        state.last_picked_unit_payload = Some(PickedUnitPayloadProjection {
+            unit: Some(UnitRefProjection {
+                kind: 2,
+                value: 101,
+            }),
+            target: Some(UnitRefProjection {
+                kind: 2,
+                value: 202,
+            }),
+        });
+        state.last_unit_entered_payload = Some(UnitEnteredPayloadProjection {
+            unit: Some(UnitRefProjection {
+                kind: 2,
+                value: 202,
+            }),
+            build_pos: Some(pack_point2(4, 4)),
+        });
+
+        state.apply_hidden_snapshot(
+            AppliedHiddenSnapshotIds {
+                count: 1,
+                first_id: Some(202),
+                sample_ids: vec![202],
+            },
+            BTreeSet::from([202]),
+        );
+
+        assert_eq!(
+            state
+                .last_payload_dropped
+                .as_ref()
+                .and_then(|projection| projection.unit),
+            None
+        );
+        assert_eq!(
+            state
+                .last_picked_build_payload
+                .as_ref()
+                .and_then(|projection| projection.unit),
+            Some(UnitRefProjection {
+                kind: 2,
+                value: 101,
+            })
+        );
+        assert_eq!(
+            state
+                .last_picked_unit_payload
+                .as_ref()
+                .and_then(|projection| projection.unit),
+            Some(UnitRefProjection {
+                kind: 2,
+                value: 101,
+            })
+        );
+        assert_eq!(
+            state
+                .last_picked_unit_payload
+                .as_ref()
+                .and_then(|projection| projection.target),
+            None
+        );
+        assert_eq!(
+            state
+                .last_unit_entered_payload
+                .as_ref()
+                .and_then(|projection| projection.unit),
+            None
+        );
+    }
+
+    #[test]
     fn session_state_typed_runtime_entity_at_surfaces_player_without_semantic() {
         let mut state = SessionState::default();
         state.entity_table_projection.by_entity_id.insert(
@@ -6171,7 +6481,113 @@ mod tests {
                 .map(|player| player.base.entity_id),
             Some(101)
         );
+        assert_eq!(projection.local_player_owned_unit_entity_id, None);
+        assert_eq!(projection.player_with_owned_unit_count, 0);
+        assert_eq!(projection.owned_unit_count, 0);
         assert!(!projection.by_entity_id.contains_key(&303));
+    }
+
+    #[test]
+    fn session_state_typed_runtime_entity_projection_resolves_player_unit_ownership() {
+        let mut state = SessionState::default();
+        state.entity_table_projection.local_player_entity_id = Some(101);
+        state.entity_table_projection.by_entity_id.insert(
+            101,
+            EntityProjection {
+                class_id: EntityTableProjection::LOCAL_PLAYER_CLASS_ID,
+                hidden: false,
+                is_local_player: true,
+                unit_kind: 2,
+                unit_value: 202,
+                x_bits: 10.0f32.to_bits(),
+                y_bits: 20.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 7,
+            },
+        );
+        state.entity_table_projection.by_entity_id.insert(
+            102,
+            EntityProjection {
+                class_id: EntityTableProjection::LOCAL_PLAYER_CLASS_ID,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 202,
+                x_bits: 11.0f32.to_bits(),
+                y_bits: 21.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 8,
+            },
+        );
+        state.entity_table_projection.by_entity_id.insert(
+            202,
+            EntityProjection {
+                class_id: 4,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 202,
+                x_bits: 30.0f32.to_bits(),
+                y_bits: 40.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 9,
+            },
+        );
+        state.entity_table_projection.by_entity_id.insert(
+            303,
+            EntityProjection {
+                class_id: EntityTableProjection::LOCAL_PLAYER_CLASS_ID,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 404,
+                x_bits: 12.0f32.to_bits(),
+                y_bits: 22.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 10,
+            },
+        );
+        state.entity_table_projection.by_entity_id.insert(
+            404,
+            EntityProjection {
+                class_id: 4,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 404,
+                x_bits: 50.0f32.to_bits(),
+                y_bits: 60.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 11,
+            },
+        );
+        for entity_id in [202, 404] {
+            state.entity_semantic_projection.upsert(
+                entity_id,
+                4,
+                entity_id as u64,
+                EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
+                    team_id: 2,
+                    unit_type_id: 55,
+                    health_bits: 0x3f80_0000,
+                    rotation_bits: 0x4000_0000,
+                    shield_bits: 0x4040_0000,
+                    mine_tile_pos: 77,
+                    status_count: 3,
+                    payload_count: Some(1),
+                    building_pos: Some(88),
+                    lifetime_bits: Some(0x4080_0000),
+                    time_bits: Some(0x40a0_0000),
+                }),
+            );
+        }
+
+        let projection = state.typed_runtime_entity_projection();
+
+        assert_eq!(projection.local_player_owned_unit_entity_id, None);
+        assert_eq!(projection.player_with_owned_unit_count, 1);
+        assert_eq!(projection.owned_unit_count, 1);
+        assert_eq!(projection.ownership_conflict_count, 1);
+        assert_eq!(projection.ownership_conflict_unit_sample, vec![202]);
+        assert_eq!(projection.owned_unit_entity_id_for_player(303), Some(404));
+        assert_eq!(projection.owner_player_entity_id_for_unit(404), Some(303));
+        assert_eq!(projection.owned_unit_entity_id_for_player(101), None);
+        assert_eq!(projection.owner_player_entity_id_for_unit(202), None);
     }
 
     #[test]
@@ -6230,6 +6646,9 @@ mod tests {
         assert_eq!(projection.unit_count, 1);
         assert_eq!(projection.hidden_count, 1);
         assert_eq!(projection.local_player_entity_id, Some(101));
+        assert_eq!(projection.local_player_owned_unit_entity_id, None);
+        assert_eq!(projection.player_with_owned_unit_count, 0);
+        assert_eq!(projection.owned_unit_count, 0);
         assert_eq!(projection.last_entity_id, Some(202));
         assert_eq!(projection.last_player_entity_id, Some(101));
         assert_eq!(projection.last_unit_entity_id, Some(202));

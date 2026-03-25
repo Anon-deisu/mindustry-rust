@@ -139,6 +139,14 @@ impl AsciiScenePresenter {
                 "RUNTIME-MENU-DETAIL: {runtime_menu_detail_text}\n"
             ));
         }
+        if let Some(runtime_prompt_text) = compose_runtime_prompt_panel_text(hud) {
+            out.push_str(&format!("RUNTIME-PROMPT: {runtime_prompt_text}\n"));
+        }
+        if let Some(runtime_prompt_detail_text) = compose_runtime_prompt_detail_text(hud) {
+            out.push_str(&format!(
+                "RUNTIME-PROMPT-DETAIL: {runtime_prompt_detail_text}\n"
+            ));
+        }
         if let Some(runtime_dialog_text) = compose_runtime_dialog_panel_text(hud) {
             out.push_str(&format!("RUNTIME-DIALOG: {runtime_dialog_text}\n"));
         }
@@ -583,6 +591,56 @@ fn compose_runtime_menu_detail_text(hud: &HudModel) -> Option<String> {
         panel.text_input_open_count,
         optional_i32_label(panel.text_input_last_id),
         compact_runtime_ui_text(panel.text_input_last_title.as_deref()),
+        panel.default_text_len(),
+        optional_bool_label(panel.text_input_last_numeric),
+        optional_bool_label(panel.text_input_last_allow_empty),
+    ))
+}
+
+fn compose_runtime_prompt_panel_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_prompt_panel(hud)?;
+    if panel.is_empty() {
+        return None;
+    }
+    let layers = panel.layer_labels().join(">");
+    Some(format!(
+        "kind={} active={} depth={} layers={} menu={} follow-up={} tin={}@{}:{}/{}/{}#{}:n{}:e{}",
+        runtime_dialog_prompt_text(panel.kind),
+        bool_flag(panel.is_active()),
+        panel.depth(),
+        if layers.is_empty() {
+            "none"
+        } else {
+            layers.as_str()
+        },
+        panel.menu_open_count,
+        panel.outstanding_follow_up_count(),
+        panel.text_input_open_count,
+        optional_i32_label(panel.text_input_last_id),
+        compact_runtime_ui_text(panel.text_input_last_title.as_deref()),
+        compact_runtime_ui_text(panel.text_input_last_message.as_deref()),
+        compact_runtime_ui_text(panel.text_input_last_default_text.as_deref()),
+        panel.text_input_last_length.unwrap_or_default(),
+        optional_bool_label(panel.text_input_last_numeric),
+        optional_bool_label(panel.text_input_last_allow_empty),
+    ))
+}
+
+fn compose_runtime_prompt_detail_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_prompt_panel(hud)?;
+    if panel.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "menu-active={} follow-up-open={} follow-up-hide={} outstanding-follow-up={} text-input={} id={} title-len={} message-len={} default-len={} numeric={} allow-empty={}",
+        bool_flag(panel.menu_active()),
+        panel.follow_up_menu_open_count,
+        panel.hide_follow_up_menu_count,
+        panel.outstanding_follow_up_count(),
+        panel.text_input_open_count,
+        optional_i32_label(panel.text_input_last_id),
+        runtime_ui_text_len(panel.text_input_last_title.as_deref()),
+        panel.prompt_message_len(),
         panel.default_text_len(),
         optional_bool_label(panel.text_input_last_numeric),
         optional_bool_label(panel.text_input_last_allow_empty),
@@ -2944,6 +3002,37 @@ mod tests {
                 "missing runtime stack detail line for {name} in {frame}",
             );
         }
+    }
+
+    #[test]
+    fn ascii_presenter_surfaces_runtime_prompt_rows() {
+        let scene = runtime_stack_test_scene();
+        let mut presenter = AsciiScenePresenter::default();
+        let mut runtime_ui = RuntimeUiObservability::default();
+        runtime_ui.text_input.open_count = 53;
+        runtime_ui.text_input.last_id = Some(404);
+        runtime_ui.text_input.last_title = Some("Digits".to_string());
+        runtime_ui.text_input.last_message = Some("Only numbers".to_string());
+        runtime_ui.text_input.last_default_text = Some("12345".to_string());
+        runtime_ui.text_input.last_length = Some(16);
+        runtime_ui.text_input.last_numeric = Some(true);
+        runtime_ui.text_input.last_allow_empty = Some(true);
+        runtime_ui.menu.menu_open_count = 16;
+        runtime_ui.menu.follow_up_menu_open_count = 17;
+        runtime_ui.menu.hide_follow_up_menu_count = 15;
+
+        let mut presenter_hud = runtime_stack_test_hud(runtime_ui);
+        presenter_hud.title = "prompt".to_string();
+
+        presenter.present(&scene, &presenter_hud);
+
+        let frame = presenter.last_frame();
+        assert!(frame.contains(
+            "RUNTIME-PROMPT: kind=input active=1 depth=3 layers=input>follow-up>menu menu=16 follow-up=2 tin=53@404:Digits/Only_numbers/12345#16:n1:e1"
+        ));
+        assert!(frame.contains(
+            "RUNTIME-PROMPT-DETAIL: menu-active=1 follow-up-open=17 follow-up-hide=15 outstanding-follow-up=2 text-input=53 id=404 title-len=6 message-len=12 default-len=5 numeric=1 allow-empty=1"
+        ));
     }
 
     fn decode_hex(text: &str) -> Vec<u8> {

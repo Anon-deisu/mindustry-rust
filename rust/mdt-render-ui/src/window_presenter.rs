@@ -589,6 +589,14 @@ fn compose_frame_panel_lines(
     if let Some(runtime_menu_detail_text) = compose_runtime_menu_detail_status_text(hud) {
         lines.push(format!("RUNTIME-MENU-DETAIL: {runtime_menu_detail_text}"));
     }
+    if let Some(runtime_prompt_text) = compose_runtime_prompt_panel_status_text(hud) {
+        lines.push(format!("RUNTIME-PROMPT: {runtime_prompt_text}"));
+    }
+    if let Some(runtime_prompt_detail_text) = compose_runtime_prompt_detail_status_text(hud) {
+        lines.push(format!(
+            "RUNTIME-PROMPT-DETAIL: {runtime_prompt_detail_text}"
+        ));
+    }
     if let Some(runtime_dialog_text) = compose_runtime_dialog_panel_status_text(hud) {
         lines.push(format!("RUNTIME-DIALOG: {runtime_dialog_text}"));
     }
@@ -879,6 +887,56 @@ fn compose_runtime_menu_detail_status_text(hud: &HudModel) -> Option<String> {
         panel.text_input_open_count,
         optional_i32_label(panel.text_input_last_id),
         compact_runtime_ui_text(panel.text_input_last_title.as_deref()),
+        panel.default_text_len(),
+        optional_bool_label(panel.text_input_last_numeric),
+        optional_bool_label(panel.text_input_last_allow_empty),
+    ))
+}
+
+fn compose_runtime_prompt_panel_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_prompt_panel(hud)?;
+    if panel.is_empty() {
+        return None;
+    }
+    let layers = panel.layer_labels().join(">");
+    Some(format!(
+        "prompt:k={}:a{}:d{}:l={}:m{}:fo{}:tin{}@{}:{}/{}/{}#{}:n{}:e{}",
+        runtime_dialog_prompt_status_text(panel.kind),
+        if panel.is_active() { 1 } else { 0 },
+        panel.depth(),
+        if layers.is_empty() {
+            "none"
+        } else {
+            layers.as_str()
+        },
+        panel.menu_open_count,
+        panel.outstanding_follow_up_count(),
+        panel.text_input_open_count,
+        optional_i32_label(panel.text_input_last_id),
+        compact_runtime_ui_text(panel.text_input_last_title.as_deref()),
+        compact_runtime_ui_text(panel.text_input_last_message.as_deref()),
+        compact_runtime_ui_text(panel.text_input_last_default_text.as_deref()),
+        panel.text_input_last_length.unwrap_or_default(),
+        optional_bool_label(panel.text_input_last_numeric),
+        optional_bool_label(panel.text_input_last_allow_empty),
+    ))
+}
+
+fn compose_runtime_prompt_detail_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_prompt_panel(hud)?;
+    if panel.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "promptd:ma{}:fm{}:fh{}:fo{}:tin{}:id{}:t{}:m{}:d{}:n{}:e{}",
+        if panel.menu_active() { 1 } else { 0 },
+        panel.follow_up_menu_open_count,
+        panel.hide_follow_up_menu_count,
+        panel.outstanding_follow_up_count(),
+        panel.text_input_open_count,
+        optional_i32_label(panel.text_input_last_id),
+        runtime_ui_text_len(panel.text_input_last_title.as_deref()),
+        panel.prompt_message_len(),
         panel.default_text_len(),
         optional_bool_label(panel.text_input_last_numeric),
         optional_bool_label(panel.text_input_last_allow_empty),
@@ -3634,6 +3692,42 @@ mod tests {
                 frame.panel_lines
             );
         }
+    }
+
+    #[test]
+    fn present_once_surfaces_runtime_prompt_rows() {
+        let backend = RecordingBackend::default();
+        let mut presenter = WindowPresenter::new(backend);
+        let mut runtime_ui = RuntimeUiObservability::default();
+        runtime_ui.text_input.open_count = 53;
+        runtime_ui.text_input.last_id = Some(404);
+        runtime_ui.text_input.last_title = Some("Digits".to_string());
+        runtime_ui.text_input.last_message = Some("Only numbers".to_string());
+        runtime_ui.text_input.last_default_text = Some("12345".to_string());
+        runtime_ui.text_input.last_length = Some(16);
+        runtime_ui.text_input.last_numeric = Some(true);
+        runtime_ui.text_input.last_allow_empty = Some(true);
+        runtime_ui.menu.menu_open_count = 16;
+        runtime_ui.menu.follow_up_menu_open_count = 17;
+        runtime_ui.menu.hide_follow_up_menu_count = 15;
+
+        presenter
+            .present_once(
+                &runtime_stack_test_scene(),
+                &runtime_stack_test_hud(runtime_ui),
+            )
+            .unwrap();
+
+        let backend = presenter.into_backend();
+        let frame = backend.frames.last().unwrap();
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RUNTIME-PROMPT: prompt:k=input:a1:d3:l=input>follow-up>menu:m16:fo2:tin53@404:Digits/Only_numbers/12345#16:n1:e1",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RUNTIME-PROMPT-DETAIL: promptd:ma1:fm17:fh15:fo2:tin53:id404:t6:m12:d5:n1:e1",
+        );
     }
 
     fn assert_frame_line_contains(lines: &[String], needle: &str) {

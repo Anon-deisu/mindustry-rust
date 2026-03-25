@@ -5884,6 +5884,79 @@ mod tests {
     }
 
     #[test]
+    fn render_runtime_adapter_moves_regen_suppress_seek_geometry_with_parent_unit_source_follow() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        state.entity_table_projection.by_entity_id.insert(
+            404,
+            crate::session_state::EntityProjection {
+                class_id: 12,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 88,
+                x_bits: 80.0f32.to_bits(),
+                y_bits: 160.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 3,
+            },
+        );
+
+        adapter.observe_events(&[ClientSessionEvent::EffectRequested {
+            effect_id: Some(178),
+            x: 12.0,
+            y: 20.0,
+            rotation: 0.0,
+            color_rgba: 0x11223344,
+            data_object: Some(mdt_typeio::TypeIoObject::UnitId(404)),
+        }]);
+
+        let mut first_scene = RenderModel::default();
+        let mut first_hud = HudModel::default();
+        adapter.apply(&mut first_scene, &mut first_hud, &input, &state);
+        let first_marker = first_runtime_effect_marker(&first_scene);
+
+        let seek_prefix = "marker:line:runtime-effect-regen-suppress-seek:";
+        let first_points = runtime_effect_lines_with_prefix(&first_scene, seek_prefix)
+            .into_iter()
+            .map(|object| (object.x, object.y))
+            .collect::<Vec<_>>();
+
+        state
+            .entity_table_projection
+            .by_entity_id
+            .get_mut(&404)
+            .expect("missing entity 404")
+            .x_bits = 96.0f32.to_bits();
+        state
+            .entity_table_projection
+            .by_entity_id
+            .get_mut(&404)
+            .expect("missing entity 404")
+            .y_bits = 184.0f32.to_bits();
+
+        let mut second_scene = RenderModel::default();
+        let mut second_hud = HudModel::default();
+        adapter.apply(&mut second_scene, &mut second_hud, &input, &state);
+        let second_marker = first_runtime_effect_marker(&second_scene);
+
+        let second_points = runtime_effect_lines_with_prefix(&second_scene, seek_prefix)
+            .into_iter()
+            .map(|object| (object.x, object.y))
+            .collect::<Vec<_>>();
+
+        assert!(second_marker.x > first_marker.x);
+        assert!(second_marker.y > first_marker.y);
+        assert_eq!(first_points.len(), second_points.len());
+        assert!(first_points
+            .iter()
+            .any(|point| { (point.0 - 12.0).abs() < 0.01 && (point.1 - 20.0).abs() < 0.01 }));
+        assert!(second_points
+            .iter()
+            .any(|point| { (point.0 - 28.0).abs() < 0.01 && (point.1 - 44.0).abs() < 0.01 }));
+    }
+
+    #[test]
     fn render_runtime_adapter_renders_chain_lightning_executor_segments() {
         let mut adapter = RenderRuntimeAdapter::default();
         let mut scene = RenderModel::default();
@@ -5920,6 +5993,74 @@ mod tests {
         assert!(chain_lines.iter().any(|object| {
             object.id.ends_with(":line-end") && object.x == 80.0 && object.y == 160.0
         }));
+    }
+
+    #[test]
+    fn render_runtime_adapter_moves_chain_lightning_geometry_with_parent_unit_source_follow() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        state.entity_table_projection.by_entity_id.insert(
+            404,
+            crate::session_state::EntityProjection {
+                class_id: 12,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 88,
+                x_bits: 80.0f32.to_bits(),
+                y_bits: 160.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 3,
+            },
+        );
+
+        adapter.observe_events(&[ClientSessionEvent::EffectRequested {
+            effect_id: Some(261),
+            x: 12.0,
+            y: 20.0,
+            rotation: 0.0,
+            color_rgba: 0x11223344,
+            data_object: Some(mdt_typeio::TypeIoObject::UnitId(404)),
+        }]);
+
+        let mut first_scene = RenderModel::default();
+        let mut first_hud = HudModel::default();
+        adapter.apply(&mut first_scene, &mut first_hud, &input, &state);
+
+        state
+            .entity_table_projection
+            .by_entity_id
+            .get_mut(&404)
+            .expect("missing entity 404")
+            .x_bits = 96.0f32.to_bits();
+        state
+            .entity_table_projection
+            .by_entity_id
+            .get_mut(&404)
+            .expect("missing entity 404")
+            .y_bits = 184.0f32.to_bits();
+
+        let mut second_scene = RenderModel::default();
+        let mut second_hud = HudModel::default();
+        adapter.apply(&mut second_scene, &mut second_hud, &input, &state);
+
+        let chain_prefix = "marker:line:runtime-effect-chain-lightning:";
+        let first_points = runtime_effect_lines_with_prefix(&first_scene, chain_prefix)
+            .into_iter()
+            .map(|object| (object.x, object.y))
+            .collect::<Vec<_>>();
+        let second_points = runtime_effect_lines_with_prefix(&second_scene, chain_prefix)
+            .into_iter()
+            .map(|object| (object.x, object.y))
+            .collect::<Vec<_>>();
+
+        assert_eq!(first_points.len(), second_points.len());
+        assert!(first_points
+            .iter()
+            .any(|point| { (point.0 - 12.0).abs() < 0.01 && (point.1 - 20.0).abs() < 0.01 }));
+        assert!(second_points
+            .iter()
+            .any(|point| { (point.0 - 28.0).abs() < 0.01 && (point.1 - 44.0).abs() < 0.01 }));
     }
 
     #[test]
