@@ -15,6 +15,9 @@ const UNIT_SPIRIT_EFFECT_ID: i16 = 8;
 const ITEM_TRANSFER_EFFECT_ID: i16 = 9;
 const POINT_BEAM_EFFECT_ID: i16 = 10;
 const POINT_HIT_EFFECT_ID: i16 = 11;
+const GREEN_LASER_CHARGE_EFFECT_ID: i16 = 67;
+const GREEN_LASER_CHARGE_SMALL_EFFECT_ID: i16 = 68;
+const NEOPLASM_HEAL_EFFECT_ID: i16 = 122;
 const SHIELD_BREAK_EFFECT_ID: i16 = 256;
 const ARC_SHIELD_BREAK_EFFECT_ID: i16 = 257;
 const UNIT_SHIELD_BREAK_EFFECT_ID: i16 = 260;
@@ -30,6 +33,16 @@ const ITEM_TRANSFER_INNER_RADIUS: f32 = 1.5;
 const UNIT_SPIRIT_SIDE_COUNT: usize = 4;
 const UNIT_SPIRIT_BASE_RADIUS: f32 = 2.5;
 const UNIT_SPIRIT_OUTER_RADIUS_SCALE: f32 = 1.5;
+const GREEN_LASER_CHARGE_CIRCLE_SEGMENT_COUNT: usize = 12;
+const GREEN_LASER_CHARGE_SPOKE_COUNT: usize = 4;
+const GREEN_LASER_CHARGE_RADIUS_BASE: f32 = 4.0;
+const GREEN_LASER_CHARGE_RADIUS_GROWTH: f32 = 100.0;
+const GREEN_LASER_CHARGE_SMALL_RADIUS_GROWTH: f32 = 50.0;
+const GREEN_LASER_CHARGE_SPOKE_RADIUS: f32 = 40.0;
+const NEOPLASM_HEAL_DIAMOND_SIDE_COUNT: usize = 4;
+const NEOPLASM_HEAL_OFFSET_MAX: f32 = 3.0;
+const NEOPLASM_HEAL_RADIUS_BASE: f32 = 0.2;
+const NEOPLASM_HEAL_RADIUS_GROWTH: f32 = 2.0;
 const SHIELD_BREAK_SIDE_COUNT: usize = 6;
 const SHIELD_BREAK_RADIUS_GROWTH: f32 = 1.0;
 const ARC_SHIELD_BREAK_SEGMENT_COUNT: usize = 8;
@@ -204,6 +217,27 @@ pub(crate) fn line_projections_for_effect_overlay(
         Some(POINT_HIT_EFFECT_ID) => point_hit_line_projections(
             target_x_bits,
             target_y_bits,
+            overlay.remaining_ticks,
+            overlay.lifetime_ticks,
+        ),
+        Some(GREEN_LASER_CHARGE_EFFECT_ID) => green_laser_charge_line_projections(
+            target_x_bits,
+            target_y_bits,
+            unit_parent_rotation_bits(overlay, session_state).unwrap_or(overlay.rotation_bits),
+            overlay.remaining_ticks,
+            overlay.lifetime_ticks,
+        ),
+        Some(GREEN_LASER_CHARGE_SMALL_EFFECT_ID) => green_laser_charge_small_line_projections(
+            target_x_bits,
+            target_y_bits,
+            overlay.remaining_ticks,
+            overlay.lifetime_ticks,
+        ),
+        Some(NEOPLASM_HEAL_EFFECT_ID) => neoplasm_heal_line_projections(
+            target_x_bits,
+            target_y_bits,
+            unit_parent_rotation_bits(overlay, session_state).unwrap_or(overlay.rotation_bits),
+            overlay.color_rgba,
             overlay.remaining_ticks,
             overlay.lifetime_ticks,
         ),
@@ -548,6 +582,26 @@ fn item_transfer_pseudo_seed(
     }
 }
 
+fn neoplasm_heal_seed_angle(
+    center_x_bits: u32,
+    center_y_bits: u32,
+    rotation_bits: u32,
+    color_rgba: u32,
+) -> f32 {
+    let mut hash = center_x_bits
+        ^ center_y_bits.rotate_left(7)
+        ^ rotation_bits.rotate_left(13)
+        ^ color_rgba.rotate_left(21)
+        ^ (NEOPLASM_HEAL_EFFECT_ID as u16 as u32).rotate_left(3);
+    hash ^= hash >> 16;
+    hash = hash.wrapping_mul(0x7feb_352d);
+    hash ^= hash >> 15;
+    hash = hash.wrapping_mul(0x846c_a68b);
+    hash ^= hash >> 16;
+
+    hash as f32 / u32::MAX as f32 * std::f32::consts::TAU
+}
+
 fn unit_spirit_line_projections(
     source_x_bits: u32,
     source_y_bits: u32,
@@ -666,6 +720,107 @@ fn point_hit_line_projections(
         0.0,
     );
     closed_polyline_line_projections("point-hit", &circle_points)
+}
+
+fn green_laser_charge_line_projections(
+    center_x_bits: u32,
+    center_y_bits: u32,
+    rotation_bits: u32,
+    remaining_ticks: u8,
+    lifetime_ticks: u8,
+) -> Vec<RuntimeEffectLineProjection> {
+    let center_x = f32::from_bits(center_x_bits);
+    let center_y = f32::from_bits(center_y_bits);
+    if !center_x.is_finite() || !center_y.is_finite() {
+        return Vec::new();
+    }
+
+    let fin = shield_break_progress(remaining_ticks, lifetime_ticks);
+    let fout = (1.0 - fin).max(0.0);
+    let radius = GREEN_LASER_CHARGE_RADIUS_BASE + fout * GREEN_LASER_CHARGE_RADIUS_GROWTH;
+    let circle_points = regular_polygon_points(
+        center_x,
+        center_y,
+        radius,
+        GREEN_LASER_CHARGE_CIRCLE_SEGMENT_COUNT,
+        0.0,
+    );
+    let mut lines = closed_polyline_line_projections("green-laser-charge", &circle_points);
+
+    let spoke_radius = fout * GREEN_LASER_CHARGE_SPOKE_RADIUS;
+    if spoke_radius > 1.0 {
+        let facing_radians = rotation_radians(rotation_bits);
+        lines.extend((0..GREEN_LASER_CHARGE_SPOKE_COUNT).map(|index| {
+            let angle = facing_radians
+                + index as f32 * std::f32::consts::TAU / GREEN_LASER_CHARGE_SPOKE_COUNT as f32;
+            line_projection(
+                "green-laser-charge",
+                (center_x_bits, center_y_bits),
+                polar_point(center_x, center_y, spoke_radius, angle),
+            )
+        }));
+    }
+
+    lines
+}
+
+fn green_laser_charge_small_line_projections(
+    center_x_bits: u32,
+    center_y_bits: u32,
+    remaining_ticks: u8,
+    lifetime_ticks: u8,
+) -> Vec<RuntimeEffectLineProjection> {
+    let center_x = f32::from_bits(center_x_bits);
+    let center_y = f32::from_bits(center_y_bits);
+    if !center_x.is_finite() || !center_y.is_finite() {
+        return Vec::new();
+    }
+
+    let fin = shield_break_progress(remaining_ticks, lifetime_ticks);
+    let fout = (1.0 - fin).max(0.0);
+    let radius = fout * GREEN_LASER_CHARGE_SMALL_RADIUS_GROWTH;
+    let circle_points = regular_polygon_points(
+        center_x,
+        center_y,
+        radius,
+        GREEN_LASER_CHARGE_CIRCLE_SEGMENT_COUNT,
+        0.0,
+    );
+    closed_polyline_line_projections("green-laser-charge-small", &circle_points)
+}
+
+fn neoplasm_heal_line_projections(
+    center_x_bits: u32,
+    center_y_bits: u32,
+    rotation_bits: u32,
+    color_rgba: u32,
+    remaining_ticks: u8,
+    lifetime_ticks: u8,
+) -> Vec<RuntimeEffectLineProjection> {
+    let center_x = f32::from_bits(center_x_bits);
+    let center_y = f32::from_bits(center_y_bits);
+    if !center_x.is_finite() || !center_y.is_finite() {
+        return Vec::new();
+    }
+
+    let fin = shield_break_progress(remaining_ticks, lifetime_ticks);
+    let radius = NEOPLASM_HEAL_RADIUS_BASE + midlife_slope(fin) * NEOPLASM_HEAL_RADIUS_GROWTH;
+    let rotation_radians = rotation_radians(rotation_bits);
+    let offset_angle = rotation_radians
+        + neoplasm_heal_seed_angle(center_x_bits, center_y_bits, rotation_bits, color_rgba);
+    let offset_distance = fin * NEOPLASM_HEAL_OFFSET_MAX;
+    let (offset_center_x_bits, offset_center_y_bits) =
+        polar_point(center_x, center_y, offset_distance, offset_angle);
+    let offset_center_x = f32::from_bits(offset_center_x_bits);
+    let offset_center_y = f32::from_bits(offset_center_y_bits);
+    let diamond_points = regular_polygon_points(
+        offset_center_x,
+        offset_center_y,
+        radius,
+        NEOPLASM_HEAL_DIAMOND_SIDE_COUNT,
+        rotation_radians + std::f32::consts::FRAC_PI_4,
+    );
+    closed_polyline_line_projections("neoplasm-heal", &diamond_points)
 }
 
 fn arc_shield_break_line_projections(
@@ -1271,6 +1426,15 @@ fn polar_point(center_x: f32, center_y: f32, radius: f32, angle_radians: f32) ->
     )
 }
 
+fn rotation_radians(rotation_bits: u32) -> f32 {
+    let rotation_degrees = f32::from_bits(rotation_bits);
+    if rotation_degrees.is_finite() {
+        rotation_degrees.to_radians()
+    } else {
+        0.0
+    }
+}
+
 fn snap_trig_component(value: f32) -> f32 {
     const TRIG_SNAP_EPSILON: f32 = 1e-6;
 
@@ -1830,6 +1994,158 @@ mod tests {
     }
 
     #[test]
+    fn line_projections_for_effect_overlay_returns_green_laser_charge_circle_and_spokes() {
+        let overlay = RuntimeEffectOverlay {
+            effect_id: Some(GREEN_LASER_CHARGE_EFFECT_ID),
+            source_x_bits: 12.0f32.to_bits(),
+            source_y_bits: 20.0f32.to_bits(),
+            x_bits: 32.0f32.to_bits(),
+            y_bits: 48.0f32.to_bits(),
+            rotation_bits: 0.0f32.to_bits(),
+            color_rgba: 0x11223344,
+            reliable: false,
+            has_data: true,
+            lifetime_ticks: 3,
+            remaining_ticks: 3,
+            contract_name: Some("unit_parent"),
+            source_binding: None,
+            binding: None,
+            content_ref: None,
+            polyline_points: Vec::new(),
+        };
+
+        let lines = test_line_projections_for_overlay(
+            &overlay,
+            32.0f32.to_bits(),
+            48.0f32.to_bits(),
+            &SessionState::default(),
+        );
+        let circle_points = regular_polygon_points(
+            32.0,
+            48.0,
+            GREEN_LASER_CHARGE_RADIUS_BASE + GREEN_LASER_CHARGE_RADIUS_GROWTH,
+            GREEN_LASER_CHARGE_CIRCLE_SEGMENT_COUNT,
+            0.0,
+        );
+
+        assert_eq!(
+            lines.len(),
+            GREEN_LASER_CHARGE_CIRCLE_SEGMENT_COUNT + GREEN_LASER_CHARGE_SPOKE_COUNT
+        );
+        assert!(lines.iter().all(|line| line.kind == "green-laser-charge"));
+        assert!(lines.contains(&line_projection(
+            "green-laser-charge",
+            circle_points[0],
+            circle_points[1],
+        )));
+        assert!(lines.contains(&line_projection(
+            "green-laser-charge",
+            (32.0f32.to_bits(), 48.0f32.to_bits()),
+            polar_point(32.0, 48.0, GREEN_LASER_CHARGE_SPOKE_RADIUS, 0.0),
+        )));
+    }
+
+    #[test]
+    fn line_projections_for_effect_overlay_returns_green_laser_charge_small_circle() {
+        let overlay = RuntimeEffectOverlay {
+            effect_id: Some(GREEN_LASER_CHARGE_SMALL_EFFECT_ID),
+            source_x_bits: 12.0f32.to_bits(),
+            source_y_bits: 20.0f32.to_bits(),
+            x_bits: 32.0f32.to_bits(),
+            y_bits: 48.0f32.to_bits(),
+            rotation_bits: 0.0f32.to_bits(),
+            color_rgba: 0x11223344,
+            reliable: false,
+            has_data: true,
+            lifetime_ticks: 3,
+            remaining_ticks: 3,
+            contract_name: Some("unit_parent"),
+            source_binding: None,
+            binding: None,
+            content_ref: None,
+            polyline_points: Vec::new(),
+        };
+
+        let lines = test_line_projections_for_overlay(
+            &overlay,
+            32.0f32.to_bits(),
+            48.0f32.to_bits(),
+            &SessionState::default(),
+        );
+        let circle_points = regular_polygon_points(
+            32.0,
+            48.0,
+            GREEN_LASER_CHARGE_SMALL_RADIUS_GROWTH,
+            GREEN_LASER_CHARGE_CIRCLE_SEGMENT_COUNT,
+            0.0,
+        );
+
+        assert_eq!(lines.len(), GREEN_LASER_CHARGE_CIRCLE_SEGMENT_COUNT);
+        assert!(lines
+            .iter()
+            .all(|line| line.kind == "green-laser-charge-small"));
+        assert!(lines.contains(&line_projection(
+            "green-laser-charge-small",
+            circle_points[0],
+            circle_points[1],
+        )));
+    }
+
+    #[test]
+    fn line_projections_for_effect_overlay_returns_neoplasm_heal_diamond() {
+        let overlay = RuntimeEffectOverlay {
+            effect_id: Some(NEOPLASM_HEAL_EFFECT_ID),
+            source_x_bits: 12.0f32.to_bits(),
+            source_y_bits: 20.0f32.to_bits(),
+            x_bits: 32.0f32.to_bits(),
+            y_bits: 48.0f32.to_bits(),
+            rotation_bits: 0.0f32.to_bits(),
+            color_rgba: 0x55667788,
+            reliable: false,
+            has_data: true,
+            lifetime_ticks: 3,
+            remaining_ticks: 2,
+            contract_name: Some("unit_parent"),
+            source_binding: None,
+            binding: None,
+            content_ref: None,
+            polyline_points: Vec::new(),
+        };
+
+        let lines = test_line_projections_for_overlay(
+            &overlay,
+            32.0f32.to_bits(),
+            48.0f32.to_bits(),
+            &SessionState::default(),
+        );
+        let fin = shield_break_progress(overlay.remaining_ticks, overlay.lifetime_ticks);
+        let radius = NEOPLASM_HEAL_RADIUS_BASE + midlife_slope(fin) * NEOPLASM_HEAL_RADIUS_GROWTH;
+        let offset_angle = neoplasm_heal_seed_angle(
+            32.0f32.to_bits(),
+            48.0f32.to_bits(),
+            overlay.rotation_bits,
+            overlay.color_rgba,
+        );
+        let (offset_center_x_bits, offset_center_y_bits) =
+            polar_point(32.0, 48.0, fin * NEOPLASM_HEAL_OFFSET_MAX, offset_angle);
+        let diamond_points = regular_polygon_points(
+            f32::from_bits(offset_center_x_bits),
+            f32::from_bits(offset_center_y_bits),
+            radius,
+            NEOPLASM_HEAL_DIAMOND_SIDE_COUNT,
+            std::f32::consts::FRAC_PI_4,
+        );
+
+        assert_eq!(lines.len(), NEOPLASM_HEAL_DIAMOND_SIDE_COUNT);
+        assert!(lines.iter().all(|line| line.kind == "neoplasm-heal"));
+        assert!(lines.contains(&line_projection(
+            "neoplasm-heal",
+            diamond_points[0],
+            diamond_points[1],
+        )));
+    }
+
+    #[test]
     fn line_projections_for_effect_overlay_returns_shield_break_hexagon() {
         let overlay = RuntimeEffectOverlay {
             effect_id: Some(SHIELD_BREAK_EFFECT_ID),
@@ -2271,6 +2587,82 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn line_projections_for_effect_overlay_uses_parent_unit_rotation_for_green_laser_charge() {
+        let overlay = RuntimeEffectOverlay {
+            effect_id: Some(GREEN_LASER_CHARGE_EFFECT_ID),
+            source_x_bits: 12.0f32.to_bits(),
+            source_y_bits: 20.0f32.to_bits(),
+            x_bits: 32.0f32.to_bits(),
+            y_bits: 48.0f32.to_bits(),
+            rotation_bits: 0.0f32.to_bits(),
+            color_rgba: 0x11223344,
+            reliable: false,
+            has_data: true,
+            lifetime_ticks: 3,
+            remaining_ticks: 3,
+            contract_name: Some("unit_parent"),
+            source_binding: None,
+            binding: Some(RuntimeEffectBinding::ParentUnit {
+                unit_id: 404,
+                spawn_x_bits: 12.0f32.to_bits(),
+                spawn_y_bits: 20.0f32.to_bits(),
+                offset_x_bits: 0.0f32.to_bits(),
+                offset_y_bits: 0.0f32.to_bits(),
+                offset_initialized: true,
+                preserve_spawn_offset: true,
+                allow_fallback_offset_initialization: true,
+                rotate_with_parent: true,
+                parent_rotation_reference_bits: 0.0f32.to_bits(),
+                rotation_offset_bits: 0.0f32.to_bits(),
+                rotation_initialized: false,
+            }),
+            content_ref: None,
+            polyline_points: Vec::new(),
+        };
+        let mut state = SessionState::default();
+        state.entity_semantic_projection.by_entity_id.insert(
+            404,
+            crate::session_state::EntitySemanticProjectionEntry {
+                class_id: 4,
+                last_seen_entity_snapshot_count: 1,
+                projection: EntitySemanticProjection::Unit(
+                    crate::session_state::EntityUnitSemanticProjection {
+                        team_id: 1,
+                        unit_type_id: 55,
+                        health_bits: 0,
+                        rotation_bits: 90.0f32.to_bits(),
+                        shield_bits: 0,
+                        mine_tile_pos: 0,
+                        status_count: 0,
+                        payload_count: None,
+                        building_pos: None,
+                        lifetime_bits: None,
+                        time_bits: None,
+                    },
+                ),
+            },
+        );
+
+        let lines = test_line_projections_for_overlay(
+            &overlay,
+            32.0f32.to_bits(),
+            48.0f32.to_bits(),
+            &state,
+        );
+
+        assert!(lines.contains(&line_projection(
+            "green-laser-charge",
+            (32.0f32.to_bits(), 48.0f32.to_bits()),
+            polar_point(
+                32.0,
+                48.0,
+                GREEN_LASER_CHARGE_SPOKE_RADIUS,
+                90.0f32.to_radians(),
+            ),
+        )));
     }
 
     #[test]
