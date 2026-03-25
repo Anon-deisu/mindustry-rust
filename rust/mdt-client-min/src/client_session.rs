@@ -2448,9 +2448,7 @@ impl ClientSession {
         Ok(connect)
     }
 
-    pub fn prepare_connect_confirm_packet(
-        &mut self,
-    ) -> Result<Option<Vec<u8>>, ClientSessionError> {
+    fn prepared_connect_confirm_packet_bytes(&self) -> Result<Option<Vec<u8>>, ClientSessionError> {
         if let Some(queued) = self
             .pending_packets
             .iter()
@@ -2462,7 +2460,18 @@ impl ClientSession {
             return Ok(None);
         }
 
-        let bytes = encode_packet(self.connect_confirm_packet_id, &[], false)?;
+        Ok(Some(encode_packet(
+            self.connect_confirm_packet_id,
+            &[],
+            false,
+        )?))
+    }
+
+    fn commit_connect_confirm_prepared_state(&mut self) {
+        if self.state.connect_confirm_sent {
+            return;
+        }
+
         self.state.connect_confirm_sent = true;
         self.state.connect_confirm_flushed = false;
         self.state.last_connect_confirm_at_ms = Some(self.clock_ms);
@@ -2473,25 +2482,34 @@ impl ClientSession {
             self.last_snapshot_at_ms = Some(self.clock_ms);
         }
         self.record_outbound_activity(self.clock_ms);
-        Ok(Some(bytes))
+    }
+
+    pub fn prepare_connect_confirm_packet(
+        &mut self,
+    ) -> Result<Option<Vec<u8>>, ClientSessionError> {
+        let bytes = self.prepared_connect_confirm_packet_bytes()?;
+        if bytes.is_some() {
+            self.commit_connect_confirm_prepared_state();
+        }
+        Ok(bytes)
     }
 
     fn enqueue_connect_confirm_packet_if_ready(&mut self) -> Result<(), ClientSessionError> {
-        let Some(bytes) = self.prepare_connect_confirm_packet()? else {
-            return Ok(());
-        };
-        if self
+        let already_queued = self
             .pending_packets
             .iter()
-            .any(|packet| packet.packet_id == self.connect_confirm_packet_id)
-        {
+            .any(|packet| packet.packet_id == self.connect_confirm_packet_id);
+        let Some(bytes) = self.prepared_connect_confirm_packet_bytes()? else {
             return Ok(());
+        };
+        if !already_queued {
+            self.pending_packets.push_back(PendingClientPacket {
+                packet_id: self.connect_confirm_packet_id,
+                transport: ClientPacketTransport::Tcp,
+                bytes,
+            });
         }
-        self.pending_packets.push_back(PendingClientPacket {
-            packet_id: self.connect_confirm_packet_id,
-            transport: ClientPacketTransport::Tcp,
-            bytes,
-        });
+        self.commit_connect_confirm_prepared_state();
         Ok(())
     }
 
@@ -6299,12 +6317,12 @@ impl ClientSession {
         let rollback = FinishConnectingRollback::capture(self);
         let replayed_before = self.state.replayed_inbound_packet_count;
         self.loading_world_data = false;
-        self.state.client_loaded = true;
         if let Err(error) = self.replay_deferred_loading_packets() {
             rollback.restore(self);
             return Err(error);
         }
 
+        self.state.client_loaded = true;
         if let Err(error) = self.enqueue_connect_confirm_packet_if_ready() {
             rollback.restore(self);
             return Err(error);
@@ -39175,6 +39193,50 @@ mod tests {
                 .front()
                 .map(|packet| packet.packet_id),
             Some(STREAM_BEGIN_PACKET_ID)
+        );
+    }
+
+    #[test]
+    fn finish_connecting_rolls_back_successful_replay_side_effects_when_later_packet_fails() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let send_message_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "sendMessage" && entry.params.len() == 1)
+            .unwrap()
+            .packet_id;
+        session.loading_world_data = true;
+        session.deferred_inbound_packets = std::collections::VecDeque::from([
+            DeferredInboundPacket {
+                packet_id: send_message_packet_id,
+                payload: encode_typeio_string_payload("[accent]queued before failure"),
+            },
+            DeferredInboundPacket {
+                packet_id: STREAM_BEGIN_PACKET_ID,
+                payload: Vec::new(),
+            },
+        ]);
+
+        let result = session.finish_connecting();
+
+        assert!(result.is_err());
+        assert!(session.loading_world_data);
+        assert!(!session.state().client_loaded);
+        assert_eq!(session.state().finish_connecting_commit_count, 0);
+        assert_eq!(session.state().last_finish_connecting, None);
+        assert_eq!(session.state().replayed_inbound_packet_count, 0);
+        assert!(session.replayed_loading_events.is_empty());
+        assert_eq!(session.state().received_server_message_count, 0);
+        assert_eq!(session.state().last_server_message, None);
+        assert_eq!(session.deferred_inbound_packets.len(), 2);
+        assert_eq!(
+            session
+                .deferred_inbound_packets
+                .iter()
+                .map(|packet| packet.packet_id)
+                .collect::<Vec<_>>(),
+            vec![send_message_packet_id, STREAM_BEGIN_PACKET_ID]
         );
     }
 
