@@ -3197,22 +3197,35 @@ fn append_runtime_world_overlay_objects(
     }
 
     for overlay in &runtime_world_overlay.effect_overlays {
-        let (x_bits, y_bits) =
+        let (target_x_bits, target_y_bits) =
             resolve_runtime_effect_overlay_position(overlay, session_state, snapshot_input);
-        append_runtime_effect_executor_objects(scene, overlay, x_bits, y_bits, session_state);
+        append_runtime_effect_executor_objects(
+            scene,
+            overlay,
+            target_x_bits,
+            target_y_bits,
+            session_state,
+        );
+        let (marker_x_bits, marker_y_bits) =
+            effect_contract_executor::marker_position_for_effect_overlay(
+                overlay,
+                target_x_bits,
+                target_y_bits,
+            )
+            .unwrap_or((target_x_bits, target_y_bits));
         let reliable = runtime_effect_delivery_label(overlay.reliable);
         let data = if overlay.has_data { 1 } else { 0 };
         scene.objects.push(RenderObject {
             id: format!(
                 "marker:runtime-effect:{reliable}:{}:0x{:08x}:0x{:08x}:{}",
                 overlay.effect_id.unwrap_or(-1),
-                x_bits,
-                y_bits,
+                marker_x_bits,
+                marker_y_bits,
                 data
             ),
             layer: 26,
-            x: f32::from_bits(x_bits),
-            y: f32::from_bits(y_bits),
+            x: f32::from_bits(marker_x_bits),
+            y: f32::from_bits(marker_y_bits),
         });
     }
 }
@@ -5361,6 +5374,36 @@ mod tests {
         let unit_spirit_lines = runtime_effect_lines_with_prefix(&scene, unit_spirit_prefix);
         assert_eq!(unit_spirit_lines.len(), 16);
         assert!(unit_spirit_lines.iter().any(|object| {
+            !object.id.ends_with(":line-end") && object.x < 20.0 && object.y < 40.0
+        }));
+    }
+
+    #[test]
+    fn render_runtime_adapter_renders_item_transfer_executor_rings() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
+
+        adapter.observe_events(&[ClientSessionEvent::EffectRequested {
+            effect_id: Some(9),
+            x: 1.0,
+            y: 2.0,
+            rotation: 0.0,
+            color_rgba: 0x55667788,
+            data_object: Some(mdt_typeio::TypeIoObject::Point2 { x: 10, y: 20 }),
+        }]);
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let marker = first_runtime_effect_marker(&scene);
+        assert!(marker.id.starts_with("marker:runtime-effect:normal:9:"));
+        assert!(marker.x != 80.0 || marker.y != 160.0);
+
+        let item_transfer_prefix = "marker:line:runtime-effect-item-transfer:";
+        let item_transfer_lines = runtime_effect_lines_with_prefix(&scene, item_transfer_prefix);
+        assert_eq!(item_transfer_lines.len(), 32);
+        assert!(item_transfer_lines.iter().any(|object| {
             !object.id.ends_with(":line-end") && object.x < 20.0 && object.y < 40.0
         }));
     }

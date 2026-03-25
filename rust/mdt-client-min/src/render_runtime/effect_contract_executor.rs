@@ -13,6 +13,7 @@ const PAYLOAD_DEPOSIT_EFFECT_ID: i16 = 26;
 const PAYLOAD_DEPOSIT_OVERLAY_TTL_TICKS: u8 = 3;
 const LIGHTNING_EFFECT_ID: i16 = 13;
 const UNIT_SPIRIT_EFFECT_ID: i16 = 8;
+const ITEM_TRANSFER_EFFECT_ID: i16 = 9;
 const POINT_BEAM_EFFECT_ID: i16 = 10;
 const POINT_HIT_EFFECT_ID: i16 = 11;
 const SHIELD_BREAK_EFFECT_ID: i16 = 256;
@@ -23,6 +24,10 @@ const CHAIN_EMP_EFFECT_ID: i16 = 262;
 const CHAIN_SEGMENT_TARGET_PIXELS: f32 = 24.0;
 const CHAIN_MIN_SEGMENTS: usize = 3;
 const CHAIN_MAX_SEGMENTS: usize = 8;
+const ITEM_TRANSFER_CIRCLE_SEGMENT_COUNT: usize = 8;
+const ITEM_TRANSFER_LATERAL_OFFSET_MAX: f32 = 10.0;
+const ITEM_TRANSFER_OUTER_RADIUS: f32 = 3.0;
+const ITEM_TRANSFER_INNER_RADIUS: f32 = 1.5;
 const UNIT_SPIRIT_SIDE_COUNT: usize = 4;
 const UNIT_SPIRIT_BASE_RADIUS: f32 = 2.5;
 const UNIT_SPIRIT_OUTER_RADIUS_SCALE: f32 = 1.5;
@@ -174,6 +179,14 @@ pub(crate) fn line_projections_for_effect_overlay(
             target_y_bits,
             overlay.remaining_ticks,
         ),
+        Some(ITEM_TRANSFER_EFFECT_ID) => item_transfer_line_projections(
+            overlay.source_x_bits,
+            overlay.source_y_bits,
+            target_x_bits,
+            target_y_bits,
+            overlay.color_rgba,
+            overlay.remaining_ticks,
+        ),
         Some(POINT_BEAM_EFFECT_ID) => vec![RuntimeEffectLineProjection {
             kind: "point-beam",
             source_x_bits: overlay.source_x_bits,
@@ -213,6 +226,25 @@ pub(crate) fn line_projections_for_effect_overlay(
                 .unwrap_or_default()
         }
         _ => Vec::new(),
+    }
+}
+
+pub(crate) fn marker_position_for_effect_overlay(
+    overlay: &RuntimeEffectOverlay,
+    target_x_bits: u32,
+    target_y_bits: u32,
+) -> Option<(u32, u32)> {
+    match overlay.effect_id {
+        Some(ITEM_TRANSFER_EFFECT_ID) => item_transfer_geometry(
+            overlay.source_x_bits,
+            overlay.source_y_bits,
+            target_x_bits,
+            target_y_bits,
+            overlay.color_rgba,
+            overlay.remaining_ticks,
+        )
+        .map(|(center_x, center_y, _, _)| (center_x.to_bits(), center_y.to_bits())),
+        _ => None,
     }
 }
 
@@ -351,6 +383,125 @@ fn chain_line_projections(
             })
         })
         .collect()
+}
+
+fn item_transfer_line_projections(
+    source_x_bits: u32,
+    source_y_bits: u32,
+    target_x_bits: u32,
+    target_y_bits: u32,
+    color_rgba: u32,
+    remaining_ticks: u8,
+) -> Vec<RuntimeEffectLineProjection> {
+    let Some((center_x, center_y, outer_radius, inner_radius)) = item_transfer_geometry(
+        source_x_bits,
+        source_y_bits,
+        target_x_bits,
+        target_y_bits,
+        color_rgba,
+        remaining_ticks,
+    ) else {
+        return Vec::new();
+    };
+
+    let outer_points = regular_polygon_points(
+        center_x,
+        center_y,
+        outer_radius,
+        ITEM_TRANSFER_CIRCLE_SEGMENT_COUNT,
+        0.0,
+    );
+    let inner_points = regular_polygon_points(
+        center_x,
+        center_y,
+        inner_radius,
+        ITEM_TRANSFER_CIRCLE_SEGMENT_COUNT,
+        0.0,
+    );
+
+    let mut lines = closed_polyline_line_projections("item-transfer", &outer_points);
+    lines.extend(closed_polyline_line_projections("item-transfer", &inner_points));
+    lines
+}
+
+fn item_transfer_geometry(
+    source_x_bits: u32,
+    source_y_bits: u32,
+    target_x_bits: u32,
+    target_y_bits: u32,
+    color_rgba: u32,
+    remaining_ticks: u8,
+) -> Option<(f32, f32, f32, f32)> {
+    let source_x = f32::from_bits(source_x_bits);
+    let source_y = f32::from_bits(source_y_bits);
+    let target_x = f32::from_bits(target_x_bits);
+    let target_y = f32::from_bits(target_y_bits);
+    if !source_x.is_finite()
+        || !source_y.is_finite()
+        || !target_x.is_finite()
+        || !target_y.is_finite()
+    {
+        return None;
+    }
+
+    let progress = inclusive_overlay_progress(remaining_ticks);
+    let slope = midlife_slope(progress);
+    let outer_radius = slope * ITEM_TRANSFER_OUTER_RADIUS;
+    let inner_radius = slope * ITEM_TRANSFER_INNER_RADIUS;
+    let path_t = progress.powi(3);
+    let (mut center_x, mut center_y) = lerp_point(source_x, source_y, target_x, target_y, path_t);
+
+    let dx = target_x - source_x;
+    let dy = target_y - source_y;
+    let distance = (dx * dx + dy * dy).sqrt();
+    if distance.is_finite() && distance > f32::EPSILON {
+        let normal_x = -dy / distance;
+        let normal_y = dx / distance;
+        let lateral = item_transfer_pseudo_seed(
+            source_x_bits,
+            source_y_bits,
+            target_x_bits,
+            target_y_bits,
+            color_rgba,
+        ) * slope
+            * ITEM_TRANSFER_LATERAL_OFFSET_MAX;
+        center_x += normal_x * lateral;
+        center_y += normal_y * lateral;
+    }
+
+    (center_x.is_finite() && center_y.is_finite()).then_some((
+        center_x,
+        center_y,
+        outer_radius,
+        inner_radius,
+    ))
+}
+
+fn item_transfer_pseudo_seed(
+    source_x_bits: u32,
+    source_y_bits: u32,
+    target_x_bits: u32,
+    target_y_bits: u32,
+    color_rgba: u32,
+) -> f32 {
+    let mut hash = source_x_bits
+        ^ source_y_bits.rotate_left(7)
+        ^ target_x_bits.rotate_left(13)
+        ^ target_y_bits.rotate_left(21)
+        ^ color_rgba.rotate_left(3)
+        ^ (ITEM_TRANSFER_EFFECT_ID as u16 as u32).rotate_left(27);
+    hash ^= hash >> 16;
+    hash = hash.wrapping_mul(0x7feb_352d);
+    hash ^= hash >> 15;
+    hash = hash.wrapping_mul(0x846c_a68b);
+    hash ^= hash >> 16;
+
+    let signed = hash as f32 / u32::MAX as f32 * 2.0 - 1.0;
+    if signed.abs() < 0.25 {
+        if signed.is_sign_negative() { -0.25 } else { 0.25 }
+    } else {
+        signed
+    }
 }
 
 fn unit_spirit_line_projections(
@@ -596,6 +747,10 @@ fn inclusive_overlay_progress(remaining_ticks: u8) -> f32 {
 
 fn point_hit_progress(remaining_ticks: u8) -> f32 {
     inclusive_overlay_progress(remaining_ticks)
+}
+
+fn midlife_slope(progress: f32) -> f32 {
+    (1.0 - (progress * 2.0 - 1.0).abs()).max(0.0)
 }
 
 fn lerp_point(source_x: f32, source_y: f32, target_x: f32, target_y: f32, t: f32) -> (f32, f32) {
@@ -1342,6 +1497,99 @@ mod tests {
             inner_points[0],
             inner_points[1],
         )));
+    }
+
+    #[test]
+    fn line_projections_for_effect_overlay_returns_item_transfer_rings() {
+        let overlay = RuntimeEffectOverlay {
+            effect_id: Some(ITEM_TRANSFER_EFFECT_ID),
+            source_x_bits: 12.0f32.to_bits(),
+            source_y_bits: 20.0f32.to_bits(),
+            x_bits: 80.0f32.to_bits(),
+            y_bits: 160.0f32.to_bits(),
+            rotation_bits: 0.0f32.to_bits(),
+            color_rgba: 0x55667788,
+            reliable: false,
+            has_data: true,
+            remaining_ticks: 3,
+            contract_name: Some("position_target"),
+            binding: None,
+            content_ref: None,
+            polyline_points: Vec::new(),
+        };
+
+        let lines = line_projections_for_effect_overlay(
+            &overlay,
+            80.0f32.to_bits(),
+            160.0f32.to_bits(),
+            &SessionState::default(),
+        );
+        let (center_x, center_y, outer_radius, inner_radius) = item_transfer_geometry(
+            overlay.source_x_bits,
+            overlay.source_y_bits,
+            80.0f32.to_bits(),
+            160.0f32.to_bits(),
+            overlay.color_rgba,
+            overlay.remaining_ticks,
+        )
+        .expect("item transfer geometry");
+        let outer_points = regular_polygon_points(
+            center_x,
+            center_y,
+            outer_radius,
+            ITEM_TRANSFER_CIRCLE_SEGMENT_COUNT,
+            0.0,
+        );
+        let inner_points = regular_polygon_points(
+            center_x,
+            center_y,
+            inner_radius,
+            ITEM_TRANSFER_CIRCLE_SEGMENT_COUNT,
+            0.0,
+        );
+
+        assert_eq!(lines.len(), ITEM_TRANSFER_CIRCLE_SEGMENT_COUNT * 2);
+        assert!(lines.iter().all(|line| line.kind == "item-transfer"));
+        assert!(lines.contains(&line_projection(
+            "item-transfer",
+            outer_points[0],
+            outer_points[1],
+        )));
+        assert!(lines.contains(&line_projection(
+            "item-transfer",
+            inner_points[0],
+            inner_points[1],
+        )));
+    }
+
+    #[test]
+    fn marker_position_for_effect_overlay_returns_item_transfer_curve_position() {
+        let overlay = RuntimeEffectOverlay {
+            effect_id: Some(ITEM_TRANSFER_EFFECT_ID),
+            source_x_bits: 12.0f32.to_bits(),
+            source_y_bits: 20.0f32.to_bits(),
+            x_bits: 80.0f32.to_bits(),
+            y_bits: 160.0f32.to_bits(),
+            rotation_bits: 0.0f32.to_bits(),
+            color_rgba: 0x55667788,
+            reliable: false,
+            has_data: true,
+            remaining_ticks: 3,
+            contract_name: Some("position_target"),
+            binding: None,
+            content_ref: None,
+            polyline_points: Vec::new(),
+        };
+
+        let marker = marker_position_for_effect_overlay(
+            &overlay,
+            80.0f32.to_bits(),
+            160.0f32.to_bits(),
+        )
+        .expect("item transfer marker override");
+
+        assert_ne!(marker, (80.0f32.to_bits(), 160.0f32.to_bits()));
+        assert_ne!(marker, (12.0f32.to_bits(), 20.0f32.to_bits()));
     }
 
     #[test]

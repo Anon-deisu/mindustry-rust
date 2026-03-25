@@ -48,20 +48,21 @@ Current Rust baseline:
 | `257` / `260` `Fx.arcShieldBreak` / `Fx.unitShieldBreak` | Declared at `core/src/mindustry/content/Fx.java:2818` and `:2852`. Java uses parent `Unit` plus ability/unit-derived geometry, not just origin markers. | Rust still maps these ids to `unit_parent`, and now also renders effect-specific fallback geometry on top of the existing parent-follow binding path: `257` gets a parent-rotation-aware double-arc band, `260` gets a parent-centered circle-plus-burst fallback. | Landed as a narrow fallback executor deepening. Remaining gap is metadata depth, not total absence: `257` still lacks `ShieldArcAbility` radius/width/offset parameters, and `260` still lacks `unit_type -> hitSize` data for exact radius parity. | `rust/mdt-client-min/src/render_runtime/effect_contract_executor.rs`; `rust/mdt-client-min/src/render_runtime.rs` |
 | `11` `Fx.pointHit` | Declared at `core/src/mindustry/content/Fx.java:161`. Java draws an expanding hit ring centered at the effect position and does not require a deeper typed payload than the effect origin itself. | Rust now maps `effect_id=11` to `point_hit`, keeps the dedicated contract name on the session surface, and renders an expanding circle fallback as runtime line segments keyed by effect position. | Landed as a narrow contract/executor slice. Keep it closed; remaining U5 work is other `effect_id -> contract/executor` families and deeper lifetime parity, not re-opening `pointHit` as missing. | `rust/mdt-client-min/src/effect_runtime.rs`; `rust/mdt-client-min/src/client_session.rs`; `rust/mdt-client-min/src/render_runtime/effect_contract_executor.rs`; `rust/mdt-client-min/src/render_runtime.rs` |
 | `8` `Fx.unitSpirit` | Declared at `core/src/mindustry/content/Fx.java:120`, called from `core/src/mindustry/input/InputHandler.java:811`. Java moves two 45-degree squares from source to target with different eased interpolation curves. | Rust still keeps `effect_id=8` on the existing `position_target` contract, and now renders a narrow double-diamond fallback from the captured source/target bits instead of stopping at the target marker alone. | Landed as an executor-only slice. Keep it closed; remaining work is `itemTransfer` and deeper lifetime/parent-follow parity, not re-opening `unitSpirit` as a missing first-pass executor. | `rust/mdt-client-min/src/render_runtime/effect_contract_executor.rs`; `rust/mdt-client-min/src/render_runtime.rs` |
+| `9` `Fx.itemTransfer` | Declared at `core/src/mindustry/content/Fx.java:138`, called from `core/src/mindustry/input/InputHandler.java:312`. Java moves a mid-life-tapered circle pair along a `pow3` source-target curve with an `e.id`-seeded lateral offset. | Rust still keeps `effect_id=9` on the existing `position_target` contract, and now renders a conservative pseudo-seeded double-ring fallback plus a marker-position override from the captured source/target bits instead of leaving only a target marker. | Landed as an executor-only fallback slice. Keep it closed as a first-pass implementation; exact Java parity still needs a stable effect-instance seed equivalent to `e.id`, but the family is no longer absent. | `rust/mdt-client-min/src/render_runtime/effect_contract_executor.rs`; `rust/mdt-client-min/src/render_runtime.rs` |
 | `263` `Fx.legDestroy` | Declared at `core/src/mindustry/content/Fx.java:2945`, called from `core/src/mindustry/entities/comp/LegsComp.java:79-80`. Java depends on `LegDestroyData` plus region/segment geometry. | Rust has no dedicated contract or executor for this family. | Defer until parent/segment executor depth is stronger; this is wider than the current shield slices. | `rust/mdt-client-min/src/effect_runtime.rs`; `rust/mdt-client-min/src/render_runtime/effect_contract_executor.rs`; `rust/mdt-client-min/src/render_runtime.rs` |
 
 ## Suggested Order
 
 Recommended implementation order:
 
-1. `9` `itemTransfer`
-2. `263` `legDestroy`
+1. `263` `legDestroy`
 
 Why this order:
 
 - `11` `pointHit` is now landed as a dedicated contract/executor slice, so it should not stay in the next-slice pool.
 - `8` `unitSpirit` is now also landed as an executor-only slice, so the cheapest remaining source-target mover shifts to `9` `itemTransfer`.
-- `9` `itemTransfer` is still narrow, but its Java look depends on a stable effect-instance seeded lateral offset; the next slice should either add that deterministic seed surface or land a clearly documented conservative fallback.
+- `9` `itemTransfer` is now also landed as a conservative executor-only fallback slice, so it should not stay in the next-slice pool either.
+- exact `9` parity would still need a stable effect-instance seeded lateral offset; that is now a metadata/parity revisit, not a first-pass missing family.
 - `263` is still real value, but it depends on wider segment/region semantics.
 
 ## Defer For Now
@@ -74,7 +75,9 @@ These are real gaps, but they are less suitable for the next narrow slice becaus
 | `26` `Fx.payloadDeposit` | Already landed as `payload_target_content`; do not re-open it as missing. |
 | `11` `Fx.pointHit` | Already landed as `point_hit`; Rust now keeps the dedicated contract name and renders an expanding hit-ring fallback from the effect position, so do not re-open it as the next missing contract slice. |
 | `8` `Fx.unitSpirit` | Already landed as a `position_target`-backed executor slice; Rust now renders a double-diamond fallback from the captured source/target bits, so do not re-open it as the next missing executor slice. |
+| `9` `Fx.itemTransfer` | Already landed as a conservative `position_target`-backed executor slice; Rust now renders pseudo-seeded double rings and moves the marker along the fallback curve, so do not re-open it as a first-pass missing executor. |
 | `263` `Fx.legDestroy` | Declared at `core/src/mindustry/content/Fx.java:2945`, called from `core/src/mindustry/entities/comp/LegsComp.java:79-80`. Java depends on `LegDestroyData` plus `TextureRegion`, so it is not a cheap next slice. |
+| `9` exact parity revisit | First fallback executor slice is landed; defer any revisit until Rust can carry a stable effect-instance seed equivalent to Java `e.id` instead of widening the runtime state ad hoc. |
 | `257` / `260` exact parity revisit | First fallback geometry slice is landed; defer any revisit until Rust can source `ShieldArcAbility` metadata and `unit_type -> hitSize` instead of widening this PR. |
 
 ## Backlog Alignment
@@ -85,11 +88,9 @@ These are real gaps, but they are less suitable for the next narrow slice becaus
 
 ## Smallest Reasonable PR Shapes
 
-If the next PR must stay very narrow, the best two options are:
+If the next PR must stay very narrow, the best remaining option is:
 
-- Executor-only PR
-  - `effect_id=9`
 - New-contract PR
   - `effect_id=263`
 
-These options hit E1/E2 directly without expanding into the broader E3 runtime semantics.
+The cheapest executor-only U5 gaps are no longer total absences; future narrow work is now either `263` as a new family or exact-parity revisits such as `9` seed support.
