@@ -974,15 +974,15 @@ fn clear_hidden_non_local_unit_ref(
 enum HiddenSnapshotTypedPolicy {
     #[default]
     KeepHidden,
-    RemoveLikeJavaHandleSyncHidden,
+    RemoveLikeJavaUnitHandleSyncHidden,
 }
 
 impl HiddenSnapshotTypedPolicy {
     fn merges_remove(self, other: Self) -> Self {
-        if matches!(self, Self::RemoveLikeJavaHandleSyncHidden)
-            || matches!(other, Self::RemoveLikeJavaHandleSyncHidden)
+        if matches!(self, Self::RemoveLikeJavaUnitHandleSyncHidden)
+            || matches!(other, Self::RemoveLikeJavaUnitHandleSyncHidden)
         {
-            Self::RemoveLikeJavaHandleSyncHidden
+            Self::RemoveLikeJavaUnitHandleSyncHidden
         } else {
             Self::KeepHidden
         }
@@ -1015,18 +1015,22 @@ struct HiddenSnapshotEntityPolicy {
 }
 
 impl HiddenSnapshotEntityPolicy {
-    fn should_remove(self) -> bool {
+    fn should_remove_like_java_unit_handle_sync_hidden(self) -> bool {
         matches!(
             self.typed,
-            HiddenSnapshotTypedPolicy::RemoveLikeJavaHandleSyncHidden
-        ) || matches!(
+            HiddenSnapshotTypedPolicy::RemoveLikeJavaUnitHandleSyncHidden
+        )
+    }
+
+    fn should_remove_known_runtime_owned(self) -> bool {
+        matches!(
             self.runtime,
             HiddenSnapshotRuntimePolicy::RemoveKnownRuntimeOwned
         )
     }
 }
 
-fn class_id_matches_java_handle_sync_hidden_remove(class_id: u8) -> bool {
+fn class_id_matches_java_unit_handle_sync_hidden_remove(class_id: u8) -> bool {
     ALPHA_SHAPE_ENTITY_CLASS_IDS.contains(&class_id)
         || MECH_SHAPE_ENTITY_CLASS_IDS.contains(&class_id)
         || MISSILE_SHAPE_ENTITY_CLASS_IDS.contains(&class_id)
@@ -1067,7 +1071,17 @@ fn resolve_hidden_snapshot_entity_policy(
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 struct HiddenSnapshotRuntimeTransition {
     auxiliary_cleanup_ids: BTreeSet<i32>,
-    lifecycle_remove_ids: BTreeSet<i32>,
+    unit_handle_sync_hidden_remove_ids: BTreeSet<i32>,
+    runtime_owned_cleanup_remove_ids: BTreeSet<i32>,
+}
+
+impl HiddenSnapshotRuntimeTransition {
+    fn lifecycle_remove_ids(&self) -> BTreeSet<i32> {
+        self.unit_handle_sync_hidden_remove_ids
+            .union(&self.runtime_owned_cleanup_remove_ids)
+            .copied()
+            .collect()
+    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -3361,7 +3375,7 @@ pub enum EntitySemanticProjection {
 impl EntitySemanticProjection {
     fn hidden_snapshot_typed_policy(&self) -> HiddenSnapshotTypedPolicy {
         match self {
-            Self::Unit(_) => HiddenSnapshotTypedPolicy::RemoveLikeJavaHandleSyncHidden,
+            Self::Unit(_) => HiddenSnapshotTypedPolicy::RemoveLikeJavaUnitHandleSyncHidden,
             Self::Fire(_) | Self::Puddle(_) | Self::WeatherState(_) | Self::WorldLabel(_) => {
                 HiddenSnapshotTypedPolicy::KeepHidden
             }
@@ -3909,8 +3923,8 @@ impl EntityProjection {
     fn hidden_snapshot_typed_policy(&self) -> HiddenSnapshotTypedPolicy {
         if self.is_local_player {
             HiddenSnapshotTypedPolicy::KeepHidden
-        } else if class_id_matches_java_handle_sync_hidden_remove(self.class_id) {
-            HiddenSnapshotTypedPolicy::RemoveLikeJavaHandleSyncHidden
+        } else if class_id_matches_java_unit_handle_sync_hidden_remove(self.class_id) {
+            HiddenSnapshotTypedPolicy::RemoveLikeJavaUnitHandleSyncHidden
         } else {
             HiddenSnapshotTypedPolicy::KeepHidden
         }
@@ -5092,8 +5106,16 @@ impl SessionState {
         HiddenSnapshotRuntimeTransition {
             auxiliary_cleanup_ids: self
                 .hidden_snapshot_auxiliary_cleanup_ids(trigger_hidden_ids, local_player_entity_id),
-            lifecycle_remove_ids: self
-                .hidden_snapshot_lifecycle_remove_ids(trigger_hidden_ids, local_player_entity_id),
+            unit_handle_sync_hidden_remove_ids: self
+                .hidden_snapshot_unit_handle_sync_hidden_remove_ids(
+                    trigger_hidden_ids,
+                    local_player_entity_id,
+                ),
+            runtime_owned_cleanup_remove_ids: self
+                .hidden_snapshot_runtime_owned_cleanup_remove_ids(
+                    trigger_hidden_ids,
+                    local_player_entity_id,
+                ),
         }
     }
 
@@ -5102,11 +5124,18 @@ impl SessionState {
         transition: &HiddenSnapshotRuntimeTransition,
         local_player_entity_id: Option<i32>,
     ) -> Vec<i32> {
-        let hidden_removed_ids = self
+        let mut hidden_removed_ids = self
             .entity_table_projection
-            .remove_hidden_entities(&transition.lifecycle_remove_ids);
+            .remove_hidden_entities(&transition.unit_handle_sync_hidden_remove_ids);
+        hidden_removed_ids.extend(
+            self.entity_table_projection
+                .remove_hidden_entities(&transition.runtime_owned_cleanup_remove_ids),
+        );
+        hidden_removed_ids.sort_unstable();
+        hidden_removed_ids.dedup();
+        let lifecycle_remove_ids = transition.lifecycle_remove_ids();
         self.entity_semantic_projection
-            .remove_hidden_entities(&transition.lifecycle_remove_ids, local_player_entity_id);
+            .remove_hidden_entities(&lifecycle_remove_ids, local_player_entity_id);
         self.resource_delta_projection
             .remove_hidden_entities(&transition.auxiliary_cleanup_ids, local_player_entity_id);
         self.resource_delta_projection
@@ -5156,6 +5185,58 @@ impl SessionState {
             .copied()
             .filter(|entity_id| Some(*entity_id) != local_player_entity_id)
             .collect()
+    }
+
+    fn hidden_snapshot_unit_handle_sync_hidden_remove_ids(
+        &self,
+        trigger_hidden_ids: &BTreeSet<i32>,
+        local_player_entity_id: Option<i32>,
+    ) -> BTreeSet<i32> {
+        trigger_hidden_ids
+            .iter()
+            .copied()
+            .filter(|entity_id| {
+                Some(*entity_id) != local_player_entity_id
+                    && self.hidden_snapshot_matches_java_unit_handle_sync_hidden(*entity_id)
+            })
+            .collect()
+    }
+
+    fn hidden_snapshot_runtime_owned_cleanup_remove_ids(
+        &self,
+        trigger_hidden_ids: &BTreeSet<i32>,
+        local_player_entity_id: Option<i32>,
+    ) -> BTreeSet<i32> {
+        trigger_hidden_ids
+            .iter()
+            .copied()
+            .filter(|entity_id| {
+                Some(*entity_id) != local_player_entity_id
+                    && resolve_hidden_snapshot_entity_policy(
+                        self.entity_table_projection.by_entity_id.get(entity_id),
+                        self.entity_semantic_projection
+                            .by_entity_id
+                            .get(entity_id)
+                            .map(|entry| &entry.projection),
+                    )
+                    .should_remove_known_runtime_owned()
+            })
+            .collect()
+    }
+
+    fn hidden_snapshot_matches_java_unit_handle_sync_hidden(&self, entity_id: i32) -> bool {
+        let entity = self.entity_table_projection.by_entity_id.get(&entity_id);
+        let semantic = self.entity_semantic_projection.by_entity_id.get(&entity_id);
+        if let Some(entity) = entity {
+            if matches!(
+                typed_runtime_entity_model(entity_id, entity, semantic),
+                Some(TypedRuntimeEntityModel::Unit(_))
+            ) {
+                return true;
+            }
+        }
+        resolve_hidden_snapshot_entity_policy(entity, semantic.map(|entry| &entry.projection))
+            .should_remove_like_java_unit_handle_sync_hidden()
     }
 
     fn clear_hidden_resource_and_payload_event_refs(
@@ -5220,28 +5301,6 @@ impl SessionState {
                 local_player_entity_id,
             );
         }
-    }
-
-    fn hidden_snapshot_lifecycle_remove_ids(
-        &self,
-        trigger_hidden_ids: &BTreeSet<i32>,
-        local_player_entity_id: Option<i32>,
-    ) -> BTreeSet<i32> {
-        trigger_hidden_ids
-            .iter()
-            .copied()
-            .filter(|entity_id| {
-                Some(*entity_id) != local_player_entity_id
-                    && resolve_hidden_snapshot_entity_policy(
-                        self.entity_table_projection.by_entity_id.get(entity_id),
-                        self.entity_semantic_projection
-                            .by_entity_id
-                            .get(entity_id)
-                            .map(|entry| &entry.projection),
-                    )
-                    .should_remove()
-            })
-            .collect()
     }
 
     pub fn record_payload_lifecycle_drop(
@@ -5877,7 +5936,8 @@ mod tests {
             },
         );
 
-        let remove_ids = state.hidden_snapshot_lifecycle_remove_ids(&BTreeSet::from([303]), None);
+        let remove_ids =
+            state.hidden_snapshot_unit_handle_sync_hidden_remove_ids(&BTreeSet::from([303]), None);
 
         assert_eq!(remove_ids, BTreeSet::from([303]));
     }
@@ -5901,8 +5961,10 @@ mod tests {
             );
         }
 
-        let remove_ids =
-            state.hidden_snapshot_lifecycle_remove_ids(&BTreeSet::from([303, 404, 505, 606]), None);
+        let remove_ids = state.hidden_snapshot_runtime_owned_cleanup_remove_ids(
+            &BTreeSet::from([303, 404, 505, 606]),
+            None,
+        );
 
         assert_eq!(remove_ids, BTreeSet::from([303, 404, 505]));
     }
@@ -5962,7 +6024,7 @@ mod tests {
     }
 
     #[test]
-    fn hidden_snapshot_runtime_transition_separates_cleanup_from_lifecycle_remove() {
+    fn hidden_snapshot_runtime_transition_separates_unit_handle_sync_hidden_from_runtime_cleanup() {
         let mut state = SessionState::default();
         state.entity_table_projection.local_player_entity_id = Some(101);
         state.entity_table_projection.by_entity_id.insert(
@@ -6001,7 +6063,18 @@ mod tests {
             transition.auxiliary_cleanup_ids,
             BTreeSet::from([202, 303, 404])
         );
-        assert_eq!(transition.lifecycle_remove_ids, BTreeSet::from([202, 303]));
+        assert_eq!(
+            transition.unit_handle_sync_hidden_remove_ids,
+            BTreeSet::from([202])
+        );
+        assert_eq!(
+            transition.runtime_owned_cleanup_remove_ids,
+            BTreeSet::from([303])
+        );
+        assert_eq!(
+            transition.lifecycle_remove_ids(),
+            BTreeSet::from([202, 303])
+        );
     }
 
     #[test]
