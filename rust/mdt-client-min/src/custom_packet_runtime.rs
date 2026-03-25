@@ -92,6 +92,14 @@ struct RenderedSemantic {
     stable_value: String,
 }
 
+const NATIVE_SERVER_MESSAGE_KEY: &str = "sendMessage";
+const NATIVE_CHAT_MESSAGE_KEY: &str = "sendMessageWithSender";
+const NATIVE_SET_HUD_TEXT_KEY: &str = "setHudText";
+const NATIVE_SET_HUD_TEXT_RELIABLE_KEY: &str = "setHudTextReliable";
+const NATIVE_ANNOUNCE_KEY: &str = "announce";
+const NATIVE_CLIPBOARD_KEY: &str = "copyToClipboard";
+const NATIVE_OPEN_URI_KEY: &str = "openURI";
+
 impl RuntimeCustomPacketSemantics {
     pub fn observe_events(&self, events: &[ClientSessionEvent]) {
         self.state.borrow_mut().observe_events(events);
@@ -237,7 +245,15 @@ impl RuntimeCustomPacketSemanticsState {
 
     fn observe_events(&mut self, events: &[ClientSessionEvent]) {
         for event in events {
+            if let Some((key, reliable, text)) = native_text_event(event) {
+                self.record_event(RuntimeCustomPacketSemanticEncoding::Text, key, reliable);
+                if let Some(text) = text {
+                    self.record_text_handler(key, text);
+                }
+                continue;
+            }
             match event {
+                ClientSessionEvent::HideHudText => self.clear_native_hud_text_values(),
                 ClientSessionEvent::ClientPacketReliable { packet_type, .. }
                 | ClientSessionEvent::ServerPacketReliable { packet_type, .. } => {
                     self.record_event(RuntimeCustomPacketSemanticEncoding::Text, packet_type, true);
@@ -282,6 +298,32 @@ impl RuntimeCustomPacketSemanticsState {
                 }
                 _ => {}
             }
+        }
+    }
+
+    fn clear_native_hud_text_values(&mut self) {
+        self.clear_text_route_last_values(
+            &[NATIVE_SET_HUD_TEXT_KEY, NATIVE_SET_HUD_TEXT_RELIABLE_KEY],
+            "hide_hud_text",
+        );
+    }
+
+    fn clear_text_route_last_values(&mut self, keys: &[&str], reason: &str) {
+        let mut cleared = 0usize;
+        for key in keys {
+            let Some(routes) = self.text_routes.get_mut(*key) else {
+                continue;
+            };
+            for route in routes {
+                if route.last_value.take().is_some() {
+                    cleared = cleared.saturating_add(1);
+                }
+            }
+        }
+        if cleared > 0 {
+            self.pending_lines.push_back(format!(
+                "runtime_custom_packet_semantic_reset: reason={reason} cleared_routes={cleared}"
+            ));
         }
     }
 
@@ -927,6 +969,37 @@ fn truncate_for_preview(text: &str, max_chars: usize) -> String {
     }
 }
 
+fn native_text_event(event: &ClientSessionEvent) -> Option<(&'static str, bool, Option<&str>)> {
+    match event {
+        ClientSessionEvent::ServerMessage { message } => {
+            Some((NATIVE_SERVER_MESSAGE_KEY, true, Some(message.as_str())))
+        }
+        ClientSessionEvent::ChatMessage {
+            message,
+            unformatted,
+            ..
+        } => Some((
+            NATIVE_CHAT_MESSAGE_KEY,
+            true,
+            unformatted.as_deref().or(Some(message.as_str())),
+        )),
+        ClientSessionEvent::SetHudText { message } => {
+            Some((NATIVE_SET_HUD_TEXT_KEY, false, message.as_deref()))
+        }
+        ClientSessionEvent::SetHudTextReliable { message } => {
+            Some((NATIVE_SET_HUD_TEXT_RELIABLE_KEY, true, message.as_deref()))
+        }
+        ClientSessionEvent::Announce { message } => {
+            Some((NATIVE_ANNOUNCE_KEY, true, message.as_deref()))
+        }
+        ClientSessionEvent::CopyToClipboard { text } => {
+            Some((NATIVE_CLIPBOARD_KEY, true, text.as_deref()))
+        }
+        ClientSessionEvent::OpenUri { uri } => Some((NATIVE_OPEN_URI_KEY, true, uri.as_deref())),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1063,5 +1136,137 @@ mod tests {
         assert_eq!(summaries.len(), 2);
         assert!(summaries[0].contains("decode_errors=1"));
         assert!(summaries[1].contains("decode_errors=1"));
+    }
+
+    #[test]
+    fn runtime_custom_packet_semantics_state_bridges_native_remote_message_events() {
+        let mut state = RuntimeCustomPacketSemanticsState::default();
+        for (key, semantic) in [
+            (
+                NATIVE_SERVER_MESSAGE_KEY,
+                RuntimeCustomPacketSemanticKind::ServerMessage,
+            ),
+            (
+                NATIVE_CHAT_MESSAGE_KEY,
+                RuntimeCustomPacketSemanticKind::ChatMessage,
+            ),
+            (
+                NATIVE_SET_HUD_TEXT_KEY,
+                RuntimeCustomPacketSemanticKind::HudText,
+            ),
+            (
+                NATIVE_SET_HUD_TEXT_RELIABLE_KEY,
+                RuntimeCustomPacketSemanticKind::HudText,
+            ),
+            (
+                NATIVE_ANNOUNCE_KEY,
+                RuntimeCustomPacketSemanticKind::Announce,
+            ),
+            (
+                NATIVE_CLIPBOARD_KEY,
+                RuntimeCustomPacketSemanticKind::Clipboard,
+            ),
+            (
+                NATIVE_OPEN_URI_KEY,
+                RuntimeCustomPacketSemanticKind::OpenUri,
+            ),
+        ] {
+            state.register(&RuntimeCustomPacketSemanticSpec {
+                key: key.to_string(),
+                encoding: RuntimeCustomPacketSemanticEncoding::Text,
+                semantic,
+            });
+        }
+
+        state.observe_events(&[
+            ClientSessionEvent::ServerMessage {
+                message: "server ready".to_string(),
+            },
+            ClientSessionEvent::ChatMessage {
+                message: "[cyan]hello".to_string(),
+                unformatted: Some("hello".to_string()),
+                sender_entity_id: Some(7),
+            },
+            ClientSessionEvent::SetHudText {
+                message: Some("hud-u".to_string()),
+            },
+            ClientSessionEvent::SetHudTextReliable {
+                message: Some("hud-r".to_string()),
+            },
+            ClientSessionEvent::Announce {
+                message: Some("announce".to_string()),
+            },
+            ClientSessionEvent::CopyToClipboard {
+                text: Some("copied".to_string()),
+            },
+            ClientSessionEvent::OpenUri {
+                uri: Some("https://example.invalid".to_string()),
+            },
+        ]);
+
+        let lines = state.drain_lines();
+        assert_eq!(lines.len(), 7);
+        assert!(lines
+            .iter()
+            .any(|line| line.contains("semantic=server_message")));
+        assert!(lines
+            .iter()
+            .any(|line| line.contains("message=\"server ready\"")));
+        assert!(lines
+            .iter()
+            .any(|line| line.contains("semantic=chat_message")));
+        assert!(lines.iter().any(|line| line.contains("message=\"hello\"")));
+        assert!(lines.iter().any(|line| line.contains("semantic=hud_text")));
+        assert!(lines.iter().any(|line| line.contains("message=\"hud-r\"")));
+        assert!(lines.iter().any(|line| line.contains("semantic=open_uri")));
+
+        let summaries = state.summary_lines();
+        assert_eq!(summaries.len(), 7);
+        assert!(summaries.iter().any(|line| {
+            line.contains("key=\"sendMessage\"")
+                && line.contains("event_reliable=1")
+                && line.contains("last=Some(\"server ready\")")
+        }));
+        assert!(summaries.iter().any(|line| {
+            line.contains("key=\"sendMessageWithSender\"") && line.contains("last=Some(\"hello\")")
+        }));
+        assert!(summaries.iter().any(|line| {
+            line.contains("key=\"setHudText\"") && line.contains("event_unreliable=1")
+        }));
+        assert!(summaries.iter().any(|line| {
+            line.contains("key=\"setHudTextReliable\"") && line.contains("event_reliable=1")
+        }));
+    }
+
+    #[test]
+    fn runtime_custom_packet_semantics_state_hides_native_hud_text_routes() {
+        let mut state = RuntimeCustomPacketSemanticsState::default();
+        for key in [NATIVE_SET_HUD_TEXT_KEY, NATIVE_SET_HUD_TEXT_RELIABLE_KEY] {
+            state.register(&RuntimeCustomPacketSemanticSpec {
+                key: key.to_string(),
+                encoding: RuntimeCustomPacketSemanticEncoding::Text,
+                semantic: RuntimeCustomPacketSemanticKind::HudText,
+            });
+        }
+
+        state.observe_events(&[
+            ClientSessionEvent::SetHudText {
+                message: Some("hud-u".to_string()),
+            },
+            ClientSessionEvent::SetHudTextReliable {
+                message: Some("hud-r".to_string()),
+            },
+            ClientSessionEvent::HideHudText,
+        ]);
+
+        let lines = state.drain_lines();
+        assert!(lines
+            .iter()
+            .any(|line| line.contains("runtime_custom_packet_semantic_reset:")));
+        let summaries = state.summary_lines();
+        assert!(summaries
+            .iter()
+            .filter(|line| line.contains("semantic=hud_text"))
+            .all(|line| line.contains("last=None")));
     }
 }
