@@ -6236,6 +6236,9 @@ impl ClientSession {
     fn replay_deferred_loading_packets(&mut self) -> Result<(), ClientSessionError> {
         let mut deferred_packets = std::mem::take(&mut self.deferred_inbound_packets);
         let mut replayed_events = VecDeque::new();
+        let mut replayed_packet_count = 0u64;
+        let mut last_replayed_packet_id = None;
+        let mut last_replayed_packet_method = None;
 
         while let Some(packet) = deferred_packets.pop_front() {
             let event = match self.process_inbound_packet(&[], packet.packet_id, &packet.payload) {
@@ -6246,16 +6249,21 @@ impl ClientSession {
                     return Err(error);
                 }
             };
-            self.state.replayed_inbound_packet_count =
-                self.state.replayed_inbound_packet_count.saturating_add(1);
-            self.state.last_replayed_packet_id = Some(packet.packet_id);
-            self.state.last_replayed_packet_method = self
+            replayed_packet_count = replayed_packet_count.saturating_add(1);
+            last_replayed_packet_id = Some(packet.packet_id);
+            last_replayed_packet_method = self
                 .known_remote_packets
                 .get(&packet.packet_id)
                 .map(|meta| meta.method.clone());
             replayed_events.push_back(event);
         }
 
+        self.state.replayed_inbound_packet_count = self
+            .state
+            .replayed_inbound_packet_count
+            .saturating_add(replayed_packet_count);
+        self.state.last_replayed_packet_id = last_replayed_packet_id;
+        self.state.last_replayed_packet_method = last_replayed_packet_method;
         self.replayed_loading_events.extend(replayed_events);
         Ok(())
     }
@@ -6288,16 +6296,19 @@ impl ClientSession {
                 .unwrap_or_else(|| self.build_finish_connecting_projection(0)));
         }
 
+        let rollback = FinishConnectingRollback::capture(self);
         let replayed_before = self.state.replayed_inbound_packet_count;
-        let loading_world_data_before = self.loading_world_data;
         self.loading_world_data = false;
+        self.state.client_loaded = true;
         if let Err(error) = self.replay_deferred_loading_packets() {
-            self.loading_world_data = loading_world_data_before;
+            rollback.restore(self);
             return Err(error);
         }
 
-        self.state.client_loaded = true;
-        self.enqueue_connect_confirm_packet_if_ready()?;
+        if let Err(error) = self.enqueue_connect_confirm_packet_if_ready() {
+            rollback.restore(self);
+            return Err(error);
+        }
         if self.last_snapshot_at_ms.is_none() {
             self.last_snapshot_at_ms = Some(self.clock_ms);
         }
@@ -14759,6 +14770,41 @@ enum DeferredInboundPriority {
 struct DeferredInboundPacket {
     packet_id: u8,
     payload: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
+struct FinishConnectingRollback {
+    loading_world_data: bool,
+    state: SessionState,
+    pending_packets: VecDeque<PendingClientPacket>,
+    deferred_inbound_packets: VecDeque<DeferredInboundPacket>,
+    replayed_loading_events: VecDeque<ClientSessionEvent>,
+    snapshot_input: ClientSnapshotInputState,
+    last_snapshot_at_ms: Option<u64>,
+}
+
+impl FinishConnectingRollback {
+    fn capture(session: &ClientSession) -> Self {
+        Self {
+            loading_world_data: session.loading_world_data,
+            state: session.state.clone(),
+            pending_packets: session.pending_packets.clone(),
+            deferred_inbound_packets: session.deferred_inbound_packets.clone(),
+            replayed_loading_events: session.replayed_loading_events.clone(),
+            snapshot_input: session.snapshot_input.clone(),
+            last_snapshot_at_ms: session.last_snapshot_at_ms,
+        }
+    }
+
+    fn restore(self, session: &mut ClientSession) {
+        session.loading_world_data = self.loading_world_data;
+        session.state = self.state;
+        session.pending_packets = self.pending_packets;
+        session.deferred_inbound_packets = self.deferred_inbound_packets;
+        session.replayed_loading_events = self.replayed_loading_events;
+        session.snapshot_input = self.snapshot_input;
+        session.last_snapshot_at_ms = self.last_snapshot_at_ms;
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -39129,6 +39175,56 @@ mod tests {
                 .front()
                 .map(|packet| packet.packet_id),
             Some(STREAM_BEGIN_PACKET_ID)
+        );
+    }
+
+    #[test]
+    fn finish_connecting_rolls_back_replayed_session_state_on_late_replay_error() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let send_message_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "sendMessage" && entry.params.len() == 1)
+            .unwrap()
+            .packet_id;
+        session.loading_world_data = true;
+        session.deferred_inbound_packets = std::collections::VecDeque::from([
+            DeferredInboundPacket {
+                packet_id: send_message_packet_id,
+                payload: encode_typeio_string_payload("[accent]queued"),
+            },
+            DeferredInboundPacket {
+                packet_id: STREAM_BEGIN_PACKET_ID,
+                payload: Vec::new(),
+            },
+        ]);
+
+        let result = session.finish_connecting();
+
+        assert!(result.is_err());
+        assert!(session.loading_world_data);
+        assert!(!session.state().client_loaded);
+        assert!(!session.state().connect_confirm_sent);
+        assert!(!session.state().connect_confirm_flushed);
+        assert_eq!(session.state().finish_connecting_commit_count, 0);
+        assert_eq!(session.state().last_finish_connecting, None);
+        assert_eq!(session.state().replayed_inbound_packet_count, 0);
+        assert_eq!(session.state().last_replayed_packet_id, None);
+        assert_eq!(session.state().last_replayed_packet_method, None);
+        assert_eq!(session.state().received_server_message_count, 0);
+        assert_eq!(session.state().last_server_message, None);
+        assert!(session.pending_packets.is_empty());
+        assert!(session.replayed_loading_events.is_empty());
+        assert_eq!(session.last_snapshot_at_ms, None);
+        assert_eq!(session.deferred_inbound_packets.len(), 2);
+        assert_eq!(
+            session
+                .deferred_inbound_packets
+                .iter()
+                .map(|packet| packet.packet_id)
+                .collect::<Vec<_>>(),
+            vec![send_message_packet_id, STREAM_BEGIN_PACKET_ID]
         );
     }
 
