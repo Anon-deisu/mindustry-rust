@@ -195,14 +195,12 @@ pub(crate) fn line_projections_for_effect_overlay(
             target_x_bits,
             target_y_bits,
         }],
-        Some(POINT_HIT_EFFECT_ID) => {
-            point_hit_line_projections(
-                target_x_bits,
-                target_y_bits,
-                overlay.remaining_ticks,
-                overlay.lifetime_ticks,
-            )
-        }
+        Some(POINT_HIT_EFFECT_ID) => point_hit_line_projections(
+            target_x_bits,
+            target_y_bits,
+            overlay.remaining_ticks,
+            overlay.lifetime_ticks,
+        ),
         Some(SHIELD_BREAK_EFFECT_ID) => shield_break_line_projections(
             target_x_bits,
             target_y_bits,
@@ -217,14 +215,12 @@ pub(crate) fn line_projections_for_effect_overlay(
             overlay.remaining_ticks,
             overlay.lifetime_ticks,
         ),
-        Some(UNIT_SHIELD_BREAK_EFFECT_ID) => {
-            unit_shield_break_line_projections(
-                target_x_bits,
-                target_y_bits,
-                overlay.remaining_ticks,
-                overlay.lifetime_ticks,
-            )
-        }
+        Some(UNIT_SHIELD_BREAK_EFFECT_ID) => unit_shield_break_line_projections(
+            target_x_bits,
+            target_y_bits,
+            overlay.remaining_ticks,
+            overlay.lifetime_ticks,
+        ),
         Some(effect_id @ (CHAIN_LIGHTNING_EFFECT_ID | CHAIN_EMP_EFFECT_ID)) => {
             chain_line_kind(effect_id)
                 .map(|kind| {
@@ -436,7 +432,10 @@ fn item_transfer_line_projections(
     );
 
     let mut lines = closed_polyline_line_projections("item-transfer", &outer_points);
-    lines.extend(closed_polyline_line_projections("item-transfer", &inner_points));
+    lines.extend(closed_polyline_line_projections(
+        "item-transfer",
+        &inner_points,
+    ));
     lines
 }
 
@@ -515,7 +514,11 @@ fn item_transfer_pseudo_seed(
 
     let signed = hash as f32 / u32::MAX as f32 * 2.0 - 1.0;
     if signed.abs() < 0.25 {
-        if signed.is_sign_negative() { -0.25 } else { 0.25 }
+        if signed.is_sign_negative() {
+            -0.25
+        } else {
+            0.25
+        }
     } else {
         signed
     }
@@ -542,20 +545,8 @@ fn unit_spirit_line_projections(
     }
 
     let progress = inclusive_overlay_progress(remaining_ticks, lifetime_ticks);
-    let outer_center = lerp_point(
-        source_x,
-        source_y,
-        target_x,
-        target_y,
-        progress.powi(2),
-    );
-    let inner_center = lerp_point(
-        source_x,
-        source_y,
-        target_x,
-        target_y,
-        progress.powi(5),
-    );
+    let outer_center = lerp_point(source_x, source_y, target_x, target_y, progress.powi(2));
+    let inner_center = lerp_point(source_x, source_y, target_x, target_y, progress.powi(5));
     let base_radius = UNIT_SPIRIT_BASE_RADIUS * progress;
     let outer_points = regular_polygon_points(
         outer_center.0,
@@ -573,7 +564,10 @@ fn unit_spirit_line_projections(
     );
 
     let mut lines = closed_polyline_line_projections("unit-spirit", &outer_points);
-    lines.extend(closed_polyline_line_projections("unit-spirit", &inner_points));
+    lines.extend(closed_polyline_line_projections(
+        "unit-spirit",
+        &inner_points,
+    ));
     lines
 }
 
@@ -591,9 +585,9 @@ fn shield_break_line_projections(
         return Vec::new();
     }
 
-    let radius =
-        (base_radius + shield_break_progress(remaining_ticks, lifetime_ticks) * SHIELD_BREAK_RADIUS_GROWTH)
-            .max(0.0);
+    let radius = (base_radius
+        + shield_break_progress(remaining_ticks, lifetime_ticks) * SHIELD_BREAK_RADIUS_GROWTH)
+        .max(0.0);
     if radius <= f32::EPSILON {
         return Vec::new();
     }
@@ -724,7 +718,8 @@ fn unit_shield_break_line_projections(
     let progress = shield_break_progress(remaining_ticks, lifetime_ticks);
     let radius = UNIT_SHIELD_BREAK_BASE_RADIUS + progress * UNIT_SHIELD_BREAK_RADIUS_GROWTH;
     let burst_inner_radius = (radius - UNIT_SHIELD_BREAK_BURST_INSET).max(1.0);
-    let burst_outer_radius = radius + UNIT_SHIELD_BREAK_BURST_LENGTH + progress * UNIT_SHIELD_BREAK_BURST_GROWTH;
+    let burst_outer_radius =
+        radius + UNIT_SHIELD_BREAK_BURST_LENGTH + progress * UNIT_SHIELD_BREAK_BURST_GROWTH;
     let circle_points = regular_polygon_points(
         center_x,
         center_y,
@@ -753,7 +748,9 @@ fn shield_break_progress(remaining_ticks: u8, lifetime_ticks: u8) -> f32 {
     if total_steps == 0 {
         return 1.0;
     }
-    let elapsed = lifetime_ticks.saturating_sub(remaining_ticks).min(total_steps);
+    let elapsed = lifetime_ticks
+        .saturating_sub(remaining_ticks)
+        .min(total_steps);
     elapsed as f32 / total_steps as f32
 }
 
@@ -781,8 +778,11 @@ fn lerp_point(source_x: f32, source_y: f32, target_x: f32, target_y: f32, t: f32
     )
 }
 
-fn unit_parent_rotation_bits(overlay: &RuntimeEffectOverlay, session_state: &SessionState) -> Option<u32> {
-    let RuntimeEffectBinding::ParentUnit { unit_id } = overlay.binding.as_ref()? else {
+fn unit_parent_rotation_bits(
+    overlay: &RuntimeEffectOverlay,
+    session_state: &SessionState,
+) -> Option<u32> {
+    let RuntimeEffectBinding::ParentUnit { unit_id, .. } = overlay.binding.as_ref()? else {
         return None;
     };
     let projection = &session_state
@@ -1030,7 +1030,9 @@ fn payload_deposit_progress(remaining_ticks: u8, lifetime_ticks: u8) -> f32 {
     if total_steps == 0 {
         return 1.0;
     }
-    let elapsed = lifetime_ticks.saturating_sub(remaining_ticks).min(total_steps);
+    let elapsed = lifetime_ticks
+        .saturating_sub(remaining_ticks)
+        .min(total_steps);
     elapsed as f32 / total_steps as f32
 }
 
@@ -1605,12 +1607,9 @@ mod tests {
             polyline_points: Vec::new(),
         };
 
-        let marker = marker_position_for_effect_overlay(
-            &overlay,
-            80.0f32.to_bits(),
-            160.0f32.to_bits(),
-        )
-        .expect("item transfer marker override");
+        let marker =
+            marker_position_for_effect_overlay(&overlay, 80.0f32.to_bits(), 160.0f32.to_bits())
+                .expect("item transfer marker override");
 
         assert_ne!(marker, (80.0f32.to_bits(), 160.0f32.to_bits()));
         assert_ne!(marker, (12.0f32.to_bits(), 20.0f32.to_bits()));
@@ -2099,7 +2098,14 @@ mod tests {
             lifetime_ticks: 3,
             remaining_ticks: 3,
             contract_name: Some("unit_parent"),
-            binding: Some(RuntimeEffectBinding::ParentUnit { unit_id: 404 }),
+            binding: Some(RuntimeEffectBinding::ParentUnit {
+                unit_id: 404,
+                spawn_x_bits: 12.0f32.to_bits(),
+                spawn_y_bits: 20.0f32.to_bits(),
+                offset_x_bits: 0.0f32.to_bits(),
+                offset_y_bits: 0.0f32.to_bits(),
+                offset_initialized: true,
+            }),
             content_ref: None,
             polyline_points: Vec::new(),
         };
@@ -2109,19 +2115,21 @@ mod tests {
             crate::session_state::EntitySemanticProjectionEntry {
                 class_id: 4,
                 last_seen_entity_snapshot_count: 1,
-                projection: EntitySemanticProjection::Unit(crate::session_state::EntityUnitSemanticProjection {
-                    team_id: 1,
-                    unit_type_id: 55,
-                    health_bits: 0,
-                    rotation_bits: 90.0f32.to_bits(),
-                    shield_bits: 0,
-                    mine_tile_pos: 0,
-                    status_count: 0,
-                    payload_count: None,
-                    building_pos: None,
-                    lifetime_bits: None,
-                    time_bits: None,
-                }),
+                projection: EntitySemanticProjection::Unit(
+                    crate::session_state::EntityUnitSemanticProjection {
+                        team_id: 1,
+                        unit_type_id: 55,
+                        health_bits: 0,
+                        rotation_bits: 90.0f32.to_bits(),
+                        shield_bits: 0,
+                        mine_tile_pos: 0,
+                        status_count: 0,
+                        payload_count: None,
+                        building_pos: None,
+                        lifetime_bits: None,
+                        time_bits: None,
+                    },
+                ),
             },
         );
 

@@ -9,9 +9,27 @@ const UNIT_CONTENT_TYPE: u8 = 6;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeEffectBinding {
-    WorldPosition { x_bits: u32, y_bits: u32 },
-    ParentBuilding { build_pos: i32 },
-    ParentUnit { unit_id: i32 },
+    WorldPosition {
+        x_bits: u32,
+        y_bits: u32,
+    },
+    ParentBuilding {
+        build_pos: i32,
+    },
+    ParentUnit {
+        unit_id: i32,
+        spawn_x_bits: u32,
+        spawn_y_bits: u32,
+        offset_x_bits: u32,
+        offset_y_bits: u32,
+        offset_initialized: bool,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DerivedRuntimeEffectBinding {
+    binding: RuntimeEffectBinding,
+    initial_position_bits: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -111,14 +129,18 @@ pub fn spawn_runtime_effect_overlay(
         .and_then(|contract| derive_runtime_effect_polyline(contract, data_object))
         .unwrap_or_default();
     let binding = if payload_target_content.is_none() && polyline_points.is_empty() {
-        derive_runtime_effect_binding(data_object)
+        derive_runtime_effect_binding(data_object, x.to_bits(), y.to_bits())
     } else {
         None
     };
+    let binding_initial_position = binding
+        .as_ref()
+        .and_then(|binding| binding.initial_position_bits);
+    let binding = binding.map(|binding| binding.binding);
     let (x_bits, y_bits) = payload_target_content
         .map(|(target_x_bits, target_y_bits, _)| (target_x_bits, target_y_bits))
         .or_else(|| polyline_points.last().copied())
-        .or_else(|| binding.as_ref().and_then(initial_position_from_binding))
+        .or(binding_initial_position)
         .unwrap_or((x.to_bits(), y.to_bits()));
 
     RuntimeEffectOverlay {
@@ -141,37 +163,61 @@ pub fn spawn_runtime_effect_overlay(
 }
 
 pub fn resolve_runtime_effect_overlay_position(
-    overlay: &RuntimeEffectOverlay,
+    overlay: &mut RuntimeEffectOverlay,
     session_state: &SessionState,
     snapshot_input: &ClientSnapshotInputState,
 ) -> (u32, u32) {
+    let overlay_position = (overlay.x_bits, overlay.y_bits);
     overlay
         .binding
-        .as_ref()
+        .as_mut()
         .and_then(|binding| resolve_binding_position(binding, session_state, snapshot_input))
-        .unwrap_or((overlay.x_bits, overlay.y_bits))
+        .unwrap_or(overlay_position)
 }
 
-fn derive_runtime_effect_binding(object: Option<&TypeIoObject>) -> Option<RuntimeEffectBinding> {
+fn derive_runtime_effect_binding(
+    object: Option<&TypeIoObject>,
+    effect_x_bits: u32,
+    effect_y_bits: u32,
+) -> Option<DerivedRuntimeEffectBinding> {
     let object = object?;
     let summary = object.effect_summary();
+    let position_hint_bits = summary
+        .first_position_hint
+        .as_ref()
+        .map(position_hint_world_bits);
 
     if let Some(parent_ref) = summary.first_parent_ref {
         match parent_ref.semantic_ref {
             TypeIoSemanticRef::Building { build_pos } => {
-                return Some(RuntimeEffectBinding::ParentBuilding { build_pos });
+                return Some(DerivedRuntimeEffectBinding {
+                    binding: RuntimeEffectBinding::ParentBuilding { build_pos },
+                    initial_position_bits: Some(world_bits_from_tile_pos(build_pos)),
+                });
             }
             TypeIoSemanticRef::Unit { unit_id } => {
-                return Some(RuntimeEffectBinding::ParentUnit { unit_id });
+                let initial_position_bits =
+                    position_hint_bits.or(Some((effect_x_bits, effect_y_bits)));
+                return Some(DerivedRuntimeEffectBinding {
+                    binding: RuntimeEffectBinding::ParentUnit {
+                        unit_id,
+                        spawn_x_bits: effect_x_bits,
+                        spawn_y_bits: effect_y_bits,
+                        offset_x_bits: 0.0f32.to_bits(),
+                        offset_y_bits: 0.0f32.to_bits(),
+                        offset_initialized: false,
+                    },
+                    initial_position_bits,
+                });
             }
             TypeIoSemanticRef::Content { .. } | TypeIoSemanticRef::TechNode { .. } => {}
         }
     }
 
-    summary
-        .first_position_hint
-        .as_ref()
-        .map(binding_from_position_hint)
+    position_hint_bits.map(|(x_bits, y_bits)| DerivedRuntimeEffectBinding {
+        binding: RuntimeEffectBinding::WorldPosition { x_bits, y_bits },
+        initial_position_bits: Some((x_bits, y_bits)),
+    })
 }
 
 fn derive_runtime_effect_polyline(
@@ -358,77 +404,107 @@ fn payload_target_world_bits(value: &TypeIoObject) -> Option<(u32, u32)> {
     }
 }
 
-fn binding_from_position_hint(position_hint: &TypeIoEffectPositionHint) -> RuntimeEffectBinding {
+fn position_hint_world_bits(position_hint: &TypeIoEffectPositionHint) -> (u32, u32) {
     match position_hint {
         TypeIoEffectPositionHint::Point2 { x, y, .. } => {
             let (world_x, world_y) = point2_world_coords(*x, *y);
-            RuntimeEffectBinding::WorldPosition {
-                x_bits: world_x.to_bits(),
-                y_bits: world_y.to_bits(),
-            }
+            (world_x.to_bits(), world_y.to_bits())
         }
         TypeIoEffectPositionHint::PackedPoint2ArrayFirst { packed_point2, .. } => {
             let (tile_x, tile_y) = unpack_point2(*packed_point2);
             let (world_x, world_y) = point2_world_coords(i32::from(tile_x), i32::from(tile_y));
-            RuntimeEffectBinding::WorldPosition {
-                x_bits: world_x.to_bits(),
-                y_bits: world_y.to_bits(),
-            }
+            (world_x.to_bits(), world_y.to_bits())
         }
         TypeIoEffectPositionHint::Vec2 { x_bits, y_bits, .. }
-        | TypeIoEffectPositionHint::Vec2ArrayFirst { x_bits, y_bits, .. } => {
-            RuntimeEffectBinding::WorldPosition {
-                x_bits: *x_bits,
-                y_bits: *y_bits,
-            }
-        }
-    }
-}
-
-fn initial_position_from_binding(binding: &RuntimeEffectBinding) -> Option<(u32, u32)> {
-    match binding {
-        RuntimeEffectBinding::WorldPosition { x_bits, y_bits } => Some((*x_bits, *y_bits)),
-        RuntimeEffectBinding::ParentBuilding { build_pos } => {
-            let (world_x, world_y) = world_coords_from_tile_pos(*build_pos);
-            Some((world_x.to_bits(), world_y.to_bits()))
-        }
-        RuntimeEffectBinding::ParentUnit { .. } => None,
+        | TypeIoEffectPositionHint::Vec2ArrayFirst { x_bits, y_bits, .. } => (*x_bits, *y_bits),
     }
 }
 
 fn resolve_binding_position(
-    binding: &RuntimeEffectBinding,
+    binding: &mut RuntimeEffectBinding,
     session_state: &SessionState,
     snapshot_input: &ClientSnapshotInputState,
 ) -> Option<(u32, u32)> {
     match binding {
         RuntimeEffectBinding::WorldPosition { x_bits, y_bits } => Some((*x_bits, *y_bits)),
         RuntimeEffectBinding::ParentBuilding { build_pos } => {
-            let (world_x, world_y) = world_coords_from_tile_pos(*build_pos);
-            Some((world_x.to_bits(), world_y.to_bits()))
+            Some(world_bits_from_tile_pos(*build_pos))
         }
-        RuntimeEffectBinding::ParentUnit { unit_id } => {
-            if let Some(entity) = session_state
-                .entity_table_projection
-                .by_entity_id
-                .get(unit_id)
-            {
-                return Some((entity.x_bits, entity.y_bits));
-            }
-            if snapshot_input.unit_id == Some(*unit_id) {
-                if let Some((x, y)) = snapshot_input.position {
-                    return Some((x.to_bits(), y.to_bits()));
+        RuntimeEffectBinding::ParentUnit {
+            unit_id,
+            spawn_x_bits,
+            spawn_y_bits,
+            offset_x_bits,
+            offset_y_bits,
+            offset_initialized,
+        } => {
+            let (parent_x_bits, parent_y_bits, can_initialize_offset) =
+                resolve_parent_unit_position(*unit_id, session_state, snapshot_input)?;
+            if !*offset_initialized {
+                if !can_initialize_offset {
+                    return Some((parent_x_bits, parent_y_bits));
                 }
-                if let (Some(x_bits), Some(y_bits)) = (
-                    session_state.world_player_x_bits,
-                    session_state.world_player_y_bits,
-                ) {
-                    return Some((x_bits, y_bits));
-                }
+                *offset_x_bits = coordinate_delta_bits(*spawn_x_bits, parent_x_bits);
+                *offset_y_bits = coordinate_delta_bits(*spawn_y_bits, parent_y_bits);
+                *offset_initialized = true;
             }
-            None
+            Some((
+                apply_coordinate_offset_bits(parent_x_bits, *offset_x_bits),
+                apply_coordinate_offset_bits(parent_y_bits, *offset_y_bits),
+            ))
         }
     }
+}
+
+fn resolve_parent_unit_position(
+    unit_id: i32,
+    session_state: &SessionState,
+    snapshot_input: &ClientSnapshotInputState,
+) -> Option<(u32, u32, bool)> {
+    if let Some(entity) = session_state
+        .entity_table_projection
+        .by_entity_id
+        .get(&unit_id)
+    {
+        return Some((entity.x_bits, entity.y_bits, true));
+    }
+    if snapshot_input.unit_id == Some(unit_id) {
+        if let Some((x, y)) = snapshot_input.position {
+            return Some((x.to_bits(), y.to_bits(), false));
+        }
+        if let (Some(x_bits), Some(y_bits)) = (
+            session_state.world_player_x_bits,
+            session_state.world_player_y_bits,
+        ) {
+            return Some((x_bits, y_bits, false));
+        }
+    }
+    None
+}
+
+fn coordinate_delta_bits(value_bits: u32, base_bits: u32) -> u32 {
+    let value = f32::from_bits(value_bits);
+    let base = f32::from_bits(base_bits);
+    if value.is_finite() && base.is_finite() {
+        (value - base).to_bits()
+    } else {
+        0.0f32.to_bits()
+    }
+}
+
+fn apply_coordinate_offset_bits(base_bits: u32, offset_bits: u32) -> u32 {
+    let base = f32::from_bits(base_bits);
+    let offset = f32::from_bits(offset_bits);
+    if base.is_finite() && offset.is_finite() {
+        (base + offset).to_bits()
+    } else {
+        base_bits
+    }
+}
+
+fn world_bits_from_tile_pos(tile_pos: i32) -> (u32, u32) {
+    let (world_x, world_y) = world_coords_from_tile_pos(tile_pos);
+    (world_x.to_bits(), world_y.to_bits())
 }
 
 fn world_coords_from_tile_pos(tile_pos: i32) -> (f32, f32) {
@@ -444,4 +520,108 @@ fn unpack_point2(value: i32) -> (i16, i16) {
     let x = ((value >> 16) & 0xffff) as i16;
     let y = (value & 0xffff) as i16;
     (x, y)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        resolve_runtime_effect_overlay_position, spawn_runtime_effect_overlay, RuntimeEffectBinding,
+    };
+    use crate::client_session::ClientSnapshotInputState;
+    use crate::session_state::{EntityProjection, SessionState};
+    use mdt_typeio::TypeIoObject;
+
+    #[test]
+    fn effect_runtime_spawn_runtime_effect_overlay_uses_position_hint_for_unresolved_parent_unit() {
+        let overlay = spawn_runtime_effect_overlay(
+            None,
+            1.0,
+            2.0,
+            1.0,
+            2.0,
+            0.0,
+            0,
+            false,
+            Some(&TypeIoObject::ObjectArray(vec![
+                TypeIoObject::UnitId(9999),
+                TypeIoObject::Point2 { x: 10, y: 20 },
+            ])),
+            10,
+        );
+
+        assert_eq!(overlay.x_bits, 80.0f32.to_bits());
+        assert_eq!(overlay.y_bits, 160.0f32.to_bits());
+        assert_eq!(
+            overlay.binding,
+            Some(RuntimeEffectBinding::ParentUnit {
+                unit_id: 9999,
+                spawn_x_bits: 1.0f32.to_bits(),
+                spawn_y_bits: 2.0f32.to_bits(),
+                offset_x_bits: 0.0f32.to_bits(),
+                offset_y_bits: 0.0f32.to_bits(),
+                offset_initialized: false,
+            })
+        );
+    }
+
+    #[test]
+    fn effect_runtime_resolve_runtime_effect_overlay_position_lazily_freezes_parent_unit_offset() {
+        let mut overlay = spawn_runtime_effect_overlay(
+            Some(257),
+            20.0,
+            24.0,
+            20.0,
+            24.0,
+            0.0,
+            0,
+            false,
+            Some(&TypeIoObject::UnitId(404)),
+            10,
+        );
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        state.entity_table_projection.by_entity_id.insert(
+            404,
+            EntityProjection {
+                class_id: 12,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 0,
+                unit_value: 0,
+                x_bits: 12.0f32.to_bits(),
+                y_bits: 16.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
+
+        let first_position = resolve_runtime_effect_overlay_position(&mut overlay, &state, &input);
+        assert_eq!(first_position, (20.0f32.to_bits(), 24.0f32.to_bits()));
+        assert_eq!(
+            overlay.binding,
+            Some(RuntimeEffectBinding::ParentUnit {
+                unit_id: 404,
+                spawn_x_bits: 20.0f32.to_bits(),
+                spawn_y_bits: 24.0f32.to_bits(),
+                offset_x_bits: 8.0f32.to_bits(),
+                offset_y_bits: 8.0f32.to_bits(),
+                offset_initialized: true,
+            })
+        );
+
+        state
+            .entity_table_projection
+            .by_entity_id
+            .get_mut(&404)
+            .expect("missing entity 404")
+            .x_bits = 24.0f32.to_bits();
+        state
+            .entity_table_projection
+            .by_entity_id
+            .get_mut(&404)
+            .expect("missing entity 404")
+            .y_bits = 28.0f32.to_bits();
+
+        let second_position = resolve_runtime_effect_overlay_position(&mut overlay, &state, &input);
+        assert_eq!(second_position, (32.0f32.to_bits(), 36.0f32.to_bits()));
+    }
 }

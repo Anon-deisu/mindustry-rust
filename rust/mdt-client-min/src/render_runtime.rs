@@ -57,7 +57,7 @@ impl RenderRuntimeAdapter {
     }
 
     pub fn apply(
-        &self,
+        &mut self,
         scene: &mut RenderModel,
         hud: &mut HudModel,
         snapshot_input: &ClientSnapshotInputState,
@@ -67,7 +67,7 @@ impl RenderRuntimeAdapter {
         append_runtime_build_plan_objects(scene, snapshot_input.plans.as_deref());
         append_runtime_world_overlay_objects(
             scene,
-            &self.world_overlay,
+            &mut self.world_overlay,
             snapshot_input,
             session_state,
         );
@@ -3157,7 +3157,7 @@ fn runtime_build_plan_config_stats(
 
 fn append_runtime_world_overlay_objects(
     scene: &mut RenderModel,
-    runtime_world_overlay: &RuntimeWorldOverlay,
+    runtime_world_overlay: &mut RuntimeWorldOverlay,
     snapshot_input: &ClientSnapshotInputState,
     session_state: &SessionState,
 ) {
@@ -3216,7 +3216,7 @@ fn append_runtime_world_overlay_objects(
         }
     }
 
-    for overlay in &runtime_world_overlay.effect_overlays {
+    for overlay in &mut runtime_world_overlay.effect_overlays {
         let (target_x_bits, target_y_bits) =
             resolve_runtime_effect_overlay_position(overlay, session_state, snapshot_input);
         append_runtime_effect_executor_objects(
@@ -3797,7 +3797,8 @@ mod tests {
         let (mut scene, mut hud) =
             project_scene_models_with_player_position(&loaded_session, "en_US", Some((32.0, 32.0)));
 
-        RenderRuntimeAdapter::default().apply(
+        let mut adapter = RenderRuntimeAdapter::default();
+        adapter.apply(
             &mut scene,
             &mut hud,
             session.snapshot_input(),
@@ -3930,7 +3931,8 @@ mod tests {
         let (mut scene, mut hud) =
             project_scene_models_with_player_position(&loaded_session, "en_US", Some((32.0, 32.0)));
 
-        RenderRuntimeAdapter::default().apply(
+        let mut adapter = RenderRuntimeAdapter::default();
+        adapter.apply(
             &mut scene,
             &mut hud,
             session.snapshot_input(),
@@ -4248,7 +4250,8 @@ mod tests {
         let (mut scene, mut hud) =
             project_scene_models_with_player_position(&loaded_session, "en_US", Some((32.0, 32.0)));
 
-        RenderRuntimeAdapter::default().apply(
+        let mut adapter = RenderRuntimeAdapter::default();
+        adapter.apply(
             &mut scene,
             &mut hud,
             session.snapshot_input(),
@@ -4308,7 +4311,8 @@ mod tests {
         state.building_table_projection.last_update =
             Some(crate::session_state::BuildingProjectionUpdateKind::ConstructFinish);
 
-        RenderRuntimeAdapter::default().apply(&mut scene, &mut hud, &input, &state);
+        let mut adapter = RenderRuntimeAdapter::default();
+        adapter.apply(&mut scene, &mut hud, &input, &state);
 
         assert!(scene
             .objects
@@ -4354,7 +4358,8 @@ mod tests {
         };
         let state = SessionState::default();
 
-        RenderRuntimeAdapter::default().apply(&mut scene, &mut hud, &input, &state);
+        let mut adapter = RenderRuntimeAdapter::default();
+        adapter.apply(&mut scene, &mut hud, &input, &state);
 
         let runtime_ui = hud
             .runtime_ui
@@ -4628,7 +4633,7 @@ mod tests {
 
     #[test]
     fn render_runtime_adapter_reports_unified_tile_config_business_chain_in_hud() {
-        let adapter = RenderRuntimeAdapter::default();
+        let mut adapter = RenderRuntimeAdapter::default();
         let mut scene = RenderModel::default();
         let mut hud = HudModel::default();
         let input = ClientSnapshotInputState::default();
@@ -4686,7 +4691,7 @@ mod tests {
 
     #[test]
     fn render_runtime_adapter_reports_configured_block_projection_in_hud() {
-        let adapter = RenderRuntimeAdapter::default();
+        let mut adapter = RenderRuntimeAdapter::default();
         let mut scene = RenderModel::default();
         let mut hud = HudModel::default();
         let input = ClientSnapshotInputState::default();
@@ -4876,7 +4881,7 @@ mod tests {
 
     #[test]
     fn render_runtime_adapter_renders_unit_assembler_and_driver_link_markers() {
-        let adapter = RenderRuntimeAdapter::default();
+        let mut adapter = RenderRuntimeAdapter::default();
         let mut scene = RenderModel::default();
         let mut hud = HudModel::default();
         let input = ClientSnapshotInputState::default();
@@ -5757,8 +5762,8 @@ mod tests {
 
         adapter.observe_events(&[ClientSessionEvent::EffectRequested {
             effect_id: Some(257),
-            x: 1.0,
-            y: 2.0,
+            x: 20.0,
+            y: 24.0,
             rotation: 0.0,
             color_rgba: 0x11223344,
             data_object: Some(mdt_typeio::TypeIoObject::UnitId(404)),
@@ -5768,10 +5773,10 @@ mod tests {
         let marker = first_runtime_effect_marker(&scene);
         assert_eq!(
             marker.id,
-            "marker:runtime-effect:normal:257:0x41400000:0x41800000:1"
+            "marker:runtime-effect:normal:257:0x41a00000:0x41c00000:1"
         );
-        assert_eq!(marker.x, 12.0);
-        assert_eq!(marker.y, 16.0);
+        assert_eq!(marker.x, 20.0);
+        assert_eq!(marker.y, 24.0);
 
         state
             .entity_table_projection
@@ -5793,10 +5798,10 @@ mod tests {
         let updated_marker = first_runtime_effect_marker(&updated_scene);
         assert_eq!(
             updated_marker.id,
-            "marker:runtime-effect:normal:257:0x41c00000:0x41e00000:1"
+            "marker:runtime-effect:normal:257:0x42000000:0x42100000:1"
         );
-        assert_eq!(updated_marker.x, 24.0);
-        assert_eq!(updated_marker.y, 28.0);
+        assert_eq!(updated_marker.x, 32.0);
+        assert_eq!(updated_marker.y, 36.0);
     }
 
     #[test]
@@ -5844,8 +5849,8 @@ mod tests {
 
         adapter.observe_events(&[ClientSessionEvent::EffectRequested {
             effect_id: Some(257),
-            x: 1.0,
-            y: 2.0,
+            x: 12.0,
+            y: 16.0,
             rotation: 0.0,
             color_rgba: 0x11223344,
             data_object: Some(mdt_typeio::TypeIoObject::UnitId(404)),
@@ -5885,8 +5890,8 @@ mod tests {
 
         adapter.observe_events(&[ClientSessionEvent::EffectRequested {
             effect_id: Some(260),
-            x: 1.0,
-            y: 2.0,
+            x: 12.0,
+            y: 16.0,
             rotation: 0.0,
             color_rgba: 0x11223344,
             data_object: Some(mdt_typeio::TypeIoObject::UnitId(404)),
@@ -5900,7 +5905,9 @@ mod tests {
         let shield_prefix = "marker:line:runtime-effect-unit-shield-break:";
         let shield_lines = runtime_effect_lines_with_prefix(&scene, shield_prefix);
         assert_eq!(shield_lines.len(), 40);
-        assert!(shield_lines.iter().any(|object| object.x == 26.0 && object.y == 16.0));
+        assert!(shield_lines
+            .iter()
+            .any(|object| object.x == 26.0 && object.y == 16.0));
     }
 
     #[test]
@@ -5974,6 +5981,38 @@ mod tests {
         );
         assert_eq!(marker.x, 52.0);
         assert_eq!(marker.y, 68.0);
+    }
+
+    #[test]
+    fn render_runtime_adapter_keeps_original_effect_position_when_parent_unit_missing_and_no_fallback(
+    ) {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
+
+        adapter.observe_events(&[ClientSessionEvent::EffectRequested {
+            effect_id: Some(257),
+            x: 1.0,
+            y: 2.0,
+            rotation: 0.0,
+            color_rgba: 0x11223344,
+            data_object: Some(mdt_typeio::TypeIoObject::UnitId(404)),
+        }]);
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let marker = first_runtime_effect_marker(&scene);
+        assert_eq!(
+            marker.id,
+            format!(
+                "marker:runtime-effect:normal:257:0x{:08x}:0x{:08x}:1",
+                1.0f32.to_bits(),
+                2.0f32.to_bits()
+            )
+        );
+        assert_eq!(marker.x, 1.0);
+        assert_eq!(marker.y, 2.0);
     }
 
     #[test]
@@ -7113,7 +7152,7 @@ mod tests {
 
     #[test]
     fn render_runtime_adapter_prefers_authoritative_state_mirror_in_hud() {
-        let adapter = RenderRuntimeAdapter::default();
+        let mut adapter = RenderRuntimeAdapter::default();
         let mut scene = RenderModel::default();
         let mut hud = HudModel::default();
         let input = ClientSnapshotInputState::default();
@@ -7290,7 +7329,7 @@ mod tests {
 
     #[test]
     fn render_runtime_adapter_falls_back_to_last_good_state_snapshot_core_data() {
-        let adapter = RenderRuntimeAdapter::default();
+        let mut adapter = RenderRuntimeAdapter::default();
         let mut scene = RenderModel::default();
         let mut hud = HudModel::default();
         let input = ClientSnapshotInputState::default();
@@ -7498,7 +7537,7 @@ mod tests {
 
     #[test]
     fn render_runtime_adapter_reports_session_taxonomy_in_loading_hud() {
-        let adapter = RenderRuntimeAdapter::default();
+        let mut adapter = RenderRuntimeAdapter::default();
         let mut scene = RenderModel::default();
         let mut hud = HudModel::default();
         let input = ClientSnapshotInputState::default();

@@ -186,7 +186,7 @@ These are already landed and should not be re-opened as if missing:
   - remaining `U5` work for this family is now exact-parity depth rather than total absence: Java-like per-instance lateral offset still needs a stable effect-instance seed equivalent to `e.id`
 - runtime effect overlay lifetime behavior is no longer fixed to one global `3 tick` decay.
   - `RuntimeEffectOverlay` now carries both `lifetime_ticks` and `remaining_ticks`, and `render_runtime` seeds effect-shaped TTLs for the currently landed runtime families instead of forcing every effect through the same fixed short-lived decay
-  - remaining `E3` work is still parent-follow offset semantics, `rotWithParent`, `startDelay`, `clip`, and deeper effect-instance parity, not re-adding the first lifetime-aware overlay path
+  - remaining `E3` work is now narrower: Rust still lacks full `position_target` source-follow parity, `rotWithParent`, `startDelay`, `clip`, and deeper effect-instance parity, but the first lifetime-aware overlay path is already landed
 - narrow `effect_id=261/262` `chainLightning` / `chainEmp` executor wiring is now also landed.
   - Rust now keeps deterministic segmented chain line overlays for `261/262` on top of the existing `position_target` payload semantics instead of stopping at a single marker/target projection
 - narrow `effect_id=13` `lightning` contract/executor wiring is now also landed.
@@ -196,8 +196,8 @@ These are already landed and should not be re-opened as if missing:
   - Rust now maps `effect_id=256` to `shield_break`, keeps the effect-specific runtime executor name on the session surface, and renders the Java fallback-style expanding hexagon as runtime line segments keyed by the effect origin plus `rotation`
   - remaining `U5` work is still landing additional narrow `effect_id -> contract/executor` families, not re-adding this first shield-break fallback slice
 - narrow `effect_id=257/260` `arcShieldBreak` / `unitShieldBreak` unit-parent fallback geometry is now also landed.
-  - Rust keeps the existing `unit_parent` parent-follow binding path, but runtime rendering no longer stops at a bare marker: `257` now emits a parent-rotation-aware double-arc fallback band and `260` emits a parent-centered circle-plus-burst fallback
-  - remaining `U5` work for this family is now metadata parity rather than first-pass geometry: exact `257` parity still needs `ShieldArcAbility` radius/width/offset data, and exact `260` parity still needs `unit_type -> hitSize`
+  - Rust keeps the existing `unit_parent` parent-follow binding path, runtime rendering no longer stops at a bare marker, and authoritative entity-table hits now lazily freeze the spawned effect offset instead of snapping straight to the parent origin on every frame: `257` emits a parent-rotation-aware double-arc fallback band and `260` emits a circle-plus-burst fallback
+  - remaining `U5` work for this family is now metadata and deeper parent semantics rather than first-pass geometry: exact `257` parity still needs `ShieldArcAbility` radius/width/offset data, exact `260` parity still needs `unit_type -> hitSize`, and non-authoritative fallbacks still do not preserve Java-equivalent relative offsets
 - `mdt-client-min-online` custom/logic runtime surface wiring is now landed as a narrow `M6-3` harness slice.
   - the online harness now reuses `custom_packet_runtime_surface` across `--consume-client-*` custom/logic flows, emits runtime/business overlay summaries on updates and resets, and re-installs that surface after reconnect/redirect rebuilds
   - remaining `M6-3` work is still deeper Java-equivalent business integration, not re-adding this harness/runtime summary bridge

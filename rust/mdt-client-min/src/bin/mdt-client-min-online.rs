@@ -364,7 +364,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &session,
             &args,
             &report.events,
-            &render_runtime_adapter,
+            &mut render_runtime_adapter,
             &runtime_command_mode,
             custom_packet_surface.as_ref(),
             &mut ascii_scene_printed,
@@ -374,7 +374,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &session,
             &args,
             &report.events,
-            &render_runtime_adapter,
+            &mut render_runtime_adapter,
             &runtime_command_mode,
             custom_packet_surface.as_ref(),
             &mut window_scene_presenter,
@@ -409,7 +409,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     maybe_print_final_ascii_scene(
         &session,
         &args,
-        &render_runtime_adapter,
+        &mut render_runtime_adapter,
         &runtime_command_mode,
         custom_packet_surface.as_ref(),
     );
@@ -3337,7 +3337,7 @@ fn maybe_print_ascii_scene(
     session: &ClientSession,
     args: &CliArgs,
     events: &[ClientSessionEvent],
-    render_runtime_adapter: &RenderRuntimeAdapter,
+    render_runtime_adapter: &mut RenderRuntimeAdapter,
     runtime_command_mode: &CommandModeState,
     custom_packet_surface: Option<&RuntimeCustomPacketSurface>,
     ascii_scene_printed: &mut bool,
@@ -3382,7 +3382,7 @@ fn maybe_print_ascii_scene(
 fn maybe_print_final_ascii_scene(
     session: &ClientSession,
     args: &CliArgs,
-    render_runtime_adapter: &RenderRuntimeAdapter,
+    render_runtime_adapter: &mut RenderRuntimeAdapter,
     runtime_command_mode: &CommandModeState,
     custom_packet_surface: Option<&RuntimeCustomPacketSurface>,
 ) {
@@ -3438,7 +3438,7 @@ fn maybe_present_window_scene(
     session: &ClientSession,
     args: &CliArgs,
     events: &[ClientSessionEvent],
-    render_runtime_adapter: &RenderRuntimeAdapter,
+    render_runtime_adapter: &mut RenderRuntimeAdapter,
     runtime_command_mode: &CommandModeState,
     custom_packet_surface: Option<&RuntimeCustomPacketSurface>,
     window_scene_presenter: &mut Option<WindowPresenter<MinifbWindowBackend>>,
