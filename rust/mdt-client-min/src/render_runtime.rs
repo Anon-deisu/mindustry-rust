@@ -6162,12 +6162,12 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(first_points.len(), second_points.len());
-        assert!(first_points.iter().any(|point| {
-            (point.0 - 12.0).abs() < 0.01 && (point.1 - 20.0).abs() < 0.01
-        }));
-        assert!(second_points.iter().any(|point| {
-            (point.0 - 28.0).abs() < 0.01 && (point.1 - 44.0).abs() < 0.01
-        }));
+        assert!(first_points
+            .iter()
+            .any(|point| { (point.0 - 12.0).abs() < 0.01 && (point.1 - 20.0).abs() < 0.01 }));
+        assert!(second_points
+            .iter()
+            .any(|point| { (point.0 - 28.0).abs() < 0.01 && (point.1 - 44.0).abs() < 0.01 }));
     }
 
     #[test]

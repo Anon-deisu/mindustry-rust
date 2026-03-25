@@ -3,6 +3,10 @@ mod custom_packet_runtime_host;
 mod runtime_custom_packet_replay_bridge;
 
 use custom_packet_runtime_host::RuntimeCustomPacketHost;
+use custom_packet_runtime_host::{
+    RuntimeCustomPacketHostAction, RuntimeCustomPacketHostActionKind,
+    RuntimeCustomPacketHostActionSpec,
+};
 use mdt_client_min::arcnet_loop::ArcNetSessionDriver;
 use mdt_client_min::client_session::{
     ClientBuildPlan, ClientBuildPlanConfig, ClientLogicDataTransport, ClientPacketTransport,
@@ -27,6 +31,7 @@ use mdt_client_min::custom_packet_runtime_surface::{
     RuntimeCustomPacketSurface, RuntimeCustomPacketSurfaceSummaryEntry,
 };
 use mdt_client_min::render_runtime::{RenderRuntimeAdapter, RuntimeEffectClipView};
+use mdt_client_min::session_state::SessionState;
 use mdt_input::live_intent::RuntimeIntentTracker;
 use mdt_input::{
     flip_plans, rotate_plans, sample_runtime_input_snapshot, valid_place_against_local_plans,
@@ -83,8 +88,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let mut custom_packet_surface =
         install_runtime_custom_packet_surface(&mut session, &args.runtime_custom_packet_semantics);
-    let mut custom_packet_host =
-        RuntimeCustomPacketHost::from_specs(&args.runtime_custom_packet_semantics);
+    let mut custom_packet_host = RuntimeCustomPacketHost::from_specs_with_actions(
+        &args.runtime_custom_packet_semantics,
+        &args.runtime_custom_packet_host_actions,
+    );
+    let mut custom_packet_business_hooks =
+        RuntimeCustomPacketBusinessHooks::from_specs(&args.runtime_custom_packet_semantics);
     let mut custom_packet_relays =
         install_runtime_custom_packet_relays(&mut session, &args.runtime_custom_packet_relays);
     let mut custom_packet_replay_bridge =
@@ -227,6 +236,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &report.events,
             now_ms,
         );
+        maybe_apply_runtime_custom_packet_business_hooks(
+            custom_packet_surface.as_ref(),
+            custom_packet_business_hooks.as_mut(),
+            args.runtime_custom_packet_semantics.len(),
+            session.state(),
+            &report.events,
+            now_ms,
+        );
+        maybe_queue_runtime_custom_packet_host_actions(
+            &mut session,
+            custom_packet_host.as_mut(),
+            now_ms,
+            &mut runtime_command_mode,
+        )?;
         maybe_queue_runtime_custom_packet_relays(
             &mut session,
             custom_packet_relays.as_mut(),
@@ -277,11 +300,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 println!("{line}");
                             }
                         }
+                        if let Some(custom_packet_business_hooks) =
+                            custom_packet_business_hooks.as_mut()
+                        {
+                            custom_packet_business_hooks.note_reconnect_reset(now_ms, "redirect");
+                            for line in custom_packet_business_hooks.drain_lines() {
+                                println!("{line}");
+                            }
+                            println!(
+                                "{}",
+                                format_runtime_custom_packet_business_hook_line(
+                                    now_ms,
+                                    custom_packet_business_hooks.business_summary_text(
+                                        RUNTIME_CUSTOM_PACKET_SURFACE_OVERLAY_MAX_ENTRIES,
+                                    ),
+                                )
+                            );
+                        }
                         current_server_addr = redirect_addr;
                         session = redirected_session;
                         custom_packet_watch = redirected_watch;
                         custom_packet_semantics = redirected_semantics;
                         custom_packet_surface = redirected_surface;
+                        custom_packet_business_hooks = RuntimeCustomPacketBusinessHooks::from_specs(
+                            &args.runtime_custom_packet_semantics,
+                        );
                         custom_packet_relays = install_runtime_custom_packet_relays(
                             &mut session,
                             &args.runtime_custom_packet_relays,
@@ -361,10 +404,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             println!("{line}");
                         }
                     }
+                    if let Some(custom_packet_business_hooks) =
+                        custom_packet_business_hooks.as_mut()
+                    {
+                        custom_packet_business_hooks.note_reconnect_reset(now_ms, "server_restart");
+                        for line in custom_packet_business_hooks.drain_lines() {
+                            println!("{line}");
+                        }
+                        println!(
+                            "{}",
+                            format_runtime_custom_packet_business_hook_line(
+                                now_ms,
+                                custom_packet_business_hooks.business_summary_text(
+                                    RUNTIME_CUSTOM_PACKET_SURFACE_OVERLAY_MAX_ENTRIES,
+                                ),
+                            )
+                        );
+                    }
                     session = reconnected_session;
                     custom_packet_watch = reconnected_watch;
                     custom_packet_semantics = reconnected_semantics;
                     custom_packet_surface = reconnected_surface;
+                    custom_packet_business_hooks = RuntimeCustomPacketBusinessHooks::from_specs(
+                        &args.runtime_custom_packet_semantics,
+                    );
                     custom_packet_relays = install_runtime_custom_packet_relays(
                         &mut session,
                         &args.runtime_custom_packet_relays,
@@ -406,6 +469,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &mut render_runtime_adapter,
             &runtime_command_mode,
             custom_packet_surface.as_ref(),
+            custom_packet_business_hooks.as_ref(),
             &mut ascii_scene_printed,
         );
         maybe_dump_world_stream_hex(&session, &args, &mut world_stream_dumped)?;
@@ -416,6 +480,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &mut render_runtime_adapter,
             &runtime_command_mode,
             custom_packet_surface.as_ref(),
+            custom_packet_business_hooks.as_ref(),
             &mut window_scene_presenter,
             &mut window_scene_disabled,
         );
@@ -451,11 +516,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &mut render_runtime_adapter,
         &runtime_command_mode,
         custom_packet_surface.as_ref(),
+        custom_packet_business_hooks.as_ref(),
     );
     maybe_print_custom_packet_watch_summary(custom_packet_watch.as_ref());
     maybe_print_custom_packet_semantic_summary(custom_packet_semantics.as_ref());
     maybe_print_custom_packet_surface_summary(custom_packet_surface.as_ref());
     maybe_print_custom_packet_host_summary(custom_packet_host.as_ref());
+    maybe_print_custom_packet_business_hook_summary(custom_packet_business_hooks.as_ref());
     maybe_print_runtime_custom_packet_relay_summary(custom_packet_relays.as_ref());
     maybe_print_custom_packet_replay_bridge_summary(custom_packet_replay_bridge.as_ref());
     let final_input = session.snapshot_input_mut().clone();
@@ -609,6 +676,341 @@ fn reconnect_runtime_session(
     ))
 }
 
+#[derive(Debug, Default)]
+struct RuntimeCustomPacketBusinessHooks {
+    state: RuntimeCustomPacketBusinessHookState,
+}
+
+#[derive(Debug, Default)]
+struct RuntimeCustomPacketBusinessHookState {
+    routes: BTreeMap<RuntimeCustomPacketBusinessRouteKey, RuntimeCustomPacketBusinessRouteState>,
+    pending_lines: VecDeque<String>,
+    next_update_serial: u64,
+    surface_reset_count: usize,
+    reconnect_reset_count: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct RuntimeCustomPacketBusinessRouteKey {
+    key: String,
+    encoding: RuntimeCustomPacketSemanticEncoding,
+    semantic: RuntimeCustomPacketSemanticKind,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RuntimeCustomPacketBusinessMarkerSource {
+    Surface,
+    RuntimeEntity,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct RuntimeCustomPacketBusinessMarker {
+    source: RuntimeCustomPacketBusinessMarkerSource,
+    x: f32,
+    y: f32,
+}
+
+#[derive(Debug, Default)]
+struct RuntimeCustomPacketBusinessRouteState {
+    apply_count: usize,
+    active: bool,
+    last_stable_value: Option<String>,
+    last_marker: Option<RuntimeCustomPacketBusinessMarker>,
+    last_update_serial: u64,
+}
+
+impl RuntimeCustomPacketBusinessHooks {
+    fn from_specs(specs: &[RuntimeCustomPacketSemanticSpec]) -> Option<Self> {
+        if specs.is_empty() {
+            return None;
+        }
+        let mut state = RuntimeCustomPacketBusinessHookState::default();
+        for spec in specs {
+            state
+                .routes
+                .entry(RuntimeCustomPacketBusinessRouteKey {
+                    key: spec.key.clone(),
+                    encoding: spec.encoding,
+                    semantic: spec.semantic,
+                })
+                .or_default();
+        }
+        Some(Self { state })
+    }
+
+    fn observe_surface_entries(
+        &mut self,
+        now_ms: u64,
+        entries: &[RuntimeCustomPacketSurfaceSummaryEntry],
+        session_state: &SessionState,
+    ) {
+        self.state
+            .observe_surface_entries(now_ms, entries, session_state);
+    }
+
+    fn note_surface_reset(&mut self, now_ms: u64, reason: &str) {
+        self.state.surface_reset_count = self.state.surface_reset_count.saturating_add(1);
+        self.state
+            .clear_active_routes(now_ms, &format!("surface:{reason}"));
+    }
+
+    fn note_reconnect_reset(&mut self, now_ms: u64, reason: &str) {
+        self.state.reconnect_reset_count = self.state.reconnect_reset_count.saturating_add(1);
+        self.state
+            .clear_active_routes(now_ms, &format!("reconnect:{reason}"));
+    }
+
+    fn drain_lines(&mut self) -> Vec<String> {
+        self.state.pending_lines.drain(..).collect()
+    }
+
+    fn summary_lines(&self) -> Vec<String> {
+        let mut lines = self
+            .state
+            .routes
+            .iter()
+            .map(|(route, state)| {
+                format!(
+                    "runtime_custom_packet_business_hook_summary: encoding={} key={:?} semantic={} apply_count={} active={} last={:?} marker={}",
+                    runtime_custom_packet_surface_encoding_label(route.encoding),
+                    route.key,
+                    runtime_custom_packet_surface_semantic_label(route.semantic),
+                    state.apply_count,
+                    state.active,
+                    state.last_stable_value,
+                    format_runtime_custom_packet_business_marker(state.last_marker.as_ref()),
+                )
+            })
+            .collect::<Vec<_>>();
+        lines.push(format!(
+            "runtime_custom_packet_business_hook_state: routes={} active_routes={} surface_resets={} reconnect_resets={}",
+            self.state.routes.len(),
+            self.state.routes.values().filter(|route| route.active).count(),
+            self.state.surface_reset_count,
+            self.state.reconnect_reset_count,
+        ));
+        lines
+    }
+
+    fn business_summary_text(&self, max_entries: usize) -> Option<String> {
+        if max_entries == 0 {
+            return None;
+        }
+        let mut entries = self
+            .state
+            .routes
+            .iter()
+            .filter_map(|(route, state)| {
+                let stable_value = state.last_stable_value.as_ref()?;
+                state.active.then_some((
+                    state.last_update_serial,
+                    format_runtime_custom_packet_business_summary_entry(
+                        route,
+                        state.apply_count,
+                        stable_value,
+                        state.last_marker.as_ref(),
+                    ),
+                ))
+            })
+            .collect::<Vec<_>>();
+        entries.sort_by(|left, right| right.0.cmp(&left.0).then_with(|| left.1.cmp(&right.1)));
+        let summary = entries
+            .into_iter()
+            .take(max_entries)
+            .map(|(_, entry)| entry)
+            .collect::<Vec<_>>()
+            .join(" | ");
+        (!summary.is_empty()).then_some(summary)
+    }
+
+    fn scene_objects(&self, max_entries: usize) -> Vec<RenderObject> {
+        if max_entries == 0 {
+            return Vec::new();
+        }
+        let mut entries = self
+            .state
+            .routes
+            .iter()
+            .filter_map(|(route, state)| {
+                let marker = state.last_marker.as_ref()?;
+                state
+                    .active
+                    .then_some((state.last_update_serial, route, marker))
+            })
+            .collect::<Vec<_>>();
+        entries.sort_by(|left, right| {
+            right
+                .0
+                .cmp(&left.0)
+                .then_with(|| left.1.key.cmp(&right.1.key))
+        });
+        entries
+            .into_iter()
+            .filter_map(|(_, route, marker)| {
+                (marker.source == RuntimeCustomPacketBusinessMarkerSource::RuntimeEntity).then_some(
+                    RenderObject {
+                        id: runtime_custom_packet_business_scene_object_id(route, marker),
+                        layer: RUNTIME_CUSTOM_PACKET_SURFACE_SCENE_OBJECT_LAYER,
+                        x: marker.x,
+                        y: marker.y,
+                    },
+                )
+            })
+            .take(max_entries)
+            .collect()
+    }
+}
+
+impl RuntimeCustomPacketBusinessHookState {
+    fn observe_surface_entries(
+        &mut self,
+        now_ms: u64,
+        entries: &[RuntimeCustomPacketSurfaceSummaryEntry],
+        session_state: &SessionState,
+    ) {
+        for entry in entries {
+            let route = RuntimeCustomPacketBusinessRouteKey {
+                key: entry.key.clone(),
+                encoding: entry.encoding,
+                semantic: entry.semantic,
+            };
+            let Some(state) = self.routes.get_mut(&route) else {
+                continue;
+            };
+            let marker = resolve_runtime_custom_packet_business_marker(entry, session_state);
+            if state.active
+                && state.last_stable_value.as_deref() == Some(entry.stable_value.as_str())
+                && state.last_marker == marker
+            {
+                continue;
+            }
+            state.apply_count = state.apply_count.saturating_add(1);
+            state.active = true;
+            state.last_stable_value = Some(entry.stable_value.clone());
+            state.last_marker = marker.clone();
+            self.next_update_serial = self.next_update_serial.saturating_add(1);
+            state.last_update_serial = self.next_update_serial;
+            self.pending_lines.push_back(format!(
+                "runtime_custom_packet_business_hook_apply: tick={now_ms}ms encoding={} key={:?} semantic={} apply_count={} value={:?} marker={}",
+                runtime_custom_packet_surface_encoding_label(entry.encoding),
+                entry.key,
+                runtime_custom_packet_surface_semantic_label(entry.semantic),
+                state.apply_count,
+                entry.stable_value,
+                format_runtime_custom_packet_business_marker(marker.as_ref()),
+            ));
+        }
+    }
+
+    fn clear_active_routes(&mut self, now_ms: u64, reason: &str) {
+        let mut cleared_routes = 0usize;
+        for route in self.routes.values_mut() {
+            if route.active {
+                cleared_routes = cleared_routes.saturating_add(1);
+            }
+            route.active = false;
+            route.last_stable_value = None;
+            route.last_marker = None;
+            route.last_update_serial = 0;
+        }
+        if cleared_routes > 0 {
+            self.pending_lines.push_back(format!(
+                "runtime_custom_packet_business_hook_clear: tick={now_ms}ms reason={reason} cleared_routes={cleared_routes}"
+            ));
+        }
+    }
+}
+
+fn resolve_runtime_custom_packet_business_marker(
+    entry: &RuntimeCustomPacketSurfaceSummaryEntry,
+    session_state: &SessionState,
+) -> Option<RuntimeCustomPacketBusinessMarker> {
+    if let Some(marker) = entry.marker.as_ref() {
+        return Some(RuntimeCustomPacketBusinessMarker {
+            source: RuntimeCustomPacketBusinessMarkerSource::Surface,
+            x: marker.x,
+            y: marker.y,
+        });
+    }
+    if entry.semantic != RuntimeCustomPacketSemanticKind::UnitId {
+        return None;
+    }
+    let unit_id = entry.stable_value.parse::<i32>().ok()?;
+    let projection = session_state.runtime_typed_entity_projection();
+    let entity = projection.entity_at(unit_id)?;
+    Some(RuntimeCustomPacketBusinessMarker {
+        source: RuntimeCustomPacketBusinessMarkerSource::RuntimeEntity,
+        x: f32::from_bits(entity.base().x_bits),
+        y: f32::from_bits(entity.base().y_bits),
+    })
+}
+
+fn format_runtime_custom_packet_business_marker(
+    marker: Option<&RuntimeCustomPacketBusinessMarker>,
+) -> String {
+    match marker {
+        Some(marker) => format!(
+            "{}@{},{}",
+            runtime_custom_packet_business_marker_source_label(marker.source),
+            format_runtime_custom_packet_surface_coord(marker.x),
+            format_runtime_custom_packet_surface_coord(marker.y),
+        ),
+        None => "none".to_string(),
+    }
+}
+
+fn runtime_custom_packet_business_marker_source_label(
+    source: RuntimeCustomPacketBusinessMarkerSource,
+) -> &'static str {
+    match source {
+        RuntimeCustomPacketBusinessMarkerSource::Surface => "surface",
+        RuntimeCustomPacketBusinessMarkerSource::RuntimeEntity => "runtime_entity",
+    }
+}
+
+fn runtime_custom_packet_business_scene_object_id(
+    route: &RuntimeCustomPacketBusinessRouteKey,
+    marker: &RuntimeCustomPacketBusinessMarker,
+) -> String {
+    format!(
+        "marker:runtime-custom-packet-business:{}:{}:{}:{}:0x{:08x}:0x{:08x}",
+        runtime_custom_packet_surface_encoding_label(route.encoding),
+        runtime_custom_packet_surface_semantic_label(route.semantic),
+        route.key.escape_default(),
+        runtime_custom_packet_business_marker_source_label(marker.source),
+        marker.x.to_bits(),
+        marker.y.to_bits(),
+    )
+}
+
+fn format_runtime_custom_packet_business_summary_entry(
+    route: &RuntimeCustomPacketBusinessRouteKey,
+    apply_count: usize,
+    stable_value: &str,
+    marker: Option<&RuntimeCustomPacketBusinessMarker>,
+) -> String {
+    let suffix = marker
+        .map(|marker| {
+            format!(
+                "@{},{}[{}]",
+                format_runtime_custom_packet_surface_coord(marker.x),
+                format_runtime_custom_packet_surface_coord(marker.y),
+                runtime_custom_packet_business_marker_source_label(marker.source),
+            )
+        })
+        .unwrap_or_default();
+    format!(
+        "{}:{}({})#{}={}{}",
+        runtime_custom_packet_surface_encoding_label(route.encoding),
+        route.key,
+        runtime_custom_packet_surface_semantic_label(route.semantic),
+        apply_count,
+        stable_value,
+        suffix,
+    )
+}
+
+#[derive(Debug)]
 struct CliArgs {
     manifest_path: PathBuf,
     server_target: ServerTarget,
@@ -642,6 +1044,7 @@ struct CliArgs {
     watched_client_logic_data_channels: Vec<String>,
     runtime_custom_packet_semantics: Vec<RuntimeCustomPacketSemanticSpec>,
     runtime_custom_packet_relays: Vec<RuntimeCustomPacketRelaySpec>,
+    runtime_custom_packet_host_actions: Vec<RuntimeCustomPacketHostActionSpec>,
     render_window_live: bool,
     dump_world_stream_hex: Option<PathBuf>,
     chat_schedule: Vec<ScheduledChatEntry>,
@@ -933,7 +1336,7 @@ impl RuntimePlanEditLoopState {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum ConnectSource {
     HexFile(PathBuf),
     Generated(ConnectPacketSpec),
@@ -982,6 +1385,9 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
     let mut consumed_client_packet_types = Vec::new();
     let mut consumed_client_binary_packet_types = Vec::new();
     let mut consumed_client_logic_data_channels = Vec::new();
+    let mut hooked_client_packet_types = Vec::new();
+    let mut hooked_client_binary_packet_types = Vec::new();
+    let mut hooked_client_logic_data_channels = Vec::new();
     let mut relayed_client_packet_types = Vec::new();
     let mut relayed_client_binary_packet_types = Vec::new();
     let mut relayed_client_logic_data_channels = Vec::new();
@@ -1368,6 +1774,30 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
                 consumed_client_logic_data_channels.push(
                     args.get(i)
                         .ok_or("missing value for --consume-client-logic-data")?
+                        .to_string(),
+                );
+            }
+            "--hook-client-packet" => {
+                i += 1;
+                hooked_client_packet_types.push(
+                    args.get(i)
+                        .ok_or("missing value for --hook-client-packet")?
+                        .to_string(),
+                );
+            }
+            "--hook-client-binary-packet" => {
+                i += 1;
+                hooked_client_binary_packet_types.push(
+                    args.get(i)
+                        .ok_or("missing value for --hook-client-binary-packet")?
+                        .to_string(),
+                );
+            }
+            "--hook-client-logic-data" => {
+                i += 1;
+                hooked_client_logic_data_channels.push(
+                    args.get(i)
+                        .ok_or("missing value for --hook-client-logic-data")?
                         .to_string(),
                 );
             }
@@ -1761,11 +2191,20 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
         }),
         None => return Err(format!("missing --server or --discover-host\n{}", usage())),
     };
-    let runtime_custom_packet_semantics = build_runtime_custom_packet_semantic_specs(
+    let mut runtime_custom_packet_semantics = build_runtime_custom_packet_semantic_specs(
         &consumed_client_packet_types,
         &consumed_client_binary_packet_types,
         &consumed_client_logic_data_channels,
     )?;
+    let runtime_custom_packet_host_actions = build_runtime_custom_packet_host_action_specs(
+        &hooked_client_packet_types,
+        &hooked_client_binary_packet_types,
+        &hooked_client_logic_data_channels,
+    )?;
+    merge_runtime_custom_packet_semantic_specs(
+        &mut runtime_custom_packet_semantics,
+        &runtime_custom_packet_host_actions,
+    );
     let runtime_custom_packet_relays = build_runtime_custom_packet_relay_specs(
         &relayed_client_packet_types,
         &relayed_client_binary_packet_types,
@@ -1809,6 +2248,7 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
         watched_client_logic_data_channels,
         runtime_custom_packet_semantics,
         runtime_custom_packet_relays,
+        runtime_custom_packet_host_actions,
         render_window_live,
         dump_world_stream_hex,
         chat_schedule: build_chat_schedule(chat_messages, chat_delay_ms, chat_spacing_ms),
@@ -1823,7 +2263,7 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
 
 fn usage() -> String {
     String::from(
-        "Usage: mdt-client-min-online --manifest <path> (--server <host:port> | --discover-host <host> [--discover-host <host> ...] [--discover-port <port>] [--discover-timeout-ms <ms>]) [--connect-hex <path> | --name <name> --uuid <base64> --usid <base64> --build <build> --version-type <type> --mobile --color-rgba <rgba> --mod <name:version> ...] [--locale <locale>] [--duration-ms <ms>] [--tick-ms <ms>] [--max-recv-packets <n>] [--snapshot-interval-ms <ms>] [--aim-x <f32> --aim-y <f32>] [--mine-tile <x:y>] [--snapshot-boosting|--snapshot-no-boosting] [--snapshot-shooting|--snapshot-no-shooting] [--snapshot-chatting|--snapshot-no-chatting] [--snapshot-building|--snapshot-no-building] [--view-size <w:h>] [--move-step-x <f32> --move-step-y <f32>] [--intent-snapshot <moveX:moveY:aimX:aimY:actions[:mineX,mineY|none][:building|no-building|true|false]> ...] [--intent-live-sampling|--intent-edge-mapped] [--intent-delay-ms <ms>] [--intent-spacing-ms <ms>] [--command-mode-bind-group <index@unitId[,unitId...]> ...] [--command-mode-recall-group <index> ...] [--command-mode-clear-group <index> ...] [--command-mode-rect <x0:y0:x1:y1|none> ...] [--plan-place <x:y:block[:rotation][;config]> ...] [--plan-break <x:y> ...] [--plan-place-relative <dx:dy:block[:rotation][;config]> ...] [--plan-break-relative <dx:dy> ...] config=<none|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|point2=<x:y>|point2-array=<x:y[,x:y...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|double=<f64>|building-pos=<i32>|laccess=<i16>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|vec2-array=<x:y[,x:y...]>|vec2=<x:y>|team=<u8>|int-array=<i32[,i32...]>|object-array=<value[|value...]>|unit-command=<u16>> [--plan-rotate <x:y:dir> ...] [--plan-flip-x <x:y> ...] [--plan-flip-y <x:y> ...] [--plan-edit-loop] [--plan-edit-delay-ms <ms>] [--plan-edit-spacing-ms <ms>] [--plan-break-near-player] [--plan-place-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--plan-place-conflict-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--render-ascii-on-world-ready] [--print-client-packets] [--watch-client-packet <type> ...] [--watch-client-binary-packet <type> ...] [--watch-client-logic-data <channel> ...] [--consume-client-packet <type@semantic> ...] [--consume-client-binary-packet <type@semantic> ...] [--consume-client-logic-data <channel@semantic> ...] [--relay-client-packet <inbound@outbound@reliable|unreliable> ...] [--relay-client-binary-packet <inbound@outbound@reliable|unreliable> ...] [--relay-client-logic-data <inbound@outbound@reliable|unreliable> ...] semantic=<server-message|chat-message|hud-text|announce|clipboard|open-uri|world-pos|build-pos|unit-id|team|bool|number> [--render-window-live] [--dump-world-stream-hex <path>] [--chat-delay-ms <ms>] [--chat-spacing-ms <ms>] [--chat-message <text> ...] [--action-delay-ms <ms>] [--action-spacing-ms <ms>] [--action-request-item <buildPos|none:itemId|none:amount> ...] [--action-request-unit-payload <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-clear ...] [--action-unit-control <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-building-control-select <none|unit:<id>|block:<pos>|<id>@buildPos|none> ...] [--action-building-control-select <buildPos|none> ...] [--action-clear-items <buildPos|none> ...] [--action-clear-liquids <buildPos|none> ...] [--action-transfer-inventory <buildPos|none> ...] [--action-request-build-payload <buildPos|none> ...] [--action-request-drop-payload <x:y> ...] [--action-rotate-block <buildPos|none:direction> ...] [--action-drop-item <angle> ...] [--action-tile-config <buildPos|none:value> ...] [--action-tile-tap <tilePos|none> ...] [--action-delete-plans <x:y[,x:y...]|none> ...] [--action-command-building <x:y[,x:y...]|none@x:y> ...] [--action-command-units <unitId[,unitId...]|none@buildPos@unitTarget@x:y@queueCommand[@finalBatch]> ...] [--action-set-unit-command <unitId[,unitId...]|none@commandId|none> ...] [--action-set-unit-stance <unitId[,unitId...]|none@stanceId|none@enable> ...] [--action-begin-break <none|unit:<id>|block:<pos>|<id>@teamId@x:y> ...] [--action-begin-place <none|unit:<id>|block:<pos>|<id>@blockId|none@teamId@x:y@rotation@value> ...] [--action-menu-choose <menuId@option> ...] [--action-text-input-result <textInputId@text|none> ...] [--action-client-packet <type@contents@reliable|unreliable> ...] [--action-client-binary-packet <type@hex@reliable|unreliable> ...] [--action-client-logic-data <channel@value@reliable|unreliable> ...] value=<null|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|point2=<x:y>|point2-array=<x:y[,x:y...]>|double=<f64>|building-pos=<i32>|laccess=<i16>|vec2=<x:y>|vec2-array=<x:y[,x:y...]>|team=<u8>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|int-array=<i32[,i32...]>|object-array=<value>|unit-command=<u16>|...>",
+        "Usage: mdt-client-min-online --manifest <path> (--server <host:port> | --discover-host <host> [--discover-host <host> ...] [--discover-port <port>] [--discover-timeout-ms <ms>]) [--connect-hex <path> | --name <name> --uuid <base64> --usid <base64> --build <build> --version-type <type> --mobile --color-rgba <rgba> --mod <name:version> ...] [--locale <locale>] [--duration-ms <ms>] [--tick-ms <ms>] [--max-recv-packets <n>] [--snapshot-interval-ms <ms>] [--aim-x <f32> --aim-y <f32>] [--mine-tile <x:y>] [--snapshot-boosting|--snapshot-no-boosting] [--snapshot-shooting|--snapshot-no-shooting] [--snapshot-chatting|--snapshot-no-chatting] [--snapshot-building|--snapshot-no-building] [--view-size <w:h>] [--move-step-x <f32> --move-step-y <f32>] [--intent-snapshot <moveX:moveY:aimX:aimY:actions[:mineX,mineY|none][:building|no-building|true|false]> ...] [--intent-live-sampling|--intent-edge-mapped] [--intent-delay-ms <ms>] [--intent-spacing-ms <ms>] [--command-mode-bind-group <index@unitId[,unitId...]> ...] [--command-mode-recall-group <index> ...] [--command-mode-clear-group <index> ...] [--command-mode-rect <x0:y0:x1:y1|none> ...] [--plan-place <x:y:block[:rotation][;config]> ...] [--plan-break <x:y> ...] [--plan-place-relative <dx:dy:block[:rotation][;config]> ...] [--plan-break-relative <dx:dy> ...] config=<none|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|point2=<x:y>|point2-array=<x:y[,x:y...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|double=<f64>|building-pos=<i32>|laccess=<i16>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|vec2-array=<x:y[,x:y...]>|vec2=<x:y>|team=<u8>|int-array=<i32[,i32...]>|object-array=<value[|value...]>|unit-command=<u16>> [--plan-rotate <x:y:dir> ...] [--plan-flip-x <x:y> ...] [--plan-flip-y <x:y> ...] [--plan-edit-loop] [--plan-edit-delay-ms <ms>] [--plan-edit-spacing-ms <ms>] [--plan-break-near-player] [--plan-place-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--plan-place-conflict-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--render-ascii-on-world-ready] [--print-client-packets] [--watch-client-packet <type> ...] [--watch-client-binary-packet <type> ...] [--watch-client-logic-data <channel> ...] [--consume-client-packet <type@semantic> ...] [--consume-client-binary-packet <type@semantic> ...] [--consume-client-logic-data <channel@semantic> ...] [--hook-client-packet <type@semantic@action> ...] [--hook-client-binary-packet <type@semantic@action> ...] [--hook-client-logic-data <channel@semantic@action> ...] [--relay-client-packet <inbound@outbound@reliable|unreliable> ...] [--relay-client-binary-packet <inbound@outbound@reliable|unreliable> ...] [--relay-client-logic-data <inbound@outbound@reliable|unreliable> ...] semantic=<server-message|chat-message|hud-text|announce|clipboard|open-uri|world-pos|build-pos|unit-id|team|bool|number> action=<building-control-select|request-build-payload|clear-items|clear-liquids|transfer-inventory|tile-tap|unit-control|request-unit-payload|request-drop-payload> [--render-window-live] [--dump-world-stream-hex <path>] [--chat-delay-ms <ms>] [--chat-spacing-ms <ms>] [--chat-message <text> ...] [--action-delay-ms <ms>] [--action-spacing-ms <ms>] [--action-request-item <buildPos|none:itemId|none:amount> ...] [--action-request-unit-payload <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-clear ...] [--action-unit-control <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-building-control-select <none|unit:<id>|block:<pos>|<id>@buildPos|none> ...] [--action-building-control-select <buildPos|none> ...] [--action-clear-items <buildPos|none> ...] [--action-clear-liquids <buildPos|none> ...] [--action-transfer-inventory <buildPos|none> ...] [--action-request-build-payload <buildPos|none> ...] [--action-request-drop-payload <x:y> ...] [--action-rotate-block <buildPos|none:direction> ...] [--action-drop-item <angle> ...] [--action-tile-config <buildPos|none:value> ...] [--action-tile-tap <tilePos|none> ...] [--action-delete-plans <x:y[,x:y...]|none> ...] [--action-command-building <x:y[,x:y...]|none@x:y> ...] [--action-command-units <unitId[,unitId...]|none@buildPos@unitTarget@x:y@queueCommand[@finalBatch]> ...] [--action-set-unit-command <unitId[,unitId...]|none@commandId|none> ...] [--action-set-unit-stance <unitId[,unitId...]|none@stanceId|none@enable> ...] [--action-begin-break <none|unit:<id>|block:<pos>|<id>@teamId@x:y> ...] [--action-begin-place <none|unit:<id>|block:<pos>|<id>@blockId|none@teamId@x:y@rotation@value> ...] [--action-menu-choose <menuId@option> ...] [--action-text-input-result <textInputId@text|none> ...] [--action-client-packet <type@contents@reliable|unreliable> ...] [--action-client-binary-packet <type@hex@reliable|unreliable> ...] [--action-client-logic-data <channel@value@reliable|unreliable> ...] value=<null|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|point2=<x:y>|point2-array=<x:y[,x:y...]>|double=<f64>|building-pos=<i32>|laccess=<i16>|vec2=<x:y>|vec2-array=<x:y[,x:y...]>|team=<u8>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|int-array=<i32[,i32...]>|object-array=<value>|unit-command=<u16>|...>",
     )
 }
 
@@ -2495,6 +2935,154 @@ fn parse_action_client_logic_data_arg(
         parse_typeio_object_subset_arg("--action-client-logic-data value", parts[1])?,
         parse_client_logic_data_transport_arg("--action-client-logic-data transport", parts[2])?,
     ))
+}
+
+fn build_runtime_custom_packet_host_action_specs(
+    text_specs: &[String],
+    binary_specs: &[String],
+    logic_specs: &[String],
+) -> Result<Vec<RuntimeCustomPacketHostActionSpec>, String> {
+    let mut specs = Vec::new();
+    let mut seen = BTreeSet::new();
+    for raw in text_specs {
+        let spec = parse_runtime_custom_packet_host_action_spec(
+            "--hook-client-packet",
+            raw,
+            RuntimeCustomPacketSemanticEncoding::Text,
+        )?;
+        if seen.insert(spec.clone()) {
+            specs.push(spec);
+        }
+    }
+    for raw in binary_specs {
+        let spec = parse_runtime_custom_packet_host_action_spec(
+            "--hook-client-binary-packet",
+            raw,
+            RuntimeCustomPacketSemanticEncoding::Binary,
+        )?;
+        if seen.insert(spec.clone()) {
+            specs.push(spec);
+        }
+    }
+    for raw in logic_specs {
+        let spec = parse_runtime_custom_packet_host_action_spec(
+            "--hook-client-logic-data",
+            raw,
+            RuntimeCustomPacketSemanticEncoding::LogicData,
+        )?;
+        if seen.insert(spec.clone()) {
+            specs.push(spec);
+        }
+    }
+    Ok(specs)
+}
+
+fn parse_runtime_custom_packet_host_action_spec(
+    flag: &str,
+    raw: &str,
+    encoding: RuntimeCustomPacketSemanticEncoding,
+) -> Result<RuntimeCustomPacketHostActionSpec, String> {
+    let parts = raw.splitn(3, '@').collect::<Vec<_>>();
+    if parts.len() != 3 {
+        return Err(format!("invalid {flag}, expected <type@semantic@action>"));
+    }
+    let key = parts[0].trim();
+    let semantic = parts[1].trim();
+    let action = parts[2].trim();
+    if key.is_empty() || semantic.is_empty() || action.is_empty() {
+        return Err(format!("invalid {flag}, expected <type@semantic@action>"));
+    }
+    let semantic = parse_runtime_custom_packet_host_semantic_kind(flag, semantic)?;
+    let action = parse_runtime_custom_packet_host_action_kind(flag, action)?;
+    if !action.supports_semantic(semantic) {
+        return Err(format!(
+            "invalid {flag} action {:?} for semantic {:?}, expected semantic {}",
+            action.label(),
+            runtime_custom_packet_host_semantic_arg_label(semantic),
+            action.expected_semantic_labels()
+        ));
+    }
+    Ok(RuntimeCustomPacketHostActionSpec {
+        key: key.to_string(),
+        encoding,
+        semantic,
+        action,
+    })
+}
+
+fn parse_runtime_custom_packet_host_semantic_kind(
+    flag: &str,
+    raw: &str,
+) -> Result<RuntimeCustomPacketSemanticKind, String> {
+    match raw {
+        "server-message" => Ok(RuntimeCustomPacketSemanticKind::ServerMessage),
+        "chat-message" => Ok(RuntimeCustomPacketSemanticKind::ChatMessage),
+        "hud-text" => Ok(RuntimeCustomPacketSemanticKind::HudText),
+        "announce" => Ok(RuntimeCustomPacketSemanticKind::Announce),
+        "clipboard" => Ok(RuntimeCustomPacketSemanticKind::Clipboard),
+        "open-uri" => Ok(RuntimeCustomPacketSemanticKind::OpenUri),
+        "world-pos" => Ok(RuntimeCustomPacketSemanticKind::WorldPos),
+        "build-pos" => Ok(RuntimeCustomPacketSemanticKind::BuildPos),
+        "unit-id" => Ok(RuntimeCustomPacketSemanticKind::UnitId),
+        "team" => Ok(RuntimeCustomPacketSemanticKind::Team),
+        "bool" => Ok(RuntimeCustomPacketSemanticKind::Bool),
+        "number" => Ok(RuntimeCustomPacketSemanticKind::Number),
+        _ => Err(format!(
+            "invalid {flag} semantic {raw:?}, expected one of server-message|chat-message|hud-text|announce|clipboard|open-uri|world-pos|build-pos|unit-id|team|bool|number"
+        )),
+    }
+}
+
+fn parse_runtime_custom_packet_host_action_kind(
+    flag: &str,
+    raw: &str,
+) -> Result<RuntimeCustomPacketHostActionKind, String> {
+    match raw {
+        "building-control-select" => Ok(RuntimeCustomPacketHostActionKind::BuildingControlSelect),
+        "request-build-payload" => Ok(RuntimeCustomPacketHostActionKind::RequestBuildPayload),
+        "clear-items" => Ok(RuntimeCustomPacketHostActionKind::ClearItems),
+        "clear-liquids" => Ok(RuntimeCustomPacketHostActionKind::ClearLiquids),
+        "transfer-inventory" => Ok(RuntimeCustomPacketHostActionKind::TransferInventory),
+        "tile-tap" => Ok(RuntimeCustomPacketHostActionKind::TileTap),
+        "unit-control" => Ok(RuntimeCustomPacketHostActionKind::UnitControl),
+        "request-unit-payload" => Ok(RuntimeCustomPacketHostActionKind::RequestUnitPayload),
+        "request-drop-payload" => Ok(RuntimeCustomPacketHostActionKind::RequestDropPayload),
+        _ => Err(format!(
+            "invalid {flag} action {raw:?}, expected one of building-control-select|request-build-payload|clear-items|clear-liquids|transfer-inventory|tile-tap|unit-control|request-unit-payload|request-drop-payload"
+        )),
+    }
+}
+
+fn runtime_custom_packet_host_semantic_arg_label(
+    semantic: RuntimeCustomPacketSemanticKind,
+) -> &'static str {
+    match semantic {
+        RuntimeCustomPacketSemanticKind::ServerMessage => "server-message",
+        RuntimeCustomPacketSemanticKind::ChatMessage => "chat-message",
+        RuntimeCustomPacketSemanticKind::HudText => "hud-text",
+        RuntimeCustomPacketSemanticKind::Announce => "announce",
+        RuntimeCustomPacketSemanticKind::Clipboard => "clipboard",
+        RuntimeCustomPacketSemanticKind::OpenUri => "open-uri",
+        RuntimeCustomPacketSemanticKind::WorldPos => "world-pos",
+        RuntimeCustomPacketSemanticKind::BuildPos => "build-pos",
+        RuntimeCustomPacketSemanticKind::UnitId => "unit-id",
+        RuntimeCustomPacketSemanticKind::Team => "team",
+        RuntimeCustomPacketSemanticKind::Bool => "bool",
+        RuntimeCustomPacketSemanticKind::Number => "number",
+    }
+}
+
+fn merge_runtime_custom_packet_semantic_specs(
+    specs: &mut Vec<RuntimeCustomPacketSemanticSpec>,
+    host_action_specs: &[RuntimeCustomPacketHostActionSpec],
+) {
+    let mut seen = specs.iter().cloned().collect::<BTreeSet<_>>();
+    for action_spec in host_action_specs {
+        let route_spec = action_spec.route_spec();
+        if seen.insert(route_spec.clone()) {
+            specs.push(route_spec);
+        }
+    }
 }
 
 fn parse_action_rotate_block_arg(value: &str) -> Result<(Option<i32>, bool), String> {
@@ -3386,6 +3974,7 @@ fn maybe_print_ascii_scene(
     render_runtime_adapter: &mut RenderRuntimeAdapter,
     runtime_command_mode: &CommandModeState,
     custom_packet_surface: Option<&RuntimeCustomPacketSurface>,
+    custom_packet_business_hooks: Option<&RuntimeCustomPacketBusinessHooks>,
     ascii_scene_printed: &mut bool,
 ) {
     if *ascii_scene_printed || !args.render_ascii_on_world_ready {
@@ -3418,6 +4007,7 @@ fn maybe_print_ascii_scene(
     let input = render_snapshot_input(session, runtime_command_mode);
     render_runtime_adapter.apply(&mut scene, &mut hud, &input, session.state());
     append_runtime_custom_packet_surface_scene_objects(&mut scene, custom_packet_surface);
+    append_runtime_custom_packet_business_scene_objects(&mut scene, custom_packet_business_hooks);
     let mut presenter =
         AsciiScenePresenter::with_max_view_tiles(LIVE_VIEW_TILES.0, LIVE_VIEW_TILES.1);
     presenter.present(&scene, &hud);
@@ -3431,6 +4021,7 @@ fn maybe_print_final_ascii_scene(
     render_runtime_adapter: &mut RenderRuntimeAdapter,
     runtime_command_mode: &CommandModeState,
     custom_packet_surface: Option<&RuntimeCustomPacketSurface>,
+    custom_packet_business_hooks: Option<&RuntimeCustomPacketBusinessHooks>,
 ) {
     if !args.render_ascii_on_world_ready {
         return;
@@ -3455,6 +4046,7 @@ fn maybe_print_final_ascii_scene(
     let input = render_snapshot_input(session, runtime_command_mode);
     render_runtime_adapter.apply(&mut scene, &mut hud, &input, session.state());
     append_runtime_custom_packet_surface_scene_objects(&mut scene, custom_packet_surface);
+    append_runtime_custom_packet_business_scene_objects(&mut scene, custom_packet_business_hooks);
     let runtime_object_ids = collect_authoritative_runtime_scene_object_ids(&scene.objects);
     let mut presenter =
         AsciiScenePresenter::with_max_view_tiles(LIVE_VIEW_TILES.0, LIVE_VIEW_TILES.1);
@@ -3471,6 +4063,9 @@ fn collect_authoritative_runtime_scene_object_ids(objects: &[RenderObject]) -> V
                 || object.id.starts_with("terrain:runtime-deconstruct:")
                 || object.id.starts_with("marker:runtime-health:")
                 || object.id.starts_with("marker:runtime-custom-packet:")
+                || object
+                    .id
+                    .starts_with("marker:runtime-custom-packet-business:")
             {
                 Some(object.id.clone())
             } else {
@@ -3487,6 +4082,7 @@ fn maybe_present_window_scene(
     render_runtime_adapter: &mut RenderRuntimeAdapter,
     runtime_command_mode: &CommandModeState,
     custom_packet_surface: Option<&RuntimeCustomPacketSurface>,
+    custom_packet_business_hooks: Option<&RuntimeCustomPacketBusinessHooks>,
     window_scene_presenter: &mut Option<WindowPresenter<MinifbWindowBackend>>,
     window_scene_disabled: &mut bool,
 ) {
@@ -3515,6 +4111,7 @@ fn maybe_present_window_scene(
     let input = render_snapshot_input(session, runtime_command_mode);
     render_runtime_adapter.apply(&mut scene, &mut hud, &input, session.state());
     append_runtime_custom_packet_surface_scene_objects(&mut scene, custom_packet_surface);
+    append_runtime_custom_packet_business_scene_objects(&mut scene, custom_packet_business_hooks);
     let Some(presenter) = window_scene_presenter.as_mut() else {
         return;
     };
@@ -3546,6 +4143,19 @@ fn append_runtime_custom_packet_surface_scene_objects(
     scene
         .objects
         .extend(runtime_custom_packet_surface_scene_objects(&markers));
+}
+
+fn append_runtime_custom_packet_business_scene_objects(
+    scene: &mut RenderModel,
+    custom_packet_business_hooks: Option<&RuntimeCustomPacketBusinessHooks>,
+) {
+    let Some(custom_packet_business_hooks) = custom_packet_business_hooks else {
+        return;
+    };
+    scene.objects.extend(
+        custom_packet_business_hooks
+            .scene_objects(RUNTIME_CUSTOM_PACKET_SURFACE_OVERLAY_MAX_ENTRIES),
+    );
 }
 
 fn runtime_custom_packet_surface_scene_objects(
@@ -4779,6 +5389,62 @@ fn maybe_print_custom_packet_host_summary(custom_packet_host: Option<&RuntimeCus
     );
 }
 
+fn maybe_apply_runtime_custom_packet_business_hooks(
+    custom_packet_surface: Option<&RuntimeCustomPacketSurface>,
+    custom_packet_business_hooks: Option<&mut RuntimeCustomPacketBusinessHooks>,
+    registered_semantic_count: usize,
+    session_state: &SessionState,
+    events: &[ClientSessionEvent],
+    now_ms: u64,
+) {
+    let (Some(custom_packet_surface), Some(custom_packet_business_hooks)) =
+        (custom_packet_surface, custom_packet_business_hooks)
+    else {
+        return;
+    };
+    if events
+        .iter()
+        .any(|event| matches!(event, ClientSessionEvent::WorldDataBegin))
+    {
+        custom_packet_business_hooks.note_surface_reset(now_ms, "world_data_begin");
+    }
+    let entries = custom_packet_surface.latest_summary_entries(registered_semantic_count.max(1));
+    custom_packet_business_hooks.observe_surface_entries(now_ms, &entries, session_state);
+    let lines = custom_packet_business_hooks.drain_lines();
+    if lines.is_empty() {
+        return;
+    }
+    for line in lines {
+        println!("{line}");
+    }
+    println!(
+        "{}",
+        format_runtime_custom_packet_business_hook_line(
+            now_ms,
+            custom_packet_business_hooks
+                .business_summary_text(RUNTIME_CUSTOM_PACKET_SURFACE_OVERLAY_MAX_ENTRIES),
+        )
+    );
+}
+
+fn maybe_print_custom_packet_business_hook_summary(
+    custom_packet_business_hooks: Option<&RuntimeCustomPacketBusinessHooks>,
+) {
+    let Some(custom_packet_business_hooks) = custom_packet_business_hooks else {
+        return;
+    };
+    for line in custom_packet_business_hooks.summary_lines() {
+        println!("{line}");
+    }
+    println!(
+        "{}",
+        format_runtime_custom_packet_business_hook_summary_line(
+            custom_packet_business_hooks
+                .business_summary_text(RUNTIME_CUSTOM_PACKET_SURFACE_OVERLAY_MAX_ENTRIES),
+        )
+    );
+}
+
 fn maybe_print_custom_packet_surface_summary(
     custom_packet_surface: Option<&RuntimeCustomPacketSurface>,
 ) {
@@ -4884,6 +5550,24 @@ fn format_runtime_custom_packet_host_business_summary_line(summary: Option<Strin
     }
 }
 
+fn format_runtime_custom_packet_business_hook_line(now_ms: u64, summary: Option<String>) -> String {
+    match summary {
+        Some(summary) => {
+            format!("runtime_custom_packet_business_hook: tick={now_ms}ms summary={summary:?}")
+        }
+        None => format!("runtime_custom_packet_business_hook: tick={now_ms}ms summary=none"),
+    }
+}
+
+fn format_runtime_custom_packet_business_hook_summary_line(summary: Option<String>) -> String {
+    match summary {
+        Some(summary) => {
+            format!("runtime_custom_packet_business_hook_summary: summary={summary:?}")
+        }
+        None => "runtime_custom_packet_business_hook_summary: summary=none".to_string(),
+    }
+}
+
 fn format_runtime_custom_packet_replay_bridge_business_line(
     now_ms: u64,
     summary: Option<String>,
@@ -4943,6 +5627,104 @@ fn format_runtime_custom_packet_surface_coord(value: f32) -> String {
             .to_string()
     } else {
         rendered
+    }
+}
+
+fn maybe_queue_runtime_custom_packet_host_actions(
+    session: &mut ClientSession,
+    custom_packet_host: Option<&mut RuntimeCustomPacketHost>,
+    now_ms: u64,
+    runtime_command_mode: &mut CommandModeState,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let Some(custom_packet_host) = custom_packet_host else {
+        return Ok(());
+    };
+    if !session.state().ready_to_enter_world || !session.state().connect_confirm_sent {
+        return Ok(());
+    }
+    for action in custom_packet_host.drain_actions() {
+        let outbound_action = outbound_action_from_runtime_custom_packet_host_action(&action);
+        queue_outbound_action_with_command_mode(session, &outbound_action, runtime_command_mode)?;
+        println!(
+            "runtime_custom_packet_host_replay: tick={}ms key={:?} action={} payload={}",
+            now_ms,
+            action.source_key(),
+            action.label(),
+            summarize_runtime_custom_packet_host_action_payload(&action),
+        );
+    }
+    Ok(())
+}
+
+fn outbound_action_from_runtime_custom_packet_host_action(
+    action: &RuntimeCustomPacketHostAction,
+) -> OutboundAction {
+    match action {
+        RuntimeCustomPacketHostAction::BuildingControlSelect { build_pos, .. } => {
+            OutboundAction::BuildingControlSelect {
+                build_pos: Some(*build_pos),
+            }
+        }
+        RuntimeCustomPacketHostAction::RequestBuildPayload { build_pos, .. } => {
+            OutboundAction::RequestBuildPayload {
+                build_pos: Some(*build_pos),
+            }
+        }
+        RuntimeCustomPacketHostAction::ClearItems { build_pos, .. } => OutboundAction::ClearItems {
+            build_pos: Some(*build_pos),
+        },
+        RuntimeCustomPacketHostAction::ClearLiquids { build_pos, .. } => {
+            OutboundAction::ClearLiquids {
+                build_pos: Some(*build_pos),
+            }
+        }
+        RuntimeCustomPacketHostAction::TransferInventory { build_pos, .. } => {
+            OutboundAction::TransferInventory {
+                build_pos: Some(*build_pos),
+            }
+        }
+        RuntimeCustomPacketHostAction::TileTap { tile_pos, .. } => OutboundAction::TileTap {
+            tile_pos: Some(*tile_pos),
+        },
+        RuntimeCustomPacketHostAction::UnitControl { unit_id, .. } => OutboundAction::UnitControl {
+            target: ClientUnitRef::Standard(*unit_id),
+        },
+        RuntimeCustomPacketHostAction::RequestUnitPayload { unit_id, .. } => {
+            OutboundAction::RequestUnitPayload {
+                target: ClientUnitRef::Standard(*unit_id),
+            }
+        }
+        RuntimeCustomPacketHostAction::RequestDropPayload { x, y, .. } => {
+            OutboundAction::RequestDropPayload { x: *x, y: *y }
+        }
+    }
+}
+
+fn summarize_runtime_custom_packet_host_action_payload(
+    action: &RuntimeCustomPacketHostAction,
+) -> String {
+    match action {
+        RuntimeCustomPacketHostAction::BuildingControlSelect { build_pos, .. }
+        | RuntimeCustomPacketHostAction::RequestBuildPayload { build_pos, .. }
+        | RuntimeCustomPacketHostAction::ClearItems { build_pos, .. }
+        | RuntimeCustomPacketHostAction::ClearLiquids { build_pos, .. }
+        | RuntimeCustomPacketHostAction::TransferInventory { build_pos, .. } => {
+            format!("build_pos={build_pos}")
+        }
+        RuntimeCustomPacketHostAction::TileTap { tile_pos, .. } => {
+            format!("tile_pos={tile_pos}")
+        }
+        RuntimeCustomPacketHostAction::UnitControl { unit_id, .. }
+        | RuntimeCustomPacketHostAction::RequestUnitPayload { unit_id, .. } => {
+            format!("unit_id={unit_id}")
+        }
+        RuntimeCustomPacketHostAction::RequestDropPayload { x, y, .. } => {
+            format!(
+                "x={} y={}",
+                format_runtime_custom_packet_surface_coord(*x),
+                format_runtime_custom_packet_surface_coord(*y)
+            )
+        }
     }
 }
 
@@ -5885,6 +6667,9 @@ mod tests {
         assert!(text.contains("--consume-client-packet <type@semantic> ..."));
         assert!(text.contains("--consume-client-binary-packet <type@semantic> ..."));
         assert!(text.contains("--consume-client-logic-data <channel@semantic> ..."));
+        assert!(text.contains("--hook-client-packet <type@semantic@action> ..."));
+        assert!(text.contains("--hook-client-binary-packet <type@semantic@action> ..."));
+        assert!(text.contains("--hook-client-logic-data <channel@semantic@action> ..."));
         assert!(text.contains("--relay-client-packet <inbound@outbound@reliable|unreliable> ..."));
         assert!(text
             .contains("--relay-client-binary-packet <inbound@outbound@reliable|unreliable> ..."));
@@ -5892,6 +6677,7 @@ mod tests {
             text.contains("--relay-client-logic-data <inbound@outbound@reliable|unreliable> ...")
         );
         assert!(text.contains("semantic=<server-message|chat-message|hud-text|announce|clipboard|open-uri|world-pos|build-pos|unit-id|team|bool|number>"));
+        assert!(text.contains("action=<building-control-select|request-build-payload|clear-items|clear-liquids|transfer-inventory|tile-tap|unit-control|request-unit-payload|request-drop-payload>"));
         assert!(text.contains("--plan-rotate <x:y:dir>"));
         assert!(text.contains("--plan-edit-loop"));
         assert!(text.contains("--plan-edit-delay-ms <ms>"));
@@ -6529,6 +7315,76 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn parse_args_accepts_runtime_custom_packet_host_action_flags() {
+        let args = parse_args(sample_args(&[
+            "--hook-client-packet",
+            "custom.build@build-pos@building-control-select",
+            "--hook-client-binary-packet",
+            "custom.unit@unit-id@request-unit-payload",
+            "--hook-client-logic-data",
+            "logic.drop@world-pos@request-drop-payload",
+        ]))
+        .unwrap();
+
+        assert_eq!(
+            args.runtime_custom_packet_host_actions,
+            vec![
+                RuntimeCustomPacketHostActionSpec {
+                    key: "custom.build".to_string(),
+                    encoding: RuntimeCustomPacketSemanticEncoding::Text,
+                    semantic: RuntimeCustomPacketSemanticKind::BuildPos,
+                    action: RuntimeCustomPacketHostActionKind::BuildingControlSelect,
+                },
+                RuntimeCustomPacketHostActionSpec {
+                    key: "custom.unit".to_string(),
+                    encoding: RuntimeCustomPacketSemanticEncoding::Binary,
+                    semantic: RuntimeCustomPacketSemanticKind::UnitId,
+                    action: RuntimeCustomPacketHostActionKind::RequestUnitPayload,
+                },
+                RuntimeCustomPacketHostActionSpec {
+                    key: "logic.drop".to_string(),
+                    encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+                    semantic: RuntimeCustomPacketSemanticKind::WorldPos,
+                    action: RuntimeCustomPacketHostActionKind::RequestDropPayload,
+                },
+            ]
+        );
+        assert_eq!(
+            args.runtime_custom_packet_semantics,
+            vec![
+                RuntimeCustomPacketSemanticSpec {
+                    key: "custom.build".to_string(),
+                    encoding: RuntimeCustomPacketSemanticEncoding::Text,
+                    semantic: RuntimeCustomPacketSemanticKind::BuildPos,
+                },
+                RuntimeCustomPacketSemanticSpec {
+                    key: "custom.unit".to_string(),
+                    encoding: RuntimeCustomPacketSemanticEncoding::Binary,
+                    semantic: RuntimeCustomPacketSemanticKind::UnitId,
+                },
+                RuntimeCustomPacketSemanticSpec {
+                    key: "logic.drop".to_string(),
+                    encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+                    semantic: RuntimeCustomPacketSemanticKind::WorldPos,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_args_rejects_invalid_runtime_custom_packet_host_action_semantic_pair() {
+        let error = parse_args(sample_args(&[
+            "--hook-client-packet",
+            "custom.status@hud-text@unit-control",
+        ]))
+        .err()
+        .expect("mismatched host action semantic should fail");
+
+        assert!(error.contains("--hook-client-packet"));
+        assert!(error.contains("expected semantic unit-id"));
     }
 
     #[test]
@@ -8646,6 +9502,42 @@ mod tests {
     }
 
     #[test]
+    fn runtime_custom_packet_host_actions_convert_into_existing_outbound_actions() {
+        assert_eq!(
+            outbound_action_from_runtime_custom_packet_host_action(
+                &RuntimeCustomPacketHostAction::BuildingControlSelect {
+                    key: "build.alpha".to_string(),
+                    build_pos: 77,
+                }
+            ),
+            OutboundAction::BuildingControlSelect {
+                build_pos: Some(77)
+            }
+        );
+        assert_eq!(
+            outbound_action_from_runtime_custom_packet_host_action(
+                &RuntimeCustomPacketHostAction::UnitControl {
+                    key: "unit.alpha".to_string(),
+                    unit_id: 41,
+                }
+            ),
+            OutboundAction::UnitControl {
+                target: ClientUnitRef::Standard(41),
+            }
+        );
+        assert_eq!(
+            outbound_action_from_runtime_custom_packet_host_action(
+                &RuntimeCustomPacketHostAction::RequestDropPayload {
+                    key: "logic.drop".to_string(),
+                    x: 12.5,
+                    y: 48.0,
+                }
+            ),
+            OutboundAction::RequestDropPayload { x: 12.5, y: 48.0 }
+        );
+    }
+
+    #[test]
     fn summarize_runtime_custom_packet_relay_action_formats_replayed_variants() {
         assert_eq!(
             summarize_runtime_custom_packet_relay_action(&RuntimeCustomPacketRelayAction::Text {
@@ -8864,6 +9756,103 @@ mod tests {
             host.business_summary_text(4),
             Some("text:custom.status(hud_text)#2=wave resumed".to_string())
         );
+    }
+
+    #[test]
+    fn runtime_custom_packet_business_hook_helpers_format_present_and_empty_summary() {
+        assert_eq!(
+            format_runtime_custom_packet_business_hook_line(
+                42,
+                Some("logic:logic.unit(unit_id)#1=77@40,96[runtime_entity]".to_string())
+            ),
+            "runtime_custom_packet_business_hook: tick=42ms summary=\"logic:logic.unit(unit_id)#1=77@40,96[runtime_entity]\""
+        );
+        assert_eq!(
+            format_runtime_custom_packet_business_hook_line(43, None),
+            "runtime_custom_packet_business_hook: tick=43ms summary=none"
+        );
+        assert_eq!(
+            format_runtime_custom_packet_business_hook_summary_line(Some(
+                "logic:logic.unit(unit_id)#1=77@40,96[runtime_entity]".to_string()
+            )),
+            "runtime_custom_packet_business_hook_summary: summary=\"logic:logic.unit(unit_id)#1=77@40,96[runtime_entity]\""
+        );
+        assert_eq!(
+            format_runtime_custom_packet_business_hook_summary_line(None),
+            "runtime_custom_packet_business_hook_summary: summary=none"
+        );
+    }
+
+    #[test]
+    fn runtime_custom_packet_business_hooks_resolve_and_follow_runtime_entity_markers() {
+        let specs = vec![RuntimeCustomPacketSemanticSpec {
+            key: "logic.unit".to_string(),
+            encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+            semantic: RuntimeCustomPacketSemanticKind::UnitId,
+        }];
+        let mut hooks = RuntimeCustomPacketBusinessHooks::from_specs(&specs).unwrap();
+        let entry = RuntimeCustomPacketSurfaceSummaryEntry {
+            key: "logic.unit".to_string(),
+            encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+            semantic: RuntimeCustomPacketSemanticKind::UnitId,
+            stable_value: "77".to_string(),
+            marker: None,
+        };
+        let mut state = SessionState::default();
+        state
+            .runtime_typed_entity_apply_projection
+            .by_entity_id
+            .insert(
+                77,
+                mdt_client_min::session_state::TypedRuntimeEntityModel::Player(
+                    mdt_client_min::session_state::TypedRuntimePlayerEntity {
+                        base: mdt_client_min::session_state::TypedRuntimeEntityBase {
+                            entity_id: 77,
+                            class_id: 0,
+                            hidden: false,
+                            is_local_player: false,
+                            unit_kind: 0,
+                            unit_value: 0,
+                            x_bits: 40.0f32.to_bits(),
+                            y_bits: 96.0f32.to_bits(),
+                            last_seen_entity_snapshot_count: 1,
+                        },
+                    },
+                ),
+            );
+
+        hooks.observe_surface_entries(42, &[entry.clone()], &state);
+        assert_eq!(
+            hooks.business_summary_text(4),
+            Some("logic:logic.unit(unit_id)#1=77@40,96[runtime_entity]".to_string())
+        );
+        let objects = hooks.scene_objects(4);
+        assert_eq!(objects.len(), 1);
+        assert_eq!(objects[0].x, 40.0);
+        assert_eq!(objects[0].y, 96.0);
+        assert!(objects[0].id.starts_with(
+            "marker:runtime-custom-packet-business:logic:unit_id:logic.unit:runtime_entity:"
+        ));
+
+        if let Some(mdt_client_min::session_state::TypedRuntimeEntityModel::Player(player)) = state
+            .runtime_typed_entity_apply_projection
+            .by_entity_id
+            .get_mut(&77)
+        {
+            player.base.x_bits = 48.0f32.to_bits();
+            player.base.y_bits = 120.0f32.to_bits();
+            player.base.last_seen_entity_snapshot_count = 2;
+        }
+        hooks.drain_lines();
+        hooks.observe_surface_entries(43, &[entry], &state);
+        assert_eq!(
+            hooks.business_summary_text(4),
+            Some("logic:logic.unit(unit_id)#2=77@48,120[runtime_entity]".to_string())
+        );
+        assert!(hooks
+            .drain_lines()
+            .iter()
+            .any(|line| line.contains("marker=runtime_entity@48,120")));
     }
 
     #[test]

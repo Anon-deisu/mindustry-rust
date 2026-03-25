@@ -8,6 +8,132 @@ use mdt_client_min::custom_packet_runtime_surface::{
 };
 use std::collections::{BTreeMap, VecDeque};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum RuntimeCustomPacketHostActionKind {
+    BuildingControlSelect,
+    RequestBuildPayload,
+    ClearItems,
+    ClearLiquids,
+    TransferInventory,
+    TileTap,
+    UnitControl,
+    RequestUnitPayload,
+    RequestDropPayload,
+}
+
+impl RuntimeCustomPacketHostActionKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            RuntimeCustomPacketHostActionKind::BuildingControlSelect => "building-control-select",
+            RuntimeCustomPacketHostActionKind::RequestBuildPayload => "request-build-payload",
+            RuntimeCustomPacketHostActionKind::ClearItems => "clear-items",
+            RuntimeCustomPacketHostActionKind::ClearLiquids => "clear-liquids",
+            RuntimeCustomPacketHostActionKind::TransferInventory => "transfer-inventory",
+            RuntimeCustomPacketHostActionKind::TileTap => "tile-tap",
+            RuntimeCustomPacketHostActionKind::UnitControl => "unit-control",
+            RuntimeCustomPacketHostActionKind::RequestUnitPayload => "request-unit-payload",
+            RuntimeCustomPacketHostActionKind::RequestDropPayload => "request-drop-payload",
+        }
+    }
+
+    pub fn supports_semantic(self, semantic: RuntimeCustomPacketSemanticKind) -> bool {
+        match self {
+            RuntimeCustomPacketHostActionKind::BuildingControlSelect
+            | RuntimeCustomPacketHostActionKind::RequestBuildPayload
+            | RuntimeCustomPacketHostActionKind::ClearItems
+            | RuntimeCustomPacketHostActionKind::ClearLiquids
+            | RuntimeCustomPacketHostActionKind::TransferInventory
+            | RuntimeCustomPacketHostActionKind::TileTap => {
+                semantic == RuntimeCustomPacketSemanticKind::BuildPos
+            }
+            RuntimeCustomPacketHostActionKind::UnitControl
+            | RuntimeCustomPacketHostActionKind::RequestUnitPayload => {
+                semantic == RuntimeCustomPacketSemanticKind::UnitId
+            }
+            RuntimeCustomPacketHostActionKind::RequestDropPayload => {
+                semantic == RuntimeCustomPacketSemanticKind::WorldPos
+            }
+        }
+    }
+
+    pub fn expected_semantic_labels(self) -> &'static str {
+        match self {
+            RuntimeCustomPacketHostActionKind::BuildingControlSelect
+            | RuntimeCustomPacketHostActionKind::RequestBuildPayload
+            | RuntimeCustomPacketHostActionKind::ClearItems
+            | RuntimeCustomPacketHostActionKind::ClearLiquids
+            | RuntimeCustomPacketHostActionKind::TransferInventory
+            | RuntimeCustomPacketHostActionKind::TileTap => "build-pos",
+            RuntimeCustomPacketHostActionKind::UnitControl
+            | RuntimeCustomPacketHostActionKind::RequestUnitPayload => "unit-id",
+            RuntimeCustomPacketHostActionKind::RequestDropPayload => "world-pos",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct RuntimeCustomPacketHostActionSpec {
+    pub key: String,
+    pub encoding: RuntimeCustomPacketSemanticEncoding,
+    pub semantic: RuntimeCustomPacketSemanticKind,
+    pub action: RuntimeCustomPacketHostActionKind,
+}
+
+impl RuntimeCustomPacketHostActionSpec {
+    pub fn route_spec(&self) -> RuntimeCustomPacketSemanticSpec {
+        RuntimeCustomPacketSemanticSpec {
+            key: self.key.clone(),
+            encoding: self.encoding,
+            semantic: self.semantic,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum RuntimeCustomPacketHostAction {
+    BuildingControlSelect { key: String, build_pos: i32 },
+    RequestBuildPayload { key: String, build_pos: i32 },
+    ClearItems { key: String, build_pos: i32 },
+    ClearLiquids { key: String, build_pos: i32 },
+    TransferInventory { key: String, build_pos: i32 },
+    TileTap { key: String, tile_pos: i32 },
+    UnitControl { key: String, unit_id: i32 },
+    RequestUnitPayload { key: String, unit_id: i32 },
+    RequestDropPayload { key: String, x: f32, y: f32 },
+}
+
+impl RuntimeCustomPacketHostAction {
+    pub fn label(&self) -> &'static str {
+        match self {
+            RuntimeCustomPacketHostAction::BuildingControlSelect { .. } => {
+                "building-control-select"
+            }
+            RuntimeCustomPacketHostAction::RequestBuildPayload { .. } => "request-build-payload",
+            RuntimeCustomPacketHostAction::ClearItems { .. } => "clear-items",
+            RuntimeCustomPacketHostAction::ClearLiquids { .. } => "clear-liquids",
+            RuntimeCustomPacketHostAction::TransferInventory { .. } => "transfer-inventory",
+            RuntimeCustomPacketHostAction::TileTap { .. } => "tile-tap",
+            RuntimeCustomPacketHostAction::UnitControl { .. } => "unit-control",
+            RuntimeCustomPacketHostAction::RequestUnitPayload { .. } => "request-unit-payload",
+            RuntimeCustomPacketHostAction::RequestDropPayload { .. } => "request-drop-payload",
+        }
+    }
+
+    pub fn source_key(&self) -> &str {
+        match self {
+            RuntimeCustomPacketHostAction::BuildingControlSelect { key, .. }
+            | RuntimeCustomPacketHostAction::RequestBuildPayload { key, .. }
+            | RuntimeCustomPacketHostAction::ClearItems { key, .. }
+            | RuntimeCustomPacketHostAction::ClearLiquids { key, .. }
+            | RuntimeCustomPacketHostAction::TransferInventory { key, .. }
+            | RuntimeCustomPacketHostAction::TileTap { key, .. }
+            | RuntimeCustomPacketHostAction::UnitControl { key, .. }
+            | RuntimeCustomPacketHostAction::RequestUnitPayload { key, .. }
+            | RuntimeCustomPacketHostAction::RequestDropPayload { key, .. } => key,
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct RuntimeCustomPacketHost {
     state: RuntimeCustomPacketHostState,
@@ -16,7 +142,10 @@ pub struct RuntimeCustomPacketHost {
 #[derive(Debug, Default)]
 struct RuntimeCustomPacketHostState {
     routes: BTreeMap<RuntimeCustomPacketHostRouteKey, RuntimeCustomPacketHostRouteState>,
+    action_bindings:
+        BTreeMap<RuntimeCustomPacketHostRouteKey, Vec<RuntimeCustomPacketHostActionKind>>,
     pending_lines: VecDeque<String>,
+    pending_actions: VecDeque<RuntimeCustomPacketHostAction>,
     next_update_serial: u64,
     surface_reset_count: usize,
     reconnect_reset_count: usize,
@@ -41,19 +170,28 @@ struct RuntimeCustomPacketHostRouteState {
 
 impl RuntimeCustomPacketHost {
     pub fn from_specs(specs: &[RuntimeCustomPacketSemanticSpec]) -> Option<Self> {
-        if specs.is_empty() {
+        Self::from_specs_with_actions(specs, &[])
+    }
+
+    pub fn from_specs_with_actions(
+        specs: &[RuntimeCustomPacketSemanticSpec],
+        action_specs: &[RuntimeCustomPacketHostActionSpec],
+    ) -> Option<Self> {
+        if specs.is_empty() && action_specs.is_empty() {
             return None;
         }
         let mut state = RuntimeCustomPacketHostState::default();
         for spec in specs {
+            state.routes.entry(route_key_from_spec(spec)).or_default();
+        }
+        for action_spec in action_specs {
+            let route = route_key_from_host_action_spec(action_spec);
+            state.routes.entry(route.clone()).or_default();
             state
-                .routes
-                .entry(RuntimeCustomPacketHostRouteKey {
-                    key: spec.key.clone(),
-                    encoding: spec.encoding,
-                    semantic: spec.semantic,
-                })
-                .or_default();
+                .action_bindings
+                .entry(route)
+                .or_default()
+                .push(action_spec.action);
         }
         Some(Self { state })
     }
@@ -97,6 +235,10 @@ impl RuntimeCustomPacketHost {
         self.state.pending_lines.drain(..).collect()
     }
 
+    pub fn drain_actions(&mut self) -> Vec<RuntimeCustomPacketHostAction> {
+        self.state.pending_actions.drain(..).collect()
+    }
+
     pub fn summary_lines(&self) -> Vec<String> {
         let mut lines = self
             .state
@@ -115,8 +257,10 @@ impl RuntimeCustomPacketHost {
             })
             .collect::<Vec<_>>();
         lines.push(format!(
-            "runtime_custom_packet_host_state: routes={} active_routes={} surface_resets={} reconnect_resets={} manual_clears={}",
+            "runtime_custom_packet_host_state: routes={} hook_routes={} pending_actions={} active_routes={} surface_resets={} reconnect_resets={} manual_clears={}",
             self.state.routes.len(),
+            self.state.action_bindings.len(),
+            self.state.pending_actions.len(),
             self.state.routes.values().filter(|route| route.active).count(),
             self.state.surface_reset_count,
             self.state.reconnect_reset_count,
@@ -164,11 +308,7 @@ impl RuntimeCustomPacketHostState {
         entries: &[RuntimeCustomPacketSurfaceSummaryEntry],
     ) {
         for entry in entries {
-            let route = RuntimeCustomPacketHostRouteKey {
-                key: entry.key.clone(),
-                encoding: entry.encoding,
-                semantic: entry.semantic,
-            };
+            let route = route_key_from_surface_entry(entry);
             let Some(state) = self.routes.get_mut(&route) else {
                 self.pending_lines.push_back(format!(
                     "runtime_custom_packet_host_unregistered_surface_entry: tick={now_ms}ms encoding={} key={:?} semantic={} value={:?}",
@@ -200,6 +340,35 @@ impl RuntimeCustomPacketHostState {
                 entry.stable_value,
                 format_marker(entry.marker.as_ref()),
             ));
+            let action_kinds = self
+                .action_bindings
+                .get(&route)
+                .cloned()
+                .unwrap_or_default();
+            for action_kind in action_kinds {
+                match build_host_action(&route, entry, action_kind) {
+                    Ok(action) => {
+                        self.pending_lines.push_back(format!(
+                            "runtime_custom_packet_host_action: tick={now_ms}ms encoding={} key={:?} semantic={} action={} payload={}",
+                            encoding_label(route.encoding),
+                            route.key,
+                            semantic_label(route.semantic),
+                            action_kind.label(),
+                            format_host_action_payload(&action),
+                        ));
+                        self.pending_actions.push_back(action);
+                    }
+                    Err(reason) => {
+                        self.pending_lines.push_back(format!(
+                            "runtime_custom_packet_host_action_skipped: tick={now_ms}ms encoding={} key={:?} semantic={} action={} reason={reason}",
+                            encoding_label(route.encoding),
+                            route.key,
+                            semantic_label(route.semantic),
+                            action_kind.label(),
+                        ));
+                    }
+                }
+            }
         }
     }
 
@@ -214,12 +383,148 @@ impl RuntimeCustomPacketHostState {
             route.last_marker = None;
             route.last_update_serial = 0;
         }
+        let dropped_actions = self.pending_actions.len();
+        self.pending_actions.clear();
         if cleared_routes > 0 {
             self.pending_lines.push_back(format!(
                 "runtime_custom_packet_host_clear: tick={now_ms}ms reason={reason} cleared_routes={cleared_routes}"
             ));
         }
+        if dropped_actions > 0 {
+            self.pending_lines.push_back(format!(
+                "runtime_custom_packet_host_action_queue_clear: tick={now_ms}ms reason={reason} dropped_actions={dropped_actions}"
+            ));
+        }
     }
+}
+
+fn route_key_from_spec(spec: &RuntimeCustomPacketSemanticSpec) -> RuntimeCustomPacketHostRouteKey {
+    RuntimeCustomPacketHostRouteKey {
+        key: spec.key.clone(),
+        encoding: spec.encoding,
+        semantic: spec.semantic,
+    }
+}
+
+fn route_key_from_host_action_spec(
+    spec: &RuntimeCustomPacketHostActionSpec,
+) -> RuntimeCustomPacketHostRouteKey {
+    RuntimeCustomPacketHostRouteKey {
+        key: spec.key.clone(),
+        encoding: spec.encoding,
+        semantic: spec.semantic,
+    }
+}
+
+fn route_key_from_surface_entry(
+    entry: &RuntimeCustomPacketSurfaceSummaryEntry,
+) -> RuntimeCustomPacketHostRouteKey {
+    RuntimeCustomPacketHostRouteKey {
+        key: entry.key.clone(),
+        encoding: entry.encoding,
+        semantic: entry.semantic,
+    }
+}
+
+fn build_host_action(
+    route: &RuntimeCustomPacketHostRouteKey,
+    entry: &RuntimeCustomPacketSurfaceSummaryEntry,
+    action_kind: RuntimeCustomPacketHostActionKind,
+) -> Result<RuntimeCustomPacketHostAction, &'static str> {
+    match action_kind {
+        RuntimeCustomPacketHostActionKind::BuildingControlSelect => {
+            Ok(RuntimeCustomPacketHostAction::BuildingControlSelect {
+                key: route.key.clone(),
+                build_pos: parse_surface_i32(&entry.stable_value).ok_or("invalid_build_pos")?,
+            })
+        }
+        RuntimeCustomPacketHostActionKind::RequestBuildPayload => {
+            Ok(RuntimeCustomPacketHostAction::RequestBuildPayload {
+                key: route.key.clone(),
+                build_pos: parse_surface_i32(&entry.stable_value).ok_or("invalid_build_pos")?,
+            })
+        }
+        RuntimeCustomPacketHostActionKind::ClearItems => {
+            Ok(RuntimeCustomPacketHostAction::ClearItems {
+                key: route.key.clone(),
+                build_pos: parse_surface_i32(&entry.stable_value).ok_or("invalid_build_pos")?,
+            })
+        }
+        RuntimeCustomPacketHostActionKind::ClearLiquids => {
+            Ok(RuntimeCustomPacketHostAction::ClearLiquids {
+                key: route.key.clone(),
+                build_pos: parse_surface_i32(&entry.stable_value).ok_or("invalid_build_pos")?,
+            })
+        }
+        RuntimeCustomPacketHostActionKind::TransferInventory => {
+            Ok(RuntimeCustomPacketHostAction::TransferInventory {
+                key: route.key.clone(),
+                build_pos: parse_surface_i32(&entry.stable_value).ok_or("invalid_build_pos")?,
+            })
+        }
+        RuntimeCustomPacketHostActionKind::TileTap => Ok(RuntimeCustomPacketHostAction::TileTap {
+            key: route.key.clone(),
+            tile_pos: parse_surface_i32(&entry.stable_value).ok_or("invalid_tile_pos")?,
+        }),
+        RuntimeCustomPacketHostActionKind::UnitControl => {
+            Ok(RuntimeCustomPacketHostAction::UnitControl {
+                key: route.key.clone(),
+                unit_id: parse_surface_i32(&entry.stable_value).ok_or("invalid_unit_id")?,
+            })
+        }
+        RuntimeCustomPacketHostActionKind::RequestUnitPayload => {
+            Ok(RuntimeCustomPacketHostAction::RequestUnitPayload {
+                key: route.key.clone(),
+                unit_id: parse_surface_i32(&entry.stable_value).ok_or("invalid_unit_id")?,
+            })
+        }
+        RuntimeCustomPacketHostActionKind::RequestDropPayload => {
+            let (x, y) = entry
+                .marker
+                .as_ref()
+                .map(|marker| (marker.x, marker.y))
+                .or_else(|| parse_surface_world_pos(&entry.stable_value))
+                .ok_or("invalid_world_pos")?;
+            Ok(RuntimeCustomPacketHostAction::RequestDropPayload {
+                key: route.key.clone(),
+                x,
+                y,
+            })
+        }
+    }
+}
+
+fn format_host_action_payload(action: &RuntimeCustomPacketHostAction) -> String {
+    match action {
+        RuntimeCustomPacketHostAction::BuildingControlSelect { build_pos, .. }
+        | RuntimeCustomPacketHostAction::RequestBuildPayload { build_pos, .. }
+        | RuntimeCustomPacketHostAction::ClearItems { build_pos, .. }
+        | RuntimeCustomPacketHostAction::ClearLiquids { build_pos, .. }
+        | RuntimeCustomPacketHostAction::TransferInventory { build_pos, .. } => {
+            format!("build_pos={build_pos}")
+        }
+        RuntimeCustomPacketHostAction::TileTap { tile_pos, .. } => {
+            format!("tile_pos={tile_pos}")
+        }
+        RuntimeCustomPacketHostAction::UnitControl { unit_id, .. }
+        | RuntimeCustomPacketHostAction::RequestUnitPayload { unit_id, .. } => {
+            format!("unit_id={unit_id}")
+        }
+        RuntimeCustomPacketHostAction::RequestDropPayload { x, y, .. } => {
+            format!("x={} y={}", format_coord(*x), format_coord(*y))
+        }
+    }
+}
+
+fn parse_surface_i32(value: &str) -> Option<i32> {
+    value.trim().parse::<i32>().ok()
+}
+
+fn parse_surface_world_pos(value: &str) -> Option<(f32, f32)> {
+    let mut parts = value.splitn(2, ',');
+    let x = parts.next()?.trim().parse::<f32>().ok()?;
+    let y = parts.next()?.trim().parse::<f32>().ok()?;
+    Some((x, y))
 }
 
 fn format_host_business_entry(
@@ -341,6 +646,42 @@ mod tests {
         }
     }
 
+    fn build_spec() -> RuntimeCustomPacketSemanticSpec {
+        RuntimeCustomPacketSemanticSpec {
+            key: "build.select".to_string(),
+            encoding: RuntimeCustomPacketSemanticEncoding::Text,
+            semantic: RuntimeCustomPacketSemanticKind::BuildPos,
+        }
+    }
+
+    fn build_action_spec() -> RuntimeCustomPacketHostActionSpec {
+        RuntimeCustomPacketHostActionSpec {
+            key: "build.select".to_string(),
+            encoding: RuntimeCustomPacketSemanticEncoding::Text,
+            semantic: RuntimeCustomPacketSemanticKind::BuildPos,
+            action: RuntimeCustomPacketHostActionKind::BuildingControlSelect,
+        }
+    }
+
+    fn drop_action_spec() -> RuntimeCustomPacketHostActionSpec {
+        RuntimeCustomPacketHostActionSpec {
+            key: "logic.pos".to_string(),
+            encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+            semantic: RuntimeCustomPacketSemanticKind::WorldPos,
+            action: RuntimeCustomPacketHostActionKind::RequestDropPayload,
+        }
+    }
+
+    fn build_entry(value: &str) -> RuntimeCustomPacketSurfaceSummaryEntry {
+        RuntimeCustomPacketSurfaceSummaryEntry {
+            key: "build.select".to_string(),
+            encoding: RuntimeCustomPacketSemanticEncoding::Text,
+            semantic: RuntimeCustomPacketSemanticKind::BuildPos,
+            stable_value: value.to_string(),
+            marker: None,
+        }
+    }
+
     #[test]
     fn runtime_custom_packet_host_tracks_changed_business_entries_only() {
         let mut host =
@@ -452,5 +793,44 @@ mod tests {
             .last()
             .unwrap()
             .contains("manual_clears=1"));
+    }
+
+    #[test]
+    fn runtime_custom_packet_host_queues_bound_actions_only_for_changed_entries() {
+        let mut host = RuntimeCustomPacketHost::from_specs_with_actions(
+            &[logic_pos_spec(), build_spec()],
+            &[drop_action_spec(), build_action_spec()],
+        )
+        .unwrap();
+
+        host.observe_summary_entries(42, &[logic_pos_entry("7,9", 7.0, 9.0), build_entry("91")]);
+        assert_eq!(
+            host.drain_actions(),
+            vec![
+                RuntimeCustomPacketHostAction::RequestDropPayload {
+                    key: "logic.pos".to_string(),
+                    x: 7.0,
+                    y: 9.0,
+                },
+                RuntimeCustomPacketHostAction::BuildingControlSelect {
+                    key: "build.select".to_string(),
+                    build_pos: 91,
+                },
+            ]
+        );
+
+        host.drain_lines();
+        host.observe_summary_entries(43, &[logic_pos_entry("7,9", 7.0, 9.0), build_entry("91")]);
+        assert!(host.drain_actions().is_empty());
+
+        host.observe_summary_entries(44, &[logic_pos_entry("11,13", 11.0, 13.0)]);
+        assert_eq!(
+            host.drain_actions(),
+            vec![RuntimeCustomPacketHostAction::RequestDropPayload {
+                key: "logic.pos".to_string(),
+                x: 11.0,
+                y: 13.0,
+            }]
+        );
     }
 }
