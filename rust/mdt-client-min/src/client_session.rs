@@ -2520,7 +2520,8 @@ impl ClientSession {
             return Ok(Vec::new());
         }
 
-        let using_ready_snapshot_timeout = self.uses_ready_snapshot_timeout();
+        let interaction_ready = self.transport_scope_ready_for_interaction(allow_tcp, allow_udp);
+        let using_ready_snapshot_timeout = self.uses_ready_snapshot_timeout() && interaction_ready;
         let timeout_anchor = if using_ready_snapshot_timeout {
             self.last_snapshot_at_ms
         } else {
@@ -2546,7 +2547,6 @@ impl ClientSession {
         }
 
         let mut actions = Vec::new();
-        let interaction_ready = self.transport_scope_ready_for_interaction(allow_tcp, allow_udp);
 
         if interaction_ready {
             let mut retained_packets = VecDeque::new();
@@ -37718,6 +37718,129 @@ mod tests {
             })
         );
         assert_eq!(session.state().timeout_count, 1);
+        assert_eq!(session.state().connect_or_loading_timeout_count, 0);
+        assert_eq!(session.state().ready_snapshot_timeout_count, 1);
+    }
+
+    #[test]
+    fn udp_only_scope_keeps_loading_timeout_while_tcp_connect_confirm_remains_pending() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let timing = ClientSessionTiming {
+            keepalive_interval_ms: 60_000,
+            client_snapshot_interval_ms: 60_000,
+            connect_timeout_ms: 2_400,
+            timeout_ms: 1_200,
+        };
+        let mut session =
+            ClientSession::from_remote_manifest_with_timing(&manifest, "fr", timing).unwrap();
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+
+        session.ingest_packet_bytes(&begin_packet).unwrap();
+        for chunk in chunk_packets {
+            session.ingest_packet_bytes(&chunk).unwrap();
+        }
+        assert!(session.state().ready_to_enter_world);
+        assert!(session.state().client_loaded);
+        assert!(session.state().connect_confirm_sent);
+        assert!(!session.state().connect_confirm_flushed);
+        assert!(session
+            .pending_packets
+            .iter()
+            .any(|packet| packet.packet_id == session.connect_confirm_packet_id));
+
+        let actions = session
+            .advance_time_for_transport_scope(1_201, false, true)
+            .unwrap();
+        assert!(!actions
+            .iter()
+            .any(|action| matches!(action, ClientSessionAction::TimedOut { .. })));
+        assert!(!session.state().connection_timed_out);
+        assert_eq!(session.state().last_timeout, None);
+        assert!(session
+            .pending_packets
+            .iter()
+            .any(|packet| packet.packet_id == session.connect_confirm_packet_id));
+
+        let actions = session
+            .advance_time_for_transport_scope(2_400, false, true)
+            .unwrap();
+        assert_eq!(
+            actions,
+            vec![ClientSessionAction::TimedOut { idle_ms: 2_400 }]
+        );
+        assert!(session.state().connection_timed_out);
+        assert_eq!(
+            session.state().last_timeout,
+            Some(SessionTimeoutProjection {
+                kind: SessionTimeoutKind::ConnectOrLoading,
+                idle_ms: 2_400,
+            })
+        );
+        assert_eq!(session.state().connect_or_loading_timeout_count, 1);
+        assert_eq!(session.state().ready_snapshot_timeout_count, 0);
+    }
+
+    #[test]
+    fn udp_only_scope_switches_to_ready_snapshot_timeout_after_tcp_connect_confirm_flush() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let timing = ClientSessionTiming {
+            keepalive_interval_ms: 60_000,
+            client_snapshot_interval_ms: 60_000,
+            connect_timeout_ms: 60_000,
+            timeout_ms: 1_200,
+        };
+        let mut session =
+            ClientSession::from_remote_manifest_with_timing(&manifest, "fr", timing).unwrap();
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+
+        session.ingest_packet_bytes(&begin_packet).unwrap();
+        for chunk in chunk_packets {
+            session.ingest_packet_bytes(&chunk).unwrap();
+        }
+        assert!(session.state().ready_to_enter_world);
+        assert!(session.state().client_loaded);
+        assert!(session.state().connect_confirm_sent);
+        assert!(!session.state().connect_confirm_flushed);
+
+        let actions = session
+            .advance_time_for_transport_scope(1_000, true, false)
+            .unwrap();
+        assert!(actions.iter().any(|action| {
+            matches!(
+                action,
+                ClientSessionAction::SendPacket {
+                    packet_id,
+                    transport: ClientPacketTransport::Tcp,
+                    ..
+                } if *packet_id == session.connect_confirm_packet_id
+            )
+        }));
+        session.mark_tcp_packet_flushed(session.connect_confirm_packet_id, 1_000);
+        assert!(session.state().connect_confirm_flushed);
+        assert_eq!(
+            session.state().last_connect_confirm_flushed_at_ms,
+            Some(1_000)
+        );
+
+        let actions = session
+            .advance_time_for_transport_scope(1_201, false, true)
+            .unwrap();
+        assert_eq!(
+            actions,
+            vec![ClientSessionAction::TimedOut { idle_ms: 1_201 }]
+        );
+        assert!(session.state().connection_timed_out);
+        assert_eq!(
+            session.state().last_timeout,
+            Some(SessionTimeoutProjection {
+                kind: SessionTimeoutKind::ReadySnapshotStall,
+                idle_ms: 1_201,
+            })
+        );
         assert_eq!(session.state().connect_or_loading_timeout_count, 0);
         assert_eq!(session.state().ready_snapshot_timeout_count, 1);
     }
