@@ -40131,6 +40131,9 @@ mod tests {
         let post_load = save.post_load_world().unwrap();
         let execution = post_load.execute_runtime_apply();
         let shell = execution.world_shell.as_ref().unwrap();
+        let effective_entity = shell.loadable_entities.first().unwrap();
+        let effective_class_id = effective_entity.activation.effective_class_id.unwrap();
+        let effective_name = effective_entity.activation.effective_name.as_deref().unwrap();
 
         assert!(execution.has_world_shell());
         assert_eq!(execution.failed_step_count(), 0);
@@ -40157,6 +40160,24 @@ mod tests {
         assert_eq!(
             shell.loadable_entities.len(),
             shell.loadable_entities_by_id.len()
+        );
+        assert_eq!(
+            shell
+                .loadable_entities_for_effective_class_id(effective_class_id)
+                .unwrap()
+                .iter()
+                .map(|seed| seed.activation.entity_id)
+                .collect::<Vec<_>>(),
+            vec![effective_entity.activation.entity_id]
+        );
+        assert_eq!(
+            shell
+                .loadable_entities_for_effective_name(effective_name)
+                .unwrap()
+                .iter()
+                .map(|seed| seed.activation.entity_id)
+                .collect::<Vec<_>>(),
+            vec![effective_entity.activation.entity_id]
         );
     }
 

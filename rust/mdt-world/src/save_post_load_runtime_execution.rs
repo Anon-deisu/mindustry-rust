@@ -19,6 +19,9 @@ pub struct SavePostLoadRuntimeWorldShell {
     pub buildings_by_center_index: BTreeMap<usize, SavePostLoadRuntimeBuildingSeed>,
     pub loadable_entities: Vec<SavePostLoadRuntimeEntitySeed>,
     pub loadable_entities_by_id: BTreeMap<i32, SavePostLoadRuntimeEntitySeed>,
+    pub loadable_entities_by_effective_class_id: BTreeMap<u8, Vec<SavePostLoadRuntimeEntitySeed>>,
+    pub loadable_entities_by_effective_name:
+        BTreeMap<String, Vec<SavePostLoadRuntimeEntitySeed>>,
 }
 
 impl SavePostLoadRuntimeWorldShell {
@@ -28,6 +31,24 @@ impl SavePostLoadRuntimeWorldShell {
             + usize::from(self.static_fog.is_some())
             + self.buildings.len()
             + self.loadable_entities.len()
+    }
+
+    pub fn loadable_entities_for_effective_class_id(
+        &self,
+        class_id: u8,
+    ) -> Option<&[SavePostLoadRuntimeEntitySeed]> {
+        self.loadable_entities_by_effective_class_id
+            .get(&class_id)
+            .map(Vec::as_slice)
+    }
+
+    pub fn loadable_entities_for_effective_name(
+        &self,
+        name: &str,
+    ) -> Option<&[SavePostLoadRuntimeEntitySeed]> {
+        self.loadable_entities_by_effective_name
+            .get(name)
+            .map(Vec::as_slice)
     }
 }
 
@@ -158,6 +179,8 @@ impl SavePostLoadRuntimeApplyExecution {
                     buildings_by_center_index: BTreeMap::new(),
                     loadable_entities: Vec::new(),
                     loadable_entities_by_id: BTreeMap::new(),
+                    loadable_entities_by_effective_class_id: BTreeMap::new(),
+                    loadable_entities_by_effective_name: BTreeMap::new(),
                 });
                 true
             }
@@ -340,6 +363,20 @@ impl SavePostLoadRuntimeApplyExecution {
                     Entry::Vacant(entry) => {
                         entry.insert(seed.clone());
                         shell.loadable_entities.push(seed.clone());
+                        if let Some(effective_class_id) = seed.activation.effective_class_id {
+                            shell
+                                .loadable_entities_by_effective_class_id
+                                .entry(effective_class_id)
+                                .or_default()
+                                .push(seed.clone());
+                        }
+                        if let Some(effective_name) = seed.activation.effective_name.clone() {
+                            shell
+                                .loadable_entities_by_effective_name
+                                .entry(effective_name)
+                                .or_default()
+                                .push(seed.clone());
+                        }
                         true
                     }
                     Entry::Occupied(_) => {
@@ -488,6 +525,44 @@ mod tests {
         assert_eq!(shell.buildings_by_center_index.len(), 1);
         assert_eq!(shell.loadable_entities.len(), 3);
         assert_eq!(shell.loadable_entities_by_id.len(), 3);
+        assert_eq!(shell.loadable_entities_by_effective_class_id.len(), 2);
+        assert_eq!(shell.loadable_entities_by_effective_name.len(), 2);
+        assert_eq!(
+            shell
+                .loadable_entities_for_effective_class_id(3)
+                .unwrap()
+                .iter()
+                .map(|seed| seed.activation.entity_id)
+                .collect::<Vec<_>>(),
+            vec![42, 43]
+        );
+        assert_eq!(
+            shell
+                .loadable_entities_for_effective_class_id(4)
+                .unwrap()
+                .iter()
+                .map(|seed| seed.activation.entity_id)
+                .collect::<Vec<_>>(),
+            vec![44]
+        );
+        assert_eq!(
+            shell
+                .loadable_entities_for_effective_name("flare")
+                .unwrap()
+                .iter()
+                .map(|seed| seed.activation.entity_id)
+                .collect::<Vec<_>>(),
+            vec![42, 43]
+        );
+        assert_eq!(
+            shell
+                .loadable_entities_for_effective_name("mace")
+                .unwrap()
+                .iter()
+                .map(|seed| seed.activation.entity_id)
+                .collect::<Vec<_>>(),
+            vec![44]
+        );
         assert_eq!(shell.applied_step_count(), 9);
         assert_eq!(shell.seed.tile_count(), 4);
     }
@@ -624,6 +699,25 @@ mod tests {
         assert_eq!(shell.buildings_by_center_index.len(), 1);
         assert_eq!(shell.loadable_entities.len(), 3);
         assert_eq!(shell.loadable_entities_by_id.len(), 3);
+        assert_eq!(shell.loadable_entities_by_effective_class_id.len(), 2);
+        assert_eq!(
+            shell
+                .loadable_entities_for_effective_class_id(3)
+                .unwrap()
+                .iter()
+                .map(|seed| seed.activation.entity_id)
+                .collect::<Vec<_>>(),
+            vec![42, 43]
+        );
+        assert_eq!(
+            shell
+                .loadable_entities_for_effective_name("flare")
+                .unwrap()
+                .iter()
+                .map(|seed| seed.activation.entity_id)
+                .collect::<Vec<_>>(),
+            vec![42, 43]
+        );
         assert!(!execution.executed_steps.iter().any(|step| {
             matches!(
                 step,
