@@ -144,7 +144,7 @@ This document tracks release-readiness audit continuation for the Rust deliverab
    - Evidence: `tools/check-mdt-release-prereqs.ps1:39-41`
 10. `resolved` Build/codegen minimal viable chain is connected:
    - Gradle tasks can generate `build/mdt-remote/remote-manifest-v1.json`
-   - Gradle codegen refreshes `rust/mdt-client-min/src/generated/remote_high_frequency_gen.rs`
+   - Gradle codegen refreshes both `rust/mdt-client-min/src/generated/remote_registry_gen.rs` and `rust/mdt-client-min/src/generated/remote_high_frequency_gen.rs`
 
 ## Release Claim Boundary
 
