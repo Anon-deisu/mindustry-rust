@@ -1,5 +1,6 @@
 use crate::{
-    hud_model::HudSummary, HudModel, RenderModel, RenderObject, RenderViewWindow, Viewport,
+    hud_model::{HudMinimapSummary, HudSummary, HudViewWindowSummary},
+    HudModel, RenderModel, RenderObject, RenderViewWindow, Viewport,
 };
 use mdt_world::{LineMarkerModel, LoadedWorldSession, MarkerEntry, MarkerModel, TeamPlanRef};
 
@@ -45,7 +46,7 @@ pub fn project_scene_models_with_player_position(
             player_position,
             visibility.overlay_visible,
         ),
-        project_hud_model_with_visibility(session, locale, visibility),
+        project_hud_model_with_visibility(session, locale, visibility, player_position, None),
     )
 }
 
@@ -63,7 +64,13 @@ pub fn project_scene_models_with_view_window(
             max_view_tiles,
             visibility.overlay_visible,
         ),
-        project_hud_model_with_visibility(session, locale, visibility),
+        project_hud_model_with_visibility(
+            session,
+            locale,
+            visibility,
+            player_position,
+            Some(max_view_tiles),
+        ),
     )
 }
 
@@ -282,13 +289,15 @@ fn project_render_model_with_view_window_visibility(
 
 pub fn project_hud_model(session: &LoadedWorldSession<'_>, locale: &str) -> HudModel {
     let visibility = scene_visibility(session, locale);
-    project_hud_model_with_visibility(session, locale, visibility)
+    project_hud_model_with_visibility(session, locale, visibility, None, None)
 }
 
 fn project_hud_model_with_visibility(
     session: &LoadedWorldSession<'_>,
     locale: &str,
     visibility: SceneVisibility,
+    player_position: Option<(f32, f32)>,
+    max_view_tiles: Option<(usize, usize)>,
 ) -> HudModel {
     if !visibility.hud_visible && !visibility.overlay_visible {
         return HudModel::hidden();
@@ -317,6 +326,7 @@ fn project_hud_model_with_visibility(
     let marker_count = graph.markers().count();
     let map_width = graph.width();
     let map_height = graph.height();
+    let minimap = project_hud_minimap_summary(session, player_position, max_view_tiles);
     let status_text = if visibility.hud_visible {
         visibility.hud_status_text.clone().unwrap_or_else(|| {
             format!(
@@ -362,9 +372,40 @@ fn project_hud_model_with_visibility(
             fog_enabled: fog_visibility.enabled,
             visible_tile_count,
             hidden_tile_count,
+            minimap,
         }),
         runtime_ui: None,
         build_ui: None,
+    }
+}
+
+fn project_hud_minimap_summary(
+    session: &LoadedWorldSession<'_>,
+    player_position: Option<(f32, f32)>,
+    max_view_tiles: Option<(usize, usize)>,
+) -> HudMinimapSummary {
+    let graph = session.graph();
+    let map_width = graph.width();
+    let map_height = graph.height();
+    let (player_x, player_y) = player_position.unwrap_or_else(|| session.state().player_position());
+    let focus_tile = (map_width > 0 && map_height > 0).then_some((
+        world_to_tile_index_clamped(player_x, map_width),
+        world_to_tile_index_clamped(player_y, map_height),
+    ));
+    let (origin_x, origin_y, width, height) = max_view_tiles
+        .map(|max_view_tiles| {
+            view_window_bounds(map_width, map_height, (player_x, player_y), max_view_tiles)
+        })
+        .unwrap_or((0, 0, map_width, map_height));
+
+    HudMinimapSummary {
+        focus_tile,
+        view_window: HudViewWindowSummary {
+            origin_x,
+            origin_y,
+            width,
+            height,
+        },
     }
 }
 

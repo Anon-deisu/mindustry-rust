@@ -1,7 +1,11 @@
+use crate::minimap_user_flow::{
+    build_minimap_user_flow_panel, MinimapPanAxisDirection, MinimapUserFocusState,
+    MinimapUserTargetKind,
+};
 use crate::panel_model::{
-    build_build_minimap_assist_panel, BuildInteractionAuthorityState, BuildInteractionMode,
-    BuildInteractionQueueState, BuildInteractionSelectionState, BuildMinimapAssistPanelModel,
-    PresenterViewWindow,
+    build_build_interaction_panel, build_build_minimap_assist_panel,
+    BuildInteractionAuthorityState, BuildInteractionMode, BuildInteractionQueueState,
+    BuildInteractionSelectionState, BuildMinimapAssistPanelModel, PresenterViewWindow,
 };
 use crate::{HudModel, RenderModel};
 
@@ -31,6 +35,14 @@ pub(crate) struct BuildUserFlowPanelModel {
     pub next_action: &'static str,
     pub blockers: Vec<BuildUserFlowBlocker>,
     pub route: Vec<&'static str>,
+    pub minimap_next_action: &'static str,
+    pub focus_state: MinimapUserFocusState,
+    pub pan_horizontal: MinimapPanAxisDirection,
+    pub pan_vertical: MinimapPanAxisDirection,
+    pub target_kind: MinimapUserTargetKind,
+    pub config_scope: &'static str,
+    pub authority_state: BuildInteractionAuthorityState,
+    pub head_tile: Option<(i32, i32)>,
 }
 
 impl BuildUserFlowPanelModel {
@@ -49,6 +61,21 @@ impl BuildUserFlowPanelModel {
     pub(crate) fn route_count(&self) -> usize {
         self.route.len()
     }
+
+    pub(crate) fn pan_label(&self) -> &'static str {
+        match (self.pan_horizontal, self.pan_vertical) {
+            (MinimapPanAxisDirection::None, MinimapPanAxisDirection::None) => "hold",
+            (MinimapPanAxisDirection::None, vertical) => vertical.label(),
+            (horizontal, MinimapPanAxisDirection::None) => horizontal.label(),
+            (horizontal, vertical) => match (horizontal, vertical) {
+                (MinimapPanAxisDirection::Left, MinimapPanAxisDirection::Up) => "left+up",
+                (MinimapPanAxisDirection::Left, MinimapPanAxisDirection::Down) => "left+down",
+                (MinimapPanAxisDirection::Right, MinimapPanAxisDirection::Up) => "right+up",
+                (MinimapPanAxisDirection::Right, MinimapPanAxisDirection::Down) => "right+down",
+                _ => "hold",
+            },
+        }
+    }
 }
 
 pub(crate) fn build_build_user_flow_panel(
@@ -57,10 +84,16 @@ pub(crate) fn build_build_user_flow_panel(
     window: PresenterViewWindow,
 ) -> Option<BuildUserFlowPanelModel> {
     let assist = build_build_minimap_assist_panel(scene, hud, window)?;
-    Some(build_user_flow_from_assist(&assist))
+    let minimap = build_minimap_user_flow_panel(scene, hud, window)?;
+    let interaction = build_build_interaction_panel(hud)?;
+    Some(build_user_flow_from_panels(&assist, &minimap, &interaction))
 }
 
-fn build_user_flow_from_assist(assist: &BuildMinimapAssistPanelModel) -> BuildUserFlowPanelModel {
+fn build_user_flow_from_panels(
+    assist: &BuildMinimapAssistPanelModel,
+    minimap: &crate::minimap_user_flow::MinimapUserFlowPanelModel,
+    interaction: &crate::panel_model::BuildInteractionPanelModel,
+) -> BuildUserFlowPanelModel {
     let blockers = build_blockers(assist);
     let mut route = blockers
         .iter()
@@ -87,6 +120,14 @@ fn build_user_flow_from_assist(assist: &BuildMinimapAssistPanelModel) -> BuildUs
         next_action: assist.next_action_label(),
         blockers,
         route,
+        minimap_next_action: minimap.next_action,
+        focus_state: minimap.focus_state,
+        pan_horizontal: minimap.pan_horizontal,
+        pan_vertical: minimap.pan_vertical,
+        target_kind: minimap.target_kind,
+        config_scope: assist.config_scope_label(),
+        authority_state: interaction.authority_state,
+        head_tile: interaction.head.as_ref().map(|head| (head.x, head.y)),
     }
 }
 
@@ -145,31 +186,77 @@ fn push_route_step(route: &mut Vec<&'static str>, step: &'static str) {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_user_flow_from_assist, BuildUserFlowBlocker, BuildUserFlowPanelModel};
+    use super::{build_user_flow_from_panels, BuildUserFlowBlocker, BuildUserFlowPanelModel};
+    use crate::minimap_user_flow::{
+        MinimapPanAxisDirection, MinimapUserFlowPanelModel, MinimapUserFocusState,
+        MinimapUserTargetKind,
+    };
     use crate::panel_model::{
-        BuildInteractionAuthorityState, BuildInteractionMode, BuildInteractionQueueState,
-        BuildInteractionSelectionState, BuildMinimapAssistPanelModel,
+        BuildConfigHeadModel, BuildInteractionAuthorityState, BuildInteractionMode,
+        BuildInteractionPanelModel, BuildInteractionQueueState, BuildInteractionSelectionState,
+        BuildMinimapAssistPanelModel,
     };
 
     #[test]
     fn build_user_flow_route_tracks_ordered_place_blockers_and_commit_path() {
-        let panel = build_user_flow_from_assist(&BuildMinimapAssistPanelModel {
-            mode: BuildInteractionMode::Place,
-            selection_state: BuildInteractionSelectionState::HeadDiverged,
-            queue_state: BuildInteractionQueueState::Queued,
-            place_ready: true,
-            config_family_count: 2,
-            config_sample_count: 5,
-            top_config_family: Some("power-node".to_string()),
-            authority_state: BuildInteractionAuthorityState::Rollback,
-            focus_tile: Some((12, 18)),
-            focus_in_window: Some(false),
-            visible_map_percent: 0,
-            unknown_tile_percent: 100,
-            window_coverage_percent: 25,
-            tracked_object_count: 8,
-            runtime_count: 2,
-        });
+        let panel = build_user_flow_from_panels(
+            &BuildMinimapAssistPanelModel {
+                mode: BuildInteractionMode::Place,
+                selection_state: BuildInteractionSelectionState::HeadDiverged,
+                queue_state: BuildInteractionQueueState::Queued,
+                place_ready: true,
+                config_family_count: 2,
+                config_sample_count: 5,
+                top_config_family: Some("power-node".to_string()),
+                authority_state: BuildInteractionAuthorityState::Rollback,
+                focus_tile: Some((12, 18)),
+                focus_in_window: Some(false),
+                visible_map_percent: 0,
+                unknown_tile_percent: 100,
+                window_coverage_percent: 25,
+                tracked_object_count: 8,
+                runtime_count: 2,
+            },
+            &MinimapUserFlowPanelModel {
+                next_action: "pan",
+                focus_state: MinimapUserFocusState::Outside,
+                pan_horizontal: MinimapPanAxisDirection::Right,
+                pan_vertical: MinimapPanAxisDirection::Down,
+                target_kind: MinimapUserTargetKind::Plan,
+                focus_tile: Some((12, 18)),
+                overlay_target_count: 3,
+                visible_map_percent: 0,
+                unknown_tile_percent: 100,
+                window_coverage_percent: 25,
+            },
+            &BuildInteractionPanelModel {
+                mode: BuildInteractionMode::Place,
+                selection_state: BuildInteractionSelectionState::HeadDiverged,
+                queue_state: BuildInteractionQueueState::Queued,
+                selected_block_id: Some(301),
+                selected_rotation: 0,
+                pending_count: 1,
+                orphan_authoritative_count: 0,
+                place_ready: true,
+                config_available: true,
+                config_family_count: 2,
+                config_sample_count: 5,
+                top_config_family: Some("power-node".to_string()),
+                head: Some(BuildConfigHeadModel {
+                    x: 12,
+                    y: 18,
+                    breaking: false,
+                    block_id: Some(301),
+                    rotation: Some(0),
+                    stage: crate::BuildQueueHeadStage::Queued,
+                }),
+                authority_state: BuildInteractionAuthorityState::Rollback,
+                authority_pending_match: Some(false),
+                authority_source: None,
+                authority_tile: Some((12, 18)),
+                authority_block_name: Some("power-node".to_string()),
+            },
+        );
 
         assert_eq!(panel.next_action, "realign");
         assert_eq!(
@@ -185,100 +272,263 @@ mod tests {
             panel.route,
             vec!["realign", "resolve", "refocus", "survey", "commit"]
         );
+        assert_eq!(panel.minimap_next_action, "pan");
+        assert_eq!(panel.focus_state, MinimapUserFocusState::Outside);
+        assert_eq!(panel.pan_label(), "right+down");
+        assert_eq!(panel.target_kind, MinimapUserTargetKind::Plan);
+        assert_eq!(panel.config_scope, "multi");
+        assert_eq!(panel.authority_state, BuildInteractionAuthorityState::Rollback);
+        assert_eq!(panel.head_tile, Some((12, 18)));
     }
 
     #[test]
     fn build_user_flow_route_adds_seed_before_commit_for_ready_empty_queue() {
-        let panel = build_user_flow_from_assist(&BuildMinimapAssistPanelModel {
-            mode: BuildInteractionMode::Place,
-            selection_state: BuildInteractionSelectionState::HeadAligned,
-            queue_state: BuildInteractionQueueState::Empty,
-            place_ready: true,
-            config_family_count: 1,
-            config_sample_count: 1,
-            top_config_family: Some("message".to_string()),
-            authority_state: BuildInteractionAuthorityState::Applied,
-            focus_tile: Some((4, 6)),
-            focus_in_window: Some(true),
-            visible_map_percent: 100,
-            unknown_tile_percent: 0,
-            window_coverage_percent: 40,
-            tracked_object_count: 3,
-            runtime_count: 0,
-        });
+        let panel = build_user_flow_from_panels(
+            &BuildMinimapAssistPanelModel {
+                mode: BuildInteractionMode::Place,
+                selection_state: BuildInteractionSelectionState::HeadAligned,
+                queue_state: BuildInteractionQueueState::Empty,
+                place_ready: true,
+                config_family_count: 1,
+                config_sample_count: 1,
+                top_config_family: Some("message".to_string()),
+                authority_state: BuildInteractionAuthorityState::Applied,
+                focus_tile: Some((4, 6)),
+                focus_in_window: Some(true),
+                visible_map_percent: 100,
+                unknown_tile_percent: 0,
+                window_coverage_percent: 40,
+                tracked_object_count: 3,
+                runtime_count: 0,
+            },
+            &MinimapUserFlowPanelModel {
+                next_action: "inspect",
+                focus_state: MinimapUserFocusState::Inside,
+                pan_horizontal: MinimapPanAxisDirection::None,
+                pan_vertical: MinimapPanAxisDirection::None,
+                target_kind: MinimapUserTargetKind::Marker,
+                focus_tile: Some((4, 6)),
+                overlay_target_count: 1,
+                visible_map_percent: 100,
+                unknown_tile_percent: 0,
+                window_coverage_percent: 40,
+            },
+            &BuildInteractionPanelModel {
+                mode: BuildInteractionMode::Place,
+                selection_state: BuildInteractionSelectionState::HeadAligned,
+                queue_state: BuildInteractionQueueState::Empty,
+                selected_block_id: Some(1),
+                selected_rotation: 0,
+                pending_count: 0,
+                orphan_authoritative_count: 0,
+                place_ready: true,
+                config_available: true,
+                config_family_count: 1,
+                config_sample_count: 1,
+                top_config_family: Some("message".to_string()),
+                head: None,
+                authority_state: BuildInteractionAuthorityState::Applied,
+                authority_pending_match: Some(true),
+                authority_source: None,
+                authority_tile: None,
+                authority_block_name: None,
+            },
+        );
 
         assert_eq!(panel.next_action, "seed");
         assert!(panel.blockers.is_empty());
         assert_eq!(panel.route, vec!["seed", "commit"]);
+        assert_eq!(panel.minimap_next_action, "inspect");
+        assert_eq!(panel.focus_state, MinimapUserFocusState::Inside);
+        assert_eq!(panel.pan_label(), "hold");
+        assert_eq!(panel.target_kind, MinimapUserTargetKind::Marker);
+        assert_eq!(panel.config_scope, "single");
     }
 
     #[test]
     fn build_user_flow_route_stays_bounded_for_unarmed_break_and_idle_states() {
-        let place_arm = build_user_flow_from_assist(&BuildMinimapAssistPanelModel {
-            mode: BuildInteractionMode::Place,
-            selection_state: BuildInteractionSelectionState::Unarmed,
-            queue_state: BuildInteractionQueueState::Empty,
-            place_ready: false,
-            config_family_count: 0,
-            config_sample_count: 0,
-            top_config_family: None,
-            authority_state: BuildInteractionAuthorityState::None,
-            focus_tile: Some((1, 1)),
-            focus_in_window: Some(true),
-            visible_map_percent: 50,
-            unknown_tile_percent: 50,
-            window_coverage_percent: 10,
-            tracked_object_count: 1,
-            runtime_count: 0,
-        });
+        let place_arm = build_user_flow_from_panels(
+            &BuildMinimapAssistPanelModel {
+                mode: BuildInteractionMode::Place,
+                selection_state: BuildInteractionSelectionState::Unarmed,
+                queue_state: BuildInteractionQueueState::Empty,
+                place_ready: false,
+                config_family_count: 0,
+                config_sample_count: 0,
+                top_config_family: None,
+                authority_state: BuildInteractionAuthorityState::None,
+                focus_tile: Some((1, 1)),
+                focus_in_window: Some(true),
+                visible_map_percent: 50,
+                unknown_tile_percent: 50,
+                window_coverage_percent: 10,
+                tracked_object_count: 1,
+                runtime_count: 0,
+            },
+            &MinimapUserFlowPanelModel {
+                next_action: "hold",
+                focus_state: MinimapUserFocusState::Inside,
+                pan_horizontal: MinimapPanAxisDirection::None,
+                pan_vertical: MinimapPanAxisDirection::None,
+                target_kind: MinimapUserTargetKind::None,
+                focus_tile: Some((1, 1)),
+                overlay_target_count: 0,
+                visible_map_percent: 50,
+                unknown_tile_percent: 50,
+                window_coverage_percent: 10,
+            },
+            &BuildInteractionPanelModel {
+                mode: BuildInteractionMode::Place,
+                selection_state: BuildInteractionSelectionState::Unarmed,
+                queue_state: BuildInteractionQueueState::Empty,
+                selected_block_id: None,
+                selected_rotation: 0,
+                pending_count: 0,
+                orphan_authoritative_count: 0,
+                place_ready: false,
+                config_available: false,
+                config_family_count: 0,
+                config_sample_count: 0,
+                top_config_family: None,
+                head: None,
+                authority_state: BuildInteractionAuthorityState::None,
+                authority_pending_match: None,
+                authority_source: None,
+                authority_tile: None,
+                authority_block_name: None,
+            },
+        );
         assert_eq!(place_arm.next_action, "arm");
         assert_eq!(place_arm.blocker_labels(), vec!["arm"]);
         assert_eq!(place_arm.route, vec!["arm"]);
 
-        let break_refocus = build_user_flow_from_assist(&BuildMinimapAssistPanelModel {
-            mode: BuildInteractionMode::Break,
-            selection_state: BuildInteractionSelectionState::BreakingHead,
-            queue_state: BuildInteractionQueueState::Queued,
-            place_ready: false,
-            config_family_count: 0,
-            config_sample_count: 0,
-            top_config_family: None,
-            authority_state: BuildInteractionAuthorityState::Applied,
-            focus_tile: None,
-            focus_in_window: None,
-            visible_map_percent: 100,
-            unknown_tile_percent: 0,
-            window_coverage_percent: 100,
-            tracked_object_count: 1,
-            runtime_count: 0,
-        });
+        let break_refocus = build_user_flow_from_panels(
+            &BuildMinimapAssistPanelModel {
+                mode: BuildInteractionMode::Break,
+                selection_state: BuildInteractionSelectionState::BreakingHead,
+                queue_state: BuildInteractionQueueState::Queued,
+                place_ready: false,
+                config_family_count: 0,
+                config_sample_count: 0,
+                top_config_family: None,
+                authority_state: BuildInteractionAuthorityState::Applied,
+                focus_tile: None,
+                focus_in_window: None,
+                visible_map_percent: 100,
+                unknown_tile_percent: 0,
+                window_coverage_percent: 100,
+                tracked_object_count: 1,
+                runtime_count: 0,
+            },
+            &MinimapUserFlowPanelModel {
+                next_action: "locate",
+                focus_state: MinimapUserFocusState::Missing,
+                pan_horizontal: MinimapPanAxisDirection::None,
+                pan_vertical: MinimapPanAxisDirection::None,
+                target_kind: MinimapUserTargetKind::None,
+                focus_tile: None,
+                overlay_target_count: 0,
+                visible_map_percent: 100,
+                unknown_tile_percent: 0,
+                window_coverage_percent: 100,
+            },
+            &BuildInteractionPanelModel {
+                mode: BuildInteractionMode::Break,
+                selection_state: BuildInteractionSelectionState::BreakingHead,
+                queue_state: BuildInteractionQueueState::Queued,
+                selected_block_id: None,
+                selected_rotation: 0,
+                pending_count: 1,
+                orphan_authoritative_count: 0,
+                place_ready: false,
+                config_available: false,
+                config_family_count: 0,
+                config_sample_count: 0,
+                top_config_family: None,
+                head: Some(BuildConfigHeadModel {
+                    x: 4,
+                    y: 5,
+                    breaking: true,
+                    block_id: None,
+                    rotation: None,
+                    stage: crate::BuildQueueHeadStage::Queued,
+                }),
+                authority_state: BuildInteractionAuthorityState::Applied,
+                authority_pending_match: None,
+                authority_source: None,
+                authority_tile: None,
+                authority_block_name: None,
+            },
+        );
         assert_eq!(break_refocus.next_action, "refocus");
         assert_eq!(break_refocus.blocker_labels(), vec!["refocus"]);
         assert_eq!(break_refocus.route, vec!["refocus", "break"]);
 
-        let idle = build_user_flow_from_assist(&BuildMinimapAssistPanelModel {
-            mode: BuildInteractionMode::Idle,
-            selection_state: BuildInteractionSelectionState::Unarmed,
-            queue_state: BuildInteractionQueueState::Empty,
-            place_ready: false,
-            config_family_count: 0,
-            config_sample_count: 0,
-            top_config_family: None,
-            authority_state: BuildInteractionAuthorityState::None,
-            focus_tile: None,
-            focus_in_window: None,
-            visible_map_percent: 0,
-            unknown_tile_percent: 100,
-            window_coverage_percent: 0,
-            tracked_object_count: 0,
-            runtime_count: 0,
-        });
+        let idle = build_user_flow_from_panels(
+            &BuildMinimapAssistPanelModel {
+                mode: BuildInteractionMode::Idle,
+                selection_state: BuildInteractionSelectionState::Unarmed,
+                queue_state: BuildInteractionQueueState::Empty,
+                place_ready: false,
+                config_family_count: 0,
+                config_sample_count: 0,
+                top_config_family: None,
+                authority_state: BuildInteractionAuthorityState::None,
+                focus_tile: None,
+                focus_in_window: None,
+                visible_map_percent: 0,
+                unknown_tile_percent: 100,
+                window_coverage_percent: 0,
+                tracked_object_count: 0,
+                runtime_count: 0,
+            },
+            &MinimapUserFlowPanelModel {
+                next_action: "locate",
+                focus_state: MinimapUserFocusState::Missing,
+                pan_horizontal: MinimapPanAxisDirection::None,
+                pan_vertical: MinimapPanAxisDirection::None,
+                target_kind: MinimapUserTargetKind::None,
+                focus_tile: None,
+                overlay_target_count: 0,
+                visible_map_percent: 0,
+                unknown_tile_percent: 100,
+                window_coverage_percent: 0,
+            },
+            &BuildInteractionPanelModel {
+                mode: BuildInteractionMode::Idle,
+                selection_state: BuildInteractionSelectionState::Unarmed,
+                queue_state: BuildInteractionQueueState::Empty,
+                selected_block_id: None,
+                selected_rotation: 0,
+                pending_count: 0,
+                orphan_authoritative_count: 0,
+                place_ready: false,
+                config_available: false,
+                config_family_count: 0,
+                config_sample_count: 0,
+                top_config_family: None,
+                head: None,
+                authority_state: BuildInteractionAuthorityState::None,
+                authority_pending_match: None,
+                authority_source: None,
+                authority_tile: None,
+                authority_block_name: None,
+            },
+        );
         assert_eq!(
             idle,
             BuildUserFlowPanelModel {
                 next_action: "idle",
                 blockers: Vec::new(),
                 route: vec!["idle"],
+                minimap_next_action: "locate",
+                focus_state: MinimapUserFocusState::Missing,
+                pan_horizontal: MinimapPanAxisDirection::None,
+                pan_vertical: MinimapPanAxisDirection::None,
+                target_kind: MinimapUserTargetKind::None,
+                config_scope: "none",
+                authority_state: BuildInteractionAuthorityState::None,
+                head_tile: None,
             }
         );
     }

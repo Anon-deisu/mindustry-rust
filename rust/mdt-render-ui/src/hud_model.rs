@@ -25,6 +25,21 @@ pub struct HudSummary {
     pub fog_enabled: bool,
     pub visible_tile_count: usize,
     pub hidden_tile_count: usize,
+    pub minimap: HudMinimapSummary,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HudMinimapSummary {
+    pub focus_tile: Option<(usize, usize)>,
+    pub view_window: HudViewWindowSummary,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HudViewWindowSummary {
+    pub origin_x: usize,
+    pub origin_y: usize,
+    pub width: usize,
+    pub height: usize,
 }
 
 /// Structured runtime UI observability projection.

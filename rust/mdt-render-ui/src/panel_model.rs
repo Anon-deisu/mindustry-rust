@@ -263,6 +263,7 @@ pub struct BuildMinimapAssistPanelModel {
     pub runtime_count: usize,
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 impl BuildMinimapAssistPanelModel {
     pub fn focus_state_label(&self) -> &'static str {
         match (self.focus_tile, self.focus_in_window) {
@@ -1131,7 +1132,13 @@ pub fn build_minimap_panel(
     window: PresenterViewWindow,
 ) -> Option<MinimapPanelModel> {
     let summary = hud.summary.as_ref()?;
-    let window = resolve_presenter_window(scene, summary.map_width, summary.map_height, window);
+    let window = resolve_presenter_window(
+        scene,
+        summary.map_width,
+        summary.map_height,
+        summary.minimap.view_window,
+        window,
+    );
     let semantics = scene.semantic_summary();
     let window_last_x = window
         .origin_x
@@ -1145,7 +1152,7 @@ pub fn build_minimap_panel(
         .visible_tile_count
         .saturating_add(summary.hidden_tile_count);
     let unknown_tile_count = map_tile_count.saturating_sub(known_tile_count);
-    let focus_tile = scene.player_focus_tile(8.0);
+    let focus_tile = summary.minimap.focus_tile;
     let window_semantics = minimap_window_semantic_counts(scene, window);
     let window_mid_x = window.origin_x.saturating_add(window_last_x) / 2;
     let window_mid_y = window.origin_y.saturating_add(window_last_y) / 2;
@@ -1903,13 +1910,14 @@ fn resolve_presenter_window(
     scene: &RenderModel,
     map_width: usize,
     map_height: usize,
+    summary_window: crate::hud_model::HudViewWindowSummary,
     window: PresenterViewWindow,
 ) -> PresenterViewWindow {
     if window.width != 0 || window.height != 0 {
         return window;
     }
 
-    scene
+    let scene_window = scene
         .view_window
         .map(|view_window| PresenterViewWindow {
             origin_x: view_window.origin_x.min(map_width),
@@ -1917,7 +1925,18 @@ fn resolve_presenter_window(
             width: view_window.width.min(map_width),
             height: view_window.height.min(map_height),
         })
-        .unwrap_or(window)
+        .unwrap_or(PresenterViewWindow {
+            origin_x: summary_window.origin_x.min(map_width),
+            origin_y: summary_window.origin_y.min(map_height),
+            width: summary_window.width.min(map_width),
+            height: summary_window.height.min(map_height),
+        });
+
+    if scene_window.width != 0 || scene_window.height != 0 {
+        scene_window
+    } else {
+        window
+    }
 }
 
 #[cfg(test)]
@@ -1981,6 +2000,15 @@ mod tests {
                 fog_enabled: true,
                 visible_tile_count: 120,
                 hidden_tile_count: 24,
+                minimap: crate::hud_model::HudMinimapSummary {
+                    focus_tile: Some((0, 0)),
+                    view_window: crate::hud_model::HudViewWindowSummary {
+                        origin_x: 0,
+                        origin_y: 0,
+                        width: 80,
+                        height: 60,
+                    },
+                },
             }),
             ..HudModel::default()
         };
@@ -2063,6 +2091,15 @@ mod tests {
                 fog_enabled: true,
                 visible_tile_count: 120,
                 hidden_tile_count: 24,
+                minimap: crate::hud_model::HudMinimapSummary {
+                    focus_tile: Some((5, 3)),
+                    view_window: crate::hud_model::HudViewWindowSummary {
+                        origin_x: 0,
+                        origin_y: 0,
+                        width: 80,
+                        height: 60,
+                    },
+                },
             }),
             ..HudModel::default()
         };
@@ -2374,6 +2411,15 @@ mod tests {
                 fog_enabled: false,
                 visible_tile_count: 0,
                 hidden_tile_count: 0,
+                minimap: crate::hud_model::HudMinimapSummary {
+                    focus_tile: Some((0, 0)),
+                    view_window: crate::hud_model::HudViewWindowSummary {
+                        origin_x: 0,
+                        origin_y: 0,
+                        width: 80,
+                        height: 60,
+                    },
+                },
             }),
             build_ui: Some(BuildUiObservability {
                 selected_block_id: Some(301),
@@ -3520,6 +3566,15 @@ mod tests {
                 fog_enabled: true,
                 visible_tile_count: 25,
                 hidden_tile_count: 15,
+                minimap: crate::hud_model::HudMinimapSummary {
+                    focus_tile: Some((2, 3)),
+                    view_window: crate::hud_model::HudViewWindowSummary {
+                        origin_x: 0,
+                        origin_y: 0,
+                        width: 10,
+                        height: 10,
+                    },
+                },
             }),
             ..HudModel::default()
         };

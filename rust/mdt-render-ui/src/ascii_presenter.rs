@@ -1,9 +1,10 @@
 use crate::build_user_flow::build_build_user_flow_panel;
+use crate::minimap_user_flow::build_minimap_user_flow_panel;
 use crate::panel_model::{
-    build_build_config_panel, build_build_interaction_panel, build_build_minimap_assist_panel,
-    build_hud_status_panel, build_hud_visibility_panel, build_minimap_panel,
-    build_runtime_admin_panel, build_runtime_chat_panel, build_runtime_command_mode_panel,
-    build_runtime_dialog_panel, build_runtime_dialog_stack_panel, build_runtime_kick_panel,
+    build_build_config_panel, build_build_interaction_panel, build_hud_status_panel,
+    build_hud_visibility_panel, build_minimap_panel, build_runtime_admin_panel,
+    build_runtime_chat_panel, build_runtime_command_mode_panel, build_runtime_dialog_panel,
+    build_runtime_dialog_stack_panel, build_runtime_kick_panel,
     build_runtime_live_effect_panel, build_runtime_live_entity_panel, build_runtime_loading_panel,
     build_runtime_menu_panel, build_runtime_notice_state_panel, build_runtime_prompt_panel,
     build_runtime_reconnect_panel, build_runtime_rules_panel, build_runtime_session_panel,
@@ -77,6 +78,9 @@ impl AsciiScenePresenter {
         }
         if let Some(minimap_visibility_text) = compose_minimap_visibility_line(scene, hud, window) {
             out.push_str(&format!("MINIMAP-VIS: {minimap_visibility_text}\n"));
+        }
+        if let Some(minimap_flow_text) = compose_minimap_flow_line(scene, hud, window) {
+            out.push_str(&format!("MINIMAP-FLOW: {minimap_flow_text}\n"));
         }
         if let Some(minimap_kinds_text) = compose_minimap_kind_line(scene, hud) {
             out.push_str(&format!("MINIMAP-KINDS: {minimap_kinds_text}\n"));
@@ -1108,6 +1112,24 @@ fn compose_minimap_visibility_line(
     ))
 }
 
+fn compose_minimap_flow_line(
+    scene: &RenderModel,
+    hud: &HudModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let panel = build_minimap_user_flow_panel(scene, hud, window)?;
+    Some(format!(
+        "next={} focus={} pan={} vis={} cover={} target={} overlay-targets={}",
+        panel.next_action,
+        panel.focus_state.label(),
+        panel.pan_label(),
+        panel.visibility_label(),
+        panel.coverage_label(),
+        panel.target_kind.label(),
+        panel.overlay_target_count,
+    ))
+}
+
 fn compose_minimap_kind_line(scene: &RenderModel, hud: &HudModel) -> Option<String> {
     let panel = build_minimap_panel(
         scene,
@@ -1286,20 +1308,17 @@ fn compose_build_flow_text(
     hud: &HudModel,
     window: PresenterViewWindow,
 ) -> Option<String> {
-    let panel = build_build_minimap_assist_panel(scene, hud, window)?;
+    let panel = build_build_user_flow_panel(scene, hud, window)?;
     Some(format!(
-        "next={} mode={} select={} queue={} place-ready={} focus={} vis={} cover={} scope={} auth={} runtime-share={}%",
-        panel.next_action_label(),
-        build_interaction_mode_text(panel.mode),
-        build_interaction_selection_text(panel.selection_state),
-        build_interaction_queue_text(panel.queue_state),
-        if panel.place_ready { 1 } else { 0 },
-        panel.focus_state_label(),
-        panel.map_visibility_label(),
-        panel.window_coverage_label(),
-        panel.config_scope_label(),
+        "next={} minimap={} focus={} pan={} target={} scope={} head={} auth={}",
+        panel.next_action,
+        panel.minimap_next_action,
+        panel.focus_state.label(),
+        panel.pan_label(),
+        panel.target_kind.label(),
+        panel.config_scope,
+        build_flow_head_tile_text(panel.head_tile),
         build_interaction_authority_text(panel.authority_state),
-        panel.runtime_share_percent(),
     ))
 }
 
@@ -1308,19 +1327,19 @@ fn compose_build_flow_detail_text(
     hud: &HudModel,
     window: PresenterViewWindow,
 ) -> Option<String> {
-    let panel = build_build_minimap_assist_panel(scene, hud, window)?;
+    let panel = build_build_user_flow_panel(scene, hud, window)?;
+    let route = panel.route.join(">");
     Some(format!(
-        "focus-tile={} in-window={} visible-map={} unknown-map={} window-cover={} tracked={} runtime={} cfg={}/{} top={}",
-        build_flow_focus_tile_text(panel.focus_tile),
-        optional_bool_label(panel.focus_in_window),
-        panel.visible_map_percent,
-        panel.unknown_tile_percent,
-        panel.window_coverage_percent,
-        panel.tracked_object_count,
-        panel.runtime_count,
-        panel.config_family_count,
-        panel.config_sample_count,
-        compact_runtime_ui_text(panel.top_config_family.as_deref()),
+        "blockers={} route={} focus={} pan={} target={}",
+        panel.blocker_count(),
+        if route.is_empty() {
+            "none"
+        } else {
+            route.as_str()
+        },
+        panel.focus_state.label(),
+        panel.pan_label(),
+        panel.target_kind.label(),
     ))
 }
 
@@ -1427,7 +1446,7 @@ fn build_config_tile_text(value: Option<(i32, i32)>) -> String {
     }
 }
 
-fn build_flow_focus_tile_text(value: Option<(usize, usize)>) -> String {
+fn build_flow_head_tile_text(value: Option<(i32, i32)>) -> String {
     match value {
         Some((x, y)) => format!("{x}:{y}"),
         None => "none".to_string(),
@@ -2430,6 +2449,15 @@ mod tests {
                 fog_enabled: false,
                 visible_tile_count: 4,
                 hidden_tile_count: 0,
+                minimap: crate::hud_model::HudMinimapSummary {
+                    focus_tile: Some((0, 0)),
+                    view_window: crate::hud_model::HudViewWindowSummary {
+                        origin_x: 0,
+                        origin_y: 0,
+                        width: 2,
+                        height: 2,
+                    },
+                },
             }),
             ..HudModel::default()
         };
@@ -2498,6 +2526,15 @@ mod tests {
                 fog_enabled: true,
                 visible_tile_count: 120,
                 hidden_tile_count: 24,
+                minimap: crate::hud_model::HudMinimapSummary {
+                    focus_tile: Some((0, 0)),
+                    view_window: crate::hud_model::HudViewWindowSummary {
+                        origin_x: 0,
+                        origin_y: 0,
+                        width: 80,
+                        height: 60,
+                    },
+                },
             }),
             runtime_ui: Some(RuntimeUiObservability {
                 hud_text: RuntimeHudTextObservability {
@@ -2940,6 +2977,15 @@ mod tests {
                 fog_enabled: false,
                 visible_tile_count: 0,
                 hidden_tile_count: 0,
+                minimap: crate::hud_model::HudMinimapSummary {
+                    focus_tile: Some((1, 1)),
+                    view_window: crate::hud_model::HudViewWindowSummary {
+                        origin_x: 0,
+                        origin_y: 0,
+                        width: 80,
+                        height: 60,
+                    },
+                },
             }),
             build_ui: Some(crate::BuildUiObservability {
                 selected_block_id: Some(301),
@@ -3009,6 +3055,9 @@ mod tests {
             "MINIMAP-VIS: overlay=0 fog=0 known=0(0%) vis=0(0%) hid=0(0%) unseen=4800(100%)"
         ));
         assert!(frame.contains(
+            "MINIMAP-FLOW: next=survey focus=inside pan=hold vis=unseen cover=offscreen target=player overlay-targets=0"
+        ));
+        assert!(frame.contains(
             "MINIMAP-KINDS: tracked=3 player=1 marker=0 plan=0 block=0 runtime=0 terrain=1 unknown=1"
         ));
         assert!(frame.contains(
@@ -3028,13 +3077,13 @@ mod tests {
             "BUILD-INTERACTION: mode=place select=head-aligned queue=mixed pending=3 place-ready=1 cfg=4/8 top=gamma head=queued@10:12:place:b301:r1 auth=rejected-missing-building pending=match src=tileConfig tile=10:12 block=alpha orphan=6"
         ));
         assert!(frame.contains(
-            "BUILD-FLOW: next=resolve mode=place select=head-aligned queue=mixed place-ready=1 focus=inside vis=unseen cover=offscreen scope=multi auth=rejected-missing-building runtime-share=0%"
+            "BUILD-FLOW: next=resolve minimap=survey focus=inside pan=hold target=player scope=multi head=10:12 auth=rejected-missing-building"
         ));
         assert!(frame.contains(
             "BUILD-ROUTE: next=resolve blockers=2@resolve>survey route=3@resolve>survey>commit"
         ));
         assert!(frame.contains(
-            "BUILD-FLOW-DETAIL: focus-tile=1:1 in-window=1 visible-map=0 unknown-map=100 window-cover=0 tracked=3 runtime=0 cfg=4/8 top=gamma"
+            "BUILD-FLOW-DETAIL: blockers=2 route=resolve>survey>commit focus=inside pan=hold target=player"
         ));
     }
 
