@@ -426,7 +426,10 @@ fn fog_tile_counts(
 
 fn project_team_plan(plan: TeamPlanRef<'_>) -> RenderObject {
     RenderObject {
-        id: format!("plan:{}:{}:{}", plan.team_id, plan.plan.x, plan.plan.y),
+        id: format!(
+            "plan:build:{}:{}:{}:{}",
+            plan.team_id, plan.plan.x, plan.plan.y, plan.plan.block_id
+        ),
         layer: PLAN_LAYER,
         x: plan.plan.x as f32 * TILE_SIZE,
         y: plan.plan.y as f32 * TILE_SIZE,
@@ -582,6 +585,16 @@ mod tests {
         let render = project_render_model(&session);
         let hud = project_hud_model(&session, "fr");
         let contract = session.enter_render_contract("fr");
+        let expected_plan_ids = session
+            .player_team_plans()
+            .into_iter()
+            .map(|plan| {
+                format!(
+                    "plan:build:{}:{}:{}:{}",
+                    plan.team_id, plan.plan.x, plan.plan.y, plan.plan.block_id
+                )
+            })
+            .collect::<Vec<_>>();
 
         assert_eq!(render.viewport.width, 64.0);
         assert_eq!(render.viewport.height, 64.0);
@@ -600,7 +613,7 @@ mod tests {
         assert!(render
             .objects
             .iter()
-            .any(|object| object.id == "plan:1:1:2"));
+            .any(|object| expected_plan_ids.iter().any(|expected| object.id == *expected)));
         assert_eq!(hud.title, "Golden Deterministic");
         assert_eq!(hud.wave_text.as_deref(), contract.hud.wave_text.as_deref());
         assert_eq!(
@@ -722,6 +735,30 @@ mod tests {
         assert_eq!(objects.len(), 1);
         assert_eq!(objects[0].id, "marker:point:42");
         assert_eq!((objects[0].x, objects[0].y), (16.0, 24.0));
+    }
+
+    #[test]
+    fn team_plan_projection_carries_build_semantic_and_block_id() {
+        let bundle = parse_world_bundle(&decode_hex(include_str!(
+            "../../../tests/src/test/resources/world-stream.hex"
+        )))
+        .unwrap();
+        let session = bundle.loaded_session().unwrap();
+        let plan = session
+            .player_team_plans()
+            .into_iter()
+            .next()
+            .expect("expected a sample build plan");
+        let expected_id = format!(
+            "plan:build:{}:{}:{}:{}",
+            plan.team_id, plan.plan.x, plan.plan.y, plan.plan.block_id
+        );
+        let expected_position = (plan.plan.x as f32 * 8.0, plan.plan.y as f32 * 8.0);
+
+        let projected = super::project_team_plan(plan);
+
+        assert_eq!(projected.id, expected_id);
+        assert_eq!((projected.x, projected.y), expected_position);
     }
 
     #[test]

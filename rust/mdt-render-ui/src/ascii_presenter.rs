@@ -153,6 +153,11 @@ impl AsciiScenePresenter {
         if let Some(runtime_stack_text) = compose_runtime_stack_panel_text(hud) {
             out.push_str(&format!("RUNTIME-STACK: {runtime_stack_text}\n"));
         }
+        if let Some(runtime_stack_depth_text) = compose_runtime_stack_depth_text(hud) {
+            out.push_str(&format!(
+                "RUNTIME-STACK-DEPTH: {runtime_stack_depth_text}\n"
+            ));
+        }
         if let Some(runtime_stack_detail_text) = compose_runtime_stack_detail_text(hud) {
             out.push_str(&format!(
                 "RUNTIME-STACK-DETAIL: {runtime_stack_detail_text}\n"
@@ -652,6 +657,21 @@ fn compose_runtime_stack_detail_text(hud: &HudModel) -> Option<String> {
         panel.server_message_count,
         panel.chat_message_count,
         optional_i32_label(panel.last_chat_sender_entity_id),
+    ))
+}
+
+fn compose_runtime_stack_depth_text(hud: &HudModel) -> Option<String> {
+    let summary = hud.runtime_ui_stack_depth_summary()?;
+    if summary.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "prompt={} notice={} chat={} groups={} total={}",
+        summary.prompt_depth,
+        summary.notice_depth,
+        summary.chat_depth,
+        summary.active_group_count,
+        summary.total_depth,
     ))
 }
 
@@ -2513,6 +2533,7 @@ mod tests {
         assert!(frame.contains(
             "RUNTIME-STACK: front=input prompt=2@input>menu notice=warn@hud>reliable>info>warn chat=1 groups=3 total=7 tin=404 sender=404"
         ));
+        assert!(frame.contains("RUNTIME-STACK-DEPTH: prompt=2 notice=4 chat=1 groups=3 total=7"));
         assert!(frame.contains(
             "RUNTIME-STACK-DETAIL: menu-active=1 outstanding-follow-up=0 text-input=53 notice-depth=4 server-chat=7/8 sender=404"
         ));
@@ -2744,34 +2765,42 @@ mod tests {
                 "chat-only",
                 runtime_stack_test_hud(chat_only),
                 "RUNTIME-STACK: front=chat prompt=0@none notice=none@none chat=1 groups=1 total=1 tin=none sender=42",
+                "RUNTIME-STACK-DEPTH: prompt=0 notice=0 chat=1 groups=1 total=1",
                 "RUNTIME-STACK-DETAIL: menu-active=0 outstanding-follow-up=0 text-input=0 notice-depth=0 server-chat=1/2 sender=42",
             ),
             (
                 "menu-only",
                 runtime_stack_test_hud(menu_only),
                 "RUNTIME-STACK: front=menu prompt=1@menu notice=none@none chat=0 groups=1 total=1 tin=none sender=none",
+                "RUNTIME-STACK-DEPTH: prompt=1 notice=0 chat=0 groups=1 total=1",
                 "RUNTIME-STACK-DETAIL: menu-active=1 outstanding-follow-up=0 text-input=0 notice-depth=0 server-chat=0/0 sender=none",
             ),
             (
                 "follow-up-without-text-input",
                 runtime_stack_test_hud(follow_up_only),
                 "RUNTIME-STACK: front=follow-up prompt=1@follow-up notice=none@none chat=0 groups=1 total=1 tin=none sender=none",
+                "RUNTIME-STACK-DEPTH: prompt=1 notice=0 chat=0 groups=1 total=1",
                 "RUNTIME-STACK-DETAIL: menu-active=0 outstanding-follow-up=1 text-input=0 notice-depth=0 server-chat=0/0 sender=none",
             ),
             (
                 "text-input+notice+chat",
                 runtime_stack_test_hud(input_notice_chat),
                 "RUNTIME-STACK: front=input prompt=1@input notice=warn@warn chat=1 groups=3 total=3 tin=404 sender=404",
+                "RUNTIME-STACK-DEPTH: prompt=1 notice=1 chat=1 groups=3 total=3",
                 "RUNTIME-STACK-DETAIL: menu-active=0 outstanding-follow-up=0 text-input=1 notice-depth=1 server-chat=1/1 sender=404",
             ),
         ];
 
-        for (name, hud, stack_line, detail_line) in cases {
+        for (name, hud, stack_line, depth_line, detail_line) in cases {
             presenter.present(&scene, &hud);
             let frame = presenter.last_frame();
             assert!(
                 frame.contains(stack_line),
                 "missing runtime stack line for {name} in {frame}",
+            );
+            assert!(
+                frame.contains(depth_line),
+                "missing runtime stack depth line for {name} in {frame}",
             );
             assert!(
                 frame.contains(detail_line),

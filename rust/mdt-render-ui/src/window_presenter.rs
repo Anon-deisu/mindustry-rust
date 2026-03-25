@@ -601,6 +601,9 @@ fn compose_frame_panel_lines(
     if let Some(runtime_stack_text) = compose_runtime_stack_panel_status_text(hud) {
         lines.push(format!("RUNTIME-STACK: {runtime_stack_text}"));
     }
+    if let Some(runtime_stack_depth_text) = compose_runtime_stack_depth_status_text(hud) {
+        lines.push(format!("RUNTIME-STACK-DEPTH: {runtime_stack_depth_text}"));
+    }
     if let Some(runtime_stack_detail_text) = compose_runtime_stack_detail_status_text(hud) {
         lines.push(format!("RUNTIME-STACK-DETAIL: {runtime_stack_detail_text}"));
     }
@@ -954,6 +957,21 @@ fn compose_runtime_stack_detail_status_text(hud: &HudModel) -> Option<String> {
         panel.server_message_count,
         panel.chat_message_count,
         optional_i32_label(panel.last_chat_sender_entity_id),
+    ))
+}
+
+fn compose_runtime_stack_depth_status_text(hud: &HudModel) -> Option<String> {
+    let summary = hud.runtime_ui_stack_depth_summary()?;
+    if summary.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "stackdepth:p{}:n{}:c{}:g{}:t{}",
+        summary.prompt_depth,
+        summary.notice_depth,
+        summary.chat_depth,
+        summary.active_group_count,
+        summary.total_depth,
     ))
 }
 
@@ -3059,6 +3077,10 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
+            "RUNTIME-STACK-DEPTH: stackdepth:p2:n4:c1:g3:t7",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
             "RUNTIME-STACK-DETAIL: stackd:m1:fo0:tin53:nd4:chat7/8:sid404",
         );
         assert_frame_line_contains(
@@ -3329,29 +3351,33 @@ mod tests {
                 "chat-only",
                 runtime_stack_test_hud(chat_only),
                 "RUNTIME-STACK: stack:f=chat:p0@none:n=none@none:c1:g1:t1:tinnone:s42",
+                "RUNTIME-STACK-DEPTH: stackdepth:p0:n0:c1:g1:t1",
                 "RUNTIME-STACK-DETAIL: stackd:m0:fo0:tin0:nd0:chat1/2:sid42",
             ),
             (
                 "menu-only",
                 runtime_stack_test_hud(menu_only),
                 "RUNTIME-STACK: stack:f=menu:p1@menu:n=none@none:c0:g1:t1:tinnone:snone",
+                "RUNTIME-STACK-DEPTH: stackdepth:p1:n0:c0:g1:t1",
                 "RUNTIME-STACK-DETAIL: stackd:m1:fo0:tin0:nd0:chat0/0:sidnone",
             ),
             (
                 "follow-up-without-text-input",
                 runtime_stack_test_hud(follow_up_only),
                 "RUNTIME-STACK: stack:f=follow-up:p1@follow-up:n=none@none:c0:g1:t1:tinnone:snone",
+                "RUNTIME-STACK-DEPTH: stackdepth:p1:n0:c0:g1:t1",
                 "RUNTIME-STACK-DETAIL: stackd:m0:fo1:tin0:nd0:chat0/0:sidnone",
             ),
             (
                 "text-input+notice+chat",
                 runtime_stack_test_hud(input_notice_chat),
                 "RUNTIME-STACK: stack:f=input:p1@input:n=warn@warn:c1:g3:t3:tin404:s404",
+                "RUNTIME-STACK-DEPTH: stackdepth:p1:n1:c1:g3:t3",
                 "RUNTIME-STACK-DETAIL: stackd:m0:fo0:tin1:nd1:chat1/1:sid404",
             ),
         ];
 
-        for (name, hud, stack_line, detail_line) in cases {
+        for (name, hud, stack_line, depth_line, detail_line) in cases {
             let backend = RecordingBackend::default();
             let mut presenter = WindowPresenter::new(backend);
             presenter
@@ -3361,6 +3387,7 @@ mod tests {
             let backend = presenter.into_backend();
             let frame = backend.frames.last().unwrap();
             assert_frame_line_contains(&frame.panel_lines, stack_line);
+            assert_frame_line_contains(&frame.panel_lines, depth_line);
             assert_frame_line_contains(&frame.panel_lines, detail_line);
             assert!(
                 frame

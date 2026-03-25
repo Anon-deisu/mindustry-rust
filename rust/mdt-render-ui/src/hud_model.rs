@@ -43,6 +43,21 @@ pub struct RuntimeUiObservability {
     pub live: RuntimeLiveSummaryObservability,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct RuntimeUiStackDepthSummary {
+    pub prompt_depth: usize,
+    pub notice_depth: usize,
+    pub chat_depth: usize,
+    pub active_group_count: usize,
+    pub total_depth: usize,
+}
+
+impl RuntimeUiStackDepthSummary {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.total_depth == 0
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RuntimeHudTextObservability {
     pub set_count: u64,
@@ -405,6 +420,28 @@ impl HudModel {
         Self::default()
     }
 
+    pub(crate) fn runtime_ui_stack_depth_summary(&self) -> Option<RuntimeUiStackDepthSummary> {
+        let runtime_ui = self.runtime_ui.as_ref()?;
+        let prompt_depth = usize::from(runtime_ui.text_input.open_count > 0)
+            + usize::from(outstanding_follow_up_count(&runtime_ui.menu) > 0)
+            + usize::from(runtime_ui.menu.menu_open_count > 0);
+        let notice_depth = usize::from(runtime_ui.hud_text.last_message.is_some())
+            + usize::from(runtime_ui.hud_text.last_reliable_message.is_some())
+            + usize::from(runtime_ui.toast.last_info_message.is_some())
+            + usize::from(runtime_ui.toast.last_warning_text.is_some());
+        let chat_depth = usize::from(runtime_chat_active(&runtime_ui.chat));
+        let active_group_count =
+            usize::from(prompt_depth > 0) + usize::from(notice_depth > 0) + chat_depth;
+
+        Some(RuntimeUiStackDepthSummary {
+            prompt_depth,
+            notice_depth,
+            chat_depth,
+            active_group_count,
+            total_depth: prompt_depth + notice_depth + chat_depth,
+        })
+    }
+
     pub fn is_hidden(&self) -> bool {
         self.title.is_empty()
             && self.wave_text.is_none()
@@ -418,5 +455,89 @@ impl HudModel {
 
     pub fn is_visible(&self) -> bool {
         !self.is_hidden()
+    }
+}
+
+fn outstanding_follow_up_count(menu: &RuntimeMenuObservability) -> u64 {
+    menu.follow_up_menu_open_count
+        .saturating_sub(menu.hide_follow_up_menu_count)
+}
+
+fn runtime_chat_active(chat: &RuntimeChatObservability) -> bool {
+    chat.server_message_count > 0
+        || chat.last_server_message.is_some()
+        || chat.chat_message_count > 0
+        || chat.last_chat_message.is_some()
+        || chat.last_chat_unformatted.is_some()
+        || chat.last_chat_sender_entity_id.is_some()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        HudModel, RuntimeChatObservability, RuntimeHudTextObservability, RuntimeMenuObservability,
+        RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiObservability,
+    };
+
+    #[test]
+    fn runtime_ui_stack_depth_summary_tracks_prompt_notice_and_chat_layers() {
+        let hud = HudModel {
+            runtime_ui: Some(RuntimeUiObservability {
+                hud_text: RuntimeHudTextObservability {
+                    last_message: Some("hud".to_string()),
+                    last_reliable_message: Some("reliable".to_string()),
+                    ..RuntimeHudTextObservability::default()
+                },
+                toast: RuntimeToastObservability {
+                    last_info_message: Some("info".to_string()),
+                    last_warning_text: Some("warn".to_string()),
+                    ..RuntimeToastObservability::default()
+                },
+                text_input: RuntimeTextInputObservability {
+                    open_count: 2,
+                    ..RuntimeTextInputObservability::default()
+                },
+                chat: RuntimeChatObservability {
+                    server_message_count: 1,
+                    chat_message_count: 2,
+                    ..RuntimeChatObservability::default()
+                },
+                menu: RuntimeMenuObservability {
+                    menu_open_count: 1,
+                    follow_up_menu_open_count: 3,
+                    hide_follow_up_menu_count: 1,
+                },
+                ..RuntimeUiObservability::default()
+            }),
+            ..HudModel::default()
+        };
+
+        let summary = hud
+            .runtime_ui_stack_depth_summary()
+            .expect("runtime ui summary");
+        assert_eq!(summary.prompt_depth, 3);
+        assert_eq!(summary.notice_depth, 4);
+        assert_eq!(summary.chat_depth, 1);
+        assert_eq!(summary.active_group_count, 3);
+        assert_eq!(summary.total_depth, 8);
+        assert!(!summary.is_empty());
+    }
+
+    #[test]
+    fn runtime_ui_stack_depth_summary_is_empty_for_default_runtime_ui() {
+        let hud = HudModel {
+            runtime_ui: Some(RuntimeUiObservability::default()),
+            ..HudModel::default()
+        };
+
+        let summary = hud
+            .runtime_ui_stack_depth_summary()
+            .expect("runtime ui summary");
+        assert_eq!(summary.prompt_depth, 0);
+        assert_eq!(summary.notice_depth, 0);
+        assert_eq!(summary.chat_depth, 0);
+        assert_eq!(summary.active_group_count, 0);
+        assert_eq!(summary.total_depth, 0);
+        assert!(summary.is_empty());
     }
 }

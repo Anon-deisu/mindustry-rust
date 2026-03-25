@@ -56,9 +56,17 @@ pub enum RenderObjectSemanticFamily {
 pub enum RenderObjectSemanticKind {
     Player,
     Marker,
+    MarkerPoint,
+    MarkerText,
+    MarkerShape,
+    MarkerShapeText,
     MarkerLine,
     MarkerLineEnd,
+    MarkerTexture,
+    MarkerQuad,
+    MarkerUnknown,
     Plan,
+    PlanBuild,
     Block,
     Terrain,
     RuntimeBuilding,
@@ -203,10 +211,19 @@ impl RenderObjectSemanticKind {
     pub fn family(self) -> RenderObjectSemanticFamily {
         match self {
             Self::Player => RenderObjectSemanticFamily::Player,
-            Self::Marker | Self::MarkerLine | Self::MarkerLineEnd => {
+            Self::Marker
+            | Self::MarkerPoint
+            | Self::MarkerText
+            | Self::MarkerShape
+            | Self::MarkerShapeText
+            | Self::MarkerLine
+            | Self::MarkerLineEnd
+            | Self::MarkerTexture
+            | Self::MarkerQuad
+            | Self::MarkerUnknown => {
                 RenderObjectSemanticFamily::Marker
             }
-            Self::Plan => RenderObjectSemanticFamily::Plan,
+            Self::Plan | Self::PlanBuild => RenderObjectSemanticFamily::Plan,
             Self::Block => RenderObjectSemanticFamily::Block,
             Self::Terrain => RenderObjectSemanticFamily::Terrain,
             Self::RuntimeBuilding
@@ -228,8 +245,16 @@ impl RenderObjectSemanticKind {
 
     pub fn detail_label(self) -> Option<&'static str> {
         match self {
+            Self::MarkerPoint => Some("marker-point"),
+            Self::MarkerText => Some("marker-text"),
+            Self::MarkerShape => Some("marker-shape"),
+            Self::MarkerShapeText => Some("marker-shape-text"),
             Self::MarkerLine => Some("marker-line"),
             Self::MarkerLineEnd => Some("marker-line-end"),
+            Self::MarkerTexture => Some("marker-texture"),
+            Self::MarkerQuad => Some("marker-quad"),
+            Self::MarkerUnknown => Some("marker-unknown"),
+            Self::PlanBuild => Some("plan-build"),
             Self::RuntimeBuilding => Some("runtime-building"),
             Self::RuntimeSnapshotHead => Some("runtime-snapshot-head"),
             Self::RuntimeDeconstruct => Some("runtime-deconstruct"),
@@ -255,7 +280,14 @@ impl RenderObjectSemanticKind {
 
 fn marker_semantic_kind(second: &str) -> RenderObjectSemanticKind {
     match second {
+        "point" => RenderObjectSemanticKind::MarkerPoint,
+        "text" => RenderObjectSemanticKind::MarkerText,
+        "shape" => RenderObjectSemanticKind::MarkerShape,
+        "shape-text" => RenderObjectSemanticKind::MarkerShapeText,
         "line" => RenderObjectSemanticKind::MarkerLine,
+        "texture" => RenderObjectSemanticKind::MarkerTexture,
+        "quad" => RenderObjectSemanticKind::MarkerQuad,
+        "unknown" => RenderObjectSemanticKind::MarkerUnknown,
         value if value.starts_with("runtime-config-parse-fail") => {
             RenderObjectSemanticKind::RuntimeConfigParseFail
         }
@@ -279,6 +311,7 @@ fn marker_semantic_kind(second: &str) -> RenderObjectSemanticKind {
 
 fn plan_semantic_kind(second: &str) -> RenderObjectSemanticKind {
     match second {
+        "build" => RenderObjectSemanticKind::PlanBuild,
         "runtime-place" => RenderObjectSemanticKind::RuntimePlace,
         value if value.starts_with("runtime") => RenderObjectSemanticKind::Runtime,
         _ => RenderObjectSemanticKind::Plan,
@@ -379,6 +412,22 @@ mod tests {
             RenderObjectSemanticKind::Marker
         );
         assert_eq!(
+            RenderObjectSemanticKind::from_id("marker:point:42"),
+            RenderObjectSemanticKind::MarkerPoint
+        );
+        assert_eq!(
+            RenderObjectSemanticKind::from_id("marker:text:42"),
+            RenderObjectSemanticKind::MarkerText
+        );
+        assert_eq!(
+            RenderObjectSemanticKind::from_id("marker:shape:42"),
+            RenderObjectSemanticKind::MarkerShape
+        );
+        assert_eq!(
+            RenderObjectSemanticKind::from_id("marker:shape-text:42"),
+            RenderObjectSemanticKind::MarkerShapeText
+        );
+        assert_eq!(
             RenderObjectSemanticKind::from_id("marker:line:77"),
             RenderObjectSemanticKind::MarkerLine
         );
@@ -391,12 +440,28 @@ mod tests {
             RenderObjectSemanticKind::MarkerLineEnd
         );
         assert_eq!(
+            RenderObjectSemanticKind::from_id("marker:texture:77"),
+            RenderObjectSemanticKind::MarkerTexture
+        );
+        assert_eq!(
+            RenderObjectSemanticKind::from_id("marker:quad:77"),
+            RenderObjectSemanticKind::MarkerQuad
+        );
+        assert_eq!(
+            RenderObjectSemanticKind::from_id("marker:unknown:77"),
+            RenderObjectSemanticKind::MarkerUnknown
+        );
+        assert_eq!(
             RenderObjectSemanticKind::from_id("hint:1"),
             RenderObjectSemanticKind::Marker
         );
         assert_eq!(
             RenderObjectSemanticKind::from_id("plan:2"),
             RenderObjectSemanticKind::Plan
+        );
+        assert_eq!(
+            RenderObjectSemanticKind::from_id("plan:build:1:2:3:257"),
+            RenderObjectSemanticKind::PlanBuild
         );
         assert_eq!(
             RenderObjectSemanticKind::from_id("build-plan:2"),
@@ -431,8 +496,24 @@ mod tests {
             RenderObjectSemanticFamily::Marker
         );
         assert_eq!(
+            RenderObjectSemanticKind::MarkerText.family(),
+            RenderObjectSemanticFamily::Marker
+        );
+        assert_eq!(
+            RenderObjectSemanticKind::MarkerText.detail_label(),
+            Some("marker-text")
+        );
+        assert_eq!(
             RenderObjectSemanticKind::RuntimeConfig.family(),
             RenderObjectSemanticFamily::Runtime
+        );
+        assert_eq!(
+            RenderObjectSemanticKind::PlanBuild.family(),
+            RenderObjectSemanticFamily::Plan
+        );
+        assert_eq!(
+            RenderObjectSemanticKind::PlanBuild.detail_label(),
+            Some("plan-build")
         );
         assert_eq!(
             RenderObjectSemanticKind::RuntimeConfig.detail_label(),
@@ -546,8 +627,20 @@ mod tests {
                     y: 0.0,
                 },
                 RenderObject {
+                    id: "marker:text:18".to_string(),
+                    layer: 30,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                RenderObject {
                     id: "marker:runtime-config:3:2:string".to_string(),
                     layer: 30,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "plan:build:1:2:3:257".to_string(),
+                    layer: 20,
                     x: 0.0,
                     y: 0.0,
                 },
@@ -577,10 +670,10 @@ mod tests {
         assert_eq!(
             summary,
             RenderSemanticSummary {
-                total_count: 7,
+                total_count: 9,
                 player_count: 1,
-                marker_count: 2,
-                plan_count: 0,
+                marker_count: 3,
+                plan_count: 1,
                 block_count: 0,
                 runtime_count: 2,
                 terrain_count: 1,
@@ -592,6 +685,14 @@ mod tests {
                     },
                     RenderSemanticDetailCount {
                         label: "marker-line-end",
+                        count: 1,
+                    },
+                    RenderSemanticDetailCount {
+                        label: "marker-text",
+                        count: 1,
+                    },
+                    RenderSemanticDetailCount {
+                        label: "plan-build",
                         count: 1,
                     },
                     RenderSemanticDetailCount {
@@ -607,7 +708,9 @@ mod tests {
         );
         assert_eq!(
             summary.detail_text().as_deref(),
-            Some("marker-line:1,marker-line-end:1,runtime-building:1,runtime-config:1")
+            Some(
+                "marker-line:1,marker-line-end:1,marker-text:1,plan-build:1,runtime-building:1,runtime-config:1"
+            )
         );
     }
 }
