@@ -15,6 +15,7 @@ const UNIT_SPIRIT_EFFECT_ID: i16 = 8;
 const ITEM_TRANSFER_EFFECT_ID: i16 = 9;
 const POINT_BEAM_EFFECT_ID: i16 = 10;
 const POINT_HIT_EFFECT_ID: i16 = 11;
+const DRILL_STEAM_EFFECT_ID: i16 = 124;
 const GREEN_LASER_CHARGE_EFFECT_ID: i16 = 67;
 const GREEN_LASER_CHARGE_SMALL_EFFECT_ID: i16 = 68;
 const NEOPLASM_HEAL_EFFECT_ID: i16 = 122;
@@ -33,6 +34,13 @@ const ITEM_TRANSFER_INNER_RADIUS: f32 = 1.5;
 const UNIT_SPIRIT_SIDE_COUNT: usize = 4;
 const UNIT_SPIRIT_BASE_RADIUS: f32 = 2.5;
 const UNIT_SPIRIT_OUTER_RADIUS_SCALE: f32 = 1.5;
+const DRILL_STEAM_PARTICLE_COUNT: usize = 3;
+const DRILL_STEAM_RING_SEGMENT_COUNT: usize = 8;
+const DRILL_STEAM_MIN_LENGTH: f32 = 3.0;
+const DRILL_STEAM_LENGTH_GROWTH: f32 = 20.0;
+const DRILL_STEAM_MIN_RADIUS: f32 = 1.3;
+const DRILL_STEAM_RADIUS_GROWTH: f32 = 2.4;
+const DRILL_STEAM_FSLOPE_GROWTH: f32 = 1.2;
 const GREEN_LASER_CHARGE_CIRCLE_SEGMENT_COUNT: usize = 12;
 const GREEN_LASER_CHARGE_SPOKE_COUNT: usize = 4;
 const GREEN_LASER_CHARGE_RADIUS_BASE: f32 = 4.0;
@@ -217,6 +225,13 @@ pub(crate) fn line_projections_for_effect_overlay(
         Some(POINT_HIT_EFFECT_ID) => point_hit_line_projections(
             target_x_bits,
             target_y_bits,
+            overlay.remaining_ticks,
+            overlay.lifetime_ticks,
+        ),
+        Some(DRILL_STEAM_EFFECT_ID) => drill_steam_line_projections(
+            target_x_bits,
+            target_y_bits,
+            overlay.color_rgba,
             overlay.remaining_ticks,
             overlay.lifetime_ticks,
         ),
@@ -602,6 +617,28 @@ fn neoplasm_heal_seed_angle(
     hash as f32 / u32::MAX as f32 * std::f32::consts::TAU
 }
 
+fn drill_steam_particle_seed(
+    center_x_bits: u32,
+    center_y_bits: u32,
+    color_rgba: u32,
+    index: usize,
+    salt: u32,
+) -> f32 {
+    let mut hash = center_x_bits
+        ^ center_y_bits.rotate_left(7)
+        ^ color_rgba.rotate_left(13)
+        ^ (DRILL_STEAM_EFFECT_ID as u16 as u32).rotate_left(21)
+        ^ (index as u32).rotate_left(3)
+        ^ salt.rotate_left(11);
+    hash ^= hash >> 16;
+    hash = hash.wrapping_mul(0x7feb_352d);
+    hash ^= hash >> 15;
+    hash = hash.wrapping_mul(0x846c_a68b);
+    hash ^= hash >> 16;
+
+    hash as f32 / u32::MAX as f32
+}
+
 fn unit_spirit_line_projections(
     source_x_bits: u32,
     source_y_bits: u32,
@@ -720,6 +757,81 @@ fn point_hit_line_projections(
         0.0,
     );
     closed_polyline_line_projections("point-hit", &circle_points)
+}
+
+fn drill_steam_line_projections(
+    center_x_bits: u32,
+    center_y_bits: u32,
+    color_rgba: u32,
+    remaining_ticks: u8,
+    lifetime_ticks: u8,
+) -> Vec<RuntimeEffectLineProjection> {
+    let center_x = f32::from_bits(center_x_bits);
+    let center_y = f32::from_bits(center_y_bits);
+    if !center_x.is_finite() || !center_y.is_finite() {
+        return Vec::new();
+    }
+
+    let fin = shield_break_progress(remaining_ticks, lifetime_ticks);
+    let fslope = midlife_slope(fin);
+    let length = DRILL_STEAM_MIN_LENGTH + fin.powi(2) * DRILL_STEAM_LENGTH_GROWTH;
+    let mut lines = Vec::new();
+    for index in 0..DRILL_STEAM_PARTICLE_COUNT {
+        let Some((particle_x, particle_y, particle_radius)) = drill_steam_particle_geometry(
+            center_x_bits,
+            center_y_bits,
+            color_rgba,
+            length,
+            fslope,
+            index,
+        ) else {
+            continue;
+        };
+        let ring_points = regular_polygon_points(
+            particle_x,
+            particle_y,
+            particle_radius,
+            DRILL_STEAM_RING_SEGMENT_COUNT,
+            0.0,
+        );
+        lines.extend(closed_polyline_line_projections(
+            "drill-steam",
+            &ring_points,
+        ));
+    }
+    lines
+}
+
+fn drill_steam_particle_geometry(
+    center_x_bits: u32,
+    center_y_bits: u32,
+    color_rgba: u32,
+    length: f32,
+    fslope: f32,
+    index: usize,
+) -> Option<(f32, f32, f32)> {
+    let center_x = f32::from_bits(center_x_bits);
+    let center_y = f32::from_bits(center_y_bits);
+    if !center_x.is_finite() || !center_y.is_finite() || !length.is_finite() || !fslope.is_finite()
+    {
+        return None;
+    }
+
+    let angle = drill_steam_particle_seed(center_x_bits, center_y_bits, color_rgba, index, 0)
+        * std::f32::consts::TAU;
+    let distance = length
+        * (0.25
+            + drill_steam_particle_seed(center_x_bits, center_y_bits, color_rgba, index, 1) * 0.75);
+    let radius = DRILL_STEAM_MIN_RADIUS
+        + drill_steam_particle_seed(center_x_bits, center_y_bits, color_rgba, index, 2)
+            * DRILL_STEAM_RADIUS_GROWTH
+        + fslope * DRILL_STEAM_FSLOPE_GROWTH;
+    let (particle_x_bits, particle_y_bits) = polar_point(center_x, center_y, distance, angle);
+    Some((
+        f32::from_bits(particle_x_bits),
+        f32::from_bits(particle_y_bits),
+        radius,
+    ))
 }
 
 fn green_laser_charge_line_projections(
@@ -1991,6 +2103,62 @@ mod tests {
         assert!(lines.iter().any(|line| {
             line.source_x_bits == 34.0f32.to_bits() && line.source_y_bits == 48.0f32.to_bits()
         }));
+    }
+
+    #[test]
+    fn line_projections_for_effect_overlay_returns_drill_steam_particle_rings() {
+        let overlay = RuntimeEffectOverlay {
+            effect_id: Some(DRILL_STEAM_EFFECT_ID),
+            source_x_bits: 12.0f32.to_bits(),
+            source_y_bits: 20.0f32.to_bits(),
+            x_bits: 32.0f32.to_bits(),
+            y_bits: 48.0f32.to_bits(),
+            rotation_bits: 0.0f32.to_bits(),
+            color_rgba: 0x11223344,
+            reliable: false,
+            has_data: false,
+            lifetime_ticks: 220,
+            remaining_ticks: 220,
+            contract_name: None,
+            source_binding: None,
+            binding: None,
+            content_ref: None,
+            polyline_points: Vec::new(),
+        };
+
+        let lines = test_line_projections_for_overlay(
+            &overlay,
+            32.0f32.to_bits(),
+            48.0f32.to_bits(),
+            &SessionState::default(),
+        );
+        let (particle_x, particle_y, particle_radius) = drill_steam_particle_geometry(
+            32.0f32.to_bits(),
+            48.0f32.to_bits(),
+            overlay.color_rgba,
+            DRILL_STEAM_MIN_LENGTH,
+            0.0,
+            0,
+        )
+        .expect("drill steam particle geometry");
+        let particle_points = regular_polygon_points(
+            particle_x,
+            particle_y,
+            particle_radius,
+            DRILL_STEAM_RING_SEGMENT_COUNT,
+            0.0,
+        );
+
+        assert_eq!(
+            lines.len(),
+            DRILL_STEAM_PARTICLE_COUNT * DRILL_STEAM_RING_SEGMENT_COUNT
+        );
+        assert!(lines.iter().all(|line| line.kind == "drill-steam"));
+        assert!(lines.contains(&line_projection(
+            "drill-steam",
+            particle_points[0],
+            particle_points[1],
+        )));
     }
 
     #[test]

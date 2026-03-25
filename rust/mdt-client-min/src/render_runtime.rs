@@ -6567,6 +6567,11 @@ mod tests {
     }
 
     #[test]
+    fn runtime_effect_overlay_ttl_ticks_match_drill_steam_lifetime() {
+        assert_eq!(runtime_effect_overlay_ttl_ticks(Some(124)), 220);
+    }
+
+    #[test]
     fn render_runtime_adapter_hides_drill_steam_until_start_delay_elapses() {
         let mut adapter = RenderRuntimeAdapter::default();
         let input = ClientSnapshotInputState::default();
@@ -6612,6 +6617,57 @@ mod tests {
         );
         assert_eq!(marker.x, 32.0);
         assert_eq!(marker.y, 48.0);
+    }
+
+    #[test]
+    fn render_runtime_adapter_renders_drill_steam_lines_after_start_delay_elapses() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
+
+        adapter.observe_events(&[ClientSessionEvent::EffectRequested {
+            effect_id: Some(124),
+            x: 32.0,
+            y: 48.0,
+            rotation: 0.0,
+            color_rgba: 0x11223344,
+            data_object: None,
+        }]);
+
+        let mut initial_scene = RenderModel::default();
+        let mut initial_hud = HudModel::default();
+        adapter.apply(&mut initial_scene, &mut initial_hud, &input, &state);
+        assert!(runtime_effect_lines_with_prefix(
+            &initial_scene,
+            "marker:line:runtime-effect-drill-steam:"
+        )
+        .is_empty());
+
+        for _ in 0..29 {
+            adapter.observe_events(&[]);
+            let mut delayed_scene = RenderModel::default();
+            let mut delayed_hud = HudModel::default();
+            adapter.apply(&mut delayed_scene, &mut delayed_hud, &input, &state);
+            assert!(runtime_effect_lines_with_prefix(
+                &delayed_scene,
+                "marker:line:runtime-effect-drill-steam:"
+            )
+            .is_empty());
+        }
+
+        adapter.observe_events(&[]);
+        let mut visible_scene = RenderModel::default();
+        let mut visible_hud = HudModel::default();
+        adapter.apply(&mut visible_scene, &mut visible_hud, &input, &state);
+
+        let steam_lines = runtime_effect_lines_with_prefix(
+            &visible_scene,
+            "marker:line:runtime-effect-drill-steam:",
+        );
+        assert_eq!(steam_lines.len(), 48);
+        assert!(steam_lines
+            .iter()
+            .any(|object| object.x != 32.0 || object.y != 48.0));
     }
 
     #[test]
