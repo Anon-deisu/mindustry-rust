@@ -564,7 +564,9 @@ mod tests {
             active_actions: vec![BinaryAction::Boost],
         };
 
-        assert!(tracker.sample_runtime_snapshot_batch_with_override(&runtime_batch, &override_snapshot));
+        assert!(
+            tracker.sample_runtime_snapshot_batch_with_override(&runtime_batch, &override_snapshot)
+        );
         assert_eq!(tracker.state().move_axis, (-1.0, -2.0));
         assert_eq!(tracker.state().aim_axis, (11.0, 12.0));
         assert_eq!(tracker.state().mining_tile, Some((5, 6)));
@@ -606,7 +608,10 @@ mod tests {
         assert_eq!(tracker.state().aim_axis, (6.0, 7.0));
         assert_eq!(tracker.state().mining_tile, Some((1, 2)));
         assert!(tracker.state().building);
-        assert_eq!(tracker.state().pressed_actions, vec![BinaryAction::Interact]);
+        assert_eq!(
+            tracker.state().pressed_actions,
+            vec![BinaryAction::Interact]
+        );
         assert!(tracker.state().is_action_active(BinaryAction::Interact));
 
         assert!(!tracker.sample_runtime_snapshot_batch(&[]));

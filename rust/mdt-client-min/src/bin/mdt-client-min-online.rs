@@ -27,8 +27,10 @@ use mdt_client_min::custom_packet_runtime_surface::{
 use mdt_client_min::render_runtime::RenderRuntimeAdapter;
 use mdt_input::live_intent::RuntimeIntentTracker;
 use mdt_input::{
-    flip_plans, rotate_plans, BinaryAction, CommandModeRectProjection, CommandModeState,
-    CommandUnitRef, InputSnapshot, IntentSamplingMode, LiveIntentState, MovementProbeConfig,
+    flip_plans, rotate_plans, BinaryAction, BuilderQueueActivityObservation,
+    BuilderQueueBuildSelection, BuilderQueueEntryObservation, BuilderQueueStateMachine,
+    BuilderQueueTileStateObservation, CommandModeRectProjection, CommandModeState, CommandUnitRef,
+    InputSnapshot, IntentSamplingMode, LiveIntentState, MovementProbeConfig,
     MovementProbeController, PlanBlockMeta, PlanEditable, PlanPoint, RuntimeInputState,
 };
 use mdt_remote::HighFrequencyRemoteMethod;
@@ -3292,32 +3294,39 @@ fn collect_due_outbound_actions(
 }
 
 fn apply_snapshot_overrides(session: &mut ClientSession, args: &CliArgs) {
-    let input = session.snapshot_input_mut();
-    if let Some(pointer) = args.snapshot_pointer {
-        input.pointer = Some(pointer);
-    }
-    if let Some(mining_tile) = args.snapshot_mining_tile {
-        input.mining_tile = Some(mining_tile);
-    }
-    if let Some(boosting) = args.snapshot_boosting {
-        input.boosting = boosting;
-    }
-    if let Some(shooting) = args.snapshot_shooting {
-        input.shooting = shooting;
-    }
-    if let Some(chatting) = args.snapshot_chatting {
-        input.chatting = chatting;
-    }
-    if let Some(view_size) = args.snapshot_view_size {
-        input.view_size = Some(view_size);
-    }
-    if !args.build_plans.is_empty() {
-        input.building = true;
-        input.plans = Some(args.build_plans.clone());
-        if let Some(plan) = args.build_plans.iter().find(|plan| !plan.breaking) {
-            input.selected_block_id = plan.block_id;
-            input.selected_rotation = i32::from(plan.rotation);
+    {
+        let input = session.snapshot_input_mut();
+        if let Some(pointer) = args.snapshot_pointer {
+            input.pointer = Some(pointer);
         }
+        if let Some(mining_tile) = args.snapshot_mining_tile {
+            input.mining_tile = Some(mining_tile);
+        }
+        if let Some(boosting) = args.snapshot_boosting {
+            input.boosting = boosting;
+        }
+        if let Some(shooting) = args.snapshot_shooting {
+            input.shooting = shooting;
+        }
+        if let Some(chatting) = args.snapshot_chatting {
+            input.chatting = chatting;
+        }
+        if let Some(view_size) = args.snapshot_view_size {
+            input.view_size = Some(view_size);
+        }
+        if !args.build_plans.is_empty() {
+            input.plans = Some(args.build_plans.clone());
+        }
+    }
+
+    let queue_selection = snapshot_builder_queue_selection(session);
+    let input = session.snapshot_input_mut();
+    if queue_selection.building {
+        input.building = true;
+    }
+    if let Some(block_id) = queue_selection.selected_block_id {
+        input.selected_block_id = Some(block_id);
+        input.selected_rotation = i32::from(queue_selection.selected_rotation);
     }
     if let Some(building) = args.snapshot_building {
         input.building = building;
@@ -3761,24 +3770,128 @@ fn maybe_apply_auto_build_plans(
 }
 
 fn sync_runtime_build_selection_state(session: &mut ClientSession, args: &CliArgs) {
+    let previous_building = session.snapshot_input().building;
+    let queue_selection = snapshot_builder_queue_selection(session);
     let input = session.snapshot_input_mut();
-    let has_plans = input.plans.as_ref().is_some_and(|plans| !plans.is_empty());
-
-    // Keep explicit snapshot-building flags authoritative. Under live runtime capture,
-    // also preserve the just-sampled building bit through the queue-sync pass.
     input.building = args
         .snapshot_building
-        .unwrap_or(has_plans || (args.enable_live_intent_runtime_capture && input.building));
+        .unwrap_or(queue_selection.building || previous_building);
 
-    if let Some(plan) = input.plans.as_ref().and_then(|plans| {
-        plans
-            .iter()
-            .rev()
-            .find(|plan| !plan.breaking && plan.block_id.is_some())
-    }) {
-        input.selected_block_id = plan.block_id;
-        input.selected_rotation = i32::from(plan.rotation);
+    if let Some(block_id) = queue_selection.selected_block_id {
+        input.selected_block_id = Some(block_id);
+        input.selected_rotation = i32::from(queue_selection.selected_rotation);
     }
+}
+
+fn snapshot_builder_queue_selection(session: &ClientSession) -> BuilderQueueBuildSelection {
+    let input = session.snapshot_input();
+    let mut queue = BuilderQueueStateMachine::default();
+    queue.sync_local_entries(input.plans.as_deref().into_iter().flatten().map(|plan| {
+        BuilderQueueEntryObservation {
+            x: plan.tile.0,
+            y: plan.tile.1,
+            breaking: plan.breaking,
+            block_id: plan.block_id,
+            rotation: plan.rotation,
+        }
+    }));
+
+    if let Some(world) = session.loaded_world_state() {
+        reconcile_builder_queue_against_loaded_world(&mut queue, &world);
+        update_builder_queue_activity_from_loaded_world(
+            &mut queue,
+            &world,
+            input.position.or(input.view_center),
+        );
+    }
+
+    queue.build_selection()
+}
+
+fn reconcile_builder_queue_against_loaded_world(
+    queue: &mut BuilderQueueStateMachine,
+    world: &LoadedWorldState<'_>,
+) {
+    let graph = world.graph();
+    let observations = queue
+        .ordered_tiles
+        .iter()
+        .filter_map(|&(x, y)| builder_queue_tile_state_observation(&graph, x, y))
+        .collect::<Vec<_>>();
+    queue.validate_against_tile_states(observations);
+}
+
+fn builder_queue_tile_state_observation(
+    graph: &WorldGraph<'_>,
+    x: i32,
+    y: i32,
+) -> Option<BuilderQueueTileStateObservation> {
+    let x = usize::try_from(x).ok()?;
+    let y = usize::try_from(y).ok()?;
+    let tile = graph.tile(x, y)?;
+    let rotation = graph
+        .building_center_at(x, y)
+        .map(|center| center.building.base.rotation);
+    Some(BuilderQueueTileStateObservation {
+        x: tile.x as i32,
+        y: tile.y as i32,
+        block_id: normalize_builder_queue_block_id(tile.block_id),
+        rotation,
+        requires_rotation_match: rotation.is_some(),
+    })
+}
+
+fn update_builder_queue_activity_from_loaded_world(
+    queue: &mut BuilderQueueStateMachine,
+    world: &LoadedWorldState<'_>,
+    snapshot_origin: Option<(f32, f32)>,
+) {
+    let graph = world.graph();
+    let origin_tile = snapshot_origin
+        .or(Some(world.player_position()))
+        .and_then(world_to_tile);
+    let observations = queue
+        .ordered_tiles
+        .iter()
+        .filter_map(|tile| {
+            let entry = queue.active_by_tile.get(tile)?;
+            builder_queue_activity_observation(&graph, entry, origin_tile)
+        })
+        .collect::<Vec<_>>();
+    queue.update_local_activity(observations);
+}
+
+fn builder_queue_activity_observation(
+    graph: &WorldGraph<'_>,
+    entry: &mdt_input::BuilderQueueEntry,
+    origin_tile: Option<(i32, i32)>,
+) -> Option<BuilderQueueActivityObservation> {
+    let x = usize::try_from(entry.x).ok()?;
+    let y = usize::try_from(entry.y).ok()?;
+    let tile = graph.tile(x, y)?;
+    let tile_block_id = normalize_builder_queue_block_id(tile.block_id);
+    let distance_sq = origin_tile
+        .map(|origin| u64::from(tile_distance_sq(origin, tile.x, tile.y)))
+        .unwrap_or(0);
+    let should_skip = if entry.breaking {
+        tile_block_id.is_none()
+    } else {
+        tile_block_id.is_some() && tile_block_id != entry.block_id
+    };
+    Some(BuilderQueueActivityObservation {
+        x: entry.x,
+        y: entry.y,
+        breaking: entry.breaking,
+        in_range: true,
+        should_skip,
+        distance_sq,
+    })
+}
+
+fn normalize_builder_queue_block_id(block_id: u16) -> Option<i16> {
+    (block_id != 0)
+        .then(|| i16::try_from(block_id).ok())
+        .flatten()
 }
 
 fn merge_build_plan_queue_tail(
@@ -5421,6 +5534,16 @@ mod tests {
     fn real_manifest_path() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../fixtures/remote/remote-manifest-v1.json")
+    }
+
+    fn sample_empty_tiles(world: &LoadedWorldState<'_>) -> Vec<(i32, i32)> {
+        world
+            .graph()
+            .grid()
+            .iter_tiles()
+            .filter(|tile| tile.block_id == 0 && tile.building_center_index.is_none())
+            .map(|tile| (tile.x as i32, tile.y as i32))
+            .collect()
     }
 
     fn sample_args(extra: &[&str]) -> Vec<String> {
@@ -9497,7 +9620,7 @@ mod tests {
     }
 
     #[test]
-    fn sync_runtime_build_selection_state_tracks_latest_non_breaking_plan() {
+    fn sync_runtime_build_selection_state_prefers_non_breaking_queue_head() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
         let args = parse_args(sample_args(&[])).unwrap();
@@ -9535,8 +9658,80 @@ mod tests {
 
         let input = session.snapshot_input();
         assert!(input.building);
+        assert_eq!(input.selected_block_id, Some(0x0101));
+        assert_eq!(input.selected_rotation, 1);
+    }
+
+    #[test]
+    fn sync_runtime_build_selection_state_falls_back_from_breaking_head_to_active_place_entry() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
+        ingest_sample_world(&mut session);
+        let args = parse_args(sample_args(&[])).unwrap();
+        let empty_tile = {
+            let world = session.loaded_world_state().unwrap();
+            sample_empty_tiles(&world).into_iter().next().unwrap()
+        };
+
+        session.snapshot_input_mut().plans = Some(vec![
+            ClientBuildPlan {
+                tile: (4, 4),
+                breaking: true,
+                block_id: None,
+                rotation: 0,
+                config: ClientBuildPlanConfig::None,
+            },
+            ClientBuildPlan {
+                tile: empty_tile,
+                breaking: false,
+                block_id: Some(0x0102),
+                rotation: 2,
+                config: ClientBuildPlanConfig::None,
+            },
+        ]);
+
+        sync_runtime_build_selection_state(&mut session, &args);
+
+        let input = session.snapshot_input();
+        assert!(input.building);
+        assert_eq!(input.selected_block_id, Some(0x0102));
+        assert_eq!(input.selected_rotation, 2);
+    }
+
+    #[test]
+    fn sync_runtime_build_selection_state_reconciles_completed_head_before_selection() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
+        ingest_sample_world(&mut session);
+        let args = parse_args(sample_args(&[])).unwrap();
+        let empty_tiles = {
+            let world = session.loaded_world_state().unwrap();
+            sample_empty_tiles(&world)
+        };
+
+        session.snapshot_input_mut().plans = Some(vec![
+            ClientBuildPlan {
+                tile: empty_tiles[0],
+                breaking: true,
+                block_id: None,
+                rotation: 0,
+                config: ClientBuildPlanConfig::None,
+            },
+            ClientBuildPlan {
+                tile: empty_tiles[1],
+                breaking: false,
+                block_id: Some(0x0103),
+                rotation: 1,
+                config: ClientBuildPlanConfig::None,
+            },
+        ]);
+
+        sync_runtime_build_selection_state(&mut session, &args);
+
+        let input = session.snapshot_input();
+        assert!(input.building);
         assert_eq!(input.selected_block_id, Some(0x0103));
-        assert_eq!(input.selected_rotation, 3);
+        assert_eq!(input.selected_rotation, 1);
     }
 
     #[test]

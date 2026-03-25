@@ -66,6 +66,14 @@ pub struct BuilderQueueActivityState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BuilderQueueBuildSelection {
+    pub building: bool,
+    pub selected_tile: Option<(i32, i32)>,
+    pub selected_block_id: Option<i16>,
+    pub selected_rotation: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BuilderQueueTileStateObservation {
     pub x: i32,
     pub y: i32,
@@ -184,7 +192,8 @@ impl BuilderQueueStateMachine {
         for key in incoming_order {
             if !next_order.contains(&key) {
                 let insert_at = if incoming_counts.get(&key).copied().unwrap_or_default() > 1 {
-                    let key_last_index = incoming_last_index.get(&key).copied().unwrap_or(usize::MAX);
+                    let key_last_index =
+                        incoming_last_index.get(&key).copied().unwrap_or(usize::MAX);
                     next_order
                         .iter()
                         .position(|existing| {
@@ -303,6 +312,30 @@ impl BuilderQueueStateMachine {
             .and_then(|tile| self.active_by_tile.get(&tile))
     }
 
+    pub fn active_non_breaking_entry(&self) -> Option<&BuilderQueueEntry> {
+        self.ordered_tiles.iter().find_map(|tile| {
+            self.active_by_tile
+                .get(tile)
+                .filter(|entry| !entry.breaking && entry.block_id.is_some())
+        })
+    }
+
+    pub fn build_selection(&self) -> BuilderQueueBuildSelection {
+        let selection_entry = self
+            .head_entry()
+            .filter(|entry| !entry.breaking && entry.block_id.is_some())
+            .or_else(|| self.active_non_breaking_entry());
+
+        BuilderQueueBuildSelection {
+            building: self.head_entry().is_some(),
+            selected_tile: selection_entry.map(|entry| (entry.x, entry.y)),
+            selected_block_id: selection_entry.and_then(|entry| entry.block_id),
+            selected_rotation: selection_entry
+                .and_then(|entry| entry.rotation)
+                .unwrap_or(0),
+        }
+    }
+
     pub fn observe_progress(
         &mut self,
         x: i32,
@@ -350,6 +383,12 @@ impl BuilderQueueStateMachine {
                 .head_entry()
                 .and_then(|entry| Self::activity_observation(&observations_by_key, entry))
                 .is_some_and(|observation| observation.in_range);
+            let original_head_should_skip = self
+                .head_entry()
+                .and_then(|entry| Self::activity_observation(&observations_by_key, entry))
+                .is_some_and(|observation| observation.should_skip);
+            let can_reorder_to_first_unskipped_in_range =
+                !original_head_in_range || original_head_should_skip;
 
             while total < size {
                 let Some(tile) = self.ordered_tiles.first().copied() else {
@@ -369,7 +408,10 @@ impl BuilderQueueStateMachine {
 
                 if observation.in_range && !observation.should_skip {
                     found_valid_head = true;
-                    reordered = total > 0;
+                    reordered = total > 0 && can_reorder_to_first_unskipped_in_range;
+                    if !reordered {
+                        self.ordered_tiles = original_order.clone();
+                    }
                     break;
                 }
                 if observation.in_range && observation.distance_sq < best_distance {
@@ -568,10 +610,10 @@ impl BuilderQueueStateMachine {
 #[cfg(test)]
 mod tests {
     use super::{
-        BuilderQueueActivityObservation, BuilderQueueActivityState, BuilderQueueEntry,
-        BuilderQueueEntryObservation, BuilderQueueHeadSelection, BuilderQueueReconcileOutcome,
-        BuilderQueueStage, BuilderQueueStateMachine, BuilderQueueTileStateObservation,
-        BuilderQueueTransition, BuilderQueueValidationResult,
+        BuilderQueueActivityObservation, BuilderQueueActivityState, BuilderQueueBuildSelection,
+        BuilderQueueEntry, BuilderQueueEntryObservation, BuilderQueueHeadSelection,
+        BuilderQueueReconcileOutcome, BuilderQueueStage, BuilderQueueStateMachine,
+        BuilderQueueTileStateObservation, BuilderQueueTransition, BuilderQueueValidationResult,
     };
     use std::collections::BTreeMap;
 
@@ -1739,6 +1781,76 @@ mod tests {
     }
 
     #[test]
+    fn update_local_activity_reorders_past_in_range_skipped_head_to_first_unskipped_plan() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 1,
+                y: 1,
+                breaking: false,
+                block_id: Some(10),
+                rotation: 0,
+            },
+            BuilderQueueEntryObservation {
+                x: 2,
+                y: 2,
+                breaking: false,
+                block_id: Some(20),
+                rotation: 1,
+            },
+            BuilderQueueEntryObservation {
+                x: 3,
+                y: 3,
+                breaking: false,
+                block_id: Some(30),
+                rotation: 2,
+            },
+        ]);
+
+        let activity = queue.update_local_activity([
+            BuilderQueueActivityObservation {
+                x: 1,
+                y: 1,
+                breaking: false,
+                in_range: true,
+                should_skip: true,
+                distance_sq: 36,
+            },
+            BuilderQueueActivityObservation {
+                x: 2,
+                y: 2,
+                breaking: false,
+                in_range: true,
+                should_skip: false,
+                distance_sq: 4,
+            },
+            BuilderQueueActivityObservation {
+                x: 3,
+                y: 3,
+                breaking: false,
+                in_range: true,
+                should_skip: false,
+                distance_sq: 1,
+            },
+        ]);
+
+        assert_eq!(
+            activity,
+            BuilderQueueActivityState {
+                head_tile: Some((2, 2)),
+                actively_building: true,
+                head_in_range: true,
+                head_should_skip: false,
+                reordered: true,
+                used_closest_in_range_fallback: false,
+                head_selection: BuilderQueueHeadSelection::ReorderedToInRange,
+            }
+        );
+        assert_eq!(queue.ordered_tiles, vec![(2, 2), (3, 3), (1, 1)]);
+        assert_eq!(queue.head_tile, Some((2, 2)));
+    }
+
+    #[test]
     fn update_local_activity_keeps_order_stable_when_observations_are_incomplete() {
         let mut queue = BuilderQueueStateMachine::default();
         queue.sync_local_entries([
@@ -2253,5 +2365,47 @@ mod tests {
         assert_eq!(queue.head_tile, Some((6, 6)));
         assert_eq!(queue.queued_count, 2);
         assert_eq!(queue.inflight_count, 0);
+    }
+
+    #[test]
+    fn build_selection_prefers_non_breaking_head_and_falls_back_when_head_is_breaking() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 1,
+                y: 1,
+                breaking: true,
+                block_id: None,
+                rotation: 0,
+            },
+            BuilderQueueEntryObservation {
+                x: 2,
+                y: 2,
+                breaking: false,
+                block_id: Some(22),
+                rotation: 3,
+            },
+        ]);
+
+        assert_eq!(
+            queue.build_selection(),
+            BuilderQueueBuildSelection {
+                building: true,
+                selected_tile: Some((2, 2)),
+                selected_block_id: Some(22),
+                selected_rotation: 3,
+            }
+        );
+
+        assert!(queue.move_to_front(2, 2, false));
+        assert_eq!(
+            queue.build_selection(),
+            BuilderQueueBuildSelection {
+                building: true,
+                selected_tile: Some((2, 2)),
+                selected_block_id: Some(22),
+                selected_rotation: 3,
+            }
+        );
     }
 }
