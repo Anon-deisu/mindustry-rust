@@ -60,12 +60,13 @@ impl MovementProbeController {
 
         let next = (x + self.config.step.0, y + self.config.step.1);
         let rotation_degrees = probe_heading_degrees(self.config.step);
+        let pointer = resolve_probe_pointer(locked_pointer, runtime.pointer, next);
         self.last_step_at_ms = Some(now_ms);
 
         Some(MovementProbeUpdate {
             position: next,
             view_center: next,
-            pointer: locked_pointer.unwrap_or(next),
+            pointer,
             velocity: self.config.step,
             rotation_degrees,
             base_rotation_degrees: rotation_degrees,
@@ -82,6 +83,17 @@ impl MovementProbeController {
 
 fn probe_heading_degrees(step: (f32, f32)) -> f32 {
     step.1.atan2(step.0).to_degrees()
+}
+
+fn resolve_probe_pointer(
+    locked_pointer: Option<(f32, f32)>,
+    runtime_pointer: Option<(f32, f32)>,
+    fallback: (f32, f32),
+) -> (f32, f32) {
+    locked_pointer
+        .filter(|(x, y)| x.is_finite() && y.is_finite())
+        .or_else(|| runtime_pointer.filter(|(x, y)| x.is_finite() && y.is_finite()))
+        .unwrap_or(fallback)
 }
 
 #[cfg(test)]
@@ -185,5 +197,49 @@ mod tests {
 
         assert_eq!(update.position, (6.0, 4.0));
         assert_eq!(update.pointer, (100.0, 200.0));
+    }
+
+    #[test]
+    fn advance_preserves_runtime_pointer_when_no_locked_pointer_is_configured() {
+        let mut controller =
+            MovementProbeController::new(MovementProbeConfig { step: (1.0, -2.0) });
+        let update = controller
+            .advance(
+                RuntimeInputState {
+                    unit_id: Some(99),
+                    dead: false,
+                    position: Some((5.0, 6.0)),
+                    pointer: Some((40.0, 50.0)),
+                },
+                250,
+                100,
+                None,
+            )
+            .unwrap();
+
+        assert_eq!(update.position, (6.0, 4.0));
+        assert_eq!(update.view_center, (6.0, 4.0));
+        assert_eq!(update.pointer, (40.0, 50.0));
+    }
+
+    #[test]
+    fn advance_falls_back_to_next_position_when_runtime_pointer_is_non_finite() {
+        let mut controller = MovementProbeController::new(MovementProbeConfig { step: (2.0, 1.0) });
+        let update = controller
+            .advance(
+                RuntimeInputState {
+                    unit_id: Some(7),
+                    dead: false,
+                    position: Some((10.0, 20.0)),
+                    pointer: Some((f32::NAN, 99.0)),
+                },
+                100,
+                50,
+                None,
+            )
+            .unwrap();
+
+        assert_eq!(update.position, (12.0, 21.0));
+        assert_eq!(update.pointer, (12.0, 21.0));
     }
 }
