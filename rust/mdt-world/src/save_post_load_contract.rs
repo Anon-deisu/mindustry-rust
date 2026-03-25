@@ -1,5 +1,5 @@
 use crate::{
-    MarkerModel, SaveEntityPostLoadSummary, SaveEntityRegionObservation,
+    marker_region_is_empty, MarkerModel, SaveEntityPostLoadSummary, SaveEntityRegionObservation,
     SavePostLoadWorldObservation, WorldLoadUnknownCoverageSummary,
 };
 
@@ -187,8 +187,7 @@ fn marker_surface_consistent(
     let width = observation.map.world.width;
     let height = observation.map.world.height;
     let marker_region_present = !observation.marker_region_bytes.is_empty();
-    let empty_marker_region =
-        observation.marker_region_bytes.is_empty() || observation.marker_region_bytes == b"{}";
+    let empty_marker_region = marker_region_is_empty(&observation.marker_region_bytes);
 
     if (observation.markers.is_empty() && !empty_marker_region)
         || (!observation.markers.is_empty() && !marker_region_present)

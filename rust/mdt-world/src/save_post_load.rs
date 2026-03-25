@@ -1,7 +1,7 @@
 use crate::{
-    CustomChunkEntry, MarkerEntry, MarkerModel, ParsedBuildingTail, ParsedCustomChunk,
-    SavePostLoadWorldObservation, StaticFogChunk, TeamPlan, TeamPlanGroup, WorldGraph,
-    WorldLoadUnknownCoverageSummary,
+    marker_region_is_empty, CustomChunkEntry, MarkerEntry, MarkerModel, ParsedBuildingTail,
+    ParsedCustomChunk, SavePostLoadWorldObservation, StaticFogChunk, TeamPlan, TeamPlanGroup,
+    WorldGraph, WorldLoadUnknownCoverageSummary,
 };
 
 impl SavePostLoadWorldObservation {
@@ -81,6 +81,6 @@ impl SavePostLoadWorldObservation {
     }
 
     pub fn markers_are_empty(&self) -> bool {
-        self.markers.is_empty() && self.marker_region_bytes == b"{}"
+        self.markers.is_empty() && marker_region_is_empty(&self.marker_region_bytes)
     }
 }

@@ -35,7 +35,8 @@ pub use save_post_load_runtime_apply_batches::{
     SavePostLoadRuntimeApplyBatchPlanView, SavePostLoadRuntimeApplyBatchView,
 };
 pub use save_post_load_runtime_execution::{
-    SavePostLoadRuntimeApplyExecution, SavePostLoadRuntimeApplyIssue, SavePostLoadRuntimeWorldShell,
+    SavePostLoadRuntimeApplyExecution, SavePostLoadRuntimeApplyIssue,
+    SavePostLoadRuntimeWorldSemanticsExecution, SavePostLoadRuntimeWorldShell,
 };
 pub use save_post_load_runtime_script::{
     SavePostLoadRuntimeApplyScript, SavePostLoadRuntimeApplyStep,
@@ -12106,8 +12107,12 @@ impl<'a> WorldGraph<'a> {
     }
 
     pub fn markers_are_empty(&self) -> bool {
-        self.marker_region == b"{}"
+        self.markers.is_empty() && marker_region_is_empty(self.marker_region)
     }
+}
+
+pub(crate) fn marker_region_is_empty(marker_region: &[u8]) -> bool {
+    marker_region.is_empty() || marker_region == b"{}"
 }
 
 impl<'a> LoadedWorldState<'a> {
@@ -40101,6 +40106,32 @@ mod tests {
     }
 
     #[test]
+    fn msav_post_load_world_executes_narrow_world_semantics_for_save11_regions() {
+        let save = parse_msav_save(&sample_msav_post_load_save11_bytes()).unwrap();
+        let post_load = save.post_load_world().unwrap();
+        let execution = post_load.execute_runtime_world_semantics();
+        let shell = execution.world_shell.as_ref().unwrap();
+
+        assert!(execution.world_shell_ready);
+        assert!(execution.can_apply_world_semantics());
+        assert!(execution.has_world_shell());
+        assert_eq!(execution.failed_step_count(), 0);
+        assert_eq!(execution.pending_step_count(), 0);
+        assert!(execution.issues.is_empty());
+        assert_eq!(
+            shell.buildings.len(),
+            post_load.map.world.building_centers.len()
+        );
+        assert_eq!(
+            shell.loadable_entities.len(),
+            post_load.entity_summary.loadable_entities
+        );
+        assert!(shell.team_plans.is_empty());
+        assert!(shell.markers.is_empty());
+        assert!(shell.static_fog.is_none());
+    }
+
+    #[test]
     fn msav_post_load_world_exposes_consumable_runtime_apply_batch_plan_for_save11_regions() {
         let save = parse_msav_save(&sample_msav_post_load_save11_bytes()).unwrap();
         let post_load = save.post_load_world().unwrap();
@@ -40189,6 +40220,7 @@ mod tests {
     fn parses_msav_post_load_world_for_save6_legacy_regions() {
         let save = parse_msav_save(&sample_msav_post_load_save6_bytes()).unwrap();
         let post_load = save.post_load_world().unwrap();
+        let graph = post_load.graph();
 
         assert_eq!(post_load.save_version, 6);
         assert!(post_load.content_header.is_empty());
@@ -40221,6 +40253,9 @@ mod tests {
         assert_eq!(post_load.world_entity_chunks, save.entities.entity_chunks);
         assert!(post_load.markers.is_empty());
         assert!(post_load.marker_region_bytes.is_empty());
+        assert!(post_load.markers_are_empty());
+        assert!(graph.markers_are_empty());
+        assert_eq!(graph.marker_region(), post_load.marker_region_bytes);
         assert!(post_load.custom_chunks.is_empty());
         assert!(post_load.custom_region_bytes.is_empty());
         assert_eq!(post_load.entity_summary, save.post_load_entity_summary());
@@ -40248,6 +40283,24 @@ mod tests {
         assert!(execution
             .blocked_steps
             .contains(&SavePostLoadRuntimeApplyStep::WorldShell));
+    }
+
+    #[test]
+    fn msav_post_load_world_blocks_narrow_world_semantics_for_save6_legacy_regions() {
+        let save = parse_msav_save(&sample_msav_post_load_save6_bytes()).unwrap();
+        let post_load = save.post_load_world().unwrap();
+        let execution = post_load.execute_runtime_world_semantics();
+
+        assert!(!execution.world_shell_ready);
+        assert!(!execution.can_apply_world_semantics());
+        assert!(!execution.has_world_shell());
+        assert_eq!(execution.failed_step_count(), 0);
+        assert_eq!(execution.executed_step_count(), 0);
+        assert!(execution.issues.is_empty());
+        assert!(execution
+            .blocked_steps
+            .contains(&SavePostLoadRuntimeApplyStep::WorldShell));
+        assert!(execution.pending_step_count() > 0);
     }
 
     #[test]

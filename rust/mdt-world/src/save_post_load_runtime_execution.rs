@@ -60,6 +60,50 @@ pub struct SavePostLoadRuntimeApplyExecution {
     pub issues: Vec<SavePostLoadRuntimeApplyIssue>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct SavePostLoadRuntimeWorldSemanticsExecution {
+    pub world_shell_ready: bool,
+    pub executed_steps: Vec<SavePostLoadRuntimeApplyStep>,
+    pub failed_steps: Vec<SavePostLoadRuntimeApplyStep>,
+    pub awaiting_world_shell_steps: Vec<SavePostLoadRuntimeApplyStep>,
+    pub blocked_steps: Vec<SavePostLoadRuntimeApplyStep>,
+    pub world_shell: Option<SavePostLoadRuntimeWorldShell>,
+    pub issues: Vec<SavePostLoadRuntimeApplyIssue>,
+}
+
+impl SavePostLoadRuntimeWorldSemanticsExecution {
+    pub fn can_apply_world_semantics(&self) -> bool {
+        self.world_shell_ready
+            && self.failed_steps.is_empty()
+            && self.awaiting_world_shell_steps.is_empty()
+            && self.blocked_steps.is_empty()
+            && self.has_world_shell()
+    }
+
+    pub fn targeted_step_count(&self) -> usize {
+        self.executed_steps.len()
+            + self.failed_steps.len()
+            + self.awaiting_world_shell_steps.len()
+            + self.blocked_steps.len()
+    }
+
+    pub fn executed_step_count(&self) -> usize {
+        self.executed_steps.len()
+    }
+
+    pub fn failed_step_count(&self) -> usize {
+        self.failed_steps.len()
+    }
+
+    pub fn pending_step_count(&self) -> usize {
+        self.awaiting_world_shell_steps.len() + self.blocked_steps.len()
+    }
+
+    pub fn has_world_shell(&self) -> bool {
+        self.world_shell.is_some()
+    }
+}
+
 impl SavePostLoadRuntimeApplyExecution {
     pub fn executed_step_count(&self) -> usize {
         self.executed_steps.len()
@@ -328,6 +372,10 @@ impl SavePostLoadWorldObservation {
     pub fn execute_runtime_apply(&self) -> SavePostLoadRuntimeApplyExecution {
         self.runtime_seed_plan().execute_runtime_apply()
     }
+
+    pub fn execute_runtime_world_semantics(&self) -> SavePostLoadRuntimeWorldSemanticsExecution {
+        self.runtime_seed_plan().execute_runtime_world_semantics()
+    }
 }
 
 impl SavePostLoadRuntimeSeedPlan {
@@ -343,6 +391,64 @@ impl SavePostLoadRuntimeSeedPlan {
         }
         execution
     }
+
+    pub fn execute_runtime_world_semantics(&self) -> SavePostLoadRuntimeWorldSemanticsExecution {
+        let script = self.runtime_apply_script();
+        let apply_now_steps = filter_world_semantics_steps(&script.apply_now_steps);
+        let mut execution = SavePostLoadRuntimeApplyExecution {
+            can_seed_runtime_apply: script.world_shell_ready,
+            world_shell_ready: script.world_shell_ready,
+            executed_steps: Vec::new(),
+            failed_steps: Vec::new(),
+            awaiting_world_shell_steps: filter_world_semantics_steps(
+                &script.awaiting_world_shell_steps,
+            ),
+            blocked_steps: filter_world_semantics_steps(&script.blocked_steps),
+            deferred_steps: Vec::new(),
+            world_shell: None,
+            entity_remaps: Vec::new(),
+            entity_remaps_by_custom_id: BTreeMap::new(),
+            custom_chunks: Vec::new(),
+            custom_chunks_by_name: BTreeMap::new(),
+            skipped_entities: Vec::new(),
+            issues: Vec::new(),
+        };
+
+        for step in &apply_now_steps {
+            if execution.apply_step(self, step) {
+                execution.executed_steps.push(step.clone());
+            } else {
+                execution.failed_steps.push(step.clone());
+            }
+        }
+
+        SavePostLoadRuntimeWorldSemanticsExecution {
+            world_shell_ready: execution.world_shell_ready,
+            executed_steps: execution.executed_steps,
+            failed_steps: execution.failed_steps,
+            awaiting_world_shell_steps: execution.awaiting_world_shell_steps,
+            blocked_steps: execution.blocked_steps,
+            world_shell: execution.world_shell,
+            issues: execution.issues,
+        }
+    }
+}
+
+fn filter_world_semantics_steps(
+    steps: &[SavePostLoadRuntimeApplyStep],
+) -> Vec<SavePostLoadRuntimeApplyStep> {
+    steps
+        .iter()
+        .filter(|step| {
+            matches!(
+                step,
+                SavePostLoadRuntimeApplyStep::WorldShell
+                    | SavePostLoadRuntimeApplyStep::Building { .. }
+                    | SavePostLoadRuntimeApplyStep::LoadableEntity { .. }
+            )
+        })
+        .cloned()
+        .collect()
 }
 
 #[cfg(test)]
@@ -473,6 +579,74 @@ mod tests {
         assert_eq!(shell.markers.len(), 1);
         assert_eq!(shell.markers_by_id.len(), 1);
         assert!(shell.markers_by_id.contains_key(&11));
+    }
+
+    #[test]
+    fn execute_runtime_world_semantics_ignores_non_world_stages_and_skipped_entities() {
+        let mut observation = test_observation();
+        make_observation_seedable(&mut observation);
+        let mut plan = observation.runtime_seed_plan();
+        let mut skipped = plan.loadable_entity_seeds[1].clone();
+        skipped.entity_index = 99;
+        plan.skipped_entity_seeds.push(skipped);
+
+        let execution = plan.execute_runtime_world_semantics();
+        let shell = execution.world_shell.as_ref().unwrap();
+
+        assert!(execution.world_shell_ready);
+        assert!(execution.can_apply_world_semantics());
+        assert_eq!(execution.executed_step_count(), 5);
+        assert_eq!(execution.failed_step_count(), 0);
+        assert_eq!(execution.pending_step_count(), 0);
+        assert_eq!(execution.targeted_step_count(), 5);
+        assert_eq!(
+            execution.executed_steps,
+            vec![
+                SavePostLoadRuntimeApplyStep::WorldShell,
+                SavePostLoadRuntimeApplyStep::Building { center_index: 0 },
+                SavePostLoadRuntimeApplyStep::LoadableEntity { entity_index: 0 },
+                SavePostLoadRuntimeApplyStep::LoadableEntity { entity_index: 1 },
+                SavePostLoadRuntimeApplyStep::LoadableEntity { entity_index: 2 },
+            ]
+        );
+        assert!(execution.issues.is_empty());
+        assert!(shell.team_plans.is_empty());
+        assert!(shell.markers.is_empty());
+        assert!(shell.static_fog.is_none());
+        assert_eq!(shell.buildings.len(), 1);
+        assert_eq!(shell.buildings_by_center_index.len(), 1);
+        assert_eq!(shell.loadable_entities.len(), 3);
+        assert_eq!(shell.loadable_entities_by_id.len(), 3);
+    }
+
+    #[test]
+    fn execute_runtime_world_semantics_keeps_world_blockers_without_non_world_pending_steps() {
+        let mut observation = test_observation();
+        observation.world_entity_chunks[2].entity_id = 42;
+        observation.entity_summary.duplicate_entity_ids = vec![42];
+        observation.entity_summary.unique_entity_ids = 2;
+        observation.map.world.tiles[0].building_center_index = None;
+
+        let execution = observation.execute_runtime_world_semantics();
+
+        assert!(!execution.world_shell_ready);
+        assert!(!execution.can_apply_world_semantics());
+        assert!(!execution.has_world_shell());
+        assert!(execution.failed_steps.is_empty());
+        assert!(execution.issues.is_empty());
+        assert!(execution.awaiting_world_shell_steps.is_empty());
+        assert_eq!(
+            execution.blocked_steps,
+            vec![
+                SavePostLoadRuntimeApplyStep::WorldShell,
+                SavePostLoadRuntimeApplyStep::Building { center_index: 0 },
+                SavePostLoadRuntimeApplyStep::LoadableEntity { entity_index: 0 },
+                SavePostLoadRuntimeApplyStep::LoadableEntity { entity_index: 2 },
+            ]
+        );
+        assert_eq!(execution.executed_step_count(), 0);
+        assert_eq!(execution.pending_step_count(), 4);
+        assert_eq!(execution.targeted_step_count(), 4);
     }
 
     fn make_observation_seedable(observation: &mut crate::SavePostLoadWorldObservation) {
