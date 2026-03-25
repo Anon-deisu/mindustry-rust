@@ -342,6 +342,12 @@ pub struct InboundRemoteRegistry {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WellKnownRemoteRegistry {
+    by_packet_id: RemotePacketIdFixedTable<WellKnownRemoteMethod>,
+    by_method: [(WellKnownRemoteMethod, Option<u8>); WELL_KNOWN_REMOTE_METHOD_COUNT],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemotePacketIdFixedTable<T: Copy> {
     by_packet_id: [Option<T>; REMOTE_PACKET_ID_SPACE],
 }
@@ -351,6 +357,7 @@ pub struct TypedRemoteRegistries {
     pub high_frequency: HighFrequencyRemoteRegistry,
     pub custom_channel: CustomChannelRemoteRegistry,
     pub inbound_remote: InboundRemoteRegistry,
+    pub well_known: WellKnownRemoteRegistry,
 }
 
 const SERVER_PACKET_TEXT_PARAM_JAVA_TYPES: [&str; 3] =
@@ -1660,15 +1667,20 @@ impl TypedRemoteRegistries {
             inbound_remote: InboundRemoteRegistry {
                 by_packet_id: resolve_inbound_remote_dispatch_entries(&registry)?,
             },
+            well_known: WellKnownRemoteRegistry::from_remote_registry(&registry)?,
         })
     }
 }
 
 impl<T: Copy> RemotePacketIdFixedTable<T> {
     fn from_entries<const N: usize>(entries: &[(u8, T); N]) -> Self {
+        Self::from_iter(entries.iter().copied())
+    }
+
+    fn from_iter(entries: impl IntoIterator<Item = (u8, T)>) -> Self {
         let mut by_packet_id = [None; REMOTE_PACKET_ID_SPACE];
         for (packet_id, value) in entries {
-            by_packet_id[*packet_id as usize] = Some(*value);
+            by_packet_id[packet_id as usize] = Some(value);
         }
         Self { by_packet_id }
     }
@@ -1817,6 +1829,60 @@ impl InboundRemoteRegistry {
     }
 }
 
+impl WellKnownRemoteRegistry {
+    pub fn from_manifest(manifest: &RemoteManifest) -> Result<Self, RemoteManifestError> {
+        let registry = RemotePacketRegistry::from_manifest(manifest)?;
+        Self::from_remote_registry(&registry)
+    }
+
+    pub fn classify(&self, packet_id: u8) -> Option<WellKnownRemoteMethod> {
+        self.by_packet_id.get(packet_id)
+    }
+
+    pub fn packet_id(&self, method: WellKnownRemoteMethod) -> Option<u8> {
+        self.by_method
+            .iter()
+            .find_map(|(known_method, packet_id)| (*known_method == method).then_some(*packet_id))
+            .flatten()
+    }
+
+    pub fn contains_packet_id(&self, packet_id: u8) -> bool {
+        self.by_packet_id.contains_packet_id(packet_id)
+    }
+
+    pub fn len(&self) -> usize {
+        self.by_method
+            .iter()
+            .filter(|(_, packet_id)| packet_id.is_some())
+            .count()
+    }
+
+    pub fn resolved_packet_ids(
+        &self,
+    ) -> [(WellKnownRemoteMethod, Option<u8>); WELL_KNOWN_REMOTE_METHOD_COUNT] {
+        self.by_method
+    }
+
+    pub fn packet_id_fixed_table(&self) -> RemotePacketIdFixedTable<WellKnownRemoteMethod> {
+        self.by_packet_id.clone()
+    }
+
+    fn from_remote_registry(
+        registry: &RemotePacketRegistry<'_>,
+    ) -> Result<Self, RemoteManifestError> {
+        let by_method = resolve_well_known_remote_registry_entries(registry)?;
+        let by_packet_id = RemotePacketIdFixedTable::from_iter(
+            by_method
+                .iter()
+                .filter_map(|(method, packet_id)| packet_id.map(|packet_id| (packet_id, *method))),
+        );
+        Ok(Self {
+            by_packet_id,
+            by_method,
+        })
+    }
+}
+
 fn resolve_high_frequency_remote_registry_entries(
     registry: &RemotePacketRegistry<'_>,
 ) -> Result<
@@ -1907,6 +1973,36 @@ fn resolve_inbound_remote_dispatch_entries(
     resolved_entries.try_into().map_err(|_| {
         RemoteManifestError::InvalidPacketSequence(
             "inbound remote dispatch registry length drifted".into(),
+        )
+    })
+}
+
+fn resolve_well_known_remote_registry_entries(
+    registry: &RemotePacketRegistry<'_>,
+) -> Result<
+    [(WellKnownRemoteMethod, Option<u8>); WELL_KNOWN_REMOTE_METHOD_COUNT],
+    RemoteManifestError,
+> {
+    let mut resolved_entries = Vec::with_capacity(WELL_KNOWN_REMOTE_METHOD_COUNT);
+    let mut seen_packet_ids = std::collections::HashSet::with_capacity(WELL_KNOWN_REMOTE_METHOD_COUNT);
+
+    for method in WellKnownRemoteMethod::ordered() {
+        let packet_id = registry
+            .first_well_known_method(method)
+            .map(|packet| packet.packet_id);
+        if let Some(packet_id) = packet_id {
+            if !seen_packet_ids.insert(packet_id) {
+                return Err(RemoteManifestError::InvalidPacketSequence(format!(
+                    "duplicate well-known remote packet id: {packet_id}",
+                )));
+            }
+        }
+        resolved_entries.push((method, packet_id));
+    }
+
+    resolved_entries.try_into().map_err(|_| {
+        RemoteManifestError::InvalidPacketSequence(
+            "well-known remote registry length drifted".into(),
         )
     })
 }
