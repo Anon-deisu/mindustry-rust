@@ -523,12 +523,184 @@ impl RuntimeDialogPanelModel {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimePromptPanelModel {
+    pub kind: Option<RuntimeDialogPromptKind>,
+    pub menu_open_count: u64,
+    pub follow_up_menu_open_count: u64,
+    pub hide_follow_up_menu_count: u64,
+    pub text_input_open_count: u64,
+    pub text_input_last_id: Option<i32>,
+    pub text_input_last_title: Option<String>,
+    pub text_input_last_message: Option<String>,
+    pub text_input_last_default_text: Option<String>,
+    pub text_input_last_length: Option<i32>,
+    pub text_input_last_numeric: Option<bool>,
+    pub text_input_last_allow_empty: Option<bool>,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+impl RuntimePromptPanelModel {
+    pub fn is_empty(&self) -> bool {
+        self.kind.is_none()
+            && self.menu_open_count == 0
+            && self.follow_up_menu_open_count == 0
+            && self.hide_follow_up_menu_count == 0
+            && self.text_input_open_count == 0
+            && self.text_input_last_id.is_none()
+            && self.text_input_last_title.is_none()
+            && self.text_input_last_message.is_none()
+            && self.text_input_last_default_text.is_none()
+            && self.text_input_last_length.is_none()
+            && self.text_input_last_numeric.is_none()
+            && self.text_input_last_allow_empty.is_none()
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.text_input_open_count > 0 || self.outstanding_follow_up_count() > 0
+    }
+
+    pub fn menu_active(&self) -> bool {
+        self.menu_open_count > 0
+    }
+
+    pub fn outstanding_follow_up_count(&self) -> u64 {
+        self.follow_up_menu_open_count
+            .saturating_sub(self.hide_follow_up_menu_count)
+    }
+
+    pub fn layer_labels(&self) -> Vec<&'static str> {
+        let mut labels = Vec::new();
+        if self.text_input_open_count > 0 {
+            labels.push("input");
+        }
+        if self.outstanding_follow_up_count() > 0 {
+            labels.push("follow-up");
+        }
+        if self.menu_active() {
+            labels.push("menu");
+        }
+        labels
+    }
+
+    pub fn depth(&self) -> usize {
+        self.layer_labels().len()
+    }
+
+    pub fn prompt_message_len(&self) -> usize {
+        text_char_count(self.text_input_last_message.as_deref())
+    }
+
+    pub fn default_text_len(&self) -> usize {
+        text_char_count(self.text_input_last_default_text.as_deref())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeNoticeStatePanelModel {
+    pub kind: Option<RuntimeDialogNoticeKind>,
+    pub text: Option<String>,
+    pub count: u64,
+    pub hud_active: bool,
+    pub reliable_hud_active: bool,
+    pub toast_info_active: bool,
+    pub toast_warning_active: bool,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+impl RuntimeNoticeStatePanelModel {
+    pub fn is_empty(&self) -> bool {
+        self.kind.is_none()
+            && self.text.is_none()
+            && self.count == 0
+            && !self.hud_active
+            && !self.reliable_hud_active
+            && !self.toast_info_active
+            && !self.toast_warning_active
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.depth() > 0
+    }
+
+    pub fn layer_labels(&self) -> Vec<&'static str> {
+        let mut labels = Vec::new();
+        if self.hud_active {
+            labels.push("hud");
+        }
+        if self.reliable_hud_active {
+            labels.push("reliable");
+        }
+        if self.toast_info_active {
+            labels.push("info");
+        }
+        if self.toast_warning_active {
+            labels.push("warn");
+        }
+        labels
+    }
+
+    pub fn depth(&self) -> usize {
+        self.layer_labels().len()
+    }
+
+    pub fn text_len(&self) -> usize {
+        text_char_count(self.text.as_deref())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeUiStackForegroundKind {
     Menu,
     FollowUpMenu,
     TextInput,
     Chat,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeDialogStackPanelModel {
+    pub foreground_kind: Option<RuntimeUiStackForegroundKind>,
+    pub prompt: RuntimePromptPanelModel,
+    pub notice: RuntimeNoticeStatePanelModel,
+    pub chat: RuntimeChatPanelModel,
+}
+
+impl RuntimeDialogStackPanelModel {
+    pub fn is_empty(&self) -> bool {
+        self.prompt.is_empty() && self.notice.is_empty() && self.chat.is_empty()
+    }
+
+    pub fn foreground_label(&self) -> &'static str {
+        match self.foreground_kind {
+            Some(RuntimeUiStackForegroundKind::Menu) => "menu",
+            Some(RuntimeUiStackForegroundKind::FollowUpMenu) => "follow-up",
+            Some(RuntimeUiStackForegroundKind::TextInput) => "input",
+            Some(RuntimeUiStackForegroundKind::Chat) => "chat",
+            None => "none",
+        }
+    }
+
+    pub fn prompt_depth(&self) -> usize {
+        self.prompt.depth()
+    }
+
+    pub fn notice_depth(&self) -> usize {
+        self.notice.depth()
+    }
+
+    pub fn chat_depth(&self) -> usize {
+        usize::from(!self.chat.is_empty())
+    }
+
+    pub fn active_group_count(&self) -> usize {
+        usize::from(self.prompt_depth() > 0)
+            + usize::from(self.notice_depth() > 0)
+            + self.chat_depth()
+    }
+
+    pub fn total_depth(&self) -> usize {
+        self.prompt_depth() + self.notice_depth() + self.chat_depth()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1351,6 +1523,36 @@ pub fn build_runtime_menu_panel(hud: &HudModel) -> Option<RuntimeMenuPanelModel>
     })
 }
 
+pub fn build_runtime_prompt_panel(hud: &HudModel) -> Option<RuntimePromptPanelModel> {
+    let runtime_ui = hud.runtime_ui.as_ref()?;
+    let menu = build_runtime_menu_panel(hud)?;
+    let outstanding_follow_up_count = menu.outstanding_follow_up_count();
+    let kind = if menu.text_input_open_count > 0 {
+        Some(RuntimeDialogPromptKind::TextInput)
+    } else if outstanding_follow_up_count > 0 {
+        Some(RuntimeDialogPromptKind::FollowUpMenu)
+    } else if menu.menu_open_count > 0 {
+        Some(RuntimeDialogPromptKind::Menu)
+    } else {
+        None
+    };
+
+    Some(RuntimePromptPanelModel {
+        kind,
+        menu_open_count: menu.menu_open_count,
+        follow_up_menu_open_count: menu.follow_up_menu_open_count,
+        hide_follow_up_menu_count: menu.hide_follow_up_menu_count,
+        text_input_open_count: menu.text_input_open_count,
+        text_input_last_id: menu.text_input_last_id,
+        text_input_last_title: menu.text_input_last_title,
+        text_input_last_message: runtime_ui.text_input.last_message.clone(),
+        text_input_last_default_text: menu.text_input_last_default_text,
+        text_input_last_length: menu.text_input_last_length,
+        text_input_last_numeric: menu.text_input_last_numeric,
+        text_input_last_allow_empty: menu.text_input_last_allow_empty,
+    })
+}
+
 pub fn build_runtime_chat_panel(hud: &HudModel) -> Option<RuntimeChatPanelModel> {
     let runtime_ui = hud.runtime_ui.as_ref()?;
     Some(RuntimeChatPanelModel {
@@ -1363,101 +1565,114 @@ pub fn build_runtime_chat_panel(hud: &HudModel) -> Option<RuntimeChatPanelModel>
     })
 }
 
-pub fn build_runtime_dialog_panel(hud: &HudModel) -> Option<RuntimeDialogPanelModel> {
-    let runtime_ui = hud.runtime_ui.as_ref()?;
-    let prompt_kind = if runtime_ui.text_input.open_count > 0 {
-        Some(RuntimeDialogPromptKind::TextInput)
-    } else if runtime_ui.menu.follow_up_menu_open_count > runtime_ui.menu.hide_follow_up_menu_count
-    {
-        Some(RuntimeDialogPromptKind::FollowUpMenu)
-    } else if runtime_ui.menu.menu_open_count > 0 {
-        Some(RuntimeDialogPromptKind::Menu)
-    } else {
-        None
-    };
-    let notice_kind = if runtime_ui.toast.last_warning_text.is_some() {
+pub fn build_runtime_notice_state_panel(hud: &HudModel) -> Option<RuntimeNoticeStatePanelModel> {
+    let notice = build_runtime_ui_notice_panel(hud)?;
+    let hud_active = notice.hud_last_message.is_some();
+    let reliable_hud_active = notice.hud_last_reliable_message.is_some();
+    let toast_info_active = notice.toast_last_info_message.is_some();
+    let toast_warning_active = notice.toast_last_warning_text.is_some();
+    let kind = if toast_warning_active {
         Some(RuntimeDialogNoticeKind::ToastWarning)
-    } else if runtime_ui.toast.last_info_message.is_some() {
+    } else if toast_info_active {
         Some(RuntimeDialogNoticeKind::ToastInfo)
-    } else if runtime_ui.hud_text.last_reliable_message.is_some() {
+    } else if reliable_hud_active {
         Some(RuntimeDialogNoticeKind::HudReliable)
-    } else if runtime_ui.hud_text.last_message.is_some() {
+    } else if hud_active {
         Some(RuntimeDialogNoticeKind::Hud)
     } else {
         None
     };
-    let notice_text = match notice_kind {
-        Some(RuntimeDialogNoticeKind::ToastWarning) => runtime_ui.toast.last_warning_text.clone(),
-        Some(RuntimeDialogNoticeKind::ToastInfo) => runtime_ui.toast.last_info_message.clone(),
-        Some(RuntimeDialogNoticeKind::HudReliable) => {
-            runtime_ui.hud_text.last_reliable_message.clone()
-        }
-        Some(RuntimeDialogNoticeKind::Hud) => runtime_ui.hud_text.last_message.clone(),
+    let text = match kind {
+        Some(RuntimeDialogNoticeKind::ToastWarning) => notice.toast_last_warning_text,
+        Some(RuntimeDialogNoticeKind::ToastInfo) => notice.toast_last_info_message,
+        Some(RuntimeDialogNoticeKind::HudReliable) => notice.hud_last_reliable_message,
+        Some(RuntimeDialogNoticeKind::Hud) => notice.hud_last_message,
         None => None,
     };
 
-    Some(RuntimeDialogPanelModel {
-        prompt_kind,
-        prompt_active: runtime_ui.text_input.open_count > 0
-            || runtime_ui.menu.follow_up_menu_open_count
-                > runtime_ui.menu.hide_follow_up_menu_count,
-        menu_open_count: runtime_ui.menu.menu_open_count,
-        follow_up_menu_open_count: runtime_ui.menu.follow_up_menu_open_count,
-        hide_follow_up_menu_count: runtime_ui.menu.hide_follow_up_menu_count,
-        text_input_open_count: runtime_ui.text_input.open_count,
-        text_input_last_id: runtime_ui.text_input.last_id,
-        text_input_last_title: runtime_ui.text_input.last_title.clone(),
-        text_input_last_message: runtime_ui.text_input.last_message.clone(),
-        text_input_last_default_text: runtime_ui.text_input.last_default_text.clone(),
-        text_input_last_length: runtime_ui.text_input.last_length,
-        text_input_last_numeric: runtime_ui.text_input.last_numeric,
-        text_input_last_allow_empty: runtime_ui.text_input.last_allow_empty,
-        notice_kind,
-        notice_text,
-        notice_count: runtime_ui
-            .hud_text
-            .set_count
-            .saturating_add(runtime_ui.hud_text.set_reliable_count)
-            .saturating_add(runtime_ui.toast.info_count)
-            .saturating_add(runtime_ui.toast.warning_count),
+    Some(RuntimeNoticeStatePanelModel {
+        kind,
+        text,
+        count: notice
+            .hud_set_count
+            .saturating_add(notice.hud_set_reliable_count)
+            .saturating_add(notice.toast_info_count)
+            .saturating_add(notice.toast_warning_count),
+        hud_active,
+        reliable_hud_active,
+        toast_info_active,
+        toast_warning_active,
     })
 }
 
-pub fn build_runtime_ui_stack_panel(hud: &HudModel) -> Option<RuntimeUiStackPanelModel> {
-    let menu = build_runtime_menu_panel(hud)?;
+pub fn build_runtime_dialog_panel(hud: &HudModel) -> Option<RuntimeDialogPanelModel> {
+    let prompt = build_runtime_prompt_panel(hud)?;
+    let notice = build_runtime_notice_state_panel(hud)?;
+
+    Some(RuntimeDialogPanelModel {
+        prompt_kind: prompt.kind,
+        prompt_active: prompt.is_active(),
+        menu_open_count: prompt.menu_open_count,
+        follow_up_menu_open_count: prompt.follow_up_menu_open_count,
+        hide_follow_up_menu_count: prompt.hide_follow_up_menu_count,
+        text_input_open_count: prompt.text_input_open_count,
+        text_input_last_id: prompt.text_input_last_id,
+        text_input_last_title: prompt.text_input_last_title,
+        text_input_last_message: prompt.text_input_last_message,
+        text_input_last_default_text: prompt.text_input_last_default_text,
+        text_input_last_length: prompt.text_input_last_length,
+        text_input_last_numeric: prompt.text_input_last_numeric,
+        text_input_last_allow_empty: prompt.text_input_last_allow_empty,
+        notice_kind: notice.kind,
+        notice_text: notice.text,
+        notice_count: notice.count,
+    })
+}
+
+pub fn build_runtime_dialog_stack_panel(hud: &HudModel) -> Option<RuntimeDialogStackPanelModel> {
+    let prompt = build_runtime_prompt_panel(hud)?;
+    let notice = build_runtime_notice_state_panel(hud)?;
     let chat = build_runtime_chat_panel(hud)?;
-    let dialog = build_runtime_dialog_panel(hud)?;
-    let notice = build_runtime_ui_notice_panel(hud)?;
-    let menu_active = menu.menu_open_count > 0;
-    let outstanding_follow_up_count = menu.outstanding_follow_up_count();
-    let chat_active = !chat.is_empty();
-    let foreground_kind = if menu.text_input_open_count > 0 {
+    let outstanding_follow_up_count = prompt.outstanding_follow_up_count();
+    let foreground_kind = if prompt.text_input_open_count > 0 {
         Some(RuntimeUiStackForegroundKind::TextInput)
     } else if outstanding_follow_up_count > 0 {
         Some(RuntimeUiStackForegroundKind::FollowUpMenu)
-    } else if menu_active {
+    } else if prompt.menu_active() {
         Some(RuntimeUiStackForegroundKind::Menu)
-    } else if chat_active {
+    } else if !chat.is_empty() {
         Some(RuntimeUiStackForegroundKind::Chat)
     } else {
         None
     };
 
-    Some(RuntimeUiStackPanelModel {
+    Some(RuntimeDialogStackPanelModel {
         foreground_kind,
-        menu_active,
-        outstanding_follow_up_count,
-        text_input_open_count: menu.text_input_open_count,
-        text_input_last_id: menu.text_input_last_id,
-        notice_kind: dialog.notice_kind,
-        hud_notice_active: notice.hud_last_message.is_some(),
-        reliable_hud_notice_active: notice.hud_last_reliable_message.is_some(),
-        toast_info_active: notice.toast_last_info_message.is_some(),
-        toast_warning_active: notice.toast_last_warning_text.is_some(),
+        prompt,
+        notice,
+        chat,
+    })
+}
+
+pub fn build_runtime_ui_stack_panel(hud: &HudModel) -> Option<RuntimeUiStackPanelModel> {
+    let dialog_stack = build_runtime_dialog_stack_panel(hud)?;
+    let chat_active = !dialog_stack.chat.is_empty();
+
+    Some(RuntimeUiStackPanelModel {
+        foreground_kind: dialog_stack.foreground_kind,
+        menu_active: dialog_stack.prompt.menu_active(),
+        outstanding_follow_up_count: dialog_stack.prompt.outstanding_follow_up_count(),
+        text_input_open_count: dialog_stack.prompt.text_input_open_count,
+        text_input_last_id: dialog_stack.prompt.text_input_last_id,
+        notice_kind: dialog_stack.notice.kind,
+        hud_notice_active: dialog_stack.notice.hud_active,
+        reliable_hud_notice_active: dialog_stack.notice.reliable_hud_active,
+        toast_info_active: dialog_stack.notice.toast_info_active,
+        toast_warning_active: dialog_stack.notice.toast_warning_active,
         chat_active,
-        server_message_count: chat.server_message_count,
-        chat_message_count: chat.chat_message_count,
-        last_chat_sender_entity_id: chat.last_chat_sender_entity_id,
+        server_message_count: dialog_stack.chat.server_message_count,
+        chat_message_count: dialog_stack.chat.chat_message_count,
+        last_chat_sender_entity_id: dialog_stack.chat.last_chat_sender_entity_id,
     })
 }
 
@@ -1709,8 +1924,9 @@ mod tests {
         build_build_config_panel, build_build_interaction_panel, build_build_minimap_assist_panel,
         build_hud_status_panel, build_hud_visibility_panel, build_minimap_panel,
         build_runtime_admin_panel, build_runtime_chat_panel, build_runtime_command_mode_panel,
-        build_runtime_dialog_panel, build_runtime_kick_panel, build_runtime_live_effect_panel,
-        build_runtime_live_entity_panel, build_runtime_loading_panel, build_runtime_menu_panel,
+        build_runtime_dialog_panel, build_runtime_dialog_stack_panel, build_runtime_kick_panel,
+        build_runtime_live_effect_panel, build_runtime_live_entity_panel, build_runtime_loading_panel,
+        build_runtime_menu_panel, build_runtime_notice_state_panel, build_runtime_prompt_panel,
         build_runtime_reconnect_panel, build_runtime_rules_panel, build_runtime_session_panel,
         build_runtime_ui_notice_panel, build_runtime_ui_stack_panel,
         build_runtime_world_label_panel, BuildInteractionAuthorityState, BuildInteractionMode,
@@ -3403,12 +3619,52 @@ mod tests {
         assert_eq!(chat.last_chat_unformatted_len(), 5);
         assert_eq!(chat.formatted_matches_unformatted(), Some(false));
 
+        let prompt = build_runtime_prompt_panel(&hud).expect("expected runtime prompt panel");
+        assert!(!prompt.is_empty());
+        assert_eq!(prompt.kind, Some(RuntimeDialogPromptKind::TextInput));
+        assert!(prompt.is_active());
+        assert!(prompt.menu_active());
+        assert_eq!(prompt.outstanding_follow_up_count(), 2);
+        assert_eq!(prompt.layer_labels(), vec!["input", "follow-up", "menu"]);
+        assert_eq!(prompt.depth(), 3);
+        assert_eq!(prompt.prompt_message_len(), 12);
+        assert_eq!(prompt.default_text_len(), 5);
+
+        let notice =
+            build_runtime_notice_state_panel(&hud).expect("expected runtime notice state panel");
+        assert!(!notice.is_empty());
+        assert!(notice.is_active());
+        assert_eq!(notice.kind, Some(RuntimeDialogNoticeKind::ToastWarning));
+        assert_eq!(notice.layer_labels(), vec!["hud", "reliable", "info", "warn"]);
+        assert_eq!(notice.depth(), 4);
+        assert_eq!(notice.text_len(), 4);
+
         let dialog = build_runtime_dialog_panel(&hud).expect("expected runtime dialog panel");
         assert!(!dialog.is_empty());
         assert_eq!(dialog.outstanding_follow_up_count(), 2);
         assert_eq!(dialog.prompt_message_len(), 12);
         assert_eq!(dialog.default_text_len(), 5);
         assert_eq!(dialog.notice_text_len(), 4);
+
+        let dialog_stack =
+            build_runtime_dialog_stack_panel(&hud).expect("expected runtime dialog stack panel");
+        assert!(!dialog_stack.is_empty());
+        assert_eq!(
+            dialog_stack.foreground_kind,
+            Some(RuntimeUiStackForegroundKind::TextInput)
+        );
+        assert_eq!(dialog_stack.foreground_label(), "input");
+        assert_eq!(dialog_stack.prompt.kind, Some(RuntimeDialogPromptKind::TextInput));
+        assert_eq!(
+            dialog_stack.notice.kind,
+            Some(RuntimeDialogNoticeKind::ToastWarning)
+        );
+        assert_eq!(dialog_stack.chat.last_chat_sender_entity_id, Some(404));
+        assert_eq!(dialog_stack.prompt_depth(), 3);
+        assert_eq!(dialog_stack.notice_depth(), 4);
+        assert_eq!(dialog_stack.chat_depth(), 1);
+        assert_eq!(dialog_stack.active_group_count(), 3);
+        assert_eq!(dialog_stack.total_depth(), 8);
 
         let stack = build_runtime_ui_stack_panel(&hud).expect("expected runtime stack panel");
         assert!(!stack.is_empty());
@@ -3438,6 +3694,18 @@ mod tests {
         chat_only.chat.server_message_count = 1;
         chat_only.chat.chat_message_count = 2;
         chat_only.chat.last_chat_sender_entity_id = Some(42);
+        let chat_only_dialog =
+            build_runtime_dialog_stack_panel(&runtime_stack_test_hud(chat_only.clone()))
+                .expect("dialog stack");
+        assert_eq!(
+            chat_only_dialog.foreground_kind,
+            Some(RuntimeUiStackForegroundKind::Chat)
+        );
+        assert_eq!(chat_only_dialog.prompt.layer_labels(), Vec::<&'static str>::new());
+        assert_eq!(chat_only_dialog.notice.layer_labels(), Vec::<&'static str>::new());
+        assert_eq!(chat_only_dialog.chat_depth(), 1);
+        assert_eq!(chat_only_dialog.active_group_count(), 1);
+        assert_eq!(chat_only_dialog.total_depth(), 1);
         let chat_only =
             build_runtime_ui_stack_panel(&runtime_stack_test_hud(chat_only)).expect("stack");
         assert_eq!(
@@ -3452,6 +3720,18 @@ mod tests {
 
         let mut menu_only = RuntimeUiObservability::default();
         menu_only.menu.menu_open_count = 1;
+        let menu_only_dialog =
+            build_runtime_dialog_stack_panel(&runtime_stack_test_hud(menu_only.clone()))
+                .expect("dialog stack");
+        assert_eq!(
+            menu_only_dialog.foreground_kind,
+            Some(RuntimeUiStackForegroundKind::Menu)
+        );
+        assert_eq!(menu_only_dialog.prompt.layer_labels(), vec!["menu"]);
+        assert_eq!(menu_only_dialog.notice.layer_labels(), Vec::<&'static str>::new());
+        assert_eq!(menu_only_dialog.chat_depth(), 0);
+        assert_eq!(menu_only_dialog.active_group_count(), 1);
+        assert_eq!(menu_only_dialog.total_depth(), 1);
         let menu_only =
             build_runtime_ui_stack_panel(&runtime_stack_test_hud(menu_only)).expect("stack");
         assert_eq!(
@@ -3466,6 +3746,21 @@ mod tests {
 
         let mut follow_up_only = RuntimeUiObservability::default();
         follow_up_only.menu.follow_up_menu_open_count = 1;
+        let follow_up_only_dialog =
+            build_runtime_dialog_stack_panel(&runtime_stack_test_hud(follow_up_only.clone()))
+                .expect("dialog stack");
+        assert_eq!(
+            follow_up_only_dialog.foreground_kind,
+            Some(RuntimeUiStackForegroundKind::FollowUpMenu)
+        );
+        assert_eq!(follow_up_only_dialog.prompt.layer_labels(), vec!["follow-up"]);
+        assert_eq!(
+            follow_up_only_dialog.notice.layer_labels(),
+            Vec::<&'static str>::new()
+        );
+        assert_eq!(follow_up_only_dialog.chat_depth(), 0);
+        assert_eq!(follow_up_only_dialog.active_group_count(), 1);
+        assert_eq!(follow_up_only_dialog.total_depth(), 1);
         let follow_up_only =
             build_runtime_ui_stack_panel(&runtime_stack_test_hud(follow_up_only)).expect("stack");
         assert_eq!(
@@ -3486,6 +3781,22 @@ mod tests {
         input_notice_chat.chat.server_message_count = 1;
         input_notice_chat.chat.chat_message_count = 1;
         input_notice_chat.chat.last_chat_sender_entity_id = Some(404);
+        let input_notice_chat_dialog =
+            build_runtime_dialog_stack_panel(&runtime_stack_test_hud(input_notice_chat.clone()))
+                .expect("dialog stack");
+        assert_eq!(
+            input_notice_chat_dialog.foreground_kind,
+            Some(RuntimeUiStackForegroundKind::TextInput)
+        );
+        assert_eq!(input_notice_chat_dialog.prompt.layer_labels(), vec!["input"]);
+        assert_eq!(
+            input_notice_chat_dialog.notice.kind,
+            Some(RuntimeDialogNoticeKind::ToastWarning)
+        );
+        assert_eq!(input_notice_chat_dialog.notice.layer_labels(), vec!["warn"]);
+        assert_eq!(input_notice_chat_dialog.chat_depth(), 1);
+        assert_eq!(input_notice_chat_dialog.active_group_count(), 3);
+        assert_eq!(input_notice_chat_dialog.total_depth(), 3);
         let input_notice_chat =
             build_runtime_ui_stack_panel(&runtime_stack_test_hud(input_notice_chat))
                 .expect("stack");

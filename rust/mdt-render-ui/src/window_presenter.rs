@@ -4,8 +4,9 @@ use crate::{
         build_build_config_panel, build_build_interaction_panel, build_build_minimap_assist_panel,
         build_hud_status_panel, build_hud_visibility_panel, build_minimap_panel,
         build_runtime_admin_panel, build_runtime_chat_panel, build_runtime_command_mode_panel,
-        build_runtime_dialog_panel, build_runtime_kick_panel, build_runtime_live_effect_panel,
-        build_runtime_live_entity_panel, build_runtime_loading_panel, build_runtime_menu_panel,
+        build_runtime_dialog_panel, build_runtime_dialog_stack_panel, build_runtime_kick_panel,
+        build_runtime_live_effect_panel, build_runtime_live_entity_panel, build_runtime_loading_panel,
+        build_runtime_menu_panel, build_runtime_notice_state_panel, build_runtime_prompt_panel,
         build_runtime_reconnect_panel, build_runtime_rules_panel, build_runtime_session_panel,
         build_runtime_ui_notice_panel, build_runtime_ui_stack_panel,
         build_runtime_world_label_panel, MinimapPanelModel, PresenterViewWindow,
@@ -895,17 +896,25 @@ fn compose_runtime_dialog_panel_status_text(hud: &HudModel) -> Option<String> {
 
 fn compose_runtime_dialog_detail_status_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_dialog_panel(hud)?;
-    if panel.is_empty() {
+    let prompt = build_runtime_prompt_panel(hud)?;
+    let notice = build_runtime_notice_state_panel(hud)?;
+    if panel.is_empty() && !notice.is_active() && notice.count == 0 && notice.text.is_none() {
         return None;
     }
     Some(format!(
-        "dialogd:p={}:a{}:fo{}:msg{}:def{}:n={}@{}",
-        runtime_dialog_prompt_status_text(panel.prompt_kind),
-        if panel.prompt_active { 1 } else { 0 },
+        "dialogd:p={}:a{}:m{}:fo{}:tin{}:msg{}:def{}:n={}:h{}:r{}:i{}:w{}:l{}",
+        runtime_dialog_prompt_status_text(prompt.kind),
+        if prompt.is_active() { 1 } else { 0 },
+        if prompt.menu_active() { 1 } else { 0 },
         panel.outstanding_follow_up_count(),
+        prompt.text_input_open_count,
         panel.prompt_message_len(),
         panel.default_text_len(),
-        runtime_dialog_notice_status_text(panel.notice_kind),
+        runtime_dialog_notice_status_text(notice.kind),
+        if notice.hud_active { 1 } else { 0 },
+        if notice.reliable_hud_active { 1 } else { 0 },
+        if notice.toast_info_active { 1 } else { 0 },
+        if notice.toast_warning_active { 1 } else { 0 },
         panel.notice_text_len(),
     ))
 }
@@ -969,19 +978,28 @@ fn compose_runtime_stack_panel_status_text(hud: &HudModel) -> Option<String> {
 }
 
 fn compose_runtime_stack_detail_status_text(hud: &HudModel) -> Option<String> {
-    let panel = build_runtime_ui_stack_panel(hud)?;
+    let panel = build_runtime_dialog_stack_panel(hud)?;
     if panel.is_empty() {
         return None;
     }
     Some(format!(
-        "stackd:m{}:fo{}:tin{}:nd{}:chat{}/{}:sid{}",
-        if panel.menu_active { 1 } else { 0 },
-        panel.outstanding_follow_up_count,
-        panel.text_input_open_count,
-        panel.notice_depth(),
-        panel.server_message_count,
-        panel.chat_message_count,
-        optional_i32_label(panel.last_chat_sender_entity_id),
+        "stackd:f={}:g{}:t{}:p={}:m{}:fo{}:i{}:n={}:h{}:r{}:i{}:w{}:c{}:{}/{}:sid{}",
+        panel.foreground_label(),
+        panel.active_group_count(),
+        panel.total_depth(),
+        runtime_dialog_prompt_status_text(panel.prompt.kind),
+        if panel.prompt.menu_active() { 1 } else { 0 },
+        panel.prompt.outstanding_follow_up_count(),
+        panel.prompt.text_input_open_count,
+        runtime_dialog_notice_status_text(panel.notice.kind),
+        if panel.notice.hud_active { 1 } else { 0 },
+        if panel.notice.reliable_hud_active { 1 } else { 0 },
+        if panel.notice.toast_info_active { 1 } else { 0 },
+        if panel.notice.toast_warning_active { 1 } else { 0 },
+        if !panel.chat.is_empty() { 1 } else { 0 },
+        panel.chat.server_message_count,
+        panel.chat.chat_message_count,
+        optional_i32_label(panel.chat.last_chat_sender_entity_id),
     ))
 }
 
@@ -3126,7 +3144,7 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "RUNTIME-DIALOG-DETAIL: dialogd:p=input:a1:fo0:msg12:def5:n=warn@4",
+            "RUNTIME-DIALOG-DETAIL: dialogd:p=input:a1:m1:fo0:tin53:msg12:def5:n=warn:h1:r1:i1:w1:l4",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
@@ -3146,7 +3164,7 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "RUNTIME-STACK-DETAIL: stackd:m1:fo0:tin53:nd4:chat7/8:sid404",
+            "RUNTIME-STACK-DETAIL: stackd:f=input:g3:t7:p=input:m1:fo0:i53:n=warn:h1:r1:i1:w1:c1:7/8:sid404",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
@@ -3429,28 +3447,28 @@ mod tests {
                 runtime_stack_test_hud(chat_only),
                 "RUNTIME-STACK: stack:f=chat:p0@none:n=none@none:c1:g1:t1:tinnone:s42",
                 "RUNTIME-STACK-DEPTH: stackdepth:p0:n0:c1:g1:t1",
-                "RUNTIME-STACK-DETAIL: stackd:m0:fo0:tin0:nd0:chat1/2:sid42",
+                "RUNTIME-STACK-DETAIL: stackd:f=chat:g1:t1:p=none:m0:fo0:i0:n=none:h0:r0:i0:w0:c1:1/2:sid42",
             ),
             (
                 "menu-only",
                 runtime_stack_test_hud(menu_only),
                 "RUNTIME-STACK: stack:f=menu:p1@menu:n=none@none:c0:g1:t1:tinnone:snone",
                 "RUNTIME-STACK-DEPTH: stackdepth:p1:n0:c0:g1:t1",
-                "RUNTIME-STACK-DETAIL: stackd:m1:fo0:tin0:nd0:chat0/0:sidnone",
+                "RUNTIME-STACK-DETAIL: stackd:f=menu:g1:t1:p=menu:m1:fo0:i0:n=none:h0:r0:i0:w0:c0:0/0:sidnone",
             ),
             (
                 "follow-up-without-text-input",
                 runtime_stack_test_hud(follow_up_only),
                 "RUNTIME-STACK: stack:f=follow-up:p1@follow-up:n=none@none:c0:g1:t1:tinnone:snone",
                 "RUNTIME-STACK-DEPTH: stackdepth:p1:n0:c0:g1:t1",
-                "RUNTIME-STACK-DETAIL: stackd:m0:fo1:tin0:nd0:chat0/0:sidnone",
+                "RUNTIME-STACK-DETAIL: stackd:f=follow-up:g1:t1:p=follow:m0:fo1:i0:n=none:h0:r0:i0:w0:c0:0/0:sidnone",
             ),
             (
                 "text-input+notice+chat",
                 runtime_stack_test_hud(input_notice_chat),
                 "RUNTIME-STACK: stack:f=input:p1@input:n=warn@warn:c1:g3:t3:tin404:s404",
                 "RUNTIME-STACK-DEPTH: stackdepth:p1:n1:c1:g3:t3",
-                "RUNTIME-STACK-DETAIL: stackd:m0:fo0:tin1:nd1:chat1/1:sid404",
+                "RUNTIME-STACK-DETAIL: stackd:f=input:g3:t3:p=input:m0:fo0:i1:n=warn:h0:r0:i0:w1:c1:1/1:sid404",
             ),
         ];
 

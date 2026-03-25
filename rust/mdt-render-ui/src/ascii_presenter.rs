@@ -3,8 +3,9 @@ use crate::panel_model::{
     build_build_config_panel, build_build_interaction_panel, build_build_minimap_assist_panel,
     build_hud_status_panel, build_hud_visibility_panel, build_minimap_panel,
     build_runtime_admin_panel, build_runtime_chat_panel, build_runtime_command_mode_panel,
-    build_runtime_dialog_panel, build_runtime_kick_panel, build_runtime_live_effect_panel,
-    build_runtime_live_entity_panel, build_runtime_loading_panel, build_runtime_menu_panel,
+    build_runtime_dialog_panel, build_runtime_dialog_stack_panel, build_runtime_kick_panel,
+    build_runtime_live_effect_panel, build_runtime_live_entity_panel, build_runtime_loading_panel,
+    build_runtime_menu_panel, build_runtime_notice_state_panel, build_runtime_prompt_panel,
     build_runtime_reconnect_panel, build_runtime_rules_panel, build_runtime_session_panel,
     build_runtime_ui_notice_panel, build_runtime_ui_stack_panel, build_runtime_world_label_panel,
     MinimapPanelModel, PresenterViewWindow, RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
@@ -599,17 +600,25 @@ fn compose_runtime_dialog_panel_text(hud: &HudModel) -> Option<String> {
 
 fn compose_runtime_dialog_detail_text(hud: &HudModel) -> Option<String> {
     let panel = build_runtime_dialog_panel(hud)?;
-    if panel.is_empty() {
+    let prompt = build_runtime_prompt_panel(hud)?;
+    let notice = build_runtime_notice_state_panel(hud)?;
+    if panel.is_empty() && !notice.is_active() && notice.count == 0 && notice.text.is_none() {
         return None;
     }
     Some(format!(
-        "prompt={} active={} outstanding-follow-up={} message-len={} default-len={} notice={} notice-len={}",
-        runtime_dialog_prompt_text(panel.prompt_kind),
-        if panel.prompt_active { 1 } else { 0 },
+        "prompt={} active={} layers=menu:{}/follow-up:{}/input:{} message-len={} default-len={} notice={} layers=hud:{}/reliable:{}/info:{}/warn:{} notice-len={}",
+        runtime_dialog_prompt_text(prompt.kind),
+        bool_flag(prompt.is_active()),
+        bool_flag(prompt.menu_active()),
         panel.outstanding_follow_up_count(),
+        prompt.text_input_open_count,
         panel.prompt_message_len(),
         panel.default_text_len(),
-        runtime_dialog_notice_text(panel.notice_kind),
+        runtime_dialog_notice_text(notice.kind),
+        bool_flag(notice.hud_active),
+        bool_flag(notice.reliable_hud_active),
+        bool_flag(notice.toast_info_active),
+        bool_flag(notice.toast_warning_active),
         panel.notice_text_len(),
     ))
 }
@@ -673,23 +682,28 @@ fn compose_runtime_stack_panel_text(hud: &HudModel) -> Option<String> {
 }
 
 fn compose_runtime_stack_detail_text(hud: &HudModel) -> Option<String> {
-    let panel = build_runtime_ui_stack_panel(hud)?;
+    let panel = build_runtime_dialog_stack_panel(hud)?;
     if panel.is_empty() {
         return None;
     }
     Some(format!(
-        "prompt=menu:{}/follow-up:{}/input:{} notice=hud:{}/reliable:{}/info:{}/warn:{} chat=active:{}/server:{}/local:{} sender={}",
-        bool_flag(panel.menu_active),
-        panel.outstanding_follow_up_count,
-        panel.text_input_open_count,
-        bool_flag(panel.hud_notice_active),
-        bool_flag(panel.reliable_hud_notice_active),
-        bool_flag(panel.toast_info_active),
-        bool_flag(panel.toast_warning_active),
-        bool_flag(panel.chat_active),
-        panel.server_message_count,
-        panel.chat_message_count,
-        optional_i32_label(panel.last_chat_sender_entity_id),
+        "dialog=front:{} groups:{} total:{} prompt={}/menu:{}/follow-up:{}/input:{} notice={}/hud:{}/reliable:{}/info:{}/warn:{} chat=active:{}/server:{}/local:{} sender={}",
+        panel.foreground_label(),
+        panel.active_group_count(),
+        panel.total_depth(),
+        runtime_dialog_prompt_text(panel.prompt.kind),
+        bool_flag(panel.prompt.menu_active()),
+        panel.prompt.outstanding_follow_up_count(),
+        panel.prompt.text_input_open_count,
+        runtime_dialog_notice_text(panel.notice.kind),
+        bool_flag(panel.notice.hud_active),
+        bool_flag(panel.notice.reliable_hud_active),
+        bool_flag(panel.notice.toast_info_active),
+        bool_flag(panel.notice.toast_warning_active),
+        bool_flag(!panel.chat.is_empty()),
+        panel.chat.server_message_count,
+        panel.chat.chat_message_count,
+        optional_i32_label(panel.chat.last_chat_sender_entity_id),
     ))
 }
 
@@ -2595,7 +2609,7 @@ mod tests {
             "RUNTIME-DIALOG: prompt=input act=1 menu=16/17/18 tin=53@404:Digits/Only_numbers/12345#16:n1:e1 notice=warn@warn total=48"
         ));
         assert!(frame.contains(
-            "RUNTIME-DIALOG-DETAIL: prompt=input active=1 outstanding-follow-up=0 message-len=12 default-len=5 notice=warn notice-len=4"
+            "RUNTIME-DIALOG-DETAIL: prompt=input active=1 layers=menu:1/follow-up:0/input:53 message-len=12 default-len=5 notice=warn layers=hud:1/reliable:1/info:1/warn:1 notice-len=4"
         ));
         assert!(frame.contains(
             "RUNTIME-CHAT: srv=7 last-srv=server_text chat=8 last-chat=[cyan]hello raw=hello sender=404"
@@ -2608,7 +2622,7 @@ mod tests {
         ));
         assert!(frame.contains("RUNTIME-STACK-DEPTH: prompt=2 notice=4 chat=1 groups=3 total=7"));
         assert!(frame.contains(
-            "RUNTIME-STACK-DETAIL: prompt=menu:1/follow-up:0/input:53 notice=hud:1/reliable:1/info:1/warn:1 chat=active:1/server:7/local:8 sender=404"
+            "RUNTIME-STACK-DETAIL: dialog=front:input groups:3 total:7 prompt=input/menu:1/follow-up:0/input:53 notice=warn/hud:1/reliable:1/info:1/warn:1 chat=active:1/server:7/local:8 sender=404"
         ));
         assert!(frame.contains(
             "RUNTIME-COMMAND: act=1 sel=4@11,22,33 bld=2@327686 rect=-3:4:12:18 groups=2#3@11,4#1@99 target=b589834:u2:808:p0x42400000:0x42c00000:r1:2:3:4 cmd=5 stance=7/0"
@@ -2848,28 +2862,28 @@ mod tests {
                 runtime_stack_test_hud(chat_only),
                 "RUNTIME-STACK: front=chat prompt=0@none notice=none@none chat=1 groups=1 total=1 tin=none sender=42",
                 "RUNTIME-STACK-DEPTH: prompt=0 notice=0 chat=1 groups=1 total=1",
-                "RUNTIME-STACK-DETAIL: prompt=menu:0/follow-up:0/input:0 notice=hud:0/reliable:0/info:0/warn:0 chat=active:1/server:1/local:2 sender=42",
+                "RUNTIME-STACK-DETAIL: dialog=front:chat groups:1 total:1 prompt=none/menu:0/follow-up:0/input:0 notice=none/hud:0/reliable:0/info:0/warn:0 chat=active:1/server:1/local:2 sender=42",
             ),
             (
                 "menu-only",
                 runtime_stack_test_hud(menu_only),
                 "RUNTIME-STACK: front=menu prompt=1@menu notice=none@none chat=0 groups=1 total=1 tin=none sender=none",
                 "RUNTIME-STACK-DEPTH: prompt=1 notice=0 chat=0 groups=1 total=1",
-                "RUNTIME-STACK-DETAIL: prompt=menu:1/follow-up:0/input:0 notice=hud:0/reliable:0/info:0/warn:0 chat=active:0/server:0/local:0 sender=none",
+                "RUNTIME-STACK-DETAIL: dialog=front:menu groups:1 total:1 prompt=menu/menu:1/follow-up:0/input:0 notice=none/hud:0/reliable:0/info:0/warn:0 chat=active:0/server:0/local:0 sender=none",
             ),
             (
                 "follow-up-without-text-input",
                 runtime_stack_test_hud(follow_up_only),
                 "RUNTIME-STACK: front=follow-up prompt=1@follow-up notice=none@none chat=0 groups=1 total=1 tin=none sender=none",
                 "RUNTIME-STACK-DEPTH: prompt=1 notice=0 chat=0 groups=1 total=1",
-                "RUNTIME-STACK-DETAIL: prompt=menu:0/follow-up:1/input:0 notice=hud:0/reliable:0/info:0/warn:0 chat=active:0/server:0/local:0 sender=none",
+                "RUNTIME-STACK-DETAIL: dialog=front:follow-up groups:1 total:1 prompt=follow/menu:0/follow-up:1/input:0 notice=none/hud:0/reliable:0/info:0/warn:0 chat=active:0/server:0/local:0 sender=none",
             ),
             (
                 "text-input+notice+chat",
                 runtime_stack_test_hud(input_notice_chat),
                 "RUNTIME-STACK: front=input prompt=1@input notice=warn@warn chat=1 groups=3 total=3 tin=404 sender=404",
                 "RUNTIME-STACK-DEPTH: prompt=1 notice=1 chat=1 groups=3 total=3",
-                "RUNTIME-STACK-DETAIL: prompt=menu:0/follow-up:0/input:1 notice=hud:0/reliable:0/info:0/warn:1 chat=active:1/server:1/local:1 sender=404",
+                "RUNTIME-STACK-DETAIL: dialog=front:input groups:3 total:3 prompt=input/menu:0/follow-up:0/input:1 notice=warn/hud:0/reliable:0/info:0/warn:1 chat=active:1/server:1/local:1 sender=404",
             ),
         ];
 
