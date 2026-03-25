@@ -10,7 +10,6 @@ const UNIT_CONTENT_TYPE: u8 = 6;
 const DROP_ITEM_EFFECT_LENGTH: f32 = 20.0;
 #[cfg(test)]
 const PAYLOAD_DEPOSIT_EFFECT_ID: i16 = 26;
-const PAYLOAD_DEPOSIT_OVERLAY_TTL_TICKS: u8 = 3;
 const LIGHTNING_EFFECT_ID: i16 = 13;
 const UNIT_SPIRIT_EFFECT_ID: i16 = 8;
 const ITEM_TRANSFER_EFFECT_ID: i16 = 9;
@@ -178,6 +177,7 @@ pub(crate) fn line_projections_for_effect_overlay(
             target_x_bits,
             target_y_bits,
             overlay.remaining_ticks,
+            overlay.lifetime_ticks,
         ),
         Some(ITEM_TRANSFER_EFFECT_ID) => item_transfer_line_projections(
             overlay.source_x_bits,
@@ -186,6 +186,7 @@ pub(crate) fn line_projections_for_effect_overlay(
             target_y_bits,
             overlay.color_rgba,
             overlay.remaining_ticks,
+            overlay.lifetime_ticks,
         ),
         Some(POINT_BEAM_EFFECT_ID) => vec![RuntimeEffectLineProjection {
             kind: "point-beam",
@@ -195,22 +196,34 @@ pub(crate) fn line_projections_for_effect_overlay(
             target_y_bits,
         }],
         Some(POINT_HIT_EFFECT_ID) => {
-            point_hit_line_projections(target_x_bits, target_y_bits, overlay.remaining_ticks)
+            point_hit_line_projections(
+                target_x_bits,
+                target_y_bits,
+                overlay.remaining_ticks,
+                overlay.lifetime_ticks,
+            )
         }
         Some(SHIELD_BREAK_EFFECT_ID) => shield_break_line_projections(
             target_x_bits,
             target_y_bits,
             overlay.rotation_bits,
             overlay.remaining_ticks,
+            overlay.lifetime_ticks,
         ),
         Some(ARC_SHIELD_BREAK_EFFECT_ID) => arc_shield_break_line_projections(
             target_x_bits,
             target_y_bits,
             unit_parent_rotation_bits(overlay, session_state).unwrap_or(overlay.rotation_bits),
             overlay.remaining_ticks,
+            overlay.lifetime_ticks,
         ),
         Some(UNIT_SHIELD_BREAK_EFFECT_ID) => {
-            unit_shield_break_line_projections(target_x_bits, target_y_bits, overlay.remaining_ticks)
+            unit_shield_break_line_projections(
+                target_x_bits,
+                target_y_bits,
+                overlay.remaining_ticks,
+                overlay.lifetime_ticks,
+            )
         }
         Some(effect_id @ (CHAIN_LIGHTNING_EFFECT_ID | CHAIN_EMP_EFFECT_ID)) => {
             chain_line_kind(effect_id)
@@ -242,6 +255,7 @@ pub(crate) fn marker_position_for_effect_overlay(
             target_y_bits,
             overlay.color_rgba,
             overlay.remaining_ticks,
+            overlay.lifetime_ticks,
         )
         .map(|(center_x, center_y, _, _)| (center_x.to_bits(), center_y.to_bits())),
         _ => None,
@@ -392,6 +406,7 @@ fn item_transfer_line_projections(
     target_y_bits: u32,
     color_rgba: u32,
     remaining_ticks: u8,
+    lifetime_ticks: u8,
 ) -> Vec<RuntimeEffectLineProjection> {
     let Some((center_x, center_y, outer_radius, inner_radius)) = item_transfer_geometry(
         source_x_bits,
@@ -400,6 +415,7 @@ fn item_transfer_line_projections(
         target_y_bits,
         color_rgba,
         remaining_ticks,
+        lifetime_ticks,
     ) else {
         return Vec::new();
     };
@@ -431,6 +447,7 @@ fn item_transfer_geometry(
     target_y_bits: u32,
     color_rgba: u32,
     remaining_ticks: u8,
+    lifetime_ticks: u8,
 ) -> Option<(f32, f32, f32, f32)> {
     let source_x = f32::from_bits(source_x_bits);
     let source_y = f32::from_bits(source_y_bits);
@@ -444,7 +461,7 @@ fn item_transfer_geometry(
         return None;
     }
 
-    let progress = inclusive_overlay_progress(remaining_ticks);
+    let progress = inclusive_overlay_progress(remaining_ticks, lifetime_ticks);
     let slope = midlife_slope(progress);
     let outer_radius = slope * ITEM_TRANSFER_OUTER_RADIUS;
     let inner_radius = slope * ITEM_TRANSFER_INNER_RADIUS;
@@ -510,6 +527,7 @@ fn unit_spirit_line_projections(
     target_x_bits: u32,
     target_y_bits: u32,
     remaining_ticks: u8,
+    lifetime_ticks: u8,
 ) -> Vec<RuntimeEffectLineProjection> {
     let source_x = f32::from_bits(source_x_bits);
     let source_y = f32::from_bits(source_y_bits);
@@ -523,7 +541,7 @@ fn unit_spirit_line_projections(
         return Vec::new();
     }
 
-    let progress = inclusive_overlay_progress(remaining_ticks);
+    let progress = inclusive_overlay_progress(remaining_ticks, lifetime_ticks);
     let outer_center = lerp_point(
         source_x,
         source_y,
@@ -564,6 +582,7 @@ fn shield_break_line_projections(
     center_y_bits: u32,
     rotation_bits: u32,
     remaining_ticks: u8,
+    lifetime_ticks: u8,
 ) -> Vec<RuntimeEffectLineProjection> {
     let center_x = f32::from_bits(center_x_bits);
     let center_y = f32::from_bits(center_y_bits);
@@ -572,8 +591,9 @@ fn shield_break_line_projections(
         return Vec::new();
     }
 
-    let radius = (base_radius + shield_break_progress(remaining_ticks) * SHIELD_BREAK_RADIUS_GROWTH)
-        .max(0.0);
+    let radius =
+        (base_radius + shield_break_progress(remaining_ticks, lifetime_ticks) * SHIELD_BREAK_RADIUS_GROWTH)
+            .max(0.0);
     if radius <= f32::EPSILON {
         return Vec::new();
     }
@@ -611,6 +631,7 @@ fn point_hit_line_projections(
     center_x_bits: u32,
     center_y_bits: u32,
     remaining_ticks: u8,
+    lifetime_ticks: u8,
 ) -> Vec<RuntimeEffectLineProjection> {
     let center_x = f32::from_bits(center_x_bits);
     let center_y = f32::from_bits(center_y_bits);
@@ -618,7 +639,7 @@ fn point_hit_line_projections(
         return Vec::new();
     }
 
-    let radius = point_hit_progress(remaining_ticks) * POINT_HIT_MAX_RADIUS;
+    let radius = point_hit_progress(remaining_ticks, lifetime_ticks) * POINT_HIT_MAX_RADIUS;
     let circle_points = regular_polygon_points(
         center_x,
         center_y,
@@ -634,6 +655,7 @@ fn arc_shield_break_line_projections(
     center_y_bits: u32,
     rotation_bits: u32,
     remaining_ticks: u8,
+    lifetime_ticks: u8,
 ) -> Vec<RuntimeEffectLineProjection> {
     let center_x = f32::from_bits(center_x_bits);
     let center_y = f32::from_bits(center_y_bits);
@@ -641,7 +663,7 @@ fn arc_shield_break_line_projections(
         return Vec::new();
     }
 
-    let progress = shield_break_progress(remaining_ticks);
+    let progress = shield_break_progress(remaining_ticks, lifetime_ticks);
     let facing_degrees = f32::from_bits(rotation_bits);
     let facing_radians = if facing_degrees.is_finite() {
         facing_degrees.to_radians()
@@ -691,6 +713,7 @@ fn unit_shield_break_line_projections(
     center_x_bits: u32,
     center_y_bits: u32,
     remaining_ticks: u8,
+    lifetime_ticks: u8,
 ) -> Vec<RuntimeEffectLineProjection> {
     let center_x = f32::from_bits(center_x_bits);
     let center_y = f32::from_bits(center_y_bits);
@@ -698,7 +721,7 @@ fn unit_shield_break_line_projections(
         return Vec::new();
     }
 
-    let progress = shield_break_progress(remaining_ticks);
+    let progress = shield_break_progress(remaining_ticks, lifetime_ticks);
     let radius = UNIT_SHIELD_BREAK_BASE_RADIUS + progress * UNIT_SHIELD_BREAK_RADIUS_GROWTH;
     let burst_inner_radius = (radius - UNIT_SHIELD_BREAK_BURST_INSET).max(1.0);
     let burst_outer_radius = radius + UNIT_SHIELD_BREAK_BURST_LENGTH + progress * UNIT_SHIELD_BREAK_BURST_GROWTH;
@@ -725,28 +748,26 @@ fn unit_shield_break_line_projections(
     lines
 }
 
-fn shield_break_progress(remaining_ticks: u8) -> f32 {
-    let total_steps = PAYLOAD_DEPOSIT_OVERLAY_TTL_TICKS.saturating_sub(1);
+fn shield_break_progress(remaining_ticks: u8, lifetime_ticks: u8) -> f32 {
+    let total_steps = lifetime_ticks.saturating_sub(1);
     if total_steps == 0 {
         return 1.0;
     }
-    let elapsed = PAYLOAD_DEPOSIT_OVERLAY_TTL_TICKS
-        .saturating_sub(remaining_ticks)
-        .min(total_steps);
+    let elapsed = lifetime_ticks.saturating_sub(remaining_ticks).min(total_steps);
     elapsed as f32 / total_steps as f32
 }
 
-fn inclusive_overlay_progress(remaining_ticks: u8) -> f32 {
-    let total_steps = PAYLOAD_DEPOSIT_OVERLAY_TTL_TICKS.max(1);
-    let elapsed = PAYLOAD_DEPOSIT_OVERLAY_TTL_TICKS
+fn inclusive_overlay_progress(remaining_ticks: u8, lifetime_ticks: u8) -> f32 {
+    let total_steps = lifetime_ticks.max(1);
+    let elapsed = lifetime_ticks
         .saturating_sub(remaining_ticks)
         .saturating_add(1)
         .min(total_steps);
     elapsed as f32 / total_steps as f32
 }
 
-fn point_hit_progress(remaining_ticks: u8) -> f32 {
-    inclusive_overlay_progress(remaining_ticks)
+fn point_hit_progress(remaining_ticks: u8, lifetime_ticks: u8) -> f32 {
+    inclusive_overlay_progress(remaining_ticks, lifetime_ticks)
 }
 
 fn midlife_slope(progress: f32) -> f32 {
@@ -997,21 +1018,19 @@ fn payload_deposit_content_position(
         return (target_x_bits, target_y_bits);
     }
 
-    let progress = payload_deposit_progress(overlay.remaining_ticks);
+    let progress = payload_deposit_progress(overlay.remaining_ticks, overlay.lifetime_ticks);
     (
         (source_x + (target_x - source_x) * progress).to_bits(),
         (source_y + (target_y - source_y) * progress).to_bits(),
     )
 }
 
-fn payload_deposit_progress(remaining_ticks: u8) -> f32 {
-    let total_steps = PAYLOAD_DEPOSIT_OVERLAY_TTL_TICKS.saturating_sub(1);
+fn payload_deposit_progress(remaining_ticks: u8, lifetime_ticks: u8) -> f32 {
+    let total_steps = lifetime_ticks.saturating_sub(1);
     if total_steps == 0 {
         return 1.0;
     }
-    let elapsed = PAYLOAD_DEPOSIT_OVERLAY_TTL_TICKS
-        .saturating_sub(remaining_ticks)
-        .min(total_steps);
+    let elapsed = lifetime_ticks.saturating_sub(remaining_ticks).min(total_steps);
     elapsed as f32 / total_steps as f32
 }
 
@@ -1420,6 +1439,7 @@ mod tests {
             color_rgba: 0x11223344,
             reliable: false,
             has_data: true,
+            lifetime_ticks: 3,
             remaining_ticks: 3,
             contract_name: Some("point_beam"),
             binding: None,
@@ -1456,6 +1476,7 @@ mod tests {
             color_rgba: 0x11223344,
             reliable: false,
             has_data: true,
+            lifetime_ticks: 3,
             remaining_ticks: 3,
             contract_name: Some("position_target"),
             binding: None,
@@ -1469,7 +1490,7 @@ mod tests {
             160.0f32.to_bits(),
             &SessionState::default(),
         );
-        let progress = inclusive_overlay_progress(overlay.remaining_ticks);
+        let progress = inclusive_overlay_progress(overlay.remaining_ticks, overlay.lifetime_ticks);
         let outer_points = regular_polygon_points(
             12.0 + (80.0 - 12.0) * progress.powi(2),
             20.0 + (160.0 - 20.0) * progress.powi(2),
@@ -1511,6 +1532,7 @@ mod tests {
             color_rgba: 0x55667788,
             reliable: false,
             has_data: true,
+            lifetime_ticks: 3,
             remaining_ticks: 3,
             contract_name: Some("position_target"),
             binding: None,
@@ -1531,6 +1553,7 @@ mod tests {
             160.0f32.to_bits(),
             overlay.color_rgba,
             overlay.remaining_ticks,
+            overlay.lifetime_ticks,
         )
         .expect("item transfer geometry");
         let outer_points = regular_polygon_points(
@@ -1574,6 +1597,7 @@ mod tests {
             color_rgba: 0x55667788,
             reliable: false,
             has_data: true,
+            lifetime_ticks: 3,
             remaining_ticks: 3,
             contract_name: Some("position_target"),
             binding: None,
@@ -1604,6 +1628,7 @@ mod tests {
             color_rgba: 0x11223344,
             reliable: false,
             has_data: false,
+            lifetime_ticks: 3,
             remaining_ticks: 3,
             contract_name: Some("point_hit"),
             binding: None,
@@ -1637,6 +1662,7 @@ mod tests {
             color_rgba: 0x11223344,
             reliable: false,
             has_data: false,
+            lifetime_ticks: 3,
             remaining_ticks: 3,
             contract_name: Some("shield_break"),
             binding: None,
@@ -1670,6 +1696,7 @@ mod tests {
             color_rgba: 0x11223344,
             reliable: false,
             has_data: true,
+            lifetime_ticks: 3,
             remaining_ticks: 3,
             contract_name: Some("unit_parent"),
             binding: None,
@@ -1726,6 +1753,7 @@ mod tests {
             color_rgba: 0x11223344,
             reliable: false,
             has_data: true,
+            lifetime_ticks: 3,
             remaining_ticks: 3,
             contract_name: Some("unit_parent"),
             binding: None,
@@ -1787,6 +1815,7 @@ mod tests {
             color_rgba: 0x11223344,
             reliable: false,
             has_data: true,
+            lifetime_ticks: 3,
             remaining_ticks: 3,
             contract_name: Some("position_target"),
             binding: None,
@@ -1829,6 +1858,7 @@ mod tests {
             color_rgba: 0x11223344,
             reliable: false,
             has_data: true,
+            lifetime_ticks: 3,
             remaining_ticks: 3,
             contract_name: Some("position_target"),
             binding: None,
@@ -1871,6 +1901,7 @@ mod tests {
             color_rgba: 0x11223344,
             reliable: false,
             has_data: true,
+            lifetime_ticks: 3,
             remaining_ticks: 3,
             contract_name: Some("position_target"),
             binding: None,
@@ -1919,6 +1950,7 @@ mod tests {
             color_rgba: 0x11223344,
             reliable: false,
             has_data: true,
+            lifetime_ticks: 3,
             remaining_ticks: 3,
             contract_name: Some("block_content_icon"),
             binding: None,
@@ -1950,6 +1982,7 @@ mod tests {
             color_rgba: 0x11223344,
             reliable: false,
             has_data: true,
+            lifetime_ticks: 3,
             remaining_ticks: 2,
             contract_name: Some("payload_target_content"),
             binding: None,
@@ -1981,6 +2014,7 @@ mod tests {
             color_rgba: 0x11223344,
             reliable: false,
             has_data: true,
+            lifetime_ticks: 3,
             remaining_ticks: 3,
             contract_name: Some("content_icon"),
             binding: None,
@@ -2012,6 +2046,7 @@ mod tests {
             color_rgba: 0x11223344,
             reliable: false,
             has_data: true,
+            lifetime_ticks: 3,
             remaining_ticks: 3,
             contract_name: Some("lightning"),
             binding: None,
@@ -2061,6 +2096,7 @@ mod tests {
             color_rgba: 0x11223344,
             reliable: false,
             has_data: true,
+            lifetime_ticks: 3,
             remaining_ticks: 3,
             contract_name: Some("unit_parent"),
             binding: Some(RuntimeEffectBinding::ParentUnit { unit_id: 404 }),

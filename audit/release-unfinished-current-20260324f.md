@@ -184,6 +184,9 @@ These are already landed and should not be re-opened as if missing:
 - narrow `effect_id=9` `itemTransfer` executor wiring is now also landed.
   - Rust keeps `effect_id=9` on the existing `position_target` contract, and runtime rendering now emits a conservative pseudo-seeded double-ring fallback plus marker-position override instead of leaving only a target marker
   - remaining `U5` work for this family is now exact-parity depth rather than total absence: Java-like per-instance lateral offset still needs a stable effect-instance seed equivalent to `e.id`
+- runtime effect overlay lifetime behavior is no longer fixed to one global `3 tick` decay.
+  - `RuntimeEffectOverlay` now carries both `lifetime_ticks` and `remaining_ticks`, and `render_runtime` seeds effect-shaped TTLs for the currently landed runtime families instead of forcing every effect through the same fixed short-lived decay
+  - remaining `E3` work is still parent-follow offset semantics, `rotWithParent`, `startDelay`, `clip`, and deeper effect-instance parity, not re-adding the first lifetime-aware overlay path
 - narrow `effect_id=261/262` `chainLightning` / `chainEmp` executor wiring is now also landed.
   - Rust now keeps deterministic segmented chain line overlays for `261/262` on top of the existing `position_target` payload semantics instead of stopping at a single marker/target projection
 - narrow `effect_id=13` `lightning` contract/executor wiring is now also landed.

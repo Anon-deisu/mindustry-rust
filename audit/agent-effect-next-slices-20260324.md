@@ -38,7 +38,7 @@ Current Rust baseline:
 - Backlog still says:
   - E1: effect runtime still lacks effect-specific executors.
   - E2: `effect(..., data)` still relies too much on generic projection.
-  - E3: parent-follow, rot-with-parent, start delay, clip, and lifetime semantics are still partial.
+  - E3: parent-follow, rot-with-parent, start delay, and clip semantics are still partial; lifetime behavior is only partially landed through the first overlay TTL table.
 
 ## Best Next Narrow Slices
 
@@ -84,7 +84,7 @@ These are real gaps, but they are less suitable for the next narrow slice becaus
 
 - E1 at `audit/runtime-semantic-gap-backlog.md:49-58` says Rust still needs effect executors keyed by `effect_id`.
 - E2 at `audit/runtime-semantic-gap-backlog.md:61-68` says Rust should add `effect_id -> data contract` mappings for the highest-signal effects first.
-- E3 at `audit/runtime-semantic-gap-backlog.md:71-79` says parent-follow, rot-with-parent, start-delay, clip, and lifetime are still their own gap, so the next slice should avoid depending on those semantics unless necessary.
+- E3 at `audit/runtime-semantic-gap-backlog.md:71-79` says parent-follow, rot-with-parent, start-delay, and clip are still their own gap, while lifetime behavior is only partially landed, so the next slice should still avoid depending on the missing instance semantics unless necessary.
 
 ## Smallest Reasonable PR Shapes
 

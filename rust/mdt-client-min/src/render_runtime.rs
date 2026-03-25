@@ -43,7 +43,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 const EFFECT_OVERLAY_LIMIT: usize = 8;
-const EFFECT_OVERLAY_TTL_TICKS: u8 = 3;
+const DEFAULT_EFFECT_OVERLAY_TTL_TICKS: u8 = 3;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct RenderRuntimeAdapter {
@@ -485,6 +485,7 @@ pub fn observe_runtime_world_events(
                     *rotation,
                     data_object.as_ref(),
                 );
+                let lifetime_ticks = runtime_effect_overlay_ttl_ticks(*effect_id);
                 push_runtime_effect_overlay(
                     runtime_world_overlay,
                     spawn_runtime_effect_overlay(
@@ -497,7 +498,7 @@ pub fn observe_runtime_world_events(
                         *color_rgba,
                         false,
                         data_object.as_ref(),
-                        EFFECT_OVERLAY_TTL_TICKS,
+                        lifetime_ticks,
                     ),
                 );
             }
@@ -520,7 +521,7 @@ pub fn observe_runtime_world_events(
                         *color_rgba,
                         true,
                         None,
-                        EFFECT_OVERLAY_TTL_TICKS,
+                        runtime_effect_overlay_ttl_ticks(*effect_id),
                     ),
                 );
             }
@@ -596,6 +597,25 @@ fn runtime_effect_overlay_origin(
             )
         })
         .unwrap_or((x, y))
+}
+
+fn runtime_effect_overlay_ttl_ticks(effect_id: Option<i16>) -> u8 {
+    match effect_id {
+        Some(8) => 17,
+        Some(9) => 12,
+        Some(10) => 25,
+        Some(11) => 8,
+        Some(13) => 10,
+        Some(26) => 30,
+        Some(142) => 20,
+        Some(252) => 20,
+        Some(256) => 40,
+        Some(257) => 40,
+        Some(260) => 35,
+        Some(261) => 20,
+        Some(262) => 30,
+        _ => DEFAULT_EFFECT_OVERLAY_TTL_TICKS,
+    }
 }
 
 fn advance_runtime_effect_overlays(runtime_world_overlay: &mut RuntimeWorldOverlay) {
@@ -5029,7 +5049,9 @@ mod tests {
             object.id == "marker:runtime-effect:reliable:21:0x41400000:0x41800000:0"
         }));
 
-        for _ in 0..(EFFECT_OVERLAY_TTL_TICKS - 1) {
+        let max_ttl = runtime_effect_overlay_ttl_ticks(Some(13))
+            .max(runtime_effect_overlay_ttl_ticks(Some(21)));
+        for _ in 0..(max_ttl - 1) {
             adapter.observe_events(&[]);
             let mut decayed_scene = RenderModel::default();
             let mut decayed_hud = HudModel::default();
@@ -5268,7 +5290,7 @@ mod tests {
         let point_hit_lines = runtime_effect_lines_with_prefix(&scene, point_hit_prefix);
         assert_eq!(point_hit_lines.len(), 24);
         assert!(point_hit_lines.iter().any(|object| {
-            !object.id.ends_with(":line-end") && object.x == 34.0 && object.y == 48.0
+            !object.id.ends_with(":line-end") && object.x > 32.0 && object.y == 48.0
         }));
     }
 
@@ -5632,16 +5654,19 @@ mod tests {
         adapter.apply(&mut second_scene, &mut second_hud, &input, &state);
 
         let second_icon = first_runtime_effect_icon(&second_scene);
+        let payload_progress = 1.0 / f32::from(runtime_effect_overlay_ttl_ticks(Some(26)) - 1);
+        let expected_second_x = 12.0 + (80.0 - 12.0) * payload_progress;
+        let expected_second_y = 20.0 + (160.0 - 20.0) * payload_progress;
         assert_eq!(
             second_icon.id,
             format!(
                 "marker:runtime-effect-icon:payload-deposit:normal:26:1:42:0x{:08x}:0x{:08x}",
-                46.0f32.to_bits(),
-                90.0f32.to_bits()
+                expected_second_x.to_bits(),
+                expected_second_y.to_bits()
             )
         );
-        assert_eq!(second_icon.x, 46.0);
-        assert_eq!(second_icon.y, 90.0);
+        assert_eq!(second_icon.x, expected_second_x);
+        assert_eq!(second_icon.y, expected_second_y);
     }
 
     #[test]

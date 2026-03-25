@@ -58,6 +58,7 @@ pub struct RuntimeEffectOverlay {
     pub color_rgba: u32,
     pub reliable: bool,
     pub has_data: bool,
+    pub lifetime_ticks: u8,
     pub remaining_ticks: u8,
     pub contract_name: Option<&'static str>,
     pub binding: Option<RuntimeEffectBinding>,
@@ -96,7 +97,7 @@ pub fn spawn_runtime_effect_overlay(
     color_rgba: u32,
     reliable: bool,
     data_object: Option<&TypeIoObject>,
-    remaining_ticks: u8,
+    lifetime_ticks: u8,
 ) -> RuntimeEffectOverlay {
     let contract = effect_contract(effect_id);
     let payload_target_content = contract
@@ -130,7 +131,8 @@ pub fn spawn_runtime_effect_overlay(
         color_rgba,
         reliable,
         has_data: data_object.is_some(),
-        remaining_ticks,
+        lifetime_ticks,
+        remaining_ticks: lifetime_ticks,
         contract_name: contract.map(RuntimeEffectContract::name),
         binding,
         content_ref,
