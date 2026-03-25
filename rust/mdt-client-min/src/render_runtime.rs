@@ -6103,6 +6103,74 @@ mod tests {
     }
 
     #[test]
+    fn render_runtime_adapter_moves_chain_emp_geometry_with_parent_unit_source_follow() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        state.entity_table_projection.by_entity_id.insert(
+            404,
+            crate::session_state::EntityProjection {
+                class_id: 12,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 88,
+                x_bits: 80.0f32.to_bits(),
+                y_bits: 160.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 3,
+            },
+        );
+
+        adapter.observe_events(&[ClientSessionEvent::EffectRequested {
+            effect_id: Some(262),
+            x: 12.0,
+            y: 20.0,
+            rotation: 0.0,
+            color_rgba: 0x11223344,
+            data_object: Some(mdt_typeio::TypeIoObject::UnitId(404)),
+        }]);
+
+        let mut first_scene = RenderModel::default();
+        let mut first_hud = HudModel::default();
+        adapter.apply(&mut first_scene, &mut first_hud, &input, &state);
+
+        state
+            .entity_table_projection
+            .by_entity_id
+            .get_mut(&404)
+            .expect("missing entity 404")
+            .x_bits = 96.0f32.to_bits();
+        state
+            .entity_table_projection
+            .by_entity_id
+            .get_mut(&404)
+            .expect("missing entity 404")
+            .y_bits = 184.0f32.to_bits();
+
+        let mut second_scene = RenderModel::default();
+        let mut second_hud = HudModel::default();
+        adapter.apply(&mut second_scene, &mut second_hud, &input, &state);
+
+        let chain_prefix = "marker:line:runtime-effect-chain-emp:";
+        let first_points = runtime_effect_lines_with_prefix(&first_scene, chain_prefix)
+            .into_iter()
+            .map(|object| (object.x, object.y))
+            .collect::<Vec<_>>();
+        let second_points = runtime_effect_lines_with_prefix(&second_scene, chain_prefix)
+            .into_iter()
+            .map(|object| (object.x, object.y))
+            .collect::<Vec<_>>();
+
+        assert_eq!(first_points.len(), second_points.len());
+        assert!(first_points.iter().any(|point| {
+            (point.0 - 12.0).abs() < 0.01 && (point.1 - 20.0).abs() < 0.01
+        }));
+        assert!(second_points.iter().any(|point| {
+            (point.0 - 28.0).abs() < 0.01 && (point.1 - 44.0).abs() < 0.01
+        }));
+    }
+
+    #[test]
     fn render_runtime_adapter_renders_shield_break_executor_hexagon() {
         let mut adapter = RenderRuntimeAdapter::default();
         let mut scene = RenderModel::default();
