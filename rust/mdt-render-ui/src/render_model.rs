@@ -601,6 +601,31 @@ mod tests {
     }
 
     #[test]
+    fn render_model_tracks_projected_view_window_and_unit_focus_tile_alias() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 64.0,
+                height: 64.0,
+                zoom: 1.0,
+            },
+            view_window: Some(RenderViewWindow {
+                origin_x: 2,
+                origin_y: 3,
+                width: 4,
+                height: 5,
+            }),
+            objects: vec![RenderObject {
+                id: "unit:7".to_string(),
+                layer: 40,
+                x: 28.0,
+                y: 33.0,
+            }],
+        };
+
+        assert_eq!(scene.player_focus_tile(8.0), Some((3, 4)));
+    }
+
+    #[test]
     fn render_model_summarizes_semantic_families_and_detail_counts() {
         let scene = RenderModel {
             viewport: Viewport::default(),
@@ -710,5 +735,24 @@ mod tests {
                 "marker-line:1,marker-line-end:1,marker-text:1,plan-build:1,runtime-building:1,runtime-config:1"
             )
         );
+    }
+
+    #[test]
+    fn render_model_counts_unit_alias_in_player_family_summary() {
+        let scene = RenderModel {
+            viewport: Viewport::default(),
+            view_window: None,
+            objects: vec![RenderObject {
+                id: "unit:7".to_string(),
+                layer: 40,
+                x: 0.0,
+                y: 0.0,
+            }],
+        };
+
+        let summary = scene.semantic_summary();
+        assert_eq!(summary.total_count, 1);
+        assert_eq!(summary.player_count, 1);
+        assert_eq!(summary.unknown_count, 0);
     }
 }

@@ -2494,6 +2494,50 @@ mod tests {
     }
 
     #[test]
+    fn present_once_crops_view_around_unit_focus_alias() {
+        let backend = RecordingBackend::default();
+        let mut presenter = WindowPresenter::new(backend).with_max_view_tiles(4, 4);
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 64.0,
+                height: 64.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: "terrain:origin".to_string(),
+                    layer: 0,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "block:crop-origin".to_string(),
+                    layer: 10,
+                    x: 32.0,
+                    y: 32.0,
+                },
+                RenderObject {
+                    id: "unit:focus".to_string(),
+                    layer: 40,
+                    x: 56.0,
+                    y: 56.0,
+                },
+            ],
+        };
+        let hud = HudModel::default();
+
+        presenter.present_once(&scene, &hud).unwrap();
+        let backend = presenter.into_backend();
+        let frame = backend.frames.last().unwrap();
+
+        assert_eq!((frame.width, frame.height), (4, 4));
+        assert_eq!(frame.pixel(3, 0), Some(COLOR_PLAYER));
+        assert_eq!(frame.pixel(0, 3), Some(COLOR_BLOCK));
+        assert_eq!(frame.pixel(0, 0), Some(COLOR_EMPTY));
+    }
+
+    #[test]
     fn present_once_honors_projected_view_window_without_local_crop() {
         let backend = RecordingBackend::default();
         let mut presenter = WindowPresenter::new(backend);
@@ -2710,6 +2754,52 @@ mod tests {
             .objects
             .iter_mut()
             .find(|object| object.id.starts_with("player:"))
+            .unwrap()
+            .x = 28.1;
+        let hud = HudModel::default();
+
+        presenter.present_once(&base_scene, &hud).unwrap();
+        presenter.present_once(&moved_scene, &hud).unwrap();
+
+        let backend = presenter.into_backend();
+        let first = backend.frames.first().unwrap();
+        let second = backend.frames.get(1).unwrap();
+        assert_eq!((first.width, first.height), (4, 4));
+        assert_eq!((second.width, second.height), (4, 4));
+        assert_eq!(first.pixels, second.pixels);
+    }
+
+    #[test]
+    fn present_once_keeps_crop_stable_around_half_tile_unit_motion() {
+        let backend = RecordingBackend::default();
+        let mut presenter = WindowPresenter::new(backend).with_max_view_tiles(4, 4);
+        let base_scene = RenderModel {
+            viewport: Viewport {
+                width: 64.0,
+                height: 64.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: "terrain:stable".to_string(),
+                    layer: 0,
+                    x: 8.0,
+                    y: 32.0,
+                },
+                RenderObject {
+                    id: "unit:focus".to_string(),
+                    layer: 40,
+                    x: 27.9,
+                    y: 32.0,
+                },
+            ],
+        };
+        let mut moved_scene = base_scene.clone();
+        moved_scene
+            .objects
+            .iter_mut()
+            .find(|object| object.id.starts_with("unit:"))
             .unwrap()
             .x = 28.1;
         let hud = HudModel::default();
