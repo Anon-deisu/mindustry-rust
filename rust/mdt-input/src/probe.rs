@@ -114,6 +114,7 @@ pub fn sample_runtime_input_snapshot(sample: RuntimeInputSample) -> InputSnapsho
         mining_tile: sample.mining_tile,
         building: sample.building,
         config_tap_tile: None,
+        build_pulse: None,
         active_actions,
     }
 }

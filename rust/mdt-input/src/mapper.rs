@@ -1,4 +1,4 @@
-use crate::intent::{BinaryAction, PlayerIntent};
+use crate::intent::{BinaryAction, BuildPulse, PlayerIntent};
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct InputSnapshot {
@@ -7,6 +7,7 @@ pub struct InputSnapshot {
     pub mining_tile: Option<(i32, i32)>,
     pub building: bool,
     pub config_tap_tile: Option<(i32, i32)>,
+    pub build_pulse: Option<BuildPulse>,
     pub active_actions: Vec<BinaryAction>,
 }
 
@@ -111,6 +112,9 @@ impl IntentMapper for StatelessIntentMapper {
         if let Some(tile) = snapshot.config_tap_tile {
             intents.push(PlayerIntent::ConfigTap { tile });
         }
+        if let Some(pulse) = snapshot.build_pulse {
+            intents.push(PlayerIntent::BuildPulse(pulse));
+        }
 
         match self.sampling_mode {
             IntentSamplingMode::EdgeMapped => {
@@ -193,6 +197,7 @@ mod tests {
             mining_tile,
             building,
             config_tap_tile: None,
+                build_pulse: None,
             active_actions: active_actions.to_vec(),
         }
     }
@@ -559,6 +564,7 @@ mod tests {
             mining_tile: Some((7, 9)),
             building: false,
             config_tap_tile: None,
+                build_pulse: None,
             active_actions: vec![BinaryAction::Interact],
         });
 
@@ -584,6 +590,7 @@ mod tests {
             mining_tile: None,
             building: true,
             config_tap_tile: None,
+                build_pulse: None,
             active_actions: Vec::new(),
         });
 
@@ -608,6 +615,7 @@ mod tests {
             mining_tile: None,
             building: false,
             config_tap_tile: Some((11, 13)),
+            build_pulse: None,
             active_actions: vec![BinaryAction::Interact],
         });
 
@@ -625,6 +633,39 @@ mod tests {
     }
 
     #[test]
+    fn build_pulse_is_emitted_as_transient_structured_intent() {
+        let mut mapper = StatelessIntentMapper::default();
+
+        let intents = mapper.map_snapshot(&InputSnapshot {
+            move_axis: (1.0, -1.0),
+            aim_axis: (5.0, 6.0),
+            mining_tile: None,
+            building: false,
+            config_tap_tile: None,
+            build_pulse: Some(BuildPulse {
+                tile: (11, 13),
+                breaking: true,
+            }),
+            active_actions: vec![BinaryAction::Interact],
+        });
+
+        assert_eq!(
+            intents,
+            vec![
+                PlayerIntent::SetMoveAxis { x: 1.0, y: -1.0 },
+                PlayerIntent::SetAimAxis { x: 5.0, y: 6.0 },
+                PlayerIntent::SetMiningTile { tile: None },
+                PlayerIntent::SetBuilding { building: false },
+                PlayerIntent::BuildPulse(BuildPulse {
+                    tile: (11, 13),
+                    breaking: true,
+                }),
+                PlayerIntent::ActionPressed(BinaryAction::Interact),
+            ]
+        );
+    }
+
+    #[test]
     fn map_snapshot_batch_preserves_transient_config_tap_from_earlier_sample() {
         let mut mapper = StatelessIntentMapper::new(IntentSamplingMode::LiveSampling);
         let batch = vec![
@@ -634,6 +675,7 @@ mod tests {
                 mining_tile: None,
                 building: false,
                 config_tap_tile: Some((3, 4)),
+                build_pulse: None,
                 active_actions: vec![BinaryAction::Fire],
             },
             InputSnapshot {
@@ -642,6 +684,7 @@ mod tests {
                 mining_tile: Some((5, 6)),
                 building: true,
                 config_tap_tile: None,
+                build_pulse: None,
                 active_actions: vec![],
             },
         ];
@@ -670,6 +713,7 @@ mod tests {
                 mining_tile: Some((3, 4)),
                 building: true,
                 config_tap_tile: Some((5, 6)),
+                build_pulse: None,
                 active_actions: vec![BinaryAction::Fire],
             },
             InputSnapshot {
@@ -678,6 +722,7 @@ mod tests {
                 mining_tile: None,
                 building: false,
                 config_tap_tile: None,
+                build_pulse: None,
                 active_actions: vec![],
             },
         ];
@@ -687,6 +732,7 @@ mod tests {
             mining_tile: Some((7, 8)),
             building: true,
             config_tap_tile: None,
+            build_pulse: None,
             active_actions: vec![BinaryAction::Boost],
         };
 
@@ -718,6 +764,7 @@ mod tests {
             mining_tile: Some((6, 7)),
             building: true,
             config_tap_tile: Some((11, 12)),
+            build_pulse: None,
             active_actions: vec![BinaryAction::Chat],
         };
 
@@ -755,3 +802,5 @@ mod tests {
         );
     }
 }
+
+

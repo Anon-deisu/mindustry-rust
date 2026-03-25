@@ -47,6 +47,7 @@ use mdt_input::{
     MovementProbeController, PlacementRequest, PlanBlockMeta, PlanEditable, PlanPoint,
     RuntimeInputSample, RuntimeInputState,
 };
+use mdt_input::intent::BuildPulse;
 use mdt_remote::HighFrequencyRemoteMethod;
 use mdt_remote::{read_remote_manifest, RemoteManifest};
 use mdt_render_ui::{
@@ -2636,6 +2637,7 @@ fn parse_intent_snapshot_arg(value: &str) -> Result<InputSnapshot, String> {
         mining_tile,
         building,
         config_tap_tile: None,
+        build_pulse: None,
         active_actions,
     })
 }
@@ -5086,6 +5088,22 @@ fn maybe_capture_live_transient_outbound_action(
             }
             live_intent_mapper.push_transient_snapshot(snapshot, now_ms);
         }
+        OutboundAction::BeginBreak { x, y, .. } => {
+            snapshot.build_pulse = Some(BuildPulse {
+                tile: (*x, *y),
+                breaking: true,
+            });
+            snapshot.active_actions.push(BinaryAction::Interact);
+            live_intent_mapper.push_transient_snapshot(snapshot, now_ms);
+        }
+        OutboundAction::BeginPlace { x, y, .. } => {
+            snapshot.build_pulse = Some(BuildPulse {
+                tile: (*x, *y),
+                breaking: false,
+            });
+            snapshot.active_actions.push(BinaryAction::Interact);
+            live_intent_mapper.push_transient_snapshot(snapshot, now_ms);
+        }
         OutboundAction::RequestItem { .. }
         | OutboundAction::RequestUnitPayload { .. }
         | OutboundAction::UnitClear
@@ -5105,8 +5123,6 @@ fn maybe_capture_live_transient_outbound_action(
         | OutboundAction::CommandUnitsChunked { .. }
         | OutboundAction::SetUnitCommand { .. }
         | OutboundAction::SetUnitStance { .. }
-        | OutboundAction::BeginBreak { .. }
-        | OutboundAction::BeginPlace { .. }
         | OutboundAction::MenuChoose { .. }
         | OutboundAction::TextInputResult { .. } => {
             snapshot.active_actions.push(BinaryAction::Interact);
@@ -7043,6 +7059,7 @@ mod tests {
                         mining_tile: Some((88, 99)),
                         building: false,
                         config_tap_tile: None,
+            build_pulse: None,
                         active_actions: vec![BinaryAction::Fire, BinaryAction::Boost],
                     },
                 },
@@ -7054,6 +7071,7 @@ mod tests {
                         mining_tile: None,
                         building: false,
                         config_tap_tile: None,
+            build_pulse: None,
                         active_actions: vec![],
                     },
                 },
@@ -7073,6 +7091,7 @@ mod tests {
                 mining_tile: None,
                 building: false,
                 config_tap_tile: None,
+            build_pulse: None,
                 active_actions: vec![BinaryAction::Chat, BinaryAction::Interact],
             }
         );
@@ -7090,6 +7109,7 @@ mod tests {
                 mining_tile: None,
                 building: true,
                 config_tap_tile: None,
+            build_pulse: None,
                 active_actions: vec![BinaryAction::Fire],
             }
         );
@@ -7107,6 +7127,7 @@ mod tests {
                 mining_tile: Some((88, 99)),
                 building: false,
                 config_tap_tile: None,
+            build_pulse: None,
                 active_actions: vec![],
             }
         );
@@ -11488,6 +11509,8 @@ mod tests {
             building: true,
             last_config_tap_tile: None,
             config_tap_count: 0,
+            last_build_pulse: None,
+            build_pulse_count: 0,
             active_actions: vec![BinaryAction::Interact],
             pressed_actions: vec![BinaryAction::Interact],
             released_actions: Vec::new(),
@@ -11687,6 +11710,7 @@ mod tests {
             mining_tile: None,
             building: false,
             config_tap_tile: None,
+            build_pulse: None,
             active_actions: vec![],
         };
 
@@ -11726,6 +11750,7 @@ mod tests {
             mining_tile: None,
             building: true,
             config_tap_tile: None,
+            build_pulse: None,
             active_actions: vec![BinaryAction::Fire],
         };
 
@@ -11750,6 +11775,7 @@ mod tests {
                     mining_tile: None,
                     building: true,
                     config_tap_tile: None,
+            build_pulse: None,
                     active_actions: vec![BinaryAction::Fire],
                 },
             },
@@ -11761,6 +11787,7 @@ mod tests {
                     mining_tile: Some((9, 10)),
                     building: false,
                     config_tap_tile: None,
+            build_pulse: None,
                     active_actions: vec![],
                 },
             },
@@ -11773,6 +11800,7 @@ mod tests {
             mining_tile: None,
             building: false,
             config_tap_tile: None,
+            build_pulse: None,
             active_actions: vec![BinaryAction::Boost],
         };
 
@@ -11807,6 +11835,7 @@ mod tests {
             mining_tile: None,
             building: false,
             config_tap_tile: None,
+            build_pulse: None,
             active_actions: vec![BinaryAction::Fire],
         };
         let released_snapshot = InputSnapshot {
@@ -11815,6 +11844,7 @@ mod tests {
             mining_tile: None,
             building: false,
             config_tap_tile: None,
+            build_pulse: None,
             active_actions: vec![],
         };
 
@@ -11865,6 +11895,101 @@ mod tests {
             Some((6, 7))
         );
         assert_eq!(live_intent_mapper.state().config_tap_count, 1);
+        assert_eq!(
+            live_intent_mapper.state().pressed_actions,
+            vec![BinaryAction::Interact]
+        );
+        assert_eq!(
+            live_intent_mapper.state().released_actions,
+            vec![BinaryAction::Interact]
+        );
+        assert!(!live_intent_mapper
+            .state()
+            .is_action_active(BinaryAction::Interact));
+    }
+
+    #[test]
+    fn outbound_begin_break_is_captured_as_live_runtime_build_transient_without_intent_schedule() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
+        let args = parse_args(sample_args(&[])).unwrap();
+        let mut live_intent_mapper =
+            build_live_intent_mapper(&args).expect("default args should enable runtime capture");
+
+        maybe_capture_live_transient_outbound_action(
+            &session,
+            &args,
+            Some(&mut live_intent_mapper),
+            0,
+            &OutboundAction::BeginBreak {
+                builder: ClientUnitRef::Standard(777),
+                team_id: 2,
+                x: 11,
+                y: 13,
+            },
+        );
+
+        let runtime_snapshot = sample_current_runtime_snapshot(&session, &args);
+        assert!(live_intent_mapper.advance(&runtime_snapshot, 0));
+        assert!(!live_intent_mapper.state().building);
+        assert_eq!(live_intent_mapper.state().last_config_tap_tile, None);
+        assert_eq!(
+            live_intent_mapper.state().last_build_pulse,
+            Some(BuildPulse {
+                tile: (11, 13),
+                breaking: true
+            })
+        );
+        assert_eq!(live_intent_mapper.state().build_pulse_count, 1);
+        assert_eq!(
+            live_intent_mapper.state().pressed_actions,
+            vec![BinaryAction::Interact]
+        );
+        assert_eq!(
+            live_intent_mapper.state().released_actions,
+            vec![BinaryAction::Interact]
+        );
+        assert!(!live_intent_mapper
+            .state()
+            .is_action_active(BinaryAction::Interact));
+    }
+
+    #[test]
+    fn outbound_begin_place_is_captured_as_live_runtime_build_transient_without_intent_schedule() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
+        let args = parse_args(sample_args(&[])).unwrap();
+        let mut live_intent_mapper =
+            build_live_intent_mapper(&args).expect("default args should enable runtime capture");
+
+        maybe_capture_live_transient_outbound_action(
+            &session,
+            &args,
+            Some(&mut live_intent_mapper),
+            0,
+            &OutboundAction::BeginPlace {
+                builder: ClientUnitRef::Standard(888),
+                block_id: Some(99),
+                team_id: 3,
+                x: 17,
+                y: 19,
+                rotation: 1,
+                place_config: TypeIoObject::Bool(true),
+            },
+        );
+
+        let runtime_snapshot = sample_current_runtime_snapshot(&session, &args);
+        assert!(live_intent_mapper.advance(&runtime_snapshot, 0));
+        assert!(!live_intent_mapper.state().building);
+        assert_eq!(live_intent_mapper.state().last_config_tap_tile, None);
+        assert_eq!(
+            live_intent_mapper.state().last_build_pulse,
+            Some(BuildPulse {
+                tile: (17, 19),
+                breaking: false
+            })
+        );
+        assert_eq!(live_intent_mapper.state().build_pulse_count, 1);
         assert_eq!(
             live_intent_mapper.state().pressed_actions,
             vec![BinaryAction::Interact]
@@ -12163,3 +12288,6 @@ mod tests {
         assert_eq!(resolve_redirect_server_addr("127.0.0.1", 70_000), None);
     }
 }
+
+
+

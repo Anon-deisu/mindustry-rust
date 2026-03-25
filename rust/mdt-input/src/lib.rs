@@ -29,7 +29,7 @@ pub use command_mode::{
     CommandModeSelectionOp, CommandModeStanceSelection, CommandModeState,
     CommandModeTargetProjection, CommandUnitRef,
 };
-pub use intent::{BinaryAction, PlayerIntent};
+pub use intent::{BinaryAction, BuildPulse, PlayerIntent};
 pub use live_intent::LiveIntentState;
 pub use mapper::{InputSnapshot, IntentMapper, IntentSamplingMode, StatelessIntentMapper};
 pub use placement_rules::{

@@ -10,6 +10,12 @@ pub enum BinaryAction {
     Interact,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BuildPulse {
+    pub tile: (i32, i32),
+    pub breaking: bool,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum PlayerIntent {
     SetMoveAxis { x: f32, y: f32 },
@@ -17,6 +23,7 @@ pub enum PlayerIntent {
     SetMiningTile { tile: Option<(i32, i32)> },
     SetBuilding { building: bool },
     ConfigTap { tile: (i32, i32) },
+    BuildPulse(BuildPulse),
     ActionPressed(BinaryAction),
     ActionHeld(BinaryAction),
     ActionReleased(BinaryAction),
