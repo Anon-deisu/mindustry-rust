@@ -570,7 +570,9 @@ fn compose_frame_panel_lines(
         lines.push(format!("RUNTIME-NOTICE: {runtime_ui_notice_text}"));
     }
     if let Some(runtime_ui_notice_detail_text) = compose_runtime_ui_notice_detail_status_text(hud) {
-        lines.push(format!("RUNTIME-NOTICE-DETAIL: {runtime_ui_notice_detail_text}"));
+        lines.push(format!(
+            "RUNTIME-NOTICE-DETAIL: {runtime_ui_notice_detail_text}"
+        ));
     }
     if let Some(runtime_menu_text) = compose_runtime_menu_panel_status_text(hud) {
         lines.push(format!("RUNTIME-MENU: {runtime_menu_text}"));
@@ -1883,7 +1885,10 @@ fn compact_runtime_ui_text(value: Option<&str>) -> String {
 }
 
 fn runtime_ui_text_len(value: Option<&str>) -> usize {
-    value.map(str::chars).map(Iterator::count).unwrap_or_default()
+    value
+        .map(str::chars)
+        .map(Iterator::count)
+        .unwrap_or_default()
 }
 
 fn runtime_ui_notice_panel_is_empty(panel: &RuntimeUiNoticePanelModel) -> bool {
@@ -2128,6 +2133,25 @@ mod tests {
         RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiObservability,
         RuntimeWorldLabelObservability, Viewport,
     };
+
+    fn runtime_stack_test_scene() -> RenderModel {
+        RenderModel {
+            viewport: Viewport {
+                width: 8.0,
+                height: 8.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: Vec::new(),
+        }
+    }
+
+    fn runtime_stack_test_hud(runtime_ui: RuntimeUiObservability) -> HudModel {
+        HudModel {
+            runtime_ui: Some(runtime_ui),
+            ..HudModel::default()
+        }
+    }
 
     #[derive(Default)]
     struct RecordingBackend {
@@ -3239,6 +3263,77 @@ mod tests {
             "unexpected runtime world-label detail line in {:?}",
             frame.panel_lines
         );
+    }
+
+    #[test]
+    fn present_once_surfaces_runtime_stack_minimal_regression_cases() {
+        let mut chat_only = RuntimeUiObservability::default();
+        chat_only.chat.server_message_count = 1;
+        chat_only.chat.chat_message_count = 2;
+        chat_only.chat.last_chat_sender_entity_id = Some(42);
+
+        let mut menu_only = RuntimeUiObservability::default();
+        menu_only.menu.menu_open_count = 1;
+
+        let mut follow_up_only = RuntimeUiObservability::default();
+        follow_up_only.menu.follow_up_menu_open_count = 1;
+
+        let mut input_notice_chat = RuntimeUiObservability::default();
+        input_notice_chat.text_input.open_count = 1;
+        input_notice_chat.text_input.last_id = Some(404);
+        input_notice_chat.toast.warning_count = 1;
+        input_notice_chat.toast.last_warning_text = Some("warn".to_string());
+        input_notice_chat.chat.server_message_count = 1;
+        input_notice_chat.chat.chat_message_count = 1;
+        input_notice_chat.chat.last_chat_sender_entity_id = Some(404);
+
+        let cases = vec![
+            (
+                "chat-only",
+                runtime_stack_test_hud(chat_only),
+                "RUNTIME-STACK: stack:f=chat:p0@none:n=none@none:c1:g1:t1:tinnone:s42",
+                "RUNTIME-STACK-DETAIL: stackd:m0:fo0:tin0:nd0:chat1/2:sid42",
+            ),
+            (
+                "menu-only",
+                runtime_stack_test_hud(menu_only),
+                "RUNTIME-STACK: stack:f=menu:p1@menu:n=none@none:c0:g1:t1:tinnone:snone",
+                "RUNTIME-STACK-DETAIL: stackd:m1:fo0:tin0:nd0:chat0/0:sidnone",
+            ),
+            (
+                "follow-up-without-text-input",
+                runtime_stack_test_hud(follow_up_only),
+                "RUNTIME-STACK: stack:f=follow-up:p1@follow-up:n=none@none:c0:g1:t1:tinnone:snone",
+                "RUNTIME-STACK-DETAIL: stackd:m0:fo1:tin0:nd0:chat0/0:sidnone",
+            ),
+            (
+                "text-input+notice+chat",
+                runtime_stack_test_hud(input_notice_chat),
+                "RUNTIME-STACK: stack:f=input:p1@input:n=warn@warn:c1:g3:t3:tin404:s404",
+                "RUNTIME-STACK-DETAIL: stackd:m0:fo0:tin1:nd1:chat1/1:sid404",
+            ),
+        ];
+
+        for (name, hud, stack_line, detail_line) in cases {
+            let backend = RecordingBackend::default();
+            let mut presenter = WindowPresenter::new(backend);
+            presenter
+                .present_once(&runtime_stack_test_scene(), &hud)
+                .unwrap();
+
+            let backend = presenter.into_backend();
+            let frame = backend.frames.last().unwrap();
+            assert_frame_line_contains(&frame.panel_lines, stack_line);
+            assert_frame_line_contains(&frame.panel_lines, detail_line);
+            assert!(
+                frame
+                    .panel_lines
+                    .iter()
+                    .any(|line| line.contains(stack_line) && line.contains("RUNTIME-STACK:")),
+                "missing runtime stack line for {name} in {:?}",
+                frame.panel_lines
+            );
+        }
     }
 
     fn assert_frame_line_contains(lines: &[String], needle: &str) {

@@ -1707,6 +1707,13 @@ mod tests {
         ((x & 0xffff) << 16) | (y & 0xffff)
     }
 
+    fn runtime_stack_test_hud(runtime_ui: RuntimeUiObservability) -> HudModel {
+        HudModel {
+            runtime_ui: Some(runtime_ui),
+            ..HudModel::default()
+        }
+    }
+
     #[test]
     fn builds_hud_status_and_visibility_panels_from_summary() {
         let hud = HudModel {
@@ -3373,5 +3380,77 @@ mod tests {
         assert_eq!(stack.chat_depth(), 1);
         assert_eq!(stack.active_group_count(), 3);
         assert_eq!(stack.total_depth(), 8);
+    }
+
+    #[test]
+    fn builds_runtime_ui_stack_panel_for_minimal_presenter_regression_cases() {
+        let mut chat_only = RuntimeUiObservability::default();
+        chat_only.chat.server_message_count = 1;
+        chat_only.chat.chat_message_count = 2;
+        chat_only.chat.last_chat_sender_entity_id = Some(42);
+        let chat_only =
+            build_runtime_ui_stack_panel(&runtime_stack_test_hud(chat_only)).expect("stack");
+        assert_eq!(
+            chat_only.foreground_kind,
+            Some(RuntimeUiStackForegroundKind::Chat)
+        );
+        assert!(chat_only.prompt_layer_labels().is_empty());
+        assert!(chat_only.notice_layer_labels().is_empty());
+        assert_eq!(chat_only.chat_depth(), 1);
+        assert_eq!(chat_only.active_group_count(), 1);
+        assert_eq!(chat_only.total_depth(), 1);
+
+        let mut menu_only = RuntimeUiObservability::default();
+        menu_only.menu.menu_open_count = 1;
+        let menu_only =
+            build_runtime_ui_stack_panel(&runtime_stack_test_hud(menu_only)).expect("stack");
+        assert_eq!(
+            menu_only.foreground_kind,
+            Some(RuntimeUiStackForegroundKind::Menu)
+        );
+        assert_eq!(menu_only.prompt_layer_labels(), vec!["menu"]);
+        assert!(menu_only.notice_layer_labels().is_empty());
+        assert_eq!(menu_only.chat_depth(), 0);
+        assert_eq!(menu_only.active_group_count(), 1);
+        assert_eq!(menu_only.total_depth(), 1);
+
+        let mut follow_up_only = RuntimeUiObservability::default();
+        follow_up_only.menu.follow_up_menu_open_count = 1;
+        let follow_up_only =
+            build_runtime_ui_stack_panel(&runtime_stack_test_hud(follow_up_only)).expect("stack");
+        assert_eq!(
+            follow_up_only.foreground_kind,
+            Some(RuntimeUiStackForegroundKind::FollowUpMenu)
+        );
+        assert_eq!(follow_up_only.prompt_layer_labels(), vec!["follow-up"]);
+        assert!(follow_up_only.notice_layer_labels().is_empty());
+        assert_eq!(follow_up_only.chat_depth(), 0);
+        assert_eq!(follow_up_only.active_group_count(), 1);
+        assert_eq!(follow_up_only.total_depth(), 1);
+
+        let mut input_notice_chat = RuntimeUiObservability::default();
+        input_notice_chat.text_input.open_count = 1;
+        input_notice_chat.text_input.last_id = Some(404);
+        input_notice_chat.toast.warning_count = 1;
+        input_notice_chat.toast.last_warning_text = Some("warn".to_string());
+        input_notice_chat.chat.server_message_count = 1;
+        input_notice_chat.chat.chat_message_count = 1;
+        input_notice_chat.chat.last_chat_sender_entity_id = Some(404);
+        let input_notice_chat =
+            build_runtime_ui_stack_panel(&runtime_stack_test_hud(input_notice_chat))
+                .expect("stack");
+        assert_eq!(
+            input_notice_chat.foreground_kind,
+            Some(RuntimeUiStackForegroundKind::TextInput)
+        );
+        assert_eq!(input_notice_chat.prompt_layer_labels(), vec!["input"]);
+        assert_eq!(
+            input_notice_chat.notice_kind,
+            Some(RuntimeDialogNoticeKind::ToastWarning)
+        );
+        assert_eq!(input_notice_chat.notice_layer_labels(), vec!["warn"]);
+        assert_eq!(input_notice_chat.chat_depth(), 1);
+        assert_eq!(input_notice_chat.active_group_count(), 3);
+        assert_eq!(input_notice_chat.total_depth(), 3);
     }
 }

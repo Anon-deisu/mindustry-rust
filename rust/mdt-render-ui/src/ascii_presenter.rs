@@ -1531,7 +1531,10 @@ fn compact_runtime_ui_text(value: Option<&str>) -> String {
 }
 
 fn runtime_ui_text_len(value: Option<&str>) -> usize {
-    value.map(str::chars).map(Iterator::count).unwrap_or_default()
+    value
+        .map(str::chars)
+        .map(Iterator::count)
+        .unwrap_or_default()
 }
 
 fn runtime_ui_notice_panel_is_empty(panel: &RuntimeUiNoticePanelModel) -> bool {
@@ -1734,6 +1737,25 @@ mod tests {
         ScenePresenter, Viewport,
     };
     use mdt_world::parse_world_bundle;
+
+    fn runtime_stack_test_scene() -> RenderModel {
+        RenderModel {
+            viewport: Viewport {
+                width: 8.0,
+                height: 8.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: Vec::new(),
+        }
+    }
+
+    fn runtime_stack_test_hud(runtime_ui: RuntimeUiObservability) -> HudModel {
+        HudModel {
+            runtime_ui: Some(runtime_ui),
+            ..HudModel::default()
+        }
+    }
 
     #[test]
     fn ascii_presenter_renders_projected_scene_layers() {
@@ -2651,12 +2673,76 @@ mod tests {
         presenter.present(&scene, &hud);
 
         assert!(!presenter.last_frame().contains("RUNTIME-SESSION:"));
-        assert!(!presenter
-            .last_frame()
-            .contains("RUNTIME-NOTICE-DETAIL:"));
+        assert!(!presenter.last_frame().contains("RUNTIME-NOTICE-DETAIL:"));
         assert!(!presenter
             .last_frame()
             .contains("RUNTIME-WORLD-LABEL-DETAIL:"));
+    }
+
+    #[test]
+    fn ascii_presenter_surfaces_runtime_stack_minimal_regression_cases() {
+        let scene = runtime_stack_test_scene();
+        let mut presenter = AsciiScenePresenter::default();
+
+        let mut chat_only = RuntimeUiObservability::default();
+        chat_only.chat.server_message_count = 1;
+        chat_only.chat.chat_message_count = 2;
+        chat_only.chat.last_chat_sender_entity_id = Some(42);
+
+        let mut menu_only = RuntimeUiObservability::default();
+        menu_only.menu.menu_open_count = 1;
+
+        let mut follow_up_only = RuntimeUiObservability::default();
+        follow_up_only.menu.follow_up_menu_open_count = 1;
+
+        let mut input_notice_chat = RuntimeUiObservability::default();
+        input_notice_chat.text_input.open_count = 1;
+        input_notice_chat.text_input.last_id = Some(404);
+        input_notice_chat.toast.warning_count = 1;
+        input_notice_chat.toast.last_warning_text = Some("warn".to_string());
+        input_notice_chat.chat.server_message_count = 1;
+        input_notice_chat.chat.chat_message_count = 1;
+        input_notice_chat.chat.last_chat_sender_entity_id = Some(404);
+
+        let cases = vec![
+            (
+                "chat-only",
+                runtime_stack_test_hud(chat_only),
+                "RUNTIME-STACK: front=chat prompt=0@none notice=none@none chat=1 groups=1 total=1 tin=none sender=42",
+                "RUNTIME-STACK-DETAIL: menu-active=0 outstanding-follow-up=0 text-input=0 notice-depth=0 server-chat=1/2 sender=42",
+            ),
+            (
+                "menu-only",
+                runtime_stack_test_hud(menu_only),
+                "RUNTIME-STACK: front=menu prompt=1@menu notice=none@none chat=0 groups=1 total=1 tin=none sender=none",
+                "RUNTIME-STACK-DETAIL: menu-active=1 outstanding-follow-up=0 text-input=0 notice-depth=0 server-chat=0/0 sender=none",
+            ),
+            (
+                "follow-up-without-text-input",
+                runtime_stack_test_hud(follow_up_only),
+                "RUNTIME-STACK: front=follow-up prompt=1@follow-up notice=none@none chat=0 groups=1 total=1 tin=none sender=none",
+                "RUNTIME-STACK-DETAIL: menu-active=0 outstanding-follow-up=1 text-input=0 notice-depth=0 server-chat=0/0 sender=none",
+            ),
+            (
+                "text-input+notice+chat",
+                runtime_stack_test_hud(input_notice_chat),
+                "RUNTIME-STACK: front=input prompt=1@input notice=warn@warn chat=1 groups=3 total=3 tin=404 sender=404",
+                "RUNTIME-STACK-DETAIL: menu-active=0 outstanding-follow-up=0 text-input=1 notice-depth=1 server-chat=1/1 sender=404",
+            ),
+        ];
+
+        for (name, hud, stack_line, detail_line) in cases {
+            presenter.present(&scene, &hud);
+            let frame = presenter.last_frame();
+            assert!(
+                frame.contains(stack_line),
+                "missing runtime stack line for {name} in {frame}",
+            );
+            assert!(
+                frame.contains(detail_line),
+                "missing runtime stack detail line for {name} in {frame}",
+            );
+        }
     }
 
     fn decode_hex(text: &str) -> Vec<u8> {
