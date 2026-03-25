@@ -1,5 +1,6 @@
 pub mod ascii_presenter;
 pub mod bin_support;
+mod build_user_flow;
 pub mod hud_model;
 mod panel_model;
 pub mod projection;

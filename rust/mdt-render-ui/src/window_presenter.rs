@@ -1,4 +1,5 @@
 use crate::{
+    build_user_flow::build_build_user_flow_panel,
     panel_model::{
         build_build_config_panel, build_build_interaction_panel, build_build_minimap_assist_panel,
         build_hud_status_panel, build_hud_visibility_panel, build_minimap_panel,
@@ -565,6 +566,9 @@ fn compose_frame_panel_lines(
     }
     if let Some(build_flow_text) = compose_build_flow_status_text(scene, hud, window) {
         lines.push(format!("BUILD-FLOW: {build_flow_text}"));
+    }
+    if let Some(build_route_text) = compose_build_route_status_text(scene, hud, window) {
+        lines.push(format!("BUILD-ROUTE: {build_route_text}"));
     }
     if let Some(build_flow_detail_text) = compose_build_flow_detail_status_text(scene, hud, window)
     {
@@ -1497,6 +1501,28 @@ fn compose_build_flow_detail_status_text(
         panel.config_family_count,
         panel.config_sample_count,
         compact_runtime_ui_text(panel.top_config_family.as_deref()),
+    ))
+}
+
+fn compose_build_route_status_text(
+    scene: &RenderModel,
+    hud: &HudModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let panel = build_build_user_flow_panel(scene, hud, window)?;
+    let blockers = panel.blocker_labels().join(">");
+    let route = panel.route.join(">");
+    Some(format!(
+        "cfgroute:n={}:b{}@{}:r{}@{}",
+        panel.next_action,
+        panel.blocker_count(),
+        if blockers.is_empty() {
+            "none"
+        } else {
+            blockers.as_str()
+        },
+        panel.route_count(),
+        route.as_str(),
     ))
 }
 
@@ -3308,6 +3334,10 @@ mod tests {
         assert_frame_line_contains(
             &frame.panel_lines,
             "BUILD-FLOW: cfgnext:resolve:m=place:s=head-aligned:q=mixed:r1:f=inside:v=unseen:w=offscreen:scope=multi:auth=rej-miss-build:rt0",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "BUILD-ROUTE: cfgroute:n=resolve:b2@resolve>survey:r3@resolve>survey>commit",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
