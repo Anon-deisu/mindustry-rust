@@ -1247,11 +1247,12 @@ impl LiveIntentMapperController {
         if due.is_empty() {
             return self.tracker.sample_runtime_snapshot(runtime_snapshot);
         }
-        let snapshots = due
+        let transient_snapshots = due
             .into_iter()
             .map(|entry| entry.snapshot)
             .collect::<Vec<_>>();
-        self.tracker.sample_runtime_snapshot_batch(&snapshots)
+        self.tracker
+            .sample_runtime_snapshot_with_transient_batch(&transient_snapshots, runtime_snapshot)
     }
 }
 
@@ -11018,7 +11019,7 @@ mod tests {
     }
 
     #[test]
-    fn live_intent_mapper_applies_intents_and_release_edges_without_movement_probe() {
+    fn live_intent_mapper_keeps_runtime_snapshot_authoritative_without_movement_probe() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
         let args = parse_args(sample_args(&[
@@ -11047,14 +11048,28 @@ mod tests {
         );
         {
             let input = session.snapshot_input_mut();
-            assert_eq!(input.velocity, (1.0, 0.0));
-            assert_eq!(input.pointer, Some((16.0, 24.0)));
-            assert_eq!(input.mining_tile, Some((88, 99)));
+            assert_eq!(input.velocity, (0.0, 0.0));
+            assert_eq!(input.pointer, Some((0.0, 0.0)));
+            assert_eq!(input.mining_tile, None);
             assert_eq!(input.rotation, 0.0);
             assert_eq!(input.base_rotation, 0.0);
-            assert!(input.shooting);
-            assert!(input.boosting);
+            assert!(!input.shooting);
+            assert!(!input.boosting);
             assert!(!input.chatting);
+        }
+        assert_eq!(
+            live_intent_mapper.state().pressed_actions,
+            vec![BinaryAction::Fire, BinaryAction::Boost]
+        );
+        assert_eq!(
+            live_intent_mapper.state().released_actions,
+            vec![BinaryAction::Fire, BinaryAction::Boost]
+        );
+
+        {
+            let input = session.snapshot_input_mut();
+            input.pointer = Some((32.0, 48.0));
+            input.chatting = true;
         }
 
         maybe_apply_runtime_snapshot_overrides(
@@ -11072,6 +11087,14 @@ mod tests {
         assert!(!input.shooting);
         assert!(!input.boosting);
         assert!(input.chatting);
+        assert_eq!(
+            live_intent_mapper.state().pressed_actions,
+            vec![BinaryAction::Chat]
+        );
+        assert!(live_intent_mapper.state().released_actions.is_empty());
+        assert!(live_intent_mapper
+            .state()
+            .is_action_active(BinaryAction::Chat));
     }
 
     #[test]
@@ -11273,7 +11296,7 @@ mod tests {
     }
 
     #[test]
-    fn live_intent_schedule_override_yields_back_to_runtime_sampling_after_due_tick() {
+    fn live_intent_schedule_injects_edges_without_overriding_runtime_sampling() {
         let args = parse_args(sample_args(&[
             "--intent-delay-ms",
             "0",
@@ -11295,19 +11318,26 @@ mod tests {
         };
 
         assert!(live_intent_mapper.advance(&runtime_snapshot, 0));
-        assert!(live_intent_mapper
-            .state()
-            .is_action_active(BinaryAction::Fire));
-        assert!(live_intent_mapper.advance(&runtime_snapshot, 50));
         assert!(!live_intent_mapper
             .state()
             .is_action_active(BinaryAction::Fire));
         assert_eq!(live_intent_mapper.state().move_axis, (0.0, 0.0));
         assert_eq!(live_intent_mapper.state().aim_axis, (9.0, 9.0));
         assert_eq!(
+            live_intent_mapper.state().pressed_actions,
+            vec![BinaryAction::Fire]
+        );
+        assert_eq!(
             live_intent_mapper.state().released_actions,
             vec![BinaryAction::Fire]
         );
+
+        assert!(!live_intent_mapper.advance(&runtime_snapshot, 50));
+        assert!(!live_intent_mapper
+            .state()
+            .is_action_active(BinaryAction::Fire));
+        assert!(live_intent_mapper.state().pressed_actions.is_empty());
+        assert!(live_intent_mapper.state().released_actions.is_empty());
     }
 
     #[test]
@@ -11374,17 +11404,21 @@ mod tests {
         };
 
         assert!(live_intent_mapper.advance(&runtime_snapshot, 0));
-        assert_eq!(live_intent_mapper.state().move_axis, (0.0, 0.0));
-        assert_eq!(live_intent_mapper.state().aim_axis, (32.0, 48.0));
-        assert_eq!(live_intent_mapper.state().mining_tile, Some((9, 10)));
+        assert_eq!(live_intent_mapper.state().move_axis, (9.0, 9.0));
+        assert_eq!(live_intent_mapper.state().aim_axis, (99.0, 99.0));
+        assert_eq!(live_intent_mapper.state().mining_tile, None);
+        assert!(!live_intent_mapper.state().building);
         assert_eq!(
             live_intent_mapper.state().pressed_actions,
-            vec![BinaryAction::Fire]
+            vec![BinaryAction::Fire, BinaryAction::Boost]
         );
         assert_eq!(
             live_intent_mapper.state().released_actions,
             vec![BinaryAction::Fire]
         );
+        assert!(live_intent_mapper
+            .state()
+            .is_action_active(BinaryAction::Boost));
         assert!(!live_intent_mapper
             .state()
             .is_action_active(BinaryAction::Fire));

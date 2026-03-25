@@ -89,6 +89,18 @@ impl RuntimeIntentTracker {
         self.sample_snapshot(runtime_snapshot, None)
     }
 
+    pub fn sample_runtime_snapshot_with_transient_batch(
+        &mut self,
+        transient_snapshots: &[InputSnapshot],
+        runtime_snapshot: &InputSnapshot,
+    ) -> bool {
+        let final_snapshot = self.override_snapshot.as_ref().unwrap_or(runtime_snapshot);
+        let intents = self
+            .mapper
+            .map_snapshot_batch_with_final_snapshot(transient_snapshots, final_snapshot);
+        self.apply_mapped_intents(intents, true)
+    }
+
     pub fn sample_runtime_snapshot_batch(&mut self, runtime_snapshots: &[InputSnapshot]) -> bool {
         if runtime_snapshots.is_empty() && self.override_snapshot.is_none() {
             self.state.clear_transient_edges();
@@ -114,11 +126,7 @@ impl RuntimeIntentTracker {
         let intents = self
             .mapper
             .map_snapshot_batch_or_override(runtime_snapshots, override_snapshot);
-        let previous_key = runtime_snapshot_apply_key(&self.state);
-        self.state.apply_intents(&intents);
-        runtime_snapshot_apply_key(&self.state) != previous_key
-            || !self.state.pressed_actions.is_empty()
-            || !self.state.released_actions.is_empty()
+        self.apply_mapped_intents(intents, true)
     }
 
     pub fn sample_runtime_snapshot_with_override(
@@ -138,9 +146,20 @@ impl RuntimeIntentTracker {
             .or(self.override_snapshot.as_ref())
             .unwrap_or(runtime_snapshot);
         let intents = self.mapper.map_snapshot(snapshot);
+        self.apply_mapped_intents(intents, false)
+    }
+
+    fn apply_mapped_intents(
+        &mut self,
+        intents: Vec<PlayerIntent>,
+        include_transient_edges: bool,
+    ) -> bool {
         let previous_key = runtime_snapshot_apply_key(&self.state);
         self.state.apply_intents(&intents);
         runtime_snapshot_apply_key(&self.state) != previous_key
+            || (include_transient_edges
+                && (!self.state.pressed_actions.is_empty()
+                    || !self.state.released_actions.is_empty()))
     }
 }
 
@@ -461,6 +480,52 @@ mod tests {
         assert!(!tracker.state().building);
         assert_eq!(tracker.state().pressed_actions, vec![BinaryAction::Fire]);
         assert_eq!(tracker.state().released_actions, vec![BinaryAction::Fire]);
+        assert!(!tracker.state().is_action_active(BinaryAction::Fire));
+    }
+
+    #[test]
+    fn runtime_intent_tracker_transient_batch_keeps_runtime_state_authoritative() {
+        let mut tracker = RuntimeIntentTracker::new(IntentSamplingMode::LiveSampling);
+        let transient = vec![
+            InputSnapshot {
+                move_axis: (1.0, 0.0),
+                aim_axis: (16.0, 24.0),
+                mining_tile: None,
+                building: true,
+                config_tap_tile: Some((6, 7)),
+                active_actions: vec![BinaryAction::Fire],
+            },
+            InputSnapshot {
+                move_axis: (0.0, 0.0),
+                aim_axis: (32.0, 48.0),
+                mining_tile: Some((9, 10)),
+                building: false,
+                config_tap_tile: None,
+                active_actions: vec![],
+            },
+        ];
+        let runtime_snapshot = InputSnapshot {
+            move_axis: (9.0, 9.0),
+            aim_axis: (99.0, 99.0),
+            mining_tile: None,
+            building: false,
+            config_tap_tile: None,
+            active_actions: vec![BinaryAction::Boost],
+        };
+
+        assert!(tracker.sample_runtime_snapshot_with_transient_batch(&transient, &runtime_snapshot));
+        assert_eq!(tracker.state().move_axis, (9.0, 9.0));
+        assert_eq!(tracker.state().aim_axis, (99.0, 99.0));
+        assert_eq!(tracker.state().mining_tile, None);
+        assert!(!tracker.state().building);
+        assert_eq!(tracker.state().last_config_tap_tile, Some((6, 7)));
+        assert_eq!(tracker.state().config_tap_count, 1);
+        assert_eq!(
+            tracker.state().pressed_actions,
+            vec![BinaryAction::Fire, BinaryAction::Boost]
+        );
+        assert_eq!(tracker.state().released_actions, vec![BinaryAction::Fire]);
+        assert!(tracker.state().is_action_active(BinaryAction::Boost));
         assert!(!tracker.state().is_action_active(BinaryAction::Fire));
     }
 

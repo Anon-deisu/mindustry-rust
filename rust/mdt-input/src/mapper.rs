@@ -51,28 +51,27 @@ impl StatelessIntentMapper {
         let Some(last_snapshot) = snapshots.last() else {
             return Vec::new();
         };
+        self.map_snapshot_batch_with_final_snapshot(
+            &snapshots[..snapshots.len().saturating_sub(1)],
+            last_snapshot,
+        )
+    }
+
+    pub fn map_snapshot_batch_with_final_snapshot(
+        &mut self,
+        snapshots: &[InputSnapshot],
+        final_snapshot: &InputSnapshot,
+    ) -> Vec<PlayerIntent> {
         let mut edge_intents = Vec::new();
         for snapshot in snapshots {
             let mapped = self.map_snapshot(snapshot);
             edge_intents.extend(mapped.into_iter().skip(4));
         }
 
-        let mut combined = Vec::with_capacity(4 + edge_intents.len());
-        combined.push(PlayerIntent::SetMoveAxis {
-            x: last_snapshot.move_axis.0,
-            y: last_snapshot.move_axis.1,
-        });
-        combined.push(PlayerIntent::SetAimAxis {
-            x: last_snapshot.aim_axis.0,
-            y: last_snapshot.aim_axis.1,
-        });
-        combined.push(PlayerIntent::SetMiningTile {
-            tile: last_snapshot.mining_tile,
-        });
-        combined.push(PlayerIntent::SetBuilding {
-            building: last_snapshot.building,
-        });
+        let mut combined = self.map_snapshot(final_snapshot);
+        let final_edges = combined.split_off(4);
         combined.extend(edge_intents);
+        combined.extend(final_edges);
         combined
     }
 
@@ -657,6 +656,51 @@ mod tests {
                 PlayerIntent::ConfigTap { tile: (3, 4) },
                 PlayerIntent::ActionPressed(BinaryAction::Fire),
                 PlayerIntent::ActionReleased(BinaryAction::Fire),
+            ]
+        );
+    }
+
+    #[test]
+    fn map_snapshot_batch_with_final_snapshot_keeps_runtime_state_and_transient_edges() {
+        let mut mapper = StatelessIntentMapper::new(IntentSamplingMode::LiveSampling);
+        let transient = vec![
+            InputSnapshot {
+                move_axis: (1.0, 0.0),
+                aim_axis: (16.0, 24.0),
+                mining_tile: Some((3, 4)),
+                building: true,
+                config_tap_tile: Some((5, 6)),
+                active_actions: vec![BinaryAction::Fire],
+            },
+            InputSnapshot {
+                move_axis: (0.0, 0.0),
+                aim_axis: (32.0, 48.0),
+                mining_tile: None,
+                building: false,
+                config_tap_tile: None,
+                active_actions: vec![],
+            },
+        ];
+        let runtime_snapshot = InputSnapshot {
+            move_axis: (9.0, 9.0),
+            aim_axis: (99.0, 99.0),
+            mining_tile: Some((7, 8)),
+            building: true,
+            config_tap_tile: None,
+            active_actions: vec![BinaryAction::Boost],
+        };
+
+        assert_eq!(
+            mapper.map_snapshot_batch_with_final_snapshot(&transient, &runtime_snapshot),
+            vec![
+                PlayerIntent::SetMoveAxis { x: 9.0, y: 9.0 },
+                PlayerIntent::SetAimAxis { x: 99.0, y: 99.0 },
+                PlayerIntent::SetMiningTile { tile: Some((7, 8)) },
+                PlayerIntent::SetBuilding { building: true },
+                PlayerIntent::ConfigTap { tile: (5, 6) },
+                PlayerIntent::ActionPressed(BinaryAction::Fire),
+                PlayerIntent::ActionReleased(BinaryAction::Fire),
+                PlayerIntent::ActionPressed(BinaryAction::Boost),
             ]
         );
     }
