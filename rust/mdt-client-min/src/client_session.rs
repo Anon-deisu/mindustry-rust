@@ -6547,11 +6547,14 @@ impl ClientSession {
     }
 
     fn sync_snapshot_building_from_builder_queue_projection(&mut self) {
-        self.snapshot_input.building = !self
+        if !self
             .state
             .builder_queue_projection
             .active_by_tile
-            .is_empty();
+            .is_empty()
+        {
+            self.snapshot_input.building = true;
+        }
     }
 
     fn apply_snapshot_input_from_bootstrap(&mut self, bootstrap: &LoadedWorldBootstrap) {
@@ -24935,6 +24938,38 @@ mod tests {
     }
 
     #[test]
+    fn remove_queue_block_packet_preserves_runtime_building_toggle_when_queue_is_empty() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        session.snapshot_input_mut().building = true;
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "removeQueueBlock")
+            .unwrap()
+            .packet_id;
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&8i32.to_be_bytes());
+        payload.extend_from_slice(&9i32.to_be_bytes());
+        payload.push(0);
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        let event = session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            event,
+            ClientSessionEvent::RemoveQueueBlock {
+                x: 8,
+                y: 9,
+                breaking: false,
+                removed_local_plan: false,
+            }
+        );
+        assert!(session.state().builder_queue_projection.active_by_tile.is_empty());
+        assert!(session.snapshot_input_mut().building);
+    }
+
+    #[test]
     fn building_control_select_packet_emits_observability_event() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
@@ -31410,13 +31445,17 @@ mod tests {
     fn construct_finish_packet_emits_summary_event() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
-        session.snapshot_input_mut().plans = Some(vec![ClientBuildPlan {
-            tile: (100, 99),
-            breaking: false,
-            block_id: Some(0x0101),
-            rotation: 0,
-            config: ClientBuildPlanConfig::None,
-        }]);
+        {
+            let input = session.snapshot_input_mut();
+            input.building = true;
+            input.plans = Some(vec![ClientBuildPlan {
+                tile: (100, 99),
+                breaking: false,
+                block_id: Some(0x0101),
+                rotation: 0,
+                config: ClientBuildPlanConfig::None,
+            }]);
+        }
         let packet_id = manifest
             .remote_packets
             .iter()
@@ -31505,7 +31544,7 @@ mod tests {
                 .builder_queue_projection
                 .last_removed_local_plan
         );
-        assert!(!session.snapshot_input_mut().building);
+        assert!(session.snapshot_input_mut().building);
     }
 
     #[test]
@@ -31822,13 +31861,17 @@ mod tests {
                 1,
                 TypeIoObject::Null,
             );
-        session.snapshot_input_mut().plans = Some(vec![ClientBuildPlan {
-            tile: (100, 99),
-            breaking: true,
-            block_id: None,
-            rotation: 0,
-            config: ClientBuildPlanConfig::None,
-        }]);
+        {
+            let input = session.snapshot_input_mut();
+            input.building = true;
+            input.plans = Some(vec![ClientBuildPlan {
+                tile: (100, 99),
+                breaking: true,
+                block_id: None,
+                rotation: 0,
+                config: ClientBuildPlanConfig::None,
+            }]);
+        }
         let packet_id = manifest
             .remote_packets
             .iter()
@@ -31890,7 +31933,7 @@ mod tests {
             session.state().building_table_projection.last_update,
             Some(crate::session_state::BuildingProjectionUpdateKind::DeconstructFinish)
         );
-        assert!(!session.snapshot_input_mut().building);
+        assert!(session.snapshot_input_mut().building);
     }
 
     #[test]
