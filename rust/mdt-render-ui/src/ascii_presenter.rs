@@ -179,6 +179,11 @@ impl AsciiScenePresenter {
         if let Some(runtime_command_text) = compose_runtime_command_mode_panel_text(hud) {
             out.push_str(&format!("RUNTIME-COMMAND: {runtime_command_text}\n"));
         }
+        if let Some(runtime_command_detail_text) = compose_runtime_command_mode_detail_text(hud) {
+            out.push_str(&format!(
+                "RUNTIME-COMMAND-DETAIL: {runtime_command_detail_text}\n"
+            ));
+        }
         if let Some(runtime_admin_text) = compose_runtime_admin_panel_text(hud) {
             out.push_str(&format!("RUNTIME-ADMIN: {runtime_admin_text}\n"));
         }
@@ -825,6 +830,24 @@ fn compose_runtime_command_mode_panel_text(hud: &HudModel) -> Option<String> {
         optional_i32_label(panel.first_command_building),
         command_rect_text(panel.command_rect),
         command_control_groups_text(&panel.control_groups),
+        command_target_text(panel.last_target),
+        optional_u8_label(
+            panel
+                .last_command_selection
+                .and_then(|selection| selection.command_id)
+        ),
+        command_stance_text(panel.last_stance_selection),
+    ))
+}
+
+fn compose_runtime_command_mode_detail_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_command_mode_panel(hud)?;
+    Some(format!(
+        "sample={} groups={} first-building={} rect={} target={} command={} stance={}",
+        command_i32_sample_text(&panel.selected_unit_sample),
+        command_control_groups_text(&panel.control_groups),
+        optional_i32_label(panel.first_command_building),
+        command_rect_text(panel.command_rect),
         command_target_text(panel.last_target),
         optional_u8_label(
             panel
@@ -2816,6 +2839,9 @@ mod tests {
         assert!(frame.contains(
             "RUNTIME-COMMAND: act=1 sel=4@11,22,33 bld=2@327686 rect=-3:4:12:18 groups=2#3@11,4#1@99 target=b589834:u2:808:p0x42400000:0x42c00000:r1:2:3:4 cmd=5 stance=7/0"
         ));
+        assert!(frame.contains(
+            "RUNTIME-COMMAND-DETAIL: sample=11,22,33 groups=2#3@11,4#1@99 first-building=327686 rect=-3:4:12:18 target=b589834:u2:808:p0x42400000:0x42c00000:r1:2:3:4 command=5 stance=7/0"
+        ));
         assert!(frame.contains("RUNTIME-ADMIN: trace=56@123456 fail=76 dbg=57/58@12 fail=231"));
         assert!(frame.contains(
             "RUNTIME-ADMIN-DETAIL: trace=56 fail=76 last-player=123456 debug=57 fail=77 unreliable=58 fail=78 last-value=12"
@@ -3034,6 +3060,7 @@ mod tests {
         assert!(!presenter.last_frame().contains("RUNTIME-SESSION:"));
         assert!(!presenter.last_frame().contains("RUNTIME-SESSION-DETAIL:"));
         assert!(!presenter.last_frame().contains("RUNTIME-NOTICE-DETAIL:"));
+        assert!(!presenter.last_frame().contains("RUNTIME-COMMAND-DETAIL:"));
         assert!(!presenter.last_frame().contains("BUILD-FLOW-DETAIL:"));
         assert!(!presenter
             .last_frame()

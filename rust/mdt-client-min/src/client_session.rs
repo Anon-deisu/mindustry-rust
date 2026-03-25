@@ -19,10 +19,10 @@ use crate::session_state::{
     EffectBusinessPositionSource, EffectBusinessProjection, EntityFireSemanticProjection,
     EntityPuddleSemanticProjection, EntitySemanticProjection, EntityUnitSemanticProjection,
     EntityWeatherStateSemanticProjection, EntityWorldLabelSemanticProjection,
-    GameplayStateProjection, PayloadDroppedProjection, PickedBuildPayloadProjection,
-    PickedUnitPayloadProjection, ReconnectPhaseProjection, ReconnectReasonKind,
-    RemotePlanSnapshotFirstPlanProjection, SessionResetKind, SessionState, SessionTimeoutKind,
-    SessionTimeoutProjection, TakeItemsProjection, TileConfigAuthoritySource,
+    FinishConnectingProjection, GameplayStateProjection, PayloadDroppedProjection,
+    PickedBuildPayloadProjection, PickedUnitPayloadProjection, ReconnectPhaseProjection,
+    ReconnectReasonKind, RemotePlanSnapshotFirstPlanProjection, SessionResetKind, SessionState,
+    SessionTimeoutKind, SessionTimeoutProjection, TakeItemsProjection, TileConfigAuthoritySource,
     TileConfigBusinessApply, TransferItemEffectProjection, TransferItemToProjection,
     TransferItemToUnitProjection, UnitAssemblerRuntimeProjection, UnitEnteredPayloadProjection,
     UnitRefProjection, WorldReloadProjection,
@@ -2703,7 +2703,7 @@ impl ClientSession {
                     self.apply_world_baseline_from_bundle(&world_bundle);
                     self.apply_snapshot_input_from_bootstrap(&bootstrap);
                     self.loaded_world_bundle = Some(world_bundle);
-                    self.mark_client_loaded()?;
+                    self.finish_connecting()?;
 
                     Ok(ClientSessionEvent::WorldStreamReady {
                         stream_id,
@@ -6213,18 +6213,55 @@ impl ClientSession {
         Ok(())
     }
 
-    fn mark_client_loaded(&mut self) -> Result<(), ClientSessionError> {
-        if self.state.client_loaded {
-            return Ok(());
+    fn build_finish_connecting_projection(
+        &self,
+        replayed_loading_packet_count: u64,
+    ) -> FinishConnectingProjection {
+        FinishConnectingProjection {
+            committed_at_ms: self.clock_ms,
+            replayed_loading_packet_count,
+            total_replayed_loading_packet_count: self.state.replayed_inbound_packet_count,
+            ready_to_enter_world: self.state.ready_to_enter_world,
+            client_loaded: self.state.client_loaded,
+            connect_confirm_queued: self
+                .pending_packets
+                .iter()
+                .any(|packet| packet.packet_id == self.connect_confirm_packet_id),
+            connect_confirm_flushed: self.state.connect_confirm_flushed,
+            snapshot_watchdog_armed_at_ms: self.last_snapshot_at_ms,
         }
+    }
+
+    fn finish_connecting(&mut self) -> Result<FinishConnectingProjection, ClientSessionError> {
+        if self.state.client_loaded {
+            return Ok(self
+                .state
+                .last_finish_connecting
+                .clone()
+                .unwrap_or_else(|| self.build_finish_connecting_projection(0)));
+        }
+
+        let replayed_before = self.state.replayed_inbound_packet_count;
+        let loading_world_data_before = self.loading_world_data;
         self.loading_world_data = false;
-        self.replay_deferred_loading_packets()?;
+        if let Err(error) = self.replay_deferred_loading_packets() {
+            self.loading_world_data = loading_world_data_before;
+            return Err(error);
+        }
+
         self.state.client_loaded = true;
         self.enqueue_connect_confirm_packet_if_ready()?;
         if self.last_snapshot_at_ms.is_none() {
             self.last_snapshot_at_ms = Some(self.clock_ms);
         }
-        Ok(())
+
+        let projection = self.build_finish_connecting_projection(
+            self.state
+                .replayed_inbound_packet_count
+                .saturating_sub(replayed_before),
+        );
+        self.state.record_finish_connecting(projection.clone());
+        Ok(projection)
     }
 
     fn should_send_keepalive(&self, now_ms: u64) -> bool {
@@ -7791,6 +7828,8 @@ impl ClientSession {
         self.state.connect_confirm_flushed = false;
         self.state.last_connect_confirm_at_ms = None;
         self.state.last_connect_confirm_flushed_at_ms = None;
+        self.state.finish_connecting_commit_count = 0;
+        self.state.last_finish_connecting = None;
         self.state.last_ready_inbound_liveness_anchor_at_ms = None;
         self.state.ready_inbound_liveness_anchor_count = 0;
         self.state.bootstrap_stream_id = None;
@@ -38609,6 +38648,20 @@ mod tests {
 
         assert!(saw_world_ready);
         assert!(session.state().client_loaded);
+        assert_eq!(session.state().finish_connecting_commit_count, 1);
+        assert_eq!(
+            session.state().last_finish_connecting,
+            Some(FinishConnectingProjection {
+                committed_at_ms: 0,
+                replayed_loading_packet_count: 1,
+                total_replayed_loading_packet_count: 1,
+                ready_to_enter_world: true,
+                client_loaded: true,
+                connect_confirm_queued: true,
+                connect_confirm_flushed: false,
+                snapshot_watchdog_armed_at_ms: Some(0),
+            })
+        );
         assert!(session.state().connect_confirm_sent);
         assert!(!session.state().connect_confirm_flushed);
         assert!(session
@@ -38634,7 +38687,7 @@ mod tests {
     }
 
     #[test]
-    fn client_loaded_transition_stays_fail_closed_when_deferred_replay_errors() {
+    fn finish_connecting_stays_fail_closed_when_deferred_replay_errors() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
         session.loading_world_data = true;
@@ -38644,10 +38697,13 @@ mod tests {
                 payload: Vec::new(),
             }]);
 
-        let result = session.mark_client_loaded();
+        let result = session.finish_connecting();
 
         assert!(result.is_err());
+        assert!(session.loading_world_data);
         assert!(!session.state().client_loaded);
+        assert_eq!(session.state().finish_connecting_commit_count, 0);
+        assert_eq!(session.state().last_finish_connecting, None);
         assert_eq!(session.state().replayed_inbound_packet_count, 0);
         assert!(session.replayed_loading_events.is_empty());
         assert_eq!(session.deferred_inbound_packets.len(), 1);
@@ -38840,6 +38896,8 @@ mod tests {
                 cleared_replayed_loading_events: 0,
             })
         );
+        assert_eq!(session.state().finish_connecting_commit_count, 0);
+        assert_eq!(session.state().last_finish_connecting, None);
 
         session.ingest_packet_bytes(&begin_packet).unwrap();
         for chunk in &chunk_packets {
@@ -38847,6 +38905,7 @@ mod tests {
         }
 
         assert!(session.state().client_loaded);
+        assert_eq!(session.state().finish_connecting_commit_count, 1);
         assert!(session.take_replayed_loading_events().is_empty());
         assert_eq!(session.state().received_server_message_count, 0);
         assert_eq!(session.state().last_server_message, None);
@@ -38868,6 +38927,7 @@ mod tests {
         assert!(session.state().world_stream_loaded);
         assert!(session.state().ready_to_enter_world);
         assert!(session.state().client_loaded);
+        assert_eq!(session.state().finish_connecting_commit_count, 1);
         assert!(session.prepare_connect_confirm_packet().unwrap().is_some());
         assert!(session.state().connect_confirm_sent);
         assert!(!session.state().connect_confirm_flushed);
@@ -39062,6 +39122,8 @@ mod tests {
         assert!(!session.state().connect_confirm_flushed);
         assert_eq!(session.state().last_connect_confirm_at_ms, None);
         assert_eq!(session.state().last_connect_confirm_flushed_at_ms, None);
+        assert_eq!(session.state().finish_connecting_commit_count, 0);
+        assert_eq!(session.state().last_finish_connecting, None);
         assert_eq!(session.state().last_client_snapshot_at_ms, None);
         assert_eq!(session.state().received_snapshot_count, 0);
         assert_eq!(session.state().last_snapshot_packet_id, None);
@@ -39190,6 +39252,7 @@ mod tests {
         assert!(session.state().world_stream_loaded);
         assert!(session.state().ready_to_enter_world);
         assert!(session.state().client_loaded);
+        assert_eq!(session.state().finish_connecting_commit_count, 1);
         assert!(session.prepare_connect_confirm_packet().unwrap().is_some());
         assert!(session.state().connect_confirm_sent);
     }

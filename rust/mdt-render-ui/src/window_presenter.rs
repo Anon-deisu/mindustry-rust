@@ -623,6 +623,12 @@ fn compose_frame_panel_lines(
     if let Some(runtime_command_text) = compose_runtime_command_mode_panel_status_text(hud) {
         lines.push(format!("RUNTIME-COMMAND: {runtime_command_text}"));
     }
+    if let Some(runtime_command_detail_text) = compose_runtime_command_mode_detail_status_text(hud)
+    {
+        lines.push(format!(
+            "RUNTIME-COMMAND-DETAIL: {runtime_command_detail_text}"
+        ));
+    }
     if let Some(runtime_admin_text) = compose_runtime_admin_panel_status_text(hud) {
         lines.push(format!("RUNTIME-ADMIN: {runtime_admin_text}"));
     }
@@ -1127,6 +1133,24 @@ fn compose_runtime_command_mode_panel_status_text(hud: &HudModel) -> Option<Stri
         optional_i32_label(panel.first_command_building),
         command_rect_status_text(panel.command_rect),
         command_control_groups_status_text(&panel.control_groups),
+        command_target_status_text(panel.last_target),
+        optional_u8_label(
+            panel
+                .last_command_selection
+                .and_then(|selection| selection.command_id)
+        ),
+        command_stance_status_text(panel.last_stance_selection),
+    ))
+}
+
+fn compose_runtime_command_mode_detail_status_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_command_mode_panel(hud)?;
+    Some(format!(
+        "cmdd:sample{}:grp{}:bld{}:rect{}:t{}:c{}:s{}",
+        command_i32_status_text(&panel.selected_unit_sample),
+        command_control_groups_status_text(&panel.control_groups),
+        optional_i32_label(panel.first_command_building),
+        command_rect_status_text(panel.command_rect),
         command_target_status_text(panel.last_target),
         optional_u8_label(
             panel
@@ -3459,6 +3483,10 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
+            "RUNTIME-COMMAND-DETAIL: cmdd:sample11,22,33:grp2#3@11,4#1@99:bld327686:rect-3:4:12:18:tb589834:u2:808:p0x42400000:0x42c00000:r1:2:3:4:c5:s7/0",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
             "RUNTIME-ADMIN: admin:t56@123456:f76:dbg57/58@12:f231",
         );
         assert_frame_line_contains(
@@ -3718,6 +3746,14 @@ mod tests {
                 .iter()
                 .all(|line| !line.starts_with("RUNTIME-NOTICE-DETAIL:")),
             "unexpected runtime notice detail line in {:?}",
+            frame.panel_lines
+        );
+        assert!(
+            frame
+                .panel_lines
+                .iter()
+                .all(|line| !line.starts_with("RUNTIME-COMMAND-DETAIL:")),
+            "unexpected runtime command detail line in {:?}",
             frame.panel_lines
         );
         assert!(

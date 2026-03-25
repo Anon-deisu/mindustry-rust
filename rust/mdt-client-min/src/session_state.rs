@@ -114,6 +114,18 @@ pub struct WorldReloadProjection {
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct FinishConnectingProjection {
+    pub committed_at_ms: u64,
+    pub replayed_loading_packet_count: u64,
+    pub total_replayed_loading_packet_count: u64,
+    pub ready_to_enter_world: bool,
+    pub client_loaded: bool,
+    pub connect_confirm_queued: bool,
+    pub connect_confirm_flushed: bool,
+    pub snapshot_watchdog_armed_at_ms: Option<u64>,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct StateSnapshotBusinessProjection {
     pub wave_time_bits: u32,
     pub wave: i32,
@@ -3925,6 +3937,8 @@ pub struct SessionState {
     pub connect_confirm_flushed: bool,
     pub last_connect_confirm_at_ms: Option<u64>,
     pub last_connect_confirm_flushed_at_ms: Option<u64>,
+    pub finish_connecting_commit_count: u64,
+    pub last_finish_connecting: Option<FinishConnectingProjection>,
     pub bootstrap_stream_id: Option<i32>,
     pub world_stream_expected_len: usize,
     pub world_stream_received_len: usize,
@@ -4737,6 +4751,11 @@ impl SessionState {
         self.reconnect_projection.reason_text = reason_text;
         self.reconnect_projection.reason_ordinal = reason_ordinal;
         self.reconnect_projection.hint_text = hint_text;
+    }
+
+    pub fn record_finish_connecting(&mut self, projection: FinishConnectingProjection) {
+        self.finish_connecting_commit_count = self.finish_connecting_commit_count.saturating_add(1);
+        self.last_finish_connecting = Some(projection);
     }
 
     pub fn clear_wave_advance_signal(&mut self) {

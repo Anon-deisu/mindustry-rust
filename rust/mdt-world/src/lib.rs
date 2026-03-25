@@ -41,8 +41,8 @@ pub use save_post_load_runtime_execution::{
     SavePostLoadRuntimeWorldSemanticsExecution, SavePostLoadRuntimeWorldShell,
 };
 pub use save_post_load_runtime_execution_view::{
-    SavePostLoadRuntimeApplyExecutionView, SavePostLoadRuntimeExecutionStepStatus,
-    SavePostLoadRuntimeWorldSemanticsExecutionView,
+    SavePostLoadRuntimeApplyExecutionView, SavePostLoadRuntimeExecutionStatusBucket,
+    SavePostLoadRuntimeExecutionStepStatus, SavePostLoadRuntimeWorldSemanticsExecutionView,
 };
 pub use save_post_load_runtime_readiness::{
     SavePostLoadRuntimeReadiness, SavePostLoadRuntimeRegionKind, SavePostLoadRuntimeRegionReadiness,

@@ -4,13 +4,31 @@ use crate::{
 };
 use std::collections::BTreeMap;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SavePostLoadRuntimeExecutionStepStatus {
     Executed,
     Failed,
     AwaitingWorldShell,
     Blocked,
     Deferred,
+}
+
+impl SavePostLoadRuntimeExecutionStepStatus {
+    pub const fn ordered() -> [Self; 5] {
+        [
+            Self::Executed,
+            Self::Failed,
+            Self::AwaitingWorldShell,
+            Self::Blocked,
+            Self::Deferred,
+        ]
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SavePostLoadRuntimeExecutionStatusBucket {
+    pub status: SavePostLoadRuntimeExecutionStepStatus,
+    pub steps: Vec<SavePostLoadRuntimeApplyStep>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,6 +57,25 @@ impl SavePostLoadRuntimeApplyExecutionView {
     pub fn total_step_count(&self) -> usize {
         self.step_status_lookup.len()
     }
+
+    pub fn has_step(&self, step: &SavePostLoadRuntimeApplyStep) -> bool {
+        self.step_status_lookup.contains_key(step)
+    }
+
+    pub fn steps_with_status(
+        &self,
+        status: SavePostLoadRuntimeExecutionStepStatus,
+    ) -> Vec<&SavePostLoadRuntimeApplyStep> {
+        steps_with_status(&self.step_status_lookup, status)
+    }
+
+    pub fn status_counts(&self) -> BTreeMap<SavePostLoadRuntimeExecutionStepStatus, usize> {
+        status_counts(&self.step_status_lookup)
+    }
+
+    pub fn status_buckets(&self) -> Vec<SavePostLoadRuntimeExecutionStatusBucket> {
+        status_buckets(&self.step_status_lookup)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,6 +103,25 @@ impl SavePostLoadRuntimeWorldSemanticsExecutionView {
 
     pub fn total_step_count(&self) -> usize {
         self.step_status_lookup.len()
+    }
+
+    pub fn has_step(&self, step: &SavePostLoadRuntimeApplyStep) -> bool {
+        self.step_status_lookup.contains_key(step)
+    }
+
+    pub fn steps_with_status(
+        &self,
+        status: SavePostLoadRuntimeExecutionStepStatus,
+    ) -> Vec<&SavePostLoadRuntimeApplyStep> {
+        steps_with_status(&self.step_status_lookup, status)
+    }
+
+    pub fn status_counts(&self) -> BTreeMap<SavePostLoadRuntimeExecutionStepStatus, usize> {
+        status_counts(&self.step_status_lookup)
+    }
+
+    pub fn status_buckets(&self) -> Vec<SavePostLoadRuntimeExecutionStatusBucket> {
+        status_buckets(&self.step_status_lookup)
     }
 }
 
@@ -172,6 +228,44 @@ fn insert_statuses(
     }
 }
 
+fn steps_with_status<'a>(
+    lookup: &'a BTreeMap<SavePostLoadRuntimeApplyStep, SavePostLoadRuntimeExecutionStepStatus>,
+    status: SavePostLoadRuntimeExecutionStepStatus,
+) -> Vec<&'a SavePostLoadRuntimeApplyStep> {
+    lookup
+        .iter()
+        .filter_map(|(step, candidate_status)| (*candidate_status == status).then_some(step))
+        .collect()
+}
+
+fn status_counts(
+    lookup: &BTreeMap<SavePostLoadRuntimeApplyStep, SavePostLoadRuntimeExecutionStepStatus>,
+) -> BTreeMap<SavePostLoadRuntimeExecutionStepStatus, usize> {
+    let mut counts = BTreeMap::new();
+    for status in SavePostLoadRuntimeExecutionStepStatus::ordered() {
+        counts.insert(status, 0);
+    }
+    for status in lookup.values() {
+        *counts.entry(*status).or_default() += 1;
+    }
+    counts
+}
+
+fn status_buckets(
+    lookup: &BTreeMap<SavePostLoadRuntimeApplyStep, SavePostLoadRuntimeExecutionStepStatus>,
+) -> Vec<SavePostLoadRuntimeExecutionStatusBucket> {
+    SavePostLoadRuntimeExecutionStepStatus::ordered()
+        .into_iter()
+        .filter_map(|status| {
+            let steps = steps_with_status(lookup, status)
+                .into_iter()
+                .cloned()
+                .collect::<Vec<_>>();
+            (!steps.is_empty()).then_some(SavePostLoadRuntimeExecutionStatusBucket { status, steps })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -191,9 +285,14 @@ mod tests {
         make_observation_seedable(&mut observation);
 
         let view = observation.runtime_apply_execution_view();
+        let executed_steps = view.steps_with_status(SavePostLoadRuntimeExecutionStepStatus::Executed);
+        let status_counts = view.status_counts();
+        let status_buckets = view.status_buckets();
 
         assert!(view.can_seed_runtime_apply);
         assert!(view.world_shell_ready);
+        assert!(view.has_step(&SavePostLoadRuntimeApplyStep::WorldShell));
+        assert!(!view.has_step(&SavePostLoadRuntimeApplyStep::SkippedEntity { entity_index: 99 }));
         assert_eq!(
             view.step_count(SavePostLoadRuntimeExecutionStepStatus::Executed),
             14
@@ -210,6 +309,25 @@ mod tests {
             view.step_status(&SavePostLoadRuntimeApplyStep::Building { center_index: 0 }),
             Some(SavePostLoadRuntimeExecutionStepStatus::Executed)
         );
+        assert_eq!(
+            executed_steps.len(),
+            14
+        );
+        assert!(executed_steps.contains(&&SavePostLoadRuntimeApplyStep::WorldShell));
+        assert_eq!(
+            status_counts.get(&SavePostLoadRuntimeExecutionStepStatus::Executed),
+            Some(&14)
+        );
+        assert_eq!(
+            status_counts.get(&SavePostLoadRuntimeExecutionStepStatus::Failed),
+            Some(&0)
+        );
+        assert_eq!(status_buckets.len(), 1);
+        assert_eq!(
+            status_buckets[0].status,
+            SavePostLoadRuntimeExecutionStepStatus::Executed
+        );
+        assert_eq!(status_buckets[0].steps.len(), 14);
     }
 
     #[test]
@@ -221,9 +339,16 @@ mod tests {
         observation.map.world.tiles[0].building_center_index = None;
 
         let view = observation.runtime_apply_execution_view();
+        let awaiting_steps =
+            view.steps_with_status(SavePostLoadRuntimeExecutionStepStatus::AwaitingWorldShell);
+        let deferred_steps =
+            view.steps_with_status(SavePostLoadRuntimeExecutionStepStatus::Deferred);
+        let status_counts = view.status_counts();
+        let status_buckets = view.status_buckets();
 
         assert!(!view.can_seed_runtime_apply);
         assert!(!view.world_shell_ready);
+        assert!(view.has_step(&SavePostLoadRuntimeApplyStep::WorldShell));
         assert_eq!(
             view.step_count(SavePostLoadRuntimeExecutionStepStatus::Executed),
             4
@@ -240,6 +365,32 @@ mod tests {
             view.step_status(&SavePostLoadRuntimeApplyStep::SkippedEntity { entity_index: 1 }),
             Some(SavePostLoadRuntimeExecutionStepStatus::Deferred)
         );
+        assert!(awaiting_steps.contains(&&SavePostLoadRuntimeApplyStep::StaticFog));
+        assert!(deferred_steps.contains(&&SavePostLoadRuntimeApplyStep::SkippedEntity {
+            entity_index: 1
+        }));
+        assert_eq!(
+            status_counts.get(&SavePostLoadRuntimeExecutionStepStatus::Blocked),
+            Some(&4)
+        );
+        assert_eq!(
+            status_counts.get(&SavePostLoadRuntimeExecutionStepStatus::AwaitingWorldShell),
+            Some(&5)
+        );
+        assert_eq!(
+            status_counts.get(&SavePostLoadRuntimeExecutionStepStatus::Deferred),
+            Some(&1)
+        );
+        assert!(status_buckets.iter().any(|bucket| {
+            bucket.status == SavePostLoadRuntimeExecutionStepStatus::Blocked
+                && bucket.steps.contains(&SavePostLoadRuntimeApplyStep::WorldShell)
+        }));
+        assert!(status_buckets.iter().any(|bucket| {
+            bucket.status == SavePostLoadRuntimeExecutionStepStatus::Deferred
+                && bucket
+                    .steps
+                    .contains(&SavePostLoadRuntimeApplyStep::SkippedEntity { entity_index: 1 })
+        }));
     }
 
     #[test]
@@ -249,9 +400,14 @@ mod tests {
         observation.markers[1].id = observation.markers[0].id;
 
         let view = observation.runtime_world_semantics_execution_view();
+        let failed_steps = view.steps_with_status(SavePostLoadRuntimeExecutionStepStatus::Failed);
+        let status_counts = view.status_counts();
+        let status_buckets = view.status_buckets();
 
         assert!(view.world_shell_ready);
         assert!(!view.can_apply_world_semantics);
+        assert!(view.has_step(&SavePostLoadRuntimeApplyStep::Marker { marker_index: 1 }));
+        assert!(!view.has_step(&SavePostLoadRuntimeApplyStep::CustomChunk { chunk_index: 0 }));
         assert_eq!(
             view.step_count(SavePostLoadRuntimeExecutionStepStatus::Failed),
             1
@@ -264,6 +420,18 @@ mod tests {
             view.step_status(&SavePostLoadRuntimeApplyStep::CustomChunk { chunk_index: 0 }),
             None
         );
+        assert_eq!(failed_steps.len(), 1);
+        assert!(failed_steps.contains(&&SavePostLoadRuntimeApplyStep::Marker { marker_index: 1 }));
+        assert_eq!(
+            status_counts.get(&SavePostLoadRuntimeExecutionStepStatus::Failed),
+            Some(&1)
+        );
+        assert!(status_buckets.iter().any(|bucket| {
+            bucket.status == SavePostLoadRuntimeExecutionStepStatus::Failed
+                && bucket
+                    .steps
+                    .contains(&SavePostLoadRuntimeApplyStep::Marker { marker_index: 1 })
+        }));
     }
 
     fn make_observation_seedable(observation: &mut crate::SavePostLoadWorldObservation) {
