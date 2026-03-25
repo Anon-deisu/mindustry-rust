@@ -45,6 +45,13 @@ use std::fmt;
 
 const EFFECT_OVERLAY_LIMIT: usize = 8;
 const DEFAULT_EFFECT_OVERLAY_TTL_TICKS: u8 = 3;
+const DEFAULT_EFFECT_OVERLAY_CLIP_SIZE: f32 = 50.0;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RuntimeEffectClipView {
+    pub center: (f32, f32),
+    pub size: (f32, f32),
+}
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct RenderRuntimeAdapter {
@@ -53,8 +60,16 @@ pub struct RenderRuntimeAdapter {
 
 impl RenderRuntimeAdapter {
     pub fn observe_events(&mut self, events: &[ClientSessionEvent]) {
+        self.observe_events_with_view(events, None);
+    }
+
+    pub fn observe_events_with_view(
+        &mut self,
+        events: &[ClientSessionEvent],
+        clip_view: Option<RuntimeEffectClipView>,
+    ) {
         advance_runtime_effect_overlays(&mut self.world_overlay);
-        observe_runtime_world_events(&mut self.world_overlay, events);
+        observe_runtime_world_events(&mut self.world_overlay, events, clip_view);
     }
 
     pub fn apply(
@@ -363,6 +378,7 @@ pub enum RuntimeTileOverlayKind {
 pub fn observe_runtime_world_events(
     runtime_world_overlay: &mut RuntimeWorldOverlay,
     events: &[ClientSessionEvent],
+    clip_view: Option<RuntimeEffectClipView>,
 ) {
     for event in events {
         match event {
@@ -479,6 +495,9 @@ pub fn observe_runtime_world_events(
                 color_rgba,
                 data_object,
             } => {
+                if !runtime_effect_event_inside_clip_view(*effect_id, *x, *y, clip_view) {
+                    continue;
+                }
                 let (overlay_x, overlay_y) = runtime_effect_overlay_origin(
                     *effect_id,
                     *x,
@@ -511,6 +530,9 @@ pub fn observe_runtime_world_events(
                 rotation,
                 color_rgba,
             } => {
+                if !runtime_effect_event_inside_clip_view(*effect_id, *x, *y, clip_view) {
+                    continue;
+                }
                 let mut overlay = spawn_runtime_effect_overlay(
                     *effect_id,
                     *x,
@@ -600,6 +622,48 @@ fn runtime_effect_overlay_origin(
             )
         })
         .unwrap_or((x, y))
+}
+
+fn runtime_effect_overlay_clip_size(effect_id: Option<i16>) -> f32 {
+    match effect_id {
+        Some(10) => 300.0,
+        Some(13) => 500.0,
+        Some(67) | Some(68) => 100.0,
+        _ => DEFAULT_EFFECT_OVERLAY_CLIP_SIZE,
+    }
+}
+
+fn runtime_effect_event_inside_clip_view(
+    effect_id: Option<i16>,
+    x: f32,
+    y: f32,
+    clip_view: Option<RuntimeEffectClipView>,
+) -> bool {
+    let Some(clip_view) = clip_view else {
+        return true;
+    };
+    if clip_view.size.0 <= 0.0 || clip_view.size.1 <= 0.0 {
+        return true;
+    }
+
+    let clip_half = runtime_effect_overlay_clip_size(effect_id) * 0.5;
+    let view_half_width = clip_view.size.0 * 0.5;
+    let view_half_height = clip_view.size.1 * 0.5;
+
+    let clip_left = x - clip_half;
+    let clip_right = x + clip_half;
+    let clip_top = y - clip_half;
+    let clip_bottom = y + clip_half;
+
+    let view_left = clip_view.center.0 - view_half_width;
+    let view_right = clip_view.center.0 + view_half_width;
+    let view_top = clip_view.center.1 - view_half_height;
+    let view_bottom = clip_view.center.1 + view_half_height;
+
+    clip_right >= view_left
+        && clip_left <= view_right
+        && clip_bottom >= view_top
+        && clip_top <= view_bottom
 }
 
 fn runtime_effect_overlay_ttl_ticks(effect_id: Option<i16>) -> u8 {
@@ -5117,6 +5181,128 @@ mod tests {
         let mut cleared_hud = HudModel::default();
         adapter.apply(&mut cleared_scene, &mut cleared_hud, &input, &state);
         assert!(!cleared_scene
+            .objects
+            .iter()
+            .any(|object| object.id.starts_with("marker:runtime-effect:")));
+    }
+
+    #[test]
+    fn render_runtime_adapter_skips_effect_requested_outside_default_clip_view_bounds() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
+
+        adapter.observe_events_with_view(
+            &[ClientSessionEvent::EffectRequested {
+                effect_id: None,
+                x: 200.0,
+                y: 0.0,
+                rotation: 0.0,
+                color_rgba: 0x11223344,
+                data_object: None,
+            }],
+            Some(RuntimeEffectClipView {
+                center: (0.0, 0.0),
+                size: (100.0, 100.0),
+            }),
+        );
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        assert!(!scene
+            .objects
+            .iter()
+            .any(|object| object.id.starts_with("marker:runtime-effect:")));
+    }
+
+    #[test]
+    fn render_runtime_adapter_keeps_point_beam_when_large_clip_overlaps_view_bounds() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
+
+        adapter.observe_events_with_view(
+            &[ClientSessionEvent::EffectRequested {
+                effect_id: Some(10),
+                x: 180.0,
+                y: 0.0,
+                rotation: 45.0,
+                color_rgba: 0x11223344,
+                data_object: Some(mdt_typeio::TypeIoObject::Point2 { x: 10, y: 20 }),
+            }],
+            Some(RuntimeEffectClipView {
+                center: (0.0, 0.0),
+                size: (100.0, 100.0),
+            }),
+        );
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let line = first_runtime_effect_line(&scene);
+        assert_eq!(line.x, 180.0);
+        assert_eq!(line.y, 0.0);
+    }
+
+    #[test]
+    fn render_runtime_adapter_uses_packet_origin_for_clip_culling_before_contract_origin_projection(
+    ) {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
+
+        adapter.observe_events_with_view(
+            &[ClientSessionEvent::EffectRequested {
+                effect_id: Some(10),
+                x: 400.0,
+                y: 400.0,
+                rotation: 0.0,
+                color_rgba: 0x11223344,
+                data_object: Some(mdt_typeio::TypeIoObject::Point2 { x: 10, y: 20 }),
+            }],
+            Some(RuntimeEffectClipView {
+                center: (80.0, 160.0),
+                size: (40.0, 40.0),
+            }),
+        );
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        assert!(!scene
+            .objects
+            .iter()
+            .any(|object| object.id.starts_with("marker:runtime-effect:")));
+        assert!(!scene.objects.iter().any(|object| object
+            .id
+            .starts_with("marker:line:runtime-effect-point-beam:")));
+    }
+
+    #[test]
+    fn render_runtime_adapter_applies_clip_culling_to_effect_reliable_requested() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
+
+        adapter.observe_events_with_view(
+            &[ClientSessionEvent::EffectReliableRequested {
+                effect_id: Some(13),
+                x: 400.0,
+                y: 0.0,
+                rotation: 0.0,
+                color_rgba: 0x11223344,
+            }],
+            Some(RuntimeEffectClipView {
+                center: (0.0, 0.0),
+                size: (100.0, 100.0),
+            }),
+        );
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        assert!(!scene
             .objects
             .iter()
             .any(|object| object.id.starts_with("marker:runtime-effect:")));

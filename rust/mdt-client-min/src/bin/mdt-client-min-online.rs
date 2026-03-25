@@ -24,7 +24,7 @@ use mdt_client_min::custom_packet_runtime_surface::{
     install_runtime_custom_packet_surface, RuntimeCustomPacketOverlayMarker,
     RuntimeCustomPacketSurface, RuntimeCustomPacketSurfaceSummaryEntry,
 };
-use mdt_client_min::render_runtime::RenderRuntimeAdapter;
+use mdt_client_min::render_runtime::{RenderRuntimeAdapter, RuntimeEffectClipView};
 use mdt_input::live_intent::RuntimeIntentTracker;
 use mdt_input::{
     flip_plans, rotate_plans, BinaryAction, BuilderQueueActivityObservation,
@@ -190,7 +190,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             runtime_command_mode.clear();
             apply_runtime_command_mode_cli_ops(&mut runtime_command_mode, &args.command_mode_ops);
         }
-        render_runtime_adapter.observe_events(&report.events);
+        let runtime_effect_clip_view = session.snapshot_input().view_size.and_then(|view_size| {
+            let bundle = session.loaded_world_bundle()?;
+            let loaded_session = bundle.loaded_session().ok()?;
+            let center = resolved_runtime_view_center(
+                &report.events,
+                session.snapshot_input().view_center,
+                session.snapshot_input().position,
+                loaded_session.state().player_position(),
+            )?;
+            Some(RuntimeEffectClipView {
+                center,
+                size: view_size,
+            })
+        });
+        render_runtime_adapter.observe_events_with_view(&report.events, runtime_effect_clip_view);
         maybe_print_runtime_input(
             &mut session,
             &args,
