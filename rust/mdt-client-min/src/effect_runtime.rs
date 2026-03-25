@@ -24,6 +24,7 @@ pub enum RuntimeEffectBinding {
         offset_y_bits: u32,
         offset_initialized: bool,
         preserve_spawn_offset: bool,
+        allow_fallback_offset_initialization: bool,
     },
 }
 
@@ -31,6 +32,13 @@ pub enum RuntimeEffectBinding {
 struct DerivedRuntimeEffectBinding {
     binding: RuntimeEffectBinding,
     initial_position_bits: Option<(u32, u32)>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ParentUnitPositionSource {
+    EntityTable,
+    SnapshotInput,
+    WorldPlayer,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -230,6 +238,7 @@ fn derive_runtime_effect_binding(
                         offset_y_bits: 0.0f32.to_bits(),
                         offset_initialized: false,
                         preserve_spawn_offset: parent_binding_preserves_spawn_offset(effect_id),
+                        allow_fallback_offset_initialization: false,
                     },
                     initial_position_bits,
                 });
@@ -266,6 +275,7 @@ fn derive_runtime_effect_source_binding(
             offset_y_bits: 0.0f32.to_bits(),
             offset_initialized: false,
             preserve_spawn_offset: true,
+            allow_fallback_offset_initialization: true,
         }),
         TypeIoSemanticRef::Building { .. }
         | TypeIoSemanticRef::Content { .. }
@@ -491,13 +501,21 @@ fn resolve_binding_position(
             offset_y_bits,
             offset_initialized,
             preserve_spawn_offset,
+            allow_fallback_offset_initialization,
         } => {
-            let (parent_x_bits, parent_y_bits, can_initialize_offset) =
+            let (parent_x_bits, parent_y_bits, position_source) =
                 resolve_parent_unit_position(*unit_id, session_state, snapshot_input)?;
             if !*offset_initialized {
                 if !*preserve_spawn_offset {
                     return Some((parent_x_bits, parent_y_bits));
                 }
+                let can_initialize_offset = match position_source {
+                    ParentUnitPositionSource::EntityTable => true,
+                    ParentUnitPositionSource::SnapshotInput
+                    | ParentUnitPositionSource::WorldPlayer => {
+                        *allow_fallback_offset_initialization
+                    }
+                };
                 if !can_initialize_offset {
                     return Some((parent_x_bits, parent_y_bits));
                 }
@@ -521,23 +539,31 @@ fn resolve_parent_unit_position(
     unit_id: i32,
     session_state: &SessionState,
     snapshot_input: &ClientSnapshotInputState,
-) -> Option<(u32, u32, bool)> {
+) -> Option<(u32, u32, ParentUnitPositionSource)> {
     if let Some(entity) = session_state
         .entity_table_projection
         .by_entity_id
         .get(&unit_id)
     {
-        return Some((entity.x_bits, entity.y_bits, true));
+        return Some((
+            entity.x_bits,
+            entity.y_bits,
+            ParentUnitPositionSource::EntityTable,
+        ));
     }
     if snapshot_input.unit_id == Some(unit_id) {
         if let Some((x, y)) = snapshot_input.position {
-            return Some((x.to_bits(), y.to_bits(), false));
+            return Some((
+                x.to_bits(),
+                y.to_bits(),
+                ParentUnitPositionSource::SnapshotInput,
+            ));
         }
         if let (Some(x_bits), Some(y_bits)) = (
             session_state.world_player_x_bits,
             session_state.world_player_y_bits,
         ) {
-            return Some((x_bits, y_bits, false));
+            return Some((x_bits, y_bits, ParentUnitPositionSource::WorldPlayer));
         }
     }
     None
@@ -634,6 +660,7 @@ mod tests {
                 offset_y_bits: 0.0f32.to_bits(),
                 offset_initialized: false,
                 preserve_spawn_offset: false,
+                allow_fallback_offset_initialization: false,
             })
         );
     }
@@ -680,6 +707,7 @@ mod tests {
                 offset_y_bits: 8.0f32.to_bits(),
                 offset_initialized: true,
                 preserve_spawn_offset: true,
+                allow_fallback_offset_initialization: false,
             })
         );
 
@@ -744,6 +772,7 @@ mod tests {
                 offset_y_bits: (-140.0f32).to_bits(),
                 offset_initialized: true,
                 preserve_spawn_offset: true,
+                allow_fallback_offset_initialization: true,
             })
         );
 
@@ -759,6 +788,64 @@ mod tests {
             .get_mut(&404)
             .expect("missing entity 404")
             .y_bits = 184.0f32.to_bits();
+
+        let second_position =
+            resolve_runtime_effect_overlay_source_position(&mut overlay, &state, &input);
+        assert_eq!(second_position, (28.0f32.to_bits(), 44.0f32.to_bits()));
+    }
+
+    #[test]
+    fn effect_runtime_resolve_runtime_effect_overlay_source_position_freezes_offset_from_snapshot_fallback(
+    ) {
+        let mut overlay = spawn_runtime_effect_overlay(
+            Some(9),
+            80.0,
+            160.0,
+            12.0,
+            20.0,
+            0.0,
+            0,
+            false,
+            Some(&TypeIoObject::UnitId(404)),
+            10,
+        );
+        let input = ClientSnapshotInputState {
+            unit_id: Some(404),
+            position: Some((80.0, 160.0)),
+            ..ClientSnapshotInputState::default()
+        };
+        let mut state = SessionState::default();
+
+        let first_position =
+            resolve_runtime_effect_overlay_source_position(&mut overlay, &state, &input);
+        assert_eq!(first_position, (12.0f32.to_bits(), 20.0f32.to_bits()));
+        assert_eq!(
+            overlay.source_binding,
+            Some(RuntimeEffectBinding::ParentUnit {
+                unit_id: 404,
+                spawn_x_bits: 12.0f32.to_bits(),
+                spawn_y_bits: 20.0f32.to_bits(),
+                offset_x_bits: (-68.0f32).to_bits(),
+                offset_y_bits: (-140.0f32).to_bits(),
+                offset_initialized: true,
+                preserve_spawn_offset: true,
+                allow_fallback_offset_initialization: true,
+            })
+        );
+
+        state.entity_table_projection.by_entity_id.insert(
+            404,
+            EntityProjection {
+                class_id: 12,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 0,
+                unit_value: 0,
+                x_bits: 96.0f32.to_bits(),
+                y_bits: 184.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
 
         let second_position =
             resolve_runtime_effect_overlay_source_position(&mut overlay, &state, &input);

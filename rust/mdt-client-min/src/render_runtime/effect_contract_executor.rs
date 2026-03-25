@@ -2297,6 +2297,7 @@ mod tests {
                 offset_y_bits: 0.0f32.to_bits(),
                 offset_initialized: true,
                 preserve_spawn_offset: true,
+                allow_fallback_offset_initialization: false,
             }),
             content_ref: None,
             polyline_points: Vec::new(),
