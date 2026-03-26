@@ -121,7 +121,10 @@ impl RuntimeIntentTracker {
         runtime_snapshots: &[InputSnapshot],
         override_snapshot: &InputSnapshot,
     ) -> bool {
-        self.apply_runtime_batch(runtime_snapshots, Some(override_snapshot))
+        let intents = self
+            .mapper
+            .map_snapshot_batch_with_final_snapshot(runtime_snapshots, override_snapshot);
+        self.apply_mapped_intents(intents, true)
     }
 
     fn apply_runtime_batch(
@@ -780,7 +783,7 @@ mod tests {
     }
 
     #[test]
-    fn runtime_intent_tracker_batch_supports_one_shot_override_without_persisting() {
+    fn runtime_intent_tracker_batch_with_override_preserves_transient_edges() {
         let mut tracker = RuntimeIntentTracker::new(IntentSamplingMode::LiveSampling);
         let runtime_batch = vec![
             InputSnapshot {
@@ -821,9 +824,13 @@ mod tests {
         assert!(tracker.state().building);
         assert_eq!(tracker.state().last_config_tap_tile, Some((13, 14)));
         assert_eq!(tracker.state().config_tap_count, 1);
-        assert_eq!(tracker.state().pressed_actions, vec![BinaryAction::Boost]);
-        assert!(tracker.state().is_action_active(BinaryAction::Boost));
+        assert_eq!(
+            tracker.state().pressed_actions,
+            vec![BinaryAction::Fire, BinaryAction::Boost]
+        );
+        assert_eq!(tracker.state().released_actions, vec![BinaryAction::Fire]);
         assert!(!tracker.state().is_action_active(BinaryAction::Fire));
+        assert!(tracker.state().is_action_active(BinaryAction::Boost));
 
         assert!(tracker.sample_runtime_snapshot_batch(&runtime_batch));
         assert_eq!(tracker.state().move_axis, (0.0, 0.0));
