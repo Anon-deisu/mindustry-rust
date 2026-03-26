@@ -716,6 +716,37 @@ impl ResourceDeltaProjection {
         self.mark_build_liquid_change(build_pos);
     }
 
+    pub fn replace_entity_item_stack_exact(
+        &mut self,
+        entity_id: Option<i32>,
+        stack_item_id: i16,
+        stack_amount: i32,
+    ) {
+        let Some(entity_id) = entity_id else {
+            return;
+        };
+        if stack_amount > 0 && stack_item_id >= 0 {
+            self.entity_item_stack_by_entity_id.insert(
+                entity_id,
+                ResourceUnitItemStack {
+                    item_id: Some(stack_item_id),
+                    amount: stack_amount,
+                },
+            );
+            self.last_changed_build_pos = None;
+            self.last_changed_entity_id = Some(entity_id);
+            self.last_changed_item_id = Some(stack_item_id);
+            self.last_changed_amount = Some(stack_amount);
+            return;
+        }
+
+        self.entity_item_stack_by_entity_id.remove(&entity_id);
+        self.last_changed_build_pos = None;
+        self.last_changed_entity_id = Some(entity_id);
+        self.last_changed_item_id = None;
+        self.last_changed_amount = Some(0);
+    }
+
     pub fn clear_build_items(&mut self, build_pos: Option<i32>) {
         let Some(build_pos) = build_pos else {
             return;
@@ -7418,6 +7449,44 @@ mod tests {
         assert_eq!(projection.last_changed_build_pos, Some(build_pos));
         assert_eq!(projection.last_changed_item_id, None);
         assert_eq!(projection.last_changed_amount, None);
+    }
+
+    #[test]
+    fn resource_delta_projection_replace_entity_item_stack_exact_overwrites_and_clears() {
+        let mut projection = ResourceDeltaProjection::default();
+        projection.entity_item_stack_by_entity_id.insert(
+            44,
+            ResourceUnitItemStack {
+                item_id: Some(1),
+                amount: 3,
+            },
+        );
+
+        projection.replace_entity_item_stack_exact(Some(44), 6, 9);
+
+        assert_eq!(
+            projection.entity_item_stack_by_entity_id.get(&44).cloned(),
+            Some(ResourceUnitItemStack {
+                item_id: Some(6),
+                amount: 9,
+            })
+        );
+        assert_eq!(projection.last_changed_build_pos, None);
+        assert_eq!(projection.last_changed_entity_id, Some(44));
+        assert_eq!(projection.last_changed_item_id, Some(6));
+        assert_eq!(projection.last_changed_amount, Some(9));
+        assert_eq!(projection.authoritative_build_update_count, 0);
+        assert_eq!(projection.delta_apply_count, 0);
+
+        projection.replace_entity_item_stack_exact(Some(44), 6, 0);
+
+        assert!(!projection.entity_item_stack_by_entity_id.contains_key(&44));
+        assert_eq!(projection.last_changed_build_pos, None);
+        assert_eq!(projection.last_changed_entity_id, Some(44));
+        assert_eq!(projection.last_changed_item_id, None);
+        assert_eq!(projection.last_changed_amount, Some(0));
+        assert_eq!(projection.authoritative_build_update_count, 0);
+        assert_eq!(projection.delta_apply_count, 0);
     }
 
     #[test]

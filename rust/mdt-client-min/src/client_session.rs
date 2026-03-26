@@ -20,15 +20,14 @@ use crate::session_state::{
     EffectBusinessPositionSource, EffectBusinessProjection, EntityFireSemanticProjection,
     EntityPlayerSemanticProjection, EntityPuddleSemanticProjection, EntitySemanticProjection,
     EntityUnitSemanticProjection, EntityWeatherStateSemanticProjection,
-    EntityWorldLabelSemanticProjection,
-    FinishConnectingProjection, GameplayStateProjection, PayloadDroppedProjection,
-    PickedBuildPayloadProjection, PickedUnitPayloadProjection, ReconnectPhaseProjection,
-    ReconnectReasonKind, ReconstructorRuntimeProjection, RemotePlanSnapshotFirstPlanProjection,
-    SessionResetKind, SessionState, SessionTimeoutKind, SessionTimeoutProjection,
-    TakeItemsProjection, TileConfigAuthoritySource, TileConfigBusinessApply,
-    TransferItemEffectProjection, TransferItemToProjection, TransferItemToUnitProjection,
-    UnitAssemblerRuntimeProjection, UnitEnteredPayloadProjection, UnitRefProjection,
-    WorldReloadProjection,
+    EntityWorldLabelSemanticProjection, FinishConnectingProjection, GameplayStateProjection,
+    PayloadDroppedProjection, PickedBuildPayloadProjection, PickedUnitPayloadProjection,
+    ReconnectPhaseProjection, ReconnectReasonKind, ReconstructorRuntimeProjection,
+    RemotePlanSnapshotFirstPlanProjection, SessionResetKind, SessionState, SessionTimeoutKind,
+    SessionTimeoutProjection, TakeItemsProjection, TileConfigAuthoritySource,
+    TileConfigBusinessApply, TransferItemEffectProjection, TransferItemToProjection,
+    TransferItemToUnitProjection, UnitAssemblerRuntimeProjection, UnitEnteredPayloadProjection,
+    UnitRefProjection, WorldReloadProjection,
 };
 use crate::typed_remote_dispatch::{
     TypedCustomChannelRemoteDispatch, TypedCustomChannelRemoteDispatcher,
@@ -7417,6 +7416,17 @@ impl ClientSession {
         }
     }
 
+    fn apply_entity_snapshot_unit_item_stack(
+        &mut self,
+        entity_id: i32,
+        stack_item_id: i16,
+        stack_amount: i32,
+    ) {
+        self.state
+            .resource_delta_projection
+            .replace_entity_item_stack_exact(Some(entity_id), stack_item_id, stack_amount);
+    }
+
     fn apply_parseable_alpha_unit_row_from_entity_snapshot(
         &mut self,
         entity_id: i32,
@@ -7454,6 +7464,11 @@ impl ClientSession {
                 lifetime_bits: None,
                 time_bits: None,
             }),
+        );
+        self.apply_entity_snapshot_unit_item_stack(
+            entity_id,
+            sync.stack_item_id,
+            sync.stack_amount,
         );
         self.state
             .refresh_runtime_typed_entity_from_tables(entity_id);
@@ -7580,6 +7595,11 @@ impl ClientSession {
                     time_bits: None,
                 }),
             );
+            self.apply_entity_snapshot_unit_item_stack(
+                row.entity_id,
+                row.sync.stack_item_id,
+                row.sync.stack_amount,
+            );
             self.state
                 .refresh_runtime_typed_entity_from_tables(row.entity_id);
         }
@@ -7621,6 +7641,11 @@ impl ClientSession {
                     lifetime_bits: Some(row.sync.lifetime_bits),
                     time_bits: Some(row.sync.time_bits),
                 }),
+            );
+            self.apply_entity_snapshot_unit_item_stack(
+                row.entity_id,
+                row.sync.stack_item_id,
+                row.sync.stack_amount,
             );
             self.state
                 .refresh_runtime_typed_entity_from_tables(row.entity_id);
@@ -7664,6 +7689,11 @@ impl ClientSession {
                     time_bits: None,
                 }),
             );
+            self.apply_entity_snapshot_unit_item_stack(
+                row.entity_id,
+                row.sync.stack_item_id,
+                row.sync.stack_amount,
+            );
             self.state
                 .refresh_runtime_typed_entity_from_tables(row.entity_id);
         }
@@ -7705,6 +7735,11 @@ impl ClientSession {
                     lifetime_bits: None,
                     time_bits: None,
                 }),
+            );
+            self.apply_entity_snapshot_unit_item_stack(
+                row.entity_id,
+                row.sync.stack_item_id,
+                row.sync.stack_amount,
             );
             self.state
                 .refresh_runtime_typed_entity_from_tables(row.entity_id);
@@ -8493,7 +8528,9 @@ impl ClientSession {
     fn try_apply_player_disconnect(&mut self, player_id: i32) -> bool {
         self.state.record_entity_snapshot_tombstone(player_id);
         self.state.entity_table_projection.remove_entity(player_id);
-        self.state.player_semantic_projection.remove_entity(player_id);
+        self.state
+            .player_semantic_projection
+            .remove_entity(player_id);
         self.state.remove_runtime_typed_entity(player_id);
         if Some(player_id) != self.state.world_player_id {
             return false;
@@ -19565,6 +19602,163 @@ mod tests {
                 last_seen_entity_snapshot_count: 1,
             })
         );
+    }
+
+    #[test]
+    fn parseable_entity_snapshot_unit_rows_seed_runtime_carried_item_stack_from_snapshot() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        session.state.received_entity_snapshot_count = 1;
+
+        let sample_payload = sample_snapshot_packet("entitySnapshot.packet");
+        let mut alpha_row = try_parse_alpha_sync_rows_from_entity_snapshot_prefix(&sample_payload)
+            .into_iter()
+            .next()
+            .unwrap();
+        alpha_row.sync.stack_item_id = 3;
+        alpha_row.sync.stack_amount = 5;
+
+        let mut mech_row = try_parse_mech_sync_rows_from_entity_snapshot_prefix(
+            &build_entity_snapshot_payload(&[build_entity_snapshot_row(
+                321,
+                4,
+                &synthetic_mech_sync_bytes(),
+            )]),
+        )
+        .into_iter()
+        .next()
+        .unwrap();
+        mech_row.sync.stack_item_id = 4;
+        mech_row.sync.stack_amount = 6;
+
+        let mut missile_row = try_parse_missile_sync_rows_from_entity_snapshot_prefix(
+            &build_entity_snapshot_payload(&[build_entity_snapshot_row(
+                654,
+                39,
+                &synthetic_missile_sync_bytes(),
+            )]),
+        )
+        .into_iter()
+        .next()
+        .unwrap();
+        missile_row.sync.stack_item_id = 5;
+        missile_row.sync.stack_amount = 7;
+
+        let mut payload_row = try_parse_payload_sync_rows_from_entity_snapshot_prefix(
+            &build_entity_snapshot_payload(&[build_entity_snapshot_row(
+                777,
+                5,
+                &synthetic_payload_sync_bytes(),
+            )]),
+        )
+        .into_iter()
+        .next()
+        .unwrap();
+        payload_row.sync.stack_item_id = 6;
+        payload_row.sync.stack_amount = 8;
+
+        let mut tether_row =
+            try_parse_building_tether_payload_sync_rows_from_entity_snapshot_prefix(
+                &build_entity_snapshot_payload(&[build_entity_snapshot_row(
+                    888,
+                    36,
+                    &synthetic_building_tether_payload_sync_bytes(),
+                )]),
+            )
+            .into_iter()
+            .next()
+            .unwrap();
+        tether_row.sync.stack_item_id = 7;
+        tether_row.sync.stack_amount = 9;
+
+        session.apply_parseable_alpha_unit_row_from_entity_snapshot(
+            alpha_row.entity_id,
+            alpha_row.class_id,
+            &alpha_row.sync,
+        );
+        session.apply_parseable_mech_rows_from_entity_snapshot(&[mech_row.clone()]);
+        session.apply_parseable_missile_rows_from_entity_snapshot(&[missile_row.clone()]);
+        session.apply_parseable_payload_rows_from_entity_snapshot(&[payload_row.clone()]);
+        session.apply_parseable_building_tether_payload_rows_from_entity_snapshot(&[
+            tether_row.clone()
+        ]);
+
+        for (entity_id, item_id, amount) in [
+            (alpha_row.entity_id, 3, 5),
+            (mech_row.entity_id, 4, 6),
+            (missile_row.entity_id, 5, 7),
+            (payload_row.entity_id, 6, 8),
+            (tether_row.entity_id, 7, 9),
+        ] {
+            assert_eq!(
+                session
+                    .state()
+                    .resource_delta_projection
+                    .entity_item_stack_by_entity_id
+                    .get(&entity_id)
+                    .cloned(),
+                Some(crate::session_state::ResourceUnitItemStack {
+                    item_id: Some(item_id),
+                    amount,
+                })
+            );
+            assert!(matches!(
+                session.state().runtime_typed_entity_projection().entity_at(entity_id),
+                Some(crate::session_state::TypedRuntimeEntityModel::Unit(unit))
+                    if unit.carried_item_stack
+                        == Some(crate::session_state::ResourceUnitItemStack {
+                            item_id: Some(item_id),
+                            amount,
+                        })
+            ));
+        }
+    }
+
+    #[test]
+    fn parseable_entity_snapshot_unit_rows_clear_existing_carried_item_stack_when_empty() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        session.state.received_entity_snapshot_count = 1;
+        session
+            .state
+            .resource_delta_projection
+            .entity_item_stack_by_entity_id
+            .insert(
+                321,
+                crate::session_state::ResourceUnitItemStack {
+                    item_id: Some(9),
+                    amount: 4,
+                },
+            );
+
+        let mut mech_row = try_parse_mech_sync_rows_from_entity_snapshot_prefix(
+            &build_entity_snapshot_payload(&[build_entity_snapshot_row(
+                321,
+                4,
+                &synthetic_mech_sync_bytes(),
+            )]),
+        )
+        .into_iter()
+        .next()
+        .unwrap();
+        mech_row.sync.stack_item_id = 9;
+        mech_row.sync.stack_amount = 0;
+
+        session.apply_parseable_mech_rows_from_entity_snapshot(&[mech_row]);
+
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .entity_item_stack_by_entity_id
+                .get(&321),
+            None
+        );
+        assert!(matches!(
+            session.state().runtime_typed_entity_projection().entity_at(321),
+            Some(crate::session_state::TypedRuntimeEntityModel::Unit(unit))
+                if unit.carried_item_stack.is_none()
+        ));
     }
 
     #[test]
@@ -36482,13 +36676,17 @@ mod tests {
                 },
             ),
         );
-        session.state.resource_delta_projection.entity_item_stack_by_entity_id.insert(
-            704,
-            crate::session_state::ResourceUnitItemStack {
-                item_id: Some(6),
-                amount: 3,
-            },
-        );
+        session
+            .state
+            .resource_delta_projection
+            .entity_item_stack_by_entity_id
+            .insert(
+                704,
+                crate::session_state::ResourceUnitItemStack {
+                    item_id: Some(6),
+                    amount: 3,
+                },
+            );
         session
             .state
             .rebuild_runtime_typed_entity_projection_from_tables();
@@ -36711,7 +36909,13 @@ mod tests {
                 .get(&704),
             None
         );
-        assert_eq!(session.state().runtime_typed_entity_projection().entity_at(704), None);
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_entity_projection()
+                .entity_at(704),
+            None
+        );
     }
 
     #[test]
