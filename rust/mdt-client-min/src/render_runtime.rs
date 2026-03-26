@@ -5142,6 +5142,7 @@ mod tests {
     use crate::client_session::{ClientBuildPlanConfig, ClientSession};
     use mdt_protocol::encode_packet;
     use mdt_remote::read_remote_manifest;
+    use mdt_typeio::{write_object as write_typeio_object, TypeIoObject};
     use mdt_render_ui::project_scene_models_with_player_position;
     use mdt_render_ui::render_model::RenderPrimitive;
     use std::path::PathBuf;
@@ -5171,6 +5172,22 @@ mod tests {
         for chunk in chunk_packets {
             session.ingest_packet_bytes(&chunk).unwrap();
         }
+    }
+
+    fn encode_effect_payload(
+        effect_id: i16,
+        x: f32,
+        y: f32,
+        rotation: f32,
+        color_rgba: u32,
+    ) -> Vec<u8> {
+        let mut payload = Vec::with_capacity(18);
+        payload.extend_from_slice(&effect_id.to_be_bytes());
+        payload.extend_from_slice(&x.to_be_bytes());
+        payload.extend_from_slice(&y.to_be_bytes());
+        payload.extend_from_slice(&rotation.to_be_bytes());
+        payload.extend_from_slice(&color_rgba.to_be_bytes());
+        payload
     }
 
     fn real_manifest_path() -> PathBuf {
@@ -6399,13 +6416,28 @@ mod tests {
         assert!(scene.primitives().iter().any(|primitive| {
             matches!(
                 primitive,
+                mdt_render_ui::render_model::RenderPrimitive::Rect {
+                    family,
+                    layer,
+                    left,
+                    top,
+                    right,
+                    bottom,
+                    ..
+                } if family == "runtime-command-rect"
+                    && *layer == 29
+                    && *left == 8.0
+                    && *top == 16.0
+                    && *right == 24.0
+                    && *bottom == 32.0
+            )
+        }));
+        assert!(!scene.primitives().iter().any(|primitive| {
+            matches!(
+                primitive,
                 mdt_render_ui::render_model::RenderPrimitive::Line {
                     id,
-                    layer,
-                    x0,
-                    y0,
-                    x1,
-                    y1,
+                    ..
                 } if id
                     == &format!(
                         "marker:line:runtime-command-rect:top:{}:{}:{}:{}",
@@ -6413,11 +6445,7 @@ mod tests {
                         16.0f32.to_bits(),
                         24.0f32.to_bits(),
                         16.0f32.to_bits()
-                    ) && *layer == 29
-                    && *x0 == 8.0
-                    && *y0 == 16.0
-                    && *x1 == 24.0
-                    && *y1 == 16.0
+                    )
             )
         }));
     }
@@ -9387,6 +9415,56 @@ mod tests {
     }
 
     #[test]
+    fn render_runtime_adapter_reports_effect_source_binding_end_to_end_in_hud() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        ingest_sample_world(&mut session);
+        let local_player_entity_id = session
+            .state()
+            .entity_table_projection
+            .local_player_entity_id
+            .unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "effect" && entry.params.len() == 6)
+            .unwrap()
+            .packet_id;
+        let mut payload = encode_effect_payload(8, 32.5, 48.0, 90.0, 0x11223344);
+        write_typeio_object(&mut payload, &TypeIoObject::UnitId(local_player_entity_id));
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+        let event = session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            session.state().last_effect_runtime_binding_state,
+            Some(crate::session_state::EffectRuntimeBindingState::ParentFollow)
+        );
+        assert_eq!(
+            session.state().last_effect_runtime_source_binding_state,
+            Some(crate::session_state::EffectRuntimeBindingState::ParentFollow)
+        );
+
+        let mut adapter = RenderRuntimeAdapter::default();
+        adapter.observe_events(&[event]);
+
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = session.snapshot_input();
+        adapter.apply(&mut scene, &mut hud, input, session.state());
+
+        assert!(hud.status_text.contains("runtime_effect_binding=follow/follow"));
+        let live_effect = &hud
+            .runtime_ui
+            .as_ref()
+            .expect("runtime_ui observability should be present")
+            .live
+            .effect;
+        assert_eq!(live_effect.active_overlay_count, 1);
+        assert_eq!(live_effect.active_effect_id, Some(8));
+        assert_eq!(live_effect.last_contract_name.as_deref(), Some("position_target"));
+    }
+
+    #[test]
     fn runtime_effect_binding_label_distinguishes_reject_and_unresolved_fallback() {
         let input = ClientSnapshotInputState::default();
         let mut reject_state = SessionState::default();
@@ -9538,6 +9616,38 @@ mod tests {
             runtime_effect_binding_label(&input, &state, &world_overlay),
             "reject/none"
         );
+    }
+
+    #[test]
+    fn runtime_effect_binding_label_reports_source_binding_family_target_source_pairs() {
+        let input = ClientSnapshotInputState::default();
+
+        for (target, source, expected) in [
+            (
+                EffectRuntimeBindingState::ParentFollow,
+                EffectRuntimeBindingState::ParentFollow,
+                "follow/follow",
+            ),
+            (
+                EffectRuntimeBindingState::UnresolvedFallback,
+                EffectRuntimeBindingState::UnresolvedFallback,
+                "fallback/fallback",
+            ),
+            (
+                EffectRuntimeBindingState::ParentFollow,
+                EffectRuntimeBindingState::BindingRejected,
+                "follow/reject",
+            ),
+        ] {
+            let mut state = SessionState::default();
+            state.last_effect_runtime_binding_state = Some(target);
+            state.last_effect_runtime_source_binding_state = Some(source);
+
+            assert_eq!(
+                runtime_effect_binding_label(&input, &state, &RuntimeWorldOverlay::default()),
+                expected
+            );
+        }
     }
 
     #[test]
@@ -9757,6 +9867,9 @@ mod tests {
             y_bits: 32.0f32.to_bits(),
         });
         state.last_effect_business_path = Some(vec![1, 0]);
+        state.last_effect_runtime_binding_state = Some(EffectRuntimeBindingState::ParentFollow);
+        state.last_effect_runtime_source_binding_state =
+            Some(EffectRuntimeBindingState::BindingRejected);
         state.failed_effect_data_parse_count = 2;
         state.last_effect_data_parse_error =
             Some("trailing bytes after effect data object".to_string());
@@ -10291,6 +10404,9 @@ mod tests {
             .status_text
             .contains("runtime_effect_apply=pos:point2:0x41c00000:0x42000000"));
         assert!(hud.status_text.contains("runtime_effect_path=1/0"));
+        assert!(hud
+            .status_text
+            .contains("runtime_effect_binding=follow/reject"));
         assert!(hud.status_text.contains("runtime_effect_data_fail=2@trail"));
         assert!(hud.status_text.contains("bootstrap_rules=01234567"));
         assert!(hud.status_text.contains("bootstrap_tags=00112233"));
