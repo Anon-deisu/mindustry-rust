@@ -6392,6 +6392,142 @@ mod tests {
     }
 
     #[test]
+    fn present_once_surfaces_runtime_break_rect_summary_and_pixels() {
+        let backend = RecordingBackend::default();
+        let mut presenter = WindowPresenter::new(backend);
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 64.0,
+                height: 64.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: "marker:runtime-break:0:2:3".to_string(),
+                    layer: 31,
+                    x: 16.0,
+                    y: 24.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-break-rect:top:{}:{}:{}:{}",
+                        16.0f32.to_bits(),
+                        24.0f32.to_bits(),
+                        24.0f32.to_bits(),
+                        24.0f32.to_bits()
+                    ),
+                    layer: 30,
+                    x: 16.0,
+                    y: 24.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-break-rect:top:{}:{}:{}:{}:line-end",
+                        16.0f32.to_bits(),
+                        24.0f32.to_bits(),
+                        24.0f32.to_bits(),
+                        24.0f32.to_bits()
+                    ),
+                    layer: 30,
+                    x: 24.0,
+                    y: 24.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-break-rect:right:{}:{}:{}:{}",
+                        24.0f32.to_bits(),
+                        24.0f32.to_bits(),
+                        24.0f32.to_bits(),
+                        32.0f32.to_bits()
+                    ),
+                    layer: 30,
+                    x: 24.0,
+                    y: 24.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-break-rect:right:{}:{}:{}:{}:line-end",
+                        24.0f32.to_bits(),
+                        24.0f32.to_bits(),
+                        24.0f32.to_bits(),
+                        32.0f32.to_bits()
+                    ),
+                    layer: 30,
+                    x: 24.0,
+                    y: 32.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-break-rect:bottom:{}:{}:{}:{}",
+                        24.0f32.to_bits(),
+                        32.0f32.to_bits(),
+                        16.0f32.to_bits(),
+                        32.0f32.to_bits()
+                    ),
+                    layer: 30,
+                    x: 24.0,
+                    y: 32.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-break-rect:bottom:{}:{}:{}:{}:line-end",
+                        24.0f32.to_bits(),
+                        32.0f32.to_bits(),
+                        16.0f32.to_bits(),
+                        32.0f32.to_bits()
+                    ),
+                    layer: 30,
+                    x: 16.0,
+                    y: 32.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-break-rect:left:{}:{}:{}:{}",
+                        16.0f32.to_bits(),
+                        32.0f32.to_bits(),
+                        16.0f32.to_bits(),
+                        24.0f32.to_bits()
+                    ),
+                    layer: 30,
+                    x: 16.0,
+                    y: 32.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-break-rect:left:{}:{}:{}:{}:line-end",
+                        16.0f32.to_bits(),
+                        32.0f32.to_bits(),
+                        16.0f32.to_bits(),
+                        24.0f32.to_bits()
+                    ),
+                    layer: 30,
+                    x: 16.0,
+                    y: 24.0,
+                },
+            ],
+        };
+        let hud = HudModel::default();
+
+        presenter.present_once(&scene, &hud).unwrap();
+
+        let backend = presenter.into_backend();
+        let frame = backend.frames.last().unwrap();
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RENDER-RECT: count=1 runtime-break-rect@30:16:24:24:32",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RENDER-ICON: count=1 runtime-break/break@31:2:3",
+        );
+        assert_eq!(frame.pixel(2, 4), Some(COLOR_ICON_RUNTIME_BREAK));
+        assert_eq!(frame.pixel(3, 4), Some(0xff44_88ff));
+        assert_eq!(frame.pixel(3, 3), Some(0xff44_88ff));
+        assert_eq!(frame.pixel(2, 3), Some(0xff44_88ff));
+    }
+
+    #[test]
     fn present_once_surfaces_icon_primitive_summary_and_pixels() {
         let backend = RecordingBackend::default();
         let mut presenter = WindowPresenter::new(backend);

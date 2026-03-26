@@ -694,7 +694,7 @@ Use:
 
 - `mdt-render-ui` now also exposes bounded rect/icon primitive channels for high-signal runtime overlays.
   - Landed shape:
-    - `RenderPrimitive::Rect` for command-mode rect families
+    - `RenderPrimitive::Rect` for command-mode rect families and the derived `runtime-break-rect` breaking-plan outline family
     - `RenderPrimitive::Icon` for `runtime-effect-icon`, `runtime-build-config-icon`, `runtime-health`, `runtime-place`, command-mode markers (including `runtime-command-selected-unit`), runtime unit-assembler markers, and the current low-risk world-event marker batch (`runtime-break`, `runtime-bullet`, `runtime-logic-explosion`, `runtime-sound-at`, bounded tile-action markers)
     - ASCII/window presenters now consume those typed primitives directly and emit `RENDER-RECT` / `RENDER-ICON` summaries instead of relying on generic point fallback for those families
   - Local verification:

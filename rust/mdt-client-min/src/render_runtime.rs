@@ -4395,6 +4395,45 @@ fn append_runtime_build_plan_objects(scene: &mut RenderModel, plans: Option<&[Cl
             x: plan.tile.0 as f32 * TILE_SIZE,
             y: plan.tile.1 as f32 * TILE_SIZE,
         });
+        if plan.breaking {
+            append_runtime_break_plan_rect_outline(scene, plan.tile.0, plan.tile.1);
+        }
+    }
+}
+
+fn append_runtime_break_plan_rect_outline(scene: &mut RenderModel, tile_x: i32, tile_y: i32) {
+    const TILE_SIZE: f32 = 8.0;
+    const RECT_LAYER: i32 = 30;
+
+    let left = tile_x as f32 * TILE_SIZE;
+    let top = tile_y as f32 * TILE_SIZE;
+    let right = (tile_x as f32 + 1.0) * TILE_SIZE;
+    let bottom = (tile_y as f32 + 1.0) * TILE_SIZE;
+    for (edge, source, target) in [
+        ("top", (left, top), (right, top)),
+        ("right", (right, top), (right, bottom)),
+        ("bottom", (right, bottom), (left, bottom)),
+        ("left", (left, bottom), (left, top)),
+    ] {
+        let line_id = format!(
+            "marker:line:runtime-break-rect:{edge}:{}:{}:{}:{}",
+            source.0.to_bits(),
+            source.1.to_bits(),
+            target.0.to_bits(),
+            target.1.to_bits()
+        );
+        scene.objects.push(RenderObject {
+            id: line_id.clone(),
+            layer: RECT_LAYER,
+            x: source.0,
+            y: source.1,
+        });
+        scene.objects.push(RenderObject {
+            id: format!("{line_id}:line-end"),
+            layer: RECT_LAYER,
+            x: target.0,
+            y: target.1,
+        });
     }
 }
 
@@ -5797,6 +5836,10 @@ mod tests {
             .objects
             .iter()
             .any(|object| object.id.starts_with("marker:runtime-break:")));
+        assert!(scene
+            .objects
+            .iter()
+            .any(|object| object.id.starts_with("marker:line:runtime-break-rect:")));
         assert!(hud.status_text.contains("runtime_selected=0x0101"));
         assert!(hud.status_text.contains("runtime_plans=2"));
         assert!(hud.status_text.contains("runtime_cfg_int=0"));

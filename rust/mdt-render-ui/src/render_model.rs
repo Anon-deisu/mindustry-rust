@@ -758,9 +758,9 @@ fn render_rect_family_and_edge(id: &str) -> Option<(&str, &str)> {
     let mut parts = id.strip_prefix("marker:line:")?.split(':');
     let family = parts.next()?;
     let edge = parts.next()?;
-    match (family, edge) {
+        match (family, edge) {
         (
-            "runtime-command-rect" | "runtime-command-target-rect",
+            "runtime-command-rect" | "runtime-command-target-rect" | "runtime-break-rect",
             "top" | "right" | "bottom" | "left",
         ) => Some((family, edge)),
         _ => None,
@@ -2210,6 +2210,161 @@ mod tests {
                         16.0f32.to_bits(),
                         24.0f32.to_bits(),
                         16.0f32.to_bits()
+                    ),
+                ],
+            }]
+        );
+    }
+
+    #[test]
+    fn render_model_derives_rect_primitives_from_runtime_break_rect_line_families() {
+        let scene = RenderModel {
+            viewport: Viewport::default(),
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-break-rect:top:{}:{}:{}:{}",
+                        32.0f32.to_bits(),
+                        40.0f32.to_bits(),
+                        40.0f32.to_bits(),
+                        40.0f32.to_bits()
+                    ),
+                    layer: 30,
+                    x: 32.0,
+                    y: 40.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-break-rect:top:{}:{}:{}:{}:line-end",
+                        32.0f32.to_bits(),
+                        40.0f32.to_bits(),
+                        40.0f32.to_bits(),
+                        40.0f32.to_bits()
+                    ),
+                    layer: 30,
+                    x: 40.0,
+                    y: 40.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-break-rect:right:{}:{}:{}:{}",
+                        40.0f32.to_bits(),
+                        40.0f32.to_bits(),
+                        40.0f32.to_bits(),
+                        48.0f32.to_bits()
+                    ),
+                    layer: 30,
+                    x: 40.0,
+                    y: 40.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-break-rect:right:{}:{}:{}:{}:line-end",
+                        40.0f32.to_bits(),
+                        40.0f32.to_bits(),
+                        40.0f32.to_bits(),
+                        48.0f32.to_bits()
+                    ),
+                    layer: 30,
+                    x: 40.0,
+                    y: 48.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-break-rect:bottom:{}:{}:{}:{}",
+                        40.0f32.to_bits(),
+                        48.0f32.to_bits(),
+                        32.0f32.to_bits(),
+                        48.0f32.to_bits()
+                    ),
+                    layer: 30,
+                    x: 40.0,
+                    y: 48.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-break-rect:bottom:{}:{}:{}:{}:line-end",
+                        40.0f32.to_bits(),
+                        48.0f32.to_bits(),
+                        32.0f32.to_bits(),
+                        48.0f32.to_bits()
+                    ),
+                    layer: 30,
+                    x: 32.0,
+                    y: 48.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-break-rect:left:{}:{}:{}:{}",
+                        32.0f32.to_bits(),
+                        48.0f32.to_bits(),
+                        32.0f32.to_bits(),
+                        40.0f32.to_bits()
+                    ),
+                    layer: 30,
+                    x: 32.0,
+                    y: 48.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-break-rect:left:{}:{}:{}:{}:line-end",
+                        32.0f32.to_bits(),
+                        48.0f32.to_bits(),
+                        32.0f32.to_bits(),
+                        40.0f32.to_bits()
+                    ),
+                    layer: 30,
+                    x: 32.0,
+                    y: 40.0,
+                },
+            ],
+        };
+
+        assert_eq!(
+            scene.primitives(),
+            vec![RenderPrimitive::Rect {
+                id: format!(
+                    "marker:rect:runtime-break-rect:{}:{}:{}:{}",
+                    32.0f32.to_bits(),
+                    40.0f32.to_bits(),
+                    40.0f32.to_bits(),
+                    48.0f32.to_bits()
+                ),
+                family: "runtime-break-rect".to_string(),
+                layer: 30,
+                left: 32.0,
+                top: 40.0,
+                right: 40.0,
+                bottom: 48.0,
+                line_ids: vec![
+                    format!(
+                        "marker:line:runtime-break-rect:bottom:{}:{}:{}:{}",
+                        40.0f32.to_bits(),
+                        48.0f32.to_bits(),
+                        32.0f32.to_bits(),
+                        48.0f32.to_bits()
+                    ),
+                    format!(
+                        "marker:line:runtime-break-rect:left:{}:{}:{}:{}",
+                        32.0f32.to_bits(),
+                        48.0f32.to_bits(),
+                        32.0f32.to_bits(),
+                        40.0f32.to_bits()
+                    ),
+                    format!(
+                        "marker:line:runtime-break-rect:right:{}:{}:{}:{}",
+                        40.0f32.to_bits(),
+                        40.0f32.to_bits(),
+                        40.0f32.to_bits(),
+                        48.0f32.to_bits()
+                    ),
+                    format!(
+                        "marker:line:runtime-break-rect:top:{}:{}:{}:{}",
+                        32.0f32.to_bits(),
+                        40.0f32.to_bits(),
+                        40.0f32.to_bits(),
+                        40.0f32.to_bits()
                     ),
                 ],
             }]

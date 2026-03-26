@@ -4640,6 +4640,124 @@ mod tests {
     }
 
     #[test]
+    fn ascii_presenter_surfaces_rect_primitive_summary_for_runtime_break_rects() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 64.0,
+                height: 64.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-break-rect:top:{}:{}:{}:{}",
+                        32.0f32.to_bits(),
+                        40.0f32.to_bits(),
+                        40.0f32.to_bits(),
+                        40.0f32.to_bits()
+                    ),
+                    layer: 30,
+                    x: 32.0,
+                    y: 40.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-break-rect:top:{}:{}:{}:{}:line-end",
+                        32.0f32.to_bits(),
+                        40.0f32.to_bits(),
+                        40.0f32.to_bits(),
+                        40.0f32.to_bits()
+                    ),
+                    layer: 30,
+                    x: 40.0,
+                    y: 40.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-break-rect:right:{}:{}:{}:{}",
+                        40.0f32.to_bits(),
+                        40.0f32.to_bits(),
+                        40.0f32.to_bits(),
+                        48.0f32.to_bits()
+                    ),
+                    layer: 30,
+                    x: 40.0,
+                    y: 40.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-break-rect:right:{}:{}:{}:{}:line-end",
+                        40.0f32.to_bits(),
+                        40.0f32.to_bits(),
+                        40.0f32.to_bits(),
+                        48.0f32.to_bits()
+                    ),
+                    layer: 30,
+                    x: 40.0,
+                    y: 48.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-break-rect:bottom:{}:{}:{}:{}",
+                        40.0f32.to_bits(),
+                        48.0f32.to_bits(),
+                        32.0f32.to_bits(),
+                        48.0f32.to_bits()
+                    ),
+                    layer: 30,
+                    x: 40.0,
+                    y: 48.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-break-rect:bottom:{}:{}:{}:{}:line-end",
+                        40.0f32.to_bits(),
+                        48.0f32.to_bits(),
+                        32.0f32.to_bits(),
+                        48.0f32.to_bits()
+                    ),
+                    layer: 30,
+                    x: 32.0,
+                    y: 48.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-break-rect:left:{}:{}:{}:{}",
+                        32.0f32.to_bits(),
+                        48.0f32.to_bits(),
+                        32.0f32.to_bits(),
+                        40.0f32.to_bits()
+                    ),
+                    layer: 30,
+                    x: 32.0,
+                    y: 48.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-break-rect:left:{}:{}:{}:{}:line-end",
+                        32.0f32.to_bits(),
+                        48.0f32.to_bits(),
+                        32.0f32.to_bits(),
+                        40.0f32.to_bits()
+                    ),
+                    layer: 30,
+                    x: 32.0,
+                    y: 40.0,
+                },
+            ],
+        };
+        let hud = HudModel::default();
+        let mut presenter = AsciiScenePresenter::default();
+
+        presenter.present(&scene, &hud);
+
+        assert!(presenter
+            .last_frame()
+            .contains("RENDER-RECT: count=1 runtime-break-rect@30:32:40:40:48"));
+    }
+
+    #[test]
     fn ascii_presenter_reports_runtime_icon_primitives_without_generic_point_fallback() {
         let scene = RenderModel {
             viewport: Viewport {
