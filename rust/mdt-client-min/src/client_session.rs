@@ -5552,6 +5552,8 @@ impl ClientSession {
                     self.state.received_unit_cap_death_count =
                         self.state.received_unit_cap_death_count.saturating_add(1);
                     self.state.last_unit_cap_death = unit;
+                    self.state.record_remove_resource_delta_entity(unit);
+                    let _ = remove_entity_projection_for_unit_ref(&mut self.state, unit);
                     Ok(ClientSessionEvent::UnitCapDeath { unit })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -36300,6 +36302,49 @@ mod tests {
                 last_seen_entity_snapshot_count: 1,
             },
         );
+        session.state.entity_table_projection.by_entity_id.insert(
+            704,
+            crate::session_state::EntityProjection {
+                class_id: 5,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 704,
+                x_bits: 7.0f32.to_bits(),
+                y_bits: 8.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
+        session.state.entity_semantic_projection.upsert(
+            704,
+            5,
+            1,
+            crate::session_state::EntitySemanticProjection::Unit(
+                crate::session_state::EntityUnitSemanticProjection {
+                    team_id: 2,
+                    unit_type_id: 55,
+                    health_bits: 1.0f32.to_bits(),
+                    rotation_bits: 0.0f32.to_bits(),
+                    shield_bits: 0.0f32.to_bits(),
+                    mine_tile_pos: 0,
+                    status_count: 0,
+                    payload_count: None,
+                    building_pos: None,
+                    lifetime_bits: None,
+                    time_bits: None,
+                },
+            ),
+        );
+        session.state.resource_delta_projection.entity_item_stack_by_entity_id.insert(
+            704,
+            crate::session_state::ResourceUnitItemStack {
+                item_id: Some(6),
+                amount: 3,
+            },
+        );
+        session
+            .state
+            .rebuild_runtime_typed_entity_projection_from_tables();
         let build_destroyed_packet_id = manifest
             .remote_packets
             .iter()
@@ -36490,6 +36535,11 @@ mod tests {
             .entity_table_projection
             .by_entity_id
             .contains_key(&703));
+        assert!(!session
+            .state()
+            .entity_table_projection
+            .by_entity_id
+            .contains_key(&704));
         assert!(session
             .state()
             .entity_snapshot_tombstones
@@ -36502,6 +36552,19 @@ mod tests {
             .state()
             .entity_snapshot_tombstones
             .contains_key(&703));
+        assert!(session
+            .state()
+            .entity_snapshot_tombstones
+            .contains_key(&704));
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .entity_item_stack_by_entity_id
+                .get(&704),
+            None
+        );
+        assert_eq!(session.state().runtime_typed_entity_projection().entity_at(704), None);
     }
 
     #[test]
