@@ -3011,8 +3011,9 @@ fn compose_build_minimap_aux_status_text(
     window: PresenterViewWindow,
 ) -> Option<String> {
     let panel = build_build_minimap_assist_panel(scene, hud, window)?;
+    let window_tile_count = window.width.saturating_mul(window.height);
     Some(format!(
-        "preb:m={}:s={}:q={}:r{}:cfg={}/{}@{}:auth={}:f={}@{}:v{}:u{}:w{}:obj{}:rt{}",
+        "preb:m={}:s={}:q={}:r{}:cfg={}/{}@{}:auth={}:f={}@{}:v{}:u{}:w{}:d{}:obj{}:rt{}",
         build_interaction_mode_status_text(panel.mode),
         build_interaction_selection_status_text(panel.selection_state),
         build_interaction_queue_status_text(panel.queue_state),
@@ -3026,6 +3027,7 @@ fn compose_build_minimap_aux_status_text(
         panel.visible_map_percent,
         panel.unknown_tile_percent,
         panel.window_coverage_percent,
+        panel.window_object_density_percent(window_tile_count),
         panel.tracked_object_count,
         panel.runtime_count,
     ))
@@ -7183,7 +7185,7 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "BUILD-MINIMAP-AUX: preb:m=place:s=head-aligned:q=mixed:r1:cfg=3/7@gamma:auth=rej-miss-build:f=0:0@1:v0:u100:w0:obj3:rt0",
+            "BUILD-MINIMAP-AUX: preb:m=place:s=head-aligned:q=mixed:r1:cfg=3/7@gamma:auth=rej-miss-build:f=0:0@1:v0:u100:w0:d75:obj3:rt0",
         );
         assert_frame_line_contains(
             &frame.panel_lines,

@@ -297,6 +297,10 @@ impl BuildMinimapAssistPanelModel {
         }
     }
 
+    pub fn window_object_density_percent(&self, window_tile_count: usize) -> usize {
+        percent_of(self.tracked_object_count, window_tile_count)
+    }
+
     pub fn config_scope_label(&self) -> &'static str {
         match self.config_family_count {
             0 => "none",
@@ -2925,6 +2929,7 @@ mod tests {
         assert_eq!(panel.focus_state_label(), "inside");
         assert_eq!(panel.map_visibility_label(), "unseen");
         assert_eq!(panel.window_coverage_label(), "offscreen");
+        assert_eq!(panel.window_object_density_percent(4), 75);
         assert_eq!(panel.config_scope_label(), "multi");
         assert_eq!(panel.runtime_share_percent(), 0);
         assert_eq!(panel.next_action_label(), "resolve");
@@ -2951,6 +2956,7 @@ mod tests {
         };
 
         assert_eq!(panel.next_action_label(), "arm");
+        assert_eq!(panel.window_object_density_percent(4), 100);
 
         panel.place_ready = true;
         panel.selection_state = BuildInteractionSelectionState::HeadDiverged;
