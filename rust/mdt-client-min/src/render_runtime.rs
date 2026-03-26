@@ -54,6 +54,7 @@ const WORLD_EVENT_MARKER_OVERLAY_LIMIT: usize = 24;
 const CREATE_BULLET_MARKER_TTL_TICKS: u8 = 5;
 const LOGIC_EXPLOSION_MARKER_TTL_TICKS: u8 = 8;
 const SOUND_AT_MARKER_TTL_TICKS: u8 = 4;
+const TILE_WORLD_ACTION_MARKER_TTL_TICKS: u8 = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RuntimeEffectClipView {
@@ -483,6 +484,133 @@ pub fn observe_runtime_world_events(
                         x_bits: x.to_bits(),
                         y_bits: y.to_bits(),
                         remaining_ticks: SOUND_AT_MARKER_TTL_TICKS,
+                    },
+                );
+            }
+            ClientSessionEvent::UnitBlockSpawn { tile_pos } => {
+                let Some(tile_pos) = *tile_pos else {
+                    continue;
+                };
+                let overlay_key = allocate_runtime_world_event_marker_key(runtime_world_overlay);
+                let (tile_x, tile_y) = unpack_runtime_point2(tile_pos);
+                let (x_bits, y_bits) = runtime_world_xy_bits_from_tile_pos(tile_pos);
+                push_runtime_world_event_marker_overlay(
+                    runtime_world_overlay,
+                    RuntimeWorldEventMarkerOverlay {
+                        overlay_key,
+                        object_id: format!(
+                            "marker:runtime-unit-block-spawn:{overlay_key}:{tile_x}:{tile_y}"
+                        ),
+                        layer: 28,
+                        x_bits,
+                        y_bits,
+                        remaining_ticks: TILE_WORLD_ACTION_MARKER_TTL_TICKS,
+                    },
+                );
+            }
+            ClientSessionEvent::UnitTetherBlockSpawned { tile_pos, unit_id } => {
+                let Some(tile_pos) = *tile_pos else {
+                    continue;
+                };
+                let overlay_key = allocate_runtime_world_event_marker_key(runtime_world_overlay);
+                let (tile_x, tile_y) = unpack_runtime_point2(tile_pos);
+                let (x_bits, y_bits) = runtime_world_xy_bits_from_tile_pos(tile_pos);
+                push_runtime_world_event_marker_overlay(
+                    runtime_world_overlay,
+                    RuntimeWorldEventMarkerOverlay {
+                        overlay_key,
+                        object_id: format!(
+                            "marker:runtime-unit-tether-block-spawned:{overlay_key}:{tile_x}:{tile_y}:{unit_id}"
+                        ),
+                        layer: 28,
+                        x_bits,
+                        y_bits,
+                        remaining_ticks: TILE_WORLD_ACTION_MARKER_TTL_TICKS,
+                    },
+                );
+            }
+            ClientSessionEvent::AutoDoorToggle { tile_pos, open } => {
+                let Some(tile_pos) = *tile_pos else {
+                    continue;
+                };
+                let overlay_key = allocate_runtime_world_event_marker_key(runtime_world_overlay);
+                let (tile_x, tile_y) = unpack_runtime_point2(tile_pos);
+                let (x_bits, y_bits) = runtime_world_xy_bits_from_tile_pos(tile_pos);
+                push_runtime_world_event_marker_overlay(
+                    runtime_world_overlay,
+                    RuntimeWorldEventMarkerOverlay {
+                        overlay_key,
+                        object_id: format!(
+                            "marker:runtime-auto-door-toggle:{overlay_key}:{tile_x}:{tile_y}:{}",
+                            u8::from(*open)
+                        ),
+                        layer: 28,
+                        x_bits,
+                        y_bits,
+                        remaining_ticks: TILE_WORLD_ACTION_MARKER_TTL_TICKS,
+                    },
+                );
+            }
+            ClientSessionEvent::LandingPadLanded { tile_pos } => {
+                let Some(tile_pos) = *tile_pos else {
+                    continue;
+                };
+                let overlay_key = allocate_runtime_world_event_marker_key(runtime_world_overlay);
+                let (tile_x, tile_y) = unpack_runtime_point2(tile_pos);
+                let (x_bits, y_bits) = runtime_world_xy_bits_from_tile_pos(tile_pos);
+                push_runtime_world_event_marker_overlay(
+                    runtime_world_overlay,
+                    RuntimeWorldEventMarkerOverlay {
+                        overlay_key,
+                        object_id: format!(
+                            "marker:runtime-landing-pad-landed:{overlay_key}:{tile_x}:{tile_y}"
+                        ),
+                        layer: 28,
+                        x_bits,
+                        y_bits,
+                        remaining_ticks: TILE_WORLD_ACTION_MARKER_TTL_TICKS,
+                    },
+                );
+            }
+            ClientSessionEvent::AssemblerDroneSpawned { tile_pos, unit_id } => {
+                let Some(tile_pos) = *tile_pos else {
+                    continue;
+                };
+                let overlay_key = allocate_runtime_world_event_marker_key(runtime_world_overlay);
+                let (tile_x, tile_y) = unpack_runtime_point2(tile_pos);
+                let (x_bits, y_bits) = runtime_world_xy_bits_from_tile_pos(tile_pos);
+                push_runtime_world_event_marker_overlay(
+                    runtime_world_overlay,
+                    RuntimeWorldEventMarkerOverlay {
+                        overlay_key,
+                        object_id: format!(
+                            "marker:runtime-assembler-drone-spawned:{overlay_key}:{tile_x}:{tile_y}:{unit_id}"
+                        ),
+                        layer: 28,
+                        x_bits,
+                        y_bits,
+                        remaining_ticks: TILE_WORLD_ACTION_MARKER_TTL_TICKS,
+                    },
+                );
+            }
+            ClientSessionEvent::AssemblerUnitSpawned { tile_pos } => {
+                let Some(tile_pos) = *tile_pos else {
+                    continue;
+                };
+                let overlay_key = allocate_runtime_world_event_marker_key(runtime_world_overlay);
+                let (tile_x, tile_y) = unpack_runtime_point2(tile_pos);
+                let (x_bits, y_bits) = runtime_world_xy_bits_from_tile_pos(tile_pos);
+                push_runtime_world_event_marker_overlay(
+                    runtime_world_overlay,
+                    RuntimeWorldEventMarkerOverlay {
+                        overlay_key,
+                        object_id: format!(
+                            "marker:runtime-assembler-unit-spawned:{overlay_key}:{tile_x}:{tile_y}"
+                        ),
+                        layer: 28,
+                        x_bits,
+                        y_bits,
+                        remaining_ticks: TILE_WORLD_ACTION_MARKER_TTL_TICKS,
                     },
                 );
             }
@@ -3887,6 +4015,16 @@ pub fn unpack_runtime_point2(value: i32) -> (i32, i32) {
     (i32::from(x), i32::from(y))
 }
 
+fn runtime_world_xy_bits_from_tile_pos(tile_pos: i32) -> (u32, u32) {
+    const TILE_SIZE: f32 = 8.0;
+
+    let (tile_x, tile_y) = unpack_runtime_point2(tile_pos);
+    (
+        (tile_x as f32 * TILE_SIZE).to_bits(),
+        (tile_y as f32 * TILE_SIZE).to_bits(),
+    )
+}
+
 fn append_runtime_build_plan_objects(scene: &mut RenderModel, plans: Option<&[ClientBuildPlan]>) {
     const TILE_SIZE: f32 = 8.0;
 
@@ -5047,6 +5185,64 @@ mod tests {
         assert_eq!(marker.x, 64.0);
         assert_eq!(marker.y, 96.0);
         assert_eq!(marker.layer, 28);
+    }
+
+    #[test]
+    fn render_runtime_adapter_renders_tile_world_action_markers() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
+
+        adapter.observe_events(&[
+            ClientSessionEvent::UnitBlockSpawn {
+                tile_pos: Some(pack_runtime_point2(1, 2)),
+            },
+            ClientSessionEvent::UnitTetherBlockSpawned {
+                tile_pos: Some(pack_runtime_point2(2, 3)),
+                unit_id: 44,
+            },
+            ClientSessionEvent::AutoDoorToggle {
+                tile_pos: Some(pack_runtime_point2(3, 4)),
+                open: true,
+            },
+            ClientSessionEvent::LandingPadLanded {
+                tile_pos: Some(pack_runtime_point2(4, 5)),
+            },
+            ClientSessionEvent::AssemblerDroneSpawned {
+                tile_pos: Some(pack_runtime_point2(5, 6)),
+                unit_id: 77,
+            },
+            ClientSessionEvent::AssemblerUnitSpawned {
+                tile_pos: Some(pack_runtime_point2(6, 7)),
+            },
+        ]);
+        assert_eq!(adapter.world_overlay().world_event_markers.len(), 6);
+
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        for (id, x, y) in [
+            ("marker:runtime-unit-block-spawn:0:1:2", 8.0, 16.0),
+            (
+                "marker:runtime-unit-tether-block-spawned:1:2:3:44",
+                16.0,
+                24.0,
+            ),
+            ("marker:runtime-auto-door-toggle:2:3:4:1", 24.0, 32.0),
+            ("marker:runtime-landing-pad-landed:3:4:5", 32.0, 40.0),
+            (
+                "marker:runtime-assembler-drone-spawned:4:5:6:77",
+                40.0,
+                48.0,
+            ),
+            ("marker:runtime-assembler-unit-spawned:5:6:7", 48.0, 56.0),
+        ] {
+            let marker = scene_object_by_id(&scene, id).expect("missing tile world-action marker");
+            assert_eq!(marker.x, x);
+            assert_eq!(marker.y, y);
+            assert_eq!(marker.layer, 28);
+        }
     }
 
     #[test]
