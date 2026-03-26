@@ -1301,10 +1301,10 @@ fn compose_runtime_live_effect_detail_row_text(hud: &HudModel) -> Option<String>
     Some(format!(
         "hint={} source={} pos={} contract={} reliable={}",
         panel.last_business_hint.as_deref().unwrap_or("none"),
-        live_effect_position_source_text(panel.last_position_source),
-        world_position_text(panel.last_position_hint.as_ref()),
-        compact_runtime_ui_text(panel.last_contract_name.as_deref()),
-        compact_runtime_ui_text(panel.last_reliable_contract_name.as_deref()),
+        live_effect_position_source_text(panel.display_position_source()),
+        world_position_text(panel.display_position()),
+        compact_runtime_ui_text(panel.display_contract_name()),
+        compact_runtime_ui_text(panel.display_reliable_contract_name()),
     ))
 }
 
@@ -1901,14 +1901,14 @@ fn compose_live_effect_text(effect: &crate::RuntimeLiveEffectSummaryObservabilit
         "{}/{}@{}:u{}:k{}:c{}/{}:h{}:p{}@{}",
         effect.effect_count,
         effect.spawn_effect_count,
-        optional_i16_label(effect.last_effect_id),
+        optional_i16_label(effect.display_effect_id()),
         optional_i16_label(effect.last_spawn_effect_unit_type_id),
         compact_runtime_ui_text(effect.last_kind.as_deref()),
-        compact_runtime_ui_text(effect.last_contract_name.as_deref()),
-        compact_runtime_ui_text(effect.last_reliable_contract_name.as_deref()),
+        compact_runtime_ui_text(effect.display_contract_name()),
+        compact_runtime_ui_text(effect.display_reliable_contract_name()),
         effect.last_business_hint.as_deref().unwrap_or("none"),
-        live_effect_position_source_text(effect.last_position_source),
-        world_position_text(effect.last_position_hint.as_ref()),
+        live_effect_position_source_text(effect.display_position_source()),
+        world_position_text(effect.display_position()),
     )
 }
 
@@ -1919,14 +1919,14 @@ fn compose_live_effect_panel_text(
         "{}/{}@{}:u{}:k{}:c{}/{}:h{}:p{}@{}",
         effect.effect_count,
         effect.spawn_effect_count,
-        optional_i16_label(effect.last_effect_id),
+        optional_i16_label(effect.display_effect_id()),
         optional_i16_label(effect.last_spawn_effect_unit_type_id),
         compact_runtime_ui_text(effect.last_kind.as_deref()),
-        compact_runtime_ui_text(effect.last_contract_name.as_deref()),
-        compact_runtime_ui_text(effect.last_reliable_contract_name.as_deref()),
+        compact_runtime_ui_text(effect.display_contract_name()),
+        compact_runtime_ui_text(effect.display_reliable_contract_name()),
         effect.last_business_hint.as_deref().unwrap_or("none"),
-        live_effect_position_source_text(effect.last_position_source),
-        world_position_text(effect.last_position_hint.as_ref()),
+        live_effect_position_source_text(effect.display_position_source()),
+        world_position_text(effect.display_position()),
     )
 }
 
@@ -2381,6 +2381,7 @@ fn live_effect_position_source_text(
     source: Option<crate::RuntimeLiveEffectPositionSource>,
 ) -> &'static str {
     match source {
+        Some(crate::RuntimeLiveEffectPositionSource::ActiveOverlay) => "active",
         Some(crate::RuntimeLiveEffectPositionSource::BusinessProjection) => "biz",
         Some(crate::RuntimeLiveEffectPositionSource::EffectPacket) => "pkt",
         Some(crate::RuntimeLiveEffectPositionSource::SpawnEffectPacket) => "spawn",
@@ -2713,7 +2714,6 @@ mod tests {
 
         let frame = presenter.last_frame();
         assert!(frame.contains("WINDOW: origin=(4, 4) size=4x4"));
-        assert!(frame.contains("@"));
         assert!(frame.contains("R"));
         assert!(frame.contains("M"));
         assert!(frame.contains("P"));
@@ -2764,7 +2764,7 @@ mod tests {
 
     #[test]
     fn sprite_for_id_supports_alias_prefixes() {
-        assert_eq!(super::sprite_for_id("unit:1"), '@');
+        assert_eq!(super::sprite_for_id("unit:1"), 'R');
         assert_eq!(super::sprite_for_id("marker:line:7"), 'M');
         assert_eq!(super::sprite_for_id("marker:line:7:line-end"), 'M');
         assert_eq!(super::sprite_for_id("marker:runtime-health:1:2"), 'R');
@@ -3217,6 +3217,7 @@ mod tests {
                     reliable_label_count: 20,
                     remove_label_count: 21,
                     active_count: 2,
+                    inactive_count: 1,
                     last_entity_id: Some(904),
                     last_text: Some("world label".to_string()),
                     last_flags: Some(3),
@@ -3354,6 +3355,14 @@ mod tests {
                     effect: crate::RuntimeLiveEffectSummaryObservability {
                         effect_count: 11,
                         spawn_effect_count: 73,
+                        active_overlay_count: 1,
+                        active_effect_id: Some(13),
+                        active_contract_name: Some("lightning".to_string()),
+                        active_reliable: Some(true),
+                        active_position: Some(crate::RuntimeWorldPositionObservability {
+                            x_bits: 28.0f32.to_bits(),
+                            y_bits: 36.0f32.to_bits(),
+                        }),
                         last_effect_id: Some(8),
                         last_spawn_effect_unit_type_id: Some(19),
                         last_kind: Some("Point2".to_string()),
@@ -3520,10 +3529,10 @@ mod tests {
             "RUNTIME-RULES-DETAIL: set-rules=67 set-objectives=69 set-rule=71 clear-objectives=73 complete-objective=74"
         ));
         assert!(frame.contains(
-            "RUNTIME-WORLD-LABEL: set=19 rel=20 remove=21 total=60 active=2 inactive=58 last=904 flags=3 font=1094713344@12.0 z=1082130432@4.0 pos=40.0:60.0 text=world label lines=1 len=11"
+            "RUNTIME-WORLD-LABEL: set=19 rel=20 remove=21 total=60 active=2 inactive=1 last=904 flags=3 font=1094713344@12.0 z=1082130432@4.0 pos=40.0:60.0 text=world label lines=1 len=11"
         ));
         assert!(frame.contains(
-            "RUNTIME-WORLD-LABEL-DETAIL: set=19 rel=20 remove=21 active=2 inactive=58 last=904 flags=3 text-len=11 lines=1 font=1094713344@12.0 z=1082130432@4.0 pos=40.0:60.0"
+            "RUNTIME-WORLD-LABEL-DETAIL: set=19 rel=20 remove=21 active=2 inactive=1 last=904 flags=3 text-len=11 lines=1 font=1094713344@12.0 z=1082130432@4.0 pos=40.0:60.0"
         ));
         assert!(frame.contains(
             "RUNTIME-MARKER: create=54 remove=55 update=56 text=57 texture=58 fail=2 last=808 control=flushText"
@@ -3564,14 +3573,14 @@ mod tests {
             "RUNTIME-LIVE-ENTITY-DETAIL: local=404 unit=2/999 pos=20.0:33.0 hidden=0 seen=3 players=1 units=0 last=404/404/none"
         ));
         assert!(frame.contains(
-            "RUNTIME-LIVE-EFFECT: 11/73@8:u19:kPoint2:cposition_tar~/unit_parent:hpos:point2:3:4@1/0:pbiz@24.0:32.0"
+            "RUNTIME-LIVE-EFFECT: 11/73@13:u19:kPoint2:clightning/lightning:hpos:point2:3:4@1/0:pactive@28.0:36.0"
         ));
         assert!(frame.contains(
-            "RUNTIME-LIVE-EFFECT-DETAIL: hint=pos:point2:3:4@1/0 source=biz pos=24.0:32.0 contract=position_tar~ reliable=unit_parent"
+            "RUNTIME-LIVE-EFFECT-DETAIL: hint=pos:point2:3:4@1/0 source=active pos=28.0:36.0 contract=lightning reliable=lightning"
         ));
         assert!(frame.contains("live=ent=1/0@404:u2/999:p20.0:33.0:h0:s3"));
         assert!(frame.contains(
-            "fx=11/73@8:u19:kPoint2:cposition_tar~/unit_parent:hpos:point2:3:4@1/0:pbiz@24.0:32.0"
+            "fx=11/73@13:u19:kPoint2:clightning/lightning:hpos:point2:3:4@1/0:pactive@28.0:36.0"
         ));
     }
 

@@ -1600,10 +1600,10 @@ fn compose_runtime_live_effect_detail_status_text(hud: &HudModel) -> Option<Stri
     Some(format!(
         "livefxd:hint{}:src{}:pos{}:ctr{}:rel{}",
         panel.last_business_hint.as_deref().unwrap_or("none"),
-        live_effect_position_source_status_text(panel.last_position_source),
-        world_position_status_text(panel.last_position_hint.as_ref()),
-        compact_runtime_ui_text(panel.last_contract_name.as_deref()),
-        compact_runtime_ui_text(panel.last_reliable_contract_name.as_deref()),
+        live_effect_position_source_status_text(panel.display_position_source()),
+        world_position_status_text(panel.display_position()),
+        compact_runtime_ui_text(panel.display_contract_name()),
+        compact_runtime_ui_text(panel.display_reliable_contract_name()),
     ))
 }
 
@@ -2211,14 +2211,14 @@ fn compose_live_effect_status_text(
         "{}/{}@{}:u{}:k{}:c{}/{}:h{}:p{}@{}",
         effect.effect_count,
         effect.spawn_effect_count,
-        optional_i16_label(effect.last_effect_id),
+        optional_i16_label(effect.display_effect_id()),
         optional_i16_label(effect.last_spawn_effect_unit_type_id),
         compact_runtime_ui_text(effect.last_kind.as_deref()),
-        compact_runtime_ui_text(effect.last_contract_name.as_deref()),
-        compact_runtime_ui_text(effect.last_reliable_contract_name.as_deref()),
+        compact_runtime_ui_text(effect.display_contract_name()),
+        compact_runtime_ui_text(effect.display_reliable_contract_name()),
         effect.last_business_hint.as_deref().unwrap_or("none"),
-        live_effect_position_source_status_text(effect.last_position_source),
-        world_position_status_text(effect.last_position_hint.as_ref()),
+        live_effect_position_source_status_text(effect.display_position_source()),
+        world_position_status_text(effect.display_position()),
     )
 }
 
@@ -2229,14 +2229,14 @@ fn compose_live_effect_panel_status_text(
         "{}/{}@{}:u{}:k{}:c{}/{}:h{}:p{}@{}",
         effect.effect_count,
         effect.spawn_effect_count,
-        optional_i16_label(effect.last_effect_id),
+        optional_i16_label(effect.display_effect_id()),
         optional_i16_label(effect.last_spawn_effect_unit_type_id),
         compact_runtime_ui_text(effect.last_kind.as_deref()),
-        compact_runtime_ui_text(effect.last_contract_name.as_deref()),
-        compact_runtime_ui_text(effect.last_reliable_contract_name.as_deref()),
+        compact_runtime_ui_text(effect.display_contract_name()),
+        compact_runtime_ui_text(effect.display_reliable_contract_name()),
         effect.last_business_hint.as_deref().unwrap_or("none"),
-        live_effect_position_source_status_text(effect.last_position_source),
-        world_position_status_text(effect.last_position_hint.as_ref()),
+        live_effect_position_source_status_text(effect.display_position_source()),
+        world_position_status_text(effect.display_position()),
     )
 }
 
@@ -2696,6 +2696,7 @@ fn live_effect_position_source_status_text(
     source: Option<crate::RuntimeLiveEffectPositionSource>,
 ) -> &'static str {
     match source {
+        Some(crate::RuntimeLiveEffectPositionSource::ActiveOverlay) => "active",
         Some(crate::RuntimeLiveEffectPositionSource::BusinessProjection) => "biz",
         Some(crate::RuntimeLiveEffectPositionSource::EffectPacket) => "pkt",
         Some(crate::RuntimeLiveEffectPositionSource::SpawnEffectPacket) => "spawn",
@@ -3113,7 +3114,7 @@ mod tests {
         let frame = backend.frames.last().unwrap();
 
         assert_eq!((frame.width, frame.height), (4, 4));
-        assert_eq!(frame.pixel(3, 0), Some(COLOR_PLAYER));
+        assert_eq!(frame.pixel(3, 0), Some(COLOR_RUNTIME));
         assert_eq!(frame.pixel(0, 3), Some(COLOR_BLOCK));
         assert_eq!(frame.pixel(0, 0), Some(COLOR_EMPTY));
     }
@@ -3181,7 +3182,7 @@ mod tests {
     #[test]
     fn color_for_object_uses_semantic_prefix_mapping() {
         assert_eq!(color_for_object(&render_object("player:7")), COLOR_PLAYER);
-        assert_eq!(color_for_object(&render_object("unit:7")), COLOR_PLAYER);
+        assert_eq!(color_for_object(&render_object("unit:7")), COLOR_RUNTIME);
         assert_eq!(
             color_for_object(&render_object("marker:line:7")),
             COLOR_MARKER
@@ -3740,6 +3741,7 @@ mod tests {
                     reliable_label_count: 20,
                     remove_label_count: 21,
                     active_count: 2,
+                    inactive_count: 1,
                     last_entity_id: Some(904),
                     last_text: Some("world label".to_string()),
                     last_flags: Some(3),
@@ -3877,6 +3879,14 @@ mod tests {
                     effect: crate::RuntimeLiveEffectSummaryObservability {
                         effect_count: 11,
                         spawn_effect_count: 73,
+                        active_overlay_count: 1,
+                        active_effect_id: Some(13),
+                        active_contract_name: Some("lightning".to_string()),
+                        active_reliable: Some(true),
+                        active_position: Some(crate::RuntimeWorldPositionObservability {
+                            x_bits: 28.0f32.to_bits(),
+                            y_bits: 36.0f32.to_bits(),
+                        }),
                         last_effect_id: Some(8),
                         last_spawn_effect_unit_type_id: Some(19),
                         last_kind: Some("Point2".to_string()),
@@ -3965,7 +3975,7 @@ mod tests {
             .status_text
             .contains("live=ent=1/0@404:u2/999:p20.0:33.0:h0:s3"));
         assert!(frame.status_text.contains(
-            "fx=11/73@8:u19:kPoint2:cposition_tar~/unit_parent:hpos:point2:3:4@1/0:pbiz@24.0:32.0"
+            "fx=11/73@13:u19:kPoint2:clightning/lightning:hpos:point2:3:4@1/0:pactive@28.0:36.0"
         ));
         assert!(frame
             .status_text
@@ -4096,11 +4106,11 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "RUNTIME-WORLD-LABEL: wlabel:set19:rel20:rm21:tot60:act2:inact58:last904:f3:fs1094713344@12.0:z1082130432@4.0:pos40.0:60.0:txtworld_label:l1:n11",
+            "RUNTIME-WORLD-LABEL: wlabel:set19:rel20:rm21:tot60:act2:inact1:last904:f3:fs1094713344@12.0:z1082130432@4.0:pos40.0:60.0:txtworld_label:l1:n11",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "RUNTIME-WORLD-LABEL-DETAIL: wlabeld:set19:rel20:rm21:act2:in58:last904:f3:txt11x1:fs1094713344@12.0:z1082130432@4.0:p40.0:60.0",
+            "RUNTIME-WORLD-LABEL-DETAIL: wlabeld:set19:rel20:rm21:act2:in1:last904:f3:txt11x1:fs1094713344@12.0:z1082130432@4.0:p40.0:60.0",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
@@ -4160,11 +4170,11 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "RUNTIME-LIVE-EFFECT: livefx:11/73@8:u19:kPoint2:cposition_tar~/unit_parent:hpos:point2:3:4@1/0:pbiz@24.0:32.0",
+            "RUNTIME-LIVE-EFFECT: livefx:11/73@13:u19:kPoint2:clightning/lightning:hpos:point2:3:4@1/0:pactive@28.0:36.0",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "RUNTIME-LIVE-EFFECT-DETAIL: livefxd:hintpos:point2:3:4@1/0:srcbiz:pos24.0:32.0:ctrposition_tar~:relunit_parent",
+            "RUNTIME-LIVE-EFFECT-DETAIL: livefxd:hintpos:point2:3:4@1/0:srcactive:pos28.0:36.0:ctrlightning:rellightning",
         );
         assert_frame_line_contains(&frame.overlay_lines, "OVERLAY: Plans 1");
         assert_frame_line_contains(

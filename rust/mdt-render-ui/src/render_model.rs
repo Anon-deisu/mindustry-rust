@@ -57,6 +57,11 @@ pub enum RenderObjectSemanticFamily {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RenderObjectSemanticKind {
     Player,
+    RuntimeUnit,
+    RuntimeFire,
+    RuntimePuddle,
+    RuntimeWeather,
+    RuntimeWorldLabel,
     Marker,
     MarkerPoint,
     MarkerText,
@@ -150,7 +155,12 @@ impl RenderModel {
 
         self.objects
             .iter()
-            .find(|object| object.semantic_kind() == RenderObjectSemanticKind::Player)
+            .find(|object| {
+                matches!(
+                    object.semantic_kind(),
+                    RenderObjectSemanticKind::Player | RenderObjectSemanticKind::RuntimeUnit
+                )
+            })
             .map(|object| {
                 (
                     world_to_tile_index_floor(object.x, tile_size).max(0) as usize,
@@ -289,7 +299,12 @@ impl RenderObjectSemanticKind {
         }
 
         match prefix {
-            "player" | "unit" => Self::Player,
+            "player" => Self::Player,
+            "unit" => Self::RuntimeUnit,
+            "fire" => Self::RuntimeFire,
+            "puddle" => Self::RuntimePuddle,
+            "weather" => Self::RuntimeWeather,
+            "world-label" => Self::RuntimeWorldLabel,
             "marker" | "hint" => marker_semantic_kind(second),
             "plan" | "build-plan" => plan_semantic_kind(second),
             "block" | "building" => block_semantic_kind(second),
@@ -314,7 +329,12 @@ impl RenderObjectSemanticKind {
             Self::Plan | Self::PlanBuild => RenderObjectSemanticFamily::Plan,
             Self::Block => RenderObjectSemanticFamily::Block,
             Self::Terrain => RenderObjectSemanticFamily::Terrain,
-            Self::RuntimeBuilding
+            Self::RuntimeUnit
+            | Self::RuntimeFire
+            | Self::RuntimePuddle
+            | Self::RuntimeWeather
+            | Self::RuntimeWorldLabel
+            | Self::RuntimeBuilding
             | Self::RuntimeSnapshotHead
             | Self::RuntimeDeconstruct
             | Self::RuntimeConfig
@@ -333,6 +353,11 @@ impl RenderObjectSemanticKind {
 
     pub fn detail_label(self) -> Option<&'static str> {
         match self {
+            Self::RuntimeUnit => Some("runtime-unit"),
+            Self::RuntimeFire => Some("runtime-fire"),
+            Self::RuntimePuddle => Some("runtime-puddle"),
+            Self::RuntimeWeather => Some("runtime-weather"),
+            Self::RuntimeWorldLabel => Some("runtime-world-label"),
             Self::MarkerPoint => Some("marker-point"),
             Self::MarkerText => Some("marker-text"),
             Self::MarkerShape => Some("marker-shape"),
@@ -541,7 +566,23 @@ mod tests {
         );
         assert_eq!(
             RenderObjectSemanticKind::from_id("unit:7"),
-            RenderObjectSemanticKind::Player
+            RenderObjectSemanticKind::RuntimeUnit
+        );
+        assert_eq!(
+            RenderObjectSemanticKind::from_id("fire:7"),
+            RenderObjectSemanticKind::RuntimeFire
+        );
+        assert_eq!(
+            RenderObjectSemanticKind::from_id("puddle:7"),
+            RenderObjectSemanticKind::RuntimePuddle
+        );
+        assert_eq!(
+            RenderObjectSemanticKind::from_id("weather:7"),
+            RenderObjectSemanticKind::RuntimeWeather
+        );
+        assert_eq!(
+            RenderObjectSemanticKind::from_id("world-label:7"),
+            RenderObjectSemanticKind::RuntimeWorldLabel
         );
         assert_eq!(
             RenderObjectSemanticKind::from_id("marker:runtime-config:3:2:string"),
@@ -692,6 +733,10 @@ mod tests {
             RenderObjectSemanticFamily::Runtime
         );
         assert_eq!(
+            RenderObjectSemanticKind::RuntimeUnit.family(),
+            RenderObjectSemanticFamily::Runtime
+        );
+        assert_eq!(
             RenderObjectSemanticKind::PlanBuild.family(),
             RenderObjectSemanticFamily::Plan
         );
@@ -706,6 +751,10 @@ mod tests {
         assert_eq!(
             RenderObjectSemanticKind::RuntimeConfigRollback.detail_label(),
             Some("runtime-config-rollback")
+        );
+        assert_eq!(
+            RenderObjectSemanticKind::RuntimeWorldLabel.detail_label(),
+            Some("runtime-world-label")
         );
         assert_eq!(RenderObjectSemanticKind::Marker.detail_label(), None);
     }
@@ -750,6 +799,21 @@ mod tests {
             runtime_marker.semantic_family(),
             RenderObjectSemanticFamily::Runtime
         );
+
+        let runtime_unit = RenderObject {
+            id: "unit:11".to_string(),
+            layer: 40,
+            x: 0.0,
+            y: 0.0,
+        };
+        assert_eq!(
+            runtime_unit.semantic_kind(),
+            RenderObjectSemanticKind::RuntimeUnit
+        );
+        assert_eq!(
+            runtime_unit.semantic_family(),
+            RenderObjectSemanticFamily::Runtime
+        );
     }
 
     #[test]
@@ -787,7 +851,7 @@ mod tests {
     }
 
     #[test]
-    fn render_model_tracks_projected_view_window_and_unit_focus_tile_alias() {
+    fn render_model_tracks_projected_view_window_and_runtime_unit_focus_tile() {
         let scene = RenderModel {
             viewport: Viewport {
                 width: 64.0,
@@ -820,6 +884,36 @@ mod tests {
                 RenderObject {
                     id: "player:7".to_string(),
                     layer: 40,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "unit:9".to_string(),
+                    layer: 39,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "fire:10".to_string(),
+                    layer: 38,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "puddle:11".to_string(),
+                    layer: 37,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "weather:12".to_string(),
+                    layer: 36,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "world-label:13".to_string(),
+                    layer: 35,
                     x: 0.0,
                     y: 0.0,
                 },
@@ -879,12 +973,12 @@ mod tests {
         assert_eq!(
             summary,
             RenderSemanticSummary {
-                total_count: 9,
+                total_count: 14,
                 player_count: 1,
                 marker_count: 3,
                 plan_count: 1,
                 block_count: 0,
-                runtime_count: 2,
+                runtime_count: 7,
                 terrain_count: 1,
                 unknown_count: 1,
                 detail_counts: vec![
@@ -912,41 +1006,88 @@ mod tests {
                         label: "runtime-config",
                         count: 1,
                     },
+                    RenderSemanticDetailCount {
+                        label: "runtime-fire",
+                        count: 1,
+                    },
+                    RenderSemanticDetailCount {
+                        label: "runtime-puddle",
+                        count: 1,
+                    },
+                    RenderSemanticDetailCount {
+                        label: "runtime-unit",
+                        count: 1,
+                    },
+                    RenderSemanticDetailCount {
+                        label: "runtime-weather",
+                        count: 1,
+                    },
+                    RenderSemanticDetailCount {
+                        label: "runtime-world-label",
+                        count: 1,
+                    },
                 ],
             }
         );
         assert_eq!(
             summary.detail_text().as_deref(),
             Some(
-                "marker-line:1,marker-line-end:1,marker-text:1,plan-build:1,runtime-building:1,runtime-config:1"
+                "marker-line:1,marker-line-end:1,marker-text:1,plan-build:1,runtime-building:1,runtime-config:1,runtime-fire:1,runtime-puddle:1,runtime-unit:1,runtime-weather:1,runtime-world-label:1"
             )
         );
         assert_eq!(
             summary.family_text(),
-            "players=1 markers=3 plans=1 blocks=0 runtime=2 terrain=1 unknown=1"
+            "players=1 markers=3 plans=1 blocks=0 runtime=7 terrain=1 unknown=1"
         );
         assert_eq!(
             summary.family_and_detail_text(),
-            "players=1 markers=3 plans=1 blocks=0 runtime=2 terrain=1 unknown=1 detail=marker-line:1,marker-line-end:1,marker-text:1,plan-build:1,runtime-building:1,runtime-config:1"
+            "players=1 markers=3 plans=1 blocks=0 runtime=7 terrain=1 unknown=1 detail=marker-line:1,marker-line-end:1,marker-text:1,plan-build:1,runtime-building:1,runtime-config:1,runtime-fire:1,runtime-puddle:1,runtime-unit:1,runtime-weather:1,runtime-world-label:1"
         );
     }
 
     #[test]
-    fn render_model_counts_unit_alias_in_player_family_summary() {
+    fn render_model_counts_runtime_live_entity_prefixes_in_runtime_family_summary() {
         let scene = RenderModel {
             viewport: Viewport::default(),
             view_window: None,
-            objects: vec![RenderObject {
-                id: "unit:7".to_string(),
-                layer: 40,
-                x: 0.0,
-                y: 0.0,
-            }],
+            objects: vec![
+                RenderObject {
+                    id: "unit:7".to_string(),
+                    layer: 40,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "fire:8".to_string(),
+                    layer: 39,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "puddle:9".to_string(),
+                    layer: 38,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "weather:10".to_string(),
+                    layer: 37,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "world-label:11".to_string(),
+                    layer: 36,
+                    x: 0.0,
+                    y: 0.0,
+                },
+            ],
         };
 
         let summary = scene.semantic_summary();
-        assert_eq!(summary.total_count, 1);
-        assert_eq!(summary.player_count, 1);
+        assert_eq!(summary.total_count, 5);
+        assert_eq!(summary.player_count, 0);
+        assert_eq!(summary.runtime_count, 5);
         assert_eq!(summary.unknown_count, 0);
     }
 

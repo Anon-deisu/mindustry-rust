@@ -980,6 +980,7 @@ pub struct RuntimeWorldLabelPanelModel {
     pub remove_label_count: u64,
     pub total_count: u64,
     pub active_count: usize,
+    pub inactive_count: usize,
     pub last_entity_id: Option<i32>,
     pub last_text: Option<String>,
     pub last_flags: Option<u8>,
@@ -989,8 +990,8 @@ pub struct RuntimeWorldLabelPanelModel {
 }
 
 impl RuntimeWorldLabelPanelModel {
-    pub fn inactive_count(&self) -> u64 {
-        self.total_count.saturating_sub(self.active_count as u64)
+    pub fn inactive_count(&self) -> usize {
+        self.inactive_count
     }
 
     pub fn last_text_len(&self) -> usize {
@@ -1308,6 +1309,11 @@ pub struct RuntimeLiveEntityPanelModel {
 pub struct RuntimeLiveEffectPanelModel {
     pub effect_count: u64,
     pub spawn_effect_count: u64,
+    pub active_overlay_count: usize,
+    pub active_effect_id: Option<i16>,
+    pub active_contract_name: Option<String>,
+    pub active_reliable: Option<bool>,
+    pub active_position: Option<crate::RuntimeWorldPositionObservability>,
     pub last_effect_id: Option<i16>,
     pub last_spawn_effect_unit_type_id: Option<i16>,
     pub last_kind: Option<String>,
@@ -1316,6 +1322,40 @@ pub struct RuntimeLiveEffectPanelModel {
     pub last_business_hint: Option<String>,
     pub last_position_hint: Option<crate::RuntimeWorldPositionObservability>,
     pub last_position_source: Option<crate::RuntimeLiveEffectPositionSource>,
+}
+
+impl RuntimeLiveEffectPanelModel {
+    pub fn display_effect_id(&self) -> Option<i16> {
+        self.active_effect_id.or(self.last_effect_id)
+    }
+
+    pub fn display_contract_name(&self) -> Option<&str> {
+        self.active_contract_name
+            .as_deref()
+            .or(self.last_contract_name.as_deref())
+    }
+
+    pub fn display_reliable_contract_name(&self) -> Option<&str> {
+        if self.active_reliable == Some(true) {
+            self.active_contract_name.as_deref()
+        } else {
+            self.last_reliable_contract_name.as_deref()
+        }
+    }
+
+    pub fn display_position_source(&self) -> Option<crate::RuntimeLiveEffectPositionSource> {
+        if self.active_position.is_some() {
+            Some(crate::RuntimeLiveEffectPositionSource::ActiveOverlay)
+        } else {
+            self.last_position_source
+        }
+    }
+
+    pub fn display_position(&self) -> Option<&crate::RuntimeWorldPositionObservability> {
+        self.active_position
+            .as_ref()
+            .or(self.last_position_hint.as_ref())
+    }
 }
 
 pub fn build_hud_status_panel(hud: &HudModel) -> Option<HudStatusPanelModel> {
@@ -2053,6 +2093,7 @@ pub fn build_runtime_world_label_panel(hud: &HudModel) -> Option<RuntimeWorldLab
             .saturating_add(world_labels.reliable_label_count)
             .saturating_add(world_labels.remove_label_count),
         active_count: world_labels.active_count,
+        inactive_count: world_labels.inactive_count,
         last_entity_id: world_labels.last_entity_id,
         last_text: world_labels.last_text.clone(),
         last_flags: world_labels.last_flags,
@@ -2233,6 +2274,11 @@ pub fn build_runtime_live_effect_panel(hud: &HudModel) -> Option<RuntimeLiveEffe
     Some(RuntimeLiveEffectPanelModel {
         effect_count: effect.effect_count,
         spawn_effect_count: effect.spawn_effect_count,
+        active_overlay_count: effect.active_overlay_count,
+        active_effect_id: effect.active_effect_id,
+        active_contract_name: effect.active_contract_name.clone(),
+        active_reliable: effect.active_reliable,
+        active_position: effect.active_position,
         last_effect_id: effect.last_effect_id,
         last_spawn_effect_unit_type_id: effect.last_spawn_effect_unit_type_id,
         last_kind: effect.last_kind.clone(),
@@ -3134,6 +3180,7 @@ mod tests {
                     reliable_label_count: 20,
                     remove_label_count: 21,
                     active_count: 2,
+                    inactive_count: 1,
                     last_entity_id: Some(904),
                     last_text: Some("world label".to_string()),
                     last_flags: Some(3),
@@ -3159,12 +3206,13 @@ mod tests {
         assert_eq!(panel.remove_label_count, 21);
         assert_eq!(panel.total_count, 60);
         assert_eq!(panel.active_count, 2);
+        assert_eq!(panel.inactive_count, 1);
         assert_eq!(panel.last_entity_id, Some(904));
         assert_eq!(panel.last_text.as_deref(), Some("world label"));
         assert_eq!(panel.last_flags, Some(3));
         assert_eq!(panel.last_font_size_bits, Some(12.0f32.to_bits()));
         assert_eq!(panel.last_z_bits, Some(4.0f32.to_bits()));
-        assert_eq!(panel.inactive_count(), 58);
+        assert_eq!(panel.inactive_count(), 1);
         assert_eq!(panel.last_text_len(), 11);
         assert_eq!(panel.last_text_line_count(), 1);
         assert_eq!(panel.last_font_size(), Some(12.0));
@@ -3186,6 +3234,7 @@ mod tests {
             remove_label_count: 3,
             total_count: 6,
             active_count: 1,
+            inactive_count: 4,
             last_entity_id: Some(9),
             last_text: Some("alpha\nbeta\n".to_string()),
             last_flags: Some(7),
@@ -3194,7 +3243,7 @@ mod tests {
             last_position: None,
         };
 
-        assert_eq!(panel.inactive_count(), 5);
+        assert_eq!(panel.inactive_count(), 4);
         assert_eq!(panel.last_text_len(), 11);
         assert_eq!(panel.last_text_line_count(), 3);
         assert_eq!(panel.last_font_size(), None);
@@ -3349,6 +3398,14 @@ mod tests {
                     effect: crate::RuntimeLiveEffectSummaryObservability {
                         effect_count: 11,
                         spawn_effect_count: 73,
+                        active_overlay_count: 1,
+                        active_effect_id: Some(13),
+                        active_contract_name: Some("lightning".to_string()),
+                        active_reliable: Some(true),
+                        active_position: Some(crate::RuntimeWorldPositionObservability {
+                            x_bits: 28.0f32.to_bits(),
+                            y_bits: 36.0f32.to_bits(),
+                        }),
                         last_effect_id: Some(8),
                         last_spawn_effect_unit_type_id: Some(19),
                         last_kind: Some("Point2".to_string()),
@@ -3373,6 +3430,17 @@ mod tests {
 
         assert_eq!(panel.effect_count, 11);
         assert_eq!(panel.spawn_effect_count, 73);
+        assert_eq!(panel.active_overlay_count, 1);
+        assert_eq!(panel.active_effect_id, Some(13));
+        assert_eq!(panel.active_contract_name.as_deref(), Some("lightning"));
+        assert_eq!(panel.active_reliable, Some(true));
+        assert_eq!(
+            panel.active_position,
+            Some(crate::RuntimeWorldPositionObservability {
+                x_bits: 28.0f32.to_bits(),
+                y_bits: 36.0f32.to_bits(),
+            })
+        );
         assert_eq!(panel.last_effect_id, Some(8));
         assert_eq!(panel.last_spawn_effect_unit_type_id, Some(19));
         assert_eq!(panel.last_kind.as_deref(), Some("Point2"));
@@ -3395,6 +3463,20 @@ mod tests {
         assert_eq!(
             panel.last_position_source,
             Some(crate::RuntimeLiveEffectPositionSource::BusinessProjection)
+        );
+        assert_eq!(panel.display_effect_id(), Some(13));
+        assert_eq!(panel.display_contract_name(), Some("lightning"));
+        assert_eq!(panel.display_reliable_contract_name(), Some("lightning"));
+        assert_eq!(
+            panel.display_position_source(),
+            Some(crate::RuntimeLiveEffectPositionSource::ActiveOverlay)
+        );
+        assert_eq!(
+            panel.display_position(),
+            Some(&crate::RuntimeWorldPositionObservability {
+                x_bits: 28.0f32.to_bits(),
+                y_bits: 36.0f32.to_bits(),
+            })
         );
     }
 

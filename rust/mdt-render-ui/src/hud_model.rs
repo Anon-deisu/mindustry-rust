@@ -374,6 +374,7 @@ pub struct RuntimeWorldLabelObservability {
     pub reliable_label_count: u64,
     pub remove_label_count: u64,
     pub active_count: usize,
+    pub inactive_count: usize,
     pub last_entity_id: Option<i32>,
     pub last_text: Option<String>,
     pub last_flags: Option<u8>,
@@ -577,6 +578,11 @@ pub struct RuntimeLiveEntitySummaryObservability {
 pub struct RuntimeLiveEffectSummaryObservability {
     pub effect_count: u64,
     pub spawn_effect_count: u64,
+    pub active_overlay_count: usize,
+    pub active_effect_id: Option<i16>,
+    pub active_contract_name: Option<String>,
+    pub active_reliable: Option<bool>,
+    pub active_position: Option<RuntimeWorldPositionObservability>,
     pub last_effect_id: Option<i16>,
     pub last_spawn_effect_unit_type_id: Option<i16>,
     pub last_kind: Option<String>,
@@ -589,9 +595,44 @@ pub struct RuntimeLiveEffectSummaryObservability {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeLiveEffectPositionSource {
+    ActiveOverlay,
     BusinessProjection,
     EffectPacket,
     SpawnEffectPacket,
+}
+
+impl RuntimeLiveEffectSummaryObservability {
+    pub fn display_effect_id(&self) -> Option<i16> {
+        self.active_effect_id.or(self.last_effect_id)
+    }
+
+    pub fn display_contract_name(&self) -> Option<&str> {
+        self.active_contract_name
+            .as_deref()
+            .or(self.last_contract_name.as_deref())
+    }
+
+    pub fn display_reliable_contract_name(&self) -> Option<&str> {
+        if self.active_reliable == Some(true) {
+            self.active_contract_name.as_deref()
+        } else {
+            self.last_reliable_contract_name.as_deref()
+        }
+    }
+
+    pub fn display_position_source(&self) -> Option<RuntimeLiveEffectPositionSource> {
+        if self.active_position.is_some() {
+            Some(RuntimeLiveEffectPositionSource::ActiveOverlay)
+        } else {
+            self.last_position_source
+        }
+    }
+
+    pub fn display_position(&self) -> Option<&RuntimeWorldPositionObservability> {
+        self.active_position
+            .as_ref()
+            .or(self.last_position_hint.as_ref())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

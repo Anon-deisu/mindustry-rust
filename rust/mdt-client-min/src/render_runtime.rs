@@ -16,8 +16,8 @@ use crate::session_state::{
     BuildingProjectionUpdateKind, BuildingTableProjection, ConfiguredBlockOutcome,
     ConfiguredBlockProjection, ConfiguredContentRef, CoreInventoryRuntimeBindingKind,
     EffectBusinessContentKind, EffectBusinessPositionSource, EffectBusinessProjection,
-    EffectDataSemantic, EntitySemanticProjection, HiddenSnapshotDeltaProjection,
-    ReconnectPhaseProjection, ReconnectReasonKind, SessionResetKind, SessionState,
+    EffectDataSemantic, HiddenSnapshotDeltaProjection, ReconnectPhaseProjection,
+    ReconnectReasonKind, SessionResetKind, SessionState,
     SessionTimeoutKind, StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection,
     TileConfigAuthoritySource, TileConfigProjection, TypedBuildingRuntimeKind,
     TypedBuildingRuntimeModel, TypedBuildingRuntimeProjection, TypedBuildingRuntimeValue,
@@ -1910,7 +1910,7 @@ fn runtime_ui_observability(
         world_labels: runtime_world_label_observability(session_state),
         markers: runtime_marker_observability(session_state),
         session: runtime_session_observability(session_state, world_overlay),
-        live: runtime_live_summary_observability(session_state),
+        live: runtime_live_summary_observability(session_state, world_overlay),
     }
 }
 
@@ -2056,41 +2056,50 @@ fn runtime_rules_observability(session_state: &SessionState) -> RuntimeRulesObse
 fn runtime_world_label_observability(
     session_state: &SessionState,
 ) -> RuntimeWorldLabelObservability {
-    let active_labels = session_state
-        .entity_semantic_projection
+    let typed_projection = session_state.runtime_typed_entity_projection();
+    let active_labels = typed_projection
         .by_entity_id
         .iter()
-        .filter_map(|(&entity_id, entry)| match &entry.projection {
-            EntitySemanticProjection::WorldLabel(world_label) => {
-                Some((entity_id, entry, world_label))
+        .filter_map(|(&entity_id, entity)| match entity {
+            TypedRuntimeEntityModel::WorldLabel(world_label) if !world_label.base.hidden => {
+                Some((entity_id, world_label))
             }
             _ => None,
         })
         .collect::<Vec<_>>();
+    let inactive_count = typed_projection
+        .by_entity_id
+        .values()
+        .filter(|entity| {
+            matches!(
+                entity,
+                TypedRuntimeEntityModel::WorldLabel(world_label) if world_label.base.hidden
+            )
+        })
+        .count();
     let last_active_label = active_labels
         .iter()
-        .max_by_key(|(entity_id, entry, _)| (entry.last_seen_entity_snapshot_count, *entity_id))
+        .max_by_key(|(entity_id, world_label)| {
+            (world_label.base.last_seen_entity_snapshot_count, *entity_id)
+        })
         .copied();
     RuntimeWorldLabelObservability {
         label_count: session_state.received_world_label_count,
         reliable_label_count: session_state.received_world_label_reliable_count,
         remove_label_count: session_state.received_remove_world_label_count,
         active_count: active_labels.len(),
-        last_entity_id: last_active_label.map(|(entity_id, _, _)| entity_id),
-        last_text: last_active_label.and_then(|(_, _, world_label)| world_label.text.clone()),
-        last_flags: last_active_label.map(|(_, _, world_label)| world_label.flags),
+        inactive_count,
+        last_entity_id: last_active_label.map(|(entity_id, _)| entity_id),
+        last_text: last_active_label.and_then(|(_, world_label)| world_label.semantic.text.clone()),
+        last_flags: last_active_label.map(|(_, world_label)| world_label.semantic.flags),
         last_font_size_bits: last_active_label
-            .map(|(_, _, world_label)| world_label.font_size_bits),
-        last_z_bits: last_active_label.map(|(_, _, world_label)| world_label.z_bits),
-        last_position: last_active_label.and_then(|(entity_id, _, _)| {
-            session_state
-                .entity_table_projection
-                .by_entity_id
-                .get(&entity_id)
-                .map(|entity| RuntimeWorldPositionObservability {
-                    x_bits: entity.x_bits,
-                    y_bits: entity.y_bits,
-                })
+            .map(|(_, world_label)| world_label.semantic.font_size_bits),
+        last_z_bits: last_active_label.map(|(_, world_label)| world_label.semantic.z_bits),
+        last_position: last_active_label.map(|(_, world_label)| {
+            RuntimeWorldPositionObservability {
+                x_bits: world_label.base.x_bits,
+                y_bits: world_label.base.y_bits,
+            }
         }),
     }
 }
@@ -2311,10 +2320,11 @@ fn runtime_reconnect_reason_kind_observability(
 
 fn runtime_live_summary_observability(
     session_state: &SessionState,
+    world_overlay: &RuntimeWorldOverlay,
 ) -> RuntimeLiveSummaryObservability {
     RuntimeLiveSummaryObservability {
         entity: runtime_live_entity_summary_observability(session_state),
-        effect: runtime_live_effect_summary_observability(session_state),
+        effect: runtime_live_effect_summary_observability(session_state, world_overlay),
     }
 }
 
@@ -2347,12 +2357,23 @@ fn runtime_live_entity_summary_observability(
 
 fn runtime_live_effect_summary_observability(
     session_state: &SessionState,
+    world_overlay: &RuntimeWorldOverlay,
 ) -> RuntimeLiveEffectSummaryObservability {
     let (last_position_source, last_position_hint) =
         runtime_live_effect_position_hint_observability(session_state);
+    let active_overlay = world_overlay.effect_overlays.last();
     RuntimeLiveEffectSummaryObservability {
         effect_count: session_state.received_effect_count,
         spawn_effect_count: session_state.received_spawn_effect_count,
+        active_overlay_count: world_overlay.effect_overlays.len(),
+        active_effect_id: active_overlay.and_then(|overlay| overlay.effect_id),
+        active_contract_name: active_overlay
+            .and_then(|overlay| overlay.contract_name.map(str::to_string)),
+        active_reliable: active_overlay.map(|overlay| overlay.reliable),
+        active_position: active_overlay.map(|overlay| RuntimeWorldPositionObservability {
+            x_bits: overlay.x_bits,
+            y_bits: overlay.y_bits,
+        }),
         last_effect_id: session_state.last_effect_id,
         last_spawn_effect_unit_type_id: session_state.last_spawn_effect_unit_type_id,
         last_kind: session_state.last_effect_data_kind.clone(),
@@ -8288,7 +8309,7 @@ mod tests {
             903,
             35,
             2,
-            EntitySemanticProjection::WorldLabel(
+            crate::session_state::EntitySemanticProjection::WorldLabel(
                 crate::session_state::EntityWorldLabelSemanticProjection {
                     flags: 1,
                     font_size_bits: 8.0f32.to_bits(),
@@ -8301,7 +8322,7 @@ mod tests {
             904,
             35,
             4,
-            EntitySemanticProjection::WorldLabel(
+            crate::session_state::EntitySemanticProjection::WorldLabel(
                 crate::session_state::EntityWorldLabelSemanticProjection {
                     flags: 3,
                     font_size_bits: 12.0f32.to_bits(),
@@ -9281,6 +9302,170 @@ mod tests {
         assert!(hud
             .status_text
             .contains("runtime_gameplay_signal=flag46:go47:ugo48:sc49:res50:wave2@7>8#4"));
+    }
+
+    #[test]
+    fn runtime_world_label_observability_tracks_hidden_labels_as_inactive() {
+        let mut state = SessionState::default();
+        state.entity_table_projection.upsert_entity(
+            903,
+            35,
+            false,
+            0,
+            0,
+            10.0f32.to_bits(),
+            12.0f32.to_bits(),
+            false,
+            2,
+        );
+        state.entity_table_projection.upsert_entity(
+            904,
+            35,
+            false,
+            0,
+            0,
+            40.0f32.to_bits(),
+            60.0f32.to_bits(),
+            false,
+            4,
+        );
+        state.entity_table_projection.upsert_entity(
+            905,
+            35,
+            false,
+            0,
+            0,
+            70.0f32.to_bits(),
+            90.0f32.to_bits(),
+            true,
+            5,
+        );
+        state.entity_semantic_projection.upsert(
+            903,
+            35,
+            2,
+            crate::session_state::EntitySemanticProjection::WorldLabel(
+                crate::session_state::EntityWorldLabelSemanticProjection {
+                    flags: 1,
+                    font_size_bits: 8.0f32.to_bits(),
+                    text: Some("older".to_string()),
+                    z_bits: 2.0f32.to_bits(),
+                },
+            ),
+        );
+        state.entity_semantic_projection.upsert(
+            904,
+            35,
+            4,
+            crate::session_state::EntitySemanticProjection::WorldLabel(
+                crate::session_state::EntityWorldLabelSemanticProjection {
+                    flags: 3,
+                    font_size_bits: 12.0f32.to_bits(),
+                    text: Some("active".to_string()),
+                    z_bits: 4.0f32.to_bits(),
+                },
+            ),
+        );
+        state.entity_semantic_projection.upsert(
+            905,
+            35,
+            5,
+            crate::session_state::EntitySemanticProjection::WorldLabel(
+                crate::session_state::EntityWorldLabelSemanticProjection {
+                    flags: 7,
+                    font_size_bits: 16.0f32.to_bits(),
+                    text: Some("hidden".to_string()),
+                    z_bits: 6.0f32.to_bits(),
+                },
+            ),
+        );
+
+        let observability = runtime_world_label_observability(&state);
+
+        assert_eq!(observability.active_count, 2);
+        assert_eq!(observability.inactive_count, 1);
+        assert_eq!(observability.last_entity_id, Some(904));
+        assert_eq!(observability.last_text.as_deref(), Some("active"));
+        assert_eq!(
+            observability.last_position,
+            Some(RuntimeWorldPositionObservability {
+                x_bits: 40.0f32.to_bits(),
+                y_bits: 60.0f32.to_bits(),
+            })
+        );
+    }
+
+    #[test]
+    fn runtime_live_effect_observability_prefers_active_overlay_state() {
+        let mut state = SessionState::default();
+        state.received_effect_count = 11;
+        state.received_spawn_effect_count = 73;
+        state.last_effect_id = Some(8);
+        state.last_spawn_effect_unit_type_id = Some(19);
+        state.last_effect_data_kind = Some("Point2".to_string());
+        state.last_effect_contract_name = Some("position_target".to_string());
+        state.last_effect_reliable_contract_name = Some("unit_parent".to_string());
+        state.last_effect_data_business_hint = Some(
+            crate::effect_data_runtime::EffectDataBusinessHint::PositionHint(
+                mdt_typeio::TypeIoEffectPositionHint::Point2 {
+                    x: 3,
+                    y: 4,
+                    path: vec![1, 0],
+                },
+            ),
+        );
+        state.last_effect_business_projection = Some(EffectBusinessProjection::WorldPosition {
+            source: EffectBusinessPositionSource::Point2,
+            x_bits: 24.0f32.to_bits(),
+            y_bits: 32.0f32.to_bits(),
+        });
+        let mut world_overlay = RuntimeWorldOverlay::default();
+        world_overlay.effect_overlays.push(RuntimeEffectOverlay {
+            effect_id: Some(13),
+            source_x_bits: 22.0f32.to_bits(),
+            source_y_bits: 30.0f32.to_bits(),
+            source_binding: None,
+            x_bits: 28.0f32.to_bits(),
+            y_bits: 36.0f32.to_bits(),
+            rotation_bits: 0.0f32.to_bits(),
+            color_rgba: 0xffffffff,
+            reliable: true,
+            has_data: false,
+            lifetime_ticks: 3,
+            remaining_ticks: 3,
+            contract_name: Some("lightning"),
+            binding: None,
+            content_ref: None,
+            polyline_points: Vec::new(),
+        });
+
+        let observability = runtime_live_effect_summary_observability(&state, &world_overlay);
+
+        assert_eq!(observability.active_overlay_count, 1);
+        assert_eq!(observability.active_effect_id, Some(13));
+        assert_eq!(observability.active_contract_name.as_deref(), Some("lightning"));
+        assert_eq!(observability.active_reliable, Some(true));
+        assert_eq!(
+            observability.active_position,
+            Some(RuntimeWorldPositionObservability {
+                x_bits: 28.0f32.to_bits(),
+                y_bits: 36.0f32.to_bits(),
+            })
+        );
+        assert_eq!(observability.display_effect_id(), Some(13));
+        assert_eq!(observability.display_contract_name(), Some("lightning"));
+        assert_eq!(observability.display_reliable_contract_name(), Some("lightning"));
+        assert_eq!(
+            observability.display_position_source(),
+            Some(RuntimeLiveEffectPositionSource::ActiveOverlay)
+        );
+        assert_eq!(
+            observability.display_position(),
+            Some(&RuntimeWorldPositionObservability {
+                x_bits: 28.0f32.to_bits(),
+                y_bits: 36.0f32.to_bits(),
+            })
+        );
     }
 
     #[test]
