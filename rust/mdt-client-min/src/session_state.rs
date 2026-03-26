@@ -6191,6 +6191,26 @@ impl SessionState {
                 local_player_entity_id,
             );
         }
+        clear_hidden_non_local_unit_ref(
+            &mut self.last_unit_control_target,
+            hidden_ids,
+            local_player_entity_id,
+        );
+        clear_hidden_non_local_unit_ref(
+            &mut self.last_unit_building_control_select_target,
+            hidden_ids,
+            local_player_entity_id,
+        );
+        clear_hidden_non_local_unit_ref(
+            &mut self.last_command_units_unit_target,
+            hidden_ids,
+            local_player_entity_id,
+        );
+        clear_hidden_non_local_unit_ref(
+            &mut self.last_request_unit_payload_target,
+            hidden_ids,
+            local_player_entity_id,
+        );
     }
 
     pub fn record_payload_lifecycle_drop(

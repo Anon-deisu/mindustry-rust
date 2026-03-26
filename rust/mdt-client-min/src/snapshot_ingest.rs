@@ -2739,6 +2739,22 @@ mod tests {
                 removed_carrier: false,
             },
         );
+        state.last_unit_control_target = Some(UnitRefProjection {
+            kind: 2,
+            value: 303,
+        });
+        state.last_unit_building_control_select_target = Some(UnitRefProjection {
+            kind: 2,
+            value: 101,
+        });
+        state.last_command_units_unit_target = Some(UnitRefProjection {
+            kind: 2,
+            value: 303,
+        });
+        state.last_request_unit_payload_target = Some(UnitRefProjection {
+            kind: 2,
+            value: 303,
+        });
 
         ingest_inbound_snapshot(
             &mut state,
@@ -2776,6 +2792,16 @@ mod tests {
                 kind: 2,
                 value: 101
             }));
+        assert_eq!(state.last_unit_control_target, None);
+        assert_eq!(
+            state.last_unit_building_control_select_target,
+            Some(UnitRefProjection {
+                kind: 2,
+                value: 101,
+            })
+        );
+        assert_eq!(state.last_command_units_unit_target, None);
+        assert_eq!(state.last_request_unit_payload_target, None);
         assert!(
             state.payload_lifecycle_projection.by_carrier[&UnitRefProjection {
                 kind: 2,
