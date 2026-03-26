@@ -19,12 +19,11 @@ use crate::session_state::{
     EffectBusinessContentKind, EffectBusinessPositionSource, EffectBusinessProjection,
     EffectDataSemantic, EffectRuntimeBindingState, HiddenSnapshotDeltaProjection,
     ReconnectPhaseProjection, ReconnectReasonKind, SessionResetKind, SessionState,
-    SessionTimeoutKind,
-    StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection, TileConfigAuthoritySource,
-    TileConfigProjection, TypedBuildingRuntimeKind, TypedBuildingRuntimeModel,
-    TypedBuildingRuntimeProjection, TypedBuildingRuntimeValue, TypedRuntimeEntityModel,
-    TypedRuntimeEntityProjection, UnitAssemblerRuntimeProjection, UnitRefProjection,
-    WorldBootstrapProjection, WorldReloadProjection,
+    SessionTimeoutKind, StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection,
+    TileConfigAuthoritySource, TileConfigProjection, TypedBuildingRuntimeKind,
+    TypedBuildingRuntimeModel, TypedBuildingRuntimeProjection, TypedBuildingRuntimeValue,
+    TypedRuntimeEntityModel, TypedRuntimeEntityProjection, UnitAssemblerRuntimeProjection,
+    UnitRefProjection, WorldBootstrapProjection, WorldReloadProjection,
 };
 use mdt_remote::{HighFrequencyRemoteMethod, HIGH_FREQUENCY_REMOTE_METHOD_COUNT};
 use mdt_render_ui::hud_model::{
@@ -39,11 +38,11 @@ use mdt_render_ui::{
     BuildConfigOutcomeObservability, BuildConfigRollbackStripObservability,
     BuildQueueHeadObservability, BuildQueueHeadStage, BuildUiObservability, HudModel, RenderModel,
     RenderObject, RuntimeAdminObservability, RuntimeCommandUnitRefObservability,
-    RuntimeHudTextObservability, RuntimeLiveEffectPositionSource, RuntimeLiveEffectSummaryObservability,
-    RuntimeLiveEntitySummaryObservability, RuntimeLiveSummaryObservability,
-    RuntimeMenuObservability, RuntimeRulesObservability, RuntimeTextInputObservability,
-    RuntimeToastObservability, RuntimeUiObservability, RuntimeWorldLabelObservability,
-    RuntimeWorldPositionObservability,
+    RuntimeHudTextObservability, RuntimeLiveEffectPositionSource,
+    RuntimeLiveEffectSummaryObservability, RuntimeLiveEntitySummaryObservability,
+    RuntimeLiveSummaryObservability, RuntimeMenuObservability, RuntimeRulesObservability,
+    RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiObservability,
+    RuntimeWorldLabelObservability, RuntimeWorldPositionObservability,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -2001,7 +2000,8 @@ fn runtime_local_entity_label(session_state: &SessionState) -> String {
         if entity.hidden { 1 } else { 0 },
     );
     let runtime_entity_projection = session_state.runtime_typed_entity_projection();
-    let Some(owned_unit_entity_id) = runtime_entity_projection.local_player_owned_unit_entity_id else {
+    let Some(owned_unit_entity_id) = runtime_entity_projection.local_player_owned_unit_entity_id
+    else {
         return base;
     };
     let Some(TypedRuntimeEntityModel::Unit(unit)) =
@@ -2018,10 +2018,7 @@ fn runtime_local_entity_label(session_state: &SessionState) -> String {
         .unwrap_or_else(|| "none".to_string());
     format!(
         "{base}:ou{owned_unit_entity_id}@am0x{:08x}:el0x{:08x}:fg0x{:016x}:br{}",
-        runtime_sync.ammo_bits,
-        runtime_sync.elevation_bits,
-        runtime_sync.flag_bits,
-        base_rotation,
+        runtime_sync.ammo_bits, runtime_sync.elevation_bits, runtime_sync.flag_bits, base_rotation,
     )
 }
 
@@ -4142,18 +4139,12 @@ fn runtime_effect_binding_label(
         rotation: snapshot_input.rotation,
     };
     let active_overlay = world_overlay.effect_overlays.last();
-    let overlay_target = active_overlay
-        .and_then(|overlay| {
-            observe_runtime_effect_overlay_binding_state(overlay, session_state, &input_view)
-        });
-    let overlay_source = active_overlay
-        .and_then(|overlay| {
-            observe_runtime_effect_overlay_source_binding_state(
-                overlay,
-                session_state,
-                &input_view,
-            )
-        });
+    let overlay_target = active_overlay.and_then(|overlay| {
+        observe_runtime_effect_overlay_binding_state(overlay, session_state, &input_view)
+    });
+    let overlay_source = active_overlay.and_then(|overlay| {
+        observe_runtime_effect_overlay_source_binding_state(overlay, session_state, &input_view)
+    });
     let session_target = session_state.last_effect_runtime_binding_state;
     let session_source = session_state.last_effect_runtime_source_binding_state;
     let (target, source) = if session_target.is_some() || session_source.is_some() {
@@ -4240,9 +4231,16 @@ fn append_runtime_command_mode_overlay_objects(
     session_state: &SessionState,
 ) {
     let command_mode = &snapshot_input.command_mode;
+    if !command_mode.active {
+        return;
+    }
 
     for &entity_id in &command_mode.selected_units {
-        let Some(entity) = session_state.entity_table_projection.by_entity_id.get(&entity_id) else {
+        let Some(entity) = session_state
+            .entity_table_projection
+            .by_entity_id
+            .get(&entity_id)
+        else {
             continue;
         };
         let x = f32::from_bits(entity.x_bits);
@@ -5159,9 +5157,9 @@ mod tests {
     use crate::client_session::{ClientBuildPlanConfig, ClientSession};
     use mdt_protocol::encode_packet;
     use mdt_remote::read_remote_manifest;
-    use mdt_typeio::{write_object as write_typeio_object, TypeIoObject};
     use mdt_render_ui::project_scene_models_with_player_position;
     use mdt_render_ui::render_model::RenderPrimitive;
+    use mdt_typeio::{write_object as write_typeio_object, TypeIoObject};
     use std::path::PathBuf;
 
     fn decode_hex_text(text: &str) -> Vec<u8> {
@@ -6569,6 +6567,70 @@ mod tests {
                     48.0f32.to_bits(),
                     40.0f32.to_bits()
                 )
+        }));
+    }
+
+    #[test]
+    fn render_runtime_adapter_skips_command_mode_overlays_when_projection_is_inactive() {
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState {
+            command_mode: mdt_input::CommandModeProjection {
+                active: false,
+                selected_units: vec![11],
+                command_buildings: vec![pack_runtime_point2(18, 40)],
+                command_rect: Some(mdt_input::CommandModeRectProjection {
+                    x0: 1,
+                    y0: 2,
+                    x1: 3,
+                    y1: 4,
+                }),
+                last_target: Some(mdt_input::CommandModeTargetProjection {
+                    build_target: Some(pack_runtime_point2(7, 8)),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut state = SessionState::default();
+        state.entity_table_projection.upsert_entity(
+            11,
+            1,
+            false,
+            0,
+            0,
+            8.0f32.to_bits(),
+            16.0f32.to_bits(),
+            false,
+            1,
+        );
+
+        let mut adapter = RenderRuntimeAdapter::default();
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        assert!(!scene
+            .objects
+            .iter()
+            .any(|object| object.id.starts_with("marker:runtime-command-")));
+        assert!(!scene
+            .objects
+            .iter()
+            .any(|object| { object.id.starts_with("marker:line:runtime-command-") }));
+        assert!(!scene.primitives().iter().any(|primitive| {
+            matches!(
+                primitive,
+                mdt_render_ui::render_model::RenderPrimitive::Icon { family, .. }
+                    if *family
+                        == mdt_render_ui::render_model::RenderIconPrimitiveFamily::RuntimeCommand
+            )
+        }));
+        assert!(!scene.primitives().iter().any(|primitive| {
+            matches!(
+                primitive,
+                mdt_render_ui::render_model::RenderPrimitive::Rect { family, .. }
+                    if family == "runtime-command-rect" || family == "runtime-command-target-rect"
+            )
         }));
     }
 
@@ -9515,7 +9577,9 @@ mod tests {
         let input = session.snapshot_input();
         adapter.apply(&mut scene, &mut hud, input, session.state());
 
-        assert!(hud.status_text.contains("runtime_effect_binding=follow/follow"));
+        assert!(hud
+            .status_text
+            .contains("runtime_effect_binding=follow/follow"));
         let live_effect = &hud
             .runtime_ui
             .as_ref()
@@ -9524,7 +9588,10 @@ mod tests {
             .effect;
         assert_eq!(live_effect.active_overlay_count, 1);
         assert_eq!(live_effect.active_effect_id, Some(8));
-        assert_eq!(live_effect.last_contract_name.as_deref(), Some("position_target"));
+        assert_eq!(
+            live_effect.last_contract_name.as_deref(),
+            Some("position_target")
+        );
     }
 
     #[test]
