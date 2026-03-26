@@ -19,6 +19,7 @@ use crate::presenter_view::{
 };
 use crate::render_model::{RenderObjectSemanticFamily, RenderObjectSemanticKind};
 use crate::{HudModel, RenderModel, ScenePresenter};
+use std::collections::BTreeMap;
 
 const TILE_SIZE: f32 = 8.0;
 
@@ -45,23 +46,33 @@ impl AsciiScenePresenter {
         let height = (scene.viewport.height / TILE_SIZE).round().max(0.0) as usize;
         let window = crop_window(scene, width, height, self.max_view_tiles);
         let mut grid = vec![vec![' '; window.width]; window.height];
-        let mut objects = scene
+        let line_end_objects = scene
             .objects
             .iter()
-            .filter_map(|object| {
-                visible_window_tile(
-                    object,
-                    TILE_SIZE,
-                    window.origin_x,
-                    window.origin_y,
-                    window.width,
-                    window.height,
-                )
-            })
+            .filter_map(ascii_line_end_object_pair)
+            .collect::<BTreeMap<_, _>>();
+        let mut commands = scene
+            .objects
+            .iter()
+            .filter_map(|object| ascii_render_command(object, &line_end_objects, window))
             .collect::<Vec<_>>();
-        objects.sort_by_key(|(object, _, _)| object.layer);
-        for (object, local_x, local_y) in objects {
-            grid[local_y][local_x] = sprite_for_id(&object.id);
+        commands.sort_by_key(AsciiRenderCommand::layer);
+        for command in commands {
+            match command {
+                AsciiRenderCommand::Point {
+                    object,
+                    local_x,
+                    local_y,
+                } => {
+                    grid[local_y][local_x] = sprite_for_id(&object.id);
+                }
+                AsciiRenderCommand::Line {
+                    start_tile,
+                    end_tile,
+                    sprite,
+                    ..
+                } => draw_ascii_line_segment(&mut grid, window, start_tile, end_tile, sprite),
+            }
         }
 
         let mut out = String::new();
@@ -360,6 +371,152 @@ impl ScenePresenter for AsciiScenePresenter {
     fn present(&mut self, scene: &RenderModel, hud: &HudModel) {
         self.last_frame = self.compose_frame(scene, hud);
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum AsciiRenderCommand<'a> {
+    Point {
+        object: &'a crate::RenderObject,
+        local_x: usize,
+        local_y: usize,
+    },
+    Line {
+        layer: i32,
+        start_tile: (i32, i32),
+        end_tile: (i32, i32),
+        sprite: char,
+    },
+}
+
+impl AsciiRenderCommand<'_> {
+    fn layer(&self) -> i32 {
+        match self {
+            Self::Point { object, .. } => object.layer,
+            Self::Line { layer, .. } => *layer,
+        }
+    }
+}
+
+fn ascii_render_command<'a>(
+    object: &'a crate::RenderObject,
+    line_end_objects: &BTreeMap<String, &'a crate::RenderObject>,
+    window: PresenterViewWindow,
+) -> Option<AsciiRenderCommand<'a>> {
+    match RenderObjectSemanticKind::from_id(&object.id) {
+        RenderObjectSemanticKind::MarkerLineEnd => None,
+        RenderObjectSemanticKind::MarkerLine => {
+            if let Some(line_end) = line_end_objects.get(&object.id) {
+                return Some(AsciiRenderCommand::Line {
+                    layer: object.layer,
+                    start_tile: ascii_world_object_tile(object),
+                    end_tile: ascii_world_object_tile(line_end),
+                    sprite: sprite_for_id(&object.id),
+                });
+            }
+            visible_window_tile(
+                object,
+                TILE_SIZE,
+                window.origin_x,
+                window.origin_y,
+                window.width,
+                window.height,
+            )
+            .map(|(object, local_x, local_y)| AsciiRenderCommand::Point {
+                object,
+                local_x,
+                local_y,
+            })
+        }
+        _ => visible_window_tile(
+            object,
+            TILE_SIZE,
+            window.origin_x,
+            window.origin_y,
+            window.width,
+            window.height,
+        )
+        .map(|(object, local_x, local_y)| AsciiRenderCommand::Point {
+            object,
+            local_x,
+            local_y,
+        }),
+    }
+}
+
+fn ascii_line_end_object_pair(
+    object: &crate::RenderObject,
+) -> Option<(String, &crate::RenderObject)> {
+    if RenderObjectSemanticKind::from_id(&object.id) != RenderObjectSemanticKind::MarkerLineEnd {
+        return None;
+    }
+    object
+        .id
+        .strip_suffix(":line-end")
+        .map(|base_id| (base_id.to_string(), object))
+}
+
+fn ascii_world_object_tile(object: &crate::RenderObject) -> (i32, i32) {
+    (
+        crate::presenter_view::world_to_tile_index_floor(object.x, TILE_SIZE),
+        crate::presenter_view::world_to_tile_index_floor(object.y, TILE_SIZE),
+    )
+}
+
+fn draw_ascii_line_segment(
+    grid: &mut [Vec<char>],
+    window: PresenterViewWindow,
+    start_tile: (i32, i32),
+    end_tile: (i32, i32),
+    sprite: char,
+) {
+    let (mut x0, mut y0) = start_tile;
+    let (x1, y1) = end_tile;
+    let dx = (x1 - x0).abs();
+    let sx = if x0 <= x1 { 1 } else { -1 };
+    let dy = -(y1 - y0).abs();
+    let sy = if y0 <= y1 { 1 } else { -1 };
+    let mut err = dx + dy;
+
+    loop {
+        draw_ascii_tile_if_visible(grid, window, x0, y0, sprite);
+        if x0 == x1 && y0 == y1 {
+            break;
+        }
+        let doubled_error = err.saturating_mul(2);
+        if doubled_error >= dy {
+            err += dy;
+            x0 += sx;
+        }
+        if doubled_error <= dx {
+            err += dx;
+            y0 += sy;
+        }
+    }
+}
+
+fn draw_ascii_tile_if_visible(
+    grid: &mut [Vec<char>],
+    window: PresenterViewWindow,
+    tile_x: i32,
+    tile_y: i32,
+    sprite: char,
+) {
+    let Ok(tile_x) = usize::try_from(tile_x) else {
+        return;
+    };
+    let Ok(tile_y) = usize::try_from(tile_y) else {
+        return;
+    };
+    if tile_x < window.origin_x
+        || tile_y < window.origin_y
+        || tile_x >= window.origin_x.saturating_add(window.width)
+        || tile_y >= window.origin_y.saturating_add(window.height)
+    {
+        return;
+    }
+    let local_x = tile_x - window.origin_x;
+    let local_y = tile_y - window.origin_y;
+    grid[local_y][local_x] = sprite;
 }
 
 fn crop_window(
@@ -2578,6 +2735,37 @@ mod tests {
 
         let frame = presenter.last_frame();
         assert!(frame.contains("WINDOW: origin="));
+    }
+
+    #[test]
+    fn ascii_presenter_rasterizes_marker_line_segments_into_visible_tiles() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 32.0,
+                height: 32.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: "marker:line:demo".to_string(),
+                    layer: 1,
+                    x: -8.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:line:demo:line-end".to_string(),
+                    layer: 1,
+                    x: 16.0,
+                    y: 0.0,
+                },
+            ],
+        };
+        let mut presenter = AsciiScenePresenter::default();
+
+        presenter.present(&scene, &HudModel::default());
+
+        assert_eq!(presenter.last_frame().lines().last(), Some("MMM."));
     }
 
     #[test]
