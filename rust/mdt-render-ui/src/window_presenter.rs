@@ -74,6 +74,7 @@ pub struct WindowMinimapInset {
     pub focus_tile: Option<(usize, usize)>,
     pub player_tile: Option<(usize, usize)>,
     pub ping_tile: Option<(usize, usize)>,
+    pub tile_action_tiles: Vec<(usize, usize)>,
     pub command_tiles: Vec<(usize, usize)>,
     pub command_rects: Vec<WindowMinimapCommandRect>,
     pub world_label_tiles: Vec<(usize, usize)>,
@@ -505,6 +506,7 @@ fn compose_window_minimap_inset(
             panel.map_height,
         ),
         ping_tile: runtime_ping_minimap_tile(scene, panel.map_width, panel.map_height),
+        tile_action_tiles: runtime_tile_action_minimap_tiles(scene, panel.map_width, panel.map_height, 8),
         command_tiles: runtime_command_minimap_tiles(scene, panel.map_width, panel.map_height, 8),
         command_rects: runtime_command_minimap_rects(scene, panel.map_width, panel.map_height, 2),
         world_label_tiles: runtime_world_label_minimap_tiles(scene, panel.map_width, panel.map_height, 8),
@@ -590,6 +592,51 @@ fn runtime_command_minimap_tiles(
         "marker:runtime-command-unit-target:",
         "marker:runtime-command-selected-unit:",
         "marker:runtime-command-building:",
+    ] {
+        for object in scene.objects.iter().rev() {
+            if !object.id.starts_with(prefix) {
+                continue;
+            }
+            let tile_x = crate::presenter_view::world_to_tile_index_floor(object.x, TILE_SIZE);
+            let tile_y = crate::presenter_view::world_to_tile_index_floor(object.y, TILE_SIZE);
+            if tile_x < 0 || tile_y < 0 {
+                continue;
+            }
+            let Some(tile) = clamp_window_minimap_tile(
+                Some((tile_x as usize, tile_y as usize)),
+                map_width,
+                map_height,
+            ) else {
+                continue;
+            };
+            if !seen.insert(tile) {
+                continue;
+            }
+            tiles.push(tile);
+            if tiles.len() >= max_tiles {
+                return tiles;
+            }
+        }
+    }
+
+    tiles
+}
+
+fn runtime_tile_action_minimap_tiles(
+    scene: &RenderModel,
+    map_width: usize,
+    map_height: usize,
+    max_tiles: usize,
+) -> Vec<(usize, usize)> {
+    let mut seen = BTreeSet::new();
+    let mut tiles = Vec::new();
+
+    for prefix in [
+        "marker:runtime-unit-block-spawn:",
+        "marker:runtime-unit-tether-block-spawned:",
+        "marker:runtime-landing-pad-landed:",
+        "marker:runtime-assembler-drone-spawned:",
+        "marker:runtime-assembler-unit-spawned:",
     ] {
         for object in scene.objects.iter().rev() {
             if !object.id.starts_with(prefix) {
@@ -3871,6 +3918,20 @@ fn overlay_window_minimap_inset(
             *rect,
         );
     }
+    for &tile_action_tile in &inset.tile_action_tiles {
+        draw_window_minimap_tile_action(
+            pixels,
+            surface_width,
+            surface_height,
+            map_start_x,
+            map_start_y,
+            map_pixel_width,
+            map_pixel_height,
+            inset.map_width,
+            inset.map_height,
+            tile_action_tile,
+        );
+    }
     for overlay_tile in &inset.runtime_overlay_tiles {
         draw_window_minimap_runtime_overlay(
             pixels,
@@ -4304,6 +4365,41 @@ fn draw_window_minimap_command_rect(
         rect_width,
         rect_height,
         color,
+    );
+}
+
+fn draw_window_minimap_tile_action(
+    pixels: &mut [u32],
+    surface_width: usize,
+    surface_height: usize,
+    map_start_x: usize,
+    map_start_y: usize,
+    map_pixel_width: usize,
+    map_pixel_height: usize,
+    map_width: usize,
+    map_height: usize,
+    tile: (usize, usize),
+) {
+    let Some((pixel_x, pixel_y)) = project_window_minimap_point(
+        tile,
+        map_width,
+        map_height,
+        map_pixel_width,
+        map_pixel_height,
+    ) else {
+        return;
+    };
+    let center_x = map_start_x.saturating_add(pixel_x);
+    let center_y = map_start_y.saturating_add(pixel_y);
+    fill_window_hud_rect(
+        pixels,
+        surface_width,
+        surface_height,
+        center_x,
+        center_y,
+        1,
+        1,
+        COLOR_ICON_RUNTIME_TILE_ACTION,
     );
 }
 
@@ -5068,6 +5164,7 @@ mod tests {
                 focus_tile: Some((60, 40)),
                 player_tile: Some((20, 18)),
                 ping_tile: Some((44, 22)),
+                tile_action_tiles: vec![(18, 14), (22, 30)],
                 command_tiles: vec![(24, 20), (26, 18)],
                 command_rects: vec![
                     WindowMinimapCommandRect {
@@ -5130,6 +5227,7 @@ mod tests {
         assert!(top_right_pixels.contains(&COLOR_MARKER));
         assert!(top_right_pixels.contains(&COLOR_RUNTIME));
         assert!(top_right_pixels.contains(&COLOR_ICON_RUNTIME_COMMAND));
+        assert!(top_right_pixels.contains(&COLOR_ICON_RUNTIME_TILE_ACTION));
         assert!(top_right_pixels.contains(&COLOR_ICON_BUILD_CONFIG));
         assert!(top_right_pixels.contains(&COLOR_UNKNOWN));
         assert!(top_right_pixels.contains(&COLOR_ICON_RUNTIME_BREAK));
@@ -5195,6 +5293,18 @@ mod tests {
                 layer: 29,
                 x: 88.0,
                 y: 96.0,
+            },
+            RenderObject {
+                id: "marker:runtime-unit-block-spawn:1:13:14".to_string(),
+                layer: 28,
+                x: 104.0,
+                y: 112.0,
+            },
+            RenderObject {
+                id: "marker:runtime-assembler-unit-spawned:2:15:16".to_string(),
+                layer: 28,
+                x: 120.0,
+                y: 128.0,
             },
         ];
         objects.extend(runtime_command_rect_objects(
@@ -5271,6 +5381,7 @@ mod tests {
         assert_eq!(inset.focus_tile, Some((7, 6)));
         assert_eq!(inset.player_tile, Some((4, 2)));
         assert_eq!(inset.ping_tile, Some((5, 3)));
+        assert_eq!(inset.tile_action_tiles, vec![(13, 14), (15, 16)]);
         assert_eq!(inset.command_tiles, vec![(9, 10), (11, 12)]);
         assert_eq!(
             inset.command_rects,
