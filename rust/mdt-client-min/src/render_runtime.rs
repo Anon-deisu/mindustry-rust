@@ -4397,8 +4397,80 @@ fn append_runtime_build_plan_objects(scene: &mut RenderModel, plans: Option<&[Cl
         });
         if plan.breaking {
             append_runtime_break_plan_rect_outline(scene, plan.tile.0, plan.tile.1);
+        } else {
+            append_runtime_build_plan_config_top_objects(scene, index, plan);
         }
     }
+}
+
+fn append_runtime_build_plan_config_top_objects(
+    scene: &mut RenderModel,
+    index: usize,
+    plan: &ClientBuildPlan,
+) {
+    match &plan.config {
+        ClientBuildPlanConfig::Point2 { x, y } => {
+            append_runtime_build_plan_config_link(scene, index, 0, plan.tile, (*x, *y));
+        }
+        ClientBuildPlanConfig::Point2Array(points) => {
+            for (ordinal, &(x, y)) in points.iter().take(4).enumerate() {
+                append_runtime_build_plan_config_link(scene, index, ordinal, plan.tile, (x, y));
+            }
+        }
+        ClientBuildPlanConfig::BuildingPos(value) => {
+            append_runtime_build_plan_config_link(
+                scene,
+                index,
+                0,
+                plan.tile,
+                unpack_runtime_point2(*value),
+            );
+        }
+        _ => {}
+    }
+}
+
+fn append_runtime_build_plan_config_link(
+    scene: &mut RenderModel,
+    index: usize,
+    ordinal: usize,
+    source_tile: (i32, i32),
+    target_tile: (i32, i32),
+) {
+    const TILE_SIZE: f32 = 8.0;
+    const LINK_LAYER: i32 = 22;
+
+    if source_tile == target_tile {
+        return;
+    }
+
+    let source = (
+        (source_tile.0 as f32 + 0.5) * TILE_SIZE,
+        (source_tile.1 as f32 + 0.5) * TILE_SIZE,
+    );
+    let target = (
+        (target_tile.0 as f32 + 0.5) * TILE_SIZE,
+        (target_tile.1 as f32 + 0.5) * TILE_SIZE,
+    );
+    let line_id = format!(
+        "marker:line:runtime-plan-config-link:{index}:{ordinal}:{}:{}:{}:{}",
+        source.0.to_bits(),
+        source.1.to_bits(),
+        target.0.to_bits(),
+        target.1.to_bits()
+    );
+    scene.objects.push(RenderObject {
+        id: line_id.clone(),
+        layer: LINK_LAYER,
+        x: source.0,
+        y: source.1,
+    });
+    scene.objects.push(RenderObject {
+        id: format!("{line_id}:line-end"),
+        layer: LINK_LAYER,
+        x: target.0,
+        y: target.1,
+    });
 }
 
 fn append_runtime_break_plan_rect_outline(scene: &mut RenderModel, tile_x: i32, tile_y: i32) {
@@ -5803,7 +5875,7 @@ mod tests {
                     breaking: false,
                     block_id: Some(0x0101),
                     rotation: 1,
-                    config: ClientBuildPlanConfig::Point2 { x: 8, y: 9 },
+                    config: ClientBuildPlanConfig::Point2Array(vec![(8, 9), (9, 10)]),
                 },
                 ClientBuildPlan {
                     tile: (4, 4),
@@ -5832,6 +5904,16 @@ mod tests {
             .objects
             .iter()
             .any(|object| object.id.starts_with("plan:runtime-place:")));
+        assert!(scene.objects.iter().any(|object| {
+            object
+                .id
+                .starts_with("marker:line:runtime-plan-config-link:0:0:")
+        }));
+        assert!(scene.objects.iter().any(|object| {
+            object
+                .id
+                .starts_with("marker:line:runtime-plan-config-link:0:1:")
+        }));
         assert!(scene
             .objects
             .iter()
@@ -5840,12 +5922,36 @@ mod tests {
             .objects
             .iter()
             .any(|object| object.id.starts_with("marker:line:runtime-break-rect:")));
+        assert!(scene.primitives().iter().any(|primitive| {
+            matches!(
+                primitive,
+                mdt_render_ui::render_model::RenderPrimitive::Line {
+                    x0,
+                    y0,
+                    x1,
+                    y1,
+                    ..
+                } if *x0 == 44.0 && *y0 == 36.0 && *x1 == 68.0 && *y1 == 76.0
+            )
+        }));
+        assert!(scene.primitives().iter().any(|primitive| {
+            matches!(
+                primitive,
+                mdt_render_ui::render_model::RenderPrimitive::Line {
+                    x0,
+                    y0,
+                    x1,
+                    y1,
+                    ..
+                } if *x0 == 44.0 && *y0 == 36.0 && *x1 == 76.0 && *y1 == 84.0
+            )
+        }));
         assert!(hud.status_text.contains("runtime_selected=0x0101"));
         assert!(hud.status_text.contains("runtime_plans=2"));
         assert!(hud.status_text.contains("runtime_cfg_int=0"));
         assert!(hud.status_text.contains("runtime_cfg_bool=0"));
-        assert!(hud.status_text.contains("runtime_cfg_point2=1"));
-        assert!(hud.status_text.contains("runtime_cfg_point2_array=0"));
+        assert!(hud.status_text.contains("runtime_cfg_point2=0"));
+        assert!(hud.status_text.contains("runtime_cfg_point2_array=1"));
         assert!(hud.status_text.contains("runtime_cfg_string=0"));
         assert!(hud.status_text.contains("runtime_cfg_bytes=0"));
         assert!(hud.status_text.contains("runtime_cfg_content=0"));
