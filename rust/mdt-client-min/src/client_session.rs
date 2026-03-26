@@ -53,7 +53,8 @@ use mdt_world::{
     parse_entity_payload_sync_bytes, parse_entity_payload_sync_bytes_with_content_header,
     parse_entity_player_sync_bytes, parse_entity_puddle_sync_bytes,
     parse_entity_weather_state_sync_bytes, parse_entity_world_label_sync_bytes, parse_world_bundle,
-    ContentHeaderEntry, LoadedWorldBootstrap, LoadedWorldState, WorldBundle,
+    BuildingBaseSnapshot, BuildingCenter, BuildingSnapshot, ContentHeaderEntry,
+    LoadedWorldBootstrap, LoadedWorldState, ParsedBuildingTail, WorldBundle,
 };
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::fmt;
@@ -118,6 +119,7 @@ const BLOCK_NAME_LANDING_PAD: &str = "landing-pad";
 const BLOCK_NAME_ITEM_SOURCE: &str = "item-source";
 const BLOCK_NAME_LIQUID_SOURCE: &str = "liquid-source";
 const BLOCK_NAME_SORTER: &str = "sorter";
+const EMPTY_SHA256_HEX: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 const BLOCK_NAME_INVERTED_SORTER: &str = "inverted-sorter";
 const BLOCK_NAME_BRIDGE_CONVEYOR: &str = "bridge-conveyor";
 const BLOCK_NAME_PHASE_CONVEYOR: &str = "phase-conveyor";
@@ -1480,6 +1482,23 @@ impl ClientSession {
             .flatten()
     }
 
+    fn loaded_world_effective_block_id(&self, build_pos: i32) -> Option<i16> {
+        self.loaded_world_block_id_at(build_pos).or_else(|| {
+            self.state
+                .building_table_projection
+                .by_build_pos
+                .get(&build_pos)
+                .and_then(|building| building.block_id)
+        })
+    }
+
+    fn apply_loaded_world_player_team(&mut self, team_id: u8) {
+        let Some(bundle) = self.loaded_world_bundle.as_mut() else {
+            return;
+        };
+        bundle.player.team_id = team_id;
+    }
+
     fn apply_loaded_world_tile_patch(
         &mut self,
         tile_pos: i32,
@@ -1514,6 +1533,95 @@ impl ClientSession {
         }
     }
 
+    fn ensure_loaded_world_building_center(&mut self, tile_pos: i32) -> Option<usize> {
+        let projection = self
+            .state
+            .building_table_projection
+            .by_build_pos
+            .get(&tile_pos)
+            .cloned();
+        let Some(bundle) = self.loaded_world_bundle.as_mut() else {
+            return None;
+        };
+        let Some(tile_index) = loaded_world_tile_index(bundle, tile_pos) else {
+            return None;
+        };
+        if let Some(center_index) = bundle.world.tiles[tile_index].building_center_index {
+            return Some(center_index);
+        }
+
+        let tile = bundle.world.tiles.get(tile_index)?.clone();
+        let effective_block_id = (tile.block_id != 0)
+            .then(|| i16::try_from(tile.block_id).ok())
+            .flatten()
+            .or_else(|| projection.as_ref().and_then(|building| building.block_id))?;
+        let center_index = bundle.world.building_centers.len();
+        bundle.world.building_centers.push(BuildingCenter {
+            tile_index,
+            x: tile.x,
+            y: tile.y,
+            block_id: loaded_world_content_id_or_default(Some(effective_block_id)),
+            chunk_len: 0,
+            chunk_bytes: Vec::new(),
+            chunk_sha256: EMPTY_SHA256_HEX.to_string(),
+            building: BuildingSnapshot {
+                revision: projection
+                    .as_ref()
+                    .and_then(|building| building.io_version)
+                    .unwrap_or_default(),
+                base_len: 0,
+                base: BuildingBaseSnapshot {
+                    health_bits: projection
+                        .as_ref()
+                        .and_then(|building| building.health_bits)
+                        .unwrap_or(1.0f32.to_bits()),
+                    rotation: projection
+                        .as_ref()
+                        .and_then(|building| building.rotation)
+                        .unwrap_or_default(),
+                    team_id: projection
+                        .as_ref()
+                        .and_then(|building| building.team_id)
+                        .unwrap_or_default(),
+                    legacy: true,
+                    save_version: projection.as_ref().and_then(|building| building.io_version),
+                    enabled: projection.as_ref().and_then(|building| building.enabled),
+                    module_bitmask: projection
+                        .as_ref()
+                        .and_then(|building| building.module_bitmask),
+                    item_module: None,
+                    power_module: None,
+                    liquid_module: None,
+                    time_scale_bits: projection
+                        .as_ref()
+                        .and_then(|building| building.time_scale_bits),
+                    time_scale_duration_bits: projection
+                        .as_ref()
+                        .and_then(|building| building.time_scale_duration_bits),
+                    last_disabler_pos: projection
+                        .as_ref()
+                        .and_then(|building| building.last_disabler_pos),
+                    legacy_consume_connected: projection
+                        .as_ref()
+                        .and_then(|building| building.legacy_consume_connected),
+                    efficiency: projection.as_ref().and_then(|building| building.efficiency),
+                    optional_efficiency: projection
+                        .as_ref()
+                        .and_then(|building| building.optional_efficiency),
+                    visible_flags: projection
+                        .as_ref()
+                        .and_then(|building| building.visible_flags),
+                },
+                tail_len: 0,
+                tail_bytes: Vec::new(),
+                tail_sha256: EMPTY_SHA256_HEX.to_string(),
+                parsed_tail: ParsedBuildingTail::Unknown,
+            },
+        });
+        bundle.world.tiles[tile_index].building_center_index = Some(center_index);
+        Some(center_index)
+    }
+
     fn apply_loaded_world_building_center_authority(
         &mut self,
         tile_pos: i32,
@@ -1521,13 +1629,10 @@ impl ClientSession {
         team_id: Option<u8>,
         rotation: Option<i32>,
     ) {
+        let Some(center_index) = self.ensure_loaded_world_building_center(tile_pos) else {
+            return;
+        };
         let Some(bundle) = self.loaded_world_bundle.as_mut() else {
-            return;
-        };
-        let Some(tile_index) = loaded_world_tile_index(bundle, tile_pos) else {
-            return;
-        };
-        let Some(center_index) = bundle.world.tiles[tile_index].building_center_index else {
             return;
         };
         let Some(center) = bundle.world.building_centers.get_mut(center_index) else {
@@ -1543,6 +1648,19 @@ impl ClientSession {
         if let Some(rotation) = rotation.and_then(|value| u8::try_from(value).ok()) {
             center.building.base.rotation = rotation;
         }
+    }
+
+    fn apply_loaded_world_building_health(&mut self, build_pos: i32, health_bits: u32) {
+        let Some(center_index) = self.ensure_loaded_world_building_center(build_pos) else {
+            return;
+        };
+        let Some(bundle) = self.loaded_world_bundle.as_mut() else {
+            return;
+        };
+        let Some(center) = bundle.world.building_centers.get_mut(center_index) else {
+            return;
+        };
+        center.building.base.health_bits = health_bits;
     }
 
     fn clear_authoritative_building_state(&mut self, build_pos: i32, block_id: Option<i16>) {
@@ -1588,6 +1706,24 @@ impl ClientSession {
                 self.clear_authoritative_building_state(build_pos, previous_block_id);
             }
         }
+    }
+
+    fn apply_authoritative_building_team_projection(&mut self, build_pos: i32, team_id: u8) {
+        let Some(block_id) = self.loaded_world_effective_block_id(build_pos) else {
+            return;
+        };
+        let block_name = self.loaded_world_block_name(block_id).or_else(|| {
+            self.state
+                .building_table_projection
+                .by_build_pos
+                .get(&build_pos)
+                .and_then(|building| building.block_name.clone())
+        });
+        self.state
+            .building_table_projection
+            .apply_remote_tile_authority(build_pos, block_id, block_name, None, Some(team_id));
+        self.state
+            .refresh_runtime_typed_building_from_tables(build_pos);
     }
 
     pub fn take_replayed_loading_events(&mut self) -> Vec<ClientSessionEvent> {
@@ -3791,6 +3927,18 @@ impl ClientSession {
                         self.state.received_set_team_count.saturating_add(1);
                     self.state.last_set_team_build_pos = summary.build_pos;
                     self.state.last_set_team_id = Some(summary.team_id);
+                    if let Some(build_pos) = summary.build_pos {
+                        self.apply_loaded_world_building_center_authority(
+                            build_pos,
+                            None,
+                            Some(summary.team_id),
+                            None,
+                        );
+                        self.apply_authoritative_building_team_projection(
+                            build_pos,
+                            summary.team_id,
+                        );
+                    }
                     Ok(ClientSessionEvent::SetTeam {
                         build_pos: summary.build_pos,
                         team_id: summary.team_id,
@@ -3809,6 +3957,18 @@ impl ClientSession {
                     self.state.last_set_teams_team_id = Some(summary.team_id);
                     self.state.last_set_teams_count = summary.position_count;
                     self.state.last_set_teams_first_position = summary.first_position;
+                    for build_pos in &summary.positions {
+                        self.apply_loaded_world_building_center_authority(
+                            *build_pos,
+                            None,
+                            Some(summary.team_id),
+                            None,
+                        );
+                        self.apply_authoritative_building_team_projection(
+                            *build_pos,
+                            summary.team_id,
+                        );
+                    }
                     Ok(ClientSessionEvent::SetTeams {
                         team_id: summary.team_id,
                         position_count: summary.position_count,
@@ -4227,6 +4387,7 @@ impl ClientSession {
                         .received_set_player_team_editor_count
                         .saturating_add(1);
                     self.state.last_set_player_team_editor_team_id = Some(team_id);
+                    self.apply_loaded_world_player_team(team_id);
                     Ok(ClientSessionEvent::SetPlayerTeamEditor { team_id })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -4792,6 +4953,13 @@ impl ClientSession {
                     self.state.last_construct_finish_config_object = Some(config_object);
                     let block_name =
                         block_id.and_then(|block_id| self.loaded_world_block_name(block_id));
+                    self.apply_loaded_world_tile_patch(tile_pos, None, None, Some(block_id));
+                    self.apply_loaded_world_building_center_authority(
+                        tile_pos,
+                        block_id,
+                        Some(team_id),
+                        Some(i32::from(rotation)),
+                    );
                     self.state.building_table_projection.apply_construct_finish(
                         tile_pos,
                         block_id,
@@ -4861,6 +5029,7 @@ impl ClientSession {
                     let block_name = summary
                         .block_id
                         .and_then(|block_id| self.loaded_world_block_name(block_id));
+                    self.apply_loaded_world_tile_patch(summary.tile_pos, None, None, Some(None));
                     self.state
                         .building_table_projection
                         .apply_deconstruct_finish(summary.tile_pos, summary.block_id, block_name);
@@ -4906,6 +5075,7 @@ impl ClientSession {
                     self.state.last_build_health_update_first_health_bits =
                         summary.first_health_bits;
                     for pair in &summary.pairs {
+                        self.apply_loaded_world_building_health(pair.build_pos, pair.health_bits);
                         self.state
                             .building_table_projection
                             .apply_build_health(pair.build_pos, pair.health_bits);
@@ -15653,6 +15823,60 @@ mod tests {
         for chunk in chunk_packets {
             session.ingest_packet_bytes(&chunk).unwrap();
         }
+    }
+
+    fn sample_build_positions_with_centers(session: &ClientSession, count: usize) -> Vec<i32> {
+        let positions = session
+            .loaded_world_bundle()
+            .unwrap()
+            .world
+            .building_centers
+            .iter()
+            .take(count)
+            .map(|center| {
+                pack_point2(
+                    i32::try_from(center.x).unwrap(),
+                    i32::try_from(center.y).unwrap(),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            positions.len(),
+            count,
+            "sample world missing building centers"
+        );
+        positions
+    }
+
+    fn sample_empty_tile_positions_without_centers(
+        session: &ClientSession,
+        count: usize,
+    ) -> Vec<i32> {
+        let positions = session
+            .loaded_world_bundle()
+            .unwrap()
+            .world
+            .tiles
+            .iter()
+            .filter(|tile| tile.block_id == 0 && tile.building_center_index.is_none())
+            .take(count)
+            .map(|tile| {
+                pack_point2(
+                    i32::try_from(tile.x).unwrap(),
+                    i32::try_from(tile.y).unwrap(),
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(positions.len(), count, "sample world missing empty tiles");
+        positions
+    }
+
+    fn build_pos_to_world_xy(build_pos: i32) -> (usize, usize) {
+        let (x, y) = unpack_point2(build_pos);
+        (
+            usize::try_from(i32::from(x)).unwrap(),
+            usize::try_from(i32::from(y)).unwrap(),
+        )
     }
 
     fn sample_snapshot_packet(key: &str) -> Vec<u8> {
@@ -28009,6 +28233,222 @@ mod tests {
             .building_table_projection
             .by_build_pos
             .contains_key(&pack_point2(4, 4)));
+    }
+
+    #[test]
+    fn team_authority_packets_update_loaded_world_bundle_and_player_team() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        ingest_sample_world(&mut session);
+        let set_team_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setTeam")
+            .unwrap()
+            .packet_id;
+        let set_teams_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setTeams")
+            .unwrap()
+            .packet_id;
+        let set_player_team_editor_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setPlayerTeamEditor")
+            .unwrap()
+            .packet_id;
+        let build_positions = sample_build_positions_with_centers(&session, 2);
+        let first_build_pos = build_positions[0];
+        let second_build_pos = build_positions[1];
+
+        session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    set_team_packet_id,
+                    &encode_building_team_payload(Some(first_build_pos), 2),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+        let (first_x, first_y) = build_pos_to_world_xy(first_build_pos);
+        let first_center = session
+            .loaded_world_bundle()
+            .unwrap()
+            .world
+            .building_center_at(first_x, first_y)
+            .unwrap();
+        assert_eq!(first_center.building.base.team_id, 2);
+        assert_eq!(
+            session
+                .state()
+                .building_table_projection
+                .by_build_pos
+                .get(&first_build_pos)
+                .and_then(|building| building.team_id),
+            Some(2)
+        );
+
+        session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    set_teams_packet_id,
+                    &encode_set_teams_payload(3, &[first_build_pos, second_build_pos]),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+        for build_pos in [first_build_pos, second_build_pos] {
+            let (x, y) = build_pos_to_world_xy(build_pos);
+            let center = session
+                .loaded_world_bundle()
+                .unwrap()
+                .world
+                .building_center_at(x, y)
+                .unwrap();
+            assert_eq!(center.building.base.team_id, 3);
+            assert_eq!(
+                session
+                    .state()
+                    .building_table_projection
+                    .by_build_pos
+                    .get(&build_pos)
+                    .and_then(|building| building.team_id),
+                Some(3)
+            );
+        }
+
+        session
+            .ingest_packet_bytes(
+                &encode_packet(set_player_team_editor_packet_id, &[4], false).unwrap(),
+            )
+            .unwrap();
+        assert_eq!(session.loaded_world_bundle().unwrap().player.team_id, 4);
+    }
+
+    #[test]
+    fn tile_authority_packets_create_loaded_world_building_centers_for_new_tiles() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        ingest_sample_world(&mut session);
+        let set_tile_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setTile")
+            .unwrap()
+            .packet_id;
+        let set_tile_blocks_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setTileBlocks")
+            .unwrap()
+            .packet_id;
+        let empty_positions = sample_empty_tile_positions_without_centers(&session, 2);
+        let first_build_pos = empty_positions[0];
+        let second_build_pos = empty_positions[1];
+
+        session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    set_tile_packet_id,
+                    &encode_set_tile_payload(Some(first_build_pos), Some(29), 2, 3),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    set_tile_blocks_packet_id,
+                    &encode_set_tile_blocks_payload(Some(11), 4, &[second_build_pos]),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+        let world = &session.loaded_world_bundle().unwrap().world;
+        let (first_x, first_y) = build_pos_to_world_xy(first_build_pos);
+        let first_tile = world.tile(first_x, first_y).unwrap();
+        assert_eq!(first_tile.block_id, 29);
+        assert!(first_tile.building_center_index.is_some());
+        let first_center = world.building_center_at(first_x, first_y).unwrap();
+        assert_eq!(first_center.block_id, 29);
+        assert_eq!(first_center.building.base.team_id, 2);
+        assert_eq!(first_center.building.base.rotation, 3);
+
+        let (second_x, second_y) = build_pos_to_world_xy(second_build_pos);
+        let second_tile = world.tile(second_x, second_y).unwrap();
+        assert_eq!(second_tile.block_id, 11);
+        assert!(second_tile.building_center_index.is_some());
+        let second_center = world.building_center_at(second_x, second_y).unwrap();
+        assert_eq!(second_center.block_id, 11);
+        assert_eq!(second_center.building.base.team_id, 4);
+        assert_eq!(second_center.building.base.rotation, 0);
+    }
+
+    #[test]
+    fn construct_deconstruct_and_build_health_packets_patch_loaded_world_bundle() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        ingest_sample_world(&mut session);
+        let empty_build_pos = sample_empty_tile_positions_without_centers(&session, 1)[0];
+        let block_id = loaded_world_block_id_for_name(&session, "router");
+        let build_health_update_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "buildHealthUpdate")
+            .unwrap()
+            .packet_id;
+
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            empty_build_pos,
+            block_id,
+            &TypeIoObject::Null,
+        );
+
+        let (x, y) = build_pos_to_world_xy(empty_build_pos);
+        let world = &session.loaded_world_bundle().unwrap().world;
+        let placed_tile = world.tile(x, y).unwrap();
+        assert_eq!(placed_tile.block_id, u16::try_from(block_id).unwrap());
+        assert!(placed_tile.building_center_index.is_some());
+        let placed_center = world.building_center_at(x, y).unwrap();
+        assert_eq!(placed_center.block_id, u16::try_from(block_id).unwrap());
+        assert_eq!(placed_center.building.base.team_id, 1);
+        assert_eq!(placed_center.building.base.rotation, 0);
+
+        let mut build_health_payload = Vec::new();
+        build_health_payload.extend_from_slice(&2i32.to_be_bytes());
+        build_health_payload.extend_from_slice(&empty_build_pos.to_be_bytes());
+        build_health_payload.extend_from_slice(&(1.5f32.to_bits() as i32).to_be_bytes());
+        session
+            .ingest_packet_bytes(
+                &encode_packet(build_health_update_packet_id, &build_health_payload, false)
+                    .unwrap(),
+            )
+            .unwrap();
+        let world = &session.loaded_world_bundle().unwrap().world;
+        let updated_center = world.building_center_at(x, y).unwrap();
+        assert_eq!(updated_center.building.base.health_bits, 1.5f32.to_bits());
+
+        ingest_deconstruct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            empty_build_pos,
+            block_id,
+        );
+        let world = &session.loaded_world_bundle().unwrap().world;
+        let removed_tile = world.tile(x, y).unwrap();
+        assert_eq!(removed_tile.block_id, 0);
+        assert!(removed_tile.building_center_index.is_none());
+        assert!(world.building_center_at(x, y).is_none());
     }
 
     #[test]
