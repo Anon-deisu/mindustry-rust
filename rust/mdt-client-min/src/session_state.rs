@@ -4074,6 +4074,8 @@ pub struct EntityUnitSemanticProjection {
     pub building_pos: Option<i32>,
     pub lifetime_bits: Option<u32>,
     pub time_bits: Option<u32>,
+    pub controller_type: u8,
+    pub controller_value: Option<i32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -7576,6 +7578,8 @@ mod tests {
                     building_pos: None,
                     lifetime_bits: None,
                     time_bits: None,
+                    controller_type: 0,
+                    controller_value: None,
                 }),
             },
         );
@@ -7851,6 +7855,8 @@ mod tests {
                 building_pos: Some(88),
                 lifetime_bits: Some(0x4080_0000),
                 time_bits: Some(0x40a0_0000),
+                controller_type: 0,
+                controller_value: None,
             }),
         );
         state
@@ -7890,6 +7896,8 @@ mod tests {
                     building_pos: Some(88),
                     lifetime_bits: Some(0x4080_0000),
                     time_bits: Some(0x40a0_0000),
+                    controller_type: 0,
+                    controller_value: None,
                 },
                 carried_item_stack: Some(ResourceUnitItemStack {
                     item_id: Some(4),
@@ -8080,6 +8088,8 @@ mod tests {
                 building_pos: Some(88),
                 lifetime_bits: Some(0x4080_0000),
                 time_bits: Some(0x40a0_0000),
+                controller_type: 0,
+                controller_value: None,
             }),
         );
         state.entity_semantic_projection.upsert(
@@ -8217,6 +8227,8 @@ mod tests {
                     building_pos: Some(88),
                     lifetime_bits: Some(0x4080_0000),
                     time_bits: Some(0x40a0_0000),
+                    controller_type: 0,
+                    controller_value: None,
                 }),
             );
         }
@@ -8280,6 +8292,8 @@ mod tests {
                 building_pos: Some(88),
                 lifetime_bits: Some(0x4080_0000),
                 time_bits: Some(0x40a0_0000),
+                controller_type: 0,
+                controller_value: None,
             }),
         );
 
@@ -8340,6 +8354,8 @@ mod tests {
                 building_pos: Some(88),
                 lifetime_bits: Some(0x4080_0000),
                 time_bits: Some(0x40a0_0000),
+                controller_type: 0,
+                controller_value: None,
             }),
         );
 
@@ -8424,6 +8440,8 @@ mod tests {
                 building_pos: None,
                 lifetime_bits: None,
                 time_bits: None,
+                controller_type: 0,
+                controller_value: None,
             }),
         );
         state.rebuild_runtime_typed_entity_projection_from_tables();
@@ -8493,6 +8511,8 @@ mod tests {
                     building_pos: None,
                     lifetime_bits: None,
                     time_bits: None,
+                    controller_type: 0,
+                    controller_value: None,
                 }),
             );
         }
@@ -8577,6 +8597,8 @@ mod tests {
                 building_pos: None,
                 lifetime_bits: None,
                 time_bits: None,
+                controller_type: 0,
+                controller_value: None,
             }),
         );
         state.rebuild_runtime_typed_entity_projection_from_tables();

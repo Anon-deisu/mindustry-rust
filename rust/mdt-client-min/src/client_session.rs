@@ -7463,6 +7463,8 @@ impl ClientSession {
                 building_pos: None,
                 lifetime_bits: None,
                 time_bits: None,
+                controller_type: sync.controller_type,
+                controller_value: sync.controller_value,
             }),
         );
         self.apply_entity_snapshot_unit_item_stack(
@@ -7593,6 +7595,8 @@ impl ClientSession {
                     building_pos: None,
                     lifetime_bits: None,
                     time_bits: None,
+                    controller_type: row.sync.controller_type,
+                    controller_value: row.sync.controller_value,
                 }),
             );
             self.apply_entity_snapshot_unit_item_stack(
@@ -7640,6 +7644,8 @@ impl ClientSession {
                     building_pos: None,
                     lifetime_bits: Some(row.sync.lifetime_bits),
                     time_bits: Some(row.sync.time_bits),
+                    controller_type: row.sync.controller_type,
+                    controller_value: row.sync.controller_value,
                 }),
             );
             self.apply_entity_snapshot_unit_item_stack(
@@ -7687,6 +7693,8 @@ impl ClientSession {
                     building_pos: None,
                     lifetime_bits: None,
                     time_bits: None,
+                    controller_type: row.sync.controller_type,
+                    controller_value: row.sync.controller_value,
                 }),
             );
             self.apply_entity_snapshot_unit_item_stack(
@@ -7734,6 +7742,8 @@ impl ClientSession {
                     building_pos: Some(row.sync.building_pos),
                     lifetime_bits: None,
                     time_bits: None,
+                    controller_type: row.sync.controller_type,
+                    controller_value: row.sync.controller_value,
                 }),
             );
             self.apply_entity_snapshot_unit_item_stack(
@@ -19884,6 +19894,8 @@ mod tests {
                         building_pos: None,
                         lifetime_bits: None,
                         time_bits: None,
+                        controller_type: mech_sync.controller_type,
+                        controller_value: mech_sync.controller_value,
                     }
                 ),
             })
@@ -19910,6 +19922,8 @@ mod tests {
                         building_pos: None,
                         lifetime_bits: Some(missile_sync.lifetime_bits),
                         time_bits: Some(missile_sync.time_bits),
+                        controller_type: missile_sync.controller_type,
+                        controller_value: missile_sync.controller_value,
                     }
                 ),
             })
@@ -19936,6 +19950,8 @@ mod tests {
                         building_pos: None,
                         lifetime_bits: None,
                         time_bits: None,
+                        controller_type: payload_sync.controller_type,
+                        controller_value: payload_sync.controller_value,
                     }
                 ),
             })
@@ -19962,6 +19978,8 @@ mod tests {
                         building_pos: Some(tether_sync.building_pos),
                         lifetime_bits: None,
                         time_bits: None,
+                        controller_type: tether_sync.controller_type,
+                        controller_value: tether_sync.controller_value,
                     }
                 ),
             })
@@ -35847,6 +35865,8 @@ mod tests {
                         building_pos: None,
                         lifetime_bits: None,
                         time_bits: None,
+                        controller_type: 0,
+                        controller_value: None,
                     },
                 ),
             );
@@ -36669,13 +36689,15 @@ mod tests {
                     shield_bits: 0.0f32.to_bits(),
                     mine_tile_pos: 0,
                     status_count: 0,
-                    payload_count: None,
-                    building_pos: None,
-                    lifetime_bits: None,
-                    time_bits: None,
-                },
-            ),
-        );
+                        payload_count: None,
+                        building_pos: None,
+                        lifetime_bits: None,
+                        time_bits: None,
+                        controller_type: 0,
+                        controller_value: None,
+                    },
+                ),
+            );
         session
             .state
             .resource_delta_projection

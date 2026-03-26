@@ -1377,6 +1377,8 @@ mod tests {
                     building_pos: None,
                     lifetime_bits: None,
                     time_bits: None,
+                    controller_type: 0,
+                    controller_value: None,
                 }),
             },
         );
@@ -1425,6 +1427,8 @@ mod tests {
                     building_pos: None,
                     lifetime_bits: None,
                     time_bits: None,
+                    controller_type: 0,
+                    controller_value: None,
                 }),
             },
         );

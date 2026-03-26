@@ -684,16 +684,16 @@ Use:
     - `removeTile` / `deconstructFinish` clear live view without deleting baseline bundle data
     - `buildHealthUpdate` / `tileConfig` remain visible through the merged view
 
-- `P0 active` controller/ownership semantics still stop at heuristic player-to-unit linkage.
+- `P0 landed` controller/ownership semantics now consume authoritative unit controller fields before heuristic player-to-unit linkage.
   - Primary source paths:
     - `rust/mdt-client-min/src/runtime_entity_ownership.rs`
     - `rust/mdt-client-min/src/session_state.rs`
     - `rust/mdt-client-min/src/client_session.rs`
-  - Immediate cut:
-    - consume snapshot `controller_type/controller_value`
-    - project it into unit semantic state
-    - let `controller_type == 0` / `controller_value == player_id` win over `player.unit_value -> unit` heuristic
-    - keep heuristic fallback only when controller data is absent
+  - Landed cut:
+    - snapshot `controller_type/controller_value` now projects into unit semantic state across the currently covered unit families
+    - `controller_type == 0` / `controller_value == player_id` now wins over `player.unit_value -> unit` heuristic ownership
+    - heuristic fallback is now gated to `controller_type == 0 && controller_value.is_none()`
+    - focused ownership regression tests now cover controller-preferred ownership, heuristic fallback, and non-player controller rejection
 
 - `P1 active` reconnect executor is landed, but reconnect command state is still split across projection, events, and ad-hoc online-loop policy.
   - Primary source paths:
@@ -718,7 +718,6 @@ Use:
     - add text/icon primitive families or an equivalent typed overlay payload path
 
 ### Current Parallel Lanes
-- `worker` controller-backed unit ownership semantics
 - `ready` loaded-world building live-state merged-view cut
 - `ready` reconnect command unification beyond online-loop-local policy
 - `ready` render primitive follow-up for text/icon and presenter consumption
