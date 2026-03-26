@@ -2,8 +2,8 @@
 mod effect_contract_executor;
 
 use crate::client_session::{
-    BuildHealthPair, ClientBuildPlan, ClientBuildPlanConfig, ClientSessionEvent,
-    ClientSnapshotInputState, StateSnapshotAppliedProjection,
+    BuildHealthPair, BuildingLiveStateView, ClientBuildPlan, ClientBuildPlanConfig,
+    ClientSession, ClientSessionEvent, ClientSnapshotInputState, StateSnapshotAppliedProjection,
 };
 use crate::effect_data_runtime::EffectDataBusinessHint;
 use crate::effect_runtime::{
@@ -12,7 +12,7 @@ use crate::effect_runtime::{
     EffectRuntimeInputView, RuntimeEffectBinding, RuntimeEffectOverlay,
 };
 use crate::session_state::{
-    AuthoritativeStateMirror, BuilderPlanStage, BuilderQueueProjection,
+    AuthoritativeStateMirror, BuilderPlanStage, BuilderQueueProjection, BuildingProjection,
     BuildingProjectionUpdateKind, BuildingTableProjection, ConfiguredBlockOutcome,
     ConfiguredBlockProjection, ConfiguredContentRef, CoreInventoryRuntimeBindingKind,
     EffectBusinessContentKind, EffectBusinessPositionSource, EffectBusinessProjection,
@@ -90,6 +90,57 @@ impl RenderRuntimeAdapter {
         snapshot_input: &ClientSnapshotInputState,
         session_state: &SessionState,
     ) {
+        let runtime_typed_building_projection = session_state.runtime_typed_building_projection();
+        let runtime_buildings_label = runtime_building_table_label(&session_state.building_table_projection);
+        self.apply_with_building_view(
+            scene,
+            hud,
+            snapshot_input,
+            session_state,
+            &session_state.building_table_projection.by_build_pos,
+            &runtime_typed_building_projection,
+            runtime_buildings_label.as_str(),
+        );
+    }
+
+    pub fn apply_with_client_session(
+        &mut self,
+        scene: &mut RenderModel,
+        hud: &mut HudModel,
+        snapshot_input: &ClientSnapshotInputState,
+        session: &ClientSession,
+    ) {
+        let session_state = session.state();
+        let building_live_state = session.building_live_state_projection();
+        let building_projection_by_build_pos =
+            live_building_projection_by_build_pos(&building_live_state);
+        let runtime_typed_building_projection =
+            live_runtime_typed_building_projection(&building_live_state);
+        let runtime_buildings_label = runtime_building_live_state_label(
+            &building_live_state,
+            &session_state.building_table_projection,
+        );
+        self.apply_with_building_view(
+            scene,
+            hud,
+            snapshot_input,
+            session_state,
+            &building_projection_by_build_pos,
+            &runtime_typed_building_projection,
+            runtime_buildings_label.as_str(),
+        );
+    }
+
+    fn apply_with_building_view(
+        &mut self,
+        scene: &mut RenderModel,
+        hud: &mut HudModel,
+        snapshot_input: &ClientSnapshotInputState,
+        session_state: &SessionState,
+        building_projection_by_build_pos: &BTreeMap<i32, BuildingProjection>,
+        runtime_typed_building_projection: &TypedBuildingRuntimeProjection,
+        runtime_buildings_label: &str,
+    ) {
         cull_hidden_parent_unit_effect_overlays(&mut self.world_overlay, session_state);
         let config_stats = runtime_build_plan_config_stats(snapshot_input.plans.as_deref());
         append_runtime_build_plan_objects(scene, snapshot_input.plans.as_deref());
@@ -100,7 +151,12 @@ impl RenderRuntimeAdapter {
             session_state,
         );
         append_runtime_command_mode_overlay_objects(scene, snapshot_input, session_state);
-        append_building_table_projection_objects(scene, session_state);
+        append_building_projection_objects(
+            scene,
+            building_projection_by_build_pos,
+            runtime_typed_building_projection,
+            &session_state.configured_block_projection,
+        );
         append_block_snapshot_projection_objects(scene, session_state);
         append_runtime_live_entity_objects(scene, session_state);
         let bootstrap_projection = session_state.world_bootstrap_projection.as_ref();
@@ -116,7 +172,7 @@ impl RenderRuntimeAdapter {
             snapshot_input,
             &session_state.builder_queue_projection,
             &session_state.tile_config_projection,
-            &session_state.runtime_typed_building_projection(),
+            runtime_typed_building_projection,
         ));
         hud.status_text = format!(
             "{} runtime_selected={} runtime_plans={} runtime_cfg_int={} runtime_cfg_long={} runtime_cfg_float={} runtime_cfg_bool={} runtime_cfg_int_seq={} runtime_cfg_point2={} runtime_cfg_point2_array={} runtime_cfg_tech_node={} runtime_cfg_double={} runtime_cfg_building_pos={} runtime_cfg_laccess={} runtime_cfg_string={} runtime_cfg_bytes={} runtime_cfg_legacy_unit_command_null={} runtime_cfg_bool_array={} runtime_cfg_unit_id={} runtime_cfg_vec2_array={} runtime_cfg_vec2={} runtime_cfg_team={} runtime_cfg_int_array={} runtime_cfg_object_array={} runtime_cfg_content={} runtime_cfg_unit_command={} runtime_world_tiles={} runtime_health={} building={} runtime_builder={} runtime_builder_head={} runtime_entity_local={} runtime_entity_hidden={} runtime_entity_gate={} runtime_entity_sync={} runtime_snap_last={} runtime_snap_events={} runtime_snap_apply={} runtime_wave={} runtime_enemies={} runtime_tps={} runtime_state_apply={} runtime_core_teams={} runtime_core_items={} runtime_core_binding={} runtime_buildings={} runtime_block={} runtime_block_fail={} runtime_hidden={} runtime_hidden_delta={} runtime_hidden_fail={} runtime_effects={} runtime_effect_data_kind={} runtime_effect_contract={} runtime_effect_data_semantic={} runtime_effect_data_hint={} runtime_effect_apply={} runtime_effect_path={} runtime_effect_data_fail={} bootstrap_rules={} bootstrap_tags={} bootstrap_locales={} bootstrap_teams={} bootstrap_markers={} bootstrap_chunks={} bootstrap_patches={} bootstrap_plans={} bootstrap_fog_teams={} runtime_view_center={} runtime_view_size={} runtime_position={} runtime_pointer={} runtime_selected_rotation={} runtime_input_flags={} runtime_snap_client={} runtime_snap_state={} runtime_snap_entity={} runtime_snap_block={} runtime_snap_hidden={} runtime_tilecfg_events={} runtime_tilecfg_parse_fail={} runtime_tilecfg_noapply={} runtime_tilecfg_rollback={} runtime_tilecfg_pending_mismatch={} runtime_tilecfg_apply={} runtime_configured={} runtime_take_items={} runtime_transfer_item={} runtime_transfer_item_unit={} runtime_payload_drop={} runtime_payload_pick_build={} runtime_payload_pick_unit={} runtime_unit_entered_payload={} runtime_unit_despawn={} runtime_unit_lifecycle={} runtime_spawn_fx={} runtime_audio={} runtime_admin={} runtime_kick={} runtime_loading={} runtime_rules={} runtime_ui_notice={} runtime_ui_menu={} runtime_chat={} runtime_world_label={} runtime_marker={} runtime_logic_sync={} runtime_resource_delta={} runtime_command_ctrl={} runtime_gameplay_signal={}",
@@ -227,7 +283,7 @@ impl RenderRuntimeAdapter {
                 })
                 .unwrap_or_default(),
             runtime_core_binding_label(session_state),
-            runtime_building_table_label(&session_state.building_table_projection),
+            runtime_buildings_label,
             runtime_block_snapshot_label(session_state),
             session_state.failed_block_snapshot_parse_count,
             runtime_hidden_snapshot_label(session_state),
@@ -317,6 +373,83 @@ impl RenderRuntimeAdapter {
     pub fn clear(&mut self) {
         self.world_overlay.clear();
     }
+}
+
+fn live_building_projection_by_build_pos(
+    live_state: &BTreeMap<i32, BuildingLiveStateView>,
+) -> BTreeMap<i32, BuildingProjection> {
+    live_state
+        .iter()
+        .map(|(&build_pos, building)| (build_pos, building.projection.clone()))
+        .collect()
+}
+
+fn live_runtime_typed_building_projection(
+    live_state: &BTreeMap<i32, BuildingLiveStateView>,
+) -> TypedBuildingRuntimeProjection {
+    TypedBuildingRuntimeProjection {
+        by_build_pos: live_state
+            .values()
+            .filter_map(|building| building.runtime.clone().map(|runtime| (runtime.build_pos, runtime)))
+            .collect(),
+    }
+}
+
+fn runtime_building_live_state_label(
+    live_state: &BTreeMap<i32, BuildingLiveStateView>,
+    projection: &BuildingTableProjection,
+) -> String {
+    let mut merged = projection.clone();
+    merged.by_build_pos = live_building_projection_by_build_pos(live_state);
+    merged.block_known_count = merged
+        .by_build_pos
+        .values()
+        .filter(|building| building.block_id.is_some())
+        .count();
+    merged.configured_count = merged
+        .by_build_pos
+        .values()
+        .filter(|building| building.config.is_some())
+        .count();
+    match merged
+        .last_build_pos
+        .and_then(|build_pos| live_state.get(&build_pos))
+    {
+        Some(building) => {
+            let projection = &building.projection;
+            merged.last_block_id = projection.block_id;
+            merged.last_block_name = projection.block_name.clone();
+            merged.last_rotation = projection.rotation;
+            merged.last_team_id = projection.team_id;
+            merged.last_io_version = projection.io_version;
+            merged.last_module_bitmask = projection.module_bitmask;
+            merged.last_time_scale_bits = projection.time_scale_bits;
+            merged.last_time_scale_duration_bits = projection.time_scale_duration_bits;
+            merged.last_last_disabler_pos = projection.last_disabler_pos;
+            merged.last_legacy_consume_connected = projection.legacy_consume_connected;
+            merged.last_config = projection.config.clone();
+            merged.last_health_bits = projection.health_bits;
+            merged.last_enabled = projection.enabled;
+            merged.last_efficiency = projection.efficiency;
+            merged.last_optional_efficiency = projection.optional_efficiency;
+            merged.last_visible_flags = projection.visible_flags;
+            merged.last_turret_reload_counter_bits = projection.turret_reload_counter_bits;
+            merged.last_turret_rotation_bits = projection.turret_rotation_bits;
+            merged.last_item_turret_ammo_count = projection.item_turret_ammo_count;
+            merged.last_continuous_turret_last_length_bits =
+                projection.continuous_turret_last_length_bits;
+            merged.last_build_turret_rotation_bits = projection.build_turret_rotation_bits;
+            merged.last_build_turret_plans_present = projection.build_turret_plans_present;
+            merged.last_build_turret_plan_count = projection.build_turret_plan_count;
+            merged.last_update = Some(projection.last_update);
+            merged.last_removed = false;
+        }
+        None if merged.last_build_pos.is_some() => {
+            merged.last_removed = true;
+        }
+        None => {}
+    }
+    runtime_building_table_label(&merged)
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -4621,10 +4754,15 @@ fn runtime_live_entity_layer(model: &TypedRuntimeEntityModel) -> i32 {
     }
 }
 
-fn append_building_table_projection_objects(scene: &mut RenderModel, session_state: &SessionState) {
+fn append_building_projection_objects(
+    scene: &mut RenderModel,
+    building_projection_by_build_pos: &BTreeMap<i32, BuildingProjection>,
+    runtime_projection: &TypedBuildingRuntimeProjection,
+    configured_block_projection: &ConfiguredBlockProjection,
+) {
     const TILE_SIZE: f32 = 8.0;
 
-    for (&build_pos, building) in &session_state.building_table_projection.by_build_pos {
+    for (&build_pos, building) in building_projection_by_build_pos {
         let Some(block_id) = building.block_id else {
             continue;
         };
@@ -4637,22 +4775,17 @@ fn append_building_table_projection_objects(scene: &mut RenderModel, session_sta
         });
     }
 
-    let runtime_projection = session_state.runtime_typed_building_projection();
     append_runtime_building_markers(scene, &runtime_projection);
 
     append_runtime_build_config_content_icons(
         scene,
         "payload-source",
-        &session_state
-            .configured_block_projection
-            .payload_source_content_by_build_pos,
+        &configured_block_projection.payload_source_content_by_build_pos,
     );
     append_runtime_build_config_content_icons(
         scene,
         "payload-router",
-        &session_state
-            .configured_block_projection
-            .payload_router_sorted_content_by_build_pos,
+        &configured_block_projection.payload_router_sorted_content_by_build_pos,
     );
 }
 

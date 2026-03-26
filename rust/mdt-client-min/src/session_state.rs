@@ -5412,6 +5412,19 @@ impl SessionState {
             .collect()
     }
 
+    pub fn typed_runtime_building_from_projection(
+        &self,
+        build_pos: i32,
+        building: &BuildingProjection,
+    ) -> Option<TypedBuildingRuntimeModel> {
+        typed_runtime_building_model(
+            build_pos,
+            building,
+            &self.configured_block_projection,
+            &self.resource_delta_projection,
+        )
+    }
+
     pub fn typed_runtime_entity_projection(&self) -> TypedRuntimeEntityProjection {
         let mut projection = TypedRuntimeEntityProjection::default();
         for model in self.typed_runtime_entities() {

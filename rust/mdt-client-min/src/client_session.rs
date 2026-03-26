@@ -14,8 +14,8 @@ use crate::packet_registry::{
     CombinedPacketRegistries, CustomChannelPacketRegistry, InboundSnapshotPacketRegistry,
 };
 use crate::session_state::{
-    BuilderQueueEntryObservation, BuildingTableProjection, BuildingTailSummaryProjection,
-    ConfiguredBlockOutcome,
+    BuilderQueueEntryObservation, BuildingProjection, BuildingTableProjection,
+    BuildingTailSummaryProjection, ConfiguredBlockOutcome,
     ConfiguredContentRef, ConstructorRuntimeProjection, CoreInventoryRuntimeBindingKind,
     CreateBulletProjection, DestroyPayloadProjection, EffectBusinessContentKind,
     EffectBusinessPositionSource, EffectBusinessProjection, EntityFireSemanticProjection,
@@ -28,7 +28,7 @@ use crate::session_state::{
     SessionTimeoutProjection, TakeItemsProjection, TileConfigAuthoritySource,
     TileConfigBusinessApply, TransferItemEffectProjection, TransferItemToProjection,
     TransferItemToUnitProjection, UnitAssemblerRuntimeProjection, UnitEnteredPayloadProjection,
-    UnitRefProjection, WorldReloadProjection,
+    UnitRefProjection, TypedBuildingRuntimeModel, WorldReloadProjection,
 };
 use crate::typed_remote_dispatch::{
     TypedCustomChannelRemoteDispatch, TypedCustomChannelRemoteDispatcher,
@@ -455,6 +455,13 @@ pub struct ClientSession {
     client_packet_handlers: ClientPacketHandlerRegistry,
     client_binary_packet_handlers: ClientBinaryPacketHandlerRegistry,
     client_logic_data_handlers: ClientLogicDataHandlerRegistry,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct BuildingLiveStateView {
+    pub build_pos: i32,
+    pub projection: BuildingProjection,
+    pub runtime: Option<TypedBuildingRuntimeModel>,
 }
 
 impl ClientSession {
@@ -1481,14 +1488,151 @@ impl ClientSession {
             .flatten()
     }
 
-    fn loaded_world_effective_block_id(&self, build_pos: i32) -> Option<i16> {
-        self.loaded_world_block_id_at(build_pos).or_else(|| {
-            self.state
-                .building_table_projection
-                .by_build_pos
-                .get(&build_pos)
-                .and_then(|building| building.block_id)
+    fn loaded_world_building_projection_anchor_at(&self, build_pos: i32) -> Option<BuildingProjection> {
+        let bundle = self.loaded_world_bundle.as_ref()?;
+        let tile_index = loaded_world_tile_index(bundle, build_pos)?;
+        let tile = bundle.world.tiles.get(tile_index)?;
+        let block_id = (tile.block_id != 0)
+            .then(|| i16::try_from(tile.block_id).ok())
+            .flatten()?;
+        let center = tile
+            .building_center_index
+            .and_then(|center_index| bundle.world.building_centers.get(center_index));
+        let aligned_center = center.filter(|center| i16::try_from(center.block_id).ok() == Some(block_id));
+        let base = aligned_center.map(|center| &center.building.base);
+        Some(BuildingProjection {
+            block_id: Some(block_id),
+            block_name: self.loaded_world_block_name(block_id),
+            rotation: base.map(|base| base.rotation),
+            team_id: base.map(|base| base.team_id),
+            io_version: base
+                .and_then(|base| base.save_version)
+                .or_else(|| aligned_center.map(|center| center.building.revision)),
+            module_bitmask: base.and_then(|base| base.module_bitmask),
+            time_scale_bits: base.and_then(|base| base.time_scale_bits),
+            time_scale_duration_bits: base.and_then(|base| base.time_scale_duration_bits),
+            last_disabler_pos: base.and_then(|base| base.last_disabler_pos),
+            legacy_consume_connected: base.and_then(|base| base.legacy_consume_connected),
+            config: None,
+            health_bits: base.map(|base| base.health_bits),
+            enabled: base.and_then(|base| base.enabled),
+            efficiency: base.and_then(|base| base.efficiency),
+            optional_efficiency: base.and_then(|base| base.optional_efficiency),
+            visible_flags: base.and_then(|base| base.visible_flags),
+            turret_reload_counter_bits: None,
+            turret_rotation_bits: None,
+            item_turret_ammo_count: None,
+            continuous_turret_last_length_bits: None,
+            build_turret_rotation_bits: None,
+            build_turret_plans_present: None,
+            build_turret_plan_count: None,
+            last_update: crate::session_state::BuildingProjectionUpdateKind::WorldBaseline,
         })
+    }
+
+    fn merged_building_projection_at(&self, build_pos: i32) -> Option<BuildingProjection> {
+        let anchor = self.loaded_world_building_projection_anchor_at(build_pos);
+        let projection = self
+            .state
+            .building_table_projection
+            .by_build_pos
+            .get(&build_pos)
+            .cloned();
+        match (anchor, projection) {
+            (None, None) => None,
+            (Some(anchor), None) => Some(anchor),
+            (None, Some(projection)) => Some(projection),
+            (Some(anchor), Some(projection)) => {
+                let block_id = projection.block_id.or(anchor.block_id);
+                let block_name = projection.block_name.clone().or_else(|| {
+                    block_id.and_then(|block_id| {
+                        if anchor.block_id == Some(block_id) {
+                            anchor.block_name.clone()
+                        } else {
+                            self.loaded_world_block_name(block_id)
+                        }
+                    })
+                });
+                Some(BuildingProjection {
+                    block_id,
+                    block_name,
+                    rotation: projection.rotation.or(anchor.rotation),
+                    team_id: projection.team_id.or(anchor.team_id),
+                    io_version: projection.io_version.or(anchor.io_version),
+                    module_bitmask: projection.module_bitmask.or(anchor.module_bitmask),
+                    time_scale_bits: projection.time_scale_bits.or(anchor.time_scale_bits),
+                    time_scale_duration_bits: projection
+                        .time_scale_duration_bits
+                        .or(anchor.time_scale_duration_bits),
+                    last_disabler_pos: projection.last_disabler_pos.or(anchor.last_disabler_pos),
+                    legacy_consume_connected: projection
+                        .legacy_consume_connected
+                        .or(anchor.legacy_consume_connected),
+                    config: projection.config.clone(),
+                    health_bits: projection.health_bits.or(anchor.health_bits),
+                    enabled: projection.enabled.or(anchor.enabled),
+                    efficiency: projection.efficiency.or(anchor.efficiency),
+                    optional_efficiency: projection
+                        .optional_efficiency
+                        .or(anchor.optional_efficiency),
+                    visible_flags: projection.visible_flags.or(anchor.visible_flags),
+                    turret_reload_counter_bits: projection
+                        .turret_reload_counter_bits
+                        .or(anchor.turret_reload_counter_bits),
+                    turret_rotation_bits: projection
+                        .turret_rotation_bits
+                        .or(anchor.turret_rotation_bits),
+                    item_turret_ammo_count: projection
+                        .item_turret_ammo_count
+                        .or(anchor.item_turret_ammo_count),
+                    continuous_turret_last_length_bits: projection
+                        .continuous_turret_last_length_bits
+                        .or(anchor.continuous_turret_last_length_bits),
+                    build_turret_rotation_bits: projection
+                        .build_turret_rotation_bits
+                        .or(anchor.build_turret_rotation_bits),
+                    build_turret_plans_present: projection
+                        .build_turret_plans_present
+                        .or(anchor.build_turret_plans_present),
+                    build_turret_plan_count: projection
+                        .build_turret_plan_count
+                        .or(anchor.build_turret_plan_count),
+                    last_update: projection.last_update,
+                })
+            }
+        }
+    }
+
+    fn building_live_state_at(&self, build_pos: i32) -> Option<BuildingLiveStateView> {
+        let projection = self.merged_building_projection_at(build_pos)?;
+        let runtime = self
+            .state
+            .typed_runtime_building_from_projection(build_pos, &projection);
+        Some(BuildingLiveStateView {
+            build_pos,
+            projection,
+            runtime,
+        })
+    }
+
+    pub(crate) fn building_live_state_projection(&self) -> BTreeMap<i32, BuildingLiveStateView> {
+        let mut build_positions = BTreeSet::new();
+        if let Some(bundle) = self.loaded_world_bundle.as_ref() {
+            for center in &bundle.world.building_centers {
+                let Ok(x) = i32::try_from(center.x) else {
+                    continue;
+                };
+                let Ok(y) = i32::try_from(center.y) else {
+                    continue;
+                };
+                build_positions.insert(pack_point2(x, y));
+            }
+        }
+        build_positions.extend(self.state.building_table_projection.by_build_pos.keys().copied());
+        build_positions
+            .into_iter()
+            .filter_map(|build_pos| self.building_live_state_at(build_pos).map(|view| (build_pos, view)))
+            .collect()
     }
 
     fn apply_loaded_world_player_team(&mut self, team_id: u8) {
@@ -1590,19 +1734,21 @@ impl ClientSession {
     }
 
     fn apply_authoritative_building_team_projection(&mut self, build_pos: i32, team_id: u8) {
-        let Some(block_id) = self.loaded_world_effective_block_id(build_pos) else {
+        let Some(building) = self.building_live_state_at(build_pos) else {
             return;
         };
-        let block_name = self.loaded_world_block_name(block_id).or_else(|| {
-            self.state
-                .building_table_projection
-                .by_build_pos
-                .get(&build_pos)
-                .and_then(|building| building.block_name.clone())
-        });
+        let Some(block_id) = building.projection.block_id else {
+            return;
+        };
         self.state
             .building_table_projection
-            .apply_remote_tile_authority(build_pos, block_id, block_name, None, Some(team_id));
+            .apply_remote_tile_authority(
+                build_pos,
+                block_id,
+                building.projection.block_name.clone(),
+                None,
+                Some(team_id),
+            );
         self.state
             .refresh_runtime_typed_building_from_tables(build_pos);
     }
@@ -2086,17 +2232,8 @@ impl ClientSession {
         build_pos: i32,
     ) -> AuthoritativeConfigPendingMatchMode {
         let block_name = self
-            .state
-            .building_table_projection
-            .by_build_pos
-            .get(&build_pos)
-            .and_then(|building| {
-                building.block_name.clone().or_else(|| {
-                    building
-                        .block_id
-                        .and_then(|block_id| self.loaded_world_block_name(block_id))
-                })
-            });
+            .building_live_state_at(build_pos)
+            .and_then(|building| building.projection.block_name.clone());
         match block_name.as_deref() {
             Some(
                 BLOCK_NAME_BRIDGE_CONVEYOR
@@ -2129,18 +2266,14 @@ impl ClientSession {
         build_pos: i32,
         config_object: &TypeIoObject,
     ) -> (ConfiguredBlockOutcome, Option<String>) {
-        let building = self
-            .state
-            .building_table_projection
-            .by_build_pos
-            .get(&build_pos);
-        let Some(building) = building else {
+        let Some(building) = self.building_live_state_at(build_pos) else {
             return (ConfiguredBlockOutcome::RejectedMissingBuilding, None);
         };
-        let Some(block_id) = building.block_id else {
+        let Some(block_id) = building.projection.block_id else {
             return (ConfiguredBlockOutcome::RejectedMissingBlockMetadata, None);
         };
         let block_name = building
+            .projection
             .block_name
             .clone()
             .or_else(|| self.loaded_world_block_name(block_id));
@@ -28884,6 +29017,103 @@ mod tests {
         assert_eq!(removed_tile.block_id, 0);
         assert!(removed_tile.building_center_index.is_none());
         assert!(world.building_center_at(x, y).is_none());
+    }
+
+    #[test]
+    fn building_live_state_prefers_projection_fields_over_loaded_world_baseline() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        ingest_sample_world(&mut session);
+        let build_pos = sample_build_positions_with_centers(&session, 1)[0];
+        let baseline = session.building_live_state_at(build_pos).unwrap();
+        let mut replacement_block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_MESSAGE);
+        if baseline.projection.block_id == Some(replacement_block_id) {
+            replacement_block_id = loaded_world_block_id_for_name(&session, "router");
+        }
+
+        session.state.building_table_projection.apply_remote_tile_authority(
+            build_pos,
+            replacement_block_id,
+            session.loaded_world_block_name(replacement_block_id),
+            Some(3),
+            Some(4),
+        );
+
+        let live = session.building_live_state_at(build_pos).unwrap();
+        assert_eq!(live.projection.block_id, Some(replacement_block_id));
+        assert_eq!(live.projection.block_name, session.loaded_world_block_name(replacement_block_id));
+        assert_eq!(live.projection.rotation, Some(3));
+        assert_eq!(live.projection.team_id, Some(4));
+    }
+
+    #[test]
+    fn building_live_state_hides_loaded_world_baseline_after_live_tile_clear() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        ingest_sample_world(&mut session);
+        let build_pos = sample_build_positions_with_centers(&session, 1)[0];
+        let (tile_x, tile_y) = build_pos_to_world_xy(build_pos);
+        assert!(session
+            .loaded_world_bundle()
+            .unwrap()
+            .world
+            .building_center_at(tile_x, tile_y)
+            .is_some());
+
+        session.apply_loaded_world_tile_patch(build_pos, None, None, Some(None));
+        session
+            .state
+            .building_table_projection
+            .apply_deconstruct_finish(build_pos, None, None);
+
+        assert!(session.building_live_state_at(build_pos).is_none());
+        assert!(session
+            .loaded_world_bundle()
+            .unwrap()
+            .world
+            .building_center_at(tile_x, tile_y)
+            .is_some());
+    }
+
+    #[test]
+    fn building_live_state_surfaces_live_only_tiles_without_loaded_world_centers() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        ingest_sample_world(&mut session);
+        let build_pos = sample_empty_tile_positions_without_centers(&session, 1)[0];
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_MESSAGE);
+        let message = "live-only".to_string();
+
+        session.apply_loaded_world_tile_patch(build_pos, None, None, Some(Some(block_id)));
+        session.state.building_table_projection.apply_construct_finish(
+            build_pos,
+            Some(block_id),
+            session.loaded_world_block_name(block_id),
+            1,
+            2,
+            TypeIoObject::String(Some(message.clone())),
+        );
+        session
+            .state
+            .configured_block_projection
+            .apply_message_text(build_pos, message.clone());
+
+        let live = session.building_live_state_at(build_pos).unwrap();
+        let (tile_x, tile_y) = build_pos_to_world_xy(build_pos);
+        assert!(session
+            .loaded_world_bundle()
+            .unwrap()
+            .world
+            .building_center_at(tile_x, tile_y)
+            .is_none());
+        assert_eq!(live.projection.block_id, Some(block_id));
+        assert_eq!(live.projection.rotation, Some(1));
+        assert_eq!(live.projection.team_id, Some(2));
+        assert!(matches!(
+            live.runtime.as_ref().map(|runtime| &runtime.value),
+            Some(crate::session_state::TypedBuildingRuntimeValue::Text(text))
+                if text == &message
+        ));
     }
 
     #[test]

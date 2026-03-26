@@ -4350,7 +4350,7 @@ fn maybe_print_ascii_scene(
         LIVE_VIEW_TILES,
     );
     let input = render_snapshot_input(session, runtime_command_mode);
-    render_runtime_adapter.apply(&mut scene, &mut hud, &input, session.state());
+    render_runtime_adapter.apply_with_client_session(&mut scene, &mut hud, &input, session);
     append_runtime_custom_packet_surface_scene_objects(&mut scene, custom_packet_surface);
     append_runtime_custom_packet_business_scene_objects(&mut scene, custom_packet_business_hooks);
     let mut presenter =
@@ -4389,7 +4389,7 @@ fn maybe_print_final_ascii_scene(
         LIVE_VIEW_TILES,
     );
     let input = render_snapshot_input(session, runtime_command_mode);
-    render_runtime_adapter.apply(&mut scene, &mut hud, &input, session.state());
+    render_runtime_adapter.apply_with_client_session(&mut scene, &mut hud, &input, session);
     append_runtime_custom_packet_surface_scene_objects(&mut scene, custom_packet_surface);
     append_runtime_custom_packet_business_scene_objects(&mut scene, custom_packet_business_hooks);
     let runtime_object_ids = collect_authoritative_runtime_scene_object_ids(&scene.objects);
@@ -4454,7 +4454,7 @@ fn maybe_present_window_scene(
         LIVE_VIEW_TILES,
     );
     let input = render_snapshot_input(session, runtime_command_mode);
-    render_runtime_adapter.apply(&mut scene, &mut hud, &input, session.state());
+    render_runtime_adapter.apply_with_client_session(&mut scene, &mut hud, &input, session);
     append_runtime_custom_packet_surface_scene_objects(&mut scene, custom_packet_surface);
     append_runtime_custom_packet_business_scene_objects(&mut scene, custom_packet_business_hooks);
     let Some(presenter) = window_scene_presenter.as_mut() else {
