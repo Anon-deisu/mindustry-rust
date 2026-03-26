@@ -39,6 +39,7 @@ use mdt_client_min::runtime_custom_packet_business::{
     RuntimeCustomPacketBusinessMarkerSource,
 };
 use mdt_client_min::session_state::{BuilderPlanStage, SessionState, SessionTimeoutKind};
+use mdt_client_min::session_state::ReconnectReasonKind;
 use mdt_input::intent::BuildPulse;
 use mdt_input::live_intent::RuntimeIntentTracker;
 use mdt_input::{
@@ -180,11 +181,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 current_server_addr, delay_ms
             );
         }
-        if let Some(pending_timeout) =
-            reconnect_executor.observe_timeout(report.timed_out, report.timed_out_kind, now_ms)
+        if let Some(pending_timeout) = reconnect_executor.observe_timeout(
+            report.timed_out,
+            report.timed_out_reason,
+            report.timed_out_kind,
+            now_ms,
+        )
         {
             println!(
-                "timeout_reconnect_scheduled: server={} kind={} idle_ms={:?}",
+                "timeout_reconnect_scheduled: server={} reason={} idle_ms={:?}",
                 current_server_addr,
                 timeout_kind_label(pending_timeout.kind),
                 report.timed_out
@@ -299,7 +304,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 ReconnectAttemptIntent::Timeout { kind } => {
                     println!(
-                        "timeout_reconnect_attempt: server={} kind={}",
+                        "timeout_reconnect_attempt: server={} reason={}",
                         current_server_addr,
                         timeout_kind_label(*kind)
                     );
@@ -372,7 +377,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                             ReconnectAttemptIntent::Timeout { kind } => {
                                 println!(
-                                    "timeout_reconnected: tcp_local={}, udp_local={}, server={} kind={}",
+                                    "timeout_reconnected: tcp_local={}, udp_local={}, server={} reason={}",
                                     tcp_local_addr,
                                     udp_local_addr,
                                     current_server_addr,
@@ -401,7 +406,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                             ReconnectAttemptIntent::Timeout { kind } => {
                                 println!(
-                                    "timeout_reconnect_failed: target={} kind={} retry_in_ms={} error={error}",
+                                    "timeout_reconnect_failed: target={} reason={} retry_in_ms={} error={error}",
                                     current_server_addr,
                                     timeout_kind_label(kind),
                                     reconnect_attempt_retry_backoff_ms(&reconnect_attempt)
@@ -579,10 +584,13 @@ impl ReconnectExecutorState {
     fn observe_timeout(
         &mut self,
         timed_out: Option<u64>,
+        timed_out_reason: Option<ReconnectReasonKind>,
         timed_out_kind: Option<SessionTimeoutKind>,
         now_ms: u64,
     ) -> Option<PendingTimeoutReconnect> {
-        let (Some(_), Some(kind)) = (timed_out, timed_out_kind) else {
+        let (Some(_), Some(ReconnectReasonKind::Timeout), Some(kind)) =
+            (timed_out, timed_out_reason, timed_out_kind)
+        else {
             return None;
         };
         if self
@@ -13997,14 +14005,24 @@ mod tests {
         let mut state = ReconnectExecutorState::default();
 
         assert_eq!(
-            state.observe_timeout(Some(2_000), Some(SessionTimeoutKind::ConnectOrLoading), 10),
+            state.observe_timeout(
+                Some(2_000),
+                Some(ReconnectReasonKind::Timeout),
+                Some(SessionTimeoutKind::ConnectOrLoading),
+                10
+            ),
             Some(PendingTimeoutReconnect {
                 kind: SessionTimeoutKind::ConnectOrLoading,
                 reconnect_at_ms: 10,
             })
         );
         assert_eq!(
-            state.observe_timeout(Some(2_100), Some(SessionTimeoutKind::ConnectOrLoading), 11),
+            state.observe_timeout(
+                Some(2_100),
+                Some(ReconnectReasonKind::Timeout),
+                Some(SessionTimeoutKind::ConnectOrLoading),
+                11
+            ),
             None
         );
         assert_eq!(
@@ -14018,11 +14036,32 @@ mod tests {
         };
         state.note_attempt_failure(&timeout_attempt, 10);
         assert_eq!(
-            state.observe_timeout(Some(2_200), Some(SessionTimeoutKind::ConnectOrLoading), 11),
+            state.observe_timeout(
+                Some(2_200),
+                Some(ReconnectReasonKind::Timeout),
+                Some(SessionTimeoutKind::ConnectOrLoading),
+                11
+            ),
             None
         );
         assert_eq!(state.next_attempt(&[], 1_009), None);
         assert_eq!(state.next_attempt(&[], 1_010), Some(timeout_attempt));
+    }
+
+    #[test]
+    fn reconnect_executor_ignores_non_timeout_reasons() {
+        let mut state = ReconnectExecutorState::default();
+
+        assert_eq!(
+            state.observe_timeout(
+                Some(2_000),
+                Some(ReconnectReasonKind::Kick),
+                Some(SessionTimeoutKind::ConnectOrLoading),
+                10
+            ),
+            None
+        );
+        assert_eq!(state.pending_timeout_reconnect, None);
     }
 
     #[test]

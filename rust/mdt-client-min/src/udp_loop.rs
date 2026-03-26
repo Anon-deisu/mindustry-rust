@@ -4,7 +4,7 @@ use crate::client_session::{
     ClientPacketTransport, ClientSession, ClientSessionAction, ClientSessionError,
     ClientSessionEvent,
 };
-use crate::session_state::SessionTimeoutKind;
+use crate::session_state::{ReconnectReasonKind, SessionTimeoutKind};
 use mdt_protocol::{decode_framework_message, FrameworkCodecError};
 use std::fmt;
 use std::io;
@@ -90,6 +90,7 @@ impl UdpSessionDriver {
                 }
                 ClientSessionAction::TimedOut { idle_ms } => {
                     report.timed_out = Some(idle_ms);
+                    report.timed_out_reason = Some(ReconnectReasonKind::Timeout);
                     report.timed_out_kind = transport_timeout_kind(session);
                 }
             }
@@ -106,6 +107,7 @@ pub struct UdpTickReport {
     pub inbound_packets: usize,
     pub inbound_framework_messages: usize,
     pub timed_out: Option<u64>,
+    pub timed_out_reason: Option<ReconnectReasonKind>,
     pub timed_out_kind: Option<SessionTimeoutKind>,
     pub events: Vec<ClientSessionEvent>,
 }
@@ -303,6 +305,7 @@ mod tests {
         let report = driver.tick(&mut session, 2_400, 32).unwrap();
 
         assert_eq!(report.timed_out, Some(2_400));
+        assert_eq!(report.timed_out_reason, Some(ReconnectReasonKind::Timeout));
         assert_eq!(
             report.timed_out_kind,
             Some(SessionTimeoutKind::ConnectOrLoading)
