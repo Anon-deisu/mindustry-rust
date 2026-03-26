@@ -591,3 +591,43 @@ Use:
   - `cargo test --manifest-path rust\\mdt-render-ui\\Cargo.toml`
   - `cargo test --manifest-path rust\\mdt-world\\Cargo.toml activation_surface_`
   - `cargo test --manifest-path rust\\mdt-typeio\\Cargo.toml weapon_mounts`
+
+## 2026-03-26 Parallel Dispatch Refresh
+
+### Newly Landed Today
+- `mdt-client-min` runtime scene now surfaces command-mode overlay objects for:
+  - `command_buildings`
+  - `command_rect`
+  - `last_target.build_target`
+  - `last_target.position_target`
+  - `last_target.unit_target`
+  - `last_target.rect_target`
+- `mdt-render-ui` window HUD now surfaces:
+  - top-line session banner preference over `wave_text`
+  - third bottom-line build strip summary with selected block, rotation, queue stage, and authority state
+
+### Immediate High-Value Independent Shards
+- `P0 active` `unitCapDeath` lifecycle parity in `rust/mdt-client-min/src/client_session.rs`
+  - Current gap: packet updates counters only, unlike `unitDeath` / `unitDestroy` / `unitEnvDeath` / `unitSafeDeath` it does not remove entity projection or clear resource delta state.
+  - Why it matters: this is a concrete behavior bug, not just missing observability.
+  - Minimum target: make `unitCapDeath` remove the affected entity and clean resource mirror state, with regression coverage.
+
+- `P0` player semantic mirror in `rust/mdt-client-min/src/session_state.rs` + `rust/mdt-client-min/src/bootstrap_flow.rs` + `rust/mdt-client-min/src/client_session.rs`
+  - Current gap: Rust parses `admin/name/color/team/mouse/selectedBlock/selectedRotation/typing/shooting/boosting`, but runtime player state still stores almost only `player_id/unit_kind/unit_value/x/y`.
+  - Why it matters: inbound player sync currently feeds outbound snapshot fields, but not a reusable runtime player model for render/debug/gameplay semantics.
+  - Minimum target: add `EntityPlayerSemanticProjection`, persist both local and remote player semantic fields, and update local-player mirror on bootstrap plus entity snapshot apply.
+
+- `P0` unit semantic retention in `rust/mdt-client-min/src/session_state.rs` + `rust/mdt-client-min/src/client_session.rs`
+  - Current gap: `EntityUnitSemanticProjection` keeps only a thin subset while parsed sync rows already contain `ammo/elevation/velocity/base_rotation/flag/controller/stack/status payload` data.
+  - Why it matters: this is the main blocker between current lightweight unit presence tracking and Java `UnitComp`-level behavior fidelity.
+  - Minimum target: first widen stored unit fields, then split follow-up shards for `status`, `payload content`, and `controller/command` semantics.
+
+- `P1` loaded-world building live-state unification in `rust/mdt-client-min/src/client_session.rs` + `rust/mdt-world/src/lib.rs`
+  - Current gap: `setTile/removeTile` update table/projection state and may create placeholder building centers, but loaded-world building centers still drift from live authority and lack multiblock lifecycle parity.
+  - Why it matters: world state is still dual-sourced between patched world data and runtime projections.
+  - Minimum target: give runtime-created centers stable revision/base state, define center lifecycle policy, and make later block/build updates patch loaded-world building truth instead of only auxiliary tables.
+
+- `P1` render primitive/model expansion in `rust/mdt-render-ui/src/render_model.rs` + `rust/mdt-render-ui/src/projection.rs` + `rust/mdt-client-min/src/render_runtime.rs`
+  - Current gap: `RenderObject` still only carries `id/layer/x/y`, which blocks richer minimap, marker, label, health, and runtime effect rendering.
+  - Why it matters: current runtime render breadth is increasingly observability-rich, but fidelity stays capped by the primitive model.
+  - Minimum target: introduce explicit line/rect/text/marker-style payloads or equivalent primitive metadata without breaking existing presenters.
