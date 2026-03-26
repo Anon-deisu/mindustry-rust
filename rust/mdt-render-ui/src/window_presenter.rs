@@ -65,7 +65,9 @@ pub struct WindowFrame {
     pub frame_id: u64,
     pub title: String,
     pub wave_text: Option<String>,
+    pub session_banner_text: Option<String>,
     pub status_text: String,
+    pub build_strip_text: Option<String>,
     pub panel_lines: Vec<String>,
     pub overlay_lines: Vec<String>,
     pub overlay_summary_text: Option<String>,
@@ -359,7 +361,9 @@ fn compose_frame(
         frame_id,
         title: hud.title.clone(),
         wave_text: hud.wave_text.clone(),
+        session_banner_text: compose_frame_session_banner_text(hud),
         status_text: compose_frame_status_text(scene, hud, window),
+        build_strip_text: compose_frame_build_strip_text(hud),
         panel_lines: compose_frame_panel_lines(scene, hud, window),
         overlay_lines: compose_frame_overlay_lines(scene, hud),
         overlay_summary_text: hud.overlay_summary_text.clone(),
@@ -487,6 +491,29 @@ fn compose_frame_status_text(
         }
     }
     parts.join(" ")
+}
+
+fn compose_frame_session_banner_text(hud: &HudModel) -> Option<String> {
+    let panel = build_runtime_session_panel(hud)?;
+    if !panel.kick.is_empty() {
+        return Some(format!(
+            "KICK {}",
+            compose_runtime_kick_panel_status_text(&panel.kick)
+        ));
+    }
+    if !panel.loading.is_empty() {
+        return Some(format!(
+            "LOADING {}",
+            compose_runtime_loading_panel_status_text(&panel.loading)
+        ));
+    }
+    if !panel.reconnect.is_empty() {
+        return Some(format!(
+            "RECONNECT {}",
+            compose_runtime_reconnect_panel_status_text(&panel.reconnect)
+        ));
+    }
+    None
 }
 
 fn compose_frame_panel_lines(
@@ -715,6 +742,42 @@ fn compose_frame_panel_lines(
         ));
     }
     lines
+}
+
+fn compose_frame_build_strip_text(hud: &HudModel) -> Option<String> {
+    let interaction_panel = build_build_interaction_panel(hud);
+    let build_ui = hud.build_ui.as_ref();
+
+    if interaction_panel.is_none() && build_ui.is_none() {
+        return None;
+    }
+
+    let selected_block_id = interaction_panel
+        .as_ref()
+        .and_then(|panel| panel.selected_block_id)
+        .or_else(|| build_ui.and_then(|panel| panel.selected_block_id));
+    let rotation = interaction_panel
+        .as_ref()
+        .map(|panel| panel.selected_rotation)
+        .or_else(|| build_ui.map(|panel| panel.selected_rotation))
+        .unwrap_or_default();
+    let queue_text = interaction_panel
+        .as_ref()
+        .map(compose_build_strip_queue_text)
+        .or_else(|| build_ui.map(compose_build_strip_queue_fallback_text))
+        .unwrap_or_else(|| "none".to_string());
+    let authority_text = interaction_panel
+        .as_ref()
+        .map(|panel| build_interaction_authority_status_text(panel.authority_state).to_string())
+        .unwrap_or_else(|| "none".to_string());
+
+    Some(format!(
+        "BUILD: sel={} r{} q={} auth={}",
+        optional_i16_label(selected_block_id),
+        rotation,
+        queue_text,
+        authority_text,
+    ))
 }
 
 fn compose_frame_overlay_lines(scene: &RenderModel, hud: &HudModel) -> Vec<String> {
@@ -2608,6 +2671,38 @@ fn build_queue_head_status_text(head: Option<&BuildQueueHeadObservability>) -> S
     )
 }
 
+fn compose_build_strip_queue_text(
+    panel: &crate::panel_model::BuildInteractionPanelModel,
+) -> String {
+    if let Some(head) = panel.head.as_ref() {
+        build_queue_head_stage_status_text(head.stage, panel.pending_count)
+    } else {
+        format!(
+            "{}/p{}",
+            build_interaction_queue_status_text(panel.queue_state),
+            panel.pending_count
+        )
+    }
+}
+
+fn compose_build_strip_queue_fallback_text(build_ui: &BuildUiObservability) -> String {
+    if let Some(head) = build_ui.head.as_ref() {
+        build_queue_head_stage_status_text(head.stage, build_ui.queued_count)
+    } else {
+        format!("queued/p{}", build_ui.queued_count)
+    }
+}
+
+fn build_queue_head_stage_status_text(stage: BuildQueueHeadStage, pending_count: usize) -> String {
+    let stage_text = match stage {
+        BuildQueueHeadStage::Queued => "queued",
+        BuildQueueHeadStage::InFlight => "flight",
+        BuildQueueHeadStage::Finished => "finish",
+        BuildQueueHeadStage::Removed => "remove",
+    };
+    format!("{stage_text}/p{pending_count}")
+}
+
 fn compact_runtime_ui_text(value: Option<&str>) -> String {
     match value {
         Some(value) => {
@@ -3266,7 +3361,7 @@ fn overlay_window_hud(
     surface_width: usize,
     surface_height: usize,
 ) {
-    let top_line = frame.wave_text.as_deref().filter(|text| !text.is_empty());
+    let top_line = window_hud_top_line(frame);
     let panel_line = frame
         .panel_lines
         .iter()
@@ -3289,6 +3384,13 @@ fn overlay_window_hud(
     if let Some(text) = overlay_line {
         bottom_lines.push(text);
     }
+    if let Some(text) = frame
+        .build_strip_text
+        .as_deref()
+        .filter(|text| !text.is_empty())
+    {
+        bottom_lines.push(text);
+    }
     if bottom_lines.is_empty() {
         return;
     }
@@ -3302,6 +3404,14 @@ fn overlay_window_hud(
         surface_width,
         surface_height,
     );
+}
+
+fn window_hud_top_line(frame: &WindowFrame) -> Option<&str> {
+    frame
+        .session_banner_text
+        .as_deref()
+        .filter(|text| !text.is_empty())
+        .or_else(|| frame.wave_text.as_deref().filter(|text| !text.is_empty()))
 }
 
 fn draw_window_hud_bar(
@@ -3520,10 +3630,11 @@ fn encode_ppm(frame: &WindowFrame) -> Vec<u8> {
 mod tests {
     use super::{
         color_for_object, scale_frame_pixels, window_hud_bar_height, BackendSignal, WindowBackend,
-        WindowFrame, WindowMinimapInset, WindowPresenter, COLOR_BLOCK, COLOR_EMPTY, COLOR_MARKER,
-        COLOR_MINIMAP_INSET_VIEWPORT, COLOR_PLAN, COLOR_PLAYER, COLOR_RUNTIME, COLOR_TERRAIN,
-        COLOR_UNKNOWN, COLOR_WINDOW_HUD_BAR, COLOR_WINDOW_HUD_TEXT, WINDOW_HUD_BAR_PADDING_X,
-        WINDOW_HUD_BAR_PADDING_Y, WINDOW_HUD_FONT_HEIGHT,
+        window_hud_top_line, WindowFrame, WindowMinimapInset, WindowPresenter, COLOR_BLOCK,
+        COLOR_EMPTY, COLOR_MARKER, COLOR_MINIMAP_INSET_VIEWPORT, COLOR_PLAN, COLOR_PLAYER,
+        COLOR_RUNTIME, COLOR_TERRAIN, COLOR_UNKNOWN, COLOR_WINDOW_HUD_BAR,
+        COLOR_WINDOW_HUD_TEXT, WINDOW_HUD_BAR_PADDING_X, WINDOW_HUD_BAR_PADDING_Y,
+        WINDOW_HUD_FONT_HEIGHT,
     };
     use crate::{
         hud_model::{
@@ -3680,7 +3791,9 @@ mod tests {
             frame_id: 0,
             title: "demo".to_string(),
             wave_text: None,
+            session_banner_text: None,
             status_text: String::new(),
+            build_strip_text: None,
             panel_lines: Vec::new(),
             overlay_lines: Vec::new(),
             overlay_summary_text: None,
@@ -3706,7 +3819,9 @@ mod tests {
             frame_id: 0,
             title: "demo".to_string(),
             wave_text: Some("A".to_string()),
+            session_banner_text: None,
             status_text: String::new(),
+            build_strip_text: None,
             panel_lines: vec!["B".to_string()],
             overlay_lines: vec!["C".to_string()],
             overlay_summary_text: None,
@@ -3743,12 +3858,76 @@ mod tests {
     }
 
     #[test]
+    fn scale_frame_pixels_blits_build_strip_as_third_bottom_line() {
+        let frame = WindowFrame {
+            frame_id: 0,
+            title: "demo".to_string(),
+            wave_text: None,
+            session_banner_text: None,
+            status_text: String::new(),
+            build_strip_text: Some("D".to_string()),
+            panel_lines: vec!["B".to_string()],
+            overlay_lines: vec!["C".to_string()],
+            overlay_summary_text: None,
+            fps: None,
+            zoom: 1.0,
+            width: 12,
+            height: 8,
+            minimap_inset: None,
+            pixels: vec![COLOR_EMPTY; 12 * 8],
+        };
+
+        let pixels = scale_frame_pixels(&frame, 4);
+        let surface_width = frame.width * 4;
+        let surface_height = frame.height * 4;
+        let bottom_bar_y = surface_height.saturating_sub(window_hud_bar_height(3));
+        let third_bottom_line_y =
+            bottom_bar_y + WINDOW_HUD_BAR_PADDING_Y + (WINDOW_HUD_FONT_HEIGHT + 1) * 2;
+
+        assert_eq!(
+            pixels[third_bottom_line_y * surface_width + WINDOW_HUD_BAR_PADDING_X + 1],
+            COLOR_WINDOW_HUD_TEXT
+        );
+    }
+
+    #[test]
+    fn window_hud_top_line_prefers_session_banner_and_falls_back_to_wave() {
+        let mut frame = WindowFrame {
+            frame_id: 0,
+            title: "demo".to_string(),
+            wave_text: Some("Wave 7".to_string()),
+            session_banner_text: Some("KICK idInUse@7:IdInUse:wait_for_old~".to_string()),
+            status_text: String::new(),
+            build_strip_text: None,
+            panel_lines: Vec::new(),
+            overlay_lines: Vec::new(),
+            overlay_summary_text: None,
+            fps: None,
+            zoom: 1.0,
+            width: 12,
+            height: 8,
+            minimap_inset: None,
+            pixels: vec![COLOR_EMPTY; 12 * 8],
+        };
+
+        assert_eq!(
+            window_hud_top_line(&frame),
+            Some("KICK idInUse@7:IdInUse:wait_for_old~")
+        );
+
+        frame.session_banner_text = None;
+        assert_eq!(window_hud_top_line(&frame), Some("Wave 7"));
+    }
+
+    #[test]
     fn scale_frame_pixels_draws_minimap_inset_in_top_right_corner() {
         let frame = WindowFrame {
             frame_id: 0,
             title: "demo".to_string(),
             wave_text: None,
+            session_banner_text: None,
             status_text: String::new(),
+            build_strip_text: None,
             panel_lines: Vec::new(),
             overlay_lines: Vec::new(),
             overlay_summary_text: None,
@@ -4787,7 +4966,15 @@ mod tests {
         let backend = presenter.into_backend();
         let frame = backend.frames.last().unwrap();
         assert_eq!(frame.wave_text.as_deref(), Some("Wave 7"));
+        assert_eq!(
+            frame.session_banner_text.as_deref(),
+            Some("KICK idInUse@7:IdInUse:wait_for_old~")
+        );
         assert_eq!(frame.overlay_summary_text.as_deref(), Some("Plans 1"));
+        assert_eq!(
+            frame.build_strip_text.as_deref(),
+            Some("BUILD: sel=257 r2 q=flight/p3 auth=rollback")
+        );
         assert!(frame.status_text.starts_with("base "));
         assert!(frame
             .status_text
@@ -5116,6 +5303,10 @@ mod tests {
 
         let backend = presenter.into_backend();
         let frame = backend.frames.last().unwrap();
+        assert_eq!(
+            frame.build_strip_text.as_deref(),
+            Some("BUILD: sel=301 r1 q=queued/p3 auth=rej-miss-build")
+        );
         assert_frame_line_contains(
             &frame.panel_lines,
             "MINIMAP: mini:win0,0-1,1@s2x2:c0:f0:0:i1",
@@ -5189,6 +5380,7 @@ mod tests {
 
         let backend = presenter.into_backend();
         let frame = backend.frames.last().unwrap();
+        assert_eq!(frame.session_banner_text, None);
         assert!(
             frame
                 .panel_lines
@@ -5244,6 +5436,82 @@ mod tests {
                 .all(|line| !line.starts_with("RUNTIME-WORLD-LABEL-DETAIL:")),
             "unexpected runtime world-label detail line in {:?}",
             frame.panel_lines
+        );
+    }
+
+    #[test]
+    fn present_once_uses_loading_banner_when_kick_is_empty() {
+        let backend = RecordingBackend::default();
+        let mut presenter = WindowPresenter::new(backend);
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 8.0,
+                height: 8.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: Vec::new(),
+        };
+        let mut runtime_ui = RuntimeUiObservability::default();
+        runtime_ui.session.loading = crate::RuntimeLoadingObservability {
+            deferred_inbound_packet_count: 5,
+            replayed_inbound_packet_count: 6,
+            dropped_loading_low_priority_packet_count: 7,
+            dropped_loading_deferred_overflow_count: 8,
+            ready_inbound_liveness_anchor_count: 12,
+            last_ready_inbound_liveness_anchor_at_ms: Some(1300),
+            timeout_count: 2,
+            connect_or_loading_timeout_count: 1,
+            ready_snapshot_timeout_count: 1,
+            last_timeout_kind: Some(RuntimeSessionTimeoutKind::ReadySnapshotStall),
+            last_timeout_idle_ms: Some(20000),
+            reset_count: 3,
+            reconnect_reset_count: 1,
+            world_reload_count: 1,
+            kick_reset_count: 1,
+            last_reset_kind: Some(RuntimeSessionResetKind::WorldReload),
+            last_world_reload: Some(RuntimeWorldReloadObservability {
+                had_loaded_world: true,
+                had_client_loaded: false,
+                was_ready_to_enter_world: true,
+                had_connect_confirm_sent: false,
+                cleared_pending_packets: 4,
+                cleared_deferred_inbound_packets: 5,
+                cleared_replayed_loading_events: 6,
+            }),
+            ..crate::RuntimeLoadingObservability::default()
+        };
+        runtime_ui.session.reconnect = RuntimeReconnectObservability {
+            phase: RuntimeReconnectPhaseObservability::Attempting,
+            phase_transition_count: 3,
+            reason_kind: Some(RuntimeReconnectReasonKind::ConnectRedirect),
+            reason_text: Some("connectRedirect".to_string()),
+            hint_text: Some("server requested redirect".to_string()),
+            redirect_count: 1,
+            last_redirect_ip: Some("127.0.0.1".to_string()),
+            last_redirect_port: Some(6567),
+            ..RuntimeReconnectObservability::default()
+        };
+        let hud = HudModel {
+            title: "demo".to_string(),
+            wave_text: Some("Wave 7".to_string()),
+            runtime_ui: Some(runtime_ui),
+            ..HudModel::default()
+        };
+
+        presenter.present_once(&scene, &hud).unwrap();
+
+        let backend = presenter.into_backend();
+        let frame = backend.frames.last().unwrap();
+        assert_eq!(
+            frame.session_banner_text.as_deref(),
+            Some(
+                "LOADING defer5:replay6:drop7:qdrop8:sfail0:scfail0:efail0:rdy12@1300:to2:cto1:rto1:ltready@20000:rs3:rr1:wr1:kr1:lrreload:lwr@lw1:cl0:rd1:cc0:p4:d5:r6"
+            )
+        );
+        assert_eq!(
+            window_hud_top_line(frame),
+            frame.session_banner_text.as_deref()
         );
     }
 
