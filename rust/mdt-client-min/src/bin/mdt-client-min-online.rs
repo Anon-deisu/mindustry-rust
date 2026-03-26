@@ -4334,11 +4334,13 @@ fn maybe_print_ascii_scene(
     let Ok(loaded_session) = bundle.loaded_session() else {
         return;
     };
+    let fallback_player_position =
+        fallback_runtime_player_position(session, loaded_session.state().player_position());
     let Some(runtime_view_center) = resolved_runtime_view_center(
         events,
         session.snapshot_input().view_center,
         session.snapshot_input().position,
-        loaded_session.state().player_position(),
+        fallback_player_position,
     ) else {
         return;
     };
@@ -4377,11 +4379,15 @@ fn maybe_print_final_ascii_scene(
     let Ok(loaded_session) = bundle.loaded_session() else {
         return;
     };
+    let fallback_player_position =
+        fallback_runtime_player_position(session, loaded_session.state().player_position());
     let runtime_view_center = session
         .snapshot_input()
         .view_center
         .or(session.snapshot_input().position)
-        .or(Some(loaded_session.state().player_position()));
+        .or(latest_runtime_player_position(session))
+        .or(latest_world_player_position(session))
+        .or(Some(fallback_player_position));
     let (mut scene, mut hud) = project_scene_models_with_view_window(
         &loaded_session,
         &args.locale,
@@ -4440,11 +4446,13 @@ fn maybe_present_window_scene(
     let Ok(loaded_session) = bundle.loaded_session() else {
         return;
     };
+    let fallback_player_position =
+        fallback_runtime_player_position(session, loaded_session.state().player_position());
     let runtime_view_center = resolved_runtime_view_center(
         events,
         session.snapshot_input().view_center,
         session.snapshot_input().position,
-        loaded_session.state().player_position(),
+        fallback_player_position,
     );
 
     let (mut scene, mut hud) = project_scene_models_with_view_window(
@@ -4585,6 +4593,15 @@ fn resolved_runtime_view_center(
 ) -> Option<(f32, f32)> {
     latest_runtime_view_center(events, snapshot_view_center, snapshot_position)
         .or(Some(loaded_player_position))
+}
+
+fn fallback_runtime_player_position(
+    session: &ClientSession,
+    loaded_player_position: (f32, f32),
+) -> (f32, f32) {
+    latest_runtime_player_position(session)
+        .or(latest_world_player_position(session))
+        .unwrap_or(loaded_player_position)
 }
 
 fn should_render_ascii_on_events(events: &[ClientSessionEvent]) -> bool {
@@ -13371,6 +13388,37 @@ mod tests {
         assert_eq!(
             resolved_runtime_view_center(&events, None, None, (9.0, 10.0)),
             Some((9.0, 10.0))
+        );
+    }
+
+    #[test]
+    fn fallback_runtime_player_position_prefers_runtime_player_state_before_loaded_position() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
+        ingest_large_sample_world(&mut session);
+        let player_spawn_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "playerSpawn")
+            .unwrap()
+            .packet_id;
+        let target_tile = (20, 24);
+        let player_id = session.state().world_player_id.unwrap();
+
+        session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    player_spawn_packet_id,
+                    &encode_player_spawn_payload(pack_point2(target_tile.0, target_tile.1), player_id),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+        assert_eq!(
+            fallback_runtime_player_position(&session, (9.0, 10.0)),
+            (target_tile.0 as f32 * 8.0, target_tile.1 as f32 * 8.0)
         );
     }
 
