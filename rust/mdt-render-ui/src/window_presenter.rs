@@ -24,7 +24,7 @@ use crate::{
     RenderObject, RuntimeUiObservability, ScenePresenter,
 };
 use minifb::{Scale, Window, WindowOptions};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::thread;
@@ -333,12 +333,27 @@ fn compose_frame(
         .iter()
         .filter_map(window_line_end_object_pair)
         .collect::<BTreeMap<_, _>>();
+    let primitives = scene.primitives();
+    let rect_line_ids = primitives
+        .iter()
+        .filter_map(|primitive| match primitive {
+            RenderPrimitive::Rect { line_ids, .. } => Some(line_ids.iter().map(String::as_str)),
+            _ => None,
+        })
+        .flatten()
+        .collect::<BTreeSet<_>>();
 
     let mut commands = scene
         .objects
         .iter()
+        .filter(|object| !rect_line_ids.contains(object.id.as_str()))
         .filter_map(|object| window_render_command(object, &line_end_objects, window))
         .collect::<Vec<_>>();
+    commands.extend(
+        primitives
+            .iter()
+            .filter_map(|primitive| window_primitive_render_command(primitive, window)),
+    );
     commands.sort_by_key(WindowRenderCommand::layer);
     for command in commands {
         match command {
@@ -355,6 +370,22 @@ fn compose_frame(
                 color,
                 ..
             } => draw_window_line_segment(&mut tiles, window, start_tile, end_tile, color),
+            WindowRenderCommand::Rect {
+                left_tile,
+                top_tile,
+                right_tile,
+                bottom_tile,
+                color,
+                ..
+            } => draw_window_rect_outline(
+                &mut tiles,
+                window,
+                left_tile,
+                top_tile,
+                right_tile,
+                bottom_tile,
+                color,
+            ),
         }
     }
 
@@ -453,13 +484,21 @@ enum WindowRenderCommand<'a> {
         end_tile: (i32, i32),
         color: u32,
     },
+    Rect {
+        layer: i32,
+        left_tile: i32,
+        top_tile: i32,
+        right_tile: i32,
+        bottom_tile: i32,
+        color: u32,
+    },
 }
 
 impl WindowRenderCommand<'_> {
     fn layer(&self) -> i32 {
         match self {
             Self::Point { object, .. } => object.layer,
-            Self::Line { layer, .. } => *layer,
+            Self::Line { layer, .. } | Self::Rect { layer, .. } => *layer,
         }
     }
 }
@@ -520,6 +559,44 @@ fn window_line_end_object_pair(object: &RenderObject) -> Option<(String, &Render
         .map(|base_id| (base_id.to_string(), object))
 }
 
+fn window_primitive_render_command<'a>(
+    primitive: &'a RenderPrimitive,
+    window: PresenterViewWindow,
+) -> Option<WindowRenderCommand<'a>> {
+    match primitive {
+        RenderPrimitive::Rect {
+            layer,
+            left,
+            top,
+            right,
+            bottom,
+            ..
+        } => {
+            let left_tile = crate::presenter_view::world_to_tile_index_floor(*left, TILE_SIZE);
+            let top_tile = crate::presenter_view::world_to_tile_index_floor(*top, TILE_SIZE);
+            let right_tile = crate::presenter_view::world_to_tile_index_floor(*right, TILE_SIZE);
+            let bottom_tile =
+                crate::presenter_view::world_to_tile_index_floor(*bottom, TILE_SIZE);
+            if right_tile < window.origin_x as i32
+                || bottom_tile < window.origin_y as i32
+                || left_tile >= window.origin_x.saturating_add(window.width) as i32
+                || top_tile >= window.origin_y.saturating_add(window.height) as i32
+            {
+                return None;
+            }
+            Some(WindowRenderCommand::Rect {
+                layer: *layer,
+                left_tile,
+                top_tile,
+                right_tile,
+                bottom_tile,
+                color: 0xff44_88ff,
+            })
+        }
+        _ => None,
+    }
+}
+
 fn window_world_object_tile(object: &RenderObject) -> (i32, i32) {
     (
         crate::presenter_view::world_to_tile_index_floor(object.x, TILE_SIZE),
@@ -557,6 +634,39 @@ fn draw_window_line_segment(
             y0 += sy;
         }
     }
+}
+
+fn draw_window_rect_outline(
+    tiles: &mut [u32],
+    window: PresenterViewWindow,
+    left_tile: i32,
+    top_tile: i32,
+    right_tile: i32,
+    bottom_tile: i32,
+    color: u32,
+) {
+    draw_window_line_segment(tiles, window, (left_tile, top_tile), (right_tile, top_tile), color);
+    draw_window_line_segment(
+        tiles,
+        window,
+        (right_tile, top_tile),
+        (right_tile, bottom_tile),
+        color,
+    );
+    draw_window_line_segment(
+        tiles,
+        window,
+        (right_tile, bottom_tile),
+        (left_tile, bottom_tile),
+        color,
+    );
+    draw_window_line_segment(
+        tiles,
+        window,
+        (left_tile, bottom_tile),
+        (left_tile, top_tile),
+        color,
+    );
 }
 
 fn draw_window_tile_if_visible(
@@ -714,6 +824,9 @@ fn compose_frame_panel_lines(
     }
     if let Some(render_text_text) = compose_render_text_status_text(scene, window) {
         lines.push(format!("RENDER-TEXT: {render_text_text}"));
+    }
+    if let Some(render_rect_text) = compose_render_rect_status_text(scene, window) {
+        lines.push(format!("RENDER-RECT: {render_rect_text}"));
     }
     if let Some(build_panel_text) = compose_build_config_panel_status_text(hud) {
         lines.push(format!("BUILD-CONFIG: {build_panel_text}"));
@@ -997,6 +1110,50 @@ fn compose_render_text_status_text(scene: &RenderModel, window: PresenterViewWin
         ));
     }
 
+    Some(parts.join(" "))
+}
+
+fn compose_render_rect_status_text(scene: &RenderModel, window: PresenterViewWindow) -> Option<String> {
+    let mut rect_primitives = scene
+        .primitives()
+        .into_iter()
+        .filter_map(|primitive| match primitive {
+            RenderPrimitive::Rect {
+                family,
+                layer,
+                left,
+                top,
+                right,
+                bottom,
+                ..
+            } => Some((family, layer, left, top, right, bottom)),
+            _ => None,
+        })
+        .filter(|(_, _, left, top, right, bottom)| {
+            let left_tile = crate::presenter_view::world_to_tile_index_floor(*left, TILE_SIZE);
+            let top_tile = crate::presenter_view::world_to_tile_index_floor(*top, TILE_SIZE);
+            let right_tile = crate::presenter_view::world_to_tile_index_floor(*right, TILE_SIZE);
+            let bottom_tile =
+                crate::presenter_view::world_to_tile_index_floor(*bottom, TILE_SIZE);
+            !(right_tile < window.origin_x as i32
+                || bottom_tile < window.origin_y as i32
+                || left_tile >= window.origin_x.saturating_add(window.width) as i32
+                || top_tile >= window.origin_y.saturating_add(window.height) as i32)
+        })
+        .collect::<Vec<_>>();
+
+    if rect_primitives.is_empty() {
+        return None;
+    }
+
+    rect_primitives.sort_by_key(|(_, layer, _, _, _, _)| *layer);
+    let mut parts = vec![format!("count={}", rect_primitives.len())];
+    for (family, layer, left, top, right, bottom) in rect_primitives.into_iter().take(2) {
+        parts.push(format!(
+            "{family}@{layer}:{}:{}:{}:{}",
+            left as i32, top as i32, right as i32, bottom as i32
+        ));
+    }
     Some(parts.join(" "))
 }
 
@@ -5953,6 +6110,128 @@ mod tests {
         assert_frame_line_contains(&frame.panel_lines, "RENDER-TEXT: count=2");
         assert_frame_line_contains(&frame.panel_lines, "runtime-world-label@39:0:0=Hello");
         assert_frame_line_contains(&frame.panel_lines, "marker-text@30:8:0=Marker");
+    }
+
+    #[test]
+    fn present_once_surfaces_rect_primitive_summary() {
+        let backend = RecordingBackend::default();
+        let mut presenter = WindowPresenter::new(backend);
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 64.0,
+                height: 64.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-command-target-rect:top:{}:{}:{}:{}",
+                        32.0f32.to_bits(),
+                        40.0f32.to_bits(),
+                        48.0f32.to_bits(),
+                        40.0f32.to_bits()
+                    ),
+                    layer: 29,
+                    x: 32.0,
+                    y: 40.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-command-target-rect:top:{}:{}:{}:{}:line-end",
+                        32.0f32.to_bits(),
+                        40.0f32.to_bits(),
+                        48.0f32.to_bits(),
+                        40.0f32.to_bits()
+                    ),
+                    layer: 29,
+                    x: 48.0,
+                    y: 40.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-command-target-rect:right:{}:{}:{}:{}",
+                        48.0f32.to_bits(),
+                        40.0f32.to_bits(),
+                        48.0f32.to_bits(),
+                        56.0f32.to_bits()
+                    ),
+                    layer: 29,
+                    x: 48.0,
+                    y: 40.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-command-target-rect:right:{}:{}:{}:{}:line-end",
+                        48.0f32.to_bits(),
+                        40.0f32.to_bits(),
+                        48.0f32.to_bits(),
+                        56.0f32.to_bits()
+                    ),
+                    layer: 29,
+                    x: 48.0,
+                    y: 56.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-command-target-rect:bottom:{}:{}:{}:{}",
+                        48.0f32.to_bits(),
+                        56.0f32.to_bits(),
+                        32.0f32.to_bits(),
+                        56.0f32.to_bits()
+                    ),
+                    layer: 29,
+                    x: 48.0,
+                    y: 56.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-command-target-rect:bottom:{}:{}:{}:{}:line-end",
+                        48.0f32.to_bits(),
+                        56.0f32.to_bits(),
+                        32.0f32.to_bits(),
+                        56.0f32.to_bits()
+                    ),
+                    layer: 29,
+                    x: 32.0,
+                    y: 56.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-command-target-rect:left:{}:{}:{}:{}",
+                        32.0f32.to_bits(),
+                        56.0f32.to_bits(),
+                        32.0f32.to_bits(),
+                        40.0f32.to_bits()
+                    ),
+                    layer: 29,
+                    x: 32.0,
+                    y: 56.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-command-target-rect:left:{}:{}:{}:{}:line-end",
+                        32.0f32.to_bits(),
+                        56.0f32.to_bits(),
+                        32.0f32.to_bits(),
+                        40.0f32.to_bits()
+                    ),
+                    layer: 29,
+                    x: 32.0,
+                    y: 40.0,
+                },
+            ],
+        };
+        let hud = HudModel::default();
+
+        presenter.present_once(&scene, &hud).unwrap();
+
+        let backend = presenter.into_backend();
+        let frame = backend.frames.last().unwrap();
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RENDER-RECT: count=1 runtime-command-target-rect@29:32:40:48:56",
+        );
     }
 
     fn assert_frame_line_contains(lines: &[String], needle: &str) {

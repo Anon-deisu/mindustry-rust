@@ -1,7 +1,7 @@
 /// Render-facing projection of world state for UI drawing.
 ///
 /// This crate intentionally avoids protocol parsing and transport concerns.
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct RenderModel {
@@ -27,6 +27,16 @@ pub enum RenderPrimitive {
         x: f32,
         y: f32,
         text: String,
+    },
+    Rect {
+        id: String,
+        family: String,
+        layer: i32,
+        left: f32,
+        top: f32,
+        right: f32,
+        bottom: f32,
+        line_ids: Vec<String>,
     },
 }
 
@@ -206,11 +216,23 @@ impl RenderModel {
             .iter()
             .filter_map(render_line_end_object_pair)
             .collect::<BTreeMap<_, _>>();
-
-        self.objects
+        let rect_primitives = render_rect_primitives(&self.objects, &line_end_objects);
+        let rect_line_ids = rect_primitives
             .iter()
-            .filter_map(|object| render_primitive_for_object(object, &line_end_objects))
-            .collect()
+            .filter_map(|primitive| match primitive {
+                RenderPrimitive::Rect { line_ids, .. } => Some(line_ids.iter().cloned()),
+                _ => None,
+            })
+            .flatten()
+            .collect::<BTreeSet<_>>();
+
+        let mut primitives = self
+            .objects
+            .iter()
+            .filter_map(|object| render_primitive_for_object(object, &line_end_objects, &rect_line_ids))
+            .collect::<Vec<_>>();
+        primitives.extend(rect_primitives);
+        primitives
     }
 
     pub fn pipeline_summary_for_window(
@@ -265,13 +287,15 @@ impl RenderModel {
 impl RenderPrimitive {
     pub fn id(&self) -> &str {
         match self {
-            Self::Line { id, .. } | Self::Text { id, .. } => id,
+            Self::Line { id, .. } | Self::Text { id, .. } | Self::Rect { id, .. } => id,
         }
     }
 
     pub fn layer(&self) -> i32 {
         match self {
-            Self::Line { layer, .. } | Self::Text { layer, .. } => *layer,
+            Self::Line { layer, .. } | Self::Text { layer, .. } | Self::Rect { layer, .. } => {
+                *layer
+            }
         }
     }
 }
@@ -279,9 +303,13 @@ impl RenderPrimitive {
 fn render_primitive_for_object(
     object: &RenderObject,
     line_end_objects: &BTreeMap<String, &RenderObject>,
+    rect_line_ids: &BTreeSet<String>,
 ) -> Option<RenderPrimitive> {
     match object.semantic_kind() {
         RenderObjectSemanticKind::MarkerLine => {
+            if rect_line_ids.contains(&object.id) {
+                return None;
+            }
             let line_end = line_end_objects.get(&object.id)?;
             Some(RenderPrimitive::Line {
                 id: object.id.clone(),
@@ -323,6 +351,102 @@ fn render_text_primitive_for_object(object: &RenderObject) -> Option<RenderPrimi
         y: object.y,
         text,
     })
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct RectPrimitiveCandidate {
+    family: String,
+    layer: i32,
+    left: f32,
+    top: f32,
+    right: f32,
+    bottom: f32,
+    line_ids: Vec<String>,
+    edges: BTreeSet<String>,
+}
+
+fn render_rect_primitives(
+    objects: &[RenderObject],
+    line_end_objects: &BTreeMap<String, &RenderObject>,
+) -> Vec<RenderPrimitive> {
+    let mut candidates = BTreeMap::<(String, i32), RectPrimitiveCandidate>::new();
+
+    for object in objects {
+        if object.semantic_kind() != RenderObjectSemanticKind::MarkerLine {
+            continue;
+        }
+        let Some(line_end) = line_end_objects.get(&object.id) else {
+            continue;
+        };
+        let Some((family, edge)) = render_rect_family_and_edge(&object.id) else {
+            continue;
+        };
+        let left = object.x.min(line_end.x);
+        let top = object.y.min(line_end.y);
+        let right = object.x.max(line_end.x);
+        let bottom = object.y.max(line_end.y);
+        let key = (family.to_string(), object.layer);
+        let candidate = candidates.entry(key).or_insert_with(|| RectPrimitiveCandidate {
+            family: family.to_string(),
+            layer: object.layer,
+            left,
+            top,
+            right,
+            bottom,
+            line_ids: Vec::new(),
+            edges: BTreeSet::new(),
+        });
+        candidate.left = candidate.left.min(left);
+        candidate.top = candidate.top.min(top);
+        candidate.right = candidate.right.max(right);
+        candidate.bottom = candidate.bottom.max(bottom);
+        candidate.line_ids.push(object.id.clone());
+        candidate.edges.insert(edge.to_string());
+    }
+
+    candidates
+        .into_values()
+        .filter(|candidate| {
+            candidate.edges.len() == 4
+                && candidate.edges.contains("top")
+                && candidate.edges.contains("right")
+                && candidate.edges.contains("bottom")
+                && candidate.edges.contains("left")
+                && candidate.line_ids.len() == 4
+        })
+        .map(|mut candidate| {
+            candidate.line_ids.sort();
+            RenderPrimitive::Rect {
+                id: format!(
+                    "marker:rect:{}:{}:{}:{}:{}",
+                    candidate.family,
+                    candidate.left.to_bits(),
+                    candidate.top.to_bits(),
+                    candidate.right.to_bits(),
+                    candidate.bottom.to_bits()
+                ),
+                family: candidate.family,
+                layer: candidate.layer,
+                left: candidate.left,
+                top: candidate.top,
+                right: candidate.right,
+                bottom: candidate.bottom,
+                line_ids: candidate.line_ids,
+            }
+        })
+        .collect()
+}
+
+fn render_rect_family_and_edge(id: &str) -> Option<(&str, &str)> {
+    let mut parts = id.strip_prefix("marker:line:")?.split(':');
+    let family = parts.next()?;
+    let edge = parts.next()?;
+    match (family, edge) {
+        ("runtime-command-rect" | "runtime-command-target-rect", "top" | "right" | "bottom" | "left") => {
+            Some((family, edge))
+        }
+        _ => None,
+    }
 }
 
 pub(crate) fn encode_render_text(text: &str) -> String {
@@ -1312,6 +1436,161 @@ mod tests {
                 x: 24.0,
                 y: 32.0,
                 text: "Hello".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn render_model_derives_rect_primitives_from_runtime_command_rect_line_families() {
+        let scene = RenderModel {
+            viewport: Viewport::default(),
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-command-rect:top:{}:{}:{}:{}",
+                        8.0f32.to_bits(),
+                        16.0f32.to_bits(),
+                        24.0f32.to_bits(),
+                        16.0f32.to_bits()
+                    ),
+                    layer: 29,
+                    x: 8.0,
+                    y: 16.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-command-rect:top:{}:{}:{}:{}:line-end",
+                        8.0f32.to_bits(),
+                        16.0f32.to_bits(),
+                        24.0f32.to_bits(),
+                        16.0f32.to_bits()
+                    ),
+                    layer: 29,
+                    x: 24.0,
+                    y: 16.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-command-rect:right:{}:{}:{}:{}",
+                        24.0f32.to_bits(),
+                        16.0f32.to_bits(),
+                        24.0f32.to_bits(),
+                        32.0f32.to_bits()
+                    ),
+                    layer: 29,
+                    x: 24.0,
+                    y: 16.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-command-rect:right:{}:{}:{}:{}:line-end",
+                        24.0f32.to_bits(),
+                        16.0f32.to_bits(),
+                        24.0f32.to_bits(),
+                        32.0f32.to_bits()
+                    ),
+                    layer: 29,
+                    x: 24.0,
+                    y: 32.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-command-rect:bottom:{}:{}:{}:{}",
+                        24.0f32.to_bits(),
+                        32.0f32.to_bits(),
+                        8.0f32.to_bits(),
+                        32.0f32.to_bits()
+                    ),
+                    layer: 29,
+                    x: 24.0,
+                    y: 32.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-command-rect:bottom:{}:{}:{}:{}:line-end",
+                        24.0f32.to_bits(),
+                        32.0f32.to_bits(),
+                        8.0f32.to_bits(),
+                        32.0f32.to_bits()
+                    ),
+                    layer: 29,
+                    x: 8.0,
+                    y: 32.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-command-rect:left:{}:{}:{}:{}",
+                        8.0f32.to_bits(),
+                        32.0f32.to_bits(),
+                        8.0f32.to_bits(),
+                        16.0f32.to_bits()
+                    ),
+                    layer: 29,
+                    x: 8.0,
+                    y: 32.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-command-rect:left:{}:{}:{}:{}:line-end",
+                        8.0f32.to_bits(),
+                        32.0f32.to_bits(),
+                        8.0f32.to_bits(),
+                        16.0f32.to_bits()
+                    ),
+                    layer: 29,
+                    x: 8.0,
+                    y: 16.0,
+                },
+            ],
+        };
+
+        assert_eq!(
+            scene.primitives(),
+            vec![RenderPrimitive::Rect {
+                id: format!(
+                    "marker:rect:runtime-command-rect:{}:{}:{}:{}",
+                    8.0f32.to_bits(),
+                    16.0f32.to_bits(),
+                    24.0f32.to_bits(),
+                    32.0f32.to_bits()
+                ),
+                family: "runtime-command-rect".to_string(),
+                layer: 29,
+                left: 8.0,
+                top: 16.0,
+                right: 24.0,
+                bottom: 32.0,
+                line_ids: vec![
+                    format!(
+                        "marker:line:runtime-command-rect:bottom:{}:{}:{}:{}",
+                        24.0f32.to_bits(),
+                        32.0f32.to_bits(),
+                        8.0f32.to_bits(),
+                        32.0f32.to_bits()
+                    ),
+                    format!(
+                        "marker:line:runtime-command-rect:left:{}:{}:{}:{}",
+                        8.0f32.to_bits(),
+                        32.0f32.to_bits(),
+                        8.0f32.to_bits(),
+                        16.0f32.to_bits()
+                    ),
+                    format!(
+                        "marker:line:runtime-command-rect:right:{}:{}:{}:{}",
+                        24.0f32.to_bits(),
+                        16.0f32.to_bits(),
+                        24.0f32.to_bits(),
+                        32.0f32.to_bits()
+                    ),
+                    format!(
+                        "marker:line:runtime-command-rect:top:{}:{}:{}:{}",
+                        8.0f32.to_bits(),
+                        16.0f32.to_bits(),
+                        24.0f32.to_bits(),
+                        16.0f32.to_bits()
+                    ),
+                ],
             }]
         );
     }

@@ -54,6 +54,14 @@ impl AsciiScenePresenter {
                 _ => None,
             })
             .collect::<BTreeSet<_>>();
+        let rect_line_ids = primitives
+            .iter()
+            .filter_map(|primitive| match primitive {
+                RenderPrimitive::Rect { line_ids, .. } => Some(line_ids.iter().map(String::as_str)),
+                _ => None,
+            })
+            .flatten()
+            .collect::<BTreeSet<_>>();
         let line_end_objects = scene
             .objects
             .iter()
@@ -62,13 +70,16 @@ impl AsciiScenePresenter {
         let mut commands = scene
             .objects
             .iter()
-            .filter(|object| !text_primitive_ids.contains(object.id.as_str()))
+            .filter(|object| {
+                !text_primitive_ids.contains(object.id.as_str())
+                    && !rect_line_ids.contains(object.id.as_str())
+            })
             .filter_map(|object| ascii_render_command(object, &line_end_objects, window))
             .collect::<Vec<_>>();
         commands.extend(
             primitives
                 .iter()
-                .filter_map(|primitive| ascii_text_render_command(primitive, window)),
+                .filter_map(|primitive| ascii_primitive_render_command(primitive, window)),
         );
         commands.sort_by_key(AsciiRenderCommand::layer);
         for command in commands {
@@ -86,6 +97,22 @@ impl AsciiScenePresenter {
                     sprite,
                     ..
                 } => draw_ascii_line_segment(&mut grid, window, start_tile, end_tile, sprite),
+                AsciiRenderCommand::Rect {
+                    left_tile,
+                    top_tile,
+                    right_tile,
+                    bottom_tile,
+                    sprite,
+                    ..
+                } => draw_ascii_rect_outline(
+                    &mut grid,
+                    window,
+                    left_tile,
+                    top_tile,
+                    right_tile,
+                    bottom_tile,
+                    sprite,
+                ),
                 AsciiRenderCommand::Text {
                     local_x,
                     local_y,
@@ -109,6 +136,9 @@ impl AsciiScenePresenter {
         }
         if let Some(detail_text) = compose_hud_detail_text(hud) {
             out.push_str(&format!("HUD-DETAIL: {detail_text}\n"));
+        }
+        if let Some(render_rect_text) = compose_render_rect_status_text(scene, window) {
+            out.push_str(&format!("RENDER-RECT: {render_rect_text}\n"));
         }
         if let Some(minimap_text) = compose_minimap_panel_text(scene, hud, window) {
             out.push_str(&format!("MINIMAP: {minimap_text}\n"));
@@ -406,6 +436,14 @@ enum AsciiRenderCommand<'a> {
         end_tile: (i32, i32),
         sprite: char,
     },
+    Rect {
+        layer: i32,
+        left_tile: i32,
+        top_tile: i32,
+        right_tile: i32,
+        bottom_tile: i32,
+        sprite: char,
+    },
     Text {
         layer: i32,
         local_x: usize,
@@ -418,7 +456,7 @@ impl AsciiRenderCommand<'_> {
     fn layer(&self) -> i32 {
         match self {
             Self::Point { object, .. } => object.layer,
-            Self::Line { layer, .. } => *layer,
+            Self::Line { layer, .. } | Self::Rect { layer, .. } => *layer,
             Self::Text { layer, .. } => *layer,
         }
     }
@@ -482,41 +520,73 @@ fn ascii_line_end_object_pair(
         .map(|base_id| (base_id.to_string(), object))
 }
 
-fn ascii_text_render_command<'a>(
+fn ascii_primitive_render_command<'a>(
     primitive: &'a RenderPrimitive,
     window: PresenterViewWindow,
 ) -> Option<AsciiRenderCommand<'a>> {
-    let RenderPrimitive::Text {
-        kind: _kind,
-        layer,
-        x,
-        y,
-        text,
-        ..
-    } = primitive
-    else {
-        return None;
-    };
-    let tile_x = crate::presenter_view::world_to_tile_index_floor(*x, TILE_SIZE);
-    let tile_y = crate::presenter_view::world_to_tile_index_floor(*y, TILE_SIZE);
-    if tile_x < 0 || tile_y < 0 {
-        return None;
-    }
-    let (tile_x, tile_y) = (tile_x as usize, tile_y as usize);
-    if tile_x < window.origin_x
-        || tile_y < window.origin_y
-        || tile_x >= window.origin_x.saturating_add(window.width)
-        || tile_y >= window.origin_y.saturating_add(window.height)
-    {
-        return None;
-    }
+    match primitive {
+        RenderPrimitive::Text {
+            kind: _kind,
+            layer,
+            x,
+            y,
+            text,
+            ..
+        } => {
+            let tile_x = crate::presenter_view::world_to_tile_index_floor(*x, TILE_SIZE);
+            let tile_y = crate::presenter_view::world_to_tile_index_floor(*y, TILE_SIZE);
+            if tile_x < 0 || tile_y < 0 {
+                return None;
+            }
+            let (tile_x, tile_y) = (tile_x as usize, tile_y as usize);
+            if tile_x < window.origin_x
+                || tile_y < window.origin_y
+                || tile_x >= window.origin_x.saturating_add(window.width)
+                || tile_y >= window.origin_y.saturating_add(window.height)
+            {
+                return None;
+            }
 
-    Some(AsciiRenderCommand::Text {
-        layer: *layer,
-        local_x: tile_x - window.origin_x,
-        local_y: tile_y - window.origin_y,
-        text: text.as_str(),
-    })
+            Some(AsciiRenderCommand::Text {
+                layer: *layer,
+                local_x: tile_x - window.origin_x,
+                local_y: tile_y - window.origin_y,
+                text: text.as_str(),
+            })
+        }
+        RenderPrimitive::Rect {
+            layer,
+            left,
+            top,
+            right,
+            bottom,
+            ..
+        } => {
+            let left_tile = crate::presenter_view::world_to_tile_index_floor(*left, TILE_SIZE);
+            let top_tile = crate::presenter_view::world_to_tile_index_floor(*top, TILE_SIZE);
+            let right_tile = crate::presenter_view::world_to_tile_index_floor(*right, TILE_SIZE);
+            let bottom_tile =
+                crate::presenter_view::world_to_tile_index_floor(*bottom, TILE_SIZE);
+            if right_tile < window.origin_x as i32
+                || bottom_tile < window.origin_y as i32
+                || left_tile
+                    >= window.origin_x.saturating_add(window.width) as i32
+                || top_tile
+                    >= window.origin_y.saturating_add(window.height) as i32
+            {
+                return None;
+            }
+            Some(AsciiRenderCommand::Rect {
+                layer: *layer,
+                left_tile,
+                top_tile,
+                right_tile,
+                bottom_tile,
+                sprite: 'R',
+            })
+        }
+        _ => None,
+    }
 }
 
 fn ascii_world_object_tile(object: &crate::RenderObject) -> (i32, i32) {
@@ -556,6 +626,83 @@ fn draw_ascii_line_segment(
             y0 += sy;
         }
     }
+}
+
+fn draw_ascii_rect_outline(
+    grid: &mut [Vec<char>],
+    window: PresenterViewWindow,
+    left_tile: i32,
+    top_tile: i32,
+    right_tile: i32,
+    bottom_tile: i32,
+    sprite: char,
+) {
+    draw_ascii_line_segment(grid, window, (left_tile, top_tile), (right_tile, top_tile), sprite);
+    draw_ascii_line_segment(
+        grid,
+        window,
+        (right_tile, top_tile),
+        (right_tile, bottom_tile),
+        sprite,
+    );
+    draw_ascii_line_segment(
+        grid,
+        window,
+        (right_tile, bottom_tile),
+        (left_tile, bottom_tile),
+        sprite,
+    );
+    draw_ascii_line_segment(
+        grid,
+        window,
+        (left_tile, bottom_tile),
+        (left_tile, top_tile),
+        sprite,
+    );
+}
+
+fn compose_render_rect_status_text(scene: &RenderModel, window: PresenterViewWindow) -> Option<String> {
+    let mut rect_primitives = scene
+        .primitives()
+        .into_iter()
+        .filter_map(|primitive| match primitive {
+            RenderPrimitive::Rect {
+                family,
+                layer,
+                left,
+                top,
+                right,
+                bottom,
+                ..
+            } => Some((family, layer, left, top, right, bottom)),
+            _ => None,
+        })
+        .filter(|(_, _, left, top, right, bottom)| {
+            let left_tile = crate::presenter_view::world_to_tile_index_floor(*left, TILE_SIZE);
+            let top_tile = crate::presenter_view::world_to_tile_index_floor(*top, TILE_SIZE);
+            let right_tile = crate::presenter_view::world_to_tile_index_floor(*right, TILE_SIZE);
+            let bottom_tile =
+                crate::presenter_view::world_to_tile_index_floor(*bottom, TILE_SIZE);
+            !(right_tile < window.origin_x as i32
+                || bottom_tile < window.origin_y as i32
+                || left_tile >= window.origin_x.saturating_add(window.width) as i32
+                || top_tile >= window.origin_y.saturating_add(window.height) as i32)
+        })
+        .collect::<Vec<_>>();
+
+    if rect_primitives.is_empty() {
+        return None;
+    }
+
+    rect_primitives.sort_by_key(|(_, layer, _, _, _, _)| *layer);
+    let mut parts = vec![format!("count={}", rect_primitives.len())];
+    for (family, layer, left, top, right, bottom) in rect_primitives.into_iter().take(2) {
+        parts.push(format!(
+            "{family}@{layer}:{}:{}:{}:{}",
+            left as i32, top as i32, right as i32, bottom as i32
+        ));
+    }
+    Some(parts.join(" "))
 }
 
 fn draw_ascii_text(
@@ -4227,6 +4374,124 @@ mod tests {
         let frame = presenter.last_frame();
         assert!(frame.contains("Hello"));
         assert!(frame.contains("Marker"));
+    }
+
+    #[test]
+    fn ascii_presenter_surfaces_rect_primitive_summary_for_runtime_command_rects() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 64.0,
+                height: 64.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-command-rect:top:{}:{}:{}:{}",
+                        8.0f32.to_bits(),
+                        16.0f32.to_bits(),
+                        24.0f32.to_bits(),
+                        16.0f32.to_bits()
+                    ),
+                    layer: 29,
+                    x: 8.0,
+                    y: 16.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-command-rect:top:{}:{}:{}:{}:line-end",
+                        8.0f32.to_bits(),
+                        16.0f32.to_bits(),
+                        24.0f32.to_bits(),
+                        16.0f32.to_bits()
+                    ),
+                    layer: 29,
+                    x: 24.0,
+                    y: 16.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-command-rect:right:{}:{}:{}:{}",
+                        24.0f32.to_bits(),
+                        16.0f32.to_bits(),
+                        24.0f32.to_bits(),
+                        32.0f32.to_bits()
+                    ),
+                    layer: 29,
+                    x: 24.0,
+                    y: 16.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-command-rect:right:{}:{}:{}:{}:line-end",
+                        24.0f32.to_bits(),
+                        16.0f32.to_bits(),
+                        24.0f32.to_bits(),
+                        32.0f32.to_bits()
+                    ),
+                    layer: 29,
+                    x: 24.0,
+                    y: 32.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-command-rect:bottom:{}:{}:{}:{}",
+                        24.0f32.to_bits(),
+                        32.0f32.to_bits(),
+                        8.0f32.to_bits(),
+                        32.0f32.to_bits()
+                    ),
+                    layer: 29,
+                    x: 24.0,
+                    y: 32.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-command-rect:bottom:{}:{}:{}:{}:line-end",
+                        24.0f32.to_bits(),
+                        32.0f32.to_bits(),
+                        8.0f32.to_bits(),
+                        32.0f32.to_bits()
+                    ),
+                    layer: 29,
+                    x: 8.0,
+                    y: 32.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-command-rect:left:{}:{}:{}:{}",
+                        8.0f32.to_bits(),
+                        32.0f32.to_bits(),
+                        8.0f32.to_bits(),
+                        16.0f32.to_bits()
+                    ),
+                    layer: 29,
+                    x: 8.0,
+                    y: 32.0,
+                },
+                RenderObject {
+                    id: format!(
+                        "marker:line:runtime-command-rect:left:{}:{}:{}:{}:line-end",
+                        8.0f32.to_bits(),
+                        32.0f32.to_bits(),
+                        8.0f32.to_bits(),
+                        16.0f32.to_bits()
+                    ),
+                    layer: 29,
+                    x: 8.0,
+                    y: 16.0,
+                },
+            ],
+        };
+        let hud = HudModel::default();
+        let mut presenter = AsciiScenePresenter::default();
+
+        presenter.present(&scene, &hud);
+
+        assert!(presenter
+            .last_frame()
+            .contains("RENDER-RECT: count=1 runtime-command-rect@29:8:16:24:32"));
     }
 
     fn decode_hex(text: &str) -> Vec<u8> {
