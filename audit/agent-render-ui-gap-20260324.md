@@ -24,21 +24,16 @@ Focus: presenter/model slices that do not require session/world/runtime behavior
   - `BuildInteractionPanelModel`
   - `BuildMinimapAssistPanelModel`
 - `ascii` presenter already exposes more build detail rows than `window` in some areas.
+- the older presenter-local backlog slices below are no longer open:
+  - `BUILD-CONFIG-ENTRY`
+  - `BUILD-CONFIG-MORE`
+  - `BUILD`
+  - `BUILD-INSPECTOR`
+  - `BUILD-MINIMAP-AUX`
 
 ## Best Low-Risk Remaining Presenter Slices
 
-1. Add `BUILD-CONFIG-ENTRY` / `BUILD-CONFIG-MORE` rows to `window`.
-   - the panel-model data already exists
-   - this is formatting/presenter work, not new gameplay semantics
-
-2. Add explicit `BUILD` / `BUILD-INSPECTOR` rows to `window`.
-   - current `window` output still compresses some of this into compact status text
-
-3. Add `BUILD-MINIMAP-AUX` to `ascii`.
-   - helper/model already exists
-   - `window` already consumes it
-
-4. Add explicit `RUNTIME-WORLD-RELOAD` detail output.
+1. Add explicit `RUNTIME-WORLD-RELOAD` detail output.
    - keep it read-only and derived from existing session observability
 
 ## Recommended Write Scope

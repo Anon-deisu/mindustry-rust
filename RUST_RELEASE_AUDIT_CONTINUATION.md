@@ -549,9 +549,9 @@ This document tracks release-readiness audit continuation for the Rust deliverab
 - `high` Java's layered renderer/HUD/build-config UI remains mostly absent in Rust.
   - Java evidence: `core/src/mindustry/core/Renderer.java:31`, `:332`; `core/src/mindustry/ui/fragments/HudFragment.java:235`, `:542`; `core/src/mindustry/ui/fragments/PlacementFragment.java:37`
   - Rust evidence: `rust/mdt-render-ui/src/window_presenter.rs:409`; `rust/mdt-render-ui/src/render_model.rs:36`; `rust/mdt-render-ui/src/hud_model.rs:3`; `rust/mdt-client-min/src/render_runtime.rs:1241`
-- `medium` chat/minimap/battle-entity rendering remain user-visible backlog items even after minimal runtime observability work.
+- `medium` chat and battle-entity rendering remain user-visible backlog items; minimap still lacks full interactive/desktop parity even after the recent overlay and marker widening.
   - Java evidence: `core/src/mindustry/ui/fragments/ChatFragment.java:26`; `core/src/mindustry/core/UI.java:200`, `:243`; `core/src/mindustry/ui/Minimap.java:59`; `core/src/mindustry/graphics/ParticleRenderer.java:14`
-  - Rust evidence: `rust/mdt-client-min/src/client_session.rs:2005`; `rust/mdt-client-min/src/bin/mdt-client-min-online.rs:4172`; `rust/mdt-render-ui/src/projection.rs:156`, `:301`; `rust/mdt-client-min/src/render_runtime.rs:966`, `:1404`
+  - Rust evidence: `rust/mdt-client-min/src/client_session.rs:2005`; `rust/mdt-client-min/src/bin/mdt-client-min-online.rs:4172`; `rust/mdt-client-min/src/render_runtime.rs:4789`, `:5045`, `:5345`; `rust/mdt-render-ui/src/window_presenter.rs:568`, `:851`, `:5645`, `:6058`, `:7688`
 
 ## Non-Negotiable Messaging
 Do not state:
@@ -638,11 +638,6 @@ Use:
   - third bottom-line build strip summary with selected block, rotation, queue stage, and authority state
 
 ### Immediate High-Value Independent Shards
-- `P0 active` `unitCapDeath` lifecycle parity in `rust/mdt-client-min/src/client_session.rs`
-  - Current gap: packet updates counters only, unlike `unitDeath` / `unitDestroy` / `unitEnvDeath` / `unitSafeDeath` it does not remove entity projection or clear resource delta state.
-  - Why it matters: this is a concrete behavior bug, not just missing observability.
-  - Minimum target: make `unitCapDeath` remove the affected entity and clean resource mirror state, with regression coverage.
-
 - `P0` player semantic mirror in `rust/mdt-client-min/src/session_state.rs` + `rust/mdt-client-min/src/bootstrap_flow.rs` + `rust/mdt-client-min/src/client_session.rs`
   - Current gap: Rust parses `admin/name/color/team/mouse/selectedBlock/selectedRotation/typing/shooting/boosting`, but runtime player state still stores almost only `player_id/unit_kind/unit_value/x/y`.
   - Why it matters: inbound player sync currently feeds outbound snapshot fields, but not a reusable runtime player model for render/debug/gameplay semantics.
@@ -653,13 +648,8 @@ Use:
   - Why it matters: this moved the gap past the oldest thin-subset mirror, but Rust is still below Java `UnitComp`-level behavior fidelity.
   - Minimum target: keep widening family breadth and deeper semantic apply without overstating the current bounded runtime-sync landing.
 
-- `P1` loaded-world building live-state unification in `rust/mdt-client-min/src/client_session.rs` + `rust/mdt-world/src/lib.rs`
-  - Current gap: `setTile/removeTile` update table/projection state and may create placeholder building centers, but loaded-world building centers still drift from live authority and lack multiblock lifecycle parity.
-  - Why it matters: world state is still dual-sourced between patched world data and runtime projections.
-  - Minimum target: give runtime-created centers stable revision/base state, define center lifecycle policy, and make later block/build updates patch loaded-world building truth instead of only auxiliary tables.
-
 - `P1` render primitive/model expansion in `rust/mdt-render-ui/src/render_model.rs` + `rust/mdt-render-ui/src/projection.rs` + `rust/mdt-client-min/src/render_runtime.rs`
-  - Current gap: `RenderObject` still only carries `id/layer/x/y`, and while bounded `Line` / `Text` / `Rect` / `Icon` consumption is now landed, Rust still lacks richer stored payloads for deeper minimap density, runtime-config/config-outcome overlays, effect fallback markers, area-style overlays, and higher-fidelity layered rendering.
+  - Current gap: `RenderObject` still only carries `id/layer/x/y`, and while bounded `Line` / `Text` / `Rect` / `Icon` consumption is now landed, Rust still lacks richer stored payloads for deeper runtime-config/config-outcome overlays, effect fallback markers, and higher-fidelity layered rendering.
   - Why it matters: current runtime render breadth is increasingly observability-rich, but fidelity stays capped by the primitive model.
   - Minimum target: keep the current presenter-compatible primitive path, but widen it toward richer typed overlay payloads instead of re-dispatching already landed `line/text/basic icon` work.
 
@@ -767,13 +757,13 @@ Use:
   - Next cut:
     - move toward one consumable reconnect command surface instead of event-special-casing
 
-- `P1 active` bounded render primitive consumption is landed, but richer payload storage and deeper renderer/minimap semantics are still missing.
+- `P1 active` bounded render primitive consumption is landed, but richer payload storage and deeper layered renderer semantics are still missing.
   - Primary source paths:
     - `rust/mdt-render-ui/src/render_model.rs`
     - `rust/mdt-client-min/src/render_runtime.rs`
   - Remaining gap:
     - current primitives are still derived from legacy object ids, not an independent stored render payload channel
-    - deeper runtime-config/effect/area/minimap semantics are still mostly encoded as generic objects or presenter-local summaries
+    - deeper runtime-config/effect semantics are still mostly encoded as generic objects or presenter-local summaries
     - layered renderer fidelity is still far below Java desktop expectations
   - Next cut:
     - keep widening typed overlay payloads without regressing existing presenters, starting from richer runtime-config/effect/area families instead of redispatching already landed text/icon basics
@@ -781,4 +771,4 @@ Use:
 ### Current Parallel Lanes
 - `ready` loaded-world building live-state merged-view cut
 - `ready` reconnect command unification beyond online-loop-local policy
-- `ready` render primitive follow-up for richer runtime-config/effect/area payloads plus deeper minimap/renderer consumption
+- `ready` render primitive follow-up for richer runtime-config/effect payloads plus deeper layered renderer consumption
