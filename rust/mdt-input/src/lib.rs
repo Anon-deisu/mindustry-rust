@@ -39,8 +39,8 @@ pub use placement_rules::{
     RepairDerelictObservation,
 };
 pub use plan_editor::{
-    block_offset, flip_plans, rotate_plans, PlanBlockMeta, PlanEditable, PlanEditorPlan, PlanPoint,
-    PlanPointConfig, TILE_SIZE,
+    block_offset, flip_plans, rotate_plans, PlanBlockMeta, PlanBounds, PlanCollectionSummary,
+    PlanEditable, PlanEditorPlan, PlanPoint, PlanPointConfig, PlanPointConfigFamily, TILE_SIZE,
 };
 pub use probe::{
     classify_runtime_input_sample, sample_runtime_input_snapshot, MovementProbeConfig,

@@ -36,6 +36,34 @@ impl PlanPointConfig {
     }
 }
 
+/// High-signal point-config family used by plan summaries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlanPointConfigFamily {
+    None,
+    Point,
+    Points,
+}
+
+impl PlanPointConfigFamily {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Point => "point",
+            Self::Points => "points",
+        }
+    }
+}
+
+impl PlanPointConfig {
+    pub fn family(&self) -> PlanPointConfigFamily {
+        match self {
+            Self::None => PlanPointConfigFamily::None,
+            Self::Point(_) => PlanPointConfigFamily::Point,
+            Self::Points(_) => PlanPointConfigFamily::Points,
+        }
+    }
+}
+
 /// Block metadata needed for plan transforms.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PlanBlockMeta {
@@ -86,6 +114,132 @@ impl Default for PlanBlockMeta {
     }
 }
 
+/// Tile-space bounds for a plan collection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PlanBounds {
+    pub min_x: i32,
+    pub min_y: i32,
+    pub max_x: i32,
+    pub max_y: i32,
+}
+
+impl PlanBounds {
+    pub fn width(self) -> i32 {
+        self.max_x - self.min_x + 1
+    }
+
+    pub fn height(self) -> i32 {
+        self.max_y - self.min_y + 1
+    }
+
+    pub fn label(self) -> String {
+        format!(
+            "{}:{}..{}:{}",
+            self.min_x, self.min_y, self.max_x, self.max_y
+        )
+    }
+}
+
+/// Read-only summary for a plan collection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlanCollectionSummary {
+    pub plan_count: usize,
+    pub breaking_count: usize,
+    pub bounds: Option<PlanBounds>,
+    pub rotation_counts: [usize; 4],
+    pub point_config_family_counts: [usize; 3],
+    pub point_config_point_count: usize,
+}
+
+impl PlanCollectionSummary {
+    pub fn from_plans<P: PlanEditable>(plans: &[P]) -> Self {
+        let mut breaking_count = 0usize;
+        let mut rotation_counts = [0usize; 4];
+        let mut point_config_family_counts = [0usize; 3];
+        let mut point_config_point_count = 0usize;
+        let mut bounds: Option<PlanBounds> = None;
+
+        for plan in plans {
+            if plan.is_breaking() {
+                breaking_count = breaking_count.saturating_add(1);
+            }
+
+            let rotation = plan.rotation().rem_euclid(4) as usize;
+            rotation_counts[rotation] = rotation_counts[rotation].saturating_add(1);
+
+            let family = plan.point_config_family();
+            point_config_family_counts[family as usize] =
+                point_config_family_counts[family as usize].saturating_add(1);
+            point_config_point_count = point_config_point_count
+                .saturating_add(plan.point_config_point_count());
+
+            let (x, y) = plan.tile();
+            bounds = Some(match bounds {
+                Some(bounds) => PlanBounds {
+                    min_x: bounds.min_x.min(x),
+                    min_y: bounds.min_y.min(y),
+                    max_x: bounds.max_x.max(x),
+                    max_y: bounds.max_y.max(y),
+                },
+                None => PlanBounds {
+                    min_x: x,
+                    min_y: y,
+                    max_x: x,
+                    max_y: y,
+                },
+            });
+        }
+
+        Self {
+            plan_count: plans.len(),
+            breaking_count,
+            bounds,
+            rotation_counts,
+            point_config_family_counts,
+            point_config_point_count,
+        }
+    }
+
+    pub fn has_bounds(&self) -> bool {
+        self.bounds.is_some()
+    }
+
+    pub fn bounds_label(&self) -> String {
+        self.bounds.map_or_else(|| "none".to_string(), PlanBounds::label)
+    }
+
+    pub fn rotation_label(&self) -> String {
+        format!(
+            "r0={} r1={} r2={} r3={}",
+            self.rotation_counts[0],
+            self.rotation_counts[1],
+            self.rotation_counts[2],
+            self.rotation_counts[3]
+        )
+    }
+
+    pub fn point_config_label(&self) -> String {
+        format!(
+            "none={} point={} points={} total={}",
+            self.point_config_family_counts[PlanPointConfigFamily::None as usize],
+            self.point_config_family_counts[PlanPointConfigFamily::Point as usize],
+            self.point_config_family_counts[PlanPointConfigFamily::Points as usize],
+            self.point_config_point_count
+        )
+    }
+
+    pub fn summary_label(&self) -> String {
+        format!(
+            "plans={} breaking={} bounds={} rot={} cfg={}",
+            self.plan_count,
+            self.breaking_count,
+            self.bounds_label(),
+            self.rotation_label(),
+            self.point_config_label()
+        )
+    }
+}
+
 /// Computes Mindustry block offset from block size.
 pub fn block_offset(size: i32) -> f32 {
     ((size + 1).rem_euclid(2) as f32) * TILE_SIZE / 2.0
@@ -109,6 +263,8 @@ pub trait PlanEditable {
     fn rotation(&self) -> i32;
     fn set_rotation(&mut self, rotation: i32);
     fn block_meta(&self) -> PlanBlockMeta;
+    fn point_config_family(&self) -> PlanPointConfigFamily;
+    fn point_config_point_count(&self) -> usize;
     fn map_point_config<F>(&mut self, mapper: F)
     where
         F: FnMut(&mut PlanPoint);
@@ -138,6 +294,18 @@ impl PlanEditable for PlanEditorPlan {
 
     fn block_meta(&self) -> PlanBlockMeta {
         self.block
+    }
+
+    fn point_config_family(&self) -> PlanPointConfigFamily {
+        self.point_config.family()
+    }
+
+    fn point_config_point_count(&self) -> usize {
+        match &self.point_config {
+            PlanPointConfig::None => 0,
+            PlanPointConfig::Point(_) => 1,
+            PlanPointConfig::Points(points) => points.len(),
+        }
     }
 
     fn map_point_config<F>(&mut self, mapper: F)
@@ -375,6 +543,105 @@ mod tests {
             plans[0].point_config,
             PlanPointConfig::Points(vec![PlanPoint { x: 1, y: -2 }, PlanPoint { x: -3, y: 0 },])
         );
+    }
+
+    #[test]
+    fn plan_collection_summary_tracks_bounds_rotations_and_config_families() {
+        let plans = vec![
+            PlanEditorPlan {
+                x: 3,
+                y: 2,
+                rotation: 1,
+                breaking: false,
+                block: PlanBlockMeta::with_size(2),
+                point_config: PlanPointConfig::Point(PlanPoint { x: 1, y: 0 }),
+            },
+            PlanEditorPlan {
+                x: -1,
+                y: 5,
+                rotation: 3,
+                breaking: true,
+                block: PlanBlockMeta::with_size(1),
+                point_config: PlanPointConfig::None,
+            },
+            PlanEditorPlan {
+                x: 7,
+                y: -4,
+                rotation: 0,
+                breaking: false,
+                block: PlanBlockMeta::with_size(3),
+                point_config: PlanPointConfig::Points(vec![
+                    PlanPoint { x: 2, y: 2 },
+                    PlanPoint { x: -1, y: 4 },
+                ]),
+            },
+        ];
+
+        let summary = PlanCollectionSummary::from_plans(&plans);
+
+        assert_eq!(summary.plan_count, 3);
+        assert_eq!(summary.breaking_count, 1);
+        assert_eq!(
+            summary.bounds,
+            Some(PlanBounds {
+                min_x: -1,
+                min_y: -4,
+                max_x: 7,
+                max_y: 5,
+            })
+        );
+        assert_eq!(summary.bounds_label(), "-1:-4..7:5");
+        assert_eq!(summary.rotation_counts, [1, 1, 0, 1]);
+        assert_eq!(summary.rotation_label(), "r0=1 r1=1 r2=0 r3=1");
+        assert_eq!(summary.point_config_family_counts, [1, 1, 1]);
+        assert_eq!(summary.point_config_label(), "none=1 point=1 points=1 total=3");
+        assert_eq!(
+            summary.summary_label(),
+            "plans=3 breaking=1 bounds=-1:-4..7:5 rot=r0=1 r1=1 r2=0 r3=1 cfg=none=1 point=1 points=1 total=3"
+        );
+        assert!(summary.has_bounds());
+    }
+
+    #[test]
+    fn plan_collection_summary_reflects_rotate_and_flip_output_shape() {
+        let mut plans = vec![
+            PlanEditorPlan {
+                x: 2,
+                y: 1,
+                rotation: 0,
+                breaking: false,
+                block: PlanBlockMeta::with_size(2),
+                point_config: PlanPointConfig::Point(PlanPoint { x: 1, y: 0 }),
+            },
+            PlanEditorPlan {
+                x: -2,
+                y: 4,
+                rotation: 3,
+                breaking: false,
+                block: PlanBlockMeta::with_size(1),
+                point_config: PlanPointConfig::Points(vec![PlanPoint { x: 0, y: 1 }]),
+            },
+        ];
+
+        rotate_plans(&mut plans, (0, 0), 1);
+        flip_plans(&mut plans, (0, 0), true);
+
+        let summary = PlanCollectionSummary::from_plans(&plans);
+
+        assert_eq!(summary.plan_count, 2);
+        assert_eq!(summary.breaking_count, 0);
+        assert_eq!(
+            summary.bounds,
+            Some(PlanBounds {
+                min_x: 1,
+                min_y: -2,
+                max_x: 4,
+                max_y: 2,
+            })
+        );
+        assert_eq!(summary.rotation_counts, [0, 1, 1, 0]);
+        assert_eq!(summary.point_config_family_counts, [0, 1, 1]);
+        assert_eq!(summary.point_config_point_count, 2);
     }
 
     #[test]
