@@ -92,6 +92,69 @@ pub struct CommandModeProjection {
     pub last_stance_selection: Option<CommandModeStanceSelection>,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CommandModeProjectionSummary {
+    pub active: bool,
+    pub selected_unit_count: usize,
+    pub command_building_count: usize,
+    pub control_group_count: usize,
+    pub has_command_rect: bool,
+    pub has_recent_target: bool,
+    pub has_recent_command_selection: bool,
+    pub has_recent_stance_selection: bool,
+}
+
+impl CommandModeProjectionSummary {
+    pub fn is_empty(self) -> bool {
+        !self.active
+            && self.selected_unit_count == 0
+            && self.command_building_count == 0
+            && self.control_group_count == 0
+            && !self.has_command_rect
+            && !self.has_recent_target
+            && !self.has_recent_command_selection
+            && !self.has_recent_stance_selection
+    }
+
+    pub fn recent_selection_label(self) -> &'static str {
+        match (
+            self.has_recent_target,
+            self.has_recent_command_selection,
+            self.has_recent_stance_selection,
+        ) {
+            (false, false, false) => "none",
+            (true, false, false) => "target",
+            (false, true, false) => "command",
+            (false, false, true) => "stance",
+            (true, true, false) => "target+command",
+            (true, false, true) => "target+stance",
+            (false, true, true) => "command+stance",
+            (true, true, true) => "target+command+stance",
+        }
+    }
+
+    pub fn summary_label(self) -> &'static str {
+        if self.is_empty() {
+            "idle"
+        } else {
+            let recent_selection_label = self.recent_selection_label();
+            if recent_selection_label != "none" {
+                recent_selection_label
+            } else if self.has_command_rect {
+                "rect"
+            } else if self.control_group_count > 0 {
+                "groups"
+            } else if self.command_building_count > 0 {
+                "buildings"
+            } else if self.selected_unit_count > 0 {
+                "units"
+            } else {
+                "active"
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CommandModeState {
     active: bool,
@@ -325,6 +388,33 @@ impl CommandModeState {
     }
 }
 
+impl CommandModeProjection {
+    pub fn is_empty(&self) -> bool {
+        self.summary().is_empty()
+    }
+
+    pub fn summary(&self) -> CommandModeProjectionSummary {
+        CommandModeProjectionSummary {
+            active: self.active,
+            selected_unit_count: self.selected_units.len(),
+            command_building_count: self.command_buildings.len(),
+            control_group_count: self.control_groups.len(),
+            has_command_rect: self.command_rect.is_some(),
+            has_recent_target: self.last_target.is_some_and(|target| !target.is_empty()),
+            has_recent_command_selection: self.last_command_selection.is_some(),
+            has_recent_stance_selection: self.last_stance_selection.is_some(),
+        }
+    }
+
+    pub fn summary_label(&self) -> &'static str {
+        self.summary().summary_label()
+    }
+
+    pub fn recent_selection_label(&self) -> &'static str {
+        self.summary().recent_selection_label()
+    }
+}
+
 pub fn merge_selected_units(
     current_unit_ids: &[i32],
     incoming_unit_ids: &[i32],
@@ -396,6 +486,46 @@ mod tests {
             ..CommandModeTargetProjection::default()
         }
         .is_empty());
+    }
+
+    #[test]
+    fn command_mode_projection_summary_reports_empty_and_recent_selection_state() {
+        let empty = CommandModeProjection::default();
+
+        assert!(empty.is_empty());
+        assert_eq!(
+            empty.summary(),
+            CommandModeProjectionSummary {
+                active: false,
+                selected_unit_count: 0,
+                command_building_count: 0,
+                control_group_count: 0,
+                has_command_rect: false,
+                has_recent_target: false,
+                has_recent_command_selection: false,
+                has_recent_stance_selection: false,
+            }
+        );
+        assert_eq!(empty.summary_label(), "idle");
+        assert_eq!(empty.recent_selection_label(), "none");
+
+        let mut state = CommandModeState::default();
+        state.bind_control_group(2, &[9, 9, 7]);
+        state.record_command_units(&[11, 22, 11], Some(7), Some(unit(2, 33)), Some((1.0, 2.0)));
+        state.record_set_unit_command(&[11, 22, 11], Some(5));
+        state.record_set_unit_stance(&[11, 22, 11], None, true);
+
+        let summary = state.projection().summary();
+        assert_eq!(summary.active, true);
+        assert_eq!(summary.selected_unit_count, 2);
+        assert_eq!(summary.command_building_count, 0);
+        assert_eq!(summary.control_group_count, 1);
+        assert_eq!(summary.has_command_rect, false);
+        assert_eq!(summary.has_recent_target, true);
+        assert_eq!(summary.has_recent_command_selection, true);
+        assert_eq!(summary.has_recent_stance_selection, true);
+        assert_eq!(summary.summary_label(), "target+command+stance");
+        assert_eq!(summary.recent_selection_label(), "target+command+stance");
     }
 
     #[test]

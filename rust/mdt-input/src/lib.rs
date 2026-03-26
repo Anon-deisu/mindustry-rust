@@ -26,8 +26,8 @@ pub use capability_gate::{
 pub use command_mode::{
     merge_selected_units, CommandModeCommandSelection, CommandModeControlGroupProjection,
     CommandModePositionTarget, CommandModeProjection, CommandModeRectProjection,
-    CommandModeSelectionOp, CommandModeStanceSelection, CommandModeState,
-    CommandModeTargetProjection, CommandUnitRef,
+    CommandModeProjectionSummary, CommandModeSelectionOp, CommandModeStanceSelection,
+    CommandModeState, CommandModeTargetProjection, CommandUnitRef,
 };
 pub use intent::{BinaryAction, BuildPulse, PlayerIntent};
 pub use live_intent::{LiveIntentBindingProfile, LiveIntentState};
