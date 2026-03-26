@@ -130,6 +130,26 @@ impl TypedInboundRemoteDispatcher {
     }
 }
 
+impl TypedInboundRemoteDispatch {
+    pub fn payload_kind_label(&self) -> &'static str {
+        match self {
+            Self::Text { .. } => "text",
+            Self::Binary { .. } => "binary",
+            Self::LogicData { .. } => "logic",
+        }
+    }
+
+    pub fn route_label(&self) -> String {
+        match self {
+            Self::Text { family, .. }
+            | Self::Binary { family, .. }
+            | Self::LogicData { family, .. } => {
+                format!("{}/{}", family.method_name(), self.payload_kind_label())
+            }
+        }
+    }
+}
+
 impl TypedCustomChannelRemoteDispatcher {
     pub fn from_remote_manifest(manifest: &RemoteManifest) -> Result<Self, RemoteManifestError> {
         Ok(Self {
@@ -164,6 +184,26 @@ impl TypedCustomChannelRemoteDispatcher {
             }
         })?;
         Ok(Some(decoded.into_custom_channel_dispatch(spec.family)))
+    }
+}
+
+impl TypedCustomChannelRemoteDispatch {
+    pub fn payload_kind_label(&self) -> &'static str {
+        match self {
+            Self::Text { .. } => "text",
+            Self::Binary { .. } => "binary",
+            Self::LogicData { .. } => "logic",
+        }
+    }
+
+    pub fn route_label(&self) -> String {
+        match self {
+            Self::Text { family, .. }
+            | Self::Binary { family, .. }
+            | Self::LogicData { family, .. } => {
+                format!("{}/{}", family.method_name(), self.payload_kind_label())
+            }
+        }
     }
 }
 
@@ -348,6 +388,10 @@ mod tests {
                 contents: "hello".to_string(),
             })
         );
+        assert_eq!(
+            dispatcher.dispatch(10, &payload).unwrap().unwrap().route_label(),
+            "serverPacketReliable/text"
+        );
     }
 
     #[test]
@@ -368,6 +412,10 @@ mod tests {
                 channel: "logic.alpha".to_string(),
                 value,
             })
+        );
+        assert_eq!(
+            dispatcher.dispatch(15, &payload).unwrap().unwrap().route_label(),
+            "clientLogicDataUnreliable/logic"
         );
     }
 
@@ -401,6 +449,10 @@ mod tests {
                 packet_type: "mod.client".to_string(),
                 contents: "hello".to_string(),
             })
+        );
+        assert_eq!(
+            dispatcher.dispatch(5, &payload).unwrap().unwrap().route_label(),
+            "clientPacketReliable/text"
         );
     }
 
@@ -437,6 +489,10 @@ mod tests {
                 channel: "logic.beta".to_string(),
                 value,
             })
+        );
+        assert_eq!(
+            dispatcher.dispatch(14, &payload).unwrap().unwrap().route_label(),
+            "clientLogicDataReliable/logic"
         );
     }
 

@@ -197,6 +197,16 @@ pub enum CustomChannelRemotePayloadKind {
     LogicData,
 }
 
+impl CustomChannelRemotePayloadKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Text => "text",
+            Self::Binary => "binary",
+            Self::LogicData => "logic",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InboundRemoteFamily {
     ServerPacketReliable,
@@ -2629,14 +2639,17 @@ mod tests {
             CustomChannelRemoteFamily::ClientPacketReliable.payload_kind(),
             CustomChannelRemotePayloadKind::Text
         );
+        assert_eq!(CustomChannelRemotePayloadKind::Text.label(), "text");
         assert_eq!(
             CustomChannelRemoteFamily::ServerBinaryPacketReliable.payload_kind(),
             CustomChannelRemotePayloadKind::Binary
         );
+        assert_eq!(CustomChannelRemotePayloadKind::Binary.label(), "binary");
         assert_eq!(
             CustomChannelRemoteFamily::ClientLogicDataReliable.payload_kind(),
             CustomChannelRemotePayloadKind::LogicData
         );
+        assert_eq!(CustomChannelRemotePayloadKind::LogicData.label(), "logic");
         assert_eq!(
             InboundRemoteFamily::ClientLogicDataUnreliable.payload_kind(),
             CustomChannelRemotePayloadKind::LogicData

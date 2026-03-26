@@ -6,11 +6,11 @@ use crate::snapshot_ingest::InboundSnapshot;
 #[path = "packet_registry_typed_remote_glue.rs"]
 mod typed_remote_glue;
 use mdt_remote::{
-    CustomChannelRemoteDispatchSpec, CustomChannelRemoteFamily, CustomChannelRemoteRegistry,
-    HighFrequencyRemoteMethod, InboundRemoteDispatchSpec, InboundRemoteFamily,
-    InboundRemoteRegistry, RemoteManifest, RemoteManifestError, RemotePacketIdFixedTable,
-    WellKnownRemoteMethod, WellKnownRemoteRegistry, CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT,
-    INBOUND_REMOTE_FAMILY_COUNT,
+    CustomChannelRemoteDispatchSpec, CustomChannelRemoteFamily, CustomChannelRemotePayloadKind,
+    CustomChannelRemoteRegistry, HighFrequencyRemoteMethod, InboundRemoteDispatchSpec,
+    InboundRemoteFamily, InboundRemoteRegistry, RemoteManifest, RemoteManifestError,
+    RemotePacketIdFixedTable, WellKnownRemoteMethod, WellKnownRemoteRegistry,
+    CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT, INBOUND_REMOTE_FAMILY_COUNT,
 };
 use typed_remote_glue::PacketRegistryTypedRemoteGlue;
 
@@ -74,6 +74,24 @@ pub struct CombinedPacketRegistries {
     pub well_known_remote: WellKnownRemotePacketIds,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemotePacketClassification {
+    HighFrequency {
+        method: HighFrequencyRemoteMethod,
+    },
+    CustomChannel {
+        family: CustomChannelRemoteFamily,
+        payload_kind: CustomChannelRemotePayloadKind,
+    },
+    InboundRemote {
+        family: InboundRemoteFamily,
+        payload_kind: CustomChannelRemotePayloadKind,
+    },
+    WellKnown {
+        method: WellKnownRemoteMethod,
+    },
+}
+
 impl Default for InboundSnapshotPacketRegistry {
     fn default() -> Self {
         Self {
@@ -105,6 +123,10 @@ impl InboundSnapshotPacketRegistry {
 
     pub fn len(&self) -> usize {
         self.resolved_packet_ids.len()
+    }
+
+    pub fn method(&self, packet_id: u8) -> Option<HighFrequencyRemoteMethod> {
+        self.by_packet_id.get(packet_id)
     }
 }
 
@@ -150,6 +172,33 @@ impl CustomChannelPacketRegistry {
     }
 }
 
+impl RemotePacketClassification {
+    pub fn route_label(self) -> String {
+        match self {
+            Self::HighFrequency { method } => {
+                format!("high_frequency/{}", method.method_name())
+            }
+            Self::CustomChannel {
+                family,
+                payload_kind,
+            } => format!(
+                "custom_channel/{}:{}",
+                family.method_name(),
+                payload_kind.label()
+            ),
+            Self::InboundRemote {
+                family,
+                payload_kind,
+            } => format!(
+                "inbound_remote/{}:{}",
+                family.method_name(),
+                payload_kind.label()
+            ),
+            Self::WellKnown { method } => format!("well_known/{}", method.method_name()),
+        }
+    }
+}
+
 impl InboundRemotePacketRegistry {
     pub fn from_remote_manifest(manifest: &RemoteManifest) -> Result<Self, RemoteManifestError> {
         let registry = InboundRemoteRegistry::from_manifest(manifest)?;
@@ -177,6 +226,40 @@ impl CombinedPacketRegistries {
             well_known_remote: WellKnownRemotePacketIds::from_typed_registry(well_known),
         })
     }
+
+    pub fn classify_packet_id(&self, packet_id: u8) -> Option<RemotePacketClassification> {
+        if packet_id == self.client_snapshot_packet_id {
+            return Some(RemotePacketClassification::HighFrequency {
+                method: HighFrequencyRemoteMethod::ClientSnapshot,
+            });
+        }
+        if let Some(method) = self.inbound_snapshot.method(packet_id) {
+            return Some(RemotePacketClassification::HighFrequency { method });
+        }
+        if let Some(spec) = self.custom_channel.dispatch_spec(packet_id) {
+            if spec.payload_kind == CustomChannelRemotePayloadKind::LogicData {
+                if let Some(family) = spec.family.inbound_remote_family() {
+                    return Some(RemotePacketClassification::InboundRemote {
+                        family,
+                        payload_kind: spec.payload_kind,
+                    });
+                }
+            }
+            return Some(RemotePacketClassification::CustomChannel {
+                family: spec.family,
+                payload_kind: spec.payload_kind,
+            });
+        }
+        if let Some(spec) = self.inbound_remote.dispatch_spec(packet_id) {
+            return Some(RemotePacketClassification::InboundRemote {
+                family: spec.family,
+                payload_kind: spec.payload_kind,
+            });
+        }
+        self.well_known_remote
+            .method(packet_id)
+            .map(|method| RemotePacketClassification::WellKnown { method })
+    }
 }
 
 impl WellKnownRemotePacketIds {
@@ -201,6 +284,32 @@ impl WellKnownRemotePacketIds {
             set_objectives_packet_id: registry.packet_id(WellKnownRemoteMethod::SetObjectives),
             set_rule_packet_id: registry.packet_id(WellKnownRemoteMethod::SetRule),
         }
+    }
+
+    pub fn method(&self, packet_id: u8) -> Option<WellKnownRemoteMethod> {
+        [
+            (WellKnownRemoteMethod::Ping, self.ping_packet_id),
+            (
+                WellKnownRemoteMethod::ClientPlanSnapshot,
+                self.client_plan_snapshot_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::ClientPlanSnapshotReceived,
+                self.client_plan_snapshot_received_packet_id,
+            ),
+            (WellKnownRemoteMethod::PingResponse, self.ping_response_packet_id),
+            (WellKnownRemoteMethod::PingLocation, self.ping_location_packet_id),
+            (
+                WellKnownRemoteMethod::DebugStatusClientUnreliable,
+                self.debug_status_client_unreliable_packet_id,
+            ),
+            (WellKnownRemoteMethod::TraceInfo, self.trace_info_packet_id),
+            (WellKnownRemoteMethod::SetRules, self.set_rules_packet_id),
+            (WellKnownRemoteMethod::SetObjectives, self.set_objectives_packet_id),
+            (WellKnownRemoteMethod::SetRule, self.set_rule_packet_id),
+        ]
+        .into_iter()
+        .find_map(|(method, resolved_packet_id)| (resolved_packet_id == Some(packet_id)).then_some(method))
     }
 }
 
@@ -240,7 +349,8 @@ impl InboundRemotePacketRegistry {
 mod tests {
     use super::{
         CombinedPacketRegistries, CustomChannelPacketRegistry, InboundRemoteDispatchSpec,
-        InboundRemoteFamily, InboundRemotePacketRegistry, WellKnownRemotePacketIds,
+        InboundRemoteFamily, InboundRemotePacketRegistry, RemotePacketClassification,
+        WellKnownRemotePacketIds,
     };
     use mdt_remote::{
         read_remote_manifest, BasePacketEntry, CompressionFlagSpec,
@@ -331,6 +441,63 @@ mod tests {
                     .unwrap()
             ),
             None
+        );
+    }
+
+    #[test]
+    fn combined_packet_registries_classify_packet_ids_into_business_routes() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let registries = CombinedPacketRegistries::from_remote_manifest(&manifest).unwrap();
+        let high_frequency_registry = HighFrequencyRemoteRegistry::from_manifest(&manifest).unwrap();
+        let well_known_registry = WellKnownRemoteRegistry::from_manifest(&manifest).unwrap();
+
+        let state_snapshot_packet_id = high_frequency_registry
+            .packet_id(HighFrequencyRemoteMethod::StateSnapshot)
+            .unwrap();
+        let server_packet_reliable_packet_id = registries
+            .custom_channel
+            .packet_id(CustomChannelRemoteFamily::ServerPacketReliable)
+            .unwrap();
+        let client_logic_data_packet_id = registries
+            .inbound_remote
+            .packet_id(InboundRemoteFamily::ClientLogicDataReliable)
+            .unwrap();
+        let set_rules_packet_id = well_known_registry
+            .packet_id(WellKnownRemoteMethod::SetRules)
+            .unwrap();
+
+        assert_eq!(
+            registries.classify_packet_id(state_snapshot_packet_id),
+            Some(RemotePacketClassification::HighFrequency {
+                method: HighFrequencyRemoteMethod::StateSnapshot,
+            })
+        );
+        assert_eq!(
+            registries.classify_packet_id(server_packet_reliable_packet_id),
+            Some(RemotePacketClassification::CustomChannel {
+                family: CustomChannelRemoteFamily::ServerPacketReliable,
+                payload_kind: CustomChannelRemotePayloadKind::Text,
+            })
+        );
+        assert_eq!(
+            registries.classify_packet_id(client_logic_data_packet_id),
+            Some(RemotePacketClassification::InboundRemote {
+                family: InboundRemoteFamily::ClientLogicDataReliable,
+                payload_kind: CustomChannelRemotePayloadKind::LogicData,
+            })
+        );
+        assert_eq!(
+            registries.classify_packet_id(set_rules_packet_id),
+            Some(RemotePacketClassification::WellKnown {
+                method: WellKnownRemoteMethod::SetRules,
+            })
+        );
+        assert_eq!(
+            registries
+                .classify_packet_id(set_rules_packet_id)
+                .unwrap()
+                .route_label(),
+            "well_known/setRules"
         );
     }
 

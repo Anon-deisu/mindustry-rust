@@ -39,11 +39,11 @@ use mdt_render_ui::{
     BuildConfigOutcomeObservability, BuildConfigRollbackStripObservability,
     BuildQueueHeadObservability, BuildQueueHeadStage, BuildUiObservability, HudModel, RenderModel,
     RenderObject, RuntimeAdminObservability, RuntimeCommandUnitRefObservability,
-    RuntimeHudTextObservability, RuntimeLiveEffectPositionSource,
-    RuntimeLiveEffectSummaryObservability, RuntimeLiveEntitySummaryObservability,
-    RuntimeLiveSummaryObservability, RuntimeMenuObservability, RuntimeRulesObservability,
-    RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiObservability,
-    RuntimeWorldLabelObservability, RuntimeWorldPositionObservability,
+    RuntimeHudTextObservability, RuntimeLiveEffectPositionSource, RuntimeLiveEffectSummaryObservability,
+    RuntimeLiveEntitySummaryObservability, RuntimeLiveSummaryObservability,
+    RuntimeMenuObservability, RuntimeRulesObservability, RuntimeTextInputObservability,
+    RuntimeToastObservability, RuntimeUiObservability, RuntimeWorldLabelObservability,
+    RuntimeWorldPositionObservability,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -1992,13 +1992,36 @@ fn runtime_local_entity_label(session_state: &SessionState) -> String {
     else {
         return format!("{entity_id}:missing");
     };
-    format!(
+    let base = format!(
         "{}:c{}:u{}:{}:h{}",
         entity_id,
         entity.class_id,
         entity.unit_kind,
         entity.unit_value,
         if entity.hidden { 1 } else { 0 },
+    );
+    let runtime_entity_projection = session_state.runtime_typed_entity_projection();
+    let Some(owned_unit_entity_id) = runtime_entity_projection.local_player_owned_unit_entity_id else {
+        return base;
+    };
+    let Some(TypedRuntimeEntityModel::Unit(unit)) =
+        runtime_entity_projection.entity_at(owned_unit_entity_id)
+    else {
+        return base;
+    };
+    let Some(runtime_sync) = unit.semantic.runtime_sync.as_ref() else {
+        return format!("{base}:ou{owned_unit_entity_id}");
+    };
+    let base_rotation = runtime_sync
+        .base_rotation_bits
+        .map(|bits| format!("0x{bits:08x}"))
+        .unwrap_or_else(|| "none".to_string());
+    format!(
+        "{base}:ou{owned_unit_entity_id}@am0x{:08x}:el0x{:08x}:fg0x{:016x}:br{}",
+        runtime_sync.ammo_bits,
+        runtime_sync.elevation_bits,
+        runtime_sync.flag_bits,
+        base_rotation,
     )
 }
 
@@ -4515,7 +4538,10 @@ fn append_runtime_world_overlay_objects(
             continue;
         }
         scene.objects.push(RenderObject {
-            id: format!("world-label:event:{}", overlay.overlay_key),
+            id: render_text_scene_object_id(
+                format!("world-label:event:{}", overlay.overlay_key),
+                overlay.message.as_deref(),
+            ),
             layer: 39,
             x,
             y,
@@ -4784,8 +4810,25 @@ fn runtime_live_entity_scene_object_id(model: &TypedRuntimeEntityModel) -> Strin
         TypedRuntimeEntityModel::Fire(_) => format!("fire:{entity_id}"),
         TypedRuntimeEntityModel::Puddle(_) => format!("puddle:{entity_id}"),
         TypedRuntimeEntityModel::WeatherState(_) => format!("weather:{entity_id}"),
-        TypedRuntimeEntityModel::WorldLabel(_) => format!("world-label:{entity_id}"),
+        TypedRuntimeEntityModel::WorldLabel(world_label) => render_text_scene_object_id(
+            format!("world-label:{entity_id}"),
+            world_label.semantic.text.as_deref(),
+        ),
     }
+}
+
+fn render_text_scene_object_id(base_id: String, text: Option<&str>) -> String {
+    let Some(text) = text.filter(|text| !text.is_empty()) else {
+        return base_id;
+    };
+
+    let encoded_text = text
+        .as_bytes()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+
+    format!("{base_id}:text:{encoded_text}")
 }
 
 fn runtime_live_entity_world_xy(model: &TypedRuntimeEntityModel) -> Option<(f32, f32)> {
@@ -5100,6 +5143,7 @@ mod tests {
     use mdt_protocol::encode_packet;
     use mdt_remote::read_remote_manifest;
     use mdt_render_ui::project_scene_models_with_player_position;
+    use mdt_render_ui::render_model::RenderPrimitive;
     use std::path::PathBuf;
 
     fn decode_hex_text(text: &str) -> Vec<u8> {
@@ -5233,6 +5277,7 @@ mod tests {
                         building_pos: None,
                         lifetime_bits: None,
                         time_bits: None,
+                        runtime_sync: None,
                         controller_type: 0,
                         controller_value: None,
                     },
@@ -5282,6 +5327,7 @@ mod tests {
                         building_pos: None,
                         lifetime_bits: None,
                         time_bits: None,
+                        runtime_sync: None,
                         controller_type: 0,
                         controller_value: None,
                     },
@@ -5327,11 +5373,22 @@ mod tests {
 
         adapter.apply(&mut scene, &mut hud, &input, &state);
 
-        let world_label = scene_object_by_id(&scene, "world-label:404")
+        let world_label = scene
+            .objects
+            .iter()
+            .find(|object| object.id.starts_with("world-label:404"))
             .expect("missing runtime world-label object");
+        assert_eq!(world_label.id, "world-label:404:text:72756e74696d65");
         assert_eq!(world_label.layer, 39);
         assert_eq!(world_label.x, 56.0);
         assert_eq!(world_label.y, 72.0);
+        assert!(scene.primitives().iter().any(|primitive| {
+            matches!(
+                primitive,
+                RenderPrimitive::Text { id, text, .. }
+                    if id == "world-label:404:text:72756e74696d65" && text == "runtime"
+            )
+        }));
     }
 
     #[test]
@@ -5355,9 +5412,21 @@ mod tests {
         adapter.apply(&mut scene, &mut hud, &input, &state);
 
         let world_label = first_runtime_world_label_event_object(&scene);
+        assert_eq!(
+            world_label.id,
+            "world-label:event:0:text:72756e74696d652d6576656e74"
+        );
         assert_eq!(world_label.layer, 39);
         assert_eq!(world_label.x, 48.0);
         assert_eq!(world_label.y, 64.0);
+        assert!(scene.primitives().iter().any(|primitive| {
+            matches!(
+                primitive,
+                RenderPrimitive::Text { id, text, .. }
+                    if id == "world-label:event:0:text:72756e74696d652d6576656e74"
+                        && text == "runtime-event"
+            )
+        }));
     }
 
     #[test]
@@ -8719,6 +8788,7 @@ mod tests {
                         building_pos: None,
                         lifetime_bits: None,
                         time_bits: None,
+                        runtime_sync: None,
                         controller_type: 0,
                         controller_value: None,
                     },
@@ -8827,6 +8897,7 @@ mod tests {
                         building_pos: None,
                         lifetime_bits: None,
                         time_bits: None,
+                        runtime_sync: None,
                         controller_type: 0,
                         controller_value: None,
                     },
@@ -11040,6 +11111,73 @@ mod tests {
         assert_eq!(
             runtime_entity_sync_label(&state),
             "lt3:tp44:ok1:amb0@1:miss2:fail5"
+        );
+    }
+
+    #[test]
+    fn runtime_local_entity_label_includes_owned_unit_runtime_sync_surface() {
+        let mut state = SessionState::default();
+        state.entity_table_projection.local_player_entity_id = Some(101);
+        state.entity_table_projection.by_entity_id.insert(
+            101,
+            crate::session_state::EntityProjection {
+                class_id: crate::session_state::EntityTableProjection::LOCAL_PLAYER_CLASS_ID,
+                hidden: false,
+                is_local_player: true,
+                unit_kind: 2,
+                unit_value: 202,
+                x_bits: 0,
+                y_bits: 0,
+                last_seen_entity_snapshot_count: 4,
+            },
+        );
+        state.entity_table_projection.by_entity_id.insert(
+            202,
+            crate::session_state::EntityProjection {
+                class_id: 4,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 202,
+                x_bits: 0,
+                y_bits: 0,
+                last_seen_entity_snapshot_count: 4,
+            },
+        );
+        state.entity_semantic_projection.upsert(
+            202,
+            4,
+            4,
+            crate::session_state::EntitySemanticProjection::Unit(
+                crate::session_state::EntityUnitSemanticProjection {
+                    team_id: 2,
+                    unit_type_id: 55,
+                    health_bits: 0,
+                    rotation_bits: 0,
+                    shield_bits: 0,
+                    mine_tile_pos: 0,
+                    status_count: 0,
+                    payload_count: None,
+                    building_pos: None,
+                    lifetime_bits: None,
+                    time_bits: None,
+                    runtime_sync: Some(crate::session_state::EntityUnitRuntimeSyncProjection {
+                        ammo_bits: 0x3f80_0000,
+                        elevation_bits: 0x4000_0000,
+                        flag_bits: 0x0000_0000_0000_002a,
+                        base_rotation_bits: Some(0x4040_0000),
+                    }),
+                    controller_type: 0,
+                    controller_value: Some(101),
+                },
+            ),
+        );
+        state.refresh_runtime_typed_entity_from_tables(101);
+        state.refresh_runtime_typed_entity_from_tables(202);
+
+        assert_eq!(
+            runtime_local_entity_label(&state),
+            "101:c12:u2:202:h0:ou202@am0x3f800000:el0x40000000:fg0x000000000000002a:br0x40400000"
         );
     }
 

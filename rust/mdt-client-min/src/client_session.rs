@@ -22,8 +22,9 @@ use crate::session_state::{
     ConstructorRuntimeProjection, CoreInventoryRuntimeBindingKind, CreateBulletProjection,
     DestroyPayloadProjection, EffectBusinessContentKind, EffectBusinessPositionSource,
     EffectBusinessProjection, EntityFireSemanticProjection, EntityPlayerSemanticProjection,
-    EntityPuddleSemanticProjection, EntitySemanticProjection, EntityUnitSemanticProjection,
-    EntityWeatherStateSemanticProjection, EntityWorldLabelSemanticProjection,
+    EntityPuddleSemanticProjection, EntitySemanticProjection, EntityUnitRuntimeSyncProjection,
+    EntityUnitSemanticProjection, EntityWeatherStateSemanticProjection,
+    EntityWorldLabelSemanticProjection,
     FinishConnectingProjection, GameplayStateProjection, PayloadDroppedProjection,
     PickedBuildPayloadProjection, PickedUnitPayloadProjection, ReconnectPhaseProjection,
     ReconnectReasonKind, ReconstructorRuntimeProjection, RemotePlanSnapshotFirstPlanProjection,
@@ -7469,6 +7470,12 @@ impl ClientSession {
                 building_pos: None,
                 lifetime_bits: None,
                 time_bits: None,
+                runtime_sync: Some(EntityUnitRuntimeSyncProjection {
+                    ammo_bits: sync.ammo_bits,
+                    elevation_bits: sync.elevation_bits,
+                    flag_bits: sync.flag_bits,
+                    base_rotation_bits: None,
+                }),
                 controller_type: sync.controller_type,
                 controller_value: sync.controller_value,
             }),
@@ -7601,6 +7608,12 @@ impl ClientSession {
                     building_pos: None,
                     lifetime_bits: None,
                     time_bits: None,
+                    runtime_sync: Some(EntityUnitRuntimeSyncProjection {
+                        ammo_bits: row.sync.ammo_bits,
+                        elevation_bits: row.sync.elevation_bits,
+                        flag_bits: row.sync.flag_bits,
+                        base_rotation_bits: Some(row.sync.base_rotation_bits),
+                    }),
                     controller_type: row.sync.controller_type,
                     controller_value: row.sync.controller_value,
                 }),
@@ -7650,6 +7663,12 @@ impl ClientSession {
                     building_pos: None,
                     lifetime_bits: Some(row.sync.lifetime_bits),
                     time_bits: Some(row.sync.time_bits),
+                    runtime_sync: Some(EntityUnitRuntimeSyncProjection {
+                        ammo_bits: row.sync.ammo_bits,
+                        elevation_bits: row.sync.elevation_bits,
+                        flag_bits: row.sync.flag_bits,
+                        base_rotation_bits: None,
+                    }),
                     controller_type: row.sync.controller_type,
                     controller_value: row.sync.controller_value,
                 }),
@@ -7699,6 +7718,12 @@ impl ClientSession {
                     building_pos: None,
                     lifetime_bits: None,
                     time_bits: None,
+                    runtime_sync: Some(EntityUnitRuntimeSyncProjection {
+                        ammo_bits: row.sync.ammo_bits,
+                        elevation_bits: row.sync.elevation_bits,
+                        flag_bits: row.sync.flag_bits,
+                        base_rotation_bits: None,
+                    }),
                     controller_type: row.sync.controller_type,
                     controller_value: row.sync.controller_value,
                 }),
@@ -7748,6 +7773,12 @@ impl ClientSession {
                     building_pos: Some(row.sync.building_pos),
                     lifetime_bits: None,
                     time_bits: None,
+                    runtime_sync: Some(EntityUnitRuntimeSyncProjection {
+                        ammo_bits: row.sync.ammo_bits,
+                        elevation_bits: row.sync.elevation_bits,
+                        flag_bits: row.sync.flag_bits,
+                        base_rotation_bits: None,
+                    }),
                     controller_type: row.sync.controller_type,
                     controller_value: row.sync.controller_value,
                 }),
@@ -18058,6 +18089,12 @@ mod tests {
                     && unit.base.class_id == 0
                     && unit.semantic.unit_type_id == alpha_sync.unit_type_id
                     && unit.semantic.team_id == alpha_sync.team_id
+                    && unit.semantic.runtime_sync.as_ref().is_some_and(|runtime_sync|
+                        runtime_sync.ammo_bits == alpha_sync.ammo_bits
+                            && runtime_sync.elevation_bits == alpha_sync.elevation_bits
+                            && runtime_sync.flag_bits == alpha_sync.flag_bits
+                            && runtime_sync.base_rotation_bits.is_none()
+                    )
         ));
         let projection = session.state().typed_runtime_entity_projection();
         assert_eq!(projection.player_count, 1);
@@ -20038,6 +20075,12 @@ mod tests {
                         building_pos: None,
                         lifetime_bits: None,
                         time_bits: None,
+                        runtime_sync: Some(crate::session_state::EntityUnitRuntimeSyncProjection {
+                            ammo_bits: mech_sync.ammo_bits,
+                            elevation_bits: mech_sync.elevation_bits,
+                            flag_bits: mech_sync.flag_bits,
+                            base_rotation_bits: Some(mech_sync.base_rotation_bits),
+                        }),
                         controller_type: mech_sync.controller_type,
                         controller_value: mech_sync.controller_value,
                     }
@@ -20066,6 +20109,12 @@ mod tests {
                         building_pos: None,
                         lifetime_bits: Some(missile_sync.lifetime_bits),
                         time_bits: Some(missile_sync.time_bits),
+                        runtime_sync: Some(crate::session_state::EntityUnitRuntimeSyncProjection {
+                            ammo_bits: missile_sync.ammo_bits,
+                            elevation_bits: missile_sync.elevation_bits,
+                            flag_bits: missile_sync.flag_bits,
+                            base_rotation_bits: None,
+                        }),
                         controller_type: missile_sync.controller_type,
                         controller_value: missile_sync.controller_value,
                     }
@@ -20094,6 +20143,12 @@ mod tests {
                         building_pos: None,
                         lifetime_bits: None,
                         time_bits: None,
+                        runtime_sync: Some(crate::session_state::EntityUnitRuntimeSyncProjection {
+                            ammo_bits: payload_sync.ammo_bits,
+                            elevation_bits: payload_sync.elevation_bits,
+                            flag_bits: payload_sync.flag_bits,
+                            base_rotation_bits: None,
+                        }),
                         controller_type: payload_sync.controller_type,
                         controller_value: payload_sync.controller_value,
                     }
@@ -20122,6 +20177,12 @@ mod tests {
                         building_pos: Some(tether_sync.building_pos),
                         lifetime_bits: None,
                         time_bits: None,
+                        runtime_sync: Some(crate::session_state::EntityUnitRuntimeSyncProjection {
+                            ammo_bits: tether_sync.ammo_bits,
+                            elevation_bits: tether_sync.elevation_bits,
+                            flag_bits: tether_sync.flag_bits,
+                            base_rotation_bits: None,
+                        }),
                         controller_type: tether_sync.controller_type,
                         controller_value: tether_sync.controller_value,
                     }
@@ -36268,6 +36329,7 @@ mod tests {
                         building_pos: None,
                         lifetime_bits: None,
                         time_bits: None,
+                        runtime_sync: None,
                         controller_type: 0,
                         controller_value: None,
                     },
@@ -37096,6 +37158,7 @@ mod tests {
                     building_pos: None,
                     lifetime_bits: None,
                     time_bits: None,
+                    runtime_sync: None,
                     controller_type: 0,
                     controller_value: None,
                 },

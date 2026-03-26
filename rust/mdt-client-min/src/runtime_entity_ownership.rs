@@ -236,6 +236,7 @@ mod tests {
                 building_pos: None,
                 lifetime_bits: None,
                 time_bits: None,
+                runtime_sync: None,
                 controller_type,
                 controller_value,
             },

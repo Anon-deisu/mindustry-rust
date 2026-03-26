@@ -4103,6 +4103,14 @@ impl EntitySemanticProjection {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntityUnitRuntimeSyncProjection {
+    pub ammo_bits: u32,
+    pub elevation_bits: u32,
+    pub flag_bits: u64,
+    pub base_rotation_bits: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EntityUnitSemanticProjection {
     pub team_id: u8,
     pub unit_type_id: i16,
@@ -4115,6 +4123,7 @@ pub struct EntityUnitSemanticProjection {
     pub building_pos: Option<i32>,
     pub lifetime_bits: Option<u32>,
     pub time_bits: Option<u32>,
+    pub runtime_sync: Option<EntityUnitRuntimeSyncProjection>,
     pub controller_type: u8,
     pub controller_value: Option<i32>,
 }
@@ -8142,6 +8151,7 @@ mod tests {
                     building_pos: None,
                     lifetime_bits: None,
                     time_bits: None,
+                    runtime_sync: None,
                     controller_type: 0,
                     controller_value: None,
                 }),
@@ -8419,6 +8429,7 @@ mod tests {
                 building_pos: Some(88),
                 lifetime_bits: Some(0x4080_0000),
                 time_bits: Some(0x40a0_0000),
+                runtime_sync: None,
                 controller_type: 0,
                 controller_value: None,
             }),
@@ -8460,6 +8471,7 @@ mod tests {
                     building_pos: Some(88),
                     lifetime_bits: Some(0x4080_0000),
                     time_bits: Some(0x40a0_0000),
+                    runtime_sync: None,
                     controller_type: 0,
                     controller_value: None,
                 },
@@ -8652,6 +8664,7 @@ mod tests {
                 building_pos: Some(88),
                 lifetime_bits: Some(0x4080_0000),
                 time_bits: Some(0x40a0_0000),
+                runtime_sync: None,
                 controller_type: 0,
                 controller_value: None,
             }),
@@ -8791,6 +8804,7 @@ mod tests {
                     building_pos: Some(88),
                     lifetime_bits: Some(0x4080_0000),
                     time_bits: Some(0x40a0_0000),
+                    runtime_sync: None,
                     controller_type: 0,
                     controller_value: None,
                 }),
@@ -8856,6 +8870,7 @@ mod tests {
                 building_pos: Some(88),
                 lifetime_bits: Some(0x4080_0000),
                 time_bits: Some(0x40a0_0000),
+                runtime_sync: None,
                 controller_type: 0,
                 controller_value: None,
             }),
@@ -8918,6 +8933,7 @@ mod tests {
                 building_pos: Some(88),
                 lifetime_bits: Some(0x4080_0000),
                 time_bits: Some(0x40a0_0000),
+                runtime_sync: None,
                 controller_type: 0,
                 controller_value: None,
             }),
@@ -9004,6 +9020,7 @@ mod tests {
                 building_pos: None,
                 lifetime_bits: None,
                 time_bits: None,
+                runtime_sync: None,
                 controller_type: 0,
                 controller_value: None,
             }),
@@ -9075,6 +9092,7 @@ mod tests {
                     building_pos: None,
                     lifetime_bits: None,
                     time_bits: None,
+                    runtime_sync: None,
                     controller_type: 0,
                     controller_value: None,
                 }),
@@ -9161,6 +9179,7 @@ mod tests {
                 building_pos: None,
                 lifetime_bits: None,
                 time_bits: None,
+                runtime_sync: None,
                 controller_type: 0,
                 controller_value: None,
             }),

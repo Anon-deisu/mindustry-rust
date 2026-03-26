@@ -11,7 +11,7 @@ use mdt_client_min::arcnet_loop::ArcNetSessionDriver;
 use mdt_client_min::client_session::{
     client_build_plan_config_to_typeio_object, ClientBuildPlan, ClientBuildPlanConfig,
     ClientLogicDataTransport, ClientPacketTransport, ClientSession, ClientSessionEvent,
-    ClientSessionTiming, ClientUnitRef, StateSnapshotAppliedProjection,
+    ClientSessionTiming, ClientUnitRef, IgnoredRemotePacketMeta, StateSnapshotAppliedProjection,
     KICK_REASON_SERVER_RESTARTING_ORDINAL,
 };
 use mdt_client_min::connect_packet::{
@@ -37,6 +37,7 @@ use mdt_client_min::runtime_custom_packet_business::{
     resolve_runtime_custom_packet_command_target, RuntimeCustomPacketBusinessMarker,
     RuntimeCustomPacketBusinessMarkerSource,
 };
+use mdt_client_min::packet_registry::{CombinedPacketRegistries, RemotePacketClassification};
 use mdt_client_min::session_state::{BuilderPlanStage, SessionState, SessionTimeoutKind};
 use mdt_input::intent::BuildPulse;
 use mdt_input::live_intent::RuntimeIntentTracker;
@@ -87,6 +88,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let args = parse_args(raw_args)?;
     let manifest = read_remote_manifest(&args.manifest_path)?;
+    let packet_registries = CombinedPacketRegistries::from_remote_manifest(&manifest)?;
     let timing = resolve_session_timing(&args);
     let mut session =
         ClientSession::from_remote_manifest_with_timing(&manifest, args.locale.clone(), timing)?;
@@ -245,7 +247,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             now_ms,
             &mut last_runtime_input,
         );
-        maybe_print_client_packets(&args, &report.events);
+        maybe_print_client_packets(&args, &packet_registries, &report.events);
         maybe_print_custom_packet_watch_events(custom_packet_watch.as_mut(), &report.events);
         maybe_print_custom_packet_semantic_events(custom_packet_semantics.as_mut(), &report.events);
         maybe_print_custom_packet_surface_events(
@@ -5683,7 +5685,11 @@ fn maybe_print_runtime_input(
     );
 }
 
-fn maybe_print_client_packets(args: &CliArgs, events: &[ClientSessionEvent]) {
+fn maybe_print_client_packets(
+    args: &CliArgs,
+    packet_registries: &CombinedPacketRegistries,
+    events: &[ClientSessionEvent],
+) {
     if !args.print_client_packets {
         return;
     }
@@ -5691,6 +5697,61 @@ fn maybe_print_client_packets(args: &CliArgs, events: &[ClientSessionEvent]) {
     for line in summarize_client_packet_events(events) {
         println!("{line}");
     }
+    for line in summarize_remote_packet_classification_events(packet_registries, events) {
+        println!("{line}");
+    }
+}
+
+fn summarize_remote_packet_classification_events(
+    packet_registries: &CombinedPacketRegistries,
+    events: &[ClientSessionEvent],
+) -> Vec<String> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            ClientSessionEvent::DeferredPacketWhileLoading { packet_id, remote } => Some(
+                format_remote_packet_classification(
+                    "deferred_packet_while_loading_business",
+                    *packet_id,
+                    packet_registries.classify_packet_id(*packet_id),
+                    remote.as_ref(),
+                ),
+            ),
+            ClientSessionEvent::DroppedLowPriorityPacketWhileLoading { packet_id, remote } => {
+                Some(format_remote_packet_classification(
+                    "dropped_low_priority_packet_while_loading_business",
+                    *packet_id,
+                    packet_registries.classify_packet_id(*packet_id),
+                    remote.as_ref(),
+                ))
+            }
+            ClientSessionEvent::IgnoredPacket { packet_id, remote } => Some(
+                format_remote_packet_classification(
+                    "ignored_packet_business",
+                    *packet_id,
+                    packet_registries.classify_packet_id(*packet_id),
+                    remote.as_ref(),
+                ),
+            ),
+            _ => None,
+        })
+        .collect()
+}
+
+fn format_remote_packet_classification(
+    label: &str,
+    packet_id: u8,
+    classification: Option<RemotePacketClassification>,
+    remote: Option<&IgnoredRemotePacketMeta>,
+) -> String {
+    let classification_label = classification
+        .map(RemotePacketClassification::route_label)
+        .unwrap_or_else(|| "unknown".to_string());
+    format!(
+        "{label}: packet_id={packet_id} classification={classification_label:?} method={:?} packet_class={:?}",
+        remote.map(|meta| meta.method.as_str()),
+        remote.map(|meta| meta.packet_class.as_str()),
+    )
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
