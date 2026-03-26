@@ -254,6 +254,7 @@ This document tracks release-readiness audit continuation for the Rust deliverab
   - M9: render/UI remains release-scope excluded or parity backlog, not release-complete.
   - M9 additive presentation update: `mdt-render-ui` now classifies render objects by semantic kind (`player/marker/plan/block/terrain/unknown`) and applies stable floor/clamp/zoom normalization in player-centered window crop sizing/focus math; this is low-risk presentation hardening, not Java desktop UI parity closure.
   - M9 additive primitive update: `mdt-render-ui` no longer stops at `RenderPrimitive::Line`; `RenderPrimitive::Text` is now landed and is derived from already-tracked `RuntimeWorldLabel` / `MarkerText` / `MarkerShapeText` surfaces, while ASCII/window presenters consume that typed text primitive directly. This is a bounded primitive/model expansion, not layered renderer or Java UI parity closure.
+  - M9 additive icon/overlay update: the same primitive/model expansion now also includes `RenderPrimitive::Icon` for bounded high-signal runtime overlay families, including `runtime-effect-icon`, `runtime-build-config-icon`, `runtime-health`, and the command-mode point-target marker families (`runtime-command-building`, `runtime-command-build-target`, `runtime-command-position-target`, `runtime-command-unit-target`). ASCII/window presenters now consume those typed icon primitives directly, emit `RENDER-ICON` summaries, and no longer rely on generic point fallback for those families. This is still presenter-local observability shaping, not layered renderer or Java desktop UI parity closure.
   - M9 additive HUD-structure update: `mdt-render-ui` `HudSummary` now also carries `overlay_visible`, `fog_enabled`, `visible_tile_count`, and `hidden_tile_count`, so render/presenter code can consume visibility state structurally instead of reparsing status text.
   - M9 additive session-panel update: lifecycle observability for kick/loading/reconnect is now also exposed structurally through `RuntimeSessionObservability`, and both presenters emit dedicated session lines (`RUNTIME-SESSION`, `session:k=...;l=...;r=...`) so reconnect phase/reason, timeout/reset taxonomy, and last world-reload cleanup facts are accessible without reparsing the legacy compact runtime labels.
   - M9 additive build-config update: runtime/UI shaping now also exposes a dedicated read-only rollback strip for build/config authority flow. `render_runtime` lifts `TileConfigProjection` rollback facts into structured `BuildUiObservability.rollback_strip`, and both presenters emit explicit rollback/apply/source/outcome/build-tile state (`BUILD-ROLLBACK`, `cfgstrip`) instead of burying that information only in compact summary text.
@@ -538,7 +539,7 @@ This document tracks release-readiness audit continuation for the Rust deliverab
 - `high` Java's layered renderer/HUD/build-config UI remains mostly absent in Rust.
   - Java evidence: `core/src/mindustry/core/Renderer.java:31`, `:332`; `core/src/mindustry/ui/fragments/HudFragment.java:235`, `:542`; `core/src/mindustry/ui/fragments/PlacementFragment.java:37`
   - Rust evidence: `rust/mdt-render-ui/src/window_presenter.rs:409`; `rust/mdt-render-ui/src/render_model.rs:36`; `rust/mdt-render-ui/src/hud_model.rs:3`; `rust/mdt-client-min/src/render_runtime.rs:1241`
-- `medium` chat/dialog/minimap/battle-entity rendering remain user-visible backlog items even after minimal runtime observability work.
+- `medium` chat/minimap/battle-entity rendering remain user-visible backlog items even after minimal runtime observability work.
   - Java evidence: `core/src/mindustry/ui/fragments/ChatFragment.java:26`; `core/src/mindustry/core/UI.java:200`, `:243`; `core/src/mindustry/ui/Minimap.java:59`; `core/src/mindustry/graphics/ParticleRenderer.java:14`
   - Rust evidence: `rust/mdt-client-min/src/client_session.rs:2005`; `rust/mdt-client-min/src/bin/mdt-client-min-online.rs:4172`; `rust/mdt-render-ui/src/projection.rs:156`, `:301`; `rust/mdt-client-min/src/render_runtime.rs:966`, `:1404`
 
@@ -648,9 +649,9 @@ Use:
   - Minimum target: give runtime-created centers stable revision/base state, define center lifecycle policy, and make later block/build updates patch loaded-world building truth instead of only auxiliary tables.
 
 - `P1` render primitive/model expansion in `rust/mdt-render-ui/src/render_model.rs` + `rust/mdt-render-ui/src/projection.rs` + `rust/mdt-client-min/src/render_runtime.rs`
-  - Current gap: `RenderObject` still only carries `id/layer/x/y`, which blocks richer minimap, marker, label, health, and runtime effect rendering.
+  - Current gap: `RenderObject` still only carries `id/layer/x/y`, and while bounded `Line` / `Text` / `Rect` / `Icon` consumption is now landed, Rust still lacks richer stored payloads for deeper minimap density, runtime-config/config-outcome overlays, effect fallback markers, area-style overlays, and higher-fidelity layered rendering.
   - Why it matters: current runtime render breadth is increasingly observability-rich, but fidelity stays capped by the primitive model.
-  - Minimum target: introduce explicit line/rect/text/marker-style payloads or equivalent primitive metadata without breaking existing presenters.
+  - Minimum target: keep the current presenter-compatible primitive path, but widen it toward richer typed overlay payloads instead of re-dispatching already landed `line/text/basic icon` work.
 
 ## 2026-03-26 Dispatch Follow-Up
 
@@ -690,6 +691,19 @@ Use:
     - `RenderModel::primitives()` now carries typed text output for `RuntimeWorldLabel`, `MarkerText`, and `MarkerShapeText`
     - ASCII/window presenters consume those text primitives directly instead of relying only on object-id side channels
   - This remains a bounded primitive/model deepening under the current `minimal compatibility client` boundary, not a claim of full Java render/UI parity.
+
+- `mdt-render-ui` now also exposes bounded rect/icon primitive channels for high-signal runtime overlays.
+  - Landed shape:
+    - `RenderPrimitive::Rect` for command-mode rect families
+    - `RenderPrimitive::Icon` for `runtime-effect-icon`, `runtime-build-config-icon`, `runtime-health`, and command-mode point-target markers
+    - ASCII/window presenters now consume those typed primitives directly and emit `RENDER-RECT` / `RENDER-ICON` summaries instead of relying on generic point fallback for those families
+  - Local verification:
+    - `cargo test --manifest-path rust\\mdt-render-ui\\Cargo.toml --quiet`
+    - `cargo test --manifest-path rust\\mdt-client-min\\Cargo.toml --quiet`
+  - Target handoff:
+    - `D:\\MDT\\mindustry-rust` commit `af11439` (`feat: derive icon primitives from runtime markers`)
+    - `D:\\MDT\\mindustry-rust` commit `5da6107` (`feat: surface runtime health icon primitives`)
+    - `D:\\MDT\\mindustry-rust` commit `551e592` (`feat: surface runtime command icon primitives`)
 
 ### Refreshed Release-Critical Order
 - `P0 active` loaded-world building live-state is still dual-sourced between `loaded_world_bundle` and projection/runtime authority.
@@ -742,18 +756,18 @@ Use:
   - Next cut:
     - move toward one consumable reconnect command surface instead of event-special-casing
 
-- `P1 active` render primitive line channel is landed, but text/icon/richer primitive storage is still missing.
+- `P1 active` bounded render primitive consumption is landed, but richer payload storage and deeper renderer/minimap semantics are still missing.
   - Primary source paths:
     - `rust/mdt-render-ui/src/render_model.rs`
     - `rust/mdt-client-min/src/render_runtime.rs`
   - Remaining gap:
-    - current line primitive is derived from legacy objects, not an independent stored channel
-    - presenters/summary still consume objects only
-    - world-label text and icon-like runtime overlays are still encoded as point objects
+    - current primitives are still derived from legacy object ids, not an independent stored render payload channel
+    - deeper runtime-config/effect/area/minimap semantics are still mostly encoded as generic objects or presenter-local summaries
+    - layered renderer fidelity is still far below Java desktop expectations
   - Next cut:
-    - add text/icon primitive families or an equivalent typed overlay payload path
+    - keep widening typed overlay payloads without regressing existing presenters, starting from richer runtime-config/effect/area families instead of redispatching already landed text/icon basics
 
 ### Current Parallel Lanes
 - `ready` loaded-world building live-state merged-view cut
 - `ready` reconnect command unification beyond online-loop-local policy
-- `ready` render primitive follow-up for text/icon and presenter consumption
+- `ready` render primitive follow-up for richer runtime-config/effect/area payloads plus deeper minimap/renderer consumption
