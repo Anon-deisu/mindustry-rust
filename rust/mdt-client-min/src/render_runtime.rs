@@ -4321,7 +4321,95 @@ fn append_runtime_command_mode_overlay_objects(
         if let Some(rect) = target.rect_target {
             append_runtime_command_mode_target_rect_objects(scene, rect);
         }
+        if let Some((target_x, target_y)) =
+            runtime_command_target_world_position(target, session_state)
+        {
+            append_runtime_command_mode_target_lines(
+                scene,
+                &command_mode.selected_units,
+                (target_x, target_y),
+                session_state,
+            );
+        }
     }
+}
+
+fn append_runtime_command_mode_target_lines(
+    scene: &mut RenderModel,
+    selected_units: &[i32],
+    target: (f32, f32),
+    session_state: &SessionState,
+) {
+    const LINK_LAYER: i32 = 29;
+
+    for (ordinal, &entity_id) in selected_units.iter().take(4).enumerate() {
+        let Some(entity) = session_state
+            .entity_table_projection
+            .by_entity_id
+            .get(&entity_id)
+        else {
+            continue;
+        };
+        let source_x = f32::from_bits(entity.x_bits);
+        let source_y = f32::from_bits(entity.y_bits);
+        if !source_x.is_finite() || !source_y.is_finite() {
+            continue;
+        }
+        if source_x == target.0 && source_y == target.1 {
+            continue;
+        }
+        let line_id = format!(
+            "marker:line:runtime-command-target-link:{ordinal}:{}:{}:{}:{}",
+            source_x.to_bits(),
+            source_y.to_bits(),
+            target.0.to_bits(),
+            target.1.to_bits()
+        );
+        scene.objects.push(RenderObject {
+            id: line_id.clone(),
+            layer: LINK_LAYER,
+            x: source_x,
+            y: source_y,
+        });
+        scene.objects.push(RenderObject {
+            id: format!("{line_id}:line-end"),
+            layer: LINK_LAYER,
+            x: target.0,
+            y: target.1,
+        });
+    }
+}
+
+fn runtime_command_target_world_position(
+    target: mdt_input::CommandModeTargetProjection,
+    session_state: &SessionState,
+) -> Option<(f32, f32)> {
+    const TILE_SIZE: f32 = 8.0;
+
+    if let Some(position) = target.position_target {
+        let x = f32::from_bits(position.x_bits);
+        let y = f32::from_bits(position.y_bits);
+        if x.is_finite() && y.is_finite() {
+            return Some((x, y));
+        }
+    }
+    if let Some(unit_target) = target.unit_target {
+        let entity = session_state
+            .entity_table_projection
+            .by_entity_id
+            .get(&unit_target.value)?;
+        let x = f32::from_bits(entity.x_bits);
+        let y = f32::from_bits(entity.y_bits);
+        if x.is_finite() && y.is_finite() {
+            return Some((x, y));
+        }
+    }
+    let build_pos = target.build_target?;
+    let (tile_x, tile_y) = unpack_runtime_point2(build_pos);
+    Some((
+        (tile_x as f32 + 0.5) * TILE_SIZE,
+        (tile_y as f32 + 0.5) * TILE_SIZE,
+    ))
 }
 
 fn append_runtime_command_mode_rect_objects(
@@ -6607,6 +6695,11 @@ mod tests {
         assert!(scene.objects.iter().any(|object| {
             object.id == format!("marker:runtime-command-unit-target:{}:{}", 2, 808)
         }));
+        assert!(scene.objects.iter().any(|object| {
+            object
+                .id
+                .starts_with("marker:line:runtime-command-target-link:0:")
+        }));
         assert!(scene.primitives().iter().any(|primitive| {
             matches!(
                 primitive,
@@ -6656,6 +6749,18 @@ mod tests {
                     && variant == "selected-unit"
                     && *x == 8.0
                     && *y == 16.0
+            )
+        }));
+        assert!(scene.primitives().iter().any(|primitive| {
+            matches!(
+                primitive,
+                mdt_render_ui::render_model::RenderPrimitive::Line {
+                    x0,
+                    y0,
+                    x1,
+                    y1,
+                    ..
+                } if *x0 == 8.0 && *y0 == 16.0 && *x1 == 40.0 && *y1 == 48.0
             )
         }));
     }
