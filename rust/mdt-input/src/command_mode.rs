@@ -120,14 +120,22 @@ impl CommandModeState {
     }
 
     pub fn bind_control_group(&mut self, index: u8, unit_ids: &[i32]) {
-        let projection = CommandModeControlGroupProjection {
-            index,
-            unit_ids: dedupe_i32(unit_ids),
-        };
-        if projection.unit_ids.is_empty() {
+        let unit_ids = dedupe_i32(unit_ids);
+        if unit_ids.is_empty() {
             self.clear_control_group(index);
             return;
         }
+        for group in self
+            .control_groups
+            .iter_mut()
+            .filter(|group| group.index != index)
+        {
+            group.unit_ids.retain(|unit_id| !unit_ids.contains(unit_id));
+        }
+        self.control_groups
+            .retain(|group| group.index == index || !group.unit_ids.is_empty());
+
+        let projection = CommandModeControlGroupProjection { index, unit_ids };
         if let Some(existing) = self
             .control_groups
             .iter_mut()
@@ -465,6 +473,37 @@ mod tests {
             vec![CommandModeControlGroupProjection {
                 index: 1,
                 unit_ids: vec![44, 55],
+            }]
+        );
+    }
+
+    #[test]
+    fn bind_control_group_moves_units_across_groups_exclusively() {
+        let mut state = CommandModeState::default();
+        state.bind_control_group(1, &[10, 20]);
+        state.bind_control_group(2, &[20, 30, 30]);
+
+        assert_eq!(
+            state.projection().control_groups,
+            vec![
+                CommandModeControlGroupProjection {
+                    index: 1,
+                    unit_ids: vec![10],
+                },
+                CommandModeControlGroupProjection {
+                    index: 2,
+                    unit_ids: vec![20, 30],
+                },
+            ]
+        );
+
+        state.bind_control_group(3, &[10, 20, 30]);
+
+        assert_eq!(
+            state.projection().control_groups,
+            vec![CommandModeControlGroupProjection {
+                index: 3,
+                unit_ids: vec![10, 20, 30],
             }]
         );
     }

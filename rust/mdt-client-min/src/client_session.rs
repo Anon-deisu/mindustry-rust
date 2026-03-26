@@ -29,6 +29,9 @@ use crate::session_state::{
     UnitAssemblerRuntimeProjection, UnitEnteredPayloadProjection, UnitRefProjection,
     WorldReloadProjection,
 };
+use crate::typed_remote_dispatch::{
+    TypedCustomChannelRemoteDispatch, TypedCustomChannelRemoteDispatcher,
+};
 use mdt_input::CommandModeProjection;
 use mdt_protocol::{
     decode_packet, encode_framework_message, encode_packet, FrameworkMessage, PacketCodecError,
@@ -274,6 +277,7 @@ pub struct ClientSession {
     locale: String,
     registry: InboundSnapshotPacketRegistry,
     custom_channel_registry: CustomChannelPacketRegistry,
+    typed_custom_channel_dispatcher: TypedCustomChannelRemoteDispatcher,
     known_remote_packets: BTreeMap<u8, IgnoredRemotePacketMeta>,
     known_remote_packet_priorities: BTreeMap<u8, DeferredInboundPriority>,
     client_snapshot_packet_id: u8,
@@ -1168,6 +1172,10 @@ impl ClientSession {
             custom_channel_registry.packet_id(CustomChannelRemoteFamily::ClientLogicDataReliable);
         let client_logic_data_unreliable_packet_id =
             custom_channel_registry.packet_id(CustomChannelRemoteFamily::ClientLogicDataUnreliable);
+        let typed_custom_channel_dispatcher =
+            TypedCustomChannelRemoteDispatcher::from_packet_registry(
+                custom_channel_registry.clone(),
+            );
         let set_rules_packet_id = well_known_remote.set_rules_packet_id;
         let set_objectives_packet_id = well_known_remote.set_objectives_packet_id;
         let set_rule_packet_id = well_known_remote.set_rule_packet_id;
@@ -1194,6 +1202,7 @@ impl ClientSession {
             locale: locale.into(),
             registry,
             custom_channel_registry,
+            typed_custom_channel_dispatcher,
             known_remote_packets,
             known_remote_packet_priorities,
             client_snapshot_packet_id,
@@ -6176,207 +6185,197 @@ impl ClientSession {
             remote: self.known_remote_packets.get(&packet.packet_id).cloned(),
         };
 
-        let Some(family) = self.custom_channel_registry.classify(packet.packet_id) else {
+        let Some(dispatch) = self
+            .typed_custom_channel_dispatcher
+            .dispatch(packet.packet_id, packet.payload)
+            .ok()
+            .flatten()
+        else {
             return ignored();
         };
 
-        match family {
-            CustomChannelRemoteFamily::ClientPacketReliable => {
-                if let Some((packet_type, contents)) = decode_client_packet_payload(&packet.payload)
-                {
-                    self.state.received_client_packet_reliable_count = self
-                        .state
-                        .received_client_packet_reliable_count
-                        .saturating_add(1);
-                    self.state.last_client_packet_reliable_type = Some(packet_type.clone());
-                    self.state.last_client_packet_reliable_contents = Some(contents.clone());
-                    self.client_packet_handlers
-                        .dispatch(&packet_type, &contents);
-                    ClientSessionEvent::ClientPacketReliable {
-                        packet_type,
-                        contents,
-                    }
-                } else {
-                    ignored()
+        match dispatch {
+            TypedCustomChannelRemoteDispatch::Text {
+                family: CustomChannelRemoteFamily::ClientPacketReliable,
+                packet_type,
+                contents,
+            } => {
+                self.state.received_client_packet_reliable_count = self
+                    .state
+                    .received_client_packet_reliable_count
+                    .saturating_add(1);
+                self.state.last_client_packet_reliable_type = Some(packet_type.clone());
+                self.state.last_client_packet_reliable_contents = Some(contents.clone());
+                self.client_packet_handlers
+                    .dispatch(&packet_type, &contents);
+                ClientSessionEvent::ClientPacketReliable {
+                    packet_type,
+                    contents,
                 }
             }
-            CustomChannelRemoteFamily::ServerPacketReliable => {
-                if let Some((packet_type, contents)) = decode_client_packet_payload(&packet.payload)
-                {
-                    self.state.received_server_packet_reliable_count = self
-                        .state
-                        .received_server_packet_reliable_count
-                        .saturating_add(1);
-                    self.state.last_server_packet_reliable_type = Some(packet_type.clone());
-                    self.state.last_server_packet_reliable_contents = Some(contents.clone());
-                    self.client_packet_handlers
-                        .dispatch(&packet_type, &contents);
-                    ClientSessionEvent::ServerPacketReliable {
-                        packet_type,
-                        contents,
-                    }
-                } else {
-                    ignored()
+            TypedCustomChannelRemoteDispatch::Text {
+                family: CustomChannelRemoteFamily::ServerPacketReliable,
+                packet_type,
+                contents,
+            } => {
+                self.state.received_server_packet_reliable_count = self
+                    .state
+                    .received_server_packet_reliable_count
+                    .saturating_add(1);
+                self.state.last_server_packet_reliable_type = Some(packet_type.clone());
+                self.state.last_server_packet_reliable_contents = Some(contents.clone());
+                self.client_packet_handlers
+                    .dispatch(&packet_type, &contents);
+                ClientSessionEvent::ServerPacketReliable {
+                    packet_type,
+                    contents,
                 }
             }
-            CustomChannelRemoteFamily::ClientPacketUnreliable => {
-                if let Some((packet_type, contents)) = decode_client_packet_payload(&packet.payload)
-                {
-                    self.state.received_client_packet_unreliable_count = self
-                        .state
-                        .received_client_packet_unreliable_count
-                        .saturating_add(1);
-                    self.state.last_client_packet_unreliable_type = Some(packet_type.clone());
-                    self.state.last_client_packet_unreliable_contents = Some(contents.clone());
-                    self.client_packet_handlers
-                        .dispatch(&packet_type, &contents);
-                    ClientSessionEvent::ClientPacketUnreliable {
-                        packet_type,
-                        contents,
-                    }
-                } else {
-                    ignored()
+            TypedCustomChannelRemoteDispatch::Text {
+                family: CustomChannelRemoteFamily::ClientPacketUnreliable,
+                packet_type,
+                contents,
+            } => {
+                self.state.received_client_packet_unreliable_count = self
+                    .state
+                    .received_client_packet_unreliable_count
+                    .saturating_add(1);
+                self.state.last_client_packet_unreliable_type = Some(packet_type.clone());
+                self.state.last_client_packet_unreliable_contents = Some(contents.clone());
+                self.client_packet_handlers
+                    .dispatch(&packet_type, &contents);
+                ClientSessionEvent::ClientPacketUnreliable {
+                    packet_type,
+                    contents,
                 }
             }
-            CustomChannelRemoteFamily::ServerPacketUnreliable => {
-                if let Some((packet_type, contents)) = decode_client_packet_payload(&packet.payload)
-                {
-                    self.state.received_server_packet_unreliable_count = self
-                        .state
-                        .received_server_packet_unreliable_count
-                        .saturating_add(1);
-                    self.state.last_server_packet_unreliable_type = Some(packet_type.clone());
-                    self.state.last_server_packet_unreliable_contents = Some(contents.clone());
-                    self.client_packet_handlers
-                        .dispatch(&packet_type, &contents);
-                    ClientSessionEvent::ServerPacketUnreliable {
-                        packet_type,
-                        contents,
-                    }
-                } else {
-                    ignored()
+            TypedCustomChannelRemoteDispatch::Text {
+                family: CustomChannelRemoteFamily::ServerPacketUnreliable,
+                packet_type,
+                contents,
+            } => {
+                self.state.received_server_packet_unreliable_count = self
+                    .state
+                    .received_server_packet_unreliable_count
+                    .saturating_add(1);
+                self.state.last_server_packet_unreliable_type = Some(packet_type.clone());
+                self.state.last_server_packet_unreliable_contents = Some(contents.clone());
+                self.client_packet_handlers
+                    .dispatch(&packet_type, &contents);
+                ClientSessionEvent::ServerPacketUnreliable {
+                    packet_type,
+                    contents,
                 }
             }
-            CustomChannelRemoteFamily::ClientBinaryPacketReliable => {
-                if let Some((packet_type, contents)) =
-                    decode_client_binary_packet_payload(&packet.payload)
-                {
-                    self.state.received_client_binary_packet_reliable_count = self
-                        .state
-                        .received_client_binary_packet_reliable_count
-                        .saturating_add(1);
-                    self.state.last_client_binary_packet_reliable_type = Some(packet_type.clone());
-                    self.state.last_client_binary_packet_reliable_contents = Some(contents.clone());
-                    self.client_binary_packet_handlers
-                        .dispatch(&packet_type, &contents);
-                    ClientSessionEvent::ClientBinaryPacketReliable {
-                        packet_type,
-                        contents,
-                    }
-                } else {
-                    ignored()
+            TypedCustomChannelRemoteDispatch::Binary {
+                family: CustomChannelRemoteFamily::ClientBinaryPacketReliable,
+                packet_type,
+                contents,
+            } => {
+                self.state.received_client_binary_packet_reliable_count = self
+                    .state
+                    .received_client_binary_packet_reliable_count
+                    .saturating_add(1);
+                self.state.last_client_binary_packet_reliable_type = Some(packet_type.clone());
+                self.state.last_client_binary_packet_reliable_contents = Some(contents.clone());
+                self.client_binary_packet_handlers
+                    .dispatch(&packet_type, &contents);
+                ClientSessionEvent::ClientBinaryPacketReliable {
+                    packet_type,
+                    contents,
                 }
             }
-            CustomChannelRemoteFamily::ServerBinaryPacketReliable => {
-                if let Some((packet_type, contents)) =
-                    decode_client_binary_packet_payload(&packet.payload)
-                {
-                    self.state.received_server_binary_packet_reliable_count = self
-                        .state
-                        .received_server_binary_packet_reliable_count
-                        .saturating_add(1);
-                    self.state.last_server_binary_packet_reliable_type = Some(packet_type.clone());
-                    self.state.last_server_binary_packet_reliable_contents = Some(contents.clone());
-                    self.client_binary_packet_handlers
-                        .dispatch(&packet_type, &contents);
-                    ClientSessionEvent::ServerBinaryPacketReliable {
-                        packet_type,
-                        contents,
-                    }
-                } else {
-                    ignored()
+            TypedCustomChannelRemoteDispatch::Binary {
+                family: CustomChannelRemoteFamily::ServerBinaryPacketReliable,
+                packet_type,
+                contents,
+            } => {
+                self.state.received_server_binary_packet_reliable_count = self
+                    .state
+                    .received_server_binary_packet_reliable_count
+                    .saturating_add(1);
+                self.state.last_server_binary_packet_reliable_type = Some(packet_type.clone());
+                self.state.last_server_binary_packet_reliable_contents = Some(contents.clone());
+                self.client_binary_packet_handlers
+                    .dispatch(&packet_type, &contents);
+                ClientSessionEvent::ServerBinaryPacketReliable {
+                    packet_type,
+                    contents,
                 }
             }
-            CustomChannelRemoteFamily::ClientBinaryPacketUnreliable => {
-                if let Some((packet_type, contents)) =
-                    decode_client_binary_packet_payload(&packet.payload)
-                {
-                    self.state.received_client_binary_packet_unreliable_count = self
-                        .state
-                        .received_client_binary_packet_unreliable_count
-                        .saturating_add(1);
-                    self.state.last_client_binary_packet_unreliable_type =
-                        Some(packet_type.clone());
-                    self.state.last_client_binary_packet_unreliable_contents =
-                        Some(contents.clone());
-                    self.client_binary_packet_handlers
-                        .dispatch(&packet_type, &contents);
-                    ClientSessionEvent::ClientBinaryPacketUnreliable {
-                        packet_type,
-                        contents,
-                    }
-                } else {
-                    ignored()
+            TypedCustomChannelRemoteDispatch::Binary {
+                family: CustomChannelRemoteFamily::ClientBinaryPacketUnreliable,
+                packet_type,
+                contents,
+            } => {
+                self.state.received_client_binary_packet_unreliable_count = self
+                    .state
+                    .received_client_binary_packet_unreliable_count
+                    .saturating_add(1);
+                self.state.last_client_binary_packet_unreliable_type = Some(packet_type.clone());
+                self.state.last_client_binary_packet_unreliable_contents = Some(contents.clone());
+                self.client_binary_packet_handlers
+                    .dispatch(&packet_type, &contents);
+                ClientSessionEvent::ClientBinaryPacketUnreliable {
+                    packet_type,
+                    contents,
                 }
             }
-            CustomChannelRemoteFamily::ServerBinaryPacketUnreliable => {
-                if let Some((packet_type, contents)) =
-                    decode_client_binary_packet_payload(&packet.payload)
-                {
-                    self.state.received_server_binary_packet_unreliable_count = self
-                        .state
-                        .received_server_binary_packet_unreliable_count
-                        .saturating_add(1);
-                    self.state.last_server_binary_packet_unreliable_type =
-                        Some(packet_type.clone());
-                    self.state.last_server_binary_packet_unreliable_contents =
-                        Some(contents.clone());
-                    self.client_binary_packet_handlers
-                        .dispatch(&packet_type, &contents);
-                    ClientSessionEvent::ServerBinaryPacketUnreliable {
-                        packet_type,
-                        contents,
-                    }
-                } else {
-                    ignored()
+            TypedCustomChannelRemoteDispatch::Binary {
+                family: CustomChannelRemoteFamily::ServerBinaryPacketUnreliable,
+                packet_type,
+                contents,
+            } => {
+                self.state.received_server_binary_packet_unreliable_count = self
+                    .state
+                    .received_server_binary_packet_unreliable_count
+                    .saturating_add(1);
+                self.state.last_server_binary_packet_unreliable_type = Some(packet_type.clone());
+                self.state.last_server_binary_packet_unreliable_contents = Some(contents.clone());
+                self.client_binary_packet_handlers
+                    .dispatch(&packet_type, &contents);
+                ClientSessionEvent::ServerBinaryPacketUnreliable {
+                    packet_type,
+                    contents,
                 }
             }
-            CustomChannelRemoteFamily::ClientLogicDataReliable => {
-                if let Some((channel, value)) = decode_client_logic_data_payload(&packet.payload) {
-                    self.state.received_client_logic_data_reliable_count = self
-                        .state
-                        .received_client_logic_data_reliable_count
-                        .saturating_add(1);
-                    self.state.last_client_logic_data_reliable_channel = Some(channel.clone());
-                    self.state.last_client_logic_data_reliable_value = Some(value.clone());
-                    self.client_logic_data_handlers.dispatch(
-                        &channel,
-                        ClientLogicDataTransport::Reliable,
-                        &value,
-                    );
-                    ClientSessionEvent::ClientLogicDataReliable { channel, value }
-                } else {
-                    ignored()
-                }
+            TypedCustomChannelRemoteDispatch::LogicData {
+                family: CustomChannelRemoteFamily::ClientLogicDataReliable,
+                channel,
+                value,
+            } => {
+                self.state.received_client_logic_data_reliable_count = self
+                    .state
+                    .received_client_logic_data_reliable_count
+                    .saturating_add(1);
+                self.state.last_client_logic_data_reliable_channel = Some(channel.clone());
+                self.state.last_client_logic_data_reliable_value = Some(value.clone());
+                self.client_logic_data_handlers.dispatch(
+                    &channel,
+                    ClientLogicDataTransport::Reliable,
+                    &value,
+                );
+                ClientSessionEvent::ClientLogicDataReliable { channel, value }
             }
-            CustomChannelRemoteFamily::ClientLogicDataUnreliable => {
-                if let Some((channel, value)) = decode_client_logic_data_payload(&packet.payload) {
-                    self.state.received_client_logic_data_unreliable_count = self
-                        .state
-                        .received_client_logic_data_unreliable_count
-                        .saturating_add(1);
-                    self.state.last_client_logic_data_unreliable_channel = Some(channel.clone());
-                    self.state.last_client_logic_data_unreliable_value = Some(value.clone());
-                    self.client_logic_data_handlers.dispatch(
-                        &channel,
-                        ClientLogicDataTransport::Unreliable,
-                        &value,
-                    );
-                    ClientSessionEvent::ClientLogicDataUnreliable { channel, value }
-                } else {
-                    ignored()
-                }
+            TypedCustomChannelRemoteDispatch::LogicData {
+                family: CustomChannelRemoteFamily::ClientLogicDataUnreliable,
+                channel,
+                value,
+            } => {
+                self.state.received_client_logic_data_unreliable_count = self
+                    .state
+                    .received_client_logic_data_unreliable_count
+                    .saturating_add(1);
+                self.state.last_client_logic_data_unreliable_channel = Some(channel.clone());
+                self.state.last_client_logic_data_unreliable_value = Some(value.clone());
+                self.client_logic_data_handlers.dispatch(
+                    &channel,
+                    ClientLogicDataTransport::Unreliable,
+                    &value,
+                );
+                ClientSessionEvent::ClientLogicDataUnreliable { channel, value }
             }
+            _ => ignored(),
         }
     }
 
@@ -10819,33 +10818,11 @@ fn remove_entity_projection_for_unit_ref(
         .is_some_and(|unit| remove_entity_projection_for_entity_id(state, unit.value))
 }
 
-fn decode_client_packet_payload(payload: &[u8]) -> Option<(String, String)> {
-    let mut cursor = 0usize;
-    let packet_type = read_typeio_string_at(payload, &mut cursor)??;
-    let contents = read_typeio_string_at(payload, &mut cursor)??;
-    (cursor == payload.len()).then_some((packet_type, contents))
-}
-
 fn decode_connect_redirect_payload(payload: &[u8]) -> Option<(String, i32)> {
     let mut cursor = 0usize;
     let ip = read_typeio_string_at(payload, &mut cursor)??;
     let port = read_i32(payload, &mut cursor)?;
     ((0..=u16::MAX as i32).contains(&port) && cursor == payload.len()).then_some((ip, port))
-}
-
-fn decode_client_binary_packet_payload(payload: &[u8]) -> Option<(String, Vec<u8>)> {
-    let mut cursor = 0usize;
-    let packet_type = read_typeio_string_at(payload, &mut cursor)??;
-    let contents = read_typeio_bytes_at(payload, &mut cursor)?;
-    (cursor == payload.len()).then_some((packet_type, contents))
-}
-
-fn decode_client_logic_data_payload(payload: &[u8]) -> Option<(String, TypeIoObject)> {
-    let mut cursor = 0usize;
-    let channel = read_typeio_string_at(payload, &mut cursor)??;
-    let (value, consumed) = read_object_prefix(&payload[cursor..]).ok()?;
-    cursor = cursor.saturating_add(consumed);
-    (cursor == payload.len()).then_some((channel, value))
 }
 
 fn decode_set_rule_payload(payload: &[u8]) -> Result<(String, String), String> {
@@ -24735,6 +24712,39 @@ mod tests {
                 "second:delta",
             ]
         );
+    }
+
+    #[test]
+    fn malformed_client_packet_reliable_payload_is_ignored_and_skips_registered_handlers() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "clientPacketReliable")
+            .unwrap()
+            .packet_id;
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let seen_by_handler = Rc::clone(&seen);
+        session.add_client_packet_handler("mod-channel", move |contents| {
+            seen_by_handler.borrow_mut().push(contents.to_string());
+        });
+        let payload = encode_typeio_string_payload("mod-channel");
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        let event = session.ingest_packet_bytes(&packet).unwrap();
+
+        assert!(matches!(
+            event,
+            ClientSessionEvent::IgnoredPacket {
+                packet_id: ignored_id,
+                ..
+            } if ignored_id == packet_id
+        ));
+        assert!(seen.borrow().is_empty());
+        assert_eq!(session.state().received_client_packet_reliable_count, 0);
+        assert_eq!(session.state().last_client_packet_reliable_type, None);
+        assert_eq!(session.state().last_client_packet_reliable_contents, None);
     }
 
     #[test]
