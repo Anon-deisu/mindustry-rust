@@ -19,7 +19,7 @@ use crate::{
         crop_window_to_focus, normalize_zoom, projected_window, visible_window_tile,
         zoomed_view_tile_span,
     },
-    render_model::{RenderObjectSemanticFamily, RenderObjectSemanticKind},
+    render_model::{RenderObjectSemanticFamily, RenderObjectSemanticKind, RenderPrimitive},
     BuildQueueHeadObservability, BuildQueueHeadStage, BuildUiObservability, HudModel, RenderModel,
     RenderObject, RuntimeUiObservability, ScenePresenter,
 };
@@ -712,6 +712,9 @@ fn compose_frame_panel_lines(
     for render_layer_text in compose_render_layer_status_lines(scene, window) {
         lines.push(format!("RENDER-LAYER: {render_layer_text}"));
     }
+    if let Some(render_text_text) = compose_render_text_status_text(scene, window) {
+        lines.push(format!("RENDER-TEXT: {render_text_text}"));
+    }
     if let Some(build_panel_text) = compose_build_config_panel_status_text(hud) {
         lines.push(format!("BUILD-CONFIG: {build_panel_text}"));
     }
@@ -948,6 +951,53 @@ fn compose_frame_overlay_lines(scene: &RenderModel, hud: &HudModel) -> Vec<Strin
         lines.push(format!("OVERLAY-KINDS: {overlay_semantics_text}"));
     }
     lines
+}
+
+fn compose_render_text_status_text(scene: &RenderModel, window: PresenterViewWindow) -> Option<String> {
+    let mut text_primitives = scene
+        .primitives()
+        .into_iter()
+        .filter_map(|primitive| match primitive {
+            RenderPrimitive::Text {
+                kind,
+                layer,
+                x,
+                y,
+                text,
+                ..
+            } => Some((kind, layer, x, y, text)),
+            _ => None,
+        })
+        .filter(|(_, _, x, y, _)| {
+            let tile_x = crate::presenter_view::world_to_tile_index_floor(*x, TILE_SIZE);
+            let tile_y = crate::presenter_view::world_to_tile_index_floor(*y, TILE_SIZE);
+            tile_x >= 0
+                && tile_y >= 0
+                && (tile_x as usize) >= window.origin_x
+                && (tile_y as usize) >= window.origin_y
+                && (tile_x as usize) < window.origin_x.saturating_add(window.width)
+                && (tile_y as usize) < window.origin_y.saturating_add(window.height)
+        })
+        .collect::<Vec<_>>();
+
+    if text_primitives.is_empty() {
+        return None;
+    }
+
+    text_primitives.sort_by_key(|(_, layer, _, _, _)| *layer);
+
+    let mut parts = vec![format!("count={}", text_primitives.len())];
+    for (kind, layer, x, y, text) in text_primitives.into_iter().take(2) {
+        let kind_text = kind.detail_label().unwrap_or("text");
+        parts.push(format!(
+            "{kind_text}@{layer}:{}:{}={}",
+            x as i32,
+            y as i32,
+            compact_runtime_ui_text(Some(text.as_str()))
+        ));
+    }
+
+    Some(parts.join(" "))
 }
 
 fn compose_hud_summary_status_text(hud: &HudModel) -> Option<String> {
@@ -5822,6 +5872,43 @@ mod tests {
             &frame.panel_lines,
             "RUNTIME-PROMPT-DETAIL: promptd:ma1:fm17:fh15:fo2:tin53:id404:t6:m12:d5:n1:e1",
         );
+    }
+
+    #[test]
+    fn present_once_surfaces_text_primitive_summary() {
+        let backend = RecordingBackend::default();
+        let mut presenter = WindowPresenter::new(backend);
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 32.0,
+                height: 16.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: "world-label:7:text:48656c6c6f".to_string(),
+                    layer: 39,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:text:8:text:4d61726b6572".to_string(),
+                    layer: 30,
+                    x: 8.0,
+                    y: 0.0,
+                },
+            ],
+        };
+        let hud = HudModel::default();
+
+        presenter.present_once(&scene, &hud).unwrap();
+
+        let backend = presenter.into_backend();
+        let frame = backend.frames.last().unwrap();
+        assert_frame_line_contains(&frame.panel_lines, "RENDER-TEXT: count=2");
+        assert_frame_line_contains(&frame.panel_lines, "runtime-world-label@39:0:0=Hello");
+        assert_frame_line_contains(&frame.panel_lines, "marker-text@30:8:0=Marker");
     }
 
     fn assert_frame_line_contains(lines: &[String], needle: &str) {

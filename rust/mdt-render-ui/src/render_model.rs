@@ -20,6 +20,14 @@ pub enum RenderPrimitive {
         x1: f32,
         y1: f32,
     },
+    Text {
+        id: String,
+        kind: RenderObjectSemanticKind,
+        layer: i32,
+        x: f32,
+        y: f32,
+        text: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -254,22 +262,41 @@ impl RenderModel {
     }
 }
 
+impl RenderPrimitive {
+    pub fn id(&self) -> &str {
+        match self {
+            Self::Line { id, .. } | Self::Text { id, .. } => id,
+        }
+    }
+
+    pub fn layer(&self) -> i32 {
+        match self {
+            Self::Line { layer, .. } | Self::Text { layer, .. } => *layer,
+        }
+    }
+}
+
 fn render_primitive_for_object(
     object: &RenderObject,
     line_end_objects: &BTreeMap<String, &RenderObject>,
 ) -> Option<RenderPrimitive> {
-    if object.semantic_kind() != RenderObjectSemanticKind::MarkerLine {
-        return None;
+    match object.semantic_kind() {
+        RenderObjectSemanticKind::MarkerLine => {
+            let line_end = line_end_objects.get(&object.id)?;
+            Some(RenderPrimitive::Line {
+                id: object.id.clone(),
+                layer: object.layer,
+                x0: object.x,
+                y0: object.y,
+                x1: line_end.x,
+                y1: line_end.y,
+            })
+        }
+        RenderObjectSemanticKind::RuntimeWorldLabel
+        | RenderObjectSemanticKind::MarkerText
+        | RenderObjectSemanticKind::MarkerShapeText => render_text_primitive_for_object(object),
+        _ => None,
     }
-    let line_end = line_end_objects.get(&object.id)?;
-    Some(RenderPrimitive::Line {
-        id: object.id.clone(),
-        layer: object.layer,
-        x0: object.x,
-        y0: object.y,
-        x1: line_end.x,
-        y1: line_end.y,
-    })
 }
 
 fn render_line_end_object_pair(object: &RenderObject) -> Option<(String, &RenderObject)> {
@@ -280,6 +307,47 @@ fn render_line_end_object_pair(object: &RenderObject) -> Option<(String, &Render
         .id
         .strip_suffix(":line-end")
         .map(|base_id| (base_id.to_string(), object))
+}
+
+fn render_text_primitive_for_object(object: &RenderObject) -> Option<RenderPrimitive> {
+    let (_, encoded_text) = object.id.rsplit_once(":text:")?;
+    let text = decode_render_text(encoded_text)?;
+    if text.is_empty() {
+        return None;
+    }
+    Some(RenderPrimitive::Text {
+        id: object.id.clone(),
+        kind: object.semantic_kind(),
+        layer: object.layer,
+        x: object.x,
+        y: object.y,
+        text,
+    })
+}
+
+pub(crate) fn encode_render_text(text: &str) -> String {
+    text.as_bytes()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+fn decode_render_text(encoded_text: &str) -> Option<String> {
+    if encoded_text.is_empty() || encoded_text.len() % 2 != 0 {
+        return None;
+    }
+
+    let bytes = encoded_text
+        .as_bytes()
+        .chunks(2)
+        .map(|pair| {
+            std::str::from_utf8(pair)
+                .ok()
+                .and_then(|pair| u8::from_str_radix(pair, 16).ok())
+        })
+        .collect::<Option<Vec<_>>>()?;
+
+    String::from_utf8(bytes).ok()
 }
 
 impl RenderSemanticSummary {
@@ -635,6 +703,10 @@ mod tests {
         );
         assert_eq!(
             RenderObjectSemanticKind::from_id("world-label:7"),
+            RenderObjectSemanticKind::RuntimeWorldLabel
+        );
+        assert_eq!(
+            RenderObjectSemanticKind::from_id("world-label:7:text:72756e74696d65"),
             RenderObjectSemanticKind::RuntimeWorldLabel
         );
         assert_eq!(
@@ -1180,6 +1252,66 @@ mod tests {
                 y0: 16.0,
                 x1: 32.0,
                 y1: 40.0,
+            }]
+        );
+    }
+
+    #[test]
+    fn render_model_derives_text_primitives_from_runtime_world_label_objects() {
+        let scene = RenderModel {
+            viewport: Viewport::default(),
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: "world-label:404:text:48656c6c6f".to_string(),
+                    layer: 39,
+                    x: 56.0,
+                    y: 72.0,
+                },
+                RenderObject {
+                    id: "world-label:405".to_string(),
+                    layer: 39,
+                    x: 8.0,
+                    y: 16.0,
+                },
+            ],
+        };
+
+        assert_eq!(
+            scene.primitives(),
+            vec![RenderPrimitive::Text {
+                id: "world-label:404:text:48656c6c6f".to_string(),
+                kind: RenderObjectSemanticKind::RuntimeWorldLabel,
+                layer: 39,
+                x: 56.0,
+                y: 72.0,
+                text: "Hello".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn render_model_derives_text_primitives_from_marker_text_objects() {
+        let scene = RenderModel {
+            viewport: Viewport::default(),
+            view_window: None,
+            objects: vec![RenderObject {
+                id: "marker:text:42:text:48656c6c6f".to_string(),
+                layer: 30,
+                x: 24.0,
+                y: 32.0,
+            }],
+        };
+
+        assert_eq!(
+            scene.primitives(),
+            vec![RenderPrimitive::Text {
+                id: "marker:text:42:text:48656c6c6f".to_string(),
+                kind: RenderObjectSemanticKind::MarkerText,
+                layer: 30,
+                x: 24.0,
+                y: 32.0,
+                text: "Hello".to_string(),
             }]
         );
     }

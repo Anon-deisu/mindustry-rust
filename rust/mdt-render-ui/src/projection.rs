@@ -1,5 +1,6 @@
 use crate::{
     hud_model::{HudMinimapSummary, HudSummary, HudViewWindowSummary},
+    render_model::encode_render_text,
     HudModel, RenderModel, RenderObject, RenderViewWindow, Viewport,
 };
 use mdt_world::{LineMarkerModel, LoadedWorldSession, MarkerEntry, MarkerModel, TeamPlanRef};
@@ -481,8 +482,14 @@ fn project_marker_objects(marker: &MarkerEntry) -> Vec<RenderObject> {
     let mut objects = Vec::with_capacity(2);
     let marker_kind = marker_kind_id_segment(marker);
     if let Some((x, y)) = marker_world_position(marker) {
+        let marker_id = marker_text_payload(marker)
+            .filter(|text| !text.is_empty())
+            .map_or_else(
+                || marker.id.to_string(),
+                |text| format!("{}:text:{}", marker.id, encode_render_text(text)),
+            );
         objects.push(RenderObject {
-            id: format!("marker:{marker_kind}:{}", marker.id),
+            id: format!("marker:{marker_kind}:{marker_id}"),
             layer: MARKER_LAYER,
             x,
             y,
@@ -501,6 +508,14 @@ fn project_marker_objects(marker: &MarkerEntry) -> Vec<RenderObject> {
     }
 
     objects
+}
+
+fn marker_text_payload(marker: &MarkerEntry) -> Option<&str> {
+    match &marker.marker {
+        MarkerModel::Text(text) => Some(text.text.as_str()),
+        MarkerModel::ShapeText(text) => Some(text.text.as_str()),
+        _ => None,
+    }
 }
 
 fn marker_kind_id_segment(marker: &MarkerEntry) -> &'static str {
@@ -610,9 +625,11 @@ fn tile_in_window(
 #[cfg(test)]
 mod tests {
     use super::{project_hud_model, project_render_model, project_render_model_with_view_window};
-    use crate::RenderViewWindow;
+    use crate::render_model::{RenderObjectSemanticKind, RenderPrimitive};
+    use crate::{RenderModel, RenderViewWindow};
     use mdt_world::{
         parse_world_bundle, LineMarkerModel, MarkerEntry, MarkerModel, PointMarkerModel,
+        TextMarkerModel,
     };
 
     #[test]
@@ -775,6 +792,51 @@ mod tests {
         assert_eq!(objects.len(), 1);
         assert_eq!(objects[0].id, "marker:point:42");
         assert_eq!((objects[0].x, objects[0].y), (16.0, 24.0));
+    }
+
+    #[test]
+    fn text_marker_projects_encoded_payload_for_text_primitives() {
+        let marker = MarkerEntry {
+            id: 43,
+            marker: MarkerModel::Text(TextMarkerModel {
+                class_tag: "Text".to_string(),
+                world: true,
+                minimap: true,
+                autoscale: false,
+                draw_layer_bits: 0,
+                x_bits: 16.0f32.to_bits(),
+                y_bits: 24.0f32.to_bits(),
+                text: "Hello".to_string(),
+                font_size_bits: 12.0f32.to_bits(),
+                flags: 0,
+                text_align: 0,
+                line_align: 0,
+            }),
+        };
+
+        let objects = super::project_marker_objects(&marker);
+
+        assert_eq!(objects.len(), 1);
+        assert_eq!(objects[0].id, "marker:text:43:text:48656c6c6f");
+        assert_eq!((objects[0].x, objects[0].y), (16.0, 24.0));
+
+        let scene = RenderModel {
+            viewport: Default::default(),
+            view_window: None,
+            objects,
+        };
+
+        assert_eq!(
+            scene.primitives(),
+            vec![RenderPrimitive::Text {
+                id: "marker:text:43:text:48656c6c6f".to_string(),
+                kind: RenderObjectSemanticKind::MarkerText,
+                layer: 30,
+                x: 16.0,
+                y: 24.0,
+                text: "Hello".to_string(),
+            }]
+        );
     }
 
     #[test]

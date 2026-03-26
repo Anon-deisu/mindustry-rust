@@ -17,9 +17,9 @@ use crate::presenter_view::{
     crop_window_to_focus, normalize_zoom, projected_window, visible_window_tile,
     zoomed_view_tile_span,
 };
-use crate::render_model::{RenderObjectSemanticFamily, RenderObjectSemanticKind};
+use crate::render_model::{RenderObjectSemanticFamily, RenderObjectSemanticKind, RenderPrimitive};
 use crate::{HudModel, RenderModel, ScenePresenter};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 const TILE_SIZE: f32 = 8.0;
 
@@ -46,6 +46,14 @@ impl AsciiScenePresenter {
         let height = (scene.viewport.height / TILE_SIZE).round().max(0.0) as usize;
         let window = crop_window(scene, width, height, self.max_view_tiles);
         let mut grid = vec![vec![' '; window.width]; window.height];
+        let primitives = scene.primitives();
+        let text_primitive_ids = primitives
+            .iter()
+            .filter_map(|primitive| match primitive {
+                RenderPrimitive::Text { id, .. } => Some(id.as_str()),
+                _ => None,
+            })
+            .collect::<BTreeSet<_>>();
         let line_end_objects = scene
             .objects
             .iter()
@@ -54,8 +62,14 @@ impl AsciiScenePresenter {
         let mut commands = scene
             .objects
             .iter()
+            .filter(|object| !text_primitive_ids.contains(object.id.as_str()))
             .filter_map(|object| ascii_render_command(object, &line_end_objects, window))
             .collect::<Vec<_>>();
+        commands.extend(
+            primitives
+                .iter()
+                .filter_map(|primitive| ascii_text_render_command(primitive, window)),
+        );
         commands.sort_by_key(AsciiRenderCommand::layer);
         for command in commands {
             match command {
@@ -72,6 +86,12 @@ impl AsciiScenePresenter {
                     sprite,
                     ..
                 } => draw_ascii_line_segment(&mut grid, window, start_tile, end_tile, sprite),
+                AsciiRenderCommand::Text {
+                    local_x,
+                    local_y,
+                    text,
+                    ..
+                } => draw_ascii_text(&mut grid, window, local_x, local_y, text),
             }
         }
 
@@ -386,6 +406,12 @@ enum AsciiRenderCommand<'a> {
         end_tile: (i32, i32),
         sprite: char,
     },
+    Text {
+        layer: i32,
+        local_x: usize,
+        local_y: usize,
+        text: &'a str,
+    },
 }
 
 impl AsciiRenderCommand<'_> {
@@ -393,6 +419,7 @@ impl AsciiRenderCommand<'_> {
         match self {
             Self::Point { object, .. } => object.layer,
             Self::Line { layer, .. } => *layer,
+            Self::Text { layer, .. } => *layer,
         }
     }
 }
@@ -455,6 +482,43 @@ fn ascii_line_end_object_pair(
         .map(|base_id| (base_id.to_string(), object))
 }
 
+fn ascii_text_render_command<'a>(
+    primitive: &'a RenderPrimitive,
+    window: PresenterViewWindow,
+) -> Option<AsciiRenderCommand<'a>> {
+    let RenderPrimitive::Text {
+        kind: _kind,
+        layer,
+        x,
+        y,
+        text,
+        ..
+    } = primitive
+    else {
+        return None;
+    };
+    let tile_x = crate::presenter_view::world_to_tile_index_floor(*x, TILE_SIZE);
+    let tile_y = crate::presenter_view::world_to_tile_index_floor(*y, TILE_SIZE);
+    if tile_x < 0 || tile_y < 0 {
+        return None;
+    }
+    let (tile_x, tile_y) = (tile_x as usize, tile_y as usize);
+    if tile_x < window.origin_x
+        || tile_y < window.origin_y
+        || tile_x >= window.origin_x.saturating_add(window.width)
+        || tile_y >= window.origin_y.saturating_add(window.height)
+    {
+        return None;
+    }
+
+    Some(AsciiRenderCommand::Text {
+        layer: *layer,
+        local_x: tile_x - window.origin_x,
+        local_y: tile_y - window.origin_y,
+        text: text.as_str(),
+    })
+}
+
 fn ascii_world_object_tile(object: &crate::RenderObject) -> (i32, i32) {
     (
         crate::presenter_view::world_to_tile_index_floor(object.x, TILE_SIZE),
@@ -490,6 +554,29 @@ fn draw_ascii_line_segment(
         if doubled_error <= dx {
             err += dx;
             y0 += sy;
+        }
+    }
+}
+
+fn draw_ascii_text(
+    grid: &mut [Vec<char>],
+    _window: PresenterViewWindow,
+    local_x: usize,
+    local_y: usize,
+    text: &str,
+) {
+    for (row_offset, line) in text.lines().enumerate() {
+        let y = local_y + row_offset;
+        if y >= grid.len() {
+            break;
+        }
+
+        for (col_offset, ch) in line.chars().enumerate() {
+            let x = local_x + col_offset;
+            if x >= grid[y].len() {
+                break;
+            }
+            grid[y][x] = ch;
         }
     }
 }
@@ -4072,6 +4159,40 @@ mod tests {
         assert!(frame.contains(
             "RUNTIME-PROMPT-DETAIL: menu-active=1 follow-up-open=17 follow-up-hide=15 outstanding-follow-up=2 text-input=53 id=404 title-len=6 message-len=12 default-len=5 numeric=1 allow-empty=1"
         ));
+    }
+
+    #[test]
+    fn ascii_presenter_renders_text_primitives_into_grid() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 64.0,
+                height: 16.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: "world-label:7:text:48656c6c6f".to_string(),
+                    layer: 39,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:text:8:text:4d61726b6572".to_string(),
+                    layer: 30,
+                    x: 8.0,
+                    y: 8.0,
+                },
+            ],
+        };
+        let hud = HudModel::default();
+        let mut presenter = AsciiScenePresenter::default();
+
+        presenter.present(&scene, &hud);
+
+        let frame = presenter.last_frame();
+        assert!(frame.contains("Hello"));
+        assert!(frame.contains("Marker"));
     }
 
     fn decode_hex(text: &str) -> Vec<u8> {
