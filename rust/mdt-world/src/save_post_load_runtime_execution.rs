@@ -111,6 +111,10 @@ impl SavePostLoadRuntimeWorldSemanticsExecution {
         self.ownership.can_apply_world_semantics()
     }
 
+    pub fn can_activate_live_runtime(&self) -> bool {
+        self.world_shell_ready && self.can_apply_world_semantics() && self.has_world_shell()
+    }
+
     pub fn targeted_step_count(&self) -> usize {
         self.executed_steps.len()
             + self.failed_steps.len()
@@ -150,6 +154,18 @@ impl SavePostLoadRuntimeApplyExecution {
 
     pub fn has_world_shell(&self) -> bool {
         self.world_shell.is_some()
+    }
+
+    pub fn can_activate_live_runtime(&self) -> bool {
+        self.can_seed_runtime_apply
+            && self.world_shell_ready
+            && self.has_world_shell()
+            && self.awaiting_world_shell_steps.is_empty()
+            && self.blocked_steps.is_empty()
+            && self
+                .failed_steps
+                .iter()
+                .all(|step| !step.targets_world_semantics())
     }
 
     fn from_script(script: SavePostLoadRuntimeApplyScript) -> Self {
@@ -536,6 +552,7 @@ mod tests {
 
         assert!(execution.can_seed_runtime_apply);
         assert!(execution.world_shell_ready);
+        assert!(execution.can_activate_live_runtime());
         assert!(execution.awaiting_world_shell_steps.is_empty());
         assert!(execution.blocked_steps.is_empty());
         assert!(execution.deferred_steps.is_empty());
@@ -660,6 +677,31 @@ mod tests {
     }
 
     #[test]
+    fn execute_runtime_apply_keeps_live_runtime_activation_ready_with_auxiliary_failures() {
+        let mut observation = test_observation();
+        make_observation_seedable(&mut observation);
+        observation.custom_chunks[1].name = observation.custom_chunks[0].name.clone();
+
+        let execution = observation.execute_runtime_apply();
+
+        assert!(execution.can_seed_runtime_apply);
+        assert!(execution.world_shell_ready);
+        assert!(execution.has_world_shell());
+        assert!(!execution.failed_steps.is_empty());
+        assert_eq!(
+            execution.failed_steps,
+            vec![SavePostLoadRuntimeApplyStep::CustomChunk { chunk_index: 1 }]
+        );
+        assert_eq!(
+            execution.issues,
+            vec![SavePostLoadRuntimeApplyIssue::DuplicateCustomChunkName(
+                "static-fog-data".to_string(),
+            )]
+        );
+        assert!(execution.can_activate_live_runtime());
+    }
+
+    #[test]
     fn execute_runtime_apply_records_duplicate_marker_ids_without_overwriting_first_marker() {
         let mut observation = test_observation();
         make_observation_seedable(&mut observation);
@@ -700,6 +742,7 @@ mod tests {
 
         assert!(execution.world_shell_ready);
         assert!(execution.can_apply_world_semantics());
+        assert!(execution.can_activate_live_runtime());
         assert!(execution.ownership.can_apply_world_semantics());
         assert_eq!(execution.executed_step_count(), 10);
         assert_eq!(execution.failed_step_count(), 0);
@@ -789,6 +832,7 @@ mod tests {
 
         assert!(!execution.world_shell_ready);
         assert!(!execution.can_apply_world_semantics());
+        assert!(!execution.can_activate_live_runtime());
         assert_eq!(
             execution
                 .ownership

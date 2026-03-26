@@ -146,6 +146,10 @@ impl SavePostLoadRuntimeWorldOwnership {
                 )
             })
     }
+
+    pub fn can_activate_live_runtime(&self) -> bool {
+        self.can_apply_world_semantics()
+    }
 }
 
 impl SavePostLoadWorldObservation {
@@ -244,6 +248,7 @@ mod tests {
 
         assert!(ownership.world_shell_ready);
         assert!(ownership.can_apply_world_semantics());
+        assert!(ownership.can_activate_live_runtime());
         assert_eq!(ownership.required_step_count(), 10);
         assert_eq!(ownership.claimed_step_count(), 10);
         assert_eq!(ownership.owned_surface_count(), 6);
@@ -276,6 +281,7 @@ mod tests {
 
         assert!(ownership.world_shell_ready);
         assert!(!ownership.can_apply_world_semantics());
+        assert!(!ownership.can_activate_live_runtime());
         assert_eq!(ownership.required_step_count(), 10);
         assert_eq!(ownership.claimed_step_count(), 9);
         assert_eq!(ownership.owned_surface_count(), 5);
@@ -304,6 +310,7 @@ mod tests {
 
         assert!(!ownership.world_shell_ready);
         assert!(!ownership.can_apply_world_semantics());
+        assert!(!ownership.can_activate_live_runtime());
         assert_eq!(ownership.claimed_step_count(), 0);
         assert_eq!(
             ownership
