@@ -28,6 +28,7 @@ const TILE_SIZE: f32 = 8.0;
 const ASCII_ICON_RUNTIME_EFFECT: char = 'E';
 const ASCII_ICON_BUILD_CONFIG: char = 'C';
 const ASCII_ICON_RUNTIME_HEALTH: char = 'H';
+const ASCII_ICON_RUNTIME_COMMAND: char = 'T';
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct AsciiScenePresenter {
@@ -895,6 +896,7 @@ fn ascii_sprite_for_icon(family: RenderIconPrimitiveFamily) -> char {
         RenderIconPrimitiveFamily::RuntimeEffect => ASCII_ICON_RUNTIME_EFFECT,
         RenderIconPrimitiveFamily::RuntimeBuildConfig => ASCII_ICON_BUILD_CONFIG,
         RenderIconPrimitiveFamily::RuntimeHealth => ASCII_ICON_RUNTIME_HEALTH,
+        RenderIconPrimitiveFamily::RuntimeCommand => ASCII_ICON_RUNTIME_COMMAND,
     }
 }
 
@@ -4666,6 +4668,31 @@ mod tests {
         let frame = presenter.last_frame();
         assert!(frame.contains("RENDER-ICON: count=1 runtime-health/health@32:0:0"));
         assert_eq!(frame.lines().last(), Some("H"));
+    }
+
+    #[test]
+    fn ascii_presenter_reports_runtime_command_icon_primitive() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 8.0,
+                height: 8.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![RenderObject {
+                id: "marker:runtime-command-building:0:0".to_string(),
+                layer: 29,
+                x: 0.0,
+                y: 0.0,
+            }],
+        };
+        let mut presenter = AsciiScenePresenter::default();
+
+        presenter.present(&scene, &HudModel::default());
+
+        let frame = presenter.last_frame();
+        assert!(frame.contains("RENDER-ICON: count=1 runtime-command/building@29:0:0"));
+        assert_eq!(frame.lines().last(), Some("T"));
     }
 
     fn decode_hex(text: &str) -> Vec<u8> {

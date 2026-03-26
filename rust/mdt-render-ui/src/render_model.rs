@@ -53,6 +53,7 @@ pub enum RenderIconPrimitiveFamily {
     RuntimeEffect,
     RuntimeBuildConfig,
     RuntimeHealth,
+    RuntimeCommand,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -325,6 +326,7 @@ impl RenderIconPrimitiveFamily {
             Self::RuntimeEffect => "runtime-effect-icon",
             Self::RuntimeBuildConfig => "runtime-build-config-icon",
             Self::RuntimeHealth => "runtime-health",
+            Self::RuntimeCommand => "runtime-command",
         }
     }
 }
@@ -404,6 +406,26 @@ fn render_icon_family_and_variant(id: &str) -> Option<(RenderIconPrimitiveFamily
             if tile_x.parse::<i32>().is_ok() && tile_y.parse::<i32>().is_ok() =>
         {
             Some((RenderIconPrimitiveFamily::RuntimeHealth, "health"))
+        }
+        ["marker", "runtime-command-building", tile_x, tile_y]
+            if tile_x.parse::<i32>().is_ok() && tile_y.parse::<i32>().is_ok() =>
+        {
+            Some((RenderIconPrimitiveFamily::RuntimeCommand, "building"))
+        }
+        ["marker", "runtime-command-build-target", tile_x, tile_y]
+            if tile_x.parse::<i32>().is_ok() && tile_y.parse::<i32>().is_ok() =>
+        {
+            Some((RenderIconPrimitiveFamily::RuntimeCommand, "build-target"))
+        }
+        ["marker", "runtime-command-position-target", x_bits, y_bits]
+            if parse_prefixed_hex_u32(x_bits).is_some() && parse_prefixed_hex_u32(y_bits).is_some() =>
+        {
+            Some((RenderIconPrimitiveFamily::RuntimeCommand, "position-target"))
+        }
+        ["marker", "runtime-command-unit-target", kind, value]
+            if kind.parse::<i16>().is_ok() && value.parse::<i32>().is_ok() =>
+        {
+            Some((RenderIconPrimitiveFamily::RuntimeCommand, "unit-target"))
         }
         [
             "marker",
@@ -1563,6 +1585,12 @@ mod tests {
                     y: 40.0,
                 },
                 RenderObject {
+                    id: "marker:runtime-command-position-target:0x42c00000:0x42f00000".to_string(),
+                    layer: 29,
+                    x: 96.0,
+                    y: 120.0,
+                },
+                RenderObject {
                     id: "marker:runtime-effect-icon:content-icon:normal:bad".to_string(),
                     layer: 33,
                     x: 0.0,
@@ -1598,6 +1626,14 @@ mod tests {
                     layer: 33,
                     x: 32.0,
                     y: 40.0,
+                },
+                RenderPrimitive::Icon {
+                    id: "marker:runtime-command-position-target:0x42c00000:0x42f00000".to_string(),
+                    family: RenderIconPrimitiveFamily::RuntimeCommand,
+                    variant: "position-target".to_string(),
+                    layer: 29,
+                    x: 96.0,
+                    y: 120.0,
                 },
             ]
         );
