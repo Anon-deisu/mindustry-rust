@@ -8471,7 +8471,19 @@ impl ClientSession {
     }
 
     fn quiet_reset_for_reconnect(&mut self) {
+        let last_timeout = self.state.last_timeout;
+        let timeout_count = self.state.timeout_count;
+        let connect_or_loading_timeout_count = self.state.connect_or_loading_timeout_count;
+        let ready_snapshot_timeout_count = self.state.ready_snapshot_timeout_count;
+        let reset_count = self.state.reset_count;
+        let reconnect_reset_count = self.state.reconnect_reset_count;
+        let world_reload_count = self.state.world_reload_count;
+        let kick_reset_count = self.state.kick_reset_count;
+        let last_world_reload = self.state.last_world_reload.clone();
         let reconnect_projection = self.state.reconnect_projection.clone();
+        let received_connect_redirect_count = self.state.received_connect_redirect_count;
+        let last_connect_redirect_ip = self.state.last_connect_redirect_ip.clone();
+        let last_connect_redirect_port = self.state.last_connect_redirect_port;
         self.pending_packets.clear();
         self.deferred_inbound_packets.clear();
         self.replayed_loading_events.clear();
@@ -8496,7 +8508,19 @@ impl ClientSession {
         self.snapshot_input = ClientSnapshotInputState::default();
         self.state = SessionState::default();
         self.stats = NetLoopStats::default();
+        self.state.last_timeout = last_timeout;
+        self.state.timeout_count = timeout_count;
+        self.state.connect_or_loading_timeout_count = connect_or_loading_timeout_count;
+        self.state.ready_snapshot_timeout_count = ready_snapshot_timeout_count;
+        self.state.reset_count = reset_count;
+        self.state.reconnect_reset_count = reconnect_reset_count;
+        self.state.world_reload_count = world_reload_count;
+        self.state.kick_reset_count = kick_reset_count;
+        self.state.last_world_reload = last_world_reload;
         self.state.reconnect_projection = reconnect_projection;
+        self.state.received_connect_redirect_count = received_connect_redirect_count;
+        self.state.last_connect_redirect_ip = last_connect_redirect_ip;
+        self.state.last_connect_redirect_port = last_connect_redirect_port;
         if self.state.reconnect_projection.reason_kind.is_none() {
             self.state.record_reconnect_projection(
                 ReconnectPhaseProjection::Attempting,
@@ -41980,6 +42004,30 @@ mod tests {
         session.state.connection_timed_out = true;
         session.kicked = true;
         session.timed_out = true;
+        session.state.timeout_count = 2;
+        session.state.connect_or_loading_timeout_count = 1;
+        session.state.ready_snapshot_timeout_count = 1;
+        session.state.last_timeout = Some(SessionTimeoutProjection {
+            kind: SessionTimeoutKind::ReadySnapshotStall,
+            idle_ms: 20_000,
+        });
+        session.state.reset_count = 4;
+        session.state.reconnect_reset_count = 0;
+        session.state.world_reload_count = 2;
+        session.state.kick_reset_count = 1;
+        let world_reload = WorldReloadProjection {
+            had_loaded_world: true,
+            had_client_loaded: true,
+            was_ready_to_enter_world: true,
+            had_connect_confirm_sent: true,
+            cleared_pending_packets: 3,
+            cleared_deferred_inbound_packets: 2,
+            cleared_replayed_loading_events: 1,
+        };
+        session.state.last_world_reload = Some(world_reload.clone());
+        session.state.received_connect_redirect_count = 1;
+        session.state.last_connect_redirect_ip = Some("127.0.0.1".to_string());
+        session.state.last_connect_redirect_port = Some(6567);
         session.last_inbound_at_ms = Some(123);
         session.last_keepalive_at_ms = Some(456);
         session.next_client_snapshot_id = 42;
@@ -42003,6 +42051,16 @@ mod tests {
         assert!(!session.state().connection_timed_out);
         assert_eq!(session.state().authoritative_state_mirror, None);
         assert_eq!(session.state().state_snapshot_authority_projection, None);
+        assert_eq!(session.state().timeout_count, 2);
+        assert_eq!(session.state().connect_or_loading_timeout_count, 1);
+        assert_eq!(session.state().ready_snapshot_timeout_count, 1);
+        assert_eq!(
+            session.state().last_timeout,
+            Some(SessionTimeoutProjection {
+                kind: SessionTimeoutKind::ReadySnapshotStall,
+                idle_ms: 20_000,
+            })
+        );
         assert!(session.pending_packets.is_empty());
         assert!(session.deferred_inbound_packets.is_empty());
         assert!(session.replayed_loading_events.is_empty());
@@ -42013,14 +42071,21 @@ mod tests {
         assert!(!session.timed_out);
         assert!(!session.loading_world_data);
         assert!(session.loaded_world_bundle().is_none());
+        assert_eq!(session.state().received_connect_redirect_count, 1);
+        assert_eq!(
+            session.state().last_connect_redirect_ip.as_deref(),
+            Some("127.0.0.1")
+        );
+        assert_eq!(session.state().last_connect_redirect_port, Some(6567));
         assert_eq!(
             session.state().last_reset_kind,
             Some(SessionResetKind::Reconnect)
         );
-        assert_eq!(session.state().reset_count, 1);
+        assert_eq!(session.state().reset_count, 5);
         assert_eq!(session.state().reconnect_reset_count, 1);
-        assert_eq!(session.state().world_reload_count, 0);
-        assert_eq!(session.state().kick_reset_count, 0);
+        assert_eq!(session.state().world_reload_count, 2);
+        assert_eq!(session.state().kick_reset_count, 1);
+        assert_eq!(session.state().last_world_reload, Some(world_reload));
         assert_eq!(
             session.reconnect_phase(),
             ReconnectPhaseProjection::Attempting
