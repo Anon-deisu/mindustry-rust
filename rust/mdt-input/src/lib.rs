@@ -30,7 +30,7 @@ pub use command_mode::{
     CommandModeTargetProjection, CommandUnitRef,
 };
 pub use intent::{BinaryAction, BuildPulse, PlayerIntent};
-pub use live_intent::LiveIntentState;
+pub use live_intent::{LiveIntentBindingProfile, LiveIntentState};
 pub use mapper::{InputSnapshot, IntentMapper, IntentSamplingMode, StatelessIntentMapper};
 pub use placement_rules::{
     repair_derelict_candidate, valid_place_against_local_plans, LocalPlanPlacement,

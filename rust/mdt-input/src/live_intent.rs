@@ -16,6 +16,48 @@ pub struct LiveIntentState {
     pub released_actions: Vec<BinaryAction>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct LiveIntentBindingProfile {
+    pub move_axis: (f32, f32),
+    pub aim_axis: (f32, f32),
+    pub mining_tile: Option<(i32, i32)>,
+    pub building: bool,
+    pub last_config_tap_tile: Option<(i32, i32)>,
+    pub last_build_pulse: Option<BuildPulse>,
+    pub active_actions: Vec<BinaryAction>,
+    pub pressed_actions: Vec<BinaryAction>,
+    pub released_actions: Vec<BinaryAction>,
+}
+
+impl LiveIntentBindingProfile {
+    pub fn has_motion(&self) -> bool {
+        self.move_axis != (0.0, 0.0)
+    }
+
+    pub fn has_aim(&self) -> bool {
+        self.aim_axis != (0.0, 0.0)
+    }
+
+    pub fn has_transient_signals(&self) -> bool {
+        self.last_config_tap_tile.is_some()
+            || self.last_build_pulse.is_some()
+            || !self.pressed_actions.is_empty()
+            || !self.released_actions.is_empty()
+    }
+
+    pub fn is_idle(&self) -> bool {
+        !self.has_motion()
+            && !self.has_aim()
+            && self.mining_tile.is_none()
+            && !self.building
+            && self.last_config_tap_tile.is_none()
+            && self.last_build_pulse.is_none()
+            && self.active_actions.is_empty()
+            && self.pressed_actions.is_empty()
+            && self.released_actions.is_empty()
+    }
+}
+
 impl LiveIntentState {
     pub fn apply_intents(&mut self, intents: &[PlayerIntent]) {
         self.clear_transient_edges();
@@ -65,6 +107,20 @@ impl LiveIntentState {
         self.pressed_actions.clear();
         self.released_actions.clear();
     }
+
+    pub fn binding_profile(&self) -> LiveIntentBindingProfile {
+        LiveIntentBindingProfile {
+            move_axis: self.move_axis,
+            aim_axis: self.aim_axis,
+            mining_tile: self.mining_tile,
+            building: self.building,
+            last_config_tap_tile: self.last_config_tap_tile,
+            last_build_pulse: self.last_build_pulse,
+            active_actions: self.active_actions.clone(),
+            pressed_actions: self.pressed_actions.clone(),
+            released_actions: self.released_actions.clone(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -85,6 +141,10 @@ impl RuntimeIntentTracker {
 
     pub fn state(&self) -> &LiveIntentState {
         &self.state
+    }
+
+    pub fn binding_profile(&self) -> LiveIntentBindingProfile {
+        self.state.binding_profile()
     }
 
     pub fn set_override_snapshot(&mut self, snapshot: Option<InputSnapshot>) {
@@ -938,5 +998,45 @@ mod tests {
         assert!(tracker.state().pressed_actions.is_empty());
         assert!(tracker.state().released_actions.is_empty());
         assert!(!tracker.state().is_action_active(BinaryAction::Fire));
+    }
+
+    #[test]
+    fn binding_profile_reflects_live_state_and_transient_edges() {
+        let mut tracker = RuntimeIntentTracker::new(IntentSamplingMode::LiveSampling);
+
+        assert!(tracker.sample_runtime_snapshot(&InputSnapshot {
+            move_axis: (1.0, -1.0),
+            aim_axis: (8.0, 12.0),
+            mining_tile: Some((7, 8)),
+            building: true,
+            config_tap_tile: Some((3, 4)),
+            build_pulse: Some(BuildPulse {
+                tile: (9, 10),
+                breaking: true,
+            }),
+            active_actions: vec![BinaryAction::Fire, BinaryAction::Boost],
+        }));
+
+        let profile = tracker.binding_profile();
+        assert_eq!(profile.move_axis, (1.0, -1.0));
+        assert_eq!(profile.aim_axis, (8.0, 12.0));
+        assert_eq!(profile.mining_tile, Some((7, 8)));
+        assert!(profile.building);
+        assert_eq!(profile.last_config_tap_tile, Some((3, 4)));
+        assert_eq!(
+            profile.last_build_pulse,
+            Some(BuildPulse {
+                tile: (9, 10),
+                breaking: true,
+            })
+        );
+        assert_eq!(
+            profile.active_actions,
+            vec![BinaryAction::Fire, BinaryAction::Boost]
+        );
+        assert!(profile.has_motion());
+        assert!(profile.has_aim());
+        assert!(profile.has_transient_signals());
+        assert!(!profile.is_idle());
     }
 }
