@@ -30,6 +30,7 @@ const ASCII_ICON_RUNTIME_EFFECT_MARKER: char = 'F';
 const ASCII_ICON_BUILD_CONFIG: char = 'C';
 const ASCII_ICON_RUNTIME_HEALTH: char = 'H';
 const ASCII_ICON_RUNTIME_COMMAND: char = 'T';
+const ASCII_ICON_RUNTIME_UNIT_ASSEMBLER: char = 'A';
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct AsciiScenePresenter {
@@ -904,6 +905,10 @@ fn ascii_sprite_for_icon(family: RenderIconPrimitiveFamily) -> char {
         | RenderIconPrimitiveFamily::RuntimeConfigPendingMismatch => ASCII_ICON_BUILD_CONFIG,
         RenderIconPrimitiveFamily::RuntimeHealth => ASCII_ICON_RUNTIME_HEALTH,
         RenderIconPrimitiveFamily::RuntimeCommand => ASCII_ICON_RUNTIME_COMMAND,
+        RenderIconPrimitiveFamily::RuntimeUnitAssemblerProgress
+        | RenderIconPrimitiveFamily::RuntimeUnitAssemblerCommand => {
+            ASCII_ICON_RUNTIME_UNIT_ASSEMBLER
+        }
     }
 }
 
@@ -4725,6 +4730,41 @@ mod tests {
         let frame = presenter.last_frame();
         assert!(frame.contains("RENDER-ICON: count=1 runtime-effect/normal@26:0:0"));
         assert_eq!(frame.lines().last(), Some("F"));
+    }
+
+    #[test]
+    fn ascii_presenter_reports_runtime_unit_assembler_icon_primitives() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 16.0,
+                height: 8.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: "marker:runtime-unit-assembler-progress:tank-assembler:30:40:0x3f400000:2:4:b:9:0:0x40800000".to_string(),
+                    layer: 16,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-unit-assembler-command:tank-assembler:30:40:0x42200000:0x42700000".to_string(),
+                    layer: 16,
+                    x: 8.0,
+                    y: 0.0,
+                },
+            ],
+        };
+        let mut presenter = AsciiScenePresenter::default();
+
+        presenter.present(&scene, &HudModel::default());
+
+        let frame = presenter.last_frame();
+        assert!(frame.contains(
+            "RENDER-ICON: count=2 runtime-unit-assembler-progress/tank-assembler@16:0:0 runtime-unit-assembler-command/tank-assembler@16:1:0"
+        ));
+        assert_eq!(frame.lines().last(), Some("AA"));
     }
 
     #[test]

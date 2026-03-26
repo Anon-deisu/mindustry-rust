@@ -60,6 +60,8 @@ pub enum RenderIconPrimitiveFamily {
     RuntimeConfigPendingMismatch,
     RuntimeHealth,
     RuntimeCommand,
+    RuntimeUnitAssemblerProgress,
+    RuntimeUnitAssemblerCommand,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -339,6 +341,8 @@ impl RenderIconPrimitiveFamily {
             Self::RuntimeConfigPendingMismatch => "runtime-config-pending-mismatch",
             Self::RuntimeHealth => "runtime-health",
             Self::RuntimeCommand => "runtime-command",
+            Self::RuntimeUnitAssemblerProgress => "runtime-unit-assembler-progress",
+            Self::RuntimeUnitAssemblerCommand => "runtime-unit-assembler-command",
         }
     }
 }
@@ -412,6 +416,10 @@ fn render_icon_primitive_for_object(object: &RenderObject) -> Option<RenderPrimi
 }
 
 fn render_icon_family_and_variant(id: &str) -> Option<(RenderIconPrimitiveFamily, &str)> {
+    if let Some(icon) = render_unit_assembler_icon_family_and_variant(id) {
+        return Some(icon);
+    }
+
     let segments = id.split(':').collect::<Vec<_>>();
     match segments.as_slice() {
         ["marker", config_kind, tile_x, tile_y, value]
@@ -500,6 +508,56 @@ fn render_icon_family_and_variant(id: &str) -> Option<(RenderIconPrimitiveFamily
             && content_id.parse::<i16>().is_ok() =>
         {
             Some((RenderIconPrimitiveFamily::RuntimeBuildConfig, *family))
+        }
+        _ => None,
+    }
+}
+
+fn render_unit_assembler_icon_family_and_variant(
+    id: &str,
+) -> Option<(RenderIconPrimitiveFamily, &str)> {
+    if let Some(rest) = id.strip_prefix("marker:runtime-unit-assembler-progress:") {
+        let parts = rest.split(':').collect::<Vec<_>>();
+        if parts.len() < 9 {
+            return None;
+        }
+        let block_name = parts[0];
+        let tile_x = parts[1];
+        let tile_y = parts[2];
+        let progress_bits = parts[3];
+        let unit_count = parts[4];
+        let block_count = parts[5];
+        let payload_present = parts[parts.len() - 2];
+        let pay_rotation_bits = parts[parts.len() - 1];
+        let sample = &parts[6..parts.len() - 2];
+        let sample_valid = matches!(sample, ["none"])
+            || matches!(sample, [kind, id] if !kind.is_empty() && id.parse::<i16>().is_ok());
+        if !block_name.is_empty()
+            && tile_x.parse::<i32>().is_ok()
+            && tile_y.parse::<i32>().is_ok()
+            && parse_prefixed_hex_u32(progress_bits).is_some()
+            && unit_count.parse::<usize>().is_ok()
+            && block_count.parse::<usize>().is_ok()
+            && matches!(payload_present, "0" | "1")
+            && parse_prefixed_hex_u32(pay_rotation_bits).is_some()
+            && sample_valid
+        {
+            return Some((RenderIconPrimitiveFamily::RuntimeUnitAssemblerProgress, block_name));
+        }
+        return None;
+    }
+
+    let rest = id.strip_prefix("marker:runtime-unit-assembler-command:")?;
+    let parts = rest.split(':').collect::<Vec<_>>();
+    match parts.as_slice() {
+        [block_name, tile_x, tile_y, x_bits, y_bits]
+            if !block_name.is_empty()
+                && tile_x.parse::<i32>().is_ok()
+                && tile_y.parse::<i32>().is_ok()
+                && parse_prefixed_hex_u32(x_bits).is_some()
+                && parse_prefixed_hex_u32(y_bits).is_some() =>
+        {
+            Some((RenderIconPrimitiveFamily::RuntimeUnitAssemblerCommand, *block_name))
         }
         _ => None,
     }
@@ -1665,6 +1723,18 @@ mod tests {
                     y: 120.0,
                 },
                 RenderObject {
+                    id: "marker:runtime-unit-assembler-progress:tank-assembler:30:40:0x3f400000:2:4:b:9:0:0x40800000".to_string(),
+                    layer: 16,
+                    x: 240.0,
+                    y: 320.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-unit-assembler-command:tank-assembler:30:40:0x42200000:0x42700000".to_string(),
+                    layer: 16,
+                    x: 40.0,
+                    y: 60.0,
+                },
+                RenderObject {
                     id: "marker:runtime-effect-icon:content-icon:normal:bad".to_string(),
                     layer: 33,
                     x: 0.0,
@@ -1756,6 +1826,22 @@ mod tests {
                     layer: 29,
                     x: 96.0,
                     y: 120.0,
+                },
+                RenderPrimitive::Icon {
+                    id: "marker:runtime-unit-assembler-progress:tank-assembler:30:40:0x3f400000:2:4:b:9:0:0x40800000".to_string(),
+                    family: RenderIconPrimitiveFamily::RuntimeUnitAssemblerProgress,
+                    variant: "tank-assembler".to_string(),
+                    layer: 16,
+                    x: 240.0,
+                    y: 320.0,
+                },
+                RenderPrimitive::Icon {
+                    id: "marker:runtime-unit-assembler-command:tank-assembler:30:40:0x42200000:0x42700000".to_string(),
+                    family: RenderIconPrimitiveFamily::RuntimeUnitAssemblerCommand,
+                    variant: "tank-assembler".to_string(),
+                    layer: 16,
+                    x: 40.0,
+                    y: 60.0,
                 },
             ]
         );
