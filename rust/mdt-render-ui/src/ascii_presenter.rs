@@ -13,7 +13,10 @@ use crate::panel_model::{
     MinimapPanelModel, PresenterViewWindow, RuntimeDialogNoticeKind, RuntimeDialogPromptKind,
     RuntimeUiNoticePanelModel,
 };
-use crate::presenter_view::{crop_window_to_focus, projected_window, visible_window_tile};
+use crate::presenter_view::{
+    crop_window_to_focus, normalize_zoom, projected_window, visible_window_tile,
+    zoomed_view_tile_span,
+};
 use crate::render_model::{RenderObjectSemanticFamily, RenderObjectSemanticKind};
 use crate::{HudModel, RenderModel, ScenePresenter};
 
@@ -373,8 +376,9 @@ fn crop_window(
         return base_window;
     }
 
-    let window_width = max_width.min(base_window.width);
-    let window_height = max_height.min(base_window.height);
+    let zoom = normalize_zoom(scene.viewport.zoom);
+    let window_width = zoomed_view_tile_span(max_width, zoom, base_window.width);
+    let window_height = zoomed_view_tile_span(max_height, zoom, base_window.height);
     crop_window_to_focus(scene, TILE_SIZE, base_window, window_width, window_height)
 }
 
@@ -2594,6 +2598,64 @@ mod tests {
         assert!(frame.contains("WINDOW: origin=(2, 2) size=4x4"));
         assert_eq!(grid_rows.len(), 4);
         assert!(grid_rows.iter().all(|row| row.len() == 4));
+    }
+
+    #[test]
+    fn ascii_presenter_applies_zoom_to_view_window_size() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 64.0,
+                height: 64.0,
+                zoom: 2.0,
+            },
+            view_window: None,
+            objects: vec![RenderObject {
+                id: "player:focus".to_string(),
+                layer: 40,
+                x: 32.0,
+                y: 32.0,
+            }],
+        };
+        let hud = HudModel::default();
+        let mut presenter = AsciiScenePresenter::with_max_view_tiles(4, 4);
+
+        presenter.present(&scene, &hud);
+
+        let frame = presenter.last_frame();
+        let grid_rows = frame.lines().rev().take(2).collect::<Vec<_>>();
+
+        assert!(frame.contains("WINDOW: origin=(3, 3) size=2x2"));
+        assert_eq!(grid_rows.len(), 2);
+        assert!(grid_rows.iter().all(|row| row.len() == 2));
+    }
+
+    #[test]
+    fn ascii_presenter_zoom_out_expands_view_window_up_to_map_bounds() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 64.0,
+                height: 64.0,
+                zoom: 0.5,
+            },
+            view_window: None,
+            objects: vec![RenderObject {
+                id: "player:focus".to_string(),
+                layer: 40,
+                x: 32.0,
+                y: 32.0,
+            }],
+        };
+        let hud = HudModel::default();
+        let mut presenter = AsciiScenePresenter::with_max_view_tiles(4, 4);
+
+        presenter.present(&scene, &hud);
+
+        let frame = presenter.last_frame();
+        let grid_rows = frame.lines().rev().take(8).collect::<Vec<_>>();
+
+        assert!(!frame.contains("WINDOW: origin="));
+        assert_eq!(grid_rows.len(), 8);
+        assert!(grid_rows.iter().all(|row| row.len() == 8));
     }
 
     #[test]
