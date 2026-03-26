@@ -653,6 +653,16 @@ Use:
     - stop live building packets from mutating `loaded_world_bundle.world.building_centers[*].building.base`
     - stop fabricating live-only building centers into loaded-world baseline
     - add a merged building live view by `build_pos`
+  - Concrete first-cut boundaries:
+    - remove or bypass live writeback helpers centered on `ensure_loaded_world_building_center`, `apply_loaded_world_building_center_authority`, and `apply_loaded_world_building_health`
+    - keep `apply_world_baseline_from_bundle` plus `apply_loaded_world_parsed_tail_business` as baseline seeding only
+    - add a merged accessor that combines loaded-world anchor data with `building_table_projection`, `configured_block_projection`, `resource_delta_projection`, and `runtime_typed_building_projection`
+  - Minimum regression matrix:
+    - baseline seed still exposes loaded-world center/tail-derived runtime state
+    - `setTeam` / `setTeams` update merged live view without mutating loaded-world baseline team
+    - live-only `setTile` / `constructFinish` stop fabricating new loaded-world centers
+    - `removeTile` / `deconstructFinish` clear live view without deleting baseline bundle data
+    - `buildHealthUpdate` / `tileConfig` remain visible through the merged view
 
 - `P0 active` `entitySnapshot` unit carried-item baseline is still missing.
   - Primary source paths:
