@@ -11979,6 +11979,7 @@ fn derive_effect_business_projection(
         match contract {
             RuntimeEffectContract::LightningPath => lightning_path_projection(value),
             RuntimeEffectContract::PointHit => None,
+            RuntimeEffectContract::DrillSteam => None,
             RuntimeEffectContract::LegDestroy => None,
             RuntimeEffectContract::ShieldBreak => None,
             RuntimeEffectContract::BlockContentIcon => {

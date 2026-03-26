@@ -124,6 +124,12 @@ const POINT_HIT_EXECUTOR: RuntimeEffectContractExecutor = RuntimeEffectContractE
     business_world_position: unsupported_business_world_position,
 };
 
+const DRILL_STEAM_EXECUTOR: RuntimeEffectContractExecutor = RuntimeEffectContractExecutor {
+    contract_name: "drill_steam",
+    overlay_origin: unsupported_overlay_origin,
+    business_world_position: unsupported_business_world_position,
+};
+
 const LEG_DESTROY_EXECUTOR: RuntimeEffectContractExecutor = RuntimeEffectContractExecutor {
     contract_name: "leg_destroy",
     overlay_origin: leg_destroy_overlay_origin,
@@ -1232,6 +1238,7 @@ fn executor_for_contract(
         RuntimeEffectContract::LightningPath => &LIGHTNING_PATH_EXECUTOR,
         RuntimeEffectContract::PointBeam => &POINT_BEAM_EXECUTOR,
         RuntimeEffectContract::PointHit => &POINT_HIT_EXECUTOR,
+        RuntimeEffectContract::DrillSteam => &DRILL_STEAM_EXECUTOR,
         RuntimeEffectContract::LegDestroy => &LEG_DESTROY_EXECUTOR,
         RuntimeEffectContract::ShieldBreak => &SHIELD_BREAK_EXECUTOR,
         RuntimeEffectContract::BlockContentIcon => &BLOCK_CONTENT_ICON_EXECUTOR,
@@ -1249,6 +1256,7 @@ fn executor_for_name(name: &str) -> Option<&'static RuntimeEffectContractExecuto
         &LIGHTNING_PATH_EXECUTOR,
         &POINT_BEAM_EXECUTOR,
         &POINT_HIT_EXECUTOR,
+        &DRILL_STEAM_EXECUTOR,
         &LEG_DESTROY_EXECUTOR,
         &SHIELD_BREAK_EXECUTOR,
         &BLOCK_CONTENT_ICON_EXECUTOR,
@@ -2799,6 +2807,13 @@ mod tests {
             particle_points[0],
             particle_points[1],
         )));
+    }
+
+    #[test]
+    fn executor_for_name_resolves_drill_steam_contract() {
+        let executor = executor_for_name("drill_steam").expect("drill steam executor");
+
+        assert_eq!(executor.contract_name, "drill_steam");
     }
 
     #[test]

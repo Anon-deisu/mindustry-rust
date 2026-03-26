@@ -61,6 +61,7 @@ pub enum RuntimeEffectContract {
     LightningPath,
     PointBeam,
     PointHit,
+    DrillSteam,
     LegDestroy,
     ShieldBreak,
     BlockContentIcon,
@@ -78,6 +79,7 @@ impl RuntimeEffectContract {
             Self::LightningPath => "lightning",
             Self::PointBeam => "point_beam",
             Self::PointHit => "point_hit",
+            Self::DrillSteam => "drill_steam",
             Self::LegDestroy => "leg_destroy",
             Self::ShieldBreak => "shield_break",
             Self::BlockContentIcon => "block_content_icon",
@@ -122,6 +124,7 @@ pub fn effect_contract(effect_id: Option<i16>) -> Option<RuntimeEffectContract> 
         Some(13) => Some(RuntimeEffectContract::LightningPath),
         Some(10) => Some(RuntimeEffectContract::PointBeam),
         Some(11) => Some(RuntimeEffectContract::PointHit),
+        Some(124) => Some(RuntimeEffectContract::DrillSteam),
         Some(263) => Some(RuntimeEffectContract::LegDestroy),
         Some(256) => Some(RuntimeEffectContract::ShieldBreak),
         Some(15 | 20 | 252) => Some(RuntimeEffectContract::BlockContentIcon),
@@ -466,6 +469,7 @@ fn derive_runtime_effect_polyline(
         RuntimeEffectContract::PositionTarget
         | RuntimeEffectContract::PointBeam
         | RuntimeEffectContract::PointHit
+        | RuntimeEffectContract::DrillSteam
         | RuntimeEffectContract::LegDestroy
         | RuntimeEffectContract::ShieldBreak
         | RuntimeEffectContract::BlockContentIcon
@@ -504,6 +508,7 @@ fn derive_runtime_effect_payload_target_content(
         | RuntimeEffectContract::LightningPath
         | RuntimeEffectContract::PointBeam
         | RuntimeEffectContract::PointHit
+        | RuntimeEffectContract::DrillSteam
         | RuntimeEffectContract::LegDestroy
         | RuntimeEffectContract::ShieldBreak
         | RuntimeEffectContract::BlockContentIcon
@@ -538,6 +543,7 @@ fn derive_runtime_effect_content_ref(
         | RuntimeEffectContract::LightningPath
         | RuntimeEffectContract::PointBeam
         | RuntimeEffectContract::PointHit
+        | RuntimeEffectContract::DrillSteam
         | RuntimeEffectContract::LegDestroy
         | RuntimeEffectContract::ShieldBreak
         | RuntimeEffectContract::DropItem
@@ -941,16 +947,26 @@ fn unpack_point2(value: i32) -> (i16, i16) {
 #[cfg(test)]
 mod tests {
     use super::{
-        observe_runtime_effect_binding_state, observe_runtime_effect_source_binding_state,
+        effect_contract, effect_contract_name, observe_runtime_effect_binding_state,
+        observe_runtime_effect_source_binding_state,
         resolve_runtime_effect_overlay_position, resolve_runtime_effect_overlay_source_position,
         spawn_runtime_effect_overlay, EffectRuntimeBindingState, EffectRuntimeInputView,
-        RuntimeEffectBinding,
+        RuntimeEffectBinding, RuntimeEffectContract,
     };
     use crate::session_state::{
         EntityProjection, EntitySemanticProjection, EntitySemanticProjectionEntry,
         EntityUnitSemanticProjection, SessionState,
     };
     use mdt_typeio::{pack_point2, TypeIoObject};
+
+    #[test]
+    fn effect_runtime_contract_maps_drill_steam_effect_id() {
+        assert_eq!(
+            effect_contract(Some(124)),
+            Some(RuntimeEffectContract::DrillSteam)
+        );
+        assert_eq!(effect_contract_name(Some(124)), Some("drill_steam"));
+    }
 
     #[test]
     fn effect_runtime_spawn_runtime_effect_overlay_uses_position_hint_for_unresolved_parent_unit() {
