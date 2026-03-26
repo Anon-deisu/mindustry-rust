@@ -99,6 +99,7 @@ impl RenderRuntimeAdapter {
             snapshot_input,
             session_state,
         );
+        append_runtime_command_mode_overlay_objects(scene, snapshot_input, session_state);
         append_building_table_projection_objects(scene, session_state);
         append_block_snapshot_projection_objects(scene, session_state);
         append_runtime_live_entity_objects(scene, session_state);
@@ -4025,6 +4026,138 @@ fn runtime_world_xy_bits_from_tile_pos(tile_pos: i32) -> (u32, u32) {
     )
 }
 
+fn append_runtime_command_mode_overlay_objects(
+    scene: &mut RenderModel,
+    snapshot_input: &ClientSnapshotInputState,
+    session_state: &SessionState,
+) {
+    let command_mode = &snapshot_input.command_mode;
+
+    for &build_pos in &command_mode.command_buildings {
+        let (tile_x, tile_y) = unpack_runtime_point2(build_pos);
+        let (x_bits, y_bits) = runtime_world_xy_bits_from_tile_pos(build_pos);
+        scene.objects.push(RenderObject {
+            id: format!("marker:runtime-command-building:{tile_x}:{tile_y}"),
+            layer: 29,
+            x: f32::from_bits(x_bits),
+            y: f32::from_bits(y_bits),
+        });
+    }
+
+    if let Some(rect) = command_mode.command_rect {
+        append_runtime_command_mode_rect_objects(scene, rect);
+    }
+
+    if let Some(target) = command_mode.last_target {
+        if let Some(build_pos) = target.build_target {
+            let (tile_x, tile_y) = unpack_runtime_point2(build_pos);
+            let (x_bits, y_bits) = runtime_world_xy_bits_from_tile_pos(build_pos);
+            scene.objects.push(RenderObject {
+                id: format!("marker:runtime-command-build-target:{tile_x}:{tile_y}"),
+                layer: 29,
+                x: f32::from_bits(x_bits),
+                y: f32::from_bits(y_bits),
+            });
+        }
+        if let Some(position) = target.position_target {
+            let x = f32::from_bits(position.x_bits);
+            let y = f32::from_bits(position.y_bits);
+            if x.is_finite() && y.is_finite() {
+                scene.objects.push(RenderObject {
+                    id: format!(
+                        "marker:runtime-command-position-target:0x{:08x}:0x{:08x}",
+                        position.x_bits, position.y_bits
+                    ),
+                    layer: 29,
+                    x,
+                    y,
+                });
+            }
+        }
+        if let Some(unit_target) = target.unit_target {
+            if let Some(entity) = session_state
+                .entity_table_projection
+                .by_entity_id
+                .get(&unit_target.value)
+            {
+                let x = f32::from_bits(entity.x_bits);
+                let y = f32::from_bits(entity.y_bits);
+                if x.is_finite() && y.is_finite() {
+                    scene.objects.push(RenderObject {
+                        id: format!(
+                            "marker:runtime-command-unit-target:{}:{}",
+                            unit_target.kind, unit_target.value
+                        ),
+                        layer: 29,
+                        x,
+                        y,
+                    });
+                }
+            }
+        }
+        if let Some(rect) = target.rect_target {
+            append_runtime_command_mode_target_rect_objects(scene, rect);
+        }
+    }
+}
+
+fn append_runtime_command_mode_rect_objects(
+    scene: &mut RenderModel,
+    rect: mdt_input::CommandModeRectProjection,
+) {
+    append_runtime_command_mode_rect_outline(scene, "runtime-command-rect", rect, 29);
+}
+
+fn append_runtime_command_mode_target_rect_objects(
+    scene: &mut RenderModel,
+    rect: mdt_input::CommandModeRectProjection,
+) {
+    append_runtime_command_mode_rect_outline(scene, "runtime-command-target-rect", rect, 29);
+}
+
+fn append_runtime_command_mode_rect_outline(
+    scene: &mut RenderModel,
+    family: &str,
+    rect: mdt_input::CommandModeRectProjection,
+    layer: i32,
+) {
+    const TILE_SIZE: f32 = 8.0;
+
+    let rect = rect.normalized();
+    let left = rect.x0 as f32 * TILE_SIZE;
+    let top = rect.y0 as f32 * TILE_SIZE;
+    let right = rect.x1 as f32 * TILE_SIZE;
+    let bottom = rect.y1 as f32 * TILE_SIZE;
+    for (edge, source, target) in [
+        ("top", (left, top), (right, top)),
+        ("right", (right, top), (right, bottom)),
+        ("bottom", (right, bottom), (left, bottom)),
+        ("left", (left, bottom), (left, top)),
+    ] {
+        let line_id = format!(
+            "marker:line:{family}:{edge}:{}:{}:{}:{}",
+            source.0.to_bits(),
+            source.1.to_bits(),
+            target.0.to_bits(),
+            target.1.to_bits()
+        );
+        scene.objects.push(RenderObject {
+            id: line_id.clone(),
+            layer,
+            x: source.0,
+            y: source.1,
+        });
+        if source != target {
+            scene.objects.push(RenderObject {
+                id: format!("{line_id}:line-end"),
+                layer,
+                x: target.0,
+                y: target.1,
+            });
+        }
+    }
+}
+
 fn append_runtime_build_plan_objects(scene: &mut RenderModel, plans: Option<&[ClientBuildPlan]>) {
     const TILE_SIZE: f32 = 8.0;
 
@@ -5919,7 +6052,18 @@ mod tests {
             },
             ..Default::default()
         };
-        let state = SessionState::default();
+        let mut state = SessionState::default();
+        state.entity_table_projection.upsert_entity(
+            808,
+            1,
+            false,
+            0,
+            0,
+            40.0f32.to_bits(),
+            48.0f32.to_bits(),
+            false,
+            1,
+        );
 
         let mut adapter = RenderRuntimeAdapter::default();
         adapter.apply(&mut scene, &mut hud, &input, &state);
@@ -5975,6 +6119,82 @@ mod tests {
                 enabled: true,
             })
         );
+        assert!(scene
+            .objects
+            .iter()
+            .any(|object| object.id == "marker:runtime-command-building:18:40"));
+        assert!(scene.objects.iter().any(|object| {
+            object.id
+                == format!(
+                    "marker:line:runtime-command-rect:top:{}:{}:{}:{}",
+                    8.0f32.to_bits(),
+                    16.0f32.to_bits(),
+                    24.0f32.to_bits(),
+                    16.0f32.to_bits()
+                )
+        }));
+        assert!(scene.objects.iter().any(|object| {
+            object.id == format!("marker:runtime-command-unit-target:{}:{}", 2, 808)
+        }));
+    }
+
+    #[test]
+    fn render_runtime_adapter_renders_command_mode_target_markers() {
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState {
+            command_mode: mdt_input::CommandModeProjection {
+                active: true,
+                last_target: Some(mdt_input::CommandModeTargetProjection {
+                    build_target: Some(pack_runtime_point2(7, 8)),
+                    position_target: Some(mdt_input::CommandModePositionTarget {
+                        x_bits: 96.0f32.to_bits(),
+                        y_bits: 120.0f32.to_bits(),
+                    }),
+                    rect_target: Some(mdt_input::CommandModeRectProjection {
+                        x0: 4,
+                        y0: 5,
+                        x1: 6,
+                        y1: 7,
+                    }),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let state = SessionState::default();
+
+        let mut adapter = RenderRuntimeAdapter::default();
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let build_target = scene_object_by_id(&scene, "marker:runtime-command-build-target:7:8")
+            .expect("missing command build target marker");
+        assert_eq!(build_target.x, 56.0);
+        assert_eq!(build_target.y, 64.0);
+
+        let position_target = scene_object_by_id(
+            &scene,
+            &format!(
+                "marker:runtime-command-position-target:0x{:08x}:0x{:08x}",
+                96.0f32.to_bits(),
+                120.0f32.to_bits()
+            ),
+        )
+        .expect("missing command position target marker");
+        assert_eq!(position_target.x, 96.0);
+        assert_eq!(position_target.y, 120.0);
+
+        assert!(scene.objects.iter().any(|object| {
+            object.id
+                == format!(
+                    "marker:line:runtime-command-target-rect:top:{}:{}:{}:{}",
+                    32.0f32.to_bits(),
+                    40.0f32.to_bits(),
+                    48.0f32.to_bits(),
+                    40.0f32.to_bits()
+                )
+        }));
     }
 
     #[test]
