@@ -216,6 +216,9 @@ impl CapabilityGate {
             PlayerIntent::SetMiningTile { tile: Some(tile) } => {
                 self.evaluate_mining(context, *tile)
             }
+            PlayerIntent::SetBuilding { building: true }
+            | PlayerIntent::ConfigTap { .. }
+            | PlayerIntent::BuildPulse(_) => self.evaluate_build_intent(context),
             _ => CapabilityDecision::allowed(),
         }
     }
@@ -239,10 +242,8 @@ impl CapabilityGate {
         context: &CapabilityContext,
         request: &CapabilityBuildRequest,
     ) -> CapabilityDecision {
-        if let Some(decision) = require_live_controlled_unit(context) {
+        if let Some(decision) = self.evaluate_build_intent_base(context) {
             decision
-        } else if !context.building_enabled {
-            CapabilityDecision::denied(CapabilityDenyReason::BuildingDisabled)
         } else if !request.breaking && request.block_id.is_none() {
             CapabilityDecision::denied(CapabilityDenyReason::MissingBuildBlock)
         } else {
@@ -265,6 +266,26 @@ impl CapabilityGate {
             CapabilityDecision::denied(CapabilityDenyReason::MissingCommandTarget)
         } else {
             CapabilityDecision::allowed()
+        }
+    }
+
+    fn evaluate_build_intent(&self, context: &CapabilityContext) -> CapabilityDecision {
+        self.evaluate_build_intent_base(context)
+            .unwrap_or_else(CapabilityDecision::allowed)
+    }
+
+    fn evaluate_build_intent_base(
+        &self,
+        context: &CapabilityContext,
+    ) -> Option<CapabilityDecision> {
+        if let Some(decision) = require_live_controlled_unit(context) {
+            Some(decision)
+        } else if !context.building_enabled {
+            Some(CapabilityDecision::denied(
+                CapabilityDenyReason::BuildingDisabled,
+            ))
+        } else {
+            None
         }
     }
 }
@@ -295,7 +316,7 @@ fn on_off(value: bool) -> &'static str {
 mod tests {
     use super::*;
     use crate::command_mode::{CommandModeStanceSelection, CommandUnitRef};
-    use crate::intent::PlayerIntent;
+    use crate::intent::{BuildPulse, PlayerIntent};
 
     fn context() -> CapabilityContext {
         CapabilityContext {
@@ -490,6 +511,57 @@ mod tests {
                 }
             ),
             CapabilityDecision::denied(CapabilityDenyReason::MissingBuildBlock)
+        );
+    }
+
+    #[test]
+    fn building_intents_require_building_capability_but_allow_clear_toggle() {
+        let gate = CapabilityGate;
+        let disabled_building = CapabilityContext {
+            building_enabled: false,
+            ..context()
+        };
+        let missing_unit = CapabilityContext {
+            runtime: RuntimeInputState {
+                unit_id: None,
+                dead: false,
+                position: Some((0.0, 0.0)),
+                pointer: None,
+            },
+            ..context()
+        };
+
+        assert_eq!(
+            gate.evaluate_intent(
+                &disabled_building,
+                &PlayerIntent::SetBuilding { building: true }
+            ),
+            CapabilityDecision::denied(CapabilityDenyReason::BuildingDisabled)
+        );
+        assert_eq!(
+            gate.evaluate_intent(&disabled_building, &PlayerIntent::ConfigTap { tile: (7, 9) }),
+            CapabilityDecision::denied(CapabilityDenyReason::BuildingDisabled)
+        );
+        assert_eq!(
+            gate.evaluate_intent(
+                &disabled_building,
+                &PlayerIntent::BuildPulse(BuildPulse {
+                    tile: (7, 9),
+                    breaking: false,
+                })
+            ),
+            CapabilityDecision::denied(CapabilityDenyReason::BuildingDisabled)
+        );
+        assert_eq!(
+            gate.evaluate_intent(&disabled_building, &PlayerIntent::SetBuilding { building: false }),
+            CapabilityDecision::allowed()
+        );
+        assert_eq!(
+            gate.evaluate_intent(
+                &missing_unit,
+                &PlayerIntent::SetBuilding { building: true }
+            ),
+            CapabilityDecision::denied(CapabilityDenyReason::MissingControlledUnit)
         );
     }
 
