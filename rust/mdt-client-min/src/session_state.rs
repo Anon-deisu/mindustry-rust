@@ -3986,6 +3986,21 @@ pub struct EntityProjection {
     pub last_seen_entity_snapshot_count: u64,
 }
 
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct EntityPlayerSemanticProjection {
+    pub admin: bool,
+    pub boosting: bool,
+    pub color_rgba: u32,
+    pub mouse_x_bits: u32,
+    pub mouse_y_bits: u32,
+    pub name: Option<String>,
+    pub selected_block_id: u16,
+    pub selected_rotation: u32,
+    pub shooting: bool,
+    pub team_id: u8,
+    pub typing: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EntitySemanticProjection {
     Unit(EntityUnitSemanticProjection),
@@ -4130,6 +4145,31 @@ impl EntitySemanticProjectionTable {
     }
 }
 
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct PlayerSemanticProjectionTable {
+    pub by_entity_id: BTreeMap<i32, EntityPlayerSemanticProjection>,
+}
+
+impl PlayerSemanticProjectionTable {
+    pub fn upsert(&mut self, entity_id: i32, projection: EntityPlayerSemanticProjection) {
+        self.by_entity_id.insert(entity_id, projection);
+    }
+
+    pub fn remove_entity(&mut self, entity_id: i32) -> bool {
+        self.by_entity_id.remove(&entity_id).is_some()
+    }
+
+    pub fn remove_entities<'a>(&mut self, entity_ids: impl IntoIterator<Item = &'a i32>) {
+        for entity_id in entity_ids {
+            self.by_entity_id.remove(entity_id);
+        }
+    }
+
+    pub fn clear_for_world_reload(&mut self) {
+        self.by_entity_id.clear();
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypedRuntimeEntityBase {
     pub entity_id: i32,
@@ -4146,6 +4186,7 @@ pub struct TypedRuntimeEntityBase {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypedRuntimePlayerEntity {
     pub base: TypedRuntimeEntityBase,
+    pub semantic: EntityPlayerSemanticProjection,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -4379,6 +4420,7 @@ fn typed_runtime_entity_model(
     entity_id: i32,
     entity: &EntityProjection,
     semantic: Option<&EntitySemanticProjectionEntry>,
+    player_semantic: Option<&EntityPlayerSemanticProjection>,
     resource_delta: &ResourceDeltaProjection,
 ) -> Option<TypedRuntimeEntityModel> {
     let base = typed_runtime_entity_base(entity_id, entity);
@@ -4420,6 +4462,7 @@ fn typed_runtime_entity_model(
         _ if entity.class_id == EntityTableProjection::LOCAL_PLAYER_CLASS_ID => {
             Some(TypedRuntimeEntityModel::Player(TypedRuntimePlayerEntity {
                 base,
+                semantic: player_semantic.cloned().unwrap_or_default(),
             }))
         }
         _ => None,
@@ -4663,6 +4706,7 @@ pub struct SessionState {
     pub world_map_width: usize,
     pub world_map_height: usize,
     pub world_player_id: Option<i32>,
+    pub world_player_semantic_projection: Option<EntityPlayerSemanticProjection>,
     pub world_player_unit_kind: Option<u8>,
     pub world_player_unit_value: Option<u32>,
     pub world_player_x_bits: Option<u32>,
@@ -5270,6 +5314,7 @@ pub struct SessionState {
     pub last_hidden_snapshot_parse_error_payload_len: Option<usize>,
     pub entity_table_projection: EntityTableProjection,
     pub entity_semantic_projection: EntitySemanticProjectionTable,
+    pub player_semantic_projection: PlayerSemanticProjectionTable,
     pub runtime_typed_entity_apply_projection: TypedRuntimeEntityProjection,
     pub runtime_typed_building_apply_projection: TypedBuildingRuntimeProjection,
 }
@@ -5285,6 +5330,7 @@ impl SessionState {
             entity_id,
             entity,
             self.entity_semantic_projection.by_entity_id.get(&entity_id),
+            self.player_semantic_projection.by_entity_id.get(&entity_id),
             &self.resource_delta_projection,
         )
     }
@@ -5298,6 +5344,7 @@ impl SessionState {
                     *entity_id,
                     entity,
                     self.entity_semantic_projection.by_entity_id.get(entity_id),
+                    self.player_semantic_projection.by_entity_id.get(entity_id),
                     &self.resource_delta_projection,
                 )
             })
@@ -5385,6 +5432,7 @@ impl SessionState {
                     entity_id,
                     entity,
                     self.entity_semantic_projection.by_entity_id.get(&entity_id),
+                    self.player_semantic_projection.by_entity_id.get(&entity_id),
                     &self.resource_delta_projection,
                 )
             });
@@ -5430,6 +5478,7 @@ impl SessionState {
                 entity_id,
                 entity,
                 self.entity_semantic_projection.by_entity_id.get(&entity_id),
+                self.player_semantic_projection.by_entity_id.get(&entity_id),
                 &self.resource_delta_projection,
             );
             if let Some(model) = model {
@@ -5846,6 +5895,8 @@ impl SessionState {
         let lifecycle_remove_ids = transition.lifecycle_remove_ids();
         self.entity_semantic_projection
             .remove_hidden_entities(&lifecycle_remove_ids, local_player_entity_id);
+        self.player_semantic_projection
+            .remove_entities(&hidden_removed_ids);
         self.resource_delta_projection
             .remove_hidden_entities(&transition.auxiliary_cleanup_ids, local_player_entity_id);
         self.resource_delta_projection
@@ -5937,12 +5988,14 @@ impl SessionState {
     fn hidden_snapshot_matches_java_unit_handle_sync_hidden(&self, entity_id: i32) -> bool {
         let entity = self.entity_table_projection.by_entity_id.get(&entity_id);
         let semantic = self.entity_semantic_projection.by_entity_id.get(&entity_id);
+        let player_semantic = self.player_semantic_projection.by_entity_id.get(&entity_id);
         if let Some(entity) = entity {
             if matches!(
                 typed_runtime_entity_model(
                     entity_id,
                     entity,
                     semantic,
+                    player_semantic,
                     &self.resource_delta_projection,
                 ),
                 Some(TypedRuntimeEntityModel::Unit(_))
@@ -7691,6 +7744,7 @@ mod tests {
                     y_bits: 2.5f32.to_bits(),
                     last_seen_entity_snapshot_count: 7,
                 },
+                semantic: EntityPlayerSemanticProjection::default(),
             }))
         );
         assert_eq!(state.typed_runtime_entities().len(), 1);

@@ -10471,6 +10471,7 @@ mod tests {
                             y_bits: 96.0f32.to_bits(),
                             last_seen_entity_snapshot_count: 1,
                         },
+                        semantic: mdt_client_min::session_state::EntityPlayerSemanticProjection::default(),
                     },
                 ),
             );
@@ -10549,6 +10550,7 @@ mod tests {
                             y_bits: 120.0f32.to_bits(),
                             last_seen_entity_snapshot_count: 1,
                         },
+                        semantic: mdt_client_min::session_state::EntityPlayerSemanticProjection::default(),
                     },
                 ),
             );

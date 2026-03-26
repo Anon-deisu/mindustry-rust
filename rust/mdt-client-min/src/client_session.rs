@@ -18,8 +18,9 @@ use crate::session_state::{
     ConfiguredContentRef, ConstructorRuntimeProjection, CoreInventoryRuntimeBindingKind,
     CreateBulletProjection, DestroyPayloadProjection, EffectBusinessContentKind,
     EffectBusinessPositionSource, EffectBusinessProjection, EntityFireSemanticProjection,
-    EntityPuddleSemanticProjection, EntitySemanticProjection, EntityUnitSemanticProjection,
-    EntityWeatherStateSemanticProjection, EntityWorldLabelSemanticProjection,
+    EntityPlayerSemanticProjection, EntityPuddleSemanticProjection, EntitySemanticProjection,
+    EntityUnitSemanticProjection, EntityWeatherStateSemanticProjection,
+    EntityWorldLabelSemanticProjection,
     FinishConnectingProjection, GameplayStateProjection, PayloadDroppedProjection,
     PickedBuildPayloadProjection, PickedUnitPayloadProjection, ReconnectPhaseProjection,
     ReconnectReasonKind, ReconstructorRuntimeProjection, RemotePlanSnapshotFirstPlanProjection,
@@ -1497,6 +1498,21 @@ impl ClientSession {
             return;
         };
         bundle.player.team_id = team_id;
+        if let Some(semantic) = self.state.world_player_semantic_projection.as_mut() {
+            semantic.team_id = team_id;
+        }
+        if let Some(player_id) = self.state.world_player_id {
+            if let Some(semantic) = self
+                .state
+                .player_semantic_projection
+                .by_entity_id
+                .get_mut(&player_id)
+            {
+                semantic.team_id = team_id;
+            }
+            self.state
+                .refresh_runtime_typed_entity_from_tables(player_id);
+        }
     }
 
     fn apply_loaded_world_tile_patch(
@@ -7179,16 +7195,27 @@ impl ClientSession {
             sanitize_bootstrap_coord(bootstrap.player_x_bits),
             sanitize_bootstrap_coord(bootstrap.player_y_bits),
         );
+        let semantic = player_semantic_projection_from_bootstrap(bootstrap);
 
         self.snapshot_input.unit_id = unit_id;
         self.snapshot_input.dead = bootstrap.player_unit_kind == 0;
         self.snapshot_input.position = Some(position);
         self.snapshot_input.view_center = Some(position);
+        let pointer = (
+            f32::from_bits(bootstrap.mouse_x_bits),
+            f32::from_bits(bootstrap.mouse_y_bits),
+        );
+        self.snapshot_input.pointer =
+            (pointer.0.is_finite() && pointer.1.is_finite()).then_some(pointer);
+        self.snapshot_input.boosting = bootstrap.player_boosting;
+        self.snapshot_input.shooting = bootstrap.player_shooting;
+        self.snapshot_input.chatting = bootstrap.player_typing;
         self.snapshot_input.selected_block_id = i16::try_from(bootstrap.selected_block_id)
             .ok()
             .filter(|id| *id >= 0);
         self.snapshot_input.selected_rotation =
             i32::try_from(bootstrap.selected_rotation).unwrap_or(0);
+        self.state.world_player_semantic_projection = Some(semantic.clone());
         if let Some(player_id) = self.state.world_player_id {
             self.state
                 .entity_table_projection
@@ -7200,6 +7227,9 @@ impl ClientSession {
                     position.1.to_bits(),
                     false,
                 );
+            self.state
+                .player_semantic_projection
+                .upsert(player_id, semantic);
             self.state
                 .refresh_runtime_typed_entity_from_tables(player_id);
         }
@@ -7293,10 +7323,12 @@ impl ClientSession {
         }
         let x = sync.x();
         let y = sync.y();
+        let semantic = player_semantic_projection_from_sync(&sync);
 
         if used_projection_fallback && self.state.world_player_id.is_none() {
             self.state.world_player_id = Some(player_id);
         }
+        self.state.world_player_semantic_projection = Some(semantic.clone());
         self.state.world_player_unit_kind = Some(sync.unit_kind);
         self.state.world_player_unit_value = Some(sync.unit_value);
         self.state.world_player_x_bits = Some(sync.x_bits);
@@ -7310,6 +7342,9 @@ impl ClientSession {
             false,
             self.state.received_entity_snapshot_count,
         );
+        self.state
+            .player_semantic_projection
+            .upsert(player_id, semantic);
         self.state
             .refresh_runtime_typed_entity_from_tables(player_id);
         self.snapshot_input.unit_id = sync.snapshot_unit_id();
@@ -7359,6 +7394,10 @@ impl ClientSession {
                 row.sync.y_bits,
                 false,
                 self.state.received_entity_snapshot_count,
+            );
+            self.state.player_semantic_projection.upsert(
+                row.entity_id,
+                player_semantic_projection_from_sync(&row.sync),
             );
             self.state
                 .refresh_runtime_typed_entity_from_tables(row.entity_id);
@@ -8454,11 +8493,13 @@ impl ClientSession {
     fn try_apply_player_disconnect(&mut self, player_id: i32) -> bool {
         self.state.record_entity_snapshot_tombstone(player_id);
         self.state.entity_table_projection.remove_entity(player_id);
+        self.state.player_semantic_projection.remove_entity(player_id);
         self.state.remove_runtime_typed_entity(player_id);
         if Some(player_id) != self.state.world_player_id {
             return false;
         }
 
+        self.state.world_player_semantic_projection = None;
         self.state.world_player_unit_kind = None;
         self.state.world_player_unit_value = None;
         self.state.world_player_x_bits = None;
@@ -8572,6 +8613,7 @@ impl ClientSession {
         self.state.world_map_width = 0;
         self.state.world_map_height = 0;
         self.state.world_player_id = None;
+        self.state.world_player_semantic_projection = None;
         self.state.world_player_unit_kind = None;
         self.state.world_player_unit_value = None;
         self.state.world_player_x_bits = None;
@@ -8691,6 +8733,9 @@ impl ClientSession {
         self.state.entity_table_projection.clear_for_world_reload();
         self.state
             .entity_semantic_projection
+            .clear_for_world_reload();
+        self.state
+            .player_semantic_projection
             .clear_for_world_reload();
         self.state
             .runtime_typed_entity_apply_projection
@@ -11240,8 +11285,9 @@ fn remove_entity_projection_for_entity_id(state: &mut SessionState, entity_id: i
     state.record_entity_snapshot_tombstone(entity_id);
     let removed_entity = state.entity_table_projection.remove_entity(entity_id);
     let removed_semantic = state.entity_semantic_projection.remove_entity(entity_id);
+    let removed_player_semantic = state.player_semantic_projection.remove_entity(entity_id);
     let removed_runtime = state.remove_runtime_typed_entity(entity_id);
-    removed_entity || removed_semantic || removed_runtime
+    removed_entity || removed_semantic || removed_player_semantic || removed_runtime
 }
 
 fn remove_entity_projection_for_unit_ref(
@@ -13535,6 +13581,42 @@ fn unpack_point2(value: i32) -> (i16, i16) {
     let x = ((raw >> 16) as u16) as i16;
     let y = (raw as u16) as i16;
     (x, y)
+}
+
+fn player_semantic_projection_from_bootstrap(
+    bootstrap: &LoadedWorldBootstrap,
+) -> EntityPlayerSemanticProjection {
+    EntityPlayerSemanticProjection {
+        admin: bootstrap.player_admin,
+        boosting: bootstrap.player_boosting,
+        color_rgba: bootstrap.player_color_rgba,
+        mouse_x_bits: bootstrap.mouse_x_bits,
+        mouse_y_bits: bootstrap.mouse_y_bits,
+        name: Some(bootstrap.player_name.clone()),
+        selected_block_id: bootstrap.selected_block_id,
+        selected_rotation: bootstrap.selected_rotation,
+        shooting: bootstrap.player_shooting,
+        team_id: bootstrap.player_team_id,
+        typing: bootstrap.player_typing,
+    }
+}
+
+fn player_semantic_projection_from_sync(
+    sync: &mdt_world::EntityPlayerSyncSnapshot,
+) -> EntityPlayerSemanticProjection {
+    EntityPlayerSemanticProjection {
+        admin: sync.admin,
+        boosting: sync.boosting,
+        color_rgba: sync.color_rgba,
+        mouse_x_bits: sync.mouse_x_bits,
+        mouse_y_bits: sync.mouse_y_bits,
+        name: sync.name.clone(),
+        selected_block_id: sync.selected_block_id,
+        selected_rotation: sync.selected_rotation,
+        shooting: sync.shooting,
+        team_id: sync.team_id,
+        typing: sync.typing,
+    }
 }
 
 fn try_parse_local_player_sync_from_entity_snapshot(
@@ -17548,14 +17630,43 @@ mod tests {
             sanitize_bootstrap_coord(session.state().world_player_x_bits.unwrap()),
             sanitize_bootstrap_coord(session.state().world_player_y_bits.unwrap()),
         );
+        let expected_semantic = session
+            .state()
+            .world_player_semantic_projection
+            .clone()
+            .expect("world bootstrap should seed player semantic mirror");
 
         let input = session.snapshot_input_mut();
         assert_eq!(input.unit_id, Some(expected_unit_id));
         assert!(!input.dead);
         assert_eq!(input.position, Some(expected_position));
         assert_eq!(input.view_center, Some(expected_position));
-        assert_eq!(input.selected_block_id, None);
-        assert_eq!(input.selected_rotation, 0);
+        assert_eq!(
+            input.pointer,
+            Some((
+                f32::from_bits(expected_semantic.mouse_x_bits),
+                f32::from_bits(expected_semantic.mouse_y_bits),
+            ))
+        );
+        assert_eq!(input.boosting, expected_semantic.boosting);
+        assert_eq!(input.shooting, expected_semantic.shooting);
+        assert_eq!(input.chatting, expected_semantic.typing);
+        assert_eq!(
+            input.selected_block_id,
+            i16::try_from(expected_semantic.selected_block_id)
+                .ok()
+                .filter(|id| *id >= 0)
+        );
+        assert_eq!(
+            input.selected_rotation,
+            i32::try_from(expected_semantic.selected_rotation).unwrap_or(0)
+        );
+        assert!(matches!(
+            session.state().runtime_typed_entity_projection().local_player(),
+            Some(player)
+                if player.semantic == expected_semantic
+                    && player.base.unit_value == session.state().world_player_unit_value.unwrap()
+        ));
     }
 
     #[test]
@@ -17595,6 +17706,10 @@ mod tests {
         assert_eq!(session.state().world_player_unit_value, Some(100));
         assert_eq!(session.state().world_player_x_bits, Some(0.0f32.to_bits()));
         assert_eq!(session.state().world_player_y_bits, Some(0.0f32.to_bits()));
+        assert_eq!(
+            session.state().world_player_semantic_projection,
+            Some(player_semantic_projection_from_sync(&expected_sync))
+        );
         assert_eq!(session.state().received_entity_snapshot_count, 1);
         assert_eq!(session.state().last_entity_snapshot_amount, Some(2));
         assert_eq!(session.state().last_entity_snapshot_body_len, Some(155));
@@ -17690,6 +17805,12 @@ mod tests {
             input.selected_rotation,
             i32::try_from(expected_sync.selected_rotation).unwrap_or(0)
         );
+        assert!(matches!(
+            session.state().runtime_typed_entity_projection().local_player(),
+            Some(player)
+                if player.base.entity_id == local_player_id
+                    && player.semantic == player_semantic_projection_from_sync(&expected_sync)
+        ));
     }
 
     #[test]
@@ -17781,6 +17902,7 @@ mod tests {
                     && player.base.class_id
                         == crate::session_state::EntityTableProjection::LOCAL_PLAYER_CLASS_ID
                     && player.base.unit_value == 100
+                    && player.semantic == player_semantic_projection_from_sync(&rows[0].sync)
         ));
         let projection = session.state().typed_runtime_entity_projection();
         assert_eq!(projection.player_count, 2);
@@ -17802,6 +17924,7 @@ mod tests {
             runtime_projection.entity_at(99),
             Some(crate::session_state::TypedRuntimeEntityModel::Player(player))
                 if player.base.entity_id == 99
+                    && player.semantic == player_semantic_projection_from_sync(&rows[0].sync)
         ));
     }
 
@@ -39660,6 +39783,7 @@ mod tests {
                 cleared_local_player_sync: true,
             }
         );
+        assert_eq!(session.state().world_player_semantic_projection, None);
         assert_eq!(session.state().world_player_unit_kind, None);
         assert_eq!(session.state().world_player_unit_value, None);
         assert_eq!(session.state().world_player_x_bits, None);

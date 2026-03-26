@@ -1,4 +1,6 @@
-use crate::session_state::{SessionState, WorldBootstrapProjection};
+use crate::session_state::{
+    EntityPlayerSemanticProjection, SessionState, WorldBootstrapProjection,
+};
 use mdt_protocol::{
     decode_packet, encode_packet, split_stream_chunks, stream_begin_payload, stream_chunk_payload,
     PacketCodecError, CONNECT_PACKET_ID, STREAM_BEGIN_PACKET_ID, STREAM_CHUNK_PACKET_ID,
@@ -242,6 +244,19 @@ pub fn apply_world_bootstrap(
     state.world_map_width = bootstrap.map_width;
     state.world_map_height = bootstrap.map_height;
     state.world_player_id = Some(bootstrap.player_id);
+    state.world_player_semantic_projection = Some(EntityPlayerSemanticProjection {
+        admin: bootstrap.player_admin,
+        boosting: bootstrap.player_boosting,
+        color_rgba: bootstrap.player_color_rgba,
+        mouse_x_bits: bootstrap.mouse_x_bits,
+        mouse_y_bits: bootstrap.mouse_y_bits,
+        name: Some(bootstrap.player_name.clone()),
+        selected_block_id: bootstrap.selected_block_id,
+        selected_rotation: bootstrap.selected_rotation,
+        shooting: bootstrap.player_shooting,
+        team_id: bootstrap.player_team_id,
+        typing: bootstrap.player_typing,
+    });
     state.world_player_unit_kind = Some(bootstrap.player_unit_kind);
     state.world_player_unit_value = Some(bootstrap.player_unit_value);
     state.world_player_x_bits = Some(bootstrap.player_x_bits);
@@ -458,6 +473,22 @@ mod tests {
         assert_eq!(state.world_map_width, 8);
         assert_eq!(state.world_map_height, 8);
         assert_eq!(state.world_player_id, Some(7));
+        assert_eq!(
+            state.world_player_semantic_projection,
+            Some(EntityPlayerSemanticProjection {
+                admin: login.bootstrap.player_admin,
+                boosting: login.bootstrap.player_boosting,
+                color_rgba: login.bootstrap.player_color_rgba,
+                mouse_x_bits: login.bootstrap.mouse_x_bits,
+                mouse_y_bits: login.bootstrap.mouse_y_bits,
+                name: Some(login.bootstrap.player_name.clone()),
+                selected_block_id: login.bootstrap.selected_block_id,
+                selected_rotation: login.bootstrap.selected_rotation,
+                shooting: login.bootstrap.player_shooting,
+                team_id: login.bootstrap.player_team_id,
+                typing: login.bootstrap.player_typing,
+            })
+        );
         assert_eq!(
             state.world_player_unit_kind,
             Some(login.bootstrap.player_unit_kind)

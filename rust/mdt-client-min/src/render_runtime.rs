@@ -5400,6 +5400,7 @@ mod tests {
                         y_bits: 32.0f32.to_bits(),
                         last_seen_entity_snapshot_count: 5,
                     },
+                    semantic: crate::session_state::EntityPlayerSemanticProjection::default(),
                 },
             ));
 
@@ -5441,6 +5442,7 @@ mod tests {
                         y_bits: 96.0f32.to_bits(),
                         last_seen_entity_snapshot_count: 5,
                     },
+                    semantic: crate::session_state::EntityPlayerSemanticProjection::default(),
                 },
             ));
 
