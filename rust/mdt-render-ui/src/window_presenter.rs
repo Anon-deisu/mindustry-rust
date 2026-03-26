@@ -77,6 +77,7 @@ pub struct WindowMinimapInset {
     pub tile_action_tiles: Vec<(usize, usize)>,
     pub command_tiles: Vec<(usize, usize)>,
     pub command_rects: Vec<WindowMinimapCommandRect>,
+    pub runtime_break_rects: Vec<WindowMinimapBreakRect>,
     pub world_label_tiles: Vec<(usize, usize)>,
     pub runtime_overlay_tiles: Vec<WindowMinimapRuntimeOverlayTile>,
 }
@@ -108,6 +109,14 @@ pub struct WindowMinimapCommandRect {
 pub enum WindowMinimapCommandRectKind {
     Selection,
     Target,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WindowMinimapBreakRect {
+    pub origin_x: usize,
+    pub origin_y: usize,
+    pub width: usize,
+    pub height: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -509,6 +518,7 @@ fn compose_window_minimap_inset(
         tile_action_tiles: runtime_tile_action_minimap_tiles(scene, panel.map_width, panel.map_height, 8),
         command_tiles: runtime_command_minimap_tiles(scene, panel.map_width, panel.map_height, 8),
         command_rects: runtime_command_minimap_rects(scene, panel.map_width, panel.map_height, 2),
+        runtime_break_rects: runtime_break_minimap_rects(scene, panel.map_width, panel.map_height, 2),
         world_label_tiles: runtime_world_label_minimap_tiles(scene, panel.map_width, panel.map_height, 8),
         runtime_overlay_tiles: runtime_minimap_overlay_tiles(scene, panel.map_width, panel.map_height, 8),
     })
@@ -703,6 +713,48 @@ fn runtime_command_minimap_rects(
             width,
             height,
             kind,
+        });
+        if rects.len() >= max_rects {
+            break;
+        }
+    }
+
+    rects
+}
+
+fn runtime_break_minimap_rects(
+    scene: &RenderModel,
+    map_width: usize,
+    map_height: usize,
+    max_rects: usize,
+) -> Vec<WindowMinimapBreakRect> {
+    let mut rects = Vec::new();
+
+    for primitive in scene.primitives() {
+        let RenderPrimitive::Rect {
+            family,
+            left,
+            top,
+            right,
+            bottom,
+            ..
+        } = primitive
+        else {
+            continue;
+        };
+        if family != "runtime-break-rect" {
+            continue;
+        }
+        let origin_x = runtime_world_to_minimap_tile(left, map_width);
+        let origin_y = runtime_world_to_minimap_tile(top, map_height);
+        let width = runtime_world_span_to_tile_span(right - left, map_width.saturating_sub(origin_x));
+        let height =
+            runtime_world_span_to_tile_span(bottom - top, map_height.saturating_sub(origin_y));
+        rects.push(WindowMinimapBreakRect {
+            origin_x,
+            origin_y,
+            width,
+            height,
         });
         if rects.len() >= max_rects {
             break;
@@ -3918,6 +3970,20 @@ fn overlay_window_minimap_inset(
             *rect,
         );
     }
+    for rect in &inset.runtime_break_rects {
+        draw_window_minimap_break_rect(
+            pixels,
+            surface_width,
+            surface_height,
+            map_start_x,
+            map_start_y,
+            map_pixel_width,
+            map_pixel_height,
+            inset.map_width,
+            inset.map_height,
+            *rect,
+        );
+    }
     for &tile_action_tile in &inset.tile_action_tiles {
         draw_window_minimap_tile_action(
             pixels,
@@ -4368,6 +4434,47 @@ fn draw_window_minimap_command_rect(
     );
 }
 
+fn draw_window_minimap_break_rect(
+    pixels: &mut [u32],
+    surface_width: usize,
+    surface_height: usize,
+    map_start_x: usize,
+    map_start_y: usize,
+    map_pixel_width: usize,
+    map_pixel_height: usize,
+    map_width: usize,
+    map_height: usize,
+    rect: WindowMinimapBreakRect,
+) {
+    if rect.width == 0 || rect.height == 0 || map_width == 0 || map_height == 0 {
+        return;
+    }
+
+    let rect_x = map_start_x.saturating_add(project_window_minimap_x(
+        rect.origin_x,
+        map_width,
+        map_pixel_width,
+    ));
+    let rect_width = project_window_minimap_span(rect.width, map_width, map_pixel_width);
+    let rect_top = map_height.saturating_sub(rect.origin_y.saturating_add(rect.height));
+    let rect_y = map_start_y.saturating_add(project_window_minimap_y(
+        rect_top,
+        map_height,
+        map_pixel_height,
+    ));
+    let rect_height = project_window_minimap_span(rect.height, map_height, map_pixel_height);
+    draw_window_minimap_outline(
+        pixels,
+        surface_width,
+        surface_height,
+        rect_x,
+        rect_y,
+        rect_width,
+        rect_height,
+        COLOR_ICON_RUNTIME_BREAK,
+    );
+}
+
 fn draw_window_minimap_tile_action(
     pixels: &mut [u32],
     surface_width: usize,
@@ -4772,7 +4879,7 @@ mod tests {
     use super::{
         color_for_object, compose_frame, scale_frame_pixels, window_hud_bar_height,
         window_hud_top_line, BackendSignal, WindowBackend, WindowFrame, WindowMinimapInset,
-        WindowMinimapCommandRect, WindowMinimapCommandRectKind,
+        WindowMinimapBreakRect, WindowMinimapCommandRect, WindowMinimapCommandRectKind,
         WindowMinimapRuntimeOverlayKind, WindowMinimapRuntimeOverlayTile, WindowPresenter,
         COLOR_BLOCK, COLOR_EMPTY, COLOR_ICON_BUILD_CONFIG, COLOR_ICON_RUNTIME_BREAK,
         COLOR_ICON_RUNTIME_BULLET, COLOR_ICON_RUNTIME_COMMAND, COLOR_ICON_RUNTIME_EFFECT,
@@ -5182,6 +5289,12 @@ mod tests {
                         kind: WindowMinimapCommandRectKind::Target,
                     },
                 ],
+                runtime_break_rects: vec![WindowMinimapBreakRect {
+                    origin_x: 12,
+                    origin_y: 8,
+                    width: 6,
+                    height: 4,
+                }],
                 world_label_tiles: vec![(30, 26)],
                 runtime_overlay_tiles: vec![
                     WindowMinimapRuntimeOverlayTile {
@@ -5191,10 +5304,6 @@ mod tests {
                     WindowMinimapRuntimeOverlayTile {
                         tile: (28, 24),
                         kind: WindowMinimapRuntimeOverlayKind::ConfigAlert,
-                    },
-                    WindowMinimapRuntimeOverlayTile {
-                        tile: (36, 18),
-                        kind: WindowMinimapRuntimeOverlayKind::Break,
                     },
                     WindowMinimapRuntimeOverlayTile {
                         tile: (40, 28),
@@ -5321,6 +5430,13 @@ mod tests {
             32.0,
             56.0,
         ));
+        objects.extend(runtime_command_rect_objects(
+            "runtime-break-rect",
+            16.0,
+            64.0,
+            40.0,
+            80.0,
+        ));
         let scene = RenderModel {
             viewport: Viewport {
                 width: 64.0,
@@ -5401,6 +5517,15 @@ mod tests {
                     kind: WindowMinimapCommandRectKind::Target,
                 },
             ]
+        );
+        assert_eq!(
+            inset.runtime_break_rects,
+            vec![WindowMinimapBreakRect {
+                origin_x: 2,
+                origin_y: 8,
+                width: 3,
+                height: 2,
+            }]
         );
         assert_eq!(inset.world_label_tiles, vec![(6, 4)]);
         assert_eq!(
