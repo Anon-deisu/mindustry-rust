@@ -2117,8 +2117,9 @@ fn compose_build_minimap_aux_text(
     window: PresenterViewWindow,
 ) -> Option<String> {
     let panel = build_build_minimap_assist_panel(scene, hud, window)?;
+    let window_tile_count = window.width.saturating_mul(window.height);
     Some(format!(
-        "mode={} select={} queue={} place-ready={} cfg={}/{} top={} auth={} focus={} in-window={} visible-map={} unknown-map={} window={} tracked={} runtime={}",
+        "mode={} select={} queue={} place-ready={} cfg={}/{} top={} auth={} focus={} in-window={} visible-map={} unknown-map={} window={} d{} tracked={} runtime={}",
         build_interaction_mode_text(panel.mode),
         build_interaction_selection_text(panel.selection_state),
         build_interaction_queue_text(panel.queue_state),
@@ -2132,9 +2133,18 @@ fn compose_build_minimap_aux_text(
         panel.visible_map_percent,
         panel.unknown_tile_percent,
         panel.window_coverage_percent,
+        window_object_density_percent(panel.tracked_object_count, window_tile_count),
         panel.tracked_object_count,
         panel.runtime_count,
     ))
+}
+
+fn window_object_density_percent(tracked_object_count: usize, window_tile_count: usize) -> usize {
+    if window_tile_count == 0 {
+        0
+    } else {
+        ((tracked_object_count as u128) * 100 / (window_tile_count as u128)) as usize
+    }
 }
 
 fn compose_build_flow_text(
@@ -4346,7 +4356,7 @@ mod tests {
             "BUILD-INTERACTION: mode=place select=head-aligned queue=mixed pending=3 place-ready=1 cfg=4/8 top=gamma head=queued@10:12:place:b301:r1 auth=rejected-missing-building pending=match src=tileConfig tile=10:12 block=alpha orphan=6"
         ));
         assert!(frame.contains(
-            "BUILD-MINIMAP-AUX: mode=place select=head-aligned queue=mixed place-ready=1 cfg=4/8 top=gamma auth=rejected-missing-building focus=1:1 in-window=1 visible-map=0 unknown-map=100 window=0 tracked=3 runtime=0"
+            "BUILD-MINIMAP-AUX: mode=place select=head-aligned queue=mixed place-ready=1 cfg=4/8 top=gamma auth=rejected-missing-building focus=1:1 in-window=1 visible-map=0 unknown-map=100 window=0 d75 tracked=3 runtime=0"
         ));
         assert!(frame.contains(
             "BUILD-FLOW: next=resolve minimap=survey focus=inside pan=hold target=player scope=multi head=10:12 auth=rejected-missing-building"
