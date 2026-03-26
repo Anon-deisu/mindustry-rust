@@ -59,12 +59,97 @@ pub struct SavePostLoadRuntimeReadiness {
     pub regions: Vec<SavePostLoadRuntimeRegionReadiness>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SavePostLoadRuntimeSourceRegionReadiness {
+    pub source_region_name: &'static str,
+    pub apply_now_step_count: usize,
+    pub awaiting_world_shell_step_count: usize,
+    pub blocked_step_count: usize,
+    pub deferred_step_count: usize,
+    pub blockers: Vec<SavePostLoadConsumerBlocker>,
+}
+
+impl SavePostLoadRuntimeSourceRegionReadiness {
+    pub fn total_step_count(&self) -> usize {
+        self.apply_now_step_count
+            + self.awaiting_world_shell_step_count
+            + self.blocked_step_count
+            + self.deferred_step_count
+    }
+
+    pub fn has_blockers(&self) -> bool {
+        !self.blockers.is_empty()
+    }
+
+    pub fn has_pending_world_shell(&self) -> bool {
+        self.awaiting_world_shell_step_count > 0
+    }
+
+    pub fn has_deferred(&self) -> bool {
+        self.deferred_step_count > 0
+    }
+}
+
 impl SavePostLoadRuntimeReadiness {
     pub fn region(
         &self,
         kind: SavePostLoadRuntimeRegionKind,
     ) -> Option<&SavePostLoadRuntimeRegionReadiness> {
         self.regions.iter().find(|region| region.kind == kind)
+    }
+
+    pub fn source_region(
+        &self,
+        source_region_name: &str,
+    ) -> Option<SavePostLoadRuntimeSourceRegionReadiness> {
+        self.source_regions()
+            .into_iter()
+            .find(|region| region.source_region_name == source_region_name)
+    }
+
+    pub fn source_regions(&self) -> Vec<SavePostLoadRuntimeSourceRegionReadiness> {
+        let mut source_regions = Vec::new();
+
+        for region in &self.regions {
+            let source_region = match source_regions
+                .iter_mut()
+                .find(|candidate: &&mut SavePostLoadRuntimeSourceRegionReadiness| {
+                    candidate.source_region_name == region.source_region_name
+                }) {
+                Some(source_region) => source_region,
+                None => {
+                    source_regions.push(SavePostLoadRuntimeSourceRegionReadiness {
+                        source_region_name: region.source_region_name,
+                        apply_now_step_count: 0,
+                        awaiting_world_shell_step_count: 0,
+                        blocked_step_count: 0,
+                        deferred_step_count: 0,
+                        blockers: Vec::new(),
+                    });
+                    source_regions
+                        .last_mut()
+                        .expect("source region was just pushed")
+                }
+            };
+
+            match region.disposition {
+                SavePostLoadConsumerRuntimeDisposition::ApplyNow => {
+                    source_region.apply_now_step_count += region.step_count;
+                }
+                SavePostLoadConsumerRuntimeDisposition::AwaitingWorldShell => {
+                    source_region.awaiting_world_shell_step_count += region.step_count;
+                }
+                SavePostLoadConsumerRuntimeDisposition::Blocked => {
+                    source_region.blocked_step_count += region.step_count;
+                }
+                SavePostLoadConsumerRuntimeDisposition::Deferred => {
+                    source_region.deferred_step_count += region.step_count;
+                }
+            }
+            extend_unique_blockers(&mut source_region.blockers, &region.blockers);
+        }
+
+        source_regions
     }
 
     pub fn apply_now_step_count(&self) -> usize {
@@ -152,6 +237,17 @@ fn readiness_step_count(
         .sum()
 }
 
+fn extend_unique_blockers(
+    blockers: &mut Vec<SavePostLoadConsumerBlocker>,
+    additions: &[SavePostLoadConsumerBlocker],
+) {
+    for blocker in additions {
+        if !blockers.contains(blocker) {
+            blockers.push(blocker.clone());
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -171,6 +267,7 @@ mod tests {
         make_observation_seedable(&mut observation);
 
         let readiness = observation.runtime_readiness();
+        let source_regions = readiness.source_regions();
 
         assert!(readiness.can_seed_runtime_apply);
         assert!(readiness.world_shell_ready);
@@ -223,6 +320,58 @@ mod tests {
             .iter()
             .filter(|region| region.kind != SavePostLoadRuntimeRegionKind::SkippedEntities)
             .all(SavePostLoadRuntimeRegionReadiness::can_apply_now));
+        assert_eq!(
+            source_regions,
+            vec![
+                SavePostLoadRuntimeSourceRegionReadiness {
+                    source_region_name: "map",
+                    apply_now_step_count: 2,
+                    awaiting_world_shell_step_count: 0,
+                    blocked_step_count: 0,
+                    deferred_step_count: 0,
+                    blockers: Vec::new(),
+                },
+                SavePostLoadRuntimeSourceRegionReadiness {
+                    source_region_name: "entities",
+                    apply_now_step_count: 7,
+                    awaiting_world_shell_step_count: 0,
+                    blocked_step_count: 0,
+                    deferred_step_count: 0,
+                    blockers: Vec::new(),
+                },
+                SavePostLoadRuntimeSourceRegionReadiness {
+                    source_region_name: "markers",
+                    apply_now_step_count: 2,
+                    awaiting_world_shell_step_count: 0,
+                    blocked_step_count: 0,
+                    deferred_step_count: 0,
+                    blockers: Vec::new(),
+                },
+                SavePostLoadRuntimeSourceRegionReadiness {
+                    source_region_name: "custom",
+                    apply_now_step_count: 3,
+                    awaiting_world_shell_step_count: 0,
+                    blocked_step_count: 0,
+                    deferred_step_count: 0,
+                    blockers: Vec::new(),
+                },
+            ]
+        );
+        assert_eq!(
+            readiness.source_region("entities"),
+            Some(SavePostLoadRuntimeSourceRegionReadiness {
+                source_region_name: "entities",
+                apply_now_step_count: 7,
+                awaiting_world_shell_step_count: 0,
+                blocked_step_count: 0,
+                deferred_step_count: 0,
+                blockers: Vec::new(),
+            })
+        );
+        assert_eq!(source_regions[1].total_step_count(), 7);
+        assert!(!source_regions[1].has_blockers());
+        assert!(!source_regions[1].has_pending_world_shell());
+        assert!(!source_regions[1].has_deferred());
     }
 
     #[test]
@@ -234,6 +383,7 @@ mod tests {
         observation.map.world.tiles[0].building_center_index = None;
 
         let readiness = observation.runtime_readiness();
+        let source_regions = readiness.source_regions();
 
         assert!(!readiness.can_seed_runtime_apply);
         assert!(!readiness.world_shell_ready);
@@ -359,6 +509,79 @@ mod tests {
             .region(SavePostLoadRuntimeRegionKind::Buildings)
             .unwrap()
             .has_blockers());
+        assert_eq!(
+            source_regions,
+            vec![
+                SavePostLoadRuntimeSourceRegionReadiness {
+                    source_region_name: "map",
+                    apply_now_step_count: 0,
+                    awaiting_world_shell_step_count: 0,
+                    blocked_step_count: 2,
+                    deferred_step_count: 0,
+                    blockers: vec![
+                        SavePostLoadConsumerBlocker::ContractIssue(
+                            SavePostLoadWorldIssue::BuildingCenterReferenceMismatch,
+                        ),
+                        SavePostLoadConsumerBlocker::ContractIssue(
+                            SavePostLoadWorldIssue::DuplicateWorldEntityIds,
+                        ),
+                        SavePostLoadConsumerBlocker::ContractIssue(
+                            SavePostLoadWorldIssue::EntitySummaryMismatch,
+                        ),
+                        SavePostLoadConsumerBlocker::InvalidBuildingReference {
+                            center_index: 0,
+                            tile_index: 0,
+                            block_id: 0x0153,
+                        },
+                    ],
+                },
+                SavePostLoadRuntimeSourceRegionReadiness {
+                    source_region_name: "entities",
+                    apply_now_step_count: 2,
+                    awaiting_world_shell_step_count: 2,
+                    blocked_step_count: 2,
+                    deferred_step_count: 1,
+                    blockers: vec![
+                        SavePostLoadConsumerBlocker::ContractIssue(
+                            SavePostLoadWorldIssue::DuplicateWorldEntityIds,
+                        ),
+                        SavePostLoadConsumerBlocker::ContractIssue(
+                            SavePostLoadWorldIssue::EntitySummaryMismatch,
+                        ),
+                        SavePostLoadConsumerBlocker::DuplicateEntityId(42),
+                        SavePostLoadConsumerBlocker::SkippedEntity {
+                            entity_index: 1,
+                            entity_id: 43,
+                            source_name: "mod-unit".to_string(),
+                            effective_name: None,
+                        },
+                    ],
+                },
+                SavePostLoadRuntimeSourceRegionReadiness {
+                    source_region_name: "markers",
+                    apply_now_step_count: 0,
+                    awaiting_world_shell_step_count: 2,
+                    blocked_step_count: 0,
+                    deferred_step_count: 0,
+                    blockers: Vec::new(),
+                },
+                SavePostLoadRuntimeSourceRegionReadiness {
+                    source_region_name: "custom",
+                    apply_now_step_count: 2,
+                    awaiting_world_shell_step_count: 1,
+                    blocked_step_count: 0,
+                    deferred_step_count: 0,
+                    blockers: Vec::new(),
+                },
+            ]
+        );
+        let entities = readiness
+            .source_region("entities")
+            .expect("entities source region should be present");
+        assert_eq!(entities.total_step_count(), 7);
+        assert!(entities.has_blockers());
+        assert!(entities.has_pending_world_shell());
+        assert!(entities.has_deferred());
     }
 
     fn make_observation_seedable(observation: &mut SavePostLoadWorldObservation) {
