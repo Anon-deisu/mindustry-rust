@@ -1109,6 +1109,45 @@ pub struct SavePostLoadWorldObservation {
     pub entity_summary: SaveEntityPostLoadSummary,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SavePostLoadRuntimeSeedRegionSurface {
+    pub kind: SavePostLoadRuntimeRegionKind,
+    pub source_region_name: &'static str,
+    pub step_count: usize,
+    pub disposition: SavePostLoadConsumerRuntimeDisposition,
+    pub blockers: Vec<SavePostLoadConsumerBlocker>,
+}
+
+impl SavePostLoadRuntimeSeedRegionSurface {
+    pub fn has_blockers(&self) -> bool {
+        !self.blockers.is_empty()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SavePostLoadRuntimeSeedSurface {
+    pub can_seed_runtime_apply: bool,
+    pub world_shell_ready: bool,
+    pub apply_now_step_count: usize,
+    pub awaiting_world_shell_step_count: usize,
+    pub blocked_step_count: usize,
+    pub deferred_step_count: usize,
+    pub next_apply_now_batch_index: Option<usize>,
+    pub next_apply_now_batch_step_count: Option<usize>,
+    pub blocked_regions: Vec<SavePostLoadRuntimeSeedRegionSurface>,
+    pub awaiting_world_shell_regions: Vec<SavePostLoadRuntimeSeedRegionSurface>,
+}
+
+impl SavePostLoadRuntimeSeedSurface {
+    pub fn has_blockers(&self) -> bool {
+        !self.blocked_regions.is_empty()
+    }
+
+    pub fn has_pending_world_shell(&self) -> bool {
+        !self.awaiting_world_shell_regions.is_empty()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct MsavSaveObservation {
     pub envelope: MsavEnvelopeObservation,
@@ -1196,6 +1235,57 @@ impl MsavSaveObservation {
             entity_summary: self.post_load_entity_summary(),
         })
     }
+}
+
+impl SavePostLoadWorldObservation {
+    pub fn runtime_seed_surface(&self) -> SavePostLoadRuntimeSeedSurface {
+        self.runtime_seed_plan().runtime_seed_surface()
+    }
+}
+
+impl SavePostLoadRuntimeSeedPlan {
+    pub fn runtime_seed_surface(&self) -> SavePostLoadRuntimeSeedSurface {
+        let readiness = self.runtime_readiness();
+        let batch_plan_view = self.runtime_apply_batch_plan_view();
+        let next_apply_now_batch = batch_plan_view.next_apply_now_batch();
+
+        SavePostLoadRuntimeSeedSurface {
+            can_seed_runtime_apply: readiness.can_seed_runtime_apply,
+            world_shell_ready: readiness.world_shell_ready,
+            apply_now_step_count: readiness.apply_now_step_count(),
+            awaiting_world_shell_step_count: readiness.awaiting_world_shell_step_count(),
+            blocked_step_count: readiness.blocked_step_count(),
+            deferred_step_count: readiness.deferred_step_count(),
+            next_apply_now_batch_index: next_apply_now_batch.map(|batch| batch.batch_index),
+            next_apply_now_batch_step_count: next_apply_now_batch.map(|batch| batch.step_count),
+            blocked_regions: collect_runtime_seed_regions(
+                &readiness,
+                SavePostLoadConsumerRuntimeDisposition::Blocked,
+            ),
+            awaiting_world_shell_regions: collect_runtime_seed_regions(
+                &readiness,
+                SavePostLoadConsumerRuntimeDisposition::AwaitingWorldShell,
+            ),
+        }
+    }
+}
+
+fn collect_runtime_seed_regions(
+    readiness: &SavePostLoadRuntimeReadiness,
+    disposition: SavePostLoadConsumerRuntimeDisposition,
+) -> Vec<SavePostLoadRuntimeSeedRegionSurface> {
+    readiness
+        .regions
+        .iter()
+        .filter(|region| region.step_count > 0 && region.disposition == disposition)
+        .map(|region| SavePostLoadRuntimeSeedRegionSurface {
+            kind: region.kind,
+            source_region_name: region.source_region_name,
+            step_count: region.step_count,
+            disposition: region.disposition,
+            blockers: region.blockers.clone(),
+        })
+        .collect()
 }
 
 impl SaveEntityChunkObservation {
@@ -40138,7 +40228,11 @@ mod tests {
         let shell = execution.world_shell.as_ref().unwrap();
         let effective_entity = shell.loadable_entities.first().unwrap();
         let effective_class_id = effective_entity.activation.effective_class_id.unwrap();
-        let effective_name = effective_entity.activation.effective_name.as_deref().unwrap();
+        let effective_name = effective_entity
+            .activation
+            .effective_name
+            .as_deref()
+            .unwrap();
 
         assert!(execution.has_world_shell());
         assert_eq!(execution.failed_step_count(), 0);
@@ -40240,7 +40334,10 @@ mod tests {
         assert!(ownership.world_shell_ready);
         assert!(ownership.can_apply_world_semantics());
         assert_eq!(ownership.owned_surface_count(), 6);
-        assert_eq!(ownership.required_step_count(), ownership.claimed_step_count());
+        assert_eq!(
+            ownership.required_step_count(),
+            ownership.claimed_step_count()
+        );
         assert_eq!(
             ownership
                 .surface(SavePostLoadRuntimeWorldSurfaceKind::WorldShell)
@@ -40288,6 +40385,39 @@ mod tests {
                 SavePostLoadConsumerRuntimeDisposition::ApplyNow,
                 SavePostLoadConsumerRuntimeDisposition::Deferred,
             ]
+        );
+    }
+
+    #[test]
+    fn msav_post_load_world_exposes_runtime_seed_surface_for_save11_regions() {
+        let save = parse_msav_save(&sample_msav_post_load_save11_bytes()).unwrap();
+        let post_load = save.post_load_world().unwrap();
+        let readiness = post_load.runtime_readiness();
+        let batch_plan_view = post_load.runtime_apply_batch_plan_view();
+        let seed_surface = post_load.runtime_seed_surface();
+
+        assert!(!seed_surface.can_seed_runtime_apply);
+        assert!(seed_surface.world_shell_ready);
+        assert_eq!(seed_surface.apply_now_step_count, readiness.apply_now_step_count());
+        assert_eq!(
+            seed_surface.awaiting_world_shell_step_count,
+            readiness.awaiting_world_shell_step_count()
+        );
+        assert_eq!(seed_surface.blocked_step_count, readiness.blocked_step_count());
+        assert_eq!(seed_surface.deferred_step_count, readiness.deferred_step_count());
+        assert_eq!(seed_surface.blocked_regions, Vec::new());
+        assert_eq!(seed_surface.awaiting_world_shell_regions, Vec::new());
+        assert!(!seed_surface.has_blockers());
+        assert!(!seed_surface.has_pending_world_shell());
+        assert_eq!(
+            (
+                seed_surface.next_apply_now_batch_index,
+                seed_surface.next_apply_now_batch_step_count,
+            ),
+            batch_plan_view
+                .next_apply_now_batch()
+                .map(|batch| (Some(batch.batch_index), Some(batch.step_count)))
+                .unwrap()
         );
     }
 
@@ -40489,6 +40619,36 @@ mod tests {
                 vec![SavePostLoadRuntimeApplyStep::EntityRemap { remap_index: 0 }],
             ))
         );
+    }
+
+    #[test]
+    fn msav_post_load_world_exposes_runtime_seed_surface_for_save6_legacy_regions() {
+        let save = parse_msav_save(&sample_msav_post_load_save6_bytes()).unwrap();
+        let post_load = save.post_load_world().unwrap();
+        let readiness = post_load.runtime_readiness();
+        let seed_surface = post_load.runtime_seed_surface();
+
+        assert!(!seed_surface.can_seed_runtime_apply);
+        assert!(!seed_surface.world_shell_ready);
+        assert_eq!(seed_surface.apply_now_step_count, readiness.apply_now_step_count());
+        assert_eq!(
+            seed_surface.awaiting_world_shell_step_count,
+            readiness.awaiting_world_shell_step_count()
+        );
+        assert_eq!(seed_surface.blocked_step_count, readiness.blocked_step_count());
+        assert_eq!(seed_surface.deferred_step_count, readiness.deferred_step_count());
+        assert_eq!(seed_surface.next_apply_now_batch_index, Some(1));
+        assert_eq!(seed_surface.next_apply_now_batch_step_count, Some(1));
+        assert!(seed_surface.has_blockers());
+        assert!(seed_surface.has_pending_world_shell());
+        assert!(seed_surface
+            .blocked_regions
+            .iter()
+            .any(|region| region.kind == SavePostLoadRuntimeRegionKind::WorldShell));
+        assert!(seed_surface
+            .awaiting_world_shell_regions
+            .iter()
+            .any(|region| region.kind == SavePostLoadRuntimeRegionKind::LoadableEntities));
     }
 
     #[test]
