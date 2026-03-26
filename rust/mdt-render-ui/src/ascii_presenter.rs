@@ -1507,17 +1507,28 @@ fn compose_minimap_visibility_line(
 ) -> Option<String> {
     let panel = build_minimap_panel(scene, hud, window)?;
     Some(format!(
-        "overlay={} fog={} known={}({}%) vis={}({}%) hid={}({}%) unseen={}({}%)",
+        "overlay={} fog={} known={}({}%) vis={}({}%/{}%) hid={}({}%/{}%) unseen={}({}%) density=map:{}/{}({}%) window:{}/{}({}%) offscreen:{}/{}({}%)",
         if panel.overlay_visible { 1 } else { 0 },
         if panel.fog_enabled { 1 } else { 0 },
         panel.known_tile_count,
         panel.known_tile_percent,
         panel.visible_tile_count,
         panel.visible_known_percent,
+        panel.visible_map_percent(),
         panel.hidden_tile_count,
         panel.hidden_known_percent,
+        panel.hidden_map_percent(),
         panel.unknown_tile_count,
         panel.unknown_tile_percent,
+        panel.tracked_object_count,
+        panel.map_tile_count,
+        panel.map_object_density_percent(),
+        panel.window_tracked_object_count,
+        panel.window_tile_count,
+        panel.window_object_density_percent(),
+        panel.outside_window_count,
+        panel.tracked_object_count,
+        panel.outside_object_percent(),
     ))
 }
 
@@ -3626,7 +3637,7 @@ mod tests {
             "MINIMAP: map=80x60 window=0:0->0:0 size=1x1 cover=1/4800(0%) focus=0:0 in-window=1 drift=0:0 edges=1/1/0/0"
         ));
         assert!(frame.contains(
-            "MINIMAP-VIS: overlay=1 fog=1 known=144(3%) vis=120(83%) hid=24(16%) unseen=4656(97%)"
+            "MINIMAP-VIS: overlay=1 fog=1 known=144(3%) vis=120(83%/2%) hid=24(16%/0%) unseen=4656(97%) density=map:4/4800(0%) window:4/1(400%) offscreen:0/4(0%)"
         ));
         assert!(frame.contains(
             "MINIMAP-KINDS: tracked=4 player=1 marker=1 plan=1 block=1 runtime=0 terrain=0 unknown=0"
@@ -3890,7 +3901,7 @@ mod tests {
             "MINIMAP: map=80x60 window=0:0->1:1 size=2x2 cover=4/4800(0%) focus=1:1 in-window=1 drift=1:1 edges=1/1/0/0"
         ));
         assert!(frame.contains(
-            "MINIMAP-VIS: overlay=0 fog=0 known=0(0%) vis=0(0%) hid=0(0%) unseen=4800(100%)"
+            "MINIMAP-VIS: overlay=0 fog=0 known=0(0%) vis=0(0%/0%) hid=0(0%/0%) unseen=4800(100%) density=map:3/4800(0%) window:3/4(75%) offscreen:0/3(0%)"
         ));
         assert!(frame.contains(
             "MINIMAP-FLOW: next=survey focus=inside pan=hold vis=unseen cover=offscreen target=player overlay-targets=0"

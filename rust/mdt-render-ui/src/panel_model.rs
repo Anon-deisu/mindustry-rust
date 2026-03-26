@@ -1091,6 +1091,18 @@ impl MinimapPanelModel {
     pub fn hidden_map_percent(&self) -> usize {
         percent_of(self.hidden_tile_count, self.map_tile_count)
     }
+
+    pub fn map_object_density_percent(&self) -> usize {
+        percent_of(self.tracked_object_count, self.map_tile_count)
+    }
+
+    pub fn window_object_density_percent(&self) -> usize {
+        percent_of(self.window_tracked_object_count, self.window_tile_count)
+    }
+
+    pub fn outside_object_percent(&self) -> usize {
+        percent_of(self.outside_window_count, self.tracked_object_count)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -4319,6 +4331,9 @@ mod tests {
         .expect("expected minimap panel");
         assert_eq!(minimap.visible_map_percent(), 25);
         assert_eq!(minimap.hidden_map_percent(), 15);
+        assert_eq!(minimap.map_object_density_percent(), 1);
+        assert_eq!(minimap.window_object_density_percent(), 6);
+        assert_eq!(minimap.outside_object_percent(), 0);
         assert_eq!(minimap.focus_tile, Some((2, 3)));
         assert_eq!(minimap.focus_in_window, Some(true));
     }

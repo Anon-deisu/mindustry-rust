@@ -78,6 +78,17 @@ This document tracks release-readiness audit continuation for the Rust deliverab
    - `illuminator` int-color projection
    - `payload-source` mixed `Block | UnitType | clear` configured projection
    - `payload-router` / `reinforced-payload-router` mixed `Block | UnitType | clear` configured projection
+6. `resolved` 2026-03-26 low-risk runtime/live-read hardening landed as another post-release backlog reduction.
+   - online build planning no longer trusts stale `graph.team_plans_at(...)` markers for nearby place/conflict selection after live `removeTile`; candidate selection now follows live building state plus visibility filters instead.
+   - runtime entity ownership now resolves same-player authoritative conflicts by newest `last_seen_entity_snapshot_count`, and heuristic ownership can no longer override an already established authoritative owner for that same player.
+   - typed runtime building shells widened again with liquid family shells, processor family text shells, `message` empty-string fallback shells, and explicit reconstructor fallback shells when runtime/config is absent.
+   - Evidence: `rust/mdt-client-min/src/bin/mdt-client-min-online.rs`
+   - Evidence: `rust/mdt-client-min/src/runtime_entity_ownership.rs`
+   - Evidence: `rust/mdt-client-min/src/session_state.rs`
+   - Evidence: `audit/effect-observability-review-20260326.md`
+   - Evidence: `audit/release-gap-refresh-20260326.md`
+   - Evidence: `audit/render-ui-gap-refresh-20260326.md`
+   - Evidence: `audit/protocol-snapshot-gap-refresh-20260326.md`
    - `power-node` / `power-node-large` / `surge-tower` / `beam-link` bounded link-set projection, with authoritative `Point2[]` full-replace and absolute `Int` / `BuildingPos` toggle
    - reconstructor family (`additive` / `multiplicative` / `exponential` / `tetrative`) bounded `UnitCommand | clear` configured projection
    - Evidence: `rust/mdt-client-min/src/client_session.rs`

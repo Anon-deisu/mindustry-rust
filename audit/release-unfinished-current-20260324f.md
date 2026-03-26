@@ -26,6 +26,13 @@ These are already landed and should not be re-opened as if missing:
     - `bridge-conveyor` / `phase-conveyor`
     - `illuminator`
     - `switch` / `world-switch`
+- typed runtime building shell coverage is already wider than the older unfinished text said.
+  - the low-risk runtime shell batch now also covers:
+    - `liquid-router` / `liquid-junction` / `liquid-container` / `liquid-tank`
+    - `micro-processor` / `logic-processor` / `hyper-processor`
+    - `message` family empty-string fallback shell
+    - reconstructor family explicit `None` command shell when runtime/config is absent
+  - remaining work is broader family depth and deeper Java-like runtime semantics, not re-adding these shell baselines
 - `hiddenSnapshot` lifecycle delete is already narrowed to known runtime-owned non-local semantics instead of deleting every hidden entity row.
   - current cleanup now covers non-local `Unit` / `Fire` / `Puddle` / `WeatherState`
   - `WorldLabel` is still intentionally preserved as a conservative boundary
@@ -73,6 +80,14 @@ These are already landed and should not be re-opened as if missing:
   - prompt priority: `text input > follow-up menu > menu`
   - notice priority: `warning toast > info toast > reliable hud > hud`
   - remaining gap is richer chat/dialog UI interaction, not re-adding a first dialog summary layer
+- online build planning no longer trusts stale loaded-world plan markers for nearby place/conflict candidate selection.
+  - `select_place_near_player_tile_with_visibility(...)` and `select_conflict_place_near_player_tile(...)` now ignore `graph.team_plans_at(...)` and rely on live building projection plus visibility filtering instead
+  - regression coverage now pins the `removeTile -> stale team-plan marker` case so it does not block valid live candidates
+  - remaining work is deeper builder/runtime execution semantics, not re-adding this stale-plan read-side fix
+- runtime entity ownership conflict resolution is already hardened beyond the earlier controller-vs-heuristic baseline.
+  - same-player authoritative conflicts now resolve by newest `last_seen_entity_snapshot_count`
+  - heuristic ownership no longer overrides an already established authoritative owner for the same player
+  - remaining work is broader entity semantic depth and Java-like live ownership/group behavior, not re-fixing this narrower ownership arbitration bug
 - `entitySnapshot` typed `WorldLabel` rows are no longer packet-counter-only.
   - runtime/HUD now consumes active label count plus latest `entity_id/text/flags/font_size/z/position`
   - remaining work is broader render/UI depth, not re-adding the first runtime-apply bridge

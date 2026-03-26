@@ -3,6 +3,7 @@ use crate::client_session::{
     ClientPacketTransport, ClientSession, ClientSessionAction, ClientSessionError,
     ClientSessionEvent,
 };
+use crate::session_state::SessionTimeoutKind;
 use mdt_protocol::{decode_framework_message, FrameworkCodecError};
 use std::fmt;
 use std::io;
@@ -88,6 +89,11 @@ impl UdpSessionDriver {
                 }
                 ClientSessionAction::TimedOut { idle_ms } => {
                     report.timed_out = Some(idle_ms);
+                    report.timed_out_kind = session
+                        .state()
+                        .last_timeout
+                        .map(|projection| projection.kind)
+                        .or(Some(SessionTimeoutKind::ConnectOrLoading));
                 }
             }
         }
@@ -103,6 +109,7 @@ pub struct UdpTickReport {
     pub inbound_packets: usize,
     pub inbound_framework_messages: usize,
     pub timed_out: Option<u64>,
+    pub timed_out_kind: Option<SessionTimeoutKind>,
     pub events: Vec<ClientSessionEvent>,
 }
 
@@ -262,7 +269,46 @@ mod tests {
         let report = driver.tick(&mut session, 1_201, 32).unwrap();
 
         assert!(report.timed_out.is_none());
+        assert!(report.timed_out_kind.is_none());
         assert_eq!(report.inbound_packets, 1);
         assert!(!session.state().connection_timed_out);
+    }
+
+    #[test]
+    fn surfaces_timeout_kind_on_udp_timeout() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let timing = ClientSessionTiming {
+            keepalive_interval_ms: 60_000,
+            client_snapshot_interval_ms: 60_000,
+            connect_timeout_ms: 1_200,
+            timeout_ms: 1_200,
+        };
+        let mut session =
+            ClientSession::from_remote_manifest_with_timing(&manifest, "fr", timing).unwrap();
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+
+        session.ingest_packet_bytes(&begin_packet).unwrap();
+        for chunk in chunk_packets {
+            session.ingest_packet_bytes(&chunk).unwrap();
+        }
+        assert!(session.state().ready_to_enter_world);
+        assert!(session.state().client_loaded);
+        assert!(session.state().connect_confirm_sent);
+        assert!(!session.state().connect_confirm_flushed);
+
+        let server = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let server_addr = server.local_addr().unwrap();
+        let client = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let driver = UdpSessionDriver::new(client, server_addr).unwrap();
+
+        let report = driver.tick(&mut session, 2_400, 32).unwrap();
+
+        assert_eq!(report.timed_out, Some(2_400));
+        assert_eq!(
+            report.timed_out_kind,
+            Some(SessionTimeoutKind::ConnectOrLoading)
+        );
     }
 }

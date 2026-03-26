@@ -4119,20 +4119,25 @@ fn runtime_effect_binding_label(
         rotation: snapshot_input.rotation,
     };
     let active_overlay = world_overlay.effect_overlays.last();
-    let target = active_overlay
+    let overlay_target = active_overlay
         .and_then(|overlay| {
             observe_runtime_effect_overlay_binding_state(overlay, session_state, &input_view)
-        })
-        .or(session_state.last_effect_runtime_binding_state);
-    let source = active_overlay
+        });
+    let overlay_source = active_overlay
         .and_then(|overlay| {
             observe_runtime_effect_overlay_source_binding_state(
                 overlay,
                 session_state,
                 &input_view,
             )
-        })
-        .or(session_state.last_effect_runtime_source_binding_state);
+        });
+    let session_target = session_state.last_effect_runtime_binding_state;
+    let session_source = session_state.last_effect_runtime_source_binding_state;
+    let (target, source) = if session_target.is_some() || session_source.is_some() {
+        (session_target, session_source)
+    } else {
+        (overlay_target, overlay_source)
+    };
     format!(
         "{}/{}",
         runtime_optional_effect_binding_state_label(target),
@@ -9356,6 +9361,111 @@ mod tests {
         assert_eq!(
             runtime_effect_binding_label(&input, &SessionState::default(), &world_overlay),
             "fallback/none"
+        );
+    }
+
+    #[test]
+    fn runtime_effect_binding_label_prefers_session_pair_over_active_overlay() {
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        state.last_effect_runtime_binding_state = Some(EffectRuntimeBindingState::BindingRejected);
+        state.last_effect_runtime_source_binding_state =
+            Some(EffectRuntimeBindingState::ParentFollow);
+
+        let mut world_overlay = RuntimeWorldOverlay::default();
+        world_overlay.effect_overlays.push(RuntimeEffectOverlay {
+            effect_id: Some(9),
+            source_x_bits: 1.0f32.to_bits(),
+            source_y_bits: 2.0f32.to_bits(),
+            source_binding: Some(RuntimeEffectBinding::ParentUnit {
+                unit_id: 404,
+                spawn_x_bits: 1.0f32.to_bits(),
+                spawn_y_bits: 2.0f32.to_bits(),
+                offset_x_bits: 0.0f32.to_bits(),
+                offset_y_bits: 0.0f32.to_bits(),
+                offset_initialized: false,
+                preserve_spawn_offset: true,
+                allow_fallback_offset_initialization: true,
+                rotate_with_parent: false,
+                parent_rotation_reference_bits: 0.0f32.to_bits(),
+                rotation_offset_bits: 0.0f32.to_bits(),
+                rotation_initialized: false,
+            }),
+            x_bits: 3.0f32.to_bits(),
+            y_bits: 4.0f32.to_bits(),
+            rotation_bits: 0.0f32.to_bits(),
+            color_rgba: 0,
+            reliable: false,
+            has_data: true,
+            lifetime_ticks: 3,
+            remaining_ticks: 3,
+            contract_name: Some("position_target"),
+            binding: Some(RuntimeEffectBinding::ParentUnit {
+                unit_id: 405,
+                spawn_x_bits: 3.0f32.to_bits(),
+                spawn_y_bits: 4.0f32.to_bits(),
+                offset_x_bits: 0.0f32.to_bits(),
+                offset_y_bits: 0.0f32.to_bits(),
+                offset_initialized: false,
+                preserve_spawn_offset: true,
+                allow_fallback_offset_initialization: true,
+                rotate_with_parent: false,
+                parent_rotation_reference_bits: 0.0f32.to_bits(),
+                rotation_offset_bits: 0.0f32.to_bits(),
+                rotation_initialized: false,
+            }),
+            content_ref: None,
+            polyline_points: Vec::new(),
+        });
+
+        assert_eq!(
+            runtime_effect_binding_label(&input, &state, &world_overlay),
+            "reject/follow"
+        );
+    }
+
+    #[test]
+    fn runtime_effect_binding_label_does_not_mix_session_target_with_overlay_source() {
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        state.last_effect_runtime_binding_state = Some(EffectRuntimeBindingState::BindingRejected);
+
+        let mut world_overlay = RuntimeWorldOverlay::default();
+        world_overlay.effect_overlays.push(RuntimeEffectOverlay {
+            effect_id: Some(9),
+            source_x_bits: 1.0f32.to_bits(),
+            source_y_bits: 2.0f32.to_bits(),
+            source_binding: Some(RuntimeEffectBinding::ParentUnit {
+                unit_id: 404,
+                spawn_x_bits: 1.0f32.to_bits(),
+                spawn_y_bits: 2.0f32.to_bits(),
+                offset_x_bits: 0.0f32.to_bits(),
+                offset_y_bits: 0.0f32.to_bits(),
+                offset_initialized: false,
+                preserve_spawn_offset: true,
+                allow_fallback_offset_initialization: true,
+                rotate_with_parent: false,
+                parent_rotation_reference_bits: 0.0f32.to_bits(),
+                rotation_offset_bits: 0.0f32.to_bits(),
+                rotation_initialized: false,
+            }),
+            x_bits: 3.0f32.to_bits(),
+            y_bits: 4.0f32.to_bits(),
+            rotation_bits: 0.0f32.to_bits(),
+            color_rgba: 0,
+            reliable: false,
+            has_data: true,
+            lifetime_ticks: 3,
+            remaining_ticks: 3,
+            contract_name: Some("position_target"),
+            binding: None,
+            content_ref: None,
+            polyline_points: Vec::new(),
+        });
+
+        assert_eq!(
+            runtime_effect_binding_label(&input, &state, &world_overlay),
+            "reject/none"
         );
     }
 

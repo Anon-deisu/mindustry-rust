@@ -1937,7 +1937,7 @@ fn compose_minimap_visibility_status_text(
 ) -> Option<String> {
     let panel = build_minimap_panel(scene, hud, window)?;
     Some(format!(
-        "minivis:ov{}:fg{}:k{}p{}:v{}p{}:vm{}:h{}p{}:hm{}:u{}p{}",
+        "minivis:ov{}:fg{}:k{}p{}:v{}p{}m{}:h{}p{}m{}:u{}p{}:d{}@{}p{}:w{}@{}p{}:o{}@{}p{}",
         if panel.overlay_visible { 1 } else { 0 },
         if panel.fog_enabled { 1 } else { 0 },
         panel.known_tile_count,
@@ -1950,6 +1950,15 @@ fn compose_minimap_visibility_status_text(
         panel.hidden_map_percent(),
         panel.unknown_tile_count,
         panel.unknown_tile_percent,
+        panel.tracked_object_count,
+        panel.map_tile_count,
+        panel.map_object_density_percent(),
+        panel.window_tracked_object_count,
+        panel.window_tile_count,
+        panel.window_object_density_percent(),
+        panel.outside_window_count,
+        panel.tracked_object_count,
+        panel.outside_object_percent(),
     ))
 }
 
@@ -5202,7 +5211,7 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "MINIMAP-VIS: minivis:ov1:fg1:k144p3:v120p83:vm2:h24p16:hm0:u4656p97",
+            "MINIMAP-VIS: minivis:ov1:fg1:k144p3:v120p83m2:h24p16m0:u4656p97:d4@4800p0:w4@1p400:o0@4p0",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
