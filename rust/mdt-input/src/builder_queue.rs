@@ -15,6 +15,15 @@ pub enum BuilderQueueStage {
     InFlight,
 }
 
+impl BuilderQueueStage {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Queued => "queued",
+            Self::InFlight => "in-flight",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuilderQueueEntry {
     pub x: i32,
@@ -31,6 +40,16 @@ pub enum BuilderQueueTransition {
     Started,
     Rejected,
     Finished,
+}
+
+impl BuilderQueueTransition {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Started => "started",
+            Self::Rejected => "rejected",
+            Self::Finished => "finished",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,6 +78,16 @@ pub enum BuilderQueueSkipReason {
     ObservationMissing,
     OutOfRange,
     RequestedSkip,
+}
+
+impl BuilderQueueSkipReason {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::ObservationMissing => "observation-missing",
+            Self::OutOfRange => "out-of-range",
+            Self::RequestedSkip => "requested-skip",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -177,6 +206,20 @@ pub enum BuilderQueueFrontPromotion {
     ValidationAdvancedHead,
 }
 
+impl BuilderQueueFrontPromotion {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::EnqueueFront => "enqueue-front",
+            Self::BeginInFlight => "begin-in-flight",
+            Self::ExplicitMoveToFront => "explicit-move-to-front",
+            Self::ExecutionDeferredToTail => "execution-deferred-to-tail",
+            Self::ActivityReorderedToReachable => "activity-reordered-to-reachable",
+            Self::ActivityClosestInRangeFallback => "activity-closest-in-range-fallback",
+            Self::ValidationAdvancedHead => "validation-advanced-head",
+        }
+    }
+}
+
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct BuilderQueueStateMachine {
     pub active_by_tile: BTreeMap<(i32, i32), BuilderQueueEntry>,
@@ -217,6 +260,46 @@ impl BuilderQueueProfile {
 
     pub fn has_head(self) -> bool {
         self.head_tile.is_some()
+    }
+
+    pub fn state_label(self) -> &'static str {
+        if self.active_count() == 0 {
+            "idle"
+        } else if self.queued_count > 0 && self.inflight_count == 0 {
+            "queued"
+        } else if self.queued_count == 0 && self.inflight_count > 0 {
+            "in-flight"
+        } else {
+            "mixed"
+        }
+    }
+
+    pub fn summary_label(self) -> String {
+        let head_label = self
+            .head_tile
+            .map_or_else(|| "none".to_string(), |(x, y)| format!("{x}:{y}"));
+        let stage_label = self.head_stage.map_or("none", BuilderQueueStage::label);
+        let last_transition_label = self
+            .last_transition
+            .map_or("none", BuilderQueueTransition::label);
+        let skip_label = self
+            .last_skip_reason
+            .map_or("none", BuilderQueueSkipReason::label);
+        let promotion_label = self
+            .last_front_promotion
+            .map_or("none", BuilderQueueFrontPromotion::label);
+
+        format!(
+            "state={} head={} stage={} q={} i={} last={} skip={} promo={}",
+            self.state_label(),
+            head_label,
+            stage_label,
+            self.queued_count,
+            self.inflight_count,
+            last_transition_label,
+            skip_label,
+            promotion_label,
+        )
     }
 }
 
@@ -1084,6 +1167,11 @@ mod tests {
         );
         assert_eq!(profile.active_count(), 2);
         assert!(profile.has_head());
+        assert_eq!(profile.state_label(), "queued");
+        assert_eq!(
+            profile.summary_label(),
+            "state=queued head=2:2 stage=queued q=2 i=0 last=none skip=none promo=none"
+        );
 
         let activity = queue.update_local_activity([BuilderQueueActivityObservation {
             x: 4,
@@ -1101,6 +1189,7 @@ mod tests {
         assert_eq!(profile.last_skip_reason, Some(BuilderQueueSkipReason::ObservationMissing));
         assert_eq!(profile.last_front_promotion, None);
         assert_eq!(profile.head_tile, Some((2, 2)));
+        assert_eq!(profile.summary_label(), "state=queued head=2:2 stage=queued q=2 i=0 last=none skip=observation-missing promo=none");
 
         assert!(queue.move_to_front(4, 4, true));
         let profile = queue.profile();
@@ -1111,6 +1200,10 @@ mod tests {
             Some(BuilderQueueFrontPromotion::ExplicitMoveToFront)
         );
         assert_eq!(profile.last_skip_reason, None);
+        assert_eq!(
+            profile.summary_label(),
+            "state=queued head=4:4 stage=queued q=2 i=0 last=none skip=none promo=explicit-move-to-front"
+        );
 
         queue.mark_begin(4, 4, true, None, 0);
         let profile = queue.profile();
@@ -1122,6 +1215,11 @@ mod tests {
         assert_eq!(
             profile.last_front_promotion,
             Some(BuilderQueueFrontPromotion::BeginInFlight)
+        );
+        assert_eq!(profile.state_label(), "mixed");
+        assert_eq!(
+            profile.summary_label(),
+            "state=mixed head=4:4 stage=in-flight q=1 i=1 last=started skip=none promo=begin-in-flight"
         );
     }
 
