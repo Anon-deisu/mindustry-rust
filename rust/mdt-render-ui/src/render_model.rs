@@ -60,6 +60,7 @@ pub enum RenderIconPrimitiveFamily {
     RuntimeConfigPendingMismatch,
     RuntimeHealth,
     RuntimeCommand,
+    RuntimePlace,
     RuntimeUnitAssemblerProgress,
     RuntimeUnitAssemblerCommand,
     RuntimeBreak,
@@ -348,6 +349,7 @@ impl RenderIconPrimitiveFamily {
             Self::RuntimeConfigPendingMismatch => "runtime-config-pending-mismatch",
             Self::RuntimeHealth => "runtime-health",
             Self::RuntimeCommand => "runtime-command",
+            Self::RuntimePlace => "runtime-place",
             Self::RuntimeUnitAssemblerProgress => "runtime-unit-assembler-progress",
             Self::RuntimeUnitAssemblerCommand => "runtime-unit-assembler-command",
             Self::RuntimeBreak => "runtime-break",
@@ -472,6 +474,13 @@ fn render_icon_family_and_variant(id: &str) -> Option<(RenderIconPrimitiveFamily
             if tile_x.parse::<i32>().is_ok() && tile_y.parse::<i32>().is_ok() =>
         {
             Some((RenderIconPrimitiveFamily::RuntimeCommand, "building"))
+        }
+        ["plan", "runtime-place", index, tile_x, tile_y]
+            if index.parse::<usize>().is_ok()
+                && tile_x.parse::<i32>().is_ok()
+                && tile_y.parse::<i32>().is_ok() =>
+        {
+            Some((RenderIconPrimitiveFamily::RuntimePlace, "place"))
         }
         ["marker", "runtime-command-selected-unit", value] if value.parse::<i32>().is_ok() => {
             Some((RenderIconPrimitiveFamily::RuntimeCommand, "selected-unit"))
@@ -2023,6 +2032,32 @@ mod tests {
                     y: 104.0,
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn render_model_derives_icon_primitive_from_runtime_place_plan_objects() {
+        let scene = RenderModel {
+            viewport: Viewport::default(),
+            view_window: None,
+            objects: vec![RenderObject {
+                id: "plan:runtime-place:0:8:9".to_string(),
+                layer: 21,
+                x: 64.0,
+                y: 72.0,
+            }],
+        };
+
+        assert_eq!(
+            scene.primitives(),
+            vec![RenderPrimitive::Icon {
+                id: "plan:runtime-place:0:8:9".to_string(),
+                family: RenderIconPrimitiveFamily::RuntimePlace,
+                variant: "place".to_string(),
+                layer: 21,
+                x: 64.0,
+                y: 72.0,
+            }]
         );
     }
 

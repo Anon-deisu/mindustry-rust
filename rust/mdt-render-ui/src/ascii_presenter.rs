@@ -30,6 +30,7 @@ const ASCII_ICON_RUNTIME_EFFECT_MARKER: char = 'F';
 const ASCII_ICON_BUILD_CONFIG: char = 'C';
 const ASCII_ICON_RUNTIME_HEALTH: char = 'H';
 const ASCII_ICON_RUNTIME_COMMAND: char = 'T';
+const ASCII_ICON_RUNTIME_PLACE: char = 'P';
 const ASCII_ICON_RUNTIME_UNIT_ASSEMBLER: char = 'A';
 const ASCII_ICON_RUNTIME_BREAK: char = 'X';
 const ASCII_ICON_RUNTIME_BULLET: char = 'B';
@@ -918,6 +919,7 @@ fn ascii_sprite_for_icon(family: RenderIconPrimitiveFamily) -> char {
         | RenderIconPrimitiveFamily::RuntimeConfigPendingMismatch => ASCII_ICON_BUILD_CONFIG,
         RenderIconPrimitiveFamily::RuntimeHealth => ASCII_ICON_RUNTIME_HEALTH,
         RenderIconPrimitiveFamily::RuntimeCommand => ASCII_ICON_RUNTIME_COMMAND,
+        RenderIconPrimitiveFamily::RuntimePlace => ASCII_ICON_RUNTIME_PLACE,
         RenderIconPrimitiveFamily::RuntimeUnitAssemblerProgress
         | RenderIconPrimitiveFamily::RuntimeUnitAssemblerCommand => {
             ASCII_ICON_RUNTIME_UNIT_ASSEMBLER
@@ -4744,10 +4746,33 @@ mod tests {
         presenter.present(&scene, &HudModel::default());
 
         let frame = presenter.last_frame();
-        assert!(frame.contains(
-            "RENDER-ICON: count=1 runtime-command/selected-unit@29:0:0"
-        ));
+        assert!(frame.contains("RENDER-ICON: count=1 runtime-command/selected-unit@29:0:0"));
         assert_eq!(frame.lines().last(), Some("T"));
+    }
+
+    #[test]
+    fn ascii_presenter_reports_runtime_place_icon_primitive() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 8.0,
+                height: 8.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![RenderObject {
+                id: "plan:runtime-place:0:8:9".to_string(),
+                layer: 21,
+                x: 0.0,
+                y: 0.0,
+            }],
+        };
+        let mut presenter = AsciiScenePresenter::default();
+
+        presenter.present(&scene, &HudModel::default());
+
+        let frame = presenter.last_frame();
+        assert!(frame.contains("RENDER-ICON: count=1 runtime-place/place@21:0:0"));
+        assert_eq!(frame.lines().last(), Some("P"));
     }
 
     #[test]
