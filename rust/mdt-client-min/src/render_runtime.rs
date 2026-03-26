@@ -4497,6 +4497,20 @@ fn append_runtime_build_plan_config_top_objects(
     plan: &ClientBuildPlan,
 ) {
     match &plan.config {
+        ClientBuildPlanConfig::Content {
+            content_type,
+            content_id,
+        }
+        | ClientBuildPlanConfig::TechNodeRaw {
+            content_type,
+            content_id,
+        } => append_runtime_build_plan_config_content_icon(
+            scene,
+            plan.tile,
+            "plan-content",
+            *content_type,
+            *content_id,
+        ),
         ClientBuildPlanConfig::Point2 { x, y } => {
             append_runtime_build_plan_config_link(scene, index, 0, plan.tile, (*x, *y));
         }
@@ -4516,6 +4530,27 @@ fn append_runtime_build_plan_config_top_objects(
         }
         _ => {}
     }
+}
+
+fn append_runtime_build_plan_config_content_icon(
+    scene: &mut RenderModel,
+    tile: (i32, i32),
+    family: &str,
+    content_type: u8,
+    content_id: i16,
+) {
+    const TILE_SIZE: f32 = 8.0;
+    const ICON_LAYER: i32 = 23;
+
+    scene.objects.push(RenderObject {
+        id: format!(
+            "marker:runtime-build-config-icon:{family}:{}:{}:{content_type}:{content_id}",
+            tile.0, tile.1
+        ),
+        layer: ICON_LAYER,
+        x: tile.0 as f32 * TILE_SIZE,
+        y: tile.1 as f32 * TILE_SIZE,
+    });
 }
 
 fn append_runtime_build_plan_config_link(
@@ -6075,6 +6110,51 @@ mod tests {
             runtime_local_entity_label(session.state())
         )));
         assert!(hud.status_text.contains("runtime_kick=none@none:none:none"));
+    }
+
+    #[test]
+    fn render_runtime_adapter_surfaces_build_plan_content_config_icons() {
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState {
+            plans: Some(vec![ClientBuildPlan {
+                tile: (6, 7),
+                breaking: false,
+                block_id: Some(0x0101),
+                rotation: 0,
+                config: ClientBuildPlanConfig::Content {
+                    content_type: 1,
+                    content_id: 7,
+                },
+            }]),
+            ..Default::default()
+        };
+        let state = SessionState::default();
+
+        let mut adapter = RenderRuntimeAdapter::default();
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        assert!(scene.objects.iter().any(|object| {
+            object.id == "marker:runtime-build-config-icon:plan-content:6:7:1:7"
+        }));
+        assert!(scene.primitives().iter().any(|primitive| {
+            matches!(
+                primitive,
+                mdt_render_ui::render_model::RenderPrimitive::Icon {
+                    family,
+                    variant,
+                    layer,
+                    x,
+                    y,
+                    ..
+                } if *family
+                    == mdt_render_ui::render_model::RenderIconPrimitiveFamily::RuntimeBuildConfig
+                    && variant == "plan-content"
+                    && *layer == 23
+                    && *x == 48.0
+                    && *y == 56.0
+            )
+        }));
     }
 
     #[test]

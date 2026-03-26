@@ -696,7 +696,7 @@ Use:
   - Landed shape:
     - `RenderPrimitive::Rect` for command-mode rect families and the derived `runtime-break-rect` breaking-plan outline family
     - `RenderPrimitive::Icon` for `runtime-effect-icon`, `runtime-build-config-icon`, `runtime-health`, `runtime-place`, command-mode markers (including `runtime-command-selected-unit`), runtime unit-assembler markers, and the current low-risk world-event marker batch (`runtime-break`, `runtime-bullet`, `runtime-logic-explosion`, `runtime-sound-at`, bounded tile-action markers)
-    - build-preview config-top now also emits bounded generic line overlays for the current position-shaped plan config subset (`Point2`, `Point2Array`, `BuildingPos`) instead of remaining HUD-count-only
+    - build-preview config-top now also emits bounded generic line overlays for the current position-shaped plan config subset (`Point2`, `Point2Array`, `BuildingPos`) and bounded center icons for the current content-like subset (`Content`, `TechNodeRaw`) instead of remaining HUD-count-only
     - ASCII/window presenters now consume those typed primitives directly and emit `RENDER-RECT` / `RENDER-ICON` summaries instead of relying on generic point fallback for those families
   - Local verification:
     - `cargo test --manifest-path rust\\mdt-render-ui\\Cargo.toml --quiet`
