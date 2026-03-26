@@ -669,6 +669,10 @@ Use:
   - Primary source paths:
     - `rust/mdt-client-min/src/client_session.rs`
     - `rust/mdt-client-min/src/session_state.rs`
+  - Landed first cut:
+    - live authority packets no longer mutate `loaded_world_bundle.world.building_centers[*].building.base`
+    - `setTile` / `setTileBlocks` / `constructFinish` no longer fabricate new loaded-world building centers for live-only tiles
+    - regression tests now pin "projection/live view moves, loaded-world baseline centers stay untouched" for `setTeam` / `setTeams` / `setTile` / `setTileBlocks` / `constructFinish` / `buildHealthUpdate`
   - Immediate cut:
     - stop live building packets from mutating `loaded_world_bundle.world.building_centers[*].building.base`
     - stop fabricating live-only building centers into loaded-world baseline
