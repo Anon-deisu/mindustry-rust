@@ -15,6 +15,7 @@ pub(super) fn resolve_typed_runtime_entity_ownership(
     by_entity_id: &BTreeMap<i32, TypedRuntimeEntityModel>,
 ) -> TypedRuntimeEntityOwnershipResolution {
     let mut resolution = TypedRuntimeEntityOwnershipResolution::default();
+    let mut authoritative_claims_by_player_id = BTreeMap::<i32, Vec<(u64, i32)>>::new();
 
     for (&unit_entity_id, model) in by_entity_id {
         let TypedRuntimeEntityModel::Unit(unit) = model else {
@@ -22,6 +23,20 @@ pub(super) fn resolve_typed_runtime_entity_ownership(
         };
         let Some(player_entity_id) = authoritative_player_controller_entity_id(unit, by_entity_id)
         else {
+            continue;
+        };
+        authoritative_claims_by_player_id
+            .entry(player_entity_id)
+            .or_default()
+            .push((unit.base.last_seen_entity_snapshot_count, unit_entity_id));
+    }
+
+    for (player_entity_id, claimants) in authoritative_claims_by_player_id {
+        let Some(unit_entity_id) = unique_latest_claim_entity_id(&claimants) else {
+            record_conflict_units(
+                &mut resolution,
+                claimants.into_iter().map(|(_, unit_entity_id)| unit_entity_id),
+            );
             continue;
         };
         resolution
@@ -38,6 +53,12 @@ pub(super) fn resolve_typed_runtime_entity_ownership(
         let TypedRuntimeEntityModel::Player(player) = model else {
             continue;
         };
+        if resolution
+            .player_owned_unit_by_player_entity_id
+            .contains_key(&player_entity_id)
+        {
+            continue;
+        }
         if player.base.unit_kind != 2 {
             continue;
         }
@@ -76,13 +97,7 @@ pub(super) fn resolve_typed_runtime_entity_ownership(
 
     for (unit_entity_id, mut claimants) in ownership_claims_by_unit_id {
         if claimants.len() != 1 {
-            resolution.ownership_conflict_count =
-                resolution.ownership_conflict_count.saturating_add(1);
-            if resolution.ownership_conflict_unit_sample.len() < OWNERSHIP_CONFLICT_SAMPLE_LIMIT {
-                resolution
-                    .ownership_conflict_unit_sample
-                    .push(unit_entity_id);
-            }
+            record_conflict_units(&mut resolution, [unit_entity_id]);
             continue;
         }
         let (_, player_entity_id) = claimants.pop().unwrap();
@@ -94,6 +109,52 @@ pub(super) fn resolve_typed_runtime_entity_ownership(
             .insert(unit_entity_id, player_entity_id);
     }
     resolution
+}
+
+fn unique_latest_claim_entity_id(claimants: &[(u64, i32)]) -> Option<i32> {
+    let mut max_snapshot_count = None::<u64>;
+    let mut latest_entity_id = None::<i32>;
+    let mut max_count_claimants = 0usize;
+
+    for &(snapshot_count, entity_id) in claimants {
+        match max_snapshot_count {
+            None => {
+                max_snapshot_count = Some(snapshot_count);
+                latest_entity_id = Some(entity_id);
+                max_count_claimants = 1;
+            }
+            Some(current) if snapshot_count > current => {
+                max_snapshot_count = Some(snapshot_count);
+                latest_entity_id = Some(entity_id);
+                max_count_claimants = 1;
+            }
+            Some(current) if snapshot_count == current => {
+                max_count_claimants = max_count_claimants.saturating_add(1);
+            }
+            Some(_) => {}
+        }
+    }
+
+    if max_count_claimants == 1 {
+        latest_entity_id
+    } else {
+        None
+    }
+}
+
+fn record_conflict_units(
+    resolution: &mut TypedRuntimeEntityOwnershipResolution,
+    conflicted_unit_ids: impl IntoIterator<Item = i32>,
+) {
+    for unit_entity_id in conflicted_unit_ids {
+        resolution.ownership_conflict_count =
+            resolution.ownership_conflict_count.saturating_add(1);
+        if resolution.ownership_conflict_unit_sample.len() < OWNERSHIP_CONFLICT_SAMPLE_LIMIT {
+            resolution
+                .ownership_conflict_unit_sample
+                .push(unit_entity_id);
+        }
+    }
 }
 
 fn authoritative_player_controller_entity_id(
@@ -149,6 +210,7 @@ mod tests {
         entity_id: i32,
         controller_type: u8,
         controller_value: Option<i32>,
+        last_seen_entity_snapshot_count: u64,
     ) -> TypedRuntimeEntityModel {
         TypedRuntimeEntityModel::Unit(TypedRuntimeUnitEntity {
             base: TypedRuntimeEntityBase {
@@ -160,7 +222,7 @@ mod tests {
                 unit_value: entity_id as u32,
                 x_bits: 0,
                 y_bits: 0,
-                last_seen_entity_snapshot_count: 1,
+                last_seen_entity_snapshot_count,
             },
             semantic: EntityUnitSemanticProjection {
                 team_id: 1,
@@ -186,7 +248,7 @@ mod tests {
         let by_entity_id = BTreeMap::from([
             (101, player(101, 0, 7)),
             (102, player(102, 202, 8)),
-            (202, unit(202, 0, Some(101))),
+            (202, unit(202, 0, Some(101), 1)),
         ]);
 
         let resolution = resolve_typed_runtime_entity_ownership(&by_entity_id);
@@ -209,7 +271,10 @@ mod tests {
 
     #[test]
     fn heuristic_fallback_still_works_without_controller() {
-        let by_entity_id = BTreeMap::from([(101, player(101, 202, 7)), (202, unit(202, 0, None))]);
+        let by_entity_id = BTreeMap::from([(
+            101,
+            player(101, 202, 7),
+        ), (202, unit(202, 0, None, 1))]);
 
         let resolution = resolve_typed_runtime_entity_ownership(&by_entity_id);
 
@@ -228,14 +293,66 @@ mod tests {
     fn non_player_controller_does_not_create_player_ownership() {
         let by_entity_id = BTreeMap::from([
             (101, player(101, 202, 7)),
-            (202, unit(202, 0, Some(303))),
-            (303, unit(303, 0, None)),
+            (202, unit(202, 0, Some(303), 1)),
+            (303, unit(303, 0, None, 1)),
         ]);
 
         let resolution = resolve_typed_runtime_entity_ownership(&by_entity_id);
 
         assert!(resolution.player_owned_unit_by_player_entity_id.is_empty());
         assert!(resolution.unit_owner_player_by_unit_entity_id.is_empty());
+        assert_eq!(resolution.ownership_conflict_count, 0);
+        assert!(resolution.ownership_conflict_unit_sample.is_empty());
+    }
+
+    #[test]
+    fn newer_authoritative_unit_claim_wins_for_same_player() {
+        let by_entity_id = BTreeMap::from([
+            (101, player(101, 202, 9)),
+            (202, unit(202, 0, Some(101), 7)),
+            (303, unit(303, 0, Some(101), 9)),
+        ]);
+
+        let resolution = resolve_typed_runtime_entity_ownership(&by_entity_id);
+
+        assert_eq!(
+            resolution.player_owned_unit_by_player_entity_id.get(&101),
+            Some(&303)
+        );
+        assert_eq!(
+            resolution.unit_owner_player_by_unit_entity_id.get(&303),
+            Some(&101)
+        );
+        assert_eq!(
+            resolution.unit_owner_player_by_unit_entity_id.get(&202),
+            None
+        );
+        assert_eq!(resolution.ownership_conflict_count, 0);
+        assert!(resolution.ownership_conflict_unit_sample.is_empty());
+    }
+
+    #[test]
+    fn heuristic_claim_does_not_override_authoritative_owner_for_same_player() {
+        let by_entity_id = BTreeMap::from([
+            (101, player(101, 303, 9)),
+            (202, unit(202, 0, Some(101), 9)),
+            (303, unit(303, 0, None, 9)),
+        ]);
+
+        let resolution = resolve_typed_runtime_entity_ownership(&by_entity_id);
+
+        assert_eq!(
+            resolution.player_owned_unit_by_player_entity_id.get(&101),
+            Some(&202)
+        );
+        assert_eq!(
+            resolution.unit_owner_player_by_unit_entity_id.get(&202),
+            Some(&101)
+        );
+        assert_eq!(
+            resolution.unit_owner_player_by_unit_entity_id.get(&303),
+            None
+        );
         assert_eq!(resolution.ownership_conflict_count, 0);
         assert!(resolution.ownership_conflict_unit_sample.is_empty());
     }

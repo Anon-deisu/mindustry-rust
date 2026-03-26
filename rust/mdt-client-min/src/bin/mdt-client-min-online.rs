@@ -5230,11 +5230,14 @@ fn select_place_near_player_tile_with_visibility(
         .grid()
         .iter_tiles()
         .filter_map(|tile| {
-            if (require_visible
-                && !tile_is_visible_to_player(&graph, player_team_id, tile.x, tile.y))
-                || live_building_state_at_tile(session, tile.x as i32, tile.y as i32).is_some()
-                || !graph.team_plans_at(tile.x as i16, tile.y as i16).is_empty()
-            {
+            if !tile_is_live_place_candidate(
+                session,
+                &graph,
+                player_team_id,
+                tile.x,
+                tile.y,
+                require_visible,
+            ) {
                 return None;
             }
 
@@ -5265,9 +5268,7 @@ fn select_conflict_place_near_player_tile(
         .grid()
         .iter_tiles()
         .filter_map(|tile| {
-            if !tile_is_visible_to_player(&graph, player_team_id, tile.x, tile.y)
-                || !graph.team_plans_at(tile.x as i16, tile.y as i16).is_empty()
-            {
+            if !tile_is_visible_to_player(&graph, player_team_id, tile.x, tile.y) {
                 return None;
             }
 
@@ -5334,6 +5335,20 @@ fn tile_is_visible_to_player(
     y: usize,
 ) -> bool {
     !matches!(graph.fog_revealed(player_team_id, x, y), Some(false))
+}
+
+fn tile_is_live_place_candidate(
+    session: &ClientSession,
+    graph: &WorldGraph<'_>,
+    player_team_id: u8,
+    x: usize,
+    y: usize,
+    require_visible: bool,
+) -> bool {
+    if require_visible && !tile_is_visible_to_player(graph, player_team_id, x, y) {
+        return false;
+    }
+    live_building_state_at_tile(session, x as i32, y as i32).is_none()
 }
 
 fn adjacency_rank(
@@ -11769,6 +11784,101 @@ mod tests {
         assert_ne!(
             select_conflict_place_near_player_tile(&session, &world, removed_tile, 0x0101),
             Some(removed_tile)
+        );
+    }
+
+    #[test]
+    fn select_place_near_player_tile_ignores_stale_graph_team_plans_when_live_tile_is_empty() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
+        ingest_sample_world(&mut session);
+        let (candidate_x, candidate_y, player_team_id, occupied_block_id, set_tile_packet_id) = {
+            let world = session.loaded_world_state().unwrap();
+            let graph = world.graph();
+            let player_team_id = world.player().team_id;
+            let candidate = graph
+                .grid()
+                .iter_tiles()
+                .find(|tile| {
+                    !graph.team_plans_at(tile.x as i16, tile.y as i16).is_empty()
+                        && tile_is_visible_to_player(&graph, player_team_id, tile.x, tile.y)
+                })
+                .expect("sample world should expose at least one stale graph team-plan tile");
+
+            assert!(!graph
+                .team_plans_at(candidate.x as i16, candidate.y as i16)
+                .is_empty());
+            let occupied_block_id = graph
+                .grid()
+                .iter_tiles()
+                .find(|tile| tile.block_id != 0)
+                .map(|tile| tile.block_id as i16)
+                .expect("sample world should expose an occupied tile");
+            let set_tile_packet_id = manifest
+                .remote_packets
+                .iter()
+                .find(|entry| entry.method == "setTile")
+                .unwrap()
+                .packet_id;
+            (
+                candidate.x as i32,
+                candidate.y as i32,
+                player_team_id,
+                occupied_block_id,
+                set_tile_packet_id,
+            )
+        };
+
+        let remove_tile_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "removeTile")
+            .unwrap()
+            .packet_id;
+        session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    remove_tile_packet_id,
+                    &encode_tile_payload(Some(pack_point2(candidate_x, candidate_y))),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert!(live_building_state_at_tile(&session, candidate_x, candidate_y).is_none());
+
+        let tiles_to_occupy = {
+            let world = session.loaded_world_state().unwrap();
+            world
+                .graph()
+                .grid()
+                .iter_tiles()
+                .filter(|tile| tile.x as i32 != candidate_x || tile.y as i32 != candidate_y)
+                .map(|tile| (tile.x as i32, tile.y as i32))
+                .collect::<Vec<_>>()
+        };
+        for (tile_x, tile_y) in tiles_to_occupy {
+            session
+                .ingest_packet_bytes(
+                    &encode_packet(
+                        set_tile_packet_id,
+                        &encode_set_tile_payload(
+                            Some(pack_point2(tile_x, tile_y)),
+                            Some(occupied_block_id),
+                            player_team_id,
+                            0,
+                        ),
+                        false,
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
+        }
+
+        let world = session.loaded_world_state().unwrap();
+        assert_eq!(
+            select_place_near_player_tile(&session, &world, (candidate_x, candidate_y)),
+            Some((candidate_x, candidate_y))
         );
     }
 

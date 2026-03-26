@@ -3226,7 +3226,8 @@ fn typed_runtime_building_model(
                 configured
                     .message_text_by_build_pos
                     .get(&build_pos)
-                    .cloned()?,
+                    .cloned()
+                    .unwrap_or_default(),
             ),
         ),
         "constructor" | "large-constructor" => (
@@ -3374,9 +3375,6 @@ fn typed_runtime_building_model(
             let runtime = configured
                 .reconstructor_runtime_by_build_pos
                 .get(&build_pos);
-            if command_id.is_none() && runtime.is_none() {
-                return None;
-            }
             (
                 TypedBuildingRuntimeKind::Reconstructor,
                 TypedBuildingRuntimeValue::Reconstructor {
@@ -6698,12 +6696,17 @@ mod tests {
             .configured_block_projection
             .clear_building_state(build_pos);
         state.refresh_runtime_typed_building_from_tables(build_pos);
-        assert_eq!(state.typed_runtime_building_at(build_pos), None);
+        let mut expected_shell = expected.clone();
+        expected_shell.value = TypedBuildingRuntimeValue::Text(String::new());
+        assert_eq!(
+            state.typed_runtime_building_at(build_pos),
+            Some(expected_shell.clone())
+        );
         assert_eq!(
             state
                 .runtime_typed_building_apply_projection
                 .building_at(build_pos),
-            None
+            Some(&expected_shell)
         );
     }
 
@@ -6771,6 +6774,67 @@ mod tests {
                 ))
             );
         }
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_gives_message_family_empty_string_shell() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0005_0017i32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            353,
+            Some("message".to_string()),
+            Some(1),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(0x3f80_0000),
+            Some(0x3f00_0000),
+            Some(127),
+            Some(true),
+            None,
+            Some(0x40a0_0000),
+            Some(false),
+            Some(0x50),
+            Some(0x28),
+            Some(66),
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(
+            state.typed_runtime_building_at(build_pos),
+            Some(expected_typed_runtime_building(
+                build_pos,
+                353,
+                "message",
+                TypedBuildingRuntimeKind::Message,
+                TypedBuildingRuntimeValue::Text(String::new()),
+                Vec::new(),
+                Some(1),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(0x3f80_0000),
+                Some(0x3f00_0000),
+                Some(127),
+                Some(true),
+                Some(0x40a0_0000),
+                Some(false),
+                Some(0x50),
+                Some(0x28),
+                Some(66),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
+        );
     }
 
     #[test]
@@ -6934,6 +6998,73 @@ mod tests {
                 None,
                 None,
                 BuildingProjectionUpdateKind::TileConfig,
+            ))
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_gives_reconstructor_family_empty_shell() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0008_000bi32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            304,
+            Some("additive-reconstructor".to_string()),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(6),
+            Some(0x3f80_0000),
+            Some(0x3f00_0000),
+            Some(126),
+            Some(false),
+            None,
+            Some(0x40a0_0000),
+            Some(true),
+            Some(0x50),
+            Some(0x28),
+            Some(66),
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(
+            state.typed_runtime_building_at(build_pos),
+            Some(expected_typed_runtime_building(
+                build_pos,
+                304,
+                "additive-reconstructor",
+                TypedBuildingRuntimeKind::Reconstructor,
+                TypedBuildingRuntimeValue::Reconstructor {
+                    command_id: None,
+                    progress_bits: None,
+                    command_pos: None,
+                    payload_present: None,
+                    pay_rotation_bits: None,
+                },
+                Vec::new(),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(6),
+                Some(0x3f80_0000),
+                Some(0x3f00_0000),
+                Some(126),
+                Some(false),
+                Some(0x40a0_0000),
+                Some(true),
+                Some(0x50),
+                Some(0x28),
+                Some(66),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
             ))
         );
     }
