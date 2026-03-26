@@ -1394,6 +1394,10 @@ impl ClientSession {
         &self.snapshot_input
     }
 
+    pub fn pending_packet_count(&self) -> usize {
+        self.pending_packets.len()
+    }
+
     pub fn last_remote_ping_rtt_ms(&self) -> Option<u64> {
         self.last_remote_ping_rtt_ms
     }
@@ -2478,6 +2482,50 @@ impl ClientSession {
             ClientPacketTransport::Tcp,
             encode_begin_place_payload(builder, block_id, team_id, x, y, rotation, place_config),
         )
+    }
+
+    pub fn note_local_begin_break(&mut self, builder: ClientUnitRef, team_id: u8, x: i32, y: i32) {
+        let (builder_kind, builder_value) = client_unit_ref_builder_projection(builder);
+        self.sync_builder_queue_projection_from_snapshot_input();
+        self.state.last_begin_break_x = Some(x);
+        self.state.last_begin_break_y = Some(y);
+        self.state.last_begin_break_team_id = Some(team_id);
+        self.state.builder_queue_projection.mark_begin_break(
+            x,
+            y,
+            team_id,
+            builder_kind,
+            builder_value,
+        );
+        self.sync_snapshot_building_from_builder_queue_projection();
+    }
+
+    pub fn note_local_begin_place(
+        &mut self,
+        builder: ClientUnitRef,
+        block_id: Option<i16>,
+        team_id: u8,
+        x: i32,
+        y: i32,
+        rotation: i32,
+    ) {
+        let (builder_kind, builder_value) = client_unit_ref_builder_projection(builder);
+        self.sync_builder_queue_projection_from_snapshot_input();
+        self.state.last_begin_place_x = Some(x);
+        self.state.last_begin_place_y = Some(y);
+        self.state.last_begin_place_block_id = block_id;
+        self.state.last_begin_place_rotation = Some(rotation);
+        self.state.last_begin_place_team_id = Some(team_id);
+        self.state.builder_queue_projection.mark_begin_place(
+            x,
+            y,
+            block_id,
+            u8::try_from(rotation).unwrap_or_default(),
+            team_id,
+            builder_kind,
+            builder_value,
+        );
+        self.sync_snapshot_building_from_builder_queue_projection();
     }
 
     pub fn prepare_connect_packet(
@@ -9367,7 +9415,7 @@ fn write_client_build_plan_config(out: &mut Vec<u8>, config: &ClientBuildPlanCon
     write_typeio_object(out, &client_build_plan_config_to_typeio_object(config));
 }
 
-fn client_build_plan_config_to_typeio_object(config: &ClientBuildPlanConfig) -> TypeIoObject {
+pub fn client_build_plan_config_to_typeio_object(config: &ClientBuildPlanConfig) -> TypeIoObject {
     match config {
         ClientBuildPlanConfig::None => TypeIoObject::Null,
         ClientBuildPlanConfig::Int(value) => TypeIoObject::Int(*value),
@@ -14369,6 +14417,14 @@ fn encode_unit_payload(target: ClientUnitRef) -> Vec<u8> {
         }
     }
     payload
+}
+
+fn client_unit_ref_builder_projection(builder: ClientUnitRef) -> (u8, i32) {
+    match builder {
+        ClientUnitRef::None => (0, 0),
+        ClientUnitRef::Block(tile_pos) => (1, tile_pos),
+        ClientUnitRef::Standard(unit_id) => (2, unit_id),
+    }
 }
 
 fn encode_begin_break_payload(builder: ClientUnitRef, team_id: u8, x: i32, y: i32) -> Vec<u8> {

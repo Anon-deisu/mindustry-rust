@@ -9,9 +9,10 @@ use custom_packet_runtime_host::{
 };
 use mdt_client_min::arcnet_loop::ArcNetSessionDriver;
 use mdt_client_min::client_session::{
-    ClientBuildPlan, ClientBuildPlanConfig, ClientLogicDataTransport, ClientPacketTransport,
-    ClientSession, ClientSessionEvent, ClientSessionTiming, ClientUnitRef,
-    StateSnapshotAppliedProjection, KICK_REASON_SERVER_RESTARTING_ORDINAL,
+    client_build_plan_config_to_typeio_object, ClientBuildPlan, ClientBuildPlanConfig,
+    ClientLogicDataTransport, ClientPacketTransport, ClientSession, ClientSessionEvent,
+    ClientSessionTiming, ClientUnitRef, StateSnapshotAppliedProjection,
+    KICK_REASON_SERVER_RESTARTING_ORDINAL,
 };
 use mdt_client_min::connect_packet::{
     default_connect_build, default_connect_version_type, ConnectCompatibilityWarning,
@@ -36,17 +37,19 @@ use mdt_client_min::runtime_custom_packet_business::{
     resolve_runtime_custom_packet_command_target, RuntimeCustomPacketBusinessMarker,
     RuntimeCustomPacketBusinessMarkerSource,
 };
-use mdt_client_min::session_state::SessionState;
+use mdt_client_min::session_state::{BuilderPlanStage, SessionState};
 use mdt_input::intent::BuildPulse;
 use mdt_input::live_intent::RuntimeIntentTracker;
 use mdt_input::{
     flip_plans, rotate_plans, sample_runtime_input_snapshot, valid_place_against_local_plans,
-    BinaryAction, BuilderQueueActivityObservation, BuilderQueueBuildSelection,
-    BuilderQueueEntryObservation, BuilderQueueStateMachine, BuilderQueueTileStateObservation,
-    CommandModeRectProjection, CommandModeState, CommandModeTargetProjection, CommandUnitRef,
-    InputSnapshot, IntentSamplingMode, LiveIntentState, LocalPlanPlacement, MovementProbeConfig,
-    MovementProbeController, PlacementRequest, PlanBlockMeta, PlanEditable, PlanPoint,
-    RuntimeInputSample, RuntimeInputState,
+    BinaryAction, BuilderQueueActivityObservation, BuilderQueueActivityState,
+    BuilderQueueBuildSelection, BuilderQueueEntryObservation, BuilderQueueHeadExecutionAction,
+    BuilderQueueHeadExecutionObservation, BuilderQueueStateMachine,
+    BuilderQueueTileStateObservation, CommandModeRectProjection, CommandModeState,
+    CommandModeTargetProjection, CommandUnitRef, InputSnapshot, IntentSamplingMode,
+    LiveIntentState, LocalPlanPlacement, MovementProbeConfig, MovementProbeController,
+    PlacementRequest, PlanBlockMeta, PlanEditable, PlanPoint, RuntimeInputSample,
+    RuntimeInputState,
 };
 use mdt_remote::HighFrequencyRemoteMethod;
 use mdt_remote::{read_remote_manifest, RemoteManifest};
@@ -511,6 +514,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             now_ms,
             &mut next_chat_index,
             live_intent_mapper.as_mut(),
+        )?;
+        maybe_queue_runtime_builder_head_action(
+            &mut session,
+            &args,
+            now_ms,
+            live_intent_mapper.as_mut(),
+            &mut runtime_command_mode,
         )?;
         maybe_queue_outbound_actions(
             &mut session,
@@ -1136,11 +1146,22 @@ struct ScheduledIntentSnapshot {
 
 #[derive(Clone, Debug, PartialEq)]
 enum CommandModeCliOp {
-    BindGroup { index: u8, unit_ids: Vec<i32> },
-    RecallGroup { index: u8 },
-    ClearGroup { index: u8 },
-    SelectUnits { unit_ids: Vec<i32> },
-    SelectBuilding { build_pos: Option<i32> },
+    BindGroup {
+        index: u8,
+        unit_ids: Vec<i32>,
+    },
+    RecallGroup {
+        index: u8,
+    },
+    ClearGroup {
+        index: u8,
+    },
+    SelectUnits {
+        unit_ids: Vec<i32>,
+    },
+    SelectBuilding {
+        build_pos: Option<i32>,
+    },
     SetRect(Option<CommandModeRectProjection>),
     SetTarget {
         build_target: Option<i32>,
@@ -1769,8 +1790,7 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
                 let value = args
                     .get(i)
                     .ok_or("missing value for --command-mode-target")?;
-                let (build_target, unit_target, pos_target) =
-                    parse_command_mode_target_arg(value)?;
+                let (build_target, unit_target, pos_target) = parse_command_mode_target_arg(value)?;
                 command_mode_ops.push(CommandModeCliOp::SetTarget {
                     build_target,
                     unit_target,
@@ -4731,18 +4751,124 @@ fn sync_runtime_build_selection_state(session: &mut ClientSession, args: &CliArg
     }
 }
 
+fn maybe_queue_runtime_builder_head_action(
+    session: &mut ClientSession,
+    args: &CliArgs,
+    now_ms: u64,
+    live_intent_mapper: Option<&mut LiveIntentMapperController>,
+    runtime_command_mode: &mut CommandModeState,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let Some(action) = runtime_builder_head_outbound_action(session) else {
+        return Ok(());
+    };
+    queue_outbound_action_with_command_mode(session, &action, runtime_command_mode)?;
+    match &action {
+        OutboundAction::BeginBreak {
+            builder,
+            team_id,
+            x,
+            y,
+        } => {
+            session.note_local_begin_break(*builder, *team_id, *x, *y);
+        }
+        OutboundAction::BeginPlace {
+            builder,
+            block_id,
+            team_id,
+            x,
+            y,
+            rotation,
+            ..
+        } => {
+            session.note_local_begin_place(*builder, *block_id, *team_id, *x, *y, *rotation);
+        }
+        _ => {}
+    }
+    maybe_capture_live_transient_outbound_action(
+        session,
+        args,
+        live_intent_mapper,
+        now_ms,
+        &action,
+    );
+    Ok(())
+}
+
+fn runtime_builder_head_outbound_action(session: &ClientSession) -> Option<OutboundAction> {
+    if !session.state().ready_to_enter_world || !session.state().connect_confirm_sent {
+        return None;
+    }
+
+    let input = session.snapshot_input();
+    let plans = input.plans.as_deref()?;
+    if plans.is_empty() {
+        return None;
+    }
+
+    let builder = input
+        .unit_id
+        .map(ClientUnitRef::Standard)
+        .unwrap_or(ClientUnitRef::None);
+    let mut queue = builder_queue_state_machine_from_plans(Some(plans));
+    let world = session.loaded_world_state()?;
+    reconcile_builder_queue_against_loaded_world(&mut queue, &world);
+    let activity = update_builder_queue_activity_from_loaded_world(
+        &mut queue,
+        &world,
+        input.position.or(input.view_center),
+    );
+    if !activity.head_in_range || activity.head_should_skip {
+        return None;
+    }
+
+    let head = queue.head_entry()?.clone();
+    if session
+        .state()
+        .builder_queue_projection
+        .active_by_tile
+        .get(&(head.x, head.y))
+        .is_some_and(|plan| {
+            plan.breaking == head.breaking && plan.stage == BuilderPlanStage::InFlight
+        })
+    {
+        return None;
+    }
+
+    let execution =
+        queue.apply_head_execution_observation(BuilderQueueHeadExecutionObservation::PendingBegin);
+    match execution.action {
+        BuilderQueueHeadExecutionAction::BeginBreak => Some(OutboundAction::BeginBreak {
+            builder,
+            team_id: world.player().team_id,
+            x: head.x,
+            y: head.y,
+        }),
+        BuilderQueueHeadExecutionAction::BeginPlace => {
+            let plan = plans
+                .iter()
+                .rev()
+                .find(|plan| plan.tile == (head.x, head.y) && plan.breaking == head.breaking)?;
+            Some(OutboundAction::BeginPlace {
+                builder,
+                block_id: head.block_id,
+                team_id: world.player().team_id,
+                x: head.x,
+                y: head.y,
+                rotation: i32::from(head.rotation.unwrap_or_default()),
+                place_config: client_build_plan_config_to_typeio_object(&plan.config),
+            })
+        }
+        BuilderQueueHeadExecutionAction::QueueEmpty
+        | BuilderQueueHeadExecutionAction::OutOfRange
+        | BuilderQueueHeadExecutionAction::ContinueConstruct
+        | BuilderQueueHeadExecutionAction::DeferredBlockedByUnit
+        | BuilderQueueHeadExecutionAction::RemovedInvalidHead => None,
+    }
+}
+
 fn snapshot_builder_queue_selection(session: &ClientSession) -> BuilderQueueBuildSelection {
     let input = session.snapshot_input();
-    let mut queue = BuilderQueueStateMachine::default();
-    queue.sync_local_entries(input.plans.as_deref().into_iter().flatten().map(|plan| {
-        BuilderQueueEntryObservation {
-            x: plan.tile.0,
-            y: plan.tile.1,
-            breaking: plan.breaking,
-            block_id: plan.block_id,
-            rotation: plan.rotation,
-        }
-    }));
+    let mut queue = builder_queue_state_machine_from_plans(input.plans.as_deref());
 
     if let Some(world) = session.loaded_world_state() {
         reconcile_builder_queue_against_loaded_world(&mut queue, &world);
@@ -4754,6 +4880,25 @@ fn snapshot_builder_queue_selection(session: &ClientSession) -> BuilderQueueBuil
     }
 
     queue.build_selection()
+}
+
+fn builder_queue_state_machine_from_plans(
+    plans: Option<&[ClientBuildPlan]>,
+) -> BuilderQueueStateMachine {
+    let mut queue = BuilderQueueStateMachine::default();
+    queue.sync_local_entries(
+        plans
+            .into_iter()
+            .flat_map(|plans| plans.iter())
+            .map(|plan| BuilderQueueEntryObservation {
+                x: plan.tile.0,
+                y: plan.tile.1,
+                breaking: plan.breaking,
+                block_id: plan.block_id,
+                rotation: plan.rotation,
+            }),
+    );
+    queue
 }
 
 fn reconcile_builder_queue_against_loaded_world(
@@ -4793,7 +4938,7 @@ fn update_builder_queue_activity_from_loaded_world(
     queue: &mut BuilderQueueStateMachine,
     world: &LoadedWorldState<'_>,
     snapshot_origin: Option<(f32, f32)>,
-) {
+) -> BuilderQueueActivityState {
     let graph = world.graph();
     let origin_world = snapshot_origin.or(Some(world.player_position()));
     let origin_tile = origin_world.and_then(world_to_tile);
@@ -4805,7 +4950,7 @@ fn update_builder_queue_activity_from_loaded_world(
             builder_queue_activity_observation(&graph, entry, origin_world, origin_tile)
         })
         .collect::<Vec<_>>();
-    queue.update_local_activity(observations);
+    queue.update_local_activity(observations)
 }
 
 fn builder_queue_activity_observation(
@@ -7159,14 +7304,11 @@ mod tests {
         assert!(text.contains("--command-mode-select-building <buildPos|none> ..."));
         assert!(text.contains("--command-mode-rect <x0:y0:x1:y1|none> ..."));
         assert!(text.contains("--command-mode-target <buildPos|none@unitTarget@x:y|none> ..."));
-        assert!(
-            text.contains("--command-mode-set-command <unitId[,unitId...]|none@commandId|none> ...")
-        );
-        assert!(
-            text.contains(
-                "--command-mode-set-stance <unitId[,unitId...]|none@stanceId|none@enable> ..."
-            )
-        );
+        assert!(text
+            .contains("--command-mode-set-command <unitId[,unitId...]|none@commandId|none> ..."));
+        assert!(text.contains(
+            "--command-mode-set-stance <unitId[,unitId...]|none@stanceId|none@enable> ..."
+        ));
         assert!(text.contains("--print-client-packets"));
         assert!(text.contains("--watch-client-packet <type> ..."));
         assert!(text.contains("--watch-client-binary-packet <type> ..."));
@@ -11644,9 +11786,8 @@ mod tests {
                     )
                 })
                 .collect::<Vec<_>>();
-            out_of_range.sort_by_key(|tile| {
-                tile_distance_sq(near_tile, tile.0 as usize, tile.1 as usize)
-            });
+            out_of_range
+                .sort_by_key(|tile| tile_distance_sq(near_tile, tile.0 as usize, tile.1 as usize));
             (
                 near_tile,
                 *out_of_range
@@ -11726,7 +11867,10 @@ mod tests {
                     .expect("expected at least one out-of-range empty tile"),
             )
         };
-        let near_world = (near_occupied_tile.0 as f32 * 8.0, near_occupied_tile.1 as f32 * 8.0);
+        let near_world = (
+            near_occupied_tile.0 as f32 * 8.0,
+            near_occupied_tile.1 as f32 * 8.0,
+        );
 
         session.snapshot_input_mut().position = Some(near_world);
         session.snapshot_input_mut().plans = Some(vec![
@@ -11880,6 +12024,134 @@ mod tests {
         assert!(!input.building);
         assert_eq!(input.selected_block_id, Some(0x0102));
         assert_eq!(input.selected_rotation, 2);
+    }
+
+    #[test]
+    fn runtime_builder_head_execution_queues_begin_place_once_for_in_range_head() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
+        ingest_sample_world(&mut session);
+        let args = parse_args(sample_args(&[])).unwrap();
+        let place_tile = {
+            let world = session.loaded_world_state().unwrap();
+            let mut empty_tiles = sample_empty_tiles(&world);
+            empty_tiles.sort();
+            *empty_tiles
+                .first()
+                .expect("expected at least one empty tile in sample world")
+        };
+
+        assert!(session.state().ready_to_enter_world);
+        assert!(session.prepare_connect_confirm_packet().unwrap().is_some());
+        {
+            let input = session.snapshot_input_mut();
+            input.unit_id = Some(77);
+            input.position = Some((place_tile.0 as f32 * 8.0, place_tile.1 as f32 * 8.0));
+            input.plans = Some(vec![ClientBuildPlan {
+                tile: place_tile,
+                breaking: false,
+                block_id: Some(0x010c),
+                rotation: 1,
+                config: ClientBuildPlanConfig::Point2 { x: 4, y: 5 },
+            }]);
+        }
+        let mut runtime_command_mode = CommandModeState::default();
+        let initial_pending = session.pending_packet_count();
+
+        maybe_queue_runtime_builder_head_action(
+            &mut session,
+            &args,
+            100,
+            None,
+            &mut runtime_command_mode,
+        )
+        .unwrap();
+
+        assert_eq!(session.pending_packet_count(), initial_pending + 1);
+        assert_eq!(session.state().builder_queue_projection.inflight_count, 1);
+        assert_eq!(
+            session.state().builder_queue_projection.head_stage,
+            Some(BuilderPlanStage::InFlight)
+        );
+        assert_eq!(
+            session.state().builder_queue_projection.last_block_id,
+            Some(0x010c)
+        );
+
+        maybe_queue_runtime_builder_head_action(
+            &mut session,
+            &args,
+            101,
+            None,
+            &mut runtime_command_mode,
+        )
+        .unwrap();
+
+        assert_eq!(session.pending_packet_count(), initial_pending + 1);
+    }
+
+    #[test]
+    fn runtime_builder_head_execution_queues_begin_break_once_for_in_range_head() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
+        ingest_sample_world(&mut session);
+        let args = parse_args(sample_args(&[])).unwrap();
+        let break_tile = {
+            let world = session.loaded_world_state().unwrap();
+            let mut occupied_tiles = sample_occupied_tiles(&world);
+            occupied_tiles.sort();
+            *occupied_tiles
+                .first()
+                .expect("expected at least one occupied tile in sample world")
+        };
+
+        assert!(session.state().ready_to_enter_world);
+        assert!(session.prepare_connect_confirm_packet().unwrap().is_some());
+        {
+            let input = session.snapshot_input_mut();
+            input.unit_id = Some(88);
+            input.position = Some((break_tile.0 as f32 * 8.0, break_tile.1 as f32 * 8.0));
+            input.plans = Some(vec![ClientBuildPlan {
+                tile: break_tile,
+                breaking: true,
+                block_id: None,
+                rotation: 0,
+                config: ClientBuildPlanConfig::None,
+            }]);
+        }
+        let mut runtime_command_mode = CommandModeState::default();
+        let initial_pending = session.pending_packet_count();
+
+        maybe_queue_runtime_builder_head_action(
+            &mut session,
+            &args,
+            100,
+            None,
+            &mut runtime_command_mode,
+        )
+        .unwrap();
+
+        assert_eq!(session.pending_packet_count(), initial_pending + 1);
+        assert_eq!(session.state().builder_queue_projection.inflight_count, 1);
+        assert_eq!(
+            session.state().builder_queue_projection.head_stage,
+            Some(BuilderPlanStage::InFlight)
+        );
+        assert_eq!(
+            session.state().builder_queue_projection.last_breaking,
+            Some(true)
+        );
+
+        maybe_queue_runtime_builder_head_action(
+            &mut session,
+            &args,
+            101,
+            None,
+            &mut runtime_command_mode,
+        )
+        .unwrap();
+
+        assert_eq!(session.pending_packet_count(), initial_pending + 1);
     }
 
     #[test]
