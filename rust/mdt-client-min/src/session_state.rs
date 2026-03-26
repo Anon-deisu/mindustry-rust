@@ -331,6 +331,23 @@ pub enum EffectBusinessContentKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EffectRuntimeBindingState {
+    ParentFollow,
+    BindingRejected,
+    UnresolvedFallback,
+}
+
+impl EffectRuntimeBindingState {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ParentFollow => "follow",
+            Self::BindingRejected => "reject",
+            Self::UnresolvedFallback => "fallback",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ConfiguredContentRef {
     pub content_type: u8,
     pub content_id: i16,
@@ -2866,6 +2883,7 @@ pub enum TypedBuildingRuntimeKind {
     InvertedSorter,
     Switch,
     Door,
+    Processor,
     Message,
     Constructor,
     Illuminator,
@@ -2900,6 +2918,7 @@ impl TypedBuildingRuntimeKind {
             Self::InvertedSorter => "inverted-sorter",
             Self::Switch => "switch",
             Self::Door => "door",
+            Self::Processor => "processor",
             Self::Message => "message",
             Self::Constructor => "constructor",
             Self::Illuminator => "illuminator",
@@ -3111,7 +3130,8 @@ fn typed_runtime_building_model(
     resource_delta: &ResourceDeltaProjection,
 ) -> Option<TypedBuildingRuntimeModel> {
     let block_name = building.block_name.as_deref()?;
-    let inventory_item_stacks = typed_runtime_building_inventory_item_stacks(build_pos, resource_delta);
+    let inventory_item_stacks =
+        typed_runtime_building_inventory_item_stacks(build_pos, resource_delta);
     let inventory_liquid_stacks =
         typed_runtime_building_inventory_liquid_stacks(build_pos, resource_delta);
     let (kind, value) = match block_name {
@@ -3149,7 +3169,9 @@ fn typed_runtime_building_model(
         "liquid-router" | "liquid-junction" | "liquid-container" | "liquid-tank" => (
             TypedBuildingRuntimeKind::LiquidSource,
             TypedBuildingRuntimeValue::Liquid(
-                inventory_liquid_stacks.first().map(|(liquid_id, _)| *liquid_id),
+                inventory_liquid_stacks
+                    .first()
+                    .map(|(liquid_id, _)| *liquid_id),
             ),
         ),
         "landing-pad" => (
@@ -3193,6 +3215,10 @@ fn typed_runtime_building_model(
             TypedBuildingRuntimeValue::Bool(
                 configured.door_open_by_build_pos.get(&build_pos).copied()?,
             ),
+        ),
+        "micro-processor" | "logic-processor" | "hyper-processor" => (
+            TypedBuildingRuntimeKind::Processor,
+            TypedBuildingRuntimeValue::Text(processor_config_text(building)),
         ),
         "message" | "reinforced-message" | "world-message" => (
             TypedBuildingRuntimeKind::Message,
@@ -3445,6 +3471,14 @@ fn typed_runtime_building_model(
         building.build_turret_plan_count,
         building.last_update,
     ))
+}
+
+fn processor_config_text(building: &BuildingProjection) -> String {
+    match building.config.as_ref() {
+        Some(TypeIoObject::String(Some(text))) => text.clone(),
+        Some(TypeIoObject::String(None)) | None => String::new(),
+        _ => String::new(),
+    }
 }
 
 fn typed_runtime_building_inventory_item_stacks(
@@ -4935,6 +4969,8 @@ pub struct SessionState {
     pub last_effect_data_business_hint: Option<EffectDataBusinessHint>,
     pub last_effect_business_projection: Option<EffectBusinessProjection>,
     pub last_effect_business_path: Option<Vec<usize>>,
+    pub last_effect_runtime_binding_state: Option<EffectRuntimeBindingState>,
+    pub last_effect_runtime_source_binding_state: Option<EffectRuntimeBindingState>,
     pub last_effect_data_parse_failed: bool,
     pub failed_effect_data_parse_count: u64,
     pub last_effect_data_parse_error: Option<String>,
@@ -6668,6 +6704,237 @@ mod tests {
                 .runtime_typed_building_apply_projection
                 .building_at(build_pos),
             None
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_processor_family_shells() {
+        for (build_pos, block_name, code) in [
+            (0x0005_0012i32, "micro-processor", "print(\"micro\")"),
+            (0x0005_0013i32, "logic-processor", "print(\"logic\")"),
+            (0x0005_0014i32, "hyper-processor", "print(\"hyper\")"),
+        ] {
+            let mut state = SessionState::default();
+            state.building_table_projection.apply_block_snapshot_head(
+                build_pos,
+                350,
+                Some(block_name.to_string()),
+                Some(1),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(0x3f80_0000),
+                Some(0x3f00_0000),
+                Some(126),
+                Some(false),
+                Some(TypeIoObject::String(Some(code.to_string()))),
+                Some(0x40a0_0000),
+                Some(true),
+                Some(0x50),
+                Some(0x28),
+                Some(66),
+                None,
+                None,
+                None,
+            );
+
+            assert_eq!(
+                state.typed_runtime_building_at(build_pos),
+                Some(expected_typed_runtime_building(
+                    build_pos,
+                    350,
+                    block_name,
+                    TypedBuildingRuntimeKind::Processor,
+                    TypedBuildingRuntimeValue::Text(code.to_string()),
+                    Vec::new(),
+                    Some(1),
+                    Some(2),
+                    Some(3),
+                    Some(4),
+                    Some(0x3f80_0000),
+                    Some(0x3f00_0000),
+                    Some(126),
+                    Some(false),
+                    Some(0x40a0_0000),
+                    Some(true),
+                    Some(0x50),
+                    Some(0x28),
+                    Some(66),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    BuildingProjectionUpdateKind::BlockSnapshotHead,
+                ))
+            );
+        }
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_gives_processors_empty_string_shell() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0005_0015i32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            351,
+            Some("logic-processor".to_string()),
+            Some(1),
+            Some(2),
+            Some(3),
+            Some(4),
+            None,
+            None,
+            None,
+            None,
+            Some(TypeIoObject::String(None)),
+            Some(0x40a0_0000),
+            Some(true),
+            Some(0x50),
+            Some(0x28),
+            Some(66),
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(
+            state.typed_runtime_building_at(build_pos),
+            Some(expected_typed_runtime_building(
+                build_pos,
+                351,
+                "logic-processor",
+                TypedBuildingRuntimeKind::Processor,
+                TypedBuildingRuntimeValue::Text(String::new()),
+                Vec::new(),
+                Some(1),
+                Some(2),
+                Some(3),
+                Some(4),
+                None,
+                None,
+                None,
+                None,
+                Some(0x40a0_0000),
+                Some(true),
+                Some(0x50),
+                Some(0x28),
+                Some(66),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
+        );
+    }
+
+    #[test]
+    fn session_state_refresh_runtime_typed_building_updates_processor_text_from_building_config() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0005_0016i32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            352,
+            Some("micro-processor".to_string()),
+            Some(1),
+            Some(2),
+            Some(3),
+            Some(4),
+            None,
+            None,
+            None,
+            None,
+            Some(TypeIoObject::String(Some("print(\"old\")".to_string()))),
+            Some(0x40a0_0000),
+            Some(true),
+            Some(0x50),
+            Some(0x28),
+            Some(66),
+            None,
+            None,
+            None,
+        );
+        state.refresh_runtime_typed_building_from_tables(build_pos);
+        assert_eq!(
+            state
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos),
+            Some(&expected_typed_runtime_building(
+                build_pos,
+                352,
+                "micro-processor",
+                TypedBuildingRuntimeKind::Processor,
+                TypedBuildingRuntimeValue::Text("print(\"old\")".to_string()),
+                Vec::new(),
+                Some(1),
+                Some(2),
+                Some(3),
+                Some(4),
+                None,
+                None,
+                None,
+                None,
+                Some(0x40a0_0000),
+                Some(true),
+                Some(0x50),
+                Some(0x28),
+                Some(66),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
+        );
+
+        state.building_table_projection.apply_tile_config(
+            build_pos,
+            TypeIoObject::String(Some("print(\"new\")".to_string())),
+        );
+        state.refresh_runtime_typed_building_from_tables(build_pos);
+
+        assert_eq!(
+            state
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos),
+            Some(&expected_typed_runtime_building(
+                build_pos,
+                352,
+                "micro-processor",
+                TypedBuildingRuntimeKind::Processor,
+                TypedBuildingRuntimeValue::Text("print(\"new\")".to_string()),
+                Vec::new(),
+                Some(1),
+                Some(2),
+                Some(3),
+                Some(4),
+                None,
+                None,
+                None,
+                None,
+                Some(0x40a0_0000),
+                Some(true),
+                Some(0x50),
+                Some(0x28),
+                Some(66),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::TileConfig,
+            ))
         );
     }
 

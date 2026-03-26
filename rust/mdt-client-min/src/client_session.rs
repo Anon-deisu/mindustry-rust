@@ -2,7 +2,10 @@ use crate::bootstrap_flow::{
     apply_connect_packet, apply_world_bootstrap, ConnectPacketEnvelope, WorldStreamAssembler,
 };
 use crate::effect_data_runtime::{derive_effect_data_business_input, effect_data_kind_label};
-use crate::effect_runtime::{effect_contract, effect_contract_name, RuntimeEffectContract};
+use crate::effect_runtime::{
+    effect_contract, effect_contract_name, observe_runtime_effect_binding_state,
+    observe_runtime_effect_source_binding_state, EffectRuntimeInputView, RuntimeEffectContract,
+};
 use crate::entity_snapshot_families::{
     is_building_entity_class_id, ALPHA_SHAPE_ENTITY_CLASS_IDS,
     BUILDING_TETHER_PAYLOAD_ENTITY_CLASS_IDS, FIRE_ENTITY_CLASS_IDS, MECH_SHAPE_ENTITY_CLASS_IDS,
@@ -15,20 +18,20 @@ use crate::packet_registry::{
 };
 use crate::session_state::{
     BuilderQueueEntryObservation, BuildingProjection, BuildingTableProjection,
-    BuildingTailSummaryProjection, ConfiguredBlockOutcome,
-    ConfiguredContentRef, ConstructorRuntimeProjection, CoreInventoryRuntimeBindingKind,
-    CreateBulletProjection, DestroyPayloadProjection, EffectBusinessContentKind,
-    EffectBusinessPositionSource, EffectBusinessProjection, EntityFireSemanticProjection,
-    EntityPlayerSemanticProjection, EntityPuddleSemanticProjection, EntitySemanticProjection,
-    EntityUnitSemanticProjection, EntityWeatherStateSemanticProjection,
-    EntityWorldLabelSemanticProjection, FinishConnectingProjection, GameplayStateProjection,
-    PayloadDroppedProjection, PickedBuildPayloadProjection, PickedUnitPayloadProjection,
-    ReconnectPhaseProjection, ReconnectReasonKind, ReconstructorRuntimeProjection,
-    RemotePlanSnapshotFirstPlanProjection, SessionResetKind, SessionState, SessionTimeoutKind,
-    SessionTimeoutProjection, TakeItemsProjection, TileConfigAuthoritySource,
-    TileConfigBusinessApply, TransferItemEffectProjection, TransferItemToProjection,
-    TransferItemToUnitProjection, UnitAssemblerRuntimeProjection, UnitEnteredPayloadProjection,
-    UnitRefProjection, TypedBuildingRuntimeModel, WorldReloadProjection,
+    BuildingTailSummaryProjection, ConfiguredBlockOutcome, ConfiguredContentRef,
+    ConstructorRuntimeProjection, CoreInventoryRuntimeBindingKind, CreateBulletProjection,
+    DestroyPayloadProjection, EffectBusinessContentKind, EffectBusinessPositionSource,
+    EffectBusinessProjection, EntityFireSemanticProjection, EntityPlayerSemanticProjection,
+    EntityPuddleSemanticProjection, EntitySemanticProjection, EntityUnitSemanticProjection,
+    EntityWeatherStateSemanticProjection, EntityWorldLabelSemanticProjection,
+    FinishConnectingProjection, GameplayStateProjection, PayloadDroppedProjection,
+    PickedBuildPayloadProjection, PickedUnitPayloadProjection, ReconnectPhaseProjection,
+    ReconnectReasonKind, ReconstructorRuntimeProjection, RemotePlanSnapshotFirstPlanProjection,
+    SessionResetKind, SessionState, SessionTimeoutKind, SessionTimeoutProjection,
+    TakeItemsProjection, TileConfigAuthoritySource, TileConfigBusinessApply,
+    TransferItemEffectProjection, TransferItemToProjection, TransferItemToUnitProjection,
+    TypedBuildingRuntimeModel, UnitAssemblerRuntimeProjection, UnitEnteredPayloadProjection,
+    UnitRefProjection, WorldReloadProjection,
 };
 use crate::typed_remote_dispatch::{
     TypedCustomChannelRemoteDispatch, TypedCustomChannelRemoteDispatcher,
@@ -1488,7 +1491,10 @@ impl ClientSession {
             .flatten()
     }
 
-    fn loaded_world_building_projection_anchor_at(&self, build_pos: i32) -> Option<BuildingProjection> {
+    fn loaded_world_building_projection_anchor_at(
+        &self,
+        build_pos: i32,
+    ) -> Option<BuildingProjection> {
         let bundle = self.loaded_world_bundle.as_ref()?;
         let tile_index = loaded_world_tile_index(bundle, build_pos)?;
         let tile = bundle.world.tiles.get(tile_index)?;
@@ -1498,7 +1504,8 @@ impl ClientSession {
         let center = tile
             .building_center_index
             .and_then(|center_index| bundle.world.building_centers.get(center_index));
-        let aligned_center = center.filter(|center| i16::try_from(center.block_id).ok() == Some(block_id));
+        let aligned_center =
+            center.filter(|center| i16::try_from(center.block_id).ok() == Some(block_id));
         let base = aligned_center.map(|center| &center.building.base);
         Some(BuildingProjection {
             block_id: Some(block_id),
@@ -1628,10 +1635,19 @@ impl ClientSession {
                 build_positions.insert(pack_point2(x, y));
             }
         }
-        build_positions.extend(self.state.building_table_projection.by_build_pos.keys().copied());
+        build_positions.extend(
+            self.state
+                .building_table_projection
+                .by_build_pos
+                .keys()
+                .copied(),
+        );
         build_positions
             .into_iter()
-            .filter_map(|build_pos| self.building_live_state_at(build_pos).map(|view| (build_pos, view)))
+            .filter_map(|build_pos| {
+                self.building_live_state_at(build_pos)
+                    .map(|view| (build_pos, view))
+            })
             .collect()
     }
 
@@ -5822,6 +5838,8 @@ impl ClientSession {
                     self.state.last_effect_data_business_hint = None;
                     self.state.last_effect_business_projection = None;
                     self.state.last_effect_business_path = None;
+                    self.state.last_effect_runtime_binding_state = None;
+                    self.state.last_effect_runtime_source_binding_state = None;
                     self.state.last_effect_data_parse_failed = false;
                     self.state.last_effect_data_parse_error = None;
                     Ok(ClientSessionEvent::EffectRequested {
@@ -5873,8 +5891,27 @@ impl ClientSession {
                         effect.rotation,
                         effect.data_object.as_ref(),
                     );
+                    let effect_input_view = EffectRuntimeInputView {
+                        unit_id: self.snapshot_input.unit_id,
+                        position: self.snapshot_input.position,
+                        rotation: self.snapshot_input.rotation,
+                    };
                     self.state.last_effect_business_path = business_projection.path;
                     self.state.last_effect_business_projection = business_projection.projection;
+                    self.state.last_effect_runtime_binding_state =
+                        observe_runtime_effect_binding_state(
+                            effect.effect_id,
+                            effect.data_object.as_ref(),
+                            &self.state,
+                            &effect_input_view,
+                        );
+                    self.state.last_effect_runtime_source_binding_state =
+                        observe_runtime_effect_source_binding_state(
+                            effect.effect_id,
+                            effect.data_object.as_ref(),
+                            &self.state,
+                            &effect_input_view,
+                        );
                     self.state.last_effect_data_parse_failed = business_input.parse_failed;
                     if business_input.parse_failed {
                         self.state.failed_effect_data_parse_count =
@@ -8058,8 +8095,9 @@ impl ClientSession {
                 return Ok(LoadedWorldBlockSnapshotEntryCollection::Partial { entries, error });
             }
             if usize::try_from(block_id).is_err() {
-                let error =
-                    format!("loaded_world_block_snapshot_entry_{index}_negative_block_id:{block_id}");
+                let error = format!(
+                    "loaded_world_block_snapshot_entry_{index}_negative_block_id:{block_id}"
+                );
                 if entries.is_empty() {
                     return Err(error);
                 }
@@ -18180,17 +18218,14 @@ mod tests {
         );
         assert!(
             try_parse_building_sync_rows_from_entity_snapshot_with_loaded_world(
-                &payload,
-                None,
-                None,
+                &payload, None, None,
             )
             .is_empty()
         );
     }
 
     #[test]
-    fn building_entity_snapshot_rows_fall_back_to_projection_when_loaded_world_center_is_missing()
-    {
+    fn building_entity_snapshot_rows_fall_back_to_projection_when_loaded_world_center_is_missing() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
         let compressed_world_stream = sample_world_stream_bytes();
@@ -18204,32 +18239,39 @@ mod tests {
 
         let (_baseline_build_pos, block_id, rotation, health_bits, row) =
             loaded_world_building_entity_snapshot_row(&session, 0);
-        let revision = session.loaded_world_bundle().unwrap().world.building_centers[0]
+        let revision = session
+            .loaded_world_bundle()
+            .unwrap()
+            .world
+            .building_centers[0]
             .building
             .revision;
         let projected_build_pos = sample_empty_tile_positions_without_centers(&session, 1)[0];
-        session.state.building_table_projection.apply_block_snapshot_head(
-            projected_build_pos,
-            block_id,
-            session.loaded_world_block_name(block_id),
-            Some(rotation),
-            Some(1),
-            Some(revision),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            Some(health_bits),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        );
+        session
+            .state
+            .building_table_projection
+            .apply_block_snapshot_head(
+                projected_build_pos,
+                block_id,
+                session.loaded_world_block_name(block_id),
+                Some(rotation),
+                Some(1),
+                Some(revision),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(health_bits),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            );
         let payload = build_entity_snapshot_payload(&[build_entity_snapshot_row(
             projected_build_pos,
             6,
@@ -18251,8 +18293,8 @@ mod tests {
     }
 
     #[test]
-    fn building_entity_snapshot_rows_do_not_resolve_against_stale_loaded_world_center_after_remove_tile()
-    {
+    fn building_entity_snapshot_rows_do_not_resolve_against_stale_loaded_world_center_after_remove_tile(
+    ) {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
         let compressed_world_stream = sample_world_stream_bytes();
@@ -23524,7 +23566,11 @@ mod tests {
     #[test]
     fn block_snapshot_packet_falls_back_to_projection_when_loaded_world_center_is_missing() {
         let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
-        let center = &session.loaded_world_bundle().unwrap().world.building_centers[0];
+        let center = &session
+            .loaded_world_bundle()
+            .unwrap()
+            .world
+            .building_centers[0];
         let block_id = center.block_id as i16;
         let center_chunk_bytes = center.chunk_bytes.clone();
         let center_revision = center.building.revision;
@@ -23541,28 +23587,31 @@ mod tests {
         let center_optional_efficiency = center.building.base.optional_efficiency;
         let center_visible_flags = center.building.base.visible_flags;
         let projected_build_pos = sample_empty_tile_positions_without_centers(&session, 1)[0];
-        session.state.building_table_projection.apply_block_snapshot_head(
-            projected_build_pos,
-            block_id,
-            session.loaded_world_block_name(block_id),
-            Some(center_rotation),
-            Some(center_team_id),
-            Some(center_revision),
-            center_module_bitmask,
-            center_time_scale_bits,
-            center_time_scale_duration_bits,
-            center_last_disabler_pos,
-            center_legacy_consume_connected,
-            None,
-            Some(center_health_bits),
-            center_enabled,
-            center_efficiency,
-            center_optional_efficiency,
-            center_visible_flags,
-            None,
-            None,
-            None,
-        );
+        session
+            .state
+            .building_table_projection
+            .apply_block_snapshot_head(
+                projected_build_pos,
+                block_id,
+                session.loaded_world_block_name(block_id),
+                Some(center_rotation),
+                Some(center_team_id),
+                Some(center_revision),
+                center_module_bitmask,
+                center_time_scale_bits,
+                center_time_scale_duration_bits,
+                center_last_disabler_pos,
+                center_legacy_consume_connected,
+                None,
+                Some(center_health_bits),
+                center_enabled,
+                center_efficiency,
+                center_optional_efficiency,
+                center_visible_flags,
+                None,
+                None,
+                None,
+            );
 
         let mut data = Vec::new();
         data.extend_from_slice(&projected_build_pos.to_be_bytes());
@@ -28795,7 +28844,8 @@ mod tests {
     }
 
     #[test]
-    fn team_authority_packets_update_live_projection_without_mutating_loaded_world_building_teams() {
+    fn team_authority_packets_update_live_projection_without_mutating_loaded_world_building_teams()
+    {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
         ingest_sample_world(&mut session);
@@ -29071,17 +29121,23 @@ mod tests {
             replacement_block_id = loaded_world_block_id_for_name(&session, "router");
         }
 
-        session.state.building_table_projection.apply_remote_tile_authority(
-            build_pos,
-            replacement_block_id,
-            session.loaded_world_block_name(replacement_block_id),
-            Some(3),
-            Some(4),
-        );
+        session
+            .state
+            .building_table_projection
+            .apply_remote_tile_authority(
+                build_pos,
+                replacement_block_id,
+                session.loaded_world_block_name(replacement_block_id),
+                Some(3),
+                Some(4),
+            );
 
         let live = session.building_live_state_at(build_pos).unwrap();
         assert_eq!(live.projection.block_id, Some(replacement_block_id));
-        assert_eq!(live.projection.block_name, session.loaded_world_block_name(replacement_block_id));
+        assert_eq!(
+            live.projection.block_name,
+            session.loaded_world_block_name(replacement_block_id)
+        );
         assert_eq!(live.projection.rotation, Some(3));
         assert_eq!(live.projection.team_id, Some(4));
     }
@@ -29125,14 +29181,17 @@ mod tests {
         let message = "live-only".to_string();
 
         session.apply_loaded_world_tile_patch(build_pos, None, None, Some(Some(block_id)));
-        session.state.building_table_projection.apply_construct_finish(
-            build_pos,
-            Some(block_id),
-            session.loaded_world_block_name(block_id),
-            1,
-            2,
-            TypeIoObject::String(Some(message.clone())),
-        );
+        session
+            .state
+            .building_table_projection
+            .apply_construct_finish(
+                build_pos,
+                Some(block_id),
+                session.loaded_world_block_name(block_id),
+                1,
+                2,
+                TypeIoObject::String(Some(message.clone())),
+            );
         session
             .state
             .configured_block_projection
@@ -37033,15 +37092,15 @@ mod tests {
                     shield_bits: 0.0f32.to_bits(),
                     mine_tile_pos: 0,
                     status_count: 0,
-                        payload_count: None,
-                        building_pos: None,
-                        lifetime_bits: None,
-                        time_bits: None,
-                        controller_type: 0,
-                        controller_value: None,
-                    },
-                ),
-            );
+                    payload_count: None,
+                    building_pos: None,
+                    lifetime_bits: None,
+                    time_bits: None,
+                    controller_type: 0,
+                    controller_value: None,
+                },
+            ),
+        );
         session
             .state
             .resource_delta_projection
@@ -39479,6 +39538,59 @@ mod tests {
         );
         assert_eq!(session.state().last_effect_business_projection, None);
         assert_eq!(session.state().last_effect_business_path, None);
+    }
+
+    #[test]
+    fn effect_packet_with_lightning_path_contract_records_binding_reject_state_for_building_parent_payload(
+    ) {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "effect" && entry.params.len() == 6)
+            .unwrap()
+            .packet_id;
+        let mut payload = encode_effect_payload(13, 32.5, 48.0, 90.0, 0x11223344);
+        write_typeio_object(&mut payload, &TypeIoObject::BuildingPos(pack_point2(7, 11)));
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            session.state().last_effect_contract_name.as_deref(),
+            Some("lightning")
+        );
+        assert_eq!(
+            session.state().last_effect_runtime_binding_state,
+            Some(crate::session_state::EffectRuntimeBindingState::BindingRejected)
+        );
+    }
+
+    #[test]
+    fn effect_packet_with_unit_parent_contract_records_unresolved_parent_fallback_state() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "effect" && entry.params.len() == 6)
+            .unwrap()
+            .packet_id;
+        let mut payload = encode_effect_payload(257, 32.5, 48.0, 90.0, 0x11223344);
+        write_typeio_object(&mut payload, &TypeIoObject::UnitId(404));
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            session.state().last_effect_contract_name.as_deref(),
+            Some("unit_parent")
+        );
+        assert_eq!(
+            session.state().last_effect_runtime_binding_state,
+            Some(crate::session_state::EffectRuntimeBindingState::UnresolvedFallback)
+        );
     }
 
     #[test]

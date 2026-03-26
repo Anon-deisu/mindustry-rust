@@ -2,12 +2,13 @@
 mod effect_contract_executor;
 
 use crate::client_session::{
-    BuildHealthPair, BuildingLiveStateView, ClientBuildPlan, ClientBuildPlanConfig,
-    ClientSession, ClientSessionEvent, ClientSnapshotInputState, StateSnapshotAppliedProjection,
+    BuildHealthPair, BuildingLiveStateView, ClientBuildPlan, ClientBuildPlanConfig, ClientSession,
+    ClientSessionEvent, ClientSnapshotInputState, StateSnapshotAppliedProjection,
 };
 use crate::effect_data_runtime::EffectDataBusinessHint;
 use crate::effect_runtime::{
-    effect_contract, resolve_runtime_effect_overlay_position,
+    effect_contract, observe_runtime_effect_overlay_binding_state,
+    observe_runtime_effect_overlay_source_binding_state, resolve_runtime_effect_overlay_position,
     resolve_runtime_effect_overlay_source_position, spawn_runtime_effect_overlay,
     EffectRuntimeInputView, RuntimeEffectBinding, RuntimeEffectOverlay,
 };
@@ -16,8 +17,9 @@ use crate::session_state::{
     BuildingProjectionUpdateKind, BuildingTableProjection, ConfiguredBlockOutcome,
     ConfiguredBlockProjection, ConfiguredContentRef, CoreInventoryRuntimeBindingKind,
     EffectBusinessContentKind, EffectBusinessPositionSource, EffectBusinessProjection,
-    EffectDataSemantic, HiddenSnapshotDeltaProjection, ReconnectPhaseProjection,
-    ReconnectReasonKind, SessionResetKind, SessionState, SessionTimeoutKind,
+    EffectDataSemantic, EffectRuntimeBindingState, HiddenSnapshotDeltaProjection,
+    ReconnectPhaseProjection, ReconnectReasonKind, SessionResetKind, SessionState,
+    SessionTimeoutKind,
     StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection, TileConfigAuthoritySource,
     TileConfigProjection, TypedBuildingRuntimeKind, TypedBuildingRuntimeModel,
     TypedBuildingRuntimeProjection, TypedBuildingRuntimeValue, TypedRuntimeEntityModel,
@@ -91,7 +93,8 @@ impl RenderRuntimeAdapter {
         session_state: &SessionState,
     ) {
         let runtime_typed_building_projection = session_state.runtime_typed_building_projection();
-        let runtime_buildings_label = runtime_building_table_label(&session_state.building_table_projection);
+        let runtime_buildings_label =
+            runtime_building_table_label(&session_state.building_table_projection);
         self.apply_with_building_view(
             scene,
             hud,
@@ -175,7 +178,7 @@ impl RenderRuntimeAdapter {
             runtime_typed_building_projection,
         ));
         hud.status_text = format!(
-            "{} runtime_selected={} runtime_plans={} runtime_cfg_int={} runtime_cfg_long={} runtime_cfg_float={} runtime_cfg_bool={} runtime_cfg_int_seq={} runtime_cfg_point2={} runtime_cfg_point2_array={} runtime_cfg_tech_node={} runtime_cfg_double={} runtime_cfg_building_pos={} runtime_cfg_laccess={} runtime_cfg_string={} runtime_cfg_bytes={} runtime_cfg_legacy_unit_command_null={} runtime_cfg_bool_array={} runtime_cfg_unit_id={} runtime_cfg_vec2_array={} runtime_cfg_vec2={} runtime_cfg_team={} runtime_cfg_int_array={} runtime_cfg_object_array={} runtime_cfg_content={} runtime_cfg_unit_command={} runtime_world_tiles={} runtime_health={} building={} runtime_builder={} runtime_builder_head={} runtime_entity_local={} runtime_entity_hidden={} runtime_entity_gate={} runtime_entity_sync={} runtime_snap_last={} runtime_snap_events={} runtime_snap_apply={} runtime_wave={} runtime_enemies={} runtime_tps={} runtime_state_apply={} runtime_core_teams={} runtime_core_items={} runtime_core_binding={} runtime_buildings={} runtime_block={} runtime_block_fail={} runtime_hidden={} runtime_hidden_delta={} runtime_hidden_fail={} runtime_effects={} runtime_effect_data_kind={} runtime_effect_contract={} runtime_effect_data_semantic={} runtime_effect_data_hint={} runtime_effect_apply={} runtime_effect_path={} runtime_effect_data_fail={} bootstrap_rules={} bootstrap_tags={} bootstrap_locales={} bootstrap_teams={} bootstrap_markers={} bootstrap_chunks={} bootstrap_patches={} bootstrap_plans={} bootstrap_fog_teams={} runtime_view_center={} runtime_view_size={} runtime_position={} runtime_pointer={} runtime_selected_rotation={} runtime_input_flags={} runtime_snap_client={} runtime_snap_state={} runtime_snap_entity={} runtime_snap_block={} runtime_snap_hidden={} runtime_tilecfg_events={} runtime_tilecfg_parse_fail={} runtime_tilecfg_noapply={} runtime_tilecfg_rollback={} runtime_tilecfg_pending_mismatch={} runtime_tilecfg_apply={} runtime_configured={} runtime_take_items={} runtime_transfer_item={} runtime_transfer_item_unit={} runtime_payload_drop={} runtime_payload_pick_build={} runtime_payload_pick_unit={} runtime_unit_entered_payload={} runtime_unit_despawn={} runtime_unit_lifecycle={} runtime_spawn_fx={} runtime_audio={} runtime_admin={} runtime_kick={} runtime_loading={} runtime_rules={} runtime_ui_notice={} runtime_ui_menu={} runtime_chat={} runtime_world_label={} runtime_marker={} runtime_logic_sync={} runtime_resource_delta={} runtime_command_ctrl={} runtime_gameplay_signal={}",
+            "{} runtime_selected={} runtime_plans={} runtime_cfg_int={} runtime_cfg_long={} runtime_cfg_float={} runtime_cfg_bool={} runtime_cfg_int_seq={} runtime_cfg_point2={} runtime_cfg_point2_array={} runtime_cfg_tech_node={} runtime_cfg_double={} runtime_cfg_building_pos={} runtime_cfg_laccess={} runtime_cfg_string={} runtime_cfg_bytes={} runtime_cfg_legacy_unit_command_null={} runtime_cfg_bool_array={} runtime_cfg_unit_id={} runtime_cfg_vec2_array={} runtime_cfg_vec2={} runtime_cfg_team={} runtime_cfg_int_array={} runtime_cfg_object_array={} runtime_cfg_content={} runtime_cfg_unit_command={} runtime_world_tiles={} runtime_health={} building={} runtime_builder={} runtime_builder_head={} runtime_entity_local={} runtime_entity_hidden={} runtime_entity_gate={} runtime_entity_sync={} runtime_snap_last={} runtime_snap_events={} runtime_snap_apply={} runtime_wave={} runtime_enemies={} runtime_tps={} runtime_state_apply={} runtime_core_teams={} runtime_core_items={} runtime_core_binding={} runtime_buildings={} runtime_block={} runtime_block_fail={} runtime_hidden={} runtime_hidden_delta={} runtime_hidden_fail={} runtime_effects={} runtime_effect_data_kind={} runtime_effect_contract={} runtime_effect_data_semantic={} runtime_effect_data_hint={} runtime_effect_apply={} runtime_effect_path={} runtime_effect_binding={} runtime_effect_data_fail={} bootstrap_rules={} bootstrap_tags={} bootstrap_locales={} bootstrap_teams={} bootstrap_markers={} bootstrap_chunks={} bootstrap_patches={} bootstrap_plans={} bootstrap_fog_teams={} runtime_view_center={} runtime_view_size={} runtime_position={} runtime_pointer={} runtime_selected_rotation={} runtime_input_flags={} runtime_snap_client={} runtime_snap_state={} runtime_snap_entity={} runtime_snap_block={} runtime_snap_hidden={} runtime_tilecfg_events={} runtime_tilecfg_parse_fail={} runtime_tilecfg_noapply={} runtime_tilecfg_rollback={} runtime_tilecfg_pending_mismatch={} runtime_tilecfg_apply={} runtime_configured={} runtime_take_items={} runtime_transfer_item={} runtime_transfer_item_unit={} runtime_payload_drop={} runtime_payload_pick_build={} runtime_payload_pick_unit={} runtime_unit_entered_payload={} runtime_unit_despawn={} runtime_unit_lifecycle={} runtime_spawn_fx={} runtime_audio={} runtime_admin={} runtime_kick={} runtime_loading={} runtime_rules={} runtime_ui_notice={} runtime_ui_menu={} runtime_chat={} runtime_world_label={} runtime_marker={} runtime_logic_sync={} runtime_resource_delta={} runtime_command_ctrl={} runtime_gameplay_signal={}",
             hud.status_text,
             runtime_selected_block_label(snapshot_input.selected_block_id),
             snapshot_input.plans.as_ref().map_or(0, Vec::len),
@@ -300,6 +303,7 @@ impl RenderRuntimeAdapter {
                 session_state.last_effect_business_projection.as_ref(),
             ),
             runtime_effect_path_label(session_state.last_effect_business_path.as_deref()),
+            runtime_effect_binding_label(snapshot_input, session_state, &self.world_overlay),
             runtime_effect_data_fail_label(session_state),
             runtime_bootstrap_hash_label(bootstrap_projection, |projection| {
                 projection.rules_sha256.as_str()
@@ -390,7 +394,12 @@ fn live_runtime_typed_building_projection(
     TypedBuildingRuntimeProjection {
         by_build_pos: live_state
             .values()
-            .filter_map(|building| building.runtime.clone().map(|runtime| (runtime.build_pos, runtime)))
+            .filter_map(|building| {
+                building
+                    .runtime
+                    .clone()
+                    .map(|runtime| (runtime.build_pos, runtime))
+            })
             .collect(),
     }
 }
@@ -4097,6 +4106,44 @@ fn runtime_effect_path_label(path: Option<&[usize]>) -> String {
             .join("/"),
         _ => "none".to_string(),
     }
+}
+
+fn runtime_effect_binding_label(
+    snapshot_input: &ClientSnapshotInputState,
+    session_state: &SessionState,
+    world_overlay: &RuntimeWorldOverlay,
+) -> String {
+    let input_view = EffectRuntimeInputView {
+        unit_id: snapshot_input.unit_id,
+        position: snapshot_input.position,
+        rotation: snapshot_input.rotation,
+    };
+    let active_overlay = world_overlay.effect_overlays.last();
+    let target = active_overlay
+        .and_then(|overlay| {
+            observe_runtime_effect_overlay_binding_state(overlay, session_state, &input_view)
+        })
+        .or(session_state.last_effect_runtime_binding_state);
+    let source = active_overlay
+        .and_then(|overlay| {
+            observe_runtime_effect_overlay_source_binding_state(
+                overlay,
+                session_state,
+                &input_view,
+            )
+        })
+        .or(session_state.last_effect_runtime_source_binding_state);
+    format!(
+        "{}/{}",
+        runtime_optional_effect_binding_state_label(target),
+        runtime_optional_effect_binding_state_label(source)
+    )
+}
+
+fn runtime_optional_effect_binding_state_label(
+    state: Option<EffectRuntimeBindingState>,
+) -> &'static str {
+    state.map_or("none", EffectRuntimeBindingState::as_str)
 }
 
 fn runtime_bootstrap_hash_label<F>(
@@ -9261,6 +9308,55 @@ mod tests {
         state.last_effect_data_parse_error =
             Some("failed to parse effect data object: unsupported type".to_string());
         assert_eq!(runtime_effect_data_fail_label(&state), "2@decode");
+    }
+
+    #[test]
+    fn runtime_effect_binding_label_distinguishes_reject_and_unresolved_fallback() {
+        let input = ClientSnapshotInputState::default();
+        let mut reject_state = SessionState::default();
+        reject_state.last_effect_runtime_binding_state =
+            Some(EffectRuntimeBindingState::BindingRejected);
+        assert_eq!(
+            runtime_effect_binding_label(&input, &reject_state, &RuntimeWorldOverlay::default()),
+            "reject/none"
+        );
+
+        let mut world_overlay = RuntimeWorldOverlay::default();
+        world_overlay.effect_overlays.push(RuntimeEffectOverlay {
+            effect_id: Some(257),
+            source_x_bits: 1.0f32.to_bits(),
+            source_y_bits: 2.0f32.to_bits(),
+            source_binding: None,
+            x_bits: 1.0f32.to_bits(),
+            y_bits: 2.0f32.to_bits(),
+            rotation_bits: 0.0f32.to_bits(),
+            color_rgba: 0,
+            reliable: false,
+            has_data: true,
+            lifetime_ticks: 3,
+            remaining_ticks: 3,
+            contract_name: Some("unit_parent"),
+            binding: Some(RuntimeEffectBinding::ParentUnit {
+                unit_id: 404,
+                spawn_x_bits: 1.0f32.to_bits(),
+                spawn_y_bits: 2.0f32.to_bits(),
+                offset_x_bits: 0.0f32.to_bits(),
+                offset_y_bits: 0.0f32.to_bits(),
+                offset_initialized: false,
+                preserve_spawn_offset: true,
+                allow_fallback_offset_initialization: true,
+                rotate_with_parent: false,
+                parent_rotation_reference_bits: 0.0f32.to_bits(),
+                rotation_offset_bits: 0.0f32.to_bits(),
+                rotation_initialized: false,
+            }),
+            content_ref: None,
+            polyline_points: Vec::new(),
+        });
+        assert_eq!(
+            runtime_effect_binding_label(&input, &SessionState::default(), &world_overlay),
+            "fallback/none"
+        );
     }
 
     #[test]

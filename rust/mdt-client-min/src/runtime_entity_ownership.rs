@@ -20,8 +20,7 @@ pub(super) fn resolve_typed_runtime_entity_ownership(
         let TypedRuntimeEntityModel::Unit(unit) = model else {
             continue;
         };
-        let Some(player_entity_id) =
-            authoritative_player_controller_entity_id(unit, by_entity_id)
+        let Some(player_entity_id) = authoritative_player_controller_entity_id(unit, by_entity_id)
         else {
             continue;
         };
@@ -125,7 +124,11 @@ mod tests {
     };
     use std::collections::BTreeMap;
 
-    fn player(entity_id: i32, unit_value: u32, last_seen_entity_snapshot_count: u64) -> TypedRuntimeEntityModel {
+    fn player(
+        entity_id: i32,
+        unit_value: u32,
+        last_seen_entity_snapshot_count: u64,
+    ) -> TypedRuntimeEntityModel {
         TypedRuntimeEntityModel::Player(TypedRuntimePlayerEntity {
             base: TypedRuntimeEntityBase {
                 entity_id,
@@ -196,7 +199,10 @@ mod tests {
             resolution.unit_owner_player_by_unit_entity_id.get(&202),
             Some(&101)
         );
-        assert_eq!(resolution.player_owned_unit_by_player_entity_id.get(&102), None);
+        assert_eq!(
+            resolution.player_owned_unit_by_player_entity_id.get(&102),
+            None
+        );
         assert_eq!(resolution.ownership_conflict_count, 0);
         assert!(resolution.ownership_conflict_unit_sample.is_empty());
     }

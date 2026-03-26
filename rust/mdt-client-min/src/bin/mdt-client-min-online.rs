@@ -637,8 +637,7 @@ impl ReconnectExecutorState {
             ReconnectAttemptIntent::Timeout { kind } => {
                 self.pending_timeout_reconnect = Some(PendingTimeoutReconnect {
                     kind: *kind,
-                    reconnect_at_ms: now_ms
-                        .saturating_add(TIMEOUT_RECONNECT_RETRY_BACKOFF_MS),
+                    reconnect_at_ms: now_ms.saturating_add(TIMEOUT_RECONNECT_RETRY_BACKOFF_MS),
                 });
             }
         }
@@ -5054,7 +5053,9 @@ fn builder_queue_tile_state_observation(
     let y = usize::try_from(y).ok()?;
     let tile = graph.tile(x, y)?;
     let building = live_building_state_at_tile(session, tile.x as i32, tile.y as i32);
-    let rotation = building.as_ref().and_then(|building| building.projection.rotation);
+    let rotation = building
+        .as_ref()
+        .and_then(|building| building.projection.rotation);
     Some(BuilderQueueTileStateObservation {
         x: tile.x as i32,
         y: tile.y as i32,
@@ -5120,10 +5121,8 @@ fn builder_queue_activity_observation(
     let x = usize::try_from(entry.x).ok()?;
     let y = usize::try_from(entry.y).ok()?;
     graph.tile(x, y)?;
-    let tile_block_id =
-        live_building_state_at_tile(session, entry.x, entry.y).and_then(|building| {
-            building.projection.block_id
-        });
+    let tile_block_id = live_building_state_at_tile(session, entry.x, entry.y)
+        .and_then(|building| building.projection.block_id);
     let distance_sq = origin_tile
         .map(|origin| u64::from(tile_distance_sq(origin, x, y)))
         .unwrap_or(0);
@@ -5213,9 +5212,9 @@ fn select_place_near_player_tile(
     world: &LoadedWorldState<'_>,
     origin_tile: (i32, i32),
 ) -> Option<(i32, i32)> {
-    select_place_near_player_tile_with_visibility(session, world, origin_tile, true).or_else(
-        || select_place_near_player_tile_with_visibility(session, world, origin_tile, false),
-    )
+    select_place_near_player_tile_with_visibility(session, world, origin_tile, true).or_else(|| {
+        select_place_near_player_tile_with_visibility(session, world, origin_tile, false)
+    })
 }
 
 fn select_place_near_player_tile_with_visibility(
@@ -11759,7 +11758,9 @@ mod tests {
 
         let world = session.loaded_world_state().unwrap();
         let graph = world.graph();
-        let tile = graph.tile(removed_tile.0 as usize, removed_tile.1 as usize).unwrap();
+        let tile = graph
+            .tile(removed_tile.0 as usize, removed_tile.1 as usize)
+            .unwrap();
         assert_eq!(tile.block_id, 0);
         assert!(graph
             .building_center_at(removed_tile.0 as usize, removed_tile.1 as usize)
@@ -11839,7 +11840,9 @@ mod tests {
 
         let world = session.loaded_world_state().unwrap();
         let graph = world.graph();
-        let tile = graph.tile(removed_tile.0 as usize, removed_tile.1 as usize).unwrap();
+        let tile = graph
+            .tile(removed_tile.0 as usize, removed_tile.1 as usize)
+            .unwrap();
         assert_eq!(tile.block_id, 0);
         assert!(graph
             .building_center_at(removed_tile.0 as usize, removed_tile.1 as usize)
@@ -12510,7 +12513,9 @@ mod tests {
             let tile = graph
                 .grid()
                 .iter_tiles()
-                .find(|tile| graph.building_center_at(tile.x, tile.y).is_some() && tile.block_id != 0)
+                .find(|tile| {
+                    graph.building_center_at(tile.x, tile.y).is_some() && tile.block_id != 0
+                })
                 .expect("expected occupied tile with center in sample world");
             let center = graph.building_center_at(tile.x, tile.y).unwrap();
             let live_rotation = (i32::from(center.building.base.rotation) + 1).rem_euclid(4) as u8;
@@ -12585,8 +12590,11 @@ mod tests {
             config: ClientBuildPlanConfig::None,
         }];
         let mut queue_without_runtime = builder_queue_state_machine_from_plans(Some(&plans));
-        let without_runtime =
-            update_builder_queue_activity_from_live_buildings(&mut queue_without_runtime, &session, None);
+        let without_runtime = update_builder_queue_activity_from_live_buildings(
+            &mut queue_without_runtime,
+            &session,
+            None,
+        );
         assert!(!without_runtime.head_in_range);
 
         let player_id = session.state().world_player_id.unwrap();
@@ -12594,7 +12602,10 @@ mod tests {
             .ingest_packet_bytes(
                 &encode_packet(
                     player_spawn_packet_id,
-                    &encode_player_spawn_payload(pack_point2(target_tile.0, target_tile.1), player_id),
+                    &encode_player_spawn_payload(
+                        pack_point2(target_tile.0, target_tile.1),
+                        player_id,
+                    ),
                     false,
                 )
                 .unwrap(),
@@ -12607,8 +12618,11 @@ mod tests {
         );
 
         let mut queue_with_runtime = builder_queue_state_machine_from_plans(Some(&plans));
-        let with_runtime =
-            update_builder_queue_activity_from_live_buildings(&mut queue_with_runtime, &session, None);
+        let with_runtime = update_builder_queue_activity_from_live_buildings(
+            &mut queue_with_runtime,
+            &session,
+            None,
+        );
         assert!(with_runtime.head_in_range);
         assert!(!with_runtime.head_should_skip);
     }
@@ -13409,7 +13423,10 @@ mod tests {
             .ingest_packet_bytes(
                 &encode_packet(
                     player_spawn_packet_id,
-                    &encode_player_spawn_payload(pack_point2(target_tile.0, target_tile.1), player_id),
+                    &encode_player_spawn_payload(
+                        pack_point2(target_tile.0, target_tile.1),
+                        player_id,
+                    ),
                     false,
                 )
                 .unwrap(),
@@ -13650,9 +13667,15 @@ mod tests {
         }];
         let mut state = ReconnectExecutorState::default();
 
-        assert_eq!(state.observe_server_restart_schedule(&events, 100), Some(250));
+        assert_eq!(
+            state.observe_server_restart_schedule(&events, 100),
+            Some(250)
+        );
         assert_eq!(state.next_attempt(&events, 349), None);
-        assert_eq!(state.next_attempt(&events, 350), Some(ReconnectAttemptIntent::Restart));
+        assert_eq!(
+            state.next_attempt(&events, 350),
+            Some(ReconnectAttemptIntent::Restart)
+        );
         assert_eq!(state.next_attempt(&[], 351), None);
     }
 
@@ -13661,22 +13684,14 @@ mod tests {
         let mut state = ReconnectExecutorState::default();
 
         assert_eq!(
-            state.observe_timeout(
-                Some(2_000),
-                Some(SessionTimeoutKind::ConnectOrLoading),
-                10
-            ),
+            state.observe_timeout(Some(2_000), Some(SessionTimeoutKind::ConnectOrLoading), 10),
             Some(PendingTimeoutReconnect {
                 kind: SessionTimeoutKind::ConnectOrLoading,
                 reconnect_at_ms: 10,
             })
         );
         assert_eq!(
-            state.observe_timeout(
-                Some(2_100),
-                Some(SessionTimeoutKind::ConnectOrLoading),
-                11
-            ),
+            state.observe_timeout(Some(2_100), Some(SessionTimeoutKind::ConnectOrLoading), 11),
             None
         );
         assert_eq!(
@@ -13690,11 +13705,7 @@ mod tests {
         };
         state.note_attempt_failure(&timeout_attempt, 10);
         assert_eq!(
-            state.observe_timeout(
-                Some(2_200),
-                Some(SessionTimeoutKind::ConnectOrLoading),
-                11
-            ),
+            state.observe_timeout(Some(2_200), Some(SessionTimeoutKind::ConnectOrLoading), 11),
             None
         );
         assert_eq!(state.next_attempt(&[], 1_009), None);

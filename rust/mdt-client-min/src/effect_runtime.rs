@@ -1,4 +1,4 @@
-use crate::session_state::SessionState;
+use crate::session_state::{EffectRuntimeBindingState, SessionState};
 use mdt_typeio::{TypeIoEffectPositionHint, TypeIoObject, TypeIoSemanticRef};
 
 const EFFECT_PATH_MAX_DEPTH: usize = 3;
@@ -137,6 +137,87 @@ pub fn effect_contract(effect_id: Option<i16>) -> Option<RuntimeEffectContract> 
 
 pub fn effect_contract_name(effect_id: Option<i16>) -> Option<&'static str> {
     effect_contract(effect_id).map(RuntimeEffectContract::name)
+}
+
+pub fn observe_runtime_effect_binding_state(
+    effect_id: Option<i16>,
+    object: Option<&TypeIoObject>,
+    session_state: &SessionState,
+    input_view: &EffectRuntimeInputView,
+) -> Option<EffectRuntimeBindingState> {
+    let object = object?;
+    let summary = object.effect_summary();
+    let parent_ref = summary.first_parent_ref?;
+    match parent_ref.semantic_ref {
+        TypeIoSemanticRef::Building { .. } => (!parent_building_binding_enabled(effect_id))
+            .then_some(EffectRuntimeBindingState::BindingRejected)
+            .or(Some(EffectRuntimeBindingState::ParentFollow)),
+        TypeIoSemanticRef::Unit { unit_id } => {
+            if matches!(
+                effect_contract(effect_id),
+                Some(RuntimeEffectContract::LegDestroy)
+            ) {
+                return Some(EffectRuntimeBindingState::BindingRejected);
+            }
+            if resolve_parent_unit_position(unit_id, session_state, input_view).is_some() {
+                Some(EffectRuntimeBindingState::ParentFollow)
+            } else {
+                Some(EffectRuntimeBindingState::UnresolvedFallback)
+            }
+        }
+        TypeIoSemanticRef::Content { .. } | TypeIoSemanticRef::TechNode { .. } => None,
+    }
+}
+
+pub fn observe_runtime_effect_source_binding_state(
+    effect_id: Option<i16>,
+    object: Option<&TypeIoObject>,
+    session_state: &SessionState,
+    input_view: &EffectRuntimeInputView,
+) -> Option<EffectRuntimeBindingState> {
+    if !source_binding_enabled(effect_id) {
+        return None;
+    }
+
+    let object = object?;
+    let summary = object.effect_summary();
+    let parent_ref = summary.first_parent_ref?;
+    match parent_ref.semantic_ref {
+        TypeIoSemanticRef::Unit { unit_id } => {
+            if resolve_parent_unit_position(unit_id, session_state, input_view).is_some() {
+                Some(EffectRuntimeBindingState::ParentFollow)
+            } else {
+                Some(EffectRuntimeBindingState::UnresolvedFallback)
+            }
+        }
+        TypeIoSemanticRef::Building { .. }
+        | TypeIoSemanticRef::Content { .. }
+        | TypeIoSemanticRef::TechNode { .. } => Some(EffectRuntimeBindingState::BindingRejected),
+    }
+}
+
+pub fn observe_runtime_effect_overlay_binding_state(
+    overlay: &RuntimeEffectOverlay,
+    session_state: &SessionState,
+    input_view: &EffectRuntimeInputView,
+) -> Option<EffectRuntimeBindingState> {
+    observe_runtime_effect_overlay_binding_state_from_binding(
+        overlay.binding.as_ref(),
+        session_state,
+        input_view,
+    )
+}
+
+pub fn observe_runtime_effect_overlay_source_binding_state(
+    overlay: &RuntimeEffectOverlay,
+    session_state: &SessionState,
+    input_view: &EffectRuntimeInputView,
+) -> Option<EffectRuntimeBindingState> {
+    observe_runtime_effect_overlay_binding_state_from_binding(
+        overlay.source_binding.as_ref(),
+        session_state,
+        input_view,
+    )
 }
 
 pub fn spawn_runtime_effect_overlay(
@@ -313,6 +394,26 @@ fn derive_runtime_effect_binding(
         binding: RuntimeEffectBinding::WorldPosition { x_bits, y_bits },
         initial_position_bits: Some((x_bits, y_bits)),
     })
+}
+
+fn observe_runtime_effect_overlay_binding_state_from_binding(
+    binding: Option<&RuntimeEffectBinding>,
+    session_state: &SessionState,
+    input_view: &EffectRuntimeInputView,
+) -> Option<EffectRuntimeBindingState> {
+    match binding {
+        Some(RuntimeEffectBinding::ParentBuilding { .. }) => {
+            Some(EffectRuntimeBindingState::ParentFollow)
+        }
+        Some(RuntimeEffectBinding::ParentUnit { unit_id, .. }) => {
+            if resolve_parent_unit_position(*unit_id, session_state, input_view).is_some() {
+                Some(EffectRuntimeBindingState::ParentFollow)
+            } else {
+                Some(EffectRuntimeBindingState::UnresolvedFallback)
+            }
+        }
+        Some(RuntimeEffectBinding::WorldPosition { .. }) | None => None,
+    }
 }
 
 fn derive_runtime_effect_source_binding(
@@ -930,7 +1031,9 @@ mod tests {
             0.0,
             0,
             false,
-            Some(&TypeIoObject::PackedPoint2Array(vec![(10_i32 << 16) | 20_i32])),
+            Some(&TypeIoObject::PackedPoint2Array(vec![
+                (10_i32 << 16) | 20_i32,
+            ])),
             90,
         );
 
