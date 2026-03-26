@@ -6,11 +6,33 @@ use crate::{
 use mdt_world::{LineMarkerModel, LoadedWorldSession, MarkerEntry, MarkerModel, TeamPlanRef};
 
 const TILE_SIZE: f32 = 8.0;
-const TERRAIN_LAYER: i32 = 0;
-const BLOCK_LAYER: i32 = 10;
-const PLAN_LAYER: i32 = 20;
-const MARKER_LAYER: i32 = 30;
-const PLAYER_LAYER: i32 = 40;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProjectionLayer {
+    Terrain,
+    Block,
+    Plan,
+    Marker,
+    Player,
+}
+
+impl ProjectionLayer {
+    fn value(self) -> i32 {
+        match self {
+            Self::Terrain => 0,
+            Self::Block => 10,
+            Self::Plan => 20,
+            Self::Marker => 30,
+            Self::Player => 40,
+        }
+    }
+}
+
+impl From<ProjectionLayer> for i32 {
+    fn from(layer: ProjectionLayer) -> Self {
+        layer.value()
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SceneVisibility {
@@ -104,7 +126,7 @@ fn project_render_model_with_player_position_visibility(
         let world_y = tile.y as f32 * TILE_SIZE;
         objects.push(RenderObject {
             id: format!("terrain:{}", tile.tile_index),
-            layer: TERRAIN_LAYER,
+            layer: i32::from(ProjectionLayer::Terrain),
             x: world_x,
             y: world_y,
         });
@@ -112,7 +134,7 @@ fn project_render_model_with_player_position_visibility(
         if tile.block_id != 0 {
             objects.push(RenderObject {
                 id: format!("block:{}:{}", tile.tile_index, tile.block_id),
-                layer: BLOCK_LAYER,
+                layer: i32::from(ProjectionLayer::Block),
                 x: world_x,
                 y: world_y,
             });
@@ -147,7 +169,7 @@ fn project_render_model_with_player_position_visibility(
     let (player_x, player_y) = player_position.unwrap_or_else(|| session.state().player_position());
     objects.push(RenderObject {
         id: format!("player:{}", session.player().id),
-        layer: PLAYER_LAYER,
+        layer: i32::from(ProjectionLayer::Player),
         x: player_x,
         y: player_y,
     });
@@ -206,7 +228,7 @@ fn project_render_model_with_view_window_visibility(
             let world_y = tile.y as f32 * TILE_SIZE;
             objects.push(RenderObject {
                 id: format!("terrain:{}", tile.tile_index),
-                layer: TERRAIN_LAYER,
+                layer: i32::from(ProjectionLayer::Terrain),
                 x: world_x,
                 y: world_y,
             });
@@ -214,7 +236,7 @@ fn project_render_model_with_view_window_visibility(
             if tile.block_id != 0 {
                 objects.push(RenderObject {
                     id: format!("block:{}:{}", tile.tile_index, tile.block_id),
-                    layer: BLOCK_LAYER,
+                    layer: i32::from(ProjectionLayer::Block),
                     x: world_x,
                     y: world_y,
                 });
@@ -267,7 +289,7 @@ fn project_render_model_with_view_window_visibility(
 
     objects.push(RenderObject {
         id: format!("player:{}", session.player().id),
-        layer: PLAYER_LAYER,
+        layer: i32::from(ProjectionLayer::Player),
         x: player_x,
         y: player_y,
     });
@@ -472,7 +494,7 @@ fn project_team_plan(plan: TeamPlanRef<'_>) -> RenderObject {
             "plan:build:{}:{}:{}:{}",
             plan.team_id, plan.plan.x, plan.plan.y, plan.plan.block_id
         ),
-        layer: PLAN_LAYER,
+        layer: i32::from(ProjectionLayer::Plan),
         x: plan.plan.x as f32 * TILE_SIZE,
         y: plan.plan.y as f32 * TILE_SIZE,
     }
@@ -490,7 +512,7 @@ fn project_marker_objects(marker: &MarkerEntry) -> Vec<RenderObject> {
             );
         objects.push(RenderObject {
             id: format!("marker:{marker_kind}:{marker_id}"),
-            layer: MARKER_LAYER,
+            layer: i32::from(ProjectionLayer::Marker),
             x,
             y,
         });
@@ -500,7 +522,7 @@ fn project_marker_objects(marker: &MarkerEntry) -> Vec<RenderObject> {
         if marker_world_position(marker) != Some((x, y)) {
             objects.push(RenderObject {
                 id: format!("marker:{marker_kind}:{}:line-end", marker.id),
-                layer: MARKER_LAYER,
+                layer: i32::from(ProjectionLayer::Marker),
                 x,
                 y,
             });
@@ -999,6 +1021,15 @@ mod tests {
 
         assert_eq!(left, (1, 2, 4, 4));
         assert_eq!(left, right);
+    }
+
+    #[test]
+    fn projection_layers_remain_named_and_stable() {
+        assert_eq!(i32::from(super::ProjectionLayer::Terrain), 0);
+        assert_eq!(i32::from(super::ProjectionLayer::Block), 10);
+        assert_eq!(i32::from(super::ProjectionLayer::Plan), 20);
+        assert_eq!(i32::from(super::ProjectionLayer::Marker), 30);
+        assert_eq!(i32::from(super::ProjectionLayer::Player), 40);
     }
 
     fn decode_hex(text: &str) -> Vec<u8> {

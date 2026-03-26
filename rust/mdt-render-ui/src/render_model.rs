@@ -49,6 +49,14 @@ pub enum RenderPrimitive {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenderPrimitiveKind {
+    Line,
+    Text,
+    Rect,
+    Icon,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RenderIconPrimitiveFamily {
     RuntimeEffect,
     RuntimeEffectMarker,
@@ -317,6 +325,15 @@ impl RenderModel {
 }
 
 impl RenderPrimitive {
+    pub fn kind(&self) -> RenderPrimitiveKind {
+        match self {
+            Self::Line { .. } => RenderPrimitiveKind::Line,
+            Self::Text { .. } => RenderPrimitiveKind::Text,
+            Self::Rect { .. } => RenderPrimitiveKind::Rect,
+            Self::Icon { .. } => RenderPrimitiveKind::Icon,
+        }
+    }
+
     pub fn id(&self) -> &str {
         match self {
             Self::Line { id, .. }
@@ -787,7 +804,9 @@ fn render_rect_descriptor(id: &str) -> Option<RectPrimitiveLineDescriptor> {
             matches!(edge, "top" | "right" | "bottom" | "left").then(|| {
                 RectPrimitiveLineDescriptor {
                     family: "runtime-unit-assembler-area".to_string(),
-                    id_prefix: format!("runtime-unit-assembler-area:{block_name}:{tile_x}:{tile_y}"),
+                    id_prefix: format!(
+                        "runtime-unit-assembler-area:{block_name}:{tile_x}:{tile_y}"
+                    ),
                     edge: edge.to_string(),
                 }
             })
@@ -1147,8 +1166,8 @@ mod tests {
     use super::{
         RenderIconPrimitiveFamily, RenderModel, RenderObject, RenderObjectSemanticFamily,
         RenderObjectSemanticKind, RenderPipelineLayerSummary, RenderPipelineSummary,
-        RenderPrimitive, RenderSemanticDetailCount, RenderSemanticSummary, RenderViewWindow,
-        Viewport,
+        RenderPrimitive, RenderPrimitiveKind, RenderSemanticDetailCount, RenderSemanticSummary,
+        RenderViewWindow, Viewport,
     };
 
     #[test]
@@ -1410,6 +1429,60 @@ mod tests {
         assert_eq!(
             runtime_unit.semantic_family(),
             RenderObjectSemanticFamily::Runtime
+        );
+    }
+
+    #[test]
+    fn render_primitives_expose_a_stable_kind() {
+        assert_eq!(
+            RenderPrimitive::Line {
+                id: "marker:line:1".to_string(),
+                layer: 1,
+                x0: 0.0,
+                y0: 0.0,
+                x1: 1.0,
+                y1: 1.0,
+            }
+            .kind(),
+            RenderPrimitiveKind::Line
+        );
+        assert_eq!(
+            RenderPrimitive::Text {
+                id: "marker:text:1:text:61".to_string(),
+                kind: RenderObjectSemanticKind::MarkerText,
+                layer: 1,
+                x: 0.0,
+                y: 0.0,
+                text: "a".to_string(),
+            }
+            .kind(),
+            RenderPrimitiveKind::Text
+        );
+        assert_eq!(
+            RenderPrimitive::Rect {
+                id: "marker:rect:1".to_string(),
+                family: "runtime-command-rect".to_string(),
+                layer: 1,
+                left: 0.0,
+                top: 0.0,
+                right: 1.0,
+                bottom: 1.0,
+                line_ids: vec!["marker:line:1".to_string()],
+            }
+            .kind(),
+            RenderPrimitiveKind::Rect
+        );
+        assert_eq!(
+            RenderPrimitive::Icon {
+                id: "marker:runtime-health:1:2".to_string(),
+                family: RenderIconPrimitiveFamily::RuntimeHealth,
+                variant: "health".to_string(),
+                layer: 1,
+                x: 0.0,
+                y: 0.0,
+            }
+            .kind(),
+            RenderPrimitiveKind::Icon
         );
     }
 
@@ -2484,12 +2557,10 @@ mod tests {
                 line_ids: vec![
                     "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:bottom"
                         .to_string(),
-                    "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:left"
-                        .to_string(),
+                    "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:left".to_string(),
                     "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:right"
                         .to_string(),
-                    "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:top"
-                        .to_string(),
+                    "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:top".to_string(),
                 ],
             }]
         );
