@@ -671,6 +671,7 @@ fn parse_prefixed_hex_u32(text: &str) -> Option<u32> {
 #[derive(Debug, Clone, PartialEq)]
 struct RectPrimitiveCandidate {
     family: String,
+    id_prefix: String,
     layer: i32,
     left: f32,
     top: f32,
@@ -678,6 +679,13 @@ struct RectPrimitiveCandidate {
     bottom: f32,
     line_ids: Vec<String>,
     edges: BTreeSet<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RectPrimitiveLineDescriptor {
+    family: String,
+    id_prefix: String,
+    edge: String,
 }
 
 fn render_rect_primitives(
@@ -693,18 +701,19 @@ fn render_rect_primitives(
         let Some(line_end) = line_end_objects.get(&object.id) else {
             continue;
         };
-        let Some((family, edge)) = render_rect_family_and_edge(&object.id) else {
+        let Some(descriptor) = render_rect_descriptor(&object.id) else {
             continue;
         };
         let left = object.x.min(line_end.x);
         let top = object.y.min(line_end.y);
         let right = object.x.max(line_end.x);
         let bottom = object.y.max(line_end.y);
-        let key = (family.to_string(), object.layer);
+        let key = (descriptor.id_prefix.clone(), object.layer);
         let candidate = candidates
             .entry(key)
             .or_insert_with(|| RectPrimitiveCandidate {
-                family: family.to_string(),
+                family: descriptor.family.clone(),
+                id_prefix: descriptor.id_prefix.clone(),
                 layer: object.layer,
                 left,
                 top,
@@ -718,7 +727,7 @@ fn render_rect_primitives(
         candidate.right = candidate.right.max(right);
         candidate.bottom = candidate.bottom.max(bottom);
         candidate.line_ids.push(object.id.clone());
-        candidate.edges.insert(edge.to_string());
+        candidate.edges.insert(descriptor.edge);
     }
 
     candidates
@@ -736,7 +745,7 @@ fn render_rect_primitives(
             RenderPrimitive::Rect {
                 id: format!(
                     "marker:rect:{}:{}:{}:{}:{}",
-                    candidate.family,
+                    candidate.id_prefix,
                     candidate.left.to_bits(),
                     candidate.top.to_bits(),
                     candidate.right.to_bits(),
@@ -754,15 +763,35 @@ fn render_rect_primitives(
         .collect()
 }
 
-fn render_rect_family_and_edge(id: &str) -> Option<(&str, &str)> {
+fn render_rect_descriptor(id: &str) -> Option<RectPrimitiveLineDescriptor> {
     let mut parts = id.strip_prefix("marker:line:")?.split(':');
     let family = parts.next()?;
-    let edge = parts.next()?;
-        match (family, edge) {
-        (
-            "runtime-command-rect" | "runtime-command-target-rect" | "runtime-break-rect",
-            "top" | "right" | "bottom" | "left",
-        ) => Some((family, edge)),
+    match family {
+        "runtime-command-rect" | "runtime-command-target-rect" | "runtime-break-rect" => {
+            let edge = parts.next()?;
+            matches!(edge, "top" | "right" | "bottom" | "left").then(|| {
+                RectPrimitiveLineDescriptor {
+                    family: family.to_string(),
+                    id_prefix: family.to_string(),
+                    edge: edge.to_string(),
+                }
+            })
+        }
+        "runtime-unit-assembler-area" => {
+            let block_name = parts.next()?;
+            let tile_x = parts.next()?;
+            let tile_y = parts.next()?;
+            let edge = parts.next()?;
+            tile_x.parse::<i32>().ok()?;
+            tile_y.parse::<i32>().ok()?;
+            matches!(edge, "top" | "right" | "bottom" | "left").then(|| {
+                RectPrimitiveLineDescriptor {
+                    family: "runtime-unit-assembler-area".to_string(),
+                    id_prefix: format!("runtime-unit-assembler-area:{block_name}:{tile_x}:{tile_y}"),
+                    edge: edge.to_string(),
+                }
+            })
+        }
         _ => None,
     }
 }
@@ -2366,6 +2395,101 @@ mod tests {
                         40.0f32.to_bits(),
                         40.0f32.to_bits()
                     ),
+                ],
+            }]
+        );
+    }
+
+    #[test]
+    fn render_model_derives_rect_primitives_from_runtime_unit_assembler_area_line_families() {
+        let scene = RenderModel {
+            viewport: Viewport::default(),
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:top"
+                        .to_string(),
+                    layer: 15,
+                    x: 216.0,
+                    y: 280.0,
+                },
+                RenderObject {
+                    id: "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:top:line-end"
+                        .to_string(),
+                    layer: 15,
+                    x: 256.0,
+                    y: 280.0,
+                },
+                RenderObject {
+                    id: "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:right"
+                        .to_string(),
+                    layer: 15,
+                    x: 256.0,
+                    y: 280.0,
+                },
+                RenderObject {
+                    id: "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:right:line-end"
+                        .to_string(),
+                    layer: 15,
+                    x: 256.0,
+                    y: 320.0,
+                },
+                RenderObject {
+                    id: "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:bottom"
+                        .to_string(),
+                    layer: 15,
+                    x: 256.0,
+                    y: 320.0,
+                },
+                RenderObject {
+                    id: "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:bottom:line-end"
+                        .to_string(),
+                    layer: 15,
+                    x: 216.0,
+                    y: 320.0,
+                },
+                RenderObject {
+                    id: "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:left"
+                        .to_string(),
+                    layer: 15,
+                    x: 216.0,
+                    y: 320.0,
+                },
+                RenderObject {
+                    id: "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:left:line-end"
+                        .to_string(),
+                    layer: 15,
+                    x: 216.0,
+                    y: 280.0,
+                },
+            ],
+        };
+
+        assert_eq!(
+            scene.primitives(),
+            vec![RenderPrimitive::Rect {
+                id: format!(
+                    "marker:rect:runtime-unit-assembler-area:tank-assembler:30:40:{}:{}:{}:{}",
+                    216.0f32.to_bits(),
+                    280.0f32.to_bits(),
+                    256.0f32.to_bits(),
+                    320.0f32.to_bits()
+                ),
+                family: "runtime-unit-assembler-area".to_string(),
+                layer: 15,
+                left: 216.0,
+                top: 280.0,
+                right: 256.0,
+                bottom: 320.0,
+                line_ids: vec![
+                    "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:bottom"
+                        .to_string(),
+                    "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:left"
+                        .to_string(),
+                    "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:right"
+                        .to_string(),
+                    "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:top"
+                        .to_string(),
                 ],
             }]
         );

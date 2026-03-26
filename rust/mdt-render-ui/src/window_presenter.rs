@@ -79,6 +79,7 @@ pub struct WindowMinimapInset {
     pub command_tiles: Vec<(usize, usize)>,
     pub command_rects: Vec<WindowMinimapCommandRect>,
     pub runtime_break_rects: Vec<WindowMinimapBreakRect>,
+    pub unit_assembler_rects: Vec<WindowMinimapUnitAssemblerRect>,
     pub world_label_tiles: Vec<(usize, usize)>,
     pub runtime_overlay_tiles: Vec<WindowMinimapRuntimeOverlayTile>,
 }
@@ -114,6 +115,14 @@ pub enum WindowMinimapCommandRectKind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WindowMinimapBreakRect {
+    pub origin_x: usize,
+    pub origin_y: usize,
+    pub width: usize,
+    pub height: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WindowMinimapUnitAssemblerRect {
     pub origin_x: usize,
     pub origin_y: usize,
     pub width: usize,
@@ -526,6 +535,12 @@ fn compose_window_minimap_inset(
         command_tiles: runtime_command_minimap_tiles(scene, panel.map_width, panel.map_height, 8),
         command_rects: runtime_command_minimap_rects(scene, panel.map_width, panel.map_height, 2),
         runtime_break_rects: runtime_break_minimap_rects(scene, panel.map_width, panel.map_height, 2),
+        unit_assembler_rects: runtime_unit_assembler_minimap_rects(
+            scene,
+            panel.map_width,
+            panel.map_height,
+            4,
+        ),
         world_label_tiles: runtime_world_label_minimap_tiles(scene, panel.map_width, panel.map_height, 8),
         runtime_overlay_tiles: runtime_minimap_overlay_tiles(scene, panel.map_width, panel.map_height, 8),
     })
@@ -800,6 +815,48 @@ fn runtime_break_minimap_rects(
         let height =
             runtime_world_span_to_tile_span(bottom - top, map_height.saturating_sub(origin_y));
         rects.push(WindowMinimapBreakRect {
+            origin_x,
+            origin_y,
+            width,
+            height,
+        });
+        if rects.len() >= max_rects {
+            break;
+        }
+    }
+
+    rects
+}
+
+fn runtime_unit_assembler_minimap_rects(
+    scene: &RenderModel,
+    map_width: usize,
+    map_height: usize,
+    max_rects: usize,
+) -> Vec<WindowMinimapUnitAssemblerRect> {
+    let mut rects = Vec::new();
+
+    for primitive in scene.primitives() {
+        let RenderPrimitive::Rect {
+            family,
+            left,
+            top,
+            right,
+            bottom,
+            ..
+        } = primitive
+        else {
+            continue;
+        };
+        if family != "runtime-unit-assembler-area" {
+            continue;
+        }
+        let origin_x = runtime_world_to_minimap_tile(left, map_width);
+        let origin_y = runtime_world_to_minimap_tile(top, map_height);
+        let width = runtime_world_span_to_tile_span(right - left, map_width.saturating_sub(origin_x));
+        let height =
+            runtime_world_span_to_tile_span(bottom - top, map_height.saturating_sub(origin_y));
+        rects.push(WindowMinimapUnitAssemblerRect {
             origin_x,
             origin_y,
             width,
@@ -4035,6 +4092,20 @@ fn overlay_window_minimap_inset(
             *rect,
         );
     }
+    for rect in &inset.unit_assembler_rects {
+        draw_window_minimap_unit_assembler_rect(
+            pixels,
+            surface_width,
+            surface_height,
+            map_start_x,
+            map_start_y,
+            map_pixel_width,
+            map_pixel_height,
+            inset.map_width,
+            inset.map_height,
+            *rect,
+        );
+    }
     for &unit_assembler_tile in &inset.unit_assembler_tiles {
         draw_window_minimap_unit_assembler(
             pixels,
@@ -4575,6 +4646,47 @@ fn draw_window_minimap_unit_assembler(
     );
 }
 
+fn draw_window_minimap_unit_assembler_rect(
+    pixels: &mut [u32],
+    surface_width: usize,
+    surface_height: usize,
+    map_start_x: usize,
+    map_start_y: usize,
+    map_pixel_width: usize,
+    map_pixel_height: usize,
+    map_width: usize,
+    map_height: usize,
+    rect: WindowMinimapUnitAssemblerRect,
+) {
+    if rect.width == 0 || rect.height == 0 || map_width == 0 || map_height == 0 {
+        return;
+    }
+
+    let rect_x = map_start_x.saturating_add(project_window_minimap_x(
+        rect.origin_x,
+        map_width,
+        map_pixel_width,
+    ));
+    let rect_width = project_window_minimap_span(rect.width, map_width, map_pixel_width);
+    let rect_top = map_height.saturating_sub(rect.origin_y.saturating_add(rect.height));
+    let rect_y = map_start_y.saturating_add(project_window_minimap_y(
+        rect_top,
+        map_height,
+        map_pixel_height,
+    ));
+    let rect_height = project_window_minimap_span(rect.height, map_height, map_pixel_height);
+    draw_window_minimap_outline(
+        pixels,
+        surface_width,
+        surface_height,
+        rect_x,
+        rect_y,
+        rect_width,
+        rect_height,
+        COLOR_ICON_RUNTIME_UNIT_ASSEMBLER,
+    );
+}
+
 fn draw_window_minimap_tile_action(
     pixels: &mut [u32],
     surface_width: usize,
@@ -4980,6 +5092,7 @@ mod tests {
         color_for_object, compose_frame, scale_frame_pixels, window_hud_bar_height,
         window_hud_top_line, BackendSignal, WindowBackend, WindowFrame, WindowMinimapInset,
         WindowMinimapBreakRect, WindowMinimapCommandRect, WindowMinimapCommandRectKind,
+        WindowMinimapUnitAssemblerRect,
         WindowMinimapRuntimeOverlayKind, WindowMinimapRuntimeOverlayTile, WindowPresenter,
         COLOR_BLOCK, COLOR_EMPTY, COLOR_ICON_BUILD_CONFIG, COLOR_ICON_RUNTIME_BREAK,
         COLOR_ICON_RUNTIME_BULLET, COLOR_ICON_RUNTIME_COMMAND, COLOR_ICON_RUNTIME_EFFECT,
@@ -5053,6 +5166,41 @@ mod tests {
             objects.push(RenderObject {
                 id: format!("{line_id}:line-end"),
                 layer: 29,
+                x: target.0,
+                y: target.1,
+            });
+        }
+        objects
+    }
+
+    fn runtime_unit_assembler_area_objects(
+        block_name: &str,
+        tile_x: i32,
+        tile_y: i32,
+        left: f32,
+        top: f32,
+        right: f32,
+        bottom: f32,
+    ) -> Vec<RenderObject> {
+        let mut objects = Vec::new();
+        for (edge, source, target) in [
+            ("top", (left, top), (right, top)),
+            ("right", (right, top), (right, bottom)),
+            ("bottom", (right, bottom), (left, bottom)),
+            ("left", (left, bottom), (left, top)),
+        ] {
+            let line_id = format!(
+                "marker:line:runtime-unit-assembler-area:{block_name}:{tile_x}:{tile_y}:{edge}"
+            );
+            objects.push(RenderObject {
+                id: line_id.clone(),
+                layer: 15,
+                x: source.0,
+                y: source.1,
+            });
+            objects.push(RenderObject {
+                id: format!("{line_id}:line-end"),
+                layer: 15,
                 x: target.0,
                 y: target.1,
             });
@@ -5396,6 +5544,12 @@ mod tests {
                     width: 6,
                     height: 4,
                 }],
+                unit_assembler_rects: vec![WindowMinimapUnitAssemblerRect {
+                    origin_x: 30,
+                    origin_y: 10,
+                    width: 6,
+                    height: 6,
+                }],
                 world_label_tiles: vec![(30, 26)],
                 runtime_overlay_tiles: vec![
                     WindowMinimapRuntimeOverlayTile {
@@ -5557,6 +5711,15 @@ mod tests {
             40.0,
             80.0,
         ));
+        objects.extend(runtime_unit_assembler_area_objects(
+            "tank-assembler",
+            30,
+            40,
+            216.0,
+            280.0,
+            256.0,
+            320.0,
+        ));
         let scene = RenderModel {
             viewport: Viewport {
                 width: 64.0,
@@ -5646,6 +5809,15 @@ mod tests {
                 origin_y: 8,
                 width: 3,
                 height: 2,
+            }]
+        );
+        assert_eq!(
+            inset.unit_assembler_rects,
+            vec![WindowMinimapUnitAssemblerRect {
+                origin_x: 27,
+                origin_y: 35,
+                width: 5,
+                height: 5,
             }]
         );
         assert_eq!(inset.world_label_tiles, vec![(6, 4)]);
