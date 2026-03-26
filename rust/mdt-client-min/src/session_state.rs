@@ -6795,6 +6795,80 @@ mod tests {
     }
 
     #[test]
+    fn session_state_runtime_typed_building_projection_supports_power_node_family() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0006_0009i32;
+        let links = BTreeSet::from([0x0006_000di32, 0x0007_0009i32]);
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            302,
+            Some("power-node".to_string()),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(0x3f80_0000),
+            Some(0x3f20_0000),
+            Some(125),
+            Some(true),
+            Some(TypeIoObject::Null),
+            Some(0x4080_0000),
+            Some(false),
+            Some(0x44),
+            Some(0x12),
+            Some(87),
+            None,
+            None,
+            None,
+        );
+        state
+            .configured_block_projection
+            .apply_power_node_links_full_replace(build_pos, links.clone());
+
+        let expected = expected_typed_runtime_building(
+            build_pos,
+            302,
+            "power-node",
+            TypedBuildingRuntimeKind::PowerNode,
+            TypedBuildingRuntimeValue::Links(links),
+            Vec::new(),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(0x3f80_0000),
+            Some(0x3f20_0000),
+            Some(125),
+            Some(true),
+            Some(0x4080_0000),
+            Some(false),
+            Some(0x44),
+            Some(0x12),
+            Some(87),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            BuildingProjectionUpdateKind::BlockSnapshotHead,
+        );
+
+        assert_eq!(
+            state.typed_runtime_building_at(build_pos),
+            Some(expected.clone())
+        );
+        state.refresh_runtime_typed_building_from_tables(build_pos);
+        assert_eq!(
+            state
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos),
+            Some(&expected)
+        );
+    }
+
+    #[test]
     fn session_state_runtime_typed_building_projection_supports_memory_family() {
         let mut state = SessionState::default();
         let build_pos = 0x0007_0009i32;

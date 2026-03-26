@@ -673,7 +673,11 @@ Use:
     - live authority packets no longer mutate `loaded_world_bundle.world.building_centers[*].building.base`
     - `setTile` / `setTileBlocks` / `constructFinish` no longer fabricate new loaded-world building centers for live-only tiles
     - `entitySnapshot` / loaded-world `blockSnapshot` building parsers now fall back to current `building_table_projection` metadata when the loaded-world center is missing or stale, as long as the needed revision metadata is still available
+    - `ClientSession` now exposes a merged building live view by `build_pos`, joining loaded-world tile/center anchor data with authoritative building/config/runtime projections without mutating baseline centers
+    - online `render_runtime` now routes scene object, build-inspector, and runtime-building HUD summary consumption through that merged live view instead of raw `SessionState.building_table_projection`
+    - online builder queue reconcile/head selection and auto-build candidate selection now also consume the merged live view, so stale loaded-world centers left behind after `removeTile`/rotation updates no longer mislead break/conflict target picks or local place-plan pruning
     - regression tests now pin "projection/live view moves, loaded-world baseline centers stay untouched" for `setTeam` / `setTeams` / `setTile` / `setTileBlocks` / `constructFinish` / `buildHealthUpdate`
+    - regression tests now also pin stale-center read-side cases for online render/build planning (`removeTile` lingering center ignored for conflict/break selection, `setTile` live rotation wins over stale center rotation during builder-head place suppression)
   - Immediate cut:
     - stop live building packets from mutating `loaded_world_bundle.world.building_centers[*].building.base`
     - stop fabricating live-only building centers into loaded-world baseline

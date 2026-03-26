@@ -114,6 +114,10 @@ These are already landed and should not be re-opened as if missing:
 - builder queue local activity/reconcile state-machine semantics are now richer.
   - `update_local_activity()` now reports explicit head-selection outcomes (`HeadInRange`, reorder/fallback/skip/out-of-range/missing cases), and `validate_against_tile_states()` now reports whether reconcile left the queue unchanged, removed a non-head entry, advanced the head, or cleared the queue
   - remaining work is still broader runtime integration and Java-equivalent `BuilderComp` depth, not re-adding this pure state-machine selection/reconcile slice
+- online builder-queue / auto-build read-side now also consumes merged live building view instead of trusting loaded-world center truth.
+  - `ClientSession::building_live_state_at(...)` / `building_live_state_projection(...)` now expose the merged per-tile live view
+  - `mdt-client-min-online` builder queue reconcile/activity and auto-build selection now use that merged view, so `removeTile` stale centers and live `setTile` rotation updates no longer mislead conflict/break target selection or queued place suppression
+  - remaining work is still broader runtime integration and Java-equivalent `BuilderComp` depth, not re-adding this merged-view read-side bridge
 - builder queue now also preserves bounded known progress on same-mode local replacement/progression paths.
   - `BuilderQueueEntry` now carries `progress_permyriad`, `observe_progress(...)` records exact tile+breaking progress with clamp-to-`10_000`, and same-tile replacement / begin / sync paths preserve progress only when the breaking mode still matches
   - remaining work is still broader runtime integration and Java-equivalent `BuilderComp` depth, not re-adding this pure queue-progress state slice
@@ -124,6 +128,7 @@ These are already landed and should not be re-opened as if missing:
   - `BuildingProjection` / `BuildingTableProjection` now include `block_name` and `last_block_name`
   - world baseline, entity building rows, loaded-world extra entry, `constructFinish`, and `deconstructFinish` already wire `block_name` into the building table
   - `render_runtime` build inspector now prefers the typed runtime view sourced from building table + `configured_block_projection`
+  - online `render_runtime` now also has a `ClientSession` path that consumes merged building live view for runtime-building scene objects, build inspector rows, and `runtime_buildings` HUD summary instead of raw building-table rows alone
   - remaining work is deeper live building ownership/runtime parity, not re-adding this field plumbing or inspector bridge
 - `mdt-world` post-load contract validation now cross-checks actual entity chunks against the summary.
   - `SavePostLoadWorldObservation::projection_contract()` no longer accepts only `loadable + skipped == total`; it now re-derives the effective post-load entity summary from `world_entity_chunks` and rejects summary drift
@@ -185,14 +190,17 @@ These are already landed and should not be re-opened as if missing:
 - narrow `effect_id=8` `unitSpirit` executor wiring is now also landed.
   - Rust keeps `effect_id=8` on the existing `position_target` contract, and runtime rendering now emits the effect-specific double-diamond fallback from the captured source/target bits instead of stopping at the target marker alone
   - Rust now also carries a narrow source-follow binding for `effect_id=8` when `data` is a parent `Unit`, so the spawned source point and rendered diamonds move with the parent instead of freezing at the original world source
-  - remaining `U5` work is now parity depth rather than first-pass absence: `rotWithParent` and wider parent-follow families are still open, but `unitSpirit` no longer stops at static-source fallback behavior
+  - remaining `U5` work is now parity depth rather than first-pass absence: wider `position_target` source-follow, stable effect-instance seed parity, and broader parent semantics are still open, but `unitSpirit` no longer stops at static-source fallback behavior
 - narrow `effect_id=9` `itemTransfer` executor wiring is now also landed.
   - Rust keeps `effect_id=9` on the existing `position_target` contract, and runtime rendering now emits a conservative pseudo-seeded double-ring fallback plus marker-position override instead of leaving only a target marker
   - Rust now also carries a narrow source-follow binding for `effect_id=9` when `data` is a parent `Unit`, so the spawned source point and curve/marker geometry move with the parent instead of freezing at the original world source
   - remaining `U5` work for this family is now exact-parity depth rather than total absence: Java-like per-instance lateral offset still needs a stable effect-instance seed equivalent to `e.id`, and wider parent-follow/rotation semantics are still incomplete outside this narrow slice
+- narrow `effect_id=263` `legDestroy` contract/executor wiring is now also landed.
+  - Rust now maps `effect_id=263` to `leg_destroy`, keeps the contract name on the session surface, projects the line target from the second explicit position with fallback to the first explicit position when needed, and renders a dedicated runtime line fallback instead of collapsing to a generic marker
+  - remaining `U5` work for this family is now deeper segment/region geometry and higher-fidelity effect-instance semantics, not re-adding the first `legDestroy` contract/executor slice
 - runtime effect overlay lifetime behavior is no longer fixed to one global `3 tick` decay.
   - `RuntimeEffectOverlay` now carries both `lifetime_ticks` and `remaining_ticks`, and `render_runtime` seeds effect-shaped TTLs for the currently landed runtime families instead of forcing every effect through the same fixed short-lived decay
-  - remaining `E3` work is now narrower: Rust still lacks full `position_target` source-follow parity, `rotWithParent`, `startDelay`, `clip`, and deeper effect-instance parity, but the first lifetime-aware overlay path is already landed
+  - remaining `E3` work is now narrower: Rust still lacks full `position_target` source-follow parity, general building-parent offset follow, clearer binding/fallback observability, and deeper effect-instance parity, but `rotWithParent`, `startDelay`, `clip`, and the first lifetime-aware overlay path are already landed
 - narrow `effect_id=261/262` `chainLightning` / `chainEmp` executor wiring is now also landed.
   - Rust now keeps deterministic segmented chain line overlays for `261/262` on top of the existing `position_target` payload semantics instead of stopping at a single marker/target projection
 - narrow `effect_id=13` `lightning` contract/executor wiring is now also landed.
@@ -272,11 +280,11 @@ Write scope:
 ### U5 `effect` executor / contract table depth
 
 Remaining gap:
-- Rust has bounded runtime overlays, several contract-aware projections, and narrow landed slices for `effect_id=8 -> unitSpirit`, `effect_id=9 -> itemTransfer`, `effect_id=142 -> drop_item`, `effect_id=10 -> point_beam`, `effect_id=11 -> point_hit`, `effect_id=13 -> lightning`, and `effect_id=261/262 -> chainLightning/chainEmp`, but still not Java `Effect`-executor semantics.
+- Rust has bounded runtime overlays, several contract-aware projections, and narrow landed slices for `effect_id=8 -> unitSpirit`, `effect_id=9 -> itemTransfer`, `effect_id=10 -> point_beam`, `effect_id=11 -> point_hit`, `effect_id=13 -> lightning`, `effect_id=142 -> drop_item`, `effect_id=256/257/260 -> shield/parent families`, `effect_id=261/262 -> chainLightning/chainEmp`, and `effect_id=263 -> legDestroy`, but still not Java `Effect`-executor semantics.
 
 Best bounded next slice:
-- add one narrow `effect_id -> contract/executor` family at a time, with `263` `legDestroy` now the clearest next missing family after `8/9/11` landed
-- keep `9` exact parity as a later revisit once Rust carries a stable per-overlay or per-effect-instance seed for the Java lateral-offset look
+- prefer one narrow semantic deepening slice at a time: highest-signal candidates are `binding/fallback` observability, `9` exact-parity seed support, or wider `position_target` source-follow beyond `8/9`
+- do not re-open `263` `legDestroy` as if it were still a missing first-pass family
 - stay above raw packet decode and below full renderer parity
 
 Write scope:

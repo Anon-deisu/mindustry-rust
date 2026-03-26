@@ -38999,6 +38999,44 @@ mod tests {
     }
 
     #[test]
+    fn effect_packet_with_leg_destroy_contract_falls_back_to_first_explicit_position() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "effect" && entry.params.len() == 6)
+            .unwrap()
+            .packet_id;
+        let mut payload = encode_effect_payload(263, 32.5, 48.0, 0.0, 0x11223344);
+        write_typeio_object(
+            &mut payload,
+            &TypeIoObject::ObjectArray(vec![
+                TypeIoObject::Vec2 { x: 40.0, y: 60.0 },
+                TypeIoObject::Null,
+            ]),
+        );
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            session.state().last_effect_contract_name.as_deref(),
+            Some("leg_destroy")
+        );
+        assert_eq!(
+            session.state().last_effect_business_projection,
+            Some(EffectBusinessProjection::PositionTarget {
+                source_x_bits: 32.5f32.to_bits(),
+                source_y_bits: 48.0f32.to_bits(),
+                target_x_bits: 40.0f32.to_bits(),
+                target_y_bits: 60.0f32.to_bits(),
+            })
+        );
+        assert_eq!(session.state().last_effect_business_path, Some(vec![0]));
+    }
+
+    #[test]
     fn effect_packet_with_payload_target_content_contract_accepts_block_payload() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();

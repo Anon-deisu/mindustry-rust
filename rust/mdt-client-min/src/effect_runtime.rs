@@ -920,6 +920,28 @@ mod tests {
     }
 
     #[test]
+    fn effect_runtime_spawn_runtime_effect_overlay_keeps_leg_destroy_unbound_at_packet_origin() {
+        let overlay = spawn_runtime_effect_overlay(
+            Some(263),
+            12.0,
+            20.0,
+            12.0,
+            20.0,
+            0.0,
+            0,
+            false,
+            Some(&TypeIoObject::PackedPoint2Array(vec![(10_i32 << 16) | 20_i32])),
+            90,
+        );
+
+        assert_eq!(overlay.contract_name, Some("leg_destroy"));
+        assert_eq!(overlay.binding, None);
+        assert_eq!(overlay.source_binding, None);
+        assert_eq!(overlay.x_bits, 12.0f32.to_bits());
+        assert_eq!(overlay.y_bits, 20.0f32.to_bits());
+    }
+
+    #[test]
     fn effect_runtime_resolve_runtime_effect_overlay_position_lazily_freezes_parent_building_offset(
     ) {
         let build_pos = (10_i32 << 16) | 20_i32;
