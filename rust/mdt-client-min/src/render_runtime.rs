@@ -4241,6 +4241,23 @@ fn append_runtime_command_mode_overlay_objects(
 ) {
     let command_mode = &snapshot_input.command_mode;
 
+    for &entity_id in &command_mode.selected_units {
+        let Some(entity) = session_state.entity_table_projection.by_entity_id.get(&entity_id) else {
+            continue;
+        };
+        let x = f32::from_bits(entity.x_bits);
+        let y = f32::from_bits(entity.y_bits);
+        if !x.is_finite() || !y.is_finite() {
+            continue;
+        }
+        scene.objects.push(RenderObject {
+            id: format!("marker:runtime-command-selected-unit:{entity_id}"),
+            layer: 29,
+            x,
+            y,
+        });
+    }
+
     for &build_pos in &command_mode.command_buildings {
         let (tile_x, tile_y) = unpack_runtime_point2(build_pos);
         let (x_bits, y_bits) = runtime_world_xy_bits_from_tile_pos(build_pos);
@@ -6331,6 +6348,28 @@ mod tests {
         };
         let mut state = SessionState::default();
         state.entity_table_projection.upsert_entity(
+            11,
+            1,
+            false,
+            0,
+            0,
+            8.0f32.to_bits(),
+            16.0f32.to_bits(),
+            false,
+            1,
+        );
+        state.entity_table_projection.upsert_entity(
+            22,
+            1,
+            false,
+            0,
+            0,
+            24.0f32.to_bits(),
+            32.0f32.to_bits(),
+            false,
+            1,
+        );
+        state.entity_table_projection.upsert_entity(
             808,
             1,
             false,
@@ -6399,6 +6438,14 @@ mod tests {
         assert!(scene
             .objects
             .iter()
+            .any(|object| object.id == "marker:runtime-command-selected-unit:11"));
+        assert!(scene
+            .objects
+            .iter()
+            .any(|object| object.id == "marker:runtime-command-selected-unit:22"));
+        assert!(scene
+            .objects
+            .iter()
             .any(|object| object.id == "marker:runtime-command-building:18:40"));
         assert!(scene.objects.iter().any(|object| {
             object.id
@@ -6446,6 +6493,22 @@ mod tests {
                         24.0f32.to_bits(),
                         16.0f32.to_bits()
                     )
+            )
+        }));
+        assert!(scene.primitives().iter().any(|primitive| {
+            matches!(
+                primitive,
+                mdt_render_ui::render_model::RenderPrimitive::Icon {
+                    family,
+                    variant,
+                    x,
+                    y,
+                    ..
+                } if *family
+                    == mdt_render_ui::render_model::RenderIconPrimitiveFamily::RuntimeCommand
+                    && variant == "selected-unit"
+                    && *x == 8.0
+                    && *y == 16.0
             )
         }));
     }

@@ -473,6 +473,9 @@ fn render_icon_family_and_variant(id: &str) -> Option<(RenderIconPrimitiveFamily
         {
             Some((RenderIconPrimitiveFamily::RuntimeCommand, "building"))
         }
+        ["marker", "runtime-command-selected-unit", value] if value.parse::<i32>().is_ok() => {
+            Some((RenderIconPrimitiveFamily::RuntimeCommand, "selected-unit"))
+        }
         ["marker", "runtime-command-build-target", tile_x, tile_y]
             if tile_x.parse::<i32>().is_ok() && tile_y.parse::<i32>().is_ok() =>
         {
@@ -1815,6 +1818,12 @@ mod tests {
                     y: 120.0,
                 },
                 RenderObject {
+                    id: "marker:runtime-command-selected-unit:22".to_string(),
+                    layer: 29,
+                    x: 24.0,
+                    y: 32.0,
+                },
+                RenderObject {
                     id: "marker:runtime-unit-assembler-progress:tank-assembler:30:40:0x3f400000:2:4:b:9:0:0x40800000".to_string(),
                     layer: 16,
                     x: 240.0,
@@ -1948,6 +1957,14 @@ mod tests {
                     layer: 29,
                     x: 96.0,
                     y: 120.0,
+                },
+                RenderPrimitive::Icon {
+                    id: "marker:runtime-command-selected-unit:22".to_string(),
+                    family: RenderIconPrimitiveFamily::RuntimeCommand,
+                    variant: "selected-unit".to_string(),
+                    layer: 29,
+                    x: 24.0,
+                    y: 32.0,
                 },
                 RenderPrimitive::Icon {
                     id: "marker:runtime-unit-assembler-progress:tank-assembler:30:40:0x3f400000:2:4:b:9:0:0x40800000".to_string(),

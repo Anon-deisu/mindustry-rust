@@ -6497,6 +6497,36 @@ mod tests {
     }
 
     #[test]
+    fn present_once_surfaces_runtime_command_selected_unit_icon_primitive() {
+        let backend = RecordingBackend::default();
+        let mut presenter = WindowPresenter::new(backend);
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 8.0,
+                height: 8.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![RenderObject {
+                id: "marker:runtime-command-selected-unit:22".to_string(),
+                layer: 29,
+                x: 0.0,
+                y: 0.0,
+            }],
+        };
+
+        presenter.present_once(&scene, &HudModel::default()).unwrap();
+
+        let backend = presenter.into_backend();
+        let frame = backend.frames.last().unwrap();
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RENDER-ICON: count=1 runtime-command/selected-unit@29:0:0",
+        );
+        assert_eq!(frame.pixel(0, 0), Some(COLOR_ICON_RUNTIME_COMMAND));
+    }
+
+    #[test]
     fn present_once_surfaces_runtime_effect_marker_icon_primitive() {
         let backend = RecordingBackend::default();
         let mut presenter = WindowPresenter::new(backend);

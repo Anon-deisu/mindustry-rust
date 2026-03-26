@@ -4724,6 +4724,33 @@ mod tests {
     }
 
     #[test]
+    fn ascii_presenter_reports_runtime_command_selected_unit_icon_primitive() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 8.0,
+                height: 8.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![RenderObject {
+                id: "marker:runtime-command-selected-unit:22".to_string(),
+                layer: 29,
+                x: 0.0,
+                y: 0.0,
+            }],
+        };
+        let mut presenter = AsciiScenePresenter::default();
+
+        presenter.present(&scene, &HudModel::default());
+
+        let frame = presenter.last_frame();
+        assert!(frame.contains(
+            "RENDER-ICON: count=1 runtime-command/selected-unit@29:0:0"
+        ));
+        assert_eq!(frame.lines().last(), Some("T"));
+    }
+
+    #[test]
     fn ascii_presenter_reports_runtime_effect_marker_icon_primitive() {
         let scene = RenderModel {
             viewport: Viewport {
