@@ -31,6 +31,11 @@ const ASCII_ICON_BUILD_CONFIG: char = 'C';
 const ASCII_ICON_RUNTIME_HEALTH: char = 'H';
 const ASCII_ICON_RUNTIME_COMMAND: char = 'T';
 const ASCII_ICON_RUNTIME_UNIT_ASSEMBLER: char = 'A';
+const ASCII_ICON_RUNTIME_BREAK: char = 'X';
+const ASCII_ICON_RUNTIME_BULLET: char = 'B';
+const ASCII_ICON_RUNTIME_LOGIC_EXPLOSION: char = 'L';
+const ASCII_ICON_RUNTIME_SOUND_AT: char = 'S';
+const ASCII_ICON_RUNTIME_TILE_ACTION: char = 'W';
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct AsciiScenePresenter {
@@ -601,14 +606,11 @@ fn ascii_primitive_render_command<'a>(
             let left_tile = crate::presenter_view::world_to_tile_index_floor(*left, TILE_SIZE);
             let top_tile = crate::presenter_view::world_to_tile_index_floor(*top, TILE_SIZE);
             let right_tile = crate::presenter_view::world_to_tile_index_floor(*right, TILE_SIZE);
-            let bottom_tile =
-                crate::presenter_view::world_to_tile_index_floor(*bottom, TILE_SIZE);
+            let bottom_tile = crate::presenter_view::world_to_tile_index_floor(*bottom, TILE_SIZE);
             if right_tile < window.origin_x as i32
                 || bottom_tile < window.origin_y as i32
-                || left_tile
-                    >= window.origin_x.saturating_add(window.width) as i32
-                || top_tile
-                    >= window.origin_y.saturating_add(window.height) as i32
+                || left_tile >= window.origin_x.saturating_add(window.width) as i32
+                || top_tile >= window.origin_y.saturating_add(window.height) as i32
             {
                 return None;
             }
@@ -700,7 +702,13 @@ fn draw_ascii_rect_outline(
     bottom_tile: i32,
     sprite: char,
 ) {
-    draw_ascii_line_segment(grid, window, (left_tile, top_tile), (right_tile, top_tile), sprite);
+    draw_ascii_line_segment(
+        grid,
+        window,
+        (left_tile, top_tile),
+        (right_tile, top_tile),
+        sprite,
+    );
     draw_ascii_line_segment(
         grid,
         window,
@@ -724,7 +732,10 @@ fn draw_ascii_rect_outline(
     );
 }
 
-fn compose_render_rect_status_text(scene: &RenderModel, window: PresenterViewWindow) -> Option<String> {
+fn compose_render_rect_status_text(
+    scene: &RenderModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
     let mut rect_primitives = scene
         .primitives()
         .into_iter()
@@ -744,8 +755,7 @@ fn compose_render_rect_status_text(scene: &RenderModel, window: PresenterViewWin
             let left_tile = crate::presenter_view::world_to_tile_index_floor(*left, TILE_SIZE);
             let top_tile = crate::presenter_view::world_to_tile_index_floor(*top, TILE_SIZE);
             let right_tile = crate::presenter_view::world_to_tile_index_floor(*right, TILE_SIZE);
-            let bottom_tile =
-                crate::presenter_view::world_to_tile_index_floor(*bottom, TILE_SIZE);
+            let bottom_tile = crate::presenter_view::world_to_tile_index_floor(*bottom, TILE_SIZE);
             !(right_tile < window.origin_x as i32
                 || bottom_tile < window.origin_y as i32
                 || left_tile >= window.origin_x.saturating_add(window.width) as i32
@@ -768,7 +778,10 @@ fn compose_render_rect_status_text(scene: &RenderModel, window: PresenterViewWin
     Some(parts.join(" "))
 }
 
-fn compose_render_icon_status_text(scene: &RenderModel, window: PresenterViewWindow) -> Option<String> {
+fn compose_render_icon_status_text(
+    scene: &RenderModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
     let mut icon_primitives = scene
         .primitives()
         .into_iter()
@@ -909,6 +922,11 @@ fn ascii_sprite_for_icon(family: RenderIconPrimitiveFamily) -> char {
         | RenderIconPrimitiveFamily::RuntimeUnitAssemblerCommand => {
             ASCII_ICON_RUNTIME_UNIT_ASSEMBLER
         }
+        RenderIconPrimitiveFamily::RuntimeBreak => ASCII_ICON_RUNTIME_BREAK,
+        RenderIconPrimitiveFamily::RuntimeBullet => ASCII_ICON_RUNTIME_BULLET,
+        RenderIconPrimitiveFamily::RuntimeLogicExplosion => ASCII_ICON_RUNTIME_LOGIC_EXPLOSION,
+        RenderIconPrimitiveFamily::RuntimeSoundAt => ASCII_ICON_RUNTIME_SOUND_AT,
+        RenderIconPrimitiveFamily::RuntimeTileAction => ASCII_ICON_RUNTIME_TILE_ACTION,
     }
 }
 
@@ -4427,9 +4445,7 @@ mod tests {
         assert!(frame.contains(
             "RUNTIME-STACK: front=chat prompt=0@none notice=none@none chat=1 groups=1 total=1 tin=404 sender=42"
         ));
-        assert!(frame.contains(
-            "RUNTIME-STACK-DEPTH: prompt=0 notice=0 chat=1 groups=1 total=1"
-        ));
+        assert!(frame.contains("RUNTIME-STACK-DEPTH: prompt=0 notice=0 chat=1 groups=1 total=1"));
         assert!(frame.contains(
             "RUNTIME-STACK-DETAIL: dialog=front:chat groups:1 total:1 prompt=none/menu:0/follow-up:0/input:1 notice=none/hud:0/reliable:0/info:0/warn:0 chat=active:1/server:1/local:2 sender=42"
         ));
@@ -4765,6 +4781,59 @@ mod tests {
             "RENDER-ICON: count=2 runtime-unit-assembler-progress/tank-assembler@16:0:0 runtime-unit-assembler-command/tank-assembler@16:1:0"
         ));
         assert_eq!(frame.lines().last(), Some("AA"));
+    }
+
+    #[test]
+    fn ascii_presenter_reports_runtime_world_event_icon_primitives() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 40.0,
+                height: 8.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: "marker:runtime-break:0:3:4".to_string(),
+                    layer: 14,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-bullet:1:17:4".to_string(),
+                    layer: 28,
+                    x: 8.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-logic-explosion:2:2:0x42800000:1:1:0:1".to_string(),
+                    layer: 28,
+                    x: 16.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-sound-at:3:11".to_string(),
+                    layer: 28,
+                    x: 24.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-auto-door-toggle:4:3:4:1".to_string(),
+                    layer: 28,
+                    x: 32.0,
+                    y: 0.0,
+                },
+            ],
+        };
+        let mut presenter = AsciiScenePresenter::default();
+
+        presenter.present(&scene, &HudModel::default());
+
+        let frame = presenter.last_frame();
+        assert!(frame.contains(
+            "RENDER-ICON: count=5 runtime-break/break@14:0:0 runtime-bullet/bullet@28:1:0"
+        ));
+        assert_eq!(frame.lines().last(), Some("XBLSW"));
     }
 
     #[test]

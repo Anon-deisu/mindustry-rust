@@ -48,6 +48,11 @@ const COLOR_ICON_BUILD_CONFIG: u32 = 0x4FC3F7;
 const COLOR_ICON_RUNTIME_HEALTH: u32 = 0xEF5350;
 const COLOR_ICON_RUNTIME_COMMAND: u32 = 0x4488FF;
 const COLOR_ICON_RUNTIME_UNIT_ASSEMBLER: u32 = 0x81C784;
+const COLOR_ICON_RUNTIME_BREAK: u32 = 0xFF8A65;
+const COLOR_ICON_RUNTIME_BULLET: u32 = 0xFFD54F;
+const COLOR_ICON_RUNTIME_LOGIC_EXPLOSION: u32 = 0xBA68C8;
+const COLOR_ICON_RUNTIME_SOUND_AT: u32 = 0x26C6DA;
+const COLOR_ICON_RUNTIME_TILE_ACTION: u32 = 0x9CCC65;
 const COLOR_WINDOW_HUD_BAR: u32 = 0x091018;
 const COLOR_WINDOW_HUD_TEXT: u32 = 0xE8EEF2;
 const COLOR_MINIMAP_INSET_BORDER: u32 = 0x90A4AE;
@@ -610,8 +615,7 @@ fn window_primitive_render_command<'a>(
             let left_tile = crate::presenter_view::world_to_tile_index_floor(*left, TILE_SIZE);
             let top_tile = crate::presenter_view::world_to_tile_index_floor(*top, TILE_SIZE);
             let right_tile = crate::presenter_view::world_to_tile_index_floor(*right, TILE_SIZE);
-            let bottom_tile =
-                crate::presenter_view::world_to_tile_index_floor(*bottom, TILE_SIZE);
+            let bottom_tile = crate::presenter_view::world_to_tile_index_floor(*bottom, TILE_SIZE);
             if right_tile < window.origin_x as i32
                 || bottom_tile < window.origin_y as i32
                 || left_tile >= window.origin_x.saturating_add(window.width) as i32
@@ -707,7 +711,13 @@ fn draw_window_rect_outline(
     bottom_tile: i32,
     color: u32,
 ) {
-    draw_window_line_segment(tiles, window, (left_tile, top_tile), (right_tile, top_tile), color);
+    draw_window_line_segment(
+        tiles,
+        window,
+        (left_tile, top_tile),
+        (right_tile, top_tile),
+        color,
+    );
     draw_window_line_segment(
         tiles,
         window,
@@ -776,6 +786,11 @@ fn color_for_icon(family: RenderIconPrimitiveFamily) -> u32 {
         | RenderIconPrimitiveFamily::RuntimeUnitAssemblerCommand => {
             COLOR_ICON_RUNTIME_UNIT_ASSEMBLER
         }
+        RenderIconPrimitiveFamily::RuntimeBreak => COLOR_ICON_RUNTIME_BREAK,
+        RenderIconPrimitiveFamily::RuntimeBullet => COLOR_ICON_RUNTIME_BULLET,
+        RenderIconPrimitiveFamily::RuntimeLogicExplosion => COLOR_ICON_RUNTIME_LOGIC_EXPLOSION,
+        RenderIconPrimitiveFamily::RuntimeSoundAt => COLOR_ICON_RUNTIME_SOUND_AT,
+        RenderIconPrimitiveFamily::RuntimeTileAction => COLOR_ICON_RUNTIME_TILE_ACTION,
     }
 }
 
@@ -1150,7 +1165,10 @@ fn compose_frame_overlay_lines(scene: &RenderModel, hud: &HudModel) -> Vec<Strin
     lines
 }
 
-fn compose_render_text_status_text(scene: &RenderModel, window: PresenterViewWindow) -> Option<String> {
+fn compose_render_text_status_text(
+    scene: &RenderModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
     let mut text_primitives = scene
         .primitives()
         .into_iter()
@@ -1197,7 +1215,10 @@ fn compose_render_text_status_text(scene: &RenderModel, window: PresenterViewWin
     Some(parts.join(" "))
 }
 
-fn compose_render_rect_status_text(scene: &RenderModel, window: PresenterViewWindow) -> Option<String> {
+fn compose_render_rect_status_text(
+    scene: &RenderModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
     let mut rect_primitives = scene
         .primitives()
         .into_iter()
@@ -1217,8 +1238,7 @@ fn compose_render_rect_status_text(scene: &RenderModel, window: PresenterViewWin
             let left_tile = crate::presenter_view::world_to_tile_index_floor(*left, TILE_SIZE);
             let top_tile = crate::presenter_view::world_to_tile_index_floor(*top, TILE_SIZE);
             let right_tile = crate::presenter_view::world_to_tile_index_floor(*right, TILE_SIZE);
-            let bottom_tile =
-                crate::presenter_view::world_to_tile_index_floor(*bottom, TILE_SIZE);
+            let bottom_tile = crate::presenter_view::world_to_tile_index_floor(*bottom, TILE_SIZE);
             !(right_tile < window.origin_x as i32
                 || bottom_tile < window.origin_y as i32
                 || left_tile >= window.origin_x.saturating_add(window.width) as i32
@@ -1241,7 +1261,10 @@ fn compose_render_rect_status_text(scene: &RenderModel, window: PresenterViewWin
     Some(parts.join(" "))
 }
 
-fn compose_render_icon_status_text(scene: &RenderModel, window: PresenterViewWindow) -> Option<String> {
+fn compose_render_icon_status_text(
+    scene: &RenderModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
     let mut icon_primitives = scene
         .primitives()
         .into_iter()
@@ -4130,13 +4153,15 @@ fn encode_ppm(frame: &WindowFrame) -> Vec<u8> {
 mod tests {
     use super::{
         color_for_object, compose_frame, scale_frame_pixels, window_hud_bar_height,
-        BackendSignal, WindowBackend, window_hud_top_line, WindowFrame, WindowMinimapInset,
+        window_hud_top_line, BackendSignal, WindowBackend, WindowFrame, WindowMinimapInset,
         WindowPresenter, COLOR_BLOCK, COLOR_EMPTY, COLOR_ICON_BUILD_CONFIG,
-        COLOR_ICON_RUNTIME_COMMAND, COLOR_ICON_RUNTIME_EFFECT, COLOR_ICON_RUNTIME_EFFECT_MARKER,
-        COLOR_ICON_RUNTIME_HEALTH, COLOR_ICON_RUNTIME_UNIT_ASSEMBLER, COLOR_MARKER,
-        COLOR_MINIMAP_INSET_VIEWPORT, COLOR_PLAN, COLOR_PLAYER, COLOR_RUNTIME,
-        COLOR_TERRAIN, COLOR_UNKNOWN, COLOR_WINDOW_HUD_BAR, COLOR_WINDOW_HUD_TEXT,
-        WINDOW_HUD_BAR_PADDING_X, WINDOW_HUD_BAR_PADDING_Y, WINDOW_HUD_FONT_HEIGHT,
+        COLOR_ICON_RUNTIME_BREAK, COLOR_ICON_RUNTIME_BULLET, COLOR_ICON_RUNTIME_COMMAND,
+        COLOR_ICON_RUNTIME_EFFECT, COLOR_ICON_RUNTIME_EFFECT_MARKER, COLOR_ICON_RUNTIME_HEALTH,
+        COLOR_ICON_RUNTIME_LOGIC_EXPLOSION, COLOR_ICON_RUNTIME_SOUND_AT,
+        COLOR_ICON_RUNTIME_TILE_ACTION, COLOR_ICON_RUNTIME_UNIT_ASSEMBLER, COLOR_MARKER,
+        COLOR_MINIMAP_INSET_VIEWPORT, COLOR_PLAN, COLOR_PLAYER, COLOR_RUNTIME, COLOR_TERRAIN,
+        COLOR_UNKNOWN, COLOR_WINDOW_HUD_BAR, COLOR_WINDOW_HUD_TEXT, WINDOW_HUD_BAR_PADDING_X,
+        WINDOW_HUD_BAR_PADDING_Y, WINDOW_HUD_FONT_HEIGHT,
     };
     use crate::{
         hud_model::{
@@ -6393,7 +6418,9 @@ mod tests {
             ],
         };
 
-        presenter.present_once(&scene, &HudModel::default()).unwrap();
+        presenter
+            .present_once(&scene, &HudModel::default())
+            .unwrap();
 
         let backend = presenter.into_backend();
         let frame = backend.frames.last().unwrap();
@@ -6424,7 +6451,9 @@ mod tests {
             }],
         };
 
-        presenter.present_once(&scene, &HudModel::default()).unwrap();
+        presenter
+            .present_once(&scene, &HudModel::default())
+            .unwrap();
 
         let backend = presenter.into_backend();
         let frame = backend.frames.last().unwrap();
@@ -6454,7 +6483,9 @@ mod tests {
             }],
         };
 
-        presenter.present_once(&scene, &HudModel::default()).unwrap();
+        presenter
+            .present_once(&scene, &HudModel::default())
+            .unwrap();
 
         let backend = presenter.into_backend();
         let frame = backend.frames.last().unwrap();
@@ -6484,7 +6515,9 @@ mod tests {
             }],
         };
 
-        presenter.present_once(&scene, &HudModel::default()).unwrap();
+        presenter
+            .present_once(&scene, &HudModel::default())
+            .unwrap();
 
         let backend = presenter.into_backend();
         let frame = backend.frames.last().unwrap();
@@ -6522,7 +6555,9 @@ mod tests {
             ],
         };
 
-        presenter.present_once(&scene, &HudModel::default()).unwrap();
+        presenter
+            .present_once(&scene, &HudModel::default())
+            .unwrap();
 
         let backend = presenter.into_backend();
         let frame = backend.frames.last().unwrap();
@@ -6532,6 +6567,68 @@ mod tests {
         );
         assert_eq!(frame.pixel(0, 0), Some(COLOR_ICON_RUNTIME_UNIT_ASSEMBLER));
         assert_eq!(frame.pixel(1, 0), Some(COLOR_ICON_RUNTIME_UNIT_ASSEMBLER));
+    }
+
+    #[test]
+    fn present_once_surfaces_runtime_world_event_icon_primitives() {
+        let backend = RecordingBackend::default();
+        let mut presenter = WindowPresenter::new(backend);
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 40.0,
+                height: 8.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: "marker:runtime-break:0:3:4".to_string(),
+                    layer: 14,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-bullet:1:17:4".to_string(),
+                    layer: 28,
+                    x: 8.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-logic-explosion:2:2:0x42800000:1:1:0:1".to_string(),
+                    layer: 28,
+                    x: 16.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-sound-at:3:11".to_string(),
+                    layer: 28,
+                    x: 24.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-auto-door-toggle:4:3:4:1".to_string(),
+                    layer: 28,
+                    x: 32.0,
+                    y: 0.0,
+                },
+            ],
+        };
+
+        presenter
+            .present_once(&scene, &HudModel::default())
+            .unwrap();
+
+        let backend = presenter.into_backend();
+        let frame = backend.frames.last().unwrap();
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RENDER-ICON: count=5 runtime-break/break@14:0:0 runtime-bullet/bullet@28:1:0",
+        );
+        assert_eq!(frame.pixel(0, 0), Some(COLOR_ICON_RUNTIME_BREAK));
+        assert_eq!(frame.pixel(1, 0), Some(COLOR_ICON_RUNTIME_BULLET));
+        assert_eq!(frame.pixel(2, 0), Some(COLOR_ICON_RUNTIME_LOGIC_EXPLOSION));
+        assert_eq!(frame.pixel(3, 0), Some(COLOR_ICON_RUNTIME_SOUND_AT));
+        assert_eq!(frame.pixel(4, 0), Some(COLOR_ICON_RUNTIME_TILE_ACTION));
     }
 
     #[test]
@@ -6579,16 +6676,15 @@ mod tests {
             ],
         };
 
-        presenter.present_once(&scene, &HudModel::default()).unwrap();
+        presenter
+            .present_once(&scene, &HudModel::default())
+            .unwrap();
 
         let backend = presenter.into_backend();
         let frame = backend.frames.last().unwrap();
         assert_frame_line_contains(&frame.panel_lines, "RENDER-ICON: count=5");
         assert_frame_line_contains(&frame.panel_lines, "runtime-config/string@30:0:0");
-        assert_frame_line_contains(
-            &frame.panel_lines,
-            "runtime-config-parse-fail/int@31:1:0",
-        );
+        assert_frame_line_contains(&frame.panel_lines, "runtime-config-parse-fail/int@31:1:0");
         assert_eq!(frame.pixel(0, 0), Some(COLOR_ICON_BUILD_CONFIG));
         assert_eq!(frame.pixel(1, 0), Some(COLOR_ICON_BUILD_CONFIG));
         assert_eq!(frame.pixel(2, 0), Some(COLOR_ICON_BUILD_CONFIG));

@@ -62,6 +62,11 @@ pub enum RenderIconPrimitiveFamily {
     RuntimeCommand,
     RuntimeUnitAssemblerProgress,
     RuntimeUnitAssemblerCommand,
+    RuntimeBreak,
+    RuntimeBullet,
+    RuntimeLogicExplosion,
+    RuntimeSoundAt,
+    RuntimeTileAction,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -253,7 +258,9 @@ impl RenderModel {
         let mut primitives = self
             .objects
             .iter()
-            .filter_map(|object| render_primitive_for_object(object, &line_end_objects, &rect_line_ids))
+            .filter_map(|object| {
+                render_primitive_for_object(object, &line_end_objects, &rect_line_ids)
+            })
             .collect::<Vec<_>>();
         primitives.extend(rect_primitives);
         primitives
@@ -343,6 +350,11 @@ impl RenderIconPrimitiveFamily {
             Self::RuntimeCommand => "runtime-command",
             Self::RuntimeUnitAssemblerProgress => "runtime-unit-assembler-progress",
             Self::RuntimeUnitAssemblerCommand => "runtime-unit-assembler-command",
+            Self::RuntimeBreak => "runtime-break",
+            Self::RuntimeBullet => "runtime-bullet",
+            Self::RuntimeLogicExplosion => "runtime-logic-explosion",
+            Self::RuntimeSoundAt => "runtime-sound-at",
+            Self::RuntimeTileAction => "runtime-tile-action",
         }
     }
 }
@@ -419,6 +431,9 @@ fn render_icon_family_and_variant(id: &str) -> Option<(RenderIconPrimitiveFamily
     if let Some(icon) = render_unit_assembler_icon_family_and_variant(id) {
         return Some(icon);
     }
+    if let Some(icon) = render_runtime_world_event_icon_family_and_variant(id) {
+        return Some(icon);
+    }
 
     let segments = id.split(':').collect::<Vec<_>>();
     match segments.as_slice() {
@@ -464,7 +479,8 @@ fn render_icon_family_and_variant(id: &str) -> Option<(RenderIconPrimitiveFamily
             Some((RenderIconPrimitiveFamily::RuntimeCommand, "build-target"))
         }
         ["marker", "runtime-command-position-target", x_bits, y_bits]
-            if parse_prefixed_hex_u32(x_bits).is_some() && parse_prefixed_hex_u32(y_bits).is_some() =>
+            if parse_prefixed_hex_u32(x_bits).is_some()
+                && parse_prefixed_hex_u32(y_bits).is_some() =>
         {
             Some((RenderIconPrimitiveFamily::RuntimeCommand, "position-target"))
         }
@@ -473,39 +489,23 @@ fn render_icon_family_and_variant(id: &str) -> Option<(RenderIconPrimitiveFamily
         {
             Some((RenderIconPrimitiveFamily::RuntimeCommand, "unit-target"))
         }
-        [
-            "marker",
-            "runtime-effect-icon",
-            kind,
-            delivery,
-            effect_id,
-            content_type,
-            content_id,
-            x_bits,
-            y_bits,
-        ] if !kind.is_empty()
-            && matches!(*delivery, "normal" | "reliable")
-            && effect_id.parse::<i16>().is_ok()
-            && content_type.parse::<u8>().is_ok()
-            && content_id.parse::<i16>().is_ok()
-            && parse_prefixed_hex_u32(x_bits).is_some()
-            && parse_prefixed_hex_u32(y_bits).is_some() =>
+        ["marker", "runtime-effect-icon", kind, delivery, effect_id, content_type, content_id, x_bits, y_bits]
+            if !kind.is_empty()
+                && matches!(*delivery, "normal" | "reliable")
+                && effect_id.parse::<i16>().is_ok()
+                && content_type.parse::<u8>().is_ok()
+                && content_id.parse::<i16>().is_ok()
+                && parse_prefixed_hex_u32(x_bits).is_some()
+                && parse_prefixed_hex_u32(y_bits).is_some() =>
         {
             Some((RenderIconPrimitiveFamily::RuntimeEffect, *kind))
         }
-        [
-            "marker",
-            "runtime-build-config-icon",
-            family,
-            tile_x,
-            tile_y,
-            content_type,
-            content_id,
-        ] if !family.is_empty()
-            && tile_x.parse::<i32>().is_ok()
-            && tile_y.parse::<i32>().is_ok()
-            && content_type.parse::<u8>().is_ok()
-            && content_id.parse::<i16>().is_ok() =>
+        ["marker", "runtime-build-config-icon", family, tile_x, tile_y, content_type, content_id]
+            if !family.is_empty()
+                && tile_x.parse::<i32>().is_ok()
+                && tile_y.parse::<i32>().is_ok()
+                && content_type.parse::<u8>().is_ok()
+                && content_id.parse::<i16>().is_ok() =>
         {
             Some((RenderIconPrimitiveFamily::RuntimeBuildConfig, *family))
         }
@@ -542,7 +542,10 @@ fn render_unit_assembler_icon_family_and_variant(
             && parse_prefixed_hex_u32(pay_rotation_bits).is_some()
             && sample_valid
         {
-            return Some((RenderIconPrimitiveFamily::RuntimeUnitAssemblerProgress, block_name));
+            return Some((
+                RenderIconPrimitiveFamily::RuntimeUnitAssemblerProgress,
+                block_name,
+            ));
         }
         return None;
     }
@@ -557,10 +560,96 @@ fn render_unit_assembler_icon_family_and_variant(
                 && parse_prefixed_hex_u32(x_bits).is_some()
                 && parse_prefixed_hex_u32(y_bits).is_some() =>
         {
-            Some((RenderIconPrimitiveFamily::RuntimeUnitAssemblerCommand, *block_name))
+            Some((
+                RenderIconPrimitiveFamily::RuntimeUnitAssemblerCommand,
+                *block_name,
+            ))
         }
         _ => None,
     }
+}
+
+fn render_runtime_world_event_icon_family_and_variant(
+    id: &str,
+) -> Option<(RenderIconPrimitiveFamily, &str)> {
+    if let Some(rest) = id.strip_prefix("marker:runtime-break:") {
+        validate_runtime_icon_integer_fields(rest, 3)?;
+        return Some((RenderIconPrimitiveFamily::RuntimeBreak, "break"));
+    }
+    if let Some(rest) = id.strip_prefix("marker:runtime-bullet:") {
+        validate_runtime_icon_integer_fields(rest, 3)?;
+        return Some((RenderIconPrimitiveFamily::RuntimeBullet, "bullet"));
+    }
+    if let Some(rest) = id.strip_prefix("marker:runtime-sound-at:") {
+        validate_runtime_icon_integer_fields(rest, 2)?;
+        return Some((RenderIconPrimitiveFamily::RuntimeSoundAt, "sound-at"));
+    }
+    if let Some(rest) = id.strip_prefix("marker:runtime-logic-explosion:") {
+        let mut parts = rest.split(':');
+        parts.next()?.parse::<i32>().ok()?;
+        parts.next()?.parse::<i32>().ok()?;
+        parse_prefixed_hex_u32(parts.next()?)?;
+        for _ in 0..4 {
+            parts.next()?.parse::<u8>().ok()?;
+        }
+        if parts.next().is_none() {
+            return Some((
+                RenderIconPrimitiveFamily::RuntimeLogicExplosion,
+                "logic-explosion",
+            ));
+        }
+    }
+    render_runtime_tile_action_icon_variant(id)
+        .map(|variant| (RenderIconPrimitiveFamily::RuntimeTileAction, variant))
+}
+
+fn render_runtime_tile_action_icon_variant(id: &str) -> Option<&'static str> {
+    for (prefix, field_count, variant) in [
+        (
+            "marker:runtime-unit-block-spawn:",
+            3usize,
+            "unit-block-spawn",
+        ),
+        (
+            "marker:runtime-unit-tether-block-spawned:",
+            4usize,
+            "unit-tether-block-spawned",
+        ),
+        (
+            "marker:runtime-auto-door-toggle:",
+            4usize,
+            "auto-door-toggle",
+        ),
+        (
+            "marker:runtime-landing-pad-landed:",
+            3usize,
+            "landing-pad-landed",
+        ),
+        (
+            "marker:runtime-assembler-drone-spawned:",
+            4usize,
+            "assembler-drone-spawned",
+        ),
+        (
+            "marker:runtime-assembler-unit-spawned:",
+            3usize,
+            "assembler-unit-spawned",
+        ),
+    ] {
+        if let Some(rest) = id.strip_prefix(prefix) {
+            validate_runtime_icon_integer_fields(rest, field_count)?;
+            return Some(variant);
+        }
+    }
+    None
+}
+
+fn validate_runtime_icon_integer_fields(rest: &str, field_count: usize) -> Option<()> {
+    let mut parts = rest.split(':');
+    for _ in 0..field_count {
+        parts.next()?.parse::<i32>().ok()?;
+    }
+    parts.next().is_none().then_some(())
 }
 
 fn parse_prefixed_hex_u32(text: &str) -> Option<u32> {
@@ -600,16 +689,18 @@ fn render_rect_primitives(
         let right = object.x.max(line_end.x);
         let bottom = object.y.max(line_end.y);
         let key = (family.to_string(), object.layer);
-        let candidate = candidates.entry(key).or_insert_with(|| RectPrimitiveCandidate {
-            family: family.to_string(),
-            layer: object.layer,
-            left,
-            top,
-            right,
-            bottom,
-            line_ids: Vec::new(),
-            edges: BTreeSet::new(),
-        });
+        let candidate = candidates
+            .entry(key)
+            .or_insert_with(|| RectPrimitiveCandidate {
+                family: family.to_string(),
+                layer: object.layer,
+                left,
+                top,
+                right,
+                bottom,
+                line_ids: Vec::new(),
+                edges: BTreeSet::new(),
+            });
         candidate.left = candidate.left.min(left);
         candidate.top = candidate.top.min(top);
         candidate.right = candidate.right.max(right);
@@ -656,9 +747,10 @@ fn render_rect_family_and_edge(id: &str) -> Option<(&str, &str)> {
     let family = parts.next()?;
     let edge = parts.next()?;
     match (family, edge) {
-        ("runtime-command-rect" | "runtime-command-target-rect", "top" | "right" | "bottom" | "left") => {
-            Some((family, edge))
-        }
+        (
+            "runtime-command-rect" | "runtime-command-target-rect",
+            "top" | "right" | "bottom" | "left",
+        ) => Some((family, edge)),
         _ => None,
     }
 }
@@ -1735,6 +1827,36 @@ mod tests {
                     y: 60.0,
                 },
                 RenderObject {
+                    id: "marker:runtime-break:0:3:4".to_string(),
+                    layer: 14,
+                    x: 24.0,
+                    y: 32.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-bullet:1:17:4".to_string(),
+                    layer: 28,
+                    x: 48.0,
+                    y: 56.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-logic-explosion:2:2:0x42800000:1:1:0:1".to_string(),
+                    layer: 28,
+                    x: 64.0,
+                    y: 72.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-sound-at:3:11".to_string(),
+                    layer: 28,
+                    x: 80.0,
+                    y: 88.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-auto-door-toggle:4:3:4:1".to_string(),
+                    layer: 28,
+                    x: 96.0,
+                    y: 104.0,
+                },
+                RenderObject {
                     id: "marker:runtime-effect-icon:content-icon:normal:bad".to_string(),
                     layer: 33,
                     x: 0.0,
@@ -1842,6 +1964,46 @@ mod tests {
                     layer: 16,
                     x: 40.0,
                     y: 60.0,
+                },
+                RenderPrimitive::Icon {
+                    id: "marker:runtime-break:0:3:4".to_string(),
+                    family: RenderIconPrimitiveFamily::RuntimeBreak,
+                    variant: "break".to_string(),
+                    layer: 14,
+                    x: 24.0,
+                    y: 32.0,
+                },
+                RenderPrimitive::Icon {
+                    id: "marker:runtime-bullet:1:17:4".to_string(),
+                    family: RenderIconPrimitiveFamily::RuntimeBullet,
+                    variant: "bullet".to_string(),
+                    layer: 28,
+                    x: 48.0,
+                    y: 56.0,
+                },
+                RenderPrimitive::Icon {
+                    id: "marker:runtime-logic-explosion:2:2:0x42800000:1:1:0:1".to_string(),
+                    family: RenderIconPrimitiveFamily::RuntimeLogicExplosion,
+                    variant: "logic-explosion".to_string(),
+                    layer: 28,
+                    x: 64.0,
+                    y: 72.0,
+                },
+                RenderPrimitive::Icon {
+                    id: "marker:runtime-sound-at:3:11".to_string(),
+                    family: RenderIconPrimitiveFamily::RuntimeSoundAt,
+                    variant: "sound-at".to_string(),
+                    layer: 28,
+                    x: 80.0,
+                    y: 88.0,
+                },
+                RenderPrimitive::Icon {
+                    id: "marker:runtime-auto-door-toggle:4:3:4:1".to_string(),
+                    family: RenderIconPrimitiveFamily::RuntimeTileAction,
+                    variant: "auto-door-toggle".to_string(),
+                    layer: 28,
+                    x: 96.0,
+                    y: 104.0,
                 },
             ]
         );
