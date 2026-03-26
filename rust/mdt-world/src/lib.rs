@@ -40858,7 +40858,7 @@ mod tests {
         chunk
     }
 
-    fn encode_modern_liquid_building_chunk(entries: &[(u16, u32)]) -> Vec<u8> {
+    fn encode_modern_power_building_chunk(links: &[i32], status_bits: u32) -> Vec<u8> {
         let mut chunk = Vec::new();
         chunk.push(2);
         chunk.extend_from_slice(&1.0f32.to_bits().to_be_bytes());
@@ -40866,12 +40866,12 @@ mod tests {
         chunk.push(1);
         chunk.push(3);
         chunk.push(1);
-        chunk.push(12);
-        chunk.extend_from_slice(&(entries.len() as u16).to_be_bytes());
-        for (liquid_id, amount_bits) in entries {
-            chunk.extend_from_slice(&liquid_id.to_be_bytes());
-            chunk.extend_from_slice(&amount_bits.to_be_bytes());
+        chunk.push(2);
+        chunk.extend_from_slice(&(links.len() as u16).to_be_bytes());
+        for link in links {
+            chunk.extend_from_slice(&link.to_be_bytes());
         }
+        chunk.extend_from_slice(&status_bits.to_be_bytes());
         chunk.push(0x80);
         chunk.push(0x40);
         chunk
@@ -40998,32 +40998,21 @@ mod tests {
     }
 
     #[test]
-    fn parses_liquid_building_snapshots_from_world_chunks() {
-        let chunk = encode_modern_liquid_building_chunk(&[
-            (3, 0x3f800000),
-            (7, 0x40000000),
-        ]);
-        let expected_liquid_module = BuildingLiquidModuleSnapshot {
-            count: 2,
-            entries: vec![
-                BuildingLiquidEntry {
-                    liquid_id: 3,
-                    amount_bits: 0x3f800000,
-                },
-                BuildingLiquidEntry {
-                    liquid_id: 7,
-                    amount_bits: 0x40000000,
-                },
-            ],
+    fn parses_power_building_snapshots_from_world_chunks() {
+        let chunk = encode_modern_power_building_chunk(&[3, 7], 0x0506_0708);
+        let expected_power_module = BuildingPowerModuleSnapshot {
+            link_count: 2,
+            links: vec![3, 7],
+            status_bits: 0x0506_0708,
         };
 
-        for block_name in ["liquid-router", "liquid-junction", "liquid-container", "liquid-tank"] {
+        for block_name in ["power-node", "power-node-large", "surge-tower", "beam-link"] {
             let snapshot = parse_building_snapshot(&[], Some(block_name), &chunk).unwrap();
             assert_eq!(snapshot.revision, 2);
             assert_eq!(snapshot.base.save_version, Some(3));
             assert_eq!(snapshot.base.enabled, Some(true));
-            assert_eq!(snapshot.base.module_bitmask, Some(12));
-            assert_eq!(snapshot.base.liquid_module, Some(expected_liquid_module.clone()));
+            assert_eq!(snapshot.base.module_bitmask, Some(2));
+            assert_eq!(snapshot.base.power_module, Some(expected_power_module.clone()));
             assert_eq!(snapshot.base.efficiency, Some(128));
             assert_eq!(snapshot.base.optional_efficiency, Some(64));
             assert_eq!(snapshot.tail_bytes, Vec::<u8>::new());
