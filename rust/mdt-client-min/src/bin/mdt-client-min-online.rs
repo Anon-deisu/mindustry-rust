@@ -1403,6 +1403,11 @@ enum OutboundAction {
         text_input_id: i32,
         text: Option<String>,
     },
+    PingLocation {
+        x: f32,
+        y: f32,
+        text: Option<String>,
+    },
     ClientPacket {
         packet_type: String,
         contents: String,
@@ -2383,6 +2388,14 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
                     text,
                 });
             }
+            "--action-ping-location" => {
+                i += 1;
+                let value = args
+                    .get(i)
+                    .ok_or("missing value for --action-ping-location")?;
+                let (x, y, text) = parse_action_ping_location_arg(value)?;
+                outbound_actions.push(OutboundAction::PingLocation { x, y, text });
+            }
             "--action-client-packet" => {
                 i += 1;
                 let value = args
@@ -2564,6 +2577,10 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
 fn usage() -> String {
     String::from(
         "Usage: mdt-client-min-online --manifest <path> (--server <host:port> | --discover-host <host> [--discover-host <host> ...] [--discover-port <port>] [--discover-timeout-ms <ms>]) [--connect-hex <path> | --name <name> --uuid <base64> --usid <base64> --build <build> --version-type <type> --mobile --color-rgba <rgba> --mod <name:version> ...] [--locale <locale>] [--duration-ms <ms>] [--tick-ms <ms>] [--max-recv-packets <n>] [--snapshot-interval-ms <ms>] [--aim-x <f32> --aim-y <f32>] [--mine-tile <x:y>] [--snapshot-boosting|--snapshot-no-boosting] [--snapshot-shooting|--snapshot-no-shooting] [--snapshot-chatting|--snapshot-no-chatting] [--snapshot-building|--snapshot-no-building] [--view-size <w:h>] [--move-step-x <f32> --move-step-y <f32>] [--intent-snapshot <moveX:moveY:aimX:aimY:actions[:mineX,mineY|none][:building|no-building|true|false]> ...] [--intent-live-sampling|--intent-edge-mapped] [--intent-delay-ms <ms>] [--intent-spacing-ms <ms>] [--command-mode-bind-group <index@unitId[,unitId...]> ...] [--command-mode-recall-group <index> ...] [--command-mode-clear-group <index> ...] [--command-mode-select-units <unitId[,unitId...]|none> ...] [--command-mode-select-building <buildPos|none> ...] [--command-mode-rect <x0:y0:x1:y1|none> ...] [--command-mode-target <buildPos|none@unitTarget@x:y|none> ...] [--command-mode-set-command <unitId[,unitId...]|none@commandId|none> ...] [--command-mode-set-stance <unitId[,unitId...]|none@stanceId|none@enable> ...] [--plan-place <x:y:block[:rotation][;config]> ...] [--plan-break <x:y> ...] [--plan-place-relative <dx:dy:block[:rotation][;config]> ...] [--plan-break-relative <dx:dy> ...] config=<none|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|point2=<x:y>|point2-array=<x:y[,x:y...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|double=<f64>|building-pos=<i32>|laccess=<i16>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|vec2-array=<x:y[,x:y...]>|vec2=<x:y>|team=<u8>|int-array=<i32[,i32...]>|object-array=<value[|value...]>|unit-command=<u16>> [--plan-rotate <x:y:dir> ...] [--plan-flip-x <x:y> ...] [--plan-flip-y <x:y> ...] [--plan-edit-loop] [--plan-edit-delay-ms <ms>] [--plan-edit-spacing-ms <ms>] [--plan-break-near-player] [--plan-place-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--plan-place-conflict-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--render-ascii-on-world-ready] [--print-client-packets] [--watch-client-packet <type> ...] [--watch-client-binary-packet <type> ...] [--watch-client-logic-data <channel> ...] [--consume-client-packet <type@semantic> ...] [--consume-client-binary-packet <type@semantic> ...] [--consume-client-logic-data <channel@semantic> ...] [--hook-client-packet <type@semantic@action> ...] [--hook-client-binary-packet <type@semantic@action> ...] [--hook-client-logic-data <channel@semantic@action> ...] [--relay-client-packet <inbound@outbound@reliable|unreliable> ...] [--relay-client-binary-packet <inbound@outbound@reliable|unreliable> ...] [--relay-client-logic-data <inbound@outbound@reliable|unreliable> ...] semantic=<server-message|chat-message|hud-text|announce|clipboard|open-uri|world-pos|build-pos|unit-id|team|bool|number> action=<building-control-select|request-build-payload|clear-items|clear-liquids|transfer-inventory|tile-tap|unit-control|request-unit-payload|request-drop-payload> [--render-window-live] [--dump-world-stream-hex <path>] [--chat-delay-ms <ms>] [--chat-spacing-ms <ms>] [--chat-message <text> ...] [--action-delay-ms <ms>] [--action-spacing-ms <ms>] [--action-request-item <buildPos|none:itemId|none:amount> ...] [--action-request-unit-payload <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-clear ...] [--action-unit-control <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-building-control-select <none|unit:<id>|block:<pos>|<id>@buildPos|none> ...] [--action-building-control-select <buildPos|none> ...] [--action-clear-items <buildPos|none> ...] [--action-clear-liquids <buildPos|none> ...] [--action-transfer-inventory <buildPos|none> ...] [--action-request-build-payload <buildPos|none> ...] [--action-request-drop-payload <x:y> ...] [--action-rotate-block <buildPos|none:direction> ...] [--action-drop-item <angle> ...] [--action-tile-config <buildPos|none:value> ...] [--action-tile-tap <tilePos|none> ...] [--action-delete-plans <x:y[,x:y...]|none> ...] [--action-command-building <x:y[,x:y...]|none@x:y> ...] [--action-command-units <unitId[,unitId...]|none@buildPos@unitTarget@x:y@queueCommand[@finalBatch]> ...] [--action-set-unit-command <unitId[,unitId...]|none@commandId|none> ...] [--action-set-unit-stance <unitId[,unitId...]|none@stanceId|none@enable> ...] [--action-begin-break <none|unit:<id>|block:<pos>|<id>@teamId@x:y> ...] [--action-begin-place <none|unit:<id>|block:<pos>|<id>@blockId|none@teamId@x:y@rotation@value> ...] [--action-menu-choose <menuId@option> ...] [--action-text-input-result <textInputId@text|none> ...] [--action-client-packet <type@contents@reliable|unreliable> ...] [--action-client-binary-packet <type@hex@reliable|unreliable> ...] [--action-client-logic-data <channel@value@reliable|unreliable> ...] value=<null|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|point2=<x:y>|point2-array=<x:y[,x:y...]>|double=<f64>|building-pos=<i32>|laccess=<i16>|vec2=<x:y>|vec2-array=<x:y[,x:y...]>|team=<u8>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|int-array=<i32[,i32...]>|object-array=<value>|unit-command=<u16>|...>",
+    )
+    .replace(
+        "[--action-text-input-result <textInputId@text|none> ...] [--action-client-packet",
+        "[--action-text-input-result <textInputId@text|none> ...] [--action-ping-location <x:y@text|none> ...] [--action-client-packet",
     )
 }
 
@@ -3739,6 +3756,18 @@ fn parse_action_text_input_result_arg(value: &str) -> Result<(i32, Option<String
     Ok((
         parse_i32_arg("--action-text-input-result textInputId", text_input_id)?,
         parse_optional_text_token("--action-text-input-result text", text)?,
+    ))
+}
+
+fn parse_action_ping_location_arg(value: &str) -> Result<(f32, f32, Option<String>), String> {
+    let Some((position, text)) = value.split_once('@') else {
+        return Err("invalid --action-ping-location, expected <x:y@text|none>".to_string());
+    };
+    let (x, y) = parse_f32_pair_colon_arg("--action-ping-location position", position)?;
+    Ok((
+        x,
+        y,
+        parse_optional_text_token("--action-ping-location text", text)?,
     ))
 }
 
@@ -5650,7 +5679,8 @@ fn maybe_capture_live_transient_outbound_action(
         | OutboundAction::SetUnitCommand { .. }
         | OutboundAction::SetUnitStance { .. }
         | OutboundAction::MenuChoose { .. }
-        | OutboundAction::TextInputResult { .. } => {
+        | OutboundAction::TextInputResult { .. }
+        | OutboundAction::PingLocation { .. } => {
             push_live_interact_transient_snapshot(live_intent_mapper, now_ms, snapshot);
         }
         OutboundAction::ClientPacket { .. }
@@ -7086,6 +7116,9 @@ fn queue_outbound_action_inner(
         } => {
             session.queue_text_input_result(*text_input_id, text.as_deref())?;
         }
+        OutboundAction::PingLocation { x, y, text } => {
+            session.queue_ping_location(*x, *y, text.as_deref())?;
+        }
         OutboundAction::ClientPacket {
             packet_type,
             contents,
@@ -7657,6 +7690,7 @@ mod tests {
         assert!(text.contains("--action-begin-place <none|unit:<id>|block:<pos>|<id>@blockId|none@teamId@x:y@rotation@value>"));
         assert!(text.contains("--action-menu-choose <menuId@option>"));
         assert!(text.contains("--action-text-input-result <textInputId@text|none>"));
+        assert!(text.contains("--action-ping-location <x:y@text|none>"));
         assert!(text.contains("--action-client-packet <type@contents@reliable|unreliable>"));
         assert!(text.contains("--action-client-binary-packet <type@hex@reliable|unreliable>"));
         assert!(text.contains("--action-client-logic-data <channel@value@reliable|unreliable>"));
@@ -8786,6 +8820,36 @@ mod tests {
             .expect("invalid text-input-result format should fail");
 
         assert!(error.contains("invalid --action-text-input-result"));
+    }
+
+    #[test]
+    fn parse_args_accepts_action_ping_location_flag() {
+        let args = parse_args(sample_args(&[
+            "--action-ping-location",
+            "12.5:-3.25@watch here",
+        ]))
+        .unwrap();
+
+        assert_eq!(
+            args.outbound_action_schedule,
+            vec![ScheduledOutboundAction {
+                not_before_ms: 1_000,
+                action: OutboundAction::PingLocation {
+                    x: 12.5,
+                    y: -3.25,
+                    text: Some("watch here".to_string()),
+                },
+            }]
+        );
+    }
+
+    #[test]
+    fn parse_args_rejects_invalid_action_ping_location_flag() {
+        let error = parse_args(sample_args(&["--action-ping-location", "12.5:-3.25"]))
+            .err()
+            .expect("invalid ping-location format should fail");
+
+        assert!(error.contains("invalid --action-ping-location"));
     }
 
     #[test]
@@ -11193,6 +11257,24 @@ mod tests {
             },
         )
         .unwrap();
+    }
+
+    #[test]
+    fn queue_outbound_action_dispatches_ping_location() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
+
+        queue_outbound_action(
+            &mut session,
+            &OutboundAction::PingLocation {
+                x: 12.5,
+                y: -3.25,
+                text: Some("watch here".to_string()),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(session.pending_packet_count(), 1);
     }
 
     #[test]

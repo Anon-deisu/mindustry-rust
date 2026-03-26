@@ -1978,6 +1978,22 @@ impl ClientSession {
         )
     }
 
+    pub fn queue_ping_location(
+        &mut self,
+        x: f32,
+        y: f32,
+        text: Option<&str>,
+    ) -> Result<(), ClientSessionError> {
+        let packet_id = self
+            .ping_location_packet_id
+            .ok_or(ClientSessionError::MissingRemotePacket("pingLocation"))?;
+        self.queue_outbound_packet(
+            packet_id,
+            ClientPacketTransport::Tcp,
+            encode_ping_location_forwarded_payload(None, x, y, text),
+        )
+    }
+
     pub fn queue_request_unit_payload(
         &mut self,
         target: ClientUnitRef,
@@ -15110,7 +15126,6 @@ fn encode_optional_item_payload(item_id: Option<i16>) -> Vec<u8> {
     item_id.unwrap_or(-1).to_be_bytes().to_vec()
 }
 
-#[cfg(test)]
 fn encode_optional_entity_payload(entity_id: Option<i32>) -> Vec<u8> {
     entity_id.unwrap_or(-1).to_be_bytes().to_vec()
 }
@@ -15472,14 +15487,16 @@ fn encode_two_f32_payload(x: f32, y: f32) -> Vec<u8> {
     payload
 }
 
-#[cfg(test)]
 fn encode_ping_location_forwarded_payload(
     player_id: Option<i32>,
     x: f32,
     y: f32,
     text: Option<&str>,
 ) -> Vec<u8> {
-    let mut payload = encode_optional_entity_payload(player_id);
+    let mut payload = Vec::new();
+    if let Some(player_id) = player_id {
+        payload.extend_from_slice(&encode_optional_entity_payload(Some(player_id)));
+    }
     payload.extend_from_slice(&encode_two_f32_payload(x, y));
     payload.extend_from_slice(&encode_optional_typeio_string_payload(text));
     payload
@@ -41915,6 +41932,32 @@ mod tests {
                 last_y_bits: Some((-3.25f32).to_bits()),
                 last_text: Some("watch here".to_string()),
             }
+        );
+    }
+
+    #[test]
+    fn queue_ping_location_uses_packet_id_and_runtime_payload() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
+        let packet_id = session
+            .ping_location_packet_id
+            .expect("missing pingLocation packet id");
+
+        session
+            .queue_ping_location(12.5, -3.25, Some("watch here"))
+            .unwrap();
+
+        assert_eq!(session.pending_packets.len(), 1);
+        let pending = session.pending_packets.front().unwrap();
+        assert_eq!(pending.packet_id, packet_id);
+        assert_eq!(
+            pending.bytes,
+            encode_packet(
+                packet_id,
+                &encode_ping_location_forwarded_payload(None, 12.5, -3.25, Some("watch here")),
+                false,
+            )
+            .unwrap()
         );
     }
 
