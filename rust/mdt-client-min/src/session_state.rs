@@ -1427,6 +1427,7 @@ pub struct TileConfigProjection {
     pub applied_tile_config_packet_count: u64,
     pub applied_construct_finish_count: u64,
     pub rollback_count: u64,
+    pub fallback_missing_authority_count: u64,
     pub configured_applied_count: u64,
     pub configured_rejected_count: u64,
     pub last_queued_build_pos: Option<i32>,
@@ -1671,6 +1672,10 @@ impl TileConfigProjection {
         let cleared_pending_local = pending_local.is_some();
 
         if pending_local.is_none() || authoritative_value.is_none() {
+            if pending_local.is_some() && authoritative_value.is_none() {
+                self.fallback_missing_authority_count =
+                    self.fallback_missing_authority_count.saturating_add(1);
+            }
             self.last_business_build_pos = None;
             self.last_business_value = None;
             self.last_business_applied = false;

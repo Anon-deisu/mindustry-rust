@@ -30713,6 +30713,73 @@ mod tests {
     }
 
     #[test]
+    fn tile_config_parse_failure_without_known_authority_marks_missing_authority_fallback() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "tileConfig")
+            .unwrap()
+            .packet_id;
+        let first_value = TypeIoObject::Int(7);
+        let second_value = TypeIoObject::Int(9);
+        session
+            .queue_tile_config(Some(777), first_value.clone())
+            .unwrap();
+        session
+            .queue_tile_config(Some(777), second_value.clone())
+            .unwrap();
+        let mut payload = encode_tile_config_payload(Some(777), &first_value);
+        payload.push(0xaa);
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        let event = session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            event,
+            ClientSessionEvent::TileConfig {
+                build_pos: Some(777),
+                config_kind: Some(1),
+                config_kind_name: Some("int".to_string()),
+                parse_failed: true,
+                business_applied: false,
+                cleared_pending_local: true,
+                was_rollback: false,
+                pending_local_match: None,
+                configured_block_outcome: None,
+                configured_block_name: None,
+            }
+        );
+        assert_eq!(session.state().tile_config_projection.fallback_missing_authority_count, 1);
+        assert_eq!(session.state().tile_config_projection.rollback_count, 0);
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .pending_local_by_build_pos
+                .get(&777),
+            Some(&second_value)
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .pending_local_request_queue_by_build_pos
+                .get(&777)
+                .map(|queue| queue.iter().cloned().collect::<Vec<_>>()),
+            Some(vec![second_value.clone()])
+        );
+        assert!(
+            session
+                .state()
+                .tile_config_projection
+                .authoritative_by_build_pos
+                .is_empty()
+        );
+    }
+
+    #[test]
     fn tile_config_parse_failure_reapplies_known_authority_to_building_and_configured_state() {
         let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let build_pos = pack_point2(44, 55);

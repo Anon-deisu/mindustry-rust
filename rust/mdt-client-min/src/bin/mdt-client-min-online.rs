@@ -50,7 +50,8 @@ use mdt_input::{
     BuilderQueueTileStateObservation, CommandModeRectProjection, CommandModeState,
     CommandModeTargetProjection, CommandUnitRef, InputSnapshot, IntentSamplingMode,
     LiveIntentState, LocalPlanPlacement, MovementProbeConfig, MovementProbeController,
-    PlacementRequest, PlanBlockMeta, PlanEditable, PlanPoint, RuntimeInputSample,
+    PlacementRequest, PlanBlockMeta, PlanEditable, PlanPoint, PlanPointConfigFamily,
+    RuntimeInputSample,
     RuntimeInputState,
 };
 use mdt_remote::HighFrequencyRemoteMethod;
@@ -4129,6 +4130,22 @@ impl PlanEditable for EditableClientBuildPlan {
         PlanBlockMeta::default()
     }
 
+    fn point_config_family(&self) -> PlanPointConfigFamily {
+        match &self.plan.config {
+            ClientBuildPlanConfig::Point2 { .. } => PlanPointConfigFamily::Point,
+            ClientBuildPlanConfig::Point2Array(_) => PlanPointConfigFamily::Points,
+            _ => PlanPointConfigFamily::None,
+        }
+    }
+
+    fn point_config_point_count(&self) -> usize {
+        match &self.plan.config {
+            ClientBuildPlanConfig::Point2 { .. } => 1,
+            ClientBuildPlanConfig::Point2Array(points) => points.len(),
+            _ => 0,
+        }
+    }
+
     fn map_point_config<F>(&mut self, mut mapper: F)
     where
         F: FnMut(&mut PlanPoint),
@@ -4193,6 +4210,22 @@ impl PlanEditable for EditableRelativeBuildPlan {
 
     fn block_meta(&self) -> PlanBlockMeta {
         PlanBlockMeta::default()
+    }
+
+    fn point_config_family(&self) -> PlanPointConfigFamily {
+        match &self.plan.config {
+            ClientBuildPlanConfig::Point2 { .. } => PlanPointConfigFamily::Point,
+            ClientBuildPlanConfig::Point2Array(_) => PlanPointConfigFamily::Points,
+            _ => PlanPointConfigFamily::None,
+        }
+    }
+
+    fn point_config_point_count(&self) -> usize {
+        match &self.plan.config {
+            ClientBuildPlanConfig::Point2 { .. } => 1,
+            ClientBuildPlanConfig::Point2Array(points) => points.len(),
+            _ => 0,
+        }
     }
 
     fn map_point_config<F>(&mut self, mut mapper: F)
