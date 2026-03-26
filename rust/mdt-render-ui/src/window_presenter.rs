@@ -44,6 +44,7 @@ const COLOR_RUNTIME: u32 = 0xFF7043;
 const COLOR_UNKNOWN: u32 = 0xEF5350;
 const COLOR_ICON_RUNTIME_EFFECT: u32 = 0xFFE082;
 const COLOR_ICON_BUILD_CONFIG: u32 = 0x4FC3F7;
+const COLOR_ICON_RUNTIME_HEALTH: u32 = 0xEF5350;
 const COLOR_WINDOW_HUD_BAR: u32 = 0x091018;
 const COLOR_WINDOW_HUD_TEXT: u32 = 0xE8EEF2;
 const COLOR_MINIMAP_INSET_BORDER: u32 = 0x90A4AE;
@@ -760,6 +761,7 @@ fn color_for_icon(family: RenderIconPrimitiveFamily) -> u32 {
     match family {
         RenderIconPrimitiveFamily::RuntimeEffect => COLOR_ICON_RUNTIME_EFFECT,
         RenderIconPrimitiveFamily::RuntimeBuildConfig => COLOR_ICON_BUILD_CONFIG,
+        RenderIconPrimitiveFamily::RuntimeHealth => COLOR_ICON_RUNTIME_HEALTH,
     }
 }
 
@@ -4116,10 +4118,10 @@ mod tests {
         color_for_object, compose_frame, scale_frame_pixels, window_hud_bar_height,
         BackendSignal, WindowBackend, window_hud_top_line, WindowFrame, WindowMinimapInset,
         WindowPresenter, COLOR_BLOCK, COLOR_EMPTY, COLOR_ICON_BUILD_CONFIG,
-        COLOR_ICON_RUNTIME_EFFECT, COLOR_MARKER, COLOR_MINIMAP_INSET_VIEWPORT, COLOR_PLAN,
-        COLOR_PLAYER, COLOR_RUNTIME, COLOR_TERRAIN, COLOR_UNKNOWN, COLOR_WINDOW_HUD_BAR,
-        COLOR_WINDOW_HUD_TEXT, WINDOW_HUD_BAR_PADDING_X, WINDOW_HUD_BAR_PADDING_Y,
-        WINDOW_HUD_FONT_HEIGHT,
+        COLOR_ICON_RUNTIME_EFFECT, COLOR_ICON_RUNTIME_HEALTH, COLOR_MARKER,
+        COLOR_MINIMAP_INSET_VIEWPORT, COLOR_PLAN, COLOR_PLAYER, COLOR_RUNTIME,
+        COLOR_TERRAIN, COLOR_UNKNOWN, COLOR_WINDOW_HUD_BAR, COLOR_WINDOW_HUD_TEXT,
+        WINDOW_HUD_BAR_PADDING_X, WINDOW_HUD_BAR_PADDING_Y, WINDOW_HUD_FONT_HEIGHT,
     };
     use crate::{
         hud_model::{
@@ -6386,6 +6388,36 @@ mod tests {
         );
         assert_eq!(frame.pixel(0, 0), Some(COLOR_ICON_RUNTIME_EFFECT));
         assert_eq!(frame.pixel(1, 0), Some(COLOR_ICON_BUILD_CONFIG));
+    }
+
+    #[test]
+    fn present_once_surfaces_runtime_health_icon_primitive() {
+        let backend = RecordingBackend::default();
+        let mut presenter = WindowPresenter::new(backend);
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 8.0,
+                height: 8.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![RenderObject {
+                id: "marker:runtime-health:0:0".to_string(),
+                layer: 32,
+                x: 0.0,
+                y: 0.0,
+            }],
+        };
+
+        presenter.present_once(&scene, &HudModel::default()).unwrap();
+
+        let backend = presenter.into_backend();
+        let frame = backend.frames.last().unwrap();
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RENDER-ICON: count=1 runtime-health/health@32:0:0",
+        );
+        assert_eq!(frame.pixel(0, 0), Some(COLOR_ICON_RUNTIME_HEALTH));
     }
 
     fn assert_frame_line_contains(lines: &[String], needle: &str) {

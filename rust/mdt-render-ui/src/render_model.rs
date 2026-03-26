@@ -52,6 +52,7 @@ pub enum RenderPrimitive {
 pub enum RenderIconPrimitiveFamily {
     RuntimeEffect,
     RuntimeBuildConfig,
+    RuntimeHealth,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -323,6 +324,7 @@ impl RenderIconPrimitiveFamily {
         match self {
             Self::RuntimeEffect => "runtime-effect-icon",
             Self::RuntimeBuildConfig => "runtime-build-config-icon",
+            Self::RuntimeHealth => "runtime-health",
         }
     }
 }
@@ -398,6 +400,11 @@ fn render_icon_primitive_for_object(object: &RenderObject) -> Option<RenderPrimi
 fn render_icon_family_and_variant(id: &str) -> Option<(RenderIconPrimitiveFamily, &str)> {
     let segments = id.split(':').collect::<Vec<_>>();
     match segments.as_slice() {
+        ["marker", "runtime-health", tile_x, tile_y]
+            if tile_x.parse::<i32>().is_ok() && tile_y.parse::<i32>().is_ok() =>
+        {
+            Some((RenderIconPrimitiveFamily::RuntimeHealth, "health"))
+        }
         [
             "marker",
             "runtime-effect-icon",
@@ -1550,6 +1557,12 @@ mod tests {
                     y: 344.0,
                 },
                 RenderObject {
+                    id: "marker:runtime-health:4:5".to_string(),
+                    layer: 33,
+                    x: 32.0,
+                    y: 40.0,
+                },
+                RenderObject {
                     id: "marker:runtime-effect-icon:content-icon:normal:bad".to_string(),
                     layer: 33,
                     x: 0.0,
@@ -1577,6 +1590,14 @@ mod tests {
                     layer: 32,
                     x: 168.0,
                     y: 344.0,
+                },
+                RenderPrimitive::Icon {
+                    id: "marker:runtime-health:4:5".to_string(),
+                    family: RenderIconPrimitiveFamily::RuntimeHealth,
+                    variant: "health".to_string(),
+                    layer: 33,
+                    x: 32.0,
+                    y: 40.0,
                 },
             ]
         );
