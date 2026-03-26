@@ -40,12 +40,25 @@ const COLOR_RUNTIME: u32 = 0xFF7043;
 const COLOR_UNKNOWN: u32 = 0xEF5350;
 const COLOR_WINDOW_HUD_BAR: u32 = 0x091018;
 const COLOR_WINDOW_HUD_TEXT: u32 = 0xE8EEF2;
+const COLOR_MINIMAP_INSET_BORDER: u32 = 0x90A4AE;
+const COLOR_MINIMAP_INSET_VIEWPORT: u32 = 0xECEFF1;
 const WINDOW_TARGET_FPS: usize = 60;
 const WINDOW_HUD_FONT_WIDTH: usize = 3;
 const WINDOW_HUD_FONT_HEIGHT: usize = 5;
 const WINDOW_HUD_FONT_SPACING: usize = 1;
 const WINDOW_HUD_BAR_PADDING_X: usize = 2;
 const WINDOW_HUD_BAR_PADDING_Y: usize = 2;
+const WINDOW_MINIMAP_INSET_PADDING: usize = 4;
+const WINDOW_MINIMAP_INSET_BORDER_WIDTH: usize = 1;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WindowMinimapInset {
+    pub map_width: usize,
+    pub map_height: usize,
+    pub window: PresenterViewWindow,
+    pub focus_tile: Option<(usize, usize)>,
+    pub player_tile: Option<(usize, usize)>,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WindowFrame {
@@ -60,6 +73,7 @@ pub struct WindowFrame {
     pub zoom: f32,
     pub width: usize,
     pub height: usize,
+    pub minimap_inset: Option<WindowMinimapInset>,
     pub pixels: Vec<u32>,
 }
 
@@ -339,6 +353,8 @@ fn compose_frame(
         }
     }
 
+    let minimap_inset = compose_window_minimap_inset(scene, hud, window);
+
     WindowFrame {
         frame_id,
         title: hud.title.clone(),
@@ -351,8 +367,42 @@ fn compose_frame(
         zoom: scene.viewport.zoom,
         width: window.width,
         height: window.height,
+        minimap_inset,
         pixels,
     }
+}
+
+fn compose_window_minimap_inset(
+    scene: &RenderModel,
+    hud: &HudModel,
+    window: PresenterViewWindow,
+) -> Option<WindowMinimapInset> {
+    let panel = build_minimap_panel(scene, hud, window)?;
+    if panel.map_width == 0 || panel.map_height == 0 {
+        return None;
+    }
+
+    Some(WindowMinimapInset {
+        map_width: panel.map_width,
+        map_height: panel.map_height,
+        window: panel.window,
+        focus_tile: clamp_window_minimap_tile(panel.focus_tile, panel.map_width, panel.map_height),
+        player_tile: clamp_window_minimap_tile(
+            scene.player_focus_tile(TILE_SIZE),
+            panel.map_width,
+            panel.map_height,
+        ),
+    })
+}
+
+fn clamp_window_minimap_tile(
+    tile: Option<(usize, usize)>,
+    map_width: usize,
+    map_height: usize,
+) -> Option<(usize, usize)> {
+    let max_x = map_width.checked_sub(1)?;
+    let max_y = map_height.checked_sub(1)?;
+    tile.map(|(tile_x, tile_y)| (tile_x.min(max_x), tile_y.min(max_y)))
 }
 
 fn crop_window(
@@ -2845,7 +2895,369 @@ fn scale_frame_pixels(frame: &WindowFrame, tile_pixels: usize) -> Vec<u32> {
     }
 
     overlay_window_hud(frame, &mut pixels, surface_width, surface_height);
+    overlay_window_minimap_inset(frame, &mut pixels, surface_width, surface_height);
     pixels
+}
+
+fn overlay_window_minimap_inset(
+    frame: &WindowFrame,
+    pixels: &mut [u32],
+    surface_width: usize,
+    surface_height: usize,
+) {
+    let Some(inset) = frame.minimap_inset.as_ref() else {
+        return;
+    };
+    if inset.map_width == 0 || inset.map_height == 0 || surface_width == 0 || surface_height == 0 {
+        return;
+    }
+
+    let top_reserved = if frame
+        .wave_text
+        .as_deref()
+        .is_some_and(|text| !text.is_empty())
+    {
+        window_hud_bar_height(1).saturating_add(WINDOW_MINIMAP_INSET_PADDING)
+    } else {
+        WINDOW_MINIMAP_INSET_PADDING
+    };
+    let max_inner_width = surface_width.saturating_div(5).min(96);
+    let max_inner_height = surface_height.saturating_div(4).min(72);
+    let Some((map_pixel_width, map_pixel_height)) = fit_window_minimap_size(
+        inset.map_width,
+        inset.map_height,
+        max_inner_width,
+        max_inner_height,
+    ) else {
+        return;
+    };
+
+    let outer_width = map_pixel_width.saturating_add(WINDOW_MINIMAP_INSET_BORDER_WIDTH * 2);
+    let outer_height = map_pixel_height.saturating_add(WINDOW_MINIMAP_INSET_BORDER_WIDTH * 2);
+    if outer_width.saturating_add(WINDOW_MINIMAP_INSET_PADDING) > surface_width
+        || top_reserved.saturating_add(outer_height) > surface_height
+    {
+        return;
+    }
+
+    let start_x = surface_width
+        .saturating_sub(outer_width)
+        .saturating_sub(WINDOW_MINIMAP_INSET_PADDING);
+    let start_y = top_reserved;
+    let map_start_x = start_x.saturating_add(WINDOW_MINIMAP_INSET_BORDER_WIDTH);
+    let map_start_y = start_y.saturating_add(WINDOW_MINIMAP_INSET_BORDER_WIDTH);
+
+    fill_window_hud_rect(
+        pixels,
+        surface_width,
+        surface_height,
+        start_x,
+        start_y,
+        outer_width,
+        outer_height,
+        COLOR_MINIMAP_INSET_BORDER,
+    );
+    fill_window_hud_rect(
+        pixels,
+        surface_width,
+        surface_height,
+        map_start_x,
+        map_start_y,
+        map_pixel_width,
+        map_pixel_height,
+        COLOR_TERRAIN,
+    );
+
+    draw_window_minimap_viewport(
+        inset,
+        pixels,
+        surface_width,
+        surface_height,
+        map_start_x,
+        map_start_y,
+        map_pixel_width,
+        map_pixel_height,
+    );
+    if let Some(player_tile) = inset.player_tile {
+        draw_window_minimap_player(
+            pixels,
+            surface_width,
+            surface_height,
+            map_start_x,
+            map_start_y,
+            map_pixel_width,
+            map_pixel_height,
+            inset.map_width,
+            inset.map_height,
+            player_tile,
+        );
+    }
+    if let Some(focus_tile) = inset.focus_tile {
+        draw_window_minimap_focus(
+            pixels,
+            surface_width,
+            surface_height,
+            map_start_x,
+            map_start_y,
+            map_pixel_width,
+            map_pixel_height,
+            inset.map_width,
+            inset.map_height,
+            focus_tile,
+        );
+    }
+}
+
+fn fit_window_minimap_size(
+    map_width: usize,
+    map_height: usize,
+    max_width: usize,
+    max_height: usize,
+) -> Option<(usize, usize)> {
+    if map_width == 0 || map_height == 0 || max_width < 12 || max_height < 12 {
+        return None;
+    }
+
+    let scale = ((max_width as f32) / (map_width as f32))
+        .min((max_height as f32) / (map_height as f32))
+        .min(4.0);
+    if !scale.is_finite() || scale <= 0.0 {
+        return None;
+    }
+
+    Some((
+        ((map_width as f32) * scale).floor().max(1.0) as usize,
+        ((map_height as f32) * scale).floor().max(1.0) as usize,
+    ))
+}
+
+fn draw_window_minimap_viewport(
+    inset: &WindowMinimapInset,
+    pixels: &mut [u32],
+    surface_width: usize,
+    surface_height: usize,
+    map_start_x: usize,
+    map_start_y: usize,
+    map_pixel_width: usize,
+    map_pixel_height: usize,
+) {
+    let window_width = inset
+        .window
+        .width
+        .min(inset.map_width.saturating_sub(inset.window.origin_x));
+    let window_height = inset
+        .window
+        .height
+        .min(inset.map_height.saturating_sub(inset.window.origin_y));
+    if window_width == 0 || window_height == 0 {
+        return;
+    }
+
+    let rect_x = map_start_x.saturating_add(project_window_minimap_x(
+        inset.window.origin_x,
+        inset.map_width,
+        map_pixel_width,
+    ));
+    let rect_width = project_window_minimap_span(window_width, inset.map_width, map_pixel_width);
+    let rect_top = inset
+        .map_height
+        .saturating_sub(inset.window.origin_y.saturating_add(window_height));
+    let rect_y = map_start_y.saturating_add(project_window_minimap_y(
+        rect_top,
+        inset.map_height,
+        map_pixel_height,
+    ));
+    let rect_height =
+        project_window_minimap_span(window_height, inset.map_height, map_pixel_height);
+
+    draw_window_minimap_outline(
+        pixels,
+        surface_width,
+        surface_height,
+        rect_x,
+        rect_y,
+        rect_width,
+        rect_height,
+        COLOR_MINIMAP_INSET_VIEWPORT,
+    );
+}
+
+fn draw_window_minimap_player(
+    pixels: &mut [u32],
+    surface_width: usize,
+    surface_height: usize,
+    map_start_x: usize,
+    map_start_y: usize,
+    map_pixel_width: usize,
+    map_pixel_height: usize,
+    map_width: usize,
+    map_height: usize,
+    tile: (usize, usize),
+) {
+    let Some((pixel_x, pixel_y)) = project_window_minimap_point(
+        tile,
+        map_width,
+        map_height,
+        map_pixel_width,
+        map_pixel_height,
+    ) else {
+        return;
+    };
+    let radius = usize::from(map_pixel_width.min(map_pixel_height) >= 24);
+    fill_window_hud_rect(
+        pixels,
+        surface_width,
+        surface_height,
+        map_start_x.saturating_add(pixel_x).saturating_sub(radius),
+        map_start_y.saturating_add(pixel_y).saturating_sub(radius),
+        radius * 2 + 1,
+        radius * 2 + 1,
+        COLOR_PLAYER,
+    );
+}
+
+fn draw_window_minimap_focus(
+    pixels: &mut [u32],
+    surface_width: usize,
+    surface_height: usize,
+    map_start_x: usize,
+    map_start_y: usize,
+    map_pixel_width: usize,
+    map_pixel_height: usize,
+    map_width: usize,
+    map_height: usize,
+    tile: (usize, usize),
+) {
+    let Some((pixel_x, pixel_y)) = project_window_minimap_point(
+        tile,
+        map_width,
+        map_height,
+        map_pixel_width,
+        map_pixel_height,
+    ) else {
+        return;
+    };
+    let arm = if map_pixel_width.min(map_pixel_height) >= 24 {
+        2
+    } else {
+        1
+    };
+    let center_x = map_start_x.saturating_add(pixel_x);
+    let center_y = map_start_y.saturating_add(pixel_y);
+
+    fill_window_hud_rect(
+        pixels,
+        surface_width,
+        surface_height,
+        center_x.saturating_sub(arm),
+        center_y,
+        arm * 2 + 1,
+        1,
+        COLOR_MARKER,
+    );
+    fill_window_hud_rect(
+        pixels,
+        surface_width,
+        surface_height,
+        center_x,
+        center_y.saturating_sub(arm),
+        1,
+        arm * 2 + 1,
+        COLOR_MARKER,
+    );
+}
+
+fn project_window_minimap_point(
+    tile: (usize, usize),
+    map_width: usize,
+    map_height: usize,
+    pixel_width: usize,
+    pixel_height: usize,
+) -> Option<(usize, usize)> {
+    if map_width == 0 || map_height == 0 || pixel_width == 0 || pixel_height == 0 {
+        return None;
+    }
+
+    let center_x = ((tile.0.saturating_mul(2).saturating_add(1)).saturating_mul(pixel_width))
+        / map_width.saturating_mul(2).max(1);
+    let top_tile = map_height.saturating_sub(tile.1.saturating_add(1));
+    let center_y = ((top_tile.saturating_mul(2).saturating_add(1)).saturating_mul(pixel_height))
+        / map_height.saturating_mul(2).max(1);
+
+    Some((
+        center_x.min(pixel_width.saturating_sub(1)),
+        center_y.min(pixel_height.saturating_sub(1)),
+    ))
+}
+
+fn project_window_minimap_x(tile_x: usize, map_width: usize, pixel_width: usize) -> usize {
+    tile_x.saturating_mul(pixel_width) / map_width.max(1)
+}
+
+fn project_window_minimap_y(tile_y: usize, map_height: usize, pixel_height: usize) -> usize {
+    tile_y.saturating_mul(pixel_height) / map_height.max(1)
+}
+
+fn project_window_minimap_span(span: usize, map_span: usize, pixel_span: usize) -> usize {
+    let projected = ((span.saturating_mul(pixel_span)).saturating_add(map_span.saturating_sub(1)))
+        / map_span.max(1);
+    projected.max(1)
+}
+
+fn draw_window_minimap_outline(
+    pixels: &mut [u32],
+    surface_width: usize,
+    surface_height: usize,
+    start_x: usize,
+    start_y: usize,
+    width: usize,
+    height: usize,
+    color: u32,
+) {
+    if width == 0 || height == 0 {
+        return;
+    }
+
+    fill_window_hud_rect(
+        pixels,
+        surface_width,
+        surface_height,
+        start_x,
+        start_y,
+        width,
+        1,
+        color,
+    );
+    fill_window_hud_rect(
+        pixels,
+        surface_width,
+        surface_height,
+        start_x,
+        start_y.saturating_add(height.saturating_sub(1)),
+        width,
+        1,
+        color,
+    );
+    fill_window_hud_rect(
+        pixels,
+        surface_width,
+        surface_height,
+        start_x,
+        start_y,
+        1,
+        height,
+        color,
+    );
+    fill_window_hud_rect(
+        pixels,
+        surface_width,
+        surface_height,
+        start_x.saturating_add(width.saturating_sub(1)),
+        start_y,
+        1,
+        height,
+        color,
+    );
 }
 
 fn overlay_window_hud(
@@ -3107,10 +3519,10 @@ fn encode_ppm(frame: &WindowFrame) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::{
-        color_for_object, scale_frame_pixels, window_hud_bar_height, BackendSignal,
-        WindowBackend, WindowFrame, WindowPresenter, COLOR_BLOCK, COLOR_EMPTY, COLOR_MARKER,
-        COLOR_PLAN, COLOR_PLAYER, COLOR_RUNTIME, COLOR_TERRAIN, COLOR_UNKNOWN,
-        COLOR_WINDOW_HUD_BAR, COLOR_WINDOW_HUD_TEXT, WINDOW_HUD_BAR_PADDING_X,
+        color_for_object, scale_frame_pixels, window_hud_bar_height, BackendSignal, WindowBackend,
+        WindowFrame, WindowMinimapInset, WindowPresenter, COLOR_BLOCK, COLOR_EMPTY, COLOR_MARKER,
+        COLOR_MINIMAP_INSET_VIEWPORT, COLOR_PLAN, COLOR_PLAYER, COLOR_RUNTIME, COLOR_TERRAIN,
+        COLOR_UNKNOWN, COLOR_WINDOW_HUD_BAR, COLOR_WINDOW_HUD_TEXT, WINDOW_HUD_BAR_PADDING_X,
         WINDOW_HUD_BAR_PADDING_Y, WINDOW_HUD_FONT_HEIGHT,
     };
     use crate::{
@@ -3276,6 +3688,7 @@ mod tests {
             zoom: 1.0,
             width: 2,
             height: 1,
+            minimap_inset: None,
             pixels: vec![0x112233, 0x445566],
         };
 
@@ -3301,6 +3714,7 @@ mod tests {
             zoom: 1.0,
             width: 12,
             height: 8,
+            minimap_inset: None,
             pixels: vec![COLOR_EMPTY; 12 * 8],
         };
 
@@ -3326,6 +3740,128 @@ mod tests {
             COLOR_WINDOW_HUD_TEXT
         );
         assert_eq!(pixels[12 * surface_width + 20], COLOR_EMPTY);
+    }
+
+    #[test]
+    fn scale_frame_pixels_draws_minimap_inset_in_top_right_corner() {
+        let frame = WindowFrame {
+            frame_id: 0,
+            title: "demo".to_string(),
+            wave_text: None,
+            status_text: String::new(),
+            panel_lines: Vec::new(),
+            overlay_lines: Vec::new(),
+            overlay_summary_text: None,
+            fps: None,
+            zoom: 1.0,
+            width: 24,
+            height: 18,
+            minimap_inset: Some(WindowMinimapInset {
+                map_width: 80,
+                map_height: 60,
+                window: crate::panel_model::PresenterViewWindow {
+                    origin_x: 16,
+                    origin_y: 12,
+                    width: 24,
+                    height: 18,
+                },
+                focus_tile: Some((60, 40)),
+                player_tile: Some((20, 18)),
+            }),
+            pixels: vec![COLOR_EMPTY; 24 * 18],
+        };
+
+        let pixels = scale_frame_pixels(&frame, 4);
+        let surface_width = frame.width * 4;
+        let surface_height = frame.height * 4;
+        let mut top_right_pixels = Vec::new();
+        for y in 0..surface_height / 2 {
+            for x in (surface_width * 3) / 5..surface_width {
+                top_right_pixels.push(pixels[y * surface_width + x]);
+            }
+        }
+        let mut lower_left_pixels = Vec::new();
+        for y in (surface_height * 3) / 5..surface_height {
+            for x in 0..surface_width / 2 {
+                lower_left_pixels.push(pixels[y * surface_width + x]);
+            }
+        }
+
+        assert!(top_right_pixels.contains(&COLOR_TERRAIN));
+        assert!(top_right_pixels.contains(&COLOR_MINIMAP_INSET_VIEWPORT));
+        assert!(top_right_pixels.contains(&COLOR_PLAYER));
+        assert!(top_right_pixels.contains(&COLOR_MARKER));
+        assert!(lower_left_pixels.iter().all(|&pixel| pixel == COLOR_EMPTY));
+    }
+
+    #[test]
+    fn present_once_populates_minimap_inset_metadata() {
+        let backend = RecordingBackend::default();
+        let mut presenter = WindowPresenter::new(backend);
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 64.0,
+                height: 64.0,
+                zoom: 1.0,
+            },
+            view_window: Some(RenderViewWindow {
+                origin_x: 2,
+                origin_y: 3,
+                width: 4,
+                height: 3,
+            }),
+            objects: vec![RenderObject {
+                id: "player:focus".to_string(),
+                layer: 40,
+                x: 32.0,
+                y: 16.0,
+            }],
+        };
+        let hud = HudModel {
+            summary: Some(HudSummary {
+                player_name: "operator".to_string(),
+                team_id: 2,
+                selected_block: "router".to_string(),
+                plan_count: 0,
+                marker_count: 0,
+                map_width: 80,
+                map_height: 60,
+                overlay_visible: true,
+                fog_enabled: false,
+                visible_tile_count: 10,
+                hidden_tile_count: 20,
+                minimap: crate::hud_model::HudMinimapSummary {
+                    focus_tile: Some((7, 6)),
+                    view_window: crate::hud_model::HudViewWindowSummary {
+                        origin_x: 0,
+                        origin_y: 0,
+                        width: 80,
+                        height: 60,
+                    },
+                },
+            }),
+            ..HudModel::default()
+        };
+
+        presenter.present_once(&scene, &hud).unwrap();
+
+        let backend = presenter.into_backend();
+        let frame = backend.frames.last().unwrap();
+        let inset = frame.minimap_inset.expect("minimap inset");
+
+        assert_eq!(inset.map_width, 80);
+        assert_eq!(inset.map_height, 60);
+        assert_eq!(
+            inset.window,
+            crate::panel_model::PresenterViewWindow {
+                origin_x: 2,
+                origin_y: 3,
+                width: 4,
+                height: 3,
+            }
+        );
+        assert_eq!(inset.focus_tile, Some((7, 6)));
+        assert_eq!(inset.player_tile, Some((4, 2)));
     }
 
     #[test]
