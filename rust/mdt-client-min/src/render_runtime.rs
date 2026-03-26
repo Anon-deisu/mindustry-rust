@@ -17,12 +17,12 @@ use crate::session_state::{
     ConfiguredBlockProjection, ConfiguredContentRef, CoreInventoryRuntimeBindingKind,
     EffectBusinessContentKind, EffectBusinessPositionSource, EffectBusinessProjection,
     EffectDataSemantic, HiddenSnapshotDeltaProjection, ReconnectPhaseProjection,
-    ReconnectReasonKind, SessionResetKind, SessionState,
-    SessionTimeoutKind, StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection,
-    TileConfigAuthoritySource, TileConfigProjection, TypedBuildingRuntimeKind,
-    TypedBuildingRuntimeModel, TypedBuildingRuntimeProjection, TypedBuildingRuntimeValue,
-    TypedRuntimeEntityModel, TypedRuntimeEntityProjection, UnitAssemblerRuntimeProjection,
-    UnitRefProjection, WorldBootstrapProjection, WorldReloadProjection,
+    ReconnectReasonKind, SessionResetKind, SessionState, SessionTimeoutKind,
+    StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection, TileConfigAuthoritySource,
+    TileConfigProjection, TypedBuildingRuntimeKind, TypedBuildingRuntimeModel,
+    TypedBuildingRuntimeProjection, TypedBuildingRuntimeValue, TypedRuntimeEntityModel,
+    TypedRuntimeEntityProjection, UnitAssemblerRuntimeProjection, UnitRefProjection,
+    WorldBootstrapProjection, WorldReloadProjection,
 };
 use mdt_remote::{HighFrequencyRemoteMethod, HIGH_FREQUENCY_REMOTE_METHOD_COUNT};
 use mdt_render_ui::hud_model::{
@@ -49,6 +49,7 @@ use std::fmt;
 const EFFECT_OVERLAY_LIMIT: usize = 8;
 const DEFAULT_EFFECT_OVERLAY_TTL_TICKS: u8 = 3;
 const DEFAULT_EFFECT_OVERLAY_CLIP_SIZE: f32 = 50.0;
+const WORLD_LABEL_OVERLAY_LIMIT: usize = 16;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RuntimeEffectClipView {
@@ -72,6 +73,7 @@ impl RenderRuntimeAdapter {
         clip_view: Option<RuntimeEffectClipView>,
     ) {
         advance_runtime_effect_overlays(&mut self.world_overlay);
+        advance_runtime_world_label_overlays(&mut self.world_overlay);
         observe_runtime_world_events(&mut self.world_overlay, events, clip_view);
     }
 
@@ -314,6 +316,8 @@ impl RenderRuntimeAdapter {
 pub struct RuntimeWorldOverlay {
     pub tile_overlays: BTreeMap<(i32, i32), RuntimeTileOverlay>,
     pub effect_overlays: Vec<RuntimeEffectOverlay>,
+    pub world_label_overlays: Vec<RuntimeWorldLabelOverlay>,
+    pub next_world_label_overlay_key: u64,
     pub snapshot_refresh_count: u64,
     pub last_snapshot_method: Option<HighFrequencyRemoteMethod>,
     pub snapshot_method_counts: [u64; HIGH_FREQUENCY_REMOTE_METHOD_COUNT],
@@ -335,6 +339,8 @@ impl RuntimeWorldOverlay {
     pub fn clear(&mut self) {
         self.tile_overlays.clear();
         self.effect_overlays.clear();
+        self.world_label_overlays.clear();
+        self.next_world_label_overlay_key = 0;
         self.snapshot_refresh_count = 0;
         self.last_snapshot_method = None;
         self.snapshot_method_counts = [0; HIGH_FREQUENCY_REMOTE_METHOD_COUNT];
@@ -384,6 +390,17 @@ pub enum RuntimeTileOverlayKind {
     Configured,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeWorldLabelOverlay {
+    pub overlay_key: u64,
+    pub label_id: Option<i32>,
+    pub reliable: bool,
+    pub message: Option<String>,
+    pub x_bits: u32,
+    pub y_bits: u32,
+    pub remaining_ticks: u16,
+}
+
 pub fn observe_runtime_world_events(
     runtime_world_overlay: &mut RuntimeWorldOverlay,
     events: &[ClientSessionEvent],
@@ -408,6 +425,27 @@ pub fn observe_runtime_world_events(
                         .unwrap_or((None, None));
                 runtime_world_overlay.last_kick_hint_category = hint_category;
                 runtime_world_overlay.last_kick_hint_text = hint_text;
+            }
+            ClientSessionEvent::WorldLabel {
+                reliable,
+                label_id,
+                message,
+                duration,
+                world_x,
+                world_y,
+            } => upsert_runtime_world_label_overlay(
+                runtime_world_overlay,
+                *label_id,
+                *reliable,
+                message.clone(),
+                *duration,
+                *world_x,
+                *world_y,
+            ),
+            ClientSessionEvent::RemoveWorldLabel { label_id } => {
+                runtime_world_overlay
+                    .world_label_overlays
+                    .retain(|overlay| overlay.label_id != Some(*label_id));
             }
             ClientSessionEvent::ConstructFinish {
                 tile_pos, block_id, ..
@@ -559,6 +597,33 @@ pub fn observe_runtime_world_events(
                     .saturating_add(runtime_effect_overlay_start_delay_ticks(*effect_id));
                 push_runtime_effect_overlay(runtime_world_overlay, overlay);
             }
+            ClientSessionEvent::SpawnEffect {
+                x,
+                y,
+                rotation,
+                unit_type_id,
+            } => {
+                if !runtime_effect_event_inside_clip_view(None, *x, *y, clip_view) {
+                    continue;
+                }
+                let mut overlay = spawn_runtime_effect_overlay(
+                    None,
+                    *x,
+                    *y,
+                    *x,
+                    *y,
+                    *rotation,
+                    0xffffffff,
+                    false,
+                    None,
+                    DEFAULT_EFFECT_OVERLAY_TTL_TICKS,
+                );
+                if let Some(unit_type_id) = *unit_type_id {
+                    overlay.contract_name = Some("content_icon");
+                    overlay.content_ref = Some((6, unit_type_id));
+                }
+                push_runtime_effect_overlay(runtime_world_overlay, overlay);
+            }
             ClientSessionEvent::SnapshotReceived(method) => {
                 runtime_world_overlay.snapshot_refresh_count = runtime_world_overlay
                     .snapshot_refresh_count
@@ -610,6 +675,51 @@ fn push_runtime_effect_overlay(
     if runtime_world_overlay.effect_overlays.len() > EFFECT_OVERLAY_LIMIT {
         let overflow = runtime_world_overlay.effect_overlays.len() - EFFECT_OVERLAY_LIMIT;
         runtime_world_overlay.effect_overlays.drain(0..overflow);
+    }
+}
+
+fn upsert_runtime_world_label_overlay(
+    runtime_world_overlay: &mut RuntimeWorldOverlay,
+    label_id: Option<i32>,
+    reliable: bool,
+    message: Option<String>,
+    duration: f32,
+    world_x: f32,
+    world_y: f32,
+) {
+    let existing_overlay_key = label_id.and_then(|label_id| {
+        runtime_world_overlay
+            .world_label_overlays
+            .iter()
+            .position(|overlay| overlay.label_id == Some(label_id))
+            .map(|index| {
+                runtime_world_overlay
+                    .world_label_overlays
+                    .remove(index)
+                    .overlay_key
+            })
+    });
+    let overlay = RuntimeWorldLabelOverlay {
+        overlay_key: existing_overlay_key.unwrap_or_else(|| {
+            let overlay_key = runtime_world_overlay.next_world_label_overlay_key;
+            runtime_world_overlay.next_world_label_overlay_key = runtime_world_overlay
+                .next_world_label_overlay_key
+                .saturating_add(1);
+            overlay_key
+        }),
+        label_id,
+        reliable,
+        message,
+        x_bits: world_x.to_bits(),
+        y_bits: world_y.to_bits(),
+        remaining_ticks: runtime_world_label_overlay_ttl_ticks(duration),
+    };
+    runtime_world_overlay.world_label_overlays.push(overlay);
+    if runtime_world_overlay.world_label_overlays.len() > WORLD_LABEL_OVERLAY_LIMIT {
+        let overflow = runtime_world_overlay.world_label_overlays.len() - WORLD_LABEL_OVERLAY_LIMIT;
+        runtime_world_overlay
+            .world_label_overlays
+            .drain(0..overflow);
     }
 }
 
@@ -714,6 +824,24 @@ fn advance_runtime_effect_overlays(runtime_world_overlay: &mut RuntimeWorldOverl
     }
     runtime_world_overlay
         .effect_overlays
+        .retain(|overlay| overlay.remaining_ticks > 0);
+}
+
+fn runtime_world_label_overlay_ttl_ticks(duration: f32) -> u16 {
+    if !duration.is_finite() {
+        return 1;
+    }
+    (duration.max(0.0) * 60.0)
+        .ceil()
+        .clamp(1.0, u16::MAX as f32) as u16
+}
+
+fn advance_runtime_world_label_overlays(runtime_world_overlay: &mut RuntimeWorldOverlay) {
+    for overlay in &mut runtime_world_overlay.world_label_overlays {
+        overlay.remaining_ticks = overlay.remaining_ticks.saturating_sub(1);
+    }
+    runtime_world_overlay
+        .world_label_overlays
         .retain(|overlay| overlay.remaining_ticks > 0);
 }
 
@@ -3799,6 +3927,20 @@ fn append_runtime_world_overlay_objects(
         }
     }
 
+    for overlay in &runtime_world_overlay.world_label_overlays {
+        let x = f32::from_bits(overlay.x_bits);
+        let y = f32::from_bits(overlay.y_bits);
+        if !x.is_finite() || !y.is_finite() {
+            continue;
+        }
+        scene.objects.push(RenderObject {
+            id: format!("world-label:event:{}", overlay.overlay_key),
+            layer: 39,
+            x,
+            y,
+        });
+    }
+
     let effect_input_view = EffectRuntimeInputView {
         unit_id: snapshot_input.unit_id,
         position: snapshot_input.position,
@@ -4454,6 +4596,14 @@ mod tests {
         scene.objects.iter().find(|object| object.id == id)
     }
 
+    fn first_runtime_world_label_event_object(scene: &RenderModel) -> &RenderObject {
+        scene
+            .objects
+            .iter()
+            .find(|object| object.id.starts_with("world-label:event:"))
+            .expect("expected runtime world-label event object")
+    }
+
     #[test]
     fn render_runtime_adapter_appends_visible_runtime_live_unit_object() {
         let mut adapter = RenderRuntimeAdapter::default();
@@ -4583,6 +4733,91 @@ mod tests {
         assert_eq!(world_label.layer, 39);
         assert_eq!(world_label.x, 56.0);
         assert_eq!(world_label.y, 72.0);
+    }
+
+    #[test]
+    fn render_runtime_adapter_renders_world_label_event_overlay_object() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
+
+        adapter.observe_events(&[ClientSessionEvent::WorldLabel {
+            reliable: false,
+            label_id: Some(99),
+            message: Some("runtime-event".to_string()),
+            duration: 1.0,
+            world_x: 48.0,
+            world_y: 64.0,
+        }]);
+        assert_eq!(adapter.world_overlay().world_label_overlays.len(), 1);
+
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let world_label = first_runtime_world_label_event_object(&scene);
+        assert_eq!(world_label.layer, 39);
+        assert_eq!(world_label.x, 48.0);
+        assert_eq!(world_label.y, 64.0);
+    }
+
+    #[test]
+    fn render_runtime_adapter_removes_world_label_event_overlay_on_remove_event() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
+
+        adapter.observe_events(&[ClientSessionEvent::WorldLabel {
+            reliable: true,
+            label_id: Some(99),
+            message: Some("runtime-event".to_string()),
+            duration: 1.0,
+            world_x: 32.0,
+            world_y: 40.0,
+        }]);
+        assert_eq!(adapter.world_overlay().world_label_overlays.len(), 1);
+
+        adapter.observe_events(&[ClientSessionEvent::RemoveWorldLabel { label_id: 99 }]);
+        assert!(adapter.world_overlay().world_label_overlays.is_empty());
+
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+        assert!(!scene
+            .objects
+            .iter()
+            .any(|object| object.id.starts_with("world-label:event:")));
+    }
+
+    #[test]
+    fn render_runtime_adapter_expires_anonymous_world_label_event_overlay() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
+
+        adapter.observe_events(&[ClientSessionEvent::WorldLabel {
+            reliable: false,
+            label_id: None,
+            message: Some("ephemeral".to_string()),
+            duration: 0.0,
+            world_x: 20.0,
+            world_y: 24.0,
+        }]);
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+        first_runtime_world_label_event_object(&scene);
+
+        adapter.observe_events(&[]);
+        assert!(adapter.world_overlay().world_label_overlays.is_empty());
+
+        let mut expired_scene = RenderModel::default();
+        let mut expired_hud = HudModel::default();
+        adapter.apply(&mut expired_scene, &mut expired_hud, &input, &state);
+        assert!(!expired_scene
+            .objects
+            .iter()
+            .any(|object| object.id.starts_with("world-label:event:")));
     }
 
     #[test]
@@ -6026,6 +6261,44 @@ mod tests {
             .objects
             .iter()
             .any(|object| object.id.starts_with("marker:runtime-effect:")));
+    }
+
+    #[test]
+    fn render_runtime_adapter_renders_spawn_effect_as_runtime_effect_overlay_marker() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
+
+        adapter.observe_events(&[ClientSessionEvent::SpawnEffect {
+            x: 12.0,
+            y: 20.0,
+            rotation: 45.0,
+            unit_type_id: Some(9),
+        }]);
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let marker = first_runtime_effect_marker(&scene);
+        assert_eq!(
+            marker.id,
+            format!(
+                "marker:runtime-effect:normal:-1:0x{:08x}:0x{:08x}:0",
+                12.0f32.to_bits(),
+                20.0f32.to_bits()
+            )
+        );
+        let icon = first_runtime_effect_icon(&scene);
+        assert_eq!(
+            icon.id,
+            format!(
+                "marker:runtime-effect-icon:content-icon:normal:-1:6:9:0x{:08x}:0x{:08x}",
+                12.0f32.to_bits(),
+                20.0f32.to_bits()
+            )
+        );
+        assert_eq!(icon.x, 12.0);
+        assert_eq!(icon.y, 20.0);
     }
 
     #[test]
@@ -9443,7 +9716,10 @@ mod tests {
 
         assert_eq!(observability.active_overlay_count, 1);
         assert_eq!(observability.active_effect_id, Some(13));
-        assert_eq!(observability.active_contract_name.as_deref(), Some("lightning"));
+        assert_eq!(
+            observability.active_contract_name.as_deref(),
+            Some("lightning")
+        );
         assert_eq!(observability.active_reliable, Some(true));
         assert_eq!(
             observability.active_position,
@@ -9454,7 +9730,10 @@ mod tests {
         );
         assert_eq!(observability.display_effect_id(), Some(13));
         assert_eq!(observability.display_contract_name(), Some("lightning"));
-        assert_eq!(observability.display_reliable_contract_name(), Some("lightning"));
+        assert_eq!(
+            observability.display_reliable_contract_name(),
+            Some("lightning")
+        );
         assert_eq!(
             observability.display_position_source(),
             Some(RuntimeLiveEffectPositionSource::ActiveOverlay)
