@@ -9,7 +9,7 @@ use crate::effect_data_runtime::EffectDataBusinessHint;
 use crate::effect_runtime::{
     effect_contract, resolve_runtime_effect_overlay_position,
     resolve_runtime_effect_overlay_source_position, spawn_runtime_effect_overlay,
-    EffectRuntimeInputView, RuntimeEffectOverlay,
+    EffectRuntimeInputView, RuntimeEffectBinding, RuntimeEffectOverlay,
 };
 use crate::session_state::{
     AuthoritativeStateMirror, BuilderPlanStage, BuilderQueueProjection,
@@ -82,6 +82,7 @@ impl RenderRuntimeAdapter {
         snapshot_input: &ClientSnapshotInputState,
         session_state: &SessionState,
     ) {
+        cull_hidden_parent_unit_effect_overlays(&mut self.world_overlay, session_state);
         let config_stats = runtime_build_plan_config_stats(snapshot_input.plans.as_deref());
         append_runtime_build_plan_objects(scene, snapshot_input.plans.as_deref());
         append_runtime_world_overlay_objects(
@@ -714,6 +715,58 @@ fn advance_runtime_effect_overlays(runtime_world_overlay: &mut RuntimeWorldOverl
     runtime_world_overlay
         .effect_overlays
         .retain(|overlay| overlay.remaining_ticks > 0);
+}
+
+fn cull_hidden_parent_unit_effect_overlays(
+    runtime_world_overlay: &mut RuntimeWorldOverlay,
+    session_state: &SessionState,
+) {
+    let hidden_ids = &session_state.hidden_snapshot_ids;
+    if hidden_ids.is_empty() {
+        return;
+    }
+    let local_player_entity_id = session_state.entity_table_projection.local_player_entity_id;
+    runtime_world_overlay.effect_overlays.retain(|overlay| {
+        !runtime_effect_overlay_binds_hidden_non_local_unit(
+            overlay,
+            hidden_ids,
+            local_player_entity_id,
+        )
+    });
+}
+
+fn runtime_effect_overlay_binds_hidden_non_local_unit(
+    overlay: &RuntimeEffectOverlay,
+    hidden_ids: &BTreeSet<i32>,
+    local_player_entity_id: Option<i32>,
+) -> bool {
+    runtime_effect_binding_hidden_non_local_unit(
+        overlay.binding.as_ref(),
+        hidden_ids,
+        local_player_entity_id,
+    )
+    .is_some()
+        || runtime_effect_binding_hidden_non_local_unit(
+            overlay.source_binding.as_ref(),
+            hidden_ids,
+            local_player_entity_id,
+        )
+        .is_some()
+}
+
+fn runtime_effect_binding_hidden_non_local_unit(
+    binding: Option<&RuntimeEffectBinding>,
+    hidden_ids: &BTreeSet<i32>,
+    local_player_entity_id: Option<i32>,
+) -> Option<i32> {
+    match binding {
+        Some(RuntimeEffectBinding::ParentUnit { unit_id, .. })
+            if Some(*unit_id) != local_player_entity_id && hidden_ids.contains(unit_id) =>
+        {
+            Some(*unit_id)
+        }
+        _ => None,
+    }
 }
 
 fn runtime_snapshot_method_label(method: Option<HighFrequencyRemoteMethod>) -> &'static str {
@@ -7612,6 +7665,74 @@ mod tests {
         assert!(charge_lines
             .iter()
             .any(|object| object.x == 62.0 && object.y == 16.0));
+    }
+
+    #[test]
+    fn render_runtime_adapter_culls_hidden_non_local_parent_unit_effect_overlays() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        state.entity_table_projection.by_entity_id.insert(
+            404,
+            crate::session_state::EntityProjection {
+                class_id: 12,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 88,
+                x_bits: 12.0f32.to_bits(),
+                y_bits: 16.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 3,
+            },
+        );
+
+        adapter.observe_events(&[ClientSessionEvent::EffectRequested {
+            effect_id: Some(257),
+            x: 12.0,
+            y: 16.0,
+            rotation: 0.0,
+            color_rgba: 0x11223344,
+            data_object: Some(mdt_typeio::TypeIoObject::UnitId(404)),
+        }]);
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        assert_eq!(adapter.world_overlay().effect_overlays.len(), 1);
+        assert!(scene
+            .objects
+            .iter()
+            .any(|object| object.id.starts_with("marker:runtime-effect:")));
+
+        state.hidden_snapshot_ids = BTreeSet::from([404]);
+        state.last_hidden_snapshot = Some(crate::session_state::AppliedHiddenSnapshotIds {
+            count: 1,
+            first_id: Some(404),
+            sample_ids: vec![404],
+        });
+        state.entity_table_projection.by_entity_id.insert(
+            404,
+            crate::session_state::EntityProjection {
+                class_id: 12,
+                hidden: true,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 88,
+                x_bits: 12.0f32.to_bits(),
+                y_bits: 16.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 4,
+            },
+        );
+
+        let mut hidden_scene = RenderModel::default();
+        let mut hidden_hud = HudModel::default();
+        adapter.apply(&mut hidden_scene, &mut hidden_hud, &input, &state);
+
+        assert!(adapter.world_overlay().effect_overlays.is_empty());
+        assert!(!hidden_scene
+            .objects
+            .iter()
+            .any(|object| object.id.starts_with("marker:runtime-effect:")));
     }
 
     #[test]
