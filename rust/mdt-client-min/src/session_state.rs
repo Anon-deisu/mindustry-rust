@@ -3191,7 +3191,12 @@ fn typed_runtime_building_model(
                 inventory_item_stacks.first().map(|(item_id, _)| *item_id),
             ),
         ),
-        "junction" | "router" | "distributor" => (
+        "junction"
+        | "router"
+        | "distributor"
+        | "overflow-gate"
+        | "underflow-gate"
+        | "surge-router" => (
             TypedBuildingRuntimeKind::ItemBuffer,
             TypedBuildingRuntimeValue::Item(
                 inventory_item_stacks.first().map(|(item_id, _)| *item_id),
@@ -7382,6 +7387,9 @@ mod tests {
             (0x0006_001ai32, "junction", vec![(31, 2)], Some(31)),
             (0x0006_001bi32, "router", vec![(32, 4), (33, 1)], Some(32)),
             (0x0006_001ci32, "distributor", Vec::new(), None),
+            (0x0006_001di32, "overflow-gate", vec![(34, 3)], Some(34)),
+            (0x0006_001ei32, "underflow-gate", vec![(35, 5)], Some(35)),
+            (0x0006_001fi32, "surge-router", vec![(36, 6)], Some(36)),
         ] {
             let mut state = SessionState::default();
             state.building_table_projection.apply_block_snapshot_head(
