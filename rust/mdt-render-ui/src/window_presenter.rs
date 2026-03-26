@@ -74,6 +74,7 @@ pub struct WindowMinimapInset {
     pub focus_tile: Option<(usize, usize)>,
     pub player_tile: Option<(usize, usize)>,
     pub ping_tile: Option<(usize, usize)>,
+    pub command_tiles: Vec<(usize, usize)>,
     pub world_label_tiles: Vec<(usize, usize)>,
     pub runtime_overlay_tiles: Vec<WindowMinimapRuntimeOverlayTile>,
 }
@@ -488,6 +489,7 @@ fn compose_window_minimap_inset(
             panel.map_height,
         ),
         ping_tile: runtime_ping_minimap_tile(scene, panel.map_width, panel.map_height),
+        command_tiles: runtime_command_minimap_tiles(scene, panel.map_width, panel.map_height, 8),
         world_label_tiles: runtime_world_label_minimap_tiles(scene, panel.map_width, panel.map_height, 8),
         runtime_overlay_tiles: runtime_minimap_overlay_tiles(scene, panel.map_width, panel.map_height, 8),
     })
@@ -550,6 +552,51 @@ fn runtime_world_label_minimap_tiles(
         tiles.push(tile);
         if tiles.len() >= max_tiles {
             break;
+        }
+    }
+
+    tiles
+}
+
+fn runtime_command_minimap_tiles(
+    scene: &RenderModel,
+    map_width: usize,
+    map_height: usize,
+    max_tiles: usize,
+) -> Vec<(usize, usize)> {
+    let mut seen = BTreeSet::new();
+    let mut tiles = Vec::new();
+
+    for prefix in [
+        "marker:runtime-command-build-target:",
+        "marker:runtime-command-position-target:",
+        "marker:runtime-command-unit-target:",
+        "marker:runtime-command-selected-unit:",
+        "marker:runtime-command-building:",
+    ] {
+        for object in scene.objects.iter().rev() {
+            if !object.id.starts_with(prefix) {
+                continue;
+            }
+            let tile_x = crate::presenter_view::world_to_tile_index_floor(object.x, TILE_SIZE);
+            let tile_y = crate::presenter_view::world_to_tile_index_floor(object.y, TILE_SIZE);
+            if tile_x < 0 || tile_y < 0 {
+                continue;
+            }
+            let Some(tile) = clamp_window_minimap_tile(
+                Some((tile_x as usize, tile_y as usize)),
+                map_width,
+                map_height,
+            ) else {
+                continue;
+            };
+            if !seen.insert(tile) {
+                continue;
+            }
+            tiles.push(tile);
+            if tiles.len() >= max_tiles {
+                return tiles;
+            }
         }
     }
 
@@ -3761,6 +3808,20 @@ fn overlay_window_minimap_inset(
             world_label_tile,
         );
     }
+    for &command_tile in &inset.command_tiles {
+        draw_window_minimap_command(
+            pixels,
+            surface_width,
+            surface_height,
+            map_start_x,
+            map_start_y,
+            map_pixel_width,
+            map_pixel_height,
+            inset.map_width,
+            inset.map_height,
+            command_tile,
+        );
+    }
     if let Some(player_tile) = inset.player_tile {
         draw_window_minimap_player(
             pixels,
@@ -4071,6 +4132,41 @@ fn draw_window_minimap_runtime_overlay(
         1,
         1,
         color,
+    );
+}
+
+fn draw_window_minimap_command(
+    pixels: &mut [u32],
+    surface_width: usize,
+    surface_height: usize,
+    map_start_x: usize,
+    map_start_y: usize,
+    map_pixel_width: usize,
+    map_pixel_height: usize,
+    map_width: usize,
+    map_height: usize,
+    tile: (usize, usize),
+) {
+    let Some((pixel_x, pixel_y)) = project_window_minimap_point(
+        tile,
+        map_width,
+        map_height,
+        map_pixel_width,
+        map_pixel_height,
+    ) else {
+        return;
+    };
+    let center_x = map_start_x.saturating_add(pixel_x);
+    let center_y = map_start_y.saturating_add(pixel_y);
+    fill_window_hud_rect(
+        pixels,
+        surface_width,
+        surface_height,
+        center_x,
+        center_y,
+        1,
+        1,
+        COLOR_ICON_RUNTIME_COMMAND,
     );
 }
 
@@ -4797,6 +4893,7 @@ mod tests {
                 focus_tile: Some((60, 40)),
                 player_tile: Some((20, 18)),
                 ping_tile: Some((44, 22)),
+                command_tiles: vec![(24, 20), (26, 18)],
                 world_label_tiles: vec![(30, 26)],
                 runtime_overlay_tiles: vec![
                     WindowMinimapRuntimeOverlayTile {
@@ -4841,6 +4938,7 @@ mod tests {
         assert!(top_right_pixels.contains(&COLOR_PLAYER));
         assert!(top_right_pixels.contains(&COLOR_MARKER));
         assert!(top_right_pixels.contains(&COLOR_RUNTIME));
+        assert!(top_right_pixels.contains(&COLOR_ICON_RUNTIME_COMMAND));
         assert!(top_right_pixels.contains(&COLOR_ICON_BUILD_CONFIG));
         assert!(top_right_pixels.contains(&COLOR_UNKNOWN));
         assert!(top_right_pixels.contains(&COLOR_ICON_RUNTIME_BREAK));
@@ -4907,6 +5005,18 @@ mod tests {
                     x: 32.0,
                     y: 32.0,
                 },
+                RenderObject {
+                    id: "marker:runtime-command-build-target:9:10".to_string(),
+                    layer: 29,
+                    x: 72.0,
+                    y: 80.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-command-selected-unit:77".to_string(),
+                    layer: 29,
+                    x: 88.0,
+                    y: 96.0,
+                },
             ],
         };
         let hud = HudModel {
@@ -4955,6 +5065,7 @@ mod tests {
         assert_eq!(inset.focus_tile, Some((7, 6)));
         assert_eq!(inset.player_tile, Some((4, 2)));
         assert_eq!(inset.ping_tile, Some((5, 3)));
+        assert_eq!(inset.command_tiles, vec![(9, 10), (11, 12)]);
         assert_eq!(inset.world_label_tiles, vec![(6, 4)]);
         assert_eq!(
             inset.runtime_overlay_tiles,
