@@ -194,6 +194,17 @@ pub fn read_abilities(bytes: &[u8]) -> Result<Vec<AbilityRaw>, TypeIoReadError> 
     Ok(abilities)
 }
 
+pub fn read_abilities_into(
+    bytes: &[u8],
+    abilities: &mut Vec<AbilityRaw>,
+) -> Result<(), TypeIoReadError> {
+    let (parsed, consumed) = read_abilities_prefix(bytes)?;
+    ensure_consumed(consumed, bytes.len())?;
+    abilities.clear();
+    abilities.extend(parsed);
+    Ok(())
+}
+
 pub fn read_abilities_prefix(bytes: &[u8]) -> Result<(Vec<AbilityRaw>, usize), TypeIoReadError> {
     let mut reader = PrimitiveReader::new(bytes);
     let len = reader.read_u8()? as usize;
@@ -204,6 +215,16 @@ pub fn read_abilities_prefix(bytes: &[u8]) -> Result<(Vec<AbilityRaw>, usize), T
         });
     }
     Ok((abilities, reader.position()))
+}
+
+pub fn read_abilities_into_prefix(
+    bytes: &[u8],
+    abilities: &mut Vec<AbilityRaw>,
+) -> Result<usize, TypeIoReadError> {
+    let (parsed, consumed) = read_abilities_prefix(bytes)?;
+    abilities.clear();
+    abilities.extend(parsed);
+    Ok(consumed)
 }
 
 pub fn write_weapon_mounts(out: &mut Vec<u8>, mounts: &[WeaponMountRaw]) {
@@ -225,6 +246,17 @@ pub fn read_weapon_mounts(bytes: &[u8]) -> Result<Vec<WeaponMountRaw>, TypeIoRea
     Ok(mounts)
 }
 
+pub fn read_weapon_mounts_into(
+    bytes: &[u8],
+    mounts: &mut Vec<WeaponMountRaw>,
+) -> Result<(), TypeIoReadError> {
+    let (parsed, consumed) = read_weapon_mounts_prefix(bytes)?;
+    ensure_consumed(consumed, bytes.len())?;
+    mounts.clear();
+    mounts.extend(parsed);
+    Ok(())
+}
+
 pub fn read_weapon_mounts_prefix(
     bytes: &[u8],
 ) -> Result<(Vec<WeaponMountRaw>, usize), TypeIoReadError> {
@@ -238,6 +270,16 @@ pub fn read_weapon_mounts_prefix(
         mounts.push(WeaponMountRaw::from_state_byte(state, aim_x, aim_y));
     }
     Ok((mounts, reader.position()))
+}
+
+pub fn read_weapon_mounts_into_prefix(
+    bytes: &[u8],
+    mounts: &mut Vec<WeaponMountRaw>,
+) -> Result<usize, TypeIoReadError> {
+    let (parsed, consumed) = read_weapon_mounts_prefix(bytes)?;
+    mounts.clear();
+    mounts.extend(parsed);
+    Ok(consumed)
 }
 
 fn ensure_consumed(consumed: usize, total: usize) -> Result<(), TypeIoReadError> {
@@ -324,6 +366,18 @@ mod tests {
     }
 
     #[test]
+    fn abilities_into_round_trip_two_entries() {
+        let abilities = vec![AbilityRaw { data: 12.5 }, AbilityRaw { data: -3.25 }];
+        let mut bytes = Vec::new();
+        let mut target = vec![AbilityRaw { data: 99.0 }];
+
+        write_abilities(&mut bytes, &abilities);
+        read_abilities_into(&bytes, &mut target).unwrap();
+
+        assert_eq!(target, abilities);
+    }
+
+    #[test]
     fn abilities_round_trip_empty_array() {
         let mut bytes = Vec::new();
 
@@ -348,6 +402,32 @@ mod tests {
     }
 
     #[test]
+    fn abilities_into_prefix_overwrites_existing_entries() {
+        let bytes = vec![2, 0x41, 0x48, 0x00, 0x00, 0xc0, 0x50, 0x00, 0x00];
+        let mut abilities = vec![AbilityRaw { data: 99.0 }];
+
+        let consumed = read_abilities_into_prefix(&bytes, &mut abilities).unwrap();
+
+        assert_eq!(consumed, bytes.len());
+        assert_eq!(abilities, vec![AbilityRaw { data: 12.5 }, AbilityRaw { data: -3.25 }]);
+    }
+
+    #[test]
+    fn abilities_into_rejects_trailing_payload() {
+        let bytes = vec![1, 0x41, 0x48, 0x00, 0x00, 0xff];
+        let mut abilities = vec![AbilityRaw { data: 99.0 }];
+
+        assert!(matches!(
+            read_abilities_into(&bytes, &mut abilities),
+            Err(TypeIoReadError::TrailingBytes {
+                consumed: 5,
+                total: 6,
+            })
+        ));
+        assert_eq!(abilities, vec![AbilityRaw { data: 99.0 }]);
+    }
+
+    #[test]
     fn weapon_mounts_round_trip_two_entries() {
         let mounts = vec![
             WeaponMountRaw {
@@ -368,6 +448,36 @@ mod tests {
         write_weapon_mounts(&mut bytes, &mounts);
 
         assert_eq!(read_weapon_mounts(&bytes).unwrap(), mounts);
+    }
+
+    #[test]
+    fn weapon_mounts_into_round_trip_two_entries() {
+        let mounts = vec![
+            WeaponMountRaw {
+                shoot: true,
+                rotate: false,
+                aim_x: 12.5,
+                aim_y: -3.25,
+            },
+            WeaponMountRaw {
+                shoot: false,
+                rotate: true,
+                aim_x: -8.0,
+                aim_y: 64.5,
+            },
+        ];
+        let mut bytes = Vec::new();
+        let mut target = vec![WeaponMountRaw {
+            shoot: false,
+            rotate: false,
+            aim_x: 99.0,
+            aim_y: 99.0,
+        }];
+
+        write_weapon_mounts(&mut bytes, &mounts);
+        read_weapon_mounts_into(&bytes, &mut target).unwrap();
+
+        assert_eq!(target, mounts);
     }
 
     #[test]
@@ -395,6 +505,58 @@ mod tests {
                 remaining: 3,
             })
         ));
+    }
+
+    #[test]
+    fn weapon_mounts_into_prefix_overwrites_existing_entries() {
+        let bytes = vec![1, 0b0000_0011, 0x41, 0x48, 0x00, 0x00, 0xc0, 0x50, 0x00, 0x00];
+        let mut mounts = vec![WeaponMountRaw {
+            shoot: false,
+            rotate: false,
+            aim_x: 99.0,
+            aim_y: 99.0,
+        }];
+
+        let consumed = read_weapon_mounts_into_prefix(&bytes, &mut mounts).unwrap();
+
+        assert_eq!(consumed, bytes.len());
+        assert_eq!(
+            mounts,
+            vec![WeaponMountRaw {
+                shoot: true,
+                rotate: true,
+                aim_x: 12.5,
+                aim_y: -3.25,
+            }]
+        );
+    }
+
+    #[test]
+    fn weapon_mounts_into_rejects_trailing_payload() {
+        let bytes = vec![1, 0b0000_0011, 0x41, 0x48, 0x00, 0x00, 0xc0, 0x50, 0x00, 0x00, 0xff];
+        let mut mounts = vec![WeaponMountRaw {
+            shoot: false,
+            rotate: false,
+            aim_x: 99.0,
+            aim_y: 99.0,
+        }];
+
+        assert!(matches!(
+            read_weapon_mounts_into(&bytes, &mut mounts),
+            Err(TypeIoReadError::TrailingBytes {
+                consumed: 10,
+                total: 11,
+            })
+        ));
+        assert_eq!(
+            mounts,
+            vec![WeaponMountRaw {
+                shoot: false,
+                rotate: false,
+                aim_x: 99.0,
+                aim_y: 99.0,
+            }]
+        );
     }
 
     #[test]
