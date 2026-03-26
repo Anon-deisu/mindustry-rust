@@ -4330,6 +4330,11 @@ fn append_runtime_command_mode_overlay_objects(
                 (target_x, target_y),
                 session_state,
             );
+            append_runtime_command_mode_building_target_lines(
+                scene,
+                &command_mode.command_buildings,
+                (target_x, target_y),
+            );
         }
     }
 }
@@ -4360,6 +4365,43 @@ fn append_runtime_command_mode_target_lines(
         }
         let line_id = format!(
             "marker:line:runtime-command-target-link:{ordinal}:{}:{}:{}:{}",
+            source_x.to_bits(),
+            source_y.to_bits(),
+            target.0.to_bits(),
+            target.1.to_bits()
+        );
+        scene.objects.push(RenderObject {
+            id: line_id.clone(),
+            layer: LINK_LAYER,
+            x: source_x,
+            y: source_y,
+        });
+        scene.objects.push(RenderObject {
+            id: format!("{line_id}:line-end"),
+            layer: LINK_LAYER,
+            x: target.0,
+            y: target.1,
+        });
+    }
+}
+
+fn append_runtime_command_mode_building_target_lines(
+    scene: &mut RenderModel,
+    command_buildings: &[i32],
+    target: (f32, f32),
+) {
+    const TILE_SIZE: f32 = 8.0;
+    const LINK_LAYER: i32 = 29;
+
+    for (ordinal, &build_pos) in command_buildings.iter().take(4).enumerate() {
+        let (tile_x, tile_y) = unpack_runtime_point2(build_pos);
+        let source_x = (tile_x as f32 + 0.5) * TILE_SIZE;
+        let source_y = (tile_y as f32 + 0.5) * TILE_SIZE;
+        if source_x == target.0 && source_y == target.1 {
+            continue;
+        }
+        let line_id = format!(
+            "marker:line:runtime-command-building-target-link:{ordinal}:{}:{}:{}:{}",
             source_x.to_bits(),
             source_y.to_bits(),
             target.0.to_bits(),
@@ -6780,6 +6822,11 @@ mod tests {
                 .id
                 .starts_with("marker:line:runtime-command-target-link:0:")
         }));
+        assert!(scene.objects.iter().any(|object| {
+            object
+                .id
+                .starts_with("marker:line:runtime-command-building-target-link:0:")
+        }));
         assert!(scene.primitives().iter().any(|primitive| {
             matches!(
                 primitive,
@@ -6841,6 +6888,18 @@ mod tests {
                     y1,
                     ..
                 } if *x0 == 8.0 && *y0 == 16.0 && *x1 == 40.0 && *y1 == 48.0
+            )
+        }));
+        assert!(scene.primitives().iter().any(|primitive| {
+            matches!(
+                primitive,
+                mdt_render_ui::render_model::RenderPrimitive::Line {
+                    x0,
+                    y0,
+                    x1,
+                    y1,
+                    ..
+                } if *x0 == 148.0 && *y0 == 324.0 && *x1 == 40.0 && *y1 == 48.0
             )
         }));
     }
