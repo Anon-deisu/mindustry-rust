@@ -352,6 +352,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             &mut runtime_command_mode,
                             &args.command_mode_ops,
                         );
+                        reset_live_intent_mapper(&args, &mut live_intent_mapper);
                         last_runtime_input = None;
                         reconnect_executor.note_attempt_success();
                         let tcp_local_addr = driver.tcp_local_addr()?;
@@ -1498,6 +1499,13 @@ fn build_live_intent_mapper(args: &CliArgs) -> Option<LiveIntentMapperController
             args.live_intent_sampling_mode,
         )
     })
+}
+
+fn reset_live_intent_mapper(
+    args: &CliArgs,
+    live_intent_mapper: &mut Option<LiveIntentMapperController>,
+) {
+    *live_intent_mapper = build_live_intent_mapper(args);
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -7848,6 +7856,58 @@ mod tests {
         let args = parse_args(sample_args(&["--intent-live-sampling"])).unwrap();
 
         assert!(build_live_intent_mapper(&args).is_some());
+    }
+
+    #[test]
+    fn reset_live_intent_mapper_rebuilds_fresh_runtime_capture_state() {
+        let args = parse_args(sample_args(&[
+            "--intent-snapshot",
+            "25:1:0:0:fire",
+            "--intent-live-sampling",
+        ]))
+        .unwrap();
+        let mut live_intent_mapper =
+            build_live_intent_mapper(&args).expect("default args should enable runtime capture");
+        let runtime_snapshot = InputSnapshot {
+            move_axis: (1.0, 0.0),
+            aim_axis: (16.0, 24.0),
+            mining_tile: Some((8, 9)),
+            building: true,
+            config_tap_tile: Some((5, 6)),
+            build_pulse: Some(BuildPulse {
+                tile: (7, 8),
+                breaking: false,
+            }),
+            active_actions: vec![BinaryAction::Fire],
+        };
+
+        live_intent_mapper.observe_runtime_snapshot(runtime_snapshot.clone(), 10);
+        assert!(live_intent_mapper.advance(&runtime_snapshot, 10));
+        live_intent_mapper.next_snapshot_index = 1;
+        live_intent_mapper
+            .pending_runtime_snapshots
+            .push(ObservedIntentSnapshot {
+                observed_at_ms: 20,
+                snapshot: runtime_snapshot,
+            });
+
+        let mut live_intent_mapper = Some(live_intent_mapper);
+        reset_live_intent_mapper(&args, &mut live_intent_mapper);
+
+        let reset = live_intent_mapper
+            .as_ref()
+            .expect("live intent mapper should remain enabled");
+        assert_eq!(reset.schedule, args.live_intent_schedule);
+        assert_eq!(reset.next_snapshot_index, 0);
+        assert!(reset.pending_runtime_snapshots.is_empty());
+        assert_eq!(reset.state().move_axis, (0.0, 0.0));
+        assert_eq!(reset.state().aim_axis, (0.0, 0.0));
+        assert_eq!(reset.state().mining_tile, None);
+        assert!(!reset.state().building);
+        assert_eq!(reset.state().last_config_tap_tile, None);
+        assert_eq!(reset.state().last_build_pulse, None);
+        assert!(reset.state().pressed_actions.is_empty());
+        assert!(reset.state().released_actions.is_empty());
     }
 
     #[test]

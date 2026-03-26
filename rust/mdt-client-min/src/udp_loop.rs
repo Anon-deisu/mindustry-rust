@@ -1,4 +1,5 @@
 use crate::bootstrap_flow::ConnectPacketEnvelope;
+use crate::arcnet_loop::transport_timeout_kind;
 use crate::client_session::{
     ClientPacketTransport, ClientSession, ClientSessionAction, ClientSessionError,
     ClientSessionEvent,
@@ -89,11 +90,7 @@ impl UdpSessionDriver {
                 }
                 ClientSessionAction::TimedOut { idle_ms } => {
                     report.timed_out = Some(idle_ms);
-                    report.timed_out_kind = session
-                        .state()
-                        .last_timeout
-                        .map(|projection| projection.kind)
-                        .or(Some(SessionTimeoutKind::ConnectOrLoading));
+                    report.timed_out_kind = transport_timeout_kind(session);
                 }
             }
         }

@@ -12,6 +12,14 @@ use std::io::{self, Read, Write};
 use std::net::{SocketAddr, TcpStream, UdpSocket};
 use std::time::Duration;
 
+pub(crate) fn transport_timeout_kind(session: &ClientSession) -> Option<SessionTimeoutKind> {
+    session
+        .state()
+        .last_timeout
+        .map(|projection| projection.kind)
+        .or(Some(SessionTimeoutKind::ConnectOrLoading))
+}
+
 #[derive(Debug)]
 pub struct ArcNetSessionDriver {
     tcp: TcpStream,
@@ -185,11 +193,7 @@ impl ArcNetSessionDriver {
                     }
                     ClientSessionAction::TimedOut { idle_ms } => {
                         report.timed_out = Some(idle_ms);
-                        report.timed_out_kind = session
-                            .state()
-                            .last_timeout
-                            .map(|projection| projection.kind)
-                            .or(Some(SessionTimeoutKind::ConnectOrLoading));
+                        report.timed_out_kind = transport_timeout_kind(session);
                     }
                 }
             }
@@ -872,6 +876,49 @@ mod tests {
         assert!(inbound_tcp_frames >= 1);
         assert!(inbound_udp_packets >= 1);
         assert!(inbound_framework_messages >= 2);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn surfaces_ready_snapshot_stall_timeout_kind_on_arcnet_timeout() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let timing = ClientSessionTiming {
+            keepalive_interval_ms: 60_000,
+            client_snapshot_interval_ms: 60_000,
+            connect_timeout_ms: 1_200,
+            timeout_ms: 1_200,
+        };
+        let mut session =
+            ClientSession::from_remote_manifest_with_timing(&manifest, "fr", timing).unwrap();
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+
+        session.ingest_packet_bytes(&begin_packet).unwrap();
+        for chunk in chunk_packets {
+            session.ingest_packet_bytes(&chunk).unwrap();
+        }
+        assert!(session.state().ready_to_enter_world);
+        assert!(session.state().client_loaded);
+        assert!(session.state().connect_confirm_sent);
+        assert!(!session.state().connect_confirm_flushed);
+
+        let (tcp_listener, _udp_socket, server_addr) = bind_local_arcnet_server();
+        let server = thread::spawn(move || {
+            let (_tcp_stream, _) = tcp_listener.accept().unwrap();
+            thread::sleep(Duration::from_millis(200));
+        });
+
+        let mut driver = ArcNetSessionDriver::connect(server_addr).unwrap();
+        driver.connect_sent = true;
+
+        let report = driver.tick(&mut session, 2_400, 32, 32).unwrap();
+
+        assert_eq!(report.timed_out, Some(2_400));
+        assert_eq!(
+            report.timed_out_kind,
+            Some(SessionTimeoutKind::ReadySnapshotStall)
+        );
         server.join().unwrap();
     }
 
