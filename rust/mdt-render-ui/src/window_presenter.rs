@@ -75,6 +75,21 @@ pub struct WindowMinimapInset {
     pub player_tile: Option<(usize, usize)>,
     pub ping_tile: Option<(usize, usize)>,
     pub world_label_tiles: Vec<(usize, usize)>,
+    pub runtime_overlay_tiles: Vec<WindowMinimapRuntimeOverlayTile>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WindowMinimapRuntimeOverlayTile {
+    pub tile: (usize, usize),
+    pub kind: WindowMinimapRuntimeOverlayKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowMinimapRuntimeOverlayKind {
+    Config,
+    ConfigAlert,
+    Break,
+    Place,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -474,6 +489,7 @@ fn compose_window_minimap_inset(
         ),
         ping_tile: runtime_ping_minimap_tile(scene, panel.map_width, panel.map_height),
         world_label_tiles: runtime_world_label_minimap_tiles(scene, panel.map_width, panel.map_height, 8),
+        runtime_overlay_tiles: runtime_minimap_overlay_tiles(scene, panel.map_width, panel.map_height, 8),
     })
 }
 
@@ -538,6 +554,69 @@ fn runtime_world_label_minimap_tiles(
     }
 
     tiles
+}
+
+fn runtime_minimap_overlay_tiles(
+    scene: &RenderModel,
+    map_width: usize,
+    map_height: usize,
+    max_tiles: usize,
+) -> Vec<WindowMinimapRuntimeOverlayTile> {
+    let mut seen = BTreeSet::new();
+    let mut tiles = Vec::new();
+
+    for kind in [
+        WindowMinimapRuntimeOverlayKind::ConfigAlert,
+        WindowMinimapRuntimeOverlayKind::Config,
+        WindowMinimapRuntimeOverlayKind::Break,
+        WindowMinimapRuntimeOverlayKind::Place,
+    ] {
+        for object in scene.objects.iter().rev() {
+            if runtime_minimap_overlay_kind(object.semantic_kind()) != Some(kind) {
+                continue;
+            }
+            let tile_x = crate::presenter_view::world_to_tile_index_floor(object.x, TILE_SIZE);
+            let tile_y = crate::presenter_view::world_to_tile_index_floor(object.y, TILE_SIZE);
+            if tile_x < 0 || tile_y < 0 {
+                continue;
+            }
+            let Some(tile) = clamp_window_minimap_tile(
+                Some((tile_x as usize, tile_y as usize)),
+                map_width,
+                map_height,
+            ) else {
+                continue;
+            };
+            if !seen.insert(tile) {
+                continue;
+            }
+            tiles.push(WindowMinimapRuntimeOverlayTile { tile, kind });
+            if tiles.len() >= max_tiles {
+                return tiles;
+            }
+        }
+    }
+
+    tiles
+}
+
+fn runtime_minimap_overlay_kind(
+    kind: RenderObjectSemanticKind,
+) -> Option<WindowMinimapRuntimeOverlayKind> {
+    match kind {
+        RenderObjectSemanticKind::RuntimeConfig => Some(WindowMinimapRuntimeOverlayKind::Config),
+        RenderObjectSemanticKind::RuntimeConfigParseFail
+        | RenderObjectSemanticKind::RuntimeConfigNoApply
+        | RenderObjectSemanticKind::RuntimeConfigRollback => {
+            Some(WindowMinimapRuntimeOverlayKind::ConfigAlert)
+        }
+        RenderObjectSemanticKind::RuntimeConfigPendingMismatch => {
+            Some(WindowMinimapRuntimeOverlayKind::Config)
+        }
+        RenderObjectSemanticKind::RuntimeBreak => Some(WindowMinimapRuntimeOverlayKind::Break),
+        RenderObjectSemanticKind::RuntimePlace => Some(WindowMinimapRuntimeOverlayKind::Place),
+        _ => None,
+    }
 }
 
 fn crop_window(
@@ -3654,6 +3733,34 @@ fn overlay_window_minimap_inset(
         map_pixel_width,
         map_pixel_height,
     );
+    for overlay_tile in &inset.runtime_overlay_tiles {
+        draw_window_minimap_runtime_overlay(
+            pixels,
+            surface_width,
+            surface_height,
+            map_start_x,
+            map_start_y,
+            map_pixel_width,
+            map_pixel_height,
+            inset.map_width,
+            inset.map_height,
+            *overlay_tile,
+        );
+    }
+    for &world_label_tile in &inset.world_label_tiles {
+        draw_window_minimap_world_label(
+            pixels,
+            surface_width,
+            surface_height,
+            map_start_x,
+            map_start_y,
+            map_pixel_width,
+            map_pixel_height,
+            inset.map_width,
+            inset.map_height,
+            world_label_tile,
+        );
+    }
     if let Some(player_tile) = inset.player_tile {
         draw_window_minimap_player(
             pixels,
@@ -3694,20 +3801,6 @@ fn overlay_window_minimap_inset(
             inset.map_width,
             inset.map_height,
             ping_tile,
-        );
-    }
-    for &world_label_tile in &inset.world_label_tiles {
-        draw_window_minimap_world_label(
-            pixels,
-            surface_width,
-            surface_height,
-            map_start_x,
-            map_start_y,
-            map_pixel_width,
-            map_pixel_height,
-            inset.map_width,
-            inset.map_height,
-            world_label_tile,
         );
     }
 }
@@ -3937,6 +4030,47 @@ fn draw_window_minimap_world_label(
         1,
         1,
         COLOR_RUNTIME,
+    );
+}
+
+fn draw_window_minimap_runtime_overlay(
+    pixels: &mut [u32],
+    surface_width: usize,
+    surface_height: usize,
+    map_start_x: usize,
+    map_start_y: usize,
+    map_pixel_width: usize,
+    map_pixel_height: usize,
+    map_width: usize,
+    map_height: usize,
+    overlay: WindowMinimapRuntimeOverlayTile,
+) {
+    let Some((pixel_x, pixel_y)) = project_window_minimap_point(
+        overlay.tile,
+        map_width,
+        map_height,
+        map_pixel_width,
+        map_pixel_height,
+    ) else {
+        return;
+    };
+    let center_x = map_start_x.saturating_add(pixel_x);
+    let center_y = map_start_y.saturating_add(pixel_y);
+    let color = match overlay.kind {
+        WindowMinimapRuntimeOverlayKind::Config => COLOR_ICON_BUILD_CONFIG,
+        WindowMinimapRuntimeOverlayKind::ConfigAlert => COLOR_UNKNOWN,
+        WindowMinimapRuntimeOverlayKind::Break => COLOR_ICON_RUNTIME_BREAK,
+        WindowMinimapRuntimeOverlayKind::Place => COLOR_PLAN,
+    };
+    fill_window_hud_rect(
+        pixels,
+        surface_width,
+        surface_height,
+        center_x,
+        center_y,
+        1,
+        1,
+        color,
     );
 }
 
@@ -4309,9 +4443,10 @@ mod tests {
     use super::{
         color_for_object, compose_frame, scale_frame_pixels, window_hud_bar_height,
         window_hud_top_line, BackendSignal, WindowBackend, WindowFrame, WindowMinimapInset,
-        WindowPresenter, COLOR_BLOCK, COLOR_EMPTY, COLOR_ICON_BUILD_CONFIG,
-        COLOR_ICON_RUNTIME_BREAK, COLOR_ICON_RUNTIME_BULLET, COLOR_ICON_RUNTIME_COMMAND,
-        COLOR_ICON_RUNTIME_EFFECT, COLOR_ICON_RUNTIME_EFFECT_MARKER, COLOR_ICON_RUNTIME_HEALTH,
+        WindowMinimapRuntimeOverlayKind, WindowMinimapRuntimeOverlayTile, WindowPresenter,
+        COLOR_BLOCK, COLOR_EMPTY, COLOR_ICON_BUILD_CONFIG, COLOR_ICON_RUNTIME_BREAK,
+        COLOR_ICON_RUNTIME_BULLET, COLOR_ICON_RUNTIME_COMMAND, COLOR_ICON_RUNTIME_EFFECT,
+        COLOR_ICON_RUNTIME_EFFECT_MARKER, COLOR_ICON_RUNTIME_HEALTH,
         COLOR_ICON_RUNTIME_LOGIC_EXPLOSION, COLOR_ICON_RUNTIME_SOUND_AT,
         COLOR_ICON_RUNTIME_TILE_ACTION, COLOR_ICON_RUNTIME_UNIT_ASSEMBLER, COLOR_MARKER,
         COLOR_MINIMAP_INSET_VIEWPORT, COLOR_PLAN, COLOR_PLAYER, COLOR_RUNTIME, COLOR_TERRAIN,
@@ -4663,6 +4798,24 @@ mod tests {
                 player_tile: Some((20, 18)),
                 ping_tile: Some((44, 22)),
                 world_label_tiles: vec![(30, 26)],
+                runtime_overlay_tiles: vec![
+                    WindowMinimapRuntimeOverlayTile {
+                        tile: (12, 16),
+                        kind: WindowMinimapRuntimeOverlayKind::Config,
+                    },
+                    WindowMinimapRuntimeOverlayTile {
+                        tile: (28, 24),
+                        kind: WindowMinimapRuntimeOverlayKind::ConfigAlert,
+                    },
+                    WindowMinimapRuntimeOverlayTile {
+                        tile: (36, 18),
+                        kind: WindowMinimapRuntimeOverlayKind::Break,
+                    },
+                    WindowMinimapRuntimeOverlayTile {
+                        tile: (40, 28),
+                        kind: WindowMinimapRuntimeOverlayKind::Place,
+                    },
+                ],
             }),
             pixels: vec![COLOR_EMPTY; 24 * 18],
         };
@@ -4688,6 +4841,10 @@ mod tests {
         assert!(top_right_pixels.contains(&COLOR_PLAYER));
         assert!(top_right_pixels.contains(&COLOR_MARKER));
         assert!(top_right_pixels.contains(&COLOR_RUNTIME));
+        assert!(top_right_pixels.contains(&COLOR_ICON_BUILD_CONFIG));
+        assert!(top_right_pixels.contains(&COLOR_UNKNOWN));
+        assert!(top_right_pixels.contains(&COLOR_ICON_RUNTIME_BREAK));
+        assert!(top_right_pixels.contains(&COLOR_PLAN));
         assert!(lower_left_pixels.iter().all(|&pixel| pixel == COLOR_EMPTY));
     }
 
@@ -4724,6 +4881,30 @@ mod tests {
                     id: "world-label:event:7:text:6c6162656c".to_string(),
                     layer: 39,
                     x: 48.0,
+                    y: 32.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-config-rollback:1:1:string".to_string(),
+                    layer: 24,
+                    x: 8.0,
+                    y: 8.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-config:2:2:string".to_string(),
+                    layer: 24,
+                    x: 16.0,
+                    y: 16.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-break:0:3:3".to_string(),
+                    layer: 20,
+                    x: 24.0,
+                    y: 24.0,
+                },
+                RenderObject {
+                    id: "plan:runtime-place:0:4:4".to_string(),
+                    layer: 20,
+                    x: 32.0,
                     y: 32.0,
                 },
             ],
@@ -4775,6 +4956,27 @@ mod tests {
         assert_eq!(inset.player_tile, Some((4, 2)));
         assert_eq!(inset.ping_tile, Some((5, 3)));
         assert_eq!(inset.world_label_tiles, vec![(6, 4)]);
+        assert_eq!(
+            inset.runtime_overlay_tiles,
+            vec![
+                WindowMinimapRuntimeOverlayTile {
+                    tile: (1, 1),
+                    kind: WindowMinimapRuntimeOverlayKind::ConfigAlert,
+                },
+                WindowMinimapRuntimeOverlayTile {
+                    tile: (2, 2),
+                    kind: WindowMinimapRuntimeOverlayKind::Config,
+                },
+                WindowMinimapRuntimeOverlayTile {
+                    tile: (3, 3),
+                    kind: WindowMinimapRuntimeOverlayKind::Break,
+                },
+                WindowMinimapRuntimeOverlayTile {
+                    tile: (4, 4),
+                    kind: WindowMinimapRuntimeOverlayKind::Place,
+                },
+            ]
+        );
     }
 
     #[test]
