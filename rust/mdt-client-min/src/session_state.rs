@@ -2878,6 +2878,7 @@ pub enum TypedBuildingRuntimeKind {
     UnitCargoUnloadPoint,
     ItemSource,
     LiquidSource,
+    Storage,
     LandingPad,
     Sorter,
     InvertedSorter,
@@ -2913,6 +2914,7 @@ impl TypedBuildingRuntimeKind {
             Self::UnitCargoUnloadPoint => "unit-cargo-unload-point",
             Self::ItemSource => "item-source",
             Self::LiquidSource => "liquid-source",
+            Self::Storage => "storage",
             Self::LandingPad => "landing-pad",
             Self::Sorter => "sorter",
             Self::InvertedSorter => "inverted-sorter",
@@ -3166,12 +3168,23 @@ fn typed_runtime_building_model(
                     .copied()?,
             ),
         ),
-        "liquid-router" | "liquid-junction" | "liquid-container" | "liquid-tank" => (
+        "liquid-router"
+        | "liquid-junction"
+        | "liquid-container"
+        | "liquid-tank"
+        | "reinforced-liquid-container"
+        | "reinforced-liquid-tank" => (
             TypedBuildingRuntimeKind::LiquidSource,
             TypedBuildingRuntimeValue::Liquid(
                 inventory_liquid_stacks
                     .first()
                     .map(|(liquid_id, _)| *liquid_id),
+            ),
+        ),
+        "container" | "vault" | "reinforced-container" | "reinforced-vault" => (
+            TypedBuildingRuntimeKind::Storage,
+            TypedBuildingRuntimeValue::Item(
+                inventory_item_stacks.first().map(|(item_id, _)| *item_id),
             ),
         ),
         "landing-pad" => (
@@ -7217,6 +7230,8 @@ mod tests {
             (0x0006_000fi32, "liquid-junction", 12),
             (0x0006_0010i32, "liquid-container", 13),
             (0x0006_0011i32, "liquid-tank", 14),
+            (0x0006_0012i32, "reinforced-liquid-container", 15),
+            (0x0006_0013i32, "reinforced-liquid-tank", 16),
         ] {
             let mut state = SessionState::default();
             state.building_table_projection.apply_block_snapshot_head(
@@ -7275,6 +7290,75 @@ mod tests {
                 BuildingProjectionUpdateKind::BlockSnapshotHead,
             );
             expected.inventory_liquid_stacks = vec![(liquid_id, 0.5f32.to_bits())];
+
+            assert_eq!(state.typed_runtime_building_at(build_pos), Some(expected));
+        }
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_storage_family_shells() {
+        for (build_pos, block_name, item_stacks, first_item_id) in [
+            (0x0006_0014i32, "container", vec![(21, 7), (22, 1)], Some(21)),
+            (0x0006_0015i32, "vault", vec![(23, 9)], Some(23)),
+            (0x0006_0016i32, "reinforced-container", Vec::new(), None),
+            (0x0006_0017i32, "reinforced-vault", vec![(24, 11)], Some(24)),
+        ] {
+            let mut state = SessionState::default();
+            state.building_table_projection.apply_block_snapshot_head(
+                build_pos,
+                303,
+                Some(block_name.to_string()),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(0x3f80_0000),
+                Some(0x3f20_0000),
+                Some(126),
+                Some(false),
+                Some(TypeIoObject::Null),
+                Some(0x4080_0000),
+                Some(true),
+                Some(0x44),
+                Some(0x12),
+                Some(86),
+                None,
+                None,
+                None,
+            );
+            state
+                .resource_delta_projection
+                .seed_world_build_items(build_pos, &item_stacks);
+
+            let expected = expected_typed_runtime_building(
+                build_pos,
+                303,
+                block_name,
+                TypedBuildingRuntimeKind::Storage,
+                TypedBuildingRuntimeValue::Item(first_item_id),
+                item_stacks,
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(0x3f80_0000),
+                Some(0x3f20_0000),
+                Some(126),
+                Some(false),
+                Some(0x4080_0000),
+                Some(true),
+                Some(0x44),
+                Some(0x12),
+                Some(86),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            );
 
             assert_eq!(state.typed_runtime_building_at(build_pos), Some(expected));
         }
