@@ -25,11 +25,11 @@ pub use hud_model::{
     RuntimeLiveEffectPositionSource, RuntimeLiveEffectSummaryObservability,
     RuntimeLiveEntitySummaryObservability, RuntimeLiveSummaryObservability,
     RuntimeLoadingObservability, RuntimeMenuObservability, RuntimeReconnectObservability,
-    RuntimeReconnectPhaseObservability, RuntimeReconnectReasonKind, RuntimeRulesObservability,
-    RuntimeSessionObservability, RuntimeSessionResetKind, RuntimeSessionTimeoutKind,
-    RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiObservability,
-    RuntimeWorldLabelObservability, RuntimeWorldPositionObservability,
-    RuntimeWorldReloadObservability,
+    RuntimeReconnectPhaseObservability, RuntimeReconnectReasonKind,
+    RuntimeResourceDeltaObservability, RuntimeRulesObservability, RuntimeSessionObservability,
+    RuntimeSessionResetKind, RuntimeSessionTimeoutKind, RuntimeTextInputObservability,
+    RuntimeToastObservability, RuntimeUiObservability, RuntimeWorldLabelObservability,
+    RuntimeWorldPositionObservability, RuntimeWorldReloadObservability,
 };
 pub use projection::{
     project_hud_model, project_render_model, project_render_model_with_player_position,

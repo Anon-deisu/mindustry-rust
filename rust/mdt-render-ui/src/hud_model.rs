@@ -420,9 +420,46 @@ pub struct RuntimeCoreBindingObservability {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RuntimeSessionObservability {
     pub core_binding: RuntimeCoreBindingObservability,
+    pub resource_delta: RuntimeResourceDeltaObservability,
     pub kick: RuntimeKickObservability,
     pub loading: RuntimeLoadingObservability,
     pub reconnect: RuntimeReconnectObservability,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RuntimeResourceDeltaObservability {
+    pub remove_tile_count: u64,
+    pub set_tile_count: u64,
+    pub set_floor_count: u64,
+    pub set_overlay_count: u64,
+    pub set_item_count: u64,
+    pub set_items_count: u64,
+    pub set_liquid_count: u64,
+    pub set_liquids_count: u64,
+    pub clear_items_count: u64,
+    pub clear_liquids_count: u64,
+    pub set_tile_items_count: u64,
+    pub set_tile_liquids_count: u64,
+    pub take_items_count: u64,
+    pub transfer_item_to_count: u64,
+    pub transfer_item_to_unit_count: u64,
+    pub last_kind: Option<String>,
+    pub last_item_id: Option<i16>,
+    pub last_amount: Option<i32>,
+    pub last_build_pos: Option<i32>,
+    pub last_unit: Option<RuntimeCommandUnitRefObservability>,
+    pub last_to_entity_id: Option<i32>,
+    pub build_count: usize,
+    pub build_stack_count: usize,
+    pub entity_count: usize,
+    pub authoritative_build_update_count: u64,
+    pub delta_apply_count: u64,
+    pub delta_skip_count: u64,
+    pub delta_conflict_count: u64,
+    pub last_changed_build_pos: Option<i32>,
+    pub last_changed_entity_id: Option<i32>,
+    pub last_changed_item_id: Option<i16>,
+    pub last_changed_amount: Option<i32>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

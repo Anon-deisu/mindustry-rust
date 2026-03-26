@@ -1107,7 +1107,8 @@ fn compose_runtime_session_row_text(hud: &HudModel) -> Option<String> {
         return None;
     }
     Some(format!(
-        "kick={}; loading={}; reconnect={}",
+        "resource={}; kick={}; loading={}; reconnect={}",
+        compose_runtime_resource_delta_panel_text(&panel.resource_delta),
         compose_runtime_kick_panel_text(&panel.kick),
         compose_runtime_loading_panel_text(&panel.loading),
         compose_runtime_reconnect_panel_text(&panel.reconnect),
@@ -1120,11 +1121,92 @@ fn compose_runtime_session_detail_text(hud: &HudModel) -> Option<String> {
         return None;
     }
     Some(format!(
-        "kick=[{}] loading=[{}] reconnect=[{}]",
+        "resource=[{}] kick=[{}] loading=[{}] reconnect=[{}]",
+        compose_runtime_resource_delta_detail_panel_text(&panel.resource_delta),
         compose_runtime_kick_detail_panel_text(&panel.kick),
         compose_runtime_loading_detail_panel_text(&panel.loading),
         compose_runtime_reconnect_detail_panel_text(&panel.reconnect),
     ))
+}
+
+fn compose_runtime_resource_delta_panel_text(
+    resource_delta: &crate::panel_model::RuntimeResourceDeltaPanelModel,
+) -> String {
+    format!(
+        "tiles={}/{}/{}/{} set={}/{}/{}/{} clear={}/{} tile={}/{} flow={}/{}/{} last={}@{}#{}:bp{}:u{}:eid{} proj={}/{}/{} auth={} delta={}/{}/{} chg={}/{}/{}/{}",
+        resource_delta.remove_tile_count,
+        resource_delta.set_tile_count,
+        resource_delta.set_floor_count,
+        resource_delta.set_overlay_count,
+        resource_delta.set_item_count,
+        resource_delta.set_items_count,
+        resource_delta.set_liquid_count,
+        resource_delta.set_liquids_count,
+        resource_delta.clear_items_count,
+        resource_delta.clear_liquids_count,
+        resource_delta.set_tile_items_count,
+        resource_delta.set_tile_liquids_count,
+        resource_delta.take_items_count,
+        resource_delta.transfer_item_to_count,
+        resource_delta.transfer_item_to_unit_count,
+        compact_runtime_ui_text(resource_delta.last_kind.as_deref()),
+        optional_i16_label(resource_delta.last_item_id),
+        optional_i32_label(resource_delta.last_amount),
+        optional_i32_label(resource_delta.last_build_pos),
+        command_unit_ref_text(resource_delta.last_unit),
+        optional_i32_label(resource_delta.last_to_entity_id),
+        resource_delta.build_count,
+        resource_delta.build_stack_count,
+        resource_delta.entity_count,
+        resource_delta.authoritative_build_update_count,
+        resource_delta.delta_apply_count,
+        resource_delta.delta_skip_count,
+        resource_delta.delta_conflict_count,
+        optional_i32_label(resource_delta.last_changed_build_pos),
+        optional_i32_label(resource_delta.last_changed_entity_id),
+        optional_i16_label(resource_delta.last_changed_item_id),
+        optional_i32_label(resource_delta.last_changed_amount),
+    )
+}
+
+fn compose_runtime_resource_delta_detail_panel_text(
+    resource_delta: &crate::panel_model::RuntimeResourceDeltaPanelModel,
+) -> String {
+    format!(
+        "tile-rm={} tile-set={} floor-set={} overlay-set={} item-set={}/{} liquid-set={}/{} clear={}/{} tile-apply={}/{} flow={}/{}/{} last-kind={} item={} amount={} build={} unit={} to-entity={} projection={}/{}/{} authoritative={} delta={}/{}/{} changed={}/{}/{}/{}",
+        resource_delta.remove_tile_count,
+        resource_delta.set_tile_count,
+        resource_delta.set_floor_count,
+        resource_delta.set_overlay_count,
+        resource_delta.set_item_count,
+        resource_delta.set_items_count,
+        resource_delta.set_liquid_count,
+        resource_delta.set_liquids_count,
+        resource_delta.clear_items_count,
+        resource_delta.clear_liquids_count,
+        resource_delta.set_tile_items_count,
+        resource_delta.set_tile_liquids_count,
+        resource_delta.take_items_count,
+        resource_delta.transfer_item_to_count,
+        resource_delta.transfer_item_to_unit_count,
+        compact_runtime_ui_text(resource_delta.last_kind.as_deref()),
+        optional_i16_label(resource_delta.last_item_id),
+        optional_i32_label(resource_delta.last_amount),
+        optional_i32_label(resource_delta.last_build_pos),
+        command_unit_ref_text(resource_delta.last_unit),
+        optional_i32_label(resource_delta.last_to_entity_id),
+        resource_delta.build_count,
+        resource_delta.build_stack_count,
+        resource_delta.entity_count,
+        resource_delta.authoritative_build_update_count,
+        resource_delta.delta_apply_count,
+        resource_delta.delta_skip_count,
+        resource_delta.delta_conflict_count,
+        optional_i32_label(resource_delta.last_changed_build_pos),
+        optional_i32_label(resource_delta.last_changed_entity_id),
+        optional_i16_label(resource_delta.last_changed_item_id),
+        optional_i32_label(resource_delta.last_changed_amount),
+    )
 }
 
 fn compose_runtime_loading_row_text(hud: &HudModel) -> Option<String> {
@@ -2375,10 +2457,7 @@ fn command_target_text(value: Option<crate::RuntimeCommandTargetObservability>) 
     let Some(value) = value else {
         return "none".to_string();
     };
-    let unit_target = value
-        .unit_target
-        .map(|unit| format!("{}:{}", unit.kind, unit.value))
-        .unwrap_or_else(|| "none".to_string());
+    let unit_target = command_unit_ref_text(value.unit_target);
     let position_target = value
         .position_target
         .map(|position| format!("0x{:08x}:0x{:08x}", position.x_bits, position.y_bits))
@@ -2390,6 +2469,12 @@ fn command_target_text(value: Option<crate::RuntimeCommandTargetObservability>) 
         position_target,
         command_rect_text(value.rect_target)
     )
+}
+
+fn command_unit_ref_text(value: Option<crate::RuntimeCommandUnitRefObservability>) -> String {
+    value
+        .map(|unit| format!("{}:{}", unit.kind, unit.value))
+        .unwrap_or_else(|| "none".to_string())
 }
 
 fn command_stance_text(value: Option<crate::RuntimeCommandStanceObservability>) -> String {
@@ -2410,8 +2495,9 @@ mod tests {
     use crate::{
         hud_model::{
             HudSummary, RuntimeReconnectObservability, RuntimeReconnectPhaseObservability,
-            RuntimeReconnectReasonKind, RuntimeSessionObservability, RuntimeSessionResetKind,
-            RuntimeSessionTimeoutKind, RuntimeWorldReloadObservability,
+            RuntimeReconnectReasonKind, RuntimeResourceDeltaObservability,
+            RuntimeSessionObservability, RuntimeSessionResetKind, RuntimeSessionTimeoutKind,
+            RuntimeWorldReloadObservability,
         },
         project_scene_models, project_scene_models_with_view_window, HudModel, RenderModel,
         RenderObject, RuntimeAdminObservability, RuntimeHudTextObservability,
@@ -3099,6 +3185,43 @@ mod tests {
                         missing_team_count: 1,
                         missing_team_sample: vec![4],
                     },
+                    resource_delta: RuntimeResourceDeltaObservability {
+                        remove_tile_count: 80,
+                        set_tile_count: 81,
+                        set_floor_count: 82,
+                        set_overlay_count: 83,
+                        set_item_count: 22,
+                        set_items_count: 23,
+                        set_liquid_count: 24,
+                        set_liquids_count: 25,
+                        clear_items_count: 84,
+                        clear_liquids_count: 85,
+                        set_tile_items_count: 26,
+                        set_tile_liquids_count: 27,
+                        take_items_count: 1,
+                        transfer_item_to_count: 2,
+                        transfer_item_to_unit_count: 3,
+                        last_kind: Some("to_unit".to_string()),
+                        last_item_id: Some(6),
+                        last_amount: None,
+                        last_build_pos: None,
+                        last_unit: Some(crate::RuntimeCommandUnitRefObservability {
+                            kind: 2,
+                            value: 808,
+                        }),
+                        last_to_entity_id: Some(404),
+                        build_count: 2,
+                        build_stack_count: 3,
+                        entity_count: 1,
+                        authoritative_build_update_count: 4,
+                        delta_apply_count: 5,
+                        delta_skip_count: 6,
+                        delta_conflict_count: 7,
+                        last_changed_build_pos: Some(999),
+                        last_changed_entity_id: Some(900),
+                        last_changed_item_id: Some(6),
+                        last_changed_amount: Some(1),
+                    },
                     kick: crate::hud_model::RuntimeKickObservability {
                         reason_text: Some("idInUse".to_string()),
                         reason_ordinal: Some(7),
@@ -3347,10 +3470,10 @@ mod tests {
             "RUNTIME-MARKER-DETAIL: total=280 mutate=165 text=57 texture=58 fail=2 last=808 control-len=9"
         ));
         assert!(frame.contains(
-            "RUNTIME-SESSION: kick=idInUse@7:IdInUse:wait_for_old~; loading=defer5 replay6 drop7 qdrop8 sfail9 scfail10 efail11 rdy12@1300 to2/1/1 ltready@20000 rs3/1/1/1 lrreload lwr@lw1:cl0:rd1:cc0:p4:d5:r6; reconnect=attempt#3 redirect redirect=1@127.0.0.1:6567 reason=connectRedir~#none hint=server_reque~"
+            "RUNTIME-SESSION: resource=tiles=80/81/82/83 set=22/23/24/25 clear=84/85 tile=26/27 flow=1/2/3 last=to_unit@6#none:bpnone:u2:808:eid404 proj=2/3/1 auth=4 delta=5/6/7 chg=999/900/6/1; kick=idInUse@7:IdInUse:wait_for_old~; loading=defer5 replay6 drop7 qdrop8 sfail9 scfail10 efail11 rdy12@1300 to2/1/1 ltready@20000 rs3/1/1/1 lrreload lwr@lw1:cl0:rd1:cc0:p4:d5:r6; reconnect=attempt#3 redirect redirect=1@127.0.0.1:6567 reason=connectRedir~#none hint=server_reque~"
         ));
         assert!(frame.contains(
-            "RUNTIME-SESSION-DETAIL: kick=[reason-len=7 ordinal=7 category-len=7 hint-len=20] loading=[ready=12@1300 timeout=2/1/1 kind=ready idle=20000 resets=3/1/1/1 last-reset=reload world=@lw1:cl0:rd1:cc0:p4:d5:r6] reconnect=[phase=attempt transitions=3 reason-kind=redirect reason-len=15 ordinal=none hint-len=25 redirect=1@127.0.0.1:6567]"
+            "RUNTIME-SESSION-DETAIL: resource=[tile-rm=80 tile-set=81 floor-set=82 overlay-set=83 item-set=22/23 liquid-set=24/25 clear=84/85 tile-apply=26/27 flow=1/2/3 last-kind=to_unit item=6 amount=none build=none unit=2:808 to-entity=404 projection=2/3/1 authoritative=4 delta=5/6/7 changed=999/900/6/1] kick=[reason-len=7 ordinal=7 category-len=7 hint-len=20] loading=[ready=12@1300 timeout=2/1/1 kind=ready idle=20000 resets=3/1/1/1 last-reset=reload world=@lw1:cl0:rd1:cc0:p4:d5:r6] reconnect=[phase=attempt transitions=3 reason-kind=redirect reason-len=15 ordinal=none hint-len=25 redirect=1@127.0.0.1:6567]"
         ));
         assert!(frame.contains("RUNTIME-KICK: idInUse@7:IdInUse:wait_for_old~"));
         assert!(frame

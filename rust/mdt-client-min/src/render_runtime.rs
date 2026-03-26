@@ -29,19 +29,19 @@ use mdt_render_ui::hud_model::{
     RuntimeChatObservability, RuntimeCoreBindingKindObservability, RuntimeCoreBindingObservability,
     RuntimeKickObservability, RuntimeLoadingObservability, RuntimeMarkerObservability,
     RuntimeReconnectObservability, RuntimeReconnectPhaseObservability, RuntimeReconnectReasonKind,
-    RuntimeSessionObservability, RuntimeSessionResetKind, RuntimeSessionTimeoutKind,
-    RuntimeWorldReloadObservability,
+    RuntimeResourceDeltaObservability, RuntimeSessionObservability, RuntimeSessionResetKind,
+    RuntimeSessionTimeoutKind, RuntimeWorldReloadObservability,
 };
 use mdt_render_ui::{
     BuildConfigAuthoritySourceObservability, BuildConfigInspectorEntryObservability,
     BuildConfigOutcomeObservability, BuildConfigRollbackStripObservability,
     BuildQueueHeadObservability, BuildQueueHeadStage, BuildUiObservability, HudModel, RenderModel,
-    RenderObject, RuntimeAdminObservability, RuntimeHudTextObservability,
-    RuntimeLiveEffectPositionSource, RuntimeLiveEffectSummaryObservability,
-    RuntimeLiveEntitySummaryObservability, RuntimeLiveSummaryObservability,
-    RuntimeMenuObservability, RuntimeRulesObservability, RuntimeTextInputObservability,
-    RuntimeToastObservability, RuntimeUiObservability, RuntimeWorldLabelObservability,
-    RuntimeWorldPositionObservability,
+    RenderObject, RuntimeAdminObservability, RuntimeCommandUnitRefObservability,
+    RuntimeHudTextObservability, RuntimeLiveEffectPositionSource,
+    RuntimeLiveEffectSummaryObservability, RuntimeLiveEntitySummaryObservability,
+    RuntimeLiveSummaryObservability, RuntimeMenuObservability, RuntimeRulesObservability,
+    RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiObservability,
+    RuntimeWorldLabelObservability, RuntimeWorldPositionObservability,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -2073,6 +2073,7 @@ fn runtime_session_observability(
                 .core_inventory_runtime_missing_team_sample
                 .clone(),
         },
+        resource_delta: runtime_resource_delta_observability(session_state),
         kick: RuntimeKickObservability {
             reason_text: world_overlay.last_kick_reason_text.clone(),
             reason_ordinal: world_overlay.last_kick_reason_ordinal,
@@ -2138,6 +2139,70 @@ fn runtime_session_observability(
             last_redirect_ip: session_state.last_connect_redirect_ip.clone(),
             last_redirect_port: session_state.last_connect_redirect_port,
         },
+    }
+}
+
+fn runtime_resource_delta_observability(
+    session_state: &SessionState,
+) -> RuntimeResourceDeltaObservability {
+    RuntimeResourceDeltaObservability {
+        remove_tile_count: session_state.received_remove_tile_count,
+        set_tile_count: session_state.received_set_tile_count,
+        set_floor_count: session_state.received_set_floor_count,
+        set_overlay_count: session_state.received_set_overlay_count,
+        set_item_count: session_state.received_set_item_count,
+        set_items_count: session_state.received_set_items_count,
+        set_liquid_count: session_state.received_set_liquid_count,
+        set_liquids_count: session_state.received_set_liquids_count,
+        clear_items_count: session_state.received_clear_items_count,
+        clear_liquids_count: session_state.received_clear_liquids_count,
+        set_tile_items_count: session_state.received_set_tile_items_count,
+        set_tile_liquids_count: session_state.received_set_tile_liquids_count,
+        take_items_count: session_state.resource_delta_projection.take_items_count,
+        transfer_item_to_count: session_state
+            .resource_delta_projection
+            .transfer_item_to_count,
+        transfer_item_to_unit_count: session_state
+            .resource_delta_projection
+            .transfer_item_to_unit_count,
+        last_kind: session_state
+            .resource_delta_projection
+            .last_kind
+            .map(str::to_string),
+        last_item_id: session_state.resource_delta_projection.last_item_id,
+        last_amount: session_state.resource_delta_projection.last_amount,
+        last_build_pos: session_state.resource_delta_projection.last_build_pos,
+        last_unit: session_state
+            .resource_delta_projection
+            .last_unit
+            .map(runtime_command_unit_ref_observability),
+        last_to_entity_id: session_state.resource_delta_projection.last_to_entity_id,
+        build_count: session_state.resource_delta_projection.build_count(),
+        build_stack_count: session_state.resource_delta_projection.build_stack_count(),
+        entity_count: session_state.resource_delta_projection.entity_count(),
+        authoritative_build_update_count: session_state
+            .resource_delta_projection
+            .authoritative_build_update_count,
+        delta_apply_count: session_state.resource_delta_projection.delta_apply_count,
+        delta_skip_count: session_state.resource_delta_projection.delta_skip_count,
+        delta_conflict_count: session_state.resource_delta_projection.delta_conflict_count,
+        last_changed_build_pos: session_state
+            .resource_delta_projection
+            .last_changed_build_pos,
+        last_changed_entity_id: session_state
+            .resource_delta_projection
+            .last_changed_entity_id,
+        last_changed_item_id: session_state.resource_delta_projection.last_changed_item_id,
+        last_changed_amount: session_state.resource_delta_projection.last_changed_amount,
+    }
+}
+
+fn runtime_command_unit_ref_observability(
+    unit: UnitRefProjection,
+) -> RuntimeCommandUnitRefObservability {
+    RuntimeCommandUnitRefObservability {
+        kind: unit.kind,
+        value: unit.value,
     }
 }
 
@@ -4350,6 +4415,7 @@ mod tests {
                         lifetime_bits: None,
                         time_bits: None,
                     },
+                    carried_item_stack: None,
                 },
             ));
 
@@ -4396,6 +4462,7 @@ mod tests {
                         lifetime_bits: None,
                         time_bits: None,
                     },
+                    carried_item_stack: None,
                 },
             ));
 
@@ -8778,6 +8845,68 @@ mod tests {
         );
         assert_eq!(runtime_ui.session.core_binding.missing_team_count, 1);
         assert_eq!(runtime_ui.session.core_binding.missing_team_sample, vec![4]);
+        assert_eq!(runtime_ui.session.resource_delta.remove_tile_count, 80);
+        assert_eq!(runtime_ui.session.resource_delta.set_tile_count, 81);
+        assert_eq!(runtime_ui.session.resource_delta.set_floor_count, 82);
+        assert_eq!(runtime_ui.session.resource_delta.set_overlay_count, 83);
+        assert_eq!(runtime_ui.session.resource_delta.set_item_count, 22);
+        assert_eq!(runtime_ui.session.resource_delta.set_items_count, 23);
+        assert_eq!(runtime_ui.session.resource_delta.set_liquid_count, 24);
+        assert_eq!(runtime_ui.session.resource_delta.set_liquids_count, 25);
+        assert_eq!(runtime_ui.session.resource_delta.clear_items_count, 84);
+        assert_eq!(runtime_ui.session.resource_delta.clear_liquids_count, 85);
+        assert_eq!(runtime_ui.session.resource_delta.set_tile_items_count, 26);
+        assert_eq!(runtime_ui.session.resource_delta.set_tile_liquids_count, 27);
+        assert_eq!(runtime_ui.session.resource_delta.take_items_count, 1);
+        assert_eq!(runtime_ui.session.resource_delta.transfer_item_to_count, 2);
+        assert_eq!(
+            runtime_ui
+                .session
+                .resource_delta
+                .transfer_item_to_unit_count,
+            3
+        );
+        assert_eq!(
+            runtime_ui.session.resource_delta.last_kind.as_deref(),
+            Some("to_unit")
+        );
+        assert_eq!(runtime_ui.session.resource_delta.last_item_id, Some(6));
+        assert_eq!(runtime_ui.session.resource_delta.last_amount, None);
+        assert_eq!(runtime_ui.session.resource_delta.last_build_pos, None);
+        assert_eq!(runtime_ui.session.resource_delta.last_unit, None);
+        assert_eq!(
+            runtime_ui.session.resource_delta.last_to_entity_id,
+            Some(404)
+        );
+        assert_eq!(runtime_ui.session.resource_delta.build_count, 2);
+        assert_eq!(runtime_ui.session.resource_delta.build_stack_count, 3);
+        assert_eq!(runtime_ui.session.resource_delta.entity_count, 1);
+        assert_eq!(
+            runtime_ui
+                .session
+                .resource_delta
+                .authoritative_build_update_count,
+            4
+        );
+        assert_eq!(runtime_ui.session.resource_delta.delta_apply_count, 5);
+        assert_eq!(runtime_ui.session.resource_delta.delta_skip_count, 6);
+        assert_eq!(runtime_ui.session.resource_delta.delta_conflict_count, 7);
+        assert_eq!(
+            runtime_ui.session.resource_delta.last_changed_build_pos,
+            Some(pack_runtime_point2(9, 9))
+        );
+        assert_eq!(
+            runtime_ui.session.resource_delta.last_changed_entity_id,
+            Some(900)
+        );
+        assert_eq!(
+            runtime_ui.session.resource_delta.last_changed_item_id,
+            Some(6)
+        );
+        assert_eq!(
+            runtime_ui.session.resource_delta.last_changed_amount,
+            Some(1)
+        );
         assert_eq!(runtime_ui.menu.menu_open_count, 16);
         assert_eq!(runtime_ui.menu.follow_up_menu_open_count, 17);
         assert_eq!(runtime_ui.menu.hide_follow_up_menu_count, 18);

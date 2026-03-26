@@ -1095,6 +1095,7 @@ impl MinimapPanelModel {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeSessionPanelModel {
     pub core_binding: RuntimeCoreBindingPanelModel,
+    pub resource_delta: RuntimeResourceDeltaPanelModel,
     pub kick: RuntimeKickPanelModel,
     pub loading: RuntimeLoadingPanelModel,
     pub reconnect: RuntimeReconnectPanelModel,
@@ -1102,7 +1103,83 @@ pub struct RuntimeSessionPanelModel {
 
 impl RuntimeSessionPanelModel {
     pub fn is_empty(&self) -> bool {
-        self.kick.is_empty() && self.loading.is_empty() && self.reconnect.is_empty()
+        self.resource_delta.is_empty()
+            && self.kick.is_empty()
+            && self.loading.is_empty()
+            && self.reconnect.is_empty()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeResourceDeltaPanelModel {
+    pub remove_tile_count: u64,
+    pub set_tile_count: u64,
+    pub set_floor_count: u64,
+    pub set_overlay_count: u64,
+    pub set_item_count: u64,
+    pub set_items_count: u64,
+    pub set_liquid_count: u64,
+    pub set_liquids_count: u64,
+    pub clear_items_count: u64,
+    pub clear_liquids_count: u64,
+    pub set_tile_items_count: u64,
+    pub set_tile_liquids_count: u64,
+    pub take_items_count: u64,
+    pub transfer_item_to_count: u64,
+    pub transfer_item_to_unit_count: u64,
+    pub last_kind: Option<String>,
+    pub last_item_id: Option<i16>,
+    pub last_amount: Option<i32>,
+    pub last_build_pos: Option<i32>,
+    pub last_unit: Option<crate::RuntimeCommandUnitRefObservability>,
+    pub last_to_entity_id: Option<i32>,
+    pub build_count: usize,
+    pub build_stack_count: usize,
+    pub entity_count: usize,
+    pub authoritative_build_update_count: u64,
+    pub delta_apply_count: u64,
+    pub delta_skip_count: u64,
+    pub delta_conflict_count: u64,
+    pub last_changed_build_pos: Option<i32>,
+    pub last_changed_entity_id: Option<i32>,
+    pub last_changed_item_id: Option<i16>,
+    pub last_changed_amount: Option<i32>,
+}
+
+impl RuntimeResourceDeltaPanelModel {
+    pub fn is_empty(&self) -> bool {
+        self.remove_tile_count == 0
+            && self.set_tile_count == 0
+            && self.set_floor_count == 0
+            && self.set_overlay_count == 0
+            && self.set_item_count == 0
+            && self.set_items_count == 0
+            && self.set_liquid_count == 0
+            && self.set_liquids_count == 0
+            && self.clear_items_count == 0
+            && self.clear_liquids_count == 0
+            && self.set_tile_items_count == 0
+            && self.set_tile_liquids_count == 0
+            && self.take_items_count == 0
+            && self.transfer_item_to_count == 0
+            && self.transfer_item_to_unit_count == 0
+            && self.last_kind.is_none()
+            && self.last_item_id.is_none()
+            && self.last_amount.is_none()
+            && self.last_build_pos.is_none()
+            && self.last_unit.is_none()
+            && self.last_to_entity_id.is_none()
+            && self.build_count == 0
+            && self.build_stack_count == 0
+            && self.entity_count == 0
+            && self.authoritative_build_update_count == 0
+            && self.delta_apply_count == 0
+            && self.delta_skip_count == 0
+            && self.delta_conflict_count == 0
+            && self.last_changed_build_pos.is_none()
+            && self.last_changed_entity_id.is_none()
+            && self.last_changed_item_id.is_none()
+            && self.last_changed_amount.is_none()
     }
 }
 
@@ -2032,6 +2109,42 @@ pub fn build_runtime_session_panel(hud: &HudModel) -> Option<RuntimeSessionPanel
             missing_team_count: session.core_binding.missing_team_count,
             missing_team_sample: session.core_binding.missing_team_sample.clone(),
         },
+        resource_delta: RuntimeResourceDeltaPanelModel {
+            remove_tile_count: session.resource_delta.remove_tile_count,
+            set_tile_count: session.resource_delta.set_tile_count,
+            set_floor_count: session.resource_delta.set_floor_count,
+            set_overlay_count: session.resource_delta.set_overlay_count,
+            set_item_count: session.resource_delta.set_item_count,
+            set_items_count: session.resource_delta.set_items_count,
+            set_liquid_count: session.resource_delta.set_liquid_count,
+            set_liquids_count: session.resource_delta.set_liquids_count,
+            clear_items_count: session.resource_delta.clear_items_count,
+            clear_liquids_count: session.resource_delta.clear_liquids_count,
+            set_tile_items_count: session.resource_delta.set_tile_items_count,
+            set_tile_liquids_count: session.resource_delta.set_tile_liquids_count,
+            take_items_count: session.resource_delta.take_items_count,
+            transfer_item_to_count: session.resource_delta.transfer_item_to_count,
+            transfer_item_to_unit_count: session.resource_delta.transfer_item_to_unit_count,
+            last_kind: session.resource_delta.last_kind.clone(),
+            last_item_id: session.resource_delta.last_item_id,
+            last_amount: session.resource_delta.last_amount,
+            last_build_pos: session.resource_delta.last_build_pos,
+            last_unit: session.resource_delta.last_unit,
+            last_to_entity_id: session.resource_delta.last_to_entity_id,
+            build_count: session.resource_delta.build_count,
+            build_stack_count: session.resource_delta.build_stack_count,
+            entity_count: session.resource_delta.entity_count,
+            authoritative_build_update_count: session
+                .resource_delta
+                .authoritative_build_update_count,
+            delta_apply_count: session.resource_delta.delta_apply_count,
+            delta_skip_count: session.resource_delta.delta_skip_count,
+            delta_conflict_count: session.resource_delta.delta_conflict_count,
+            last_changed_build_pos: session.resource_delta.last_changed_build_pos,
+            last_changed_entity_id: session.resource_delta.last_changed_entity_id,
+            last_changed_item_id: session.resource_delta.last_changed_item_id,
+            last_changed_amount: session.resource_delta.last_changed_amount,
+        },
         kick: RuntimeKickPanelModel {
             reason_text: session.kick.reason_text.clone(),
             reason_ordinal: session.kick.reason_ordinal,
@@ -2191,8 +2304,8 @@ mod tests {
             RuntimeCommandUnitRefObservability, RuntimeCoreBindingKindObservability,
             RuntimeCoreBindingObservability, RuntimeReconnectObservability,
             RuntimeReconnectPhaseObservability, RuntimeReconnectReasonKind,
-            RuntimeSessionObservability, RuntimeSessionResetKind, RuntimeSessionTimeoutKind,
-            RuntimeWorldReloadObservability,
+            RuntimeResourceDeltaObservability, RuntimeSessionObservability,
+            RuntimeSessionResetKind, RuntimeSessionTimeoutKind, RuntimeWorldReloadObservability,
         },
         BuildConfigAuthoritySourceObservability, BuildConfigInspectorEntryObservability,
         BuildConfigOutcomeObservability, BuildConfigRollbackStripObservability,
@@ -3675,6 +3788,43 @@ mod tests {
                         missing_team_count: 1,
                         missing_team_sample: vec![4],
                     },
+                    resource_delta: RuntimeResourceDeltaObservability {
+                        remove_tile_count: 80,
+                        set_tile_count: 81,
+                        set_floor_count: 82,
+                        set_overlay_count: 83,
+                        set_item_count: 22,
+                        set_items_count: 23,
+                        set_liquid_count: 24,
+                        set_liquids_count: 25,
+                        clear_items_count: 84,
+                        clear_liquids_count: 85,
+                        set_tile_items_count: 26,
+                        set_tile_liquids_count: 27,
+                        take_items_count: 1,
+                        transfer_item_to_count: 2,
+                        transfer_item_to_unit_count: 3,
+                        last_kind: Some("to_unit".to_string()),
+                        last_item_id: Some(6),
+                        last_amount: None,
+                        last_build_pos: None,
+                        last_unit: Some(RuntimeCommandUnitRefObservability {
+                            kind: 2,
+                            value: 808,
+                        }),
+                        last_to_entity_id: Some(404),
+                        build_count: 2,
+                        build_stack_count: 3,
+                        entity_count: 1,
+                        authoritative_build_update_count: 4,
+                        delta_apply_count: 5,
+                        delta_skip_count: 6,
+                        delta_conflict_count: 7,
+                        last_changed_build_pos: Some(pack_point2(9, 9)),
+                        last_changed_entity_id: Some(900),
+                        last_changed_item_id: Some(6),
+                        last_changed_amount: Some(1),
+                    },
                     kick: crate::hud_model::RuntimeKickObservability {
                         reason_text: Some("idInUse".to_string()),
                         reason_ordinal: Some(7),
@@ -3740,6 +3890,21 @@ mod tests {
         assert_eq!(panel.core_binding.ambiguous_team_sample, vec![1]);
         assert_eq!(panel.core_binding.missing_team_count, 1);
         assert_eq!(panel.core_binding.missing_team_sample, vec![4]);
+        assert_eq!(panel.resource_delta.take_items_count, 1);
+        assert_eq!(panel.resource_delta.transfer_item_to_count, 2);
+        assert_eq!(panel.resource_delta.transfer_item_to_unit_count, 3);
+        assert_eq!(panel.resource_delta.last_kind.as_deref(), Some("to_unit"));
+        assert_eq!(
+            panel.resource_delta.last_unit,
+            Some(RuntimeCommandUnitRefObservability {
+                kind: 2,
+                value: 808,
+            })
+        );
+        assert_eq!(panel.resource_delta.last_to_entity_id, Some(404));
+        assert_eq!(panel.resource_delta.build_count, 2);
+        assert_eq!(panel.resource_delta.delta_conflict_count, 7);
+        assert!(!panel.resource_delta.is_empty());
         assert_eq!(
             core_binding,
             RuntimeCoreBindingPanelModel {
@@ -3804,6 +3969,7 @@ mod tests {
                 markers: crate::hud_model::RuntimeMarkerObservability::default(),
                 session: RuntimeSessionObservability {
                     core_binding: RuntimeCoreBindingObservability::default(),
+                    resource_delta: RuntimeResourceDeltaObservability::default(),
                     kick: crate::hud_model::RuntimeKickObservability {
                         reason_text: Some("idInUse".to_string()),
                         reason_ordinal: Some(7),
@@ -3903,6 +4069,7 @@ mod tests {
             .expect("expected runtime core binding panel");
         assert!(empty_panel.is_empty());
         assert!(empty_core_binding.is_empty());
+        assert!(empty_panel.resource_delta.is_empty());
         assert!(empty_panel.kick.is_empty());
         assert!(empty_panel.loading.is_empty());
         assert!(empty_panel.reconnect.is_empty());
@@ -3921,6 +4088,30 @@ mod tests {
                 markers: crate::hud_model::RuntimeMarkerObservability::default(),
                 session: RuntimeSessionObservability {
                     core_binding: RuntimeCoreBindingObservability::default(),
+                    resource_delta: RuntimeResourceDeltaObservability {
+                        take_items_count: 1,
+                        transfer_item_to_count: 2,
+                        transfer_item_to_unit_count: 3,
+                        last_kind: Some("to_unit".to_string()),
+                        last_item_id: Some(6),
+                        last_unit: Some(RuntimeCommandUnitRefObservability {
+                            kind: 2,
+                            value: 808,
+                        }),
+                        last_to_entity_id: Some(404),
+                        build_count: 2,
+                        build_stack_count: 3,
+                        entity_count: 1,
+                        authoritative_build_update_count: 4,
+                        delta_apply_count: 5,
+                        delta_skip_count: 6,
+                        delta_conflict_count: 7,
+                        last_changed_build_pos: Some(pack_point2(9, 9)),
+                        last_changed_entity_id: Some(900),
+                        last_changed_item_id: Some(6),
+                        last_changed_amount: Some(1),
+                        ..RuntimeResourceDeltaObservability::default()
+                    },
                     kick: crate::hud_model::RuntimeKickObservability {
                         reason_text: Some("idInUse".to_string()),
                         reason_ordinal: Some(7),
@@ -3976,6 +4167,7 @@ mod tests {
         let active_panel =
             build_runtime_session_panel(&active_hud).expect("expected runtime session panel");
         assert!(!active_panel.is_empty());
+        assert!(!active_panel.resource_delta.is_empty());
         assert!(!active_panel.kick.is_empty());
         assert!(!active_panel.loading.is_empty());
         assert!(!active_panel.reconnect.is_empty());

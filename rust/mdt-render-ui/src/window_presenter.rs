@@ -1396,7 +1396,8 @@ fn compose_runtime_session_status_text(hud: &HudModel) -> Option<String> {
         return None;
     }
     Some(format!(
-        "sess:k={};l={};r={}",
+        "sess:rd={};k={};l={};r={}",
+        compose_runtime_resource_delta_panel_status_text(&panel.resource_delta),
         compose_runtime_kick_panel_status_text(&panel.kick),
         compose_runtime_loading_panel_status_text(&panel.loading),
         compose_runtime_reconnect_panel_status_text(&panel.reconnect),
@@ -1409,11 +1410,92 @@ fn compose_runtime_session_detail_status_text(hud: &HudModel) -> Option<String> 
         return None;
     }
     Some(format!(
-        "sessd:k({}):l({}):r({})",
+        "sessd:rd({}):k({}):l({}):r({})",
+        compose_runtime_resource_delta_detail_panel_status_text(&panel.resource_delta),
         compose_runtime_kick_detail_panel_status_text(&panel.kick),
         compose_runtime_loading_detail_panel_status_text(&panel.loading),
         compose_runtime_reconnect_detail_panel_status_text(&panel.reconnect),
     ))
+}
+
+fn compose_runtime_resource_delta_panel_status_text(
+    resource_delta: &crate::panel_model::RuntimeResourceDeltaPanelModel,
+) -> String {
+    format!(
+        "resd:tile{}/{}/{}/{}:set{}/{}/{}/{}:clr{}/{}:tile{}/{}:flow{}/{}/{}@{}:{}:{}:{}:{}:{}:proj{}/{}/{}:au{}:d{}/{}/{}:chg{}/{}/{}/{}",
+        resource_delta.remove_tile_count,
+        resource_delta.set_tile_count,
+        resource_delta.set_floor_count,
+        resource_delta.set_overlay_count,
+        resource_delta.set_item_count,
+        resource_delta.set_items_count,
+        resource_delta.set_liquid_count,
+        resource_delta.set_liquids_count,
+        resource_delta.clear_items_count,
+        resource_delta.clear_liquids_count,
+        resource_delta.set_tile_items_count,
+        resource_delta.set_tile_liquids_count,
+        resource_delta.take_items_count,
+        resource_delta.transfer_item_to_count,
+        resource_delta.transfer_item_to_unit_count,
+        compact_runtime_ui_text(resource_delta.last_kind.as_deref()),
+        optional_i16_label(resource_delta.last_item_id),
+        optional_i32_label(resource_delta.last_amount),
+        optional_i32_label(resource_delta.last_build_pos),
+        command_unit_ref_status_text(resource_delta.last_unit),
+        optional_i32_label(resource_delta.last_to_entity_id),
+        resource_delta.build_count,
+        resource_delta.build_stack_count,
+        resource_delta.entity_count,
+        resource_delta.authoritative_build_update_count,
+        resource_delta.delta_apply_count,
+        resource_delta.delta_skip_count,
+        resource_delta.delta_conflict_count,
+        optional_i32_label(resource_delta.last_changed_build_pos),
+        optional_i32_label(resource_delta.last_changed_entity_id),
+        optional_i16_label(resource_delta.last_changed_item_id),
+        optional_i32_label(resource_delta.last_changed_amount),
+    )
+}
+
+fn compose_runtime_resource_delta_detail_panel_status_text(
+    resource_delta: &crate::panel_model::RuntimeResourceDeltaPanelModel,
+) -> String {
+    format!(
+        "resdd:rm{}:st{}:sf{}:so{}:set{}/{}/{}/{}:clr{}/{}:tile{}/{}:flow{}/{}/{}:last{}:{}:{}:{}:{}:{}:proj{}/{}/{}:au{}:d{}/{}/{}:chg{}/{}/{}/{}",
+        resource_delta.remove_tile_count,
+        resource_delta.set_tile_count,
+        resource_delta.set_floor_count,
+        resource_delta.set_overlay_count,
+        resource_delta.set_item_count,
+        resource_delta.set_items_count,
+        resource_delta.set_liquid_count,
+        resource_delta.set_liquids_count,
+        resource_delta.clear_items_count,
+        resource_delta.clear_liquids_count,
+        resource_delta.set_tile_items_count,
+        resource_delta.set_tile_liquids_count,
+        resource_delta.take_items_count,
+        resource_delta.transfer_item_to_count,
+        resource_delta.transfer_item_to_unit_count,
+        compact_runtime_ui_text(resource_delta.last_kind.as_deref()),
+        optional_i16_label(resource_delta.last_item_id),
+        optional_i32_label(resource_delta.last_amount),
+        optional_i32_label(resource_delta.last_build_pos),
+        command_unit_ref_status_text(resource_delta.last_unit),
+        optional_i32_label(resource_delta.last_to_entity_id),
+        resource_delta.build_count,
+        resource_delta.build_stack_count,
+        resource_delta.entity_count,
+        resource_delta.authoritative_build_update_count,
+        resource_delta.delta_apply_count,
+        resource_delta.delta_skip_count,
+        resource_delta.delta_conflict_count,
+        optional_i32_label(resource_delta.last_changed_build_pos),
+        optional_i32_label(resource_delta.last_changed_entity_id),
+        optional_i16_label(resource_delta.last_changed_item_id),
+        optional_i32_label(resource_delta.last_changed_amount),
+    )
 }
 
 fn compose_runtime_loading_status_text(hud: &HudModel) -> Option<String> {
@@ -2698,10 +2780,7 @@ fn command_target_status_text(value: Option<crate::RuntimeCommandTargetObservabi
     let Some(value) = value else {
         return "none".to_string();
     };
-    let unit_target = value
-        .unit_target
-        .map(|unit| format!("{}:{}", unit.kind, unit.value))
-        .unwrap_or_else(|| "none".to_string());
+    let unit_target = command_unit_ref_status_text(value.unit_target);
     let position_target = value
         .position_target
         .map(|position| format!("0x{:08x}:0x{:08x}", position.x_bits, position.y_bits))
@@ -2713,6 +2792,14 @@ fn command_target_status_text(value: Option<crate::RuntimeCommandTargetObservabi
         position_target,
         command_rect_status_text(value.rect_target)
     )
+}
+
+fn command_unit_ref_status_text(
+    value: Option<crate::RuntimeCommandUnitRefObservability>,
+) -> String {
+    value
+        .map(|unit| format!("{}:{}", unit.kind, unit.value))
+        .unwrap_or_else(|| "none".to_string())
 }
 
 fn command_stance_status_text(value: Option<crate::RuntimeCommandStanceObservability>) -> String {
@@ -2772,8 +2859,9 @@ mod tests {
     use crate::{
         hud_model::{
             HudSummary, RuntimeReconnectObservability, RuntimeReconnectPhaseObservability,
-            RuntimeReconnectReasonKind, RuntimeSessionObservability, RuntimeSessionResetKind,
-            RuntimeSessionTimeoutKind, RuntimeWorldReloadObservability,
+            RuntimeReconnectReasonKind, RuntimeResourceDeltaObservability,
+            RuntimeSessionObservability, RuntimeSessionResetKind, RuntimeSessionTimeoutKind,
+            RuntimeWorldReloadObservability,
         },
         BuildQueueHeadObservability, BuildQueueHeadStage, BuildUiObservability, HudModel,
         RenderModel, RenderObject, RenderViewWindow, RuntimeAdminObservability,
@@ -3682,6 +3770,43 @@ mod tests {
                         missing_team_count: 1,
                         missing_team_sample: vec![4],
                     },
+                    resource_delta: RuntimeResourceDeltaObservability {
+                        remove_tile_count: 80,
+                        set_tile_count: 81,
+                        set_floor_count: 82,
+                        set_overlay_count: 83,
+                        set_item_count: 22,
+                        set_items_count: 23,
+                        set_liquid_count: 24,
+                        set_liquids_count: 25,
+                        clear_items_count: 84,
+                        clear_liquids_count: 85,
+                        set_tile_items_count: 26,
+                        set_tile_liquids_count: 27,
+                        take_items_count: 1,
+                        transfer_item_to_count: 2,
+                        transfer_item_to_unit_count: 3,
+                        last_kind: Some("to_unit".to_string()),
+                        last_item_id: Some(6),
+                        last_amount: None,
+                        last_build_pos: None,
+                        last_unit: Some(crate::RuntimeCommandUnitRefObservability {
+                            kind: 2,
+                            value: 808,
+                        }),
+                        last_to_entity_id: Some(404),
+                        build_count: 2,
+                        build_stack_count: 3,
+                        entity_count: 1,
+                        authoritative_build_update_count: 4,
+                        delta_apply_count: 5,
+                        delta_skip_count: 6,
+                        delta_conflict_count: 7,
+                        last_changed_build_pos: Some(999),
+                        last_changed_entity_id: Some(900),
+                        last_changed_item_id: Some(6),
+                        last_changed_amount: Some(1),
+                    },
                     kick: crate::hud_model::RuntimeKickObservability {
                         reason_text: Some("idInUse".to_string()),
                         reason_ordinal: Some(7),
@@ -3987,11 +4112,11 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "RUNTIME-SESSION: sess:k=idInUse@7:IdInUse:wait_for_old~;l=defer5:replay6:drop7:qdrop8:sfail9:scfail10:efail11:rdy12@1300:to2:cto1:rto1:ltready@20000:rs3:rr1:wr1:kr1:lrreload:lwr@lw1:cl0:rd1:cc0:p4:d5:r6;r=attempt3:redirect@1/127.0.0.1:6567:connectRedir~@none:server_reque~",
+            "RUNTIME-SESSION: sess:rd=resd:tile80/81/82/83:set22/23/24/25:clr84/85:tile26/27:flow1/2/3@to_unit:6:none:none:2:808:404:proj2/3/1:au4:d5/6/7:chg999/900/6/1;k=idInUse@7:IdInUse:wait_for_old~;l=defer5:replay6:drop7:qdrop8:sfail9:scfail10:efail11:rdy12@1300:to2:cto1:rto1:ltready@20000:rs3:rr1:wr1:kr1:lrreload:lwr@lw1:cl0:rd1:cc0:p4:d5:r6;r=attempt3:redirect@1/127.0.0.1:6567:connectRedir~@none:server_reque~",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "RUNTIME-SESSION-DETAIL: sessd:k(kickd:r7:o7:c7:h20):l(loadingd:rdy12@1300:to2/1/1:ready@20000:rs3/1/1/1:reload:@lw1:cl0:rd1:cc0:p4:d5:r6):r(reconnectd:attempt#3:redirect:r15@none:h25:rd1@127.0.0.1:6567)",
+            "RUNTIME-SESSION-DETAIL: sessd:rd(resdd:rm80:st81:sf82:so83:set22/23/24/25:clr84/85:tile26/27:flow1/2/3:lastto_unit:6:none:none:2:808:404:proj2/3/1:au4:d5/6/7:chg999/900/6/1):k(kickd:r7:o7:c7:h20):l(loadingd:rdy12@1300:to2/1/1:ready@20000:rs3/1/1/1:reload:@lw1:cl0:rd1:cc0:p4:d5:r6):r(reconnectd:attempt#3:redirect:r15@none:h25:rd1@127.0.0.1:6567)",
         );
         assert_frame_line_contains(
             &frame.panel_lines,

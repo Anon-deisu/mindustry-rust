@@ -583,11 +583,7 @@ impl ResourceDeltaProjection {
         }
     }
 
-    pub fn apply_set_liquids(
-        &mut self,
-        build_pos: Option<i32>,
-        stacks: &[(Option<i16>, u32)],
-    ) {
+    pub fn apply_set_liquids(&mut self, build_pos: Option<i32>, stacks: &[(Option<i16>, u32)]) {
         let Some(build_pos) = build_pos else {
             return;
         };
@@ -667,7 +663,8 @@ impl ResourceDeltaProjection {
         if build_liquids.is_empty() {
             self.building_liquids_by_build.remove(&build_pos);
         } else {
-            self.building_liquids_by_build.insert(build_pos, build_liquids);
+            self.building_liquids_by_build
+                .insert(build_pos, build_liquids);
         }
     }
 
@@ -711,7 +708,8 @@ impl ResourceDeltaProjection {
         if build_liquids.is_empty() {
             self.building_liquids_by_build.remove(&build_pos);
         } else {
-            self.building_liquids_by_build.insert(build_pos, build_liquids);
+            self.building_liquids_by_build
+                .insert(build_pos, build_liquids);
         }
         self.authoritative_build_update_count =
             self.authoritative_build_update_count.saturating_add(1);
@@ -4070,6 +4068,7 @@ pub struct TypedRuntimePlayerEntity {
 pub struct TypedRuntimeUnitEntity {
     pub base: TypedRuntimeEntityBase,
     pub semantic: EntityUnitSemanticProjection,
+    pub carried_item_stack: Option<ResourceUnitItemStack>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -4296,6 +4295,7 @@ fn typed_runtime_entity_model(
     entity_id: i32,
     entity: &EntityProjection,
     semantic: Option<&EntitySemanticProjectionEntry>,
+    resource_delta: &ResourceDeltaProjection,
 ) -> Option<TypedRuntimeEntityModel> {
     let base = typed_runtime_entity_base(entity_id, entity);
     match semantic.map(|entry| &entry.projection) {
@@ -4303,6 +4303,10 @@ fn typed_runtime_entity_model(
             Some(TypedRuntimeEntityModel::Unit(TypedRuntimeUnitEntity {
                 base,
                 semantic: unit.clone(),
+                carried_item_stack: resource_delta
+                    .entity_item_stack_by_entity_id
+                    .get(&entity_id)
+                    .cloned(),
             }))
         }
         Some(EntitySemanticProjection::Fire(fire)) => {
@@ -5197,6 +5201,7 @@ impl SessionState {
             entity_id,
             entity,
             self.entity_semantic_projection.by_entity_id.get(&entity_id),
+            &self.resource_delta_projection,
         )
     }
 
@@ -5209,6 +5214,7 @@ impl SessionState {
                     *entity_id,
                     entity,
                     self.entity_semantic_projection.by_entity_id.get(entity_id),
+                    &self.resource_delta_projection,
                 )
             })
             .collect()
@@ -5295,6 +5301,7 @@ impl SessionState {
                     entity_id,
                     entity,
                     self.entity_semantic_projection.by_entity_id.get(&entity_id),
+                    &self.resource_delta_projection,
                 )
             });
         match model {
@@ -5339,6 +5346,7 @@ impl SessionState {
                 entity_id,
                 entity,
                 self.entity_semantic_projection.by_entity_id.get(&entity_id),
+                &self.resource_delta_projection,
             );
             if let Some(model) = model {
                 projection.by_entity_id.insert(entity_id, model);
@@ -5847,7 +5855,12 @@ impl SessionState {
         let semantic = self.entity_semantic_projection.by_entity_id.get(&entity_id);
         if let Some(entity) = entity {
             if matches!(
-                typed_runtime_entity_model(entity_id, entity, semantic),
+                typed_runtime_entity_model(
+                    entity_id,
+                    entity,
+                    semantic,
+                    &self.resource_delta_projection,
+                ),
                 Some(TypedRuntimeEntityModel::Unit(_))
             ) {
                 return true;
@@ -6073,7 +6086,8 @@ impl SessionState {
     }
 
     pub fn record_clear_liquids_resource_delta(&mut self, build_pos: Option<i32>) {
-        self.resource_delta_projection.clear_build_liquids(build_pos);
+        self.resource_delta_projection
+            .clear_build_liquids(build_pos);
     }
 
     pub fn record_remove_building_resource_delta(&mut self, build_pos: Option<i32>) {
@@ -6399,10 +6413,9 @@ mod tests {
         state
             .resource_delta_projection
             .seed_world_build_items(build_pos, &[(4, 12), (6, 0), (7, 3)]);
-        state.resource_delta_projection.seed_world_build_liquids(
-            build_pos,
-            &[(5, 1.25f32.to_bits()), (8, 0.0f32.to_bits())],
-        );
+        state
+            .resource_delta_projection
+            .seed_world_build_liquids(build_pos, &[(5, 1.25f32.to_bits()), (8, 0.0f32.to_bits())]);
 
         let mut expected = expected_typed_runtime_building(
             build_pos,
@@ -6495,10 +6508,9 @@ mod tests {
         state
             .configured_block_projection
             .apply_liquid_source_liquid(build_pos, Some(9));
-        state.resource_delta_projection.seed_world_build_liquids(
-            build_pos,
-            &[(6, 0.5f32.to_bits()), (7, 0.0f32.to_bits())],
-        );
+        state
+            .resource_delta_projection
+            .seed_world_build_liquids(build_pos, &[(6, 0.5f32.to_bits()), (7, 0.0f32.to_bits())]);
 
         let mut expected = expected_typed_runtime_building(
             build_pos,
@@ -6531,10 +6543,7 @@ mod tests {
         );
         expected.inventory_liquid_stacks = vec![(6, 0.5f32.to_bits())];
 
-        assert_eq!(
-            state.typed_runtime_building_at(build_pos),
-            Some(expected)
-        );
+        assert_eq!(state.typed_runtime_building_at(build_pos), Some(expected));
     }
 
     #[test]
@@ -7178,12 +7187,22 @@ mod tests {
         let build_pos = pack_point2(8, 9);
         projection.seed_world_build_liquids(
             build_pos,
-            &[(4, 1.25f32.to_bits()), (6, 0.0f32.to_bits()), (7, 3.5f32.to_bits())],
+            &[
+                (4, 1.25f32.to_bits()),
+                (6, 0.0f32.to_bits()),
+                (7, 3.5f32.to_bits()),
+            ],
         );
 
         assert_eq!(
-            projection.building_liquids_by_build.get(&build_pos).cloned(),
-            Some(BTreeMap::from([(4, 1.25f32.to_bits()), (7, 3.5f32.to_bits())]))
+            projection
+                .building_liquids_by_build
+                .get(&build_pos)
+                .cloned(),
+            Some(BTreeMap::from([
+                (4, 1.25f32.to_bits()),
+                (7, 3.5f32.to_bits())
+            ]))
         );
         assert_eq!(projection.authoritative_build_update_count, 7);
         assert_eq!(projection.last_changed_build_pos, Some(pack_point2(1, 1)));
@@ -7191,7 +7210,9 @@ mod tests {
         assert_eq!(projection.last_changed_amount, Some(9));
 
         projection.seed_world_build_liquids(build_pos, &[]);
-        assert!(!projection.building_liquids_by_build.contains_key(&build_pos));
+        assert!(!projection
+            .building_liquids_by_build
+            .contains_key(&build_pos));
         assert_eq!(projection.authoritative_build_update_count, 7);
     }
 
@@ -7240,7 +7261,10 @@ mod tests {
         );
 
         assert_eq!(
-            projection.building_liquids_by_build.get(&build_pos).cloned(),
+            projection
+                .building_liquids_by_build
+                .get(&build_pos)
+                .cloned(),
             Some(BTreeMap::from([(4, 1.5f32.to_bits())]))
         );
         assert_eq!(projection.authoritative_build_update_count, 3);
@@ -7250,7 +7274,9 @@ mod tests {
 
         projection.replace_build_liquids_exact(Some(build_pos), &[]);
 
-        assert!(!projection.building_liquids_by_build.contains_key(&build_pos));
+        assert!(!projection
+            .building_liquids_by_build
+            .contains_key(&build_pos));
         assert_eq!(projection.authoritative_build_update_count, 4);
         assert_eq!(projection.last_changed_build_pos, Some(build_pos));
         assert_eq!(projection.last_changed_item_id, None);
@@ -7620,6 +7646,16 @@ mod tests {
                 time_bits: Some(0x40a0_0000),
             }),
         );
+        state
+            .resource_delta_projection
+            .entity_item_stack_by_entity_id
+            .insert(
+                202,
+                ResourceUnitItemStack {
+                    item_id: Some(4),
+                    amount: 7,
+                },
+            );
 
         assert_eq!(
             state.typed_runtime_entity_at(202),
@@ -7648,6 +7684,10 @@ mod tests {
                     lifetime_bits: Some(0x4080_0000),
                     time_bits: Some(0x40a0_0000),
                 },
+                carried_item_stack: Some(ResourceUnitItemStack {
+                    item_id: Some(4),
+                    amount: 7,
+                }),
             }))
         );
         assert_eq!(state.typed_runtime_entities().len(), 1);
@@ -8058,6 +8098,76 @@ mod tests {
             projection.entity_at(202),
             Some(TypedRuntimeEntityModel::Unit(unit))
                 if unit.base.hidden && unit.semantic.unit_type_id == 55
+        ));
+    }
+
+    #[test]
+    fn session_state_refresh_runtime_typed_entity_tracks_unit_carried_item_stack() {
+        let mut state = SessionState::default();
+        state.entity_table_projection.by_entity_id.insert(
+            202,
+            EntityProjection {
+                class_id: 4,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 202,
+                x_bits: 30.0f32.to_bits(),
+                y_bits: 40.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 9,
+            },
+        );
+        state.entity_semantic_projection.upsert(
+            202,
+            4,
+            9,
+            EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
+                team_id: 2,
+                unit_type_id: 55,
+                health_bits: 0x3f80_0000,
+                rotation_bits: 0x4000_0000,
+                shield_bits: 0x4040_0000,
+                mine_tile_pos: 77,
+                status_count: 3,
+                payload_count: Some(1),
+                building_pos: Some(88),
+                lifetime_bits: Some(0x4080_0000),
+                time_bits: Some(0x40a0_0000),
+            }),
+        );
+
+        state.refresh_runtime_typed_entity_from_tables(202);
+        assert!(matches!(
+            state.runtime_typed_entity_projection().entity_at(202),
+            Some(TypedRuntimeEntityModel::Unit(unit)) if unit.carried_item_stack.is_none()
+        ));
+
+        state
+            .resource_delta_projection
+            .entity_item_stack_by_entity_id
+            .insert(
+                202,
+                ResourceUnitItemStack {
+                    item_id: Some(6),
+                    amount: 4,
+                },
+            );
+        state.refresh_runtime_typed_entity_from_tables(202);
+        assert!(matches!(
+            state.runtime_typed_entity_projection().entity_at(202),
+            Some(TypedRuntimeEntityModel::Unit(unit))
+                if unit.carried_item_stack
+                    == Some(ResourceUnitItemStack { item_id: Some(6), amount: 4 })
+        ));
+
+        state
+            .resource_delta_projection
+            .entity_item_stack_by_entity_id
+            .remove(&202);
+        state.refresh_runtime_typed_entity_from_tables(202);
+        assert!(matches!(
+            state.runtime_typed_entity_projection().entity_at(202),
+            Some(TypedRuntimeEntityModel::Unit(unit)) if unit.carried_item_stack.is_none()
         ));
     }
 

@@ -4854,6 +4854,15 @@ impl ClientSession {
                         self.state
                             .refresh_runtime_typed_building_from_tables(build_pos);
                     }
+                    if let Some(entity_id) = match projection.to {
+                        Some(crate::session_state::UnitRefProjection { kind: 2, value }) => {
+                            Some(value)
+                        }
+                        _ => None,
+                    } {
+                        self.state
+                            .refresh_runtime_typed_entity_from_tables(entity_id);
+                    }
                     Ok(ClientSessionEvent::TakeItems { projection })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -4873,6 +4882,15 @@ impl ClientSession {
                         self.state
                             .refresh_runtime_typed_building_from_tables(build_pos);
                     }
+                    if let Some(entity_id) = match projection.unit {
+                        Some(crate::session_state::UnitRefProjection { kind: 2, value }) => {
+                            Some(value)
+                        }
+                        _ => None,
+                    } {
+                        self.state
+                            .refresh_runtime_typed_entity_from_tables(entity_id);
+                    }
                     Ok(ClientSessionEvent::TransferItemTo { projection })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -4890,6 +4908,10 @@ impl ClientSession {
                     self.state.last_transfer_item_to_unit = Some(projection.clone());
                     self.state
                         .record_transfer_item_to_unit_resource_delta(&projection);
+                    if let Some(entity_id) = projection.to_entity_id {
+                        self.state
+                            .refresh_runtime_typed_entity_from_tables(entity_id);
+                    }
                     Ok(ClientSessionEvent::TransferItemToUnit { projection })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -34549,6 +34571,45 @@ mod tests {
             .packet_id;
 
         let build_pos = pack_point2(9, 10);
+        for entity_id in [88, 99] {
+            session.state.entity_table_projection.by_entity_id.insert(
+                entity_id,
+                crate::session_state::EntityProjection {
+                    class_id: 4,
+                    hidden: false,
+                    is_local_player: false,
+                    unit_kind: 2,
+                    unit_value: entity_id as u32,
+                    x_bits: (entity_id as f32).to_bits(),
+                    y_bits: (entity_id as f32 + 1.0).to_bits(),
+                    last_seen_entity_snapshot_count: entity_id as u64,
+                },
+            );
+            session.state.entity_semantic_projection.upsert(
+                entity_id,
+                4,
+                entity_id as u64,
+                crate::session_state::EntitySemanticProjection::Unit(
+                    crate::session_state::EntityUnitSemanticProjection {
+                        team_id: 2,
+                        unit_type_id: 55,
+                        health_bits: 1.0f32.to_bits(),
+                        rotation_bits: 0.0f32.to_bits(),
+                        shield_bits: 0.0f32.to_bits(),
+                        mine_tile_pos: 0,
+                        status_count: 0,
+                        payload_count: None,
+                        building_pos: None,
+                        lifetime_bits: None,
+                        time_bits: None,
+                    },
+                ),
+            );
+        }
+        session
+            .state
+            .rebuild_runtime_typed_entity_projection_from_tables();
+
         let mut set_item_payload = encode_building_payload(Some(build_pos));
         set_item_payload.extend_from_slice(&4i16.to_be_bytes());
         set_item_payload.extend_from_slice(&10i32.to_be_bytes());
@@ -34664,6 +34725,25 @@ mod tests {
                 .last_changed_amount,
             Some(1)
         );
+        let runtime_projection = session.state().runtime_typed_entity_projection();
+        assert!(matches!(
+            runtime_projection.entity_at(99),
+            Some(crate::session_state::TypedRuntimeEntityModel::Unit(unit))
+                if unit.carried_item_stack
+                    == Some(crate::session_state::ResourceUnitItemStack {
+                        item_id: Some(4),
+                        amount: 4,
+                    })
+        ));
+        assert!(matches!(
+            runtime_projection.entity_at(88),
+            Some(crate::session_state::TypedRuntimeEntityModel::Unit(unit))
+                if unit.carried_item_stack
+                    == Some(crate::session_state::ResourceUnitItemStack {
+                        item_id: Some(4),
+                        amount: 1,
+                    })
+        ));
     }
 
     #[test]
@@ -41003,6 +41083,3 @@ mod tests {
         );
     }
 }
-
-
-
