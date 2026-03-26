@@ -66,7 +66,7 @@ const WINDOW_HUD_BAR_PADDING_Y: usize = 2;
 const WINDOW_MINIMAP_INSET_PADDING: usize = 4;
 const WINDOW_MINIMAP_INSET_BORDER_WIDTH: usize = 1;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WindowMinimapInset {
     pub map_width: usize,
     pub map_height: usize,
@@ -74,6 +74,7 @@ pub struct WindowMinimapInset {
     pub focus_tile: Option<(usize, usize)>,
     pub player_tile: Option<(usize, usize)>,
     pub ping_tile: Option<(usize, usize)>,
+    pub world_label_tiles: Vec<(usize, usize)>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -472,6 +473,7 @@ fn compose_window_minimap_inset(
             panel.map_height,
         ),
         ping_tile: runtime_ping_minimap_tile(scene, panel.map_width, panel.map_height),
+        world_label_tiles: runtime_world_label_minimap_tiles(scene, panel.map_width, panel.map_height, 8),
     })
 }
 
@@ -501,6 +503,41 @@ fn runtime_ping_minimap_tile(
         return None;
     }
     clamp_window_minimap_tile(Some((tile_x as usize, tile_y as usize)), map_width, map_height)
+}
+
+fn runtime_world_label_minimap_tiles(
+    scene: &RenderModel,
+    map_width: usize,
+    map_height: usize,
+    max_tiles: usize,
+) -> Vec<(usize, usize)> {
+    let mut seen = BTreeSet::new();
+    let mut tiles = Vec::new();
+
+    for object in scene.objects.iter().rev() {
+        if !object.id.starts_with("world-label:") {
+            continue;
+        }
+        let tile_x = crate::presenter_view::world_to_tile_index_floor(object.x, TILE_SIZE);
+        let tile_y = crate::presenter_view::world_to_tile_index_floor(object.y, TILE_SIZE);
+        if tile_x < 0 || tile_y < 0 {
+            continue;
+        }
+        let Some(tile) =
+            clamp_window_minimap_tile(Some((tile_x as usize, tile_y as usize)), map_width, map_height)
+        else {
+            continue;
+        };
+        if !seen.insert(tile) {
+            continue;
+        }
+        tiles.push(tile);
+        if tiles.len() >= max_tiles {
+            break;
+        }
+    }
+
+    tiles
 }
 
 fn crop_window(
@@ -3659,6 +3696,20 @@ fn overlay_window_minimap_inset(
             ping_tile,
         );
     }
+    for &world_label_tile in &inset.world_label_tiles {
+        draw_window_minimap_world_label(
+            pixels,
+            surface_width,
+            surface_height,
+            map_start_x,
+            map_start_y,
+            map_pixel_width,
+            map_pixel_height,
+            inset.map_width,
+            inset.map_height,
+            world_label_tile,
+        );
+    }
 }
 
 fn fit_window_minimap_size(
@@ -3851,6 +3902,41 @@ fn draw_window_minimap_ping(
         radius * 2 + 1,
         radius * 2 + 1,
         COLOR_MARKER,
+    );
+}
+
+fn draw_window_minimap_world_label(
+    pixels: &mut [u32],
+    surface_width: usize,
+    surface_height: usize,
+    map_start_x: usize,
+    map_start_y: usize,
+    map_pixel_width: usize,
+    map_pixel_height: usize,
+    map_width: usize,
+    map_height: usize,
+    tile: (usize, usize),
+) {
+    let Some((pixel_x, pixel_y)) = project_window_minimap_point(
+        tile,
+        map_width,
+        map_height,
+        map_pixel_width,
+        map_pixel_height,
+    ) else {
+        return;
+    };
+    let center_x = map_start_x.saturating_add(pixel_x);
+    let center_y = map_start_y.saturating_add(pixel_y);
+    fill_window_hud_rect(
+        pixels,
+        surface_width,
+        surface_height,
+        center_x,
+        center_y,
+        1,
+        1,
+        COLOR_RUNTIME,
     );
 }
 
@@ -4576,6 +4662,7 @@ mod tests {
                 focus_tile: Some((60, 40)),
                 player_tile: Some((20, 18)),
                 ping_tile: Some((44, 22)),
+                world_label_tiles: vec![(30, 26)],
             }),
             pixels: vec![COLOR_EMPTY; 24 * 18],
         };
@@ -4600,6 +4687,7 @@ mod tests {
         assert!(top_right_pixels.contains(&COLOR_MINIMAP_INSET_VIEWPORT));
         assert!(top_right_pixels.contains(&COLOR_PLAYER));
         assert!(top_right_pixels.contains(&COLOR_MARKER));
+        assert!(top_right_pixels.contains(&COLOR_RUNTIME));
         assert!(lower_left_pixels.iter().all(|&pixel| pixel == COLOR_EMPTY));
     }
 
@@ -4631,6 +4719,12 @@ mod tests {
                     layer: 31,
                     x: 40.0,
                     y: 24.0,
+                },
+                RenderObject {
+                    id: "world-label:event:7:text:6c6162656c".to_string(),
+                    layer: 39,
+                    x: 48.0,
+                    y: 32.0,
                 },
             ],
         };
@@ -4664,7 +4758,7 @@ mod tests {
 
         let backend = presenter.into_backend();
         let frame = backend.frames.last().unwrap();
-        let inset = frame.minimap_inset.expect("minimap inset");
+        let inset = frame.minimap_inset.as_ref().expect("minimap inset");
 
         assert_eq!(inset.map_width, 80);
         assert_eq!(inset.map_height, 60);
@@ -4680,6 +4774,7 @@ mod tests {
         assert_eq!(inset.focus_tile, Some((7, 6)));
         assert_eq!(inset.player_tile, Some((4, 2)));
         assert_eq!(inset.ping_tile, Some((5, 3)));
+        assert_eq!(inset.world_label_tiles, vec![(6, 4)]);
     }
 
     #[test]
