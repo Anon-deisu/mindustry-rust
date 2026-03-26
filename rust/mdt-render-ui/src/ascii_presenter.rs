@@ -234,6 +234,9 @@ impl AsciiScenePresenter {
         if let Some(overlay_semantics_text) = compose_overlay_semantics_text(scene) {
             out.push_str(&format!("OVERLAY-KINDS: {overlay_semantics_text}\n"));
         }
+        if let Some(overlay_detail_text) = compose_overlay_detail_text(scene) {
+            out.push_str(&format!("OVERLAY-DETAIL: {overlay_detail_text}\n"));
+        }
         if let Some(runtime_ui_text) = compose_runtime_ui_text(hud) {
             out.push_str(&format!("RUNTIME-UI: {runtime_ui_text}\n"));
         }
@@ -1997,12 +2000,28 @@ fn compose_minimap_detail_lines(scene: &RenderModel, hud: &HudModel) -> Vec<Stri
         })
         .collect::<Vec<_>>();
     lines.push(compose_minimap_window_distribution_line(&panel));
+    lines.push(compose_minimap_window_kind_distribution_line(&panel));
     lines
 }
 
 fn compose_minimap_window_distribution_line(panel: &MinimapPanelModel) -> String {
     format!(
         "miniwin:win{}:off{}@pl{}:mk{}:pn{}:bk{}:rt{}:tr{}:uk{}",
+        panel.window_tracked_object_count,
+        panel.outside_window_count,
+        panel.window_player_count,
+        panel.window_marker_count,
+        panel.window_plan_count,
+        panel.window_block_count,
+        panel.window_runtime_count,
+        panel.window_terrain_count,
+        panel.window_unknown_count,
+    )
+}
+
+fn compose_minimap_window_kind_distribution_line(panel: &MinimapPanelModel) -> String {
+    format!(
+        "window-kinds: tracked={} outside={} player={} marker={} plan={} block={} runtime={} terrain={} unknown={}",
         panel.window_tracked_object_count,
         panel.outside_window_count,
         panel.window_player_count,
@@ -2708,6 +2727,11 @@ fn compose_overlay_semantics_text(scene: &RenderModel) -> Option<String> {
     }
 
     Some(summary.family_and_detail_text())
+}
+
+fn compose_overlay_detail_text(scene: &RenderModel) -> Option<String> {
+    let summary = scene.semantic_summary();
+    summary.detail_text()
 }
 
 fn compose_render_pipeline_text(
@@ -3469,6 +3493,9 @@ mod tests {
         assert!(frame.contains(
             "detail=marker-line:1,marker-line-end:1,runtime-building:1,runtime-config:1,runtime-deconstruct:1,runtime-place:1"
         ));
+        assert!(frame.contains(
+            "OVERLAY-DETAIL: marker-line:1,marker-line-end:1,runtime-building:1,runtime-config:1,runtime-deconstruct:1,runtime-place:1"
+        ));
     }
 
     #[test]
@@ -3559,6 +3586,9 @@ mod tests {
             "MINIMAP-KINDS: tracked=7 player=1 marker=2 plan=0 block=0 runtime=4 terrain=0 unknown=0 detail=marker-line:1,marker-line-end:1,runtime-building:1,runtime-config:1,runtime-deconstruct:1,runtime-place:1"
         ));
         assert!(frame.contains("MINIMAP-DETAIL: 1/6 marker-line=1"));
+        assert!(frame.contains(
+            "MINIMAP-DETAIL: window-kinds: tracked=7 outside=0 player=1 marker=2 plan=0 block=0 runtime=4 terrain=0 unknown=0"
+        ));
     }
 
     #[test]

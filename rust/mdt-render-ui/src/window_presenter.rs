@@ -1637,6 +1637,9 @@ fn compose_frame_overlay_lines(scene: &RenderModel, hud: &HudModel) -> Vec<Strin
     if let Some(overlay_semantics_text) = compose_overlay_semantics_status_text(scene) {
         lines.push(format!("OVERLAY-KINDS: {overlay_semantics_text}"));
     }
+    if let Some(overlay_detail_text) = compose_overlay_detail_status_text(scene) {
+        lines.push(format!("OVERLAY-DETAIL: {overlay_detail_text}"));
+    }
     lines
 }
 
@@ -2878,12 +2881,28 @@ fn compose_minimap_detail_status_lines(scene: &RenderModel, hud: &HudModel) -> V
         })
         .collect::<Vec<_>>();
     lines.push(compose_minimap_window_distribution_status_text(&panel));
+    lines.push(compose_minimap_window_kind_distribution_status_text(&panel));
     lines
 }
 
 fn compose_minimap_window_distribution_status_text(panel: &MinimapPanelModel) -> String {
     format!(
         "miniwin:win{}:off{}@pl{}:mk{}:pn{}:bk{}:rt{}:tr{}:uk{}",
+        panel.window_tracked_object_count,
+        panel.outside_window_count,
+        panel.window_player_count,
+        panel.window_marker_count,
+        panel.window_plan_count,
+        panel.window_block_count,
+        panel.window_runtime_count,
+        panel.window_terrain_count,
+        panel.window_unknown_count,
+    )
+}
+
+fn compose_minimap_window_kind_distribution_status_text(panel: &MinimapPanelModel) -> String {
+    format!(
+        "window-kinds: tracked={} outside={} player={} marker={} plan={} block={} runtime={} terrain={} unknown={}",
         panel.window_tracked_object_count,
         panel.outside_window_count,
         panel.window_player_count,
@@ -3574,6 +3593,11 @@ fn compose_overlay_semantics_status_text(scene: &RenderModel) -> Option<String> 
     }
 
     Some(format!("overlay:{}", summary.family_and_detail_text()))
+}
+
+fn compose_overlay_detail_status_text(scene: &RenderModel) -> Option<String> {
+    let summary = scene.semantic_summary();
+    summary.detail_text()
 }
 
 fn compose_render_pipeline_status_text(
@@ -6111,6 +6135,10 @@ mod tests {
             &frame.overlay_lines,
             "detail=marker-line:1,marker-line-end:1,runtime-building:1,runtime-config:1,runtime-deconstruct:1,runtime-place:1",
         );
+        assert_frame_line_contains(
+            &frame.overlay_lines,
+            "OVERLAY-DETAIL: marker-line:1,marker-line-end:1,runtime-building:1,runtime-config:1,runtime-deconstruct:1,runtime-place:1",
+        );
     }
 
     #[test]
@@ -6175,6 +6203,10 @@ mod tests {
         assert_frame_line_contains(
             &frame.panel_lines,
             "MINIMAP-DETAIL: miniwin:win7:off0@pl1:mk2:pn0:bk0:rt4:tr0:uk0",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "MINIMAP-DETAIL: window-kinds: tracked=7 outside=0 player=1 marker=2 plan=0 block=0 runtime=4 terrain=0 unknown=0",
         );
     }
 
