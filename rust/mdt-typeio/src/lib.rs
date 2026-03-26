@@ -15,6 +15,7 @@ pub use unit_sync::{
     read_weapon_mounts, read_weapon_mounts_into, read_weapon_mounts_into_prefix,
     read_weapon_mounts_prefix, write_abilities, write_status_entries, write_status_entry,
     write_weapon_mounts, AbilityRaw, StatusDynamicFieldsRaw, StatusEntryRaw, WeaponMountRaw,
+    status_id_uses_dynamic_fields, status_name_uses_dynamic_fields,
 };
 
 pub const CONVEYOR_BLOCK_ID: i16 = 0x0101;

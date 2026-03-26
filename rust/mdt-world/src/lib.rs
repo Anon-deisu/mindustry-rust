@@ -1,7 +1,7 @@
 use flate2::read::ZlibDecoder;
 use mdt_typeio::{
     read_object_prefix, read_payload_header_prefix, read_payload_summary,
-    read_payload_summary_prefix, TypedPayload,
+    read_payload_summary_prefix, status_id_uses_dynamic_fields, TypedPayload,
 };
 use serde_json::Value as JsonValue;
 use sha2::{Digest, Sha256};
@@ -14142,23 +14142,16 @@ fn consume_entity_status_entries(
     for _ in 0..status_count {
         let status_id = reader.read_i16()?;
         reader.skip_bytes(std::mem::size_of::<f32>())?;
-        if content_header
-            .map(|header| is_dynamic_status_effect(header, status_id))
-            .unwrap_or(false)
-        {
+        if status_id_uses_dynamic_fields(status_id, |status_id| {
+            content_header
+                .and_then(|header| resolve_content_name(header, STATUS_CONTENT_TYPE, status_id))
+        }) {
             let flags = reader.read_u8()?;
             reader.skip_bytes((flags.count_ones() as usize).saturating_mul(4))?;
         }
     }
 
     Ok(())
-}
-
-fn is_dynamic_status_effect(content_header: &[ContentHeaderEntry], status_id: i16) -> bool {
-    (status_id >= 0)
-        .then_some(status_id as u16)
-        .and_then(|status_id| resolve_content_name(content_header, STATUS_CONTENT_TYPE, status_id))
-        == Some("dynamic")
 }
 
 fn consume_unit_statuses(
@@ -14175,7 +14168,9 @@ fn consume_unit_statuses(
     for _ in 0..status_count {
         let status_id = reader.read_i16()?;
         reader.skip_bytes(std::mem::size_of::<f32>())?;
-        if is_dynamic_status_effect(content_header, status_id) {
+        if status_id_uses_dynamic_fields(status_id, |status_id| {
+            resolve_content_name(content_header, STATUS_CONTENT_TYPE, status_id)
+        }) {
             let flags = reader.read_u8()?;
             reader.skip_bytes((flags.count_ones() as usize).saturating_mul(4))?;
         }

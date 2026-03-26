@@ -177,6 +177,20 @@ pub fn read_status_entries_prefix(
     Ok((entries, reader.position()))
 }
 
+pub fn status_name_uses_dynamic_fields(status_name: Option<&str>) -> bool {
+    matches!(status_name, Some("dynamic"))
+}
+
+pub fn status_id_uses_dynamic_fields<'a, F>(status_id: i16, resolve_status_name: F) -> bool
+where
+    F: FnOnce(u16) -> Option<&'a str>,
+{
+    (status_id >= 0)
+        .then_some(status_id as u16)
+        .and_then(resolve_status_name)
+        .is_some_and(|status_name| status_name_uses_dynamic_fields(Some(status_name)))
+}
+
 pub fn write_abilities(out: &mut Vec<u8>, abilities: &[AbilityRaw]) {
     let len: u8 = abilities
         .len()
@@ -643,6 +657,24 @@ mod tests {
                 remaining: 1,
             })
         ));
+    }
+
+    #[test]
+    fn status_name_uses_dynamic_fields_only_for_dynamic_effect_name() {
+        assert!(status_name_uses_dynamic_fields(Some("dynamic")));
+        assert!(!status_name_uses_dynamic_fields(None));
+        assert!(!status_name_uses_dynamic_fields(Some("freeze")));
+    }
+
+    #[test]
+    fn status_id_uses_dynamic_fields_resolves_via_lookup_closure() {
+        assert!(status_id_uses_dynamic_fields(7, |status_id| {
+            (status_id == 7).then_some("dynamic")
+        }));
+        assert!(!status_id_uses_dynamic_fields(7, |status_id| {
+            (status_id == 7).then_some("freeze")
+        }));
+        assert!(!status_id_uses_dynamic_fields(-1, |_| Some("dynamic")));
     }
 
     #[test]
