@@ -50,6 +50,10 @@ const EFFECT_OVERLAY_LIMIT: usize = 8;
 const DEFAULT_EFFECT_OVERLAY_TTL_TICKS: u8 = 3;
 const DEFAULT_EFFECT_OVERLAY_CLIP_SIZE: f32 = 50.0;
 const WORLD_LABEL_OVERLAY_LIMIT: usize = 16;
+const WORLD_EVENT_MARKER_OVERLAY_LIMIT: usize = 24;
+const CREATE_BULLET_MARKER_TTL_TICKS: u8 = 5;
+const LOGIC_EXPLOSION_MARKER_TTL_TICKS: u8 = 8;
+const SOUND_AT_MARKER_TTL_TICKS: u8 = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RuntimeEffectClipView {
@@ -74,6 +78,7 @@ impl RenderRuntimeAdapter {
     ) {
         advance_runtime_effect_overlays(&mut self.world_overlay);
         advance_runtime_world_label_overlays(&mut self.world_overlay);
+        advance_runtime_world_event_markers(&mut self.world_overlay);
         observe_runtime_world_events(&mut self.world_overlay, events, clip_view);
     }
 
@@ -318,6 +323,8 @@ pub struct RuntimeWorldOverlay {
     pub effect_overlays: Vec<RuntimeEffectOverlay>,
     pub world_label_overlays: Vec<RuntimeWorldLabelOverlay>,
     pub next_world_label_overlay_key: u64,
+    pub world_event_markers: Vec<RuntimeWorldEventMarkerOverlay>,
+    pub next_world_event_marker_key: u64,
     pub snapshot_refresh_count: u64,
     pub last_snapshot_method: Option<HighFrequencyRemoteMethod>,
     pub snapshot_method_counts: [u64; HIGH_FREQUENCY_REMOTE_METHOD_COUNT],
@@ -341,6 +348,8 @@ impl RuntimeWorldOverlay {
         self.effect_overlays.clear();
         self.world_label_overlays.clear();
         self.next_world_label_overlay_key = 0;
+        self.world_event_markers.clear();
+        self.next_world_event_marker_key = 0;
         self.snapshot_refresh_count = 0;
         self.last_snapshot_method = None;
         self.snapshot_method_counts = [0; HIGH_FREQUENCY_REMOTE_METHOD_COUNT];
@@ -401,6 +410,16 @@ pub struct RuntimeWorldLabelOverlay {
     pub remaining_ticks: u16,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeWorldEventMarkerOverlay {
+    pub overlay_key: u64,
+    pub object_id: String,
+    pub layer: i32,
+    pub x_bits: u32,
+    pub y_bits: u32,
+    pub remaining_ticks: u8,
+}
+
 pub fn observe_runtime_world_events(
     runtime_world_overlay: &mut RuntimeWorldOverlay,
     events: &[ClientSessionEvent],
@@ -446,6 +465,26 @@ pub fn observe_runtime_world_events(
                 runtime_world_overlay
                     .world_label_overlays
                     .retain(|overlay| overlay.label_id != Some(*label_id));
+            }
+            ClientSessionEvent::SoundAtRequested { sound_id, x, y, .. } => {
+                if !runtime_effect_event_inside_clip_view(None, *x, *y, clip_view) {
+                    continue;
+                }
+                let overlay_key = allocate_runtime_world_event_marker_key(runtime_world_overlay);
+                push_runtime_world_event_marker_overlay(
+                    runtime_world_overlay,
+                    RuntimeWorldEventMarkerOverlay {
+                        overlay_key,
+                        object_id: format!(
+                            "marker:runtime-sound-at:{overlay_key}:{}",
+                            sound_id.unwrap_or(-1)
+                        ),
+                        layer: 28,
+                        x_bits: x.to_bits(),
+                        y_bits: y.to_bits(),
+                        remaining_ticks: SOUND_AT_MARKER_TTL_TICKS,
+                    },
+                );
             }
             ClientSessionEvent::ConstructFinish {
                 tile_pos, block_id, ..
@@ -624,6 +663,63 @@ pub fn observe_runtime_world_events(
                 }
                 push_runtime_effect_overlay(runtime_world_overlay, overlay);
             }
+            ClientSessionEvent::CreateBullet { projection } => {
+                let x = f32::from_bits(projection.x_bits);
+                let y = f32::from_bits(projection.y_bits);
+                if !runtime_effect_event_inside_clip_view(None, x, y, clip_view) {
+                    continue;
+                }
+                let overlay_key = allocate_runtime_world_event_marker_key(runtime_world_overlay);
+                push_runtime_world_event_marker_overlay(
+                    runtime_world_overlay,
+                    RuntimeWorldEventMarkerOverlay {
+                        overlay_key,
+                        object_id: format!(
+                            "marker:runtime-bullet:{overlay_key}:{}:{}",
+                            projection.bullet_type_id.unwrap_or(-1),
+                            projection.team_id
+                        ),
+                        layer: 28,
+                        x_bits: projection.x_bits,
+                        y_bits: projection.y_bits,
+                        remaining_ticks: CREATE_BULLET_MARKER_TTL_TICKS,
+                    },
+                );
+            }
+            ClientSessionEvent::LogicExplosionObserved {
+                team_id,
+                x,
+                y,
+                radius,
+                air,
+                ground,
+                pierce,
+                effect,
+                ..
+            } => {
+                if !runtime_effect_event_inside_clip_view(None, *x, *y, clip_view) {
+                    continue;
+                }
+                let overlay_key = allocate_runtime_world_event_marker_key(runtime_world_overlay);
+                push_runtime_world_event_marker_overlay(
+                    runtime_world_overlay,
+                    RuntimeWorldEventMarkerOverlay {
+                        overlay_key,
+                        object_id: format!(
+                            "marker:runtime-logic-explosion:{overlay_key}:{team_id}:0x{:08x}:{}:{}:{}:{}",
+                            radius.to_bits(),
+                            u8::from(*effect),
+                            u8::from(*air),
+                            u8::from(*ground),
+                            u8::from(*pierce)
+                        ),
+                        layer: 28,
+                        x_bits: x.to_bits(),
+                        y_bits: y.to_bits(),
+                        remaining_ticks: LOGIC_EXPLOSION_MARKER_TTL_TICKS,
+                    },
+                );
+            }
             ClientSessionEvent::SnapshotReceived(method) => {
                 runtime_world_overlay.snapshot_refresh_count = runtime_world_overlay
                     .snapshot_refresh_count
@@ -720,6 +816,26 @@ fn upsert_runtime_world_label_overlay(
         runtime_world_overlay
             .world_label_overlays
             .drain(0..overflow);
+    }
+}
+
+fn allocate_runtime_world_event_marker_key(runtime_world_overlay: &mut RuntimeWorldOverlay) -> u64 {
+    let overlay_key = runtime_world_overlay.next_world_event_marker_key;
+    runtime_world_overlay.next_world_event_marker_key = runtime_world_overlay
+        .next_world_event_marker_key
+        .saturating_add(1);
+    overlay_key
+}
+
+fn push_runtime_world_event_marker_overlay(
+    runtime_world_overlay: &mut RuntimeWorldOverlay,
+    overlay: RuntimeWorldEventMarkerOverlay,
+) {
+    runtime_world_overlay.world_event_markers.push(overlay);
+    if runtime_world_overlay.world_event_markers.len() > WORLD_EVENT_MARKER_OVERLAY_LIMIT {
+        let overflow =
+            runtime_world_overlay.world_event_markers.len() - WORLD_EVENT_MARKER_OVERLAY_LIMIT;
+        runtime_world_overlay.world_event_markers.drain(0..overflow);
     }
 }
 
@@ -842,6 +958,15 @@ fn advance_runtime_world_label_overlays(runtime_world_overlay: &mut RuntimeWorld
     }
     runtime_world_overlay
         .world_label_overlays
+        .retain(|overlay| overlay.remaining_ticks > 0);
+}
+
+fn advance_runtime_world_event_markers(runtime_world_overlay: &mut RuntimeWorldOverlay) {
+    for overlay in &mut runtime_world_overlay.world_event_markers {
+        overlay.remaining_ticks = overlay.remaining_ticks.saturating_sub(1);
+    }
+    runtime_world_overlay
+        .world_event_markers
         .retain(|overlay| overlay.remaining_ticks > 0);
 }
 
@@ -3941,6 +4066,20 @@ fn append_runtime_world_overlay_objects(
         });
     }
 
+    for overlay in &runtime_world_overlay.world_event_markers {
+        let x = f32::from_bits(overlay.x_bits);
+        let y = f32::from_bits(overlay.y_bits);
+        if !x.is_finite() || !y.is_finite() {
+            continue;
+        }
+        scene.objects.push(RenderObject {
+            id: overlay.object_id.clone(),
+            layer: overlay.layer,
+            x,
+            y,
+        });
+    }
+
     let effect_input_view = EffectRuntimeInputView {
         unit_id: snapshot_input.unit_id,
         position: snapshot_input.position,
@@ -4818,6 +4957,96 @@ mod tests {
             .objects
             .iter()
             .any(|object| object.id.starts_with("world-label:event:")));
+    }
+
+    #[test]
+    fn render_runtime_adapter_renders_create_bullet_marker() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
+
+        adapter.observe_events(&[ClientSessionEvent::CreateBullet {
+            projection: crate::session_state::CreateBulletProjection {
+                bullet_type_id: Some(17),
+                team_id: 4,
+                x_bits: 32.5f32.to_bits(),
+                y_bits: 48.0f32.to_bits(),
+                angle_bits: 90.0f32.to_bits(),
+                damage_bits: 11.5f32.to_bits(),
+                velocity_scl_bits: 1.25f32.to_bits(),
+                lifetime_scl_bits: 0.75f32.to_bits(),
+            },
+        }]);
+        assert_eq!(adapter.world_overlay().world_event_markers.len(), 1);
+
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let marker = scene_object_by_id(&scene, "marker:runtime-bullet:0:17:4")
+            .expect("missing runtime bullet marker");
+        assert_eq!(marker.x, 32.5);
+        assert_eq!(marker.y, 48.0);
+        assert_eq!(marker.layer, 28);
+    }
+
+    #[test]
+    fn render_runtime_adapter_renders_logic_explosion_marker() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
+
+        adapter.observe_events(&[ClientSessionEvent::LogicExplosionObserved {
+            team_id: 2,
+            x: 16.0,
+            y: 24.0,
+            radius: 64.0,
+            damage: 96.0,
+            air: true,
+            ground: false,
+            pierce: true,
+            effect: true,
+        }]);
+        assert_eq!(adapter.world_overlay().world_event_markers.len(), 1);
+
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let marker = scene_object_by_id(
+            &scene,
+            "marker:runtime-logic-explosion:0:2:0x42800000:1:1:0:1",
+        )
+        .expect("missing runtime logic explosion marker");
+        assert_eq!(marker.x, 16.0);
+        assert_eq!(marker.y, 24.0);
+        assert_eq!(marker.layer, 28);
+    }
+
+    #[test]
+    fn render_runtime_adapter_renders_sound_at_marker() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
+
+        adapter.observe_events(&[ClientSessionEvent::SoundAtRequested {
+            sound_id: Some(11),
+            x: 64.0,
+            y: 96.0,
+            volume: 0.8,
+            pitch: 1.1,
+        }]);
+        assert_eq!(adapter.world_overlay().world_event_markers.len(), 1);
+
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let marker = scene_object_by_id(&scene, "marker:runtime-sound-at:0:11")
+            .expect("missing runtime sound-at marker");
+        assert_eq!(marker.x, 64.0);
+        assert_eq!(marker.y, 96.0);
+        assert_eq!(marker.layer, 28);
     }
 
     #[test]

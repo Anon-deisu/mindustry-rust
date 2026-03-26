@@ -38,7 +38,14 @@ const COLOR_MARKER: u32 = 0xFFC107;
 const COLOR_PLAYER: u32 = 0x66BB6A;
 const COLOR_RUNTIME: u32 = 0xFF7043;
 const COLOR_UNKNOWN: u32 = 0xEF5350;
+const COLOR_WINDOW_HUD_BAR: u32 = 0x091018;
+const COLOR_WINDOW_HUD_TEXT: u32 = 0xE8EEF2;
 const WINDOW_TARGET_FPS: usize = 60;
+const WINDOW_HUD_FONT_WIDTH: usize = 3;
+const WINDOW_HUD_FONT_HEIGHT: usize = 5;
+const WINDOW_HUD_FONT_SPACING: usize = 1;
+const WINDOW_HUD_BAR_PADDING_X: usize = 2;
+const WINDOW_HUD_BAR_PADDING_Y: usize = 2;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WindowFrame {
@@ -2821,6 +2828,7 @@ fn scale_frame_pixels(frame: &WindowFrame, tile_pixels: usize) -> Vec<u32> {
     let height = frame.height.max(1);
     let mut pixels = vec![COLOR_EMPTY; width * height * tile_pixels * tile_pixels];
     let surface_width = width * tile_pixels;
+    let surface_height = height * tile_pixels;
 
     for y in 0..height {
         for x in 0..width {
@@ -2836,7 +2844,253 @@ fn scale_frame_pixels(frame: &WindowFrame, tile_pixels: usize) -> Vec<u32> {
         }
     }
 
+    overlay_window_hud(frame, &mut pixels, surface_width, surface_height);
     pixels
+}
+
+fn overlay_window_hud(
+    frame: &WindowFrame,
+    pixels: &mut [u32],
+    surface_width: usize,
+    surface_height: usize,
+) {
+    let top_line = frame.wave_text.as_deref().filter(|text| !text.is_empty());
+    let panel_line = frame
+        .panel_lines
+        .iter()
+        .find(|line| !line.is_empty())
+        .map(String::as_str);
+    let overlay_line = frame
+        .overlay_lines
+        .iter()
+        .find(|line| !line.is_empty())
+        .map(String::as_str);
+
+    if let Some(text) = top_line {
+        draw_window_hud_bar(&[text], 0, pixels, surface_width, surface_height);
+    }
+
+    let mut bottom_lines = Vec::new();
+    if let Some(text) = panel_line {
+        bottom_lines.push(text);
+    }
+    if let Some(text) = overlay_line {
+        bottom_lines.push(text);
+    }
+    if bottom_lines.is_empty() {
+        return;
+    }
+
+    let bar_height = window_hud_bar_height(bottom_lines.len());
+    let start_y = surface_height.saturating_sub(bar_height);
+    draw_window_hud_bar(
+        &bottom_lines,
+        start_y,
+        pixels,
+        surface_width,
+        surface_height,
+    );
+}
+
+fn draw_window_hud_bar(
+    lines: &[&str],
+    start_y: usize,
+    pixels: &mut [u32],
+    surface_width: usize,
+    surface_height: usize,
+) {
+    if lines.is_empty() || surface_width == 0 || surface_height == 0 {
+        return;
+    }
+
+    fill_window_hud_rect(
+        pixels,
+        surface_width,
+        surface_height,
+        0,
+        start_y,
+        surface_width,
+        window_hud_bar_height(lines.len()),
+        COLOR_WINDOW_HUD_BAR,
+    );
+
+    let line_step = WINDOW_HUD_FONT_HEIGHT + 1;
+    let text_origin_y = start_y + WINDOW_HUD_BAR_PADDING_Y;
+    for (index, line) in lines.iter().enumerate() {
+        draw_window_hud_text_line(
+            line,
+            WINDOW_HUD_BAR_PADDING_X,
+            text_origin_y + index * line_step,
+            pixels,
+            surface_width,
+            surface_height,
+            COLOR_WINDOW_HUD_TEXT,
+        );
+    }
+}
+
+fn fill_window_hud_rect(
+    pixels: &mut [u32],
+    surface_width: usize,
+    surface_height: usize,
+    start_x: usize,
+    start_y: usize,
+    width: usize,
+    height: usize,
+    color: u32,
+) {
+    let end_x = start_x.saturating_add(width).min(surface_width);
+    let end_y = start_y.saturating_add(height).min(surface_height);
+    for y in start_y.min(surface_height)..end_y {
+        let row = y * surface_width;
+        for x in start_x.min(surface_width)..end_x {
+            pixels[row + x] = color;
+        }
+    }
+}
+
+fn draw_window_hud_text_line(
+    text: &str,
+    start_x: usize,
+    start_y: usize,
+    pixels: &mut [u32],
+    surface_width: usize,
+    surface_height: usize,
+    color: u32,
+) {
+    let mut cursor_x = start_x;
+    let advance = WINDOW_HUD_FONT_WIDTH + WINDOW_HUD_FONT_SPACING;
+    for ch in text.chars() {
+        if cursor_x >= surface_width {
+            break;
+        }
+        draw_window_hud_glyph(
+            ch,
+            cursor_x,
+            start_y,
+            pixels,
+            surface_width,
+            surface_height,
+            color,
+        );
+        cursor_x = cursor_x.saturating_add(advance);
+    }
+}
+
+fn draw_window_hud_glyph(
+    ch: char,
+    start_x: usize,
+    start_y: usize,
+    pixels: &mut [u32],
+    surface_width: usize,
+    surface_height: usize,
+    color: u32,
+) {
+    let glyph = window_hud_glyph(ch);
+    for (row, bits) in glyph.iter().enumerate() {
+        let y = start_y + row;
+        if y >= surface_height {
+            break;
+        }
+        let row_offset = y * surface_width;
+        for col in 0..WINDOW_HUD_FONT_WIDTH {
+            let x = start_x + col;
+            if x >= surface_width {
+                break;
+            }
+            let shift = WINDOW_HUD_FONT_WIDTH - 1 - col;
+            if ((bits >> shift) & 1) != 0 {
+                pixels[row_offset + x] = color;
+            }
+        }
+    }
+}
+
+fn window_hud_bar_height(line_count: usize) -> usize {
+    if line_count == 0 {
+        return 0;
+    }
+
+    let line_step = WINDOW_HUD_FONT_HEIGHT + 1;
+    WINDOW_HUD_BAR_PADDING_Y * 2
+        + WINDOW_HUD_FONT_HEIGHT
+        + line_step.saturating_mul(line_count.saturating_sub(1))
+}
+
+fn window_hud_glyph(ch: char) -> [u8; WINDOW_HUD_FONT_HEIGHT] {
+    let ch = if ch.is_ascii_lowercase() {
+        ch.to_ascii_uppercase()
+    } else {
+        ch
+    };
+
+    match ch {
+        'A' => [0b010, 0b101, 0b111, 0b101, 0b101],
+        'B' => [0b110, 0b101, 0b110, 0b101, 0b110],
+        'C' => [0b011, 0b100, 0b100, 0b100, 0b011],
+        'D' => [0b110, 0b101, 0b101, 0b101, 0b110],
+        'E' => [0b111, 0b100, 0b110, 0b100, 0b111],
+        'F' => [0b111, 0b100, 0b110, 0b100, 0b100],
+        'G' => [0b011, 0b100, 0b101, 0b101, 0b011],
+        'H' => [0b101, 0b101, 0b111, 0b101, 0b101],
+        'I' => [0b111, 0b010, 0b010, 0b010, 0b111],
+        'J' => [0b001, 0b001, 0b001, 0b101, 0b010],
+        'K' => [0b101, 0b101, 0b110, 0b101, 0b101],
+        'L' => [0b100, 0b100, 0b100, 0b100, 0b111],
+        'M' => [0b101, 0b111, 0b111, 0b101, 0b101],
+        'N' => [0b101, 0b111, 0b111, 0b111, 0b101],
+        'O' => [0b010, 0b101, 0b101, 0b101, 0b010],
+        'P' => [0b110, 0b101, 0b110, 0b100, 0b100],
+        'Q' => [0b010, 0b101, 0b101, 0b011, 0b001],
+        'R' => [0b110, 0b101, 0b110, 0b101, 0b101],
+        'S' => [0b011, 0b100, 0b010, 0b001, 0b110],
+        'T' => [0b111, 0b010, 0b010, 0b010, 0b010],
+        'U' => [0b101, 0b101, 0b101, 0b101, 0b111],
+        'V' => [0b101, 0b101, 0b101, 0b101, 0b010],
+        'W' => [0b101, 0b101, 0b111, 0b111, 0b101],
+        'X' => [0b101, 0b101, 0b010, 0b101, 0b101],
+        'Y' => [0b101, 0b101, 0b010, 0b010, 0b010],
+        'Z' => [0b111, 0b001, 0b010, 0b100, 0b111],
+        '0' => [0b111, 0b101, 0b101, 0b101, 0b111],
+        '1' => [0b010, 0b110, 0b010, 0b010, 0b111],
+        '2' => [0b110, 0b001, 0b111, 0b100, 0b111],
+        '3' => [0b110, 0b001, 0b011, 0b001, 0b110],
+        '4' => [0b101, 0b101, 0b111, 0b001, 0b001],
+        '5' => [0b111, 0b100, 0b111, 0b001, 0b110],
+        '6' => [0b011, 0b100, 0b111, 0b101, 0b111],
+        '7' => [0b111, 0b001, 0b010, 0b100, 0b100],
+        '8' => [0b111, 0b101, 0b111, 0b101, 0b111],
+        '9' => [0b111, 0b101, 0b111, 0b001, 0b110],
+        ':' => [0b000, 0b010, 0b000, 0b010, 0b000],
+        ';' => [0b000, 0b010, 0b000, 0b010, 0b100],
+        '.' => [0b000, 0b000, 0b000, 0b000, 0b010],
+        ',' => [0b000, 0b000, 0b000, 0b010, 0b100],
+        '-' => [0b000, 0b000, 0b111, 0b000, 0b000],
+        '_' => [0b000, 0b000, 0b000, 0b000, 0b111],
+        '=' => [0b000, 0b111, 0b000, 0b111, 0b000],
+        '+' => [0b000, 0b010, 0b111, 0b010, 0b000],
+        '/' => [0b001, 0b001, 0b010, 0b100, 0b100],
+        '\\' => [0b100, 0b100, 0b010, 0b001, 0b001],
+        '|' => [0b010, 0b010, 0b010, 0b010, 0b010],
+        '#' => [0b101, 0b111, 0b101, 0b111, 0b101],
+        '@' => [0b010, 0b101, 0b111, 0b100, 0b011],
+        '(' => [0b001, 0b010, 0b010, 0b010, 0b001],
+        ')' => [0b100, 0b010, 0b010, 0b010, 0b100],
+        '[' => [0b110, 0b100, 0b100, 0b100, 0b110],
+        ']' => [0b011, 0b001, 0b001, 0b001, 0b011],
+        '<' => [0b001, 0b010, 0b100, 0b010, 0b001],
+        '>' => [0b100, 0b010, 0b001, 0b010, 0b100],
+        '\'' => [0b010, 0b010, 0b000, 0b000, 0b000],
+        '"' => [0b101, 0b101, 0b000, 0b000, 0b000],
+        '!' => [0b010, 0b010, 0b010, 0b000, 0b010],
+        '?' => [0b110, 0b001, 0b010, 0b000, 0b010],
+        '~' => [0b000, 0b101, 0b010, 0b000, 0b000],
+        '*' => [0b000, 0b101, 0b010, 0b101, 0b000],
+        '%' => [0b101, 0b001, 0b010, 0b100, 0b101],
+        '&' => [0b010, 0b101, 0b010, 0b101, 0b011],
+        ' ' => [0b000, 0b000, 0b000, 0b000, 0b000],
+        _ => [0b110, 0b001, 0b010, 0b000, 0b010],
+    }
 }
 
 fn encode_ppm(frame: &WindowFrame) -> Vec<u8> {
@@ -2853,9 +3107,11 @@ fn encode_ppm(frame: &WindowFrame) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::{
-        color_for_object, scale_frame_pixels, BackendSignal, WindowBackend, WindowFrame,
-        WindowPresenter, COLOR_BLOCK, COLOR_EMPTY, COLOR_MARKER, COLOR_PLAN, COLOR_PLAYER,
-        COLOR_RUNTIME, COLOR_TERRAIN, COLOR_UNKNOWN,
+        color_for_object, scale_frame_pixels, window_hud_bar_height, BackendSignal,
+        WindowBackend, WindowFrame, WindowPresenter, COLOR_BLOCK, COLOR_EMPTY, COLOR_MARKER,
+        COLOR_PLAN, COLOR_PLAYER, COLOR_RUNTIME, COLOR_TERRAIN, COLOR_UNKNOWN,
+        COLOR_WINDOW_HUD_BAR, COLOR_WINDOW_HUD_TEXT, WINDOW_HUD_BAR_PADDING_X,
+        WINDOW_HUD_BAR_PADDING_Y, WINDOW_HUD_FONT_HEIGHT,
     };
     use crate::{
         hud_model::{
@@ -3029,6 +3285,47 @@ mod tests {
             pixels,
             vec![0x112233, 0x112233, 0x445566, 0x445566, 0x112233, 0x112233, 0x445566, 0x445566,]
         );
+    }
+
+    #[test]
+    fn scale_frame_pixels_blits_window_hud_text_bars() {
+        let frame = WindowFrame {
+            frame_id: 0,
+            title: "demo".to_string(),
+            wave_text: Some("A".to_string()),
+            status_text: String::new(),
+            panel_lines: vec!["B".to_string()],
+            overlay_lines: vec!["C".to_string()],
+            overlay_summary_text: None,
+            fps: None,
+            zoom: 1.0,
+            width: 12,
+            height: 8,
+            pixels: vec![COLOR_EMPTY; 12 * 8],
+        };
+
+        let pixels = scale_frame_pixels(&frame, 4);
+        let surface_width = frame.width * 4;
+        let surface_height = frame.height * 4;
+        let bottom_bar_y = surface_height.saturating_sub(window_hud_bar_height(2));
+        let second_bottom_line_y =
+            bottom_bar_y + WINDOW_HUD_BAR_PADDING_Y + WINDOW_HUD_FONT_HEIGHT + 1;
+
+        assert_eq!(pixels[0], COLOR_WINDOW_HUD_BAR);
+        assert_eq!(
+            pixels[WINDOW_HUD_BAR_PADDING_Y * surface_width + WINDOW_HUD_BAR_PADDING_X + 1],
+            COLOR_WINDOW_HUD_TEXT
+        );
+        assert_eq!(
+            pixels[(bottom_bar_y + WINDOW_HUD_BAR_PADDING_Y) * surface_width
+                + WINDOW_HUD_BAR_PADDING_X],
+            COLOR_WINDOW_HUD_TEXT
+        );
+        assert_eq!(
+            pixels[second_bottom_line_y * surface_width + WINDOW_HUD_BAR_PADDING_X + 1],
+            COLOR_WINDOW_HUD_TEXT
+        );
+        assert_eq!(pixels[12 * surface_width + 20], COLOR_EMPTY);
     }
 
     #[test]
