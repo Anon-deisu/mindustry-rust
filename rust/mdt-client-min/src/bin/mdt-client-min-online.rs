@@ -4795,15 +4795,14 @@ fn update_builder_queue_activity_from_loaded_world(
     snapshot_origin: Option<(f32, f32)>,
 ) {
     let graph = world.graph();
-    let origin_tile = snapshot_origin
-        .or(Some(world.player_position()))
-        .and_then(world_to_tile);
+    let origin_world = snapshot_origin.or(Some(world.player_position()));
+    let origin_tile = origin_world.and_then(world_to_tile);
     let observations = queue
         .ordered_tiles
         .iter()
         .filter_map(|tile| {
             let entry = queue.active_by_tile.get(tile)?;
-            builder_queue_activity_observation(&graph, entry, origin_tile)
+            builder_queue_activity_observation(&graph, entry, origin_world, origin_tile)
         })
         .collect::<Vec<_>>();
     queue.update_local_activity(observations);
@@ -4812,6 +4811,7 @@ fn update_builder_queue_activity_from_loaded_world(
 fn builder_queue_activity_observation(
     graph: &WorldGraph<'_>,
     entry: &mdt_input::BuilderQueueEntry,
+    origin_world: Option<(f32, f32)>,
     origin_tile: Option<(i32, i32)>,
 ) -> Option<BuilderQueueActivityObservation> {
     let x = usize::try_from(entry.x).ok()?;
@@ -4830,10 +4830,25 @@ fn builder_queue_activity_observation(
         x: entry.x,
         y: entry.y,
         breaking: entry.breaking,
-        in_range: true,
+        in_range: origin_world.is_none_or(|origin| builder_queue_tile_is_in_range(origin, entry)),
         should_skip,
         distance_sq,
     })
+}
+
+fn builder_queue_tile_is_in_range(
+    origin_world: (f32, f32),
+    entry: &mdt_input::BuilderQueueEntry,
+) -> bool {
+    const BUILDER_BUILD_RANGE_WORLD_UNITS: f32 = 220.0;
+    const BUILDER_BUILD_RANGE_WORLD_UNITS_SQ: f32 =
+        BUILDER_BUILD_RANGE_WORLD_UNITS * BUILDER_BUILD_RANGE_WORLD_UNITS;
+
+    let target_x = entry.x as f32 * 8.0;
+    let target_y = entry.y as f32 * 8.0;
+    let dx = origin_world.0 - target_x;
+    let dy = origin_world.1 - target_y;
+    dx * dx + dy * dy <= BUILDER_BUILD_RANGE_WORLD_UNITS_SQ
 }
 
 fn normalize_builder_queue_block_id(block_id: u16) -> Option<i16> {
@@ -6823,8 +6838,24 @@ mod tests {
         ))
     }
 
+    fn sample_large_world_stream_bytes() -> Vec<u8> {
+        decode_hex_text(include_str!(
+            "../../../../fixtures/world-streams/archipelago-6567-world-stream.hex"
+        ))
+    }
+
     fn ingest_sample_world(session: &mut ClientSession) {
         let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+        session.ingest_packet_bytes(&begin_packet).unwrap();
+        for chunk in chunk_packets {
+            session.ingest_packet_bytes(&chunk).unwrap();
+        }
+    }
+
+    fn ingest_large_sample_world(session: &mut ClientSession) {
+        let compressed_world_stream = sample_large_world_stream_bytes();
         let (begin_packet, chunk_packets) =
             encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
         session.ingest_packet_bytes(&begin_packet).unwrap();
@@ -6844,6 +6875,16 @@ mod tests {
             .grid()
             .iter_tiles()
             .filter(|tile| tile.block_id == 0 && tile.building_center_index.is_none())
+            .map(|tile| (tile.x as i32, tile.y as i32))
+            .collect()
+    }
+
+    fn sample_occupied_tiles(world: &LoadedWorldState<'_>) -> Vec<(i32, i32)> {
+        world
+            .graph()
+            .grid()
+            .iter_tiles()
+            .filter(|tile| tile.block_id != 0 || tile.building_center_index.is_some())
             .map(|tile| (tile.x as i32, tile.y as i32))
             .collect()
     }
@@ -11570,6 +11611,218 @@ mod tests {
         assert!(input.building);
         assert_eq!(input.selected_block_id, Some(0x0103));
         assert_eq!(input.selected_rotation, 1);
+    }
+
+    #[test]
+    fn sync_runtime_build_selection_state_reorders_out_of_range_head_to_nearer_place_entry() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
+        ingest_large_sample_world(&mut session);
+        let args = parse_args(sample_args(&[])).unwrap();
+        let (near_tile, far_tile) = {
+            let world = session.loaded_world_state().unwrap();
+            let mut empty_tiles = sample_empty_tiles(&world);
+            empty_tiles.sort();
+            let near_tile = *empty_tiles
+                .first()
+                .expect("expected at least one empty tile in sample world");
+            let origin_world = (near_tile.0 as f32 * 8.0, near_tile.1 as f32 * 8.0);
+            let mut out_of_range = empty_tiles
+                .into_iter()
+                .filter(|tile| {
+                    !builder_queue_tile_is_in_range(
+                        origin_world,
+                        &mdt_input::BuilderQueueEntry {
+                            x: tile.0,
+                            y: tile.1,
+                            breaking: false,
+                            block_id: Some(0x0101),
+                            rotation: Some(0),
+                            progress_permyriad: None,
+                            stage: mdt_input::BuilderQueueStage::Queued,
+                        },
+                    )
+                })
+                .collect::<Vec<_>>();
+            out_of_range.sort_by_key(|tile| {
+                tile_distance_sq(near_tile, tile.0 as usize, tile.1 as usize)
+            });
+            (
+                near_tile,
+                *out_of_range
+                    .last()
+                    .expect("expected at least one out-of-range empty tile"),
+            )
+        };
+        let near_world = (near_tile.0 as f32 * 8.0, near_tile.1 as f32 * 8.0);
+
+        session.snapshot_input_mut().position = Some(near_world);
+        session.snapshot_input_mut().plans = Some(vec![
+            ClientBuildPlan {
+                tile: far_tile,
+                breaking: false,
+                block_id: Some(0x0107),
+                rotation: 3,
+                config: ClientBuildPlanConfig::None,
+            },
+            ClientBuildPlan {
+                tile: near_tile,
+                breaking: false,
+                block_id: Some(0x0108),
+                rotation: 1,
+                config: ClientBuildPlanConfig::None,
+            },
+        ]);
+
+        sync_runtime_build_selection_state(&mut session, &args);
+
+        let input = session.snapshot_input();
+        assert!(input.building);
+        assert_eq!(input.selected_block_id, Some(0x0108));
+        assert_eq!(input.selected_rotation, 1);
+    }
+
+    #[test]
+    fn sync_runtime_build_selection_state_falls_back_to_closest_in_range_skipped_place_entry() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
+        ingest_large_sample_world(&mut session);
+        let args = parse_args(sample_args(&[])).unwrap();
+        let (near_occupied_tile, far_empty_tile) = {
+            let world = session.loaded_world_state().unwrap();
+            let mut occupied_tiles = sample_occupied_tiles(&world);
+            occupied_tiles.sort();
+            let near_occupied_tile = *occupied_tiles
+                .first()
+                .expect("expected at least one occupied tile in sample world");
+            let origin_world = (
+                near_occupied_tile.0 as f32 * 8.0,
+                near_occupied_tile.1 as f32 * 8.0,
+            );
+            let mut out_of_range_empty_tiles = sample_empty_tiles(&world)
+                .into_iter()
+                .filter(|tile| {
+                    !builder_queue_tile_is_in_range(
+                        origin_world,
+                        &mdt_input::BuilderQueueEntry {
+                            x: tile.0,
+                            y: tile.1,
+                            breaking: false,
+                            block_id: Some(0x7f00),
+                            rotation: Some(0),
+                            progress_permyriad: None,
+                            stage: mdt_input::BuilderQueueStage::Queued,
+                        },
+                    )
+                })
+                .collect::<Vec<_>>();
+            out_of_range_empty_tiles.sort_by_key(|tile| {
+                tile_distance_sq(near_occupied_tile, tile.0 as usize, tile.1 as usize)
+            });
+            (
+                near_occupied_tile,
+                *out_of_range_empty_tiles
+                    .last()
+                    .expect("expected at least one out-of-range empty tile"),
+            )
+        };
+        let near_world = (near_occupied_tile.0 as f32 * 8.0, near_occupied_tile.1 as f32 * 8.0);
+
+        session.snapshot_input_mut().position = Some(near_world);
+        session.snapshot_input_mut().plans = Some(vec![
+            ClientBuildPlan {
+                tile: far_empty_tile,
+                breaking: false,
+                block_id: Some(0x0109),
+                rotation: 3,
+                config: ClientBuildPlanConfig::None,
+            },
+            ClientBuildPlan {
+                tile: near_occupied_tile,
+                breaking: false,
+                block_id: Some(0x7f01),
+                rotation: 2,
+                config: ClientBuildPlanConfig::None,
+            },
+        ]);
+
+        sync_runtime_build_selection_state(&mut session, &args);
+
+        let input = session.snapshot_input();
+        assert!(input.building);
+        assert_eq!(input.selected_block_id, Some(0x7f01));
+        assert_eq!(input.selected_rotation, 2);
+    }
+
+    #[test]
+    fn sync_runtime_build_selection_state_keeps_out_of_range_head_when_no_plan_is_in_range() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
+        ingest_large_sample_world(&mut session);
+        let args = parse_args(sample_args(&[])).unwrap();
+        let (origin_tile, head_tile, other_far_tile) = {
+            let world = session.loaded_world_state().unwrap();
+            let mut empty_tiles = sample_empty_tiles(&world);
+            empty_tiles.sort();
+            let origin_tile = *empty_tiles
+                .first()
+                .expect("expected at least one empty tile in sample world");
+            let origin_world = (origin_tile.0 as f32 * 8.0, origin_tile.1 as f32 * 8.0);
+            let mut out_of_range = empty_tiles
+                .into_iter()
+                .filter(|tile| {
+                    !builder_queue_tile_is_in_range(
+                        origin_world,
+                        &mdt_input::BuilderQueueEntry {
+                            x: tile.0,
+                            y: tile.1,
+                            breaking: false,
+                            block_id: Some(0x7f02),
+                            rotation: Some(0),
+                            progress_permyriad: None,
+                            stage: mdt_input::BuilderQueueStage::Queued,
+                        },
+                    )
+                })
+                .collect::<Vec<_>>();
+            out_of_range.sort_by_key(|tile| {
+                tile_distance_sq(origin_tile, tile.0 as usize, tile.1 as usize)
+            });
+            let head_tile = *out_of_range
+                .last()
+                .expect("expected at least one out-of-range empty tile");
+            let other_far_tile = *out_of_range
+                .first()
+                .expect("expected at least two out-of-range empty tiles");
+            assert_ne!(head_tile, other_far_tile);
+            (origin_tile, head_tile, other_far_tile)
+        };
+        let origin_world = (origin_tile.0 as f32 * 8.0, origin_tile.1 as f32 * 8.0);
+
+        session.snapshot_input_mut().position = Some(origin_world);
+        session.snapshot_input_mut().plans = Some(vec![
+            ClientBuildPlan {
+                tile: head_tile,
+                breaking: false,
+                block_id: Some(0x010a),
+                rotation: 3,
+                config: ClientBuildPlanConfig::None,
+            },
+            ClientBuildPlan {
+                tile: other_far_tile,
+                breaking: false,
+                block_id: Some(0x010b),
+                rotation: 1,
+                config: ClientBuildPlanConfig::None,
+            },
+        ]);
+
+        sync_runtime_build_selection_state(&mut session, &args);
+
+        let input = session.snapshot_input();
+        assert!(input.building);
+        assert_eq!(input.selected_block_id, Some(0x010a));
+        assert_eq!(input.selected_rotation, 3);
     }
 
     #[test]
