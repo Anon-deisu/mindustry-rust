@@ -111,11 +111,11 @@ impl SavePostLoadRuntimeReadiness {
         let mut source_regions = Vec::new();
 
         for region in &self.regions {
-            let source_region = match source_regions
-                .iter_mut()
-                .find(|candidate: &&mut SavePostLoadRuntimeSourceRegionReadiness| {
+            let source_region = match source_regions.iter_mut().find(
+                |candidate: &&mut SavePostLoadRuntimeSourceRegionReadiness| {
                     candidate.source_region_name == region.source_region_name
-                }) {
+                },
+            ) {
                 Some(source_region) => source_region,
                 None => {
                     source_regions.push(SavePostLoadRuntimeSourceRegionReadiness {

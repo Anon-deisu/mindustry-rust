@@ -1,12 +1,12 @@
+use crate::save_post_load_runtime_world_ownership::build_runtime_world_ownership;
 use crate::{
     SavePostLoadRuntimeApplyScript, SavePostLoadRuntimeApplyStep, SavePostLoadRuntimeBuildingSeed,
     SavePostLoadRuntimeCustomChunkSeed, SavePostLoadRuntimeEntityRemapSeed,
     SavePostLoadRuntimeEntitySeed, SavePostLoadRuntimeMarkerSeed, SavePostLoadRuntimeSeedPlan,
-    SavePostLoadRuntimeWorldOwnership, SavePostLoadRuntimeWorldSurfaceKind,
     SavePostLoadRuntimeStaticFogSeed, SavePostLoadRuntimeTeamPlanSeed,
-    SavePostLoadRuntimeWorldSeed, SavePostLoadWorldObservation,
+    SavePostLoadRuntimeWorldOwnership, SavePostLoadRuntimeWorldSeed,
+    SavePostLoadRuntimeWorldSurfaceKind, SavePostLoadWorldObservation,
 };
-use crate::save_post_load_runtime_world_ownership::build_runtime_world_ownership;
 use std::collections::{btree_map::Entry, BTreeMap};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -23,8 +23,7 @@ pub struct SavePostLoadRuntimeWorldShell {
     pub loadable_entities: Vec<SavePostLoadRuntimeEntitySeed>,
     pub loadable_entities_by_id: BTreeMap<i32, SavePostLoadRuntimeEntitySeed>,
     pub loadable_entities_by_effective_class_id: BTreeMap<u8, Vec<SavePostLoadRuntimeEntitySeed>>,
-    pub loadable_entities_by_effective_name:
-        BTreeMap<String, Vec<SavePostLoadRuntimeEntitySeed>>,
+    pub loadable_entities_by_effective_name: BTreeMap<String, Vec<SavePostLoadRuntimeEntitySeed>>,
 }
 
 impl SavePostLoadRuntimeWorldShell {
@@ -37,7 +36,10 @@ impl SavePostLoadRuntimeWorldShell {
     }
 
     pub fn owned_step_count(&self, kind: SavePostLoadRuntimeWorldSurfaceKind) -> usize {
-        self.ownership_claim_steps.get(&kind).copied().unwrap_or_default()
+        self.ownership_claim_steps
+            .get(&kind)
+            .copied()
+            .unwrap_or_default()
     }
 
     fn claim_world_surface_step(&mut self, kind: SavePostLoadRuntimeWorldSurfaceKind) {
@@ -267,7 +269,8 @@ impl SavePostLoadRuntimeApplyExecution {
                     Entry::Vacant(entry) => {
                         entry.insert(seed.clone());
                         shell.markers.push(seed.clone());
-                        shell.claim_world_surface_step(SavePostLoadRuntimeWorldSurfaceKind::Markers);
+                        shell
+                            .claim_world_surface_step(SavePostLoadRuntimeWorldSurfaceKind::Markers);
                         true
                     }
                     Entry::Occupied(_) => {
@@ -343,7 +346,9 @@ impl SavePostLoadRuntimeApplyExecution {
                     Entry::Vacant(entry) => {
                         entry.insert(seed.clone());
                         shell.buildings.push(seed.clone());
-                        shell.claim_world_surface_step(SavePostLoadRuntimeWorldSurfaceKind::Buildings);
+                        shell.claim_world_surface_step(
+                            SavePostLoadRuntimeWorldSurfaceKind::Buildings,
+                        );
                         true
                     }
                     Entry::Occupied(_) => {

@@ -297,19 +297,30 @@ impl WellKnownRemotePacketIds {
                 WellKnownRemoteMethod::ClientPlanSnapshotReceived,
                 self.client_plan_snapshot_received_packet_id,
             ),
-            (WellKnownRemoteMethod::PingResponse, self.ping_response_packet_id),
-            (WellKnownRemoteMethod::PingLocation, self.ping_location_packet_id),
+            (
+                WellKnownRemoteMethod::PingResponse,
+                self.ping_response_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::PingLocation,
+                self.ping_location_packet_id,
+            ),
             (
                 WellKnownRemoteMethod::DebugStatusClientUnreliable,
                 self.debug_status_client_unreliable_packet_id,
             ),
             (WellKnownRemoteMethod::TraceInfo, self.trace_info_packet_id),
             (WellKnownRemoteMethod::SetRules, self.set_rules_packet_id),
-            (WellKnownRemoteMethod::SetObjectives, self.set_objectives_packet_id),
+            (
+                WellKnownRemoteMethod::SetObjectives,
+                self.set_objectives_packet_id,
+            ),
             (WellKnownRemoteMethod::SetRule, self.set_rule_packet_id),
         ]
         .into_iter()
-        .find_map(|(method, resolved_packet_id)| (resolved_packet_id == Some(packet_id)).then_some(method))
+        .find_map(|(method, resolved_packet_id)| {
+            (resolved_packet_id == Some(packet_id)).then_some(method)
+        })
     }
 }
 
@@ -448,7 +459,8 @@ mod tests {
     fn combined_packet_registries_classify_packet_ids_into_business_routes() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let registries = CombinedPacketRegistries::from_remote_manifest(&manifest).unwrap();
-        let high_frequency_registry = HighFrequencyRemoteRegistry::from_manifest(&manifest).unwrap();
+        let high_frequency_registry =
+            HighFrequencyRemoteRegistry::from_manifest(&manifest).unwrap();
         let well_known_registry = WellKnownRemoteRegistry::from_manifest(&manifest).unwrap();
 
         let state_snapshot_packet_id = high_frequency_registry

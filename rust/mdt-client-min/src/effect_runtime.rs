@@ -1518,8 +1518,8 @@ mod tests {
     }
 
     #[test]
-    fn effect_runtime_observe_runtime_effect_source_binding_state_tracks_unit_follow_and_fallback(
-    ) {
+    fn effect_runtime_observe_runtime_effect_source_binding_state_tracks_unit_follow_and_fallback()
+    {
         let object = TypeIoObject::UnitId(404);
         let followed = session_state_with_unit_entity(404, 32.0, 48.0);
         for effect_id in [8i16, 9, 178, 261, 262] {

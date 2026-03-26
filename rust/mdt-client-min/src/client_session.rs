@@ -24,15 +24,14 @@ use crate::session_state::{
     EffectBusinessProjection, EntityFireSemanticProjection, EntityPlayerSemanticProjection,
     EntityPuddleSemanticProjection, EntitySemanticProjection, EntityUnitRuntimeSyncProjection,
     EntityUnitSemanticProjection, EntityWeatherStateSemanticProjection,
-    EntityWorldLabelSemanticProjection,
-    FinishConnectingProjection, GameplayStateProjection, PayloadDroppedProjection,
-    PickedBuildPayloadProjection, PickedUnitPayloadProjection, ReconnectPhaseProjection,
-    ReconnectReasonKind, ReconstructorRuntimeProjection, RemotePlanSnapshotFirstPlanProjection,
-    SessionResetKind, SessionState, SessionTimeoutKind, SessionTimeoutProjection,
-    TakeItemsProjection, TileConfigAuthoritySource, TileConfigBusinessApply,
-    TransferItemEffectProjection, TransferItemToProjection, TransferItemToUnitProjection,
-    TypedBuildingRuntimeModel, UnitAssemblerRuntimeProjection, UnitEnteredPayloadProjection,
-    UnitRefProjection, WorldReloadProjection,
+    EntityWorldLabelSemanticProjection, FinishConnectingProjection, GameplayStateProjection,
+    PayloadDroppedProjection, PickedBuildPayloadProjection, PickedUnitPayloadProjection,
+    ReconnectPhaseProjection, ReconnectReasonKind, ReconstructorRuntimeProjection,
+    RemotePlanSnapshotFirstPlanProjection, SessionResetKind, SessionState, SessionTimeoutKind,
+    SessionTimeoutProjection, TakeItemsProjection, TileConfigAuthoritySource,
+    TileConfigBusinessApply, TransferItemEffectProjection, TransferItemToProjection,
+    TransferItemToUnitProjection, TypedBuildingRuntimeModel, UnitAssemblerRuntimeProjection,
+    UnitEnteredPayloadProjection, UnitRefProjection, WorldReloadProjection,
 };
 use crate::typed_remote_dispatch::{
     TypedCustomChannelRemoteDispatch, TypedCustomChannelRemoteDispatcher,
@@ -8694,6 +8693,7 @@ impl ClientSession {
         self.state.world_player_y_bits = None;
         self.state.last_camera_x_bits = None;
         self.state.last_camera_y_bits = None;
+        self.state.ping_location_projection = Default::default();
         self.state.world_display_title = None;
         self.state.ready_to_enter_world = false;
         self.state.deferred_inbound_packet_count = 0;
@@ -39744,6 +39744,127 @@ mod tests {
     }
 
     #[test]
+    fn effect_packet_with_source_binding_family_records_parent_follow_for_resolved_unit_payloads() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "effect" && entry.params.len() == 6)
+            .unwrap()
+            .packet_id;
+
+        for effect_id in [8i16, 9, 178, 261, 262] {
+            let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+            session.state.entity_table_projection.by_entity_id.insert(
+                4321,
+                crate::session_state::EntityProjection {
+                    class_id: 12,
+                    hidden: false,
+                    is_local_player: false,
+                    unit_kind: 2,
+                    unit_value: 88,
+                    x_bits: 96.0f32.to_bits(),
+                    y_bits: 104.0f32.to_bits(),
+                    last_seen_entity_snapshot_count: 3,
+                },
+            );
+            let mut payload = encode_effect_payload(effect_id, 32.5, 48.0, 90.0, 0x11223344);
+            write_typeio_object(&mut payload, &TypeIoObject::UnitId(4321));
+            let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+            session.ingest_packet_bytes(&packet).unwrap();
+
+            assert_eq!(
+                session.state().last_effect_contract_name.as_deref(),
+                Some("position_target"),
+                "effect_id {effect_id}"
+            );
+            assert_eq!(
+                session.state().last_effect_runtime_binding_state,
+                Some(crate::session_state::EffectRuntimeBindingState::ParentFollow),
+                "effect_id {effect_id}"
+            );
+            assert_eq!(
+                session.state().last_effect_runtime_source_binding_state,
+                Some(crate::session_state::EffectRuntimeBindingState::ParentFollow),
+                "effect_id {effect_id}"
+            );
+        }
+    }
+
+    #[test]
+    fn effect_packet_with_source_binding_family_records_unresolved_fallback_for_unit_payloads() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "effect" && entry.params.len() == 6)
+            .unwrap()
+            .packet_id;
+
+        for effect_id in [8i16, 9, 178, 261, 262] {
+            let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+            let mut payload = encode_effect_payload(effect_id, 32.5, 48.0, 90.0, 0x11223344);
+            write_typeio_object(&mut payload, &TypeIoObject::UnitId(404));
+            let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+            session.ingest_packet_bytes(&packet).unwrap();
+
+            assert_eq!(
+                session.state().last_effect_contract_name.as_deref(),
+                Some("position_target"),
+                "effect_id {effect_id}"
+            );
+            assert_eq!(
+                session.state().last_effect_runtime_binding_state,
+                Some(crate::session_state::EffectRuntimeBindingState::UnresolvedFallback),
+                "effect_id {effect_id}"
+            );
+            assert_eq!(
+                session.state().last_effect_runtime_source_binding_state,
+                Some(crate::session_state::EffectRuntimeBindingState::UnresolvedFallback),
+                "effect_id {effect_id}"
+            );
+        }
+    }
+
+    #[test]
+    fn effect_packet_with_source_binding_family_rejects_source_binding_for_building_payloads() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "effect" && entry.params.len() == 6)
+            .unwrap()
+            .packet_id;
+
+        for effect_id in [8i16, 9, 178, 261, 262] {
+            let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+            let mut payload = encode_effect_payload(effect_id, 32.5, 48.0, 90.0, 0x11223344);
+            write_typeio_object(&mut payload, &TypeIoObject::BuildingPos(pack_point2(7, 11)));
+            let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+            session.ingest_packet_bytes(&packet).unwrap();
+
+            assert_eq!(
+                session.state().last_effect_contract_name.as_deref(),
+                Some("position_target"),
+                "effect_id {effect_id}"
+            );
+            assert_eq!(
+                session.state().last_effect_runtime_binding_state,
+                Some(crate::session_state::EffectRuntimeBindingState::ParentFollow),
+                "effect_id {effect_id}"
+            );
+            assert_eq!(
+                session.state().last_effect_runtime_source_binding_state,
+                Some(crate::session_state::EffectRuntimeBindingState::BindingRejected),
+                "effect_id {effect_id}"
+            );
+        }
+    }
+
+    #[test]
     fn effect_packet_with_local_unit_id_data_payload_projects_runtime_apply_state() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
@@ -41844,6 +41965,40 @@ mod tests {
             0
         );
         assert_eq!(session.state().ping_location_projection.received_count, 0);
+    }
+
+    #[test]
+    fn world_data_begin_clears_ping_location_projection() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let ping_location_packet_id = session
+            .ping_location_packet_id
+            .expect("missing pingLocation packet id");
+        let world_data_begin_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "worldDataBegin")
+            .expect("missing worldDataBegin packet id")
+            .packet_id;
+
+        let ping_location = encode_packet(
+            ping_location_packet_id,
+            &encode_ping_location_forwarded_payload(Some(7), 20.5, 33.25, Some("watch here")),
+            false,
+        )
+        .unwrap();
+        let world_data_begin = encode_packet(world_data_begin_packet_id, &[], false).unwrap();
+
+        session.ingest_packet_bytes(&ping_location).unwrap();
+        assert_eq!(session.state().ping_location_projection.received_count, 1);
+
+        let event = session.ingest_packet_bytes(&world_data_begin).unwrap();
+
+        assert_eq!(event, ClientSessionEvent::WorldDataBegin);
+        assert_eq!(
+            session.state().ping_location_projection,
+            crate::session_state::PingLocationProjection::default()
+        );
     }
 
     #[test]

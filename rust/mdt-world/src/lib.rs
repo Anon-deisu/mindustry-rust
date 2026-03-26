@@ -1164,7 +1164,9 @@ impl SavePostLoadRuntimeSeedSurface {
         &self,
         kind: SavePostLoadRuntimeRegionKind,
     ) -> Option<&SavePostLoadRuntimeSeedRegionSurface> {
-        self.blocked_regions.iter().find(|region| region.kind == kind)
+        self.blocked_regions
+            .iter()
+            .find(|region| region.kind == kind)
     }
 
     pub fn awaiting_world_shell_region(
@@ -40427,13 +40429,22 @@ mod tests {
 
         assert!(!seed_surface.can_seed_runtime_apply);
         assert!(seed_surface.world_shell_ready);
-        assert_eq!(seed_surface.apply_now_step_count, readiness.apply_now_step_count());
+        assert_eq!(
+            seed_surface.apply_now_step_count,
+            readiness.apply_now_step_count()
+        );
         assert_eq!(
             seed_surface.awaiting_world_shell_step_count,
             readiness.awaiting_world_shell_step_count()
         );
-        assert_eq!(seed_surface.blocked_step_count, readiness.blocked_step_count());
-        assert_eq!(seed_surface.deferred_step_count, readiness.deferred_step_count());
+        assert_eq!(
+            seed_surface.blocked_step_count,
+            readiness.blocked_step_count()
+        );
+        assert_eq!(
+            seed_surface.deferred_step_count,
+            readiness.deferred_step_count()
+        );
         assert_eq!(seed_surface.blocked_regions, Vec::new());
         assert_eq!(seed_surface.awaiting_world_shell_regions, Vec::new());
         assert_eq!(seed_surface.region_count(), 0);
@@ -40666,13 +40677,22 @@ mod tests {
 
         assert!(!seed_surface.can_seed_runtime_apply);
         assert!(!seed_surface.world_shell_ready);
-        assert_eq!(seed_surface.apply_now_step_count, readiness.apply_now_step_count());
+        assert_eq!(
+            seed_surface.apply_now_step_count,
+            readiness.apply_now_step_count()
+        );
         assert_eq!(
             seed_surface.awaiting_world_shell_step_count,
             readiness.awaiting_world_shell_step_count()
         );
-        assert_eq!(seed_surface.blocked_step_count, readiness.blocked_step_count());
-        assert_eq!(seed_surface.deferred_step_count, readiness.deferred_step_count());
+        assert_eq!(
+            seed_surface.blocked_step_count,
+            readiness.blocked_step_count()
+        );
+        assert_eq!(
+            seed_surface.deferred_step_count,
+            readiness.deferred_step_count()
+        );
         assert_eq!(seed_surface.next_apply_now_batch_index, Some(1));
         assert_eq!(seed_surface.next_apply_now_batch_step_count, Some(1));
         assert_eq!(seed_surface.region_count(), 3);

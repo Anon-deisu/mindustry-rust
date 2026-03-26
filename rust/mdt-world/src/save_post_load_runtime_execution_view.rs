@@ -261,7 +261,8 @@ fn status_buckets(
                 .into_iter()
                 .cloned()
                 .collect::<Vec<_>>();
-            (!steps.is_empty()).then_some(SavePostLoadRuntimeExecutionStatusBucket { status, steps })
+            (!steps.is_empty())
+                .then_some(SavePostLoadRuntimeExecutionStatusBucket { status, steps })
         })
         .collect()
 }
@@ -285,7 +286,8 @@ mod tests {
         make_observation_seedable(&mut observation);
 
         let view = observation.runtime_apply_execution_view();
-        let executed_steps = view.steps_with_status(SavePostLoadRuntimeExecutionStepStatus::Executed);
+        let executed_steps =
+            view.steps_with_status(SavePostLoadRuntimeExecutionStepStatus::Executed);
         let status_counts = view.status_counts();
         let status_buckets = view.status_buckets();
 
@@ -309,10 +311,7 @@ mod tests {
             view.step_status(&SavePostLoadRuntimeApplyStep::Building { center_index: 0 }),
             Some(SavePostLoadRuntimeExecutionStepStatus::Executed)
         );
-        assert_eq!(
-            executed_steps.len(),
-            14
-        );
+        assert_eq!(executed_steps.len(), 14);
         assert!(executed_steps.contains(&&SavePostLoadRuntimeApplyStep::WorldShell));
         assert_eq!(
             status_counts.get(&SavePostLoadRuntimeExecutionStepStatus::Executed),
@@ -366,9 +365,8 @@ mod tests {
             Some(SavePostLoadRuntimeExecutionStepStatus::Deferred)
         );
         assert!(awaiting_steps.contains(&&SavePostLoadRuntimeApplyStep::StaticFog));
-        assert!(deferred_steps.contains(&&SavePostLoadRuntimeApplyStep::SkippedEntity {
-            entity_index: 1
-        }));
+        assert!(deferred_steps
+            .contains(&&SavePostLoadRuntimeApplyStep::SkippedEntity { entity_index: 1 }));
         assert_eq!(
             status_counts.get(&SavePostLoadRuntimeExecutionStepStatus::Blocked),
             Some(&4)
@@ -383,7 +381,9 @@ mod tests {
         );
         assert!(status_buckets.iter().any(|bucket| {
             bucket.status == SavePostLoadRuntimeExecutionStepStatus::Blocked
-                && bucket.steps.contains(&SavePostLoadRuntimeApplyStep::WorldShell)
+                && bucket
+                    .steps
+                    .contains(&SavePostLoadRuntimeApplyStep::WorldShell)
         }));
         assert!(status_buckets.iter().any(|bucket| {
             bucket.status == SavePostLoadRuntimeExecutionStepStatus::Deferred

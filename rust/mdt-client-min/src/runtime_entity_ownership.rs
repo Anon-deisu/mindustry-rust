@@ -35,7 +35,9 @@ pub(super) fn resolve_typed_runtime_entity_ownership(
         let Some(unit_entity_id) = unique_latest_claim_entity_id(&claimants) else {
             record_conflict_units(
                 &mut resolution,
-                claimants.into_iter().map(|(_, unit_entity_id)| unit_entity_id),
+                claimants
+                    .into_iter()
+                    .map(|(_, unit_entity_id)| unit_entity_id),
             );
             continue;
         };
@@ -147,8 +149,7 @@ fn record_conflict_units(
     conflicted_unit_ids: impl IntoIterator<Item = i32>,
 ) {
     for unit_entity_id in conflicted_unit_ids {
-        resolution.ownership_conflict_count =
-            resolution.ownership_conflict_count.saturating_add(1);
+        resolution.ownership_conflict_count = resolution.ownership_conflict_count.saturating_add(1);
         if resolution.ownership_conflict_unit_sample.len() < OWNERSHIP_CONFLICT_SAMPLE_LIMIT {
             resolution
                 .ownership_conflict_unit_sample
@@ -272,10 +273,8 @@ mod tests {
 
     #[test]
     fn heuristic_fallback_still_works_without_controller() {
-        let by_entity_id = BTreeMap::from([(
-            101,
-            player(101, 202, 7),
-        ), (202, unit(202, 0, None, 1))]);
+        let by_entity_id =
+            BTreeMap::from([(101, player(101, 202, 7)), (202, unit(202, 0, None, 1))]);
 
         let resolution = resolve_typed_runtime_entity_ownership(&by_entity_id);
 

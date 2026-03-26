@@ -115,15 +115,24 @@ impl SavePostLoadRuntimeWorldOwnership {
     }
 
     pub fn required_step_count(&self) -> usize {
-        self.surfaces.iter().map(|surface| surface.required_step_count).sum()
+        self.surfaces
+            .iter()
+            .map(|surface| surface.required_step_count)
+            .sum()
     }
 
     pub fn claimed_step_count(&self) -> usize {
-        self.surfaces.iter().map(|surface| surface.claimed_step_count).sum()
+        self.surfaces
+            .iter()
+            .map(|surface| surface.claimed_step_count)
+            .sum()
     }
 
     pub fn owned_surface_count(&self) -> usize {
-        self.surfaces.iter().filter(|surface| surface.is_owned()).count()
+        self.surfaces
+            .iter()
+            .filter(|surface| surface.is_owned())
+            .count()
     }
 
     pub fn can_apply_world_semantics(&self) -> bool {

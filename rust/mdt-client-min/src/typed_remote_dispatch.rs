@@ -389,7 +389,11 @@ mod tests {
             })
         );
         assert_eq!(
-            dispatcher.dispatch(10, &payload).unwrap().unwrap().route_label(),
+            dispatcher
+                .dispatch(10, &payload)
+                .unwrap()
+                .unwrap()
+                .route_label(),
             "serverPacketReliable/text"
         );
     }
@@ -414,7 +418,11 @@ mod tests {
             })
         );
         assert_eq!(
-            dispatcher.dispatch(15, &payload).unwrap().unwrap().route_label(),
+            dispatcher
+                .dispatch(15, &payload)
+                .unwrap()
+                .unwrap()
+                .route_label(),
             "clientLogicDataUnreliable/logic"
         );
     }
@@ -451,7 +459,11 @@ mod tests {
             })
         );
         assert_eq!(
-            dispatcher.dispatch(5, &payload).unwrap().unwrap().route_label(),
+            dispatcher
+                .dispatch(5, &payload)
+                .unwrap()
+                .unwrap()
+                .route_label(),
             "clientPacketReliable/text"
         );
     }
@@ -491,7 +503,11 @@ mod tests {
             })
         );
         assert_eq!(
-            dispatcher.dispatch(14, &payload).unwrap().unwrap().route_label(),
+            dispatcher
+                .dispatch(14, &payload)
+                .unwrap()
+                .unwrap()
+                .route_label(),
             "clientLogicDataReliable/logic"
         );
     }

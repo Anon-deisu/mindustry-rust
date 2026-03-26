@@ -152,6 +152,7 @@ impl RenderRuntimeAdapter {
             snapshot_input,
             session_state,
         );
+        append_runtime_ping_location_objects(scene, session_state);
         append_runtime_command_mode_overlay_objects(scene, snapshot_input, session_state);
         append_building_projection_objects(
             scene,
@@ -5018,6 +5019,37 @@ fn runtime_effect_content_object_id(
     )
 }
 
+fn append_runtime_ping_location_objects(scene: &mut RenderModel, session_state: &SessionState) {
+    let projection = &session_state.ping_location_projection;
+    if projection.received_count == 0 {
+        return;
+    }
+
+    let (Some(x_bits), Some(y_bits)) = (projection.last_x_bits, projection.last_y_bits) else {
+        return;
+    };
+    let x = f32::from_bits(x_bits);
+    let y = f32::from_bits(y_bits);
+    if !x.is_finite() || !y.is_finite() {
+        return;
+    }
+
+    let text = projection
+        .last_text
+        .as_deref()
+        .filter(|text| !text.is_empty())
+        .unwrap_or("ping");
+    scene.objects.push(RenderObject {
+        id: render_text_scene_object_id(
+            format!("marker:text:runtime-ping:{}", projection.last_player_id.unwrap_or(-1)),
+            Some(text),
+        ),
+        layer: 31,
+        x,
+        y,
+    });
+}
+
 fn append_block_snapshot_projection_objects(scene: &mut RenderModel, session_state: &SessionState) {
     const TILE_SIZE: f32 = 8.0;
 
@@ -6016,6 +6048,38 @@ mod tests {
 
         assert!(scene_object_by_id(&scene, "player:101").is_none());
         assert_eq!(scene.player_focus_tile(8.0), Some((3, 4)));
+    }
+
+    #[test]
+    fn render_runtime_adapter_appends_runtime_ping_location_text_object() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        state.ping_location_projection.received_count = 1;
+        state.ping_location_projection.last_player_id = Some(42);
+        state.ping_location_projection.last_x_bits = Some(48.0f32.to_bits());
+        state.ping_location_projection.last_y_bits = Some(56.0f32.to_bits());
+        state.ping_location_projection.last_text = Some("watch here".to_string());
+
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let marker = scene
+            .objects
+            .iter()
+            .find(|object| object.id.starts_with("marker:text:runtime-ping:42:text:"))
+            .expect("missing runtime ping marker");
+        assert_eq!(marker.layer, 31);
+        assert_eq!(marker.x, 48.0);
+        assert_eq!(marker.y, 56.0);
+        assert!(scene.primitives().iter().any(|primitive| {
+            matches!(
+                primitive,
+                RenderPrimitive::Text { id, text, .. }
+                    if id == &marker.id && text == "watch here"
+            )
+        }));
     }
 
     #[test]
@@ -10169,9 +10233,9 @@ mod tests {
             assert_eq!(
                 runtime_effect_binding_label(&input, &state, &RuntimeWorldOverlay::default()),
                 expected
-            );
-        }
+        );
     }
+}
 
     #[test]
     fn render_runtime_adapter_reports_snapshot_observability_in_hud() {

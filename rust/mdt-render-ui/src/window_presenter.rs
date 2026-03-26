@@ -73,6 +73,7 @@ pub struct WindowMinimapInset {
     pub window: PresenterViewWindow,
     pub focus_tile: Option<(usize, usize)>,
     pub player_tile: Option<(usize, usize)>,
+    pub ping_tile: Option<(usize, usize)>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -470,6 +471,7 @@ fn compose_window_minimap_inset(
             panel.map_width,
             panel.map_height,
         ),
+        ping_tile: runtime_ping_minimap_tile(scene, panel.map_width, panel.map_height),
     })
 }
 
@@ -481,6 +483,24 @@ fn clamp_window_minimap_tile(
     let max_x = map_width.checked_sub(1)?;
     let max_y = map_height.checked_sub(1)?;
     tile.map(|(tile_x, tile_y)| (tile_x.min(max_x), tile_y.min(max_y)))
+}
+
+fn runtime_ping_minimap_tile(
+    scene: &RenderModel,
+    map_width: usize,
+    map_height: usize,
+) -> Option<(usize, usize)> {
+    let ping = scene
+        .objects
+        .iter()
+        .rev()
+        .find(|object| object.id.starts_with("marker:text:runtime-ping:"))?;
+    let tile_x = crate::presenter_view::world_to_tile_index_floor(ping.x, TILE_SIZE);
+    let tile_y = crate::presenter_view::world_to_tile_index_floor(ping.y, TILE_SIZE);
+    if tile_x < 0 || tile_y < 0 {
+        return None;
+    }
+    clamp_window_minimap_tile(Some((tile_x as usize, tile_y as usize)), map_width, map_height)
 }
 
 fn crop_window(
@@ -3625,6 +3645,20 @@ fn overlay_window_minimap_inset(
             focus_tile,
         );
     }
+    if let Some(ping_tile) = inset.ping_tile {
+        draw_window_minimap_ping(
+            pixels,
+            surface_width,
+            surface_height,
+            map_start_x,
+            map_start_y,
+            map_pixel_width,
+            map_pixel_height,
+            inset.map_width,
+            inset.map_height,
+            ping_tile,
+        );
+    }
 }
 
 fn fit_window_minimap_size(
@@ -3782,6 +3816,40 @@ fn draw_window_minimap_focus(
         center_y.saturating_sub(arm),
         1,
         arm * 2 + 1,
+        COLOR_MARKER,
+    );
+}
+
+fn draw_window_minimap_ping(
+    pixels: &mut [u32],
+    surface_width: usize,
+    surface_height: usize,
+    map_start_x: usize,
+    map_start_y: usize,
+    map_pixel_width: usize,
+    map_pixel_height: usize,
+    map_width: usize,
+    map_height: usize,
+    tile: (usize, usize),
+) {
+    let Some((pixel_x, pixel_y)) = project_window_minimap_point(
+        tile,
+        map_width,
+        map_height,
+        map_pixel_width,
+        map_pixel_height,
+    ) else {
+        return;
+    };
+    let radius = usize::from(map_pixel_width.min(map_pixel_height) >= 24);
+    fill_window_hud_rect(
+        pixels,
+        surface_width,
+        surface_height,
+        map_start_x.saturating_add(pixel_x).saturating_sub(radius),
+        map_start_y.saturating_add(pixel_y).saturating_sub(radius),
+        radius * 2 + 1,
+        radius * 2 + 1,
         COLOR_MARKER,
     );
 }
@@ -4507,6 +4575,7 @@ mod tests {
                 },
                 focus_tile: Some((60, 40)),
                 player_tile: Some((20, 18)),
+                ping_tile: Some((44, 22)),
             }),
             pixels: vec![COLOR_EMPTY; 24 * 18],
         };
@@ -4550,12 +4619,20 @@ mod tests {
                 width: 4,
                 height: 3,
             }),
-            objects: vec![RenderObject {
-                id: "player:focus".to_string(),
-                layer: 40,
-                x: 32.0,
-                y: 16.0,
-            }],
+            objects: vec![
+                RenderObject {
+                    id: "player:focus".to_string(),
+                    layer: 40,
+                    x: 32.0,
+                    y: 16.0,
+                },
+                RenderObject {
+                    id: "marker:text:runtime-ping:9:text:70696e67".to_string(),
+                    layer: 31,
+                    x: 40.0,
+                    y: 24.0,
+                },
+            ],
         };
         let hud = HudModel {
             summary: Some(HudSummary {
@@ -4602,6 +4679,7 @@ mod tests {
         );
         assert_eq!(inset.focus_tile, Some((7, 6)));
         assert_eq!(inset.player_tile, Some((4, 2)));
+        assert_eq!(inset.ping_tile, Some((5, 3)));
     }
 
     #[test]

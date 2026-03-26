@@ -4651,8 +4651,9 @@ mod tests {
         runtime_ui.chat.server_message_count = 1;
         runtime_ui.chat.last_chat_sender_entity_id = Some(42);
 
-        let dialog_stack = build_runtime_dialog_stack_panel(&runtime_stack_test_hud(runtime_ui.clone()))
-            .expect("dialog stack");
+        let dialog_stack =
+            build_runtime_dialog_stack_panel(&runtime_stack_test_hud(runtime_ui.clone()))
+                .expect("dialog stack");
         assert_eq!(
             dialog_stack.foreground_kind,
             Some(RuntimeUiStackForegroundKind::Chat)
@@ -4662,9 +4663,12 @@ mod tests {
         assert_eq!(dialog_stack.chat_depth(), 1);
         assert_eq!(dialog_stack.total_depth(), 1);
 
-        let stack = build_runtime_ui_stack_panel(&runtime_stack_test_hud(runtime_ui))
-            .expect("stack");
-        assert_eq!(stack.foreground_kind, Some(RuntimeUiStackForegroundKind::Chat));
+        let stack =
+            build_runtime_ui_stack_panel(&runtime_stack_test_hud(runtime_ui)).expect("stack");
+        assert_eq!(
+            stack.foreground_kind,
+            Some(RuntimeUiStackForegroundKind::Chat)
+        );
         assert!(stack.prompt_layer_labels().is_empty());
         assert_eq!(stack.prompt_depth(), 0);
         assert_eq!(stack.chat_depth(), 1);

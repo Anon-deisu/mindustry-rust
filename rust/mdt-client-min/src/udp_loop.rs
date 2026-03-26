@@ -1,5 +1,5 @@
-use crate::bootstrap_flow::ConnectPacketEnvelope;
 use crate::arcnet_loop::transport_timeout_kind;
+use crate::bootstrap_flow::ConnectPacketEnvelope;
 use crate::client_session::{
     ClientPacketTransport, ClientSession, ClientSessionAction, ClientSessionError,
     ClientSessionEvent,

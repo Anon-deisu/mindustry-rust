@@ -3191,11 +3191,7 @@ fn typed_runtime_building_model(
                 inventory_item_stacks.first().map(|(item_id, _)| *item_id),
             ),
         ),
-        "junction"
-        | "router"
-        | "distributor"
-        | "overflow-gate"
-        | "underflow-gate"
+        "junction" | "router" | "distributor" | "overflow-gate" | "underflow-gate"
         | "surge-router" => (
             TypedBuildingRuntimeKind::ItemBuffer,
             TypedBuildingRuntimeValue::Item(
@@ -7315,7 +7311,12 @@ mod tests {
     #[test]
     fn session_state_runtime_typed_building_projection_supports_storage_family_shells() {
         for (build_pos, block_name, item_stacks, first_item_id) in [
-            (0x0006_0016i32, "container", vec![(21, 7), (22, 1)], Some(21)),
+            (
+                0x0006_0016i32,
+                "container",
+                vec![(21, 7), (22, 1)],
+                Some(21),
+            ),
             (0x0006_0017i32, "vault", vec![(23, 9)], Some(23)),
             (0x0006_0018i32, "reinforced-container", Vec::new(), None),
             (0x0006_0019i32, "reinforced-vault", vec![(24, 11)], Some(24)),

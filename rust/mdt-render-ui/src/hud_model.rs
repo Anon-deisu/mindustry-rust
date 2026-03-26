@@ -799,10 +799,9 @@ pub(crate) fn runtime_text_input_prompt_active(runtime_ui: &RuntimeUiObservabili
         .open_count
         .saturating_sub(runtime_ui.menu.text_input_result_count)
         > 0;
-    let id_active = runtime_ui
-        .text_input
-        .last_id
-        .is_some_and(|text_input_id| runtime_ui.menu.last_text_input_result_id != Some(text_input_id));
+    let id_active = runtime_ui.text_input.last_id.is_some_and(|text_input_id| {
+        runtime_ui.menu.last_text_input_result_id != Some(text_input_id)
+    });
 
     count_active || id_active
 }

@@ -31,13 +31,13 @@ use mdt_client_min::custom_packet_runtime_surface::{
     install_runtime_custom_packet_surface, RuntimeCustomPacketOverlayMarker,
     RuntimeCustomPacketSurface, RuntimeCustomPacketSurfaceSummaryEntry,
 };
+use mdt_client_min::packet_registry::{CombinedPacketRegistries, RemotePacketClassification};
 use mdt_client_min::render_runtime::{RenderRuntimeAdapter, RuntimeEffectClipView};
 use mdt_client_min::runtime_custom_packet_business::{
     apply_runtime_custom_packet_command_target, resolve_runtime_custom_packet_business_marker,
     resolve_runtime_custom_packet_command_target, RuntimeCustomPacketBusinessMarker,
     RuntimeCustomPacketBusinessMarkerSource,
 };
-use mdt_client_min::packet_registry::{CombinedPacketRegistries, RemotePacketClassification};
 use mdt_client_min::session_state::{BuilderPlanStage, SessionState, SessionTimeoutKind};
 use mdt_input::intent::BuildPulse;
 use mdt_input::live_intent::RuntimeIntentTracker;
@@ -5717,14 +5717,14 @@ fn summarize_remote_packet_classification_events(
     events
         .iter()
         .filter_map(|event| match event {
-            ClientSessionEvent::DeferredPacketWhileLoading { packet_id, remote } => Some(
-                format_remote_packet_classification(
+            ClientSessionEvent::DeferredPacketWhileLoading { packet_id, remote } => {
+                Some(format_remote_packet_classification(
                     "deferred_packet_while_loading_business",
                     *packet_id,
                     packet_registries.classify_packet_id(*packet_id),
                     remote.as_ref(),
-                ),
-            ),
+                ))
+            }
             ClientSessionEvent::DroppedLowPriorityPacketWhileLoading { packet_id, remote } => {
                 Some(format_remote_packet_classification(
                     "dropped_low_priority_packet_while_loading_business",
@@ -5733,14 +5733,14 @@ fn summarize_remote_packet_classification_events(
                     remote.as_ref(),
                 ))
             }
-            ClientSessionEvent::IgnoredPacket { packet_id, remote } => Some(
-                format_remote_packet_classification(
+            ClientSessionEvent::IgnoredPacket { packet_id, remote } => {
+                Some(format_remote_packet_classification(
                     "ignored_packet_business",
                     *packet_id,
                     packet_registries.classify_packet_id(*packet_id),
                     remote.as_ref(),
-                ),
-            ),
+                ))
+            }
             _ => None,
         })
         .collect()
