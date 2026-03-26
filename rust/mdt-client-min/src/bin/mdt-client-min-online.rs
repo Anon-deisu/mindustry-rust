@@ -37,7 +37,7 @@ use mdt_client_min::runtime_custom_packet_business::{
     resolve_runtime_custom_packet_command_target, RuntimeCustomPacketBusinessMarker,
     RuntimeCustomPacketBusinessMarkerSource,
 };
-use mdt_client_min::session_state::{BuilderPlanStage, SessionState};
+use mdt_client_min::session_state::{BuilderPlanStage, SessionState, SessionTimeoutKind};
 use mdt_input::intent::BuildPulse;
 use mdt_input::live_intent::RuntimeIntentTracker;
 use mdt_input::{
@@ -72,6 +72,7 @@ use std::time::{Duration, Instant};
 
 const LIVE_VIEW_TILES: (usize, usize) = (64, 32);
 const SERVER_RESTART_RETRY_BACKOFF_MS: u64 = 1_000;
+const TIMEOUT_RECONNECT_RETRY_BACKOFF_MS: u64 = 1_000;
 const DEFAULT_DISCOVER_PORT: u16 = 6567;
 const DEFAULT_DISCOVER_TIMEOUT_MS: u64 = 1_500;
 const RUNTIME_CUSTOM_PACKET_SURFACE_OVERLAY_MAX_ENTRIES: usize = 4;
@@ -133,7 +134,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut last_runtime_input = None;
     let mut next_chat_index = 0usize;
     let mut next_outbound_action_index = 0usize;
-    let mut pending_restart_reconnect_at_ms = None;
+    let mut reconnect_executor = ReconnectExecutorState::default();
     let tcp_local_addr = driver.tcp_local_addr()?;
     let udp_local_addr = driver.udp_local_addr()?;
     driver.send_connect(&connect)?;
@@ -169,13 +170,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 );
             },
         )?;
-        let pending_redirect = first_connect_redirect_target(&report.events);
-        let has_pending_redirect = pending_redirect.is_some();
-        if let Some(delay_ms) = first_server_restart_reconnect_delay_ms(&report.events) {
-            pending_restart_reconnect_at_ms = Some(now_ms.saturating_add(delay_ms));
+        if let Some(delay_ms) =
+            reconnect_executor.observe_server_restart_schedule(&report.events, now_ms)
+        {
             println!(
                 "restart_reconnect_scheduled: server={} delay_ms={}",
                 current_server_addr, delay_ms
+            );
+        }
+        if let Some(pending_timeout) =
+            reconnect_executor.observe_timeout(report.timed_out, report.timed_out_kind, now_ms)
+        {
+            println!(
+                "timeout_reconnect_scheduled: server={} kind={} idle_ms={:?}",
+                current_server_addr,
+                timeout_kind_label(pending_timeout.kind),
+                report.timed_out
             );
         }
         if report.outbound_tcp_frames > 0
@@ -267,71 +277,62 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &report.events,
             now_ms,
         )?;
-        if let Some((redirect_ip, redirect_port)) = pending_redirect {
-            if let Some(redirect_addr) = resolve_redirect_server_addr(&redirect_ip, redirect_port) {
-                println!(
-                    "redirect_requested: from={} to={} (source={}:{})",
-                    current_server_addr, redirect_addr, redirect_ip, redirect_port
-                );
+        if let Some(reconnect_attempt) = reconnect_executor.next_attempt(&report.events, now_ms) {
+            let reconnect_target = match &reconnect_attempt {
+                ReconnectAttemptIntent::Redirect { ip, port } => {
+                    let redirect_addr = resolve_redirect_server_addr(ip, *port);
+                    if let Some(redirect_addr) = redirect_addr {
+                        println!(
+                            "redirect_requested: from={} to={} (source={}:{})",
+                            current_server_addr, redirect_addr, ip, port
+                        );
+                    } else {
+                        println!("redirect_ignored_unresolvable_target: source={ip}:{port}");
+                    }
+                    redirect_addr
+                }
+                ReconnectAttemptIntent::Restart => {
+                    println!("restart_reconnect_attempt: server={}", current_server_addr);
+                    Some(current_server_addr)
+                }
+                ReconnectAttemptIntent::Timeout { kind } => {
+                    println!(
+                        "timeout_reconnect_attempt: server={} kind={}",
+                        current_server_addr,
+                        timeout_kind_label(*kind)
+                    );
+                    Some(current_server_addr)
+                }
+            };
+            if let Some(reconnect_target) = reconnect_target {
                 match reconnect_runtime_session(
                     &mut driver,
                     &manifest,
                     &args,
                     timing,
                     &connect_payload,
-                    redirect_addr,
+                    reconnect_target,
                 ) {
                     Ok((
-                        redirected_session,
-                        redirected_watch,
-                        redirected_semantics,
-                        redirected_surface,
+                        reconnected_session,
+                        reconnected_watch,
+                        reconnected_semantics,
+                        reconnected_surface,
                     )) => {
-                        if let Some(custom_packet_host) = custom_packet_host.as_mut() {
-                            custom_packet_host.note_reconnect_reset(now_ms, "redirect");
-                            for line in custom_packet_host.drain_lines() {
-                                println!("{line}");
-                            }
-                            println!(
-                                "{}",
-                                format_runtime_custom_packet_host_business_line(
-                                    now_ms,
-                                    custom_packet_host.business_summary_text(
-                                        RUNTIME_CUSTOM_PACKET_SURFACE_OVERLAY_MAX_ENTRIES,
-                                    ),
-                                )
-                            );
+                        note_runtime_sidecar_reconnect_reset(
+                            custom_packet_host.as_mut(),
+                            custom_packet_replay_bridge.as_mut(),
+                            custom_packet_business_hooks.as_mut(),
+                            now_ms,
+                            reconnect_attempt_reset_reason(&reconnect_attempt),
+                        );
+                        if matches!(&reconnect_attempt, ReconnectAttemptIntent::Redirect { .. }) {
+                            current_server_addr = reconnect_target;
                         }
-                        if let Some(custom_packet_replay_bridge) =
-                            custom_packet_replay_bridge.as_mut()
-                        {
-                            custom_packet_replay_bridge.note_reconnect_reset(now_ms, "redirect");
-                            for line in custom_packet_replay_bridge.drain_lines() {
-                                println!("{line}");
-                            }
-                        }
-                        if let Some(custom_packet_business_hooks) =
-                            custom_packet_business_hooks.as_mut()
-                        {
-                            custom_packet_business_hooks.note_reconnect_reset(now_ms, "redirect");
-                            for line in custom_packet_business_hooks.drain_lines() {
-                                println!("{line}");
-                            }
-                            println!(
-                                "{}",
-                                format_runtime_custom_packet_business_hook_line(
-                                    now_ms,
-                                    custom_packet_business_hooks.business_summary_text(
-                                        RUNTIME_CUSTOM_PACKET_SURFACE_OVERLAY_MAX_ENTRIES,
-                                    ),
-                                )
-                            );
-                        }
-                        current_server_addr = redirect_addr;
-                        session = redirected_session;
-                        custom_packet_watch = redirected_watch;
-                        custom_packet_semantics = redirected_semantics;
-                        custom_packet_surface = redirected_surface;
+                        session = reconnected_session;
+                        custom_packet_watch = reconnected_watch;
+                        custom_packet_semantics = reconnected_semantics;
+                        custom_packet_surface = reconnected_surface;
                         custom_packet_business_hooks = RuntimeCustomPacketBusinessHooks::from_specs(
                             &args.runtime_custom_packet_semantics,
                         );
@@ -350,125 +351,62 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             &args.command_mode_ops,
                         );
                         last_runtime_input = None;
-                        pending_restart_reconnect_at_ms = None;
+                        reconnect_executor.note_attempt_success();
                         let tcp_local_addr = driver.tcp_local_addr()?;
                         let udp_local_addr = driver.udp_local_addr()?;
-                        println!(
-                            "redirect_connected: tcp_local={}, udp_local={}, server={}",
-                            tcp_local_addr, udp_local_addr, current_server_addr
-                        );
+                        match reconnect_attempt {
+                            ReconnectAttemptIntent::Redirect { .. } => {
+                                println!(
+                                    "redirect_connected: tcp_local={}, udp_local={}, server={}",
+                                    tcp_local_addr, udp_local_addr, current_server_addr
+                                );
+                            }
+                            ReconnectAttemptIntent::Restart => {
+                                println!(
+                                    "restart_reconnected: tcp_local={}, udp_local={}, server={}",
+                                    tcp_local_addr, udp_local_addr, current_server_addr
+                                );
+                            }
+                            ReconnectAttemptIntent::Timeout { kind } => {
+                                println!(
+                                    "timeout_reconnected: tcp_local={}, udp_local={}, server={} kind={}",
+                                    tcp_local_addr,
+                                    udp_local_addr,
+                                    current_server_addr,
+                                    timeout_kind_label(kind)
+                                );
+                            }
+                        }
                         continue;
                     }
                     Err(error) => {
-                        println!(
-                            "redirect_connect_failed: target={} error={error}",
-                            redirect_addr
-                        );
-                    }
-                }
-            } else {
-                println!(
-                    "redirect_ignored_unresolvable_target: source={}:{}",
-                    redirect_ip, redirect_port
-                );
-            }
-        }
-        if !has_pending_redirect
-            && pending_restart_reconnect_at_ms
-                .is_some_and(|reconnect_at_ms| now_ms >= reconnect_at_ms)
-        {
-            println!("restart_reconnect_attempt: server={}", current_server_addr);
-            match reconnect_runtime_session(
-                &mut driver,
-                &manifest,
-                &args,
-                timing,
-                &connect_payload,
-                current_server_addr,
-            ) {
-                Ok((
-                    reconnected_session,
-                    reconnected_watch,
-                    reconnected_semantics,
-                    reconnected_surface,
-                )) => {
-                    if let Some(custom_packet_host) = custom_packet_host.as_mut() {
-                        custom_packet_host.note_reconnect_reset(now_ms, "server_restart");
-                        for line in custom_packet_host.drain_lines() {
-                            println!("{line}");
-                        }
-                        println!(
-                            "{}",
-                            format_runtime_custom_packet_host_business_line(
-                                now_ms,
-                                custom_packet_host.business_summary_text(
-                                    RUNTIME_CUSTOM_PACKET_SURFACE_OVERLAY_MAX_ENTRIES,
-                                ),
-                            )
-                        );
-                    }
-                    if let Some(custom_packet_replay_bridge) = custom_packet_replay_bridge.as_mut()
-                    {
-                        custom_packet_replay_bridge.note_reconnect_reset(now_ms, "server_restart");
-                        for line in custom_packet_replay_bridge.drain_lines() {
-                            println!("{line}");
+                        reconnect_executor.note_attempt_failure(&reconnect_attempt, now_ms);
+                        match reconnect_attempt {
+                            ReconnectAttemptIntent::Redirect { .. } => {
+                                println!(
+                                    "redirect_connect_failed: target={} error={error}",
+                                    reconnect_target
+                                );
+                            }
+                            ReconnectAttemptIntent::Restart => {
+                                println!(
+                                    "restart_reconnect_failed: target={} retry_in_ms={} error={error}",
+                                    current_server_addr,
+                                    reconnect_attempt_retry_backoff_ms(&reconnect_attempt)
+                                        .unwrap_or_default()
+                                );
+                            }
+                            ReconnectAttemptIntent::Timeout { kind } => {
+                                println!(
+                                    "timeout_reconnect_failed: target={} kind={} retry_in_ms={} error={error}",
+                                    current_server_addr,
+                                    timeout_kind_label(kind),
+                                    reconnect_attempt_retry_backoff_ms(&reconnect_attempt)
+                                        .unwrap_or_default()
+                                );
+                            }
                         }
                     }
-                    if let Some(custom_packet_business_hooks) =
-                        custom_packet_business_hooks.as_mut()
-                    {
-                        custom_packet_business_hooks.note_reconnect_reset(now_ms, "server_restart");
-                        for line in custom_packet_business_hooks.drain_lines() {
-                            println!("{line}");
-                        }
-                        println!(
-                            "{}",
-                            format_runtime_custom_packet_business_hook_line(
-                                now_ms,
-                                custom_packet_business_hooks.business_summary_text(
-                                    RUNTIME_CUSTOM_PACKET_SURFACE_OVERLAY_MAX_ENTRIES,
-                                ),
-                            )
-                        );
-                    }
-                    session = reconnected_session;
-                    custom_packet_watch = reconnected_watch;
-                    custom_packet_semantics = reconnected_semantics;
-                    custom_packet_surface = reconnected_surface;
-                    custom_packet_business_hooks = RuntimeCustomPacketBusinessHooks::from_specs(
-                        &args.runtime_custom_packet_semantics,
-                    );
-                    custom_packet_relays = install_runtime_custom_packet_relays(
-                        &mut session,
-                        &args.runtime_custom_packet_relays,
-                    );
-                    relative_build_plans_applied = false;
-                    auto_build_plans_applied = false;
-                    ascii_scene_printed = false;
-                    world_stream_dumped = false;
-                    render_runtime_adapter = RenderRuntimeAdapter::default();
-                    runtime_command_mode.clear();
-                    apply_runtime_command_mode_cli_ops(
-                        &mut runtime_command_mode,
-                        &args.command_mode_ops,
-                    );
-                    last_runtime_input = None;
-                    pending_restart_reconnect_at_ms = None;
-                    let tcp_local_addr = driver.tcp_local_addr()?;
-                    let udp_local_addr = driver.udp_local_addr()?;
-                    println!(
-                        "restart_reconnected: tcp_local={}, udp_local={}, server={}",
-                        tcp_local_addr, udp_local_addr, current_server_addr
-                    );
-                    continue;
-                }
-                Err(error) => {
-                    pending_restart_reconnect_at_ms =
-                        Some(now_ms.saturating_add(SERVER_RESTART_RETRY_BACKOFF_MS));
-                    println!(
-                        "restart_reconnect_failed: target={} retry_in_ms={} error={error}",
-                        current_server_addr, SERVER_RESTART_RETRY_BACKOFF_MS
-                    );
                 }
             }
         }
@@ -603,6 +541,177 @@ fn first_server_restart_reconnect_delay_ms(events: &[ClientSessionEvent]) -> Opt
 fn resolve_redirect_server_addr(ip: &str, port: i32) -> Option<SocketAddr> {
     let port = u16::try_from(port).ok()?;
     (ip, port).to_socket_addrs().ok()?.next()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PendingTimeoutReconnect {
+    kind: SessionTimeoutKind,
+    reconnect_at_ms: u64,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct ReconnectExecutorState {
+    pending_restart_reconnect_at_ms: Option<u64>,
+    pending_timeout_reconnect: Option<PendingTimeoutReconnect>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ReconnectAttemptIntent {
+    Redirect { ip: String, port: i32 },
+    Restart,
+    Timeout { kind: SessionTimeoutKind },
+}
+
+impl ReconnectExecutorState {
+    fn observe_server_restart_schedule(
+        &mut self,
+        events: &[ClientSessionEvent],
+        now_ms: u64,
+    ) -> Option<u64> {
+        let delay_ms = first_server_restart_reconnect_delay_ms(events)?;
+        self.pending_restart_reconnect_at_ms = Some(now_ms.saturating_add(delay_ms));
+        Some(delay_ms)
+    }
+
+    fn observe_timeout(
+        &mut self,
+        timed_out: Option<u64>,
+        timed_out_kind: Option<SessionTimeoutKind>,
+        now_ms: u64,
+    ) -> Option<PendingTimeoutReconnect> {
+        let (Some(_), Some(kind)) = (timed_out, timed_out_kind) else {
+            return None;
+        };
+        if self
+            .pending_timeout_reconnect
+            .is_some_and(|pending| pending.kind == kind)
+        {
+            return None;
+        }
+        let pending = PendingTimeoutReconnect {
+            kind,
+            reconnect_at_ms: now_ms,
+        };
+        self.pending_timeout_reconnect = Some(pending);
+        Some(pending)
+    }
+
+    fn next_attempt(
+        &mut self,
+        events: &[ClientSessionEvent],
+        now_ms: u64,
+    ) -> Option<ReconnectAttemptIntent> {
+        if let Some((ip, port)) = first_connect_redirect_target(events) {
+            return Some(ReconnectAttemptIntent::Redirect { ip, port });
+        }
+        if self
+            .pending_restart_reconnect_at_ms
+            .is_some_and(|reconnect_at_ms| now_ms >= reconnect_at_ms)
+        {
+            self.pending_restart_reconnect_at_ms = None;
+            return Some(ReconnectAttemptIntent::Restart);
+        }
+        if let Some(pending_timeout) = self.pending_timeout_reconnect {
+            if now_ms >= pending_timeout.reconnect_at_ms {
+                self.pending_timeout_reconnect = None;
+                return Some(ReconnectAttemptIntent::Timeout {
+                    kind: pending_timeout.kind,
+                });
+            }
+        }
+        None
+    }
+
+    fn note_attempt_success(&mut self) {
+        self.pending_restart_reconnect_at_ms = None;
+        self.pending_timeout_reconnect = None;
+    }
+
+    fn note_attempt_failure(&mut self, attempt: &ReconnectAttemptIntent, now_ms: u64) {
+        match attempt {
+            ReconnectAttemptIntent::Redirect { .. } => {}
+            ReconnectAttemptIntent::Restart => {
+                self.pending_restart_reconnect_at_ms =
+                    Some(now_ms.saturating_add(SERVER_RESTART_RETRY_BACKOFF_MS));
+            }
+            ReconnectAttemptIntent::Timeout { kind } => {
+                self.pending_timeout_reconnect = Some(PendingTimeoutReconnect {
+                    kind: *kind,
+                    reconnect_at_ms: now_ms
+                        .saturating_add(TIMEOUT_RECONNECT_RETRY_BACKOFF_MS),
+                });
+            }
+        }
+    }
+}
+
+fn timeout_kind_label(kind: SessionTimeoutKind) -> &'static str {
+    match kind {
+        SessionTimeoutKind::ConnectOrLoading => "connect_or_loading",
+        SessionTimeoutKind::ReadySnapshotStall => "ready_snapshot_stall",
+    }
+}
+
+fn reconnect_attempt_reset_reason(intent: &ReconnectAttemptIntent) -> &'static str {
+    match intent {
+        ReconnectAttemptIntent::Redirect { .. } => "redirect",
+        ReconnectAttemptIntent::Restart => "server_restart",
+        ReconnectAttemptIntent::Timeout { kind } => match kind {
+            SessionTimeoutKind::ConnectOrLoading => "timeout_connect_or_loading",
+            SessionTimeoutKind::ReadySnapshotStall => "timeout_ready_snapshot_stall",
+        },
+    }
+}
+
+fn reconnect_attempt_retry_backoff_ms(intent: &ReconnectAttemptIntent) -> Option<u64> {
+    match intent {
+        ReconnectAttemptIntent::Redirect { .. } => None,
+        ReconnectAttemptIntent::Restart => Some(SERVER_RESTART_RETRY_BACKOFF_MS),
+        ReconnectAttemptIntent::Timeout { .. } => Some(TIMEOUT_RECONNECT_RETRY_BACKOFF_MS),
+    }
+}
+
+fn note_runtime_sidecar_reconnect_reset(
+    custom_packet_host: Option<&mut RuntimeCustomPacketHost>,
+    custom_packet_replay_bridge: Option<&mut RuntimeCustomPacketReplayBridge>,
+    custom_packet_business_hooks: Option<&mut RuntimeCustomPacketBusinessHooks>,
+    now_ms: u64,
+    reason: &str,
+) {
+    if let Some(custom_packet_host) = custom_packet_host {
+        custom_packet_host.note_reconnect_reset(now_ms, reason);
+        for line in custom_packet_host.drain_lines() {
+            println!("{line}");
+        }
+        println!(
+            "{}",
+            format_runtime_custom_packet_host_business_line(
+                now_ms,
+                custom_packet_host
+                    .business_summary_text(RUNTIME_CUSTOM_PACKET_SURFACE_OVERLAY_MAX_ENTRIES),
+            )
+        );
+    }
+    if let Some(custom_packet_replay_bridge) = custom_packet_replay_bridge {
+        custom_packet_replay_bridge.note_reconnect_reset(now_ms, reason);
+        for line in custom_packet_replay_bridge.drain_lines() {
+            println!("{line}");
+        }
+    }
+    if let Some(custom_packet_business_hooks) = custom_packet_business_hooks {
+        custom_packet_business_hooks.note_reconnect_reset(now_ms, reason);
+        for line in custom_packet_business_hooks.drain_lines() {
+            println!("{line}");
+        }
+        println!(
+            "{}",
+            format_runtime_custom_packet_business_hook_line(
+                now_ms,
+                custom_packet_business_hooks
+                    .business_summary_text(RUNTIME_CUSTOM_PACKET_SURFACE_OVERLAY_MAX_ENTRIES),
+            )
+        );
+    }
 }
 
 fn resolve_initial_server_addr(args: &CliArgs) -> Result<SocketAddr, String> {
@@ -13118,6 +13227,115 @@ mod tests {
         }];
 
         assert_eq!(first_server_restart_reconnect_delay_ms(&events), Some(0));
+    }
+
+    #[test]
+    fn reconnect_executor_prioritizes_redirect_over_due_restart_and_timeout() {
+        let events = vec![ClientSessionEvent::ConnectRedirectRequested {
+            ip: "127.0.0.2".to_string(),
+            port: 7001,
+        }];
+        let mut state = ReconnectExecutorState {
+            pending_restart_reconnect_at_ms: Some(5),
+            pending_timeout_reconnect: Some(PendingTimeoutReconnect {
+                kind: SessionTimeoutKind::ConnectOrLoading,
+                reconnect_at_ms: 5,
+            }),
+        };
+
+        let attempt = state.next_attempt(&events, 10);
+
+        assert_eq!(
+            attempt,
+            Some(ReconnectAttemptIntent::Redirect {
+                ip: "127.0.0.2".to_string(),
+                port: 7001,
+            })
+        );
+        assert_eq!(state.pending_restart_reconnect_at_ms, Some(5));
+        assert_eq!(
+            state.pending_timeout_reconnect,
+            Some(PendingTimeoutReconnect {
+                kind: SessionTimeoutKind::ConnectOrLoading,
+                reconnect_at_ms: 5,
+            })
+        );
+    }
+
+    #[test]
+    fn reconnect_executor_schedules_restart_and_returns_due_attempt_once() {
+        let events = vec![ClientSessionEvent::Kicked {
+            reason_text: None,
+            reason_ordinal: Some(KICK_REASON_SERVER_RESTARTING_ORDINAL),
+            duration_ms: Some(250),
+        }];
+        let mut state = ReconnectExecutorState::default();
+
+        assert_eq!(state.observe_server_restart_schedule(&events, 100), Some(250));
+        assert_eq!(state.next_attempt(&events, 349), None);
+        assert_eq!(state.next_attempt(&events, 350), Some(ReconnectAttemptIntent::Restart));
+        assert_eq!(state.next_attempt(&[], 351), None);
+    }
+
+    #[test]
+    fn reconnect_executor_schedules_timeout_once_and_retries_with_backoff_after_failure() {
+        let mut state = ReconnectExecutorState::default();
+
+        assert_eq!(
+            state.observe_timeout(
+                Some(2_000),
+                Some(SessionTimeoutKind::ConnectOrLoading),
+                10
+            ),
+            Some(PendingTimeoutReconnect {
+                kind: SessionTimeoutKind::ConnectOrLoading,
+                reconnect_at_ms: 10,
+            })
+        );
+        assert_eq!(
+            state.observe_timeout(
+                Some(2_100),
+                Some(SessionTimeoutKind::ConnectOrLoading),
+                11
+            ),
+            None
+        );
+        assert_eq!(
+            state.next_attempt(&[], 10),
+            Some(ReconnectAttemptIntent::Timeout {
+                kind: SessionTimeoutKind::ConnectOrLoading,
+            })
+        );
+        let timeout_attempt = ReconnectAttemptIntent::Timeout {
+            kind: SessionTimeoutKind::ConnectOrLoading,
+        };
+        state.note_attempt_failure(&timeout_attempt, 10);
+        assert_eq!(
+            state.observe_timeout(
+                Some(2_200),
+                Some(SessionTimeoutKind::ConnectOrLoading),
+                11
+            ),
+            None
+        );
+        assert_eq!(state.next_attempt(&[], 1_009), None);
+        assert_eq!(state.next_attempt(&[], 1_010), Some(timeout_attempt));
+    }
+
+    #[test]
+    fn reconnect_executor_success_clears_pending_deadlines() {
+        let mut state = ReconnectExecutorState {
+            pending_restart_reconnect_at_ms: Some(100),
+            pending_timeout_reconnect: Some(PendingTimeoutReconnect {
+                kind: SessionTimeoutKind::ReadySnapshotStall,
+                reconnect_at_ms: 80,
+            }),
+        };
+
+        state.note_attempt_success();
+
+        assert_eq!(state.pending_restart_reconnect_at_ms, None);
+        assert_eq!(state.pending_timeout_reconnect, None);
     }
 
     #[test]
