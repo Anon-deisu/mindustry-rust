@@ -6138,6 +6138,30 @@ mod tests {
         assert!(scene.objects.iter().any(|object| {
             object.id == format!("marker:runtime-command-unit-target:{}:{}", 2, 808)
         }));
+        assert!(scene.primitives().iter().any(|primitive| {
+            matches!(
+                primitive,
+                mdt_render_ui::render_model::RenderPrimitive::Line {
+                    id,
+                    layer,
+                    x0,
+                    y0,
+                    x1,
+                    y1,
+                } if id
+                    == &format!(
+                        "marker:line:runtime-command-rect:top:{}:{}:{}:{}",
+                        8.0f32.to_bits(),
+                        16.0f32.to_bits(),
+                        24.0f32.to_bits(),
+                        16.0f32.to_bits()
+                    ) && *layer == 29
+                    && *x0 == 8.0
+                    && *y0 == 16.0
+                    && *x1 == 24.0
+                    && *y1 == 16.0
+            )
+        }));
     }
 
     #[test]
@@ -6830,6 +6854,24 @@ mod tests {
         }));
         assert!(scene.objects.iter().any(|object| {
             object.id == "marker:line:runtime-driver-link:large-payload-mass-driver:28:30:32:34"
+        }));
+        assert!(scene.primitives().iter().any(|primitive| {
+            matches!(
+                primitive,
+                mdt_render_ui::render_model::RenderPrimitive::Line {
+                    id,
+                    layer,
+                    x0,
+                    y0,
+                    x1,
+                    y1,
+                } if id == "marker:line:runtime-driver-link:mass-driver:12:14:20:22"
+                    && *layer == 15
+                    && *x0 == 96.0
+                    && *y0 == 112.0
+                    && *x1 == 160.0
+                    && *y1 == 176.0
+            )
         }));
     }
 

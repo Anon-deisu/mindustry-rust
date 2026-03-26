@@ -10,6 +10,18 @@ pub struct RenderModel {
     pub objects: Vec<RenderObject>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum RenderPrimitive {
+    Line {
+        id: String,
+        layer: i32,
+        x0: f32,
+        y0: f32,
+        x1: f32,
+        y1: f32,
+    },
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct RenderViewWindow {
     pub origin_x: usize,
@@ -180,6 +192,19 @@ impl RenderModel {
         summary
     }
 
+    pub fn primitives(&self) -> Vec<RenderPrimitive> {
+        let line_end_objects = self
+            .objects
+            .iter()
+            .filter_map(render_line_end_object_pair)
+            .collect::<BTreeMap<_, _>>();
+
+        self.objects
+            .iter()
+            .filter_map(|object| render_primitive_for_object(object, &line_end_objects))
+            .collect()
+    }
+
     pub fn pipeline_summary_for_window(
         &self,
         tile_size: f32,
@@ -227,6 +252,34 @@ impl RenderModel {
             layers,
         }
     }
+}
+
+fn render_primitive_for_object(
+    object: &RenderObject,
+    line_end_objects: &BTreeMap<String, &RenderObject>,
+) -> Option<RenderPrimitive> {
+    if object.semantic_kind() != RenderObjectSemanticKind::MarkerLine {
+        return None;
+    }
+    let line_end = line_end_objects.get(&object.id)?;
+    Some(RenderPrimitive::Line {
+        id: object.id.clone(),
+        layer: object.layer,
+        x0: object.x,
+        y0: object.y,
+        x1: line_end.x,
+        y1: line_end.y,
+    })
+}
+
+fn render_line_end_object_pair(object: &RenderObject) -> Option<(String, &RenderObject)> {
+    if object.semantic_kind() != RenderObjectSemanticKind::MarkerLineEnd {
+        return None;
+    }
+    object
+        .id
+        .strip_suffix(":line-end")
+        .map(|base_id| (base_id.to_string(), object))
 }
 
 impl RenderSemanticSummary {
@@ -554,8 +607,8 @@ fn object_visible_in_window(
 mod tests {
     use super::{
         RenderModel, RenderObject, RenderObjectSemanticFamily, RenderObjectSemanticKind,
-        RenderPipelineLayerSummary, RenderPipelineSummary, RenderSemanticDetailCount,
-        RenderSemanticSummary, RenderViewWindow, Viewport,
+        RenderPipelineLayerSummary, RenderPipelineSummary, RenderPrimitive,
+        RenderSemanticDetailCount, RenderSemanticSummary, RenderViewWindow, Viewport,
     };
 
     #[test]
@@ -1089,6 +1142,46 @@ mod tests {
         assert_eq!(summary.player_count, 0);
         assert_eq!(summary.runtime_count, 5);
         assert_eq!(summary.unknown_count, 0);
+    }
+
+    #[test]
+    fn render_model_derives_line_primitives_from_marker_line_pairs() {
+        let scene = RenderModel {
+            viewport: Viewport::default(),
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: "marker:line:runtime-demo".to_string(),
+                    layer: 25,
+                    x: 8.0,
+                    y: 16.0,
+                },
+                RenderObject {
+                    id: "marker:line:runtime-demo:line-end".to_string(),
+                    layer: 25,
+                    x: 32.0,
+                    y: 40.0,
+                },
+                RenderObject {
+                    id: "marker:text:ignored".to_string(),
+                    layer: 26,
+                    x: 0.0,
+                    y: 0.0,
+                },
+            ],
+        };
+
+        assert_eq!(
+            scene.primitives(),
+            vec![RenderPrimitive::Line {
+                id: "marker:line:runtime-demo".to_string(),
+                layer: 25,
+                x0: 8.0,
+                y0: 16.0,
+                x1: 32.0,
+                y1: 40.0,
+            }]
+        );
     }
 
     #[test]
