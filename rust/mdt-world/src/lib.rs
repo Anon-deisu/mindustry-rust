@@ -26254,6 +26254,73 @@ pub fn parse_msav_save(bytes: &[u8]) -> Result<MsavSaveObservation, String> {
     })
 }
 
+/// Writes a `.msav` save from a parsed observation.
+///
+/// This is intentionally minimal: it preserves the observed envelope fields and
+/// re-emits the region frames in the version-specific order required by the
+/// passive reader.
+pub fn write_msav_save(save: &MsavSaveObservation) -> Result<Vec<u8>, String> {
+    let expected_region_names = msav_region_names(save.envelope.save_version)?;
+    if save.envelope.header != MSAV_HEADER {
+        return Err(format!(
+            "unsupported .msav header for writing: expected {:?}, got {:?}",
+            MSAV_HEADER, save.envelope.header
+        ));
+    }
+    if save.regions.len() != expected_region_names.len() {
+        return Err(format!(
+            "unexpected .msav region count for save version {}: expected {}, got {}",
+            save.envelope.save_version,
+            expected_region_names.len(),
+            save.regions.len()
+        ));
+    }
+
+    let mut inflated = Vec::new();
+    inflated.extend_from_slice(&save.envelope.header);
+    inflated.extend_from_slice(&save.envelope.save_version.to_be_bytes());
+    if let Some(leading_region_length) = save.envelope.leading_region_length {
+        let first_region_length = save
+            .regions
+            .first()
+            .ok_or_else(|| "missing first .msav region for leading length observation".to_string())?
+            .chunk_bytes
+            .len() as u32;
+        if leading_region_length != first_region_length {
+            return Err(format!(
+                "leading .msav region length mismatch: observed {}, first region bytes {}",
+                leading_region_length, first_region_length
+            ));
+        }
+    }
+
+    for (expected_name, region) in expected_region_names.iter().zip(&save.regions) {
+        if region.name != *expected_name {
+            return Err(format!(
+                "unexpected .msav region order for save version {}: expected {}, got {}",
+                save.envelope.save_version, expected_name, region.name
+            ));
+        }
+        if region.chunk_length != region.chunk_bytes.len() {
+            return Err(format!(
+                "mismatched .msav region length for {}: observed {}, bytes {}",
+                region.name,
+                region.chunk_length,
+                region.chunk_bytes.len()
+            ));
+        }
+        let chunk_length: u32 = region
+            .chunk_bytes
+            .len()
+            .try_into()
+            .map_err(|_| format!("{}.msav region too large to frame as u32", region.name))?;
+        inflated.extend_from_slice(&chunk_length.to_be_bytes());
+        inflated.extend_from_slice(&region.chunk_bytes);
+    }
+
+    mdt_protocol::deflate_zlib(&inflated).map_err(|error| error.to_string())
+}
+
 pub fn parse_save_entity_region(
     save_version: i32,
     bytes: &[u8],
@@ -39899,6 +39966,70 @@ mod tests {
         let error = read_msav_envelope(&bytes).unwrap_err();
 
         assert!(error.contains("inflated .msav envelope too short"));
+    }
+
+    #[test]
+    fn writes_msav_save_round_trips_envelope_and_region_framing() {
+        for save_version in [6, 7, 8, 9, 10, 11] {
+            let original = parse_msav_save(&sample_msav_save_bytes(save_version)).unwrap();
+            let bytes = write_msav_save(&original).unwrap();
+            let reparsed = parse_msav_save(&bytes).unwrap();
+            let reparsed_envelope = read_msav_envelope(&bytes).unwrap();
+
+            assert_eq!(reparsed_envelope.header, original.envelope.header);
+            assert_eq!(reparsed_envelope.save_version, original.envelope.save_version);
+            assert_eq!(
+                reparsed_envelope.leading_region_length,
+                original.envelope.leading_region_length
+            );
+            assert_eq!(reparsed.regions.len(), original.regions.len());
+            for (lhs, rhs) in reparsed.regions.iter().zip(&original.regions) {
+                assert_eq!(lhs.name, rhs.name);
+                assert_eq!(lhs.chunk_length, rhs.chunk_length);
+                assert_eq!(lhs.chunk_bytes, rhs.chunk_bytes);
+            }
+        }
+    }
+
+    #[test]
+    fn parses_msav_region_matrix_for_save7_through_save10() {
+        for (save_version, expected_regions, expect_markers) in [
+            (7, vec!["meta", "content", "map", "entities", "custom"], false),
+            (
+                8,
+                vec!["meta", "content", "map", "entities", "markers", "custom"],
+                true,
+            ),
+            (
+                9,
+                vec!["meta", "content", "map", "entities", "markers", "custom"],
+                true,
+            ),
+            (
+                10,
+                vec!["meta", "content", "map", "entities", "markers", "custom"],
+                true,
+            ),
+        ] {
+            let save = parse_msav_save(&sample_msav_save_bytes(save_version)).unwrap();
+
+            assert_eq!(save.envelope.save_version, save_version);
+            assert_eq!(save.envelope.leading_region_length, Some(2));
+            assert_eq!(
+                save.regions
+                    .iter()
+                    .map(|region| region.name)
+                    .collect::<Vec<_>>(),
+                expected_regions
+            );
+            assert_eq!(save.region("markers").is_some(), expect_markers);
+            assert!(save.region("custom").is_some());
+            assert_eq!(save.region("meta").unwrap().chunk_bytes, vec![0xde, 0xad]);
+            assert_eq!(save.region("custom").unwrap().chunk_bytes, vec![0x44, 0x55]);
+            if expect_markers {
+                assert_eq!(save.region("markers").unwrap().chunk_bytes, vec![0x33]);
+            }
+        }
     }
 
     #[test]
