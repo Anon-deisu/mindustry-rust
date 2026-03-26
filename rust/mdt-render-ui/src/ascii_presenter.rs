@@ -26,6 +26,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 const TILE_SIZE: f32 = 8.0;
 const ASCII_ICON_RUNTIME_EFFECT: char = 'E';
+const ASCII_ICON_RUNTIME_EFFECT_MARKER: char = 'F';
 const ASCII_ICON_BUILD_CONFIG: char = 'C';
 const ASCII_ICON_RUNTIME_HEALTH: char = 'H';
 const ASCII_ICON_RUNTIME_COMMAND: char = 'T';
@@ -894,6 +895,7 @@ fn sprite_for_id(id: &str) -> char {
 fn ascii_sprite_for_icon(family: RenderIconPrimitiveFamily) -> char {
     match family {
         RenderIconPrimitiveFamily::RuntimeEffect => ASCII_ICON_RUNTIME_EFFECT,
+        RenderIconPrimitiveFamily::RuntimeEffectMarker => ASCII_ICON_RUNTIME_EFFECT_MARKER,
         RenderIconPrimitiveFamily::RuntimeBuildConfig => ASCII_ICON_BUILD_CONFIG,
         RenderIconPrimitiveFamily::RuntimeConfig
         | RenderIconPrimitiveFamily::RuntimeConfigParseFail
@@ -4698,6 +4700,31 @@ mod tests {
         let frame = presenter.last_frame();
         assert!(frame.contains("RENDER-ICON: count=1 runtime-command/building@29:0:0"));
         assert_eq!(frame.lines().last(), Some("T"));
+    }
+
+    #[test]
+    fn ascii_presenter_reports_runtime_effect_marker_icon_primitive() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 8.0,
+                height: 8.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![RenderObject {
+                id: "marker:runtime-effect:normal:13:0x41000000:0x41800000:1".to_string(),
+                layer: 26,
+                x: 0.0,
+                y: 0.0,
+            }],
+        };
+        let mut presenter = AsciiScenePresenter::default();
+
+        presenter.present(&scene, &HudModel::default());
+
+        let frame = presenter.last_frame();
+        assert!(frame.contains("RENDER-ICON: count=1 runtime-effect/normal@26:0:0"));
+        assert_eq!(frame.lines().last(), Some("F"));
     }
 
     #[test]

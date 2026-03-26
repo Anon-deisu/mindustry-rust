@@ -51,6 +51,7 @@ pub enum RenderPrimitive {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RenderIconPrimitiveFamily {
     RuntimeEffect,
+    RuntimeEffectMarker,
     RuntimeBuildConfig,
     RuntimeConfig,
     RuntimeConfigParseFail,
@@ -329,6 +330,7 @@ impl RenderIconPrimitiveFamily {
     pub fn label(self) -> &'static str {
         match self {
             Self::RuntimeEffect => "runtime-effect-icon",
+            Self::RuntimeEffectMarker => "runtime-effect",
             Self::RuntimeBuildConfig => "runtime-build-config-icon",
             Self::RuntimeConfig => "runtime-config",
             Self::RuntimeConfigParseFail => "runtime-config-parse-fail",
@@ -433,6 +435,15 @@ fn render_icon_family_and_variant(id: &str) -> Option<(RenderIconPrimitiveFamily
             if tile_x.parse::<i32>().is_ok() && tile_y.parse::<i32>().is_ok() =>
         {
             Some((RenderIconPrimitiveFamily::RuntimeHealth, "health"))
+        }
+        ["marker", "runtime-effect", delivery, effect_id, x_bits, y_bits, has_data]
+            if matches!(*delivery, "normal" | "reliable")
+                && effect_id.parse::<i16>().is_ok()
+                && parse_prefixed_hex_u32(x_bits).is_some()
+                && parse_prefixed_hex_u32(y_bits).is_some()
+                && matches!(*has_data, "0" | "1") =>
+        {
+            Some((RenderIconPrimitiveFamily::RuntimeEffectMarker, *delivery))
         }
         ["marker", "runtime-command-building", tile_x, tile_y]
             if tile_x.parse::<i32>().is_ok() && tile_y.parse::<i32>().is_ok() =>
@@ -1612,6 +1623,12 @@ mod tests {
                     y: 40.0,
                 },
                 RenderObject {
+                    id: "marker:runtime-effect:normal:13:0x41000000:0x41800000:1".to_string(),
+                    layer: 26,
+                    x: 8.0,
+                    y: 16.0,
+                },
+                RenderObject {
                     id: "marker:runtime-config:1:2:string".to_string(),
                     layer: 30,
                     x: 8.0,
@@ -1683,6 +1700,14 @@ mod tests {
                     layer: 33,
                     x: 32.0,
                     y: 40.0,
+                },
+                RenderPrimitive::Icon {
+                    id: "marker:runtime-effect:normal:13:0x41000000:0x41800000:1".to_string(),
+                    family: RenderIconPrimitiveFamily::RuntimeEffectMarker,
+                    variant: "normal".to_string(),
+                    layer: 26,
+                    x: 8.0,
+                    y: 16.0,
                 },
                 RenderPrimitive::Icon {
                     id: "marker:runtime-config:1:2:string".to_string(),

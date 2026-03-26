@@ -43,6 +43,7 @@ const COLOR_PLAYER: u32 = 0x66BB6A;
 const COLOR_RUNTIME: u32 = 0xFF7043;
 const COLOR_UNKNOWN: u32 = 0xEF5350;
 const COLOR_ICON_RUNTIME_EFFECT: u32 = 0xFFE082;
+const COLOR_ICON_RUNTIME_EFFECT_MARKER: u32 = 0xFFB74D;
 const COLOR_ICON_BUILD_CONFIG: u32 = 0x4FC3F7;
 const COLOR_ICON_RUNTIME_HEALTH: u32 = 0xEF5350;
 const COLOR_ICON_RUNTIME_COMMAND: u32 = 0x4488FF;
@@ -761,6 +762,7 @@ fn color_for_object(object: &RenderObject) -> u32 {
 fn color_for_icon(family: RenderIconPrimitiveFamily) -> u32 {
     match family {
         RenderIconPrimitiveFamily::RuntimeEffect => COLOR_ICON_RUNTIME_EFFECT,
+        RenderIconPrimitiveFamily::RuntimeEffectMarker => COLOR_ICON_RUNTIME_EFFECT_MARKER,
         RenderIconPrimitiveFamily::RuntimeBuildConfig => COLOR_ICON_BUILD_CONFIG,
         RenderIconPrimitiveFamily::RuntimeConfig
         | RenderIconPrimitiveFamily::RuntimeConfigParseFail
@@ -4125,11 +4127,11 @@ mod tests {
         color_for_object, compose_frame, scale_frame_pixels, window_hud_bar_height,
         BackendSignal, WindowBackend, window_hud_top_line, WindowFrame, WindowMinimapInset,
         WindowPresenter, COLOR_BLOCK, COLOR_EMPTY, COLOR_ICON_BUILD_CONFIG,
-        COLOR_ICON_RUNTIME_COMMAND, COLOR_ICON_RUNTIME_EFFECT, COLOR_ICON_RUNTIME_HEALTH,
-        COLOR_MARKER, COLOR_MINIMAP_INSET_VIEWPORT, COLOR_PLAN, COLOR_PLAYER,
-        COLOR_RUNTIME, COLOR_TERRAIN, COLOR_UNKNOWN, COLOR_WINDOW_HUD_BAR,
-        COLOR_WINDOW_HUD_TEXT, WINDOW_HUD_BAR_PADDING_X, WINDOW_HUD_BAR_PADDING_Y,
-        WINDOW_HUD_FONT_HEIGHT,
+        COLOR_ICON_RUNTIME_COMMAND, COLOR_ICON_RUNTIME_EFFECT, COLOR_ICON_RUNTIME_EFFECT_MARKER,
+        COLOR_ICON_RUNTIME_HEALTH, COLOR_MARKER, COLOR_MINIMAP_INSET_VIEWPORT,
+        COLOR_PLAN, COLOR_PLAYER, COLOR_RUNTIME, COLOR_TERRAIN, COLOR_UNKNOWN,
+        COLOR_WINDOW_HUD_BAR, COLOR_WINDOW_HUD_TEXT, WINDOW_HUD_BAR_PADDING_X,
+        WINDOW_HUD_BAR_PADDING_Y, WINDOW_HUD_FONT_HEIGHT,
     };
     use crate::{
         hud_model::{
@@ -6456,6 +6458,36 @@ mod tests {
             "RENDER-ICON: count=1 runtime-command/building@29:0:0",
         );
         assert_eq!(frame.pixel(0, 0), Some(COLOR_ICON_RUNTIME_COMMAND));
+    }
+
+    #[test]
+    fn present_once_surfaces_runtime_effect_marker_icon_primitive() {
+        let backend = RecordingBackend::default();
+        let mut presenter = WindowPresenter::new(backend);
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 8.0,
+                height: 8.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![RenderObject {
+                id: "marker:runtime-effect:normal:13:0x41000000:0x41800000:1".to_string(),
+                layer: 26,
+                x: 0.0,
+                y: 0.0,
+            }],
+        };
+
+        presenter.present_once(&scene, &HudModel::default()).unwrap();
+
+        let backend = presenter.into_backend();
+        let frame = backend.frames.last().unwrap();
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RENDER-ICON: count=1 runtime-effect/normal@26:0:0",
+        );
+        assert_eq!(frame.pixel(0, 0), Some(COLOR_ICON_RUNTIME_EFFECT_MARKER));
     }
 
     #[test]
