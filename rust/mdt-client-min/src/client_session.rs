@@ -1471,6 +1471,125 @@ impl ClientSession {
             .map(str::to_string)
     }
 
+    fn loaded_world_block_id_at(&self, tile_pos: i32) -> Option<i16> {
+        let bundle = self.loaded_world_bundle.as_ref()?;
+        let tile_index = loaded_world_tile_index(bundle, tile_pos)?;
+        let block_id = bundle.world.tiles.get(tile_index)?.block_id;
+        (block_id != 0)
+            .then(|| i16::try_from(block_id).ok())
+            .flatten()
+    }
+
+    fn apply_loaded_world_tile_patch(
+        &mut self,
+        tile_pos: i32,
+        floor_id: Option<Option<i16>>,
+        overlay_id: Option<Option<i16>>,
+        block_id: Option<Option<i16>>,
+    ) {
+        let Some(bundle) = self.loaded_world_bundle.as_mut() else {
+            return;
+        };
+        let Some(tile_index) = loaded_world_tile_index(bundle, tile_pos) else {
+            return;
+        };
+
+        if let Some(floor_id) = floor_id {
+            let floor_id = loaded_world_content_id_or_default(floor_id);
+            bundle.world.floors[tile_index] = floor_id;
+            bundle.world.tiles[tile_index].floor_id = floor_id;
+        }
+        if let Some(overlay_id) = overlay_id {
+            let overlay_id = loaded_world_content_id_or_default(overlay_id);
+            bundle.world.overlays[tile_index] = overlay_id;
+            bundle.world.tiles[tile_index].overlay_id = overlay_id;
+        }
+        if let Some(block_id) = block_id {
+            let block_id = loaded_world_content_id_or_default(block_id);
+            bundle.world.blocks[tile_index] = block_id;
+            bundle.world.tiles[tile_index].block_id = block_id;
+            if block_id == 0 {
+                bundle.world.tiles[tile_index].building_center_index = None;
+            }
+        }
+    }
+
+    fn apply_loaded_world_building_center_authority(
+        &mut self,
+        tile_pos: i32,
+        block_id: Option<i16>,
+        team_id: Option<u8>,
+        rotation: Option<i32>,
+    ) {
+        let Some(bundle) = self.loaded_world_bundle.as_mut() else {
+            return;
+        };
+        let Some(tile_index) = loaded_world_tile_index(bundle, tile_pos) else {
+            return;
+        };
+        let Some(center_index) = bundle.world.tiles[tile_index].building_center_index else {
+            return;
+        };
+        let Some(center) = bundle.world.building_centers.get_mut(center_index) else {
+            return;
+        };
+
+        if let Some(block_id) = block_id {
+            center.block_id = loaded_world_content_id_or_default(Some(block_id));
+        }
+        if let Some(team_id) = team_id {
+            center.building.base.team_id = team_id;
+        }
+        if let Some(rotation) = rotation.and_then(|value| u8::try_from(value).ok()) {
+            center.building.base.rotation = rotation;
+        }
+    }
+
+    fn clear_authoritative_building_state(&mut self, build_pos: i32, block_id: Option<i16>) {
+        self.state
+            .tile_config_projection
+            .remove_building_state(build_pos);
+        self.state
+            .configured_block_projection
+            .clear_building_state(build_pos);
+        let block_name = block_id.and_then(|block_id| self.loaded_world_block_name(block_id));
+        self.state
+            .building_table_projection
+            .apply_deconstruct_finish(build_pos, block_id, block_name);
+        self.state.remove_runtime_typed_building(build_pos);
+        self.state
+            .record_remove_building_resource_delta(Some(build_pos));
+    }
+
+    fn apply_authoritative_set_tile_projection(
+        &mut self,
+        build_pos: i32,
+        previous_block_id: Option<i16>,
+        block_id: Option<i16>,
+        team_id: Option<u8>,
+        rotation: Option<i32>,
+    ) {
+        match block_id {
+            Some(block_id) => {
+                let block_name = self.loaded_world_block_name(block_id);
+                self.state
+                    .building_table_projection
+                    .apply_remote_tile_authority(
+                        build_pos,
+                        block_id,
+                        block_name,
+                        rotation.and_then(|value| u8::try_from(value).ok()),
+                        team_id,
+                    );
+                self.state
+                    .refresh_runtime_typed_building_from_tables(build_pos);
+            }
+            None => {
+                self.clear_authoritative_building_state(build_pos, previous_block_id);
+            }
+        }
+    }
+
     pub fn take_replayed_loading_events(&mut self) -> Vec<ClientSessionEvent> {
         self.replayed_loading_events.drain(..).collect()
     }
@@ -3222,18 +3341,9 @@ impl ClientSession {
                         self.state.received_remove_tile_count.saturating_add(1);
                     self.state.last_remove_tile_pos = tile_pos;
                     if let Some(build_pos) = tile_pos {
-                        self.state
-                            .tile_config_projection
-                            .remove_building_state(build_pos);
-                        self.state
-                            .configured_block_projection
-                            .clear_building_state(build_pos);
-                        self.state
-                            .building_table_projection
-                            .apply_deconstruct_finish(build_pos, None, None);
-                        self.state.remove_runtime_typed_building(build_pos);
-                        self.state
-                            .record_remove_building_resource_delta(Some(build_pos));
+                        let previous_block_id = self.loaded_world_block_id_at(build_pos);
+                        self.apply_loaded_world_tile_patch(build_pos, None, None, Some(None));
+                        self.clear_authoritative_building_state(build_pos, previous_block_id);
                     }
                     Ok(ClientSessionEvent::RemoveTile { tile_pos })
                 } else {
@@ -3555,6 +3665,14 @@ impl ClientSession {
                     self.state.last_set_floor_tile_pos = summary.tile_pos;
                     self.state.last_set_floor_floor_id = summary.floor_id;
                     self.state.last_set_floor_overlay_id = summary.overlay_id;
+                    if let Some(tile_pos) = summary.tile_pos {
+                        self.apply_loaded_world_tile_patch(
+                            tile_pos,
+                            Some(summary.floor_id),
+                            Some(summary.overlay_id),
+                            None,
+                        );
+                    }
                     Ok(ClientSessionEvent::SetFloor {
                         tile_pos: summary.tile_pos,
                         floor_id: summary.floor_id,
@@ -3627,6 +3745,14 @@ impl ClientSession {
                         self.state.received_set_overlay_count.saturating_add(1);
                     self.state.last_set_overlay_tile_pos = summary.tile_pos;
                     self.state.last_set_overlay_block_id = summary.overlay_id;
+                    if let Some(tile_pos) = summary.tile_pos {
+                        self.apply_loaded_world_tile_patch(
+                            tile_pos,
+                            None,
+                            Some(summary.overlay_id),
+                            None,
+                        );
+                    }
                     Ok(ClientSessionEvent::SetOverlay {
                         tile_pos: summary.tile_pos,
                         overlay_id: summary.overlay_id,
@@ -3703,6 +3829,28 @@ impl ClientSession {
                     self.state.last_set_tile_block_id = summary.block_id;
                     self.state.last_set_tile_team_id = Some(summary.team_id);
                     self.state.last_set_tile_rotation = Some(summary.rotation);
+                    if let Some(tile_pos) = summary.tile_pos {
+                        let previous_block_id = self.loaded_world_block_id_at(tile_pos);
+                        self.apply_loaded_world_tile_patch(
+                            tile_pos,
+                            None,
+                            None,
+                            Some(summary.block_id),
+                        );
+                        self.apply_loaded_world_building_center_authority(
+                            tile_pos,
+                            summary.block_id,
+                            Some(summary.team_id),
+                            Some(summary.rotation),
+                        );
+                        self.apply_authoritative_set_tile_projection(
+                            tile_pos,
+                            previous_block_id,
+                            summary.block_id,
+                            Some(summary.team_id),
+                            Some(summary.rotation),
+                        );
+                    }
                     Ok(ClientSessionEvent::SetTile {
                         tile_pos: summary.tile_pos,
                         block_id: summary.block_id,
@@ -3724,6 +3872,28 @@ impl ClientSession {
                     self.state.last_set_tile_blocks_team_id = Some(summary.team_id);
                     self.state.last_set_tile_blocks_count = summary.position_count;
                     self.state.last_set_tile_blocks_first_position = summary.first_position;
+                    for tile_pos in &summary.positions {
+                        let previous_block_id = self.loaded_world_block_id_at(*tile_pos);
+                        self.apply_loaded_world_tile_patch(
+                            *tile_pos,
+                            None,
+                            None,
+                            Some(summary.block_id),
+                        );
+                        self.apply_loaded_world_building_center_authority(
+                            *tile_pos,
+                            summary.block_id,
+                            Some(summary.team_id),
+                            None,
+                        );
+                        self.apply_authoritative_set_tile_projection(
+                            *tile_pos,
+                            previous_block_id,
+                            summary.block_id,
+                            Some(summary.team_id),
+                            None,
+                        );
+                    }
                     Ok(ClientSessionEvent::SetTileBlocks {
                         block_id: summary.block_id,
                         team_id: summary.team_id,
@@ -3744,6 +3914,14 @@ impl ClientSession {
                     self.state.last_set_tile_floors_block_id = summary.block_id;
                     self.state.last_set_tile_floors_count = summary.position_count;
                     self.state.last_set_tile_floors_first_position = summary.first_position;
+                    for tile_pos in &summary.positions {
+                        self.apply_loaded_world_tile_patch(
+                            *tile_pos,
+                            Some(summary.block_id),
+                            None,
+                            None,
+                        );
+                    }
                     Ok(ClientSessionEvent::SetTileFloors {
                         block_id: summary.block_id,
                         position_count: summary.position_count,
@@ -3825,6 +4003,14 @@ impl ClientSession {
                     self.state.last_set_tile_overlays_block_id = summary.block_id;
                     self.state.last_set_tile_overlays_count = summary.position_count;
                     self.state.last_set_tile_overlays_first_position = summary.first_position;
+                    for tile_pos in &summary.positions {
+                        self.apply_loaded_world_tile_patch(
+                            *tile_pos,
+                            None,
+                            Some(summary.block_id),
+                            None,
+                        );
+                    }
                     Ok(ClientSessionEvent::SetTileOverlays {
                         block_id: summary.block_id,
                         position_count: summary.position_count,
@@ -10216,6 +10402,7 @@ fn decode_set_teams_payload(payload: &[u8]) -> Option<SetTeamsSummary> {
         team_id,
         position_count: positions.len(),
         first_position: positions.first().copied(),
+        positions,
     })
 }
 
@@ -10255,6 +10442,7 @@ fn decode_set_tile_overlays_payload(payload: &[u8]) -> Option<SetTileOverlaysSum
         block_id: (raw_block_id != -1).then_some(raw_block_id),
         position_count: positions.len(),
         first_position: positions.first().copied(),
+        positions,
     })
 }
 
@@ -10268,6 +10456,7 @@ fn decode_set_tile_blocks_payload(payload: &[u8]) -> Option<SetTileBlocksSummary
         team_id,
         position_count: positions.len(),
         first_position: positions.first().copied(),
+        positions,
     })
 }
 
@@ -10279,6 +10468,7 @@ fn decode_set_tile_floors_payload(payload: &[u8]) -> Option<SetTileFloorsSummary
         block_id: (raw_block_id != -1).then_some(raw_block_id),
         position_count: positions.len(),
         first_position: positions.first().copied(),
+        positions,
     })
 }
 
@@ -11958,6 +12148,7 @@ struct SetTeamsSummary {
     team_id: u8,
     position_count: usize,
     first_position: Option<i32>,
+    positions: Vec<i32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -11983,6 +12174,7 @@ struct SetTileOverlaysSummary {
     block_id: Option<i16>,
     position_count: usize,
     first_position: Option<i32>,
+    positions: Vec<i32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -11991,6 +12183,7 @@ struct SetTileBlocksSummary {
     team_id: u8,
     position_count: usize,
     first_position: Option<i32>,
+    positions: Vec<i32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -11998,6 +12191,7 @@ struct SetTileFloorsSummary {
     block_id: Option<i16>,
     position_count: usize,
     first_position: Option<i32>,
+    positions: Vec<i32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -14427,6 +14621,19 @@ fn client_unit_ref_builder_projection(builder: ClientUnitRef) -> (u8, i32) {
     }
 }
 
+fn loaded_world_tile_index(bundle: &WorldBundle, tile_pos: i32) -> Option<usize> {
+    let (x, y) = unpack_point2(tile_pos);
+    let x = usize::try_from(i32::from(x)).ok()?;
+    let y = usize::try_from(i32::from(y)).ok()?;
+    (x < bundle.world.width && y < bundle.world.height).then_some(x + y * bundle.world.width)
+}
+
+fn loaded_world_content_id_or_default(content_id: Option<i16>) -> u16 {
+    content_id
+        .and_then(|value| u16::try_from(i32::from(value)).ok())
+        .unwrap_or(0)
+}
+
 fn encode_begin_break_payload(builder: ClientUnitRef, team_id: u8, x: i32, y: i32) -> Vec<u8> {
     let mut payload = Vec::with_capacity(14);
     payload.extend_from_slice(&encode_unit_payload(builder));
@@ -15436,6 +15643,16 @@ mod tests {
         decode_hex_text(include_str!(
             "../../../tests/src/test/resources/world-stream.hex"
         ))
+    }
+
+    fn ingest_sample_world(session: &mut ClientSession) {
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+        session.ingest_packet_bytes(&begin_packet).unwrap();
+        for chunk in chunk_packets {
+            session.ingest_packet_bytes(&chunk).unwrap();
+        }
     }
 
     fn sample_snapshot_packet(key: &str) -> Vec<u8> {
@@ -27700,6 +27917,101 @@ mod tests {
     }
 
     #[test]
+    fn tile_authority_packets_update_loaded_world_bundle_and_building_projection() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        ingest_sample_world(&mut session);
+        let set_tile_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setTile")
+            .unwrap()
+            .packet_id;
+        let set_tile_blocks_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setTileBlocks")
+            .unwrap()
+            .packet_id;
+        let remove_tile_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "removeTile")
+            .unwrap()
+            .packet_id;
+
+        session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    set_tile_packet_id,
+                    &encode_set_tile_payload(Some(pack_point2(4, 5)), Some(29), 2, 3),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    set_tile_blocks_packet_id,
+                    &encode_set_tile_blocks_payload(
+                        Some(11),
+                        2,
+                        &[pack_point2(1, 2), pack_point2(3, 4)],
+                    ),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+        let world = &session.loaded_world_bundle().unwrap().world;
+        assert_eq!(world.tile(4, 5).unwrap().block_id, 29);
+        assert_eq!(world.tile(1, 2).unwrap().block_id, 11);
+        assert_eq!(world.tile(3, 4).unwrap().block_id, 11);
+        let placed_building = session
+            .state()
+            .building_table_projection
+            .by_build_pos
+            .get(&pack_point2(4, 5))
+            .unwrap();
+        assert_eq!(placed_building.block_id, Some(29));
+        assert_eq!(placed_building.team_id, Some(2));
+        assert_eq!(placed_building.rotation, Some(3));
+        let batch_building = session
+            .state()
+            .building_table_projection
+            .by_build_pos
+            .get(&pack_point2(1, 2))
+            .unwrap();
+        assert_eq!(batch_building.block_id, Some(11));
+        assert_eq!(batch_building.team_id, Some(2));
+
+        let removed_tile = world.tile(4, 4).unwrap();
+        assert_ne!(removed_tile.block_id, 0);
+        assert!(removed_tile.building_center_index.is_some());
+        session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    remove_tile_packet_id,
+                    &encode_tile_payload(Some(pack_point2(4, 4))),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        let world = &session.loaded_world_bundle().unwrap().world;
+        let removed_tile = world.tile(4, 4).unwrap();
+        assert_eq!(removed_tile.block_id, 0);
+        assert!(removed_tile.building_center_index.is_none());
+        assert!(!session
+            .state()
+            .building_table_projection
+            .by_build_pos
+            .contains_key(&pack_point2(4, 4)));
+    }
+
+    #[test]
     fn remove_tile_clears_authoritative_tile_and_building_projection_state() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
@@ -27895,6 +28207,90 @@ mod tests {
             Some(pack_point2(8, 9))
         );
         assert_eq!(session.state().last_set_overlay_block_id, Some(10));
+    }
+
+    #[test]
+    fn tile_surface_packets_update_loaded_world_bundle_tiles() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        ingest_sample_world(&mut session);
+        let set_floor_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setFloor")
+            .unwrap()
+            .packet_id;
+        let set_overlay_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setOverlay")
+            .unwrap()
+            .packet_id;
+        let set_tile_floors_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setTileFloors")
+            .unwrap()
+            .packet_id;
+        let set_tile_overlays_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setTileOverlays")
+            .unwrap()
+            .packet_id;
+
+        session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    set_floor_packet_id,
+                    &encode_set_floor_payload(Some(pack_point2(6, 7)), Some(8), Some(9)),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    set_overlay_packet_id,
+                    &encode_set_overlay_payload(Some(pack_point2(5, 6)), Some(10)),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    set_tile_floors_packet_id,
+                    &encode_set_tile_floors_payload(
+                        Some(12),
+                        &[pack_point2(1, 2), pack_point2(3, 4)],
+                    ),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        session
+            .ingest_packet_bytes(&{
+                let mut payload = Vec::new();
+                payload.extend_from_slice(&17i16.to_be_bytes());
+                payload.extend_from_slice(&2i16.to_be_bytes());
+                payload.extend_from_slice(&pack_point2(1, 2).to_be_bytes());
+                payload.extend_from_slice(&pack_point2(3, 4).to_be_bytes());
+                encode_packet(set_tile_overlays_packet_id, &payload, false).unwrap()
+            })
+            .unwrap();
+
+        let world = &session.loaded_world_bundle().unwrap().world;
+        assert_eq!(world.tile(6, 7).unwrap().floor_id, 8);
+        assert_eq!(world.tile(6, 7).unwrap().overlay_id, 9);
+        assert_eq!(world.tile(5, 6).unwrap().overlay_id, 10);
+        assert_eq!(world.tile(1, 2).unwrap().floor_id, 12);
+        assert_eq!(world.tile(3, 4).unwrap().floor_id, 12);
+        assert_eq!(world.tile(1, 2).unwrap().overlay_id, 17);
+        assert_eq!(world.tile(3, 4).unwrap().overlay_id, 17);
     }
 
     #[test]

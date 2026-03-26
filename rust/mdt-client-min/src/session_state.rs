@@ -2174,6 +2174,90 @@ impl BuildingTableProjection {
         );
     }
 
+    pub fn apply_remote_tile_authority(
+        &mut self,
+        build_pos: i32,
+        block_id: i16,
+        block_name: Option<String>,
+        rotation: Option<u8>,
+        team_id: Option<u8>,
+    ) {
+        let previous = self.by_build_pos.get(&build_pos).cloned();
+        self.by_build_pos.insert(
+            build_pos,
+            BuildingProjection {
+                block_id: Some(block_id),
+                block_name: preserve_matching_block_name(
+                    previous.as_ref(),
+                    Some(block_id),
+                    block_name,
+                ),
+                rotation: rotation
+                    .or_else(|| previous.as_ref().and_then(|building| building.rotation)),
+                team_id: team_id
+                    .or_else(|| previous.as_ref().and_then(|building| building.team_id)),
+                io_version: previous.as_ref().and_then(|building| building.io_version),
+                module_bitmask: previous
+                    .as_ref()
+                    .and_then(|building| building.module_bitmask),
+                time_scale_bits: previous
+                    .as_ref()
+                    .and_then(|building| building.time_scale_bits),
+                time_scale_duration_bits: previous
+                    .as_ref()
+                    .and_then(|building| building.time_scale_duration_bits),
+                last_disabler_pos: previous
+                    .as_ref()
+                    .and_then(|building| building.last_disabler_pos),
+                legacy_consume_connected: previous
+                    .as_ref()
+                    .and_then(|building| building.legacy_consume_connected),
+                config: previous
+                    .as_ref()
+                    .and_then(|building| building.config.clone()),
+                health_bits: previous.as_ref().and_then(|building| building.health_bits),
+                enabled: previous.as_ref().and_then(|building| building.enabled),
+                efficiency: previous.as_ref().and_then(|building| building.efficiency),
+                optional_efficiency: previous
+                    .as_ref()
+                    .and_then(|building| building.optional_efficiency),
+                visible_flags: previous
+                    .as_ref()
+                    .and_then(|building| building.visible_flags),
+                turret_reload_counter_bits: previous
+                    .as_ref()
+                    .and_then(|building| building.turret_reload_counter_bits),
+                turret_rotation_bits: previous
+                    .as_ref()
+                    .and_then(|building| building.turret_rotation_bits),
+                item_turret_ammo_count: previous
+                    .as_ref()
+                    .and_then(|building| building.item_turret_ammo_count),
+                continuous_turret_last_length_bits: previous
+                    .as_ref()
+                    .and_then(|building| building.continuous_turret_last_length_bits),
+                build_turret_rotation_bits: previous
+                    .as_ref()
+                    .and_then(|building| building.build_turret_rotation_bits),
+                build_turret_plans_present: previous
+                    .as_ref()
+                    .and_then(|building| building.build_turret_plans_present),
+                build_turret_plan_count: previous
+                    .as_ref()
+                    .and_then(|building| building.build_turret_plan_count),
+                last_update: BuildingProjectionUpdateKind::BlockSnapshotHead,
+            },
+        );
+        self.last_block_snapshot_head_conflict = false;
+        self.sync_last_mirror_for_apply(
+            build_pos,
+            BuildingProjectionUpdateKind::BlockSnapshotHead,
+            None,
+            None,
+        );
+        self.recount();
+    }
+
     pub fn apply_block_snapshot_head_with_tail_summary(
         &mut self,
         build_pos: i32,
