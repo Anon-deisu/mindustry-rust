@@ -672,6 +672,7 @@ Use:
   - Landed first cut:
     - live authority packets no longer mutate `loaded_world_bundle.world.building_centers[*].building.base`
     - `setTile` / `setTileBlocks` / `constructFinish` no longer fabricate new loaded-world building centers for live-only tiles
+    - `entitySnapshot` / loaded-world `blockSnapshot` building parsers now fall back to current `building_table_projection` metadata when the loaded-world center is missing or stale, as long as the needed revision metadata is still available
     - regression tests now pin "projection/live view moves, loaded-world baseline centers stay untouched" for `setTeam` / `setTeams` / `setTile` / `setTileBlocks` / `constructFinish` / `buildHealthUpdate`
   - Immediate cut:
     - stop live building packets from mutating `loaded_world_bundle.world.building_centers[*].building.base`
