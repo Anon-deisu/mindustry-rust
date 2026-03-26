@@ -195,6 +195,31 @@ pub struct BuilderQueueStateMachine {
     pub last_validation_removal_reasons: BTreeMap<(i32, i32), BuilderQueueValidationRemovalReason>,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BuilderQueueProfile {
+    pub head_tile: Option<(i32, i32)>,
+    pub head_breaking: Option<bool>,
+    pub head_block_id: Option<i16>,
+    pub head_rotation: Option<u8>,
+    pub head_progress_permyriad: Option<u16>,
+    pub head_stage: Option<BuilderQueueStage>,
+    pub queued_count: usize,
+    pub inflight_count: usize,
+    pub last_transition: Option<BuilderQueueTransition>,
+    pub last_skip_reason: Option<BuilderQueueSkipReason>,
+    pub last_front_promotion: Option<BuilderQueueFrontPromotion>,
+}
+
+impl BuilderQueueProfile {
+    pub fn active_count(self) -> usize {
+        self.queued_count + self.inflight_count
+    }
+
+    pub fn has_head(self) -> bool {
+        self.head_tile.is_some()
+    }
+}
+
 impl BuilderQueueStateMachine {
     pub fn enqueue_local(
         &mut self,
@@ -418,6 +443,27 @@ impl BuilderQueueStateMachine {
 
     pub fn is_building(&self) -> bool {
         !self.active_by_tile.is_empty()
+    }
+
+    pub fn snapshot(&self) -> BuilderQueueProfile {
+        let head_entry = self.head_entry();
+        BuilderQueueProfile {
+            head_tile: self.head_tile,
+            head_breaking: head_entry.map(|entry| entry.breaking),
+            head_block_id: head_entry.and_then(|entry| entry.block_id),
+            head_rotation: head_entry.and_then(|entry| entry.rotation),
+            head_progress_permyriad: head_entry.and_then(|entry| entry.progress_permyriad),
+            head_stage: head_entry.map(|entry| entry.stage),
+            queued_count: self.queued_count,
+            inflight_count: self.inflight_count,
+            last_transition: self.last_transition,
+            last_skip_reason: self.last_skip_reason,
+            last_front_promotion: self.last_front_promotion,
+        }
+    }
+
+    pub fn profile(&self) -> BuilderQueueProfile {
+        self.snapshot()
     }
 
     pub fn head_entry(&self) -> Option<&BuilderQueueEntry> {
@@ -869,7 +915,8 @@ mod tests {
         BuilderQueueEntry, BuilderQueueEntryObservation, BuilderQueueFrontPromotion,
         BuilderQueueHeadExecutionAction, BuilderQueueHeadExecutionObservation,
         BuilderQueueHeadExecutionResult, BuilderQueueHeadSelection, BuilderQueueLocalStepResult,
-        BuilderQueueReconcileOutcome, BuilderQueueSkipReason, BuilderQueueStage,
+        BuilderQueueProfile, BuilderQueueReconcileOutcome, BuilderQueueSkipReason,
+        BuilderQueueStage,
         BuilderQueueStateMachine, BuilderQueueTileStateObservation, BuilderQueueTransition,
         BuilderQueueValidationRemovalReason, BuilderQueueValidationResult,
     };
@@ -996,6 +1043,86 @@ mod tests {
         );
         assert_eq!(queue.queued_count, 0);
         assert_eq!(queue.inflight_count, 1);
+    }
+
+    #[test]
+    fn builder_queue_snapshot_tracks_head_counts_and_high_signal_summary() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 2,
+                y: 2,
+                breaking: false,
+                block_id: Some(7),
+                rotation: 1,
+            },
+            BuilderQueueEntryObservation {
+                x: 4,
+                y: 4,
+                breaking: true,
+                block_id: None,
+                rotation: 0,
+            },
+        ]);
+
+        let profile = queue.snapshot();
+        assert_eq!(
+            profile,
+            BuilderQueueProfile {
+                head_tile: Some((2, 2)),
+                head_breaking: Some(false),
+                head_block_id: Some(7),
+                head_rotation: Some(1),
+                head_progress_permyriad: None,
+                head_stage: Some(BuilderQueueStage::Queued),
+                queued_count: 2,
+                inflight_count: 0,
+                last_transition: None,
+                last_skip_reason: None,
+                last_front_promotion: None,
+            }
+        );
+        assert_eq!(profile.active_count(), 2);
+        assert!(profile.has_head());
+
+        let activity = queue.update_local_activity([BuilderQueueActivityObservation {
+            x: 4,
+            y: 4,
+            breaking: false,
+            in_range: true,
+            should_skip: false,
+            distance_sq: 0,
+        }]);
+        assert_eq!(
+            activity.head_selection,
+            BuilderQueueHeadSelection::ObservationMissing
+        );
+        let profile = queue.profile();
+        assert_eq!(profile.last_skip_reason, Some(BuilderQueueSkipReason::ObservationMissing));
+        assert_eq!(profile.last_front_promotion, None);
+        assert_eq!(profile.head_tile, Some((2, 2)));
+
+        assert!(queue.move_to_front(4, 4, true));
+        let profile = queue.profile();
+        assert_eq!(profile.head_tile, Some((4, 4)));
+        assert_eq!(profile.head_breaking, Some(true));
+        assert_eq!(
+            profile.last_front_promotion,
+            Some(BuilderQueueFrontPromotion::ExplicitMoveToFront)
+        );
+        assert_eq!(profile.last_skip_reason, None);
+
+        queue.mark_begin(4, 4, true, None, 0);
+        let profile = queue.profile();
+        assert_eq!(profile.head_tile, Some((4, 4)));
+        assert_eq!(profile.head_stage, Some(BuilderQueueStage::InFlight));
+        assert_eq!(profile.queued_count, 1);
+        assert_eq!(profile.inflight_count, 1);
+        assert_eq!(profile.last_transition, Some(BuilderQueueTransition::Started));
+        assert_eq!(
+            profile.last_front_promotion,
+            Some(BuilderQueueFrontPromotion::BeginInFlight)
+        );
     }
 
     #[test]
