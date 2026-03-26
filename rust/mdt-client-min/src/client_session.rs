@@ -458,7 +458,7 @@ pub struct ClientSession {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct BuildingLiveStateView {
+pub struct BuildingLiveStateView {
     pub build_pos: i32,
     pub projection: BuildingProjection,
     pub runtime: Option<TypedBuildingRuntimeModel>,
@@ -1603,7 +1603,7 @@ impl ClientSession {
         }
     }
 
-    fn building_live_state_at(&self, build_pos: i32) -> Option<BuildingLiveStateView> {
+    pub fn building_live_state_at(&self, build_pos: i32) -> Option<BuildingLiveStateView> {
         let projection = self.merged_building_projection_at(build_pos)?;
         let runtime = self
             .state
@@ -1615,7 +1615,7 @@ impl ClientSession {
         })
     }
 
-    pub(crate) fn building_live_state_projection(&self) -> BTreeMap<i32, BuildingLiveStateView> {
+    pub fn building_live_state_projection(&self) -> BTreeMap<i32, BuildingLiveStateView> {
         let mut build_positions = BTreeSet::new();
         if let Some(bundle) = self.loaded_world_bundle.as_ref() {
             for center in &bundle.world.building_centers {

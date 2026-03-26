@@ -4689,7 +4689,7 @@ fn maybe_apply_auto_build_plans(
         let mut plans = Vec::new();
 
         if args.auto_break_near_player {
-            if let Some(tile) = select_break_near_player_tile(&world, origin_tile) {
+            if let Some(tile) = select_break_near_player_tile(session, &world, origin_tile) {
                 plans.push(ClientBuildPlan {
                     tile,
                     breaking: true,
@@ -4706,7 +4706,8 @@ fn maybe_apply_auto_build_plans(
             else {
                 continue;
             };
-            let Some(tile) = select_conflict_place_near_player_tile(&world, origin_tile, block_id)
+            let Some(tile) =
+                select_conflict_place_near_player_tile(session, &world, origin_tile, block_id)
             else {
                 continue;
             };
@@ -4725,7 +4726,7 @@ fn maybe_apply_auto_build_plans(
             else {
                 continue;
             };
-            let Some(tile) = select_place_near_player_tile(&world, origin_tile) else {
+            let Some(tile) = select_place_near_player_tile(session, &world, origin_tile) else {
                 continue;
             };
             plans.push(ClientBuildPlan {
@@ -4920,10 +4921,10 @@ fn runtime_builder_head_outbound_action(session: &ClientSession) -> Option<Outbo
         .unwrap_or(ClientUnitRef::None);
     let mut queue = builder_queue_state_machine_from_plans(Some(plans));
     let world = session.loaded_world_state()?;
-    reconcile_builder_queue_against_loaded_world(&mut queue, &world);
-    let activity = update_builder_queue_activity_from_loaded_world(
+    reconcile_builder_queue_against_live_buildings(&mut queue, session);
+    let activity = update_builder_queue_activity_from_live_buildings(
         &mut queue,
-        &world,
+        session,
         input.position.or(input.view_center),
     );
     if !activity.head_in_range || activity.head_should_skip {
@@ -4979,11 +4980,11 @@ fn snapshot_builder_queue_selection(session: &ClientSession) -> BuilderQueueBuil
     let input = session.snapshot_input();
     let mut queue = builder_queue_state_machine_from_plans(input.plans.as_deref());
 
-    if let Some(world) = session.loaded_world_state() {
-        reconcile_builder_queue_against_loaded_world(&mut queue, &world);
-        update_builder_queue_activity_from_loaded_world(
+    if session.loaded_world_state().is_some() {
+        reconcile_builder_queue_against_live_buildings(&mut queue, session);
+        update_builder_queue_activity_from_live_buildings(
             &mut queue,
-            &world,
+            session,
             input.position.or(input.view_center),
         );
     }
@@ -5010,20 +5011,24 @@ fn builder_queue_state_machine_from_plans(
     queue
 }
 
-fn reconcile_builder_queue_against_loaded_world(
+fn reconcile_builder_queue_against_live_buildings(
     queue: &mut BuilderQueueStateMachine,
-    world: &LoadedWorldState<'_>,
+    session: &ClientSession,
 ) {
+    let Some(world) = session.loaded_world_state() else {
+        return;
+    };
     let graph = world.graph();
     let observations = queue
         .ordered_tiles
         .iter()
-        .filter_map(|&(x, y)| builder_queue_tile_state_observation(&graph, x, y))
+        .filter_map(|&(x, y)| builder_queue_tile_state_observation(session, &graph, x, y))
         .collect::<Vec<_>>();
     queue.validate_against_tile_states(observations);
 }
 
 fn builder_queue_tile_state_observation(
+    session: &ClientSession,
     graph: &WorldGraph<'_>,
     x: i32,
     y: i32,
@@ -5031,23 +5036,25 @@ fn builder_queue_tile_state_observation(
     let x = usize::try_from(x).ok()?;
     let y = usize::try_from(y).ok()?;
     let tile = graph.tile(x, y)?;
-    let rotation = graph
-        .building_center_at(x, y)
-        .map(|center| center.building.base.rotation);
+    let building = live_building_state_at_tile(session, tile.x as i32, tile.y as i32);
+    let rotation = building.as_ref().and_then(|building| building.projection.rotation);
     Some(BuilderQueueTileStateObservation {
         x: tile.x as i32,
         y: tile.y as i32,
-        block_id: normalize_builder_queue_block_id(tile.block_id),
+        block_id: building.and_then(|building| building.projection.block_id),
         rotation,
         requires_rotation_match: rotation.is_some(),
     })
 }
 
-fn update_builder_queue_activity_from_loaded_world(
+fn update_builder_queue_activity_from_live_buildings(
     queue: &mut BuilderQueueStateMachine,
-    world: &LoadedWorldState<'_>,
+    session: &ClientSession,
     snapshot_origin: Option<(f32, f32)>,
 ) -> BuilderQueueActivityState {
+    let Some(world) = session.loaded_world_state() else {
+        return queue.update_local_activity(std::iter::empty());
+    };
     let graph = world.graph();
     let origin_world = snapshot_origin.or(Some(world.player_position()));
     let origin_tile = origin_world.and_then(world_to_tile);
@@ -5056,13 +5063,14 @@ fn update_builder_queue_activity_from_loaded_world(
         .iter()
         .filter_map(|tile| {
             let entry = queue.active_by_tile.get(tile)?;
-            builder_queue_activity_observation(&graph, entry, origin_world, origin_tile)
+            builder_queue_activity_observation(session, &graph, entry, origin_world, origin_tile)
         })
         .collect::<Vec<_>>();
     queue.update_local_activity(observations)
 }
 
 fn builder_queue_activity_observation(
+    session: &ClientSession,
     graph: &WorldGraph<'_>,
     entry: &mdt_input::BuilderQueueEntry,
     origin_world: Option<(f32, f32)>,
@@ -5070,10 +5078,13 @@ fn builder_queue_activity_observation(
 ) -> Option<BuilderQueueActivityObservation> {
     let x = usize::try_from(entry.x).ok()?;
     let y = usize::try_from(entry.y).ok()?;
-    let tile = graph.tile(x, y)?;
-    let tile_block_id = normalize_builder_queue_block_id(tile.block_id);
+    graph.tile(x, y)?;
+    let tile_block_id =
+        live_building_state_at_tile(session, entry.x, entry.y).and_then(|building| {
+            building.projection.block_id
+        });
     let distance_sq = origin_tile
-        .map(|origin| u64::from(tile_distance_sq(origin, tile.x, tile.y)))
+        .map(|origin| u64::from(tile_distance_sq(origin, x, y)))
         .unwrap_or(0);
     let should_skip = if entry.breaking {
         tile_block_id.is_none()
@@ -5103,12 +5114,6 @@ fn builder_queue_tile_is_in_range(
     let dx = origin_world.0 - target_x;
     let dy = origin_world.1 - target_y;
     dx * dx + dy * dy <= BUILDER_BUILD_RANGE_WORLD_UNITS_SQ
-}
-
-fn normalize_builder_queue_block_id(block_id: u16) -> Option<i16> {
-    (block_id != 0)
-        .then(|| i16::try_from(block_id).ok())
-        .flatten()
 }
 
 fn merge_build_plan_queue_tail(
@@ -5163,14 +5168,17 @@ fn resolve_auto_place_request(
 }
 
 fn select_place_near_player_tile(
+    session: &ClientSession,
     world: &LoadedWorldState<'_>,
     origin_tile: (i32, i32),
 ) -> Option<(i32, i32)> {
-    select_place_near_player_tile_with_visibility(world, origin_tile, true)
-        .or_else(|| select_place_near_player_tile_with_visibility(world, origin_tile, false))
+    select_place_near_player_tile_with_visibility(session, world, origin_tile, true).or_else(
+        || select_place_near_player_tile_with_visibility(session, world, origin_tile, false),
+    )
 }
 
 fn select_place_near_player_tile_with_visibility(
+    session: &ClientSession,
     world: &LoadedWorldState<'_>,
     origin_tile: (i32, i32),
     require_visible: bool,
@@ -5184,8 +5192,7 @@ fn select_place_near_player_tile_with_visibility(
         .filter_map(|tile| {
             if (require_visible
                 && !tile_is_visible_to_player(&graph, player_team_id, tile.x, tile.y))
-                || tile.block_id != 0
-                || tile.building_center_index.is_some()
+                || live_building_state_at_tile(session, tile.x as i32, tile.y as i32).is_some()
                 || !graph.team_plans_at(tile.x as i16, tile.y as i16).is_empty()
             {
                 return None;
@@ -5193,7 +5200,7 @@ fn select_place_near_player_tile_with_visibility(
 
             Some((
                 (
-                    adjacency_rank(&graph, player_team_id, tile.x, tile.y),
+                    adjacency_rank(session, &graph, player_team_id, tile.x, tile.y),
                     tile_distance_sq(origin_tile, tile.x, tile.y),
                     tile.y,
                     tile.x,
@@ -5206,6 +5213,7 @@ fn select_place_near_player_tile_with_visibility(
 }
 
 fn select_conflict_place_near_player_tile(
+    session: &ClientSession,
     world: &LoadedWorldState<'_>,
     origin_tile: (i32, i32),
     requested_block_id: i16,
@@ -5223,17 +5231,14 @@ fn select_conflict_place_near_player_tile(
                 return None;
             }
 
-            let center = graph.building_center_at(tile.x, tile.y)?;
-            if center.building.base.team_id != player_team_id
-                || i16::try_from(tile.block_id).ok() == Some(requested_block_id)
+            let building = live_building_state_at_tile(session, tile.x as i32, tile.y as i32)?;
+            if building.projection.team_id != Some(player_team_id)
+                || building.projection.block_id == Some(requested_block_id)
             {
                 return None;
             }
 
-            let priority = match center.building.parsed_tail {
-                ParsedBuildingTail::Core(_) => 0u8,
-                _ => 1u8,
-            };
+            let priority = building_live_priority(session, &graph, tile.x, tile.y)?;
 
             Some((
                 (
@@ -5250,6 +5255,7 @@ fn select_conflict_place_near_player_tile(
 }
 
 fn select_break_near_player_tile(
+    session: &ClientSession,
     world: &LoadedWorldState<'_>,
     origin_tile: (i32, i32),
 ) -> Option<(i32, i32)> {
@@ -5260,15 +5266,12 @@ fn select_break_near_player_tile(
         .grid()
         .iter_tiles()
         .filter_map(|tile| {
-            let center = graph.building_center_at(tile.x, tile.y)?;
-            if center.building.base.team_id != player_team_id {
+            let building = live_building_state_at_tile(session, tile.x as i32, tile.y as i32)?;
+            if building.projection.team_id != Some(player_team_id) {
                 return None;
             }
 
-            let priority = match center.building.parsed_tail {
-                ParsedBuildingTail::Core(_) => 0u8,
-                _ => 1u8,
-            };
+            let priority = building_live_priority(session, &graph, tile.x, tile.y)?;
 
             Some((
                 (
@@ -5293,14 +5296,20 @@ fn tile_is_visible_to_player(
     !matches!(graph.fog_revealed(player_team_id, x, y), Some(false))
 }
 
-fn adjacency_rank(graph: &WorldGraph<'_>, player_team_id: u8, x: usize, y: usize) -> u8 {
+fn adjacency_rank(
+    session: &ClientSession,
+    graph: &WorldGraph<'_>,
+    player_team_id: u8,
+    x: usize,
+    y: usize,
+) -> u8 {
     let mut rank = 2u8;
 
     for (nx, ny) in orthogonal_neighbors(graph, x, y) {
-        let Some(center) = graph.building_center_at(nx, ny) else {
+        let Some(building) = live_building_state_at_tile(session, nx as i32, ny as i32) else {
             continue;
         };
-        if center.building.base.team_id == player_team_id {
+        if building.projection.team_id == Some(player_team_id) {
             return 0;
         }
         rank = 1;
@@ -5324,6 +5333,32 @@ fn orthogonal_neighbors(graph: &WorldGraph<'_>, x: usize, y: usize) -> Vec<(usiz
         neighbors.push((x, y + 1));
     }
     neighbors
+}
+
+fn live_building_state_at_tile(
+    session: &ClientSession,
+    x: i32,
+    y: i32,
+) -> Option<mdt_client_min::client_session::BuildingLiveStateView> {
+    session.building_live_state_at(pack_point2(x, y))
+}
+
+fn building_live_priority(
+    session: &ClientSession,
+    graph: &WorldGraph<'_>,
+    x: usize,
+    y: usize,
+) -> Option<u8> {
+    let building = live_building_state_at_tile(session, x as i32, y as i32)?;
+    let is_core = building
+        .projection
+        .block_name
+        .as_deref()
+        .is_some_and(|block_name| block_name.starts_with("core-"))
+        || graph
+            .building_center_at(x, y)
+            .is_some_and(|center| matches!(center.building.parsed_tail, ParsedBuildingTail::Core(_)));
+    Some(if is_core { 0 } else { 1 })
 }
 
 fn tile_distance_sq(origin_tile: (i32, i32), x: usize, y: usize) -> u32 {
@@ -7074,6 +7109,7 @@ mod tests {
     use super::*;
     use mdt_client_min::bootstrap_flow::encode_world_stream_packets;
     use mdt_client_min::client_session::ClientSessionAction;
+    use mdt_protocol::encode_packet;
 
     fn decode_hex_text(text: &str) -> Vec<u8> {
         let cleaned = text
@@ -7121,6 +7157,26 @@ mod tests {
     fn real_manifest_path() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../fixtures/remote/remote-manifest-v1.json")
+    }
+
+    fn encode_tile_payload(tile_pos: Option<i32>) -> Vec<u8> {
+        tile_pos
+            .unwrap_or_else(|| pack_point2(-1, -1))
+            .to_be_bytes()
+            .to_vec()
+    }
+
+    fn encode_set_tile_payload(
+        tile_pos: Option<i32>,
+        block_id: Option<i16>,
+        team_id: u8,
+        rotation: i32,
+    ) -> Vec<u8> {
+        let mut payload = encode_tile_payload(tile_pos);
+        payload.extend_from_slice(&block_id.unwrap_or(-1).to_be_bytes());
+        payload.push(team_id);
+        payload.extend_from_slice(&rotation.to_be_bytes());
+        payload
     }
 
     fn sample_empty_tiles(world: &LoadedWorldState<'_>) -> Vec<(i32, i32)> {
@@ -11633,6 +11689,44 @@ mod tests {
     }
 
     #[test]
+    fn select_conflict_place_near_player_tile_ignores_live_cleared_stale_center_tile() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
+        ingest_sample_world(&mut session);
+        let remove_tile_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "removeTile")
+            .unwrap()
+            .packet_id;
+        let removed_tile = (4, 4);
+
+        session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    remove_tile_packet_id,
+                    &encode_tile_payload(Some(pack_point2(removed_tile.0, removed_tile.1))),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+        let world = session.loaded_world_state().unwrap();
+        let graph = world.graph();
+        let tile = graph.tile(removed_tile.0 as usize, removed_tile.1 as usize).unwrap();
+        assert_eq!(tile.block_id, 0);
+        assert!(graph
+            .building_center_at(removed_tile.0 as usize, removed_tile.1 as usize)
+            .is_some());
+
+        assert_ne!(
+            select_conflict_place_near_player_tile(&session, &world, removed_tile, 0x0101),
+            Some(removed_tile)
+        );
+    }
+
+    #[test]
     fn maybe_apply_auto_build_plans_applies_requested_configs() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
@@ -11675,6 +11769,44 @@ mod tests {
     }
 
     #[test]
+    fn select_break_near_player_tile_ignores_live_cleared_stale_center_tile() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
+        ingest_sample_world(&mut session);
+        let remove_tile_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "removeTile")
+            .unwrap()
+            .packet_id;
+        let removed_tile = (4, 4);
+
+        session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    remove_tile_packet_id,
+                    &encode_tile_payload(Some(pack_point2(removed_tile.0, removed_tile.1))),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+        let world = session.loaded_world_state().unwrap();
+        let graph = world.graph();
+        let tile = graph.tile(removed_tile.0 as usize, removed_tile.1 as usize).unwrap();
+        assert_eq!(tile.block_id, 0);
+        assert!(graph
+            .building_center_at(removed_tile.0 as usize, removed_tile.1 as usize)
+            .is_some());
+
+        assert_ne!(
+            select_break_near_player_tile(&session, &world, removed_tile),
+            Some(removed_tile)
+        );
+    }
+
+    #[test]
     fn maybe_apply_auto_build_plans_skips_place_near_player_when_local_plan_overlaps() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
@@ -11682,7 +11814,7 @@ mod tests {
         let args = parse_args(sample_args(&["--plan-place-near-player", "0x0101:1"])).unwrap();
         let existing_plan = {
             let world = session.loaded_world_state().unwrap();
-            let overlap_tile = select_place_near_player_tile(&world, (4, 4)).unwrap();
+            let overlap_tile = select_place_near_player_tile(&session, &world, (4, 4)).unwrap();
             let core_block_id =
                 i16::try_from(world.graph().building_center_at(4, 4).unwrap().block_id).unwrap();
             ClientBuildPlan {
@@ -12263,6 +12395,69 @@ mod tests {
         .unwrap();
 
         assert_eq!(session.pending_packet_count(), initial_pending + 1);
+    }
+
+    #[test]
+    fn runtime_builder_head_execution_skips_place_when_live_rotation_matches_stale_center() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
+        ingest_sample_world(&mut session);
+        let set_tile_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setTile")
+            .unwrap()
+            .packet_id;
+        let (place_tile, block_id, team_id, live_rotation) = {
+            let world = session.loaded_world_state().unwrap();
+            let graph = world.graph();
+            let tile = graph
+                .grid()
+                .iter_tiles()
+                .find(|tile| graph.building_center_at(tile.x, tile.y).is_some() && tile.block_id != 0)
+                .expect("expected occupied tile with center in sample world");
+            let center = graph.building_center_at(tile.x, tile.y).unwrap();
+            let live_rotation = (i32::from(center.building.base.rotation) + 1).rem_euclid(4) as u8;
+            (
+                (tile.x as i32, tile.y as i32),
+                i16::try_from(tile.block_id).unwrap(),
+                center.building.base.team_id,
+                live_rotation,
+            )
+        };
+
+        session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    set_tile_packet_id,
+                    &encode_set_tile_payload(
+                        Some(pack_point2(place_tile.0, place_tile.1)),
+                        Some(block_id),
+                        team_id,
+                        i32::from(live_rotation),
+                    ),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+        assert!(session.state().ready_to_enter_world);
+        assert!(session.prepare_connect_confirm_packet().unwrap().is_some());
+        {
+            let input = session.snapshot_input_mut();
+            input.unit_id = Some(99);
+            input.position = Some((place_tile.0 as f32 * 8.0, place_tile.1 as f32 * 8.0));
+            input.plans = Some(vec![ClientBuildPlan {
+                tile: place_tile,
+                breaking: false,
+                block_id: Some(block_id),
+                rotation: live_rotation,
+                config: ClientBuildPlanConfig::None,
+            }]);
+        }
+
+        assert!(runtime_builder_head_outbound_action(&session).is_none());
     }
 
     #[test]
