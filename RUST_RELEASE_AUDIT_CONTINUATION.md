@@ -631,3 +631,67 @@ Use:
   - Current gap: `RenderObject` still only carries `id/layer/x/y`, which blocks richer minimap, marker, label, health, and runtime effect rendering.
   - Why it matters: current runtime render breadth is increasingly observability-rich, but fidelity stays capped by the primitive model.
   - Minimum target: introduce explicit line/rect/text/marker-style payloads or equivalent primitive metadata without breaking existing presenters.
+
+## 2026-03-26 Dispatch Follow-Up
+
+### Newly Landed After Refresh
+- `mdt-render-ui` ASCII presenter now rasterizes paired `marker:line:*` + `:line-end` overlays into visible line segments instead of showing only endpoint dots.
+  - Local verification: `cargo test --manifest-path rust\\mdt-render-ui\\Cargo.toml --quiet`
+  - Target handoff: `D:\\MDT\\mindustry-rust` commit `1f456ae` (`feat: rasterize ascii marker line segments`)
+
+- `mdt-client-min` runtime player model now carries authoritative player semantic mirrors for both bootstrap and `entitySnapshot` paths.
+  - Landed fields: `admin/name/color_rgba/team_id/mouse_x_bits/mouse_y_bits/selected_block_id/selected_rotation/typing/shooting/boosting`
+  - Local verification: `cargo test --manifest-path rust\\mdt-client-min\\Cargo.toml --quiet`
+  - Target handoff: `D:\\MDT\\mindustry-rust` commit `55cfdae` (`feat: project player semantic state into runtime mirrors`)
+
+### Refreshed Release-Critical Order
+- `P0 active` loaded-world building live-state is still dual-sourced between `loaded_world_bundle` and projection/runtime authority.
+  - Primary source paths:
+    - `rust/mdt-client-min/src/client_session.rs`
+    - `rust/mdt-client-min/src/session_state.rs`
+  - Immediate cut:
+    - stop live building packets from mutating `loaded_world_bundle.world.building_centers[*].building.base`
+    - stop fabricating live-only building centers into loaded-world baseline
+    - add a merged building live view by `build_pos`
+
+- `P0 active` `entitySnapshot` unit carried-item baseline is still missing.
+  - Primary source paths:
+    - `rust/mdt-client-min/src/client_session.rs`
+    - `rust/mdt-client-min/src/session_state.rs`
+  - Immediate cut:
+    - authoritative `stack_item_id/stack_amount -> entity_item_stack_by_entity_id`
+    - `stack_amount <= 0` clears
+    - cover seed + clear regressions
+
+- `P1 active` controller/ownership semantics still stop at heuristic player-to-unit linkage.
+  - Primary source paths:
+    - `rust/mdt-client-min/src/runtime_entity_ownership.rs`
+    - `rust/mdt-client-min/src/session_state.rs`
+    - `rust/mdt-client-min/src/client_session.rs`
+  - Immediate cut:
+    - consume snapshot `controller_type/controller_value`
+    - project it into unit semantic state
+    - use it to refine runtime ownership/control classification
+
+- `P1 active` reconnect behavior still has observability but not Java-like actuation.
+  - Primary source paths:
+    - `rust/mdt-client-min/src/client_session.rs`
+    - `rust/mdt-client-min/src/bin/mdt-client-min-online.rs`
+  - Immediate cut:
+    - add reconnect executor for redirect / timeout / server-restart paths
+    - consume existing `ReconnectProjection` rather than only rendering it
+
+- `P1 active` render model still lacks primitive/text/icon channels.
+  - Primary source paths:
+    - `rust/mdt-render-ui/src/render_model.rs`
+    - `rust/mdt-client-min/src/render_runtime.rs`
+  - Immediate cut:
+    - add `RenderPrimitive::Line`
+    - dual-write runtime line overlays to `objects + primitives`
+    - keep presenters backward-compatible until primitive consumers land
+
+### Current Parallel Lanes
+- `worker` unit carried-item snapshot baseline
+- `worker` render primitive line channel
+- `explorer` building live-state merged-view cut definition
+- `explorer` current Java/Rust release-critical delta reprioritization
