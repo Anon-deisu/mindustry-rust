@@ -80,6 +80,41 @@ pub fn write_status_entry(out: &mut Vec<u8>, entry: &StatusEntryRaw) {
     }
 }
 
+pub fn write_status_entries(out: &mut Vec<u8>, entries: &[StatusEntryRaw], dynamic: bool) {
+    let len: u8 = entries
+        .len()
+        .try_into()
+        .expect("status entry count exceeds wire byte capacity");
+    write_byte(out, len);
+    for entry in entries {
+        if dynamic {
+            write_short(out, entry.status_id);
+            write_float(out, entry.time);
+            if let Some(dynamic_fields) = entry.dynamic_fields {
+                write_byte(out, dynamic_fields.flags());
+                for value in [
+                    dynamic_fields.damage_multiplier,
+                    dynamic_fields.health_multiplier,
+                    dynamic_fields.speed_multiplier,
+                    dynamic_fields.reload_multiplier,
+                    dynamic_fields.build_speed_multiplier,
+                    dynamic_fields.drag_multiplier,
+                    dynamic_fields.armor_override,
+                ]
+                .into_iter()
+                .flatten()
+                {
+                    write_float(out, value);
+                }
+            } else {
+                write_byte(out, 0);
+            }
+        } else {
+            write_status_entry(out, entry);
+        }
+    }
+}
+
 pub fn read_status_entry(bytes: &[u8], dynamic: bool) -> Result<StatusEntryRaw, TypeIoReadError> {
     let (entry, consumed) = read_status_entry_prefix(bytes, dynamic)?;
     ensure_consumed(consumed, bytes.len())?;
@@ -115,6 +150,31 @@ pub fn read_status_entry_prefix(
         },
         reader.position(),
     ))
+}
+
+pub fn read_status_entries(
+    bytes: &[u8],
+    dynamic: bool,
+) -> Result<Vec<StatusEntryRaw>, TypeIoReadError> {
+    let (entries, consumed) = read_status_entries_prefix(bytes, dynamic)?;
+    ensure_consumed(consumed, bytes.len())?;
+    Ok(entries)
+}
+
+pub fn read_status_entries_prefix(
+    bytes: &[u8],
+    dynamic: bool,
+) -> Result<(Vec<StatusEntryRaw>, usize), TypeIoReadError> {
+    let mut reader = PrimitiveReader::new(bytes);
+    let len = reader.read_u8()? as usize;
+    let mut entries = Vec::with_capacity(len);
+    for _ in 0..len {
+        let (entry, consumed) =
+            read_status_entry_prefix(&reader.bytes[reader.position()..], dynamic)?;
+        let _ = reader.read_exact(consumed)?;
+        entries.push(entry);
+    }
+    Ok((entries, reader.position()))
 }
 
 pub fn write_abilities(out: &mut Vec<u8>, abilities: &[AbilityRaw]) {
@@ -368,6 +428,59 @@ mod tests {
         write_status_entry(&mut bytes, &entry);
 
         assert_eq!(read_status_entry(&bytes, true).unwrap(), entry);
+    }
+
+    #[test]
+    fn status_entries_round_trip_two_entries() {
+        let entries = vec![
+            StatusEntryRaw {
+                status_id: 27,
+                time: 45.5,
+                dynamic_fields: Some(StatusDynamicFieldsRaw::default()),
+            },
+            StatusEntryRaw {
+                status_id: 91,
+                time: 12.25,
+                dynamic_fields: Some(StatusDynamicFieldsRaw {
+                    damage_multiplier: Some(1.5),
+                    speed_multiplier: Some(0.75),
+                    armor_override: Some(6.0),
+                    ..StatusDynamicFieldsRaw::default()
+                }),
+            },
+        ];
+        let mut bytes = Vec::new();
+
+        write_status_entries(&mut bytes, &entries, true);
+
+        assert_eq!(read_status_entries(&bytes, true).unwrap(), entries);
+    }
+
+    #[test]
+    fn status_entries_round_trip_empty_array() {
+        let mut bytes = Vec::new();
+
+        write_status_entries(&mut bytes, &[], false);
+
+        assert_eq!(bytes, vec![0]);
+        assert_eq!(
+            read_status_entries(&bytes, false).unwrap(),
+            Vec::<StatusEntryRaw>::new()
+        );
+    }
+
+    #[test]
+    fn status_entries_reader_reports_truncated_payload() {
+        let bytes = vec![1, 0, 27, 0x42];
+
+        assert!(matches!(
+            read_status_entries(&bytes, false),
+            Err(TypeIoReadError::UnexpectedEof {
+                position: 2,
+                needed: 4,
+                remaining: 1,
+            })
+        ));
     }
 
     #[test]

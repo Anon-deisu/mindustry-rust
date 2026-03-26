@@ -10,9 +10,10 @@ pub use object::{
     TypeIoReadError, TypeIoSemanticMatch, TypeIoSemanticRef,
 };
 pub use unit_sync::{
-    read_abilities, read_abilities_prefix, read_status_entry, read_status_entry_prefix,
-    read_weapon_mounts, read_weapon_mounts_prefix, write_abilities, write_status_entry,
-    write_weapon_mounts, AbilityRaw, StatusDynamicFieldsRaw, StatusEntryRaw, WeaponMountRaw,
+    read_abilities, read_abilities_prefix, read_status_entries, read_status_entries_prefix,
+    read_status_entry, read_status_entry_prefix, read_weapon_mounts, read_weapon_mounts_prefix,
+    write_abilities, write_status_entries, write_status_entry, write_weapon_mounts, AbilityRaw,
+    StatusDynamicFieldsRaw, StatusEntryRaw, WeaponMountRaw,
 };
 
 pub const CONVEYOR_BLOCK_ID: i16 = 0x0101;
