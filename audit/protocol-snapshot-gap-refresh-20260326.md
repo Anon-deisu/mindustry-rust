@@ -28,6 +28,8 @@ Current Rust behavior:
 
 - `entitySnapshot` handling applies a whitelist of parseable row families: player, alpha, building, mech, missile, payload, building-tether, fire, puddle, weather, and world-label.
 - Evidence: `rust/mdt-client-min/src/client_session.rs:6185-6325`
+- For the currently covered unit families, the runtime typed mirror is no longer a pure thin semantic subset: bounded `runtime_sync` fields now retain `ammo_bits/elevation_bits/flag_bits`, mech rows also retain `base_rotation_bits`, and the same path carries a bounded carried-item stack mirror.
+- Evidence: `rust/mdt-client-min/src/client_session.rs:7436-7572`
 
 Why this is still a gap:
 
@@ -154,7 +156,10 @@ Parallel lane:
 
 Current Rust behavior:
 
-- Rust exposes outbound logic-data queueing and matching minimal dispatch surfaces.
+- Packet-id classification is now registry-based instead of a local hand-written chain: `mdt-remote` exposes typed packet registries, and `mdt-client-min` consumes those through combined/custom-channel registries for well-known, high-frequency, inbound, and custom families.
+- Evidence: `rust/mdt-client-min/src/packet_registry.rs:230-370`
+- Evidence: `rust/mdt-remote/src/lib.rs:1721-1989`
+- Rust also exposes outbound logic-data queueing and matching bounded dispatch surfaces on top of that typed classification layer.
 - Evidence: `rust/mdt-client-min/src/client_session.rs:1840-1864`
 
 Why this is still a gap:
@@ -189,12 +194,14 @@ Parallel lane:
 - Write scope:
   - `rust/mdt-world/src/lib.rs`
 
-### C2. `post_load_world()` can build runtime apply plans, but still cannot seed live runtime apply
+### C2. `post_load_world()` now exposes readiness/query surfaces, but still cannot seed live runtime apply
 
 Current Rust behavior:
 
 - Save11 tests show runtime apply, ownership, and batch-plan surfaces exist.
 - Evidence: `rust/mdt-world/src/lib.rs:40134-40295`
+- `runtime_seed_surface()` is now a public bounded query surface for readiness, blocked/awaiting/deferred state, and next-batch summaries rather than a test-only fact.
+- Evidence: `rust/mdt-world/src/lib.rs:40420-40660`
 - The same test block still shows `can_seed_runtime_apply == false`.
 - Evidence: `rust/mdt-world/src/lib.rs:40268-40295`
 - Save6 legacy runtime-world semantics are still blocked.
@@ -202,8 +209,8 @@ Current Rust behavior:
 
 Why this is still a gap:
 
-- `mdt-world` has moved beyond passive observation.
-- It still has not crossed into consumable, direct live-runtime seeding.
+- `mdt-world` has moved beyond passive observation and now exposes consumable readiness/query surfaces.
+- It still has not crossed into direct live-runtime seeding.
 
 Parallel lane:
 

@@ -14,6 +14,7 @@
   - `rust/mdt-client-min/src/client_session.rs:1613`
 - UI 线原始 `Line` primitive 已落地，不要再按“没有 primitive 通道”派发。
   - `rust/mdt-render-ui/src/render_model.rs:13`
+- batch sampling / override consistency 已落地，不要再把空 batch stale edge cleanup 或 override 尊重问题当成独立 lane。
 
 ## Lane A: Snapshot Entity Semantic Widening
 
@@ -23,13 +24,12 @@
 - 当前缺口：
   - `EntityUnitSemanticProjection` 仍只保留薄语义：`team/unit_type/health/rotation/shield/mine/status/payload/building/lifetime/time/controller`
   - 证据：`rust/mdt-client-min/src/session_state.rs:4106`
-  - 但 parser 已经读到更多同步字段：`ammo_bits/elevation_bits/flag_bits`，机械族还读到 `base_rotation_bits`，并且都有 `stack_item_id/stack_amount`
-  - 证据：`rust/mdt-world/src/lib.rs:451`、`rust/mdt-world/src/lib.rs:489`
-  - 当前 `entitySnapshot` apply 仍把这些 richer sync 行压成 thin semantic projection
+  - bounded runtime-sync widen 已部分落地：typed runtime unit mirror 当前已保留 `ammo_bits/elevation_bits/flag_bits`，机械族额外保留 `base_rotation_bits`，并接上当前覆盖 family 的 carried-item stack mirror
   - 证据：`rust/mdt-client-min/src/client_session.rs:7436`、`rust/mdt-client-min/src/client_session.rs:7572`
+  - 当前剩余 gap 已转向更广的 family breadth 和更深的 Java live apply semantics，而不再是这批字段完全缺失
 - 最小切法：
-  - 先把 `ammo/elevation/flag/base_rotation` 并入 `EntityUnitSemanticProjection`
-  - 同步扩 `TypedRuntimeUnitEntity`
+  - 继续沿 runtime semantic mirror / typed runtime entity 路径扩更广 family breadth
+  - 在已 landed 的 bounded runtime-sync widen 之上补 status/payload/controller 等更深语义
   - 保持在“runtime semantic mirror”层，不碰 Java 级 group attach / live world ownership
 - 完成判定：
   - 新字段从 parseable row 落到 runtime typed entity
@@ -100,13 +100,12 @@
 - 归属：`UI/渲染`
 - 写入范围：`mdt-render-ui/src/render_model.rs` + presenter 层；尽量不碰 `client_session.rs`
 - 当前缺口：
-  - `RenderPrimitive` 目前只有 `Line`
+  - `RenderPrimitive` 已不再只有 `Line`；`Text` primitive 已 landed，并由 `RuntimeWorldLabel` / `MarkerText` / `MarkerShapeText` 派生
   - 证据：`rust/mdt-render-ui/src/render_model.rs:13`
-  - `MarkerText` / `MarkerTexture` / `RuntimeWorldLabel` 仍只是 `RenderObject` kind，不是 typed primitive storage
-  - 证据：`rust/mdt-render-ui/src/render_model.rs:70`
+  - 当前剩余 gap 是 richer typed primitive breadth，尤其 `Icon/Rect` 或等价 payload，而不是 text primitive 缺席
   - presenter 侧 notice/chat/dialog/build-config 文字摘要已经很多，当前瓶颈在 primitive model，不在 summary text
 - 最小切法：
-  - 先加 `Text` / `Icon` 两类 primitive
+  - 先补 `Icon` / `Rect` 或等价 richer typed primitive
   - presenter 优先消费 primitive，而不是继续从 object id 解析
   - 不做完整交互 minimap/dialog 生命周期
 

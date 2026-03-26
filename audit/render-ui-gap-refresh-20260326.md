@@ -16,6 +16,7 @@
 - `window` 和 `ascii` 都已经输出 `BUILD-CONFIG`、`BUILD-CONFIG-ENTRY`、`BUILD-INSPECTOR`
 - `window` 和 `ascii` 都已经输出 `RUNTIME-DIALOG`、`RUNTIME-CHAT`、`RUNTIME-WORLD-LABEL`、`RUNTIME-RECONNECT`
 - `world_reload` 细节输出已经存在，不再是缺口
+- `RenderPrimitive::Text` 已落地，`RuntimeWorldLabel` / `MarkerText` / `MarkerShapeText` 已能走 typed text primitive，被 `ascii` / `window` presenter 直接消费
 
 ## 仍然成立的高价值缺口
 
@@ -28,9 +29,9 @@
 - 结论：当前 render model 仍然过窄，世界标签、文本标注、图标、矩形/区域、高级效果只能退化为“点对象”或由 `marker:line:*` 约定推导出的线段，明显低于 Java 侧 UI/render 表达力。
 - 代码证据：
   - `RenderModel` 只有 `viewport`、`view_window`、`objects`；没有独立 text/icon/rect primitive 存储
-  - `RenderPrimitive` 当前只有 `Line`
+  - `RenderPrimitive` 当前已有 `Line + Text`
   - `RenderObject` 只有 `id/layer/x/y`，没有文本内容、尺寸、颜色、朝向、图标等 render payload
-  - runtime world label 事件仍被压成单个点对象写入 scene
+  - `Text` 已覆盖 world-label / marker-text 这一小批高信号文本面，但更丰富的 icon/rect/area payload 仍缺
 - 影响：
   - `world label`、`marker text`、runtime notice/icon 类覆盖层无法真正“画出来”，只能靠面板/状态行侧显
   - richer minimap、标签、效果表现继续被 primitive 模型上限卡住
@@ -38,7 +39,7 @@
   - `rust/mdt-render-ui/src/render_model.rs:7-23,50-56`
   - `rust/mdt-client-min/src/render_runtime.rs:4506-4517`
 - 建议切法：
-  - additive 地引入 `Text/Icon/Rect` 或等价 typed primitive
+  - additive 地继续引入 `Icon/Rect` 或等价 richer typed primitive
   - 先不拆旧 `RenderObject` 路径，保留兼容层，避免 blast radius
 - 建议改动文件：
   - `rust/mdt-render-ui/src/render_model.rs`
