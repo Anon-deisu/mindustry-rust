@@ -20,8 +20,9 @@ pub use builder_queue::{
     BuilderQueueTransition, BuilderQueueValidationRemovalReason, BuilderQueueValidationResult,
 };
 pub use capability_gate::{
-    CapabilityBuildRequest, CapabilityCommandRequest, CapabilityContext, CapabilityDecision,
-    CapabilityDenyReason, CapabilityGate,
+    CapabilityBuildRequest, CapabilityCommandRequest, CapabilityContext,
+    CapabilityContextProjection, CapabilityDecision, CapabilityDenyReason,
+    CapabilityEvaluationProjection, CapabilityGate, CapabilityUnitState,
 };
 pub use command_mode::{
     merge_selected_units, CommandModeCommandSelection, CommandModeControlGroupProjection,

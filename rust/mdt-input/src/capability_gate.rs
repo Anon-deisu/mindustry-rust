@@ -1,6 +1,6 @@
 use crate::command_mode::{
     CommandModeCommandSelection, CommandModeProjection, CommandModeStanceSelection,
-    CommandModeTargetProjection,
+    CommandModeProjectionSummary, CommandModeTargetProjection,
 };
 use crate::intent::PlayerIntent;
 use crate::probe::RuntimeInputState;
@@ -44,6 +44,28 @@ pub struct CapabilityDecision {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CapabilityUnitState {
+    MissingControlledUnit,
+    ControlledUnitDead,
+    ControlledUnitLive,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CapabilityContextProjection {
+    pub unit_state: CapabilityUnitState,
+    pub mining_enabled: bool,
+    pub building_enabled: bool,
+    pub command_enabled: bool,
+    pub command_mode: CommandModeProjectionSummary,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CapabilityEvaluationProjection {
+    pub context: CapabilityContextProjection,
+    pub decision: CapabilityDecision,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CapabilityDenyReason {
     MissingControlledUnit,
     ControlledUnitDead,
@@ -58,6 +80,26 @@ pub enum CapabilityDenyReason {
 impl CapabilityContext {
     pub fn has_live_controlled_unit(&self) -> bool {
         self.runtime.unit_id.is_some() && !self.runtime.dead
+    }
+
+    pub fn projection(&self) -> CapabilityContextProjection {
+        CapabilityContextProjection {
+            unit_state: if self.runtime.unit_id.is_none() {
+                CapabilityUnitState::MissingControlledUnit
+            } else if self.runtime.dead {
+                CapabilityUnitState::ControlledUnitDead
+            } else {
+                CapabilityUnitState::ControlledUnitLive
+            },
+            mining_enabled: self.mining_enabled,
+            building_enabled: self.building_enabled,
+            command_enabled: self.command_enabled,
+            command_mode: self.command_mode.summary(),
+        }
+    }
+
+    pub fn summary(&self) -> CapabilityContextProjection {
+        self.projection()
     }
 }
 
@@ -75,9 +117,96 @@ impl CapabilityDecision {
             reason: Some(reason),
         }
     }
+
+    pub fn label(self) -> &'static str {
+        if self.allowed {
+            "allowed"
+        } else {
+            self.reason_label()
+        }
+    }
+
+    pub fn reason_label(self) -> &'static str {
+        self.reason.map_or("allowed", CapabilityDenyReason::label)
+    }
+}
+
+impl CapabilityUnitState {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::MissingControlledUnit => "missing-controlled-unit",
+            Self::ControlledUnitDead => "controlled-unit-dead",
+            Self::ControlledUnitLive => "controlled-unit-live",
+        }
+    }
+}
+
+impl CapabilityContextProjection {
+    pub fn has_live_controlled_unit(self) -> bool {
+        matches!(self.unit_state, CapabilityUnitState::ControlledUnitLive)
+    }
+
+    pub fn summary_label(self) -> String {
+        format!(
+            "unit={} mining={} building={} command={} mode={}",
+            self.unit_state.label(),
+            on_off(self.mining_enabled),
+            on_off(self.building_enabled),
+            on_off(self.command_enabled),
+            self.command_mode.summary_label(),
+        )
+    }
+}
+
+impl CapabilityEvaluationProjection {
+    pub fn allowed(self) -> bool {
+        self.decision.allowed
+    }
+
+    pub fn decision_label(self) -> &'static str {
+        self.decision.label()
+    }
+
+    pub fn deny_reason_label(self) -> &'static str {
+        self.decision.reason_label()
+    }
+
+    pub fn summary_label(self) -> String {
+        format!(
+            "{} decision={}",
+            self.context.summary_label(),
+            self.decision_label()
+        )
+    }
+}
+
+impl CapabilityDenyReason {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::MissingControlledUnit => "missing-controlled-unit",
+            Self::ControlledUnitDead => "controlled-unit-dead",
+            Self::MiningDisabled => "mining-disabled",
+            Self::BuildingDisabled => "building-disabled",
+            Self::CommandDisabled => "command-disabled",
+            Self::MissingBuildBlock => "missing-build-block",
+            Self::CommandModeInactive => "command-mode-inactive",
+            Self::MissingCommandTarget => "missing-command-target",
+        }
+    }
 }
 
 impl CapabilityGate {
+    pub fn summarize(
+        &self,
+        context: &CapabilityContext,
+        decision: CapabilityDecision,
+    ) -> CapabilityEvaluationProjection {
+        CapabilityEvaluationProjection {
+            context: context.projection(),
+            decision,
+        }
+    }
+
     pub fn evaluate_intent(
         &self,
         context: &CapabilityContext,
@@ -154,6 +283,14 @@ fn require_live_controlled_unit(context: &CapabilityContext) -> Option<Capabilit
     }
 }
 
+fn on_off(value: bool) -> &'static str {
+    if value {
+        "on"
+    } else {
+        "off"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -173,6 +310,98 @@ mod tests {
             building_enabled: true,
             command_enabled: true,
         }
+    }
+
+    #[test]
+    fn capability_projection_and_summary_track_context_and_decision_labels() {
+        let gate = CapabilityGate;
+        let active_context = CapabilityContext {
+            command_mode: CommandModeProjection {
+                active: true,
+                selected_units: vec![1, 2],
+                command_buildings: vec![3],
+                last_target: Some(CommandModeTargetProjection {
+                    build_target: Some(9),
+                    unit_target: Some(CommandUnitRef { kind: 1, value: 7 }),
+                    position_target: None,
+                    rect_target: None,
+                }),
+                last_command_selection: Some(CommandModeCommandSelection {
+                    command_id: Some(4),
+                }),
+                last_stance_selection: Some(CommandModeStanceSelection {
+                    stance_id: Some(2),
+                    enabled: true,
+                }),
+                ..CommandModeProjection::default()
+            },
+            ..context()
+        };
+
+        let projection = active_context.projection();
+        let evaluation = gate.summarize(
+            &active_context,
+            CapabilityDecision::denied(CapabilityDenyReason::MissingCommandTarget),
+        );
+
+        assert!(projection.has_live_controlled_unit());
+        assert_eq!(projection.unit_state.label(), "controlled-unit-live");
+        assert_eq!(
+            projection.summary_label(),
+            "unit=controlled-unit-live mining=on building=on command=on mode=target+command+stance"
+        );
+        assert_eq!(projection.command_mode.summary_label(), "target+command+stance");
+        assert_eq!(projection.command_mode.recent_selection_label(), "target+command+stance");
+        assert_eq!(CapabilityDecision::allowed().label(), "allowed");
+        assert_eq!(
+            CapabilityDecision::denied(CapabilityDenyReason::MissingCommandTarget).label(),
+            "missing-command-target"
+        );
+        assert_eq!(CapabilityDenyReason::CommandDisabled.label(), "command-disabled");
+        assert_eq!(evaluation.decision_label(), "missing-command-target");
+        assert_eq!(evaluation.deny_reason_label(), "missing-command-target");
+        assert_eq!(
+            evaluation.summary_label(),
+            "unit=controlled-unit-live mining=on building=on command=on mode=target+command+stance decision=missing-command-target"
+        );
+        assert!(!evaluation.allowed());
+    }
+
+    #[test]
+    fn capability_projection_reports_missing_and_dead_control_states() {
+        let missing = CapabilityContext {
+            runtime: RuntimeInputState {
+                unit_id: None,
+                dead: false,
+                position: Some((0.0, 0.0)),
+                pointer: None,
+            },
+            ..context()
+        };
+        let dead = CapabilityContext {
+            runtime: RuntimeInputState {
+                dead: true,
+                ..context().runtime
+            },
+            ..context()
+        };
+
+        assert_eq!(
+            missing.projection().unit_state,
+            CapabilityUnitState::MissingControlledUnit
+        );
+        assert_eq!(
+            missing.projection().summary_label(),
+            "unit=missing-controlled-unit mining=on building=on command=on mode=idle"
+        );
+        assert_eq!(
+            dead.projection().unit_state,
+            CapabilityUnitState::ControlledUnitDead
+        );
+        assert_eq!(
+            dead.projection().summary_label(),
+            "unit=controlled-unit-dead mining=on building=on command=on mode=idle"
+        );
     }
 
     #[test]
