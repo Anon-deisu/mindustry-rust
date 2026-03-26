@@ -644,6 +644,26 @@ Use:
   - Local verification: `cargo test --manifest-path rust\\mdt-client-min\\Cargo.toml --quiet`
   - Target handoff: `D:\\MDT\\mindustry-rust` commit `55cfdae` (`feat: project player semantic state into runtime mirrors`)
 
+- `mdt-client-min` now seeds unit carried-item stacks directly from `entitySnapshot` authoritative sync rows across the currently covered unit families.
+  - Landed behavior:
+    - `stack_amount > 0` and valid `stack_item_id` overwrite `entity_item_stack_by_entity_id`
+    - `stack_amount <= 0` clears the unit-carried stack
+  - Local verification: `cargo test --manifest-path rust\\mdt-client-min\\Cargo.toml --quiet`
+  - Target handoff: `D:\\MDT\\mindustry-rust` commit `eafe3a4` (`feat: seed unit carried item stacks from snapshots`)
+
+- `mdt-client-min-online` now uses one reconnect executor for redirect, `serverRestarting`, and timeout reconnect attempts, with once-only scheduling plus failure backoff.
+  - Local verification: `cargo test --manifest-path rust\\mdt-client-min\\Cargo.toml --quiet`
+  - Target handoff: `D:\\MDT\\mindustry-rust` commit `ad6c9de` (`feat: unify reconnect executor paths`)
+
+- `mdt-render-ui` now exposes a low-blast-radius line primitive channel derived from legacy runtime marker line pairs.
+  - Landed shape:
+    - `RenderPrimitive::Line`
+    - `RenderModel::primitives()` derived from paired `marker:line:*` / `:line-end`
+  - Local verification:
+    - `cargo test --manifest-path rust\\mdt-render-ui\\Cargo.toml --quiet`
+    - `cargo test --manifest-path rust\\mdt-client-min\\Cargo.toml --quiet`
+  - Target handoff: `D:\\MDT\\mindustry-rust` commit `7c5e783` (`feat: derive line primitives from runtime markers`)
+
 ### Refreshed Release-Critical Order
 - `P0 active` loaded-world building live-state is still dual-sourced between `loaded_world_bundle` and projection/runtime authority.
   - Primary source paths:
@@ -664,16 +684,7 @@ Use:
     - `removeTile` / `deconstructFinish` clear live view without deleting baseline bundle data
     - `buildHealthUpdate` / `tileConfig` remain visible through the merged view
 
-- `P0 active` `entitySnapshot` unit carried-item baseline is still missing.
-  - Primary source paths:
-    - `rust/mdt-client-min/src/client_session.rs`
-    - `rust/mdt-client-min/src/session_state.rs`
-  - Immediate cut:
-    - authoritative `stack_item_id/stack_amount -> entity_item_stack_by_entity_id`
-    - `stack_amount <= 0` clears
-    - cover seed + clear regressions
-
-- `P1 active` controller/ownership semantics still stop at heuristic player-to-unit linkage.
+- `P0 active` controller/ownership semantics still stop at heuristic player-to-unit linkage.
   - Primary source paths:
     - `rust/mdt-client-min/src/runtime_entity_ownership.rs`
     - `rust/mdt-client-min/src/session_state.rs`
@@ -681,27 +692,33 @@ Use:
   - Immediate cut:
     - consume snapshot `controller_type/controller_value`
     - project it into unit semantic state
-    - use it to refine runtime ownership/control classification
+    - let `controller_type == 0` / `controller_value == player_id` win over `player.unit_value -> unit` heuristic
+    - keep heuristic fallback only when controller data is absent
 
-- `P1 active` reconnect behavior still has observability but not Java-like actuation.
+- `P1 active` reconnect executor is landed, but reconnect command state is still split across projection, events, and ad-hoc online-loop policy.
   - Primary source paths:
     - `rust/mdt-client-min/src/client_session.rs`
     - `rust/mdt-client-min/src/bin/mdt-client-min-online.rs`
-  - Immediate cut:
-    - add reconnect executor for redirect / timeout / server-restart paths
-    - consume existing `ReconnectProjection` rather than only rendering it
+  - Remaining gap:
+    - timeout still executes mainly from `report.timed_out/timed_out_kind`, not from a durable reconnect command
+    - redirect target and restart delay still live in separate event/state slots
+    - reconnect policy is still minimal and online-loop-local rather than session-level
+  - Next cut:
+    - move toward one consumable reconnect command surface instead of event-special-casing
 
-- `P1 active` render model still lacks primitive/text/icon channels.
+- `P1 active` render primitive line channel is landed, but text/icon/richer primitive storage is still missing.
   - Primary source paths:
     - `rust/mdt-render-ui/src/render_model.rs`
     - `rust/mdt-client-min/src/render_runtime.rs`
-  - Immediate cut:
-    - add `RenderPrimitive::Line`
-    - dual-write runtime line overlays to `objects + primitives`
-    - keep presenters backward-compatible until primitive consumers land
+  - Remaining gap:
+    - current line primitive is derived from legacy objects, not an independent stored channel
+    - presenters/summary still consume objects only
+    - world-label text and icon-like runtime overlays are still encoded as point objects
+  - Next cut:
+    - add text/icon primitive families or an equivalent typed overlay payload path
 
 ### Current Parallel Lanes
-- `worker` unit carried-item snapshot baseline
-- `worker` render primitive line channel
-- `explorer` building live-state merged-view cut definition
-- `explorer` current Java/Rust release-critical delta reprioritization
+- `worker` controller-backed unit ownership semantics
+- `ready` loaded-world building live-state merged-view cut
+- `ready` reconnect command unification beyond online-loop-local policy
+- `ready` render primitive follow-up for text/icon and presenter consumption
