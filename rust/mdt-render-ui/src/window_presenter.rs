@@ -5839,6 +5839,50 @@ mod tests {
     }
 
     #[test]
+    fn present_once_drops_completed_prompt_history_from_stack_foreground() {
+        let backend = RecordingBackend::default();
+        let mut presenter = WindowPresenter::new(backend);
+        let mut runtime_ui = RuntimeUiObservability::default();
+        runtime_ui.text_input.open_count = 1;
+        runtime_ui.text_input.last_id = Some(404);
+        runtime_ui.menu.menu_open_count = 1;
+        runtime_ui.menu.last_menu_open_id = Some(11);
+        runtime_ui.menu.menu_choose_count = 1;
+        runtime_ui.menu.last_menu_choose_menu_id = Some(11);
+        runtime_ui.menu.text_input_result_count = 1;
+        runtime_ui.menu.last_text_input_result_id = Some(404);
+        runtime_ui.chat.server_message_count = 1;
+        runtime_ui.chat.chat_message_count = 2;
+        runtime_ui.chat.last_chat_sender_entity_id = Some(42);
+
+        presenter
+            .present_once(
+                &runtime_stack_test_scene(),
+                &runtime_stack_test_hud(runtime_ui),
+            )
+            .unwrap();
+
+        let backend = presenter.into_backend();
+        let frame = backend.frames.last().unwrap();
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RUNTIME-STACK: stack:f=chat:p0@none:n=none@none:c1:g1:t1:tin404:s42",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RUNTIME-STACK-DEPTH: stackdepth:p0:n0:c1:g1:t1",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RUNTIME-STACK-DETAIL: stackd:f=chat:g1:t1:p=none:m0:fo0:i1:n=none:h0:r0:i0:w0:c1:1/2:sid42",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RUNTIME-DIALOG-STACK: stackx:f=chat:p=none@none:m1:fo0:i1:n=none@none:c1:1/2:tin404:s42:t1",
+        );
+    }
+
+    #[test]
     fn present_once_surfaces_runtime_prompt_rows() {
         let backend = RecordingBackend::default();
         let mut presenter = WindowPresenter::new(backend);

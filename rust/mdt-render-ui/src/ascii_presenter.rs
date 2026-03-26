@@ -4131,6 +4131,40 @@ mod tests {
     }
 
     #[test]
+    fn ascii_presenter_drops_completed_prompt_history_from_stack_foreground() {
+        let scene = runtime_stack_test_scene();
+        let mut presenter = AsciiScenePresenter::default();
+        let mut runtime_ui = RuntimeUiObservability::default();
+        runtime_ui.text_input.open_count = 1;
+        runtime_ui.text_input.last_id = Some(404);
+        runtime_ui.menu.menu_open_count = 1;
+        runtime_ui.menu.last_menu_open_id = Some(11);
+        runtime_ui.menu.menu_choose_count = 1;
+        runtime_ui.menu.last_menu_choose_menu_id = Some(11);
+        runtime_ui.menu.text_input_result_count = 1;
+        runtime_ui.menu.last_text_input_result_id = Some(404);
+        runtime_ui.chat.server_message_count = 1;
+        runtime_ui.chat.chat_message_count = 2;
+        runtime_ui.chat.last_chat_sender_entity_id = Some(42);
+
+        presenter.present(&scene, &runtime_stack_test_hud(runtime_ui));
+
+        let frame = presenter.last_frame();
+        assert!(frame.contains(
+            "RUNTIME-STACK: front=chat prompt=0@none notice=none@none chat=1 groups=1 total=1 tin=404 sender=42"
+        ));
+        assert!(frame.contains(
+            "RUNTIME-STACK-DEPTH: prompt=0 notice=0 chat=1 groups=1 total=1"
+        ));
+        assert!(frame.contains(
+            "RUNTIME-STACK-DETAIL: dialog=front:chat groups:1 total:1 prompt=none/menu:0/follow-up:0/input:1 notice=none/hud:0/reliable:0/info:0/warn:0 chat=active:1/server:1/local:2 sender=42"
+        ));
+        assert!(frame.contains(
+            "RUNTIME-DIALOG-STACK: front=chat prompt=none@none menu=1 follow-up=0 input=1 notice=none@none chat=1 server=1 local=2 tin=404 sender=42 total=1"
+        ));
+    }
+
+    #[test]
     fn ascii_presenter_surfaces_runtime_prompt_rows() {
         let scene = runtime_stack_test_scene();
         let mut presenter = AsciiScenePresenter::default();

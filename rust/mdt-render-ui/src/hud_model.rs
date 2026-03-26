@@ -784,15 +784,38 @@ fn outstanding_follow_up_count(menu: &RuntimeMenuObservability) -> u64 {
         .saturating_sub(menu.hide_follow_up_menu_count)
 }
 
+pub(crate) fn runtime_menu_prompt_active(menu: &RuntimeMenuObservability) -> bool {
+    let count_active = menu.menu_open_count.saturating_sub(menu.menu_choose_count) > 0;
+    let id_active = menu
+        .last_menu_open_id
+        .is_some_and(|menu_id| menu.last_menu_choose_menu_id != Some(menu_id));
+
+    count_active || id_active
+}
+
+pub(crate) fn runtime_text_input_prompt_active(runtime_ui: &RuntimeUiObservability) -> bool {
+    let count_active = runtime_ui
+        .text_input
+        .open_count
+        .saturating_sub(runtime_ui.menu.text_input_result_count)
+        > 0;
+    let id_active = runtime_ui
+        .text_input
+        .last_id
+        .is_some_and(|text_input_id| runtime_ui.menu.last_text_input_result_id != Some(text_input_id));
+
+    count_active || id_active
+}
+
 fn runtime_prompt_layers(runtime_ui: &RuntimeUiObservability) -> Vec<RuntimeUiPromptLayerKind> {
     let mut layers = Vec::new();
-    if runtime_ui.text_input.open_count > 0 {
+    if runtime_text_input_prompt_active(runtime_ui) {
         layers.push(RuntimeUiPromptLayerKind::TextInput);
     }
     if outstanding_follow_up_count(&runtime_ui.menu) > 0 {
         layers.push(RuntimeUiPromptLayerKind::FollowUpMenu);
     }
-    if runtime_ui.menu.menu_open_count > 0 {
+    if runtime_menu_prompt_active(&runtime_ui.menu) {
         layers.push(RuntimeUiPromptLayerKind::Menu);
     }
     layers
@@ -983,5 +1006,43 @@ mod tests {
         assert_eq!(summary.active_group_count, 0);
         assert_eq!(summary.total_depth, 0);
         assert!(summary.is_empty());
+    }
+
+    #[test]
+    fn runtime_ui_stack_summary_drops_completed_prompt_layers_from_foreground() {
+        let hud = HudModel {
+            runtime_ui: Some(RuntimeUiObservability {
+                text_input: RuntimeTextInputObservability {
+                    open_count: 1,
+                    last_id: Some(404),
+                    ..RuntimeTextInputObservability::default()
+                },
+                menu: RuntimeMenuObservability {
+                    menu_open_count: 1,
+                    last_menu_open_id: Some(11),
+                    menu_choose_count: 1,
+                    last_menu_choose_menu_id: Some(11),
+                    text_input_result_count: 1,
+                    last_text_input_result_id: Some(404),
+                    ..RuntimeMenuObservability::default()
+                },
+                ..RuntimeUiObservability::default()
+            }),
+            ..HudModel::default()
+        };
+
+        let summary = hud
+            .runtime_ui_stack_summary()
+            .expect("runtime ui stack summary");
+        assert_eq!(summary.foreground_kind, None);
+        assert_eq!(summary.prompt_kind, None);
+        assert!(summary.prompt_layers.is_empty());
+        assert_eq!(summary.prompt_depth(), 0);
+        assert_eq!(summary.total_depth(), 0);
+
+        let depth = hud
+            .runtime_ui_stack_depth_summary()
+            .expect("runtime ui depth summary");
+        assert!(depth.is_empty());
     }
 }
