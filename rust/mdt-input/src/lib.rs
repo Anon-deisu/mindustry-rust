@@ -42,6 +42,7 @@ pub use plan_editor::{
     PlanPointConfig, TILE_SIZE,
 };
 pub use probe::{
-    sample_runtime_input_snapshot, MovementProbeConfig, MovementProbeController,
-    MovementProbeUpdate, RuntimeInputSample, RuntimeInputState,
+    classify_runtime_input_sample, sample_runtime_input_snapshot, MovementProbeConfig,
+    MovementProbeController, MovementProbeUpdate, RuntimeInputSample, RuntimeInputSampleKind,
+    RuntimeInputState,
 };

@@ -21,6 +21,48 @@ pub struct RuntimeInputSample {
     pub chatting: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeInputSampleKind {
+    Idle,
+    MovementOnly,
+    ActionOnly,
+    Mixed,
+}
+
+impl RuntimeInputSampleKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Idle => "idle",
+            Self::MovementOnly => "movement-only",
+            Self::ActionOnly => "action-only",
+            Self::Mixed => "mixed",
+        }
+    }
+}
+
+impl RuntimeInputSample {
+    pub fn has_movement(self) -> bool {
+        self.velocity != (0.0, 0.0)
+    }
+
+    pub fn has_actions(self) -> bool {
+        self.mining_tile.is_some()
+            || self.building
+            || self.shooting
+            || self.boosting
+            || self.chatting
+    }
+
+    pub fn kind(self) -> RuntimeInputSampleKind {
+        match (self.has_movement(), self.has_actions()) {
+            (false, false) => RuntimeInputSampleKind::Idle,
+            (true, false) => RuntimeInputSampleKind::MovementOnly,
+            (false, true) => RuntimeInputSampleKind::ActionOnly,
+            (true, true) => RuntimeInputSampleKind::Mixed,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MovementProbeConfig {
     pub step: (f32, f32),
@@ -117,6 +159,10 @@ pub fn sample_runtime_input_snapshot(sample: RuntimeInputSample) -> InputSnapsho
         build_pulse: None,
         active_actions,
     }
+}
+
+pub fn classify_runtime_input_sample(sample: RuntimeInputSample) -> RuntimeInputSampleKind {
+    sample.kind()
 }
 
 fn probe_heading_degrees(step: (f32, f32)) -> f32 {
@@ -337,5 +383,65 @@ mod tests {
 
         assert_eq!(snapshot.aim_axis, (0.0, 0.0));
         assert!(snapshot.active_actions.is_empty());
+    }
+
+    #[test]
+    fn classify_runtime_input_sample_tracks_idle_movement_action_and_mixed_states() {
+        assert_eq!(
+            classify_runtime_input_sample(RuntimeInputSample {
+                position: None,
+                pointer: None,
+                velocity: (0.0, 0.0),
+                mining_tile: None,
+                building: false,
+                shooting: false,
+                boosting: false,
+                chatting: false,
+            }),
+            RuntimeInputSampleKind::Idle
+        );
+        assert_eq!(
+            classify_runtime_input_sample(RuntimeInputSample {
+                position: Some((1.0, 2.0)),
+                pointer: None,
+                velocity: (1.0, 0.0),
+                mining_tile: None,
+                building: false,
+                shooting: false,
+                boosting: false,
+                chatting: false,
+            }),
+            RuntimeInputSampleKind::MovementOnly
+        );
+        assert_eq!(
+            classify_runtime_input_sample(RuntimeInputSample {
+                position: None,
+                pointer: None,
+                velocity: (0.0, 0.0),
+                mining_tile: Some((3, 4)),
+                building: true,
+                shooting: false,
+                boosting: true,
+                chatting: false,
+            }),
+            RuntimeInputSampleKind::ActionOnly
+        );
+        assert_eq!(
+            classify_runtime_input_sample(RuntimeInputSample {
+                position: Some((5.0, 6.0)),
+                pointer: Some((7.0, 8.0)),
+                velocity: (0.5, -0.25),
+                mining_tile: Some((9, 10)),
+                building: false,
+                shooting: true,
+                boosting: false,
+                chatting: true,
+            }),
+            RuntimeInputSampleKind::Mixed
+        );
+        assert_eq!(RuntimeInputSampleKind::Idle.label(), "idle");
+        assert_eq!(RuntimeInputSampleKind::MovementOnly.label(), "movement-only");
+        assert_eq!(RuntimeInputSampleKind::ActionOnly.label(), "action-only");
+        assert_eq!(RuntimeInputSampleKind::Mixed.label(), "mixed");
     }
 }
