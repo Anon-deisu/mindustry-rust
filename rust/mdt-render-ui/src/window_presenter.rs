@@ -19,7 +19,10 @@ use crate::{
         crop_window_to_focus, normalize_zoom, projected_window, visible_window_tile,
         zoomed_view_tile_span,
     },
-    render_model::{RenderObjectSemanticFamily, RenderObjectSemanticKind, RenderPrimitive},
+    render_model::{
+        RenderIconPrimitiveFamily, RenderObjectSemanticFamily, RenderObjectSemanticKind,
+        RenderPrimitive,
+    },
     BuildQueueHeadObservability, BuildQueueHeadStage, BuildUiObservability, HudModel, RenderModel,
     RenderObject, RuntimeUiObservability, ScenePresenter,
 };
@@ -39,6 +42,8 @@ const COLOR_MARKER: u32 = 0xFFC107;
 const COLOR_PLAYER: u32 = 0x66BB6A;
 const COLOR_RUNTIME: u32 = 0xFF7043;
 const COLOR_UNKNOWN: u32 = 0xEF5350;
+const COLOR_ICON_RUNTIME_EFFECT: u32 = 0xFFE082;
+const COLOR_ICON_BUILD_CONFIG: u32 = 0x4FC3F7;
 const COLOR_WINDOW_HUD_BAR: u32 = 0x091018;
 const COLOR_WINDOW_HUD_TEXT: u32 = 0xE8EEF2;
 const COLOR_MINIMAP_INSET_BORDER: u32 = 0x90A4AE;
@@ -334,6 +339,13 @@ fn compose_frame(
         .filter_map(window_line_end_object_pair)
         .collect::<BTreeMap<_, _>>();
     let primitives = scene.primitives();
+    let icon_primitive_ids = primitives
+        .iter()
+        .filter_map(|primitive| match primitive {
+            RenderPrimitive::Icon { id, .. } => Some(id.as_str()),
+            _ => None,
+        })
+        .collect::<BTreeSet<_>>();
     let rect_line_ids = primitives
         .iter()
         .filter_map(|primitive| match primitive {
@@ -346,7 +358,10 @@ fn compose_frame(
     let mut commands = scene
         .objects
         .iter()
-        .filter(|object| !rect_line_ids.contains(object.id.as_str()))
+        .filter(|object| {
+            !icon_primitive_ids.contains(object.id.as_str())
+                && !rect_line_ids.contains(object.id.as_str())
+        })
         .filter_map(|object| window_render_command(object, &line_end_objects, window))
         .collect::<Vec<_>>();
     commands.extend(
@@ -386,6 +401,14 @@ fn compose_frame(
                 bottom_tile,
                 color,
             ),
+            WindowRenderCommand::Icon {
+                local_x,
+                local_y,
+                color,
+                ..
+            } => {
+                tiles[local_y * window.width + local_x] = color;
+            }
         }
     }
 
@@ -492,13 +515,21 @@ enum WindowRenderCommand<'a> {
         bottom_tile: i32,
         color: u32,
     },
+    Icon {
+        layer: i32,
+        local_x: usize,
+        local_y: usize,
+        color: u32,
+    },
 }
 
 impl WindowRenderCommand<'_> {
     fn layer(&self) -> i32 {
         match self {
             Self::Point { object, .. } => object.layer,
-            Self::Line { layer, .. } | Self::Rect { layer, .. } => *layer,
+            Self::Line { layer, .. } | Self::Rect { layer, .. } | Self::Icon { layer, .. } => {
+                *layer
+            }
         }
     }
 }
@@ -591,6 +622,33 @@ fn window_primitive_render_command<'a>(
                 right_tile,
                 bottom_tile,
                 color: 0xff44_88ff,
+            })
+        }
+        RenderPrimitive::Icon {
+            family,
+            layer,
+            x,
+            y,
+            ..
+        } => {
+            let tile_x = crate::presenter_view::world_to_tile_index_floor(*x, TILE_SIZE);
+            let tile_y = crate::presenter_view::world_to_tile_index_floor(*y, TILE_SIZE);
+            if tile_x < 0 || tile_y < 0 {
+                return None;
+            }
+            let (tile_x, tile_y) = (tile_x as usize, tile_y as usize);
+            if tile_x < window.origin_x
+                || tile_y < window.origin_y
+                || tile_x >= window.origin_x.saturating_add(window.width)
+                || tile_y >= window.origin_y.saturating_add(window.height)
+            {
+                return None;
+            }
+            Some(WindowRenderCommand::Icon {
+                layer: *layer,
+                local_x: tile_x - window.origin_x,
+                local_y: tile_y - window.origin_y,
+                color: color_for_icon(*family),
             })
         }
         _ => None,
@@ -696,6 +754,13 @@ fn draw_window_tile_if_visible(
 
 fn color_for_object(object: &RenderObject) -> u32 {
     color_for_semantic_kind(object.semantic_kind())
+}
+
+fn color_for_icon(family: RenderIconPrimitiveFamily) -> u32 {
+    match family {
+        RenderIconPrimitiveFamily::RuntimeEffect => COLOR_ICON_RUNTIME_EFFECT,
+        RenderIconPrimitiveFamily::RuntimeBuildConfig => COLOR_ICON_BUILD_CONFIG,
+    }
 }
 
 fn color_for_semantic_kind(kind: RenderObjectSemanticKind) -> u32 {
@@ -827,6 +892,9 @@ fn compose_frame_panel_lines(
     }
     if let Some(render_rect_text) = compose_render_rect_status_text(scene, window) {
         lines.push(format!("RENDER-RECT: {render_rect_text}"));
+    }
+    if let Some(render_icon_text) = compose_render_icon_status_text(scene, window) {
+        lines.push(format!("RENDER-ICON: {render_icon_text}"));
     }
     if let Some(build_panel_text) = compose_build_config_panel_status_text(hud) {
         lines.push(format!("BUILD-CONFIG: {build_panel_text}"));
@@ -1152,6 +1220,51 @@ fn compose_render_rect_status_text(scene: &RenderModel, window: PresenterViewWin
         parts.push(format!(
             "{family}@{layer}:{}:{}:{}:{}",
             left as i32, top as i32, right as i32, bottom as i32
+        ));
+    }
+    Some(parts.join(" "))
+}
+
+fn compose_render_icon_status_text(scene: &RenderModel, window: PresenterViewWindow) -> Option<String> {
+    let mut icon_primitives = scene
+        .primitives()
+        .into_iter()
+        .filter_map(|primitive| match primitive {
+            RenderPrimitive::Icon {
+                family,
+                variant,
+                layer,
+                x,
+                y,
+                ..
+            } => Some((family, variant, layer, x, y)),
+            _ => None,
+        })
+        .filter(|(_, _, _, x, y)| {
+            let tile_x = crate::presenter_view::world_to_tile_index_floor(*x, TILE_SIZE);
+            let tile_y = crate::presenter_view::world_to_tile_index_floor(*y, TILE_SIZE);
+            tile_x >= 0
+                && tile_y >= 0
+                && (tile_x as usize) >= window.origin_x
+                && (tile_y as usize) >= window.origin_y
+                && (tile_x as usize) < window.origin_x.saturating_add(window.width)
+                && (tile_y as usize) < window.origin_y.saturating_add(window.height)
+        })
+        .collect::<Vec<_>>();
+
+    if icon_primitives.is_empty() {
+        return None;
+    }
+
+    icon_primitives.sort_by_key(|(_, _, layer, _, _)| *layer);
+    let mut parts = vec![format!("count={}", icon_primitives.len())];
+    for (family, variant, layer, x, y) in icon_primitives.into_iter().take(2) {
+        let tile_x = crate::presenter_view::world_to_tile_index_floor(x, TILE_SIZE);
+        let tile_y = crate::presenter_view::world_to_tile_index_floor(y, TILE_SIZE);
+        parts.push(format!(
+            "{}/{}@{layer}:{tile_x}:{tile_y}",
+            family.label(),
+            variant
         ));
     }
     Some(parts.join(" "))
@@ -4002,10 +4115,11 @@ mod tests {
     use super::{
         color_for_object, compose_frame, scale_frame_pixels, window_hud_bar_height,
         BackendSignal, WindowBackend, window_hud_top_line, WindowFrame, WindowMinimapInset,
-        WindowPresenter, COLOR_BLOCK, COLOR_EMPTY, COLOR_MARKER,
-        COLOR_MINIMAP_INSET_VIEWPORT, COLOR_PLAN, COLOR_PLAYER, COLOR_RUNTIME, COLOR_TERRAIN,
-        COLOR_UNKNOWN, COLOR_WINDOW_HUD_BAR, COLOR_WINDOW_HUD_TEXT, WINDOW_HUD_BAR_PADDING_X,
-        WINDOW_HUD_BAR_PADDING_Y, WINDOW_HUD_FONT_HEIGHT,
+        WindowPresenter, COLOR_BLOCK, COLOR_EMPTY, COLOR_ICON_BUILD_CONFIG,
+        COLOR_ICON_RUNTIME_EFFECT, COLOR_MARKER, COLOR_MINIMAP_INSET_VIEWPORT, COLOR_PLAN,
+        COLOR_PLAYER, COLOR_RUNTIME, COLOR_TERRAIN, COLOR_UNKNOWN, COLOR_WINDOW_HUD_BAR,
+        COLOR_WINDOW_HUD_TEXT, WINDOW_HUD_BAR_PADDING_X, WINDOW_HUD_BAR_PADDING_Y,
+        WINDOW_HUD_FONT_HEIGHT,
     };
     use crate::{
         hud_model::{
@@ -6232,6 +6346,46 @@ mod tests {
             &frame.panel_lines,
             "RENDER-RECT: count=1 runtime-command-target-rect@29:32:40:48:56",
         );
+    }
+
+    #[test]
+    fn present_once_surfaces_icon_primitive_summary_and_pixels() {
+        let backend = RecordingBackend::default();
+        let mut presenter = WindowPresenter::new(backend);
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 16.0,
+                height: 8.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: "marker:runtime-effect-icon:content-icon:normal:-1:6:9:0x00000000:0x00000000"
+                        .to_string(),
+                    layer: 31,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-build-config-icon:payload-source:1:0:1:7".to_string(),
+                    layer: 32,
+                    x: 8.0,
+                    y: 0.0,
+                },
+            ],
+        };
+
+        presenter.present_once(&scene, &HudModel::default()).unwrap();
+
+        let backend = presenter.into_backend();
+        let frame = backend.frames.last().unwrap();
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RENDER-ICON: count=2 runtime-effect-icon/content-icon@31:0:0 runtime-build-config-icon/payload-source@32:1:0",
+        );
+        assert_eq!(frame.pixel(0, 0), Some(COLOR_ICON_RUNTIME_EFFECT));
+        assert_eq!(frame.pixel(1, 0), Some(COLOR_ICON_BUILD_CONFIG));
     }
 
     fn assert_frame_line_contains(lines: &[String], needle: &str) {

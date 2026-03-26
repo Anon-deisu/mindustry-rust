@@ -17,11 +17,16 @@ use crate::presenter_view::{
     crop_window_to_focus, normalize_zoom, projected_window, visible_window_tile,
     zoomed_view_tile_span,
 };
-use crate::render_model::{RenderObjectSemanticFamily, RenderObjectSemanticKind, RenderPrimitive};
+use crate::render_model::{
+    RenderIconPrimitiveFamily, RenderObjectSemanticFamily, RenderObjectSemanticKind,
+    RenderPrimitive,
+};
 use crate::{HudModel, RenderModel, ScenePresenter};
 use std::collections::{BTreeMap, BTreeSet};
 
 const TILE_SIZE: f32 = 8.0;
+const ASCII_ICON_RUNTIME_EFFECT: char = 'E';
+const ASCII_ICON_BUILD_CONFIG: char = 'C';
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct AsciiScenePresenter {
@@ -54,6 +59,13 @@ impl AsciiScenePresenter {
                 _ => None,
             })
             .collect::<BTreeSet<_>>();
+        let icon_primitive_ids = primitives
+            .iter()
+            .filter_map(|primitive| match primitive {
+                RenderPrimitive::Icon { id, .. } => Some(id.as_str()),
+                _ => None,
+            })
+            .collect::<BTreeSet<_>>();
         let rect_line_ids = primitives
             .iter()
             .filter_map(|primitive| match primitive {
@@ -72,6 +84,7 @@ impl AsciiScenePresenter {
             .iter()
             .filter(|object| {
                 !text_primitive_ids.contains(object.id.as_str())
+                    && !icon_primitive_ids.contains(object.id.as_str())
                     && !rect_line_ids.contains(object.id.as_str())
             })
             .filter_map(|object| ascii_render_command(object, &line_end_objects, window))
@@ -113,6 +126,14 @@ impl AsciiScenePresenter {
                     bottom_tile,
                     sprite,
                 ),
+                AsciiRenderCommand::Icon {
+                    local_x,
+                    local_y,
+                    sprite,
+                    ..
+                } => {
+                    grid[local_y][local_x] = sprite;
+                }
                 AsciiRenderCommand::Text {
                     local_x,
                     local_y,
@@ -139,6 +160,9 @@ impl AsciiScenePresenter {
         }
         if let Some(render_rect_text) = compose_render_rect_status_text(scene, window) {
             out.push_str(&format!("RENDER-RECT: {render_rect_text}\n"));
+        }
+        if let Some(render_icon_text) = compose_render_icon_status_text(scene, window) {
+            out.push_str(&format!("RENDER-ICON: {render_icon_text}\n"));
         }
         if let Some(minimap_text) = compose_minimap_panel_text(scene, hud, window) {
             out.push_str(&format!("MINIMAP: {minimap_text}\n"));
@@ -444,6 +468,12 @@ enum AsciiRenderCommand<'a> {
         bottom_tile: i32,
         sprite: char,
     },
+    Icon {
+        layer: i32,
+        local_x: usize,
+        local_y: usize,
+        sprite: char,
+    },
     Text {
         layer: i32,
         local_x: usize,
@@ -456,7 +486,9 @@ impl AsciiRenderCommand<'_> {
     fn layer(&self) -> i32 {
         match self {
             Self::Point { object, .. } => object.layer,
-            Self::Line { layer, .. } | Self::Rect { layer, .. } => *layer,
+            Self::Line { layer, .. } | Self::Rect { layer, .. } | Self::Icon { layer, .. } => {
+                *layer
+            }
             Self::Text { layer, .. } => *layer,
         }
     }
@@ -585,6 +617,33 @@ fn ascii_primitive_render_command<'a>(
                 sprite: 'R',
             })
         }
+        RenderPrimitive::Icon {
+            family,
+            layer,
+            x,
+            y,
+            ..
+        } => {
+            let tile_x = crate::presenter_view::world_to_tile_index_floor(*x, TILE_SIZE);
+            let tile_y = crate::presenter_view::world_to_tile_index_floor(*y, TILE_SIZE);
+            if tile_x < 0 || tile_y < 0 {
+                return None;
+            }
+            let (tile_x, tile_y) = (tile_x as usize, tile_y as usize);
+            if tile_x < window.origin_x
+                || tile_y < window.origin_y
+                || tile_x >= window.origin_x.saturating_add(window.width)
+                || tile_y >= window.origin_y.saturating_add(window.height)
+            {
+                return None;
+            }
+            Some(AsciiRenderCommand::Icon {
+                layer: *layer,
+                local_x: tile_x - window.origin_x,
+                local_y: tile_y - window.origin_y,
+                sprite: ascii_sprite_for_icon(*family),
+            })
+        }
         _ => None,
     }
 }
@@ -705,6 +764,51 @@ fn compose_render_rect_status_text(scene: &RenderModel, window: PresenterViewWin
     Some(parts.join(" "))
 }
 
+fn compose_render_icon_status_text(scene: &RenderModel, window: PresenterViewWindow) -> Option<String> {
+    let mut icon_primitives = scene
+        .primitives()
+        .into_iter()
+        .filter_map(|primitive| match primitive {
+            RenderPrimitive::Icon {
+                family,
+                variant,
+                layer,
+                x,
+                y,
+                ..
+            } => Some((family, variant, layer, x, y)),
+            _ => None,
+        })
+        .filter(|(_, _, _, x, y)| {
+            let tile_x = crate::presenter_view::world_to_tile_index_floor(*x, TILE_SIZE);
+            let tile_y = crate::presenter_view::world_to_tile_index_floor(*y, TILE_SIZE);
+            tile_x >= 0
+                && tile_y >= 0
+                && (tile_x as usize) >= window.origin_x
+                && (tile_y as usize) >= window.origin_y
+                && (tile_x as usize) < window.origin_x.saturating_add(window.width)
+                && (tile_y as usize) < window.origin_y.saturating_add(window.height)
+        })
+        .collect::<Vec<_>>();
+
+    if icon_primitives.is_empty() {
+        return None;
+    }
+
+    icon_primitives.sort_by_key(|(_, _, layer, _, _)| *layer);
+    let mut parts = vec![format!("count={}", icon_primitives.len())];
+    for (family, variant, layer, x, y) in icon_primitives.into_iter().take(2) {
+        let tile_x = crate::presenter_view::world_to_tile_index_floor(x, TILE_SIZE);
+        let tile_y = crate::presenter_view::world_to_tile_index_floor(y, TILE_SIZE);
+        parts.push(format!(
+            "{}/{}@{layer}:{tile_x}:{tile_y}",
+            family.label(),
+            variant
+        ));
+    }
+    Some(parts.join(" "))
+}
+
 fn draw_ascii_text(
     grid: &mut [Vec<char>],
     _window: PresenterViewWindow,
@@ -782,6 +886,13 @@ fn sprite_for_id(id: &str) -> char {
         RenderObjectSemanticFamily::Block => '#',
         RenderObjectSemanticFamily::Terrain => '.',
         RenderObjectSemanticFamily::Unknown => '?',
+    }
+}
+
+fn ascii_sprite_for_icon(family: RenderIconPrimitiveFamily) -> char {
+    match family {
+        RenderIconPrimitiveFamily::RuntimeEffect => ASCII_ICON_RUNTIME_EFFECT,
+        RenderIconPrimitiveFamily::RuntimeBuildConfig => ASCII_ICON_BUILD_CONFIG,
     }
 }
 
@@ -4492,6 +4603,42 @@ mod tests {
         assert!(presenter
             .last_frame()
             .contains("RENDER-RECT: count=1 runtime-command-rect@29:8:16:24:32"));
+    }
+
+    #[test]
+    fn ascii_presenter_reports_runtime_icon_primitives_without_generic_point_fallback() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 16.0,
+                height: 8.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: "marker:runtime-effect-icon:content-icon:normal:-1:6:9:0x00000000:0x00000000"
+                        .to_string(),
+                    layer: 31,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-build-config-icon:payload-source:1:0:1:7".to_string(),
+                    layer: 32,
+                    x: 8.0,
+                    y: 0.0,
+                },
+            ],
+        };
+        let mut presenter = AsciiScenePresenter::default();
+
+        presenter.present(&scene, &HudModel::default());
+
+        let frame = presenter.last_frame();
+        assert!(frame.contains(
+            "RENDER-ICON: count=2 runtime-effect-icon/content-icon@31:0:0 runtime-build-config-icon/payload-source@32:1:0"
+        ));
+        assert_eq!(frame.lines().last(), Some("EC"));
     }
 
     fn decode_hex(text: &str) -> Vec<u8> {

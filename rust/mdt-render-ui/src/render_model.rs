@@ -38,6 +38,20 @@ pub enum RenderPrimitive {
         bottom: f32,
         line_ids: Vec<String>,
     },
+    Icon {
+        id: String,
+        family: RenderIconPrimitiveFamily,
+        variant: String,
+        layer: i32,
+        x: f32,
+        y: f32,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenderIconPrimitiveFamily {
+    RuntimeEffect,
+    RuntimeBuildConfig,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -287,15 +301,28 @@ impl RenderModel {
 impl RenderPrimitive {
     pub fn id(&self) -> &str {
         match self {
-            Self::Line { id, .. } | Self::Text { id, .. } | Self::Rect { id, .. } => id,
+            Self::Line { id, .. }
+            | Self::Text { id, .. }
+            | Self::Rect { id, .. }
+            | Self::Icon { id, .. } => id,
         }
     }
 
     pub fn layer(&self) -> i32 {
         match self {
-            Self::Line { layer, .. } | Self::Text { layer, .. } | Self::Rect { layer, .. } => {
-                *layer
-            }
+            Self::Line { layer, .. }
+            | Self::Text { layer, .. }
+            | Self::Rect { layer, .. }
+            | Self::Icon { layer, .. } => *layer,
+        }
+    }
+}
+
+impl RenderIconPrimitiveFamily {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::RuntimeEffect => "runtime-effect-icon",
+            Self::RuntimeBuildConfig => "runtime-build-config-icon",
         }
     }
 }
@@ -323,6 +350,9 @@ fn render_primitive_for_object(
         RenderObjectSemanticKind::RuntimeWorldLabel
         | RenderObjectSemanticKind::MarkerText
         | RenderObjectSemanticKind::MarkerShapeText => render_text_primitive_for_object(object),
+        _ if render_icon_family_and_variant(&object.id).is_some() => {
+            render_icon_primitive_for_object(object)
+        }
         _ => None,
     }
 }
@@ -351,6 +381,65 @@ fn render_text_primitive_for_object(object: &RenderObject) -> Option<RenderPrimi
         y: object.y,
         text,
     })
+}
+
+fn render_icon_primitive_for_object(object: &RenderObject) -> Option<RenderPrimitive> {
+    let (family, variant) = render_icon_family_and_variant(&object.id)?;
+    Some(RenderPrimitive::Icon {
+        id: object.id.clone(),
+        family,
+        variant: variant.to_string(),
+        layer: object.layer,
+        x: object.x,
+        y: object.y,
+    })
+}
+
+fn render_icon_family_and_variant(id: &str) -> Option<(RenderIconPrimitiveFamily, &str)> {
+    let segments = id.split(':').collect::<Vec<_>>();
+    match segments.as_slice() {
+        [
+            "marker",
+            "runtime-effect-icon",
+            kind,
+            delivery,
+            effect_id,
+            content_type,
+            content_id,
+            x_bits,
+            y_bits,
+        ] if !kind.is_empty()
+            && matches!(*delivery, "normal" | "reliable")
+            && effect_id.parse::<i16>().is_ok()
+            && content_type.parse::<u8>().is_ok()
+            && content_id.parse::<i16>().is_ok()
+            && parse_prefixed_hex_u32(x_bits).is_some()
+            && parse_prefixed_hex_u32(y_bits).is_some() =>
+        {
+            Some((RenderIconPrimitiveFamily::RuntimeEffect, *kind))
+        }
+        [
+            "marker",
+            "runtime-build-config-icon",
+            family,
+            tile_x,
+            tile_y,
+            content_type,
+            content_id,
+        ] if !family.is_empty()
+            && tile_x.parse::<i32>().is_ok()
+            && tile_y.parse::<i32>().is_ok()
+            && content_type.parse::<u8>().is_ok()
+            && content_id.parse::<i16>().is_ok() =>
+        {
+            Some((RenderIconPrimitiveFamily::RuntimeBuildConfig, *family))
+        }
+        _ => None,
+    }
+}
+
+fn parse_prefixed_hex_u32(text: &str) -> Option<u32> {
+    u32::from_str_radix(text.strip_prefix("0x")?, 16).ok()
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -798,9 +887,10 @@ fn object_visible_in_window(
 #[cfg(test)]
 mod tests {
     use super::{
-        RenderModel, RenderObject, RenderObjectSemanticFamily, RenderObjectSemanticKind,
-        RenderPipelineLayerSummary, RenderPipelineSummary, RenderPrimitive,
-        RenderSemanticDetailCount, RenderSemanticSummary, RenderViewWindow, Viewport,
+        RenderIconPrimitiveFamily, RenderModel, RenderObject, RenderObjectSemanticFamily,
+        RenderObjectSemanticKind, RenderPipelineLayerSummary, RenderPipelineSummary,
+        RenderPrimitive, RenderSemanticDetailCount, RenderSemanticSummary, RenderViewWindow,
+        Viewport,
     };
 
     #[test]
@@ -1437,6 +1527,58 @@ mod tests {
                 y: 32.0,
                 text: "Hello".to_string(),
             }]
+        );
+    }
+
+    #[test]
+    fn render_model_derives_icon_primitives_from_runtime_icon_markers() {
+        let scene = RenderModel {
+            viewport: Viewport::default(),
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: "marker:runtime-effect-icon:content-icon:normal:-1:6:9:0x00000008:0x00000010"
+                        .to_string(),
+                    layer: 31,
+                    x: 8.0,
+                    y: 16.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-build-config-icon:payload-source:21:43:1:7".to_string(),
+                    layer: 32,
+                    x: 168.0,
+                    y: 344.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-effect-icon:content-icon:normal:bad".to_string(),
+                    layer: 33,
+                    x: 0.0,
+                    y: 0.0,
+                },
+            ],
+        };
+
+        assert_eq!(
+            scene.primitives(),
+            vec![
+                RenderPrimitive::Icon {
+                    id: "marker:runtime-effect-icon:content-icon:normal:-1:6:9:0x00000008:0x00000010"
+                        .to_string(),
+                    family: RenderIconPrimitiveFamily::RuntimeEffect,
+                    variant: "content-icon".to_string(),
+                    layer: 31,
+                    x: 8.0,
+                    y: 16.0,
+                },
+                RenderPrimitive::Icon {
+                    id: "marker:runtime-build-config-icon:payload-source:21:43:1:7".to_string(),
+                    family: RenderIconPrimitiveFamily::RuntimeBuildConfig,
+                    variant: "payload-source".to_string(),
+                    layer: 32,
+                    x: 168.0,
+                    y: 344.0,
+                },
+            ]
         );
     }
 
