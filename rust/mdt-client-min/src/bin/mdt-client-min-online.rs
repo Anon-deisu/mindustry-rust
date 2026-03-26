@@ -58,7 +58,7 @@ use mdt_render_ui::{
     RenderObject, ScenePresenter, WindowPresenter,
 };
 use mdt_typeio::{pack_point2, unpack_point2, TypeIoObject};
-use mdt_world::{LoadedWorldState, ParsedBuildingTail, WorldGraph};
+use mdt_world::{LoadedWorldState, WorldGraph};
 use runtime_custom_packet_replay_bridge::RuntimeCustomPacketReplayBridge;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -5056,7 +5056,10 @@ fn update_builder_queue_activity_from_live_buildings(
         return queue.update_local_activity(std::iter::empty());
     };
     let graph = world.graph();
-    let origin_world = snapshot_origin.or(Some(world.player_position()));
+    let origin_world = snapshot_origin
+        .or_else(|| latest_runtime_player_position(session))
+        .or(latest_world_player_position(session))
+        .or(Some(world.player_position()));
     let origin_tile = origin_world.and_then(world_to_tile);
     let observations = queue
         .ordered_tiles
@@ -5067,6 +5070,27 @@ fn update_builder_queue_activity_from_live_buildings(
         })
         .collect::<Vec<_>>();
     queue.update_local_activity(observations)
+}
+
+fn latest_runtime_player_position(session: &ClientSession) -> Option<(f32, f32)> {
+    session
+        .state()
+        .runtime_typed_entity_projection()
+        .local_player()
+        .map(|player| {
+            (
+                f32::from_bits(player.base.x_bits),
+                f32::from_bits(player.base.y_bits),
+            )
+        })
+}
+
+fn latest_world_player_position(session: &ClientSession) -> Option<(f32, f32)> {
+    let state = session.state();
+    Some((
+        f32::from_bits(state.world_player_x_bits?),
+        f32::from_bits(state.world_player_y_bits?),
+    ))
 }
 
 fn builder_queue_activity_observation(
@@ -5345,7 +5369,7 @@ fn live_building_state_at_tile(
 
 fn building_live_priority(
     session: &ClientSession,
-    graph: &WorldGraph<'_>,
+    _graph: &WorldGraph<'_>,
     x: usize,
     y: usize,
 ) -> Option<u8> {
@@ -5354,10 +5378,7 @@ fn building_live_priority(
         .projection
         .block_name
         .as_deref()
-        .is_some_and(|block_name| block_name.starts_with("core-"))
-        || graph
-            .building_center_at(x, y)
-            .is_some_and(|center| matches!(center.building.parsed_tail, ParsedBuildingTail::Core(_)));
+        .is_some_and(|block_name| block_name.starts_with("core-"));
     Some(if is_core { 0 } else { 1 })
 }
 
@@ -7176,6 +7197,13 @@ mod tests {
         payload.extend_from_slice(&block_id.unwrap_or(-1).to_be_bytes());
         payload.push(team_id);
         payload.extend_from_slice(&rotation.to_be_bytes());
+        payload
+    }
+
+    fn encode_player_spawn_payload(tile_pos: i32, player_id: i32) -> Vec<u8> {
+        let mut payload = Vec::with_capacity(8);
+        payload.extend_from_slice(&tile_pos.to_be_bytes());
+        payload.extend_from_slice(&player_id.to_be_bytes());
         payload
     }
 
@@ -11807,6 +11835,57 @@ mod tests {
     }
 
     #[test]
+    fn building_live_priority_ignores_stale_core_center_after_live_replace() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
+        ingest_sample_world(&mut session);
+        let set_tile_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setTile")
+            .unwrap()
+            .packet_id;
+        let replacement_tile = (4, 4);
+        let replacement_block_id = 0x0101;
+        let player_team_id = session.loaded_world_state().unwrap().player().team_id;
+
+        session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    set_tile_packet_id,
+                    &encode_set_tile_payload(
+                        Some(pack_point2(replacement_tile.0, replacement_tile.1)),
+                        Some(replacement_block_id),
+                        player_team_id,
+                        1,
+                    ),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+        let world = session.loaded_world_state().unwrap();
+        let graph = world.graph();
+        let live = session
+            .building_live_state_at(pack_point2(replacement_tile.0, replacement_tile.1))
+            .unwrap();
+        assert_eq!(live.projection.block_id, Some(replacement_block_id));
+        assert!(graph
+            .building_center_at(replacement_tile.0 as usize, replacement_tile.1 as usize)
+            .is_some());
+        assert_eq!(
+            building_live_priority(
+                &session,
+                &graph,
+                replacement_tile.0 as usize,
+                replacement_tile.1 as usize
+            ),
+            Some(1)
+        );
+    }
+
+    #[test]
     fn maybe_apply_auto_build_plans_skips_place_near_player_when_local_plan_overlaps() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
@@ -12458,6 +12537,63 @@ mod tests {
         }
 
         assert!(runtime_builder_head_outbound_action(&session).is_none());
+    }
+
+    #[test]
+    fn update_builder_queue_activity_prefers_runtime_player_position_over_loaded_world_fallback() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
+        ingest_large_sample_world(&mut session);
+        let player_spawn_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "playerSpawn")
+            .unwrap()
+            .packet_id;
+        let world = session.loaded_world_state().unwrap();
+        let graph = world.graph();
+        let loaded_player_tile = world_to_tile(world.player_position()).unwrap();
+        let target_tile = graph
+            .grid()
+            .iter_tiles()
+            .filter(|tile| tile.block_id == 0)
+            .max_by_key(|tile| tile_distance_sq(loaded_player_tile, tile.x, tile.y))
+            .map(|tile| (tile.x as i32, tile.y as i32))
+            .expect("expected empty tile in large sample world");
+        let plans = [ClientBuildPlan {
+            tile: target_tile,
+            breaking: false,
+            block_id: Some(0x0101),
+            rotation: 0,
+            config: ClientBuildPlanConfig::None,
+        }];
+        let mut queue_without_runtime = builder_queue_state_machine_from_plans(Some(&plans));
+        let without_runtime =
+            update_builder_queue_activity_from_live_buildings(&mut queue_without_runtime, &session, None);
+        assert!(!without_runtime.head_in_range);
+
+        let player_id = session.state().world_player_id.unwrap();
+        session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    player_spawn_packet_id,
+                    &encode_player_spawn_payload(pack_point2(target_tile.0, target_tile.1), player_id),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+        assert_eq!(
+            latest_runtime_player_position(&session),
+            Some((target_tile.0 as f32 * 8.0, target_tile.1 as f32 * 8.0))
+        );
+
+        let mut queue_with_runtime = builder_queue_state_machine_from_plans(Some(&plans));
+        let with_runtime =
+            update_builder_queue_activity_from_live_buildings(&mut queue_with_runtime, &session, None);
+        assert!(with_runtime.head_in_range);
+        assert!(!with_runtime.head_should_skip);
     }
 
     #[test]

@@ -3111,6 +3111,9 @@ fn typed_runtime_building_model(
     resource_delta: &ResourceDeltaProjection,
 ) -> Option<TypedBuildingRuntimeModel> {
     let block_name = building.block_name.as_deref()?;
+    let inventory_item_stacks = typed_runtime_building_inventory_item_stacks(build_pos, resource_delta);
+    let inventory_liquid_stacks =
+        typed_runtime_building_inventory_liquid_stacks(build_pos, resource_delta);
     let (kind, value) = match block_name {
         block_name if block_name.starts_with("core-") => (
             TypedBuildingRuntimeKind::Core,
@@ -3141,6 +3144,12 @@ fn typed_runtime_building_model(
                     .liquid_source_liquid_by_build_pos
                     .get(&build_pos)
                     .copied()?,
+            ),
+        ),
+        "liquid-router" | "liquid-junction" | "liquid-container" | "liquid-tank" => (
+            TypedBuildingRuntimeKind::LiquidSource,
+            TypedBuildingRuntimeValue::Liquid(
+                inventory_liquid_stacks.first().map(|(liquid_id, _)| *liquid_id),
             ),
         ),
         "landing-pad" => (
@@ -3412,8 +3421,8 @@ fn typed_runtime_building_model(
         block_name.to_string(),
         kind,
         value,
-        typed_runtime_building_inventory_item_stacks(build_pos, resource_delta),
-        typed_runtime_building_inventory_liquid_stacks(build_pos, resource_delta),
+        inventory_item_stacks,
+        inventory_liquid_stacks,
         building.rotation,
         building.team_id,
         building.io_version,
@@ -6792,6 +6801,76 @@ mod tests {
                 BuildingProjectionUpdateKind::BlockSnapshotHead,
             ))
         );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_liquid_family_shells() {
+        for (build_pos, block_name, liquid_id) in [
+            (0x0006_000ei32, "liquid-router", 11),
+            (0x0006_000fi32, "liquid-junction", 12),
+            (0x0006_0010i32, "liquid-container", 13),
+            (0x0006_0011i32, "liquid-tank", 14),
+        ] {
+            let mut state = SessionState::default();
+            state.building_table_projection.apply_block_snapshot_head(
+                build_pos,
+                302,
+                Some(block_name.to_string()),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(0x3f80_0000),
+                Some(0x3f20_0000),
+                Some(125),
+                Some(false),
+                Some(TypeIoObject::Null),
+                Some(0x4080_0000),
+                Some(true),
+                Some(0x44),
+                Some(0x12),
+                Some(87),
+                None,
+                None,
+                None,
+            );
+            state
+                .resource_delta_projection
+                .seed_world_build_liquids(build_pos, &[(liquid_id, 0.5f32.to_bits())]);
+
+            let mut expected = expected_typed_runtime_building(
+                build_pos,
+                302,
+                block_name,
+                TypedBuildingRuntimeKind::LiquidSource,
+                TypedBuildingRuntimeValue::Liquid(Some(liquid_id)),
+                Vec::new(),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(0x3f80_0000),
+                Some(0x3f20_0000),
+                Some(125),
+                Some(false),
+                Some(0x4080_0000),
+                Some(true),
+                Some(0x44),
+                Some(0x12),
+                Some(87),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            );
+            expected.inventory_liquid_stacks = vec![(liquid_id, 0.5f32.to_bits())];
+
+            assert_eq!(state.typed_runtime_building_at(build_pos), Some(expected));
+        }
     }
 
     #[test]

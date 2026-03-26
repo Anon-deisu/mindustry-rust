@@ -14007,11 +14007,8 @@ fn resolve_loaded_world_building_sync_candidate(
     let (tile_x, tile_y) = unpack_point2(build_pos);
     let tile_x = usize::try_from(tile_x).ok()?;
     let tile_y = usize::try_from(tile_y).ok()?;
-    let center = loaded_world.graph().building_center_at(tile_x, tile_y);
     let projection = building_table.and_then(|table| table.by_build_pos.get(&build_pos));
-    let block_id = projection
-        .and_then(|building| building.block_id)
-        .or_else(|| center.and_then(|center| i16::try_from(center.block_id).ok()))?;
+    let block_id = projection.and_then(|building| building.block_id)?;
     let block_name = projection
         .and_then(|building| building.block_name.clone())
         .or_else(|| {
@@ -14022,14 +14019,7 @@ fn resolve_loaded_world_building_sync_candidate(
                 })
                 .map(str::to_string)
         })?;
-    let revision = projection
-        .and_then(|building| building.io_version)
-        .or_else(|| {
-            center.and_then(|center| {
-                let baseline_block_id = i16::try_from(center.block_id).ok()?;
-                (baseline_block_id == block_id).then_some(center.building.revision)
-            })
-        })?;
+    let revision = projection.and_then(|building| building.io_version)?;
     Some(LoadedWorldBuildingSyncCandidate {
         build_pos,
         block_id,
@@ -18258,6 +18248,56 @@ mod tests {
         assert_eq!(rows[0].block_id, block_id);
         assert_eq!(rows[0].sync.base.rotation, rotation);
         assert_eq!(rows[0].sync.base.health_bits, health_bits);
+    }
+
+    #[test]
+    fn building_entity_snapshot_rows_do_not_resolve_against_stale_loaded_world_center_after_remove_tile()
+    {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+
+        session.ingest_packet_bytes(&begin_packet).unwrap();
+        for chunk in chunk_packets {
+            session.ingest_packet_bytes(&chunk).unwrap();
+        }
+
+        let (build_pos, _block_id, _rotation, _health_bits, row) =
+            loaded_world_building_entity_snapshot_row(&session, 0);
+        let remove_tile_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "removeTile")
+            .unwrap()
+            .packet_id;
+        session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    remove_tile_packet_id,
+                    &encode_tile_payload(Some(build_pos)),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+        assert!(!session
+            .state()
+            .building_table_projection
+            .by_build_pos
+            .contains_key(&build_pos));
+
+        let payload = build_entity_snapshot_payload(std::slice::from_ref(&row));
+        assert!(
+            try_parse_building_sync_rows_from_entity_snapshot_with_loaded_world(
+                &payload,
+                session.loaded_world_state(),
+                Some(&session.state().building_table_projection),
+            )
+            .is_empty()
+        );
     }
 
     #[test]
