@@ -1541,6 +1541,13 @@ fn compose_frame_panel_lines(
             "RUNTIME-LOADING-DETAIL: {runtime_loading_detail_text}"
         ));
     }
+    if let Some(runtime_world_reload_detail_text) =
+        compose_runtime_world_reload_detail_status_text(hud)
+    {
+        lines.push(format!(
+            "RUNTIME-WORLD-RELOAD-DETAIL: {runtime_world_reload_detail_text}"
+        ));
+    }
     if let Some(runtime_core_binding_text) = compose_runtime_core_binding_panel_status_text(hud) {
         lines.push(format!("RUNTIME-CORE-BINDING: {runtime_core_binding_text}"));
     }
@@ -3503,6 +3510,35 @@ fn runtime_world_reload_panel_status_text(
         ),
         None => "none".to_string(),
     }
+}
+
+fn compose_runtime_world_reload_detail_status_text(hud: &HudModel) -> Option<String> {
+    let loading = build_runtime_loading_panel(hud)?;
+    let world_reload = loading.last_world_reload.as_ref()?;
+    Some(runtime_world_reload_detail_status_text(world_reload))
+}
+
+fn runtime_world_reload_detail_status_text(
+    world_reload: &crate::panel_model::RuntimeWorldReloadPanelModel,
+) -> String {
+    format!(
+        "reloadd:lw{}:cl{}:rd{}:cc{}:p{}:d{}:r{}",
+        if world_reload.had_loaded_world { 1 } else { 0 },
+        if world_reload.had_client_loaded { 1 } else { 0 },
+        if world_reload.was_ready_to_enter_world {
+            1
+        } else {
+            0
+        },
+        if world_reload.had_connect_confirm_sent {
+            1
+        } else {
+            0
+        },
+        world_reload.cleared_pending_packets,
+        world_reload.cleared_deferred_inbound_packets,
+        world_reload.cleared_replayed_loading_events,
+    )
 }
 
 fn runtime_reconnect_phase_status_text(
@@ -6968,6 +7004,10 @@ mod tests {
         assert_frame_line_contains(
             &frame.panel_lines,
             "RUNTIME-LOADING-DETAIL: loadingd:rdy12@1300:to2/1/1:ready@20000:rs3/1/1/1:reload:@lw1:cl0:rd1:cc0:p4:d5:r6",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "RUNTIME-WORLD-RELOAD-DETAIL: reloadd:lw1:cl0:rd1:cc0:p4:d5:r6",
         );
         assert_frame_line_contains(
             &frame.panel_lines,

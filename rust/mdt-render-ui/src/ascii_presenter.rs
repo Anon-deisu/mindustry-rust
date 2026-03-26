@@ -370,6 +370,13 @@ impl AsciiScenePresenter {
                 "RUNTIME-LOADING-DETAIL: {runtime_loading_detail_text}\n"
             ));
         }
+        if let Some(runtime_world_reload_detail_text) =
+            compose_runtime_world_reload_detail_text(hud)
+        {
+            out.push_str(&format!(
+                "RUNTIME-WORLD-RELOAD-DETAIL: {runtime_world_reload_detail_text}\n"
+            ));
+        }
         if let Some(runtime_core_binding_text) = compose_runtime_core_binding_panel_text(hud) {
             out.push_str(&format!(
                 "RUNTIME-CORE-BINDING: {runtime_core_binding_text}\n"
@@ -2631,6 +2638,35 @@ fn runtime_world_reload_panel_text(
     }
 }
 
+fn compose_runtime_world_reload_detail_text(hud: &HudModel) -> Option<String> {
+    let loading = build_runtime_loading_panel(hud)?;
+    let world_reload = loading.last_world_reload.as_ref()?;
+    Some(runtime_world_reload_detail_text(world_reload))
+}
+
+fn runtime_world_reload_detail_text(
+    world_reload: &crate::panel_model::RuntimeWorldReloadPanelModel,
+) -> String {
+    format!(
+        "loaded={} client={} ready={} confirm={} pending={} deferred={} replayed={}",
+        if world_reload.had_loaded_world { 1 } else { 0 },
+        if world_reload.had_client_loaded { 1 } else { 0 },
+        if world_reload.was_ready_to_enter_world {
+            1
+        } else {
+            0
+        },
+        if world_reload.had_connect_confirm_sent {
+            1
+        } else {
+            0
+        },
+        world_reload.cleared_pending_packets,
+        world_reload.cleared_deferred_inbound_packets,
+        world_reload.cleared_replayed_loading_events,
+    )
+}
+
 fn runtime_reconnect_phase_text(
     phase: crate::hud_model::RuntimeReconnectPhaseObservability,
 ) -> &'static str {
@@ -4134,6 +4170,9 @@ mod tests {
         ));
         assert!(frame.contains(
             "RUNTIME-LOADING-DETAIL: ready=12@1300 timeout=2/1/1 kind=ready idle=20000 resets=3/1/1/1 last-reset=reload world=@lw1:cl0:rd1:cc0:p4:d5:r6"
+        ));
+        assert!(frame.contains(
+            "RUNTIME-WORLD-RELOAD-DETAIL: loaded=1 client=0 ready=1 confirm=0 pending=4 deferred=5 replayed=6"
         ));
         assert!(frame
             .contains("RUNTIME-CORE-BINDING: kind=first-core-per-team ambiguous=1@1 missing=1@4"));
