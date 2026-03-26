@@ -1146,6 +1146,34 @@ impl SavePostLoadRuntimeSeedSurface {
     pub fn has_pending_world_shell(&self) -> bool {
         !self.awaiting_world_shell_regions.is_empty()
     }
+
+    pub fn blocked_region_count(&self) -> usize {
+        self.blocked_regions.len()
+    }
+
+    pub fn awaiting_world_shell_region_count(&self) -> usize {
+        self.awaiting_world_shell_regions.len()
+    }
+
+    pub fn region_count(&self) -> usize {
+        self.blocked_region_count() + self.awaiting_world_shell_region_count()
+    }
+
+    pub fn blocked_region(
+        &self,
+        kind: SavePostLoadRuntimeRegionKind,
+    ) -> Option<&SavePostLoadRuntimeSeedRegionSurface> {
+        self.blocked_regions.iter().find(|region| region.kind == kind)
+    }
+
+    pub fn awaiting_world_shell_region(
+        &self,
+        kind: SavePostLoadRuntimeRegionKind,
+    ) -> Option<&SavePostLoadRuntimeSeedRegionSurface> {
+        self.awaiting_world_shell_regions
+            .iter()
+            .find(|region| region.kind == kind)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -40407,6 +40435,13 @@ mod tests {
         assert_eq!(seed_surface.deferred_step_count, readiness.deferred_step_count());
         assert_eq!(seed_surface.blocked_regions, Vec::new());
         assert_eq!(seed_surface.awaiting_world_shell_regions, Vec::new());
+        assert_eq!(seed_surface.region_count(), 0);
+        assert_eq!(seed_surface.blocked_region_count(), 0);
+        assert_eq!(seed_surface.awaiting_world_shell_region_count(), 0);
+        assert_eq!(
+            seed_surface.blocked_region(SavePostLoadRuntimeRegionKind::WorldShell),
+            None
+        );
         assert!(!seed_surface.has_blockers());
         assert!(!seed_surface.has_pending_world_shell());
         assert_eq!(
@@ -40639,6 +40674,39 @@ mod tests {
         assert_eq!(seed_surface.deferred_step_count, readiness.deferred_step_count());
         assert_eq!(seed_surface.next_apply_now_batch_index, Some(1));
         assert_eq!(seed_surface.next_apply_now_batch_step_count, Some(1));
+        assert_eq!(seed_surface.region_count(), 3);
+        assert_eq!(seed_surface.blocked_region_count(), 2);
+        assert_eq!(seed_surface.awaiting_world_shell_region_count(), 1);
+        assert_eq!(
+            seed_surface
+                .blocked_region(SavePostLoadRuntimeRegionKind::WorldShell)
+                .map(|region| (region.kind, region.step_count, region.disposition)),
+            Some((
+                SavePostLoadRuntimeRegionKind::WorldShell,
+                1,
+                SavePostLoadConsumerRuntimeDisposition::Blocked,
+            ))
+        );
+        assert_eq!(
+            seed_surface
+                .blocked_region(SavePostLoadRuntimeRegionKind::TeamPlans)
+                .map(|region| (region.kind, region.step_count, region.disposition)),
+            Some((
+                SavePostLoadRuntimeRegionKind::TeamPlans,
+                1,
+                SavePostLoadConsumerRuntimeDisposition::Blocked,
+            ))
+        );
+        assert_eq!(
+            seed_surface
+                .awaiting_world_shell_region(SavePostLoadRuntimeRegionKind::LoadableEntities)
+                .map(|region| (region.kind, region.step_count, region.disposition)),
+            Some((
+                SavePostLoadRuntimeRegionKind::LoadableEntities,
+                1,
+                SavePostLoadConsumerRuntimeDisposition::AwaitingWorldShell,
+            ))
+        );
         assert!(seed_surface.has_blockers());
         assert!(seed_surface.has_pending_world_shell());
         assert!(seed_surface
