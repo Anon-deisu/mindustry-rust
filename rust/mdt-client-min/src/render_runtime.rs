@@ -7333,6 +7333,62 @@ mod tests {
     }
 
     #[test]
+    fn render_runtime_adapter_culls_hidden_unit_parent_effect_overlays_after_hidden_snapshot() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        state.entity_table_projection.by_entity_id.insert(
+            404,
+            crate::session_state::EntityProjection {
+                class_id: 12,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 88,
+                x_bits: 12.0f32.to_bits(),
+                y_bits: 16.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 3,
+            },
+        );
+
+        adapter.observe_events(&[ClientSessionEvent::EffectRequested {
+            effect_id: Some(257),
+            x: 20.0,
+            y: 24.0,
+            rotation: 0.0,
+            color_rgba: 0x11223344,
+            data_object: Some(mdt_typeio::TypeIoObject::UnitId(404)),
+        }]);
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+        assert_eq!(adapter.world_overlay().effect_overlays.len(), 1);
+        assert!(scene
+            .objects
+            .iter()
+            .any(|object| object.id.starts_with("marker:runtime-effect:")));
+
+        state.apply_hidden_snapshot(
+            crate::session_state::AppliedHiddenSnapshotIds {
+                count: 1,
+                first_id: Some(404),
+                sample_ids: vec![404],
+            },
+            BTreeSet::from([404]),
+        );
+
+        let mut hidden_scene = RenderModel::default();
+        let mut hidden_hud = HudModel::default();
+        adapter.apply(&mut hidden_scene, &mut hidden_hud, &input, &state);
+
+        assert!(adapter.world_overlay().effect_overlays.is_empty());
+        assert!(!hidden_scene
+            .objects
+            .iter()
+            .any(|object| object.id.starts_with("marker:runtime-effect:")));
+    }
+
+    #[test]
     fn runtime_effect_overlay_ttl_ticks_match_rot_with_parent_effect_lifetimes() {
         assert_eq!(runtime_effect_overlay_ttl_ticks(Some(67)), 80);
         assert_eq!(runtime_effect_overlay_ttl_ticks(Some(68)), 40);
@@ -7736,23 +7792,24 @@ mod tests {
     }
 
     #[test]
-    fn render_runtime_adapter_falls_back_to_snapshot_input_position_for_missing_parent_unit() {
+    fn render_runtime_adapter_preserves_snapshot_input_offset_for_missing_parent_unit() {
         let mut adapter = RenderRuntimeAdapter::default();
         let mut scene = RenderModel::default();
         let mut hud = HudModel::default();
-        let input = ClientSnapshotInputState {
+        let mut input = ClientSnapshotInputState {
             unit_id: Some(404),
             dead: false,
             position: Some((44.0, 60.0)),
+            rotation: 0.0,
             ..Default::default()
         };
         let state = SessionState::default();
 
         adapter.observe_events(&[ClientSessionEvent::EffectRequested {
             effect_id: Some(257),
-            x: 1.0,
-            y: 2.0,
-            rotation: 0.0,
+            x: 46.0,
+            y: 60.0,
+            rotation: 15.0,
             color_rgba: 0x11223344,
             data_object: Some(mdt_typeio::TypeIoObject::UnitId(404)),
         }]);
@@ -7763,33 +7820,52 @@ mod tests {
             marker.id,
             format!(
                 "marker:runtime-effect:normal:257:0x{:08x}:0x{:08x}:1",
-                44.0f32.to_bits(),
+                46.0f32.to_bits(),
                 60.0f32.to_bits()
             )
         );
-        assert_eq!(marker.x, 44.0);
+        assert_eq!(marker.x, 46.0);
         assert_eq!(marker.y, 60.0);
+
+        input.position = Some((50.0, 60.0));
+        input.rotation = 90.0;
+        let mut updated_scene = RenderModel::default();
+        let mut updated_hud = HudModel::default();
+        adapter.apply(&mut updated_scene, &mut updated_hud, &input, &state);
+
+        let updated_marker = first_runtime_effect_marker(&updated_scene);
+        assert_eq!(
+            updated_marker.id,
+            format!(
+                "marker:runtime-effect:normal:257:0x{:08x}:0x{:08x}:1",
+                50.0f32.to_bits(),
+                62.0f32.to_bits()
+            )
+        );
+        assert_eq!(updated_marker.x, 50.0);
+        assert_eq!(updated_marker.y, 62.0);
     }
 
     #[test]
-    fn render_runtime_adapter_falls_back_to_world_player_position_for_missing_parent_unit() {
+    fn render_runtime_adapter_preserves_world_player_offset_for_missing_parent_unit() {
         let mut adapter = RenderRuntimeAdapter::default();
         let mut scene = RenderModel::default();
         let mut hud = HudModel::default();
-        let input = ClientSnapshotInputState {
+        let mut input = ClientSnapshotInputState {
             unit_id: Some(404),
             dead: false,
+            rotation: 0.0,
             ..Default::default()
         };
         let mut state = SessionState::default();
-        state.world_player_x_bits = Some(52.0f32.to_bits());
-        state.world_player_y_bits = Some(68.0f32.to_bits());
+        state.world_player_x_bits = Some(44.0f32.to_bits());
+        state.world_player_y_bits = Some(60.0f32.to_bits());
 
         adapter.observe_events(&[ClientSessionEvent::EffectRequested {
             effect_id: Some(260),
-            x: 1.0,
-            y: 2.0,
-            rotation: 0.0,
+            x: 46.0,
+            y: 60.0,
+            rotation: 15.0,
             color_rgba: 0x11223344,
             data_object: Some(mdt_typeio::TypeIoObject::UnitId(404)),
         }]);
@@ -7800,12 +7876,31 @@ mod tests {
             marker.id,
             format!(
                 "marker:runtime-effect:normal:260:0x{:08x}:0x{:08x}:1",
-                52.0f32.to_bits(),
-                68.0f32.to_bits()
+                46.0f32.to_bits(),
+                60.0f32.to_bits()
             )
         );
-        assert_eq!(marker.x, 52.0);
-        assert_eq!(marker.y, 68.0);
+        assert_eq!(marker.x, 46.0);
+        assert_eq!(marker.y, 60.0);
+
+        state.world_player_x_bits = Some(50.0f32.to_bits());
+        state.world_player_y_bits = Some(60.0f32.to_bits());
+        input.rotation = 90.0;
+        let mut updated_scene = RenderModel::default();
+        let mut updated_hud = HudModel::default();
+        adapter.apply(&mut updated_scene, &mut updated_hud, &input, &state);
+
+        let updated_marker = first_runtime_effect_marker(&updated_scene);
+        assert_eq!(
+            updated_marker.id,
+            format!(
+                "marker:runtime-effect:normal:260:0x{:08x}:0x{:08x}:1",
+                50.0f32.to_bits(),
+                62.0f32.to_bits()
+            )
+        );
+        assert_eq!(updated_marker.x, 50.0);
+        assert_eq!(updated_marker.y, 62.0);
     }
 
     #[test]

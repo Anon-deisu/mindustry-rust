@@ -811,7 +811,7 @@ fn parent_building_binding_enabled(effect_id: Option<i16>) -> bool {
 }
 
 fn parent_binding_allows_fallback_offset_initialization(effect_id: Option<i16>) -> bool {
-    matches!(effect_id, Some(67 | 68 | 122))
+    matches!(effect_id, Some(67 | 68 | 122 | 257 | 260))
 }
 
 fn parent_binding_rotates_with_parent(effect_id: Option<i16>) -> bool {
@@ -996,7 +996,7 @@ mod tests {
                 offset_y_bits: 8.0f32.to_bits(),
                 offset_initialized: true,
                 preserve_spawn_offset: true,
-                allow_fallback_offset_initialization: false,
+                allow_fallback_offset_initialization: true,
                 rotate_with_parent: true,
                 parent_rotation_reference_bits: 0.0f32.to_bits(),
                 rotation_offset_bits: 0.0f32.to_bits(),
@@ -1442,12 +1442,85 @@ mod tests {
     #[test]
     fn effect_runtime_resolve_runtime_effect_overlay_position_rotates_offset_with_parent_unit_for_arc_shield_break(
     ) {
-        assert_effect_runtime_rotates_offset_with_parent_unit(257, false);
+        assert_effect_runtime_rotates_offset_with_parent_unit(257, true);
     }
 
     #[test]
     fn effect_runtime_resolve_runtime_effect_overlay_position_rotates_offset_with_parent_unit_for_unit_shield_break(
     ) {
-        assert_effect_runtime_rotates_offset_with_parent_unit(260, false);
+        assert_effect_runtime_rotates_offset_with_parent_unit(260, true);
+    }
+
+    fn assert_effect_runtime_rotates_offset_with_fallback_parent_unit(
+        effect_id: i16,
+        use_world_player_position: bool,
+    ) {
+        let mut overlay = spawn_runtime_effect_overlay(
+            Some(effect_id),
+            46.0,
+            60.0,
+            46.0,
+            60.0,
+            15.0,
+            0,
+            false,
+            Some(&TypeIoObject::UnitId(404)),
+            10,
+        );
+        let mut input = EffectRuntimeInputView {
+            unit_id: Some(404),
+            position: (!use_world_player_position).then_some((44.0, 60.0)),
+            rotation: 0.0,
+        };
+        let mut state = SessionState::default();
+        if use_world_player_position {
+            state.world_player_x_bits = Some(44.0f32.to_bits());
+            state.world_player_y_bits = Some(60.0f32.to_bits());
+        }
+
+        let first_position = resolve_runtime_effect_overlay_position(&mut overlay, &state, &input);
+        assert_eq!(first_position, (46.0f32.to_bits(), 60.0f32.to_bits()));
+        assert_eq!(overlay.rotation_bits, 15.0f32.to_bits());
+        assert_eq!(
+            overlay.binding,
+            Some(RuntimeEffectBinding::ParentUnit {
+                unit_id: 404,
+                spawn_x_bits: 46.0f32.to_bits(),
+                spawn_y_bits: 60.0f32.to_bits(),
+                offset_x_bits: 2.0f32.to_bits(),
+                offset_y_bits: 0.0f32.to_bits(),
+                offset_initialized: true,
+                preserve_spawn_offset: true,
+                allow_fallback_offset_initialization: true,
+                rotate_with_parent: true,
+                parent_rotation_reference_bits: 0.0f32.to_bits(),
+                rotation_offset_bits: 15.0f32.to_bits(),
+                rotation_initialized: true,
+            })
+        );
+
+        input.rotation = 90.0;
+        if use_world_player_position {
+            state.world_player_x_bits = Some(50.0f32.to_bits());
+            state.world_player_y_bits = Some(60.0f32.to_bits());
+        } else {
+            input.position = Some((50.0, 60.0));
+        }
+
+        let second_position = resolve_runtime_effect_overlay_position(&mut overlay, &state, &input);
+        assert_eq!(second_position, (50.0f32.to_bits(), 62.0f32.to_bits()));
+        assert_eq!(overlay.rotation_bits, 105.0f32.to_bits());
+    }
+
+    #[test]
+    fn effect_runtime_resolve_runtime_effect_overlay_position_preserves_snapshot_input_offset_for_arc_shield_break(
+    ) {
+        assert_effect_runtime_rotates_offset_with_fallback_parent_unit(257, false);
+    }
+
+    #[test]
+    fn effect_runtime_resolve_runtime_effect_overlay_position_preserves_world_player_offset_for_unit_shield_break(
+    ) {
+        assert_effect_runtime_rotates_offset_with_fallback_parent_unit(260, true);
     }
 }

@@ -1134,12 +1134,28 @@ struct ScheduledIntentSnapshot {
     snapshot: InputSnapshot,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 enum CommandModeCliOp {
     BindGroup { index: u8, unit_ids: Vec<i32> },
     RecallGroup { index: u8 },
     ClearGroup { index: u8 },
+    SelectUnits { unit_ids: Vec<i32> },
+    SelectBuilding { build_pos: Option<i32> },
     SetRect(Option<CommandModeRectProjection>),
+    SetTarget {
+        build_target: Option<i32>,
+        unit_target: ClientUnitRef,
+        pos_target: Option<(f32, f32)>,
+    },
+    SetCommand {
+        unit_ids: Vec<i32>,
+        command_id: Option<u8>,
+    },
+    SetStance {
+        unit_ids: Vec<i32>,
+        stance_id: Option<u8>,
+        enable: bool,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1720,12 +1736,69 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
                 let index = parse_u8_arg("--command-mode-clear-group", value)?;
                 command_mode_ops.push(CommandModeCliOp::ClearGroup { index });
             }
+            "--command-mode-select-units" => {
+                i += 1;
+                let value = args
+                    .get(i)
+                    .ok_or("missing value for --command-mode-select-units")?;
+                command_mode_ops.push(CommandModeCliOp::SelectUnits {
+                    unit_ids: parse_action_unit_ids_arg(value)?,
+                });
+            }
+            "--command-mode-select-building" => {
+                i += 1;
+                let value = args
+                    .get(i)
+                    .ok_or("missing value for --command-mode-select-building")?;
+                command_mode_ops.push(CommandModeCliOp::SelectBuilding {
+                    build_pos: parse_optional_build_pos_arg(
+                        "--command-mode-select-building",
+                        value,
+                    )?,
+                });
+            }
             "--command-mode-rect" => {
                 i += 1;
                 let value = args.get(i).ok_or("missing value for --command-mode-rect")?;
                 command_mode_ops.push(CommandModeCliOp::SetRect(parse_command_mode_rect_arg(
                     value,
                 )?));
+            }
+            "--command-mode-target" => {
+                i += 1;
+                let value = args
+                    .get(i)
+                    .ok_or("missing value for --command-mode-target")?;
+                let (build_target, unit_target, pos_target) =
+                    parse_command_mode_target_arg(value)?;
+                command_mode_ops.push(CommandModeCliOp::SetTarget {
+                    build_target,
+                    unit_target,
+                    pos_target,
+                });
+            }
+            "--command-mode-set-command" => {
+                i += 1;
+                let value = args
+                    .get(i)
+                    .ok_or("missing value for --command-mode-set-command")?;
+                let (unit_ids, command_id) = parse_action_set_unit_command_arg(value)?;
+                command_mode_ops.push(CommandModeCliOp::SetCommand {
+                    unit_ids,
+                    command_id,
+                });
+            }
+            "--command-mode-set-stance" => {
+                i += 1;
+                let value = args
+                    .get(i)
+                    .ok_or("missing value for --command-mode-set-stance")?;
+                let (unit_ids, stance_id, enable) = parse_action_set_unit_stance_arg(value)?;
+                command_mode_ops.push(CommandModeCliOp::SetStance {
+                    unit_ids,
+                    stance_id,
+                    enable,
+                });
             }
             "--chat-message" => {
                 i += 1;
@@ -2352,7 +2425,7 @@ fn parse_args(args: Vec<String>) -> Result<CliArgs, String> {
 
 fn usage() -> String {
     String::from(
-        "Usage: mdt-client-min-online --manifest <path> (--server <host:port> | --discover-host <host> [--discover-host <host> ...] [--discover-port <port>] [--discover-timeout-ms <ms>]) [--connect-hex <path> | --name <name> --uuid <base64> --usid <base64> --build <build> --version-type <type> --mobile --color-rgba <rgba> --mod <name:version> ...] [--locale <locale>] [--duration-ms <ms>] [--tick-ms <ms>] [--max-recv-packets <n>] [--snapshot-interval-ms <ms>] [--aim-x <f32> --aim-y <f32>] [--mine-tile <x:y>] [--snapshot-boosting|--snapshot-no-boosting] [--snapshot-shooting|--snapshot-no-shooting] [--snapshot-chatting|--snapshot-no-chatting] [--snapshot-building|--snapshot-no-building] [--view-size <w:h>] [--move-step-x <f32> --move-step-y <f32>] [--intent-snapshot <moveX:moveY:aimX:aimY:actions[:mineX,mineY|none][:building|no-building|true|false]> ...] [--intent-live-sampling|--intent-edge-mapped] [--intent-delay-ms <ms>] [--intent-spacing-ms <ms>] [--command-mode-bind-group <index@unitId[,unitId...]> ...] [--command-mode-recall-group <index> ...] [--command-mode-clear-group <index> ...] [--command-mode-rect <x0:y0:x1:y1|none> ...] [--plan-place <x:y:block[:rotation][;config]> ...] [--plan-break <x:y> ...] [--plan-place-relative <dx:dy:block[:rotation][;config]> ...] [--plan-break-relative <dx:dy> ...] config=<none|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|point2=<x:y>|point2-array=<x:y[,x:y...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|double=<f64>|building-pos=<i32>|laccess=<i16>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|vec2-array=<x:y[,x:y...]>|vec2=<x:y>|team=<u8>|int-array=<i32[,i32...]>|object-array=<value[|value...]>|unit-command=<u16>> [--plan-rotate <x:y:dir> ...] [--plan-flip-x <x:y> ...] [--plan-flip-y <x:y> ...] [--plan-edit-loop] [--plan-edit-delay-ms <ms>] [--plan-edit-spacing-ms <ms>] [--plan-break-near-player] [--plan-place-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--plan-place-conflict-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--render-ascii-on-world-ready] [--print-client-packets] [--watch-client-packet <type> ...] [--watch-client-binary-packet <type> ...] [--watch-client-logic-data <channel> ...] [--consume-client-packet <type@semantic> ...] [--consume-client-binary-packet <type@semantic> ...] [--consume-client-logic-data <channel@semantic> ...] [--hook-client-packet <type@semantic@action> ...] [--hook-client-binary-packet <type@semantic@action> ...] [--hook-client-logic-data <channel@semantic@action> ...] [--relay-client-packet <inbound@outbound@reliable|unreliable> ...] [--relay-client-binary-packet <inbound@outbound@reliable|unreliable> ...] [--relay-client-logic-data <inbound@outbound@reliable|unreliable> ...] semantic=<server-message|chat-message|hud-text|announce|clipboard|open-uri|world-pos|build-pos|unit-id|team|bool|number> action=<building-control-select|request-build-payload|clear-items|clear-liquids|transfer-inventory|tile-tap|unit-control|request-unit-payload|request-drop-payload> [--render-window-live] [--dump-world-stream-hex <path>] [--chat-delay-ms <ms>] [--chat-spacing-ms <ms>] [--chat-message <text> ...] [--action-delay-ms <ms>] [--action-spacing-ms <ms>] [--action-request-item <buildPos|none:itemId|none:amount> ...] [--action-request-unit-payload <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-clear ...] [--action-unit-control <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-building-control-select <none|unit:<id>|block:<pos>|<id>@buildPos|none> ...] [--action-building-control-select <buildPos|none> ...] [--action-clear-items <buildPos|none> ...] [--action-clear-liquids <buildPos|none> ...] [--action-transfer-inventory <buildPos|none> ...] [--action-request-build-payload <buildPos|none> ...] [--action-request-drop-payload <x:y> ...] [--action-rotate-block <buildPos|none:direction> ...] [--action-drop-item <angle> ...] [--action-tile-config <buildPos|none:value> ...] [--action-tile-tap <tilePos|none> ...] [--action-delete-plans <x:y[,x:y...]|none> ...] [--action-command-building <x:y[,x:y...]|none@x:y> ...] [--action-command-units <unitId[,unitId...]|none@buildPos@unitTarget@x:y@queueCommand[@finalBatch]> ...] [--action-set-unit-command <unitId[,unitId...]|none@commandId|none> ...] [--action-set-unit-stance <unitId[,unitId...]|none@stanceId|none@enable> ...] [--action-begin-break <none|unit:<id>|block:<pos>|<id>@teamId@x:y> ...] [--action-begin-place <none|unit:<id>|block:<pos>|<id>@blockId|none@teamId@x:y@rotation@value> ...] [--action-menu-choose <menuId@option> ...] [--action-text-input-result <textInputId@text|none> ...] [--action-client-packet <type@contents@reliable|unreliable> ...] [--action-client-binary-packet <type@hex@reliable|unreliable> ...] [--action-client-logic-data <channel@value@reliable|unreliable> ...] value=<null|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|point2=<x:y>|point2-array=<x:y[,x:y...]>|double=<f64>|building-pos=<i32>|laccess=<i16>|vec2=<x:y>|vec2-array=<x:y[,x:y...]>|team=<u8>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|int-array=<i32[,i32...]>|object-array=<value>|unit-command=<u16>|...>",
+        "Usage: mdt-client-min-online --manifest <path> (--server <host:port> | --discover-host <host> [--discover-host <host> ...] [--discover-port <port>] [--discover-timeout-ms <ms>]) [--connect-hex <path> | --name <name> --uuid <base64> --usid <base64> --build <build> --version-type <type> --mobile --color-rgba <rgba> --mod <name:version> ...] [--locale <locale>] [--duration-ms <ms>] [--tick-ms <ms>] [--max-recv-packets <n>] [--snapshot-interval-ms <ms>] [--aim-x <f32> --aim-y <f32>] [--mine-tile <x:y>] [--snapshot-boosting|--snapshot-no-boosting] [--snapshot-shooting|--snapshot-no-shooting] [--snapshot-chatting|--snapshot-no-chatting] [--snapshot-building|--snapshot-no-building] [--view-size <w:h>] [--move-step-x <f32> --move-step-y <f32>] [--intent-snapshot <moveX:moveY:aimX:aimY:actions[:mineX,mineY|none][:building|no-building|true|false]> ...] [--intent-live-sampling|--intent-edge-mapped] [--intent-delay-ms <ms>] [--intent-spacing-ms <ms>] [--command-mode-bind-group <index@unitId[,unitId...]> ...] [--command-mode-recall-group <index> ...] [--command-mode-clear-group <index> ...] [--command-mode-select-units <unitId[,unitId...]|none> ...] [--command-mode-select-building <buildPos|none> ...] [--command-mode-rect <x0:y0:x1:y1|none> ...] [--command-mode-target <buildPos|none@unitTarget@x:y|none> ...] [--command-mode-set-command <unitId[,unitId...]|none@commandId|none> ...] [--command-mode-set-stance <unitId[,unitId...]|none@stanceId|none@enable> ...] [--plan-place <x:y:block[:rotation][;config]> ...] [--plan-break <x:y> ...] [--plan-place-relative <dx:dy:block[:rotation][;config]> ...] [--plan-break-relative <dx:dy> ...] config=<none|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|point2=<x:y>|point2-array=<x:y[,x:y...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|double=<f64>|building-pos=<i32>|laccess=<i16>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|vec2-array=<x:y[,x:y...]>|vec2=<x:y>|team=<u8>|int-array=<i32[,i32...]>|object-array=<value[|value...]>|unit-command=<u16>> [--plan-rotate <x:y:dir> ...] [--plan-flip-x <x:y> ...] [--plan-flip-y <x:y> ...] [--plan-edit-loop] [--plan-edit-delay-ms <ms>] [--plan-edit-spacing-ms <ms>] [--plan-break-near-player] [--plan-place-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--plan-place-conflict-near-player <block[:rotation][;config]|selected[:rotation][;config]> ...] [--render-ascii-on-world-ready] [--print-client-packets] [--watch-client-packet <type> ...] [--watch-client-binary-packet <type> ...] [--watch-client-logic-data <channel> ...] [--consume-client-packet <type@semantic> ...] [--consume-client-binary-packet <type@semantic> ...] [--consume-client-logic-data <channel@semantic> ...] [--hook-client-packet <type@semantic@action> ...] [--hook-client-binary-packet <type@semantic@action> ...] [--hook-client-logic-data <channel@semantic@action> ...] [--relay-client-packet <inbound@outbound@reliable|unreliable> ...] [--relay-client-binary-packet <inbound@outbound@reliable|unreliable> ...] [--relay-client-logic-data <inbound@outbound@reliable|unreliable> ...] semantic=<server-message|chat-message|hud-text|announce|clipboard|open-uri|world-pos|build-pos|unit-id|team|bool|number> action=<building-control-select|request-build-payload|clear-items|clear-liquids|transfer-inventory|tile-tap|unit-control|request-unit-payload|request-drop-payload> [--render-window-live] [--dump-world-stream-hex <path>] [--chat-delay-ms <ms>] [--chat-spacing-ms <ms>] [--chat-message <text> ...] [--action-delay-ms <ms>] [--action-spacing-ms <ms>] [--action-request-item <buildPos|none:itemId|none:amount> ...] [--action-request-unit-payload <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-clear ...] [--action-unit-control <none|unit:<id>|block:<pos>|<id>> ...] [--action-unit-building-control-select <none|unit:<id>|block:<pos>|<id>@buildPos|none> ...] [--action-building-control-select <buildPos|none> ...] [--action-clear-items <buildPos|none> ...] [--action-clear-liquids <buildPos|none> ...] [--action-transfer-inventory <buildPos|none> ...] [--action-request-build-payload <buildPos|none> ...] [--action-request-drop-payload <x:y> ...] [--action-rotate-block <buildPos|none:direction> ...] [--action-drop-item <angle> ...] [--action-tile-config <buildPos|none:value> ...] [--action-tile-tap <tilePos|none> ...] [--action-delete-plans <x:y[,x:y...]|none> ...] [--action-command-building <x:y[,x:y...]|none@x:y> ...] [--action-command-units <unitId[,unitId...]|none@buildPos@unitTarget@x:y@queueCommand[@finalBatch]> ...] [--action-set-unit-command <unitId[,unitId...]|none@commandId|none> ...] [--action-set-unit-stance <unitId[,unitId...]|none@stanceId|none@enable> ...] [--action-begin-break <none|unit:<id>|block:<pos>|<id>@teamId@x:y> ...] [--action-begin-place <none|unit:<id>|block:<pos>|<id>@blockId|none@teamId@x:y@rotation@value> ...] [--action-menu-choose <menuId@option> ...] [--action-text-input-result <textInputId@text|none> ...] [--action-client-packet <type@contents@reliable|unreliable> ...] [--action-client-binary-packet <type@hex@reliable|unreliable> ...] [--action-client-logic-data <channel@value@reliable|unreliable> ...] value=<null|int=<i32>|long=<i64>|float=<f32>|bool=<true|false|1|0>|int-seq=<i32[,i32...]>|string=<text>|content=<contentType:contentId>|tech-node-raw=<contentType:contentId>|point2=<x:y>|point2-array=<x:y[,x:y...]>|double=<f64>|building-pos=<i32>|laccess=<i16>|vec2=<x:y>|vec2-array=<x:y[,x:y...]>|team=<u8>|bytes=<hex>|legacy-unit-command-null=<u8>|bool-array=<bool[,bool...]>|unit-id=<i32>|int-array=<i32[,i32...]>|object-array=<value>|unit-command=<u16>|...>",
     )
 }
 
@@ -2371,8 +2444,40 @@ fn apply_runtime_command_mode_cli_ops(
             CommandModeCliOp::ClearGroup { index } => {
                 runtime_command_mode.clear_control_group(*index);
             }
+            CommandModeCliOp::SelectUnits { unit_ids } => {
+                runtime_command_mode.record_command_units(unit_ids, None, None, None);
+            }
+            CommandModeCliOp::SelectBuilding { build_pos } => {
+                runtime_command_mode.record_building_control_select(*build_pos);
+            }
             CommandModeCliOp::SetRect(rect) => {
                 runtime_command_mode.set_command_rect(*rect);
+            }
+            CommandModeCliOp::SetTarget {
+                build_target,
+                unit_target,
+                pos_target,
+            } => {
+                let selected_units = runtime_command_mode.projection().selected_units;
+                runtime_command_mode.record_command_units(
+                    &selected_units,
+                    *build_target,
+                    command_unit_ref_from_client(*unit_target),
+                    *pos_target,
+                );
+            }
+            CommandModeCliOp::SetCommand {
+                unit_ids,
+                command_id,
+            } => {
+                runtime_command_mode.record_set_unit_command(unit_ids, *command_id);
+            }
+            CommandModeCliOp::SetStance {
+                unit_ids,
+                stance_id,
+                enable,
+            } => {
+                runtime_command_mode.record_set_unit_stance(unit_ids, *stance_id, *enable);
             }
         }
     }
@@ -2576,6 +2681,27 @@ fn parse_command_mode_rect_arg(value: &str) -> Result<Option<CommandModeRectProj
         x1: parse_i32_arg("--command-mode-rect x1", parts[2])?,
         y1: parse_i32_arg("--command-mode-rect y1", parts[3])?,
     }))
+}
+
+fn parse_command_mode_target_arg(
+    value: &str,
+) -> Result<(Option<i32>, ClientUnitRef, Option<(f32, f32)>), String> {
+    let parts = value.split('@').collect::<Vec<_>>();
+    if parts.len() != 3 {
+        return Err(
+            "invalid --command-mode-target, expected <buildPos|none@unitTarget@x:y|none>"
+                .to_string(),
+        );
+    }
+    Ok((
+        parse_optional_build_pos_arg("--command-mode-target buildTarget", parts[0])?,
+        parse_action_unit_ref_arg(
+            "--command-mode-target unitTarget",
+            "<none|unit:<id>|block:<pos>|<id>>",
+            parts[1],
+        )?,
+        parse_optional_f32_pair_colon_arg("--command-mode-target posTarget", parts[2])?,
+    ))
 }
 
 fn parse_f32_pair_colon_arg(flag: &str, value: &str) -> Result<(f32, f32), String> {
@@ -6890,6 +7016,49 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_accepts_extended_command_mode_seed_ops() {
+        let args = parse_args(sample_args(&[
+            "--command-mode-select-units",
+            "44,55",
+            "--command-mode-select-building",
+            "1234",
+            "--command-mode-target",
+            "5678@unit:99@1.5:-2.0",
+            "--command-mode-set-command",
+            "44,55@7",
+            "--command-mode-set-stance",
+            "66,77@none@false",
+        ]))
+        .unwrap();
+
+        assert_eq!(
+            args.command_mode_ops,
+            vec![
+                CommandModeCliOp::SelectUnits {
+                    unit_ids: vec![44, 55],
+                },
+                CommandModeCliOp::SelectBuilding {
+                    build_pos: Some(1234),
+                },
+                CommandModeCliOp::SetTarget {
+                    build_target: Some(5678),
+                    unit_target: ClientUnitRef::Standard(99),
+                    pos_target: Some((1.5, -2.0)),
+                },
+                CommandModeCliOp::SetCommand {
+                    unit_ids: vec![44, 55],
+                    command_id: Some(7),
+                },
+                CommandModeCliOp::SetStance {
+                    unit_ids: vec![66, 77],
+                    stance_id: None,
+                    enable: false,
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn parse_args_accepts_discovery_host_without_server() {
         let args = parse_args(sample_discover_args(&[])).unwrap();
 
@@ -6945,7 +7114,18 @@ mod tests {
         assert!(text.contains("--command-mode-bind-group <index@unitId[,unitId...]> ..."));
         assert!(text.contains("--command-mode-recall-group <index> ..."));
         assert!(text.contains("--command-mode-clear-group <index> ..."));
+        assert!(text.contains("--command-mode-select-units <unitId[,unitId...]|none> ..."));
+        assert!(text.contains("--command-mode-select-building <buildPos|none> ..."));
         assert!(text.contains("--command-mode-rect <x0:y0:x1:y1|none> ..."));
+        assert!(text.contains("--command-mode-target <buildPos|none@unitTarget@x:y|none> ..."));
+        assert!(
+            text.contains("--command-mode-set-command <unitId[,unitId...]|none@commandId|none> ...")
+        );
+        assert!(
+            text.contains(
+                "--command-mode-set-stance <unitId[,unitId...]|none@stanceId|none@enable> ..."
+            )
+        );
         assert!(text.contains("--print-client-packets"));
         assert!(text.contains("--watch-client-packet <type> ..."));
         assert!(text.contains("--watch-client-binary-packet <type> ..."));
@@ -10618,6 +10798,70 @@ mod tests {
         );
         assert!(runtime_command_mode.is_active());
         assert_eq!(runtime_command_mode.projection().command_rect, None);
+    }
+
+    #[test]
+    fn runtime_command_mode_cli_updates_projection_selection_target_command_and_stance() {
+        let mut runtime_command_mode = CommandModeState::default();
+
+        apply_runtime_command_mode_cli_ops(
+            &mut runtime_command_mode,
+            &[
+                CommandModeCliOp::SelectUnits {
+                    unit_ids: vec![11, 22, 11],
+                },
+                CommandModeCliOp::SelectBuilding {
+                    build_pos: Some(404),
+                },
+                CommandModeCliOp::SetTarget {
+                    build_target: Some(808),
+                    unit_target: ClientUnitRef::Standard(909),
+                    pos_target: Some((1.5, -2.25)),
+                },
+                CommandModeCliOp::SetCommand {
+                    unit_ids: vec![55, 66, 55],
+                    command_id: Some(7),
+                },
+                CommandModeCliOp::SetStance {
+                    unit_ids: vec![77, 88, 77],
+                    stance_id: None,
+                    enable: false,
+                },
+            ],
+        );
+
+        let projection = runtime_command_mode.projection();
+        assert!(projection.active);
+        assert_eq!(projection.command_buildings, vec![404]);
+        assert_eq!(projection.selected_units, vec![77, 88]);
+        assert_eq!(
+            projection.last_target,
+            Some(mdt_input::CommandModeTargetProjection {
+                build_target: Some(808),
+                unit_target: Some(mdt_input::CommandUnitRef {
+                    kind: 2,
+                    value: 909,
+                }),
+                position_target: Some(mdt_input::CommandModePositionTarget {
+                    x_bits: 1.5f32.to_bits(),
+                    y_bits: (-2.25f32).to_bits(),
+                }),
+                rect_target: None,
+            })
+        );
+        assert_eq!(
+            projection.last_command_selection,
+            Some(mdt_input::CommandModeCommandSelection {
+                command_id: Some(7),
+            })
+        );
+        assert_eq!(
+            projection.last_stance_selection,
+            Some(mdt_input::CommandModeStanceSelection {
+                stance_id: None,
+                enabled: false,
+            })
+        );
     }
 
     #[test]
