@@ -870,7 +870,9 @@ fn runtime_minimap_overlay_kind(
         RenderObjectSemanticKind::RuntimeConfigPendingMismatch => {
             Some(WindowMinimapRuntimeOverlayKind::Config)
         }
-        RenderObjectSemanticKind::RuntimeBreak => Some(WindowMinimapRuntimeOverlayKind::Break),
+        RenderObjectSemanticKind::RuntimeBreak | RenderObjectSemanticKind::RuntimeDeconstruct => {
+            Some(WindowMinimapRuntimeOverlayKind::Break)
+        }
         RenderObjectSemanticKind::RuntimePlace => Some(WindowMinimapRuntimeOverlayKind::Place),
         _ => None,
     }
@@ -5486,6 +5488,12 @@ mod tests {
                 y: 24.0,
             },
             RenderObject {
+                id: "terrain:runtime-deconstruct:17:18".to_string(),
+                layer: 16,
+                x: 136.0,
+                y: 144.0,
+            },
+            RenderObject {
                 id: "plan:runtime-place:0:4:4".to_string(),
                 layer: 20,
                 x: 32.0,
@@ -5651,6 +5659,10 @@ mod tests {
                 WindowMinimapRuntimeOverlayTile {
                     tile: (2, 2),
                     kind: WindowMinimapRuntimeOverlayKind::Config,
+                },
+                WindowMinimapRuntimeOverlayTile {
+                    tile: (17, 18),
+                    kind: WindowMinimapRuntimeOverlayKind::Break,
                 },
                 WindowMinimapRuntimeOverlayTile {
                     tile: (3, 3),
