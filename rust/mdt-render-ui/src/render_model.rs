@@ -52,6 +52,11 @@ pub enum RenderPrimitive {
 pub enum RenderIconPrimitiveFamily {
     RuntimeEffect,
     RuntimeBuildConfig,
+    RuntimeConfig,
+    RuntimeConfigParseFail,
+    RuntimeConfigNoApply,
+    RuntimeConfigRollback,
+    RuntimeConfigPendingMismatch,
     RuntimeHealth,
     RuntimeCommand,
 }
@@ -325,6 +330,11 @@ impl RenderIconPrimitiveFamily {
         match self {
             Self::RuntimeEffect => "runtime-effect-icon",
             Self::RuntimeBuildConfig => "runtime-build-config-icon",
+            Self::RuntimeConfig => "runtime-config",
+            Self::RuntimeConfigParseFail => "runtime-config-parse-fail",
+            Self::RuntimeConfigNoApply => "runtime-config-noapply",
+            Self::RuntimeConfigRollback => "runtime-config-rollback",
+            Self::RuntimeConfigPendingMismatch => "runtime-config-pending-mismatch",
             Self::RuntimeHealth => "runtime-health",
             Self::RuntimeCommand => "runtime-command",
         }
@@ -402,6 +412,23 @@ fn render_icon_primitive_for_object(object: &RenderObject) -> Option<RenderPrimi
 fn render_icon_family_and_variant(id: &str) -> Option<(RenderIconPrimitiveFamily, &str)> {
     let segments = id.split(':').collect::<Vec<_>>();
     match segments.as_slice() {
+        ["marker", config_kind, tile_x, tile_y, value]
+            if !value.is_empty()
+                && tile_x.parse::<i32>().is_ok()
+                && tile_y.parse::<i32>().is_ok() =>
+        {
+            let family = match *config_kind {
+                "runtime-config" => RenderIconPrimitiveFamily::RuntimeConfig,
+                "runtime-config-parse-fail" => RenderIconPrimitiveFamily::RuntimeConfigParseFail,
+                "runtime-config-noapply" => RenderIconPrimitiveFamily::RuntimeConfigNoApply,
+                "runtime-config-rollback" => RenderIconPrimitiveFamily::RuntimeConfigRollback,
+                "runtime-config-pending-mismatch" => {
+                    RenderIconPrimitiveFamily::RuntimeConfigPendingMismatch
+                }
+                _ => return None,
+            };
+            Some((family, *value))
+        }
         ["marker", "runtime-health", tile_x, tile_y]
             if tile_x.parse::<i32>().is_ok() && tile_y.parse::<i32>().is_ok() =>
         {
@@ -1585,6 +1612,36 @@ mod tests {
                     y: 40.0,
                 },
                 RenderObject {
+                    id: "marker:runtime-config:1:2:string".to_string(),
+                    layer: 30,
+                    x: 8.0,
+                    y: 16.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-config-parse-fail:2:2:int".to_string(),
+                    layer: 34,
+                    x: 16.0,
+                    y: 16.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-config-noapply:3:2:content".to_string(),
+                    layer: 35,
+                    x: 24.0,
+                    y: 16.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-config-rollback:4:2:unit".to_string(),
+                    layer: 36,
+                    x: 32.0,
+                    y: 16.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-config-pending-mismatch:5:2:payload".to_string(),
+                    layer: 37,
+                    x: 40.0,
+                    y: 16.0,
+                },
+                RenderObject {
                     id: "marker:runtime-command-position-target:0x42c00000:0x42f00000".to_string(),
                     layer: 29,
                     x: 96.0,
@@ -1626,6 +1683,46 @@ mod tests {
                     layer: 33,
                     x: 32.0,
                     y: 40.0,
+                },
+                RenderPrimitive::Icon {
+                    id: "marker:runtime-config:1:2:string".to_string(),
+                    family: RenderIconPrimitiveFamily::RuntimeConfig,
+                    variant: "string".to_string(),
+                    layer: 30,
+                    x: 8.0,
+                    y: 16.0,
+                },
+                RenderPrimitive::Icon {
+                    id: "marker:runtime-config-parse-fail:2:2:int".to_string(),
+                    family: RenderIconPrimitiveFamily::RuntimeConfigParseFail,
+                    variant: "int".to_string(),
+                    layer: 34,
+                    x: 16.0,
+                    y: 16.0,
+                },
+                RenderPrimitive::Icon {
+                    id: "marker:runtime-config-noapply:3:2:content".to_string(),
+                    family: RenderIconPrimitiveFamily::RuntimeConfigNoApply,
+                    variant: "content".to_string(),
+                    layer: 35,
+                    x: 24.0,
+                    y: 16.0,
+                },
+                RenderPrimitive::Icon {
+                    id: "marker:runtime-config-rollback:4:2:unit".to_string(),
+                    family: RenderIconPrimitiveFamily::RuntimeConfigRollback,
+                    variant: "unit".to_string(),
+                    layer: 36,
+                    x: 32.0,
+                    y: 16.0,
+                },
+                RenderPrimitive::Icon {
+                    id: "marker:runtime-config-pending-mismatch:5:2:payload".to_string(),
+                    family: RenderIconPrimitiveFamily::RuntimeConfigPendingMismatch,
+                    variant: "payload".to_string(),
+                    layer: 37,
+                    x: 40.0,
+                    y: 16.0,
                 },
                 RenderPrimitive::Icon {
                     id: "marker:runtime-command-position-target:0x42c00000:0x42f00000".to_string(),

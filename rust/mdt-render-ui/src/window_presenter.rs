@@ -762,6 +762,11 @@ fn color_for_icon(family: RenderIconPrimitiveFamily) -> u32 {
     match family {
         RenderIconPrimitiveFamily::RuntimeEffect => COLOR_ICON_RUNTIME_EFFECT,
         RenderIconPrimitiveFamily::RuntimeBuildConfig => COLOR_ICON_BUILD_CONFIG,
+        RenderIconPrimitiveFamily::RuntimeConfig
+        | RenderIconPrimitiveFamily::RuntimeConfigParseFail
+        | RenderIconPrimitiveFamily::RuntimeConfigNoApply
+        | RenderIconPrimitiveFamily::RuntimeConfigRollback
+        | RenderIconPrimitiveFamily::RuntimeConfigPendingMismatch => COLOR_ICON_BUILD_CONFIG,
         RenderIconPrimitiveFamily::RuntimeHealth => COLOR_ICON_RUNTIME_HEALTH,
         RenderIconPrimitiveFamily::RuntimeCommand => COLOR_ICON_RUNTIME_COMMAND,
     }
@@ -6451,6 +6456,68 @@ mod tests {
             "RENDER-ICON: count=1 runtime-command/building@29:0:0",
         );
         assert_eq!(frame.pixel(0, 0), Some(COLOR_ICON_RUNTIME_COMMAND));
+    }
+
+    #[test]
+    fn present_once_surfaces_runtime_config_icon_primitives() {
+        let backend = RecordingBackend::default();
+        let mut presenter = WindowPresenter::new(backend);
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 40.0,
+                height: 8.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: "marker:runtime-config:0:0:string".to_string(),
+                    layer: 30,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-config-parse-fail:1:0:int".to_string(),
+                    layer: 31,
+                    x: 8.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-config-noapply:2:0:content".to_string(),
+                    layer: 32,
+                    x: 16.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-config-rollback:3:0:unit".to_string(),
+                    layer: 33,
+                    x: 24.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-config-pending-mismatch:4:0:payload".to_string(),
+                    layer: 34,
+                    x: 32.0,
+                    y: 0.0,
+                },
+            ],
+        };
+
+        presenter.present_once(&scene, &HudModel::default()).unwrap();
+
+        let backend = presenter.into_backend();
+        let frame = backend.frames.last().unwrap();
+        assert_frame_line_contains(&frame.panel_lines, "RENDER-ICON: count=5");
+        assert_frame_line_contains(&frame.panel_lines, "runtime-config/string@30:0:0");
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "runtime-config-parse-fail/int@31:1:0",
+        );
+        assert_eq!(frame.pixel(0, 0), Some(COLOR_ICON_BUILD_CONFIG));
+        assert_eq!(frame.pixel(1, 0), Some(COLOR_ICON_BUILD_CONFIG));
+        assert_eq!(frame.pixel(2, 0), Some(COLOR_ICON_BUILD_CONFIG));
+        assert_eq!(frame.pixel(3, 0), Some(COLOR_ICON_BUILD_CONFIG));
+        assert_eq!(frame.pixel(4, 0), Some(COLOR_ICON_BUILD_CONFIG));
     }
 
     fn assert_frame_line_contains(lines: &[String], needle: &str) {

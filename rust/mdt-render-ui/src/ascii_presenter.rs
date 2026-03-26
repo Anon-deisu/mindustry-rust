@@ -895,6 +895,11 @@ fn ascii_sprite_for_icon(family: RenderIconPrimitiveFamily) -> char {
     match family {
         RenderIconPrimitiveFamily::RuntimeEffect => ASCII_ICON_RUNTIME_EFFECT,
         RenderIconPrimitiveFamily::RuntimeBuildConfig => ASCII_ICON_BUILD_CONFIG,
+        RenderIconPrimitiveFamily::RuntimeConfig
+        | RenderIconPrimitiveFamily::RuntimeConfigParseFail
+        | RenderIconPrimitiveFamily::RuntimeConfigNoApply
+        | RenderIconPrimitiveFamily::RuntimeConfigRollback
+        | RenderIconPrimitiveFamily::RuntimeConfigPendingMismatch => ASCII_ICON_BUILD_CONFIG,
         RenderIconPrimitiveFamily::RuntimeHealth => ASCII_ICON_RUNTIME_HEALTH,
         RenderIconPrimitiveFamily::RuntimeCommand => ASCII_ICON_RUNTIME_COMMAND,
     }
@@ -4693,6 +4698,59 @@ mod tests {
         let frame = presenter.last_frame();
         assert!(frame.contains("RENDER-ICON: count=1 runtime-command/building@29:0:0"));
         assert_eq!(frame.lines().last(), Some("T"));
+    }
+
+    #[test]
+    fn ascii_presenter_reports_runtime_config_icon_primitives_without_generic_point_fallback() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 40.0,
+                height: 8.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: "marker:runtime-config:0:0:string".to_string(),
+                    layer: 30,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-config-parse-fail:1:0:int".to_string(),
+                    layer: 31,
+                    x: 8.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-config-noapply:2:0:content".to_string(),
+                    layer: 32,
+                    x: 16.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-config-rollback:3:0:unit".to_string(),
+                    layer: 33,
+                    x: 24.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-config-pending-mismatch:4:0:payload".to_string(),
+                    layer: 34,
+                    x: 32.0,
+                    y: 0.0,
+                },
+            ],
+        };
+        let mut presenter = AsciiScenePresenter::default();
+
+        presenter.present(&scene, &HudModel::default());
+
+        let frame = presenter.last_frame();
+        assert!(frame.contains("RENDER-ICON: count=5"));
+        assert!(frame.contains("runtime-config/string@30:0:0"));
+        assert!(frame.contains("runtime-config-parse-fail/int@31:1:0"));
+        assert_eq!(frame.lines().last(), Some("CCCCC"));
     }
 
     fn decode_hex(text: &str) -> Vec<u8> {
