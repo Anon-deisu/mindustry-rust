@@ -75,6 +75,7 @@ pub struct WindowMinimapInset {
     pub player_tile: Option<(usize, usize)>,
     pub ping_tile: Option<(usize, usize)>,
     pub command_tiles: Vec<(usize, usize)>,
+    pub command_rects: Vec<WindowMinimapCommandRect>,
     pub world_label_tiles: Vec<(usize, usize)>,
     pub runtime_overlay_tiles: Vec<WindowMinimapRuntimeOverlayTile>,
 }
@@ -91,6 +92,21 @@ pub enum WindowMinimapRuntimeOverlayKind {
     ConfigAlert,
     Break,
     Place,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WindowMinimapCommandRect {
+    pub origin_x: usize,
+    pub origin_y: usize,
+    pub width: usize,
+    pub height: usize,
+    pub kind: WindowMinimapCommandRectKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowMinimapCommandRectKind {
+    Selection,
+    Target,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -490,6 +506,7 @@ fn compose_window_minimap_inset(
         ),
         ping_tile: runtime_ping_minimap_tile(scene, panel.map_width, panel.map_height),
         command_tiles: runtime_command_minimap_tiles(scene, panel.map_width, panel.map_height, 8),
+        command_rects: runtime_command_minimap_rects(scene, panel.map_width, panel.map_height, 2),
         world_label_tiles: runtime_world_label_minimap_tiles(scene, panel.map_width, panel.map_height, 8),
         runtime_overlay_tiles: runtime_minimap_overlay_tiles(scene, panel.map_width, panel.map_height, 8),
     })
@@ -603,6 +620,51 @@ fn runtime_command_minimap_tiles(
     tiles
 }
 
+fn runtime_command_minimap_rects(
+    scene: &RenderModel,
+    map_width: usize,
+    map_height: usize,
+    max_rects: usize,
+) -> Vec<WindowMinimapCommandRect> {
+    let mut rects = Vec::new();
+
+    for primitive in scene.primitives() {
+        let RenderPrimitive::Rect {
+            family,
+            left,
+            top,
+            right,
+            bottom,
+            ..
+        } = primitive
+        else {
+            continue;
+        };
+        let kind = match family.as_str() {
+            "runtime-command-rect" => WindowMinimapCommandRectKind::Selection,
+            "runtime-command-target-rect" => WindowMinimapCommandRectKind::Target,
+            _ => continue,
+        };
+        let origin_x = runtime_world_to_minimap_tile(left, map_width);
+        let origin_y = runtime_world_to_minimap_tile(top, map_height);
+        let width = runtime_world_span_to_tile_span(right - left, map_width.saturating_sub(origin_x));
+        let height =
+            runtime_world_span_to_tile_span(bottom - top, map_height.saturating_sub(origin_y));
+        rects.push(WindowMinimapCommandRect {
+            origin_x,
+            origin_y,
+            width,
+            height,
+            kind,
+        });
+        if rects.len() >= max_rects {
+            break;
+        }
+    }
+
+    rects
+}
+
 fn runtime_minimap_overlay_tiles(
     scene: &RenderModel,
     map_width: usize,
@@ -664,6 +726,21 @@ fn runtime_minimap_overlay_kind(
         RenderObjectSemanticKind::RuntimePlace => Some(WindowMinimapRuntimeOverlayKind::Place),
         _ => None,
     }
+}
+
+fn runtime_world_to_minimap_tile(world_position: f32, bound: usize) -> usize {
+    if bound == 0 {
+        return 0;
+    }
+    crate::presenter_view::world_to_tile_index_floor(world_position, TILE_SIZE)
+        .clamp(0, bound.saturating_sub(1) as i32) as usize
+}
+
+fn runtime_world_span_to_tile_span(world_span: f32, bound: usize) -> usize {
+    if bound == 0 {
+        return 0;
+    }
+    ((world_span / TILE_SIZE).round() as usize).clamp(1, bound)
 }
 
 fn crop_window(
@@ -3780,6 +3857,20 @@ fn overlay_window_minimap_inset(
         map_pixel_width,
         map_pixel_height,
     );
+    for rect in &inset.command_rects {
+        draw_window_minimap_command_rect(
+            pixels,
+            surface_width,
+            surface_height,
+            map_start_x,
+            map_start_y,
+            map_pixel_width,
+            map_pixel_height,
+            inset.map_width,
+            inset.map_height,
+            *rect,
+        );
+    }
     for overlay_tile in &inset.runtime_overlay_tiles {
         draw_window_minimap_runtime_overlay(
             pixels,
@@ -4170,6 +4261,52 @@ fn draw_window_minimap_command(
     );
 }
 
+fn draw_window_minimap_command_rect(
+    pixels: &mut [u32],
+    surface_width: usize,
+    surface_height: usize,
+    map_start_x: usize,
+    map_start_y: usize,
+    map_pixel_width: usize,
+    map_pixel_height: usize,
+    map_width: usize,
+    map_height: usize,
+    rect: WindowMinimapCommandRect,
+) {
+    if rect.width == 0 || rect.height == 0 || map_width == 0 || map_height == 0 {
+        return;
+    }
+
+    let rect_x = map_start_x.saturating_add(project_window_minimap_x(
+        rect.origin_x,
+        map_width,
+        map_pixel_width,
+    ));
+    let rect_width = project_window_minimap_span(rect.width, map_width, map_pixel_width);
+    let rect_top = map_height.saturating_sub(rect.origin_y.saturating_add(rect.height));
+    let rect_y = map_start_y.saturating_add(project_window_minimap_y(
+        rect_top,
+        map_height,
+        map_pixel_height,
+    ));
+    let rect_height = project_window_minimap_span(rect.height, map_height, map_pixel_height);
+    let color = match rect.kind {
+        WindowMinimapCommandRectKind::Selection | WindowMinimapCommandRectKind::Target => {
+            COLOR_ICON_RUNTIME_COMMAND
+        }
+    };
+    draw_window_minimap_outline(
+        pixels,
+        surface_width,
+        surface_height,
+        rect_x,
+        rect_y,
+        rect_width,
+        rect_height,
+        color,
+    );
+}
+
 fn project_window_minimap_point(
     tile: (usize, usize),
     map_width: usize,
@@ -4539,6 +4676,7 @@ mod tests {
     use super::{
         color_for_object, compose_frame, scale_frame_pixels, window_hud_bar_height,
         window_hud_top_line, BackendSignal, WindowBackend, WindowFrame, WindowMinimapInset,
+        WindowMinimapCommandRect, WindowMinimapCommandRectKind,
         WindowMinimapRuntimeOverlayKind, WindowMinimapRuntimeOverlayTile, WindowPresenter,
         COLOR_BLOCK, COLOR_EMPTY, COLOR_ICON_BUILD_CONFIG, COLOR_ICON_RUNTIME_BREAK,
         COLOR_ICON_RUNTIME_BULLET, COLOR_ICON_RUNTIME_COMMAND, COLOR_ICON_RUNTIME_EFFECT,
@@ -4580,6 +4718,43 @@ mod tests {
             runtime_ui: Some(runtime_ui),
             ..HudModel::default()
         }
+    }
+
+    fn runtime_command_rect_objects(
+        family: &str,
+        left: f32,
+        top: f32,
+        right: f32,
+        bottom: f32,
+    ) -> Vec<RenderObject> {
+        let mut objects = Vec::new();
+        for (edge, source, target) in [
+            ("top", (left, top), (right, top)),
+            ("right", (right, top), (right, bottom)),
+            ("bottom", (right, bottom), (left, bottom)),
+            ("left", (left, bottom), (left, top)),
+        ] {
+            let line_id = format!(
+                "marker:line:{family}:{edge}:{}:{}:{}:{}",
+                source.0.to_bits(),
+                source.1.to_bits(),
+                target.0.to_bits(),
+                target.1.to_bits()
+            );
+            objects.push(RenderObject {
+                id: line_id.clone(),
+                layer: 29,
+                x: source.0,
+                y: source.1,
+            });
+            objects.push(RenderObject {
+                id: format!("{line_id}:line-end"),
+                layer: 29,
+                x: target.0,
+                y: target.1,
+            });
+        }
+        objects
     }
 
     #[derive(Default)]
@@ -4894,6 +5069,22 @@ mod tests {
                 player_tile: Some((20, 18)),
                 ping_tile: Some((44, 22)),
                 command_tiles: vec![(24, 20), (26, 18)],
+                command_rects: vec![
+                    WindowMinimapCommandRect {
+                        origin_x: 8,
+                        origin_y: 10,
+                        width: 6,
+                        height: 4,
+                        kind: WindowMinimapCommandRectKind::Selection,
+                    },
+                    WindowMinimapCommandRect {
+                        origin_x: 20,
+                        origin_y: 14,
+                        width: 5,
+                        height: 3,
+                        kind: WindowMinimapCommandRectKind::Target,
+                    },
+                ],
                 world_label_tiles: vec![(30, 26)],
                 runtime_overlay_tiles: vec![
                     WindowMinimapRuntimeOverlayTile {
@@ -4950,6 +5141,76 @@ mod tests {
     fn present_once_populates_minimap_inset_metadata() {
         let backend = RecordingBackend::default();
         let mut presenter = WindowPresenter::new(backend);
+        let mut objects = vec![
+            RenderObject {
+                id: "player:focus".to_string(),
+                layer: 40,
+                x: 32.0,
+                y: 16.0,
+            },
+            RenderObject {
+                id: "marker:text:runtime-ping:9:text:70696e67".to_string(),
+                layer: 31,
+                x: 40.0,
+                y: 24.0,
+            },
+            RenderObject {
+                id: "world-label:event:7:text:6c6162656c".to_string(),
+                layer: 39,
+                x: 48.0,
+                y: 32.0,
+            },
+            RenderObject {
+                id: "marker:runtime-config-rollback:1:1:string".to_string(),
+                layer: 24,
+                x: 8.0,
+                y: 8.0,
+            },
+            RenderObject {
+                id: "marker:runtime-config:2:2:string".to_string(),
+                layer: 24,
+                x: 16.0,
+                y: 16.0,
+            },
+            RenderObject {
+                id: "marker:runtime-break:0:3:3".to_string(),
+                layer: 20,
+                x: 24.0,
+                y: 24.0,
+            },
+            RenderObject {
+                id: "plan:runtime-place:0:4:4".to_string(),
+                layer: 20,
+                x: 32.0,
+                y: 32.0,
+            },
+            RenderObject {
+                id: "marker:runtime-command-build-target:9:10".to_string(),
+                layer: 29,
+                x: 72.0,
+                y: 80.0,
+            },
+            RenderObject {
+                id: "marker:runtime-command-selected-unit:77".to_string(),
+                layer: 29,
+                x: 88.0,
+                y: 96.0,
+            },
+        ];
+        objects.extend(runtime_command_rect_objects(
+            "runtime-command-rect",
+            40.0,
+            48.0,
+            64.0,
+            72.0,
+        ));
+        objects.extend(runtime_command_rect_objects(
+            "runtime-command-target-rect",
+            8.0,
+            40.0,
+            32.0,
+            56.0,
+        ));
         let scene = RenderModel {
             viewport: Viewport {
                 width: 64.0,
@@ -4962,62 +5223,7 @@ mod tests {
                 width: 4,
                 height: 3,
             }),
-            objects: vec![
-                RenderObject {
-                    id: "player:focus".to_string(),
-                    layer: 40,
-                    x: 32.0,
-                    y: 16.0,
-                },
-                RenderObject {
-                    id: "marker:text:runtime-ping:9:text:70696e67".to_string(),
-                    layer: 31,
-                    x: 40.0,
-                    y: 24.0,
-                },
-                RenderObject {
-                    id: "world-label:event:7:text:6c6162656c".to_string(),
-                    layer: 39,
-                    x: 48.0,
-                    y: 32.0,
-                },
-                RenderObject {
-                    id: "marker:runtime-config-rollback:1:1:string".to_string(),
-                    layer: 24,
-                    x: 8.0,
-                    y: 8.0,
-                },
-                RenderObject {
-                    id: "marker:runtime-config:2:2:string".to_string(),
-                    layer: 24,
-                    x: 16.0,
-                    y: 16.0,
-                },
-                RenderObject {
-                    id: "marker:runtime-break:0:3:3".to_string(),
-                    layer: 20,
-                    x: 24.0,
-                    y: 24.0,
-                },
-                RenderObject {
-                    id: "plan:runtime-place:0:4:4".to_string(),
-                    layer: 20,
-                    x: 32.0,
-                    y: 32.0,
-                },
-                RenderObject {
-                    id: "marker:runtime-command-build-target:9:10".to_string(),
-                    layer: 29,
-                    x: 72.0,
-                    y: 80.0,
-                },
-                RenderObject {
-                    id: "marker:runtime-command-selected-unit:77".to_string(),
-                    layer: 29,
-                    x: 88.0,
-                    y: 96.0,
-                },
-            ],
+            objects,
         };
         let hud = HudModel {
             summary: Some(HudSummary {
@@ -5066,6 +5272,25 @@ mod tests {
         assert_eq!(inset.player_tile, Some((4, 2)));
         assert_eq!(inset.ping_tile, Some((5, 3)));
         assert_eq!(inset.command_tiles, vec![(9, 10), (11, 12)]);
+        assert_eq!(
+            inset.command_rects,
+            vec![
+                WindowMinimapCommandRect {
+                    origin_x: 5,
+                    origin_y: 6,
+                    width: 3,
+                    height: 3,
+                    kind: WindowMinimapCommandRectKind::Selection,
+                },
+                WindowMinimapCommandRect {
+                    origin_x: 1,
+                    origin_y: 5,
+                    width: 3,
+                    height: 2,
+                    kind: WindowMinimapCommandRectKind::Target,
+                },
+            ]
+        );
         assert_eq!(inset.world_label_tiles, vec![(6, 4)]);
         assert_eq!(
             inset.runtime_overlay_tiles,
