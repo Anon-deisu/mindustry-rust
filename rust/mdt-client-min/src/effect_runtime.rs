@@ -941,14 +941,16 @@ fn unpack_point2(value: i32) -> (i16, i16) {
 #[cfg(test)]
 mod tests {
     use super::{
+        observe_runtime_effect_binding_state, observe_runtime_effect_source_binding_state,
         resolve_runtime_effect_overlay_position, resolve_runtime_effect_overlay_source_position,
-        spawn_runtime_effect_overlay, EffectRuntimeInputView, RuntimeEffectBinding,
+        spawn_runtime_effect_overlay, EffectRuntimeBindingState, EffectRuntimeInputView,
+        RuntimeEffectBinding,
     };
     use crate::session_state::{
         EntityProjection, EntitySemanticProjection, EntitySemanticProjectionEntry,
         EntityUnitSemanticProjection, SessionState,
     };
-    use mdt_typeio::TypeIoObject;
+    use mdt_typeio::{pack_point2, TypeIoObject};
 
     #[test]
     fn effect_runtime_spawn_runtime_effect_overlay_uses_position_hint_for_unresolved_parent_unit() {
@@ -1452,6 +1454,149 @@ mod tests {
         let second_position =
             resolve_runtime_effect_overlay_source_position(&mut overlay, &state, &input);
         assert_eq!(second_position, (28.0f32.to_bits(), 44.0f32.to_bits()));
+    }
+
+    fn session_state_with_unit_entity(unit_id: i32, x: f32, y: f32) -> SessionState {
+        let mut state = SessionState::default();
+        state.entity_table_projection.by_entity_id.insert(
+            unit_id,
+            EntityProjection {
+                class_id: 12,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 0,
+                unit_value: 0,
+                x_bits: x.to_bits(),
+                y_bits: y.to_bits(),
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
+        state
+    }
+
+    #[test]
+    fn effect_runtime_observe_runtime_effect_binding_state_rejects_lightning_building_parent() {
+        let object = TypeIoObject::BuildingPos(pack_point2(7, 11));
+
+        assert_eq!(
+            observe_runtime_effect_binding_state(
+                Some(13),
+                Some(&object),
+                &SessionState::default(),
+                &EffectRuntimeInputView::default(),
+            ),
+            Some(EffectRuntimeBindingState::BindingRejected)
+        );
+    }
+
+    #[test]
+    fn effect_runtime_observe_runtime_effect_binding_state_follows_unit_parent_buildings_and_rejects_leg_destroy_unit(
+    ) {
+        let building_object = TypeIoObject::BuildingPos(pack_point2(7, 11));
+        for effect_id in [67i16, 68, 122, 257, 260] {
+            assert_eq!(
+                observe_runtime_effect_binding_state(
+                    Some(effect_id),
+                    Some(&building_object),
+                    &SessionState::default(),
+                    &EffectRuntimeInputView::default(),
+                ),
+                Some(EffectRuntimeBindingState::ParentFollow)
+            );
+        }
+
+        let unit_object = TypeIoObject::UnitId(404);
+        assert_eq!(
+            observe_runtime_effect_binding_state(
+                Some(263),
+                Some(&unit_object),
+                &session_state_with_unit_entity(404, 32.0, 48.0),
+                &EffectRuntimeInputView::default(),
+            ),
+            Some(EffectRuntimeBindingState::BindingRejected)
+        );
+    }
+
+    #[test]
+    fn effect_runtime_observe_runtime_effect_source_binding_state_tracks_unit_follow_and_fallback(
+    ) {
+        let object = TypeIoObject::UnitId(404);
+        let followed = session_state_with_unit_entity(404, 32.0, 48.0);
+        for effect_id in [8i16, 9, 178, 261, 262] {
+            assert_eq!(
+                observe_runtime_effect_source_binding_state(
+                    Some(effect_id),
+                    Some(&object),
+                    &followed,
+                    &EffectRuntimeInputView::default(),
+                ),
+                Some(EffectRuntimeBindingState::ParentFollow)
+            );
+            assert_eq!(
+                observe_runtime_effect_source_binding_state(
+                    Some(effect_id),
+                    Some(&object),
+                    &SessionState::default(),
+                    &EffectRuntimeInputView::default(),
+                ),
+                Some(EffectRuntimeBindingState::UnresolvedFallback)
+            );
+        }
+    }
+
+    #[test]
+    fn effect_runtime_observe_runtime_effect_source_binding_state_rejects_buildings_and_leaves_unreachable_parent_kinds_empty(
+    ) {
+        let building_object = TypeIoObject::BuildingPos(pack_point2(3, 5));
+        let content_object = TypeIoObject::ContentRaw {
+            content_type: 1,
+            content_id: 7,
+        };
+        let technode_object = TypeIoObject::TechNodeRaw {
+            content_type: 2,
+            content_id: 9,
+        };
+
+        for effect_id in [8i16, 9, 178, 261, 262] {
+            assert_eq!(
+                observe_runtime_effect_source_binding_state(
+                    Some(effect_id),
+                    Some(&building_object),
+                    &SessionState::default(),
+                    &EffectRuntimeInputView::default(),
+                ),
+                Some(EffectRuntimeBindingState::BindingRejected)
+            );
+            assert_eq!(
+                observe_runtime_effect_source_binding_state(
+                    Some(effect_id),
+                    Some(&content_object),
+                    &SessionState::default(),
+                    &EffectRuntimeInputView::default(),
+                ),
+                None
+            );
+            assert_eq!(
+                observe_runtime_effect_source_binding_state(
+                    Some(effect_id),
+                    Some(&technode_object),
+                    &SessionState::default(),
+                    &EffectRuntimeInputView::default(),
+                ),
+                None
+            );
+        }
+
+        let unit_object = TypeIoObject::UnitId(404);
+        assert_eq!(
+            observe_runtime_effect_source_binding_state(
+                Some(67),
+                Some(&unit_object),
+                &SessionState::default(),
+                &EffectRuntimeInputView::default(),
+            ),
+            None
+        );
     }
 
     fn assert_effect_runtime_rotates_offset_with_parent_unit(
