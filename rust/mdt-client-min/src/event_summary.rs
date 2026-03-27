@@ -1,5 +1,9 @@
 use crate::client_session::ClientSessionEvent;
-use crate::session_state::{ConfiguredBlockOutcome, UnitRefProjection};
+use crate::session_state::{
+    ConfiguredBlockOutcome, PayloadDroppedProjection, PickedBuildPayloadProjection,
+    PickedUnitPayloadProjection, TakeItemsProjection, TransferItemToUnitProjection,
+    UnitRefProjection,
+};
 use mdt_typeio::TypeIoObject;
 
 pub fn format_final_kick_summary(
@@ -174,10 +178,25 @@ pub fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<Stri
                 projection.y_bits,
                 projection.to_entity_id,
             )),
+            ClientSessionEvent::TakeItems { projection } => {
+                Some(format_take_items_summary(projection))
+            }
+            ClientSessionEvent::TransferItemToUnit { projection } => {
+                Some(format_transfer_item_to_unit_summary(projection))
+            }
+            ClientSessionEvent::PayloadDropped { projection } => {
+                Some(format_payload_dropped_summary(projection))
+            }
             ClientSessionEvent::DestroyPayload { projection } => Some(format!(
                 "destroy_payload: build_pos={:?}",
                 projection.build_pos
             )),
+            ClientSessionEvent::PickedBuildPayload { projection } => {
+                Some(format_picked_build_payload_summary(projection))
+            }
+            ClientSessionEvent::PickedUnitPayload { projection } => {
+                Some(format_picked_unit_payload_summary(projection))
+            }
             ClientSessionEvent::CreateWeather {
                 weather_id,
                 intensity,
@@ -668,6 +687,10 @@ pub fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<Stri
             ClientSessionEvent::BuildDestroyed { build_pos } => {
                 Some(format!("build_destroyed: build_pos={build_pos:?}"))
             }
+            ClientSessionEvent::UnitDespawned {
+                unit,
+                removed_entity_projection,
+            } => Some(format_unit_despawned_summary(*unit, *removed_entity_projection)),
             ClientSessionEvent::UnitDeath {
                 unit_id,
                 removed_entity_projection,
@@ -969,6 +992,50 @@ fn format_delete_plans_summary(positions: &[i32]) -> String {
     )
 }
 
+fn format_take_items_summary(projection: &TakeItemsProjection) -> String {
+    format!(
+        "take_items: build_pos={:?} item_id={:?} amount={} to={:?}",
+        projection.build_pos, projection.item_id, projection.amount, projection.to
+    )
+}
+
+fn format_transfer_item_to_unit_summary(projection: &TransferItemToUnitProjection) -> String {
+    format!(
+        "transfer_item_to_unit: item_id={:?} x_bits=0x{:08x} y_bits=0x{:08x} to_entity_id={:?}",
+        projection.item_id, projection.x_bits, projection.y_bits, projection.to_entity_id
+    )
+}
+
+fn format_payload_dropped_summary(projection: &PayloadDroppedProjection) -> String {
+    format!(
+        "payload_dropped: unit={:?} x_bits=0x{:08x} y_bits=0x{:08x}",
+        projection.unit, projection.x_bits, projection.y_bits
+    )
+}
+
+fn format_picked_build_payload_summary(projection: &PickedBuildPayloadProjection) -> String {
+    format!(
+        "picked_build_payload: unit={:?} build_pos={:?} on_ground={}",
+        projection.unit, projection.build_pos, projection.on_ground
+    )
+}
+
+fn format_picked_unit_payload_summary(projection: &PickedUnitPayloadProjection) -> String {
+    format!(
+        "picked_unit_payload: unit={:?} target={:?}",
+        projection.unit, projection.target
+    )
+}
+
+fn format_unit_despawned_summary(
+    unit: Option<UnitRefProjection>,
+    removed_entity_projection: bool,
+) -> String {
+    format!(
+        "unit_despawned: unit={unit:?} removed_entity_projection={removed_entity_projection}"
+    )
+}
+
 fn format_unit_building_control_select_summary(
     target: Option<UnitRefProjection>,
     build_pos: Option<i32>,
@@ -1040,6 +1107,10 @@ fn truncate_for_preview(text: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::session_state::{
+        PayloadDroppedProjection, PickedBuildPayloadProjection, PickedUnitPayloadProjection,
+        TakeItemsProjection, TransferItemToUnitProjection,
+    };
 
     #[test]
     fn summarize_client_packet_events_includes_remote_observability_slice() {
@@ -1088,5 +1159,63 @@ mod tests {
         assert!(lines[2].contains("damage_bits=0x41380000"));
         assert!(lines[2].contains("velocity_scl_bits=0x3fa00000"));
         assert!(lines[2].contains("lifetime_scl_bits=0x3f400000"));
+    }
+
+    #[test]
+    fn summarize_client_packet_events_includes_resource_and_payload_events() {
+        let lines = summarize_client_packet_events(&[
+            ClientSessionEvent::TakeItems {
+                projection: TakeItemsProjection {
+                    build_pos: Some(0x0007_000b),
+                    item_id: Some(9),
+                    amount: 13,
+                    to: Some(UnitRefProjection { kind: 2, value: 77 }),
+                },
+            },
+            ClientSessionEvent::TransferItemToUnit {
+                projection: TransferItemToUnitProjection {
+                    item_id: Some(15),
+                    x_bits: 3.25f32.to_bits(),
+                    y_bits: 4.5f32.to_bits(),
+                    to_entity_id: Some(1234),
+                },
+            },
+            ClientSessionEvent::PayloadDropped {
+                projection: PayloadDroppedProjection {
+                    unit: Some(UnitRefProjection { kind: 2, value: 101 }),
+                    x_bits: 18.5f32.to_bits(),
+                    y_bits: (-7.25f32).to_bits(),
+                },
+            },
+            ClientSessionEvent::PickedBuildPayload {
+                projection: PickedBuildPayloadProjection {
+                    unit: Some(UnitRefProjection { kind: 2, value: 101 }),
+                    build_pos: Some(0x0004_0004),
+                    on_ground: false,
+                },
+            },
+            ClientSessionEvent::PickedUnitPayload {
+                projection: PickedUnitPayloadProjection {
+                    unit: Some(UnitRefProjection { kind: 2, value: 101 }),
+                    target: Some(UnitRefProjection { kind: 2, value: 202 }),
+                },
+            },
+            ClientSessionEvent::UnitDespawned {
+                unit: Some(UnitRefProjection { kind: 2, value: 99 }),
+                removed_entity_projection: true,
+            },
+        ]);
+
+        assert_eq!(
+            lines,
+            vec![
+                "take_items: build_pos=Some(458763) item_id=Some(9) amount=13 to=Some(UnitRefProjection { kind: 2, value: 77 })".to_string(),
+                "transfer_item_to_unit: item_id=Some(15) x_bits=0x40500000 y_bits=0x40900000 to_entity_id=Some(1234)".to_string(),
+                "payload_dropped: unit=Some(UnitRefProjection { kind: 2, value: 101 }) x_bits=0x41940000 y_bits=0xc0e80000".to_string(),
+                "picked_build_payload: unit=Some(UnitRefProjection { kind: 2, value: 101 }) build_pos=Some(262148) on_ground=false".to_string(),
+                "picked_unit_payload: unit=Some(UnitRefProjection { kind: 2, value: 101 }) target=Some(UnitRefProjection { kind: 2, value: 202 })".to_string(),
+                "unit_despawned: unit=Some(UnitRefProjection { kind: 2, value: 99 }) removed_entity_projection=true".to_string(),
+            ]
+        );
     }
 }
