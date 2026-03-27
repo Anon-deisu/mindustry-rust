@@ -59,6 +59,9 @@ impl UdpSessionDriver {
                     }
 
                     let event = session.ingest_packet_bytes(packet)?;
+                    if matches!(event, ClientSessionEvent::WorldStreamReady { .. }) {
+                        report.events.extend(session.take_replayed_loading_events());
+                    }
                     report.inbound_packets += 1;
                     report.events.push(event);
                 }
@@ -158,7 +161,7 @@ mod tests {
     use super::*;
     use crate::bootstrap_flow::encode_world_stream_packets;
     use crate::client_session::ClientSessionTiming;
-    use mdt_protocol::decode_packet;
+    use mdt_protocol::{decode_packet, encode_packet};
     use mdt_remote::read_remote_manifest;
     use std::net::UdpSocket;
     use std::path::PathBuf;
@@ -184,6 +187,15 @@ mod tests {
         decode_hex_text(include_str!(
             "../../../tests/src/test/resources/world-stream.hex"
         ))
+    }
+
+    fn encode_typeio_string_payload(text: &str) -> Vec<u8> {
+        let bytes = text.as_bytes();
+        let mut payload = Vec::with_capacity(1 + 2 + bytes.len());
+        payload.push(1);
+        payload.extend_from_slice(&(bytes.len() as u16).to_be_bytes());
+        payload.extend_from_slice(bytes);
+        payload
     }
 
     fn real_manifest_path() -> PathBuf {
@@ -238,6 +250,58 @@ mod tests {
         assert_eq!(session.state().world_map_height, 8);
         assert!(session.state().connect_confirm_sent);
         assert!(!session.state().connect_confirm_flushed);
+    }
+
+    #[test]
+    fn world_stream_ready_over_udp_replays_loading_events() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let timing = ClientSessionTiming {
+            keepalive_interval_ms: 60_000,
+            client_snapshot_interval_ms: 60_000,
+            connect_timeout_ms: 120_000,
+            timeout_ms: 120_000,
+        };
+        let mut session =
+            ClientSession::from_remote_manifest_with_timing(&manifest, "fr", timing).unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "sendMessage" && entry.params.len() == 1)
+            .unwrap()
+            .packet_id;
+        let queued_message = encode_packet(
+            packet_id,
+            &encode_typeio_string_payload("[accent]queued over udp"),
+            false,
+        )
+        .unwrap();
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+
+        let server = UdpSocket::bind("127.0.0.1:0").unwrap();
+        server.set_nonblocking(true).unwrap();
+        let server_addr = server.local_addr().unwrap();
+
+        let client = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let driver = UdpSessionDriver::new(client, server_addr).unwrap();
+        let client_addr = driver.local_addr().unwrap();
+
+        server.send_to(&begin_packet, client_addr).unwrap();
+        server.send_to(&queued_message, client_addr).unwrap();
+        for chunk in &chunk_packets {
+            server.send_to(chunk, client_addr).unwrap();
+        }
+
+        let report = driver.tick(&mut session, 1, 32).unwrap();
+        assert!(report
+            .events
+            .iter()
+            .any(|event| matches!(event, ClientSessionEvent::ServerMessage { message } if message == "[accent]queued over udp")));
+        assert!(report
+            .events
+            .iter()
+            .any(|event| matches!(event, ClientSessionEvent::WorldStreamReady { .. })));
     }
 
     #[test]
