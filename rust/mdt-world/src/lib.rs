@@ -1042,6 +1042,12 @@ pub struct SaveEntityChunkSurface<'a> {
     pub body_sha256: &'a str,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SaveEntityRemapSurface<'a> {
+    pub custom_id: u16,
+    pub name: &'a str,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SaveEntityClassKind {
     Builtin,
@@ -1322,6 +1328,13 @@ impl SavePostLoadWorldObservation {
         self.runtime_seed_plan().runtime_seed_surface()
     }
 
+    pub fn entity_remap_surfaces(&self) -> Vec<SaveEntityRemapSurface<'_>> {
+        self.entity_remap_entries
+            .iter()
+            .map(SaveEntityRemapEntry::surface)
+            .collect()
+    }
+
     pub fn world_entity_chunk_surfaces(&self) -> Vec<SaveEntityChunkSurface<'_>> {
         self.world_entity_chunks
             .iter()
@@ -1466,7 +1479,23 @@ impl SaveEntityChunkObservation {
     }
 }
 
+impl SaveEntityRemapEntry {
+    pub fn surface(&self) -> SaveEntityRemapSurface<'_> {
+        SaveEntityRemapSurface {
+            custom_id: self.custom_id,
+            name: &self.name,
+        }
+    }
+}
+
 impl SaveEntityRegionObservation {
+    pub fn remap_surfaces(&self) -> Vec<SaveEntityRemapSurface<'_>> {
+        self.remap_entries
+            .iter()
+            .map(SaveEntityRemapEntry::surface)
+            .collect()
+    }
+
     pub fn entity_chunk_surfaces(&self) -> Vec<SaveEntityChunkSurface<'_>> {
         self.entity_chunks
             .iter()
@@ -40470,6 +40499,14 @@ mod tests {
                 name: "mod-unit".to_string(),
             }]
         );
+        let remap_surfaces = save.entities.remap_surfaces();
+        assert_eq!(
+            remap_surfaces,
+            vec![SaveEntityRemapSurface {
+                custom_id: 3,
+                name: "mod-unit",
+            }]
+        );
         assert_eq!(save.entities.team_count, 1);
         assert_eq!(save.entities.total_plans, 1);
         let surfaces = save.region_surfaces();
@@ -41324,6 +41361,13 @@ mod tests {
         assert_eq!(
             post_load.world_entity_count,
             save.entities.world_entity_count
+        );
+        assert_eq!(
+            post_load.entity_remap_surfaces(),
+            vec![SaveEntityRemapSurface {
+                custom_id: 3,
+                name: "mod-unit",
+            }]
         );
         assert_eq!(
             post_load.world_entity_bytes,
