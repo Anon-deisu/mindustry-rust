@@ -18,9 +18,9 @@ mod save_post_load_runtime_apply_batches;
 mod save_post_load_runtime_execution;
 mod save_post_load_runtime_execution_view;
 mod save_post_load_runtime_readiness;
-mod save_post_load_runtime_source_region;
 mod save_post_load_runtime_script;
 mod save_post_load_runtime_seed_plan;
+mod save_post_load_runtime_source_region;
 mod save_post_load_runtime_world_ownership;
 
 pub use save_post_load_activation::{
@@ -110,6 +110,21 @@ pub struct PayloadCampaignCompoundSummary {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorldGraphSummary {
     pub lines: Vec<(String, String)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LogicProcessorCompressedLinkSummary {
+    pub name: String,
+    pub x: i16,
+    pub y: i16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LogicProcessorCompressedConfigSummary {
+    pub version: u8,
+    pub code: String,
+    pub link_count: usize,
+    pub links: Vec<LogicProcessorCompressedLinkSummary>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -16181,6 +16196,50 @@ pub fn parse_world_model(compressed: &[u8]) -> Result<WorldModel, String> {
     Ok(parse_world_bundle(compressed)?.world)
 }
 
+pub fn parse_logic_processor_compressed_config_summary(
+    compressed: &[u8],
+) -> Result<LogicProcessorCompressedConfigSummary, String> {
+    let inflated = inflate_zlib(compressed)?;
+    let mut reader = Reader::new(&inflated);
+
+    let version = reader.read_u8()?;
+    let code_len = read_non_negative_i32_len("logic processor code length", reader.read_i32()?)?;
+    let code = String::from_utf8(reader.read_exact_vec(code_len)?)
+        .map_err(|error| format!("invalid UTF-8 logic processor code: {error}"))?;
+    let link_count = read_non_negative_i32_len("logic processor link count", reader.read_i32()?)?;
+
+    let links = if version == 0 {
+        for _ in 0..link_count {
+            reader.read_i32()?;
+        }
+        Vec::new()
+    } else {
+        let mut links = Vec::with_capacity(link_count);
+        for _ in 0..link_count {
+            links.push(LogicProcessorCompressedLinkSummary {
+                name: read_java_modified_utf(&mut reader)?,
+                x: reader.read_i16()?,
+                y: reader.read_i16()?,
+            });
+        }
+        links
+    };
+
+    if reader.remaining_len() != 0 {
+        return Err(format!(
+            "unexpected trailing logic processor config bytes: {}",
+            reader.remaining_len()
+        ));
+    }
+
+    Ok(LogicProcessorCompressedConfigSummary {
+        version,
+        code,
+        link_count,
+        links,
+    })
+}
+
 pub fn generate_team_plan_sample_bytes() -> Vec<u8> {
     let mut out = Vec::new();
     out.extend_from_slice(&1u32.to_be_bytes());
@@ -24497,11 +24556,9 @@ fn parse_building_tail_with_context(
         | Some("directional-unloader")
         | Some("unit-cargo-unload-point")
         | Some("item-source")
-        | Some("liquid-source") => {
-            Ok(ParsedBuildingTail::NullableItemRef(
-                parse_nullable_item_ref_tail_snapshot(block_name, revision, tail_bytes)?,
-            ))
-        }
+        | Some("liquid-source") => Ok(ParsedBuildingTail::NullableItemRef(
+            parse_nullable_item_ref_tail_snapshot(block_name, revision, tail_bytes)?,
+        )),
         Some("sorter") | Some("inverted-sorter") if revision >= 2 => {
             Ok(ParsedBuildingTail::NullableItemRef(
                 parse_nullable_item_ref_tail_snapshot(block_name, revision, tail_bytes)?,
@@ -28975,6 +29032,90 @@ fn inflate_zlib(bytes: &[u8]) -> Result<Vec<u8>, String> {
     let mut out = Vec::new();
     decoder.read_to_end(&mut out).map_err(|e| e.to_string())?;
     Ok(out)
+}
+
+fn read_java_modified_utf(reader: &mut Reader<'_>) -> Result<String, String> {
+    let len = reader.read_u16()? as usize;
+    decode_java_modified_utf(&reader.read_exact_vec(len)?)
+}
+
+fn decode_java_modified_utf(bytes: &[u8]) -> Result<String, String> {
+    let mut utf16 = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        let first = bytes[index];
+        if first & 0x80 == 0 {
+            utf16.push(first as u16);
+            index += 1;
+            continue;
+        }
+
+        if first & 0xe0 == 0xc0 {
+            if index + 1 >= bytes.len() {
+                return Err("truncated Java modified UTF-8 two-byte sequence".to_string());
+            }
+            let second = bytes[index + 1];
+            if second & 0xc0 != 0x80 {
+                return Err(format!(
+                    "invalid Java modified UTF-8 continuation byte: 0x{second:02x}"
+                ));
+            }
+            utf16.push((((first & 0x1f) as u16) << 6) | (second & 0x3f) as u16);
+            index += 2;
+            continue;
+        }
+
+        if first & 0xf0 == 0xe0 {
+            if index + 2 >= bytes.len() {
+                return Err("truncated Java modified UTF-8 three-byte sequence".to_string());
+            }
+            let second = bytes[index + 1];
+            let third = bytes[index + 2];
+            if second & 0xc0 != 0x80 || third & 0xc0 != 0x80 {
+                return Err("invalid Java modified UTF-8 continuation bytes".to_string());
+            }
+            utf16.push(
+                (((first & 0x0f) as u16) << 12)
+                    | (((second & 0x3f) as u16) << 6)
+                    | (third & 0x3f) as u16,
+            );
+            index += 3;
+            continue;
+        }
+
+        return Err(format!(
+            "unsupported Java modified UTF-8 leading byte: 0x{first:02x}"
+        ));
+    }
+
+    String::from_utf16(&utf16).map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+fn write_java_modified_utf(out: &mut Vec<u8>, value: &str) -> Result<(), String> {
+    let mut encoded = Vec::with_capacity(value.len());
+    for unit in value.encode_utf16() {
+        match unit {
+            0x0001..=0x007f => encoded.push(unit as u8),
+            0x0000..=0x07ff => {
+                encoded.push(0xc0 | ((unit >> 6) as u8));
+                encoded.push(0x80 | ((unit & 0x3f) as u8));
+            }
+            _ => {
+                encoded.push(0xe0 | ((unit >> 12) as u8));
+                encoded.push(0x80 | (((unit >> 6) & 0x3f) as u8));
+                encoded.push(0x80 | ((unit & 0x3f) as u8));
+            }
+        }
+    }
+
+    let len: u16 = encoded
+        .len()
+        .try_into()
+        .map_err(|_| "java modified utf string too long".to_string())?;
+    out.extend_from_slice(&len.to_be_bytes());
+    out.extend_from_slice(&encoded);
+    Ok(())
 }
 
 fn read_msav_zlib_header(bytes: &[u8]) -> Result<MsavZlibHeader, String> {
@@ -39760,7 +39901,9 @@ impl<'a> Reader<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use flate2::{write::ZlibEncoder, Compression};
     use std::collections::HashMap;
+    use std::io::Write;
 
     fn sample_world_stream_bytes() -> Vec<u8> {
         let hex = include_str!("../../../tests/src/test/resources/world-stream.hex")
@@ -39769,6 +39912,45 @@ mod tests {
             .step_by(2)
             .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
             .collect::<Vec<_>>()
+    }
+
+    fn compress_logic_processor_config_bytes(bytes: &[u8]) -> Vec<u8> {
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(bytes).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    fn sample_logic_processor_compressed_config(
+        version: u8,
+        code: &str,
+        links: &[(&str, i16, i16)],
+    ) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.push(version);
+        bytes.extend_from_slice(&(code.as_bytes().len() as i32).to_be_bytes());
+        bytes.extend_from_slice(code.as_bytes());
+        bytes.extend_from_slice(&(links.len() as i32).to_be_bytes());
+        for (name, x, y) in links {
+            write_java_modified_utf(&mut bytes, name).unwrap();
+            bytes.extend_from_slice(&x.to_be_bytes());
+            bytes.extend_from_slice(&y.to_be_bytes());
+        }
+        compress_logic_processor_config_bytes(&bytes)
+    }
+
+    fn sample_legacy_logic_processor_compressed_config(
+        code: &str,
+        legacy_links: &[i32],
+    ) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.push(0);
+        bytes.extend_from_slice(&(code.as_bytes().len() as i32).to_be_bytes());
+        bytes.extend_from_slice(code.as_bytes());
+        bytes.extend_from_slice(&(legacy_links.len() as i32).to_be_bytes());
+        for link in legacy_links {
+            bytes.extend_from_slice(&link.to_be_bytes());
+        }
+        compress_logic_processor_config_bytes(&bytes)
     }
 
     fn decode_hex_text(text: &str) -> Vec<u8> {
@@ -40093,7 +40275,10 @@ mod tests {
             let reparsed_envelope = read_msav_envelope(&bytes).unwrap();
 
             assert_eq!(reparsed_envelope.header, original.envelope.header);
-            assert_eq!(reparsed_envelope.save_version, original.envelope.save_version);
+            assert_eq!(
+                reparsed_envelope.save_version,
+                original.envelope.save_version
+            );
             assert_eq!(
                 reparsed_envelope.leading_region_length,
                 original.envelope.leading_region_length
@@ -40110,7 +40295,11 @@ mod tests {
     #[test]
     fn parses_msav_region_matrix_for_save7_through_save10() {
         for (save_version, expected_regions, expect_markers) in [
-            (7, vec!["meta", "content", "map", "entities", "custom"], false),
+            (
+                7,
+                vec!["meta", "content", "map", "entities", "custom"],
+                false,
+            ),
             (
                 8,
                 vec!["meta", "content", "map", "entities", "markers", "custom"],
@@ -40387,7 +40576,10 @@ mod tests {
         let remap_summary = parsed.post_load_remap_summary();
 
         assert_eq!(first.custom_name.as_deref(), Some("mod-alpha"));
-        assert_eq!(first.post_load_kind(), SaveEntityPostLoadKind::UnresolvedCustom);
+        assert_eq!(
+            first.post_load_kind(),
+            SaveEntityPostLoadKind::UnresolvedCustom
+        );
         assert_eq!(first.post_load_class_id(), None);
         assert_eq!(first.post_load_resolved_name().as_deref(), None);
         assert!(first.would_post_load_skip());
@@ -40802,7 +40994,10 @@ mod tests {
         assert_eq!(map_region.awaiting_world_shell_step_count, 0);
         assert_eq!(map_region.blocked_step_count, 0);
         assert_eq!(map_region.deferred_step_count, 0);
-        assert_eq!(map_region.blockers, Vec::<SavePostLoadConsumerBlocker>::new());
+        assert_eq!(
+            map_region.blockers,
+            Vec::<SavePostLoadConsumerBlocker>::new()
+        );
         assert!(!map_region.has_blockers());
         assert!(!map_region.has_pending_world_shell());
         assert!(!map_region.has_deferred());
@@ -40816,7 +41011,10 @@ mod tests {
         );
         assert_eq!(entities_region.awaiting_world_shell_step_count, 0);
         assert_eq!(entities_region.blocked_step_count, 0);
-        assert_eq!(entities_region.deferred_step_count, plan.skipped_entity_seeds.len());
+        assert_eq!(
+            entities_region.deferred_step_count,
+            plan.skipped_entity_seeds.len()
+        );
         assert_eq!(
             entities_region.blockers,
             vec![SavePostLoadConsumerBlocker::SkippedEntity {
@@ -41159,13 +41357,22 @@ mod tests {
         assert!(!map_region.has_deferred());
 
         let entities_region = readiness.source_region("entities").unwrap();
-        assert_eq!(entities_region.apply_now_step_count, plan.entity_remap_seeds.len());
+        assert_eq!(
+            entities_region.apply_now_step_count,
+            plan.entity_remap_seeds.len()
+        );
         assert_eq!(
             entities_region.awaiting_world_shell_step_count,
             plan.loadable_entity_seeds.len()
         );
-        assert_eq!(entities_region.blocked_step_count, plan.team_plan_seeds.len());
-        assert_eq!(entities_region.deferred_step_count, plan.skipped_entity_seeds.len());
+        assert_eq!(
+            entities_region.blocked_step_count,
+            plan.team_plan_seeds.len()
+        );
+        assert_eq!(
+            entities_region.deferred_step_count,
+            plan.skipped_entity_seeds.len()
+        );
         assert_eq!(
             entities_region.blockers,
             vec![
@@ -41471,7 +41678,10 @@ mod tests {
             assert_eq!(snapshot.base.save_version, Some(3));
             assert_eq!(snapshot.base.enabled, Some(true));
             assert_eq!(snapshot.base.module_bitmask, Some(2));
-            assert_eq!(snapshot.base.power_module, Some(expected_power_module.clone()));
+            assert_eq!(
+                snapshot.base.power_module,
+                Some(expected_power_module.clone())
+            );
             assert_eq!(snapshot.base.efficiency, Some(128));
             assert_eq!(snapshot.base.optional_efficiency, Some(64));
             assert_eq!(snapshot.tail_bytes, Vec::<u8>::new());
@@ -43275,7 +43485,8 @@ mod tests {
             ParsedBuildingTail::NullableItemRef(NullableItemRefTailSnapshot { item_id: Some(5) })
         );
 
-        let item_source = parse_building_tail(Some("item-source"), 0, &(6u16).to_be_bytes()).unwrap();
+        let item_source =
+            parse_building_tail(Some("item-source"), 0, &(6u16).to_be_bytes()).unwrap();
         assert_eq!(
             item_source,
             ParsedBuildingTail::NullableItemRef(NullableItemRefTailSnapshot { item_id: Some(6) })
@@ -54255,5 +54466,47 @@ mod tests {
                 "sample={sample_name}"
             );
         }
+    }
+
+    #[test]
+    fn parses_logic_processor_compressed_config_summary_current_format() {
+        let compressed = sample_logic_processor_compressed_config(
+            1,
+            "print \"ok\"",
+            &[("alpha", 12, -3), ("零\0号", -7, 42)],
+        );
+
+        let summary = parse_logic_processor_compressed_config_summary(&compressed).unwrap();
+
+        assert_eq!(summary.version, 1);
+        assert_eq!(summary.code, "print \"ok\"");
+        assert_eq!(summary.link_count, 2);
+        assert_eq!(
+            summary.links,
+            vec![
+                LogicProcessorCompressedLinkSummary {
+                    name: "alpha".to_string(),
+                    x: 12,
+                    y: -3,
+                },
+                LogicProcessorCompressedLinkSummary {
+                    name: "零\0号".to_string(),
+                    x: -7,
+                    y: 42,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn parses_logic_processor_compressed_config_summary_legacy_version_zero() {
+        let compressed = sample_legacy_logic_processor_compressed_config("end", &[11, 29, 47]);
+
+        let summary = parse_logic_processor_compressed_config_summary(&compressed).unwrap();
+
+        assert_eq!(summary.version, 0);
+        assert_eq!(summary.code, "end");
+        assert_eq!(summary.link_count, 3);
+        assert!(summary.links.is_empty());
     }
 }
