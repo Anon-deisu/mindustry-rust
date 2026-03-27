@@ -4592,7 +4592,7 @@ fn typed_runtime_building_model(
                 },
             )
         }
-        "wave" | "tsunami" | "lancer" | "arc" | "meltdown" | "afflict" | "malign" => (
+        "wave" | "tsunami" | "lancer" | "arc" | "meltdown" | "afflict" | "malign" | "segment" => (
             TypedBuildingRuntimeKind::Turret,
             TypedBuildingRuntimeValue::Turret {
                 reload_counter_bits: building.turret_reload_counter_bits,
@@ -12870,68 +12870,72 @@ mod tests {
     fn session_state_runtime_typed_building_projection_supports_turret_family_variants() {
         let mut state = SessionState::default();
 
-        let turret_pos = 0x0009_000bi32;
-        state
-            .building_table_projection
-            .apply_block_snapshot_head_with_tail_summary(
-                turret_pos,
-                304,
-                Some("lancer".to_string()),
-                Some(1),
-                Some(2),
-                Some(3),
-                Some(4),
-                None,
-                None,
-                None,
-                None,
-                None,
-                Some(0x40b0_0000),
-                Some(true),
-                Some(0x10),
-                Some(0x08),
-                Some(11),
-                BuildingTailSummaryProjection {
-                    turret_reload_counter_bits: Some(0x3f80_0000),
-                    turret_rotation_bits: Some(0x4120_0000),
-                    ..BuildingTailSummaryProjection::default()
-                },
+        for (turret_pos, block_id, block_name) in [
+            (0x0009_000bi32, 304, "lancer"),
+            (0x0009_000ci32, 307, "segment"),
+        ] {
+            state
+                .building_table_projection
+                .apply_block_snapshot_head_with_tail_summary(
+                    turret_pos,
+                    block_id,
+                    Some(block_name.to_string()),
+                    Some(1),
+                    Some(2),
+                    Some(3),
+                    Some(4),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(0x40b0_0000),
+                    Some(true),
+                    Some(0x10),
+                    Some(0x08),
+                    Some(11),
+                    BuildingTailSummaryProjection {
+                        turret_reload_counter_bits: Some(0x3f80_0000),
+                        turret_rotation_bits: Some(0x4120_0000),
+                        ..BuildingTailSummaryProjection::default()
+                    },
+                );
+            assert_eq!(
+                state.typed_runtime_building_at(turret_pos),
+                Some(expected_typed_runtime_building(
+                    turret_pos,
+                    block_id,
+                    block_name,
+                    TypedBuildingRuntimeKind::Turret,
+                    TypedBuildingRuntimeValue::Turret {
+                        reload_counter_bits: Some(0x3f80_0000),
+                        rotation_bits: Some(0x4120_0000),
+                    },
+                    Vec::new(),
+                    Some(1),
+                    Some(2),
+                    Some(3),
+                    Some(4),
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(0x40b0_0000),
+                    Some(true),
+                    Some(0x10),
+                    Some(0x08),
+                    Some(11),
+                    Some(0x3f80_0000),
+                    Some(0x4120_0000),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    BuildingProjectionUpdateKind::BlockSnapshotHead,
+                ))
             );
-        assert_eq!(
-            state.typed_runtime_building_at(turret_pos),
-            Some(expected_typed_runtime_building(
-                turret_pos,
-                304,
-                "lancer",
-                TypedBuildingRuntimeKind::Turret,
-                TypedBuildingRuntimeValue::Turret {
-                    reload_counter_bits: Some(0x3f80_0000),
-                    rotation_bits: Some(0x4120_0000),
-                },
-                Vec::new(),
-                Some(1),
-                Some(2),
-                Some(3),
-                Some(4),
-                None,
-                None,
-                None,
-                None,
-                Some(0x40b0_0000),
-                Some(true),
-                Some(0x10),
-                Some(0x08),
-                Some(11),
-                Some(0x3f80_0000),
-                Some(0x4120_0000),
-                None,
-                None,
-                None,
-                None,
-                None,
-                BuildingProjectionUpdateKind::BlockSnapshotHead,
-            ))
-        );
+        }
 
         let item_turret_pos = 0x000a_000ci32;
         state
