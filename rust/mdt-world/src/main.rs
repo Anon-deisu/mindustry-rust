@@ -744,10 +744,25 @@ fn decode_hex_text(text: &str) -> Result<Vec<u8>, Box<dyn Error>> {
     let compact = text
         .chars()
         .filter(|c| !c.is_whitespace())
-        .collect::<String>();
+        .collect::<Vec<char>>();
+    if compact.len() % 2 != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "hex payload length must be even",
+        )
+        .into());
+    }
     let mut bytes = Vec::with_capacity(compact.len() / 2);
-    for i in (0..compact.len()).step_by(2) {
-        bytes.push(u8::from_str_radix(&compact[i..i + 2], 16)?);
+    for (index, chunk) in compact.chunks_exact(2).enumerate() {
+        let mut pair = String::with_capacity(2);
+        pair.push(chunk[0]);
+        pair.push(chunk[1]);
+        bytes.push(u8::from_str_radix(&pair, 16).map_err(|err| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("invalid hex at byte {}: {err}", index),
+            )
+        })?);
     }
     Ok(bytes)
 }
@@ -796,4 +811,24 @@ fn read_text_from_candidates(
         format!("missing {label}; checked: {checked}"),
     )
     .into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::decode_hex_text;
+
+    #[test]
+    fn decode_hex_text_rejects_odd_length() {
+        let err = decode_hex_text("abc").unwrap_err();
+        assert_eq!(err.to_string(), "hex payload length must be even");
+    }
+
+    #[test]
+    fn decode_hex_text_rejects_invalid_nibble() {
+        let err = decode_hex_text("0g").unwrap_err();
+        assert!(
+            err.to_string().starts_with("invalid hex at byte 0:"),
+            "{err}"
+        );
+    }
 }
