@@ -74,6 +74,23 @@ pub struct CommandModeStanceSelection {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandModeRecentControlGroupOperation {
+    Bind,
+    Recall,
+    Clear,
+}
+
+impl CommandModeRecentControlGroupOperation {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Bind => "group-bind",
+            Self::Recall => "group-recall",
+            Self::Clear => "group-clear",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommandModeSelectionOp {
     Replace,
     Add,
@@ -87,6 +104,7 @@ pub struct CommandModeProjection {
     pub command_buildings: Vec<i32>,
     pub command_rect: Option<CommandModeRectProjection>,
     pub control_groups: Vec<CommandModeControlGroupProjection>,
+    pub last_control_group_operation: Option<CommandModeRecentControlGroupOperation>,
     pub last_target: Option<CommandModeTargetProjection>,
     pub last_command_selection: Option<CommandModeCommandSelection>,
     pub last_stance_selection: Option<CommandModeStanceSelection>,
@@ -99,6 +117,7 @@ pub struct CommandModeProjectionSummary {
     pub command_building_count: usize,
     pub control_group_count: usize,
     pub has_command_rect: bool,
+    pub recent_control_group_operation: Option<CommandModeRecentControlGroupOperation>,
     pub has_recent_target: bool,
     pub has_recent_command_selection: bool,
     pub has_recent_stance_selection: bool,
@@ -111,9 +130,16 @@ impl CommandModeProjectionSummary {
             && self.command_building_count == 0
             && self.control_group_count == 0
             && !self.has_command_rect
+            && self.recent_control_group_operation.is_none()
             && !self.has_recent_target
             && !self.has_recent_command_selection
             && !self.has_recent_stance_selection
+    }
+
+    pub fn recent_control_group_label(self) -> &'static str {
+        self.recent_control_group_operation
+            .map(CommandModeRecentControlGroupOperation::label)
+            .unwrap_or("none")
     }
 
     pub fn recent_selection_label(self) -> &'static str {
@@ -148,6 +174,8 @@ impl CommandModeProjectionSummary {
                 "buildings"
             } else if self.selected_unit_count > 0 {
                 "units"
+            } else if let Some(operation) = self.recent_control_group_operation {
+                operation.label()
             } else {
                 "active"
             }
@@ -162,6 +190,7 @@ pub struct CommandModeState {
     command_buildings: Vec<i32>,
     command_rect: Option<CommandModeRectProjection>,
     control_groups: Vec<CommandModeControlGroupProjection>,
+    last_control_group_operation: Option<CommandModeRecentControlGroupOperation>,
     last_target: Option<CommandModeTargetProjection>,
     last_command_selection: Option<CommandModeCommandSelection>,
     last_stance_selection: Option<CommandModeStanceSelection>,
@@ -173,6 +202,7 @@ impl CommandModeState {
         self.selected_units.clear();
         self.command_buildings.clear();
         self.command_rect = None;
+        self.last_control_group_operation = None;
         self.last_target = None;
         self.last_command_selection = None;
         self.last_stance_selection = None;
@@ -209,6 +239,7 @@ impl CommandModeState {
             self.control_groups.push(projection);
             self.control_groups.sort_by_key(|group| group.index);
         }
+        self.last_control_group_operation = Some(CommandModeRecentControlGroupOperation::Bind);
     }
 
     pub fn recall_control_group(&mut self, index: u8) -> bool {
@@ -225,13 +256,18 @@ impl CommandModeState {
         self.command_buildings.clear();
         self.command_rect = None;
         self.clear_recent_selections();
+        self.last_control_group_operation = Some(CommandModeRecentControlGroupOperation::Recall);
         true
     }
 
     pub fn clear_control_group(&mut self, index: u8) -> bool {
         let before = self.control_groups.len();
         self.control_groups.retain(|group| group.index != index);
-        before != self.control_groups.len()
+        let changed = before != self.control_groups.len();
+        if changed {
+            self.last_control_group_operation = Some(CommandModeRecentControlGroupOperation::Clear);
+        }
+        changed
     }
 
     pub fn set_command_rect(&mut self, rect: Option<CommandModeRectProjection>) {
@@ -385,6 +421,7 @@ impl CommandModeState {
             command_buildings: self.command_buildings.clone(),
             command_rect: self.command_rect,
             control_groups: self.control_groups.clone(),
+            last_control_group_operation: self.last_control_group_operation,
             last_target: self.last_target,
             last_command_selection: self.last_command_selection,
             last_stance_selection: self.last_stance_selection,
@@ -404,6 +441,7 @@ impl CommandModeProjection {
             command_building_count: self.command_buildings.len(),
             control_group_count: self.control_groups.len(),
             has_command_rect: self.command_rect.is_some(),
+            recent_control_group_operation: self.last_control_group_operation,
             has_recent_target: self.last_target.is_some_and(|target| !target.is_empty()),
             has_recent_command_selection: self.last_command_selection.is_some(),
             has_recent_stance_selection: self.last_stance_selection.is_some(),
@@ -416,6 +454,10 @@ impl CommandModeProjection {
 
     pub fn recent_selection_label(&self) -> &'static str {
         self.summary().recent_selection_label()
+    }
+
+    pub fn recent_control_group_label(&self) -> &'static str {
+        self.summary().recent_control_group_label()
     }
 }
 
@@ -505,6 +547,7 @@ mod tests {
                 command_building_count: 0,
                 control_group_count: 0,
                 has_command_rect: false,
+                recent_control_group_operation: None,
                 has_recent_target: false,
                 has_recent_command_selection: false,
                 has_recent_stance_selection: false,
@@ -512,6 +555,7 @@ mod tests {
         );
         assert_eq!(empty.summary_label(), "idle");
         assert_eq!(empty.recent_selection_label(), "none");
+        assert_eq!(empty.recent_control_group_label(), "none");
 
         let mut state = CommandModeState::default();
         state.bind_control_group(2, &[9, 9, 7]);
@@ -525,11 +569,16 @@ mod tests {
         assert_eq!(summary.command_building_count, 0);
         assert_eq!(summary.control_group_count, 1);
         assert_eq!(summary.has_command_rect, false);
+        assert_eq!(
+            summary.recent_control_group_operation,
+            Some(CommandModeRecentControlGroupOperation::Bind)
+        );
         assert_eq!(summary.has_recent_target, true);
         assert_eq!(summary.has_recent_command_selection, true);
         assert_eq!(summary.has_recent_stance_selection, true);
         assert_eq!(summary.summary_label(), "target+command+stance");
         assert_eq!(summary.recent_selection_label(), "target+command+stance");
+        assert_eq!(summary.recent_control_group_label(), "group-bind");
     }
 
     #[test]
@@ -557,6 +606,9 @@ mod tests {
                     index: 2,
                     unit_ids: vec![9, 7],
                 }],
+                last_control_group_operation: Some(
+                    CommandModeRecentControlGroupOperation::Bind,
+                ),
                 last_target: Some(CommandModeTargetProjection {
                     build_target: Some(7),
                     unit_target: Some(unit(2, 33)),
@@ -650,6 +702,41 @@ mod tests {
         assert_eq!(state.projection().last_target, None);
         assert_eq!(state.projection().last_command_selection, None);
         assert_eq!(state.projection().last_stance_selection, None);
+    }
+
+    #[test]
+    fn command_mode_projection_summary_tracks_recent_control_group_operations() {
+        let mut bind_state = CommandModeState::default();
+        bind_state.bind_control_group(3, &[10, 20, 20]);
+        let bind_summary = bind_state.projection().summary();
+        assert_eq!(
+            bind_summary.recent_control_group_operation,
+            Some(CommandModeRecentControlGroupOperation::Bind)
+        );
+        assert_eq!(bind_summary.recent_control_group_label(), "group-bind");
+        assert_eq!(bind_summary.summary_label(), "groups");
+
+        let mut recall_state = CommandModeState::default();
+        recall_state.bind_control_group(4, &[30, 40]);
+        assert!(recall_state.recall_control_group(4));
+        let recall_summary = recall_state.projection().summary();
+        assert_eq!(
+            recall_summary.recent_control_group_operation,
+            Some(CommandModeRecentControlGroupOperation::Recall)
+        );
+        assert_eq!(recall_summary.recent_control_group_label(), "group-recall");
+        assert_eq!(recall_summary.summary_label(), "groups");
+
+        let mut clear_state = CommandModeState::default();
+        clear_state.bind_control_group(5, &[50, 60]);
+        assert!(clear_state.clear_control_group(5));
+        let clear_summary = clear_state.projection().summary();
+        assert_eq!(
+            clear_summary.recent_control_group_operation,
+            Some(CommandModeRecentControlGroupOperation::Clear)
+        );
+        assert_eq!(clear_summary.recent_control_group_label(), "group-clear");
+        assert_eq!(clear_summary.summary_label(), "group-clear");
     }
 
     #[test]
