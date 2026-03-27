@@ -31,10 +31,11 @@ use crate::session_state::{
     PickedBuildPayloadProjection, PickedUnitPayloadProjection, ReconnectPhaseProjection,
     ReconnectReasonKind, ReconstructorRuntimeProjection, RemotePlanSnapshotFirstPlanProjection,
     SessionResetKind, SessionState, SessionTimeoutKind, SessionTimeoutProjection,
-    TakeItemsProjection, TileConfigAuthoritySource, TileConfigBusinessApply,
-    TransferItemEffectProjection, TransferItemToProjection, TransferItemToUnitProjection,
-    TypedBuildingRuntimeModel, UnitAssemblerRuntimeProjection, UnitEnteredPayloadProjection,
-    UnitFactoryRuntimeProjection, UnitRefProjection, WorldReloadProjection,
+    SorterRuntimeProjection, TakeItemsProjection, TileConfigAuthoritySource,
+    TileConfigBusinessApply, TransferItemEffectProjection, TransferItemToProjection,
+    TransferItemToUnitProjection, TypedBuildingRuntimeModel, UnitAssemblerRuntimeProjection,
+    UnitEnteredPayloadProjection, UnitFactoryRuntimeProjection, UnitRefProjection,
+    WorldReloadProjection,
 };
 use crate::typed_remote_dispatch::{
     TypedCustomChannelRemoteDispatch, TypedCustomChannelRemoteDispatcher,
@@ -8198,6 +8199,7 @@ impl ClientSession {
                 summarize_payload_mass_driver_link(&building.parsed_tail);
             let payload_mass_driver_runtime =
                 summarize_payload_mass_driver_projection(&building.parsed_tail);
+            let sorter_runtime = summarize_sorter_runtime_projection(&building.parsed_tail);
 
             let entry = BlockSnapshotExtraEntrySummary {
                 build_pos,
@@ -8245,6 +8247,7 @@ impl ClientSession {
                 mass_driver_runtime,
                 payload_mass_driver_link,
                 payload_mass_driver_runtime,
+                sorter_runtime,
                 nullable_item_id: summarize_nullable_item_config_item_id(&building.parsed_tail),
                 item_bridge_link: summarize_item_bridge_link(&building.parsed_tail),
                 light_color: summarize_one_i32_tail_value(&building.parsed_tail),
@@ -8439,6 +8442,19 @@ impl ClientSession {
                 _ => {}
             }
         }
+        if let Some(projection) = summarize_sorter_runtime_projection(parsed_tail) {
+            match block_name {
+                Some(BLOCK_NAME_SORTER) => self
+                    .state
+                    .configured_block_projection
+                    .apply_sorter_runtime(build_pos, projection),
+                Some(BLOCK_NAME_INVERTED_SORTER) => self
+                    .state
+                    .configured_block_projection
+                    .apply_inverted_sorter_runtime(build_pos, projection),
+                _ => {}
+            }
+        }
         if let Some(link) = summarize_item_bridge_link(parsed_tail) {
             if matches!(
                 block_name,
@@ -8622,6 +8638,19 @@ impl ClientSession {
                     .state
                     .configured_block_projection
                     .apply_duct_router_item(entry.build_pos, item_id),
+                _ => {}
+            }
+        }
+        if let Some(projection) = entry.sorter_runtime.clone() {
+            match entry.block_name.as_deref() {
+                Some(BLOCK_NAME_SORTER) => self
+                    .state
+                    .configured_block_projection
+                    .apply_sorter_runtime(entry.build_pos, projection),
+                Some(BLOCK_NAME_INVERTED_SORTER) => self
+                    .state
+                    .configured_block_projection
+                    .apply_inverted_sorter_runtime(entry.build_pos, projection),
                 _ => {}
             }
         }
@@ -13055,6 +13084,7 @@ struct BlockSnapshotExtraEntrySummary {
     mass_driver_runtime: Option<MassDriverRuntimeProjection>,
     payload_mass_driver_link: Option<i32>,
     payload_mass_driver_runtime: Option<PayloadMassDriverRuntimeProjection>,
+    sorter_runtime: Option<SorterRuntimeProjection>,
     nullable_item_id: Option<Option<i16>>,
     item_bridge_link: Option<i32>,
     light_color: Option<i32>,
@@ -13673,6 +13703,35 @@ fn summarize_nullable_item_config_item_id(
         }
         _ => None,
     }
+}
+
+fn summarize_sorter_runtime_projection(
+    parsed_tail: &mdt_world::ParsedBuildingTail,
+) -> Option<SorterRuntimeProjection> {
+    let mdt_world::ParsedBuildingTail::SorterLegacy(sorter) = parsed_tail else {
+        return None;
+    };
+    let non_empty_side_mask = sorter.buffer.sides.iter().fold(0u8, |mask, side| {
+        let Some(side_index) = u8::try_from(side.index).ok() else {
+            return mask;
+        };
+        if side_index >= 8 || side.entries.is_empty() {
+            mask
+        } else {
+            mask | (1u8 << side_index)
+        }
+    });
+    let buffered_item_count = sorter
+        .buffer
+        .sides
+        .iter()
+        .map(|side| side.entries.len())
+        .sum::<usize>();
+    Some(SorterRuntimeProjection {
+        legacy: sorter.buffer.legacy,
+        non_empty_side_mask,
+        buffered_item_count: u16::try_from(buffered_item_count).unwrap_or(u16::MAX),
+    })
 }
 
 fn summarize_item_bridge_link(parsed_tail: &mdt_world::ParsedBuildingTail) -> Option<i32> {
@@ -21493,6 +21552,7 @@ mod tests {
                 mass_driver_runtime: None,
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
+                sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -21581,6 +21641,7 @@ mod tests {
                 mass_driver_runtime: None,
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
+                sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -21660,6 +21721,7 @@ mod tests {
                 mass_driver_runtime: None,
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
+                sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -21761,6 +21823,7 @@ mod tests {
                 mass_driver_runtime: None,
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
+                sorter_runtime: None,
                 nullable_item_id: Some(Some(7)),
                 item_bridge_link: None,
                 light_color: None,
@@ -21821,6 +21884,7 @@ mod tests {
                 mass_driver_runtime: None,
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
+                sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -22368,6 +22432,52 @@ mod tests {
     }
 
     #[test]
+    fn summarize_sorter_runtime_projection_extracts_runtime() {
+        assert_eq!(
+            summarize_sorter_runtime_projection(&mdt_world::ParsedBuildingTail::SorterLegacy(
+                mdt_world::SorterLegacyTailSnapshot {
+                    item_id: Some(7),
+                    buffer: mdt_world::DirectionalItemBufferTailSnapshot {
+                        legacy: true,
+                        sides: vec![
+                            mdt_world::DirectionalBufferSideSnapshot {
+                                index: 0,
+                                capacity: 2,
+                                entries: vec![mdt_world::DirectionalBufferEntrySnapshot {
+                                    raw: 0,
+                                    item_id: 7,
+                                    time_bits: 0x3f80_0000,
+                                }],
+                            },
+                            mdt_world::DirectionalBufferSideSnapshot {
+                                index: 2,
+                                capacity: 3,
+                                entries: vec![
+                                    mdt_world::DirectionalBufferEntrySnapshot {
+                                        raw: 0,
+                                        item_id: 8,
+                                        time_bits: 0x3f00_0000,
+                                    },
+                                    mdt_world::DirectionalBufferEntrySnapshot {
+                                        raw: 0,
+                                        item_id: 9,
+                                        time_bits: 0x3f20_0000,
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                },
+            )),
+            Some(SorterRuntimeProjection {
+                legacy: true,
+                non_empty_side_mask: 0x05,
+                buffered_item_count: 3,
+            })
+        );
+    }
+
+    #[test]
     fn loaded_world_tail_business_helper_applies_additional_configured_tail_projection() {
         let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let payload_source_pos = pack_build_pos_for_block_snapshot_test(32, 33);
@@ -22615,6 +22725,18 @@ mod tests {
                 .sorter_item_by_build_pos
                 .get(&sorter_pos),
             Some(&Some(item_id))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .sorter_runtime_by_build_pos
+                .get(&sorter_pos),
+            Some(&SorterRuntimeProjection {
+                legacy: true,
+                non_empty_side_mask: 0,
+                buffered_item_count: 0,
+            })
         );
         assert_eq!(
             session
@@ -23529,6 +23651,7 @@ mod tests {
                 mass_driver_runtime: None,
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
+                sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -23579,6 +23702,7 @@ mod tests {
                 mass_driver_runtime: None,
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
+                sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -23626,6 +23750,7 @@ mod tests {
                 mass_driver_runtime: None,
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
+                sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -23752,6 +23877,7 @@ mod tests {
                 mass_driver_runtime: None,
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
+                sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -23799,6 +23925,7 @@ mod tests {
                 mass_driver_runtime: None,
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
+                sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -23880,6 +24007,11 @@ mod tests {
                 mass_driver_runtime: None,
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
+                sorter_runtime: Some(SorterRuntimeProjection {
+                    legacy: true,
+                    non_empty_side_mask: 0x05,
+                    buffered_item_count: 3,
+                }),
                 nullable_item_id: Some(Some(item_id)),
                 item_bridge_link: None,
                 light_color: None,
@@ -23927,6 +24059,7 @@ mod tests {
                 mass_driver_runtime: None,
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
+                sorter_runtime: None,
                 nullable_item_id: Some(None),
                 item_bridge_link: None,
                 light_color: None,
@@ -23974,6 +24107,7 @@ mod tests {
                 mass_driver_runtime: None,
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
+                sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: Some(14),
                 light_color: None,
@@ -24021,6 +24155,7 @@ mod tests {
                 mass_driver_runtime: None,
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
+                sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: Some(16),
                 light_color: None,
@@ -24071,6 +24206,7 @@ mod tests {
                 }),
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
+                sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -24118,6 +24254,7 @@ mod tests {
                 mass_driver_runtime: None,
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
+                sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: Some(0x55667788),
@@ -24165,6 +24302,7 @@ mod tests {
                 mass_driver_runtime: None,
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
+                sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -24212,6 +24350,7 @@ mod tests {
                 mass_driver_runtime: None,
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
+                sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -24228,6 +24367,18 @@ mod tests {
                 .sorter_item_by_build_pos
                 .get(&sorter_pos),
             Some(&Some(item_id))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .sorter_runtime_by_build_pos
+                .get(&sorter_pos),
+            Some(&SorterRuntimeProjection {
+                legacy: true,
+                non_empty_side_mask: 0x05,
+                buffered_item_count: 3,
+            })
         );
         assert_eq!(
             session
@@ -24346,6 +24497,7 @@ mod tests {
                 mass_driver_runtime: None,
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
+                sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -24451,6 +24603,7 @@ mod tests {
                 mass_driver_runtime: None,
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
+                sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -24576,6 +24729,7 @@ mod tests {
                 mass_driver_runtime: None,
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
+                sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -24710,6 +24864,7 @@ mod tests {
                 mass_driver_runtime: None,
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
+                sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -24825,6 +24980,7 @@ mod tests {
                 mass_driver_runtime: None,
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
+                sorter_runtime: None,
                 nullable_item_id: Some(Some(item_id)),
                 item_bridge_link: None,
                 light_color: None,
@@ -24872,6 +25028,7 @@ mod tests {
                 mass_driver_runtime: None,
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
+                sorter_runtime: None,
                 nullable_item_id: Some(Some(item_id)),
                 item_bridge_link: None,
                 light_color: None,
@@ -24919,6 +25076,7 @@ mod tests {
                 mass_driver_runtime: None,
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
+                sorter_runtime: None,
                 nullable_item_id: Some(Some(liquid_id)),
                 item_bridge_link: None,
                 light_color: None,
@@ -25071,6 +25229,7 @@ mod tests {
                 mass_driver_runtime: None,
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
+                sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -25118,6 +25277,7 @@ mod tests {
                 mass_driver_runtime: None,
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
+                sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -25165,6 +25325,7 @@ mod tests {
                 mass_driver_runtime: None,
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
+                sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -25212,6 +25373,7 @@ mod tests {
                 mass_driver_runtime: None,
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
+                sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -25267,6 +25429,7 @@ mod tests {
                     charging: false,
                     payload_present: true,
                 }),
+                sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -25314,6 +25477,7 @@ mod tests {
                 mass_driver_runtime: None,
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
+                sorter_runtime: None,
                 nullable_item_id: Some(Some(item_id)),
                 item_bridge_link: None,
                 light_color: None,
@@ -25361,6 +25525,7 @@ mod tests {
                 mass_driver_runtime: None,
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
+                sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: Some(0x2233_4455),
@@ -25408,6 +25573,7 @@ mod tests {
                 mass_driver_runtime: None,
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
+                sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: Some(phase_link),
                 light_color: None,

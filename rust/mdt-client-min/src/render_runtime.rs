@@ -3619,6 +3619,29 @@ fn runtime_typed_build_config_value_label(
             }
             parts.join(":")
         }
+        TypedBuildingRuntimeValue::Sorter {
+            item_id,
+            legacy,
+            non_empty_side_mask,
+            buffered_item_count,
+        } => {
+            let mut parts = vec![format!(
+                "item={}",
+                item_id
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "clear".to_string())
+            )];
+            if let Some(legacy) = legacy {
+                parts.push(format!("legacy={}", if *legacy { 1 } else { 0 }));
+            }
+            if let Some(non_empty_side_mask) = non_empty_side_mask {
+                parts.push(format!("sides=0x{non_empty_side_mask:02x}"));
+            }
+            if let Some(buffered_item_count) = buffered_item_count {
+                parts.push(format!("buffered={buffered_item_count}"));
+            }
+            parts.join(":")
+        }
         TypedBuildingRuntimeValue::Content(content) => format!(
             "content={}",
             content
@@ -8122,6 +8145,21 @@ mod tests {
                     payload_present: true,
                 },
             );
+        state
+            .configured_block_projection
+            .sorter_item_by_build_pos
+            .insert(pack_runtime_point2(32, 54), Some(7));
+        state
+            .configured_block_projection
+            .sorter_runtime_by_build_pos
+            .insert(
+                pack_runtime_point2(32, 54),
+                crate::session_state::SorterRuntimeProjection {
+                    legacy: true,
+                    non_empty_side_mask: 0x05,
+                    buffered_item_count: 3,
+                },
+            );
         for (build_pos, block_name) in [
             (pack_runtime_point2(18, 40), "message"),
             (pack_runtime_point2(19, 41), "constructor"),
@@ -8136,6 +8174,7 @@ mod tests {
             (pack_runtime_point2(29, 51), "tank-assembler"),
             (pack_runtime_point2(30, 52), "mass-driver"),
             (pack_runtime_point2(31, 53), "payload-mass-driver"),
+            (pack_runtime_point2(32, 54), "sorter"),
         ] {
             state.building_table_projection.by_build_pos.insert(
                 build_pos,
@@ -8249,6 +8288,10 @@ mod tests {
             entry.family == "payload-mass-driver"
                 && entry.sample
                     == "31:53:link=24:26:rot=0x41400000:state=3:reload=0x3f200000:charge=0x3f400000:loaded=1:charging=0:payload=1"
+        }));
+        assert!(build_ui.inspector_entries.iter().any(|entry| {
+            entry.family == "sorter"
+                && entry.sample == "32:54:item=7:legacy=1:sides=0x05:buffered=3"
         }));
         let payload_source_icon = scene
             .objects
@@ -8415,6 +8458,21 @@ mod tests {
             label,
             "link=24:26:rot=0x41400000:state=3:reload=0x3f200000:charge=0x3f400000:loaded=1:charging=0:payload=1"
         );
+    }
+
+    #[test]
+    fn runtime_typed_build_config_value_label_formats_sorter_runtime() {
+        let label = runtime_typed_build_config_value_label(
+            TypedBuildingRuntimeKind::Sorter,
+            &TypedBuildingRuntimeValue::Sorter {
+                item_id: Some(7),
+                legacy: Some(true),
+                non_empty_side_mask: Some(0x05),
+                buffered_item_count: Some(3),
+            },
+        );
+
+        assert_eq!(label, "item=7:legacy=1:sides=0x05:buffered=3");
     }
 
     #[test]

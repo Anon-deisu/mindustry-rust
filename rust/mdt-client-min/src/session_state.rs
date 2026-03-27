@@ -393,6 +393,13 @@ pub struct PayloadMassDriverRuntimeProjection {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SorterRuntimeProjection {
+    pub legacy: bool,
+    pub non_empty_side_mask: u8,
+    pub buffered_item_count: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PayloadSourceRuntimeProjection {
     pub command_pos: Option<(u32, u32)>,
     pub pay_vector_x_bits: u32,
@@ -1835,6 +1842,8 @@ pub struct ConfiguredBlockProjection {
     pub landing_pad_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub sorter_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub inverted_sorter_item_by_build_pos: BTreeMap<i32, Option<i16>>,
+    pub sorter_runtime_by_build_pos: BTreeMap<i32, SorterRuntimeProjection>,
+    pub inverted_sorter_runtime_by_build_pos: BTreeMap<i32, SorterRuntimeProjection>,
     pub switch_enabled_by_build_pos: BTreeMap<i32, Option<bool>>,
     pub door_open_by_build_pos: BTreeMap<i32, Option<bool>>,
     pub message_text_by_build_pos: BTreeMap<i32, String>,
@@ -1893,6 +1902,20 @@ impl ConfiguredBlockProjection {
     pub fn apply_inverted_sorter_item(&mut self, build_pos: i32, item_id: Option<i16>) {
         self.inverted_sorter_item_by_build_pos
             .insert(build_pos, item_id);
+    }
+
+    pub fn apply_sorter_runtime(&mut self, build_pos: i32, projection: SorterRuntimeProjection) {
+        self.sorter_runtime_by_build_pos
+            .insert(build_pos, projection);
+    }
+
+    pub fn apply_inverted_sorter_runtime(
+        &mut self,
+        build_pos: i32,
+        projection: SorterRuntimeProjection,
+    ) {
+        self.inverted_sorter_runtime_by_build_pos
+            .insert(build_pos, projection);
     }
 
     pub fn apply_switch_enabled(&mut self, build_pos: i32, enabled: Option<bool>) {
@@ -2089,6 +2112,8 @@ impl ConfiguredBlockProjection {
         self.landing_pad_item_by_build_pos.remove(&build_pos);
         self.sorter_item_by_build_pos.remove(&build_pos);
         self.inverted_sorter_item_by_build_pos.remove(&build_pos);
+        self.sorter_runtime_by_build_pos.remove(&build_pos);
+        self.inverted_sorter_runtime_by_build_pos.remove(&build_pos);
         self.switch_enabled_by_build_pos.remove(&build_pos);
         self.door_open_by_build_pos.remove(&build_pos);
         self.message_text_by_build_pos.remove(&build_pos);
@@ -3247,6 +3272,12 @@ pub enum TypedBuildingRuntimeValue {
         charging: Option<bool>,
         payload_present: Option<bool>,
     },
+    Sorter {
+        item_id: Option<i16>,
+        legacy: Option<bool>,
+        non_empty_side_mask: Option<u8>,
+        buffered_item_count: Option<u16>,
+    },
     Block(Option<i16>),
     Color(i32),
     Content(Option<ConfiguredContentRef>),
@@ -3500,24 +3531,38 @@ fn typed_runtime_building_model(
                     .copied()?,
             ),
         ),
-        "sorter" => (
-            TypedBuildingRuntimeKind::Sorter,
-            TypedBuildingRuntimeValue::Item(
-                configured
-                    .sorter_item_by_build_pos
-                    .get(&build_pos)
-                    .copied()?,
-            ),
-        ),
-        "inverted-sorter" => (
-            TypedBuildingRuntimeKind::InvertedSorter,
-            TypedBuildingRuntimeValue::Item(
-                configured
-                    .inverted_sorter_item_by_build_pos
-                    .get(&build_pos)
-                    .copied()?,
-            ),
-        ),
+        "sorter" => {
+            let runtime = configured.sorter_runtime_by_build_pos.get(&build_pos);
+            (
+                TypedBuildingRuntimeKind::Sorter,
+                TypedBuildingRuntimeValue::Sorter {
+                    item_id: configured
+                        .sorter_item_by_build_pos
+                        .get(&build_pos)
+                        .copied()?,
+                    legacy: runtime.map(|projection| projection.legacy),
+                    non_empty_side_mask: runtime.map(|projection| projection.non_empty_side_mask),
+                    buffered_item_count: runtime.map(|projection| projection.buffered_item_count),
+                },
+            )
+        }
+        "inverted-sorter" => {
+            let runtime = configured
+                .inverted_sorter_runtime_by_build_pos
+                .get(&build_pos);
+            (
+                TypedBuildingRuntimeKind::InvertedSorter,
+                TypedBuildingRuntimeValue::Sorter {
+                    item_id: configured
+                        .inverted_sorter_item_by_build_pos
+                        .get(&build_pos)
+                        .copied()?,
+                    legacy: runtime.map(|projection| projection.legacy),
+                    non_empty_side_mask: runtime.map(|projection| projection.non_empty_side_mask),
+                    buffered_item_count: runtime.map(|projection| projection.buffered_item_count),
+                },
+            )
+        }
         "switch" | "world-switch" => (
             TypedBuildingRuntimeKind::Switch,
             TypedBuildingRuntimeValue::Bool(
@@ -7839,6 +7884,116 @@ mod tests {
                 None,
                 None,
                 BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_sorter_runtime() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0006_0020i32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            305,
+            Some("sorter".to_string()),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(0x3f80_0000),
+            Some(0x3f20_0000),
+            Some(127),
+            Some(false),
+            Some(TypeIoObject::Null),
+            Some(0x4080_0000),
+            Some(true),
+            Some(0x44),
+            Some(0x12),
+            Some(85),
+            None,
+            None,
+            None,
+        );
+        state
+            .configured_block_projection
+            .apply_sorter_item(build_pos, Some(31));
+        state.configured_block_projection.apply_sorter_runtime(
+            build_pos,
+            SorterRuntimeProjection {
+                legacy: true,
+                non_empty_side_mask: 0x05,
+                buffered_item_count: 3,
+            },
+        );
+
+        assert_eq!(
+            state
+                .typed_runtime_building_at(build_pos)
+                .map(|building| (building.kind, building.value.clone())),
+            Some((
+                TypedBuildingRuntimeKind::Sorter,
+                TypedBuildingRuntimeValue::Sorter {
+                    item_id: Some(31),
+                    legacy: Some(true),
+                    non_empty_side_mask: Some(0x05),
+                    buffered_item_count: Some(3),
+                },
+            ))
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_inverted_sorter_runtime() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0006_0021i32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            306,
+            Some("inverted-sorter".to_string()),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(0x3f80_0000),
+            Some(0x3f20_0000),
+            Some(127),
+            Some(false),
+            Some(TypeIoObject::Null),
+            Some(0x4080_0000),
+            Some(true),
+            Some(0x44),
+            Some(0x12),
+            Some(85),
+            None,
+            None,
+            None,
+        );
+        state
+            .configured_block_projection
+            .apply_inverted_sorter_item(build_pos, None);
+        state
+            .configured_block_projection
+            .apply_inverted_sorter_runtime(
+                build_pos,
+                SorterRuntimeProjection {
+                    legacy: true,
+                    non_empty_side_mask: 0x02,
+                    buffered_item_count: 1,
+                },
+            );
+
+        assert_eq!(
+            state
+                .typed_runtime_building_at(build_pos)
+                .map(|building| (building.kind, building.value.clone())),
+            Some((
+                TypedBuildingRuntimeKind::InvertedSorter,
+                TypedBuildingRuntimeValue::Sorter {
+                    item_id: None,
+                    legacy: Some(true),
+                    non_empty_side_mask: Some(0x02),
+                    buffered_item_count: Some(1),
+                },
             ))
         );
     }
