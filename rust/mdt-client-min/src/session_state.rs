@@ -1238,13 +1238,6 @@ struct HiddenSnapshotEntityPolicy {
 }
 
 impl HiddenSnapshotEntityPolicy {
-    fn should_remove_like_java_unit_handle_sync_hidden(self) -> bool {
-        matches!(
-            self.typed,
-            HiddenSnapshotTypedPolicy::RemoveLikeJavaUnitHandleSyncHidden
-        )
-    }
-
     fn should_remove_known_runtime_owned(self) -> bool {
         matches!(
             self.runtime,
@@ -6113,25 +6106,19 @@ impl SessionState {
     }
 
     fn hidden_snapshot_matches_java_unit_handle_sync_hidden(&self, entity_id: i32) -> bool {
-        let entity = self.entity_table_projection.by_entity_id.get(&entity_id);
-        let semantic = self.entity_semantic_projection.by_entity_id.get(&entity_id);
-        let player_semantic = self.player_semantic_projection.by_entity_id.get(&entity_id);
-        if let Some(entity) = entity {
-            if matches!(
-                typed_runtime_entity_model(
-                    entity_id,
-                    entity,
-                    semantic,
-                    player_semantic,
-                    &self.resource_delta_projection,
-                ),
-                Some(TypedRuntimeEntityModel::Unit(_))
-            ) {
-                return true;
-            }
-        }
-        resolve_hidden_snapshot_entity_policy(entity, semantic.map(|entry| &entry.projection))
-            .should_remove_like_java_unit_handle_sync_hidden()
+        self.entity_table_projection
+            .by_entity_id
+            .get(&entity_id)
+            .is_some_and(|entity| {
+                class_id_matches_java_unit_handle_sync_hidden_remove(entity.class_id)
+            })
+            || self
+                .entity_semantic_projection
+                .by_entity_id
+                .get(&entity_id)
+                .is_some_and(|entry| {
+                    class_id_matches_java_unit_handle_sync_hidden_remove(entry.class_id)
+                })
     }
 
     fn clear_hidden_resource_and_payload_event_refs(
@@ -8279,7 +8266,7 @@ mod tests {
                 last_seen_entity_snapshot_count: 1,
             },
         );
-        for (entity_id, class_id) in [(202, 33), (303, 10), (404, 35)] {
+        for (entity_id, class_id) in [(202, 33), (404, 10)] {
             state.entity_table_projection.by_entity_id.insert(
                 entity_id,
                 EntityProjection {
@@ -8294,25 +8281,84 @@ mod tests {
                 },
             );
         }
+        state.entity_table_projection.by_entity_id.insert(
+            505,
+            EntityProjection {
+                class_id: 99,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 0,
+                unit_value: 0,
+                x_bits: 0,
+                y_bits: 0,
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
+        state.entity_semantic_projection.by_entity_id.insert(
+            303,
+            EntitySemanticProjectionEntry {
+                class_id: 4,
+                last_seen_entity_snapshot_count: 1,
+                projection: EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
+                    team_id: 2,
+                    unit_type_id: 3,
+                    health_bits: 0,
+                    rotation_bits: 0,
+                    shield_bits: 0,
+                    mine_tile_pos: 0,
+                    status_count: 0,
+                    payload_count: None,
+                    building_pos: None,
+                    lifetime_bits: None,
+                    time_bits: None,
+                    runtime_sync: None,
+                    controller_type: 0,
+                    controller_value: None,
+                }),
+            },
+        );
+        state.entity_semantic_projection.by_entity_id.insert(
+            505,
+            EntitySemanticProjectionEntry {
+                class_id: 99,
+                last_seen_entity_snapshot_count: 1,
+                projection: EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
+                    team_id: 2,
+                    unit_type_id: 3,
+                    health_bits: 0,
+                    rotation_bits: 0,
+                    shield_bits: 0,
+                    mine_tile_pos: 0,
+                    status_count: 0,
+                    payload_count: None,
+                    building_pos: None,
+                    lifetime_bits: None,
+                    time_bits: None,
+                    runtime_sync: None,
+                    controller_type: 0,
+                    controller_value: None,
+                }),
+            },
+        );
 
         let transition = state
-            .hidden_snapshot_runtime_transition(&BTreeSet::from([101, 202, 303, 404]), Some(101));
+            .hidden_snapshot_runtime_transition(&BTreeSet::from([101, 202, 303, 404, 505]), Some(101));
 
         assert_eq!(
             transition.auxiliary_cleanup_ids,
-            BTreeSet::from([202, 303, 404])
+            BTreeSet::from([202, 303, 404, 505])
         );
         assert_eq!(
             transition.unit_handle_sync_hidden_remove_ids,
-            BTreeSet::from([202])
+            BTreeSet::from([202, 303])
         );
         assert_eq!(
             transition.runtime_owned_cleanup_remove_ids,
-            BTreeSet::from([303])
+            BTreeSet::from([404])
         );
         assert_eq!(
             transition.lifecycle_remove_ids(),
-            BTreeSet::from([202, 303])
+            BTreeSet::from([202, 303, 404])
         );
     }
 
