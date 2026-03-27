@@ -1724,7 +1724,18 @@ impl ClientSession {
         })
     }
 
-    pub fn building_live_state_projection(&self) -> BTreeMap<i32, BuildingLiveStateView> {
+    fn live_build_positions(&self) -> BTreeSet<i32> {
+        let build_positions = self
+            .state
+            .building_table_projection
+            .by_build_pos
+            .keys()
+            .copied()
+            .collect::<BTreeSet<_>>();
+        if !build_positions.is_empty() {
+            return build_positions;
+        }
+
         let mut build_positions = BTreeSet::new();
         if let Some(bundle) = self.loaded_world_bundle.as_ref() {
             for center in &bundle.world.building_centers {
@@ -1737,14 +1748,11 @@ impl ClientSession {
                 build_positions.insert(pack_point2(x, y));
             }
         }
-        build_positions.extend(
-            self.state
-                .building_table_projection
-                .by_build_pos
-                .keys()
-                .copied(),
-        );
         build_positions
+    }
+
+    pub fn building_live_state_projection(&self) -> BTreeMap<i32, BuildingLiveStateView> {
+        self.live_build_positions()
             .into_iter()
             .filter_map(|build_pos| {
                 self.building_live_state_at(build_pos)
@@ -35507,6 +35515,48 @@ mod tests {
     }
 
     #[test]
+    fn building_live_state_projection_falls_back_to_loaded_world_centers_when_live_table_is_empty()
+    {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        ingest_sample_world(&mut session);
+        let build_pos = sample_build_positions_with_centers(&session, 1)[0];
+
+        session.state.building_table_projection.by_build_pos.clear();
+
+        let projection = session.building_live_state_projection();
+        assert_eq!(
+            projection.get(&build_pos),
+            Some(&session.building_live_state_at(build_pos).unwrap())
+        );
+    }
+
+    #[test]
+    fn building_live_state_projection_does_not_reintroduce_loaded_world_centers_removed_from_live_table(
+    ) {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        ingest_sample_world(&mut session);
+        let build_positions = sample_build_positions_with_centers(&session, 2);
+        let removed_build_pos = build_positions[0];
+        let retained_build_pos = build_positions[1];
+
+        assert!(session
+            .state
+            .building_table_projection
+            .by_build_pos
+            .remove(&removed_build_pos)
+            .is_some());
+
+        let projection = session.building_live_state_projection();
+        assert!(!projection.contains_key(&removed_build_pos));
+        assert_eq!(
+            projection.get(&retained_build_pos),
+            Some(&session.building_live_state_at(retained_build_pos).unwrap())
+        );
+    }
+
+    #[test]
     fn building_live_state_surfaces_live_only_tiles_without_loaded_world_centers() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
@@ -35548,6 +35598,34 @@ mod tests {
             Some(crate::session_state::TypedBuildingRuntimeValue::Text(text))
                 if text == &message
         ));
+    }
+
+    #[test]
+    fn building_live_state_projection_includes_live_only_tiles_without_loaded_world_centers() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        ingest_sample_world(&mut session);
+        let build_pos = sample_empty_tile_positions_without_centers(&session, 1)[0];
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_MESSAGE);
+
+        session.apply_loaded_world_tile_patch(build_pos, None, None, Some(Some(block_id)));
+        session
+            .state
+            .building_table_projection
+            .apply_construct_finish(
+                build_pos,
+                Some(block_id),
+                session.loaded_world_block_name(block_id),
+                1,
+                2,
+                TypeIoObject::Null,
+            );
+
+        let projection = session.building_live_state_projection();
+        assert_eq!(
+            projection.get(&build_pos),
+            Some(&session.building_live_state_at(build_pos).unwrap())
+        );
     }
 
     #[test]
