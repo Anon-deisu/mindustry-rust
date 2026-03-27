@@ -366,9 +366,13 @@ pub struct ConstructorRuntimeProjection {
 pub struct PayloadLoaderRuntimeProjection {
     pub exporting: bool,
     pub payload_present: bool,
+    pub payload_type: Option<u8>,
     pub pay_rotation_bits: u32,
     pub payload_build_block_id: Option<i16>,
+    pub payload_build_revision: Option<u8>,
     pub payload_unit_class_id: Option<u8>,
+    pub payload_unit_payload_len: Option<usize>,
+    pub payload_unit_payload_sha256: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3151,9 +3155,13 @@ pub enum TypedBuildingRuntimeValue {
     PayloadLoader {
         exporting: Option<bool>,
         payload_present: Option<bool>,
+        payload_type: Option<u8>,
         pay_rotation_bits: Option<u32>,
         payload_build_block_id: Option<i16>,
+        payload_build_revision: Option<u8>,
         payload_unit_class_id: Option<u8>,
+        payload_unit_payload_len: Option<usize>,
+        payload_unit_payload_sha256: Option<String>,
     },
     PayloadSource {
         configured_content: Option<ConfiguredContentRef>,
@@ -3528,11 +3536,18 @@ fn typed_runtime_building_model(
                         }
                     }),
                     payload_present: runtime.map(|projection| projection.payload_present),
+                    payload_type: runtime.and_then(|projection| projection.payload_type),
                     pay_rotation_bits: runtime.map(|projection| projection.pay_rotation_bits),
                     payload_build_block_id: runtime
                         .and_then(|projection| projection.payload_build_block_id),
+                    payload_build_revision: runtime
+                        .and_then(|projection| projection.payload_build_revision),
                     payload_unit_class_id: runtime
                         .and_then(|projection| projection.payload_unit_class_id),
+                    payload_unit_payload_len: runtime
+                        .and_then(|projection| projection.payload_unit_payload_len),
+                    payload_unit_payload_sha256: runtime
+                        .and_then(|projection| projection.payload_unit_payload_sha256.clone()),
                 },
             )
         }
@@ -8232,9 +8247,13 @@ mod tests {
                 TypedBuildingRuntimeValue::PayloadLoader {
                     exporting: Some(false),
                     payload_present: None,
+                    payload_type: None,
                     pay_rotation_bits: None,
                     payload_build_block_id: None,
+                    payload_build_revision: None,
                     payload_unit_class_id: None,
+                    payload_unit_payload_len: None,
+                    payload_unit_payload_sha256: None,
                 },
                 Vec::new(),
                 Some(3),
@@ -8295,9 +8314,13 @@ mod tests {
                 PayloadLoaderRuntimeProjection {
                     exporting: true,
                     payload_present: true,
+                    payload_type: Some(1),
                     pay_rotation_bits: 0x4000_0000,
                     payload_build_block_id: Some(11),
+                    payload_build_revision: Some(2),
                     payload_unit_class_id: None,
+                    payload_unit_payload_len: None,
+                    payload_unit_payload_sha256: None,
                 },
             );
 
@@ -8311,9 +8334,13 @@ mod tests {
                 TypedBuildingRuntimeValue::PayloadLoader {
                     exporting: Some(true),
                     payload_present: Some(true),
+                    payload_type: Some(1),
                     pay_rotation_bits: Some(0x4000_0000),
                     payload_build_block_id: Some(11),
+                    payload_build_revision: Some(2),
                     payload_unit_class_id: None,
+                    payload_unit_payload_len: None,
+                    payload_unit_payload_sha256: None,
                 },
                 Vec::new(),
                 Some(3),

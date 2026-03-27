@@ -1654,11 +1654,29 @@ fn runtime_configured_payload_loader_family_label(
             let (x, y) = unpack_runtime_point2(*build_pos);
             let payload = projection
                 .payload_build_block_id
-                .map(|content_id| format!("b:{content_id}"))
+                .map(|content_id| {
+                    let mut label = format!("b:{content_id}");
+                    if let Some(revision) = projection.payload_build_revision {
+                        label.push_str(&format!("@r{revision}"));
+                    }
+                    label
+                })
                 .or_else(|| {
-                    projection
-                        .payload_unit_class_id
-                        .map(|class_id| format!("uc:{class_id}"))
+                    projection.payload_unit_class_id.map(|class_id| {
+                        let mut label = format!("uc:{class_id}");
+                        if let Some(payload_len) = projection.payload_unit_payload_len {
+                            label.push_str(&format!(":l{payload_len}"));
+                        }
+                        if let Some(payload_sha256) =
+                            projection.payload_unit_payload_sha256.as_deref()
+                        {
+                            label.push_str(&format!(
+                                ":s{}",
+                                payload_sha256.chars().take(12).collect::<String>()
+                            ));
+                        }
+                        label
+                    })
                 })
                 .unwrap_or_else(|| {
                     if projection.payload_present {
@@ -1668,9 +1686,13 @@ fn runtime_configured_payload_loader_family_label(
                     }
                 });
             format!(
-                "{prefix}{count}@{x}:{y}={}:y{}:r{:08x}:{payload}",
+                "{prefix}{count}@{x}:{y}={}:y{}{}:r{:08x}:{payload}",
                 if projection.exporting { "exp" } else { "imp" },
                 if projection.payload_present { 1 } else { 0 },
+                projection
+                    .payload_type
+                    .map(|payload_type| format!(":t{payload_type}"))
+                    .unwrap_or_default(),
                 projection.pay_rotation_bits,
             )
         }
@@ -3349,9 +3371,13 @@ fn runtime_typed_build_config_value_label(
         TypedBuildingRuntimeValue::PayloadLoader {
             exporting,
             payload_present,
+            payload_type,
             pay_rotation_bits,
             payload_build_block_id,
+            payload_build_revision,
             payload_unit_class_id,
+            payload_unit_payload_len,
+            payload_unit_payload_sha256,
         } => {
             let mut parts = vec![format!(
                 "mode={}",
@@ -3364,13 +3390,32 @@ fn runtime_typed_build_config_value_label(
             if let Some(payload_present) = payload_present {
                 parts.push(format!("y{}", if *payload_present { 1 } else { 0 }));
             }
+            if let Some(payload_type) = payload_type {
+                parts.push(format!("payload-type={payload_type}"));
+            }
             if let Some(pay_rotation_bits) = pay_rotation_bits {
                 parts.push(format!("r{pay_rotation_bits:08x}"));
             }
             if let Some(payload_build_block_id) = payload_build_block_id {
-                parts.push(format!("payload=b:{payload_build_block_id}"));
+                let mut payload_ref = format!("b:{payload_build_block_id}");
+                if let Some(payload_build_revision) = payload_build_revision {
+                    payload_ref.push_str(&format!("@r{payload_build_revision}"));
+                }
+                parts.push(format!("payload={payload_ref}"));
             } else if let Some(payload_unit_class_id) = payload_unit_class_id {
                 parts.push(format!("payload=uc:{payload_unit_class_id}"));
+            }
+            if let Some(payload_unit_payload_len) = payload_unit_payload_len {
+                parts.push(format!("unit-len={payload_unit_payload_len}"));
+            }
+            if let Some(payload_unit_payload_sha256) = payload_unit_payload_sha256.as_deref() {
+                parts.push(format!(
+                    "unit-sha={}",
+                    payload_unit_payload_sha256
+                        .chars()
+                        .take(12)
+                        .collect::<String>()
+                ));
             }
             parts.join(":")
         }
@@ -7907,9 +7952,13 @@ mod tests {
                 crate::session_state::PayloadLoaderRuntimeProjection {
                     exporting: false,
                     payload_present: true,
+                    payload_type: Some(1),
                     pay_rotation_bits: 0x4000_0000,
                     payload_build_block_id: Some(12),
+                    payload_build_revision: Some(3),
                     payload_unit_class_id: None,
+                    payload_unit_payload_len: None,
+                    payload_unit_payload_sha256: None,
                 },
             );
         state
@@ -8025,7 +8074,7 @@ mod tests {
         assert!(hud.status_text.contains(":il1@20:42=11223344:"));
         assert!(hud
             .status_text
-            .contains(":pl1@25:47=imp:y1:r40000000:b:12:"));
+            .contains(":pl1@25:47=imp:y1:t1:r40000000:b:12@r3:"));
         assert!(hud.status_text.contains(":ps1@21:43=b:7:"));
         assert!(hud.status_text.contains(":pr1@22:44=u:9:"));
         assert!(hud
@@ -8062,7 +8111,8 @@ mod tests {
         }));
         assert!(build_ui.inspector_entries.iter().any(|entry| {
             entry.family == "payload-loader"
-                && entry.sample == "25:47:payload-unloader:mode=import:y1:r40000000:payload=b:12"
+                && entry.sample
+                    == "25:47:payload-unloader:mode=import:y1:payload-type=1:r40000000:payload=b:12@r3"
         }));
         assert!(build_ui.inspector_entries.iter().any(|entry| {
             entry.family == "unit-factory"
@@ -8119,15 +8169,19 @@ mod tests {
             PayloadLoaderRuntimeProjection {
                 exporting: true,
                 payload_present: true,
+                payload_type: Some(0),
                 pay_rotation_bits: 0x4000_0000,
                 payload_build_block_id: None,
+                payload_build_revision: None,
                 payload_unit_class_id: Some(9),
+                payload_unit_payload_len: Some(128),
+                payload_unit_payload_sha256: Some("0123456789abcdef".to_string()),
             },
         )]);
 
         assert_eq!(
             runtime_configured_payload_loader_family_label("pl", &values),
-            "pl1@25:47=exp:y1:r40000000:uc:9"
+            "pl1@25:47=exp:y1:t0:r40000000:uc:9:l128:s0123456789ab"
         );
     }
 
@@ -8138,13 +8192,20 @@ mod tests {
             &TypedBuildingRuntimeValue::PayloadLoader {
                 exporting: Some(false),
                 payload_present: Some(true),
+                payload_type: Some(0),
                 pay_rotation_bits: Some(0x4040_0000),
-                payload_build_block_id: Some(11),
-                payload_unit_class_id: None,
+                payload_build_block_id: None,
+                payload_build_revision: None,
+                payload_unit_class_id: Some(9),
+                payload_unit_payload_len: Some(128),
+                payload_unit_payload_sha256: Some("0123456789abcdef".to_string()),
             },
         );
 
-        assert_eq!(label, "mode=import:y1:r40400000:payload=b:11");
+        assert_eq!(
+            label,
+            "mode=import:y1:payload-type=0:r40400000:payload=uc:9:unit-len=128:unit-sha=0123456789ab"
+        );
     }
 
     #[test]

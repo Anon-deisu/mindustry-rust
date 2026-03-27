@@ -13336,12 +13336,16 @@ fn summarize_payload_loader_projection(
     Some(PayloadLoaderRuntimeProjection {
         exporting: loader.exporting,
         payload_present: loader.payload_block.payload_present,
+        payload_type: loader.payload_block.payload_type,
         pay_rotation_bits: loader.payload_block.pay_rotation_bits,
         payload_build_block_id: loader
             .payload_block
             .build_block_id
             .and_then(|content_id| i16::try_from(content_id).ok()),
+        payload_build_revision: loader.payload_block.build_revision,
         payload_unit_class_id: loader.payload_block.unit_class_id,
+        payload_unit_payload_len: loader.payload_block.unit_payload_len,
+        payload_unit_payload_sha256: loader.payload_block.unit_payload_sha256.clone(),
     })
 }
 
@@ -22718,6 +22722,8 @@ mod tests {
         let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let build_pos = pack_build_pos_for_block_snapshot_test(58, 59);
         let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_PAYLOAD_LOADER);
+        let payload_block_id =
+            loaded_world_content_id_for_name(&session, BLOCK_CONTENT_TYPE, "copper-wall");
 
         session.state.building_table_projection.seed_world_baseline(
             build_pos,
@@ -22748,7 +22754,7 @@ mod tests {
                     pay_rotation_bits: 0x4000_0000,
                     payload_present: true,
                     payload_type: Some(1),
-                    build_block_id: Some(block_id as u16),
+                    build_block_id: Some(payload_block_id as u16),
                     build_revision: Some(1),
                     build_payload: None,
                     unit_class_id: None,
@@ -22768,9 +22774,13 @@ mod tests {
             Some(&PayloadLoaderRuntimeProjection {
                 exporting: true,
                 payload_present: true,
+                payload_type: Some(1),
                 pay_rotation_bits: 0x4000_0000,
-                payload_build_block_id: Some(block_id),
+                payload_build_block_id: Some(payload_block_id),
+                payload_build_revision: Some(1),
                 payload_unit_class_id: None,
+                payload_unit_payload_len: None,
+                payload_unit_payload_sha256: None,
             })
         );
         assert_eq!(
@@ -22784,9 +22794,13 @@ mod tests {
                 &crate::session_state::TypedBuildingRuntimeValue::PayloadLoader {
                     exporting: Some(true),
                     payload_present: Some(true),
+                    payload_type: Some(1),
                     pay_rotation_bits: Some(0x4000_0000),
-                    payload_build_block_id: Some(block_id),
+                    payload_build_block_id: Some(payload_block_id),
+                    payload_build_revision: Some(1),
                     payload_unit_class_id: None,
+                    payload_unit_payload_len: None,
+                    payload_unit_payload_sha256: None,
                 },
                 Some(0x4040_0000),
             ))
@@ -24168,6 +24182,12 @@ mod tests {
         let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let build_pos = pack_build_pos_for_block_snapshot_test(75, 76);
         let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_PAYLOAD_UNLOADER);
+        let unit_class_id = u8::try_from(loaded_world_content_id_for_name(
+            &session,
+            UNIT_CONTENT_TYPE,
+            "dagger",
+        ))
+        .unwrap();
 
         session.apply_block_snapshot_entries_from_loaded_world_entries(vec![
             BlockSnapshotExtraEntrySummary {
@@ -24197,9 +24217,13 @@ mod tests {
                 payload_loader_runtime: Some(PayloadLoaderRuntimeProjection {
                     exporting: false,
                     payload_present: true,
+                    payload_type: Some(0),
                     pay_rotation_bits: 0x4000_0000,
-                    payload_build_block_id: Some(block_id),
-                    payload_unit_class_id: None,
+                    payload_build_block_id: None,
+                    payload_build_revision: None,
+                    payload_unit_class_id: Some(unit_class_id),
+                    payload_unit_payload_len: Some(128),
+                    payload_unit_payload_sha256: Some("0123456789abcdef".to_string()),
                 }),
                 landing_pad_config_item_id: None,
                 message_text: None,
@@ -24232,9 +24256,13 @@ mod tests {
             Some(&PayloadLoaderRuntimeProjection {
                 exporting: false,
                 payload_present: true,
+                payload_type: Some(0),
                 pay_rotation_bits: 0x4000_0000,
-                payload_build_block_id: Some(block_id),
-                payload_unit_class_id: None,
+                payload_build_block_id: None,
+                payload_build_revision: None,
+                payload_unit_class_id: Some(unit_class_id),
+                payload_unit_payload_len: Some(128),
+                payload_unit_payload_sha256: Some("0123456789abcdef".to_string()),
             })
         );
         assert_eq!(
@@ -24257,9 +24285,13 @@ mod tests {
                 crate::session_state::TypedBuildingRuntimeValue::PayloadLoader {
                     exporting: Some(false),
                     payload_present: Some(true),
+                    payload_type: Some(0),
                     pay_rotation_bits: Some(0x4000_0000),
-                    payload_build_block_id: Some(block_id),
-                    payload_unit_class_id: None,
+                    payload_build_block_id: None,
+                    payload_build_revision: None,
+                    payload_unit_class_id: Some(unit_class_id),
+                    payload_unit_payload_len: Some(128),
+                    payload_unit_payload_sha256: Some("0123456789abcdef".to_string()),
                 },
             ))
         );
@@ -36101,9 +36133,13 @@ mod tests {
                 PayloadLoaderRuntimeProjection {
                     exporting: true,
                     payload_present: true,
+                    payload_type: Some(1),
                     pay_rotation_bits: 0x4000_0000,
                     payload_build_block_id: Some(block_id),
+                    payload_build_revision: Some(1),
                     payload_unit_class_id: None,
+                    payload_unit_payload_len: None,
+                    payload_unit_payload_sha256: None,
                 },
             );
         assert!(session
