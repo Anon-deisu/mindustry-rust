@@ -4625,7 +4625,7 @@ fn typed_runtime_building_model(
                 plan_count: building.build_turret_plan_count,
             },
         ),
-        "memory-cell" | "memory-bank" => (
+        "memory-cell" | "memory-bank" | "world-cell" => (
             TypedBuildingRuntimeKind::Memory,
             TypedBuildingRuntimeValue::Memory(
                 configured
@@ -11782,6 +11782,7 @@ mod tests {
         for (build_pos, block_id, block_name) in [
             (0x0007_0009i32, 302, "memory-cell"),
             (0x0007_000ai32, 303, "memory-bank"),
+            (0x0007_000bi32, 304, "world-cell"),
         ] {
             let mut state = SessionState::default();
             state.building_table_projection.apply_block_snapshot_head(
