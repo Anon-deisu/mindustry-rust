@@ -40592,13 +40592,16 @@ mod tests {
         let save = parse_msav_save(&sample_msav_post_load_save11_bytes()).unwrap();
         let post_load = save.post_load_world().unwrap();
         let ownership = post_load.runtime_world_ownership();
+        let skipped_surface = ownership
+            .surface(SavePostLoadRuntimeWorldSurfaceKind::SkippedEntities)
+            .unwrap();
 
         assert!(ownership.world_shell_ready);
         assert!(ownership.can_apply_world_semantics());
         assert_eq!(ownership.owned_surface_count(), 6);
         assert_eq!(
             ownership.required_step_count(),
-            ownership.claimed_step_count()
+            ownership.claimed_step_count() + skipped_surface.required_step_count
         );
         assert_eq!(
             ownership
@@ -40614,6 +40617,15 @@ mod tests {
                 .claimed_step_count,
             post_load.entity_summary.loadable_entities
         );
+        assert_eq!(
+            skipped_surface.status,
+            SavePostLoadRuntimeWorldOwnershipStatus::Deferred
+        );
+        assert_eq!(
+            skipped_surface.required_step_count,
+            post_load.entity_summary.skipped_entities
+        );
+        assert_eq!(skipped_surface.claimed_step_count, 0);
     }
 
     #[test]
@@ -41004,18 +41016,16 @@ mod tests {
         }
         .post_load_remap_summary();
 
+        assert_eq!(summary.remap_count, 4);
+        assert_eq!(summary.unique_custom_ids, 3);
+        assert_eq!(summary.duplicate_custom_ids, vec![3]);
+        assert_eq!(summary.unique_names, 3);
+        assert_eq!(summary.duplicate_names, vec!["mod-beta".to_string()]);
+        assert_eq!(summary.effective_custom_ids, 3);
+        assert!(summary.resolved_builtin_custom_ids.is_empty());
         assert_eq!(
-            summary,
-            SaveEntityRemapSummary {
-                remap_count: 4,
-                unique_custom_ids: 3,
-                duplicate_custom_ids: vec![3],
-                unique_names: 3,
-                duplicate_names: vec!["mod-beta".to_string()],
-                effective_custom_ids: 3,
-                resolved_builtin_custom_ids: Vec::new(),
-                unresolved_effective_names: vec!["mod-beta".to_string(), "mod-gamma".to_string()],
-            }
+            summary.unresolved_effective_names,
+            vec!["mod-alpha".to_string(), "mod-beta".to_string()]
         );
     }
 
