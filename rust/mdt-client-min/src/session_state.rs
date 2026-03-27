@@ -431,6 +431,15 @@ pub struct PowerGeneratorRuntimeProjection {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PowerReactorRuntimeProjection {
+    pub production_efficiency_bits: u32,
+    pub generate_time_bits: u32,
+    pub heat_bits: Option<u32>,
+    pub instability_bits: Option<u32>,
+    pub warmup_bits: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShieldedWallRuntimeProjection {
     pub shield_bits: u32,
 }
@@ -1935,6 +1944,7 @@ pub struct ConfiguredBlockProjection {
     pub interplanetary_accelerator_runtime_by_build_pos:
         BTreeMap<i32, InterplanetaryAcceleratorRuntimeProjection>,
     pub power_generator_runtime_by_build_pos: BTreeMap<i32, PowerGeneratorRuntimeProjection>,
+    pub power_reactor_runtime_by_build_pos: BTreeMap<i32, PowerReactorRuntimeProjection>,
     pub shielded_wall_runtime_by_build_pos: BTreeMap<i32, ShieldedWallRuntimeProjection>,
     pub separator_runtime_by_build_pos: BTreeMap<i32, SeparatorRuntimeProjection>,
     pub conveyor_runtime_by_build_pos: BTreeMap<i32, ConveyorRuntimeProjection>,
@@ -2025,6 +2035,15 @@ impl ConfiguredBlockProjection {
         projection: PowerGeneratorRuntimeProjection,
     ) {
         self.power_generator_runtime_by_build_pos
+            .insert(build_pos, projection);
+    }
+
+    pub fn apply_power_reactor_runtime(
+        &mut self,
+        build_pos: i32,
+        projection: PowerReactorRuntimeProjection,
+    ) {
+        self.power_reactor_runtime_by_build_pos
             .insert(build_pos, projection);
     }
 
@@ -2342,6 +2361,7 @@ impl ConfiguredBlockProjection {
         self.interplanetary_accelerator_runtime_by_build_pos
             .remove(&build_pos);
         self.power_generator_runtime_by_build_pos.remove(&build_pos);
+        self.power_reactor_runtime_by_build_pos.remove(&build_pos);
         self.conveyor_runtime_by_build_pos.remove(&build_pos);
         self.unit_cargo_unload_point_item_by_build_pos
             .remove(&build_pos);
@@ -3375,6 +3395,9 @@ pub enum TypedBuildingRuntimeKind {
     LaunchPad,
     InterplanetaryAccelerator,
     PowerGenerator,
+    HeatReactor,
+    ImpactReactor,
+    FluxReactor,
     ShieldedWall,
     Separator,
     Conveyor,
@@ -3425,6 +3448,9 @@ impl TypedBuildingRuntimeKind {
             Self::LaunchPad => "launch-pad",
             Self::InterplanetaryAccelerator => "interplanetary-accelerator",
             Self::PowerGenerator => "power-generator",
+            Self::HeatReactor => "heat-reactor",
+            Self::ImpactReactor => "impact-reactor",
+            Self::FluxReactor => "flux-reactor",
             Self::ShieldedWall => "shielded-wall",
             Self::Separator => "separator",
             Self::Conveyor => "conveyor",
@@ -3488,6 +3514,23 @@ pub enum TypedBuildingRuntimeValue {
     PowerGenerator {
         production_efficiency_bits: Option<u32>,
         generate_time_bits: Option<u32>,
+    },
+    HeatReactor {
+        production_efficiency_bits: Option<u32>,
+        generate_time_bits: Option<u32>,
+        heat_bits: Option<u32>,
+    },
+    ImpactReactor {
+        production_efficiency_bits: Option<u32>,
+        generate_time_bits: Option<u32>,
+        warmup_bits: Option<u32>,
+    },
+    FluxReactor {
+        production_efficiency_bits: Option<u32>,
+        generate_time_bits: Option<u32>,
+        heat_bits: Option<u32>,
+        instability_bits: Option<u32>,
+        warmup_bits: Option<u32>,
     },
     ShieldedWall {
         shield_bits: Option<u32>,
@@ -3795,6 +3838,10 @@ fn is_power_generator_block_name(block_name: &str) -> bool {
     )
 }
 
+fn is_heat_reactor_block_name(block_name: &str) -> bool {
+    matches!(block_name, "thorium-reactor" | "neoplasia-reactor")
+}
+
 fn typed_runtime_building_model(
     build_pos: i32,
     building: &BuildingProjection,
@@ -3863,6 +3910,65 @@ fn typed_runtime_building_model(
                     .power_generator_runtime_by_build_pos
                     .get(&build_pos)
                     .map(|projection| projection.generate_time_bits),
+            },
+        ),
+        block_name if is_heat_reactor_block_name(block_name) => (
+            TypedBuildingRuntimeKind::HeatReactor,
+            TypedBuildingRuntimeValue::HeatReactor {
+                production_efficiency_bits: configured
+                    .power_reactor_runtime_by_build_pos
+                    .get(&build_pos)
+                    .map(|projection| projection.production_efficiency_bits),
+                generate_time_bits: configured
+                    .power_reactor_runtime_by_build_pos
+                    .get(&build_pos)
+                    .map(|projection| projection.generate_time_bits),
+                heat_bits: configured
+                    .power_reactor_runtime_by_build_pos
+                    .get(&build_pos)
+                    .and_then(|projection| projection.heat_bits),
+            },
+        ),
+        "impact-reactor" => (
+            TypedBuildingRuntimeKind::ImpactReactor,
+            TypedBuildingRuntimeValue::ImpactReactor {
+                production_efficiency_bits: configured
+                    .power_reactor_runtime_by_build_pos
+                    .get(&build_pos)
+                    .map(|projection| projection.production_efficiency_bits),
+                generate_time_bits: configured
+                    .power_reactor_runtime_by_build_pos
+                    .get(&build_pos)
+                    .map(|projection| projection.generate_time_bits),
+                warmup_bits: configured
+                    .power_reactor_runtime_by_build_pos
+                    .get(&build_pos)
+                    .and_then(|projection| projection.warmup_bits),
+            },
+        ),
+        "flux-reactor" => (
+            TypedBuildingRuntimeKind::FluxReactor,
+            TypedBuildingRuntimeValue::FluxReactor {
+                production_efficiency_bits: configured
+                    .power_reactor_runtime_by_build_pos
+                    .get(&build_pos)
+                    .map(|projection| projection.production_efficiency_bits),
+                generate_time_bits: configured
+                    .power_reactor_runtime_by_build_pos
+                    .get(&build_pos)
+                    .map(|projection| projection.generate_time_bits),
+                heat_bits: configured
+                    .power_reactor_runtime_by_build_pos
+                    .get(&build_pos)
+                    .and_then(|projection| projection.heat_bits),
+                instability_bits: configured
+                    .power_reactor_runtime_by_build_pos
+                    .get(&build_pos)
+                    .and_then(|projection| projection.instability_bits),
+                warmup_bits: configured
+                    .power_reactor_runtime_by_build_pos
+                    .get(&build_pos)
+                    .and_then(|projection| projection.warmup_bits),
             },
         ),
         "shielded-wall" => (
@@ -9694,6 +9800,426 @@ mod tests {
                 Some(&expected)
             );
         }
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_heat_reactor_family_shells_and_runtime(
+    ) {
+        for (build_pos, block_id, block_name, projection) in [
+            (
+                0x0006_0027i32,
+                325,
+                "thorium-reactor",
+                PowerReactorRuntimeProjection {
+                    production_efficiency_bits: 0x3f80_0000,
+                    generate_time_bits: 0x4000_0000,
+                    heat_bits: Some(0x4040_0000),
+                    instability_bits: None,
+                    warmup_bits: None,
+                },
+            ),
+            (
+                0x0006_0028i32,
+                326,
+                "neoplasia-reactor",
+                PowerReactorRuntimeProjection {
+                    production_efficiency_bits: 0x4040_0000,
+                    generate_time_bits: 0x4080_0000,
+                    heat_bits: Some(0x40a0_0000),
+                    instability_bits: None,
+                    warmup_bits: None,
+                },
+            ),
+        ] {
+            let mut state = SessionState::default();
+            state.building_table_projection.apply_block_snapshot_head(
+                build_pos,
+                block_id,
+                Some(block_name.to_string()),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(0x3f80_0000),
+                Some(0x3f20_0000),
+                Some(133),
+                Some(true),
+                Some(TypeIoObject::Null),
+                Some(0x4080_0000),
+                Some(false),
+                Some(0x45),
+                Some(0x13),
+                Some(81),
+                None,
+                None,
+                None,
+            );
+
+            let shell_expected = expected_typed_runtime_building(
+                build_pos,
+                block_id,
+                block_name,
+                TypedBuildingRuntimeKind::HeatReactor,
+                TypedBuildingRuntimeValue::HeatReactor {
+                    production_efficiency_bits: None,
+                    generate_time_bits: None,
+                    heat_bits: None,
+                },
+                Vec::new(),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(0x3f80_0000),
+                Some(0x3f20_0000),
+                Some(133),
+                Some(true),
+                Some(0x4080_0000),
+                Some(false),
+                Some(0x45),
+                Some(0x13),
+                Some(81),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            );
+            assert_eq!(
+                state.typed_runtime_building_at(build_pos),
+                Some(shell_expected.clone())
+            );
+
+            state
+                .configured_block_projection
+                .apply_power_reactor_runtime(build_pos, projection.clone());
+
+            let runtime_expected = expected_typed_runtime_building(
+                build_pos,
+                block_id,
+                block_name,
+                TypedBuildingRuntimeKind::HeatReactor,
+                TypedBuildingRuntimeValue::HeatReactor {
+                    production_efficiency_bits: Some(projection.production_efficiency_bits),
+                    generate_time_bits: Some(projection.generate_time_bits),
+                    heat_bits: projection.heat_bits,
+                },
+                Vec::new(),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(0x3f80_0000),
+                Some(0x3f20_0000),
+                Some(133),
+                Some(true),
+                Some(0x4080_0000),
+                Some(false),
+                Some(0x45),
+                Some(0x13),
+                Some(81),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            );
+            assert_eq!(
+                state.typed_runtime_building_at(build_pos),
+                Some(runtime_expected.clone())
+            );
+            state.refresh_runtime_typed_building_from_tables(build_pos);
+            assert_eq!(
+                state
+                    .runtime_typed_building_apply_projection
+                    .building_at(build_pos),
+                Some(&runtime_expected)
+            );
+
+            state
+                .configured_block_projection
+                .clear_building_state(build_pos);
+            assert_eq!(
+                state
+                    .configured_block_projection
+                    .power_reactor_runtime_by_build_pos
+                    .get(&build_pos),
+                None
+            );
+            state.refresh_runtime_typed_building_from_tables(build_pos);
+            assert_eq!(
+                state.typed_runtime_building_at(build_pos),
+                Some(shell_expected.clone())
+            );
+            assert_eq!(
+                state
+                    .runtime_typed_building_apply_projection
+                    .building_at(build_pos),
+                Some(&shell_expected)
+            );
+        }
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_impact_reactor_family_shells_and_runtime(
+    ) {
+        let mut state = SessionState::default();
+        let build_pos = 0x0006_0029i32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            327,
+            Some("impact-reactor".to_string()),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(0x3f80_0000),
+            Some(0x3f20_0000),
+            Some(134),
+            Some(false),
+            Some(TypeIoObject::Null),
+            Some(0x4080_0000),
+            Some(true),
+            Some(0x46),
+            Some(0x14),
+            Some(80),
+            None,
+            None,
+            None,
+        );
+
+        let shell_expected = expected_typed_runtime_building(
+            build_pos,
+            327,
+            "impact-reactor",
+            TypedBuildingRuntimeKind::ImpactReactor,
+            TypedBuildingRuntimeValue::ImpactReactor {
+                production_efficiency_bits: None,
+                generate_time_bits: None,
+                warmup_bits: None,
+            },
+            Vec::new(),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(0x3f80_0000),
+            Some(0x3f20_0000),
+            Some(134),
+            Some(false),
+            Some(0x4080_0000),
+            Some(true),
+            Some(0x46),
+            Some(0x14),
+            Some(80),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            BuildingProjectionUpdateKind::BlockSnapshotHead,
+        );
+        assert_eq!(
+            state.typed_runtime_building_at(build_pos),
+            Some(shell_expected.clone())
+        );
+
+        state
+            .configured_block_projection
+            .apply_power_reactor_runtime(
+                build_pos,
+                PowerReactorRuntimeProjection {
+                    production_efficiency_bits: 0x3f80_0000,
+                    generate_time_bits: 0x4000_0000,
+                    heat_bits: None,
+                    instability_bits: None,
+                    warmup_bits: Some(0x4040_0000),
+                },
+            );
+
+        let runtime_expected = expected_typed_runtime_building(
+            build_pos,
+            327,
+            "impact-reactor",
+            TypedBuildingRuntimeKind::ImpactReactor,
+            TypedBuildingRuntimeValue::ImpactReactor {
+                production_efficiency_bits: Some(0x3f80_0000),
+                generate_time_bits: Some(0x4000_0000),
+                warmup_bits: Some(0x4040_0000),
+            },
+            Vec::new(),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(0x3f80_0000),
+            Some(0x3f20_0000),
+            Some(134),
+            Some(false),
+            Some(0x4080_0000),
+            Some(true),
+            Some(0x46),
+            Some(0x14),
+            Some(80),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            BuildingProjectionUpdateKind::BlockSnapshotHead,
+        );
+
+        assert_eq!(
+            state.typed_runtime_building_at(build_pos),
+            Some(runtime_expected.clone())
+        );
+        state.refresh_runtime_typed_building_from_tables(build_pos);
+        assert_eq!(
+            state
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos),
+            Some(&runtime_expected)
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_flux_reactor_family_shells_and_runtime(
+    ) {
+        let mut state = SessionState::default();
+        let build_pos = 0x0006_002ai32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            328,
+            Some("flux-reactor".to_string()),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(0x3f80_0000),
+            Some(0x3f20_0000),
+            Some(135),
+            Some(true),
+            Some(TypeIoObject::Null),
+            Some(0x4080_0000),
+            Some(false),
+            Some(0x47),
+            Some(0x15),
+            Some(79),
+            None,
+            None,
+            None,
+        );
+
+        let shell_expected = expected_typed_runtime_building(
+            build_pos,
+            328,
+            "flux-reactor",
+            TypedBuildingRuntimeKind::FluxReactor,
+            TypedBuildingRuntimeValue::FluxReactor {
+                production_efficiency_bits: None,
+                generate_time_bits: None,
+                heat_bits: None,
+                instability_bits: None,
+                warmup_bits: None,
+            },
+            Vec::new(),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(0x3f80_0000),
+            Some(0x3f20_0000),
+            Some(135),
+            Some(true),
+            Some(0x4080_0000),
+            Some(false),
+            Some(0x47),
+            Some(0x15),
+            Some(79),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            BuildingProjectionUpdateKind::BlockSnapshotHead,
+        );
+        assert_eq!(
+            state.typed_runtime_building_at(build_pos),
+            Some(shell_expected.clone())
+        );
+
+        state
+            .configured_block_projection
+            .apply_power_reactor_runtime(
+                build_pos,
+                PowerReactorRuntimeProjection {
+                    production_efficiency_bits: 0x4040_0000,
+                    generate_time_bits: 0x4080_0000,
+                    heat_bits: Some(0x40a0_0000),
+                    instability_bits: Some(0x40c0_0000),
+                    warmup_bits: Some(0x40e0_0000),
+                },
+            );
+
+        let runtime_expected = expected_typed_runtime_building(
+            build_pos,
+            328,
+            "flux-reactor",
+            TypedBuildingRuntimeKind::FluxReactor,
+            TypedBuildingRuntimeValue::FluxReactor {
+                production_efficiency_bits: Some(0x4040_0000),
+                generate_time_bits: Some(0x4080_0000),
+                heat_bits: Some(0x40a0_0000),
+                instability_bits: Some(0x40c0_0000),
+                warmup_bits: Some(0x40e0_0000),
+            },
+            Vec::new(),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(0x3f80_0000),
+            Some(0x3f20_0000),
+            Some(135),
+            Some(true),
+            Some(0x4080_0000),
+            Some(false),
+            Some(0x47),
+            Some(0x15),
+            Some(79),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            BuildingProjectionUpdateKind::BlockSnapshotHead,
+        );
+
+        assert_eq!(
+            state.typed_runtime_building_at(build_pos),
+            Some(runtime_expected.clone())
+        );
+        state.refresh_runtime_typed_building_from_tables(build_pos);
+        assert_eq!(
+            state
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos),
+            Some(&runtime_expected)
+        );
     }
 
     #[test]

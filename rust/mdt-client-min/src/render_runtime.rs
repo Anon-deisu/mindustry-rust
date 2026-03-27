@@ -3376,6 +3376,62 @@ fn runtime_typed_build_config_value_label(
                 .map(|bits| format!("0x{bits:08x}"))
                 .unwrap_or_else(|| "none".to_string())
         ),
+        TypedBuildingRuntimeValue::HeatReactor {
+            production_efficiency_bits,
+            generate_time_bits,
+            heat_bits,
+        } => format!(
+            "eff={}:time={}:heat={}",
+            production_efficiency_bits
+                .map(|bits| format!("0x{bits:08x}"))
+                .unwrap_or_else(|| "none".to_string()),
+            generate_time_bits
+                .map(|bits| format!("0x{bits:08x}"))
+                .unwrap_or_else(|| "none".to_string()),
+            heat_bits
+                .map(|bits| format!("0x{bits:08x}"))
+                .unwrap_or_else(|| "none".to_string())
+        ),
+        TypedBuildingRuntimeValue::ImpactReactor {
+            production_efficiency_bits,
+            generate_time_bits,
+            warmup_bits,
+        } => format!(
+            "eff={}:time={}:warmup={}",
+            production_efficiency_bits
+                .map(|bits| format!("0x{bits:08x}"))
+                .unwrap_or_else(|| "none".to_string()),
+            generate_time_bits
+                .map(|bits| format!("0x{bits:08x}"))
+                .unwrap_or_else(|| "none".to_string()),
+            warmup_bits
+                .map(|bits| format!("0x{bits:08x}"))
+                .unwrap_or_else(|| "none".to_string())
+        ),
+        TypedBuildingRuntimeValue::FluxReactor {
+            production_efficiency_bits,
+            generate_time_bits,
+            heat_bits,
+            instability_bits,
+            warmup_bits,
+        } => format!(
+            "eff={}:time={}:heat={}:instability={}:warmup={}",
+            production_efficiency_bits
+                .map(|bits| format!("0x{bits:08x}"))
+                .unwrap_or_else(|| "none".to_string()),
+            generate_time_bits
+                .map(|bits| format!("0x{bits:08x}"))
+                .unwrap_or_else(|| "none".to_string()),
+            heat_bits
+                .map(|bits| format!("0x{bits:08x}"))
+                .unwrap_or_else(|| "none".to_string()),
+            instability_bits
+                .map(|bits| format!("0x{bits:08x}"))
+                .unwrap_or_else(|| "none".to_string()),
+            warmup_bits
+                .map(|bits| format!("0x{bits:08x}"))
+                .unwrap_or_else(|| "none".to_string())
+        ),
         TypedBuildingRuntimeValue::Separator {
             progress_bits,
             warmup_bits,
@@ -8923,6 +8979,53 @@ mod tests {
     }
 
     #[test]
+    fn runtime_typed_build_config_value_label_formats_heat_reactor_runtime() {
+        let label = runtime_typed_build_config_value_label(
+            TypedBuildingRuntimeKind::HeatReactor,
+            &TypedBuildingRuntimeValue::HeatReactor {
+                production_efficiency_bits: Some(0x3f80_0000),
+                generate_time_bits: Some(0x4000_0000),
+                heat_bits: Some(0x4040_0000),
+            },
+        );
+
+        assert_eq!(label, "eff=0x3f800000:time=0x40000000:heat=0x40400000");
+    }
+
+    #[test]
+    fn runtime_typed_build_config_value_label_formats_impact_reactor_runtime() {
+        let label = runtime_typed_build_config_value_label(
+            TypedBuildingRuntimeKind::ImpactReactor,
+            &TypedBuildingRuntimeValue::ImpactReactor {
+                production_efficiency_bits: Some(0x3f80_0000),
+                generate_time_bits: Some(0x4000_0000),
+                warmup_bits: Some(0x4040_0000),
+            },
+        );
+
+        assert_eq!(label, "eff=0x3f800000:time=0x40000000:warmup=0x40400000");
+    }
+
+    #[test]
+    fn runtime_typed_build_config_value_label_formats_flux_reactor_runtime() {
+        let label = runtime_typed_build_config_value_label(
+            TypedBuildingRuntimeKind::FluxReactor,
+            &TypedBuildingRuntimeValue::FluxReactor {
+                production_efficiency_bits: Some(0x3f80_0000),
+                generate_time_bits: Some(0x4000_0000),
+                heat_bits: Some(0x4040_0000),
+                instability_bits: Some(0x4080_0000),
+                warmup_bits: Some(0x40a0_0000),
+            },
+        );
+
+        assert_eq!(
+            label,
+            "eff=0x3f800000:time=0x40000000:heat=0x40400000:instability=0x40800000:warmup=0x40a00000"
+        );
+    }
+
+    #[test]
     fn runtime_typed_build_config_value_label_formats_separator_runtime() {
         let label = runtime_typed_build_config_value_label(
             TypedBuildingRuntimeKind::Separator,
@@ -9405,6 +9508,196 @@ mod tests {
         assert!(build_ui.inspector_entries.iter().any(|entry| {
             entry.family == "power-generator"
                 && entry.sample == "42:64:pyrolysis-generator:eff=0x3f800000:time=0x40000000"
+        }));
+    }
+
+    #[test]
+    fn render_runtime_adapter_reports_heat_reactor_runtime_in_inspector() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        let build_pos = pack_runtime_point2(43, 65);
+
+        state
+            .runtime_typed_building_apply_projection
+            .by_build_pos
+            .insert(
+                build_pos,
+                crate::session_state::TypedBuildingRuntimeModel {
+                    build_pos,
+                    block_id: Some(1),
+                    block_name: "thorium-reactor".to_string(),
+                    kind: TypedBuildingRuntimeKind::HeatReactor,
+                    value: TypedBuildingRuntimeValue::HeatReactor {
+                        production_efficiency_bits: Some(0x3f80_0000),
+                        generate_time_bits: Some(0x4000_0000),
+                        heat_bits: Some(0x4040_0000),
+                    },
+                    inventory_item_stacks: vec![],
+                    inventory_liquid_stacks: vec![],
+                    rotation: None,
+                    team_id: None,
+                    io_version: None,
+                    module_bitmask: None,
+                    time_scale_bits: None,
+                    time_scale_duration_bits: None,
+                    last_disabler_pos: None,
+                    legacy_consume_connected: None,
+                    health_bits: None,
+                    enabled: None,
+                    efficiency: None,
+                    optional_efficiency: None,
+                    visible_flags: None,
+                    turret_reload_counter_bits: None,
+                    turret_rotation_bits: None,
+                    item_turret_ammo_count: None,
+                    continuous_turret_last_length_bits: None,
+                    build_turret_rotation_bits: None,
+                    build_turret_plans_present: None,
+                    build_turret_plan_count: None,
+                    last_update: crate::session_state::BuildingProjectionUpdateKind::TileConfig,
+                },
+            );
+
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let build_ui = hud
+            .build_ui
+            .as_ref()
+            .expect("build_ui observability should be present");
+        assert!(build_ui.inspector_entries.iter().any(|entry| {
+            entry.family == "heat-reactor"
+                && entry.sample
+                    == "43:65:thorium-reactor:eff=0x3f800000:time=0x40000000:heat=0x40400000"
+        }));
+    }
+
+    #[test]
+    fn render_runtime_adapter_reports_impact_reactor_runtime_in_inspector() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        let build_pos = pack_runtime_point2(44, 66);
+
+        state
+            .runtime_typed_building_apply_projection
+            .by_build_pos
+            .insert(
+                build_pos,
+                crate::session_state::TypedBuildingRuntimeModel {
+                    build_pos,
+                    block_id: Some(1),
+                    block_name: "impact-reactor".to_string(),
+                    kind: TypedBuildingRuntimeKind::ImpactReactor,
+                    value: TypedBuildingRuntimeValue::ImpactReactor {
+                        production_efficiency_bits: Some(0x3f80_0000),
+                        generate_time_bits: Some(0x4000_0000),
+                        warmup_bits: Some(0x4040_0000),
+                    },
+                    inventory_item_stacks: vec![],
+                    inventory_liquid_stacks: vec![],
+                    rotation: None,
+                    team_id: None,
+                    io_version: None,
+                    module_bitmask: None,
+                    time_scale_bits: None,
+                    time_scale_duration_bits: None,
+                    last_disabler_pos: None,
+                    legacy_consume_connected: None,
+                    health_bits: None,
+                    enabled: None,
+                    efficiency: None,
+                    optional_efficiency: None,
+                    visible_flags: None,
+                    turret_reload_counter_bits: None,
+                    turret_rotation_bits: None,
+                    item_turret_ammo_count: None,
+                    continuous_turret_last_length_bits: None,
+                    build_turret_rotation_bits: None,
+                    build_turret_plans_present: None,
+                    build_turret_plan_count: None,
+                    last_update: crate::session_state::BuildingProjectionUpdateKind::TileConfig,
+                },
+            );
+
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let build_ui = hud
+            .build_ui
+            .as_ref()
+            .expect("build_ui observability should be present");
+        assert!(build_ui.inspector_entries.iter().any(|entry| {
+            entry.family == "impact-reactor"
+                && entry.sample == "44:66:eff=0x3f800000:time=0x40000000:warmup=0x40400000"
+        }));
+    }
+
+    #[test]
+    fn render_runtime_adapter_reports_flux_reactor_runtime_in_inspector() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        let build_pos = pack_runtime_point2(45, 67);
+
+        state
+            .runtime_typed_building_apply_projection
+            .by_build_pos
+            .insert(
+                build_pos,
+                crate::session_state::TypedBuildingRuntimeModel {
+                    build_pos,
+                    block_id: Some(1),
+                    block_name: "flux-reactor".to_string(),
+                    kind: TypedBuildingRuntimeKind::FluxReactor,
+                    value: TypedBuildingRuntimeValue::FluxReactor {
+                        production_efficiency_bits: Some(0x3f80_0000),
+                        generate_time_bits: Some(0x4000_0000),
+                        heat_bits: Some(0x4040_0000),
+                        instability_bits: Some(0x4080_0000),
+                        warmup_bits: Some(0x40a0_0000),
+                    },
+                    inventory_item_stacks: vec![],
+                    inventory_liquid_stacks: vec![],
+                    rotation: None,
+                    team_id: None,
+                    io_version: None,
+                    module_bitmask: None,
+                    time_scale_bits: None,
+                    time_scale_duration_bits: None,
+                    last_disabler_pos: None,
+                    legacy_consume_connected: None,
+                    health_bits: None,
+                    enabled: None,
+                    efficiency: None,
+                    optional_efficiency: None,
+                    visible_flags: None,
+                    turret_reload_counter_bits: None,
+                    turret_rotation_bits: None,
+                    item_turret_ammo_count: None,
+                    continuous_turret_last_length_bits: None,
+                    build_turret_rotation_bits: None,
+                    build_turret_plans_present: None,
+                    build_turret_plan_count: None,
+                    last_update: crate::session_state::BuildingProjectionUpdateKind::TileConfig,
+                },
+            );
+
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let build_ui = hud
+            .build_ui
+            .as_ref()
+            .expect("build_ui observability should be present");
+        assert!(build_ui.inspector_entries.iter().any(|entry| {
+            entry.family == "flux-reactor"
+                && entry.sample
+                    == "45:67:eff=0x3f800000:time=0x40000000:heat=0x40400000:instability=0x40800000:warmup=0x40a00000"
         }));
     }
 
