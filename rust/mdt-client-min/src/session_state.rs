@@ -1768,6 +1768,7 @@ pub struct ConfiguredBlockProjection {
     pub payload_router_sorted_content_by_build_pos: BTreeMap<i32, Option<ConfiguredContentRef>>,
     pub item_bridge_link_by_build_pos: BTreeMap<i32, Option<i32>>,
     pub unloader_item_by_build_pos: BTreeMap<i32, Option<i16>>,
+    pub directional_unloader_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub duct_unloader_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub duct_router_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub mass_driver_link_by_build_pos: BTreeMap<i32, Option<i32>>,
@@ -1866,6 +1867,11 @@ impl ConfiguredBlockProjection {
         self.unloader_item_by_build_pos.insert(build_pos, item_id);
     }
 
+    pub fn apply_directional_unloader_item(&mut self, build_pos: i32, item_id: Option<i16>) {
+        self.directional_unloader_item_by_build_pos
+            .insert(build_pos, item_id);
+    }
+
     pub fn apply_duct_unloader_item(&mut self, build_pos: i32, item_id: Option<i16>) {
         self.duct_unloader_item_by_build_pos
             .insert(build_pos, item_id);
@@ -1952,6 +1958,8 @@ impl ConfiguredBlockProjection {
             .remove(&build_pos);
         self.item_bridge_link_by_build_pos.remove(&build_pos);
         self.unloader_item_by_build_pos.remove(&build_pos);
+        self.directional_unloader_item_by_build_pos
+            .remove(&build_pos);
         self.duct_unloader_item_by_build_pos.remove(&build_pos);
         self.duct_router_item_by_build_pos.remove(&build_pos);
         self.mass_driver_link_by_build_pos.remove(&build_pos);
@@ -2957,6 +2965,7 @@ pub enum TypedBuildingRuntimeKind {
     PayloadRouter,
     ItemBridge,
     Unloader,
+    DirectionalUnloader,
     DuctUnloader,
     DuctRouter,
     MassDriver,
@@ -2994,6 +3003,7 @@ impl TypedBuildingRuntimeKind {
             Self::PayloadRouter => "payload-router",
             Self::ItemBridge => "item-bridge",
             Self::Unloader => "unloader",
+            Self::DirectionalUnloader => "directional-unloader",
             Self::DuctUnloader => "duct-unloader",
             Self::DuctRouter => "duct-router",
             Self::MassDriver => "mass-driver",
@@ -3388,6 +3398,15 @@ fn typed_runtime_building_model(
             TypedBuildingRuntimeValue::Item(
                 configured
                     .unloader_item_by_build_pos
+                    .get(&build_pos)
+                    .copied()?,
+            ),
+        ),
+        "directional-unloader" => (
+            TypedBuildingRuntimeKind::DirectionalUnloader,
+            TypedBuildingRuntimeValue::Item(
+                configured
+                    .directional_unloader_item_by_build_pos
                     .get(&build_pos)
                     .copied()?,
             ),

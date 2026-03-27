@@ -144,6 +144,7 @@ const BLOCK_NAME_PAYLOAD_SOURCE: &str = "payload-source";
 const BLOCK_NAME_PAYLOAD_ROUTER: &str = "payload-router";
 const BLOCK_NAME_REINFORCED_PAYLOAD_ROUTER: &str = "reinforced-payload-router";
 const BLOCK_NAME_UNLOADER: &str = "unloader";
+const BLOCK_NAME_DIRECTIONAL_UNLOADER: &str = "directional-unloader";
 const BLOCK_NAME_DUCT_UNLOADER: &str = "duct-unloader";
 const BLOCK_NAME_DUCT_ROUTER: &str = "duct-router";
 const BLOCK_NAME_MASS_DRIVER: &str = "mass-driver";
@@ -2444,6 +2445,16 @@ impl ClientSession {
                     self.state
                         .configured_block_projection
                         .apply_unloader_item(build_pos, item_id);
+                    ConfiguredBlockOutcome::Applied
+                } else {
+                    ConfiguredBlockOutcome::RejectedUnsupportedConfigType
+                }
+            }
+            BLOCK_NAME_DIRECTIONAL_UNLOADER => {
+                if let Some(item_id) = configured_item_id(config_object) {
+                    self.state
+                        .configured_block_projection
+                        .apply_directional_unloader_item(build_pos, item_id);
                     ConfiguredBlockOutcome::Applied
                 } else {
                     ConfiguredBlockOutcome::RejectedUnsupportedConfigType
@@ -8170,6 +8181,13 @@ impl ClientSession {
                 payload_source_content,
                 payload_router_sorted_content,
                 duct_unloader_item_id,
+                directional_unloader_item_id: if candidate.block_name
+                    == BLOCK_NAME_DIRECTIONAL_UNLOADER
+                {
+                    summarize_nullable_item_config_item_id(&building.parsed_tail)
+                } else {
+                    None
+                },
                 reconstructor_command_id,
                 memory_values_bits,
                 canvas_bytes,
@@ -8316,6 +8334,10 @@ impl ClientSession {
                     .state
                     .configured_block_projection
                     .apply_unloader_item(build_pos, item_id),
+                Some(BLOCK_NAME_DIRECTIONAL_UNLOADER) => self
+                    .state
+                    .configured_block_projection
+                    .apply_directional_unloader_item(build_pos, item_id),
                 Some(BLOCK_NAME_DUCT_ROUTER) => self
                     .state
                     .configured_block_projection
@@ -8410,6 +8432,11 @@ impl ClientSession {
                 .configured_block_projection
                 .apply_duct_unloader_item(entry.build_pos, item_id);
         }
+        if let Some(item_id) = entry.directional_unloader_item_id {
+            self.state
+                .configured_block_projection
+                .apply_directional_unloader_item(entry.build_pos, item_id);
+        }
         if let Some(command_id) = entry.reconstructor_command_id {
             self.state
                 .configured_block_projection
@@ -8444,6 +8471,10 @@ impl ClientSession {
                     .state
                     .configured_block_projection
                     .apply_unloader_item(entry.build_pos, item_id),
+                Some(BLOCK_NAME_DIRECTIONAL_UNLOADER) => self
+                    .state
+                    .configured_block_projection
+                    .apply_directional_unloader_item(entry.build_pos, item_id),
                 Some(BLOCK_NAME_DUCT_ROUTER) => self
                     .state
                     .configured_block_projection
@@ -12861,6 +12892,7 @@ struct BlockSnapshotExtraEntrySummary {
     payload_source_content: Option<Option<ConfiguredContentRef>>,
     payload_router_sorted_content: Option<Option<ConfiguredContentRef>>,
     duct_unloader_item_id: Option<Option<i16>>,
+    directional_unloader_item_id: Option<Option<i16>>,
     reconstructor_command_id: Option<Option<u16>>,
     memory_values_bits: Option<Vec<u64>>,
     canvas_bytes: Option<Vec<u8>>,
@@ -12902,6 +12934,7 @@ fn loaded_world_config_object_from_summary(
     payload_source_content: Option<Option<ConfiguredContentRef>>,
     payload_router_sorted_content: Option<Option<ConfiguredContentRef>>,
     duct_unloader_item_id: Option<Option<i16>>,
+    directional_unloader_item_id: Option<Option<i16>>,
     reconstructor_command_id: Option<Option<u16>>,
     canvas_bytes: Option<&[u8]>,
     mass_driver_link: Option<i32>,
@@ -12938,6 +12971,12 @@ fn loaded_world_config_object_from_summary(
             item_id,
         ));
     }
+    if let Some(item_id) = directional_unloader_item_id {
+        return Some(loaded_world_nullable_content_object(
+            ITEM_CONTENT_TYPE,
+            item_id,
+        ));
+    }
     if let Some(command_id) = reconstructor_command_id {
         return Some(
             command_id
@@ -12963,6 +13002,7 @@ fn loaded_world_config_object_from_summary(
                 BLOCK_NAME_SORTER
                     | BLOCK_NAME_INVERTED_SORTER
                     | BLOCK_NAME_UNLOADER
+                    | BLOCK_NAME_DIRECTIONAL_UNLOADER
                     | BLOCK_NAME_DUCT_ROUTER
             )
         ) {
@@ -13018,6 +13058,11 @@ fn loaded_world_config_object_from_parsed_tail(
         summarize_payload_source_content(parsed_tail),
         summarize_payload_router_sorted_content(parsed_tail),
         summarize_duct_unloader_item_id(parsed_tail),
+        if block_name == Some(BLOCK_NAME_DIRECTIONAL_UNLOADER) {
+            summarize_nullable_item_config_item_id(parsed_tail)
+        } else {
+            None
+        },
         summarize_reconstructor_command_id(parsed_tail),
         summarize_canvas_bytes(parsed_tail).as_deref(),
         summarize_mass_driver_link(parsed_tail),
@@ -13040,6 +13085,7 @@ fn loaded_world_config_object_from_block_snapshot_entry(
         entry.payload_source_content,
         entry.payload_router_sorted_content,
         entry.duct_unloader_item_id,
+        entry.directional_unloader_item_id,
         entry.reconstructor_command_id,
         entry.canvas_bytes.as_deref(),
         entry.mass_driver_link,
@@ -21100,6 +21146,7 @@ mod tests {
                 payload_source_content: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
+                directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
@@ -21180,6 +21227,7 @@ mod tests {
                 payload_source_content: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
+                directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
@@ -21251,6 +21299,7 @@ mod tests {
                 payload_source_content: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
+                directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
@@ -21344,6 +21393,7 @@ mod tests {
                 payload_source_content: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
+                directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
@@ -21396,6 +21446,7 @@ mod tests {
                 payload_source_content: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
+                directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
@@ -22475,6 +22526,32 @@ mod tests {
     }
 
     #[test]
+    fn loaded_world_tail_business_helper_applies_directional_unloader_projection() {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_build_pos_for_block_snapshot_test(63, 64);
+        let item_id = loaded_world_content_id_for_name(&session, ITEM_CONTENT_TYPE, "copper");
+
+        session.apply_loaded_world_parsed_tail_business(
+            build_pos,
+            Some(BLOCK_NAME_DIRECTIONAL_UNLOADER),
+            &mdt_world::ParsedBuildingTail::NullableItemRef(
+                mdt_world::NullableItemRefTailSnapshot {
+                    item_id: Some(item_id as u16),
+                },
+            ),
+        );
+
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .directional_unloader_item_by_build_pos
+                .get(&build_pos),
+            Some(&Some(item_id))
+        );
+    }
+
+    #[test]
     fn apply_loaded_world_block_snapshot_entries_forwards_message_and_payload_router_summary() {
         let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let message_pos = pack_build_pos_for_block_snapshot_test(24, 25);
@@ -22512,6 +22589,7 @@ mod tests {
                 payload_source_content: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
+                directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
@@ -22554,6 +22632,7 @@ mod tests {
                     content_id: payload_block_id,
                 })),
                 duct_unloader_item_id: None,
+                directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
@@ -22593,6 +22672,7 @@ mod tests {
                 payload_source_content: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
+                directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: Some(memory_values_bits.clone()),
                 canvas_bytes: None,
@@ -22673,6 +22753,7 @@ mod tests {
                 payload_source_content: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
+                directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
@@ -22712,6 +22793,7 @@ mod tests {
                 payload_source_content: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
+                directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
@@ -22785,6 +22867,7 @@ mod tests {
                 payload_source_content: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
+                directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
@@ -22824,6 +22907,7 @@ mod tests {
                 payload_source_content: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
+                directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
@@ -22863,6 +22947,7 @@ mod tests {
                 payload_source_content: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
+                directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
@@ -22902,6 +22987,7 @@ mod tests {
                 payload_source_content: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
+                directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
@@ -22941,6 +23027,7 @@ mod tests {
                 payload_source_content: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
+                directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
@@ -22980,6 +23067,7 @@ mod tests {
                 payload_source_content: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
+                directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
@@ -23019,6 +23107,7 @@ mod tests {
                 payload_source_content: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
+                directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
@@ -23058,6 +23147,7 @@ mod tests {
                 payload_source_content: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
+                directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
@@ -23139,6 +23229,89 @@ mod tests {
     }
 
     #[test]
+    fn apply_loaded_world_block_snapshot_entries_seed_directional_unloader_summary() {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_build_pos_for_block_snapshot_test(73, 74);
+        let block_id = 917;
+        let item_id = loaded_world_content_id_for_name(&session, ITEM_CONTENT_TYPE, "copper");
+
+        session.apply_block_snapshot_entries_from_loaded_world_entries(vec![
+            BlockSnapshotExtraEntrySummary {
+                build_pos,
+                block_id,
+                block_name: Some(BLOCK_NAME_DIRECTIONAL_UNLOADER.to_string()),
+                health_bits: Some(0x3f80_0000),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                enabled: Some(true),
+                module_bitmask: Some(4),
+                time_scale_bits: Some(0x3f00_0000),
+                time_scale_duration_bits: Some(0x3e80_0000),
+                last_disabler_pos: Some(77),
+                legacy_consume_connected: Some(false),
+                efficiency: Some(0x40),
+                optional_efficiency: Some(0x20),
+                visible_flags: Some(9),
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                constructor_recipe_block_id: None,
+                constructor_runtime: None,
+                landing_pad_config_item_id: None,
+                message_text: None,
+                payload_source_content: None,
+                payload_router_sorted_content: None,
+                duct_unloader_item_id: None,
+                directional_unloader_item_id: Some(Some(item_id)),
+                reconstructor_command_id: None,
+                memory_values_bits: None,
+                canvas_bytes: None,
+                mass_driver_link: None,
+                payload_mass_driver_link: None,
+                nullable_item_id: None,
+                item_bridge_link: None,
+                light_color: None,
+                switch_enabled: None,
+                build_item_stacks: Vec::new(),
+                build_liquid_stacks: Vec::new(),
+            },
+        ]);
+
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .directional_unloader_item_by_build_pos
+                .get(&build_pos),
+            Some(&Some(item_id))
+        );
+        assert_eq!(
+            session
+                .state()
+                .building_table_projection
+                .by_build_pos
+                .get(&build_pos)
+                .and_then(|building| building.config.clone()),
+            Some(TypeIoObject::ContentRaw {
+                content_type: ITEM_CONTENT_TYPE,
+                content_id: item_id,
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos)
+                .map(|building| (building.kind, building.value.clone())),
+            Some((
+                crate::session_state::TypedBuildingRuntimeKind::DirectionalUnloader,
+                crate::session_state::TypedBuildingRuntimeValue::Item(Some(item_id)),
+            ))
+        );
+    }
+
+    #[test]
     fn apply_loaded_world_block_snapshot_entries_forwards_additional_configured_summary() {
         let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let payload_source_pos = pack_build_pos_for_block_snapshot_test(42, 43);
@@ -23185,6 +23358,7 @@ mod tests {
                 })),
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
+                directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
@@ -23224,6 +23398,7 @@ mod tests {
                 payload_source_content: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: Some(Some(item_id)),
+                directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
@@ -23263,6 +23438,7 @@ mod tests {
                 payload_source_content: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
+                directional_unloader_item_id: None,
                 reconstructor_command_id: Some(Some(7)),
                 memory_values_bits: None,
                 canvas_bytes: None,
@@ -23302,6 +23478,7 @@ mod tests {
                 payload_source_content: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
+                directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: Some(canvas_bytes.clone()),
@@ -23341,6 +23518,7 @@ mod tests {
                 payload_source_content: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
+                directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
@@ -23380,6 +23558,7 @@ mod tests {
                 payload_source_content: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
+                directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
@@ -23419,6 +23598,7 @@ mod tests {
                 payload_source_content: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
+                directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
@@ -23458,6 +23638,7 @@ mod tests {
                 payload_source_content: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
+                directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
                 canvas_bytes: None,
@@ -29361,6 +29542,85 @@ mod tests {
     }
 
     #[test]
+    fn remove_tile_clears_directional_unloader_configured_block_projection_state() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let remove_tile_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "removeTile")
+            .unwrap()
+            .packet_id;
+        let build_pos = pack_point2(3, 4);
+
+        session
+            .state
+            .tile_config_projection
+            .seed_authoritative_state(
+                build_pos,
+                TypeIoObject::ContentRaw {
+                    content_type: ITEM_CONTENT_TYPE,
+                    content_id: 42,
+                },
+            );
+        session
+            .state
+            .configured_block_projection
+            .apply_directional_unloader_item(build_pos, Some(42));
+        session
+            .state
+            .building_table_projection
+            .apply_construct_finish(
+                build_pos,
+                Some(29),
+                Some(BLOCK_NAME_DIRECTIONAL_UNLOADER.to_string()),
+                1,
+                2,
+                TypeIoObject::ContentRaw {
+                    content_type: ITEM_CONTENT_TYPE,
+                    content_id: 42,
+                },
+            );
+        assert!(session
+            .state()
+            .configured_block_projection
+            .directional_unloader_item_by_build_pos
+            .contains_key(&build_pos));
+
+        let remove_tile_event = session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    remove_tile_packet_id,
+                    &encode_tile_payload(Some(build_pos)),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            remove_tile_event,
+            ClientSessionEvent::RemoveTile {
+                tile_pos: Some(build_pos),
+            }
+        );
+        assert!(!session
+            .state()
+            .configured_block_projection
+            .directional_unloader_item_by_build_pos
+            .contains_key(&build_pos));
+        assert!(!session
+            .state()
+            .building_table_projection
+            .by_build_pos
+            .contains_key(&build_pos));
+        assert!(!session
+            .state()
+            .tile_config_projection
+            .authoritative_by_build_pos
+            .contains_key(&build_pos));
+    }
+
+    #[test]
     fn tile_authority_packets_with_invalid_payloads_are_ignored() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
@@ -32108,16 +32368,35 @@ mod tests {
 
         for (build_pos, block_name) in [
             (pack_point2(20, 42), BLOCK_NAME_UNLOADER),
+            (pack_point2(20, 43), BLOCK_NAME_DIRECTIONAL_UNLOADER),
             (pack_point2(21, 43), BLOCK_NAME_DUCT_UNLOADER),
         ] {
-            let block_id = loaded_world_block_id_for_name(&session, block_name);
-            ingest_construct_finish_for_block_config_test(
-                &mut session,
-                &manifest,
-                build_pos,
-                block_id,
-                &TypeIoObject::Null,
-            );
+            let block_id = if block_name == BLOCK_NAME_DIRECTIONAL_UNLOADER {
+                915
+            } else {
+                loaded_world_block_id_for_name(&session, block_name)
+            };
+            if block_name == BLOCK_NAME_DIRECTIONAL_UNLOADER {
+                session
+                    .state
+                    .building_table_projection
+                    .apply_construct_finish(
+                        build_pos,
+                        Some(block_id),
+                        Some(block_name.to_string()),
+                        0,
+                        1,
+                        TypeIoObject::Null,
+                    );
+            } else {
+                ingest_construct_finish_for_block_config_test(
+                    &mut session,
+                    &manifest,
+                    build_pos,
+                    block_id,
+                    &TypeIoObject::Null,
+                );
+            }
             ingest_tile_config_for_block_config_test(
                 &mut session,
                 &manifest,
@@ -32128,18 +32407,22 @@ mod tests {
                 },
             );
 
-            let applied = if block_name == BLOCK_NAME_UNLOADER {
-                session
+            let applied = match block_name {
+                BLOCK_NAME_UNLOADER => session
                     .state()
                     .configured_block_projection
                     .unloader_item_by_build_pos
-                    .get(&build_pos)
-            } else {
-                session
+                    .get(&build_pos),
+                BLOCK_NAME_DIRECTIONAL_UNLOADER => session
+                    .state()
+                    .configured_block_projection
+                    .directional_unloader_item_by_build_pos
+                    .get(&build_pos),
+                _ => session
                     .state()
                     .configured_block_projection
                     .duct_unloader_item_by_build_pos
-                    .get(&build_pos)
+                    .get(&build_pos),
             };
             assert_eq!(applied, Some(&Some(item_id)));
 
@@ -32149,21 +32432,90 @@ mod tests {
                 build_pos,
                 &TypeIoObject::Null,
             );
-            let cleared = if block_name == BLOCK_NAME_UNLOADER {
-                session
+            let cleared = match block_name {
+                BLOCK_NAME_UNLOADER => session
                     .state()
                     .configured_block_projection
                     .unloader_item_by_build_pos
-                    .get(&build_pos)
-            } else {
-                session
+                    .get(&build_pos),
+                BLOCK_NAME_DIRECTIONAL_UNLOADER => session
+                    .state()
+                    .configured_block_projection
+                    .directional_unloader_item_by_build_pos
+                    .get(&build_pos),
+                _ => session
                     .state()
                     .configured_block_projection
                     .duct_unloader_item_by_build_pos
-                    .get(&build_pos)
+                    .get(&build_pos),
             };
             assert_eq!(cleared, Some(&None));
         }
+    }
+
+    #[test]
+    fn directional_unloader_config_business_rejects_unsupported_payloads() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(22, 43);
+        let block_id = 916;
+        let item_id = loaded_world_content_id_for_name(&session, ITEM_CONTENT_TYPE, "copper");
+
+        session
+            .state
+            .building_table_projection
+            .apply_construct_finish(
+                build_pos,
+                Some(block_id),
+                Some(BLOCK_NAME_DIRECTIONAL_UNLOADER.to_string()),
+                0,
+                1,
+                TypeIoObject::ContentRaw {
+                    content_type: ITEM_CONTENT_TYPE,
+                    content_id: item_id,
+                },
+            );
+        session
+            .state
+            .configured_block_projection
+            .apply_directional_unloader_item(build_pos, Some(item_id));
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .directional_unloader_item_by_build_pos
+                .get(&build_pos),
+            Some(&Some(item_id))
+        );
+
+        ingest_tile_config_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            &TypeIoObject::Int(7),
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_configured_block_outcome,
+            Some(crate::session_state::ConfiguredBlockOutcome::RejectedUnsupportedConfigType)
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_configured_block_name
+                .as_deref(),
+            Some(BLOCK_NAME_DIRECTIONAL_UNLOADER)
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .directional_unloader_item_by_build_pos
+                .get(&build_pos),
+            Some(&Some(item_id))
+        );
     }
 
     #[test]
@@ -33676,6 +34028,47 @@ mod tests {
             .state()
             .configured_block_projection
             .item_source_item_by_build_pos
+            .contains_key(&build_pos));
+    }
+
+    #[test]
+    fn deconstruct_finish_clears_directional_unloader_configured_block_projection_state() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(16, 38);
+        let block_id = 918;
+        let item_id = loaded_world_content_id_for_name(&session, ITEM_CONTENT_TYPE, "copper");
+
+        session
+            .state
+            .building_table_projection
+            .apply_construct_finish(
+                build_pos,
+                Some(block_id),
+                Some(BLOCK_NAME_DIRECTIONAL_UNLOADER.to_string()),
+                0,
+                1,
+                TypeIoObject::Null,
+            );
+        session
+            .state
+            .configured_block_projection
+            .apply_directional_unloader_item(build_pos, Some(item_id));
+        assert!(session
+            .state()
+            .configured_block_projection
+            .directional_unloader_item_by_build_pos
+            .contains_key(&build_pos));
+
+        ingest_deconstruct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+        );
+        assert!(!session
+            .state()
+            .configured_block_projection
+            .directional_unloader_item_by_build_pos
             .contains_key(&build_pos));
     }
 

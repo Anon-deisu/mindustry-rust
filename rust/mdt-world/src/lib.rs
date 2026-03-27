@@ -24492,9 +24492,11 @@ fn parse_building_tail_with_context(
         Some("core-shard") | Some("core-foundation") | Some("core-nucleus") => Ok(
             ParsedBuildingTail::Core(parse_core_tail_snapshot(revision, tail_bytes)?),
         ),
-        Some("duct-router") | Some("unloader") => Ok(ParsedBuildingTail::NullableItemRef(
-            parse_nullable_item_ref_tail_snapshot(block_name, revision, tail_bytes)?,
-        )),
+        Some("duct-router") | Some("unloader") | Some("directional-unloader") => {
+            Ok(ParsedBuildingTail::NullableItemRef(
+                parse_nullable_item_ref_tail_snapshot(block_name, revision, tail_bytes)?,
+            ))
+        }
         Some("sorter") | Some("inverted-sorter") if revision >= 2 => {
             Ok(ParsedBuildingTail::NullableItemRef(
                 parse_nullable_item_ref_tail_snapshot(block_name, revision, tail_bytes)?,
@@ -43261,6 +43263,13 @@ mod tests {
         assert_eq!(
             duct_router,
             ParsedBuildingTail::NullableItemRef(NullableItemRefTailSnapshot { item_id: Some(5) })
+        );
+
+        let directional_unloader =
+            parse_building_tail(Some("directional-unloader"), 1, &(7u16).to_be_bytes()).unwrap();
+        assert_eq!(
+            directional_unloader,
+            ParsedBuildingTail::NullableItemRef(NullableItemRefTailSnapshot { item_id: Some(7) })
         );
 
         let legacy_unloader = parse_building_tail(Some("unloader"), 0, &[0xff]).unwrap();
