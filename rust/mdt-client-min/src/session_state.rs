@@ -387,6 +387,29 @@ pub struct PayloadSourceRuntimeProjection {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PayloadRouterPayloadKind {
+    Null,
+    Build,
+    Unit,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PayloadRouterRuntimeProjection {
+    pub progress_bits: u32,
+    pub item_rotation_bits: u32,
+    pub payload_present: bool,
+    pub payload_type: Option<u8>,
+    pub payload_kind: Option<PayloadRouterPayloadKind>,
+    pub payload_build_block_id: Option<i16>,
+    pub payload_build_revision: Option<u8>,
+    pub payload_unit_class_id: Option<u8>,
+    pub payload_unit_revision: Option<i16>,
+    pub payload_serialized_len: usize,
+    pub payload_serialized_sha256: String,
+    pub rec_dir: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnitFactoryRuntimeProjection {
     pub progress_bits: u32,
     pub command_pos: Option<(u32, u32)>,
@@ -1801,6 +1824,7 @@ pub struct ConfiguredBlockProjection {
     pub payload_source_content_by_build_pos: BTreeMap<i32, Option<ConfiguredContentRef>>,
     pub payload_source_runtime_by_build_pos: BTreeMap<i32, PayloadSourceRuntimeProjection>,
     pub payload_router_sorted_content_by_build_pos: BTreeMap<i32, Option<ConfiguredContentRef>>,
+    pub payload_router_runtime_by_build_pos: BTreeMap<i32, PayloadRouterRuntimeProjection>,
     pub item_bridge_link_by_build_pos: BTreeMap<i32, Option<i32>>,
     pub unloader_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub directional_unloader_item_by_build_pos: BTreeMap<i32, Option<i16>>,
@@ -1912,6 +1936,15 @@ impl ConfiguredBlockProjection {
     ) {
         self.payload_router_sorted_content_by_build_pos
             .insert(build_pos, content);
+    }
+
+    pub fn apply_payload_router_runtime(
+        &mut self,
+        build_pos: i32,
+        projection: PayloadRouterRuntimeProjection,
+    ) {
+        self.payload_router_runtime_by_build_pos
+            .insert(build_pos, projection);
     }
 
     pub fn apply_item_bridge_link(&mut self, build_pos: i32, link: Option<i32>) {
@@ -2027,6 +2060,7 @@ impl ConfiguredBlockProjection {
         self.payload_source_runtime_by_build_pos.remove(&build_pos);
         self.payload_router_sorted_content_by_build_pos
             .remove(&build_pos);
+        self.payload_router_runtime_by_build_pos.remove(&build_pos);
         self.item_bridge_link_by_build_pos.remove(&build_pos);
         self.unloader_item_by_build_pos.remove(&build_pos);
         self.directional_unloader_item_by_build_pos
@@ -3135,6 +3169,21 @@ pub enum TypedBuildingRuntimeValue {
         payload_unit_payload_len: Option<usize>,
         payload_unit_payload_sha256: Option<String>,
     },
+    PayloadRouter {
+        sorted_content: Option<ConfiguredContentRef>,
+        progress_bits: Option<u32>,
+        item_rotation_bits: Option<u32>,
+        payload_present: Option<bool>,
+        payload_type: Option<u8>,
+        payload_kind: Option<PayloadRouterPayloadKind>,
+        payload_build_block_id: Option<i16>,
+        payload_build_revision: Option<u8>,
+        payload_unit_class_id: Option<u8>,
+        payload_unit_revision: Option<i16>,
+        payload_serialized_len: Option<usize>,
+        payload_serialized_sha256: Option<String>,
+        rec_dir: Option<u8>,
+    },
     Block(Option<i16>),
     Color(i32),
     Content(Option<ConfiguredContentRef>),
@@ -3527,15 +3576,39 @@ fn typed_runtime_building_model(
                 },
             )
         }
-        "payload-router" | "reinforced-payload-router" => (
-            TypedBuildingRuntimeKind::PayloadRouter,
-            TypedBuildingRuntimeValue::Content(
-                configured
-                    .payload_router_sorted_content_by_build_pos
-                    .get(&build_pos)
-                    .copied()?,
-            ),
-        ),
+        "payload-router" | "reinforced-payload-router" => {
+            let runtime = configured
+                .payload_router_runtime_by_build_pos
+                .get(&build_pos);
+            (
+                TypedBuildingRuntimeKind::PayloadRouter,
+                TypedBuildingRuntimeValue::PayloadRouter {
+                    sorted_content: configured
+                        .payload_router_sorted_content_by_build_pos
+                        .get(&build_pos)
+                        .copied()
+                        .flatten(),
+                    progress_bits: runtime.map(|projection| projection.progress_bits),
+                    item_rotation_bits: runtime.map(|projection| projection.item_rotation_bits),
+                    payload_present: runtime.map(|projection| projection.payload_present),
+                    payload_type: runtime.and_then(|projection| projection.payload_type),
+                    payload_kind: runtime.and_then(|projection| projection.payload_kind.clone()),
+                    payload_build_block_id: runtime
+                        .and_then(|projection| projection.payload_build_block_id),
+                    payload_build_revision: runtime
+                        .and_then(|projection| projection.payload_build_revision),
+                    payload_unit_class_id: runtime
+                        .and_then(|projection| projection.payload_unit_class_id),
+                    payload_unit_revision: runtime
+                        .and_then(|projection| projection.payload_unit_revision),
+                    payload_serialized_len: runtime
+                        .map(|projection| projection.payload_serialized_len),
+                    payload_serialized_sha256: runtime
+                        .and_then(|projection| Some(projection.payload_serialized_sha256.clone())),
+                    rec_dir: runtime.map(|projection| projection.rec_dir),
+                },
+            )
+        }
         "bridge-conveyor" | "phase-conveyor" | "bridge-conduit" | "phase-conduit" => (
             TypedBuildingRuntimeKind::ItemBridge,
             TypedBuildingRuntimeValue::Link(
@@ -8419,6 +8492,187 @@ mod tests {
                     payload_unit_class_id: Some(9),
                     payload_unit_payload_len: Some(128),
                     payload_unit_payload_sha256: Some("abc123".to_string()),
+                },
+                Vec::new(),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(6),
+                Some(0x3f80_0000),
+                Some(0x3f00_0000),
+                Some(126),
+                Some(false),
+                Some(0x40a0_0000),
+                Some(true),
+                Some(0x50),
+                Some(0x28),
+                Some(66),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_gives_payload_router_family_shell() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0008_0010i32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            308,
+            Some("payload-router".to_string()),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(6),
+            Some(0x3f80_0000),
+            Some(0x3f00_0000),
+            Some(126),
+            Some(false),
+            None,
+            Some(0x40a0_0000),
+            Some(true),
+            Some(0x50),
+            Some(0x28),
+            Some(66),
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(
+            state.typed_runtime_building_at(build_pos),
+            Some(expected_typed_runtime_building(
+                build_pos,
+                308,
+                "payload-router",
+                TypedBuildingRuntimeKind::PayloadRouter,
+                TypedBuildingRuntimeValue::PayloadRouter {
+                    sorted_content: None,
+                    progress_bits: None,
+                    item_rotation_bits: None,
+                    payload_present: None,
+                    payload_type: None,
+                    payload_kind: None,
+                    payload_build_block_id: None,
+                    payload_build_revision: None,
+                    payload_unit_class_id: None,
+                    payload_unit_revision: None,
+                    payload_serialized_len: None,
+                    payload_serialized_sha256: None,
+                    rec_dir: None,
+                },
+                Vec::new(),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(6),
+                Some(0x3f80_0000),
+                Some(0x3f00_0000),
+                Some(126),
+                Some(false),
+                Some(0x40a0_0000),
+                Some(true),
+                Some(0x50),
+                Some(0x28),
+                Some(66),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_payload_router_runtime() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0008_0011i32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            309,
+            Some("reinforced-payload-router".to_string()),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(6),
+            Some(0x3f80_0000),
+            Some(0x3f00_0000),
+            Some(126),
+            Some(false),
+            None,
+            Some(0x40a0_0000),
+            Some(true),
+            Some(0x50),
+            Some(0x28),
+            Some(66),
+            None,
+            None,
+            None,
+        );
+        state
+            .configured_block_projection
+            .apply_payload_router_sorted_content(
+                build_pos,
+                Some(ConfiguredContentRef {
+                    content_type: 1,
+                    content_id: 11,
+                }),
+            );
+        state
+            .configured_block_projection
+            .apply_payload_router_runtime(
+                build_pos,
+                PayloadRouterRuntimeProjection {
+                    progress_bits: 0x3f40_0000,
+                    item_rotation_bits: 0x4040_0000,
+                    payload_present: true,
+                    payload_type: Some(0),
+                    payload_kind: Some(PayloadRouterPayloadKind::Unit),
+                    payload_build_block_id: None,
+                    payload_build_revision: None,
+                    payload_unit_class_id: Some(9),
+                    payload_unit_revision: Some(2),
+                    payload_serialized_len: 5,
+                    payload_serialized_sha256: "0123456789abcdef".to_string(),
+                    rec_dir: 3,
+                },
+            );
+
+        assert_eq!(
+            state.typed_runtime_building_at(build_pos),
+            Some(expected_typed_runtime_building(
+                build_pos,
+                309,
+                "reinforced-payload-router",
+                TypedBuildingRuntimeKind::PayloadRouter,
+                TypedBuildingRuntimeValue::PayloadRouter {
+                    sorted_content: Some(ConfiguredContentRef {
+                        content_type: 1,
+                        content_id: 11,
+                    }),
+                    progress_bits: Some(0x3f40_0000),
+                    item_rotation_bits: Some(0x4040_0000),
+                    payload_present: Some(true),
+                    payload_type: Some(0),
+                    payload_kind: Some(PayloadRouterPayloadKind::Unit),
+                    payload_build_block_id: None,
+                    payload_build_revision: None,
+                    payload_unit_class_id: Some(9),
+                    payload_unit_revision: Some(2),
+                    payload_serialized_len: Some(5),
+                    payload_serialized_sha256: Some("0123456789abcdef".to_string()),
+                    rec_dir: Some(3),
                 },
                 Vec::new(),
                 Some(3),

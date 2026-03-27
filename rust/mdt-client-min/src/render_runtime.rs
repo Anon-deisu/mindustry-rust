@@ -18,13 +18,13 @@ use crate::session_state::{
     ConfiguredBlockProjection, ConfiguredContentRef, CoreInventoryRuntimeBindingKind,
     EffectBusinessContentKind, EffectBusinessPositionSource, EffectBusinessProjection,
     EffectDataSemantic, EffectRuntimeBindingState, HiddenSnapshotDeltaProjection,
-    PayloadLoaderRuntimeProjection, ReconnectPhaseProjection, ReconnectReasonKind,
-    SessionResetKind, SessionState, SessionTimeoutKind, StateSnapshotAuthorityProjection,
-    StateSnapshotBusinessProjection, TileConfigAuthoritySource, TileConfigProjection,
-    TypedBuildingRuntimeKind, TypedBuildingRuntimeModel, TypedBuildingRuntimeProjection,
-    TypedBuildingRuntimeValue, TypedRuntimeEntityModel, TypedRuntimeEntityProjection,
-    UnitAssemblerRuntimeProjection, UnitFactoryRuntimeProjection, UnitRefProjection,
-    WorldBootstrapProjection, WorldReloadProjection,
+    PayloadLoaderRuntimeProjection, PayloadRouterPayloadKind, ReconnectPhaseProjection,
+    ReconnectReasonKind, SessionResetKind, SessionState, SessionTimeoutKind,
+    StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection, TileConfigAuthoritySource,
+    TileConfigProjection, TypedBuildingRuntimeKind, TypedBuildingRuntimeModel,
+    TypedBuildingRuntimeProjection, TypedBuildingRuntimeValue, TypedRuntimeEntityModel,
+    TypedRuntimeEntityProjection, UnitAssemblerRuntimeProjection, UnitFactoryRuntimeProjection,
+    UnitRefProjection, WorldBootstrapProjection, WorldReloadProjection,
 };
 use mdt_remote::{HighFrequencyRemoteMethod, HIGH_FREQUENCY_REMOTE_METHOD_COUNT};
 use mdt_render_ui::hud_model::{
@@ -3435,6 +3435,86 @@ fn runtime_typed_build_config_value_label(
                     "unit-sha={}",
                     payload_unit_payload_sha256.chars().take(12).collect::<String>()
                 ));
+            }
+            parts.join(":")
+        }
+        TypedBuildingRuntimeValue::PayloadRouter {
+            sorted_content,
+            progress_bits,
+            item_rotation_bits,
+            payload_present,
+            payload_type,
+            payload_kind,
+            payload_build_block_id,
+            payload_build_revision,
+            payload_unit_class_id,
+            payload_unit_revision,
+            payload_serialized_len,
+            payload_serialized_sha256,
+            rec_dir,
+        } => {
+            let mut parts = vec![format!(
+                "content={}",
+                sorted_content
+                    .as_ref()
+                    .map(runtime_build_config_content_ref_label)
+                    .unwrap_or_else(|| "clear".to_string())
+            )];
+            parts.push(format!(
+                "progress={}",
+                progress_bits
+                    .map(|bits| format!("0x{bits:08x}"))
+                    .unwrap_or_else(|| "none".to_string())
+            ));
+            parts.push(format!(
+                "item-rot={}",
+                item_rotation_bits
+                    .map(|bits| format!("0x{bits:08x}"))
+                    .unwrap_or_else(|| "none".to_string())
+            ));
+            parts.push(format!(
+                "payload={}",
+                payload_present
+                    .map(|value| if value { 1 } else { 0 }.to_string())
+                    .unwrap_or_else(|| "unknown".to_string())
+            ));
+            if let Some(payload_type) = payload_type {
+                parts.push(format!("payload-type={payload_type}"));
+            }
+            if let Some(payload_kind) = payload_kind {
+                parts.push(format!(
+                    "payload-kind={}",
+                    match payload_kind {
+                        PayloadRouterPayloadKind::Null => "null",
+                        PayloadRouterPayloadKind::Build => "build",
+                        PayloadRouterPayloadKind::Unit => "unit",
+                    }
+                ));
+            }
+            if let Some(payload_build_block_id) = payload_build_block_id {
+                let mut payload_ref = format!("b:{payload_build_block_id}");
+                if let Some(payload_build_revision) = payload_build_revision {
+                    payload_ref.push_str(&format!("@r{payload_build_revision}"));
+                }
+                parts.push(format!("payload-ref={payload_ref}"));
+            } else if let Some(payload_unit_class_id) = payload_unit_class_id {
+                let mut payload_ref = format!("uc:{payload_unit_class_id}");
+                if let Some(payload_unit_revision) = payload_unit_revision {
+                    payload_ref.push_str(&format!("@r{payload_unit_revision}"));
+                }
+                parts.push(format!("payload-ref={payload_ref}"));
+            }
+            if let Some(payload_serialized_len) = payload_serialized_len {
+                parts.push(format!("payload-len={payload_serialized_len}"));
+            }
+            if let Some(payload_serialized_sha256) = payload_serialized_sha256.as_deref() {
+                parts.push(format!(
+                    "payload-sha={}",
+                    payload_serialized_sha256.chars().take(12).collect::<String>()
+                ));
+            }
+            if let Some(rec_dir) = rec_dir {
+                parts.push(format!("rec-dir={rec_dir}"));
             }
             parts.join(":")
         }
@@ -7792,6 +7872,26 @@ mod tests {
             );
         state
             .configured_block_projection
+            .payload_router_runtime_by_build_pos
+            .insert(
+                pack_runtime_point2(22, 44),
+                crate::session_state::PayloadRouterRuntimeProjection {
+                    progress_bits: 0x3f40_0000,
+                    item_rotation_bits: 0x4040_0000,
+                    payload_present: true,
+                    payload_type: Some(0),
+                    payload_kind: Some(crate::session_state::PayloadRouterPayloadKind::Unit),
+                    payload_build_block_id: None,
+                    payload_build_revision: None,
+                    payload_unit_class_id: Some(11),
+                    payload_unit_revision: Some(2),
+                    payload_serialized_len: 5,
+                    payload_serialized_sha256: "0123456789abcdef".to_string(),
+                    rec_dir: 3,
+                },
+            );
+        state
+            .configured_block_projection
             .power_node_links_by_build_pos
             .insert(
                 pack_runtime_point2(23, 45),
@@ -7953,7 +8053,9 @@ mod tests {
                     == "21:43:content=b:7:command=0x41480000:0x41900000:payload=1:payload-type=1:vec=0x41200000:0x41a00000:rot=0x40000000:payload-ref=b:12@r1"
         }));
         assert!(build_ui.inspector_entries.iter().any(|entry| {
-            entry.family == "payload-router" && entry.sample == "22:44:content=u:9"
+            entry.family == "payload-router"
+                && entry.sample
+                    == "22:44:content=u:9:progress=0x3f400000:item-rot=0x40400000:payload=1:payload-type=0:payload-kind=unit:payload-ref=uc:11@r2:payload-len=5:payload-sha=0123456789ab:rec-dir=3"
         }));
         assert!(build_ui.inspector_entries.iter().any(|entry| {
             entry.family == "power-node" && entry.sample == "23:45:links=24:46|25:47"
@@ -8071,6 +8173,36 @@ mod tests {
         assert_eq!(
             label,
             "content=u:9:command=0x42200000:0x42700000:payload=1:payload-type=1:vec=0x41200000:0x41a00000:rot=0x40400000:payload-ref=uc:11:unit-len=128:unit-sha=0123456789ab"
+        );
+    }
+
+    #[test]
+    fn runtime_typed_build_config_value_label_formats_payload_router_runtime() {
+        let label = runtime_typed_build_config_value_label(
+            TypedBuildingRuntimeKind::PayloadRouter,
+            &TypedBuildingRuntimeValue::PayloadRouter {
+                sorted_content: Some(ConfiguredContentRef {
+                    content_type: 1,
+                    content_id: 9,
+                }),
+                progress_bits: Some(0x3f40_0000),
+                item_rotation_bits: Some(0x4040_0000),
+                payload_present: Some(true),
+                payload_type: Some(0),
+                payload_kind: Some(PayloadRouterPayloadKind::Unit),
+                payload_build_block_id: None,
+                payload_build_revision: None,
+                payload_unit_class_id: Some(11),
+                payload_unit_revision: Some(2),
+                payload_serialized_len: Some(5),
+                payload_serialized_sha256: Some("0123456789abcdef".to_string()),
+                rec_dir: Some(3),
+            },
+        );
+
+        assert_eq!(
+            label,
+            "content=b:9:progress=0x3f400000:item-rot=0x40400000:payload=1:payload-type=0:payload-kind=unit:payload-ref=uc:11@r2:payload-len=5:payload-sha=0123456789ab:rec-dir=3"
         );
     }
 
