@@ -376,6 +376,23 @@ pub struct PayloadLoaderRuntimeProjection {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MassDriverRuntimeProjection {
+    pub rotation_bits: u32,
+    pub state_ordinal: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PayloadMassDriverRuntimeProjection {
+    pub turret_rotation_bits: u32,
+    pub state_ordinal: u8,
+    pub reload_counter_bits: u32,
+    pub charge_bits: u32,
+    pub loaded: bool,
+    pub charging: bool,
+    pub payload_present: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PayloadSourceRuntimeProjection {
     pub command_pos: Option<(u32, u32)>,
     pub pay_vector_x_bits: u32,
@@ -1835,7 +1852,9 @@ pub struct ConfiguredBlockProjection {
     pub duct_unloader_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub duct_router_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub mass_driver_link_by_build_pos: BTreeMap<i32, Option<i32>>,
+    pub mass_driver_runtime_by_build_pos: BTreeMap<i32, MassDriverRuntimeProjection>,
     pub payload_mass_driver_link_by_build_pos: BTreeMap<i32, Option<i32>>,
+    pub payload_mass_driver_runtime_by_build_pos: BTreeMap<i32, PayloadMassDriverRuntimeProjection>,
     pub unit_factory_current_plan_by_build_pos: BTreeMap<i32, i16>,
     pub unit_factory_runtime_by_build_pos: BTreeMap<i32, UnitFactoryRuntimeProjection>,
     pub power_node_links_by_build_pos: BTreeMap<i32, BTreeSet<i32>>,
@@ -1978,9 +1997,27 @@ impl ConfiguredBlockProjection {
         self.mass_driver_link_by_build_pos.insert(build_pos, link);
     }
 
+    pub fn apply_mass_driver_runtime(
+        &mut self,
+        build_pos: i32,
+        projection: MassDriverRuntimeProjection,
+    ) {
+        self.mass_driver_runtime_by_build_pos
+            .insert(build_pos, projection);
+    }
+
     pub fn apply_payload_mass_driver_link(&mut self, build_pos: i32, link: Option<i32>) {
         self.payload_mass_driver_link_by_build_pos
             .insert(build_pos, link);
+    }
+
+    pub fn apply_payload_mass_driver_runtime(
+        &mut self,
+        build_pos: i32,
+        projection: PayloadMassDriverRuntimeProjection,
+    ) {
+        self.payload_mass_driver_runtime_by_build_pos
+            .insert(build_pos, projection);
     }
 
     pub fn apply_unit_factory_current_plan(&mut self, build_pos: i32, current_plan: i16) {
@@ -2072,7 +2109,10 @@ impl ConfiguredBlockProjection {
         self.duct_unloader_item_by_build_pos.remove(&build_pos);
         self.duct_router_item_by_build_pos.remove(&build_pos);
         self.mass_driver_link_by_build_pos.remove(&build_pos);
+        self.mass_driver_runtime_by_build_pos.remove(&build_pos);
         self.payload_mass_driver_link_by_build_pos
+            .remove(&build_pos);
+        self.payload_mass_driver_runtime_by_build_pos
             .remove(&build_pos);
         self.unit_factory_current_plan_by_build_pos
             .remove(&build_pos);
@@ -3192,6 +3232,21 @@ pub enum TypedBuildingRuntimeValue {
         payload_serialized_sha256: Option<String>,
         rec_dir: Option<u8>,
     },
+    MassDriver {
+        link: Option<i32>,
+        rotation_bits: Option<u32>,
+        state_ordinal: Option<u8>,
+    },
+    PayloadMassDriver {
+        link: Option<i32>,
+        turret_rotation_bits: Option<u32>,
+        state_ordinal: Option<u8>,
+        reload_counter_bits: Option<u32>,
+        charge_bits: Option<u32>,
+        loaded: Option<bool>,
+        charging: Option<bool>,
+        payload_present: Option<bool>,
+    },
     Block(Option<i16>),
     Color(i32),
     Content(Option<ConfiguredContentRef>),
@@ -3669,24 +3724,41 @@ fn typed_runtime_building_model(
                     .copied()?,
             ),
         ),
-        "mass-driver" => (
-            TypedBuildingRuntimeKind::MassDriver,
-            TypedBuildingRuntimeValue::Link(
-                configured
-                    .mass_driver_link_by_build_pos
-                    .get(&build_pos)
-                    .copied()?,
-            ),
-        ),
-        "payload-mass-driver" | "large-payload-mass-driver" => (
-            TypedBuildingRuntimeKind::PayloadMassDriver,
-            TypedBuildingRuntimeValue::Link(
-                configured
-                    .payload_mass_driver_link_by_build_pos
-                    .get(&build_pos)
-                    .copied()?,
-            ),
-        ),
+        "mass-driver" => {
+            let runtime = configured.mass_driver_runtime_by_build_pos.get(&build_pos);
+            (
+                TypedBuildingRuntimeKind::MassDriver,
+                TypedBuildingRuntimeValue::MassDriver {
+                    link: configured
+                        .mass_driver_link_by_build_pos
+                        .get(&build_pos)
+                        .copied()?,
+                    rotation_bits: runtime.map(|projection| projection.rotation_bits),
+                    state_ordinal: runtime.map(|projection| projection.state_ordinal),
+                },
+            )
+        }
+        "payload-mass-driver" | "large-payload-mass-driver" => {
+            let runtime = configured
+                .payload_mass_driver_runtime_by_build_pos
+                .get(&build_pos);
+            (
+                TypedBuildingRuntimeKind::PayloadMassDriver,
+                TypedBuildingRuntimeValue::PayloadMassDriver {
+                    link: configured
+                        .payload_mass_driver_link_by_build_pos
+                        .get(&build_pos)
+                        .copied()?,
+                    turret_rotation_bits: runtime.map(|projection| projection.turret_rotation_bits),
+                    state_ordinal: runtime.map(|projection| projection.state_ordinal),
+                    reload_counter_bits: runtime.map(|projection| projection.reload_counter_bits),
+                    charge_bits: runtime.map(|projection| projection.charge_bits),
+                    loaded: runtime.map(|projection| projection.loaded),
+                    charging: runtime.map(|projection| projection.charging),
+                    payload_present: runtime.map(|projection| projection.payload_present),
+                },
+            )
+        }
         "ground-factory" | "air-factory" | "naval-factory" | "tank-fabricator"
         | "ship-fabricator" | "mech-fabricator" => {
             let runtime = configured.unit_factory_runtime_by_build_pos.get(&build_pos);
@@ -8369,12 +8441,128 @@ mod tests {
     }
 
     #[test]
-    fn session_state_runtime_typed_building_projection_gives_payload_source_family_shell() {
+    fn session_state_runtime_typed_building_projection_supports_mass_driver_runtime() {
         let mut state = SessionState::default();
         let build_pos = 0x0008_000ei32;
         state.building_table_projection.apply_block_snapshot_head(
             build_pos,
             306,
+            Some("mass-driver".to_string()),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(6),
+            Some(0x3f80_0000),
+            Some(0x3f00_0000),
+            Some(126),
+            Some(false),
+            None,
+            Some(0x40a0_0000),
+            Some(true),
+            Some(0x50),
+            Some(0x28),
+            Some(66),
+            None,
+            None,
+            None,
+        );
+        state
+            .configured_block_projection
+            .apply_mass_driver_link(build_pos, Some(11));
+        state.configured_block_projection.apply_mass_driver_runtime(
+            build_pos,
+            MassDriverRuntimeProjection {
+                rotation_bits: 0x4120_0000,
+                state_ordinal: 2,
+            },
+        );
+
+        assert_eq!(
+            state
+                .typed_runtime_building_at(build_pos)
+                .map(|building| (building.kind, building.value.clone())),
+            Some((
+                TypedBuildingRuntimeKind::MassDriver,
+                TypedBuildingRuntimeValue::MassDriver {
+                    link: Some(11),
+                    rotation_bits: Some(0x4120_0000),
+                    state_ordinal: Some(2),
+                },
+            ))
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_payload_mass_driver_runtime() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0008_000fi32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            307,
+            Some("large-payload-mass-driver".to_string()),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(6),
+            Some(0x3f80_0000),
+            Some(0x3f00_0000),
+            Some(126),
+            Some(false),
+            None,
+            Some(0x40a0_0000),
+            Some(true),
+            Some(0x50),
+            Some(0x28),
+            Some(66),
+            None,
+            None,
+            None,
+        );
+        state
+            .configured_block_projection
+            .apply_payload_mass_driver_link(build_pos, Some(13));
+        state
+            .configured_block_projection
+            .apply_payload_mass_driver_runtime(
+                build_pos,
+                PayloadMassDriverRuntimeProjection {
+                    turret_rotation_bits: 0x4140_0000,
+                    state_ordinal: 3,
+                    reload_counter_bits: 0x3f20_0000,
+                    charge_bits: 0x3f40_0000,
+                    loaded: true,
+                    charging: false,
+                    payload_present: true,
+                },
+            );
+
+        assert_eq!(
+            state
+                .typed_runtime_building_at(build_pos)
+                .map(|building| (building.kind, building.value.clone())),
+            Some((
+                TypedBuildingRuntimeKind::PayloadMassDriver,
+                TypedBuildingRuntimeValue::PayloadMassDriver {
+                    link: Some(13),
+                    turret_rotation_bits: Some(0x4140_0000),
+                    state_ordinal: Some(3),
+                    reload_counter_bits: Some(0x3f20_0000),
+                    charge_bits: Some(0x3f40_0000),
+                    loaded: Some(true),
+                    charging: Some(false),
+                    payload_present: Some(true),
+                },
+            ))
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_gives_payload_source_family_shell() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0008_0012i32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            308,
             Some("payload-source".to_string()),
             Some(3),
             Some(4),
@@ -8445,10 +8633,10 @@ mod tests {
     #[test]
     fn session_state_runtime_typed_building_projection_supports_payload_source_runtime() {
         let mut state = SessionState::default();
-        let build_pos = 0x0008_000fi32;
+        let build_pos = 0x0008_0013i32;
         state.building_table_projection.apply_block_snapshot_head(
             build_pos,
-            307,
+            309,
             Some("payload-source".to_string()),
             Some(3),
             Some(4),

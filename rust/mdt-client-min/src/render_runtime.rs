@@ -3563,6 +3563,62 @@ fn runtime_typed_build_config_value_label(
             }
             parts.join(":")
         }
+        TypedBuildingRuntimeValue::MassDriver {
+            link,
+            rotation_bits,
+            state_ordinal,
+        } => {
+            let mut parts = vec![format!(
+                "link={}",
+                link.map(runtime_build_config_pos_label)
+                    .unwrap_or_else(|| "clear".to_string())
+            )];
+            if let Some(rotation_bits) = rotation_bits {
+                parts.push(format!("rot=0x{rotation_bits:08x}"));
+            }
+            if let Some(state_ordinal) = state_ordinal {
+                parts.push(format!("state={state_ordinal}"));
+            }
+            parts.join(":")
+        }
+        TypedBuildingRuntimeValue::PayloadMassDriver {
+            link,
+            turret_rotation_bits,
+            state_ordinal,
+            reload_counter_bits,
+            charge_bits,
+            loaded,
+            charging,
+            payload_present,
+        } => {
+            let mut parts = vec![format!(
+                "link={}",
+                link.map(runtime_build_config_pos_label)
+                    .unwrap_or_else(|| "clear".to_string())
+            )];
+            if let Some(turret_rotation_bits) = turret_rotation_bits {
+                parts.push(format!("rot=0x{turret_rotation_bits:08x}"));
+            }
+            if let Some(state_ordinal) = state_ordinal {
+                parts.push(format!("state={state_ordinal}"));
+            }
+            if let Some(reload_counter_bits) = reload_counter_bits {
+                parts.push(format!("reload=0x{reload_counter_bits:08x}"));
+            }
+            if let Some(charge_bits) = charge_bits {
+                parts.push(format!("charge=0x{charge_bits:08x}"));
+            }
+            if let Some(loaded) = loaded {
+                parts.push(format!("loaded={}", if *loaded { 1 } else { 0 }));
+            }
+            if let Some(charging) = charging {
+                parts.push(format!("charging={}", if *charging { 1 } else { 0 }));
+            }
+            if let Some(payload_present) = payload_present {
+                parts.push(format!("payload={}", if *payload_present { 1 } else { 0 }));
+            }
+            parts.join(":")
+        }
         TypedBuildingRuntimeValue::Content(content) => format!(
             "content={}",
             content
@@ -5577,6 +5633,28 @@ fn append_runtime_building_markers(
             TypedBuildingRuntimeValue::PayloadSource { command_pos, .. } => {
                 append_runtime_payload_source_objects(scene, building, *command_pos);
             }
+            TypedBuildingRuntimeValue::MassDriver {
+                link: Some(target_build_pos),
+                ..
+            } if building.kind == TypedBuildingRuntimeKind::MassDriver => {
+                append_runtime_driver_link_objects(
+                    scene,
+                    building.block_name.as_str(),
+                    building.build_pos,
+                    *target_build_pos,
+                );
+            }
+            TypedBuildingRuntimeValue::PayloadMassDriver {
+                link: Some(target_build_pos),
+                ..
+            } if building.kind == TypedBuildingRuntimeKind::PayloadMassDriver => {
+                append_runtime_driver_link_objects(
+                    scene,
+                    building.block_name.as_str(),
+                    building.build_pos,
+                    *target_build_pos,
+                );
+            }
             TypedBuildingRuntimeValue::UnitAssembler {
                 progress_bits,
                 unit_count,
@@ -5596,20 +5674,6 @@ fn append_runtime_building_markers(
                 *payload_present,
                 *pay_rotation_bits,
             ),
-            TypedBuildingRuntimeValue::Link(Some(target_build_pos))
-                if matches!(
-                    building.kind,
-                    TypedBuildingRuntimeKind::MassDriver
-                        | TypedBuildingRuntimeKind::PayloadMassDriver
-                ) =>
-            {
-                append_runtime_driver_link_objects(
-                    scene,
-                    building.block_name.as_str(),
-                    building.build_pos,
-                    *target_build_pos,
-                );
-            }
             _ => {}
         }
     }
@@ -8019,6 +8083,45 @@ mod tests {
                     pay_rotation_bits: 0x4040_0000,
                 },
             );
+        state
+            .configured_block_projection
+            .mass_driver_link_by_build_pos
+            .insert(
+                pack_runtime_point2(30, 52),
+                Some(pack_runtime_point2(20, 22)),
+            );
+        state
+            .configured_block_projection
+            .mass_driver_runtime_by_build_pos
+            .insert(
+                pack_runtime_point2(30, 52),
+                crate::session_state::MassDriverRuntimeProjection {
+                    rotation_bits: 0x4120_0000,
+                    state_ordinal: 2,
+                },
+            );
+        state
+            .configured_block_projection
+            .payload_mass_driver_link_by_build_pos
+            .insert(
+                pack_runtime_point2(31, 53),
+                Some(pack_runtime_point2(24, 26)),
+            );
+        state
+            .configured_block_projection
+            .payload_mass_driver_runtime_by_build_pos
+            .insert(
+                pack_runtime_point2(31, 53),
+                crate::session_state::PayloadMassDriverRuntimeProjection {
+                    turret_rotation_bits: 0x4140_0000,
+                    state_ordinal: 3,
+                    reload_counter_bits: 0x3f20_0000,
+                    charge_bits: 0x3f40_0000,
+                    loaded: true,
+                    charging: false,
+                    payload_present: true,
+                },
+            );
         for (build_pos, block_name) in [
             (pack_runtime_point2(18, 40), "message"),
             (pack_runtime_point2(19, 41), "constructor"),
@@ -8031,6 +8134,8 @@ mod tests {
             (pack_runtime_point2(27, 49), "memory-cell"),
             (pack_runtime_point2(28, 50), "build-tower"),
             (pack_runtime_point2(29, 51), "tank-assembler"),
+            (pack_runtime_point2(30, 52), "mass-driver"),
+            (pack_runtime_point2(31, 53), "payload-mass-driver"),
         ] {
             state.building_table_projection.by_build_pos.insert(
                 build_pos,
@@ -8135,6 +8240,15 @@ mod tests {
             entry.family == "unit-assembler"
                 && entry.sample
                     == "29:51:tank-assembler:progress=0x3f000000:units=2:blocks=3:sample=b:8:command=0x41480000:0x41a00000:payload=1:pay-rot=0x40400000"
+        }));
+        assert!(build_ui.inspector_entries.iter().any(|entry| {
+            entry.family == "mass-driver"
+                && entry.sample == "30:52:link=20:22:rot=0x41200000:state=2"
+        }));
+        assert!(build_ui.inspector_entries.iter().any(|entry| {
+            entry.family == "payload-mass-driver"
+                && entry.sample
+                    == "31:53:link=24:26:rot=0x41400000:state=3:reload=0x3f200000:charge=0x3f400000:loaded=1:charging=0:payload=1"
         }));
         let payload_source_icon = scene
             .objects
@@ -8268,6 +8382,42 @@ mod tests {
     }
 
     #[test]
+    fn runtime_typed_build_config_value_label_formats_mass_driver_runtime() {
+        let label = runtime_typed_build_config_value_label(
+            TypedBuildingRuntimeKind::MassDriver,
+            &TypedBuildingRuntimeValue::MassDriver {
+                link: Some(pack_runtime_point2(20, 22)),
+                rotation_bits: Some(0x4120_0000),
+                state_ordinal: Some(2),
+            },
+        );
+
+        assert_eq!(label, "link=20:22:rot=0x41200000:state=2");
+    }
+
+    #[test]
+    fn runtime_typed_build_config_value_label_formats_payload_mass_driver_runtime() {
+        let label = runtime_typed_build_config_value_label(
+            TypedBuildingRuntimeKind::PayloadMassDriver,
+            &TypedBuildingRuntimeValue::PayloadMassDriver {
+                link: Some(pack_runtime_point2(24, 26)),
+                turret_rotation_bits: Some(0x4140_0000),
+                state_ordinal: Some(3),
+                reload_counter_bits: Some(0x3f20_0000),
+                charge_bits: Some(0x3f40_0000),
+                loaded: Some(true),
+                charging: Some(false),
+                payload_present: Some(true),
+            },
+        );
+
+        assert_eq!(
+            label,
+            "link=24:26:rot=0x41400000:state=3:reload=0x3f200000:charge=0x3f400000:loaded=1:charging=0:payload=1"
+        );
+    }
+
+    #[test]
     fn render_runtime_adapter_renders_unit_assembler_and_driver_link_markers() {
         let mut adapter = RenderRuntimeAdapter::default();
         let mut scene = RenderModel::default();
@@ -8302,6 +8452,16 @@ mod tests {
             );
         state
             .configured_block_projection
+            .mass_driver_runtime_by_build_pos
+            .insert(
+                pack_runtime_point2(12, 14),
+                crate::session_state::MassDriverRuntimeProjection {
+                    rotation_bits: 0x4120_0000,
+                    state_ordinal: 2,
+                },
+            );
+        state
+            .configured_block_projection
             .payload_mass_driver_link_by_build_pos
             .insert(
                 pack_runtime_point2(16, 18),
@@ -8309,10 +8469,40 @@ mod tests {
             );
         state
             .configured_block_projection
+            .payload_mass_driver_runtime_by_build_pos
+            .insert(
+                pack_runtime_point2(16, 18),
+                crate::session_state::PayloadMassDriverRuntimeProjection {
+                    turret_rotation_bits: 0x4140_0000,
+                    state_ordinal: 3,
+                    reload_counter_bits: 0x3f20_0000,
+                    charge_bits: 0x3f40_0000,
+                    loaded: true,
+                    charging: false,
+                    payload_present: true,
+                },
+            );
+        state
+            .configured_block_projection
             .payload_mass_driver_link_by_build_pos
             .insert(
                 pack_runtime_point2(28, 30),
                 Some(pack_runtime_point2(32, 34)),
+            );
+        state
+            .configured_block_projection
+            .payload_mass_driver_runtime_by_build_pos
+            .insert(
+                pack_runtime_point2(28, 30),
+                crate::session_state::PayloadMassDriverRuntimeProjection {
+                    turret_rotation_bits: 0x4150_0000,
+                    state_ordinal: 4,
+                    reload_counter_bits: 0x3f60_0000,
+                    charge_bits: 0x3f70_0000,
+                    loaded: false,
+                    charging: true,
+                    payload_present: false,
+                },
             );
 
         for (build_pos, block_name) in [
@@ -8416,6 +8606,19 @@ mod tests {
                     && *x1 == 160.0
                     && *y1 == 176.0
             )
+        }));
+        let build_ui = hud
+            .build_ui
+            .as_ref()
+            .expect("build_ui observability should be present");
+        assert!(build_ui.inspector_entries.iter().any(|entry| {
+            entry.family == "mass-driver"
+                && entry.sample == "12:14:link=20:22:rot=0x41200000:state=2"
+        }));
+        assert!(build_ui.inspector_entries.iter().any(|entry| {
+            entry.family == "payload-mass-driver"
+                && entry.sample
+                    == "28:30:large-payload-mass-driver:link=32:34:rot=0x41500000:state=4:reload=0x3f600000:charge=0x3f700000:loaded=0:charging=1:payload=0"
         }));
     }
 

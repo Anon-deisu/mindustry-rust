@@ -25,16 +25,16 @@ use crate::session_state::{
     EntityPlayerSemanticProjection, EntityPuddleSemanticProjection, EntitySemanticProjection,
     EntityUnitRuntimeSyncProjection, EntityUnitSemanticProjection,
     EntityWeatherStateSemanticProjection, EntityWorldLabelSemanticProjection,
-    FinishConnectingProjection, GameplayStateProjection, PayloadDroppedProjection,
-    PayloadLoaderRuntimeProjection, PayloadRouterPayloadKind, PayloadRouterRuntimeProjection,
-    PayloadSourceRuntimeProjection, PickedBuildPayloadProjection, PickedUnitPayloadProjection,
-    ReconnectPhaseProjection, ReconnectReasonKind, ReconstructorRuntimeProjection,
-    RemotePlanSnapshotFirstPlanProjection, SessionResetKind, SessionState, SessionTimeoutKind,
-    SessionTimeoutProjection, TakeItemsProjection, TileConfigAuthoritySource,
-    TileConfigBusinessApply, TransferItemEffectProjection, TransferItemToProjection,
-    TransferItemToUnitProjection, TypedBuildingRuntimeModel, UnitAssemblerRuntimeProjection,
-    UnitEnteredPayloadProjection, UnitFactoryRuntimeProjection, UnitRefProjection,
-    WorldReloadProjection,
+    FinishConnectingProjection, GameplayStateProjection, MassDriverRuntimeProjection,
+    PayloadDroppedProjection, PayloadLoaderRuntimeProjection, PayloadMassDriverRuntimeProjection,
+    PayloadRouterPayloadKind, PayloadRouterRuntimeProjection, PayloadSourceRuntimeProjection,
+    PickedBuildPayloadProjection, PickedUnitPayloadProjection, ReconnectPhaseProjection,
+    ReconnectReasonKind, ReconstructorRuntimeProjection, RemotePlanSnapshotFirstPlanProjection,
+    SessionResetKind, SessionState, SessionTimeoutKind, SessionTimeoutProjection,
+    TakeItemsProjection, TileConfigAuthoritySource, TileConfigBusinessApply,
+    TransferItemEffectProjection, TransferItemToProjection, TransferItemToUnitProjection,
+    TypedBuildingRuntimeModel, UnitAssemblerRuntimeProjection, UnitEnteredPayloadProjection,
+    UnitFactoryRuntimeProjection, UnitRefProjection, WorldReloadProjection,
 };
 use crate::typed_remote_dispatch::{
     TypedCustomChannelRemoteDispatch, TypedCustomChannelRemoteDispatcher,
@@ -8193,8 +8193,11 @@ impl ClientSession {
             let memory_values_bits = summarize_memory_values_bits(&building.parsed_tail);
             let canvas_bytes = summarize_canvas_bytes(&building.parsed_tail);
             let mass_driver_link = summarize_mass_driver_link(&building.parsed_tail);
+            let mass_driver_runtime = summarize_mass_driver_projection(&building.parsed_tail);
             let payload_mass_driver_link =
                 summarize_payload_mass_driver_link(&building.parsed_tail);
+            let payload_mass_driver_runtime =
+                summarize_payload_mass_driver_projection(&building.parsed_tail);
 
             let entry = BlockSnapshotExtraEntrySummary {
                 build_pos,
@@ -8239,7 +8242,9 @@ impl ClientSession {
                 memory_values_bits,
                 canvas_bytes,
                 mass_driver_link,
+                mass_driver_runtime,
                 payload_mass_driver_link,
+                payload_mass_driver_runtime,
                 nullable_item_id: summarize_nullable_item_config_item_id(&building.parsed_tail),
                 item_bridge_link: summarize_item_bridge_link(&building.parsed_tail),
                 light_color: summarize_one_i32_tail_value(&building.parsed_tail),
@@ -8387,6 +8392,11 @@ impl ClientSession {
                 .configured_block_projection
                 .apply_payload_mass_driver_link(build_pos, Some(link));
         }
+        if let Some(projection) = summarize_payload_mass_driver_projection(parsed_tail) {
+            self.state
+                .configured_block_projection
+                .apply_payload_mass_driver_runtime(build_pos, projection);
+        }
         if let Some(projection) = summarize_unit_assembler_projection(parsed_tail) {
             self.state
                 .configured_block_projection
@@ -8449,6 +8459,13 @@ impl ClientSession {
                 self.state
                     .configured_block_projection
                     .apply_mass_driver_link(build_pos, Some(link));
+            }
+        }
+        if let Some(projection) = summarize_mass_driver_projection(parsed_tail) {
+            if block_name == Some(BLOCK_NAME_MASS_DRIVER) {
+                self.state
+                    .configured_block_projection
+                    .apply_mass_driver_runtime(build_pos, projection);
             }
         }
         if let Some(color) = summarize_one_i32_tail_value(parsed_tail) {
@@ -8566,6 +8583,11 @@ impl ClientSession {
                 .configured_block_projection
                 .apply_payload_mass_driver_link(entry.build_pos, Some(link));
         }
+        if let Some(projection) = entry.payload_mass_driver_runtime.clone() {
+            self.state
+                .configured_block_projection
+                .apply_payload_mass_driver_runtime(entry.build_pos, projection);
+        }
         if let Some(item_id) = entry.nullable_item_id {
             match entry.block_name.as_deref() {
                 Some(BLOCK_NAME_UNIT_CARGO_UNLOAD_POINT) => self
@@ -8623,6 +8645,13 @@ impl ClientSession {
                 self.state
                     .configured_block_projection
                     .apply_mass_driver_link(entry.build_pos, Some(link));
+            }
+        }
+        if let Some(projection) = entry.mass_driver_runtime.clone() {
+            if entry.block_name.as_deref() == Some(BLOCK_NAME_MASS_DRIVER) {
+                self.state
+                    .configured_block_projection
+                    .apply_mass_driver_runtime(entry.build_pos, projection);
             }
         }
         if let Some(color) = entry.light_color {
@@ -13023,7 +13052,9 @@ struct BlockSnapshotExtraEntrySummary {
     memory_values_bits: Option<Vec<u64>>,
     canvas_bytes: Option<Vec<u8>>,
     mass_driver_link: Option<i32>,
+    mass_driver_runtime: Option<MassDriverRuntimeProjection>,
     payload_mass_driver_link: Option<i32>,
+    payload_mass_driver_runtime: Option<PayloadMassDriverRuntimeProjection>,
     nullable_item_id: Option<Option<i16>>,
     item_bridge_link: Option<i32>,
     light_color: Option<i32>,
@@ -13560,11 +13591,40 @@ fn summarize_canvas_bytes(parsed_tail: &mdt_world::ParsedBuildingTail) -> Option
     Some(canvas.data_bytes.clone())
 }
 
+fn summarize_payload_mass_driver_projection(
+    parsed_tail: &mdt_world::ParsedBuildingTail,
+) -> Option<PayloadMassDriverRuntimeProjection> {
+    let mdt_world::ParsedBuildingTail::PayloadMassDriver(driver) = parsed_tail else {
+        return None;
+    };
+    Some(PayloadMassDriverRuntimeProjection {
+        turret_rotation_bits: driver.turret_rotation_bits,
+        state_ordinal: driver.state_ordinal,
+        reload_counter_bits: driver.reload_counter_bits,
+        charge_bits: driver.charge_bits,
+        loaded: driver.loaded,
+        charging: driver.charging,
+        payload_present: driver.payload_block.payload_present,
+    })
+}
+
 fn summarize_payload_mass_driver_link(parsed_tail: &mdt_world::ParsedBuildingTail) -> Option<i32> {
     let mdt_world::ParsedBuildingTail::PayloadMassDriver(driver) = parsed_tail else {
         return None;
     };
     Some(driver.link)
+}
+
+fn summarize_mass_driver_projection(
+    parsed_tail: &mdt_world::ParsedBuildingTail,
+) -> Option<MassDriverRuntimeProjection> {
+    let mdt_world::ParsedBuildingTail::MassDriver(driver) = parsed_tail else {
+        return None;
+    };
+    Some(MassDriverRuntimeProjection {
+        rotation_bits: driver.rotation_bits,
+        state_ordinal: driver.state_ordinal,
+    })
 }
 
 fn summarize_mass_driver_link(parsed_tail: &mdt_world::ParsedBuildingTail) -> Option<i32> {
@@ -21430,7 +21490,9 @@ mod tests {
                 memory_values_bits: None,
                 canvas_bytes: None,
                 mass_driver_link: None,
+                mass_driver_runtime: None,
                 payload_mass_driver_link: None,
+                payload_mass_driver_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -21516,7 +21578,9 @@ mod tests {
                 memory_values_bits: None,
                 canvas_bytes: None,
                 mass_driver_link: None,
+                mass_driver_runtime: None,
                 payload_mass_driver_link: None,
+                payload_mass_driver_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -21593,7 +21657,9 @@ mod tests {
                 memory_values_bits: None,
                 canvas_bytes: None,
                 mass_driver_link: None,
+                mass_driver_runtime: None,
                 payload_mass_driver_link: None,
+                payload_mass_driver_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -21692,7 +21758,9 @@ mod tests {
                 memory_values_bits: None,
                 canvas_bytes: None,
                 mass_driver_link: None,
+                mass_driver_runtime: None,
                 payload_mass_driver_link: None,
+                payload_mass_driver_runtime: None,
                 nullable_item_id: Some(Some(7)),
                 item_bridge_link: None,
                 light_color: None,
@@ -21750,7 +21818,9 @@ mod tests {
                 memory_values_bits: None,
                 canvas_bytes: None,
                 mass_driver_link: None,
+                mass_driver_runtime: None,
                 payload_mass_driver_link: None,
+                payload_mass_driver_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -22240,6 +22310,64 @@ mod tests {
     }
 
     #[test]
+    fn summarize_payload_mass_driver_projection_extracts_runtime() {
+        assert_eq!(
+            summarize_payload_mass_driver_projection(
+                &mdt_world::ParsedBuildingTail::PayloadMassDriver(
+                    mdt_world::PayloadMassDriverTailSnapshot {
+                        payload_block: mdt_world::PayloadBlockTailSnapshot {
+                            pay_vector_x_bits: 0,
+                            pay_vector_y_bits: 0,
+                            pay_rotation_bits: 0,
+                            payload_present: true,
+                            payload_type: None,
+                            build_block_id: None,
+                            build_revision: None,
+                            build_payload: None,
+                            unit_class_id: None,
+                            unit_payload_len: None,
+                            unit_payload_sha256: None,
+                        },
+                        link: 10,
+                        turret_rotation_bits: 0x4140_0000,
+                        state_ordinal: 3,
+                        reload_counter_bits: 0x3f20_0000,
+                        charge_bits: 0x3f40_0000,
+                        loaded: true,
+                        charging: false,
+                    },
+                )
+            ),
+            Some(PayloadMassDriverRuntimeProjection {
+                turret_rotation_bits: 0x4140_0000,
+                state_ordinal: 3,
+                reload_counter_bits: 0x3f20_0000,
+                charge_bits: 0x3f40_0000,
+                loaded: true,
+                charging: false,
+                payload_present: true,
+            })
+        );
+    }
+
+    #[test]
+    fn summarize_mass_driver_projection_extracts_runtime() {
+        assert_eq!(
+            summarize_mass_driver_projection(&mdt_world::ParsedBuildingTail::MassDriver(
+                mdt_world::MassDriverTailSnapshot {
+                    link: 24,
+                    rotation_bits: 0x4120_0000,
+                    state_ordinal: 2,
+                },
+            )),
+            Some(MassDriverRuntimeProjection {
+                rotation_bits: 0x4120_0000,
+                state_ordinal: 2,
+            })
+        );
+    }
+
+    #[test]
     fn loaded_world_tail_business_helper_applies_additional_configured_tail_projection() {
         let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let payload_source_pos = pack_build_pos_for_block_snapshot_test(32, 33);
@@ -22463,6 +22591,22 @@ mod tests {
                 .payload_mass_driver_link_by_build_pos
                 .get(&payload_mass_driver_pos),
             Some(&Some(10))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .payload_mass_driver_runtime_by_build_pos
+                .get(&payload_mass_driver_pos),
+            Some(&PayloadMassDriverRuntimeProjection {
+                turret_rotation_bits: 0,
+                state_ordinal: 0,
+                reload_counter_bits: 0,
+                charge_bits: 0,
+                loaded: false,
+                charging: false,
+                payload_present: false,
+            })
         );
         assert_eq!(
             session
@@ -23184,6 +23328,31 @@ mod tests {
             session
                 .state()
                 .configured_block_projection
+                .mass_driver_runtime_by_build_pos
+                .get(&mass_driver_pos),
+            Some(&MassDriverRuntimeProjection {
+                rotation_bits: 0x4120_0000,
+                state_ordinal: 2,
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .typed_runtime_building_at(mass_driver_pos)
+                .map(|building| (building.kind, building.value.clone())),
+            Some((
+                crate::session_state::TypedBuildingRuntimeKind::MassDriver,
+                crate::session_state::TypedBuildingRuntimeValue::MassDriver {
+                    link: Some(24),
+                    rotation_bits: Some(0x4120_0000),
+                    state_ordinal: Some(2),
+                },
+            ))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
                 .light_color_by_build_pos
                 .get(&illuminator_pos),
             Some(&0x11223344)
@@ -23357,7 +23526,9 @@ mod tests {
                 memory_values_bits: None,
                 canvas_bytes: None,
                 mass_driver_link: None,
+                mass_driver_runtime: None,
                 payload_mass_driver_link: None,
+                payload_mass_driver_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -23405,7 +23576,9 @@ mod tests {
                 memory_values_bits: None,
                 canvas_bytes: None,
                 mass_driver_link: None,
+                mass_driver_runtime: None,
                 payload_mass_driver_link: None,
+                payload_mass_driver_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -23450,7 +23623,9 @@ mod tests {
                 memory_values_bits: Some(memory_values_bits.clone()),
                 canvas_bytes: None,
                 mass_driver_link: None,
+                mass_driver_runtime: None,
                 payload_mass_driver_link: None,
+                payload_mass_driver_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -23574,7 +23749,9 @@ mod tests {
                 memory_values_bits: None,
                 canvas_bytes: None,
                 mass_driver_link: None,
+                mass_driver_runtime: None,
                 payload_mass_driver_link: None,
+                payload_mass_driver_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -23619,7 +23796,9 @@ mod tests {
                 memory_values_bits: None,
                 canvas_bytes: None,
                 mass_driver_link: None,
+                mass_driver_runtime: None,
                 payload_mass_driver_link: None,
+                payload_mass_driver_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -23698,7 +23877,9 @@ mod tests {
                 memory_values_bits: None,
                 canvas_bytes: None,
                 mass_driver_link: None,
+                mass_driver_runtime: None,
                 payload_mass_driver_link: None,
+                payload_mass_driver_runtime: None,
                 nullable_item_id: Some(Some(item_id)),
                 item_bridge_link: None,
                 light_color: None,
@@ -23743,7 +23924,9 @@ mod tests {
                 memory_values_bits: None,
                 canvas_bytes: None,
                 mass_driver_link: None,
+                mass_driver_runtime: None,
                 payload_mass_driver_link: None,
+                payload_mass_driver_runtime: None,
                 nullable_item_id: Some(None),
                 item_bridge_link: None,
                 light_color: None,
@@ -23788,7 +23971,9 @@ mod tests {
                 memory_values_bits: None,
                 canvas_bytes: None,
                 mass_driver_link: None,
+                mass_driver_runtime: None,
                 payload_mass_driver_link: None,
+                payload_mass_driver_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: Some(14),
                 light_color: None,
@@ -23833,7 +24018,9 @@ mod tests {
                 memory_values_bits: None,
                 canvas_bytes: None,
                 mass_driver_link: None,
+                mass_driver_runtime: None,
                 payload_mass_driver_link: None,
+                payload_mass_driver_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: Some(16),
                 light_color: None,
@@ -23878,7 +24065,12 @@ mod tests {
                 memory_values_bits: None,
                 canvas_bytes: None,
                 mass_driver_link: Some(22),
+                mass_driver_runtime: Some(MassDriverRuntimeProjection {
+                    rotation_bits: 0x4120_0000,
+                    state_ordinal: 2,
+                }),
                 payload_mass_driver_link: None,
+                payload_mass_driver_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -23923,7 +24115,9 @@ mod tests {
                 memory_values_bits: None,
                 canvas_bytes: None,
                 mass_driver_link: None,
+                mass_driver_runtime: None,
                 payload_mass_driver_link: None,
+                payload_mass_driver_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: Some(0x55667788),
@@ -23968,7 +24162,9 @@ mod tests {
                 memory_values_bits: None,
                 canvas_bytes: None,
                 mass_driver_link: None,
+                mass_driver_runtime: None,
                 payload_mass_driver_link: None,
+                payload_mass_driver_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -24013,7 +24209,9 @@ mod tests {
                 memory_values_bits: None,
                 canvas_bytes: None,
                 mass_driver_link: None,
+                mass_driver_runtime: None,
                 payload_mass_driver_link: None,
+                payload_mass_driver_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -24062,6 +24260,17 @@ mod tests {
                 .mass_driver_link_by_build_pos
                 .get(&mass_driver_pos),
             Some(&Some(22))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .mass_driver_runtime_by_build_pos
+                .get(&mass_driver_pos),
+            Some(&MassDriverRuntimeProjection {
+                rotation_bits: 0x4120_0000,
+                state_ordinal: 2,
+            })
         );
         assert_eq!(
             session
@@ -24134,7 +24343,9 @@ mod tests {
                 memory_values_bits: None,
                 canvas_bytes: None,
                 mass_driver_link: None,
+                mass_driver_runtime: None,
                 payload_mass_driver_link: None,
+                payload_mass_driver_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -24237,7 +24448,9 @@ mod tests {
                 memory_values_bits: None,
                 canvas_bytes: None,
                 mass_driver_link: None,
+                mass_driver_runtime: None,
                 payload_mass_driver_link: None,
+                payload_mass_driver_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -24360,7 +24573,9 @@ mod tests {
                 memory_values_bits: None,
                 canvas_bytes: None,
                 mass_driver_link: None,
+                mass_driver_runtime: None,
                 payload_mass_driver_link: None,
+                payload_mass_driver_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -24492,7 +24707,9 @@ mod tests {
                 memory_values_bits: None,
                 canvas_bytes: None,
                 mass_driver_link: None,
+                mass_driver_runtime: None,
                 payload_mass_driver_link: None,
+                payload_mass_driver_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -24605,7 +24822,9 @@ mod tests {
                 memory_values_bits: None,
                 canvas_bytes: None,
                 mass_driver_link: None,
+                mass_driver_runtime: None,
                 payload_mass_driver_link: None,
+                payload_mass_driver_runtime: None,
                 nullable_item_id: Some(Some(item_id)),
                 item_bridge_link: None,
                 light_color: None,
@@ -24650,7 +24869,9 @@ mod tests {
                 memory_values_bits: None,
                 canvas_bytes: None,
                 mass_driver_link: None,
+                mass_driver_runtime: None,
                 payload_mass_driver_link: None,
+                payload_mass_driver_runtime: None,
                 nullable_item_id: Some(Some(item_id)),
                 item_bridge_link: None,
                 light_color: None,
@@ -24695,7 +24916,9 @@ mod tests {
                 memory_values_bits: None,
                 canvas_bytes: None,
                 mass_driver_link: None,
+                mass_driver_runtime: None,
                 payload_mass_driver_link: None,
+                payload_mass_driver_runtime: None,
                 nullable_item_id: Some(Some(liquid_id)),
                 item_bridge_link: None,
                 light_color: None,
@@ -24845,7 +25068,9 @@ mod tests {
                 memory_values_bits: None,
                 canvas_bytes: None,
                 mass_driver_link: None,
+                mass_driver_runtime: None,
                 payload_mass_driver_link: None,
+                payload_mass_driver_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -24890,7 +25115,9 @@ mod tests {
                 memory_values_bits: None,
                 canvas_bytes: None,
                 mass_driver_link: None,
+                mass_driver_runtime: None,
                 payload_mass_driver_link: None,
+                payload_mass_driver_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -24935,7 +25162,9 @@ mod tests {
                 memory_values_bits: None,
                 canvas_bytes: None,
                 mass_driver_link: None,
+                mass_driver_runtime: None,
                 payload_mass_driver_link: None,
+                payload_mass_driver_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -24980,7 +25209,9 @@ mod tests {
                 memory_values_bits: None,
                 canvas_bytes: Some(canvas_bytes.clone()),
                 mass_driver_link: None,
+                mass_driver_runtime: None,
                 payload_mass_driver_link: None,
+                payload_mass_driver_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -25025,7 +25256,17 @@ mod tests {
                 memory_values_bits: None,
                 canvas_bytes: None,
                 mass_driver_link: None,
+                mass_driver_runtime: None,
                 payload_mass_driver_link: Some(10),
+                payload_mass_driver_runtime: Some(PayloadMassDriverRuntimeProjection {
+                    turret_rotation_bits: 0x4140_0000,
+                    state_ordinal: 3,
+                    reload_counter_bits: 0x3f20_0000,
+                    charge_bits: 0x3f40_0000,
+                    loaded: true,
+                    charging: false,
+                    payload_present: true,
+                }),
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: None,
@@ -25070,7 +25311,9 @@ mod tests {
                 memory_values_bits: None,
                 canvas_bytes: None,
                 mass_driver_link: None,
+                mass_driver_runtime: None,
                 payload_mass_driver_link: None,
+                payload_mass_driver_runtime: None,
                 nullable_item_id: Some(Some(item_id)),
                 item_bridge_link: None,
                 light_color: None,
@@ -25115,7 +25358,9 @@ mod tests {
                 memory_values_bits: None,
                 canvas_bytes: None,
                 mass_driver_link: None,
+                mass_driver_runtime: None,
                 payload_mass_driver_link: None,
+                payload_mass_driver_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 light_color: Some(0x2233_4455),
@@ -25160,7 +25405,9 @@ mod tests {
                 memory_values_bits: None,
                 canvas_bytes: None,
                 mass_driver_link: None,
+                mass_driver_runtime: None,
                 payload_mass_driver_link: None,
+                payload_mass_driver_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: Some(phase_link),
                 light_color: None,
@@ -25212,6 +25459,22 @@ mod tests {
                 .payload_mass_driver_link_by_build_pos
                 .get(&payload_mass_driver_pos),
             Some(&Some(10))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .payload_mass_driver_runtime_by_build_pos
+                .get(&payload_mass_driver_pos),
+            Some(&PayloadMassDriverRuntimeProjection {
+                turret_rotation_bits: 0x4140_0000,
+                state_ordinal: 3,
+                reload_counter_bits: 0x3f20_0000,
+                charge_bits: 0x3f40_0000,
+                loaded: true,
+                charging: false,
+                payload_present: true,
+            })
         );
         assert_eq!(
             session
