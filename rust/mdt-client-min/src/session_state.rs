@@ -13558,6 +13558,95 @@ mod tests {
     }
 
     #[test]
+    fn hidden_snapshot_removes_non_local_payload_lifecycle_entry_for_hidden_carrier() {
+        let mut state = SessionState::default();
+        state.entity_table_projection.local_player_entity_id = Some(101);
+        state.payload_lifecycle_projection.by_carrier.insert(
+            UnitRefProjection {
+                kind: 2,
+                value: 202,
+            },
+            PayloadLifecycleCarrierProjection {
+                carrier: UnitRefProjection {
+                    kind: 2,
+                    value: 202,
+                },
+                target_unit: None,
+                target_build: Some(pack_point2(4, 4)),
+                drop_tile: None,
+                on_ground: Some(false),
+                removed_target_unit: false,
+                removed_target_build: true,
+                removed_carrier: false,
+            },
+        );
+        state.payload_lifecycle_projection.by_carrier.insert(
+            UnitRefProjection {
+                kind: 2,
+                value: 101,
+            },
+            PayloadLifecycleCarrierProjection {
+                carrier: UnitRefProjection {
+                    kind: 2,
+                    value: 101,
+                },
+                target_unit: Some(UnitRefProjection {
+                    kind: 2,
+                    value: 202,
+                }),
+                target_build: None,
+                drop_tile: None,
+                on_ground: Some(false),
+                removed_target_unit: false,
+                removed_target_build: false,
+                removed_carrier: false,
+            },
+        );
+
+        state.apply_hidden_snapshot(
+            AppliedHiddenSnapshotIds {
+                count: 1,
+                first_id: Some(202),
+                sample_ids: vec![202],
+            },
+            BTreeSet::from([202]),
+        );
+
+        assert!(!state
+            .payload_lifecycle_projection
+            .by_carrier
+            .contains_key(&UnitRefProjection {
+                kind: 2,
+                value: 202,
+            }));
+        assert_eq!(
+            state
+                .payload_lifecycle_projection
+                .by_carrier
+                .get(&UnitRefProjection {
+                    kind: 2,
+                    value: 101,
+                }),
+            Some(&PayloadLifecycleCarrierProjection {
+                carrier: UnitRefProjection {
+                    kind: 2,
+                    value: 101,
+                },
+                target_unit: Some(UnitRefProjection {
+                    kind: 2,
+                    value: 202,
+                }),
+                target_build: None,
+                drop_tile: None,
+                on_ground: Some(false),
+                removed_target_unit: true,
+                removed_target_build: false,
+                removed_carrier: false,
+            })
+        );
+    }
+
+    #[test]
     fn session_state_typed_runtime_entity_at_surfaces_player_without_semantic() {
         let mut state = SessionState::default();
         state.entity_table_projection.by_entity_id.insert(
