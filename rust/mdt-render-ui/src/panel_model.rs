@@ -1514,6 +1514,24 @@ pub fn build_minimap_panel(
     })
 }
 
+fn clamp_presenter_window_to_map(
+    window: PresenterViewWindow,
+    map_width: usize,
+    map_height: usize,
+) -> PresenterViewWindow {
+    let width = window.width.min(map_width);
+    let height = window.height.min(map_height);
+    let max_origin_x = map_width.saturating_sub(width);
+    let max_origin_y = map_height.saturating_sub(height);
+
+    PresenterViewWindow {
+        origin_x: window.origin_x.min(max_origin_x),
+        origin_y: window.origin_y.min(max_origin_y),
+        width,
+        height,
+    }
+}
+
 fn minimap_window_semantic_counts(
     scene: &RenderModel,
     window: PresenterViewWindow,
@@ -2330,29 +2348,53 @@ fn resolve_presenter_window(
     window: PresenterViewWindow,
 ) -> PresenterViewWindow {
     if window.width != 0 || window.height != 0 {
-        return window;
+        return clamp_presenter_window_to_map(window, map_width, map_height);
     }
 
     let scene_window = scene
         .view_window
-        .map(|view_window| PresenterViewWindow {
-            origin_x: view_window.origin_x.min(map_width),
-            origin_y: view_window.origin_y.min(map_height),
-            width: view_window.width.min(map_width),
-            height: view_window.height.min(map_height),
-        })
-        .unwrap_or(PresenterViewWindow {
-            origin_x: summary_window.origin_x.min(map_width),
-            origin_y: summary_window.origin_y.min(map_height),
-            width: summary_window.width.min(map_width),
-            height: summary_window.height.min(map_height),
-        });
+        .map(|view_window| clamp_render_view_window_to_map(view_window, map_width, map_height))
+        .unwrap_or_else(|| clamp_hud_view_window_to_map(summary_window, map_width, map_height));
 
     if scene_window.width != 0 || scene_window.height != 0 {
         scene_window
     } else {
         window
     }
+}
+
+fn clamp_render_view_window_to_map(
+    window: crate::render_model::RenderViewWindow,
+    map_width: usize,
+    map_height: usize,
+) -> PresenterViewWindow {
+    clamp_presenter_window_to_map(
+        PresenterViewWindow {
+            origin_x: window.origin_x,
+            origin_y: window.origin_y,
+            width: window.width,
+            height: window.height,
+        },
+        map_width,
+        map_height,
+    )
+}
+
+fn clamp_hud_view_window_to_map(
+    window: crate::hud_model::HudViewWindowSummary,
+    map_width: usize,
+    map_height: usize,
+) -> PresenterViewWindow {
+    clamp_presenter_window_to_map(
+        PresenterViewWindow {
+            origin_x: window.origin_x,
+            origin_y: window.origin_y,
+            width: window.width,
+            height: window.height,
+        },
+        map_width,
+        map_height,
+    )
 }
 
 #[cfg(test)]
@@ -2580,6 +2622,125 @@ mod tests {
                 count: 1,
             }]
         );
+    }
+
+    #[test]
+    fn builds_minimap_panel_clamps_scene_view_window_at_bottom_right() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 64.0,
+                height: 64.0,
+                zoom: 1.0,
+            },
+            view_window: Some(crate::render_model::RenderViewWindow {
+                origin_x: 78,
+                origin_y: 58,
+                width: 8,
+                height: 7,
+            }),
+            objects: vec![],
+        };
+        let hud = HudModel {
+            summary: Some(HudSummary {
+                player_name: "operator".to_string(),
+                team_id: 2,
+                selected_block: "payload-router".to_string(),
+                plan_count: 0,
+                marker_count: 0,
+                map_width: 80,
+                map_height: 60,
+                overlay_visible: false,
+                fog_enabled: false,
+                visible_tile_count: 0,
+                hidden_tile_count: 0,
+                minimap: crate::hud_model::HudMinimapSummary {
+                    focus_tile: None,
+                    view_window: crate::hud_model::HudViewWindowSummary {
+                        origin_x: 0,
+                        origin_y: 0,
+                        width: 0,
+                        height: 0,
+                    },
+                },
+            }),
+            ..HudModel::default()
+        };
+
+        let panel = build_minimap_panel(
+            &scene,
+            &hud,
+            PresenterViewWindow {
+                origin_x: 0,
+                origin_y: 0,
+                width: 0,
+                height: 0,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(panel.window.origin_x, 72);
+        assert_eq!(panel.window.origin_y, 53);
+        assert_eq!(panel.window_last_x, 79);
+        assert_eq!(panel.window_last_y, 59);
+        assert!(panel.window_clamped_right);
+        assert!(panel.window_clamped_bottom);
+    }
+
+    #[test]
+    fn builds_minimap_panel_clamps_summary_view_window_at_bottom_right() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 64.0,
+                height: 64.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![],
+        };
+        let hud = HudModel {
+            summary: Some(HudSummary {
+                player_name: "operator".to_string(),
+                team_id: 2,
+                selected_block: "payload-router".to_string(),
+                plan_count: 0,
+                marker_count: 0,
+                map_width: 80,
+                map_height: 60,
+                overlay_visible: false,
+                fog_enabled: false,
+                visible_tile_count: 0,
+                hidden_tile_count: 0,
+                minimap: crate::hud_model::HudMinimapSummary {
+                    focus_tile: None,
+                    view_window: crate::hud_model::HudViewWindowSummary {
+                        origin_x: 78,
+                        origin_y: 58,
+                        width: 8,
+                        height: 7,
+                    },
+                },
+            }),
+            ..HudModel::default()
+        };
+
+        let panel = build_minimap_panel(
+            &scene,
+            &hud,
+            PresenterViewWindow {
+                origin_x: 0,
+                origin_y: 0,
+                width: 0,
+                height: 0,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(panel.window.origin_x, 72);
+        assert_eq!(panel.window.origin_y, 53);
+        assert_eq!(panel.window_last_x, 79);
+        assert_eq!(panel.window_last_y, 59);
+        assert!(panel.window_clamped_right);
+        assert!(panel.window_clamped_bottom);
     }
 
     #[test]

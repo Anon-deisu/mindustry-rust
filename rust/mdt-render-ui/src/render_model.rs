@@ -221,16 +221,10 @@ impl RenderModel {
             return None;
         }
 
-        self.objects
-            .iter()
-            .filter(|object| {
-                matches!(
-                    object.semantic_kind(),
-                    RenderObjectSemanticKind::Player | RenderObjectSemanticKind::RuntimeUnit
-                )
-            })
-            .find_map(|object| {
-                if !object.x.is_finite() || !object.y.is_finite() {
+        let find_focus = |kind| {
+            self.objects.iter().find_map(|object| {
+                if object.semantic_kind() != kind || !object.x.is_finite() || !object.y.is_finite()
+                {
                     return None;
                 }
 
@@ -239,6 +233,10 @@ impl RenderModel {
                     world_to_tile_index_floor(object.y, tile_size).max(0) as usize,
                 ))
             })
+        };
+
+        find_focus(RenderObjectSemanticKind::Player)
+            .or_else(|| find_focus(RenderObjectSemanticKind::RuntimeUnit))
     }
 
     pub fn semantic_summary(&self) -> RenderSemanticSummary {
@@ -1149,7 +1147,7 @@ fn object_visible_in_window(
     window: RenderViewWindow,
 ) -> bool {
     if !tile_size.is_finite() || tile_size <= 0.0 {
-        return true;
+        return false;
     }
 
     let tile_x = world_to_tile_index_floor(object.x, tile_size);
@@ -1538,15 +1536,59 @@ mod tests {
                 width: 4,
                 height: 5,
             }),
-            objects: vec![RenderObject {
-                id: "unit:7".to_string(),
-                layer: 40,
-                x: 28.0,
-                y: 33.0,
-            }],
+            objects: vec![
+                RenderObject {
+                    id: "unit:7".to_string(),
+                    layer: 40,
+                    x: 28.0,
+                    y: 33.0,
+                },
+                RenderObject {
+                    id: "player:7".to_string(),
+                    layer: 41,
+                    x: 40.0,
+                    y: 48.0,
+                },
+            ],
         };
 
-        assert_eq!(scene.player_focus_tile(8.0), Some((3, 4)));
+        assert_eq!(scene.player_focus_tile(8.0), Some((5, 6)));
+    }
+
+    #[test]
+    fn render_model_fails_closed_for_invalid_tile_size_in_window_visibility() {
+        let scene = RenderModel {
+            viewport: Viewport::default(),
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: "player:7".to_string(),
+                    layer: 40,
+                    x: 8.0,
+                    y: 8.0,
+                },
+                RenderObject {
+                    id: "marker:point:1".to_string(),
+                    layer: 20,
+                    x: 16.0,
+                    y: 16.0,
+                },
+            ],
+        };
+
+        let summary = scene.pipeline_summary_for_window(
+            0.0,
+            RenderViewWindow {
+                origin_x: 0,
+                origin_y: 0,
+                width: 16,
+                height: 16,
+            },
+        );
+
+        assert_eq!(summary.visible_object_count, 0);
+        assert_eq!(summary.clipped_object_count, 2);
+        assert_eq!(summary.focus_tile, None);
     }
 
     #[test]

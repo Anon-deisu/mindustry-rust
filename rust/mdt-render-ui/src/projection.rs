@@ -411,7 +411,11 @@ fn project_hud_minimap_summary(
     let map_width = graph.width();
     let map_height = graph.height();
     let (player_x, player_y) = player_position.unwrap_or_else(|| session.state().player_position());
-    let focus_tile = (map_width > 0 && map_height > 0).then_some((
+    let focus_tile = (map_width > 0
+        && map_height > 0
+        && player_x.is_finite()
+        && player_y.is_finite())
+    .then_some((
         world_to_tile_index_clamped(player_x, map_width),
         world_to_tile_index_clamped(player_y, map_height),
     ));
@@ -1053,6 +1057,27 @@ mod tests {
 
         assert_eq!(left, (1, 2, 4, 4));
         assert_eq!(left, right);
+    }
+
+    #[test]
+    fn hud_minimap_focus_tile_is_none_for_non_finite_player_position() {
+        let bundle = parse_world_bundle(&decode_hex(include_str!(
+            "../../../tests/src/test/resources/world-stream.hex"
+        )))
+        .unwrap();
+        let session = bundle.loaded_session().unwrap();
+        let visibility = super::scene_visibility(&session, "fr");
+
+        let hud = super::project_hud_model_with_visibility(
+            &session,
+            "fr",
+            visibility,
+            Some((f32::NAN, f32::INFINITY)),
+            None,
+        );
+        let summary = hud.summary.as_ref().expect("summary should be present");
+
+        assert_eq!(summary.minimap.focus_tile, None);
     }
 
     #[test]
