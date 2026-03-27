@@ -411,14 +411,12 @@ fn project_hud_minimap_summary(
     let map_width = graph.width();
     let map_height = graph.height();
     let (player_x, player_y) = player_position.unwrap_or_else(|| session.state().player_position());
-    let focus_tile = (map_width > 0
-        && map_height > 0
-        && player_x.is_finite()
-        && player_y.is_finite())
-    .then_some((
-        world_to_tile_index_clamped(player_x, map_width),
-        world_to_tile_index_clamped(player_y, map_height),
-    ));
+    let focus_tile =
+        (map_width > 0 && map_height > 0 && player_x.is_finite() && player_y.is_finite())
+            .then_some((
+                world_to_tile_index_clamped(player_x, map_width),
+                world_to_tile_index_clamped(player_y, map_height),
+            ));
     let (origin_x, origin_y, width, height) = max_view_tiles
         .map(|max_view_tiles| {
             view_window_bounds(map_width, map_height, (player_x, player_y), max_view_tiles)
@@ -655,7 +653,9 @@ fn tile_in_window(
 #[cfg(test)]
 mod tests {
     use super::{project_hud_model, project_render_model, project_render_model_with_view_window};
-    use crate::render_model::{RenderObjectSemanticKind, RenderPrimitive};
+    use crate::render_model::{
+        RenderObjectSemanticKind, RenderPrimitive, RenderPrimitivePayloadValue,
+    };
     use crate::{RenderModel, RenderViewWindow};
     use mdt_world::{
         parse_world_bundle, LineMarkerModel, MarkerEntry, MarkerModel, PointMarkerModel,
@@ -884,8 +884,9 @@ mod tests {
             objects,
         };
 
+        let primitives = scene.primitives();
         assert_eq!(
-            scene.primitives(),
+            primitives,
             vec![RenderPrimitive::Text {
                 id: "marker:text:43:text:48656c6c6f".to_string(),
                 kind: RenderObjectSemanticKind::MarkerText,
@@ -894,6 +895,12 @@ mod tests {
                 y: 24.0,
                 text: "Hello".to_string(),
             }]
+        );
+        let payload = primitives[0].payload().expect("text payload");
+        assert_eq!(payload.label, "marker-text");
+        assert_eq!(
+            payload.field("text"),
+            Some(&RenderPrimitivePayloadValue::Text("Hello".to_string()))
         );
     }
 
