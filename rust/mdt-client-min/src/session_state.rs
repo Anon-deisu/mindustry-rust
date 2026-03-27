@@ -363,6 +363,15 @@ pub struct ConstructorRuntimeProjection {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnitFactoryRuntimeProjection {
+    pub progress_bits: u32,
+    pub command_pos: Option<(u32, u32)>,
+    pub command_id: Option<u8>,
+    pub payload_present: bool,
+    pub pay_rotation_bits: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnitAssemblerRuntimeProjection {
     pub progress_bits: u32,
     pub unit_ids: Vec<i32>,
@@ -1773,6 +1782,8 @@ pub struct ConfiguredBlockProjection {
     pub duct_router_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub mass_driver_link_by_build_pos: BTreeMap<i32, Option<i32>>,
     pub payload_mass_driver_link_by_build_pos: BTreeMap<i32, Option<i32>>,
+    pub unit_factory_current_plan_by_build_pos: BTreeMap<i32, i16>,
+    pub unit_factory_runtime_by_build_pos: BTreeMap<i32, UnitFactoryRuntimeProjection>,
     pub power_node_links_by_build_pos: BTreeMap<i32, BTreeSet<i32>>,
     pub reconstructor_command_by_build_pos: BTreeMap<i32, Option<u16>>,
     pub reconstructor_runtime_by_build_pos: BTreeMap<i32, ReconstructorRuntimeProjection>,
@@ -1891,6 +1902,20 @@ impl ConfiguredBlockProjection {
             .insert(build_pos, link);
     }
 
+    pub fn apply_unit_factory_current_plan(&mut self, build_pos: i32, current_plan: i16) {
+        self.unit_factory_current_plan_by_build_pos
+            .insert(build_pos, current_plan);
+    }
+
+    pub fn apply_unit_factory_runtime(
+        &mut self,
+        build_pos: i32,
+        projection: UnitFactoryRuntimeProjection,
+    ) {
+        self.unit_factory_runtime_by_build_pos
+            .insert(build_pos, projection);
+    }
+
     pub fn apply_power_node_link_toggle(&mut self, build_pos: i32, target_pos: i32) {
         let links = self
             .power_node_links_by_build_pos
@@ -1965,6 +1990,9 @@ impl ConfiguredBlockProjection {
         self.mass_driver_link_by_build_pos.remove(&build_pos);
         self.payload_mass_driver_link_by_build_pos
             .remove(&build_pos);
+        self.unit_factory_current_plan_by_build_pos
+            .remove(&build_pos);
+        self.unit_factory_runtime_by_build_pos.remove(&build_pos);
         self.power_node_links_by_build_pos.remove(&build_pos);
         self.reconstructor_command_by_build_pos.remove(&build_pos);
         self.reconstructor_runtime_by_build_pos.remove(&build_pos);
@@ -2970,6 +2998,7 @@ pub enum TypedBuildingRuntimeKind {
     DuctRouter,
     MassDriver,
     PayloadMassDriver,
+    UnitFactory,
     UnitAssembler,
     PowerNode,
     Reconstructor,
@@ -3008,6 +3037,7 @@ impl TypedBuildingRuntimeKind {
             Self::DuctRouter => "duct-router",
             Self::MassDriver => "mass-driver",
             Self::PayloadMassDriver => "payload-mass-driver",
+            Self::UnitFactory => "unit-factory",
             Self::UnitAssembler => "unit-assembler",
             Self::PowerNode => "power-node",
             Self::Reconstructor => "reconstructor",
@@ -3041,6 +3071,14 @@ pub enum TypedBuildingRuntimeValue {
     Content(Option<ConfiguredContentRef>),
     Link(Option<i32>),
     Links(BTreeSet<i32>),
+    UnitFactory {
+        current_plan: Option<i16>,
+        progress_bits: Option<u32>,
+        command_pos: Option<(u32, u32)>,
+        command_id: Option<u8>,
+        payload_present: Option<bool>,
+        pay_rotation_bits: Option<u32>,
+    },
     Reconstructor {
         command_id: Option<u16>,
         progress_bits: Option<u32>,
@@ -3447,6 +3485,28 @@ fn typed_runtime_building_model(
                     .copied()?,
             ),
         ),
+        "ground-factory"
+        | "air-factory"
+        | "naval-factory"
+        | "tank-fabricator"
+        | "ship-fabricator"
+        | "mech-fabricator" => {
+            let runtime = configured.unit_factory_runtime_by_build_pos.get(&build_pos);
+            (
+                TypedBuildingRuntimeKind::UnitFactory,
+                TypedBuildingRuntimeValue::UnitFactory {
+                    current_plan: configured
+                        .unit_factory_current_plan_by_build_pos
+                        .get(&build_pos)
+                        .copied(),
+                    progress_bits: runtime.map(|projection| projection.progress_bits),
+                    command_pos: runtime.and_then(|projection| projection.command_pos),
+                    command_id: runtime.and_then(|projection| projection.command_id),
+                    payload_present: runtime.map(|projection| projection.payload_present),
+                    pay_rotation_bits: runtime.map(|projection| projection.pay_rotation_bits),
+                },
+            )
+        }
         "tank-assembler" | "ship-assembler" | "mech-assembler" => {
             let assembler = configured.unit_assembler_by_build_pos.get(&build_pos)?;
             (
@@ -7949,6 +8009,74 @@ mod tests {
     }
 
     #[test]
+    fn session_state_runtime_typed_building_projection_gives_unit_factory_family_empty_shell() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0008_000ci32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            305,
+            Some("ground-factory".to_string()),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(6),
+            Some(0x3f80_0000),
+            Some(0x3f00_0000),
+            Some(126),
+            Some(false),
+            None,
+            Some(0x40a0_0000),
+            Some(true),
+            Some(0x50),
+            Some(0x28),
+            Some(66),
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(
+            state.typed_runtime_building_at(build_pos),
+            Some(expected_typed_runtime_building(
+                build_pos,
+                305,
+                "ground-factory",
+                TypedBuildingRuntimeKind::UnitFactory,
+                TypedBuildingRuntimeValue::UnitFactory {
+                    current_plan: None,
+                    progress_bits: None,
+                    command_pos: None,
+                    command_id: None,
+                    payload_present: None,
+                    pay_rotation_bits: None,
+                },
+                Vec::new(),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(6),
+                Some(0x3f80_0000),
+                Some(0x3f00_0000),
+                Some(126),
+                Some(false),
+                Some(0x40a0_0000),
+                Some(true),
+                Some(0x50),
+                Some(0x28),
+                Some(66),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
+        );
+    }
+
+    #[test]
     fn session_state_runtime_typed_building_projection_supports_reconstructor_family() {
         let mut state = SessionState::default();
         let build_pos = 0x0008_000ai32;
@@ -8000,6 +8128,89 @@ mod tests {
                     command_id: Some(7),
                     progress_bits: Some(0x3f40_0000),
                     command_pos: Some((12.5f32.to_bits(), 18.0f32.to_bits())),
+                    payload_present: Some(true),
+                    pay_rotation_bits: Some(0x4000_0000),
+                },
+                Vec::new(),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(6),
+                Some(0x3f80_0000),
+                Some(0x3f00_0000),
+                Some(126),
+                Some(false),
+                Some(0x40a0_0000),
+                Some(true),
+                Some(0x50),
+                Some(0x28),
+                Some(66),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_unit_factory_family() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0008_000di32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            306,
+            Some("ground-factory".to_string()),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(6),
+            Some(0x3f80_0000),
+            Some(0x3f00_0000),
+            Some(126),
+            Some(false),
+            None,
+            Some(0x40a0_0000),
+            Some(true),
+            Some(0x50),
+            Some(0x28),
+            Some(66),
+            None,
+            None,
+            None,
+        );
+        state
+            .configured_block_projection
+            .apply_unit_factory_current_plan(build_pos, 7);
+        state
+            .configured_block_projection
+            .apply_unit_factory_runtime(
+                build_pos,
+                UnitFactoryRuntimeProjection {
+                    progress_bits: 0x3f40_0000,
+                    command_pos: Some((12.5f32.to_bits(), 18.0f32.to_bits())),
+                    command_id: Some(9),
+                    payload_present: true,
+                    pay_rotation_bits: 0x4000_0000,
+                },
+            );
+
+        assert_eq!(
+            state.typed_runtime_building_at(build_pos),
+            Some(expected_typed_runtime_building(
+                build_pos,
+                306,
+                "ground-factory",
+                TypedBuildingRuntimeKind::UnitFactory,
+                TypedBuildingRuntimeValue::UnitFactory {
+                    current_plan: Some(7),
+                    progress_bits: Some(0x3f40_0000),
+                    command_pos: Some((12.5f32.to_bits(), 18.0f32.to_bits())),
+                    command_id: Some(9),
                     payload_present: Some(true),
                     pay_rotation_bits: Some(0x4000_0000),
                 },

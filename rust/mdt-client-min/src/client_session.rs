@@ -32,7 +32,7 @@ use crate::session_state::{
     TakeItemsProjection, TileConfigAuthoritySource, TileConfigBusinessApply,
     TransferItemEffectProjection, TransferItemToProjection, TransferItemToUnitProjection,
     TypedBuildingRuntimeModel, UnitAssemblerRuntimeProjection, UnitEnteredPayloadProjection,
-    UnitRefProjection, WorldReloadProjection,
+    UnitFactoryRuntimeProjection, UnitRefProjection, WorldReloadProjection,
 };
 use crate::typed_remote_dispatch::{
     TypedCustomChannelRemoteDispatch, TypedCustomChannelRemoteDispatcher,
@@ -150,6 +150,12 @@ const BLOCK_NAME_DUCT_ROUTER: &str = "duct-router";
 const BLOCK_NAME_MASS_DRIVER: &str = "mass-driver";
 const BLOCK_NAME_PAYLOAD_MASS_DRIVER: &str = "payload-mass-driver";
 const BLOCK_NAME_LARGE_PAYLOAD_MASS_DRIVER: &str = "large-payload-mass-driver";
+const BLOCK_NAME_GROUND_FACTORY: &str = "ground-factory";
+const BLOCK_NAME_AIR_FACTORY: &str = "air-factory";
+const BLOCK_NAME_NAVAL_FACTORY: &str = "naval-factory";
+const BLOCK_NAME_TANK_FABRICATOR: &str = "tank-fabricator";
+const BLOCK_NAME_SHIP_FABRICATOR: &str = "ship-fabricator";
+const BLOCK_NAME_MECH_FABRICATOR: &str = "mech-fabricator";
 const BLOCK_NAME_POWER_NODE: &str = "power-node";
 const BLOCK_NAME_POWER_NODE_LARGE: &str = "power-node-large";
 const BLOCK_NAME_SURGE_TOWER: &str = "surge-tower";
@@ -253,7 +259,6 @@ fn kick_reason_hint_from(
         _ => None,
     }
 }
-
 fn reconnect_phase_from_kick_hint(
     hint_category: Option<KickReasonHintCategory>,
 ) -> ReconnectPhaseProjection {
@@ -2495,6 +2500,23 @@ impl ClientSession {
                     self.state
                         .configured_block_projection
                         .apply_payload_mass_driver_link(build_pos, link);
+                    ConfiguredBlockOutcome::Applied
+                } else {
+                    ConfiguredBlockOutcome::RejectedUnsupportedConfigType
+                }
+            }
+            BLOCK_NAME_GROUND_FACTORY
+            | BLOCK_NAME_AIR_FACTORY
+            | BLOCK_NAME_NAVAL_FACTORY
+            | BLOCK_NAME_TANK_FABRICATOR
+            | BLOCK_NAME_SHIP_FABRICATOR
+            | BLOCK_NAME_MECH_FABRICATOR => {
+                if let Some(current_plan) =
+                    configured_int(config_object).and_then(|value| i16::try_from(value).ok())
+                {
+                    self.state
+                        .configured_block_projection
+                        .apply_unit_factory_current_plan(build_pos, current_plan);
                     ConfiguredBlockOutcome::Applied
                 } else {
                     ConfiguredBlockOutcome::RejectedUnsupportedConfigType
@@ -8139,6 +8161,9 @@ impl ClientSession {
             let constructor_recipe_block_id =
                 summarize_constructor_recipe_block_id(&building.parsed_tail);
             let constructor_runtime = summarize_constructor_projection(&building.parsed_tail);
+            let unit_factory_current_plan =
+                summarize_unit_factory_current_plan(&building.parsed_tail);
+            let unit_factory_runtime = summarize_unit_factory_projection(&building.parsed_tail);
             let landing_pad_config_item_id =
                 summarize_landing_pad_config_item_id(&building.parsed_tail);
             let message_text = summarize_message_tail_text(&building.parsed_tail);
@@ -8176,6 +8201,8 @@ impl ClientSession {
                 build_turret_plan_count,
                 constructor_recipe_block_id,
                 constructor_runtime,
+                unit_factory_current_plan,
+                unit_factory_runtime,
                 landing_pad_config_item_id,
                 message_text,
                 payload_source_content,
@@ -8264,6 +8291,16 @@ impl ClientSession {
             self.state
                 .configured_block_projection
                 .apply_constructor_runtime(build_pos, projection);
+        }
+        if let Some(current_plan) = summarize_unit_factory_current_plan(parsed_tail) {
+            self.state
+                .configured_block_projection
+                .apply_unit_factory_current_plan(build_pos, current_plan);
+        }
+        if let Some(projection) = summarize_unit_factory_projection(parsed_tail) {
+            self.state
+                .configured_block_projection
+                .apply_unit_factory_runtime(build_pos, projection);
         }
         if let Some(item_id) = summarize_landing_pad_config_item_id(parsed_tail) {
             self.state
@@ -8418,6 +8455,16 @@ impl ClientSession {
             self.state
                 .configured_block_projection
                 .apply_constructor_runtime(entry.build_pos, projection);
+        }
+        if let Some(current_plan) = entry.unit_factory_current_plan {
+            self.state
+                .configured_block_projection
+                .apply_unit_factory_current_plan(entry.build_pos, current_plan);
+        }
+        if let Some(projection) = entry.unit_factory_runtime.clone() {
+            self.state
+                .configured_block_projection
+                .apply_unit_factory_runtime(entry.build_pos, projection);
         }
         if let Some(item_id) = entry.landing_pad_config_item_id {
             self.state
@@ -12911,6 +12958,8 @@ struct BlockSnapshotExtraEntrySummary {
     build_turret_plan_count: Option<u16>,
     constructor_recipe_block_id: Option<Option<i16>>,
     constructor_runtime: Option<ConstructorRuntimeProjection>,
+    unit_factory_current_plan: Option<i16>,
+    unit_factory_runtime: Option<UnitFactoryRuntimeProjection>,
     landing_pad_config_item_id: Option<Option<i16>>,
     message_text: Option<String>,
     payload_source_content: Option<Option<ConfiguredContentRef>>,
@@ -12953,6 +13002,7 @@ fn loaded_world_nullable_content_ref_object(content: Option<ConfiguredContentRef
 fn loaded_world_config_object_from_summary(
     block_name: Option<&str>,
     constructor_recipe_block_id: Option<Option<i16>>,
+    unit_factory_current_plan: Option<i16>,
     landing_pad_config_item_id: Option<Option<i16>>,
     message_text: Option<&str>,
     payload_source_content: Option<Option<ConfiguredContentRef>>,
@@ -12973,6 +13023,21 @@ fn loaded_world_config_object_from_summary(
             BLOCK_CONTENT_TYPE,
             block_id,
         ));
+    }
+    if let Some(current_plan) = unit_factory_current_plan {
+        if matches!(
+            block_name,
+            Some(
+                BLOCK_NAME_GROUND_FACTORY
+                    | BLOCK_NAME_AIR_FACTORY
+                    | BLOCK_NAME_NAVAL_FACTORY
+                    | BLOCK_NAME_TANK_FABRICATOR
+                    | BLOCK_NAME_SHIP_FABRICATOR
+                    | BLOCK_NAME_MECH_FABRICATOR
+            )
+        ) {
+            return Some(TypeIoObject::Int(i32::from(current_plan)));
+        }
     }
     if let Some(item_id) = landing_pad_config_item_id {
         return Some(loaded_world_nullable_content_object(
@@ -13085,6 +13150,7 @@ fn loaded_world_config_object_from_parsed_tail(
     loaded_world_config_object_from_summary(
         block_name,
         summarize_constructor_recipe_block_id(parsed_tail),
+        summarize_unit_factory_current_plan(parsed_tail),
         summarize_landing_pad_config_item_id(parsed_tail),
         summarize_message_tail_text(parsed_tail).as_deref(),
         summarize_payload_source_content(parsed_tail),
@@ -13112,6 +13178,7 @@ fn loaded_world_config_object_from_block_snapshot_entry(
     loaded_world_config_object_from_summary(
         entry.block_name.as_deref(),
         entry.constructor_recipe_block_id,
+        entry.unit_factory_current_plan,
         entry.landing_pad_config_item_id,
         entry.message_text.as_deref(),
         entry.payload_source_content,
@@ -13285,6 +13352,33 @@ fn summarize_reconstructor_command_id(
         return None;
     };
     Some(reconstructor.command_id.map(u16::from))
+}
+
+fn summarize_unit_factory_current_plan(
+    parsed_tail: &mdt_world::ParsedBuildingTail,
+) -> Option<i16> {
+    let mdt_world::ParsedBuildingTail::UnitFactory(factory) = parsed_tail else {
+        return None;
+    };
+    Some(factory.current_plan)
+}
+
+fn summarize_unit_factory_projection(
+    parsed_tail: &mdt_world::ParsedBuildingTail,
+) -> Option<UnitFactoryRuntimeProjection> {
+    let mdt_world::ParsedBuildingTail::UnitFactory(factory) = parsed_tail else {
+        return None;
+    };
+    Some(UnitFactoryRuntimeProjection {
+        progress_bits: factory.progress_bits,
+        command_pos: factory
+            .command_pos
+            .present
+            .then_some((factory.command_pos.x_bits, factory.command_pos.y_bits)),
+        command_id: factory.command_id,
+        payload_present: factory.payload_block.payload_present,
+        pay_rotation_bits: factory.payload_block.pay_rotation_bits,
+    })
 }
 
 fn summarize_reconstructor_projection(
@@ -21173,6 +21267,8 @@ mod tests {
                 build_turret_plan_count: Some(5),
                 constructor_recipe_block_id: None,
                 constructor_runtime: None,
+                unit_factory_current_plan: None,
+                unit_factory_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -21254,6 +21350,8 @@ mod tests {
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
                 constructor_runtime: None,
+                unit_factory_current_plan: None,
+                unit_factory_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -21326,6 +21424,8 @@ mod tests {
                     payload_build_block_id: Some(11),
                     payload_unit_class_id: None,
                 }),
+                unit_factory_current_plan: None,
+                unit_factory_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -21420,6 +21520,8 @@ mod tests {
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
                 constructor_runtime: None,
+                unit_factory_current_plan: None,
+                unit_factory_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -21473,6 +21575,8 @@ mod tests {
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
                 constructor_runtime: None,
+                unit_factory_current_plan: None,
+                unit_factory_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -22276,9 +22380,105 @@ mod tests {
     }
 
     #[test]
-    fn loaded_world_tail_business_helper_applies_reconstructor_projection() {
+    fn loaded_world_tail_business_helper_applies_unit_factory_projection() {
         let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let build_pos = pack_build_pos_for_block_snapshot_test(56, 57);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_GROUND_FACTORY);
+
+        session.state.building_table_projection.seed_world_baseline(
+            build_pos,
+            block_id,
+            Some(BLOCK_NAME_GROUND_FACTORY.to_string()),
+            1,
+            2,
+            Some(3),
+            Some(4),
+            Some(0x3f80_0000),
+            Some(0x3f00_0000),
+            Some(123),
+            Some(true),
+            0x4040_0000,
+            Some(true),
+            Some(0x20),
+            Some(0x10),
+            Some(77),
+        );
+
+        session.apply_loaded_world_parsed_tail_business(
+            build_pos,
+            Some(BLOCK_NAME_GROUND_FACTORY),
+            &mdt_world::ParsedBuildingTail::UnitFactory(mdt_world::UnitFactoryTailSnapshot {
+                payload_block: mdt_world::PayloadBlockTailSnapshot {
+                    pay_vector_x_bits: 0x4120_0000,
+                    pay_vector_y_bits: 0x41a0_0000,
+                    pay_rotation_bits: 0x4000_0000,
+                    payload_present: true,
+                    payload_type: Some(1),
+                    build_block_id: Some(block_id as u16),
+                    build_revision: Some(1),
+                    build_payload: None,
+                    unit_class_id: None,
+                    unit_payload_len: None,
+                    unit_payload_sha256: None,
+                },
+                progress_bits: 0x3f40_0000,
+                current_plan: 7,
+                command_pos: mdt_world::NullableVec2TailSnapshot {
+                    present: true,
+                    x_bits: 12.5f32.to_bits(),
+                    y_bits: 18.0f32.to_bits(),
+                },
+                command_id: Some(9),
+            }),
+        );
+
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .unit_factory_current_plan_by_build_pos
+                .get(&build_pos),
+            Some(&7)
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .unit_factory_runtime_by_build_pos
+                .get(&build_pos),
+            Some(&UnitFactoryRuntimeProjection {
+                progress_bits: 0x3f40_0000,
+                command_pos: Some((12.5f32.to_bits(), 18.0f32.to_bits())),
+                command_id: Some(9),
+                payload_present: true,
+                pay_rotation_bits: 0x4000_0000,
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos)
+                .map(|building| (&building.kind, &building.value, building.health_bits)),
+            Some((
+                &crate::session_state::TypedBuildingRuntimeKind::UnitFactory,
+                &crate::session_state::TypedBuildingRuntimeValue::UnitFactory {
+                    current_plan: Some(7),
+                    progress_bits: Some(0x3f40_0000),
+                    command_pos: Some((12.5f32.to_bits(), 18.0f32.to_bits())),
+                    command_id: Some(9),
+                    payload_present: Some(true),
+                    pay_rotation_bits: Some(0x4000_0000),
+                },
+                Some(0x4040_0000),
+            ))
+        );
+    }
+
+    #[test]
+    fn loaded_world_tail_business_helper_applies_reconstructor_projection() {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_build_pos_for_block_snapshot_test(58, 59);
         let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_ADDITIVE_RECONSTRUCTOR);
 
         session.state.building_table_projection.seed_world_baseline(
@@ -22679,6 +22879,8 @@ mod tests {
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
                 constructor_runtime: None,
+                unit_factory_current_plan: None,
+                unit_factory_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: Some("snapshot message".to_string()),
                 payload_source_content: None,
@@ -22719,6 +22921,8 @@ mod tests {
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
                 constructor_runtime: None,
+                unit_factory_current_plan: None,
+                unit_factory_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -22762,6 +22966,8 @@ mod tests {
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
                 constructor_runtime: None,
+                unit_factory_current_plan: None,
+                unit_factory_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -22843,6 +23049,8 @@ mod tests {
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: Some(Some(recipe_block_id)),
                 constructor_runtime: None,
+                unit_factory_current_plan: None,
+                unit_factory_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -22883,6 +23091,8 @@ mod tests {
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
                 constructor_runtime: None,
+                unit_factory_current_plan: None,
+                unit_factory_runtime: None,
                 landing_pad_config_item_id: Some(Some(item_id)),
                 message_text: None,
                 payload_source_content: None,
@@ -22957,6 +23167,8 @@ mod tests {
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
                 constructor_runtime: None,
+                unit_factory_current_plan: None,
+                unit_factory_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -22997,6 +23209,8 @@ mod tests {
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
                 constructor_runtime: None,
+                unit_factory_current_plan: None,
+                unit_factory_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -23037,6 +23251,8 @@ mod tests {
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
                 constructor_runtime: None,
+                unit_factory_current_plan: None,
+                unit_factory_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -23077,6 +23293,8 @@ mod tests {
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
                 constructor_runtime: None,
+                unit_factory_current_plan: None,
+                unit_factory_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -23117,6 +23335,8 @@ mod tests {
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
                 constructor_runtime: None,
+                unit_factory_current_plan: None,
+                unit_factory_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -23157,6 +23377,8 @@ mod tests {
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
                 constructor_runtime: None,
+                unit_factory_current_plan: None,
+                unit_factory_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -23197,6 +23419,8 @@ mod tests {
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
                 constructor_runtime: None,
+                unit_factory_current_plan: None,
+                unit_factory_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -23237,6 +23461,8 @@ mod tests {
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
                 constructor_runtime: None,
+                unit_factory_current_plan: None,
+                unit_factory_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -23353,6 +23579,8 @@ mod tests {
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
                 constructor_runtime: None,
+                unit_factory_current_plan: None,
+                unit_factory_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -23407,6 +23635,114 @@ mod tests {
     }
 
     #[test]
+    fn apply_loaded_world_block_snapshot_entries_seed_unit_factory_summary() {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_build_pos_for_block_snapshot_test(75, 76);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_GROUND_FACTORY);
+
+        session.apply_block_snapshot_entries_from_loaded_world_entries(vec![
+            BlockSnapshotExtraEntrySummary {
+                build_pos,
+                block_id,
+                block_name: Some(BLOCK_NAME_GROUND_FACTORY.to_string()),
+                health_bits: Some(0x3f80_0000),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                enabled: Some(true),
+                module_bitmask: Some(4),
+                time_scale_bits: Some(0x3f00_0000),
+                time_scale_duration_bits: Some(0x3e80_0000),
+                last_disabler_pos: Some(77),
+                legacy_consume_connected: Some(false),
+                efficiency: Some(0x40),
+                optional_efficiency: Some(0x20),
+                visible_flags: Some(9),
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                constructor_recipe_block_id: None,
+                constructor_runtime: None,
+                unit_factory_current_plan: Some(7),
+                unit_factory_runtime: Some(UnitFactoryRuntimeProjection {
+                    progress_bits: 0x3f40_0000,
+                    command_pos: Some((12.5f32.to_bits(), 18.0f32.to_bits())),
+                    command_id: Some(9),
+                    payload_present: true,
+                    pay_rotation_bits: 0x4000_0000,
+                }),
+                landing_pad_config_item_id: None,
+                message_text: None,
+                payload_source_content: None,
+                payload_router_sorted_content: None,
+                duct_unloader_item_id: None,
+                directional_unloader_item_id: None,
+                reconstructor_command_id: None,
+                memory_values_bits: None,
+                canvas_bytes: None,
+                mass_driver_link: None,
+                payload_mass_driver_link: None,
+                nullable_item_id: None,
+                item_bridge_link: None,
+                light_color: None,
+                switch_enabled: None,
+                build_item_stacks: Vec::new(),
+                build_liquid_stacks: Vec::new(),
+            },
+        ]);
+
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .unit_factory_current_plan_by_build_pos
+                .get(&build_pos),
+            Some(&7)
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .unit_factory_runtime_by_build_pos
+                .get(&build_pos),
+            Some(&UnitFactoryRuntimeProjection {
+                progress_bits: 0x3f40_0000,
+                command_pos: Some((12.5f32.to_bits(), 18.0f32.to_bits())),
+                command_id: Some(9),
+                payload_present: true,
+                pay_rotation_bits: 0x4000_0000,
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .building_table_projection
+                .by_build_pos
+                .get(&build_pos)
+                .and_then(|building| building.config.clone()),
+            Some(TypeIoObject::Int(7))
+        );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos)
+                .map(|building| (building.kind, building.value.clone())),
+            Some((
+                crate::session_state::TypedBuildingRuntimeKind::UnitFactory,
+                crate::session_state::TypedBuildingRuntimeValue::UnitFactory {
+                    current_plan: Some(7),
+                    progress_bits: Some(0x3f40_0000),
+                    command_pos: Some((12.5f32.to_bits(), 18.0f32.to_bits())),
+                    command_id: Some(9),
+                    payload_present: Some(true),
+                    pay_rotation_bits: Some(0x4000_0000),
+                },
+            ))
+        );
+    }
+
+    #[test]
     fn apply_loaded_world_block_snapshot_entries_seed_source_family_summary() {
         let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let unit_cargo_pos = pack_build_pos_for_block_snapshot_test(74, 75);
@@ -23443,6 +23779,8 @@ mod tests {
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
                 constructor_runtime: None,
+                unit_factory_current_plan: None,
+                unit_factory_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -23483,6 +23821,8 @@ mod tests {
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
                 constructor_runtime: None,
+                unit_factory_current_plan: None,
+                unit_factory_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -23523,6 +23863,8 @@ mod tests {
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
                 constructor_runtime: None,
+                unit_factory_current_plan: None,
+                unit_factory_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -23665,6 +24007,8 @@ mod tests {
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
                 constructor_runtime: None,
+                unit_factory_current_plan: None,
+                unit_factory_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: Some(Some(ConfiguredContentRef {
@@ -23708,6 +24052,8 @@ mod tests {
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
                 constructor_runtime: None,
+                unit_factory_current_plan: None,
+                unit_factory_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -23748,6 +24094,8 @@ mod tests {
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
                 constructor_runtime: None,
+                unit_factory_current_plan: None,
+                unit_factory_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -23788,6 +24136,8 @@ mod tests {
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
                 constructor_runtime: None,
+                unit_factory_current_plan: None,
+                unit_factory_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -23828,6 +24178,8 @@ mod tests {
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
                 constructor_runtime: None,
+                unit_factory_current_plan: None,
+                unit_factory_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -23868,6 +24220,8 @@ mod tests {
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
                 constructor_runtime: None,
+                unit_factory_current_plan: None,
+                unit_factory_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -23908,6 +24262,8 @@ mod tests {
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
                 constructor_runtime: None,
+                unit_factory_current_plan: None,
+                unit_factory_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -23948,6 +24304,8 @@ mod tests {
                 build_turret_plan_count: None,
                 constructor_recipe_block_id: None,
                 constructor_runtime: None,
+                unit_factory_current_plan: None,
+                unit_factory_runtime: None,
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
@@ -33911,6 +34269,114 @@ mod tests {
     }
 
     #[test]
+    fn unit_factory_config_business_dispatch_applies_current_plan_family() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+
+        for (build_pos, block_name, initial_plan, updated_plan) in [
+            (pack_point2(40, 62), BLOCK_NAME_GROUND_FACTORY, 1i32, 7i32),
+            (pack_point2(41, 63), BLOCK_NAME_AIR_FACTORY, 2i32, 8i32),
+            (pack_point2(42, 64), BLOCK_NAME_NAVAL_FACTORY, 3i32, 9i32),
+            (pack_point2(43, 65), BLOCK_NAME_TANK_FABRICATOR, 4i32, 10i32),
+            (pack_point2(44, 66), BLOCK_NAME_SHIP_FABRICATOR, 5i32, 11i32),
+            (pack_point2(45, 67), BLOCK_NAME_MECH_FABRICATOR, 6i32, 12i32),
+        ] {
+            let block_id = loaded_world_block_id_for_name(&session, block_name);
+
+            ingest_construct_finish_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                block_id,
+                &TypeIoObject::Int(initial_plan),
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .unit_factory_current_plan_by_build_pos
+                    .get(&build_pos),
+                Some(&(initial_plan as i16))
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .tile_config_projection
+                    .last_configured_block_outcome,
+                Some(crate::session_state::ConfiguredBlockOutcome::Applied)
+            );
+
+            ingest_tile_config_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                &TypeIoObject::Int(updated_plan),
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .unit_factory_current_plan_by_build_pos
+                    .get(&build_pos),
+                Some(&(updated_plan as i16))
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .tile_config_projection
+                    .last_configured_block_outcome,
+                Some(crate::session_state::ConfiguredBlockOutcome::Applied)
+            );
+        }
+    }
+
+    #[test]
+    fn unit_factory_config_business_accepts_negative_plan_and_rejects_non_int_payloads() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(46, 68);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_GROUND_FACTORY);
+
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+            &TypeIoObject::Int(-1),
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .unit_factory_current_plan_by_build_pos
+                .get(&build_pos),
+            Some(&-1)
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_configured_block_outcome,
+            Some(crate::session_state::ConfiguredBlockOutcome::Applied)
+        );
+
+        ingest_tile_config_for_block_config_test(&mut session, &manifest, build_pos, &TypeIoObject::Null);
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_configured_block_outcome,
+            Some(crate::session_state::ConfiguredBlockOutcome::RejectedUnsupportedConfigType)
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .unit_factory_current_plan_by_build_pos
+                .get(&build_pos),
+            Some(&-1)
+        );
+    }
+
+    #[test]
     fn reconstructor_config_business_accepts_legacy_clear_and_rejects_non_command_payloads() {
         let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let build_pos = pack_point2(50, 72);
@@ -33975,6 +34441,112 @@ mod tests {
                 .get(&build_pos),
             Some(&None)
         );
+    }
+
+    #[test]
+    fn unit_factory_config_business_dispatch_applies_current_plan_and_rejects_non_int_payloads() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+
+        for (build_pos, block_name, initial_plan, updated_plan) in [
+            (pack_point2(52, 74), BLOCK_NAME_GROUND_FACTORY, 1i16, 2i16),
+            (pack_point2(53, 75), BLOCK_NAME_AIR_FACTORY, 3i16, 4i16),
+            (pack_point2(54, 76), BLOCK_NAME_NAVAL_FACTORY, 5i16, 6i16),
+            (pack_point2(55, 77), BLOCK_NAME_TANK_FABRICATOR, 7i16, 8i16),
+            (pack_point2(56, 78), BLOCK_NAME_SHIP_FABRICATOR, 9i16, 10i16),
+            (pack_point2(57, 79), BLOCK_NAME_MECH_FABRICATOR, 11i16, 12i16),
+        ] {
+            let block_id = loaded_world_block_id_for_name(&session, block_name);
+
+            ingest_construct_finish_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                block_id,
+                &TypeIoObject::Int(i32::from(initial_plan)),
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .unit_factory_current_plan_by_build_pos
+                    .get(&build_pos),
+                Some(&initial_plan)
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .tile_config_projection
+                    .last_configured_block_outcome,
+                Some(crate::session_state::ConfiguredBlockOutcome::Applied)
+            );
+
+            ingest_tile_config_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                &TypeIoObject::Int(i32::from(updated_plan)),
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .unit_factory_current_plan_by_build_pos
+                    .get(&build_pos),
+                Some(&updated_plan)
+            );
+
+            ingest_tile_config_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                &TypeIoObject::Int(-1),
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .unit_factory_current_plan_by_build_pos
+                    .get(&build_pos),
+                Some(&-1)
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .runtime_typed_building_projection()
+                    .building_at(build_pos)
+                    .map(|building| building.value.clone()),
+                Some(crate::session_state::TypedBuildingRuntimeValue::UnitFactory {
+                    current_plan: Some(-1),
+                    progress_bits: None,
+                    command_pos: None,
+                    command_id: None,
+                    payload_present: None,
+                    pay_rotation_bits: None,
+                })
+            );
+
+            ingest_tile_config_for_block_config_test(
+                &mut session,
+                &manifest,
+                build_pos,
+                &TypeIoObject::Null,
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .tile_config_projection
+                    .last_configured_block_outcome,
+                Some(crate::session_state::ConfiguredBlockOutcome::RejectedUnsupportedConfigType)
+            );
+            assert_eq!(
+                session
+                    .state()
+                    .configured_block_projection
+                    .unit_factory_current_plan_by_build_pos
+                    .get(&build_pos),
+                Some(&-1)
+            );
+        }
     }
 
     #[test]
@@ -34519,6 +35091,61 @@ mod tests {
             .state()
             .configured_block_projection
             .reconstructor_command_by_build_pos
+            .contains_key(&build_pos));
+    }
+
+    #[test]
+    fn deconstruct_finish_clears_unit_factory_configured_block_projection_state() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(52, 74);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_GROUND_FACTORY);
+
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+            &TypeIoObject::Int(7),
+        );
+        session
+            .state
+            .configured_block_projection
+            .apply_unit_factory_runtime(
+                build_pos,
+                UnitFactoryRuntimeProjection {
+                    progress_bits: 0x3f40_0000,
+                    command_pos: Some((12.5f32.to_bits(), 18.0f32.to_bits())),
+                    command_id: Some(9),
+                    payload_present: true,
+                    pay_rotation_bits: 0x4000_0000,
+                },
+            );
+        assert!(session
+            .state()
+            .configured_block_projection
+            .unit_factory_current_plan_by_build_pos
+            .contains_key(&build_pos));
+        assert!(session
+            .state()
+            .configured_block_projection
+            .unit_factory_runtime_by_build_pos
+            .contains_key(&build_pos));
+
+        ingest_deconstruct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+        );
+        assert!(!session
+            .state()
+            .configured_block_projection
+            .unit_factory_current_plan_by_build_pos
+            .contains_key(&build_pos));
+        assert!(!session
+            .state()
+            .configured_block_projection
+            .unit_factory_runtime_by_build_pos
             .contains_key(&build_pos));
     }
 

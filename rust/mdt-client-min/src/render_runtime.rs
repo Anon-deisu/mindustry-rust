@@ -23,7 +23,8 @@ use crate::session_state::{
     TileConfigAuthoritySource, TileConfigProjection, TypedBuildingRuntimeKind,
     TypedBuildingRuntimeModel, TypedBuildingRuntimeProjection, TypedBuildingRuntimeValue,
     TypedRuntimeEntityModel, TypedRuntimeEntityProjection, UnitAssemblerRuntimeProjection,
-    UnitRefProjection, WorldBootstrapProjection, WorldReloadProjection,
+    UnitFactoryRuntimeProjection, UnitRefProjection, WorldBootstrapProjection,
+    WorldReloadProjection,
 };
 use mdt_remote::{HighFrequencyRemoteMethod, HIGH_FREQUENCY_REMOTE_METHOD_COUNT};
 use mdt_render_ui::hud_model::{
@@ -1536,6 +1537,11 @@ fn runtime_configured_block_projection_label(projection: &ConfiguredBlockProject
             "pm",
             &projection.payload_mass_driver_link_by_build_pos,
         ),
+        runtime_configured_unit_factory_family_label(
+            "uf",
+            &projection.unit_factory_current_plan_by_build_pos,
+            &projection.unit_factory_runtime_by_build_pos,
+        ),
         runtime_configured_unit_assembler_family_label(
             "ua",
             &projection.unit_assembler_by_build_pos,
@@ -1703,6 +1709,45 @@ fn runtime_configured_unit_assembler_family_label(
             )
         }
         None => format!("{prefix}{count}"),
+    }
+}
+
+fn runtime_configured_unit_factory_family_label(
+    prefix: &str,
+    current_plans: &BTreeMap<i32, i16>,
+    runtimes: &BTreeMap<i32, UnitFactoryRuntimeProjection>,
+) -> String {
+    let count = current_plans.len().max(runtimes.len());
+    let build_pos = current_plans
+        .last_key_value()
+        .map(|(build_pos, _)| *build_pos)
+        .or_else(|| runtimes.last_key_value().map(|(build_pos, _)| *build_pos));
+    let Some(build_pos) = build_pos else {
+        return format!("{prefix}{count}");
+    };
+    let (x, y) = unpack_runtime_point2(build_pos);
+    let current_plan = current_plans.get(&build_pos).copied();
+    let runtime = runtimes.get(&build_pos);
+    let mut parts = Vec::new();
+    if let Some(current_plan) = current_plan {
+        parts.push(format!("cp{current_plan}"));
+    }
+    if let Some(runtime) = runtime {
+        parts.push(format!("p{:08x}", runtime.progress_bits));
+        parts.push(format!(
+            "c{}",
+            runtime_optional_command_pos_bits_label(runtime.command_pos)
+        ));
+        if let Some(command_id) = runtime.command_id {
+            parts.push(format!("cmd{command_id}"));
+        }
+        parts.push(format!("y{}", if runtime.payload_present { 1 } else { 0 }));
+        parts.push(format!("r{:08x}", runtime.pay_rotation_bits));
+    }
+    if parts.is_empty() {
+        format!("{prefix}{count}@{x}:{y}=unset")
+    } else {
+        format!("{prefix}{count}@{x}:{y}={}", parts.join(":"))
     }
 }
 
@@ -3286,6 +3331,50 @@ fn runtime_typed_build_config_value_label(
                     .join("|");
                 format!("links={links}")
             }
+        }
+        TypedBuildingRuntimeValue::UnitFactory {
+            current_plan,
+            progress_bits,
+            command_pos,
+            command_id,
+            payload_present,
+            pay_rotation_bits,
+        } => {
+            let mut parts = vec![format!(
+                "plan={}",
+                current_plan
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "none".to_string())
+            )];
+            parts.push(format!(
+                "progress={}",
+                progress_bits
+                    .map(|bits| format!("0x{bits:08x}"))
+                    .unwrap_or_else(|| "none".to_string())
+            ));
+            parts.push(format!(
+                "command={}",
+                runtime_optional_command_pos_bits_label(*command_pos)
+            ));
+            parts.push(format!(
+                "command-id={}",
+                command_id
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "none".to_string())
+            ));
+            parts.push(format!(
+                "payload={}",
+                payload_present
+                    .map(|value| if value { 1 } else { 0 }.to_string())
+                    .unwrap_or_else(|| "unknown".to_string())
+            ));
+            parts.push(format!(
+                "pay-rot={}",
+                pay_rotation_bits
+                    .map(|bits| format!("0x{bits:08x}"))
+                    .unwrap_or_else(|| "none".to_string())
+            ));
+            parts.join(":")
         }
         TypedBuildingRuntimeValue::Reconstructor {
             command_id,
@@ -7540,6 +7629,23 @@ mod tests {
             );
         state
             .configured_block_projection
+            .unit_factory_current_plan_by_build_pos
+            .insert(pack_runtime_point2(24, 46), 7);
+        state
+            .configured_block_projection
+            .unit_factory_runtime_by_build_pos
+            .insert(
+                pack_runtime_point2(24, 46),
+                crate::session_state::UnitFactoryRuntimeProjection {
+                    progress_bits: 0x3f40_0000,
+                    command_pos: Some((12.5f32.to_bits(), 18.0f32.to_bits())),
+                    command_id: Some(9),
+                    payload_present: true,
+                    pay_rotation_bits: 0x4000_0000,
+                },
+            );
+        state
+            .configured_block_projection
             .reconstructor_command_by_build_pos
             .insert(pack_runtime_point2(26, 48), Some(12));
         state
@@ -7585,6 +7691,7 @@ mod tests {
             (pack_runtime_point2(21, 43), "payload-source"),
             (pack_runtime_point2(22, 44), "payload-router"),
             (pack_runtime_point2(23, 45), "power-node"),
+            (pack_runtime_point2(24, 46), "ground-factory"),
             (pack_runtime_point2(26, 48), "additive-reconstructor"),
             (pack_runtime_point2(27, 49), "memory-cell"),
             (pack_runtime_point2(28, 50), "build-tower"),
@@ -7634,6 +7741,9 @@ mod tests {
         assert!(hud.status_text.contains(":pr1@22:44=u:9:"));
         assert!(hud
             .status_text
+            .contains(":uf1@24:46=cp7:p3f400000:c0x41480000:0x41900000:cmd9:y1:r40000000:"));
+        assert!(hud
+            .status_text
             .contains(":ua1@29:51=p3f000000:u2:b3:sb:8:c0x41480000:0x41a00000:y1:r40400000:"));
         assert!(hud.status_text.contains(":pn1@23:45=n2:24:46|25:47:"));
         assert!(hud.status_text.contains(":rc1@26:48=12"));
@@ -7656,6 +7766,11 @@ mod tests {
         }));
         assert!(build_ui.inspector_entries.iter().any(|entry| {
             entry.family == "power-node" && entry.sample == "23:45:links=24:46|25:47"
+        }));
+        assert!(build_ui.inspector_entries.iter().any(|entry| {
+            entry.family == "unit-factory"
+                && entry.sample
+                    == "24:46:ground-factory:plan=7:progress=0x3f400000:command=0x41480000:0x41900000:command-id=9:payload=1:pay-rot=0x40000000"
         }));
         assert!(build_ui.inspector_entries.iter().any(|entry| {
             entry.family == "reconstructor"
