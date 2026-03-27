@@ -684,22 +684,22 @@ fn world_stream_candidates(
     tests_resources: &Path,
     repo_root: &Path,
 ) -> Vec<PathBuf> {
-    with_optional_input_root(
-        "world-stream.hex",
-        args.input_root.as_deref(),
-        vec![
-            tests_resources.join("world-stream.hex"),
-            repo_root
-                .join("rust")
-                .join("fixtures")
-                .join("world-streams")
-                .join("archipelago-6567-world-stream.hex"),
-            repo_root
-                .join("fixtures")
-                .join("world-streams")
-                .join("archipelago-6567-world-stream.hex"),
-        ],
-    )
+    if let Some(root) = args.input_root.as_deref() {
+        return vec![root.join("world-stream.hex")];
+    }
+
+    vec![
+        tests_resources.join("world-stream.hex"),
+        repo_root
+            .join("rust")
+            .join("fixtures")
+            .join("world-streams")
+            .join("archipelago-6567-world-stream.hex"),
+        repo_root
+            .join("fixtures")
+            .join("world-streams")
+            .join("archipelago-6567-world-stream.hex"),
+    ]
 }
 
 fn with_optional_input_root(
@@ -815,7 +815,8 @@ fn read_text_from_candidates(
 
 #[cfg(test)]
 mod tests {
-    use super::decode_hex_text;
+    use super::{decode_hex_text, read_text_from_candidates, world_stream_candidates, CliArgs};
+    use std::path::{Path, PathBuf};
 
     #[test]
     fn decode_hex_text_rejects_odd_length() {
@@ -829,6 +830,47 @@ mod tests {
         assert!(
             err.to_string().starts_with("invalid hex at byte 0:"),
             "{err}"
+        );
+    }
+
+    #[test]
+    fn world_stream_candidates_with_input_root_only_checks_explicit_path() {
+        let args = CliArgs {
+            output_dir: PathBuf::from("out"),
+            input_root: Some(PathBuf::from("custom-input")),
+        };
+        let candidates = world_stream_candidates(&args, Path::new("tests/resources"), Path::new("."));
+        assert_eq!(
+            candidates,
+            vec![PathBuf::from("custom-input/world-stream.hex")]
+        );
+
+        let err = read_text_from_candidates("world-stream.hex", &candidates).unwrap_err();
+        let checked = PathBuf::from("custom-input")
+            .join("world-stream.hex")
+            .display()
+            .to_string();
+        assert_eq!(
+            err.to_string(),
+            format!("missing world-stream.hex; checked: {checked}")
+        );
+    }
+
+    #[test]
+    fn world_stream_candidates_without_input_root_keeps_repo_fixtures() {
+        let args = CliArgs {
+            output_dir: PathBuf::from("out"),
+            input_root: None,
+        };
+        let repo_root = Path::new("/repo");
+        let candidates = world_stream_candidates(&args, Path::new("tests/resources"), repo_root);
+        assert_eq!(
+            candidates,
+            vec![
+                PathBuf::from("tests/resources/world-stream.hex"),
+                PathBuf::from("/repo/rust/fixtures/world-streams/archipelago-6567-world-stream.hex"),
+                PathBuf::from("/repo/fixtures/world-streams/archipelago-6567-world-stream.hex"),
+            ]
         );
     }
 }
