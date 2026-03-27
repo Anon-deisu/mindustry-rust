@@ -4424,7 +4424,11 @@ fn typed_runtime_building_model(
                     .map(|projection| projection.rec_dir),
             },
         ),
-        "mender" | "mend-projector" => (
+        "mender"
+        | "mend-projector"
+        | "overdrive-projector"
+        | "overdrive-dome"
+        | "force-projector" => (
             TypedBuildingRuntimeKind::Projector,
             TypedBuildingRuntimeValue::Block(building.block_id),
         ),
@@ -9648,6 +9652,9 @@ mod tests {
         for (build_pos, block_id, block_name) in [
             (0x0006_0019i32, 311, "mender"),
             (0x0006_001ai32, 312, "mend-projector"),
+            (0x0006_001bi32, 313, "overdrive-projector"),
+            (0x0006_001ci32, 314, "overdrive-dome"),
+            (0x0006_001di32, 315, "force-projector"),
         ] {
             let mut state = SessionState::default();
             state.building_table_projection.apply_block_snapshot_head(
@@ -9711,7 +9718,7 @@ mod tests {
     #[test]
     fn session_state_runtime_typed_building_projection_supports_repair_turret_family_shells() {
         let mut state = SessionState::default();
-        let build_pos = 0x0006_001bi32;
+        let build_pos = 0x0006_001ei32;
         state.building_table_projection.apply_block_snapshot_head(
             build_pos,
             311,
