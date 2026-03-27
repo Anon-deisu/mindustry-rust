@@ -3425,6 +3425,7 @@ pub enum TypedBuildingRuntimeKind {
     ShieldProjector,
     DuctUnloader,
     DuctRouter,
+    OverflowDuct,
     MassDriver,
     PayloadMassDriver,
     UnitFactory,
@@ -3478,6 +3479,7 @@ impl TypedBuildingRuntimeKind {
             Self::ShieldProjector => "shield-projector",
             Self::DuctUnloader => "duct-unloader",
             Self::DuctRouter => "duct-router",
+            Self::OverflowDuct => "overflow-duct",
             Self::MassDriver => "mass-driver",
             Self::PayloadMassDriver => "payload-mass-driver",
             Self::UnitFactory => "unit-factory",
@@ -4382,6 +4384,12 @@ fn typed_runtime_building_model(
                     .copied()?,
             ),
         ),
+        "overflow-duct" => (
+            TypedBuildingRuntimeKind::OverflowDuct,
+            TypedBuildingRuntimeValue::Item(
+                inventory_item_stacks.first().map(|(item_id, _)| *item_id),
+            ),
+        ),
         "mass-driver" => {
             let runtime = configured.mass_driver_runtime_by_build_pos.get(&build_pos);
             (
@@ -4450,7 +4458,8 @@ fn typed_runtime_building_model(
                 },
             )
         }
-        "power-node" | "power-node-large" | "surge-tower" | "beam-link" => (
+        "power-node" | "power-node-large" | "surge-tower" | "beam-link" | "beam-node"
+        | "beam-tower" => (
             TypedBuildingRuntimeKind::PowerNode,
             TypedBuildingRuntimeValue::Links(
                 configured
@@ -9215,6 +9224,119 @@ mod tests {
     }
 
     #[test]
+    fn session_state_runtime_typed_building_projection_supports_overflow_duct_family_shells() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0006_0023i32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            309,
+            Some("overflow-duct".to_string()),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(0x3f80_0000),
+            Some(0x3f20_0000),
+            Some(131),
+            Some(false),
+            Some(TypeIoObject::Null),
+            Some(0x4080_0000),
+            Some(true),
+            Some(0x44),
+            Some(0x12),
+            Some(85),
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(
+            state.typed_runtime_building_at(build_pos),
+            Some(expected_typed_runtime_building(
+                build_pos,
+                309,
+                "overflow-duct",
+                TypedBuildingRuntimeKind::OverflowDuct,
+                TypedBuildingRuntimeValue::Item(None),
+                Vec::new(),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(0x3f80_0000),
+                Some(0x3f20_0000),
+                Some(131),
+                Some(false),
+                Some(0x4080_0000),
+                Some(true),
+                Some(0x44),
+                Some(0x12),
+                Some(85),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_overflow_duct_family_runtime() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0006_0024i32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            310,
+            Some("overflow-duct".to_string()),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(0x3f80_0000),
+            Some(0x3f20_0000),
+            Some(132),
+            Some(true),
+            Some(TypeIoObject::Null),
+            Some(0x4080_0000),
+            Some(false),
+            Some(0x45),
+            Some(0x13),
+            Some(84),
+            None,
+            None,
+            None,
+        );
+        state
+            .resource_delta_projection
+            .seed_world_build_items(build_pos, &[(41, 1)]);
+
+        assert_eq!(
+            state
+                .typed_runtime_building_at(build_pos)
+                .map(|building| (building.kind, building.value.clone())),
+            Some((
+                TypedBuildingRuntimeKind::OverflowDuct,
+                TypedBuildingRuntimeValue::Item(Some(41)),
+            ))
+        );
+        state.refresh_runtime_typed_building_from_tables(build_pos);
+        assert_eq!(
+            state
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos)
+                .map(|building| (building.kind, building.value.clone())),
+            Some((
+                TypedBuildingRuntimeKind::OverflowDuct,
+                TypedBuildingRuntimeValue::Item(Some(41)),
+            ))
+        );
+    }
+
+    #[test]
     fn session_state_runtime_typed_building_projection_supports_shield_projector_family_shells() {
         let mut state = SessionState::default();
         let build_pos = 0x0006_0017i32;
@@ -11127,75 +11249,80 @@ mod tests {
     #[test]
     fn session_state_runtime_typed_building_projection_supports_power_node_family() {
         let mut state = SessionState::default();
-        let build_pos = 0x0006_0009i32;
         let links = BTreeSet::from([0x0006_000di32, 0x0007_0009i32]);
-        state.building_table_projection.apply_block_snapshot_head(
-            build_pos,
-            302,
-            Some("power-node".to_string()),
-            Some(2),
-            Some(3),
-            Some(4),
-            Some(5),
-            Some(0x3f80_0000),
-            Some(0x3f20_0000),
-            Some(125),
-            Some(true),
-            Some(TypeIoObject::Null),
-            Some(0x4080_0000),
-            Some(false),
-            Some(0x44),
-            Some(0x12),
-            Some(87),
-            None,
-            None,
-            None,
-        );
-        state
-            .configured_block_projection
-            .apply_power_node_links_full_replace(build_pos, links.clone());
-
-        let expected = expected_typed_runtime_building(
-            build_pos,
-            302,
-            "power-node",
-            TypedBuildingRuntimeKind::PowerNode,
-            TypedBuildingRuntimeValue::Links(links),
-            Vec::new(),
-            Some(2),
-            Some(3),
-            Some(4),
-            Some(5),
-            Some(0x3f80_0000),
-            Some(0x3f20_0000),
-            Some(125),
-            Some(true),
-            Some(0x4080_0000),
-            Some(false),
-            Some(0x44),
-            Some(0x12),
-            Some(87),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            BuildingProjectionUpdateKind::BlockSnapshotHead,
-        );
-
-        assert_eq!(
-            state.typed_runtime_building_at(build_pos),
-            Some(expected.clone())
-        );
-        state.refresh_runtime_typed_building_from_tables(build_pos);
-        assert_eq!(
+        for (build_pos, block_id, block_name) in [
+            (0x0006_0009i32, 302, "power-node"),
+            (0x0006_000ai32, 303, "beam-node"),
+            (0x0006_000bi32, 304, "beam-tower"),
+        ] {
+            state.building_table_projection.apply_block_snapshot_head(
+                build_pos,
+                block_id,
+                Some(block_name.to_string()),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(0x3f80_0000),
+                Some(0x3f20_0000),
+                Some(125),
+                Some(true),
+                Some(TypeIoObject::Null),
+                Some(0x4080_0000),
+                Some(false),
+                Some(0x44),
+                Some(0x12),
+                Some(87),
+                None,
+                None,
+                None,
+            );
             state
-                .runtime_typed_building_apply_projection
-                .building_at(build_pos),
-            Some(&expected)
-        );
+                .configured_block_projection
+                .apply_power_node_links_full_replace(build_pos, links.clone());
+
+            let expected = expected_typed_runtime_building(
+                build_pos,
+                block_id,
+                block_name,
+                TypedBuildingRuntimeKind::PowerNode,
+                TypedBuildingRuntimeValue::Links(links.clone()),
+                Vec::new(),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(0x3f80_0000),
+                Some(0x3f20_0000),
+                Some(125),
+                Some(true),
+                Some(0x4080_0000),
+                Some(false),
+                Some(0x44),
+                Some(0x12),
+                Some(87),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            );
+
+            assert_eq!(
+                state.typed_runtime_building_at(build_pos),
+                Some(expected.clone())
+            );
+            state.refresh_runtime_typed_building_from_tables(build_pos);
+            assert_eq!(
+                state
+                    .runtime_typed_building_apply_projection
+                    .building_at(build_pos),
+                Some(&expected)
+            );
+        }
     }
 
     #[test]
