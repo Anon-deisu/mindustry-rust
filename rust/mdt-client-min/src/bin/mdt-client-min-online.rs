@@ -5642,18 +5642,26 @@ fn synced_runtime_building_flag(
 
 fn apply_live_intents_to_snapshot(session: &mut ClientSession, state: &LiveIntentState) {
     let input = session.snapshot_input_mut();
-    input.velocity = state.move_axis;
-    if state.move_axis != (0.0, 0.0) {
-        let heading = state.move_axis.1.atan2(state.move_axis.0).to_degrees();
-        input.rotation = heading;
-        input.base_rotation = heading;
+    if let Some(move_axis) = finite_axis(state.move_axis) {
+        input.velocity = move_axis;
+        if move_axis != (0.0, 0.0) {
+            let heading = move_axis.1.atan2(move_axis.0).to_degrees();
+            input.rotation = heading;
+            input.base_rotation = heading;
+        }
     }
-    input.pointer = Some(state.aim_axis);
+    if let Some(aim_axis) = finite_axis(state.aim_axis) {
+        input.pointer = Some(aim_axis);
+    }
     input.mining_tile = state.mining_tile;
     input.building = state.building;
     input.shooting = state.is_action_active(BinaryAction::Fire);
     input.boosting = state.is_action_active(BinaryAction::Boost);
     input.chatting = state.is_action_active(BinaryAction::Chat);
+}
+
+fn finite_axis(axis: (f32, f32)) -> Option<(f32, f32)> {
+    (axis.0.is_finite() && axis.1.is_finite()).then_some(axis)
 }
 
 fn sample_current_runtime_snapshot(session: &ClientSession, args: &CliArgs) -> InputSnapshot {
@@ -13398,6 +13406,41 @@ mod tests {
         assert!(!input.shooting);
         assert!(!input.boosting);
         assert!(!input.chatting);
+    }
+
+    #[test]
+    fn apply_live_intents_to_snapshot_ignores_non_finite_axes() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
+        {
+            let input = session.snapshot_input_mut();
+            input.pointer = Some((12.0, 24.0));
+            input.velocity = (1.0, -2.0);
+            input.rotation = 90.0;
+            input.base_rotation = 90.0;
+        }
+
+        let state = LiveIntentState {
+            move_axis: (f32::NAN, 1.0),
+            aim_axis: (f32::INFINITY, 30.0),
+            mining_tile: None,
+            building: false,
+            last_config_tap_tile: None,
+            config_tap_count: 0,
+            last_build_pulse: None,
+            build_pulse_count: 0,
+            active_actions: Vec::new(),
+            pressed_actions: Vec::new(),
+            released_actions: Vec::new(),
+        };
+
+        apply_live_intents_to_snapshot(&mut session, &state);
+
+        let input = session.snapshot_input();
+        assert_eq!(input.pointer, Some((12.0, 24.0)));
+        assert_eq!(input.velocity, (1.0, -2.0));
+        assert_eq!(input.rotation, 90.0);
+        assert_eq!(input.base_rotation, 90.0);
     }
 
     #[test]

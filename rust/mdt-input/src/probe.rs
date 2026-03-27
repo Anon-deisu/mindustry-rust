@@ -152,7 +152,7 @@ pub fn sample_runtime_input_snapshot(sample: RuntimeInputSample) -> InputSnapsho
 
     InputSnapshot {
         move_axis: sample.velocity,
-        aim_axis: sample.pointer.or(sample.position).unwrap_or((0.0, 0.0)),
+        aim_axis: resolve_aim_axis(sample.pointer, sample.position),
         mining_tile: sample.mining_tile,
         building: sample.building,
         config_tap_tile: None,
@@ -167,6 +167,16 @@ pub fn classify_runtime_input_sample(sample: RuntimeInputSample) -> RuntimeInput
 
 fn probe_heading_degrees(step: (f32, f32)) -> f32 {
     step.1.atan2(step.0).to_degrees()
+}
+
+fn resolve_aim_axis(
+    pointer: Option<(f32, f32)>,
+    position: Option<(f32, f32)>,
+) -> (f32, f32) {
+    pointer
+        .filter(|(x, y)| x.is_finite() && y.is_finite())
+        .or_else(|| position.filter(|(x, y)| x.is_finite() && y.is_finite()))
+        .unwrap_or((0.0, 0.0))
 }
 
 fn resolve_probe_pointer(
@@ -383,6 +393,22 @@ mod tests {
 
         assert_eq!(snapshot.aim_axis, (0.0, 0.0));
         assert!(snapshot.active_actions.is_empty());
+    }
+
+    #[test]
+    fn sample_runtime_input_snapshot_ignores_non_finite_pointer_and_position() {
+        let snapshot = sample_runtime_input_snapshot(RuntimeInputSample {
+            position: Some((f32::INFINITY, 6.0)),
+            pointer: Some((f32::NAN, 24.0)),
+            velocity: (0.0, 0.0),
+            mining_tile: None,
+            building: false,
+            shooting: false,
+            boosting: false,
+            chatting: false,
+        });
+
+        assert_eq!(snapshot.aim_axis, (0.0, 0.0));
     }
 
     #[test]
