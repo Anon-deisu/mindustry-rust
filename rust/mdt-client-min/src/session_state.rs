@@ -1871,6 +1871,7 @@ pub struct ConfiguredBlockProjection {
     pub liquid_source_liquid_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub landing_pad_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub landing_pad_runtime_by_build_pos: BTreeMap<i32, LandingPadRuntimeProjection>,
+    pub item_buffer_runtime_by_build_pos: BTreeMap<i32, SorterRuntimeProjection>,
     pub sorter_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub inverted_sorter_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub sorter_runtime_by_build_pos: BTreeMap<i32, SorterRuntimeProjection>,
@@ -1934,6 +1935,15 @@ impl ConfiguredBlockProjection {
         projection: LandingPadRuntimeProjection,
     ) {
         self.landing_pad_runtime_by_build_pos
+            .insert(build_pos, projection);
+    }
+
+    pub fn apply_item_buffer_runtime(
+        &mut self,
+        build_pos: i32,
+        projection: SorterRuntimeProjection,
+    ) {
+        self.item_buffer_runtime_by_build_pos
             .insert(build_pos, projection);
     }
 
@@ -2171,6 +2181,7 @@ impl ConfiguredBlockProjection {
         self.liquid_source_liquid_by_build_pos.remove(&build_pos);
         self.landing_pad_item_by_build_pos.remove(&build_pos);
         self.landing_pad_runtime_by_build_pos.remove(&build_pos);
+        self.item_buffer_runtime_by_build_pos.remove(&build_pos);
         self.sorter_item_by_build_pos.remove(&build_pos);
         self.inverted_sorter_item_by_build_pos.remove(&build_pos);
         self.sorter_runtime_by_build_pos.remove(&build_pos);
@@ -3601,12 +3612,18 @@ fn typed_runtime_building_model(
             ),
         ),
         "junction" | "router" | "distributor" | "overflow-gate" | "underflow-gate"
-        | "surge-router" => (
-            TypedBuildingRuntimeKind::ItemBuffer,
-            TypedBuildingRuntimeValue::Item(
-                inventory_item_stacks.first().map(|(item_id, _)| *item_id),
-            ),
-        ),
+        | "surge-router" => {
+            let runtime = configured.item_buffer_runtime_by_build_pos.get(&build_pos);
+            (
+                TypedBuildingRuntimeKind::ItemBuffer,
+                TypedBuildingRuntimeValue::Sorter {
+                    item_id: inventory_item_stacks.first().map(|(item_id, _)| *item_id),
+                    legacy: runtime.map(|projection| projection.legacy),
+                    non_empty_side_mask: runtime.map(|projection| projection.non_empty_side_mask),
+                    buffered_item_count: runtime.map(|projection| projection.buffered_item_count),
+                },
+            )
+        }
         "landing-pad" => {
             let configured_item_id = configured
                 .landing_pad_item_by_build_pos
@@ -8466,7 +8483,12 @@ mod tests {
                 304,
                 block_name,
                 TypedBuildingRuntimeKind::ItemBuffer,
-                TypedBuildingRuntimeValue::Item(first_item_id),
+                TypedBuildingRuntimeValue::Sorter {
+                    item_id: first_item_id,
+                    legacy: None,
+                    non_empty_side_mask: None,
+                    buffered_item_count: None,
+                },
                 item_stacks,
                 Some(2),
                 Some(3),
@@ -8493,6 +8515,60 @@ mod tests {
 
             assert_eq!(state.typed_runtime_building_at(build_pos), Some(expected));
         }
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_item_buffer_family_runtime() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0006_0021i32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            306,
+            Some("junction".to_string()),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(0x3f80_0000),
+            Some(0x3f20_0000),
+            Some(128),
+            Some(false),
+            Some(TypeIoObject::Null),
+            Some(0x4080_0000),
+            Some(true),
+            Some(0x45),
+            Some(0x13),
+            Some(84),
+            None,
+            None,
+            None,
+        );
+        state
+            .resource_delta_projection
+            .seed_world_build_items(build_pos, &[(41, 2)]);
+        state.configured_block_projection.apply_item_buffer_runtime(
+            build_pos,
+            SorterRuntimeProjection {
+                legacy: true,
+                non_empty_side_mask: 0x05,
+                buffered_item_count: 3,
+            },
+        );
+
+        assert_eq!(
+            state
+                .typed_runtime_building_at(build_pos)
+                .map(|building| (building.kind, building.value.clone())),
+            Some((
+                TypedBuildingRuntimeKind::ItemBuffer,
+                TypedBuildingRuntimeValue::Sorter {
+                    item_id: Some(41),
+                    legacy: Some(true),
+                    non_empty_side_mask: Some(0x05),
+                    buffered_item_count: Some(3),
+                },
+            ))
+        );
     }
 
     #[test]

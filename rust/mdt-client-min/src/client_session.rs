@@ -8205,6 +8205,8 @@ impl ClientSession {
             let payload_mass_driver_runtime =
                 summarize_payload_mass_driver_projection(&building.parsed_tail);
             let sorter_runtime = summarize_sorter_runtime_projection(&building.parsed_tail);
+            let item_buffer_runtime =
+                summarize_item_buffer_runtime_projection(&building.parsed_tail);
             let item_bridge_runtime =
                 summarize_item_bridge_runtime_projection(&building.parsed_tail);
 
@@ -8257,6 +8259,7 @@ impl ClientSession {
                 payload_mass_driver_link,
                 payload_mass_driver_runtime,
                 sorter_runtime,
+                item_buffer_runtime,
                 nullable_item_id: summarize_nullable_item_config_item_id(&building.parsed_tail),
                 item_bridge_link: summarize_item_bridge_link(&building.parsed_tail),
                 item_bridge_runtime,
@@ -8475,6 +8478,13 @@ impl ClientSession {
                 _ => {}
             }
         }
+        if let Some(projection) = summarize_item_buffer_runtime_projection(parsed_tail) {
+            if block_name == Some("junction") {
+                self.state
+                    .configured_block_projection
+                    .apply_item_buffer_runtime(build_pos, projection);
+            }
+        }
         if let Some(link) = summarize_item_bridge_link(parsed_tail) {
             if matches!(
                 block_name,
@@ -8648,6 +8658,13 @@ impl ClientSession {
             self.state
                 .configured_block_projection
                 .apply_payload_mass_driver_runtime(entry.build_pos, projection);
+        }
+        if let Some(projection) = entry.item_buffer_runtime.clone() {
+            if entry.block_name.as_deref() == Some("junction") {
+                self.state
+                    .configured_block_projection
+                    .apply_item_buffer_runtime(entry.build_pos, projection);
+            }
         }
         if let Some(item_id) = entry.nullable_item_id {
             match entry.block_name.as_deref() {
@@ -13147,6 +13164,7 @@ struct BlockSnapshotExtraEntrySummary {
     payload_mass_driver_link: Option<i32>,
     payload_mass_driver_runtime: Option<PayloadMassDriverRuntimeProjection>,
     sorter_runtime: Option<SorterRuntimeProjection>,
+    item_buffer_runtime: Option<SorterRuntimeProjection>,
     nullable_item_id: Option<Option<i16>>,
     item_bridge_link: Option<i32>,
     item_bridge_runtime: Option<ItemBridgeRuntimeProjection>,
@@ -13802,7 +13820,26 @@ fn summarize_sorter_runtime_projection(
     let mdt_world::ParsedBuildingTail::SorterLegacy(sorter) = parsed_tail else {
         return None;
     };
-    let non_empty_side_mask = sorter.buffer.sides.iter().fold(0u8, |mask, side| {
+    Some(summarize_directional_item_buffer_runtime_projection(
+        &sorter.buffer,
+    ))
+}
+
+fn summarize_item_buffer_runtime_projection(
+    parsed_tail: &mdt_world::ParsedBuildingTail,
+) -> Option<SorterRuntimeProjection> {
+    let mdt_world::ParsedBuildingTail::Junction(junction) = parsed_tail else {
+        return None;
+    };
+    Some(summarize_directional_item_buffer_runtime_projection(
+        &junction.buffer,
+    ))
+}
+
+fn summarize_directional_item_buffer_runtime_projection(
+    buffer: &mdt_world::DirectionalItemBufferTailSnapshot,
+) -> SorterRuntimeProjection {
+    let non_empty_side_mask = buffer.sides.iter().fold(0u8, |mask, side| {
         let Some(side_index) = u8::try_from(side.index).ok() else {
             return mask;
         };
@@ -13812,17 +13849,16 @@ fn summarize_sorter_runtime_projection(
             mask | (1u8 << side_index)
         }
     });
-    let buffered_item_count = sorter
-        .buffer
+    let buffered_item_count = buffer
         .sides
         .iter()
         .map(|side| side.entries.len())
         .sum::<usize>();
-    Some(SorterRuntimeProjection {
-        legacy: sorter.buffer.legacy,
+    SorterRuntimeProjection {
+        legacy: buffer.legacy,
         non_empty_side_mask,
         buffered_item_count: u16::try_from(buffered_item_count).unwrap_or(u16::MAX),
-    })
+    }
 }
 
 fn summarize_item_bridge_runtime_projection(
@@ -21673,6 +21709,7 @@ mod tests {
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
                 sorter_runtime: None,
+                item_buffer_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 item_bridge_runtime: None,
@@ -21765,6 +21802,7 @@ mod tests {
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
                 sorter_runtime: None,
+                item_buffer_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 item_bridge_runtime: None,
@@ -21848,6 +21886,7 @@ mod tests {
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
                 sorter_runtime: None,
+                item_buffer_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 item_bridge_runtime: None,
@@ -21953,6 +21992,7 @@ mod tests {
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
                 sorter_runtime: None,
+                item_buffer_runtime: None,
                 nullable_item_id: Some(Some(7)),
                 item_bridge_link: None,
                 item_bridge_runtime: None,
@@ -22017,6 +22057,7 @@ mod tests {
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
                 sorter_runtime: None,
+                item_buffer_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 item_bridge_runtime: None,
@@ -22615,6 +22656,51 @@ mod tests {
     }
 
     #[test]
+    fn summarize_item_buffer_runtime_projection_extracts_runtime() {
+        assert_eq!(
+            summarize_item_buffer_runtime_projection(&mdt_world::ParsedBuildingTail::Junction(
+                mdt_world::JunctionTailSnapshot {
+                    buffer: mdt_world::DirectionalItemBufferTailSnapshot {
+                        legacy: true,
+                        sides: vec![
+                            mdt_world::DirectionalBufferSideSnapshot {
+                                index: 0,
+                                capacity: 2,
+                                entries: vec![mdt_world::DirectionalBufferEntrySnapshot {
+                                    raw: 0,
+                                    item_id: 7,
+                                    time_bits: 0x3f80_0000,
+                                }],
+                            },
+                            mdt_world::DirectionalBufferSideSnapshot {
+                                index: 2,
+                                capacity: 3,
+                                entries: vec![
+                                    mdt_world::DirectionalBufferEntrySnapshot {
+                                        raw: 0,
+                                        item_id: 8,
+                                        time_bits: 0x3f00_0000,
+                                    },
+                                    mdt_world::DirectionalBufferEntrySnapshot {
+                                        raw: 0,
+                                        item_id: 9,
+                                        time_bits: 0x3f20_0000,
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                }
+            )),
+            Some(SorterRuntimeProjection {
+                legacy: true,
+                non_empty_side_mask: 0x05,
+                buffered_item_count: 3,
+            })
+        );
+    }
+
+    #[test]
     fn summarize_sorter_runtime_projection_extracts_runtime() {
         assert_eq!(
             summarize_sorter_runtime_projection(&mdt_world::ParsedBuildingTail::SorterLegacy(
@@ -23079,6 +23165,62 @@ mod tests {
                     normalized_index: 1,
                     entry_count: 2,
                 }),
+            })
+        );
+    }
+
+    #[test]
+    fn loaded_world_tail_business_helper_applies_item_buffer_runtime_projection() {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_build_pos_for_block_snapshot_test(54, 55);
+
+        session.apply_loaded_world_parsed_tail_business(
+            build_pos,
+            Some("junction"),
+            &mdt_world::ParsedBuildingTail::Junction(mdt_world::JunctionTailSnapshot {
+                buffer: mdt_world::DirectionalItemBufferTailSnapshot {
+                    legacy: true,
+                    sides: vec![
+                        mdt_world::DirectionalBufferSideSnapshot {
+                            index: 0,
+                            capacity: 2,
+                            entries: vec![mdt_world::DirectionalBufferEntrySnapshot {
+                                raw: 0,
+                                item_id: 7,
+                                time_bits: 0x3f80_0000,
+                            }],
+                        },
+                        mdt_world::DirectionalBufferSideSnapshot {
+                            index: 2,
+                            capacity: 3,
+                            entries: vec![
+                                mdt_world::DirectionalBufferEntrySnapshot {
+                                    raw: 0,
+                                    item_id: 8,
+                                    time_bits: 0x3f00_0000,
+                                },
+                                mdt_world::DirectionalBufferEntrySnapshot {
+                                    raw: 0,
+                                    item_id: 9,
+                                    time_bits: 0x3f20_0000,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            }),
+        );
+
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .item_buffer_runtime_by_build_pos
+                .get(&build_pos),
+            Some(&SorterRuntimeProjection {
+                legacy: true,
+                non_empty_side_mask: 0x05,
+                buffered_item_count: 3,
             })
         );
     }
@@ -23983,6 +24125,7 @@ mod tests {
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
                 sorter_runtime: None,
+                item_buffer_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 item_bridge_runtime: None,
@@ -24037,6 +24180,7 @@ mod tests {
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
                 sorter_runtime: None,
+                item_buffer_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 item_bridge_runtime: None,
@@ -24088,6 +24232,7 @@ mod tests {
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
                 sorter_runtime: None,
+                item_buffer_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 item_bridge_runtime: None,
@@ -24218,6 +24363,7 @@ mod tests {
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
                 sorter_runtime: None,
+                item_buffer_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 item_bridge_runtime: None,
@@ -24275,6 +24421,7 @@ mod tests {
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
                 sorter_runtime: None,
+                item_buffer_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 item_bridge_runtime: None,
@@ -24396,6 +24543,7 @@ mod tests {
                     non_empty_side_mask: 0x05,
                     buffered_item_count: 3,
                 }),
+                item_buffer_runtime: None,
                 nullable_item_id: Some(Some(item_id)),
                 item_bridge_link: None,
                 item_bridge_runtime: None,
@@ -24447,6 +24595,7 @@ mod tests {
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
                 sorter_runtime: None,
+                item_buffer_runtime: None,
                 nullable_item_id: Some(None),
                 item_bridge_link: None,
                 item_bridge_runtime: None,
@@ -24498,6 +24647,7 @@ mod tests {
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
                 sorter_runtime: None,
+                item_buffer_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: Some(14),
                 item_bridge_runtime: Some(ItemBridgeRuntimeProjection {
@@ -24554,6 +24704,7 @@ mod tests {
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
                 sorter_runtime: None,
+                item_buffer_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: Some(16),
                 item_bridge_runtime: Some(ItemBridgeRuntimeProjection {
@@ -24618,6 +24769,7 @@ mod tests {
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
                 sorter_runtime: None,
+                item_buffer_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 item_bridge_runtime: None,
@@ -24669,6 +24821,7 @@ mod tests {
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
                 sorter_runtime: None,
+                item_buffer_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 item_bridge_runtime: None,
@@ -24720,6 +24873,7 @@ mod tests {
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
                 sorter_runtime: None,
+                item_buffer_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 item_bridge_runtime: None,
@@ -24771,6 +24925,7 @@ mod tests {
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
                 sorter_runtime: None,
+                item_buffer_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 item_bridge_runtime: None,
@@ -24952,6 +25107,7 @@ mod tests {
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
                 sorter_runtime: None,
+                item_buffer_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 item_bridge_runtime: None,
@@ -25061,6 +25217,7 @@ mod tests {
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
                 sorter_runtime: None,
+                item_buffer_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 item_bridge_runtime: None,
@@ -25190,6 +25347,7 @@ mod tests {
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
                 sorter_runtime: None,
+                item_buffer_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 item_bridge_runtime: None,
@@ -25328,6 +25486,7 @@ mod tests {
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
                 sorter_runtime: None,
+                item_buffer_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 item_bridge_runtime: None,
@@ -25447,6 +25606,7 @@ mod tests {
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
                 sorter_runtime: None,
+                item_buffer_runtime: None,
                 nullable_item_id: Some(Some(item_id)),
                 item_bridge_link: None,
                 item_bridge_runtime: None,
@@ -25498,6 +25658,7 @@ mod tests {
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
                 sorter_runtime: None,
+                item_buffer_runtime: None,
                 nullable_item_id: Some(Some(item_id)),
                 item_bridge_link: None,
                 item_bridge_runtime: None,
@@ -25549,6 +25710,7 @@ mod tests {
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
                 sorter_runtime: None,
+                item_buffer_runtime: None,
                 nullable_item_id: Some(Some(liquid_id)),
                 item_bridge_link: None,
                 item_bridge_runtime: None,
@@ -25643,6 +25805,101 @@ mod tests {
     }
 
     #[test]
+    fn apply_loaded_world_block_snapshot_entries_forwards_item_buffer_runtime_summary() {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_build_pos_for_block_snapshot_test(58, 59);
+        let item_id = loaded_world_content_id_for_name(&session, ITEM_CONTENT_TYPE, "copper");
+
+        session.apply_block_snapshot_entries_from_loaded_world_entries(vec![
+            BlockSnapshotExtraEntrySummary {
+                build_pos,
+                block_id: 320,
+                block_name: Some("junction".to_string()),
+                health_bits: Some(0x3f80_0000),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                enabled: Some(true),
+                module_bitmask: Some(4),
+                time_scale_bits: Some(0x3f00_0000),
+                time_scale_duration_bits: Some(0x3e80_0000),
+                last_disabler_pos: Some(77),
+                legacy_consume_connected: Some(false),
+                efficiency: Some(0x40),
+                optional_efficiency: Some(0x20),
+                visible_flags: Some(9),
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                constructor_recipe_block_id: None,
+                constructor_runtime: None,
+                unit_factory_current_plan: None,
+                unit_factory_runtime: None,
+                payload_loader_runtime: None,
+                landing_pad_config_item_id: None,
+                landing_pad_runtime: None,
+                message_text: None,
+                payload_source_content: None,
+                payload_source_runtime: None,
+                payload_router_sorted_content: None,
+                payload_router_runtime: None,
+                duct_unloader_item_id: None,
+                duct_unloader_runtime: None,
+                directional_unloader_item_id: None,
+                reconstructor_command_id: None,
+                memory_values_bits: None,
+                canvas_bytes: None,
+                mass_driver_link: None,
+                mass_driver_runtime: None,
+                payload_mass_driver_link: None,
+                payload_mass_driver_runtime: None,
+                sorter_runtime: None,
+                item_buffer_runtime: Some(SorterRuntimeProjection {
+                    legacy: true,
+                    non_empty_side_mask: 0x05,
+                    buffered_item_count: 3,
+                }),
+                nullable_item_id: None,
+                item_bridge_link: None,
+                item_bridge_runtime: None,
+                light_color: None,
+                switch_enabled: None,
+                build_item_stacks: vec![(item_id, 2)],
+                build_liquid_stacks: Vec::new(),
+            },
+        ]);
+
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .item_buffer_runtime_by_build_pos
+                .get(&build_pos),
+            Some(&SorterRuntimeProjection {
+                legacy: true,
+                non_empty_side_mask: 0x05,
+                buffered_item_count: 3,
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos)
+                .map(|building| (building.kind, building.value.clone())),
+            Some((
+                crate::session_state::TypedBuildingRuntimeKind::ItemBuffer,
+                crate::session_state::TypedBuildingRuntimeValue::Sorter {
+                    item_id: Some(item_id),
+                    legacy: Some(true),
+                    non_empty_side_mask: Some(0x05),
+                    buffered_item_count: Some(3),
+                },
+            ))
+        );
+    }
+
+    #[test]
     fn apply_loaded_world_block_snapshot_entries_forwards_additional_configured_summary() {
         let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let payload_source_pos = pack_build_pos_for_block_snapshot_test(42, 43);
@@ -25705,6 +25962,7 @@ mod tests {
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
                 sorter_runtime: None,
+                item_buffer_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 item_bridge_runtime: None,
@@ -25756,6 +26014,7 @@ mod tests {
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
                 sorter_runtime: None,
+                item_buffer_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 item_bridge_runtime: None,
@@ -25807,6 +26066,7 @@ mod tests {
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
                 sorter_runtime: None,
+                item_buffer_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 item_bridge_runtime: None,
@@ -25858,6 +26118,7 @@ mod tests {
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
                 sorter_runtime: None,
+                item_buffer_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 item_bridge_runtime: None,
@@ -25917,6 +26178,7 @@ mod tests {
                     payload_present: true,
                 }),
                 sorter_runtime: None,
+                item_buffer_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 item_bridge_runtime: None,
@@ -25968,6 +26230,7 @@ mod tests {
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
                 sorter_runtime: None,
+                item_buffer_runtime: None,
                 nullable_item_id: Some(Some(item_id)),
                 item_bridge_link: None,
                 item_bridge_runtime: None,
@@ -26019,6 +26282,7 @@ mod tests {
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
                 sorter_runtime: None,
+                item_buffer_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
                 item_bridge_runtime: None,
@@ -26070,6 +26334,7 @@ mod tests {
                 payload_mass_driver_link: None,
                 payload_mass_driver_runtime: None,
                 sorter_runtime: None,
+                item_buffer_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: Some(phase_link),
                 item_bridge_runtime: Some(ItemBridgeRuntimeProjection {

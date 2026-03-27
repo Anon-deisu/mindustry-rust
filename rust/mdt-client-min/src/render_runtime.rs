@@ -8665,6 +8665,68 @@ mod tests {
     }
 
     #[test]
+    fn render_runtime_adapter_reports_item_buffer_runtime_in_inspector() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        let build_pos = pack_runtime_point2(36, 58);
+
+        state.configured_block_projection.apply_item_buffer_runtime(
+            build_pos,
+            crate::session_state::SorterRuntimeProjection {
+                legacy: true,
+                non_empty_side_mask: 0x05,
+                buffered_item_count: 3,
+            },
+        );
+        state
+            .resource_delta_projection
+            .seed_world_build_items(build_pos, &[(7, 2)]);
+        state.building_table_projection.by_build_pos.insert(
+            build_pos,
+            crate::session_state::BuildingProjection {
+                block_id: Some(1),
+                block_name: Some("junction".to_string()),
+                rotation: None,
+                team_id: None,
+                io_version: None,
+                module_bitmask: None,
+                time_scale_bits: None,
+                time_scale_duration_bits: None,
+                last_disabler_pos: None,
+                legacy_consume_connected: None,
+                config: None,
+                health_bits: None,
+                enabled: None,
+                efficiency: None,
+                optional_efficiency: None,
+                visible_flags: None,
+                turret_reload_counter_bits: None,
+                turret_rotation_bits: None,
+                item_turret_ammo_count: None,
+                continuous_turret_last_length_bits: None,
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                last_update: crate::session_state::BuildingProjectionUpdateKind::BlockSnapshotHead,
+            },
+        );
+
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let build_ui = hud
+            .build_ui
+            .as_ref()
+            .expect("build_ui observability should be present");
+        assert!(build_ui.inspector_entries.iter().any(|entry| {
+            entry.family == "item-buffer"
+                && entry.sample == "36:58:junction:item=7:legacy=1:sides=0x05:buffered=3"
+        }));
+    }
+
+    #[test]
     fn runtime_typed_build_config_value_label_formats_landing_pad_runtime() {
         let label = runtime_typed_build_config_value_label(
             TypedBuildingRuntimeKind::LandingPad,
