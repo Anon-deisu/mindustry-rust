@@ -1,4 +1,5 @@
 use crate::{
+    save_post_load_runtime_source_region::source_region_name_for_stage_kind,
     SavePostLoadConsumerBlocker, SavePostLoadConsumerRuntimeDisposition,
     SavePostLoadConsumerRuntimeHelper, SavePostLoadConsumerStageKind, SavePostLoadRuntimeSeedPlan,
     SavePostLoadWorldObservation,
@@ -19,16 +20,28 @@ pub enum SavePostLoadRuntimeRegionKind {
 
 impl SavePostLoadRuntimeRegionKind {
     pub fn source_region_name(&self) -> &'static str {
+        source_region_name_for_stage_kind(self.stage_kind())
+    }
+
+    const fn stage_kind(&self) -> SavePostLoadConsumerStageKind {
         match self {
-            SavePostLoadRuntimeRegionKind::WorldShell => "map",
-            SavePostLoadRuntimeRegionKind::EntityRemaps => "entities",
-            SavePostLoadRuntimeRegionKind::TeamPlans => "entities",
-            SavePostLoadRuntimeRegionKind::Markers => "markers",
-            SavePostLoadRuntimeRegionKind::StaticFog => "custom",
-            SavePostLoadRuntimeRegionKind::CustomChunks => "custom",
-            SavePostLoadRuntimeRegionKind::Buildings => "map",
-            SavePostLoadRuntimeRegionKind::LoadableEntities => "entities",
-            SavePostLoadRuntimeRegionKind::SkippedEntities => "entities",
+            SavePostLoadRuntimeRegionKind::WorldShell => SavePostLoadConsumerStageKind::WorldShell,
+            SavePostLoadRuntimeRegionKind::EntityRemaps => {
+                SavePostLoadConsumerStageKind::EntityRemaps
+            }
+            SavePostLoadRuntimeRegionKind::TeamPlans => SavePostLoadConsumerStageKind::TeamPlans,
+            SavePostLoadRuntimeRegionKind::Markers => SavePostLoadConsumerStageKind::Markers,
+            SavePostLoadRuntimeRegionKind::StaticFog => SavePostLoadConsumerStageKind::StaticFog,
+            SavePostLoadRuntimeRegionKind::CustomChunks => {
+                SavePostLoadConsumerStageKind::CustomChunks
+            }
+            SavePostLoadRuntimeRegionKind::Buildings => SavePostLoadConsumerStageKind::Buildings,
+            SavePostLoadRuntimeRegionKind::LoadableEntities => {
+                SavePostLoadConsumerStageKind::LoadableEntities
+            }
+            SavePostLoadRuntimeRegionKind::SkippedEntities => {
+                SavePostLoadConsumerStageKind::SkippedEntities
+            }
         }
     }
 }

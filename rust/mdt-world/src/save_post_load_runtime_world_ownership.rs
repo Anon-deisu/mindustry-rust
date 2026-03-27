@@ -1,4 +1,5 @@
 use crate::{
+    save_post_load_runtime_source_region::source_region_name_for_stage_kind,
     SavePostLoadConsumerBlocker, SavePostLoadConsumerStageKind, SavePostLoadRuntimeApplyStep,
     SavePostLoadRuntimeSeedPlan, SavePostLoadRuntimeWorldSemanticsExecution,
     SavePostLoadWorldObservation,
@@ -16,14 +17,7 @@ pub enum SavePostLoadRuntimeWorldSurfaceKind {
 
 impl SavePostLoadRuntimeWorldSurfaceKind {
     pub fn source_region_name(&self) -> &'static str {
-        match self {
-            SavePostLoadRuntimeWorldSurfaceKind::WorldShell => "map",
-            SavePostLoadRuntimeWorldSurfaceKind::TeamPlans => "entities",
-            SavePostLoadRuntimeWorldSurfaceKind::Markers => "markers",
-            SavePostLoadRuntimeWorldSurfaceKind::StaticFog => "custom",
-            SavePostLoadRuntimeWorldSurfaceKind::Buildings => "map",
-            SavePostLoadRuntimeWorldSurfaceKind::LoadableEntities => "entities",
-        }
+        source_region_name_for_stage_kind(self.stage_kind())
     }
 
     pub const fn ordered() -> [Self; 6] {
@@ -62,6 +56,27 @@ impl SavePostLoadRuntimeWorldSurfaceKind {
             SavePostLoadRuntimeApplyStep::EntityRemap { .. }
             | SavePostLoadRuntimeApplyStep::CustomChunk { .. }
             | SavePostLoadRuntimeApplyStep::SkippedEntity { .. } => None,
+        }
+    }
+
+    const fn stage_kind(&self) -> SavePostLoadConsumerStageKind {
+        match self {
+            SavePostLoadRuntimeWorldSurfaceKind::WorldShell => {
+                SavePostLoadConsumerStageKind::WorldShell
+            }
+            SavePostLoadRuntimeWorldSurfaceKind::TeamPlans => {
+                SavePostLoadConsumerStageKind::TeamPlans
+            }
+            SavePostLoadRuntimeWorldSurfaceKind::Markers => SavePostLoadConsumerStageKind::Markers,
+            SavePostLoadRuntimeWorldSurfaceKind::StaticFog => {
+                SavePostLoadConsumerStageKind::StaticFog
+            }
+            SavePostLoadRuntimeWorldSurfaceKind::Buildings => {
+                SavePostLoadConsumerStageKind::Buildings
+            }
+            SavePostLoadRuntimeWorldSurfaceKind::LoadableEntities => {
+                SavePostLoadConsumerStageKind::LoadableEntities
+            }
         }
     }
 }

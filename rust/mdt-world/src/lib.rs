@@ -18,6 +18,7 @@ mod save_post_load_runtime_apply_batches;
 mod save_post_load_runtime_execution;
 mod save_post_load_runtime_execution_view;
 mod save_post_load_runtime_readiness;
+mod save_post_load_runtime_source_region;
 mod save_post_load_runtime_script;
 mod save_post_load_runtime_seed_plan;
 mod save_post_load_runtime_world_ownership;
