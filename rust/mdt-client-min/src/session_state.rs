@@ -372,6 +372,21 @@ pub struct PayloadLoaderRuntimeProjection {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PayloadSourceRuntimeProjection {
+    pub command_pos: Option<(u32, u32)>,
+    pub pay_vector_x_bits: u32,
+    pub pay_vector_y_bits: u32,
+    pub pay_rotation_bits: u32,
+    pub payload_present: bool,
+    pub payload_type: Option<u8>,
+    pub payload_build_block_id: Option<i16>,
+    pub payload_build_revision: Option<u8>,
+    pub payload_unit_class_id: Option<u8>,
+    pub payload_unit_payload_len: Option<usize>,
+    pub payload_unit_payload_sha256: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnitFactoryRuntimeProjection {
     pub progress_bits: u32,
     pub command_pos: Option<(u32, u32)>,
@@ -1784,6 +1799,7 @@ pub struct ConfiguredBlockProjection {
     pub light_color_by_build_pos: BTreeMap<i32, i32>,
     pub payload_loader_runtime_by_build_pos: BTreeMap<i32, PayloadLoaderRuntimeProjection>,
     pub payload_source_content_by_build_pos: BTreeMap<i32, Option<ConfiguredContentRef>>,
+    pub payload_source_runtime_by_build_pos: BTreeMap<i32, PayloadSourceRuntimeProjection>,
     pub payload_router_sorted_content_by_build_pos: BTreeMap<i32, Option<ConfiguredContentRef>>,
     pub item_bridge_link_by_build_pos: BTreeMap<i32, Option<i32>>,
     pub unloader_item_by_build_pos: BTreeMap<i32, Option<i16>>,
@@ -1878,6 +1894,15 @@ impl ConfiguredBlockProjection {
     ) {
         self.payload_source_content_by_build_pos
             .insert(build_pos, content);
+    }
+
+    pub fn apply_payload_source_runtime(
+        &mut self,
+        build_pos: i32,
+        projection: PayloadSourceRuntimeProjection,
+    ) {
+        self.payload_source_runtime_by_build_pos
+            .insert(build_pos, projection);
     }
 
     pub fn apply_payload_router_sorted_content(
@@ -1999,6 +2024,7 @@ impl ConfiguredBlockProjection {
         self.light_color_by_build_pos.remove(&build_pos);
         self.payload_loader_runtime_by_build_pos.remove(&build_pos);
         self.payload_source_content_by_build_pos.remove(&build_pos);
+        self.payload_source_runtime_by_build_pos.remove(&build_pos);
         self.payload_router_sorted_content_by_build_pos
             .remove(&build_pos);
         self.item_bridge_link_by_build_pos.remove(&build_pos);
@@ -3095,6 +3121,20 @@ pub enum TypedBuildingRuntimeValue {
         payload_build_block_id: Option<i16>,
         payload_unit_class_id: Option<u8>,
     },
+    PayloadSource {
+        configured_content: Option<ConfiguredContentRef>,
+        command_pos: Option<(u32, u32)>,
+        pay_vector_x_bits: Option<u32>,
+        pay_vector_y_bits: Option<u32>,
+        pay_rotation_bits: Option<u32>,
+        payload_present: Option<bool>,
+        payload_type: Option<u8>,
+        payload_build_block_id: Option<i16>,
+        payload_build_revision: Option<u8>,
+        payload_unit_class_id: Option<u8>,
+        payload_unit_payload_len: Option<usize>,
+        payload_unit_payload_sha256: Option<String>,
+    },
     Block(Option<i16>),
     Color(i32),
     Content(Option<ConfiguredContentRef>),
@@ -3456,15 +3496,37 @@ fn typed_runtime_building_model(
                     .copied()?,
             ),
         ),
-        "payload-source" => (
-            TypedBuildingRuntimeKind::PayloadSource,
-            TypedBuildingRuntimeValue::Content(
-                configured
-                    .payload_source_content_by_build_pos
-                    .get(&build_pos)
-                    .copied()?,
-            ),
-        ),
+        "payload-source" => {
+            let runtime = configured
+                .payload_source_runtime_by_build_pos
+                .get(&build_pos);
+            (
+                TypedBuildingRuntimeKind::PayloadSource,
+                TypedBuildingRuntimeValue::PayloadSource {
+                    configured_content: configured
+                        .payload_source_content_by_build_pos
+                        .get(&build_pos)
+                        .copied()
+                        .flatten(),
+                    command_pos: runtime.and_then(|projection| projection.command_pos),
+                    pay_vector_x_bits: runtime.map(|projection| projection.pay_vector_x_bits),
+                    pay_vector_y_bits: runtime.map(|projection| projection.pay_vector_y_bits),
+                    pay_rotation_bits: runtime.map(|projection| projection.pay_rotation_bits),
+                    payload_present: runtime.map(|projection| projection.payload_present),
+                    payload_type: runtime.and_then(|projection| projection.payload_type),
+                    payload_build_block_id: runtime
+                        .and_then(|projection| projection.payload_build_block_id),
+                    payload_build_revision: runtime
+                        .and_then(|projection| projection.payload_build_revision),
+                    payload_unit_class_id: runtime
+                        .and_then(|projection| projection.payload_unit_class_id),
+                    payload_unit_payload_len: runtime
+                        .and_then(|projection| projection.payload_unit_payload_len),
+                    payload_unit_payload_sha256: runtime
+                        .and_then(|projection| projection.payload_unit_payload_sha256.clone()),
+                },
+            )
+        }
         "payload-router" | "reinforced-payload-router" => (
             TypedBuildingRuntimeKind::PayloadRouter,
             TypedBuildingRuntimeValue::Content(
@@ -8179,6 +8241,184 @@ mod tests {
                     pay_rotation_bits: Some(0x4000_0000),
                     payload_build_block_id: Some(11),
                     payload_unit_class_id: None,
+                },
+                Vec::new(),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(6),
+                Some(0x3f80_0000),
+                Some(0x3f00_0000),
+                Some(126),
+                Some(false),
+                Some(0x40a0_0000),
+                Some(true),
+                Some(0x50),
+                Some(0x28),
+                Some(66),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_gives_payload_source_family_shell() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0008_000ei32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            306,
+            Some("payload-source".to_string()),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(6),
+            Some(0x3f80_0000),
+            Some(0x3f00_0000),
+            Some(126),
+            Some(false),
+            None,
+            Some(0x40a0_0000),
+            Some(true),
+            Some(0x50),
+            Some(0x28),
+            Some(66),
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(
+            state.typed_runtime_building_at(build_pos),
+            Some(expected_typed_runtime_building(
+                build_pos,
+                306,
+                "payload-source",
+                TypedBuildingRuntimeKind::PayloadSource,
+                TypedBuildingRuntimeValue::PayloadSource {
+                    configured_content: None,
+                    command_pos: None,
+                    pay_vector_x_bits: None,
+                    pay_vector_y_bits: None,
+                    pay_rotation_bits: None,
+                    payload_present: None,
+                    payload_type: None,
+                    payload_build_block_id: None,
+                    payload_build_revision: None,
+                    payload_unit_class_id: None,
+                    payload_unit_payload_len: None,
+                    payload_unit_payload_sha256: None,
+                },
+                Vec::new(),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(6),
+                Some(0x3f80_0000),
+                Some(0x3f00_0000),
+                Some(126),
+                Some(false),
+                Some(0x40a0_0000),
+                Some(true),
+                Some(0x50),
+                Some(0x28),
+                Some(66),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_payload_source_runtime() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0008_000fi32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            307,
+            Some("payload-source".to_string()),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(6),
+            Some(0x3f80_0000),
+            Some(0x3f00_0000),
+            Some(126),
+            Some(false),
+            None,
+            Some(0x40a0_0000),
+            Some(true),
+            Some(0x50),
+            Some(0x28),
+            Some(66),
+            None,
+            None,
+            None,
+        );
+        state
+            .configured_block_projection
+            .apply_payload_source_content(
+                build_pos,
+                Some(ConfiguredContentRef {
+                    content_type: 1,
+                    content_id: 11,
+                }),
+            );
+        state
+            .configured_block_projection
+            .apply_payload_source_runtime(
+                build_pos,
+                PayloadSourceRuntimeProjection {
+                    command_pos: Some((12.5f32.to_bits(), 18.0f32.to_bits())),
+                    pay_vector_x_bits: 0x4120_0000,
+                    pay_vector_y_bits: 0x41a0_0000,
+                    pay_rotation_bits: 0x4000_0000,
+                    payload_present: true,
+                    payload_type: Some(1),
+                    payload_build_block_id: None,
+                    payload_build_revision: None,
+                    payload_unit_class_id: Some(9),
+                    payload_unit_payload_len: Some(128),
+                    payload_unit_payload_sha256: Some("abc123".to_string()),
+                },
+            );
+
+        assert_eq!(
+            state.typed_runtime_building_at(build_pos),
+            Some(expected_typed_runtime_building(
+                build_pos,
+                307,
+                "payload-source",
+                TypedBuildingRuntimeKind::PayloadSource,
+                TypedBuildingRuntimeValue::PayloadSource {
+                    configured_content: Some(ConfiguredContentRef {
+                        content_type: 1,
+                        content_id: 11,
+                    }),
+                    command_pos: Some((12.5f32.to_bits(), 18.0f32.to_bits())),
+                    pay_vector_x_bits: Some(0x4120_0000),
+                    pay_vector_y_bits: Some(0x41a0_0000),
+                    pay_rotation_bits: Some(0x4000_0000),
+                    payload_present: Some(true),
+                    payload_type: Some(1),
+                    payload_build_block_id: None,
+                    payload_build_revision: None,
+                    payload_unit_class_id: Some(9),
+                    payload_unit_payload_len: Some(128),
+                    payload_unit_payload_sha256: Some("abc123".to_string()),
                 },
                 Vec::new(),
                 Some(3),

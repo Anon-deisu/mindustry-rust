@@ -3374,6 +3374,70 @@ fn runtime_typed_build_config_value_label(
             }
             parts.join(":")
         }
+        TypedBuildingRuntimeValue::PayloadSource {
+            configured_content,
+            command_pos,
+            pay_vector_x_bits,
+            pay_vector_y_bits,
+            pay_rotation_bits,
+            payload_present,
+            payload_type,
+            payload_build_block_id,
+            payload_build_revision,
+            payload_unit_class_id,
+            payload_unit_payload_len,
+            payload_unit_payload_sha256,
+        } => {
+            let mut parts = vec![format!(
+                "content={}",
+                configured_content
+                    .as_ref()
+                    .map(runtime_build_config_content_ref_label)
+                    .unwrap_or_else(|| "clear".to_string())
+            )];
+            parts.push(format!(
+                "command={}",
+                runtime_optional_command_pos_bits_label(*command_pos)
+            ));
+            parts.push(format!(
+                "payload={}",
+                payload_present
+                    .map(|value| if value { 1 } else { 0 }.to_string())
+                    .unwrap_or_else(|| "unknown".to_string())
+            ));
+            if let Some(payload_type) = payload_type {
+                parts.push(format!("payload-type={payload_type}"));
+            }
+            if let (Some(pay_vector_x_bits), Some(pay_vector_y_bits)) =
+                (pay_vector_x_bits, pay_vector_y_bits)
+            {
+                parts.push(format!(
+                    "vec=0x{pay_vector_x_bits:08x}:0x{pay_vector_y_bits:08x}"
+                ));
+            }
+            if let Some(pay_rotation_bits) = pay_rotation_bits {
+                parts.push(format!("rot=0x{pay_rotation_bits:08x}"));
+            }
+            if let Some(payload_build_block_id) = payload_build_block_id {
+                let mut payload_ref = format!("b:{payload_build_block_id}");
+                if let Some(payload_build_revision) = payload_build_revision {
+                    payload_ref.push_str(&format!("@r{payload_build_revision}"));
+                }
+                parts.push(format!("payload-ref={payload_ref}"));
+            } else if let Some(payload_unit_class_id) = payload_unit_class_id {
+                parts.push(format!("payload-ref=uc:{payload_unit_class_id}"));
+            }
+            if let Some(payload_unit_payload_len) = payload_unit_payload_len {
+                parts.push(format!("unit-len={payload_unit_payload_len}"));
+            }
+            if let Some(payload_unit_payload_sha256) = payload_unit_payload_sha256.as_deref() {
+                parts.push(format!(
+                    "unit-sha={}",
+                    payload_unit_payload_sha256.chars().take(12).collect::<String>()
+                ));
+            }
+            parts.join(":")
+        }
         TypedBuildingRuntimeValue::Content(content) => format!(
             "content={}",
             content
@@ -5385,6 +5449,9 @@ fn append_runtime_building_markers(
 ) {
     for building in projection.buildings() {
         match &building.value {
+            TypedBuildingRuntimeValue::PayloadSource { command_pos, .. } => {
+                append_runtime_payload_source_objects(scene, building, *command_pos);
+            }
             TypedBuildingRuntimeValue::UnitAssembler {
                 progress_bits,
                 unit_count,
@@ -5421,6 +5488,26 @@ fn append_runtime_building_markers(
             _ => {}
         }
     }
+}
+
+fn append_runtime_payload_source_objects(
+    scene: &mut RenderModel,
+    building: &TypedBuildingRuntimeModel,
+    command_pos: Option<(u32, u32)>,
+) {
+    let Some((command_x_bits, command_y_bits)) = command_pos else {
+        return;
+    };
+    let (tile_x, tile_y) = unpack_runtime_point2(building.build_pos);
+    scene.objects.push(RenderObject {
+        id: format!(
+            "marker:runtime-payload-source-command:{}:{tile_x}:{tile_y}:0x{command_x_bits:08x}:0x{command_y_bits:08x}",
+            building.block_name,
+        ),
+        layer: 16,
+        x: f32::from_bits(command_x_bits),
+        y: f32::from_bits(command_y_bits),
+    });
 }
 
 fn append_runtime_unit_assembler_objects(
@@ -7676,6 +7763,25 @@ mod tests {
             );
         state
             .configured_block_projection
+            .payload_source_runtime_by_build_pos
+            .insert(
+                pack_runtime_point2(21, 43),
+                crate::session_state::PayloadSourceRuntimeProjection {
+                    command_pos: Some((12.5f32.to_bits(), 18.0f32.to_bits())),
+                    pay_vector_x_bits: 0x4120_0000,
+                    pay_vector_y_bits: 0x41a0_0000,
+                    pay_rotation_bits: 0x4000_0000,
+                    payload_present: true,
+                    payload_type: Some(1),
+                    payload_build_block_id: Some(12),
+                    payload_build_revision: Some(1),
+                    payload_unit_class_id: None,
+                    payload_unit_payload_len: None,
+                    payload_unit_payload_sha256: None,
+                },
+            );
+        state
+            .configured_block_projection
             .payload_router_sorted_content_by_build_pos
             .insert(
                 pack_runtime_point2(22, 44),
@@ -7842,7 +7948,9 @@ mod tests {
                 && entry.sample == "19:41:recipe=5:p3f200000:y1:r40200000:payload=b:11"
         }));
         assert!(build_ui.inspector_entries.iter().any(|entry| {
-            entry.family == "payload-source" && entry.sample == "21:43:content=b:7"
+            entry.family == "payload-source"
+                && entry.sample
+                    == "21:43:content=b:7:command=0x41480000:0x41900000:payload=1:payload-type=1:vec=0x41200000:0x41a00000:rot=0x40000000:payload-ref=b:12@r1"
         }));
         assert!(build_ui.inspector_entries.iter().any(|entry| {
             entry.family == "payload-router" && entry.sample == "22:44:content=u:9"
@@ -7883,6 +7991,16 @@ mod tests {
             .expect("payload-source config icon should be present");
         assert_eq!(payload_source_icon.x, 168.0);
         assert_eq!(payload_source_icon.y, 344.0);
+        let payload_source_command = scene
+            .objects
+            .iter()
+            .find(|object| {
+                object.id
+                    == "marker:runtime-payload-source-command:payload-source:21:43:0x41480000:0x41900000"
+            })
+            .expect("payload-source command marker should be present");
+        assert_eq!(payload_source_command.x, 12.5);
+        assert_eq!(payload_source_command.y, 18.0);
         let payload_router_icon = scene
             .objects
             .iter()
@@ -7925,6 +8043,35 @@ mod tests {
         );
 
         assert_eq!(label, "mode=import:y1:r40400000:payload=b:11");
+    }
+
+    #[test]
+    fn runtime_typed_build_config_value_label_formats_payload_source_runtime() {
+        let label = runtime_typed_build_config_value_label(
+            TypedBuildingRuntimeKind::PayloadSource,
+            &TypedBuildingRuntimeValue::PayloadSource {
+                configured_content: Some(ConfiguredContentRef {
+                    content_type: 6,
+                    content_id: 9,
+                }),
+                command_pos: Some((40.0f32.to_bits(), 60.0f32.to_bits())),
+                pay_vector_x_bits: Some(0x4120_0000),
+                pay_vector_y_bits: Some(0x41a0_0000),
+                pay_rotation_bits: Some(0x4040_0000),
+                payload_present: Some(true),
+                payload_type: Some(1),
+                payload_build_block_id: None,
+                payload_build_revision: None,
+                payload_unit_class_id: Some(11),
+                payload_unit_payload_len: Some(128),
+                payload_unit_payload_sha256: Some("0123456789abcdef".to_string()),
+            },
+        );
+
+        assert_eq!(
+            label,
+            "content=u:9:command=0x42200000:0x42700000:payload=1:payload-type=1:vec=0x41200000:0x41a00000:rot=0x40400000:payload-ref=uc:11:unit-len=128:unit-sha=0123456789ab"
+        );
     }
 
     #[test]

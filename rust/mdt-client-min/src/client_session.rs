@@ -26,14 +26,14 @@ use crate::session_state::{
     EntityUnitRuntimeSyncProjection, EntityUnitSemanticProjection,
     EntityWeatherStateSemanticProjection, EntityWorldLabelSemanticProjection,
     FinishConnectingProjection, GameplayStateProjection, PayloadDroppedProjection,
-    PayloadLoaderRuntimeProjection, PickedBuildPayloadProjection, PickedUnitPayloadProjection,
-    ReconnectPhaseProjection, ReconnectReasonKind, ReconstructorRuntimeProjection,
-    RemotePlanSnapshotFirstPlanProjection, SessionResetKind, SessionState, SessionTimeoutKind,
-    SessionTimeoutProjection, TakeItemsProjection, TileConfigAuthoritySource,
-    TileConfigBusinessApply, TransferItemEffectProjection, TransferItemToProjection,
-    TransferItemToUnitProjection, TypedBuildingRuntimeModel, UnitAssemblerRuntimeProjection,
-    UnitEnteredPayloadProjection, UnitFactoryRuntimeProjection, UnitRefProjection,
-    WorldReloadProjection,
+    PayloadLoaderRuntimeProjection, PayloadSourceRuntimeProjection, PickedBuildPayloadProjection,
+    PickedUnitPayloadProjection, ReconnectPhaseProjection, ReconnectReasonKind,
+    ReconstructorRuntimeProjection, RemotePlanSnapshotFirstPlanProjection, SessionResetKind,
+    SessionState, SessionTimeoutKind, SessionTimeoutProjection, TakeItemsProjection,
+    TileConfigAuthoritySource, TileConfigBusinessApply, TransferItemEffectProjection,
+    TransferItemToProjection, TransferItemToUnitProjection, TypedBuildingRuntimeModel,
+    UnitAssemblerRuntimeProjection, UnitEnteredPayloadProjection, UnitFactoryRuntimeProjection,
+    UnitRefProjection, WorldReloadProjection,
 };
 use crate::typed_remote_dispatch::{
     TypedCustomChannelRemoteDispatch, TypedCustomChannelRemoteDispatcher,
@@ -8182,6 +8182,7 @@ impl ClientSession {
                 summarize_landing_pad_config_item_id(&building.parsed_tail);
             let message_text = summarize_message_tail_text(&building.parsed_tail);
             let payload_source_content = summarize_payload_source_content(&building.parsed_tail);
+            let payload_source_runtime = summarize_payload_source_projection(&building.parsed_tail);
             let payload_router_sorted_content =
                 summarize_payload_router_sorted_content(&building.parsed_tail);
             let duct_unloader_item_id = summarize_duct_unloader_item_id(&building.parsed_tail);
@@ -8221,6 +8222,7 @@ impl ClientSession {
                 landing_pad_config_item_id,
                 message_text,
                 payload_source_content,
+                payload_source_runtime,
                 payload_router_sorted_content,
                 duct_unloader_item_id,
                 directional_unloader_item_id: if candidate.block_name
@@ -8336,6 +8338,11 @@ impl ClientSession {
             self.state
                 .configured_block_projection
                 .apply_payload_source_content(build_pos, content);
+        }
+        if let Some(projection) = summarize_payload_source_projection(parsed_tail) {
+            self.state
+                .configured_block_projection
+                .apply_payload_source_runtime(build_pos, projection);
         }
         if let Some(content) = summarize_payload_router_sorted_content(parsed_tail) {
             self.state
@@ -8505,6 +8512,11 @@ impl ClientSession {
             self.state
                 .configured_block_projection
                 .apply_payload_source_content(entry.build_pos, content);
+        }
+        if let Some(projection) = entry.payload_source_runtime.clone() {
+            self.state
+                .configured_block_projection
+                .apply_payload_source_runtime(entry.build_pos, projection);
         }
         if let Some(content) = entry.payload_router_sorted_content {
             self.state
@@ -12989,6 +13001,7 @@ struct BlockSnapshotExtraEntrySummary {
     landing_pad_config_item_id: Option<Option<i16>>,
     message_text: Option<String>,
     payload_source_content: Option<Option<ConfiguredContentRef>>,
+    payload_source_runtime: Option<PayloadSourceRuntimeProjection>,
     payload_router_sorted_content: Option<Option<ConfiguredContentRef>>,
     duct_unloader_item_id: Option<Option<i16>>,
     directional_unloader_item_id: Option<Option<i16>>,
@@ -13356,6 +13369,33 @@ fn summarize_payload_source_content(
         }),
         (Some(_), Some(_)) => None,
     }
+}
+
+fn summarize_payload_source_projection(
+    parsed_tail: &mdt_world::ParsedBuildingTail,
+) -> Option<PayloadSourceRuntimeProjection> {
+    let mdt_world::ParsedBuildingTail::PayloadSource(source) = parsed_tail else {
+        return None;
+    };
+    Some(PayloadSourceRuntimeProjection {
+        command_pos: source
+            .command_pos
+            .present
+            .then_some((source.command_pos.x_bits, source.command_pos.y_bits)),
+        pay_vector_x_bits: source.payload_block.pay_vector_x_bits,
+        pay_vector_y_bits: source.payload_block.pay_vector_y_bits,
+        pay_rotation_bits: source.payload_block.pay_rotation_bits,
+        payload_present: source.payload_block.payload_present,
+        payload_type: source.payload_block.payload_type,
+        payload_build_block_id: source
+            .payload_block
+            .build_block_id
+            .and_then(|content_id| i16::try_from(content_id).ok()),
+        payload_build_revision: source.payload_block.build_revision,
+        payload_unit_class_id: source.payload_block.unit_class_id,
+        payload_unit_payload_len: source.payload_block.unit_payload_len,
+        payload_unit_payload_sha256: source.payload_block.unit_payload_sha256.clone(),
+    })
 }
 
 fn summarize_payload_router_sorted_content(
@@ -21315,6 +21355,7 @@ mod tests {
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
+                payload_source_runtime: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 directional_unloader_item_id: None,
@@ -21399,6 +21440,7 @@ mod tests {
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
+                payload_source_runtime: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 directional_unloader_item_id: None,
@@ -21474,6 +21516,7 @@ mod tests {
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
+                payload_source_runtime: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 directional_unloader_item_id: None,
@@ -21571,6 +21614,7 @@ mod tests {
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
+                payload_source_runtime: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 directional_unloader_item_id: None,
@@ -21627,6 +21671,7 @@ mod tests {
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
+                payload_source_runtime: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 directional_unloader_item_id: None,
@@ -22603,6 +22648,123 @@ mod tests {
     }
 
     #[test]
+    fn loaded_world_tail_business_helper_applies_payload_source_runtime_projection() {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_build_pos_for_block_snapshot_test(60, 61);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_PAYLOAD_SOURCE);
+        let configured_unit_id =
+            loaded_world_content_id_for_name(&session, UNIT_CONTENT_TYPE, "dagger");
+        let payload_block_id =
+            loaded_world_content_id_for_name(&session, BLOCK_CONTENT_TYPE, "copper-wall");
+
+        session.state.building_table_projection.seed_world_baseline(
+            build_pos,
+            block_id,
+            Some(BLOCK_NAME_PAYLOAD_SOURCE.to_string()),
+            1,
+            2,
+            Some(3),
+            Some(4),
+            Some(0x3f80_0000),
+            Some(0x3f00_0000),
+            Some(123),
+            Some(true),
+            0x4040_0000,
+            Some(true),
+            Some(0x20),
+            Some(0x10),
+            Some(77),
+        );
+
+        session.apply_loaded_world_parsed_tail_business(
+            build_pos,
+            Some(BLOCK_NAME_PAYLOAD_SOURCE),
+            &mdt_world::ParsedBuildingTail::PayloadSource(mdt_world::PayloadSourceTailSnapshot {
+                payload_block: mdt_world::PayloadBlockTailSnapshot {
+                    pay_vector_x_bits: 0x4120_0000,
+                    pay_vector_y_bits: 0x41a0_0000,
+                    pay_rotation_bits: 0x4000_0000,
+                    payload_present: true,
+                    payload_type: Some(1),
+                    build_block_id: Some(payload_block_id as u16),
+                    build_revision: Some(1),
+                    build_payload: None,
+                    unit_class_id: None,
+                    unit_payload_len: None,
+                    unit_payload_sha256: None,
+                },
+                unit_id: Some(configured_unit_id as u16),
+                config_block_id: None,
+                command_pos: mdt_world::NullableVec2TailSnapshot {
+                    present: true,
+                    x_bits: 12.5f32.to_bits(),
+                    y_bits: 18.0f32.to_bits(),
+                },
+            }),
+        );
+
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .payload_source_content_by_build_pos
+                .get(&build_pos),
+            Some(&Some(ConfiguredContentRef {
+                content_type: UNIT_CONTENT_TYPE,
+                content_id: configured_unit_id,
+            }))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .payload_source_runtime_by_build_pos
+                .get(&build_pos),
+            Some(&PayloadSourceRuntimeProjection {
+                command_pos: Some((12.5f32.to_bits(), 18.0f32.to_bits())),
+                pay_vector_x_bits: 0x4120_0000,
+                pay_vector_y_bits: 0x41a0_0000,
+                pay_rotation_bits: 0x4000_0000,
+                payload_present: true,
+                payload_type: Some(1),
+                payload_build_block_id: Some(payload_block_id),
+                payload_build_revision: Some(1),
+                payload_unit_class_id: None,
+                payload_unit_payload_len: None,
+                payload_unit_payload_sha256: None,
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos)
+                .map(|building| (&building.kind, &building.value, building.health_bits)),
+            Some((
+                &crate::session_state::TypedBuildingRuntimeKind::PayloadSource,
+                &crate::session_state::TypedBuildingRuntimeValue::PayloadSource {
+                    configured_content: Some(ConfiguredContentRef {
+                        content_type: UNIT_CONTENT_TYPE,
+                        content_id: configured_unit_id,
+                    }),
+                    command_pos: Some((12.5f32.to_bits(), 18.0f32.to_bits())),
+                    pay_vector_x_bits: Some(0x4120_0000),
+                    pay_vector_y_bits: Some(0x41a0_0000),
+                    pay_rotation_bits: Some(0x4000_0000),
+                    payload_present: Some(true),
+                    payload_type: Some(1),
+                    payload_build_block_id: Some(payload_block_id),
+                    payload_build_revision: Some(1),
+                    payload_unit_class_id: None,
+                    payload_unit_payload_len: None,
+                    payload_unit_payload_sha256: None,
+                },
+                Some(0x4040_0000),
+            ))
+        );
+    }
+
+    #[test]
     fn loaded_world_tail_business_helper_applies_reconstructor_projection() {
         let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let build_pos = pack_build_pos_for_block_snapshot_test(58, 59);
@@ -23012,6 +23174,7 @@ mod tests {
                 landing_pad_config_item_id: None,
                 message_text: Some("snapshot message".to_string()),
                 payload_source_content: None,
+                payload_source_runtime: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 directional_unloader_item_id: None,
@@ -23055,6 +23218,7 @@ mod tests {
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
+                payload_source_runtime: None,
                 payload_router_sorted_content: Some(Some(ConfiguredContentRef {
                     content_type: BLOCK_CONTENT_TYPE,
                     content_id: payload_block_id,
@@ -23101,6 +23265,7 @@ mod tests {
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
+                payload_source_runtime: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 directional_unloader_item_id: None,
@@ -23185,6 +23350,7 @@ mod tests {
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
+                payload_source_runtime: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 directional_unloader_item_id: None,
@@ -23228,6 +23394,7 @@ mod tests {
                 landing_pad_config_item_id: Some(Some(item_id)),
                 message_text: None,
                 payload_source_content: None,
+                payload_source_runtime: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 directional_unloader_item_id: None,
@@ -23305,6 +23472,7 @@ mod tests {
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
+                payload_source_runtime: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 directional_unloader_item_id: None,
@@ -23348,6 +23516,7 @@ mod tests {
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
+                payload_source_runtime: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 directional_unloader_item_id: None,
@@ -23391,6 +23560,7 @@ mod tests {
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
+                payload_source_runtime: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 directional_unloader_item_id: None,
@@ -23434,6 +23604,7 @@ mod tests {
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
+                payload_source_runtime: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 directional_unloader_item_id: None,
@@ -23477,6 +23648,7 @@ mod tests {
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
+                payload_source_runtime: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 directional_unloader_item_id: None,
@@ -23520,6 +23692,7 @@ mod tests {
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
+                payload_source_runtime: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 directional_unloader_item_id: None,
@@ -23563,6 +23736,7 @@ mod tests {
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
+                payload_source_runtime: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 directional_unloader_item_id: None,
@@ -23606,6 +23780,7 @@ mod tests {
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
+                payload_source_runtime: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 directional_unloader_item_id: None,
@@ -23725,6 +23900,7 @@ mod tests {
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
+                payload_source_runtime: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 directional_unloader_item_id: Some(Some(item_id)),
@@ -23816,6 +23992,7 @@ mod tests {
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
+                payload_source_runtime: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 directional_unloader_item_id: None,
@@ -23876,6 +24053,150 @@ mod tests {
     }
 
     #[test]
+    fn apply_loaded_world_block_snapshot_entries_seed_payload_source_runtime_summary() {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_build_pos_for_block_snapshot_test(77, 78);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_PAYLOAD_SOURCE);
+        let configured_unit_id =
+            loaded_world_content_id_for_name(&session, UNIT_CONTENT_TYPE, "dagger");
+        let payload_block_id =
+            loaded_world_content_id_for_name(&session, BLOCK_CONTENT_TYPE, "copper-wall");
+
+        session.apply_block_snapshot_entries_from_loaded_world_entries(vec![
+            BlockSnapshotExtraEntrySummary {
+                build_pos,
+                block_id,
+                block_name: Some(BLOCK_NAME_PAYLOAD_SOURCE.to_string()),
+                health_bits: Some(0x3f80_0000),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                enabled: Some(true),
+                module_bitmask: Some(4),
+                time_scale_bits: Some(0x3f00_0000),
+                time_scale_duration_bits: Some(0x3e80_0000),
+                last_disabler_pos: Some(77),
+                legacy_consume_connected: Some(false),
+                efficiency: Some(0x40),
+                optional_efficiency: Some(0x20),
+                visible_flags: Some(9),
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                constructor_recipe_block_id: None,
+                constructor_runtime: None,
+                unit_factory_current_plan: None,
+                unit_factory_runtime: None,
+                payload_loader_runtime: None,
+                landing_pad_config_item_id: None,
+                message_text: None,
+                payload_source_content: Some(Some(ConfiguredContentRef {
+                    content_type: UNIT_CONTENT_TYPE,
+                    content_id: configured_unit_id,
+                })),
+                payload_source_runtime: Some(PayloadSourceRuntimeProjection {
+                    command_pos: Some((12.5f32.to_bits(), 18.0f32.to_bits())),
+                    pay_vector_x_bits: 0x4120_0000,
+                    pay_vector_y_bits: 0x41a0_0000,
+                    pay_rotation_bits: 0x4000_0000,
+                    payload_present: true,
+                    payload_type: Some(1),
+                    payload_build_block_id: Some(payload_block_id),
+                    payload_build_revision: Some(1),
+                    payload_unit_class_id: None,
+                    payload_unit_payload_len: None,
+                    payload_unit_payload_sha256: None,
+                }),
+                payload_router_sorted_content: None,
+                duct_unloader_item_id: None,
+                directional_unloader_item_id: None,
+                reconstructor_command_id: None,
+                memory_values_bits: None,
+                canvas_bytes: None,
+                mass_driver_link: None,
+                payload_mass_driver_link: None,
+                nullable_item_id: None,
+                item_bridge_link: None,
+                light_color: None,
+                switch_enabled: None,
+                build_item_stacks: Vec::new(),
+                build_liquid_stacks: Vec::new(),
+            },
+        ]);
+
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .payload_source_content_by_build_pos
+                .get(&build_pos),
+            Some(&Some(ConfiguredContentRef {
+                content_type: UNIT_CONTENT_TYPE,
+                content_id: configured_unit_id,
+            }))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .payload_source_runtime_by_build_pos
+                .get(&build_pos),
+            Some(&PayloadSourceRuntimeProjection {
+                command_pos: Some((12.5f32.to_bits(), 18.0f32.to_bits())),
+                pay_vector_x_bits: 0x4120_0000,
+                pay_vector_y_bits: 0x41a0_0000,
+                pay_rotation_bits: 0x4000_0000,
+                payload_present: true,
+                payload_type: Some(1),
+                payload_build_block_id: Some(payload_block_id),
+                payload_build_revision: Some(1),
+                payload_unit_class_id: None,
+                payload_unit_payload_len: None,
+                payload_unit_payload_sha256: None,
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .building_table_projection
+                .by_build_pos
+                .get(&build_pos)
+                .and_then(|building| building.config.clone()),
+            Some(TypeIoObject::ContentRaw {
+                content_type: UNIT_CONTENT_TYPE,
+                content_id: configured_unit_id,
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos)
+                .map(|building| (building.kind, building.value.clone())),
+            Some((
+                crate::session_state::TypedBuildingRuntimeKind::PayloadSource,
+                crate::session_state::TypedBuildingRuntimeValue::PayloadSource {
+                    configured_content: Some(ConfiguredContentRef {
+                        content_type: UNIT_CONTENT_TYPE,
+                        content_id: configured_unit_id,
+                    }),
+                    command_pos: Some((12.5f32.to_bits(), 18.0f32.to_bits())),
+                    pay_vector_x_bits: Some(0x4120_0000),
+                    pay_vector_y_bits: Some(0x41a0_0000),
+                    pay_rotation_bits: Some(0x4000_0000),
+                    payload_present: Some(true),
+                    payload_type: Some(1),
+                    payload_build_block_id: Some(payload_block_id),
+                    payload_build_revision: Some(1),
+                    payload_unit_class_id: None,
+                    payload_unit_payload_len: None,
+                    payload_unit_payload_sha256: None,
+                },
+            ))
+        );
+    }
+
+    #[test]
     fn apply_loaded_world_block_snapshot_entries_seed_unit_factory_summary() {
         let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let build_pos = pack_build_pos_for_block_snapshot_test(75, 76);
@@ -23916,6 +24237,7 @@ mod tests {
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
+                payload_source_runtime: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 directional_unloader_item_id: None,
@@ -24027,6 +24349,7 @@ mod tests {
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
+                payload_source_runtime: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 directional_unloader_item_id: None,
@@ -24070,6 +24393,7 @@ mod tests {
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
+                payload_source_runtime: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 directional_unloader_item_id: None,
@@ -24113,6 +24437,7 @@ mod tests {
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
+                payload_source_runtime: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 directional_unloader_item_id: None,
@@ -24261,6 +24586,7 @@ mod tests {
                     content_type: UNIT_CONTENT_TYPE,
                     content_id: unit_id,
                 })),
+                payload_source_runtime: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 directional_unloader_item_id: None,
@@ -24304,6 +24630,7 @@ mod tests {
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
+                payload_source_runtime: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: Some(Some(item_id)),
                 directional_unloader_item_id: None,
@@ -24347,6 +24674,7 @@ mod tests {
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
+                payload_source_runtime: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 directional_unloader_item_id: None,
@@ -24390,6 +24718,7 @@ mod tests {
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
+                payload_source_runtime: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 directional_unloader_item_id: None,
@@ -24433,6 +24762,7 @@ mod tests {
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
+                payload_source_runtime: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 directional_unloader_item_id: None,
@@ -24476,6 +24806,7 @@ mod tests {
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
+                payload_source_runtime: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 directional_unloader_item_id: None,
@@ -24519,6 +24850,7 @@ mod tests {
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
+                payload_source_runtime: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 directional_unloader_item_id: None,
@@ -24562,6 +24894,7 @@ mod tests {
                 landing_pad_config_item_id: None,
                 message_text: None,
                 payload_source_content: None,
+                payload_source_runtime: None,
                 payload_router_sorted_content: None,
                 duct_unloader_item_id: None,
                 directional_unloader_item_id: None,
@@ -33155,6 +33488,19 @@ mod tests {
         let payload_block_id =
             loaded_world_content_id_for_name(&session, BLOCK_CONTENT_TYPE, "copper-wall");
         let unit_id = loaded_world_content_id_for_name(&session, UNIT_CONTENT_TYPE, "dagger");
+        let runtime_projection = PayloadSourceRuntimeProjection {
+            command_pos: Some((12.5f32.to_bits(), 18.0f32.to_bits())),
+            pay_vector_x_bits: 0x4120_0000,
+            pay_vector_y_bits: 0x41a0_0000,
+            pay_rotation_bits: 0x4000_0000,
+            payload_present: true,
+            payload_type: Some(1),
+            payload_build_block_id: Some(payload_block_id),
+            payload_build_revision: Some(1),
+            payload_unit_class_id: None,
+            payload_unit_payload_len: None,
+            payload_unit_payload_sha256: None,
+        };
 
         ingest_construct_finish_for_block_config_test(
             &mut session,
@@ -33166,6 +33512,10 @@ mod tests {
                 content_id: payload_block_id,
             },
         );
+        session
+            .state
+            .configured_block_projection
+            .apply_payload_source_runtime(build_pos, runtime_projection.clone());
         assert_eq!(
             session
                 .state()
@@ -33176,6 +33526,14 @@ mod tests {
                 content_type: BLOCK_CONTENT_TYPE,
                 content_id: payload_block_id,
             }))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .payload_source_runtime_by_build_pos
+                .get(&build_pos),
+            Some(&runtime_projection)
         );
 
         ingest_tile_config_for_block_config_test(
@@ -33197,6 +33555,14 @@ mod tests {
                 content_type: UNIT_CONTENT_TYPE,
                 content_id: unit_id,
             }))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .payload_source_runtime_by_build_pos
+                .get(&build_pos),
+            Some(&runtime_projection)
         );
 
         ingest_tile_config_for_block_config_test(
@@ -33212,6 +33578,14 @@ mod tests {
                 .payload_source_content_by_build_pos
                 .get(&build_pos),
             Some(&None)
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .payload_source_runtime_by_build_pos
+                .get(&build_pos),
+            Some(&runtime_projection)
         );
     }
 
