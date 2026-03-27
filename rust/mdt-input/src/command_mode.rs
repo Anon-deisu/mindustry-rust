@@ -222,6 +222,9 @@ impl CommandModeState {
         };
         self.active = true;
         self.selected_units = group.unit_ids;
+        self.command_buildings.clear();
+        self.command_rect = None;
+        self.clear_recent_selections();
         true
     }
 
@@ -623,6 +626,30 @@ mod tests {
                 unit_ids: vec![44, 55],
             }]
         );
+    }
+
+    #[test]
+    fn recalling_control_group_clears_stale_command_targets_and_rects() {
+        let mut state = CommandModeState::default();
+        state.bind_control_group(2, &[77, 88]);
+        state.record_building_control_select(Some(90));
+        state.set_command_rect(Some(CommandModeRectProjection {
+            x0: -2,
+            y0: 3,
+            x1: 4,
+            y1: 9,
+        }));
+        state.record_set_unit_command(&[11], Some(5));
+        state.record_set_unit_stance(&[11], Some(7), true);
+
+        assert!(state.recall_control_group(2));
+
+        assert_eq!(state.projection().selected_units, vec![77, 88]);
+        assert!(state.projection().command_buildings.is_empty());
+        assert_eq!(state.projection().command_rect, None);
+        assert_eq!(state.projection().last_target, None);
+        assert_eq!(state.projection().last_command_selection, None);
+        assert_eq!(state.projection().last_stance_selection, None);
     }
 
     #[test]
