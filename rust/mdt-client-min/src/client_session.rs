@@ -6396,15 +6396,28 @@ impl ClientSession {
                                                 self.apply_parseable_alpha_rows_from_entity_snapshot(
                                                     &alpha_rows,
                                                 );
-                                                let building_rows =
-                                                    try_parse_building_sync_rows_from_entity_snapshot_with_loaded_world(
-                                                        snapshot.payload,
-                                                        self.loaded_world_state(),
-                                                        Some(&self.state.building_table_projection),
-                                                    );
-                                                self.apply_parseable_building_rows_from_entity_snapshot(
-                                                    &building_rows,
-                                                );
+                                                let building_rows = match parse_building_sync_rows_from_entity_snapshot_with_loaded_world(
+                                                    snapshot.payload,
+                                                    self.loaded_world_state(),
+                                                    Some(&self.state.building_table_projection),
+                                                ) {
+                                                    Ok(rows) => rows,
+                                                    Err(error) => {
+                                                        self.state.failed_entity_snapshot_parse_count = self
+                                                            .state
+                                                            .failed_entity_snapshot_parse_count
+                                                            .saturating_add(1);
+                                                        self.state.last_entity_snapshot_parse_error =
+                                                            Some(error);
+                                                        self.state
+                                                            .last_entity_snapshot_local_player_sync_applied =
+                                                            false;
+                                                        return Ok(ClientSessionEvent::SnapshotReceived(
+                                                            snapshot.method,
+                                                        ));
+                                                    }
+                                                };
+                                                self.apply_parseable_building_rows_from_entity_snapshot(&building_rows);
                                                 let mech_rows =
                                                     try_parse_mech_sync_rows_from_entity_snapshot_prefix(
                                                         snapshot.payload,
@@ -15315,11 +15328,9 @@ fn parse_building_sync_rows_from_entity_snapshot_with_loaded_world(
         if !is_building_entity_class_id(class_id) {
             continue;
         }
-        let Some(candidate) =
+        let candidate =
             resolve_loaded_world_building_sync_candidate(loaded_world, building_table, entity_id)
-        else {
-            continue;
-        };
+                .ok_or_else(|| format!("entity_snapshot_building_missing_center:{entity_id}"))?;
         let (sync, consumed) = parse_building_sync_bytes(
             loaded_world.content_headers(),
             Some(candidate.block_name.as_str()),
@@ -19588,6 +19599,69 @@ mod tests {
                 &payload, None, None,
             )
             .is_empty()
+        );
+    }
+
+    #[test]
+    fn building_shape_entity_snapshot_parser_fails_closed_on_missing_loaded_world_build_pos() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+
+        session.ingest_packet_bytes(&begin_packet).unwrap();
+        for chunk in chunk_packets {
+            session.ingest_packet_bytes(&chunk).unwrap();
+        }
+
+        let (build_pos, _block_id, _rotation, _health_bits, row) =
+            loaded_world_building_entity_snapshot_row(&session, 0);
+        let missing_build_pos = 123456;
+        let row_tail = row[5..].to_vec();
+        let payload = build_entity_snapshot_payload(&[
+            row.clone(),
+            build_entity_snapshot_row(missing_build_pos, 6, &row_tail),
+        ]);
+        let expected_error = format!("entity_snapshot_building_missing_center:{missing_build_pos}");
+
+        assert_eq!(
+            parse_building_sync_rows_from_entity_snapshot_with_loaded_world(
+                &payload,
+                session.loaded_world_state(),
+                Some(&session.state().building_table_projection),
+            )
+            .unwrap_err(),
+            expected_error
+        );
+
+        let entity_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == HighFrequencyRemoteMethod::EntitySnapshot.method_name())
+            .unwrap()
+            .packet_id;
+        let packet = encode_packet(entity_packet_id, &payload, false).unwrap();
+        let event = session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            event,
+            ClientSessionEvent::SnapshotReceived(HighFrequencyRemoteMethod::EntitySnapshot)
+        );
+        assert_eq!(session.state().failed_entity_snapshot_parse_count, 1);
+        assert_eq!(
+            session.state().last_entity_snapshot_parse_error.as_deref(),
+            Some(expected_error.as_str())
+        );
+        assert!(!session
+            .state()
+            .entity_table_projection
+            .by_entity_id
+            .contains_key(&build_pos));
+        assert!(
+            !session
+                .state()
+                .last_entity_snapshot_local_player_sync_applied
         );
     }
 
