@@ -3318,6 +3318,12 @@ fn runtime_typed_build_config_value_label(
         TypedBuildingRuntimeValue::Core { command_pos } => command_pos
             .map(|(x_bits, y_bits)| format!("core:command=0x{x_bits:08x}:0x{y_bits:08x}"))
             .unwrap_or_else(|| "core".to_string()),
+        TypedBuildingRuntimeValue::RepairTurret { rotation_bits } => format!(
+            "rot={}",
+            rotation_bits
+                .map(|bits| format!("0x{bits:08x}"))
+                .unwrap_or_else(|| "none".to_string())
+        ),
         TypedBuildingRuntimeValue::Conveyor {
             item_count,
             first_item_id,
@@ -8731,6 +8737,18 @@ mod tests {
     }
 
     #[test]
+    fn runtime_typed_build_config_value_label_formats_repair_turret_runtime() {
+        let label = runtime_typed_build_config_value_label(
+            TypedBuildingRuntimeKind::RepairTurret,
+            &TypedBuildingRuntimeValue::RepairTurret {
+                rotation_bits: Some(0x41a0_0000),
+            },
+        );
+
+        assert_eq!(label, "rot=0x41a00000");
+    }
+
+    #[test]
     fn render_runtime_adapter_reports_item_buffer_runtime_in_inspector() {
         let mut adapter = RenderRuntimeAdapter::default();
         let mut scene = RenderModel::default();
@@ -8848,6 +8866,64 @@ mod tests {
             .expect("build_ui observability should be present");
         assert!(build_ui.inspector_entries.iter().any(|entry| {
             entry.family == "conveyor" && entry.sample == "37:59:items=2:first=7@-3:5"
+        }));
+    }
+
+    #[test]
+    fn render_runtime_adapter_reports_repair_turret_runtime_in_inspector() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        let build_pos = pack_runtime_point2(38, 60);
+
+        state
+            .configured_block_projection
+            .apply_repair_turret_runtime(
+                build_pos,
+                crate::session_state::RepairTurretRuntimeProjection {
+                    rotation_bits: 0x41a0_0000,
+                },
+            );
+        state.building_table_projection.by_build_pos.insert(
+            build_pos,
+            crate::session_state::BuildingProjection {
+                block_id: Some(1),
+                block_name: Some("repair-point".to_string()),
+                rotation: None,
+                team_id: None,
+                io_version: None,
+                module_bitmask: None,
+                time_scale_bits: None,
+                time_scale_duration_bits: None,
+                last_disabler_pos: None,
+                legacy_consume_connected: None,
+                config: None,
+                health_bits: None,
+                enabled: None,
+                efficiency: None,
+                optional_efficiency: None,
+                visible_flags: None,
+                turret_reload_counter_bits: None,
+                turret_rotation_bits: None,
+                item_turret_ammo_count: None,
+                continuous_turret_last_length_bits: None,
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                last_update: crate::session_state::BuildingProjectionUpdateKind::BlockSnapshotHead,
+            },
+        );
+
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let build_ui = hud
+            .build_ui
+            .as_ref()
+            .expect("build_ui observability should be present");
+        assert!(build_ui.inspector_entries.iter().any(|entry| {
+            entry.family == "repair-turret" && entry.sample == "38:60:repair-point:rot=0x41a00000"
         }));
     }
 

@@ -405,6 +405,11 @@ pub struct CoreRuntimeProjection {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RepairTurretRuntimeProjection {
+    pub rotation_bits: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConveyorRuntimeProjection {
     pub item_count: usize,
     pub first_item_id: Option<i16>,
@@ -1891,6 +1896,7 @@ impl TileConfigProjection {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ConfiguredBlockProjection {
     pub core_runtime_by_build_pos: BTreeMap<i32, CoreRuntimeProjection>,
+    pub repair_turret_runtime_by_build_pos: BTreeMap<i32, RepairTurretRuntimeProjection>,
     pub conveyor_runtime_by_build_pos: BTreeMap<i32, ConveyorRuntimeProjection>,
     pub unit_cargo_unload_point_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub item_source_item_by_build_pos: BTreeMap<i32, Option<i16>>,
@@ -1939,6 +1945,15 @@ pub struct ConfiguredBlockProjection {
 impl ConfiguredBlockProjection {
     pub fn apply_core_runtime(&mut self, build_pos: i32, projection: CoreRuntimeProjection) {
         self.core_runtime_by_build_pos.insert(build_pos, projection);
+    }
+
+    pub fn apply_repair_turret_runtime(
+        &mut self,
+        build_pos: i32,
+        projection: RepairTurretRuntimeProjection,
+    ) {
+        self.repair_turret_runtime_by_build_pos
+            .insert(build_pos, projection);
     }
 
     pub fn apply_conveyor_runtime(
@@ -3255,6 +3270,7 @@ where
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TypedBuildingRuntimeKind {
     Core,
+    RepairTurret,
     Conveyor,
     UnitCargoUnloadPoint,
     ItemSource,
@@ -3298,6 +3314,7 @@ impl TypedBuildingRuntimeKind {
     pub fn family_name(self) -> &'static str {
         match self {
             Self::Core => "core",
+            Self::RepairTurret => "repair-turret",
             Self::Conveyor => "conveyor",
             Self::UnitCargoUnloadPoint => "unit-cargo-unload-point",
             Self::ItemSource => "item-source",
@@ -3343,6 +3360,9 @@ impl TypedBuildingRuntimeKind {
 pub enum TypedBuildingRuntimeValue {
     Core {
         command_pos: Option<(u32, u32)>,
+    },
+    RepairTurret {
+        rotation_bits: Option<u32>,
     },
     Conveyor {
         item_count: Option<usize>,
@@ -3645,6 +3665,15 @@ fn typed_runtime_building_model(
                     .core_runtime_by_build_pos
                     .get(&build_pos)
                     .and_then(|projection| projection.command_pos),
+            },
+        ),
+        "repair-point" | "repair-turret" => (
+            TypedBuildingRuntimeKind::RepairTurret,
+            TypedBuildingRuntimeValue::RepairTurret {
+                rotation_bits: configured
+                    .repair_turret_runtime_by_build_pos
+                    .get(&build_pos)
+                    .map(|projection| projection.rotation_bits),
             },
         ),
         "unit-cargo-unload-point" => (
@@ -8700,6 +8729,117 @@ mod tests {
                 TypedBuildingRuntimeValue::ShieldProjector {
                     smooth_radius_bits: Some(0x4280_0000),
                     broken: Some(true),
+                },
+            ))
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_repair_turret_family_shells() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0006_0019i32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            311,
+            Some("repair-point".to_string()),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(0x3f80_0000),
+            Some(0x3f20_0000),
+            Some(127),
+            Some(false),
+            Some(TypeIoObject::Null),
+            Some(0x4080_0000),
+            Some(true),
+            Some(0x44),
+            Some(0x12),
+            Some(85),
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(
+            state.typed_runtime_building_at(build_pos),
+            Some(expected_typed_runtime_building(
+                build_pos,
+                311,
+                "repair-point",
+                TypedBuildingRuntimeKind::RepairTurret,
+                TypedBuildingRuntimeValue::RepairTurret {
+                    rotation_bits: None,
+                },
+                Vec::new(),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(0x3f80_0000),
+                Some(0x3f20_0000),
+                Some(127),
+                Some(false),
+                Some(0x4080_0000),
+                Some(true),
+                Some(0x44),
+                Some(0x12),
+                Some(85),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_repair_turret_family_runtime() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0006_001ai32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            312,
+            Some("repair-turret".to_string()),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(0x3f80_0000),
+            Some(0x3f20_0000),
+            Some(128),
+            Some(true),
+            Some(TypeIoObject::Null),
+            Some(0x4080_0000),
+            Some(false),
+            Some(0x45),
+            Some(0x13),
+            Some(84),
+            None,
+            None,
+            None,
+        );
+        state
+            .configured_block_projection
+            .apply_repair_turret_runtime(
+                build_pos,
+                RepairTurretRuntimeProjection {
+                    rotation_bits: 0x41a0_0000,
+                },
+            );
+
+        assert_eq!(
+            state
+                .typed_runtime_building_at(build_pos)
+                .map(|building| (building.kind, building.value.clone())),
+            Some((
+                TypedBuildingRuntimeKind::RepairTurret,
+                TypedBuildingRuntimeValue::RepairTurret {
+                    rotation_bits: Some(0x41a0_0000),
                 },
             ))
         );
