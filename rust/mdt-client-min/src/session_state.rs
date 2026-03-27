@@ -4224,7 +4224,7 @@ fn typed_runtime_building_model(
                 configured.door_open_by_build_pos.get(&build_pos).copied()?,
             ),
         ),
-        "micro-processor" | "logic-processor" | "hyper-processor" => (
+        "micro-processor" | "logic-processor" | "hyper-processor" | "world-processor" => (
             TypedBuildingRuntimeKind::Processor,
             TypedBuildingRuntimeValue::Text(processor_config_text(building)),
         ),
@@ -8570,6 +8570,7 @@ mod tests {
             (0x0005_0012i32, "micro-processor", "print(\"micro\")"),
             (0x0005_0013i32, "logic-processor", "print(\"logic\")"),
             (0x0005_0014i32, "hyper-processor", "print(\"hyper\")"),
+            (0x0005_0018i32, "world-processor", "print(\"world\")"),
         ] {
             let mut state = SessionState::default();
             state.building_table_projection.apply_block_snapshot_head(
@@ -8693,40 +8694,15 @@ mod tests {
 
     #[test]
     fn session_state_runtime_typed_building_projection_gives_processors_empty_string_shell() {
-        let mut state = SessionState::default();
-        let build_pos = 0x0005_0015i32;
-        state.building_table_projection.apply_block_snapshot_head(
-            build_pos,
-            351,
-            Some("logic-processor".to_string()),
-            Some(1),
-            Some(2),
-            Some(3),
-            Some(4),
-            None,
-            None,
-            None,
-            None,
-            Some(TypeIoObject::String(None)),
-            Some(0x40a0_0000),
-            Some(true),
-            Some(0x50),
-            Some(0x28),
-            Some(66),
-            None,
-            None,
-            None,
-        );
-
-        assert_eq!(
-            state.typed_runtime_building_at(build_pos),
-            Some(expected_typed_runtime_building(
+        for (build_pos, block_id, block_name) in [
+            (0x0005_0015i32, 351, "logic-processor"),
+            (0x0005_0016i32, 352, "world-processor"),
+        ] {
+            let mut state = SessionState::default();
+            state.building_table_projection.apply_block_snapshot_head(
                 build_pos,
-                351,
-                "logic-processor",
-                TypedBuildingRuntimeKind::Processor,
-                TypedBuildingRuntimeValue::Text(String::new()),
-                Vec::new(),
+                block_id,
+                Some(block_name.to_string()),
                 Some(1),
                 Some(2),
                 Some(3),
@@ -8735,6 +8711,7 @@ mod tests {
                 None,
                 None,
                 None,
+                Some(TypeIoObject::String(None)),
                 Some(0x40a0_0000),
                 Some(true),
                 Some(0x50),
@@ -8743,13 +8720,41 @@ mod tests {
                 None,
                 None,
                 None,
-                None,
-                None,
-                None,
-                None,
-                BuildingProjectionUpdateKind::BlockSnapshotHead,
-            ))
-        );
+            );
+
+            assert_eq!(
+                state.typed_runtime_building_at(build_pos),
+                Some(expected_typed_runtime_building(
+                    build_pos,
+                    block_id,
+                    block_name,
+                    TypedBuildingRuntimeKind::Processor,
+                    TypedBuildingRuntimeValue::Text(String::new()),
+                    Vec::new(),
+                    Some(1),
+                    Some(2),
+                    Some(3),
+                    Some(4),
+                    None,
+                    None,
+                    None,
+                    None,
+                    Some(0x40a0_0000),
+                    Some(true),
+                    Some(0x50),
+                    Some(0x28),
+                    Some(66),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    BuildingProjectionUpdateKind::BlockSnapshotHead,
+                ))
+            );
+        }
     }
 
     #[test]
