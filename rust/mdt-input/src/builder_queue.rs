@@ -40,6 +40,7 @@ pub enum BuilderQueueTransition {
     Started,
     Rejected,
     Finished,
+    RemovedInvalidHead,
 }
 
 impl BuilderQueueTransition {
@@ -48,6 +49,7 @@ impl BuilderQueueTransition {
             Self::Started => "started",
             Self::Rejected => "rejected",
             Self::Finished => "finished",
+            Self::RemovedInvalidHead => "removed-invalid-head",
         }
     }
 }
@@ -902,6 +904,8 @@ impl BuilderQueueStateMachine {
                 | BuilderQueueHeadExecutionAction::ContinueConstruct
         ) {
             self.last_transition = Some(BuilderQueueTransition::Started);
+        } else if action == BuilderQueueHeadExecutionAction::RemovedInvalidHead {
+            self.last_transition = Some(BuilderQueueTransition::RemovedInvalidHead);
         }
         self.last_skip_reason = None;
         self.last_validation_removal_reasons.clear();
@@ -4031,6 +4035,10 @@ mod tests {
         assert_eq!(queue.head_tile, Some((5, 5)));
         assert_eq!(queue.queued_count, 1);
         assert_eq!(queue.inflight_count, 0);
+        assert_eq!(
+            queue.last_transition,
+            Some(BuilderQueueTransition::RemovedInvalidHead)
+        );
         assert_eq!(queue.last_front_promotion, None);
     }
 
@@ -4071,6 +4079,10 @@ mod tests {
         assert!(queue.ordered_tiles.is_empty());
         assert_eq!(queue.head_tile, None);
         assert_eq!(queue.queued_count, 0);
+        assert_eq!(
+            queue.last_transition,
+            Some(BuilderQueueTransition::RemovedInvalidHead)
+        );
     }
 
     #[test]
