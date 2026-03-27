@@ -5587,6 +5587,8 @@ impl ClientSession {
                         .received_unit_entered_payload_count
                         .saturating_add(1);
                     self.state.last_unit_entered_payload = Some(projection.clone());
+                    self.state
+                        .record_remove_resource_delta_entity(projection.unit);
                     let removed_entity_projection =
                         remove_entity_projection_for_unit_ref(&mut self.state, projection.unit);
                     Ok(ClientSessionEvent::UnitEnteredPayload {
@@ -44429,6 +44431,7 @@ mod tests {
     fn unit_entered_payload_packet_removes_entity_projection_for_standard_unit() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        session.state.received_entity_snapshot_count = 1;
         session.state.entity_table_projection.by_entity_id.insert(
             77,
             crate::session_state::EntityProjection {
@@ -44442,6 +44445,53 @@ mod tests {
                 last_seen_entity_snapshot_count: 1,
             },
         );
+        session.state.entity_semantic_projection.upsert(
+            77,
+            5,
+            1,
+            crate::session_state::EntitySemanticProjection::Unit(
+                crate::session_state::EntityUnitSemanticProjection {
+                    team_id: 1,
+                    unit_type_id: 35,
+                    health_bits: 3.0f32.to_bits(),
+                    rotation_bits: 4.0f32.to_bits(),
+                    shield_bits: 0.0f32.to_bits(),
+                    mine_tile_pos: -1,
+                    status_count: 0,
+                    payload_count: None,
+                    building_pos: None,
+                    lifetime_bits: None,
+                    time_bits: None,
+                    runtime_sync: None,
+                    controller_type: 0,
+                    controller_value: None,
+                },
+            ),
+        );
+        session
+            .state
+            .apply_entity_snapshot_payload_apply_projection(
+                77,
+                5,
+                1,
+                Some(0x0003_0004),
+                Some(crate::session_state::ResourceUnitItemStack {
+                    item_id: Some(4),
+                    amount: 7,
+                }),
+            );
+        session
+            .state
+            .resource_delta_projection
+            .entity_item_stack_by_entity_id
+            .insert(
+                77,
+                crate::session_state::ResourceUnitItemStack {
+                    item_id: Some(4),
+                    amount: 7,
+                },
+            );
+        session.state.refresh_runtime_typed_entity_from_tables(77);
         let projection = UnitEnteredPayloadProjection {
             unit: Some(UnitRefProjection { kind: 2, value: 77 }),
             build_pos: Some(0x0003_0004),
@@ -44476,6 +44526,21 @@ mod tests {
         assert!(!session
             .state()
             .entity_table_projection
+            .by_entity_id
+            .contains_key(&77));
+        assert!(!session
+            .state()
+            .entity_snapshot_payload_apply_projection
+            .by_entity_id
+            .contains_key(&77));
+        assert!(!session
+            .state()
+            .resource_delta_projection
+            .entity_item_stack_by_entity_id
+            .contains_key(&77));
+        assert!(!session
+            .state()
+            .runtime_typed_entity_projection()
             .by_entity_id
             .contains_key(&77));
         assert!(session.state().entity_snapshot_tombstones.contains_key(&77));
