@@ -5117,6 +5117,15 @@ impl ClientSession {
                     self.state
                         .configured_block_projection
                         .clear_building_state(summary.tile_pos);
+                    self.radar_runtime_by_build_pos
+                        .borrow_mut()
+                        .remove(&summary.tile_pos);
+                    self.separator_runtime_by_build_pos
+                        .borrow_mut()
+                        .remove(&summary.tile_pos);
+                    self.shielded_wall_runtime_by_build_pos
+                        .borrow_mut()
+                        .remove(&summary.tile_pos);
                     let block_name = summary
                         .block_id
                         .and_then(|block_id| self.loaded_world_block_name(block_id));
@@ -8477,6 +8486,16 @@ impl ClientSession {
                 block_name,
                 Some(BLOCK_NAME_SEPARATOR | BLOCK_NAME_DISASSEMBLER)
             ) {
+                self.state
+                    .configured_block_projection
+                    .apply_separator_runtime(
+                        build_pos,
+                        crate::session_state::SeparatorRuntimeProjection {
+                            progress_bits: projection.progress_bits,
+                            warmup_bits: projection.warmup_bits,
+                            seed: projection.seed,
+                        },
+                    );
                 self.separator_runtime_by_build_pos
                     .borrow_mut()
                     .insert(build_pos, projection);
@@ -8815,6 +8834,16 @@ impl ClientSession {
                 entry.block_name.as_deref(),
                 Some(BLOCK_NAME_SEPARATOR | BLOCK_NAME_DISASSEMBLER)
             ) {
+                self.state
+                    .configured_block_projection
+                    .apply_separator_runtime(
+                        entry.build_pos,
+                        crate::session_state::SeparatorRuntimeProjection {
+                            progress_bits: projection.progress_bits,
+                            warmup_bits: projection.warmup_bits,
+                            seed: projection.seed,
+                        },
+                    );
                 self.separator_runtime_by_build_pos
                     .borrow_mut()
                     .insert(entry.build_pos, projection);
@@ -28112,6 +28141,36 @@ mod tests {
                 seed: -7,
             })
         );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(separator_pos)
+                .map(|building| (building.kind, building.value.clone())),
+            Some((
+                crate::session_state::TypedBuildingRuntimeKind::Separator,
+                crate::session_state::TypedBuildingRuntimeValue::Separator {
+                    progress_bits: Some(0x3f80_0000),
+                    warmup_bits: Some(0x4000_0000),
+                    seed: Some(17),
+                },
+            ))
+        );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(disassembler_pos)
+                .map(|building| (building.kind, building.value.clone())),
+            Some((
+                crate::session_state::TypedBuildingRuntimeKind::Separator,
+                crate::session_state::TypedBuildingRuntimeValue::Separator {
+                    progress_bits: Some(0x4040_0000),
+                    warmup_bits: Some(0x4080_0000),
+                    seed: Some(-7),
+                },
+            ))
+        );
     }
 
     #[test]
@@ -39468,11 +39527,64 @@ mod tests {
                     progress_bits: 0x3f80_0000,
                 },
             );
+        session
+            .state
+            .configured_block_projection
+            .apply_separator_runtime(
+                build_pos,
+                crate::session_state::SeparatorRuntimeProjection {
+                    progress_bits: 0x3f80_0000,
+                    warmup_bits: 0x3f00_0000,
+                    seed: 7,
+                },
+            );
+        session
+            .state
+            .configured_block_projection
+            .apply_shielded_wall_runtime(
+                build_pos,
+                crate::session_state::ShieldedWallRuntimeProjection {
+                    shield_bits: 0x4260_0000,
+                },
+            );
         assert!(session
             .state()
             .configured_block_projection
             .radar_runtime_by_build_pos
             .contains_key(&build_pos));
+        assert!(session
+            .state()
+            .configured_block_projection
+            .separator_runtime_by_build_pos
+            .contains_key(&build_pos));
+        assert!(session
+            .state()
+            .configured_block_projection
+            .shielded_wall_runtime_by_build_pos
+            .contains_key(&build_pos));
+        session.radar_runtime_by_build_pos.borrow_mut().insert(
+            build_pos,
+            RadarRuntimeProjection {
+                progress_bits: 0x3f80_0000,
+            },
+        );
+        session.separator_runtime_by_build_pos.borrow_mut().insert(
+            build_pos,
+            SeparatorRuntimeProjection {
+                progress_bits: 0x3f80_0000,
+                warmup_bits: 0x3f00_0000,
+                seed: 7,
+            },
+        );
+        session
+            .shielded_wall_runtime_by_build_pos
+            .borrow_mut()
+            .insert(
+                build_pos,
+                ShieldedWallRuntimeProjection {
+                    shield_bits: 0x4260_0000,
+                },
+            );
 
         ingest_deconstruct_finish_for_block_config_test(
             &mut session,
@@ -39489,6 +39601,28 @@ mod tests {
             .state()
             .configured_block_projection
             .radar_runtime_by_build_pos
+            .contains_key(&build_pos));
+        assert!(!session
+            .state()
+            .configured_block_projection
+            .separator_runtime_by_build_pos
+            .contains_key(&build_pos));
+        assert!(!session
+            .state()
+            .configured_block_projection
+            .shielded_wall_runtime_by_build_pos
+            .contains_key(&build_pos));
+        assert!(!session
+            .radar_runtime_by_build_pos
+            .borrow()
+            .contains_key(&build_pos));
+        assert!(!session
+            .separator_runtime_by_build_pos
+            .borrow()
+            .contains_key(&build_pos));
+        assert!(!session
+            .shielded_wall_runtime_by_build_pos
+            .borrow()
             .contains_key(&build_pos));
     }
 

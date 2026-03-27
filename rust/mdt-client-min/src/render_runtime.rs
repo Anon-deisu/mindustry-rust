@@ -21,13 +21,12 @@ use crate::session_state::{
     EffectBusinessContentKind, EffectBusinessPositionSource, EffectBusinessProjection,
     EffectDataSemantic, EffectRuntimeBindingState, HiddenSnapshotDeltaProjection,
     PayloadLoaderRuntimeProjection, PayloadRouterPayloadKind, ReconnectPhaseProjection,
-    ReconnectReasonKind, SeparatorRuntimeProjection, SessionResetKind, SessionState,
-    SessionTimeoutKind, StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection,
-    TileConfigAuthoritySource, TileConfigProjection, TypedBuildingRuntimeKind,
-    TypedBuildingRuntimeModel, TypedBuildingRuntimeProjection, TypedBuildingRuntimeValue,
-    TypedRuntimeEntityModel, TypedRuntimeEntityProjection, UnitAssemblerRuntimeProjection,
-    UnitFactoryRuntimeProjection, UnitRefProjection, WorldBootstrapProjection,
-    WorldReloadProjection,
+    ReconnectReasonKind, SessionResetKind, SessionState, SessionTimeoutKind,
+    StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection, TileConfigAuthoritySource,
+    TileConfigProjection, TypedBuildingRuntimeKind, TypedBuildingRuntimeModel,
+    TypedBuildingRuntimeProjection, TypedBuildingRuntimeValue, TypedRuntimeEntityModel,
+    TypedRuntimeEntityProjection, UnitAssemblerRuntimeProjection, UnitFactoryRuntimeProjection,
+    UnitRefProjection, WorldBootstrapProjection, WorldReloadProjection,
 };
 use mdt_remote::{HighFrequencyRemoteMethod, HIGH_FREQUENCY_REMOTE_METHOD_COUNT};
 use mdt_render_ui::hud_model::{
@@ -1798,7 +1797,7 @@ fn runtime_configured_unit_assembler_family_label(
 
 fn runtime_configured_separator_family_label(
     prefix: &str,
-    values: &BTreeMap<i32, SeparatorRuntimeProjection>,
+    values: &BTreeMap<i32, crate::session_state::SeparatorRuntimeProjection>,
 ) -> String {
     let count = values.len();
     match values.last_key_value() {
@@ -3363,6 +3362,21 @@ fn runtime_typed_build_config_value_label(
             "progress={}",
             progress_bits
                 .map(|bits| format!("0x{bits:08x}"))
+                .unwrap_or_else(|| "none".to_string())
+        ),
+        TypedBuildingRuntimeValue::Separator {
+            progress_bits,
+            warmup_bits,
+            seed,
+        } => format!(
+            "progress={}:warmup={}:seed={}",
+            progress_bits
+                .map(|bits| format!("0x{bits:08x}"))
+                .unwrap_or_else(|| "none".to_string()),
+            warmup_bits
+                .map(|bits| format!("0x{bits:08x}"))
+                .unwrap_or_else(|| "none".to_string()),
+            seed.map(|value| value.to_string())
                 .unwrap_or_else(|| "none".to_string())
         ),
         TypedBuildingRuntimeValue::Conveyor {
@@ -8655,7 +8669,7 @@ mod tests {
         let values = BTreeMap::from([
             (
                 pack_runtime_point2(36, 58),
-                SeparatorRuntimeProjection {
+                crate::session_state::SeparatorRuntimeProjection {
                     progress_bits: 0x3f80_0000,
                     warmup_bits: 0x3f00_0000,
                     seed: 17,
@@ -8663,7 +8677,7 @@ mod tests {
             ),
             (
                 pack_runtime_point2(37, 59),
-                SeparatorRuntimeProjection {
+                crate::session_state::SeparatorRuntimeProjection {
                     progress_bits: 0x3fc0_0000,
                     warmup_bits: 0x3f40_0000,
                     seed: 29,
@@ -8881,6 +8895,20 @@ mod tests {
         );
 
         assert_eq!(label, "progress=0x42400000");
+    }
+
+    #[test]
+    fn runtime_typed_build_config_value_label_formats_separator_runtime() {
+        let label = runtime_typed_build_config_value_label(
+            TypedBuildingRuntimeKind::Separator,
+            &TypedBuildingRuntimeValue::Separator {
+                progress_bits: Some(0x3f80_0000),
+                warmup_bits: Some(0x4000_0000),
+                seed: Some(17),
+            },
+        );
+
+        assert_eq!(label, "progress=0x3f800000:warmup=0x40000000:seed=17");
     }
 
     #[test]
@@ -9231,6 +9259,66 @@ mod tests {
         assert!(build_ui.inspector_entries.iter().any(|entry| {
             entry.family == "interplanetary-accelerator"
                 && entry.sample == "41:63:progress=0x42000000"
+        }));
+    }
+
+    #[test]
+    fn render_runtime_adapter_reports_separator_runtime_in_inspector() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        let build_pos = pack_runtime_point2(42, 64);
+
+        state.configured_block_projection.apply_separator_runtime(
+            build_pos,
+            crate::session_state::SeparatorRuntimeProjection {
+                progress_bits: 0x3f80_0000,
+                warmup_bits: 0x4000_0000,
+                seed: -7,
+            },
+        );
+        state.building_table_projection.by_build_pos.insert(
+            build_pos,
+            crate::session_state::BuildingProjection {
+                block_id: Some(1),
+                block_name: Some("disassembler".to_string()),
+                rotation: None,
+                team_id: None,
+                io_version: None,
+                module_bitmask: None,
+                time_scale_bits: None,
+                time_scale_duration_bits: None,
+                last_disabler_pos: None,
+                legacy_consume_connected: None,
+                config: None,
+                health_bits: None,
+                enabled: None,
+                efficiency: None,
+                optional_efficiency: None,
+                visible_flags: None,
+                turret_reload_counter_bits: None,
+                turret_rotation_bits: None,
+                item_turret_ammo_count: None,
+                continuous_turret_last_length_bits: None,
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                last_update: crate::session_state::BuildingProjectionUpdateKind::BlockSnapshotHead,
+            },
+        );
+
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let build_ui = hud
+            .build_ui
+            .as_ref()
+            .expect("build_ui observability should be present");
+        assert!(build_ui.inspector_entries.iter().any(|entry| {
+            entry.family == "separator"
+                && entry.sample
+                    == "42:64:disassembler:progress=0x3f800000:warmup=0x40000000:seed=-7"
         }));
     }
 

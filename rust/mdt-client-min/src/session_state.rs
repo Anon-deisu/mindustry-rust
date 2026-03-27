@@ -3358,6 +3358,7 @@ pub enum TypedBuildingRuntimeKind {
     LaunchPad,
     InterplanetaryAccelerator,
     ShieldedWall,
+    Separator,
     Conveyor,
     UnitCargoUnloadPoint,
     ItemSource,
@@ -3406,6 +3407,7 @@ impl TypedBuildingRuntimeKind {
             Self::LaunchPad => "launch-pad",
             Self::InterplanetaryAccelerator => "interplanetary-accelerator",
             Self::ShieldedWall => "shielded-wall",
+            Self::Separator => "separator",
             Self::Conveyor => "conveyor",
             Self::UnitCargoUnloadPoint => "unit-cargo-unload-point",
             Self::ItemSource => "item-source",
@@ -3466,6 +3468,11 @@ pub enum TypedBuildingRuntimeValue {
     },
     ShieldedWall {
         shield_bits: Option<u32>,
+    },
+    Separator {
+        progress_bits: Option<u32>,
+        warmup_bits: Option<u32>,
+        seed: Option<i32>,
     },
     Conveyor {
         item_count: Option<usize>,
@@ -3815,6 +3822,17 @@ fn typed_runtime_building_model(
                     .map(|projection| projection.shield_bits),
             },
         ),
+        "separator" | "disassembler" => {
+            let projection = configured.separator_runtime_by_build_pos.get(&build_pos);
+            (
+                TypedBuildingRuntimeKind::Separator,
+                TypedBuildingRuntimeValue::Separator {
+                    progress_bits: projection.map(|projection| projection.progress_bits),
+                    warmup_bits: projection.map(|projection| projection.warmup_bits),
+                    seed: projection.map(|projection| projection.seed),
+                },
+            )
+        }
         "unit-cargo-unload-point" => (
             TypedBuildingRuntimeKind::UnitCargoUnloadPoint,
             TypedBuildingRuntimeValue::Item(
@@ -9466,6 +9484,142 @@ mod tests {
                 seed: 29,
             })
         );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_separator_family_shells() {
+        for (build_pos, block_id, block_name) in [
+            (0x0006_0023i32, 319, "separator"),
+            (0x0006_0024i32, 320, "disassembler"),
+        ] {
+            let mut state = SessionState::default();
+            state.building_table_projection.apply_block_snapshot_head(
+                build_pos,
+                block_id,
+                Some(block_name.to_string()),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(0x3f80_0000),
+                Some(0x3f20_0000),
+                Some(131),
+                Some(false),
+                Some(TypeIoObject::Null),
+                Some(0x4080_0000),
+                Some(true),
+                Some(0x44),
+                Some(0x12),
+                Some(83),
+                None,
+                None,
+                None,
+            );
+
+            assert_eq!(
+                state.typed_runtime_building_at(build_pos),
+                Some(expected_typed_runtime_building(
+                    build_pos,
+                    block_id,
+                    block_name,
+                    TypedBuildingRuntimeKind::Separator,
+                    TypedBuildingRuntimeValue::Separator {
+                        progress_bits: None,
+                        warmup_bits: None,
+                        seed: None,
+                    },
+                    Vec::new(),
+                    Some(2),
+                    Some(3),
+                    Some(4),
+                    Some(5),
+                    Some(0x3f80_0000),
+                    Some(0x3f20_0000),
+                    Some(131),
+                    Some(false),
+                    Some(0x4080_0000),
+                    Some(true),
+                    Some(0x44),
+                    Some(0x12),
+                    Some(83),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    BuildingProjectionUpdateKind::BlockSnapshotHead,
+                ))
+            );
+        }
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_separator_family_runtime() {
+        for (build_pos, block_id, block_name, projection) in [
+            (
+                0x0006_0025i32,
+                321,
+                "separator",
+                SeparatorRuntimeProjection {
+                    progress_bits: 0x3f80_0000,
+                    warmup_bits: 0x4000_0000,
+                    seed: 17,
+                },
+            ),
+            (
+                0x0006_0026i32,
+                322,
+                "disassembler",
+                SeparatorRuntimeProjection {
+                    progress_bits: 0x4040_0000,
+                    warmup_bits: 0x4080_0000,
+                    seed: -7,
+                },
+            ),
+        ] {
+            let mut state = SessionState::default();
+            state.building_table_projection.apply_block_snapshot_head(
+                build_pos,
+                block_id,
+                Some(block_name.to_string()),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(0x3f80_0000),
+                Some(0x3f20_0000),
+                Some(132),
+                Some(true),
+                Some(TypeIoObject::Null),
+                Some(0x4080_0000),
+                Some(false),
+                Some(0x45),
+                Some(0x13),
+                Some(82),
+                None,
+                None,
+                None,
+            );
+            state
+                .configured_block_projection
+                .apply_separator_runtime(build_pos, projection.clone());
+
+            assert_eq!(
+                state
+                    .typed_runtime_building_at(build_pos)
+                    .map(|building| (building.kind, building.value.clone())),
+                Some((
+                    TypedBuildingRuntimeKind::Separator,
+                    TypedBuildingRuntimeValue::Separator {
+                        progress_bits: Some(projection.progress_bits),
+                        warmup_bits: Some(projection.warmup_bits),
+                        seed: Some(projection.seed),
+                    },
+                ))
+            );
+        }
     }
 
     #[test]
