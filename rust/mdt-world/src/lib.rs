@@ -24492,7 +24492,12 @@ fn parse_building_tail_with_context(
         Some("core-shard") | Some("core-foundation") | Some("core-nucleus") => Ok(
             ParsedBuildingTail::Core(parse_core_tail_snapshot(revision, tail_bytes)?),
         ),
-        Some("duct-router") | Some("unloader") | Some("directional-unloader") => {
+        Some("duct-router")
+        | Some("unloader")
+        | Some("directional-unloader")
+        | Some("unit-cargo-unload-point")
+        | Some("item-source")
+        | Some("liquid-source") => {
             Ok(ParsedBuildingTail::NullableItemRef(
                 parse_nullable_item_ref_tail_snapshot(block_name, revision, tail_bytes)?,
             ))
@@ -26021,8 +26026,13 @@ fn parse_nullable_item_ref_tail_snapshot(
 ) -> Result<NullableItemRefTailSnapshot, String> {
     let mut reader = Reader::new(tail_bytes);
     let item_id = match block_name {
-        Some("unloader") if revision == 0 => {
+        Some("unloader") | Some("liquid-source") if revision == 0 => {
             let id = reader.read_i8()? as i16;
+            (id >= 0).then_some(id as u16)
+        }
+        Some("unit-cargo-unload-point") => {
+            let id = reader.read_i16()?;
+            let _stale = reader.read_bool()?;
             (id >= 0).then_some(id as u16)
         }
         _ => {
@@ -43263,6 +43273,26 @@ mod tests {
         assert_eq!(
             duct_router,
             ParsedBuildingTail::NullableItemRef(NullableItemRefTailSnapshot { item_id: Some(5) })
+        );
+
+        let item_source = parse_building_tail(Some("item-source"), 0, &(6u16).to_be_bytes()).unwrap();
+        assert_eq!(
+            item_source,
+            ParsedBuildingTail::NullableItemRef(NullableItemRefTailSnapshot { item_id: Some(6) })
+        );
+
+        let liquid_source =
+            parse_building_tail(Some("liquid-source"), 1, &(7u16).to_be_bytes()).unwrap();
+        assert_eq!(
+            liquid_source,
+            ParsedBuildingTail::NullableItemRef(NullableItemRefTailSnapshot { item_id: Some(7) })
+        );
+
+        let unit_cargo_unload_point =
+            parse_building_tail(Some("unit-cargo-unload-point"), 0, &[0x00, 0x08, 0x01]).unwrap();
+        assert_eq!(
+            unit_cargo_unload_point,
+            ParsedBuildingTail::NullableItemRef(NullableItemRefTailSnapshot { item_id: Some(8) })
         );
 
         let directional_unloader =

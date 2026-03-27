@@ -8322,6 +8322,18 @@ impl ClientSession {
         }
         if let Some(item_id) = summarize_nullable_item_config_item_id(parsed_tail) {
             match block_name {
+                Some(BLOCK_NAME_UNIT_CARGO_UNLOAD_POINT) => self
+                    .state
+                    .configured_block_projection
+                    .apply_unit_cargo_unload_point_item(build_pos, item_id),
+                Some(BLOCK_NAME_ITEM_SOURCE) => self
+                    .state
+                    .configured_block_projection
+                    .apply_item_source_item(build_pos, item_id),
+                Some(BLOCK_NAME_LIQUID_SOURCE) => self
+                    .state
+                    .configured_block_projection
+                    .apply_liquid_source_liquid(build_pos, item_id),
                 Some(BLOCK_NAME_SORTER) => self
                     .state
                     .configured_block_projection
@@ -8459,6 +8471,18 @@ impl ClientSession {
         }
         if let Some(item_id) = entry.nullable_item_id {
             match entry.block_name.as_deref() {
+                Some(BLOCK_NAME_UNIT_CARGO_UNLOAD_POINT) => self
+                    .state
+                    .configured_block_projection
+                    .apply_unit_cargo_unload_point_item(entry.build_pos, item_id),
+                Some(BLOCK_NAME_ITEM_SOURCE) => self
+                    .state
+                    .configured_block_projection
+                    .apply_item_source_item(entry.build_pos, item_id),
+                Some(BLOCK_NAME_LIQUID_SOURCE) => self
+                    .state
+                    .configured_block_projection
+                    .apply_liquid_source_liquid(entry.build_pos, item_id),
                 Some(BLOCK_NAME_SORTER) => self
                     .state
                     .configured_block_projection
@@ -12996,10 +13020,18 @@ fn loaded_world_config_object_from_summary(
         return Some(TypeIoObject::BuildingPos(link));
     }
     if let Some(item_id) = nullable_item_id {
+        if block_name == Some(BLOCK_NAME_LIQUID_SOURCE) {
+            return Some(loaded_world_nullable_content_object(
+                LIQUID_CONTENT_TYPE,
+                item_id,
+            ));
+        }
         if matches!(
             block_name,
             Some(
-                BLOCK_NAME_SORTER
+                BLOCK_NAME_UNIT_CARGO_UNLOAD_POINT
+                    | BLOCK_NAME_ITEM_SOURCE
+                    | BLOCK_NAME_SORTER
                     | BLOCK_NAME_INVERTED_SORTER
                     | BLOCK_NAME_UNLOADER
                     | BLOCK_NAME_DIRECTIONAL_UNLOADER
@@ -22552,6 +22584,69 @@ mod tests {
     }
 
     #[test]
+    fn loaded_world_tail_business_helper_applies_source_family_projection() {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let unit_cargo_pos = pack_build_pos_for_block_snapshot_test(64, 65);
+        let item_source_pos = pack_build_pos_for_block_snapshot_test(66, 67);
+        let liquid_source_pos = pack_build_pos_for_block_snapshot_test(68, 69);
+        let item_id = loaded_world_content_id_for_name(&session, ITEM_CONTENT_TYPE, "copper");
+        let liquid_id = loaded_world_content_id_for_name(&session, LIQUID_CONTENT_TYPE, "water");
+
+        session.apply_loaded_world_parsed_tail_business(
+            unit_cargo_pos,
+            Some(BLOCK_NAME_UNIT_CARGO_UNLOAD_POINT),
+            &mdt_world::ParsedBuildingTail::NullableItemRef(
+                mdt_world::NullableItemRefTailSnapshot {
+                    item_id: Some(item_id as u16),
+                },
+            ),
+        );
+        session.apply_loaded_world_parsed_tail_business(
+            item_source_pos,
+            Some(BLOCK_NAME_ITEM_SOURCE),
+            &mdt_world::ParsedBuildingTail::NullableItemRef(
+                mdt_world::NullableItemRefTailSnapshot {
+                    item_id: Some(item_id as u16),
+                },
+            ),
+        );
+        session.apply_loaded_world_parsed_tail_business(
+            liquid_source_pos,
+            Some(BLOCK_NAME_LIQUID_SOURCE),
+            &mdt_world::ParsedBuildingTail::NullableItemRef(
+                mdt_world::NullableItemRefTailSnapshot {
+                    item_id: Some(liquid_id as u16),
+                },
+            ),
+        );
+
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .unit_cargo_unload_point_item_by_build_pos
+                .get(&unit_cargo_pos),
+            Some(&Some(item_id))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .item_source_item_by_build_pos
+                .get(&item_source_pos),
+            Some(&Some(item_id))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .liquid_source_liquid_by_build_pos
+                .get(&liquid_source_pos),
+            Some(&Some(liquid_id))
+        );
+    }
+
+    #[test]
     fn apply_loaded_world_block_snapshot_entries_forwards_message_and_payload_router_summary() {
         let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let message_pos = pack_build_pos_for_block_snapshot_test(24, 25);
@@ -23307,6 +23402,226 @@ mod tests {
             Some((
                 crate::session_state::TypedBuildingRuntimeKind::DirectionalUnloader,
                 crate::session_state::TypedBuildingRuntimeValue::Item(Some(item_id)),
+            ))
+        );
+    }
+
+    #[test]
+    fn apply_loaded_world_block_snapshot_entries_seed_source_family_summary() {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let unit_cargo_pos = pack_build_pos_for_block_snapshot_test(74, 75);
+        let item_source_pos = pack_build_pos_for_block_snapshot_test(76, 77);
+        let liquid_source_pos = pack_build_pos_for_block_snapshot_test(78, 79);
+        let unit_cargo_block_id =
+            loaded_world_block_id_for_name(&session, BLOCK_NAME_UNIT_CARGO_UNLOAD_POINT);
+        let item_source_block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_ITEM_SOURCE);
+        let liquid_source_block_id =
+            loaded_world_block_id_for_name(&session, BLOCK_NAME_LIQUID_SOURCE);
+        let item_id = loaded_world_content_id_for_name(&session, ITEM_CONTENT_TYPE, "copper");
+        let liquid_id = loaded_world_content_id_for_name(&session, LIQUID_CONTENT_TYPE, "water");
+
+        session.apply_block_snapshot_entries_from_loaded_world_entries(vec![
+            BlockSnapshotExtraEntrySummary {
+                build_pos: unit_cargo_pos,
+                block_id: unit_cargo_block_id,
+                block_name: Some(BLOCK_NAME_UNIT_CARGO_UNLOAD_POINT.to_string()),
+                health_bits: Some(0x3f80_0000),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                enabled: Some(true),
+                module_bitmask: Some(4),
+                time_scale_bits: Some(0x3f00_0000),
+                time_scale_duration_bits: Some(0x3e80_0000),
+                last_disabler_pos: Some(77),
+                legacy_consume_connected: Some(false),
+                efficiency: Some(0x40),
+                optional_efficiency: Some(0x20),
+                visible_flags: Some(9),
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                constructor_recipe_block_id: None,
+                constructor_runtime: None,
+                landing_pad_config_item_id: None,
+                message_text: None,
+                payload_source_content: None,
+                payload_router_sorted_content: None,
+                duct_unloader_item_id: None,
+                directional_unloader_item_id: None,
+                reconstructor_command_id: None,
+                memory_values_bits: None,
+                canvas_bytes: None,
+                mass_driver_link: None,
+                payload_mass_driver_link: None,
+                nullable_item_id: Some(Some(item_id)),
+                item_bridge_link: None,
+                light_color: None,
+                switch_enabled: None,
+                build_item_stacks: Vec::new(),
+                build_liquid_stacks: Vec::new(),
+            },
+            BlockSnapshotExtraEntrySummary {
+                build_pos: item_source_pos,
+                block_id: item_source_block_id,
+                block_name: Some(BLOCK_NAME_ITEM_SOURCE.to_string()),
+                health_bits: Some(0x3f80_0000),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                enabled: Some(true),
+                module_bitmask: Some(4),
+                time_scale_bits: Some(0x3f00_0000),
+                time_scale_duration_bits: Some(0x3e80_0000),
+                last_disabler_pos: Some(77),
+                legacy_consume_connected: Some(false),
+                efficiency: Some(0x40),
+                optional_efficiency: Some(0x20),
+                visible_flags: Some(9),
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                constructor_recipe_block_id: None,
+                constructor_runtime: None,
+                landing_pad_config_item_id: None,
+                message_text: None,
+                payload_source_content: None,
+                payload_router_sorted_content: None,
+                duct_unloader_item_id: None,
+                directional_unloader_item_id: None,
+                reconstructor_command_id: None,
+                memory_values_bits: None,
+                canvas_bytes: None,
+                mass_driver_link: None,
+                payload_mass_driver_link: None,
+                nullable_item_id: Some(Some(item_id)),
+                item_bridge_link: None,
+                light_color: None,
+                switch_enabled: None,
+                build_item_stacks: Vec::new(),
+                build_liquid_stacks: Vec::new(),
+            },
+            BlockSnapshotExtraEntrySummary {
+                build_pos: liquid_source_pos,
+                block_id: liquid_source_block_id,
+                block_name: Some(BLOCK_NAME_LIQUID_SOURCE.to_string()),
+                health_bits: Some(0x3f80_0000),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                enabled: Some(true),
+                module_bitmask: Some(4),
+                time_scale_bits: Some(0x3f00_0000),
+                time_scale_duration_bits: Some(0x3e80_0000),
+                last_disabler_pos: Some(77),
+                legacy_consume_connected: Some(false),
+                efficiency: Some(0x40),
+                optional_efficiency: Some(0x20),
+                visible_flags: Some(9),
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                constructor_recipe_block_id: None,
+                constructor_runtime: None,
+                landing_pad_config_item_id: None,
+                message_text: None,
+                payload_source_content: None,
+                payload_router_sorted_content: None,
+                duct_unloader_item_id: None,
+                directional_unloader_item_id: None,
+                reconstructor_command_id: None,
+                memory_values_bits: None,
+                canvas_bytes: None,
+                mass_driver_link: None,
+                payload_mass_driver_link: None,
+                nullable_item_id: Some(Some(liquid_id)),
+                item_bridge_link: None,
+                light_color: None,
+                switch_enabled: None,
+                build_item_stacks: Vec::new(),
+                build_liquid_stacks: Vec::new(),
+            },
+        ]);
+
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .unit_cargo_unload_point_item_by_build_pos
+                .get(&unit_cargo_pos),
+            Some(&Some(item_id))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .item_source_item_by_build_pos
+                .get(&item_source_pos),
+            Some(&Some(item_id))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .liquid_source_liquid_by_build_pos
+                .get(&liquid_source_pos),
+            Some(&Some(liquid_id))
+        );
+        assert_eq!(
+            session
+                .state()
+                .building_table_projection
+                .by_build_pos
+                .get(&unit_cargo_pos)
+                .and_then(|building| building.config.clone()),
+            Some(TypeIoObject::ContentRaw {
+                content_type: ITEM_CONTENT_TYPE,
+                content_id: item_id,
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .building_table_projection
+                .by_build_pos
+                .get(&liquid_source_pos)
+                .and_then(|building| building.config.clone()),
+            Some(TypeIoObject::ContentRaw {
+                content_type: LIQUID_CONTENT_TYPE,
+                content_id: liquid_id,
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(unit_cargo_pos)
+                .map(|building| (building.kind, building.value.clone())),
+            Some((
+                crate::session_state::TypedBuildingRuntimeKind::UnitCargoUnloadPoint,
+                crate::session_state::TypedBuildingRuntimeValue::Item(Some(item_id)),
+            ))
+        );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(item_source_pos)
+                .map(|building| (building.kind, building.value.clone())),
+            Some((
+                crate::session_state::TypedBuildingRuntimeKind::ItemSource,
+                crate::session_state::TypedBuildingRuntimeValue::Item(Some(item_id)),
+            ))
+        );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(liquid_source_pos)
+                .map(|building| (building.kind, building.value.clone())),
+            Some((
+                crate::session_state::TypedBuildingRuntimeKind::LiquidSource,
+                crate::session_state::TypedBuildingRuntimeValue::Liquid(Some(liquid_id)),
             ))
         );
     }
