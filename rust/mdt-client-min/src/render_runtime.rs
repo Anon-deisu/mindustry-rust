@@ -3323,6 +3323,37 @@ fn runtime_typed_build_config_value_label(
                 .map(|value| value.to_string())
                 .unwrap_or_else(|| "clear".to_string())
         ),
+        TypedBuildingRuntimeValue::LandingPad {
+            configured_item_id,
+            priority,
+            cooldown_bits,
+            arriving_item_id,
+            arriving_timer_bits,
+            liquid_removed_bits,
+        } => {
+            let mut parts = vec![format!(
+                "item={}",
+                configured_item_id
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "clear".to_string())
+            )];
+            if let Some(priority) = priority {
+                parts.push(format!("priority={priority}"));
+            }
+            if let Some(cooldown_bits) = cooldown_bits {
+                parts.push(format!("cooldown=0x{cooldown_bits:08x}"));
+            }
+            if let Some(arriving_item_id) = arriving_item_id {
+                parts.push(format!("arriving={arriving_item_id}"));
+            }
+            if let Some(arriving_timer_bits) = arriving_timer_bits {
+                parts.push(format!("arriving-timer=0x{arriving_timer_bits:08x}"));
+            }
+            if let Some(liquid_removed_bits) = liquid_removed_bits {
+                parts.push(format!("liquid-removed=0x{liquid_removed_bits:08x}"));
+            }
+            parts.join(":")
+        }
         TypedBuildingRuntimeValue::Liquid(value) => format!(
             "liquid={}",
             value
@@ -8013,6 +8044,23 @@ mod tests {
             .insert(pack_runtime_point2(13, 35), Some(0));
         state
             .configured_block_projection
+            .landing_pad_item_by_build_pos
+            .insert(pack_runtime_point2(17, 39), Some(7));
+        state
+            .configured_block_projection
+            .landing_pad_runtime_by_build_pos
+            .insert(
+                pack_runtime_point2(17, 39),
+                crate::session_state::LandingPadRuntimeProjection {
+                    priority: 42,
+                    cooldown_bits: 0x4140_0000,
+                    arriving_item_id: Some(3),
+                    arriving_timer_bits: 0x41c0_0000,
+                    liquid_removed_bits: 0x3f80_0000,
+                },
+            );
+        state
+            .configured_block_projection
             .message_text_by_build_pos
             .insert(pack_runtime_point2(18, 40), "hello".to_string());
         state
@@ -8268,6 +8316,7 @@ mod tests {
                 },
             );
         for (build_pos, block_name) in [
+            (pack_runtime_point2(17, 39), "landing-pad"),
             (pack_runtime_point2(18, 40), "world-message"),
             (pack_runtime_point2(19, 41), "constructor"),
             (pack_runtime_point2(21, 43), "payload-source"),
@@ -8323,6 +8372,7 @@ mod tests {
         assert!(hud
             .status_text
             .contains("runtime_configured=uc1@14:36=clear:is1@12:34=0:ls1@13:35=0"));
+        assert!(hud.status_text.contains(":lp1@17:39=7:"));
         assert!(hud.status_text.contains(":mg1@18:40=len5:"));
         assert!(hud.status_text.contains(":cv1@35:57=len4:aa-bb-cc-dd:"));
         assert!(hud.status_text.contains(":ct1@19:41=5:"));
@@ -8346,6 +8396,11 @@ mod tests {
             .build_ui
             .as_ref()
             .expect("build_ui observability should be present");
+        assert!(build_ui.inspector_entries.iter().any(|entry| {
+            entry.family == "landing-pad"
+                && entry.sample
+                    == "17:39:item=7:priority=42:cooldown=0x41400000:arriving=3:arriving-timer=0x41c00000:liquid-removed=0x3f800000"
+        }));
         assert!(build_ui.inspector_entries.iter().any(|entry| {
             entry.family == "message" && entry.sample == "18:40:world-message:len=5:text=hello"
         }));
@@ -8607,6 +8662,26 @@ mod tests {
         );
 
         assert_eq!(label, "item=7:legacy=1:sides=0x05:buffered=3");
+    }
+
+    #[test]
+    fn runtime_typed_build_config_value_label_formats_landing_pad_runtime() {
+        let label = runtime_typed_build_config_value_label(
+            TypedBuildingRuntimeKind::LandingPad,
+            &TypedBuildingRuntimeValue::LandingPad {
+                configured_item_id: Some(7),
+                priority: Some(42),
+                cooldown_bits: Some(0x4140_0000),
+                arriving_item_id: Some(3),
+                arriving_timer_bits: Some(0x41c0_0000),
+                liquid_removed_bits: Some(0x3f80_0000),
+            },
+        );
+
+        assert_eq!(
+            label,
+            "item=7:priority=42:cooldown=0x41400000:arriving=3:arriving-timer=0x41c00000:liquid-removed=0x3f800000"
+        );
     }
 
     #[test]

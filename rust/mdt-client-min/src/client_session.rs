@@ -26,16 +26,17 @@ use crate::session_state::{
     EntitySemanticProjection, EntityUnitRuntimeSyncProjection, EntityUnitSemanticProjection,
     EntityWeatherStateSemanticProjection, EntityWorldLabelSemanticProjection,
     FinishConnectingProjection, GameplayStateProjection, ItemBridgeBufferRuntimeProjection,
-    ItemBridgeRuntimeProjection, MassDriverRuntimeProjection, PayloadDroppedProjection,
-    PayloadLoaderRuntimeProjection, PayloadMassDriverRuntimeProjection, PayloadRouterPayloadKind,
-    PayloadRouterRuntimeProjection, PayloadSourceRuntimeProjection, PickedBuildPayloadProjection,
-    PickedUnitPayloadProjection, ReconnectPhaseProjection, ReconnectReasonKind,
-    ReconstructorRuntimeProjection, RemotePlanSnapshotFirstPlanProjection, SessionResetKind,
-    SessionState, SessionTimeoutKind, SessionTimeoutProjection, SorterRuntimeProjection,
-    TakeItemsProjection, TileConfigAuthoritySource, TileConfigBusinessApply,
-    TransferItemEffectProjection, TransferItemToProjection, TransferItemToUnitProjection,
-    TypedBuildingRuntimeModel, UnitAssemblerRuntimeProjection, UnitEnteredPayloadProjection,
-    UnitFactoryRuntimeProjection, UnitRefProjection, WorldReloadProjection,
+    ItemBridgeRuntimeProjection, LandingPadRuntimeProjection, MassDriverRuntimeProjection,
+    PayloadDroppedProjection, PayloadLoaderRuntimeProjection, PayloadMassDriverRuntimeProjection,
+    PayloadRouterPayloadKind, PayloadRouterRuntimeProjection, PayloadSourceRuntimeProjection,
+    PickedBuildPayloadProjection, PickedUnitPayloadProjection, ReconnectPhaseProjection,
+    ReconnectReasonKind, ReconstructorRuntimeProjection, RemotePlanSnapshotFirstPlanProjection,
+    SessionResetKind, SessionState, SessionTimeoutKind, SessionTimeoutProjection,
+    SorterRuntimeProjection, TakeItemsProjection, TileConfigAuthoritySource,
+    TileConfigBusinessApply, TransferItemEffectProjection, TransferItemToProjection,
+    TransferItemToUnitProjection, TypedBuildingRuntimeModel, UnitAssemblerRuntimeProjection,
+    UnitEnteredPayloadProjection, UnitFactoryRuntimeProjection, UnitRefProjection,
+    WorldReloadProjection,
 };
 use crate::typed_remote_dispatch::{
     TypedCustomChannelRemoteDispatch, TypedCustomChannelRemoteDispatcher,
@@ -8182,6 +8183,8 @@ impl ClientSession {
             let payload_loader_runtime = summarize_payload_loader_projection(&building.parsed_tail);
             let landing_pad_config_item_id =
                 summarize_landing_pad_config_item_id(&building.parsed_tail);
+            let landing_pad_runtime =
+                summarize_landing_pad_runtime_projection(&building.parsed_tail);
             let message_text = summarize_message_tail_text(&building.parsed_tail);
             let payload_source_content = summarize_payload_source_content(&building.parsed_tail);
             let payload_source_runtime = summarize_payload_source_projection(&building.parsed_tail);
@@ -8231,6 +8234,7 @@ impl ClientSession {
                 unit_factory_runtime,
                 payload_loader_runtime,
                 landing_pad_config_item_id,
+                landing_pad_runtime,
                 message_text,
                 payload_source_content,
                 payload_source_runtime,
@@ -8345,6 +8349,11 @@ impl ClientSession {
             self.state
                 .configured_block_projection
                 .apply_landing_pad_item(build_pos, item_id);
+        }
+        if let Some(projection) = summarize_landing_pad_runtime_projection(parsed_tail) {
+            self.state
+                .configured_block_projection
+                .apply_landing_pad_runtime(build_pos, projection);
         }
         if let Some(text) = summarize_message_tail_text(parsed_tail) {
             self.state
@@ -8569,6 +8578,11 @@ impl ClientSession {
             self.state
                 .configured_block_projection
                 .apply_landing_pad_item(entry.build_pos, item_id);
+        }
+        if let Some(projection) = entry.landing_pad_runtime.clone() {
+            self.state
+                .configured_block_projection
+                .apply_landing_pad_runtime(entry.build_pos, projection);
         }
         if let Some(text) = entry.message_text.clone() {
             self.state
@@ -13116,6 +13130,7 @@ struct BlockSnapshotExtraEntrySummary {
     unit_factory_runtime: Option<UnitFactoryRuntimeProjection>,
     payload_loader_runtime: Option<PayloadLoaderRuntimeProjection>,
     landing_pad_config_item_id: Option<Option<i16>>,
+    landing_pad_runtime: Option<LandingPadRuntimeProjection>,
     message_text: Option<String>,
     payload_source_content: Option<Option<ConfiguredContentRef>>,
     payload_source_runtime: Option<PayloadSourceRuntimeProjection>,
@@ -13465,6 +13480,23 @@ fn summarize_landing_pad_config_item_id(
         return None;
     };
     summarize_nullable_loaded_world_content_id(landing_pad.config_item_id)
+}
+
+fn summarize_landing_pad_runtime_projection(
+    parsed_tail: &mdt_world::ParsedBuildingTail,
+) -> Option<LandingPadRuntimeProjection> {
+    let mdt_world::ParsedBuildingTail::LandingPad(landing_pad) = parsed_tail else {
+        return None;
+    };
+    Some(LandingPadRuntimeProjection {
+        priority: landing_pad.priority,
+        cooldown_bits: landing_pad.cooldown_bits,
+        arriving_item_id: landing_pad
+            .arriving_item_id
+            .and_then(|content_id| i16::try_from(content_id).ok()),
+        arriving_timer_bits: landing_pad.arriving_timer_bits,
+        liquid_removed_bits: landing_pad.liquid_removed_bits,
+    })
 }
 
 fn summarize_message_tail_text(parsed_tail: &mdt_world::ParsedBuildingTail) -> Option<String> {
@@ -21624,6 +21656,7 @@ mod tests {
                 unit_factory_runtime: None,
                 payload_loader_runtime: None,
                 landing_pad_config_item_id: None,
+                landing_pad_runtime: None,
                 message_text: None,
                 payload_source_content: None,
                 payload_source_runtime: None,
@@ -21715,6 +21748,7 @@ mod tests {
                 unit_factory_runtime: None,
                 payload_loader_runtime: None,
                 landing_pad_config_item_id: None,
+                landing_pad_runtime: None,
                 message_text: None,
                 payload_source_content: None,
                 payload_source_runtime: None,
@@ -21797,6 +21831,7 @@ mod tests {
                 unit_factory_runtime: None,
                 payload_loader_runtime: None,
                 landing_pad_config_item_id: None,
+                landing_pad_runtime: None,
                 message_text: None,
                 payload_source_content: None,
                 payload_source_runtime: None,
@@ -21901,6 +21936,7 @@ mod tests {
                 unit_factory_runtime: None,
                 payload_loader_runtime: None,
                 landing_pad_config_item_id: None,
+                landing_pad_runtime: None,
                 message_text: None,
                 payload_source_content: None,
                 payload_source_runtime: None,
@@ -21964,6 +22000,7 @@ mod tests {
                 unit_factory_runtime: None,
                 payload_loader_runtime: None,
                 landing_pad_config_item_id: None,
+                landing_pad_runtime: None,
                 message_text: None,
                 payload_source_content: None,
                 payload_source_runtime: None,
@@ -22429,11 +22466,11 @@ mod tests {
             Some(BLOCK_NAME_LANDING_PAD),
             &mdt_world::ParsedBuildingTail::LandingPad(mdt_world::LandingPadTailSnapshot {
                 config_item_id: Some(item_id as u16),
-                priority: 0,
-                cooldown_bits: 0,
-                arriving_item_id: None,
-                arriving_timer_bits: 0,
-                liquid_removed_bits: 0,
+                priority: 42,
+                cooldown_bits: 0x4140_0000,
+                arriving_item_id: Some(item_id as u16),
+                arriving_timer_bits: 0x41c0_0000,
+                liquid_removed_bits: 0x3f80_0000,
             }),
         );
 
@@ -22466,6 +22503,20 @@ mod tests {
                 .landing_pad_item_by_build_pos
                 .get(&landing_pad_pos),
             Some(&Some(item_id))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .landing_pad_runtime_by_build_pos
+                .get(&landing_pad_pos),
+            Some(&LandingPadRuntimeProjection {
+                priority: 42,
+                cooldown_bits: 0x4140_0000,
+                arriving_item_id: Some(item_id),
+                arriving_timer_bits: 0x41c0_0000,
+                liquid_removed_bits: 0x3f80_0000,
+            })
         );
     }
 
@@ -22523,6 +22574,29 @@ mod tests {
             Some(MassDriverRuntimeProjection {
                 rotation_bits: 0x4120_0000,
                 state_ordinal: 2,
+            })
+        );
+    }
+
+    #[test]
+    fn summarize_landing_pad_runtime_projection_extracts_runtime() {
+        assert_eq!(
+            summarize_landing_pad_runtime_projection(&mdt_world::ParsedBuildingTail::LandingPad(
+                mdt_world::LandingPadTailSnapshot {
+                    config_item_id: Some(7),
+                    priority: 42,
+                    cooldown_bits: 0x4140_0000,
+                    arriving_item_id: Some(3),
+                    arriving_timer_bits: 0x41c0_0000,
+                    liquid_removed_bits: 0x3f80_0000,
+                }
+            )),
+            Some(LandingPadRuntimeProjection {
+                priority: 42,
+                cooldown_bits: 0x4140_0000,
+                arriving_item_id: Some(3),
+                arriving_timer_bits: 0x41c0_0000,
+                liquid_removed_bits: 0x3f80_0000,
             })
         );
     }
@@ -23892,6 +23966,7 @@ mod tests {
                 unit_factory_runtime: None,
                 payload_loader_runtime: None,
                 landing_pad_config_item_id: None,
+                landing_pad_runtime: None,
                 message_text: Some("snapshot message".to_string()),
                 payload_source_content: None,
                 payload_source_runtime: None,
@@ -23942,6 +24017,7 @@ mod tests {
                 unit_factory_runtime: None,
                 payload_loader_runtime: None,
                 landing_pad_config_item_id: None,
+                landing_pad_runtime: None,
                 message_text: None,
                 payload_source_content: None,
                 payload_source_runtime: None,
@@ -23995,6 +24071,7 @@ mod tests {
                 unit_factory_runtime: None,
                 payload_loader_runtime: None,
                 landing_pad_config_item_id: None,
+                landing_pad_runtime: None,
                 message_text: None,
                 payload_source_content: None,
                 payload_source_runtime: None,
@@ -24124,6 +24201,7 @@ mod tests {
                 unit_factory_runtime: None,
                 payload_loader_runtime: None,
                 landing_pad_config_item_id: None,
+                landing_pad_runtime: None,
                 message_text: None,
                 payload_source_content: None,
                 payload_source_runtime: None,
@@ -24174,6 +24252,13 @@ mod tests {
                 unit_factory_runtime: None,
                 payload_loader_runtime: None,
                 landing_pad_config_item_id: Some(Some(item_id)),
+                landing_pad_runtime: Some(LandingPadRuntimeProjection {
+                    priority: 42,
+                    cooldown_bits: 0x4140_0000,
+                    arriving_item_id: Some(item_id),
+                    arriving_timer_bits: 0x41c0_0000,
+                    liquid_removed_bits: 0x3f80_0000,
+                }),
                 message_text: None,
                 payload_source_content: None,
                 payload_source_runtime: None,
@@ -24215,6 +24300,38 @@ mod tests {
                 .landing_pad_item_by_build_pos
                 .get(&landing_pad_pos),
             Some(&Some(item_id))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .landing_pad_runtime_by_build_pos
+                .get(&landing_pad_pos),
+            Some(&LandingPadRuntimeProjection {
+                priority: 42,
+                cooldown_bits: 0x4140_0000,
+                arriving_item_id: Some(item_id),
+                arriving_timer_bits: 0x41c0_0000,
+                liquid_removed_bits: 0x3f80_0000,
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(landing_pad_pos)
+                .map(|building| (building.kind, building.value.clone())),
+            Some((
+                crate::session_state::TypedBuildingRuntimeKind::LandingPad,
+                crate::session_state::TypedBuildingRuntimeValue::LandingPad {
+                    configured_item_id: Some(item_id),
+                    priority: Some(42),
+                    cooldown_bits: Some(0x4140_0000),
+                    arriving_item_id: Some(item_id),
+                    arriving_timer_bits: Some(0x41c0_0000),
+                    liquid_removed_bits: Some(0x3f80_0000),
+                },
+            ))
         );
     }
 
@@ -24258,6 +24375,7 @@ mod tests {
                 unit_factory_runtime: None,
                 payload_loader_runtime: None,
                 landing_pad_config_item_id: None,
+                landing_pad_runtime: None,
                 message_text: None,
                 payload_source_content: None,
                 payload_source_runtime: None,
@@ -24312,6 +24430,7 @@ mod tests {
                 unit_factory_runtime: None,
                 payload_loader_runtime: None,
                 landing_pad_config_item_id: None,
+                landing_pad_runtime: None,
                 message_text: None,
                 payload_source_content: None,
                 payload_source_runtime: None,
@@ -24362,6 +24481,7 @@ mod tests {
                 unit_factory_runtime: None,
                 payload_loader_runtime: None,
                 landing_pad_config_item_id: None,
+                landing_pad_runtime: None,
                 message_text: None,
                 payload_source_content: None,
                 payload_source_runtime: None,
@@ -24417,6 +24537,7 @@ mod tests {
                 unit_factory_runtime: None,
                 payload_loader_runtime: None,
                 landing_pad_config_item_id: None,
+                landing_pad_runtime: None,
                 message_text: None,
                 payload_source_content: None,
                 payload_source_runtime: None,
@@ -24477,6 +24598,7 @@ mod tests {
                 unit_factory_runtime: None,
                 payload_loader_runtime: None,
                 landing_pad_config_item_id: None,
+                landing_pad_runtime: None,
                 message_text: None,
                 payload_source_content: None,
                 payload_source_runtime: None,
@@ -24530,6 +24652,7 @@ mod tests {
                 unit_factory_runtime: None,
                 payload_loader_runtime: None,
                 landing_pad_config_item_id: None,
+                landing_pad_runtime: None,
                 message_text: None,
                 payload_source_content: None,
                 payload_source_runtime: None,
@@ -24580,6 +24703,7 @@ mod tests {
                 unit_factory_runtime: None,
                 payload_loader_runtime: None,
                 landing_pad_config_item_id: None,
+                landing_pad_runtime: None,
                 message_text: None,
                 payload_source_content: None,
                 payload_source_runtime: None,
@@ -24630,6 +24754,7 @@ mod tests {
                 unit_factory_runtime: None,
                 payload_loader_runtime: None,
                 landing_pad_config_item_id: None,
+                landing_pad_runtime: None,
                 message_text: None,
                 payload_source_content: None,
                 payload_source_runtime: None,
@@ -24810,6 +24935,7 @@ mod tests {
                 unit_factory_runtime: None,
                 payload_loader_runtime: None,
                 landing_pad_config_item_id: None,
+                landing_pad_runtime: None,
                 message_text: None,
                 payload_source_content: None,
                 payload_source_runtime: None,
@@ -24918,6 +25044,7 @@ mod tests {
                     payload_unit_payload_sha256: Some("0123456789abcdef".to_string()),
                 }),
                 landing_pad_config_item_id: None,
+                landing_pad_runtime: None,
                 message_text: None,
                 payload_source_content: None,
                 payload_source_runtime: None,
@@ -25031,6 +25158,7 @@ mod tests {
                 unit_factory_runtime: None,
                 payload_loader_runtime: None,
                 landing_pad_config_item_id: None,
+                landing_pad_runtime: None,
                 message_text: None,
                 payload_source_content: Some(Some(ConfiguredContentRef {
                     content_type: UNIT_CONTENT_TYPE,
@@ -25183,6 +25311,7 @@ mod tests {
                 }),
                 payload_loader_runtime: None,
                 landing_pad_config_item_id: None,
+                landing_pad_runtime: None,
                 message_text: None,
                 payload_source_content: None,
                 payload_source_runtime: None,
@@ -25301,6 +25430,7 @@ mod tests {
                 unit_factory_runtime: None,
                 payload_loader_runtime: None,
                 landing_pad_config_item_id: None,
+                landing_pad_runtime: None,
                 message_text: None,
                 payload_source_content: None,
                 payload_source_runtime: None,
@@ -25351,6 +25481,7 @@ mod tests {
                 unit_factory_runtime: None,
                 payload_loader_runtime: None,
                 landing_pad_config_item_id: None,
+                landing_pad_runtime: None,
                 message_text: None,
                 payload_source_content: None,
                 payload_source_runtime: None,
@@ -25401,6 +25532,7 @@ mod tests {
                 unit_factory_runtime: None,
                 payload_loader_runtime: None,
                 landing_pad_config_item_id: None,
+                landing_pad_runtime: None,
                 message_text: None,
                 payload_source_content: None,
                 payload_source_runtime: None,
@@ -25553,6 +25685,7 @@ mod tests {
                 unit_factory_runtime: None,
                 payload_loader_runtime: None,
                 landing_pad_config_item_id: None,
+                landing_pad_runtime: None,
                 message_text: None,
                 payload_source_content: Some(Some(ConfiguredContentRef {
                     content_type: UNIT_CONTENT_TYPE,
@@ -25606,6 +25739,7 @@ mod tests {
                 unit_factory_runtime: None,
                 payload_loader_runtime: None,
                 landing_pad_config_item_id: None,
+                landing_pad_runtime: None,
                 message_text: None,
                 payload_source_content: None,
                 payload_source_runtime: None,
@@ -25656,6 +25790,7 @@ mod tests {
                 unit_factory_runtime: None,
                 payload_loader_runtime: None,
                 landing_pad_config_item_id: None,
+                landing_pad_runtime: None,
                 message_text: None,
                 payload_source_content: None,
                 payload_source_runtime: None,
@@ -25706,6 +25841,7 @@ mod tests {
                 unit_factory_runtime: None,
                 payload_loader_runtime: None,
                 landing_pad_config_item_id: None,
+                landing_pad_runtime: None,
                 message_text: None,
                 payload_source_content: None,
                 payload_source_runtime: None,
@@ -25756,6 +25892,7 @@ mod tests {
                 unit_factory_runtime: None,
                 payload_loader_runtime: None,
                 landing_pad_config_item_id: None,
+                landing_pad_runtime: None,
                 message_text: None,
                 payload_source_content: None,
                 payload_source_runtime: None,
@@ -25814,6 +25951,7 @@ mod tests {
                 unit_factory_runtime: None,
                 payload_loader_runtime: None,
                 landing_pad_config_item_id: None,
+                landing_pad_runtime: None,
                 message_text: None,
                 payload_source_content: None,
                 payload_source_runtime: None,
@@ -25864,6 +26002,7 @@ mod tests {
                 unit_factory_runtime: None,
                 payload_loader_runtime: None,
                 landing_pad_config_item_id: None,
+                landing_pad_runtime: None,
                 message_text: None,
                 payload_source_content: None,
                 payload_source_runtime: None,
@@ -25914,6 +26053,7 @@ mod tests {
                 unit_factory_runtime: None,
                 payload_loader_runtime: None,
                 landing_pad_config_item_id: None,
+                landing_pad_runtime: None,
                 message_text: None,
                 payload_source_content: None,
                 payload_source_runtime: None,

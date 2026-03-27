@@ -421,6 +421,15 @@ pub struct DuctUnloaderRuntimeProjection {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LandingPadRuntimeProjection {
+    pub priority: i32,
+    pub cooldown_bits: u32,
+    pub arriving_item_id: Option<i16>,
+    pub arriving_timer_bits: u32,
+    pub liquid_removed_bits: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PayloadSourceRuntimeProjection {
     pub command_pos: Option<(u32, u32)>,
     pub pay_vector_x_bits: u32,
@@ -1861,6 +1870,7 @@ pub struct ConfiguredBlockProjection {
     pub item_source_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub liquid_source_liquid_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub landing_pad_item_by_build_pos: BTreeMap<i32, Option<i16>>,
+    pub landing_pad_runtime_by_build_pos: BTreeMap<i32, LandingPadRuntimeProjection>,
     pub sorter_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub inverted_sorter_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub sorter_runtime_by_build_pos: BTreeMap<i32, SorterRuntimeProjection>,
@@ -1916,6 +1926,15 @@ impl ConfiguredBlockProjection {
     pub fn apply_landing_pad_item(&mut self, build_pos: i32, item_id: Option<i16>) {
         self.landing_pad_item_by_build_pos
             .insert(build_pos, item_id);
+    }
+
+    pub fn apply_landing_pad_runtime(
+        &mut self,
+        build_pos: i32,
+        projection: LandingPadRuntimeProjection,
+    ) {
+        self.landing_pad_runtime_by_build_pos
+            .insert(build_pos, projection);
     }
 
     pub fn apply_sorter_item(&mut self, build_pos: i32, item_id: Option<i16>) {
@@ -2151,6 +2170,7 @@ impl ConfiguredBlockProjection {
         self.item_source_item_by_build_pos.remove(&build_pos);
         self.liquid_source_liquid_by_build_pos.remove(&build_pos);
         self.landing_pad_item_by_build_pos.remove(&build_pos);
+        self.landing_pad_runtime_by_build_pos.remove(&build_pos);
         self.sorter_item_by_build_pos.remove(&build_pos);
         self.inverted_sorter_item_by_build_pos.remove(&build_pos);
         self.sorter_runtime_by_build_pos.remove(&build_pos);
@@ -3249,6 +3269,14 @@ impl TypedBuildingRuntimeKind {
 pub enum TypedBuildingRuntimeValue {
     Core,
     Item(Option<i16>),
+    LandingPad {
+        configured_item_id: Option<i16>,
+        priority: Option<i32>,
+        cooldown_bits: Option<u32>,
+        arriving_item_id: Option<i16>,
+        arriving_timer_bits: Option<u32>,
+        liquid_removed_bits: Option<u32>,
+    },
     Liquid(Option<i16>),
     Bool(Option<bool>),
     Text(String),
@@ -3579,15 +3607,27 @@ fn typed_runtime_building_model(
                 inventory_item_stacks.first().map(|(item_id, _)| *item_id),
             ),
         ),
-        "landing-pad" => (
-            TypedBuildingRuntimeKind::LandingPad,
-            TypedBuildingRuntimeValue::Item(
-                configured
-                    .landing_pad_item_by_build_pos
-                    .get(&build_pos)
-                    .copied()?,
-            ),
-        ),
+        "landing-pad" => {
+            let configured_item_id = configured
+                .landing_pad_item_by_build_pos
+                .get(&build_pos)
+                .copied();
+            let runtime = configured.landing_pad_runtime_by_build_pos.get(&build_pos);
+            if configured_item_id.is_none() && runtime.is_none() {
+                return None;
+            }
+            (
+                TypedBuildingRuntimeKind::LandingPad,
+                TypedBuildingRuntimeValue::LandingPad {
+                    configured_item_id: configured_item_id.flatten(),
+                    priority: runtime.map(|projection| projection.priority),
+                    cooldown_bits: runtime.map(|projection| projection.cooldown_bits),
+                    arriving_item_id: runtime.and_then(|projection| projection.arriving_item_id),
+                    arriving_timer_bits: runtime.map(|projection| projection.arriving_timer_bits),
+                    liquid_removed_bits: runtime.map(|projection| projection.liquid_removed_bits),
+                },
+            )
+        }
         "sorter" => {
             let runtime = configured.sorter_runtime_by_build_pos.get(&build_pos);
             (
@@ -8453,6 +8493,84 @@ mod tests {
 
             assert_eq!(state.typed_runtime_building_at(build_pos), Some(expected));
         }
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_landing_pad_runtime() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0006_0020i32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            305,
+            Some("landing-pad".to_string()),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(0x3f80_0000),
+            Some(0x3f20_0000),
+            Some(128),
+            Some(true),
+            None,
+            Some(0x4080_0000),
+            Some(false),
+            Some(0x45),
+            Some(0x13),
+            Some(84),
+            None,
+            None,
+            None,
+        );
+        state.configured_block_projection.apply_landing_pad_runtime(
+            build_pos,
+            LandingPadRuntimeProjection {
+                priority: 42,
+                cooldown_bits: 0x4140_0000,
+                arriving_item_id: Some(7),
+                arriving_timer_bits: 0x41c0_0000,
+                liquid_removed_bits: 0x3f80_0000,
+            },
+        );
+
+        assert_eq!(
+            state.typed_runtime_building_at(build_pos),
+            Some(expected_typed_runtime_building(
+                build_pos,
+                305,
+                "landing-pad",
+                TypedBuildingRuntimeKind::LandingPad,
+                TypedBuildingRuntimeValue::LandingPad {
+                    configured_item_id: None,
+                    priority: Some(42),
+                    cooldown_bits: Some(0x4140_0000),
+                    arriving_item_id: Some(7),
+                    arriving_timer_bits: Some(0x41c0_0000),
+                    liquid_removed_bits: Some(0x3f80_0000),
+                },
+                Vec::new(),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(0x3f80_0000),
+                Some(0x3f20_0000),
+                Some(128),
+                Some(true),
+                Some(0x4080_0000),
+                Some(false),
+                Some(0x45),
+                Some(0x13),
+                Some(84),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
+        );
     }
 
     #[test]
