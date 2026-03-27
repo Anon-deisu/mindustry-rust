@@ -537,6 +537,32 @@ mod tests {
     }
 
     #[test]
+    fn discover_first_server_skips_silent_targets_and_returns_later_responder() {
+        let _silent = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let silent_addr = _silent.local_addr().unwrap();
+        let responder = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let responder_addr = responder.local_addr().unwrap();
+        let handle = thread::spawn(move || {
+            let mut packet = [0u8; 64];
+            let (len, from) = responder.recv_from(&mut packet).unwrap();
+            assert_eq!(
+                decode_framework_message(&packet[..len]).unwrap(),
+                FrameworkMessage::DiscoverHost
+            );
+            responder.send_to(b"mdt-discovery-ok", from).unwrap();
+        });
+
+        let found = ArcNetSessionDriver::discover_first_server(
+            &[silent_addr, responder_addr],
+            Duration::from_millis(100),
+        )
+        .unwrap();
+
+        assert_eq!(found, Some(responder_addr));
+        handle.join().unwrap();
+    }
+
+    #[test]
     fn send_connect_resets_connect_sent_gate() {
         let (tcp_listener, _udp_socket, server_addr) = bind_local_arcnet_server();
         let _accept = thread::spawn(move || {
@@ -978,6 +1004,139 @@ mod tests {
         assert!(inbound_tcp_frames >= 1);
         assert!(inbound_udp_packets >= 1);
         assert!(inbound_framework_messages >= 2);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn ping_replies_follow_inbound_transport_and_count_framework_traffic() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let timing = ClientSessionTiming {
+            keepalive_interval_ms: 60_000,
+            client_snapshot_interval_ms: 60_000,
+            connect_timeout_ms: 60_000,
+            timeout_ms: 60_000,
+        };
+        let mut session =
+            ClientSession::from_remote_manifest_with_timing(&manifest, "fr", timing).unwrap();
+        let connect = session
+            .prepare_connect_packet(&sample_connect_payload())
+            .unwrap();
+
+        let (tcp_listener, udp_socket, server_addr) = bind_local_arcnet_server();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let server = thread::spawn(move || {
+            let (mut tcp_stream, _) = tcp_listener.accept().unwrap();
+            tcp_stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            tcp_stream
+                .set_write_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+
+            write_tcp_frame(
+                &mut tcp_stream,
+                &encode_framework_message(&FrameworkMessage::RegisterTcp { connection_id: 903 }),
+            );
+
+            let mut udp_buf = [0u8; 1024];
+            let (udp_len, client_addr) = udp_socket.recv_from(&mut udp_buf).unwrap();
+            assert_eq!(
+                decode_framework_message(&udp_buf[..udp_len]).unwrap(),
+                FrameworkMessage::RegisterUdp { connection_id: 903 }
+            );
+
+            udp_socket
+                .send_to(
+                    &encode_framework_message(&FrameworkMessage::RegisterUdp {
+                        connection_id: 903,
+                    }),
+                    client_addr,
+                )
+                .unwrap();
+
+            let connect_frame = read_tcp_frame(&mut tcp_stream);
+            let connect_packet = decode_packet(&connect_frame).unwrap();
+            assert_eq!(connect_packet.packet_id, CONNECT_PACKET_ID);
+
+            write_tcp_frame(
+                &mut tcp_stream,
+                &encode_framework_message(&FrameworkMessage::Ping {
+                    id: 41,
+                    is_reply: false,
+                }),
+            );
+            let mut tcp_reply = None;
+            for _ in 0..4 {
+                let frame = read_tcp_frame(&mut tcp_stream);
+                if let Ok(message) = decode_framework_message(&frame) {
+                    if matches!(message, FrameworkMessage::KeepAlive) {
+                        continue;
+                    }
+                    tcp_reply = Some(message);
+                    break;
+                }
+            }
+
+            udp_socket
+                .send_to(
+                    &encode_framework_message(&FrameworkMessage::Ping {
+                        id: 42,
+                        is_reply: false,
+                    }),
+                    client_addr,
+                )
+                .unwrap();
+            let (udp_reply_len, udp_reply_addr) = udp_socket.recv_from(&mut udp_buf).unwrap();
+            assert_eq!(udp_reply_addr, client_addr);
+            let udp_reply = decode_framework_message(&udp_buf[..udp_reply_len]).unwrap();
+
+            done_tx
+                .send((tcp_reply.expect("expected tcp ping reply"), udp_reply))
+                .unwrap();
+        });
+
+        let mut driver = ArcNetSessionDriver::connect(server_addr).unwrap();
+        driver.send_connect(&connect).unwrap();
+
+        let mut outbound_tcp_frames = 0usize;
+        let mut outbound_udp_packets = 0usize;
+        let mut outbound_framework_messages = 0usize;
+        let mut replies = None;
+
+        for tick in 0..100u64 {
+            if let Ok(done) = done_rx.try_recv() {
+                replies = Some(done);
+                break;
+            }
+            let report = driver.tick(&mut session, tick * 100, 32, 32).unwrap();
+            outbound_tcp_frames += report.outbound_tcp_frames;
+            outbound_udp_packets += report.outbound_udp_packets;
+            outbound_framework_messages += report.outbound_framework_messages;
+            if let Ok(done) = done_rx.try_recv() {
+                replies = Some(done);
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+
+        let (tcp_reply, udp_reply) = replies.expect("expected ping replies");
+        assert_eq!(
+            tcp_reply,
+            FrameworkMessage::Ping {
+                id: 41,
+                is_reply: true,
+            }
+        );
+        assert_eq!(
+            udp_reply,
+            FrameworkMessage::Ping {
+                id: 42,
+                is_reply: true,
+            }
+        );
+        assert!(outbound_tcp_frames >= 2);
+        assert!(outbound_udp_packets >= 2);
+        assert!(outbound_framework_messages >= 3);
         server.join().unwrap();
     }
 
