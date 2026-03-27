@@ -3315,7 +3315,9 @@ fn runtime_typed_build_config_value_label(
     value: &TypedBuildingRuntimeValue,
 ) -> String {
     match value {
-        TypedBuildingRuntimeValue::Core => "core".to_string(),
+        TypedBuildingRuntimeValue::Core { command_pos } => command_pos
+            .map(|(x_bits, y_bits)| format!("core:command=0x{x_bits:08x}:0x{y_bits:08x}"))
+            .unwrap_or_else(|| "core".to_string()),
         TypedBuildingRuntimeValue::Item(value) => format!(
             "{}={}",
             runtime_typed_build_config_item_label(kind),
@@ -8744,6 +8746,18 @@ mod tests {
             label,
             "item=7:priority=42:cooldown=0x41400000:arriving=3:arriving-timer=0x41c00000:liquid-removed=0x3f800000"
         );
+    }
+
+    #[test]
+    fn runtime_typed_build_config_value_label_formats_core_runtime() {
+        let label = runtime_typed_build_config_value_label(
+            TypedBuildingRuntimeKind::Core,
+            &TypedBuildingRuntimeValue::Core {
+                command_pos: Some((12.5f32.to_bits(), 18.0f32.to_bits())),
+            },
+        );
+
+        assert_eq!(label, "core:command=0x41480000:0x41900000");
     }
 
     #[test]

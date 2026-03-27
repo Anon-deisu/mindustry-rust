@@ -400,6 +400,11 @@ pub struct SorterRuntimeProjection {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CoreRuntimeProjection {
+    pub command_pos: Option<(u32, u32)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ItemBridgeBufferRuntimeProjection {
     pub index: i8,
     pub capacity: usize,
@@ -1866,6 +1871,7 @@ impl TileConfigProjection {
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ConfiguredBlockProjection {
+    pub core_runtime_by_build_pos: BTreeMap<i32, CoreRuntimeProjection>,
     pub unit_cargo_unload_point_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub item_source_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub liquid_source_liquid_by_build_pos: BTreeMap<i32, Option<i16>>,
@@ -1909,6 +1915,10 @@ pub struct ConfiguredBlockProjection {
 }
 
 impl ConfiguredBlockProjection {
+    pub fn apply_core_runtime(&mut self, build_pos: i32, projection: CoreRuntimeProjection) {
+        self.core_runtime_by_build_pos.insert(build_pos, projection);
+    }
+
     pub fn apply_unit_cargo_unload_point_item(&mut self, build_pos: i32, item_id: Option<i16>) {
         self.unit_cargo_unload_point_item_by_build_pos
             .insert(build_pos, item_id);
@@ -2175,6 +2185,7 @@ impl ConfiguredBlockProjection {
     }
 
     pub fn clear_building_state(&mut self, build_pos: i32) {
+        self.core_runtime_by_build_pos.remove(&build_pos);
         self.unit_cargo_unload_point_item_by_build_pos
             .remove(&build_pos);
         self.item_source_item_by_build_pos.remove(&build_pos);
@@ -3278,7 +3289,9 @@ impl TypedBuildingRuntimeKind {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypedBuildingRuntimeValue {
-    Core,
+    Core {
+        command_pos: Option<(u32, u32)>,
+    },
     Item(Option<i16>),
     LandingPad {
         configured_item_id: Option<i16>,
@@ -3561,7 +3574,12 @@ fn typed_runtime_building_model(
     let (kind, value) = match block_name {
         block_name if block_name.starts_with("core-") => (
             TypedBuildingRuntimeKind::Core,
-            TypedBuildingRuntimeValue::Core,
+            TypedBuildingRuntimeValue::Core {
+                command_pos: configured
+                    .core_runtime_by_build_pos
+                    .get(&build_pos)
+                    .and_then(|projection| projection.command_pos),
+            },
         ),
         "unit-cargo-unload-point" => (
             TypedBuildingRuntimeKind::UnitCargoUnloadPoint,
@@ -7545,6 +7563,75 @@ mod tests {
                 .runtime_typed_building_apply_projection
                 .building_at(build_pos),
             Some(&expected_shell)
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_core_runtime() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0005_0008i32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            301,
+            Some("core-shard".to_string()),
+            Some(1),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(0x3f80_0000),
+            Some(0x3f00_0000),
+            Some(123),
+            Some(true),
+            None,
+            Some(0x4000_0000),
+            Some(false),
+            Some(0x40),
+            Some(0x20),
+            Some(99),
+            None,
+            None,
+            None,
+        );
+        state.configured_block_projection.apply_core_runtime(
+            build_pos,
+            CoreRuntimeProjection {
+                command_pos: Some((12.5f32.to_bits(), 18.0f32.to_bits())),
+            },
+        );
+
+        assert_eq!(
+            state.typed_runtime_building_at(build_pos),
+            Some(expected_typed_runtime_building(
+                build_pos,
+                301,
+                "core-shard",
+                TypedBuildingRuntimeKind::Core,
+                TypedBuildingRuntimeValue::Core {
+                    command_pos: Some((12.5f32.to_bits(), 18.0f32.to_bits())),
+                },
+                Vec::new(),
+                Some(1),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(0x3f80_0000),
+                Some(0x3f00_0000),
+                Some(123),
+                Some(true),
+                Some(0x4000_0000),
+                Some(false),
+                Some(0x40),
+                Some(0x20),
+                Some(99),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
         );
     }
 
