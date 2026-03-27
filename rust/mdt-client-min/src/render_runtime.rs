@@ -3755,6 +3755,18 @@ fn runtime_typed_build_config_value_label(
             }
             parts.join(":")
         }
+        TypedBuildingRuntimeValue::Duct { item_id, rec_dir } => {
+            let mut parts = vec![format!(
+                "item={}",
+                item_id
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "clear".to_string())
+            )];
+            if let Some(rec_dir) = rec_dir {
+                parts.push(format!("rec-dir={rec_dir}"));
+            }
+            parts.join(":")
+        }
         TypedBuildingRuntimeValue::DuctUnloader { item_id, offset } => {
             let mut parts = vec![format!(
                 "item={}",
@@ -8822,6 +8834,64 @@ mod tests {
     }
 
     #[test]
+    fn render_runtime_adapter_reports_duct_runtime_in_inspector() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        let build_pos = pack_runtime_point2(38, 60);
+
+        state.configured_block_projection.apply_duct_runtime(
+            build_pos,
+            crate::session_state::DuctRuntimeProjection { rec_dir: 2 },
+        );
+        state
+            .resource_delta_projection
+            .seed_world_build_items(build_pos, &[(7, 1)]);
+        state.building_table_projection.by_build_pos.insert(
+            build_pos,
+            crate::session_state::BuildingProjection {
+                block_id: Some(1),
+                block_name: Some("duct".to_string()),
+                rotation: None,
+                team_id: None,
+                io_version: None,
+                module_bitmask: None,
+                time_scale_bits: None,
+                time_scale_duration_bits: None,
+                last_disabler_pos: None,
+                legacy_consume_connected: None,
+                config: None,
+                health_bits: None,
+                enabled: None,
+                efficiency: None,
+                optional_efficiency: None,
+                visible_flags: None,
+                turret_reload_counter_bits: None,
+                turret_rotation_bits: None,
+                item_turret_ammo_count: None,
+                continuous_turret_last_length_bits: None,
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                last_update: crate::session_state::BuildingProjectionUpdateKind::BlockSnapshotHead,
+            },
+        );
+
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let build_ui = hud
+            .build_ui
+            .as_ref()
+            .expect("build_ui observability should be present");
+        assert!(build_ui
+            .inspector_entries
+            .iter()
+            .any(|entry| { entry.family == "duct" && entry.sample == "38:60:item=7:rec-dir=2" }));
+    }
+
+    #[test]
     fn runtime_typed_build_config_value_label_formats_landing_pad_runtime() {
         let label = runtime_typed_build_config_value_label(
             TypedBuildingRuntimeKind::LandingPad,
@@ -8870,6 +8940,19 @@ mod tests {
         );
 
         assert_eq!(label, "link=60:61:warmup=0x3f000000:incoming=2:moved=1");
+    }
+
+    #[test]
+    fn runtime_typed_build_config_value_label_formats_duct_runtime() {
+        let label = runtime_typed_build_config_value_label(
+            TypedBuildingRuntimeKind::Duct,
+            &TypedBuildingRuntimeValue::Duct {
+                item_id: Some(7),
+                rec_dir: Some(2),
+            },
+        );
+
+        assert_eq!(label, "item=7:rec-dir=2");
     }
 
     #[test]

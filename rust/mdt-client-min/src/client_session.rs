@@ -21,10 +21,10 @@ use crate::session_state::{
     BuildingTableProjection, BuildingTailSummaryProjection, ConfiguredBlockOutcome,
     ConfiguredContentRef, ConstructorRuntimeProjection, ConveyorRuntimeProjection,
     CoreInventoryRuntimeBindingKind, CoreRuntimeProjection, CreateBulletProjection,
-    DestroyPayloadProjection, DuctUnloaderRuntimeProjection, EffectBusinessContentKind,
-    EffectBusinessPositionSource, EffectBusinessProjection, EntityFireSemanticProjection,
-    EntityPlayerSemanticProjection, EntityPuddleSemanticProjection, EntitySemanticProjection,
-    EntityUnitRuntimeSyncProjection, EntityUnitSemanticProjection,
+    DestroyPayloadProjection, DuctRuntimeProjection, DuctUnloaderRuntimeProjection,
+    EffectBusinessContentKind, EffectBusinessPositionSource, EffectBusinessProjection,
+    EntityFireSemanticProjection, EntityPlayerSemanticProjection, EntityPuddleSemanticProjection,
+    EntitySemanticProjection, EntityUnitRuntimeSyncProjection, EntityUnitSemanticProjection,
     EntityWeatherStateSemanticProjection, EntityWorldLabelSemanticProjection,
     FinishConnectingProjection, GameplayStateProjection, ItemBridgeBufferRuntimeProjection,
     ItemBridgeRuntimeProjection, LandingPadRuntimeProjection, MassDriverRuntimeProjection,
@@ -155,6 +155,8 @@ const BLOCK_NAME_PAYLOAD_ROUTER: &str = "payload-router";
 const BLOCK_NAME_REINFORCED_PAYLOAD_ROUTER: &str = "reinforced-payload-router";
 const BLOCK_NAME_UNLOADER: &str = "unloader";
 const BLOCK_NAME_DIRECTIONAL_UNLOADER: &str = "directional-unloader";
+const BLOCK_NAME_DUCT: &str = "duct";
+const BLOCK_NAME_ARMORED_DUCT: &str = "armored-duct";
 const BLOCK_NAME_DUCT_UNLOADER: &str = "duct-unloader";
 const BLOCK_NAME_DUCT_ROUTER: &str = "duct-router";
 const BLOCK_NAME_MASS_DRIVER: &str = "mass-driver";
@@ -8198,6 +8200,7 @@ impl ClientSession {
             let duct_unloader_item_id = summarize_duct_unloader_item_id(&building.parsed_tail);
             let duct_unloader_runtime =
                 summarize_duct_unloader_runtime_projection(&building.parsed_tail);
+            let duct_runtime = summarize_duct_runtime_projection(&building.parsed_tail);
             let reconstructor_command_id =
                 summarize_reconstructor_command_id(&building.parsed_tail);
             let memory_values_bits = summarize_memory_values_bits(&building.parsed_tail);
@@ -8250,6 +8253,7 @@ impl ClientSession {
                 payload_router_runtime,
                 duct_unloader_item_id,
                 duct_unloader_runtime,
+                duct_runtime,
                 directional_unloader_item_id: if candidate.block_name
                     == BLOCK_NAME_DIRECTIONAL_UNLOADER
                 {
@@ -8412,6 +8416,13 @@ impl ClientSession {
             self.state
                 .configured_block_projection
                 .apply_duct_unloader_runtime(build_pos, projection);
+        }
+        if let Some(projection) = summarize_duct_runtime_projection(parsed_tail) {
+            if matches!(block_name, Some(BLOCK_NAME_DUCT | BLOCK_NAME_ARMORED_DUCT)) {
+                self.state
+                    .configured_block_projection
+                    .apply_duct_runtime(build_pos, projection);
+            }
         }
         if let Some(command_id) = summarize_reconstructor_command_id(parsed_tail) {
             self.state
@@ -8666,6 +8677,16 @@ impl ClientSession {
             self.state
                 .configured_block_projection
                 .apply_duct_unloader_runtime(entry.build_pos, projection);
+        }
+        if let Some(projection) = entry.duct_runtime.clone() {
+            if matches!(
+                entry.block_name.as_deref(),
+                Some(BLOCK_NAME_DUCT | BLOCK_NAME_ARMORED_DUCT)
+            ) {
+                self.state
+                    .configured_block_projection
+                    .apply_duct_runtime(entry.build_pos, projection);
+            }
         }
         if let Some(item_id) = entry.directional_unloader_item_id {
             self.state
@@ -13195,6 +13216,7 @@ struct BlockSnapshotExtraEntrySummary {
     payload_router_runtime: Option<PayloadRouterRuntimeProjection>,
     duct_unloader_item_id: Option<Option<i16>>,
     duct_unloader_runtime: Option<DuctUnloaderRuntimeProjection>,
+    duct_runtime: Option<DuctRuntimeProjection>,
     directional_unloader_item_id: Option<Option<i16>>,
     reconstructor_command_id: Option<Option<u16>>,
     memory_values_bits: Option<Vec<u64>>,
@@ -13734,6 +13756,17 @@ fn summarize_duct_unloader_runtime_projection(
     };
     Some(DuctUnloaderRuntimeProjection {
         offset: duct_unloader.offset,
+    })
+}
+
+fn summarize_duct_runtime_projection(
+    parsed_tail: &mdt_world::ParsedBuildingTail,
+) -> Option<DuctRuntimeProjection> {
+    let mdt_world::ParsedBuildingTail::OneI8(value) = parsed_tail else {
+        return None;
+    };
+    Some(DuctRuntimeProjection {
+        rec_dir: value.value,
     })
 }
 
@@ -21773,6 +21806,7 @@ mod tests {
                 payload_router_runtime: None,
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
+                duct_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -21868,6 +21902,7 @@ mod tests {
                 payload_router_runtime: None,
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
+                duct_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -21954,6 +21989,7 @@ mod tests {
                 payload_router_runtime: None,
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
+                duct_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -22062,6 +22098,7 @@ mod tests {
                 payload_router_runtime: None,
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
+                duct_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -22129,6 +22166,7 @@ mod tests {
                 payload_router_runtime: None,
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
+                duct_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -22810,6 +22848,16 @@ mod tests {
     }
 
     #[test]
+    fn summarize_duct_runtime_projection_extracts_rec_dir() {
+        assert_eq!(
+            summarize_duct_runtime_projection(&mdt_world::ParsedBuildingTail::OneI8(
+                mdt_world::OneI8TailSnapshot { value: 2 }
+            )),
+            Some(DuctRuntimeProjection { rec_dir: 2 })
+        );
+    }
+
+    #[test]
     fn summarize_item_buffer_runtime_projection_extracts_runtime() {
         assert_eq!(
             summarize_item_buffer_runtime_projection(&mdt_world::ParsedBuildingTail::Junction(
@@ -23416,6 +23464,27 @@ mod tests {
                 first_x_raw: Some(-3),
                 first_y_raw: Some(5),
             })
+        );
+    }
+
+    #[test]
+    fn loaded_world_tail_business_helper_applies_duct_runtime_projection() {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_build_pos_for_block_snapshot_test(56, 57);
+
+        session.apply_loaded_world_parsed_tail_business(
+            build_pos,
+            Some(BLOCK_NAME_DUCT),
+            &mdt_world::ParsedBuildingTail::OneI8(mdt_world::OneI8TailSnapshot { value: 2 }),
+        );
+
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .duct_runtime_by_build_pos
+                .get(&build_pos),
+            Some(&DuctRuntimeProjection { rec_dir: 2 })
         );
     }
 
@@ -24311,6 +24380,7 @@ mod tests {
                 payload_router_runtime: None,
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
+                duct_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -24368,6 +24438,7 @@ mod tests {
                 payload_router_runtime: Some(payload_router_runtime.clone()),
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
+                duct_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -24422,6 +24493,7 @@ mod tests {
                 payload_router_runtime: None,
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
+                duct_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: Some(memory_values_bits.clone()),
@@ -24555,6 +24627,7 @@ mod tests {
                 payload_router_runtime: None,
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
+                duct_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -24615,6 +24688,7 @@ mod tests {
                 payload_router_runtime: None,
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
+                duct_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -24735,6 +24809,7 @@ mod tests {
                 payload_router_runtime: None,
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
+                duct_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -24793,6 +24868,7 @@ mod tests {
                 payload_router_runtime: None,
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
+                duct_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -24847,6 +24923,7 @@ mod tests {
                 payload_router_runtime: None,
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
+                duct_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -24906,6 +24983,7 @@ mod tests {
                 payload_router_runtime: None,
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
+                duct_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -24970,6 +25048,7 @@ mod tests {
                 payload_router_runtime: None,
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
+                duct_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -25027,6 +25106,7 @@ mod tests {
                 payload_router_runtime: None,
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
+                duct_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -25081,6 +25161,7 @@ mod tests {
                 payload_router_runtime: None,
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
+                duct_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -25135,6 +25216,7 @@ mod tests {
                 payload_router_runtime: None,
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
+                duct_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -25319,6 +25401,7 @@ mod tests {
                 payload_router_runtime: None,
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
+                duct_runtime: None,
                 directional_unloader_item_id: Some(Some(item_id)),
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -25431,6 +25514,7 @@ mod tests {
                 payload_router_runtime: None,
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
+                duct_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -25563,6 +25647,7 @@ mod tests {
                 payload_router_runtime: None,
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
+                duct_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -25704,6 +25789,7 @@ mod tests {
                 payload_router_runtime: None,
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
+                duct_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -25826,6 +25912,7 @@ mod tests {
                 payload_router_runtime: None,
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
+                duct_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -25880,6 +25967,7 @@ mod tests {
                 payload_router_runtime: None,
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
+                duct_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -25934,6 +26022,7 @@ mod tests {
                 payload_router_runtime: None,
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
+                duct_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -26080,6 +26169,7 @@ mod tests {
                 payload_router_runtime: None,
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
+                duct_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -26182,6 +26272,7 @@ mod tests {
                 payload_router_runtime: None,
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
+                duct_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -26234,6 +26325,94 @@ mod tests {
     }
 
     #[test]
+    fn apply_loaded_world_block_snapshot_entries_forwards_duct_runtime_summary() {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_build_pos_for_block_snapshot_test(60, 61);
+        let item_id = loaded_world_content_id_for_name(&session, ITEM_CONTENT_TYPE, "copper");
+
+        session.apply_block_snapshot_entries_from_loaded_world_entries(vec![
+            BlockSnapshotExtraEntrySummary {
+                build_pos,
+                block_id: 321,
+                block_name: Some(BLOCK_NAME_ARMORED_DUCT.to_string()),
+                health_bits: Some(0x3f80_0000),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                enabled: Some(true),
+                module_bitmask: Some(4),
+                time_scale_bits: Some(0x3f00_0000),
+                time_scale_duration_bits: Some(0x3e80_0000),
+                last_disabler_pos: Some(77),
+                legacy_consume_connected: Some(false),
+                efficiency: Some(0x40),
+                optional_efficiency: Some(0x20),
+                visible_flags: Some(9),
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                core_runtime: None,
+                conveyor_runtime: None,
+                constructor_recipe_block_id: None,
+                constructor_runtime: None,
+                unit_factory_current_plan: None,
+                unit_factory_runtime: None,
+                payload_loader_runtime: None,
+                landing_pad_config_item_id: None,
+                landing_pad_runtime: None,
+                message_text: None,
+                payload_source_content: None,
+                payload_source_runtime: None,
+                payload_router_sorted_content: None,
+                payload_router_runtime: None,
+                duct_unloader_item_id: None,
+                duct_unloader_runtime: None,
+                duct_runtime: Some(DuctRuntimeProjection { rec_dir: 2 }),
+                directional_unloader_item_id: None,
+                reconstructor_command_id: None,
+                memory_values_bits: None,
+                canvas_bytes: None,
+                mass_driver_link: None,
+                mass_driver_runtime: None,
+                payload_mass_driver_link: None,
+                payload_mass_driver_runtime: None,
+                sorter_runtime: None,
+                item_buffer_runtime: None,
+                nullable_item_id: None,
+                item_bridge_link: None,
+                item_bridge_runtime: None,
+                light_color: None,
+                switch_enabled: None,
+                build_item_stacks: vec![(item_id, 1)],
+                build_liquid_stacks: Vec::new(),
+            },
+        ]);
+
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .duct_runtime_by_build_pos
+                .get(&build_pos),
+            Some(&DuctRuntimeProjection { rec_dir: 2 })
+        );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos)
+                .map(|building| (building.kind, building.value.clone())),
+            Some((
+                crate::session_state::TypedBuildingRuntimeKind::Duct,
+                crate::session_state::TypedBuildingRuntimeValue::Duct {
+                    item_id: Some(item_id),
+                    rec_dir: Some(2),
+                },
+            ))
+        );
+    }
+
+    #[test]
     fn apply_loaded_world_block_snapshot_entries_forwards_core_runtime_summary() {
         let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let build_pos = pack_build_pos_for_block_snapshot_test(60, 61);
@@ -26276,6 +26455,7 @@ mod tests {
                 payload_router_runtime: None,
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
+                duct_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -26377,6 +26557,7 @@ mod tests {
                 payload_router_runtime: None,
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
+                duct_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -26431,6 +26612,7 @@ mod tests {
                 payload_router_runtime: None,
                 duct_unloader_item_id: Some(Some(item_id)),
                 duct_unloader_runtime: Some(DuctUnloaderRuntimeProjection { offset: 11 }),
+                duct_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -26485,6 +26667,7 @@ mod tests {
                 payload_router_runtime: None,
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
+                duct_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: Some(Some(7)),
                 memory_values_bits: None,
@@ -26539,6 +26722,7 @@ mod tests {
                 payload_router_runtime: None,
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
+                duct_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -26593,6 +26777,7 @@ mod tests {
                 payload_router_runtime: None,
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
+                duct_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -26655,6 +26840,7 @@ mod tests {
                 payload_router_runtime: None,
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
+                duct_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -26709,6 +26895,7 @@ mod tests {
                 payload_router_runtime: None,
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
+                duct_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -26763,6 +26950,7 @@ mod tests {
                 payload_router_runtime: None,
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
+                duct_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,

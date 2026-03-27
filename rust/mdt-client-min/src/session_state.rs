@@ -429,6 +429,11 @@ pub struct ItemBridgeRuntimeProjection {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DuctRuntimeProjection {
+    pub rec_dir: i8,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DuctUnloaderRuntimeProjection {
     pub offset: i16,
 }
@@ -1906,6 +1911,7 @@ pub struct ConfiguredBlockProjection {
     pub item_bridge_runtime_by_build_pos: BTreeMap<i32, ItemBridgeRuntimeProjection>,
     pub unloader_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub directional_unloader_item_by_build_pos: BTreeMap<i32, Option<i16>>,
+    pub duct_runtime_by_build_pos: BTreeMap<i32, DuctRuntimeProjection>,
     pub duct_unloader_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub duct_unloader_runtime_by_build_pos: BTreeMap<i32, DuctUnloaderRuntimeProjection>,
     pub duct_router_item_by_build_pos: BTreeMap<i32, Option<i16>>,
@@ -2086,6 +2092,10 @@ impl ConfiguredBlockProjection {
             .insert(build_pos, projection);
     }
 
+    pub fn apply_duct_runtime(&mut self, build_pos: i32, projection: DuctRuntimeProjection) {
+        self.duct_runtime_by_build_pos.insert(build_pos, projection);
+    }
+
     pub fn apply_unloader_item(&mut self, build_pos: i32, item_id: Option<i16>) {
         self.unloader_item_by_build_pos.insert(build_pos, item_id);
     }
@@ -2234,6 +2244,7 @@ impl ConfiguredBlockProjection {
         self.unloader_item_by_build_pos.remove(&build_pos);
         self.directional_unloader_item_by_build_pos
             .remove(&build_pos);
+        self.duct_runtime_by_build_pos.remove(&build_pos);
         self.duct_unloader_item_by_build_pos.remove(&build_pos);
         self.duct_unloader_runtime_by_build_pos.remove(&build_pos);
         self.duct_router_item_by_build_pos.remove(&build_pos);
@@ -3249,6 +3260,7 @@ pub enum TypedBuildingRuntimeKind {
     ItemBridge,
     Unloader,
     DirectionalUnloader,
+    Duct,
     DuctUnloader,
     DuctRouter,
     MassDriver,
@@ -3290,6 +3302,7 @@ impl TypedBuildingRuntimeKind {
             Self::ItemBridge => "item-bridge",
             Self::Unloader => "unloader",
             Self::DirectionalUnloader => "directional-unloader",
+            Self::Duct => "duct",
             Self::DuctUnloader => "duct-unloader",
             Self::DuctRouter => "duct-router",
             Self::MassDriver => "mass-driver",
@@ -3409,6 +3422,10 @@ pub enum TypedBuildingRuntimeValue {
         buffer_capacity: Option<usize>,
         buffer_normalized_index: Option<i32>,
         buffer_entry_count: Option<usize>,
+    },
+    Duct {
+        item_id: Option<i16>,
+        rec_dir: Option<i8>,
     },
     DuctUnloader {
         item_id: Option<i16>,
@@ -3938,6 +3955,16 @@ fn typed_runtime_building_model(
                     .get(&build_pos)
                     .copied()?,
             ),
+        ),
+        "duct" | "armored-duct" => (
+            TypedBuildingRuntimeKind::Duct,
+            TypedBuildingRuntimeValue::Duct {
+                item_id: inventory_item_stacks.first().map(|(item_id, _)| *item_id),
+                rec_dir: configured
+                    .duct_runtime_by_build_pos
+                    .get(&build_pos)
+                    .map(|projection| projection.rec_dir),
+            },
         ),
         "directional-unloader" => (
             TypedBuildingRuntimeKind::DirectionalUnloader,
@@ -8414,6 +8441,117 @@ mod tests {
                 TypedBuildingRuntimeValue::DuctUnloader {
                     item_id: Some(41),
                     offset: Some(11),
+                },
+            ))
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_duct_family_shells() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0006_0017i32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            307,
+            Some("duct".to_string()),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(0x3f80_0000),
+            Some(0x3f20_0000),
+            Some(127),
+            Some(false),
+            Some(TypeIoObject::Null),
+            Some(0x4080_0000),
+            Some(true),
+            Some(0x44),
+            Some(0x12),
+            Some(85),
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(
+            state.typed_runtime_building_at(build_pos),
+            Some(expected_typed_runtime_building(
+                build_pos,
+                307,
+                "duct",
+                TypedBuildingRuntimeKind::Duct,
+                TypedBuildingRuntimeValue::Duct {
+                    item_id: None,
+                    rec_dir: None,
+                },
+                Vec::new(),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(0x3f80_0000),
+                Some(0x3f20_0000),
+                Some(127),
+                Some(false),
+                Some(0x4080_0000),
+                Some(true),
+                Some(0x44),
+                Some(0x12),
+                Some(85),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_duct_family_runtime() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0006_0016i32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            308,
+            Some("armored-duct".to_string()),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(0x3f80_0000),
+            Some(0x3f20_0000),
+            Some(128),
+            Some(true),
+            Some(TypeIoObject::Null),
+            Some(0x4080_0000),
+            Some(false),
+            Some(0x45),
+            Some(0x13),
+            Some(84),
+            None,
+            None,
+            None,
+        );
+        state
+            .resource_delta_projection
+            .seed_world_build_items(build_pos, &[(41, 1)]);
+        state
+            .configured_block_projection
+            .apply_duct_runtime(build_pos, DuctRuntimeProjection { rec_dir: 2 });
+
+        assert_eq!(
+            state
+                .typed_runtime_building_at(build_pos)
+                .map(|building| (building.kind, building.value.clone())),
+            Some((
+                TypedBuildingRuntimeKind::Duct,
+                TypedBuildingRuntimeValue::Duct {
+                    item_id: Some(41),
+                    rec_dir: Some(2),
                 },
             ))
         );
