@@ -3476,6 +3476,7 @@ pub enum TypedBuildingRuntimeKind {
     Unloader,
     DirectionalUnloader,
     Duct,
+    Projector,
     ShieldProjector,
     DuctUnloader,
     DuctRouter,
@@ -3532,6 +3533,7 @@ impl TypedBuildingRuntimeKind {
             Self::Unloader => "unloader",
             Self::DirectionalUnloader => "directional-unloader",
             Self::Duct => "duct",
+            Self::Projector => "projector",
             Self::ShieldProjector => "shield-projector",
             Self::DuctUnloader => "duct-unloader",
             Self::DuctRouter => "duct-router",
@@ -4421,6 +4423,10 @@ fn typed_runtime_building_model(
                     .get(&build_pos)
                     .map(|projection| projection.rec_dir),
             },
+        ),
+        "mender" | "mend-projector" => (
+            TypedBuildingRuntimeKind::Projector,
+            TypedBuildingRuntimeValue::Block(building.block_id),
         ),
         "shield-projector" | "large-shield-projector" => {
             let runtime = configured
@@ -9638,9 +9644,74 @@ mod tests {
     }
 
     #[test]
+    fn session_state_runtime_typed_building_projection_supports_projector_family_shells() {
+        for (build_pos, block_id, block_name) in [
+            (0x0006_0019i32, 311, "mender"),
+            (0x0006_001ai32, 312, "mend-projector"),
+        ] {
+            let mut state = SessionState::default();
+            state.building_table_projection.apply_block_snapshot_head(
+                build_pos,
+                block_id,
+                Some(block_name.to_string()),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(0x3f80_0000),
+                Some(0x3f20_0000),
+                Some(127),
+                Some(false),
+                Some(TypeIoObject::Null),
+                Some(0x4080_0000),
+                Some(true),
+                Some(0x44),
+                Some(0x12),
+                Some(85),
+                None,
+                None,
+                None,
+            );
+
+            assert_eq!(
+                state.typed_runtime_building_at(build_pos),
+                Some(expected_typed_runtime_building(
+                    build_pos,
+                    block_id,
+                    block_name,
+                    TypedBuildingRuntimeKind::Projector,
+                    TypedBuildingRuntimeValue::Block(Some(block_id)),
+                    Vec::new(),
+                    Some(2),
+                    Some(3),
+                    Some(4),
+                    Some(5),
+                    Some(0x3f80_0000),
+                    Some(0x3f20_0000),
+                    Some(127),
+                    Some(false),
+                    Some(0x4080_0000),
+                    Some(true),
+                    Some(0x44),
+                    Some(0x12),
+                    Some(85),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    BuildingProjectionUpdateKind::BlockSnapshotHead,
+                ))
+            );
+        }
+    }
+
+    #[test]
     fn session_state_runtime_typed_building_projection_supports_repair_turret_family_shells() {
         let mut state = SessionState::default();
-        let build_pos = 0x0006_0019i32;
+        let build_pos = 0x0006_001bi32;
         state.building_table_projection.apply_block_snapshot_head(
             build_pos,
             311,
