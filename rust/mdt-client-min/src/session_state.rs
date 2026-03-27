@@ -416,6 +416,11 @@ pub struct ItemBridgeRuntimeProjection {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DuctUnloaderRuntimeProjection {
+    pub offset: i16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PayloadSourceRuntimeProjection {
     pub command_pos: Option<(u32, u32)>,
     pub pay_vector_x_bits: u32,
@@ -1876,6 +1881,7 @@ pub struct ConfiguredBlockProjection {
     pub unloader_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub directional_unloader_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub duct_unloader_item_by_build_pos: BTreeMap<i32, Option<i16>>,
+    pub duct_unloader_runtime_by_build_pos: BTreeMap<i32, DuctUnloaderRuntimeProjection>,
     pub duct_router_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub mass_driver_link_by_build_pos: BTreeMap<i32, Option<i32>>,
     pub mass_driver_runtime_by_build_pos: BTreeMap<i32, MassDriverRuntimeProjection>,
@@ -2037,6 +2043,15 @@ impl ConfiguredBlockProjection {
             .insert(build_pos, item_id);
     }
 
+    pub fn apply_duct_unloader_runtime(
+        &mut self,
+        build_pos: i32,
+        projection: DuctUnloaderRuntimeProjection,
+    ) {
+        self.duct_unloader_runtime_by_build_pos
+            .insert(build_pos, projection);
+    }
+
     pub fn apply_duct_router_item(&mut self, build_pos: i32, item_id: Option<i16>) {
         self.duct_router_item_by_build_pos
             .insert(build_pos, item_id);
@@ -2159,6 +2174,7 @@ impl ConfiguredBlockProjection {
         self.directional_unloader_item_by_build_pos
             .remove(&build_pos);
         self.duct_unloader_item_by_build_pos.remove(&build_pos);
+        self.duct_unloader_runtime_by_build_pos.remove(&build_pos);
         self.duct_router_item_by_build_pos.remove(&build_pos);
         self.mass_driver_link_by_build_pos.remove(&build_pos);
         self.mass_driver_runtime_by_build_pos.remove(&build_pos);
@@ -3315,6 +3331,10 @@ pub enum TypedBuildingRuntimeValue {
         buffer_normalized_index: Option<i32>,
         buffer_entry_count: Option<usize>,
     },
+    DuctUnloader {
+        item_id: Option<i16>,
+        offset: Option<i16>,
+    },
     Block(Option<i16>),
     Color(i32),
     Content(Option<ConfiguredContentRef>),
@@ -3814,15 +3834,26 @@ fn typed_runtime_building_model(
                     .copied()?,
             ),
         ),
-        "duct-unloader" => (
-            TypedBuildingRuntimeKind::DuctUnloader,
-            TypedBuildingRuntimeValue::Item(
-                configured
-                    .duct_unloader_item_by_build_pos
-                    .get(&build_pos)
-                    .copied()?,
-            ),
-        ),
+        "duct-unloader" => {
+            let item_id = configured
+                .duct_unloader_item_by_build_pos
+                .get(&build_pos)
+                .copied();
+            let runtime = configured
+                .duct_unloader_runtime_by_build_pos
+                .get(&build_pos);
+            if item_id.is_none() && runtime.is_none() {
+                return None;
+            }
+
+            (
+                TypedBuildingRuntimeKind::DuctUnloader,
+                TypedBuildingRuntimeValue::DuctUnloader {
+                    item_id: item_id.flatten(),
+                    offset: runtime.map(|projection| projection.offset),
+                },
+            )
+        }
         "duct-router" => (
             TypedBuildingRuntimeKind::DuctRouter,
             TypedBuildingRuntimeValue::Item(
@@ -8153,6 +8184,53 @@ mod tests {
                     legacy: Some(true),
                     non_empty_side_mask: Some(0x02),
                     buffered_item_count: Some(1),
+                },
+            ))
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_duct_unloader_runtime() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0006_0022i32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            307,
+            Some("duct-unloader".to_string()),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(0x3f80_0000),
+            Some(0x3f20_0000),
+            Some(128),
+            Some(true),
+            Some(TypeIoObject::Null),
+            Some(0x4080_0000),
+            Some(false),
+            Some(0x45),
+            Some(0x13),
+            Some(84),
+            None,
+            None,
+            None,
+        );
+        state
+            .configured_block_projection
+            .apply_duct_unloader_item(build_pos, Some(41));
+        state
+            .configured_block_projection
+            .apply_duct_unloader_runtime(build_pos, DuctUnloaderRuntimeProjection { offset: 11 });
+
+        assert_eq!(
+            state
+                .typed_runtime_building_at(build_pos)
+                .map(|building| (building.kind, building.value.clone())),
+            Some((
+                TypedBuildingRuntimeKind::DuctUnloader,
+                TypedBuildingRuntimeValue::DuctUnloader {
+                    item_id: Some(41),
+                    offset: Some(11),
                 },
             ))
         );

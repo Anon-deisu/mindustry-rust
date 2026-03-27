@@ -3683,6 +3683,18 @@ fn runtime_typed_build_config_value_label(
             }
             parts.join(":")
         }
+        TypedBuildingRuntimeValue::DuctUnloader { item_id, offset } => {
+            let mut parts = vec![format!(
+                "item={}",
+                item_id
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "clear".to_string())
+            )];
+            if let Some(offset) = offset {
+                parts.push(format!("offset={offset}"));
+            }
+            parts.join(":")
+        }
         TypedBuildingRuntimeValue::Content(content) => format!(
             "content={}",
             content
@@ -8203,6 +8215,17 @@ mod tests {
             );
         state
             .configured_block_projection
+            .duct_unloader_item_by_build_pos
+            .insert(pack_runtime_point2(34, 56), Some(7));
+        state
+            .configured_block_projection
+            .duct_unloader_runtime_by_build_pos
+            .insert(
+                pack_runtime_point2(34, 56),
+                crate::session_state::DuctUnloaderRuntimeProjection { offset: 11 },
+            );
+        state
+            .configured_block_projection
             .item_bridge_link_by_build_pos
             .insert(
                 pack_runtime_point2(33, 55),
@@ -8236,6 +8259,7 @@ mod tests {
             (pack_runtime_point2(31, 53), "payload-mass-driver"),
             (pack_runtime_point2(32, 54), "sorter"),
             (pack_runtime_point2(33, 55), "bridge-conduit"),
+            (pack_runtime_point2(34, 56), "duct-unloader"),
         ] {
             state.building_table_projection.by_build_pos.insert(
                 build_pos,
@@ -8291,6 +8315,7 @@ mod tests {
         assert!(hud.status_text.contains(":pn1@23:45=n2:24:46|25:47:"));
         assert!(hud.status_text.contains(":rc1@26:48=12"));
         assert!(hud.status_text.contains(":ib1@33:55=60:61:"));
+        assert!(hud.status_text.contains(":du1@34:56=7:"));
         let build_ui = hud
             .build_ui
             .as_ref()
@@ -8359,6 +8384,9 @@ mod tests {
             entry.family == "item-bridge"
                 && entry.sample
                     == "33:55:bridge-conduit:link=60:61:warmup=0x3f000000:incoming=2:moved=1"
+        }));
+        assert!(build_ui.inspector_entries.iter().any(|entry| {
+            entry.family == "duct-unloader" && entry.sample == "34:56:item=7:offset=11"
         }));
         let payload_source_icon = scene
             .objects
@@ -8581,6 +8609,19 @@ mod tests {
             label,
             "link=62:63:warmup=0x00000000:incoming=0:moved=0:buf=1/4@1:n2"
         );
+    }
+
+    #[test]
+    fn runtime_typed_build_config_value_label_formats_duct_unloader_runtime() {
+        let label = runtime_typed_build_config_value_label(
+            TypedBuildingRuntimeKind::DuctUnloader,
+            &TypedBuildingRuntimeValue::DuctUnloader {
+                item_id: Some(7),
+                offset: Some(11),
+            },
+        );
+
+        assert_eq!(label, "item=7:offset=11");
     }
 
     #[test]
