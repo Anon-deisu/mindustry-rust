@@ -40486,6 +40486,8 @@ mod tests {
     fn msav_post_load_world_executes_runtime_apply_for_save11_regions() {
         let save = parse_msav_save(&sample_msav_post_load_save11_bytes()).unwrap();
         let post_load = save.post_load_world().unwrap();
+        let plan = post_load.runtime_seed_plan();
+        let script = post_load.runtime_apply_script();
         let execution = post_load.execute_runtime_apply();
         let shell = execution.world_shell.as_ref().unwrap();
         let effective_entity = shell.loadable_entities.first().unwrap();
@@ -40497,17 +40499,41 @@ mod tests {
             .unwrap();
 
         assert!(execution.has_world_shell());
+        assert!(!execution.can_seed_runtime_apply);
+        assert!(execution.world_shell_ready);
+        assert!(!execution.can_activate_live_runtime());
         assert_eq!(execution.failed_step_count(), 0);
         assert!(execution.issues.is_empty());
         assert!(execution.executed_step_count() > 0);
+        assert_eq!(execution.executed_steps, script.apply_now_steps);
+        assert_eq!(
+            execution.awaiting_world_shell_steps,
+            script.awaiting_world_shell_steps
+        );
+        assert_eq!(execution.blocked_steps, script.blocked_steps);
+        assert_eq!(execution.deferred_steps, script.deferred_steps);
+        assert_eq!(execution.pending_step_count(), script.deferred_step_count());
+        assert_eq!(shell.seed, plan.world_seed);
+        assert_eq!(execution.entity_remaps, plan.entity_remap_seeds);
+        assert_eq!(execution.custom_chunks, plan.custom_chunk_seeds);
+        assert!(execution.skipped_entities.is_empty());
         assert_eq!(
             execution.entity_remaps.len(),
             execution.entity_remaps_by_custom_id.len()
         );
+        for seed in &plan.entity_remap_seeds {
+            assert_eq!(
+                execution.entity_remaps_by_custom_id.get(&seed.custom_id),
+                Some(seed)
+            );
+        }
         assert_eq!(
             execution.custom_chunks.len(),
             execution.custom_chunks_by_name.len()
         );
+        for seed in &plan.custom_chunk_seeds {
+            assert_eq!(execution.custom_chunks_by_name.get(&seed.name), Some(seed));
+        }
         assert_eq!(
             shell.team_plans.len(),
             shell
@@ -40516,11 +40542,35 @@ mod tests {
                 .map(Vec::len)
                 .sum::<usize>()
         );
+        assert_eq!(
+            shell.owned_step_count(SavePostLoadRuntimeWorldSurfaceKind::WorldShell),
+            1
+        );
+        assert_eq!(
+            shell.owned_step_count(SavePostLoadRuntimeWorldSurfaceKind::TeamPlans),
+            plan.team_plan_seeds.len()
+        );
         assert_eq!(shell.markers.len(), shell.markers_by_id.len());
+        assert_eq!(
+            shell.owned_step_count(SavePostLoadRuntimeWorldSurfaceKind::Markers),
+            plan.marker_seeds.len()
+        );
         assert_eq!(shell.buildings.len(), shell.buildings_by_center_index.len());
+        assert_eq!(
+            shell.owned_step_count(SavePostLoadRuntimeWorldSurfaceKind::StaticFog),
+            usize::from(plan.static_fog_seed.is_some())
+        );
+        assert_eq!(
+            shell.owned_step_count(SavePostLoadRuntimeWorldSurfaceKind::Buildings),
+            plan.building_seeds.len()
+        );
         assert_eq!(
             shell.loadable_entities.len(),
             shell.loadable_entities_by_id.len()
+        );
+        assert_eq!(
+            shell.owned_step_count(SavePostLoadRuntimeWorldSurfaceKind::LoadableEntities),
+            plan.loadable_entity_seeds.len()
         );
         assert_eq!(
             shell
@@ -40547,6 +40597,7 @@ mod tests {
         let save = parse_msav_save(&sample_msav_post_load_save11_bytes()).unwrap();
         let post_load = save.post_load_world().unwrap();
         let script = post_load.runtime_apply_script();
+        let runtime_apply = post_load.execute_runtime_apply();
         let execution = post_load.execute_runtime_world_semantics();
         let shell = execution.world_shell.as_ref().unwrap();
         let expected_steps = script
@@ -40558,9 +40609,11 @@ mod tests {
 
         assert!(execution.world_shell_ready);
         assert!(execution.can_apply_world_semantics());
+        assert!(execution.can_activate_live_runtime());
         assert!(execution.has_world_shell());
         assert_eq!(execution.failed_step_count(), 0);
         assert_eq!(execution.pending_step_count(), 0);
+        assert_eq!(execution.targeted_step_count(), expected_steps.len());
         assert!(execution.issues.is_empty());
         assert_eq!(execution.executed_steps, expected_steps);
         assert!(execution
@@ -40571,6 +40624,7 @@ mod tests {
             .deferred_steps
             .iter()
             .all(|step| !step.targets_world_semantics()));
+        assert!(!runtime_apply.can_activate_live_runtime());
         assert_eq!(
             shell.buildings.len(),
             post_load.map.world.building_centers.len()
@@ -40708,6 +40762,83 @@ mod tests {
                 .next_apply_now_batch()
                 .map(|batch| (Some(batch.batch_index), Some(batch.step_count)))
                 .unwrap()
+        );
+    }
+
+    #[test]
+    fn msav_post_load_world_groups_runtime_readiness_by_save_regions_for_save11_regions() {
+        let save = parse_msav_save(&sample_msav_post_load_save11_bytes()).unwrap();
+        let post_load = save.post_load_world().unwrap();
+        let plan = post_load.runtime_seed_plan();
+        let readiness = post_load.runtime_readiness();
+        let skipped = plan.skipped_entity_seeds.first().unwrap();
+
+        assert_eq!(
+            readiness
+                .source_regions()
+                .iter()
+                .map(|region| region.source_region_name)
+                .collect::<Vec<_>>(),
+            vec!["map", "entities", "markers", "custom"]
+        );
+
+        let map_region = readiness.source_region("map").unwrap();
+        assert_eq!(
+            map_region.apply_now_step_count,
+            1 + plan.building_seeds.len()
+        );
+        assert_eq!(map_region.awaiting_world_shell_step_count, 0);
+        assert_eq!(map_region.blocked_step_count, 0);
+        assert_eq!(map_region.deferred_step_count, 0);
+        assert_eq!(map_region.blockers, Vec::<SavePostLoadConsumerBlocker>::new());
+        assert!(!map_region.has_blockers());
+        assert!(!map_region.has_pending_world_shell());
+        assert!(!map_region.has_deferred());
+
+        let entities_region = readiness.source_region("entities").unwrap();
+        assert_eq!(
+            entities_region.apply_now_step_count,
+            plan.entity_remap_seeds.len()
+                + plan.team_plan_seeds.len()
+                + plan.loadable_entity_seeds.len()
+        );
+        assert_eq!(entities_region.awaiting_world_shell_step_count, 0);
+        assert_eq!(entities_region.blocked_step_count, 0);
+        assert_eq!(entities_region.deferred_step_count, plan.skipped_entity_seeds.len());
+        assert_eq!(
+            entities_region.blockers,
+            vec![SavePostLoadConsumerBlocker::SkippedEntity {
+                entity_index: skipped.entity_index,
+                entity_id: skipped.activation.entity_id,
+                source_name: skipped.activation.source_name.clone(),
+                effective_name: skipped.activation.effective_name.clone(),
+            }]
+        );
+        assert!(entities_region.has_blockers());
+        assert!(!entities_region.has_pending_world_shell());
+        assert!(entities_region.has_deferred());
+
+        let markers_region = readiness.source_region("markers").unwrap();
+        assert_eq!(markers_region.apply_now_step_count, plan.marker_seeds.len());
+        assert_eq!(markers_region.awaiting_world_shell_step_count, 0);
+        assert_eq!(markers_region.blocked_step_count, 0);
+        assert_eq!(markers_region.deferred_step_count, 0);
+        assert_eq!(
+            markers_region.blockers,
+            Vec::<SavePostLoadConsumerBlocker>::new()
+        );
+
+        let custom_region = readiness.source_region("custom").unwrap();
+        assert_eq!(
+            custom_region.apply_now_step_count,
+            usize::from(plan.static_fog_seed.is_some()) + plan.custom_chunk_seeds.len()
+        );
+        assert_eq!(custom_region.awaiting_world_shell_step_count, 0);
+        assert_eq!(custom_region.blocked_step_count, 0);
+        assert_eq!(custom_region.deferred_step_count, 0);
+        assert_eq!(
+            custom_region.blockers,
+            Vec::<SavePostLoadConsumerBlocker>::new()
         );
     }
 
@@ -40981,6 +41112,81 @@ mod tests {
             .awaiting_world_shell_regions
             .iter()
             .any(|region| region.kind == SavePostLoadRuntimeRegionKind::LoadableEntities));
+    }
+
+    #[test]
+    fn msav_post_load_world_groups_runtime_readiness_by_save_regions_for_save6_legacy_regions() {
+        let save = parse_msav_save(&sample_msav_post_load_save6_bytes()).unwrap();
+        let post_load = save.post_load_world().unwrap();
+        let plan = post_load.runtime_seed_plan();
+        let readiness = post_load.runtime_readiness();
+        let skipped = plan.skipped_entity_seeds.first().unwrap();
+
+        assert_eq!(
+            readiness
+                .source_regions()
+                .iter()
+                .map(|region| region.source_region_name)
+                .collect::<Vec<_>>(),
+            vec!["map", "entities", "markers", "custom"]
+        );
+
+        let map_region = readiness.source_region("map").unwrap();
+        assert_eq!(map_region.apply_now_step_count, 0);
+        assert_eq!(map_region.awaiting_world_shell_step_count, 0);
+        assert_eq!(map_region.blocked_step_count, 1);
+        assert_eq!(map_region.deferred_step_count, 0);
+        assert_eq!(
+            map_region.blockers,
+            vec![SavePostLoadConsumerBlocker::ContractIssue(
+                SavePostLoadWorldIssue::TeamPlanOutOfBounds
+            )]
+        );
+        assert!(map_region.has_blockers());
+        assert!(!map_region.has_pending_world_shell());
+        assert!(!map_region.has_deferred());
+
+        let entities_region = readiness.source_region("entities").unwrap();
+        assert_eq!(entities_region.apply_now_step_count, plan.entity_remap_seeds.len());
+        assert_eq!(
+            entities_region.awaiting_world_shell_step_count,
+            plan.loadable_entity_seeds.len()
+        );
+        assert_eq!(entities_region.blocked_step_count, plan.team_plan_seeds.len());
+        assert_eq!(entities_region.deferred_step_count, plan.skipped_entity_seeds.len());
+        assert_eq!(
+            entities_region.blockers,
+            vec![
+                SavePostLoadConsumerBlocker::ContractIssue(
+                    SavePostLoadWorldIssue::TeamPlanOutOfBounds
+                ),
+                SavePostLoadConsumerBlocker::SkippedEntity {
+                    entity_index: skipped.entity_index,
+                    entity_id: skipped.activation.entity_id,
+                    source_name: skipped.activation.source_name.clone(),
+                    effective_name: skipped.activation.effective_name.clone(),
+                },
+            ]
+        );
+        assert!(entities_region.has_blockers());
+        assert!(entities_region.has_pending_world_shell());
+        assert!(entities_region.has_deferred());
+
+        let markers_region = readiness.source_region("markers").unwrap();
+        assert_eq!(markers_region.total_step_count(), 0);
+        assert_eq!(
+            markers_region.blockers,
+            Vec::<SavePostLoadConsumerBlocker>::new()
+        );
+        assert!(!markers_region.has_blockers());
+
+        let custom_region = readiness.source_region("custom").unwrap();
+        assert_eq!(custom_region.total_step_count(), 0);
+        assert_eq!(
+            custom_region.blockers,
+            Vec::<SavePostLoadConsumerBlocker>::new()
+        );
+        assert!(!custom_region.has_blockers());
     }
 
     #[test]
