@@ -54697,6 +54697,10 @@ mod tests {
             &[UnitPayloadShape::MechLegacy]
         );
         assert_eq!(
+            candidate_unit_payload_shapes(36),
+            &[UnitPayloadShape::BuildingTetherPayload]
+        );
+        assert_eq!(
             candidate_unit_payload_shapes(43),
             &[UnitPayloadShape::StandardCurrent]
         );
