@@ -56,6 +56,32 @@ pub enum RenderPrimitiveKind {
     Icon,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RenderPrimitivePayload {
+    pub label: String,
+    pub fields: BTreeMap<&'static str, RenderPrimitivePayloadValue>,
+}
+
+impl RenderPrimitivePayload {
+    pub fn field(&self, name: &str) -> Option<&RenderPrimitivePayloadValue> {
+        self.fields.get(name)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RenderPrimitivePayloadValue {
+    Bool(bool),
+    I16(i16),
+    I32(i32),
+    I32List(Vec<i32>),
+    U8(u8),
+    U8List(Vec<u8>),
+    U32(u32),
+    Usize(usize),
+    Text(String),
+    TextList(Vec<String>),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RenderIconPrimitiveFamily {
     RuntimeEffect,
@@ -353,6 +379,30 @@ impl RenderPrimitive {
             | Self::Icon { layer, .. } => *layer,
         }
     }
+
+    pub fn payload(&self) -> Option<RenderPrimitivePayload> {
+        match self {
+            Self::Line { id, .. } => render_line_payload(id),
+            Self::Text { kind, text, .. } => {
+                let mut fields = BTreeMap::new();
+                fields.insert("text", RenderPrimitivePayloadValue::Text(text.clone()));
+                Some(RenderPrimitivePayload {
+                    label: kind
+                        .detail_label()
+                        .unwrap_or("render-text")
+                        .to_string(),
+                    fields,
+                })
+            }
+            Self::Rect {
+                id,
+                family,
+                line_ids,
+                ..
+            } => render_rect_payload(id, family, line_ids),
+            Self::Icon { id, .. } => render_icon_payload(id).map(ParsedRenderIconPayload::finish),
+        }
+    }
 }
 
 impl RenderIconPrimitiveFamily {
@@ -403,10 +453,7 @@ fn render_primitive_for_object(
         RenderObjectSemanticKind::RuntimeWorldLabel
         | RenderObjectSemanticKind::MarkerText
         | RenderObjectSemanticKind::MarkerShapeText => render_text_primitive_for_object(object),
-        _ if render_icon_family_and_variant(&object.id).is_some() => {
-            render_icon_primitive_for_object(object)
-        }
-        _ => None,
+        _ => render_icon_primitive_for_object(object),
     }
 }
 
@@ -437,22 +484,57 @@ fn render_text_primitive_for_object(object: &RenderObject) -> Option<RenderPrimi
 }
 
 fn render_icon_primitive_for_object(object: &RenderObject) -> Option<RenderPrimitive> {
-    let (family, variant) = render_icon_family_and_variant(&object.id)?;
+    let payload = render_icon_payload(&object.id)?;
     Some(RenderPrimitive::Icon {
         id: object.id.clone(),
-        family,
-        variant: variant.to_string(),
+        family: payload.family,
+        variant: payload.variant,
         layer: object.layer,
         x: object.x,
         y: object.y,
     })
 }
 
-fn render_icon_family_and_variant(id: &str) -> Option<(RenderIconPrimitiveFamily, &str)> {
-    if let Some(icon) = render_unit_assembler_icon_family_and_variant(id) {
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ParsedRenderIconPayload {
+    family: RenderIconPrimitiveFamily,
+    variant: String,
+    fields: BTreeMap<&'static str, RenderPrimitivePayloadValue>,
+}
+
+impl ParsedRenderIconPayload {
+    fn new(family: RenderIconPrimitiveFamily, variant: impl Into<String>) -> Self {
+        let variant = variant.into();
+        let mut fields = BTreeMap::new();
+        fields.insert(
+            "variant",
+            RenderPrimitivePayloadValue::Text(variant.clone()),
+        );
+        Self {
+            family,
+            variant,
+            fields,
+        }
+    }
+
+    fn with_field(mut self, name: &'static str, value: RenderPrimitivePayloadValue) -> Self {
+        self.fields.insert(name, value);
+        self
+    }
+
+    fn finish(self) -> RenderPrimitivePayload {
+        RenderPrimitivePayload {
+            label: self.family.label().to_string(),
+            fields: self.fields,
+        }
+    }
+}
+
+fn render_icon_payload(id: &str) -> Option<ParsedRenderIconPayload> {
+    if let Some(icon) = render_unit_assembler_icon_payload(id) {
         return Some(icon);
     }
-    if let Some(icon) = render_runtime_world_event_icon_family_and_variant(id) {
+    if let Some(icon) = render_runtime_world_event_icon_payload(id) {
         return Some(icon);
     }
 
@@ -473,12 +555,32 @@ fn render_icon_family_and_variant(id: &str) -> Option<(RenderIconPrimitiveFamily
                 }
                 _ => return None,
             };
-            Some((family, *value))
+            Some(
+                ParsedRenderIconPayload::new(family, *value)
+                    .with_field(
+                        "tile_x",
+                        RenderPrimitivePayloadValue::I32(tile_x.parse().ok()?),
+                    )
+                    .with_field(
+                        "tile_y",
+                        RenderPrimitivePayloadValue::I32(tile_y.parse().ok()?),
+                    ),
+            )
         }
         ["marker", "runtime-health", tile_x, tile_y]
             if tile_x.parse::<i32>().is_ok() && tile_y.parse::<i32>().is_ok() =>
         {
-            Some((RenderIconPrimitiveFamily::RuntimeHealth, "health"))
+            Some(
+                ParsedRenderIconPayload::new(RenderIconPrimitiveFamily::RuntimeHealth, "health")
+                    .with_field(
+                        "tile_x",
+                        RenderPrimitivePayloadValue::I32(tile_x.parse().ok()?),
+                    )
+                    .with_field(
+                        "tile_y",
+                        RenderPrimitivePayloadValue::I32(tile_y.parse().ok()?),
+                    ),
+            )
         }
         ["marker", "runtime-effect", delivery, effect_id, x_bits, y_bits, has_data]
             if matches!(*delivery, "normal" | "reliable")
@@ -487,38 +589,132 @@ fn render_icon_family_and_variant(id: &str) -> Option<(RenderIconPrimitiveFamily
                 && parse_prefixed_hex_u32(y_bits).is_some()
                 && matches!(*has_data, "0" | "1") =>
         {
-            Some((RenderIconPrimitiveFamily::RuntimeEffectMarker, *delivery))
+            Some(
+                ParsedRenderIconPayload::new(
+                    RenderIconPrimitiveFamily::RuntimeEffectMarker,
+                    *delivery,
+                )
+                .with_field(
+                    "delivery",
+                    RenderPrimitivePayloadValue::Text((*delivery).to_string()),
+                )
+                .with_field(
+                    "effect_id",
+                    RenderPrimitivePayloadValue::I16(effect_id.parse().ok()?),
+                )
+                .with_field(
+                    "x_bits",
+                    RenderPrimitivePayloadValue::U32(parse_prefixed_hex_u32(x_bits)?),
+                )
+                .with_field(
+                    "y_bits",
+                    RenderPrimitivePayloadValue::U32(parse_prefixed_hex_u32(y_bits)?),
+                )
+                .with_field(
+                    "has_data",
+                    RenderPrimitivePayloadValue::Bool(*has_data == "1"),
+                ),
+            )
         }
         ["marker", "runtime-command-building", tile_x, tile_y]
             if tile_x.parse::<i32>().is_ok() && tile_y.parse::<i32>().is_ok() =>
         {
-            Some((RenderIconPrimitiveFamily::RuntimeCommand, "building"))
+            Some(
+                ParsedRenderIconPayload::new(RenderIconPrimitiveFamily::RuntimeCommand, "building")
+                    .with_field(
+                        "tile_x",
+                        RenderPrimitivePayloadValue::I32(tile_x.parse().ok()?),
+                    )
+                    .with_field(
+                        "tile_y",
+                        RenderPrimitivePayloadValue::I32(tile_y.parse().ok()?),
+                    ),
+            )
         }
         ["plan", "runtime-place", index, tile_x, tile_y]
             if index.parse::<usize>().is_ok()
                 && tile_x.parse::<i32>().is_ok()
                 && tile_y.parse::<i32>().is_ok() =>
         {
-            Some((RenderIconPrimitiveFamily::RuntimePlace, "place"))
+            Some(
+                ParsedRenderIconPayload::new(RenderIconPrimitiveFamily::RuntimePlace, "place")
+                    .with_field(
+                        "index",
+                        RenderPrimitivePayloadValue::Usize(index.parse().ok()?),
+                    )
+                    .with_field(
+                        "tile_x",
+                        RenderPrimitivePayloadValue::I32(tile_x.parse().ok()?),
+                    )
+                    .with_field(
+                        "tile_y",
+                        RenderPrimitivePayloadValue::I32(tile_y.parse().ok()?),
+                    ),
+            )
         }
         ["marker", "runtime-command-selected-unit", value] if value.parse::<i32>().is_ok() => {
-            Some((RenderIconPrimitiveFamily::RuntimeCommand, "selected-unit"))
+            Some(
+                ParsedRenderIconPayload::new(
+                    RenderIconPrimitiveFamily::RuntimeCommand,
+                    "selected-unit",
+                )
+                .with_field(
+                    "unit_id",
+                    RenderPrimitivePayloadValue::I32(value.parse().ok()?),
+                ),
+            )
         }
         ["marker", "runtime-command-build-target", tile_x, tile_y]
             if tile_x.parse::<i32>().is_ok() && tile_y.parse::<i32>().is_ok() =>
         {
-            Some((RenderIconPrimitiveFamily::RuntimeCommand, "build-target"))
+            Some(
+                ParsedRenderIconPayload::new(
+                    RenderIconPrimitiveFamily::RuntimeCommand,
+                    "build-target",
+                )
+                .with_field(
+                    "tile_x",
+                    RenderPrimitivePayloadValue::I32(tile_x.parse().ok()?),
+                )
+                .with_field(
+                    "tile_y",
+                    RenderPrimitivePayloadValue::I32(tile_y.parse().ok()?),
+                ),
+            )
         }
         ["marker", "runtime-command-position-target", x_bits, y_bits]
             if parse_prefixed_hex_u32(x_bits).is_some()
                 && parse_prefixed_hex_u32(y_bits).is_some() =>
         {
-            Some((RenderIconPrimitiveFamily::RuntimeCommand, "position-target"))
+            Some(
+                ParsedRenderIconPayload::new(
+                    RenderIconPrimitiveFamily::RuntimeCommand,
+                    "position-target",
+                )
+                .with_field(
+                    "x_bits",
+                    RenderPrimitivePayloadValue::U32(parse_prefixed_hex_u32(x_bits)?),
+                )
+                .with_field(
+                    "y_bits",
+                    RenderPrimitivePayloadValue::U32(parse_prefixed_hex_u32(y_bits)?),
+                ),
+            )
         }
         ["marker", "runtime-command-unit-target", kind, value]
             if kind.parse::<i16>().is_ok() && value.parse::<i32>().is_ok() =>
         {
-            Some((RenderIconPrimitiveFamily::RuntimeCommand, "unit-target"))
+            Some(
+                ParsedRenderIconPayload::new(RenderIconPrimitiveFamily::RuntimeCommand, "unit-target")
+                    .with_field(
+                        "kind",
+                        RenderPrimitivePayloadValue::I16(kind.parse().ok()?),
+                    )
+                    .with_field(
+                        "value",
+                        RenderPrimitivePayloadValue::I32(value.parse().ok()?),
+                    ),
+            )
         }
         ["marker", "runtime-effect-icon", kind, delivery, effect_id, content_type, content_id, x_bits, y_bits]
             if !kind.is_empty()
@@ -529,7 +725,33 @@ fn render_icon_family_and_variant(id: &str) -> Option<(RenderIconPrimitiveFamily
                 && parse_prefixed_hex_u32(x_bits).is_some()
                 && parse_prefixed_hex_u32(y_bits).is_some() =>
         {
-            Some((RenderIconPrimitiveFamily::RuntimeEffect, *kind))
+            Some(
+                ParsedRenderIconPayload::new(RenderIconPrimitiveFamily::RuntimeEffect, *kind)
+                    .with_field(
+                        "delivery",
+                        RenderPrimitivePayloadValue::Text((*delivery).to_string()),
+                    )
+                    .with_field(
+                        "effect_id",
+                        RenderPrimitivePayloadValue::I16(effect_id.parse().ok()?),
+                    )
+                    .with_field(
+                        "content_type",
+                        RenderPrimitivePayloadValue::U8(content_type.parse().ok()?),
+                    )
+                    .with_field(
+                        "content_id",
+                        RenderPrimitivePayloadValue::I16(content_id.parse().ok()?),
+                    )
+                    .with_field(
+                        "x_bits",
+                        RenderPrimitivePayloadValue::U32(parse_prefixed_hex_u32(x_bits)?),
+                    )
+                    .with_field(
+                        "y_bits",
+                        RenderPrimitivePayloadValue::U32(parse_prefixed_hex_u32(y_bits)?),
+                    ),
+            )
         }
         ["marker", "runtime-build-config-icon", family, tile_x, tile_y, content_type, content_id]
             if !family.is_empty()
@@ -538,15 +760,31 @@ fn render_icon_family_and_variant(id: &str) -> Option<(RenderIconPrimitiveFamily
                 && content_type.parse::<u8>().is_ok()
                 && content_id.parse::<i16>().is_ok() =>
         {
-            Some((RenderIconPrimitiveFamily::RuntimeBuildConfig, *family))
+            Some(
+                ParsedRenderIconPayload::new(RenderIconPrimitiveFamily::RuntimeBuildConfig, *family)
+                    .with_field(
+                        "tile_x",
+                        RenderPrimitivePayloadValue::I32(tile_x.parse().ok()?),
+                    )
+                    .with_field(
+                        "tile_y",
+                        RenderPrimitivePayloadValue::I32(tile_y.parse().ok()?),
+                    )
+                    .with_field(
+                        "content_type",
+                        RenderPrimitivePayloadValue::U8(content_type.parse().ok()?),
+                    )
+                    .with_field(
+                        "content_id",
+                        RenderPrimitivePayloadValue::I16(content_id.parse().ok()?),
+                    ),
+            )
         }
         _ => None,
     }
 }
 
-fn render_unit_assembler_icon_family_and_variant(
-    id: &str,
-) -> Option<(RenderIconPrimitiveFamily, &str)> {
+fn render_unit_assembler_icon_payload(id: &str) -> Option<ParsedRenderIconPayload> {
     if let Some(rest) = id.strip_prefix("marker:runtime-unit-assembler-progress:") {
         let parts = rest.split(':').collect::<Vec<_>>();
         if parts.len() < 9 {
@@ -573,10 +811,54 @@ fn render_unit_assembler_icon_family_and_variant(
             && parse_prefixed_hex_u32(pay_rotation_bits).is_some()
             && sample_valid
         {
-            return Some((
+            let mut payload = ParsedRenderIconPayload::new(
                 RenderIconPrimitiveFamily::RuntimeUnitAssemblerProgress,
                 block_name,
-            ));
+            )
+            .with_field(
+                "tile_x",
+                RenderPrimitivePayloadValue::I32(tile_x.parse().ok()?),
+            )
+            .with_field(
+                "tile_y",
+                RenderPrimitivePayloadValue::I32(tile_y.parse().ok()?),
+            )
+            .with_field(
+                "progress_bits",
+                RenderPrimitivePayloadValue::U32(parse_prefixed_hex_u32(progress_bits)?),
+            )
+            .with_field(
+                "unit_count",
+                RenderPrimitivePayloadValue::Usize(unit_count.parse().ok()?),
+            )
+            .with_field(
+                "block_count",
+                RenderPrimitivePayloadValue::Usize(block_count.parse().ok()?),
+            )
+            .with_field(
+                "payload_present",
+                RenderPrimitivePayloadValue::Bool(payload_present == "1"),
+            )
+            .with_field(
+                "pay_rotation_bits",
+                RenderPrimitivePayloadValue::U32(parse_prefixed_hex_u32(pay_rotation_bits)?),
+            )
+            .with_field(
+                "sample_present",
+                RenderPrimitivePayloadValue::Bool(!matches!(sample, ["none"])),
+            );
+            if let [kind, id] = sample {
+                payload = payload
+                    .with_field(
+                        "sample_kind",
+                        RenderPrimitivePayloadValue::Text((*kind).to_string()),
+                    )
+                    .with_field(
+                        "sample_id",
+                        RenderPrimitivePayloadValue::I16(id.parse().ok()?),
+                    );
+            }
+            return Some(payload);
         }
         return None;
     }
@@ -591,50 +873,93 @@ fn render_unit_assembler_icon_family_and_variant(
                 && parse_prefixed_hex_u32(x_bits).is_some()
                 && parse_prefixed_hex_u32(y_bits).is_some() =>
         {
-            Some((
-                RenderIconPrimitiveFamily::RuntimeUnitAssemblerCommand,
-                *block_name,
-            ))
+            Some(
+                ParsedRenderIconPayload::new(
+                    RenderIconPrimitiveFamily::RuntimeUnitAssemblerCommand,
+                    *block_name,
+                )
+                .with_field(
+                    "tile_x",
+                    RenderPrimitivePayloadValue::I32(tile_x.parse().ok()?),
+                )
+                .with_field(
+                    "tile_y",
+                    RenderPrimitivePayloadValue::I32(tile_y.parse().ok()?),
+                )
+                .with_field(
+                    "x_bits",
+                    RenderPrimitivePayloadValue::U32(parse_prefixed_hex_u32(x_bits)?),
+                )
+                .with_field(
+                    "y_bits",
+                    RenderPrimitivePayloadValue::U32(parse_prefixed_hex_u32(y_bits)?),
+                ),
+            )
         }
         _ => None,
     }
 }
 
-fn render_runtime_world_event_icon_family_and_variant(
-    id: &str,
-) -> Option<(RenderIconPrimitiveFamily, &str)> {
+fn render_runtime_world_event_icon_payload(id: &str) -> Option<ParsedRenderIconPayload> {
     if let Some(rest) = id.strip_prefix("marker:runtime-break:") {
-        validate_runtime_icon_integer_fields(rest, 3)?;
-        return Some((RenderIconPrimitiveFamily::RuntimeBreak, "break"));
+        return Some(
+            ParsedRenderIconPayload::new(RenderIconPrimitiveFamily::RuntimeBreak, "break")
+                .with_field(
+                    "values",
+                    RenderPrimitivePayloadValue::I32List(
+                        parse_runtime_icon_i32_values(rest, 3)?,
+                    ),
+                ),
+        );
     }
     if let Some(rest) = id.strip_prefix("marker:runtime-bullet:") {
-        validate_runtime_icon_integer_fields(rest, 3)?;
-        return Some((RenderIconPrimitiveFamily::RuntimeBullet, "bullet"));
+        return Some(
+            ParsedRenderIconPayload::new(RenderIconPrimitiveFamily::RuntimeBullet, "bullet")
+                .with_field(
+                    "values",
+                    RenderPrimitivePayloadValue::I32List(
+                        parse_runtime_icon_i32_values(rest, 3)?,
+                    ),
+                ),
+        );
     }
     if let Some(rest) = id.strip_prefix("marker:runtime-sound-at:") {
-        validate_runtime_icon_integer_fields(rest, 2)?;
-        return Some((RenderIconPrimitiveFamily::RuntimeSoundAt, "sound-at"));
+        return Some(
+            ParsedRenderIconPayload::new(RenderIconPrimitiveFamily::RuntimeSoundAt, "sound-at")
+                .with_field(
+                    "values",
+                    RenderPrimitivePayloadValue::I32List(
+                        parse_runtime_icon_i32_values(rest, 2)?,
+                    ),
+                ),
+        );
     }
     if let Some(rest) = id.strip_prefix("marker:runtime-logic-explosion:") {
         let mut parts = rest.split(':');
-        parts.next()?.parse::<i32>().ok()?;
-        parts.next()?.parse::<i32>().ok()?;
-        parse_prefixed_hex_u32(parts.next()?)?;
+        let tile_x = parts.next()?.parse::<i32>().ok()?;
+        let tile_y = parts.next()?.parse::<i32>().ok()?;
+        let radius_bits = parse_prefixed_hex_u32(parts.next()?)?;
+        let mut flags = Vec::with_capacity(4);
         for _ in 0..4 {
-            parts.next()?.parse::<u8>().ok()?;
+            flags.push(parts.next()?.parse::<u8>().ok()?);
         }
         if parts.next().is_none() {
-            return Some((
-                RenderIconPrimitiveFamily::RuntimeLogicExplosion,
-                "logic-explosion",
-            ));
+            return Some(
+                ParsedRenderIconPayload::new(
+                    RenderIconPrimitiveFamily::RuntimeLogicExplosion,
+                    "logic-explosion",
+                )
+                .with_field("tile_x", RenderPrimitivePayloadValue::I32(tile_x))
+                .with_field("tile_y", RenderPrimitivePayloadValue::I32(tile_y))
+                .with_field("radius_bits", RenderPrimitivePayloadValue::U32(radius_bits))
+                .with_field("flags", RenderPrimitivePayloadValue::U8List(flags)),
+            );
         }
     }
-    render_runtime_tile_action_icon_variant(id)
-        .map(|variant| (RenderIconPrimitiveFamily::RuntimeTileAction, variant))
+    render_runtime_tile_action_icon_payload(id)
 }
 
-fn render_runtime_tile_action_icon_variant(id: &str) -> Option<&'static str> {
+fn render_runtime_tile_action_icon_payload(id: &str) -> Option<ParsedRenderIconPayload> {
     for (prefix, field_count, variant) in [
         (
             "marker:runtime-unit-block-spawn:",
@@ -668,19 +993,26 @@ fn render_runtime_tile_action_icon_variant(id: &str) -> Option<&'static str> {
         ),
     ] {
         if let Some(rest) = id.strip_prefix(prefix) {
-            validate_runtime_icon_integer_fields(rest, field_count)?;
-            return Some(variant);
+            return Some(
+                ParsedRenderIconPayload::new(RenderIconPrimitiveFamily::RuntimeTileAction, variant)
+                    .with_field(
+                        "values",
+                        RenderPrimitivePayloadValue::I32List(
+                            parse_runtime_icon_i32_values(rest, field_count)?,
+                        ),
+                    ),
+            );
         }
     }
     None
 }
 
-fn validate_runtime_icon_integer_fields(rest: &str, field_count: usize) -> Option<()> {
-    let mut parts = rest.split(':');
-    for _ in 0..field_count {
-        parts.next()?.parse::<i32>().ok()?;
-    }
-    parts.next().is_none().then_some(())
+fn parse_runtime_icon_i32_values(rest: &str, field_count: usize) -> Option<Vec<i32>> {
+    let values = rest
+        .split(':')
+        .map(|part| part.parse::<i32>().ok())
+        .collect::<Option<Vec<_>>>()?;
+    (values.len() == field_count).then_some(values)
 }
 
 fn parse_prefixed_hex_u32(text: &str) -> Option<u32> {
@@ -815,6 +1147,92 @@ fn render_rect_descriptor(id: &str) -> Option<RectPrimitiveLineDescriptor> {
         }
         _ => None,
     }
+}
+
+fn render_line_payload(id: &str) -> Option<RenderPrimitivePayload> {
+    if let Some(descriptor) = render_rect_descriptor(id) {
+        let mut fields = BTreeMap::new();
+        fields.insert(
+            "edge",
+            RenderPrimitivePayloadValue::Text(descriptor.edge),
+        );
+        if let Some(rest) = id.strip_prefix("marker:line:runtime-unit-assembler-area:") {
+            let parts = rest.split(':').collect::<Vec<_>>();
+            if let [block_name, tile_x, tile_y, _, ..] = parts.as_slice() {
+                fields.insert(
+                    "block_name",
+                    RenderPrimitivePayloadValue::Text((*block_name).to_string()),
+                );
+                fields.insert(
+                    "tile_x",
+                    RenderPrimitivePayloadValue::I32(tile_x.parse().ok()?),
+                );
+                fields.insert(
+                    "tile_y",
+                    RenderPrimitivePayloadValue::I32(tile_y.parse().ok()?),
+                );
+            }
+        }
+        return Some(RenderPrimitivePayload {
+            label: descriptor.family,
+            fields,
+        });
+    }
+
+    id.strip_prefix("marker:line:").map(|marker_id| {
+        let mut fields = BTreeMap::new();
+        fields.insert(
+            "marker_id",
+            RenderPrimitivePayloadValue::Text(marker_id.to_string()),
+        );
+        RenderPrimitivePayload {
+            label: "marker-line".to_string(),
+            fields,
+        }
+    })
+}
+
+fn render_rect_payload(
+    id: &str,
+    family: &str,
+    line_ids: &[String],
+) -> Option<RenderPrimitivePayload> {
+    let mut fields = BTreeMap::new();
+    fields.insert(
+        "line_ids",
+        RenderPrimitivePayloadValue::TextList(line_ids.to_vec()),
+    );
+    if let Some(rest) = id.strip_prefix("marker:rect:runtime-unit-assembler-area:") {
+        let parts = rest.split(':').collect::<Vec<_>>();
+        if let [block_name, tile_x, tile_y, left, top, right, bottom] = parts.as_slice() {
+            parse_prefixed_or_decimal_u32_bits(left)?;
+            parse_prefixed_or_decimal_u32_bits(top)?;
+            parse_prefixed_or_decimal_u32_bits(right)?;
+            parse_prefixed_or_decimal_u32_bits(bottom)?;
+            fields.insert(
+                "block_name",
+                RenderPrimitivePayloadValue::Text((*block_name).to_string()),
+            );
+            fields.insert(
+                "tile_x",
+                RenderPrimitivePayloadValue::I32(tile_x.parse().ok()?),
+            );
+            fields.insert(
+                "tile_y",
+                RenderPrimitivePayloadValue::I32(tile_y.parse().ok()?),
+            );
+        } else {
+            return None;
+        }
+    }
+    Some(RenderPrimitivePayload {
+        label: family.to_string(),
+        fields,
+    })
+}
+
+fn parse_prefixed_or_decimal_u32_bits(text: &str) -> Option<u32> {
+    parse_prefixed_hex_u32(text).or_else(|| text.parse::<u32>().ok())
 }
 
 pub(crate) fn encode_render_text(text: &str) -> String {
@@ -1168,8 +1586,8 @@ mod tests {
     use super::{
         RenderIconPrimitiveFamily, RenderModel, RenderObject, RenderObjectSemanticFamily,
         RenderObjectSemanticKind, RenderPipelineLayerSummary, RenderPipelineSummary,
-        RenderPrimitive, RenderPrimitiveKind, RenderSemanticDetailCount, RenderSemanticSummary,
-        RenderViewWindow, Viewport,
+        RenderPrimitive, RenderPrimitiveKind, RenderPrimitivePayloadValue,
+        RenderSemanticDetailCount, RenderSemanticSummary, RenderViewWindow, Viewport,
     };
 
     #[test]
@@ -1485,6 +1903,179 @@ mod tests {
             }
             .kind(),
             RenderPrimitiveKind::Icon
+        );
+    }
+
+    #[test]
+    fn render_primitives_expose_structured_payload_fields() {
+        let line_payload = RenderPrimitive::Line {
+            id: "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:top".to_string(),
+            layer: 1,
+            x0: 0.0,
+            y0: 0.0,
+            x1: 8.0,
+            y1: 0.0,
+        }
+        .payload()
+        .expect("line payload");
+        assert_eq!(line_payload.label, "runtime-unit-assembler-area");
+        assert_eq!(
+            line_payload.field("edge"),
+            Some(&RenderPrimitivePayloadValue::Text("top".to_string()))
+        );
+        assert_eq!(
+            line_payload.field("block_name"),
+            Some(&RenderPrimitivePayloadValue::Text(
+                "tank-assembler".to_string()
+            ))
+        );
+        assert_eq!(
+            line_payload.field("tile_x"),
+            Some(&RenderPrimitivePayloadValue::I32(30))
+        );
+        assert_eq!(
+            line_payload.field("tile_y"),
+            Some(&RenderPrimitivePayloadValue::I32(40))
+        );
+
+        let text_payload = RenderPrimitive::Text {
+            id: "marker:text:1:text:61".to_string(),
+            kind: RenderObjectSemanticKind::MarkerText,
+            layer: 1,
+            x: 0.0,
+            y: 0.0,
+            text: "a".to_string(),
+        }
+        .payload()
+        .expect("text payload");
+        assert_eq!(text_payload.label, "marker-text");
+        assert_eq!(
+            text_payload.field("text"),
+            Some(&RenderPrimitivePayloadValue::Text("a".to_string()))
+        );
+
+        let rect_payload = RenderPrimitive::Rect {
+            id: "marker:rect:runtime-unit-assembler-area:tank-assembler:30:40:1065353216:1073741824:1077936128:1082130432".to_string(),
+            family: "runtime-unit-assembler-area".to_string(),
+            layer: 1,
+            left: 1.0,
+            top: 2.0,
+            right: 3.0,
+            bottom: 4.0,
+            line_ids: vec![
+                "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:top".to_string(),
+                "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:right".to_string(),
+            ],
+        }
+        .payload()
+        .expect("rect payload");
+        assert_eq!(rect_payload.label, "runtime-unit-assembler-area");
+        assert_eq!(
+            rect_payload.field("block_name"),
+            Some(&RenderPrimitivePayloadValue::Text(
+                "tank-assembler".to_string()
+            ))
+        );
+        assert_eq!(
+            rect_payload.field("tile_x"),
+            Some(&RenderPrimitivePayloadValue::I32(30))
+        );
+        assert_eq!(
+            rect_payload.field("tile_y"),
+            Some(&RenderPrimitivePayloadValue::I32(40))
+        );
+        assert_eq!(
+            rect_payload.field("line_ids"),
+            Some(&RenderPrimitivePayloadValue::TextList(vec![
+                "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:top"
+                    .to_string(),
+                "marker:line:runtime-unit-assembler-area:tank-assembler:30:40:right"
+                    .to_string(),
+            ]))
+        );
+
+        let icon_payload = RenderPrimitive::Icon {
+            id: "marker:runtime-unit-assembler-progress:tank-assembler:30:40:0x3f400000:2:4:b:9:1:0x40800000".to_string(),
+            family: RenderIconPrimitiveFamily::RuntimeUnitAssemblerProgress,
+            variant: "tank-assembler".to_string(),
+            layer: 1,
+            x: 0.0,
+            y: 0.0,
+        }
+        .payload()
+        .expect("icon payload");
+        assert_eq!(icon_payload.label, "runtime-unit-assembler-progress");
+        assert_eq!(
+            icon_payload.field("variant"),
+            Some(&RenderPrimitivePayloadValue::Text(
+                "tank-assembler".to_string()
+            ))
+        );
+        assert_eq!(
+            icon_payload.field("tile_x"),
+            Some(&RenderPrimitivePayloadValue::I32(30))
+        );
+        assert_eq!(
+            icon_payload.field("tile_y"),
+            Some(&RenderPrimitivePayloadValue::I32(40))
+        );
+        assert_eq!(
+            icon_payload.field("progress_bits"),
+            Some(&RenderPrimitivePayloadValue::U32(0x3f400000))
+        );
+        assert_eq!(
+            icon_payload.field("unit_count"),
+            Some(&RenderPrimitivePayloadValue::Usize(2))
+        );
+        assert_eq!(
+            icon_payload.field("block_count"),
+            Some(&RenderPrimitivePayloadValue::Usize(4))
+        );
+        assert_eq!(
+            icon_payload.field("sample_present"),
+            Some(&RenderPrimitivePayloadValue::Bool(true))
+        );
+        assert_eq!(
+            icon_payload.field("sample_kind"),
+            Some(&RenderPrimitivePayloadValue::Text("b".to_string()))
+        );
+        assert_eq!(
+            icon_payload.field("sample_id"),
+            Some(&RenderPrimitivePayloadValue::I16(9))
+        );
+        assert_eq!(
+            icon_payload.field("payload_present"),
+            Some(&RenderPrimitivePayloadValue::Bool(true))
+        );
+        assert_eq!(
+            icon_payload.field("pay_rotation_bits"),
+            Some(&RenderPrimitivePayloadValue::U32(0x40800000))
+        );
+    }
+
+    #[test]
+    fn runtime_event_icon_payloads_preserve_integer_vectors() {
+        let payload = RenderPrimitive::Icon {
+            id: "marker:runtime-auto-door-toggle:4:3:4:1".to_string(),
+            family: RenderIconPrimitiveFamily::RuntimeTileAction,
+            variant: "auto-door-toggle".to_string(),
+            layer: 1,
+            x: 0.0,
+            y: 0.0,
+        }
+        .payload()
+        .expect("runtime tile action payload");
+
+        assert_eq!(payload.label, "runtime-tile-action");
+        assert_eq!(
+            payload.field("variant"),
+            Some(&RenderPrimitivePayloadValue::Text(
+                "auto-door-toggle".to_string()
+            ))
+        );
+        assert_eq!(
+            payload.field("values"),
+            Some(&RenderPrimitivePayloadValue::I32List(vec![4, 3, 4, 1]))
         );
     }
 
