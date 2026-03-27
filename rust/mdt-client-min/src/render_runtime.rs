@@ -21,12 +21,13 @@ use crate::session_state::{
     EffectBusinessContentKind, EffectBusinessPositionSource, EffectBusinessProjection,
     EffectDataSemantic, EffectRuntimeBindingState, HiddenSnapshotDeltaProjection,
     PayloadLoaderRuntimeProjection, PayloadRouterPayloadKind, ReconnectPhaseProjection,
-    ReconnectReasonKind, SessionResetKind, SessionState, SessionTimeoutKind,
-    StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection, TileConfigAuthoritySource,
-    TileConfigProjection, TypedBuildingRuntimeKind, TypedBuildingRuntimeModel,
-    TypedBuildingRuntimeProjection, TypedBuildingRuntimeValue, TypedRuntimeEntityModel,
-    TypedRuntimeEntityProjection, UnitAssemblerRuntimeProjection, UnitFactoryRuntimeProjection,
-    UnitRefProjection, WorldBootstrapProjection, WorldReloadProjection,
+    ReconnectReasonKind, SeparatorRuntimeProjection, SessionResetKind, SessionState,
+    SessionTimeoutKind, StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection,
+    TileConfigAuthoritySource, TileConfigProjection, TypedBuildingRuntimeKind,
+    TypedBuildingRuntimeModel, TypedBuildingRuntimeProjection, TypedBuildingRuntimeValue,
+    TypedRuntimeEntityModel, TypedRuntimeEntityProjection, UnitAssemblerRuntimeProjection,
+    UnitFactoryRuntimeProjection, UnitRefProjection, WorldBootstrapProjection,
+    WorldReloadProjection,
 };
 use mdt_remote::{HighFrequencyRemoteMethod, HIGH_FREQUENCY_REMOTE_METHOD_COUNT};
 use mdt_render_ui::hud_model::{
@@ -1553,6 +1554,7 @@ fn runtime_configured_block_projection_label(projection: &ConfiguredBlockProject
             "ua",
             &projection.unit_assembler_by_build_pos,
         ),
+        runtime_configured_separator_family_label("se", &projection.separator_runtime_by_build_pos),
         runtime_configured_power_node_family_label("pn", &projection.power_node_links_by_build_pos),
         runtime_configured_unit_command_family_label(
             "rc",
@@ -1788,6 +1790,23 @@ fn runtime_configured_unit_assembler_family_label(
                 runtime_optional_command_pos_bits_label(assembler.command_pos),
                 if assembler.payload_present { 1 } else { 0 },
                 assembler.pay_rotation_bits,
+            )
+        }
+        None => format!("{prefix}{count}"),
+    }
+}
+
+fn runtime_configured_separator_family_label(
+    prefix: &str,
+    values: &BTreeMap<i32, SeparatorRuntimeProjection>,
+) -> String {
+    let count = values.len();
+    match values.last_key_value() {
+        Some((build_pos, projection)) => {
+            let (x, y) = unpack_runtime_point2(*build_pos);
+            format!(
+                "{prefix}{count}@{x}:{y}=progress=0x{:08x}:warmup=0x{:08x}:seed={}",
+                projection.progress_bits, projection.warmup_bits, projection.seed
             )
         }
         None => format!("{prefix}{count}"),
@@ -8400,6 +8419,28 @@ mod tests {
                     buffer: None,
                 },
             );
+        state
+            .configured_block_projection
+            .separator_runtime_by_build_pos
+            .insert(
+                pack_runtime_point2(36, 58),
+                crate::session_state::SeparatorRuntimeProjection {
+                    progress_bits: 0x3f80_0000,
+                    warmup_bits: 0x3f00_0000,
+                    seed: 17,
+                },
+            );
+        state
+            .configured_block_projection
+            .separator_runtime_by_build_pos
+            .insert(
+                pack_runtime_point2(37, 59),
+                crate::session_state::SeparatorRuntimeProjection {
+                    progress_bits: 0x3fc0_0000,
+                    warmup_bits: 0x3f40_0000,
+                    seed: 29,
+                },
+            );
         for (build_pos, block_name) in [
             (pack_runtime_point2(17, 39), "landing-pad"),
             (pack_runtime_point2(18, 40), "world-message"),
@@ -8551,6 +8592,9 @@ mod tests {
                 && entry.sample
                     == "33:55:bridge-conduit:link=60:61:warmup=0x3f000000:incoming=2:moved=1"
         }));
+        assert!(hud
+            .status_text
+            .contains(":se2@37:59=progress=0x3fc00000:warmup=0x3f400000:seed=29:"));
         assert!(build_ui.inspector_entries.iter().any(|entry| {
             entry.family == "duct-unloader" && entry.sample == "34:56:item=7:offset=11"
         }));
@@ -8603,6 +8647,33 @@ mod tests {
         assert_eq!(
             runtime_configured_payload_loader_family_label("pl", &values),
             "pl1@25:47=exp:y1:t0:r40000000:uc:9:l128:s0123456789ab"
+        );
+    }
+
+    #[test]
+    fn runtime_configured_separator_family_label_compacts_progress_warmup_seed_sample() {
+        let values = BTreeMap::from([
+            (
+                pack_runtime_point2(36, 58),
+                SeparatorRuntimeProjection {
+                    progress_bits: 0x3f80_0000,
+                    warmup_bits: 0x3f00_0000,
+                    seed: 17,
+                },
+            ),
+            (
+                pack_runtime_point2(37, 59),
+                SeparatorRuntimeProjection {
+                    progress_bits: 0x3fc0_0000,
+                    warmup_bits: 0x3f40_0000,
+                    seed: 29,
+                },
+            ),
+        ]);
+
+        assert_eq!(
+            runtime_configured_separator_family_label("se", &values),
+            "se2@37:59=progress=0x3fc00000:warmup=0x3f400000:seed=29"
         );
     }
 
@@ -9056,14 +9127,12 @@ mod tests {
         let mut state = SessionState::default();
         let build_pos = pack_runtime_point2(40, 62);
 
-        state
-            .configured_block_projection
-            .apply_launch_pad_runtime(
-                build_pos,
-                crate::session_state::LaunchPadRuntimeProjection {
-                    launch_counter_bits: 0x4200_0000,
-                },
-            );
+        state.configured_block_projection.apply_launch_pad_runtime(
+            build_pos,
+            crate::session_state::LaunchPadRuntimeProjection {
+                launch_counter_bits: 0x4200_0000,
+            },
+        );
         state.building_table_projection.by_build_pos.insert(
             build_pos,
             crate::session_state::BuildingProjection {

@@ -133,6 +133,8 @@ const BLOCK_NAME_RADAR: &str = "radar";
 const BLOCK_NAME_LAUNCH_PAD: &str = "launch-pad";
 const BLOCK_NAME_ADVANCED_LAUNCH_PAD: &str = "advanced-launch-pad";
 const BLOCK_NAME_INTERPLANETARY_ACCELERATOR: &str = "interplanetary-accelerator";
+const BLOCK_NAME_SEPARATOR: &str = "separator";
+const BLOCK_NAME_DISASSEMBLER: &str = "disassembler";
 const BLOCK_NAME_UNIT_CARGO_UNLOAD_POINT: &str = "unit-cargo-unload-point";
 const BLOCK_NAME_LANDING_PAD: &str = "landing-pad";
 const BLOCK_NAME_ITEM_SOURCE: &str = "item-source";
@@ -496,6 +498,7 @@ pub struct ClientSession {
     loading_world_data: bool,
     loaded_world_bundle: Option<WorldBundle>,
     radar_runtime_by_build_pos: RefCell<BTreeMap<i32, RadarRuntimeProjection>>,
+    separator_runtime_by_build_pos: RefCell<BTreeMap<i32, SeparatorRuntimeProjection>>,
     shielded_wall_runtime_by_build_pos: RefCell<BTreeMap<i32, ShieldedWallRuntimeProjection>>,
     state: SessionState,
     stats: NetLoopStats,
@@ -514,6 +517,13 @@ pub struct BuildingLiveStateView {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RadarRuntimeProjection {
     progress_bits: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SeparatorRuntimeProjection {
+    progress_bits: u32,
+    warmup_bits: u32,
+    seed: i32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1440,6 +1450,7 @@ impl ClientSession {
             loading_world_data: false,
             loaded_world_bundle: None,
             radar_runtime_by_build_pos: RefCell::new(BTreeMap::new()),
+            separator_runtime_by_build_pos: RefCell::new(BTreeMap::new()),
             shielded_wall_runtime_by_build_pos: RefCell::new(BTreeMap::new()),
             state: SessionState::default(),
             stats: NetLoopStats::default(),
@@ -1528,6 +1539,17 @@ impl ClientSession {
     #[cfg(test)]
     fn radar_runtime_projection_at(&self, build_pos: i32) -> Option<RadarRuntimeProjection> {
         self.radar_runtime_by_build_pos
+            .borrow()
+            .get(&build_pos)
+            .cloned()
+    }
+
+    #[cfg(test)]
+    fn separator_runtime_projection_at(
+        &self,
+        build_pos: i32,
+    ) -> Option<SeparatorRuntimeProjection> {
+        self.separator_runtime_by_build_pos
             .borrow()
             .get(&build_pos)
             .cloned()
@@ -8230,11 +8252,22 @@ impl ClientSession {
             let launch_pad_runtime = summarize_launch_pad_runtime_projection(&building.parsed_tail);
             let interplanetary_accelerator_runtime =
                 summarize_interplanetary_accelerator_runtime_projection(&building.parsed_tail);
+            let separator_runtime = summarize_separator_runtime_projection(&building.parsed_tail);
             let shielded_wall_runtime =
                 summarize_shielded_wall_runtime_projection(&building.parsed_tail);
             if let Some(projection) = radar_runtime.clone() {
                 if candidate.block_name == BLOCK_NAME_RADAR {
                     self.radar_runtime_by_build_pos
+                        .borrow_mut()
+                        .insert(build_pos, projection);
+                }
+            }
+            if let Some(projection) = separator_runtime.clone() {
+                if matches!(
+                    candidate.block_name.as_str(),
+                    BLOCK_NAME_SEPARATOR | BLOCK_NAME_DISASSEMBLER
+                ) {
+                    self.separator_runtime_by_build_pos
                         .borrow_mut()
                         .insert(build_pos, projection);
                 }
@@ -8309,6 +8342,7 @@ impl ClientSession {
                 core_runtime,
                 repair_turret_runtime,
                 radar_runtime,
+                separator_runtime,
                 shielded_wall_runtime,
                 launch_pad_runtime,
                 interplanetary_accelerator_runtime,
@@ -8434,6 +8468,16 @@ impl ClientSession {
                     },
                 );
                 self.radar_runtime_by_build_pos
+                    .borrow_mut()
+                    .insert(build_pos, projection);
+            }
+        }
+        if let Some(projection) = summarize_separator_runtime_projection(parsed_tail) {
+            if matches!(
+                block_name,
+                Some(BLOCK_NAME_SEPARATOR | BLOCK_NAME_DISASSEMBLER)
+            ) {
+                self.separator_runtime_by_build_pos
                     .borrow_mut()
                     .insert(build_pos, projection);
             }
@@ -8762,6 +8806,16 @@ impl ClientSession {
                     },
                 );
                 self.radar_runtime_by_build_pos
+                    .borrow_mut()
+                    .insert(entry.build_pos, projection);
+            }
+        }
+        if let Some(projection) = entry.separator_runtime.clone() {
+            if matches!(
+                entry.block_name.as_deref(),
+                Some(BLOCK_NAME_SEPARATOR | BLOCK_NAME_DISASSEMBLER)
+            ) {
+                self.separator_runtime_by_build_pos
                     .borrow_mut()
                     .insert(entry.build_pos, projection);
             }
@@ -9146,6 +9200,9 @@ impl ClientSession {
         self.next_client_snapshot_id = 1;
         self.timed_out = false;
         self.snapshot_input = ClientSnapshotInputState::default();
+        self.radar_runtime_by_build_pos.borrow_mut().clear();
+        self.separator_runtime_by_build_pos.borrow_mut().clear();
+        self.shielded_wall_runtime_by_build_pos.borrow_mut().clear();
         self.state = SessionState::default();
         self.stats = NetLoopStats::default();
         self.state.last_timeout = last_timeout;
@@ -9189,6 +9246,7 @@ impl ClientSession {
         self.pending_world_stream = None;
         self.loaded_world_bundle = None;
         self.radar_runtime_by_build_pos.borrow_mut().clear();
+        self.separator_runtime_by_build_pos.borrow_mut().clear();
         self.shielded_wall_runtime_by_build_pos.borrow_mut().clear();
         self.pending_packets.clear();
         self.deferred_inbound_packets.clear();
@@ -13412,6 +13470,7 @@ struct BlockSnapshotExtraEntrySummary {
     core_runtime: Option<CoreRuntimeProjection>,
     repair_turret_runtime: Option<RepairTurretRuntimeProjection>,
     radar_runtime: Option<RadarRuntimeProjection>,
+    separator_runtime: Option<SeparatorRuntimeProjection>,
     shielded_wall_runtime: Option<ShieldedWallRuntimeProjection>,
     launch_pad_runtime: Option<LaunchPadRuntimeProjection>,
     interplanetary_accelerator_runtime: Option<InterplanetaryAcceleratorRuntimeProjection>,
@@ -13713,6 +13772,19 @@ fn summarize_radar_runtime_projection(
     };
     Some(RadarRuntimeProjection {
         progress_bits: value.bits,
+    })
+}
+
+fn summarize_separator_runtime_projection(
+    parsed_tail: &mdt_world::ParsedBuildingTail,
+) -> Option<SeparatorRuntimeProjection> {
+    let mdt_world::ParsedBuildingTail::TwoF32I32(value) = parsed_tail else {
+        return None;
+    };
+    Some(SeparatorRuntimeProjection {
+        progress_bits: value.first_bits,
+        warmup_bits: value.second_bits,
+        seed: value.third_value,
     })
 }
 
@@ -16677,7 +16749,10 @@ struct DeferredInboundPacket {
 struct FinishConnectingRollback {
     loading_world_data: bool,
     state: SessionState,
+    pending_world_stream: Option<WorldStreamAssembler>,
+    loaded_world_bundle: Option<WorldBundle>,
     radar_runtime_by_build_pos: BTreeMap<i32, RadarRuntimeProjection>,
+    separator_runtime_by_build_pos: BTreeMap<i32, SeparatorRuntimeProjection>,
     shielded_wall_runtime_by_build_pos: BTreeMap<i32, ShieldedWallRuntimeProjection>,
     pending_packets: VecDeque<PendingClientPacket>,
     deferred_inbound_packets: VecDeque<DeferredInboundPacket>,
@@ -16691,7 +16766,10 @@ impl FinishConnectingRollback {
         Self {
             loading_world_data: session.loading_world_data,
             state: session.state.clone(),
+            pending_world_stream: session.pending_world_stream.clone(),
+            loaded_world_bundle: session.loaded_world_bundle.clone(),
             radar_runtime_by_build_pos: session.radar_runtime_by_build_pos.borrow().clone(),
+            separator_runtime_by_build_pos: session.separator_runtime_by_build_pos.borrow().clone(),
             shielded_wall_runtime_by_build_pos: session
                 .shielded_wall_runtime_by_build_pos
                 .borrow()
@@ -16707,7 +16785,10 @@ impl FinishConnectingRollback {
     fn restore(self, session: &mut ClientSession) {
         session.loading_world_data = self.loading_world_data;
         session.state = self.state;
+        session.pending_world_stream = self.pending_world_stream;
+        session.loaded_world_bundle = self.loaded_world_bundle;
         *session.radar_runtime_by_build_pos.borrow_mut() = self.radar_runtime_by_build_pos;
+        *session.separator_runtime_by_build_pos.borrow_mut() = self.separator_runtime_by_build_pos;
         *session.shielded_wall_runtime_by_build_pos.borrow_mut() =
             self.shielded_wall_runtime_by_build_pos;
         session.pending_packets = self.pending_packets;
@@ -22086,6 +22167,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -22188,6 +22270,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -22275,6 +22358,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -22396,6 +22480,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -22470,6 +22555,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -23162,6 +23248,49 @@ mod tests {
     }
 
     #[test]
+    fn loaded_world_tail_business_helper_applies_separator_and_disassembler_runtime_projection() {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let separator_pos = pack_build_pos_for_block_snapshot_test(25, 26);
+        let disassembler_pos = pack_build_pos_for_block_snapshot_test(26, 27);
+
+        session.apply_loaded_world_parsed_tail_business(
+            separator_pos,
+            Some(BLOCK_NAME_SEPARATOR),
+            &mdt_world::ParsedBuildingTail::TwoF32I32(mdt_world::TwoF32I32TailSnapshot {
+                first_bits: 0x3f80_0000,
+                second_bits: 0x4000_0000,
+                third_value: 17,
+            }),
+        );
+        session.apply_loaded_world_parsed_tail_business(
+            disassembler_pos,
+            Some(BLOCK_NAME_DISASSEMBLER),
+            &mdt_world::ParsedBuildingTail::TwoF32I32(mdt_world::TwoF32I32TailSnapshot {
+                first_bits: 0x4040_0000,
+                second_bits: 0x4080_0000,
+                third_value: -7,
+            }),
+        );
+
+        assert_eq!(
+            session.separator_runtime_projection_at(separator_pos),
+            Some(SeparatorRuntimeProjection {
+                progress_bits: 0x3f80_0000,
+                warmup_bits: 0x4000_0000,
+                seed: 17,
+            })
+        );
+        assert_eq!(
+            session.separator_runtime_projection_at(disassembler_pos),
+            Some(SeparatorRuntimeProjection {
+                progress_bits: 0x4040_0000,
+                warmup_bits: 0x4080_0000,
+                seed: -7,
+            })
+        );
+    }
+
+    #[test]
     fn summarize_payload_mass_driver_projection_extracts_runtime() {
         assert_eq!(
             summarize_payload_mass_driver_projection(
@@ -23238,6 +23367,24 @@ mod tests {
             )),
             Some(RadarRuntimeProjection {
                 progress_bits: 0x3f80_0000,
+            })
+        );
+    }
+
+    #[test]
+    fn summarize_separator_runtime_projection_extracts_progress_warmup_and_seed() {
+        assert_eq!(
+            summarize_separator_runtime_projection(&mdt_world::ParsedBuildingTail::TwoF32I32(
+                mdt_world::TwoF32I32TailSnapshot {
+                    first_bits: 0x3f80_0000,
+                    second_bits: 0x4000_0000,
+                    third_value: 17,
+                }
+            )),
+            Some(SeparatorRuntimeProjection {
+                progress_bits: 0x3f80_0000,
+                warmup_bits: 0x4000_0000,
+                seed: 17,
             })
         );
     }
@@ -24938,6 +25085,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -24999,6 +25147,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -25063,6 +25212,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -25203,6 +25353,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -25264,6 +25415,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -25397,6 +25549,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -25462,6 +25615,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -25523,6 +25677,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -25589,6 +25744,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -25660,6 +25816,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -25724,6 +25881,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -25785,6 +25943,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -25846,6 +26005,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -26037,6 +26197,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -26146,6 +26307,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -26280,6 +26442,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -26437,6 +26600,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -26572,6 +26736,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -26633,6 +26798,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -26694,6 +26860,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -26847,6 +27014,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -26950,6 +27118,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -27056,6 +27225,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -27149,6 +27319,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -27250,6 +27421,7 @@ mod tests {
                 }),
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -27348,6 +27520,7 @@ mod tests {
                 radar_runtime: Some(RadarRuntimeProjection {
                     progress_bits: 0x3f80_0000,
                 }),
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -27444,6 +27617,7 @@ mod tests {
                 radar_runtime: Some(RadarRuntimeProjection {
                     progress_bits: 0x3f80_0000,
                 }),
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -27522,6 +27696,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: Some(ShieldedWallRuntimeProjection {
                     shield_bits: 0x4260_0000,
                 }),
@@ -27611,6 +27786,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: Some(LaunchPadRuntimeProjection {
                     launch_counter_bits: 0x4200_0000,
@@ -27708,6 +27884,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: Some(
@@ -27778,6 +27955,166 @@ mod tests {
     }
 
     #[test]
+    fn apply_loaded_world_block_snapshot_entries_forwards_separator_and_disassembler_runtime_summary(
+    ) {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let separator_pos = pack_build_pos_for_block_snapshot_test(66, 67);
+        let disassembler_pos = pack_build_pos_for_block_snapshot_test(67, 68);
+
+        session.apply_block_snapshot_entries_from_loaded_world_entries(vec![
+            BlockSnapshotExtraEntrySummary {
+                build_pos: separator_pos,
+                block_id: 326,
+                block_name: Some(BLOCK_NAME_SEPARATOR.to_string()),
+                health_bits: Some(0x3f80_0000),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                enabled: Some(true),
+                module_bitmask: Some(4),
+                time_scale_bits: Some(0x3f00_0000),
+                time_scale_duration_bits: Some(0x3e80_0000),
+                last_disabler_pos: Some(77),
+                legacy_consume_connected: Some(false),
+                efficiency: Some(0x40),
+                optional_efficiency: Some(0x20),
+                visible_flags: Some(9),
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                core_runtime: None,
+                repair_turret_runtime: None,
+                radar_runtime: None,
+                separator_runtime: Some(SeparatorRuntimeProjection {
+                    progress_bits: 0x3f80_0000,
+                    warmup_bits: 0x4000_0000,
+                    seed: 17,
+                }),
+                shielded_wall_runtime: None,
+                launch_pad_runtime: None,
+                interplanetary_accelerator_runtime: None,
+                constructor_recipe_block_id: None,
+                constructor_runtime: None,
+                unit_factory_current_plan: None,
+                unit_factory_runtime: None,
+                payload_loader_runtime: None,
+                landing_pad_config_item_id: None,
+                landing_pad_runtime: None,
+                message_text: None,
+                payload_source_content: None,
+                payload_source_runtime: None,
+                payload_router_sorted_content: None,
+                payload_router_runtime: None,
+                duct_unloader_item_id: None,
+                duct_unloader_runtime: None,
+                duct_runtime: None,
+                shield_projector_runtime: None,
+                directional_unloader_item_id: None,
+                reconstructor_command_id: None,
+                memory_values_bits: None,
+                canvas_bytes: None,
+                mass_driver_link: None,
+                mass_driver_runtime: None,
+                payload_mass_driver_link: None,
+                payload_mass_driver_runtime: None,
+                sorter_runtime: None,
+                item_buffer_runtime: None,
+                conveyor_runtime: None,
+                nullable_item_id: None,
+                item_bridge_link: None,
+                item_bridge_runtime: None,
+                light_color: None,
+                switch_enabled: None,
+                build_item_stacks: Vec::new(),
+                build_liquid_stacks: Vec::new(),
+            },
+            BlockSnapshotExtraEntrySummary {
+                build_pos: disassembler_pos,
+                block_id: 327,
+                block_name: Some(BLOCK_NAME_DISASSEMBLER.to_string()),
+                health_bits: Some(0x3f80_0000),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                enabled: Some(true),
+                module_bitmask: Some(4),
+                time_scale_bits: Some(0x3f00_0000),
+                time_scale_duration_bits: Some(0x3e80_0000),
+                last_disabler_pos: Some(77),
+                legacy_consume_connected: Some(false),
+                efficiency: Some(0x40),
+                optional_efficiency: Some(0x20),
+                visible_flags: Some(9),
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                core_runtime: None,
+                repair_turret_runtime: None,
+                radar_runtime: None,
+                separator_runtime: Some(SeparatorRuntimeProjection {
+                    progress_bits: 0x4040_0000,
+                    warmup_bits: 0x4080_0000,
+                    seed: -7,
+                }),
+                shielded_wall_runtime: None,
+                launch_pad_runtime: None,
+                interplanetary_accelerator_runtime: None,
+                constructor_recipe_block_id: None,
+                constructor_runtime: None,
+                unit_factory_current_plan: None,
+                unit_factory_runtime: None,
+                payload_loader_runtime: None,
+                landing_pad_config_item_id: None,
+                landing_pad_runtime: None,
+                message_text: None,
+                payload_source_content: None,
+                payload_source_runtime: None,
+                payload_router_sorted_content: None,
+                payload_router_runtime: None,
+                duct_unloader_item_id: None,
+                duct_unloader_runtime: None,
+                duct_runtime: None,
+                shield_projector_runtime: None,
+                directional_unloader_item_id: None,
+                reconstructor_command_id: None,
+                memory_values_bits: None,
+                canvas_bytes: None,
+                mass_driver_link: None,
+                mass_driver_runtime: None,
+                payload_mass_driver_link: None,
+                payload_mass_driver_runtime: None,
+                sorter_runtime: None,
+                item_buffer_runtime: None,
+                conveyor_runtime: None,
+                nullable_item_id: None,
+                item_bridge_link: None,
+                item_bridge_runtime: None,
+                light_color: None,
+                switch_enabled: None,
+                build_item_stacks: Vec::new(),
+                build_liquid_stacks: Vec::new(),
+            },
+        ]);
+
+        assert_eq!(
+            session.separator_runtime_projection_at(separator_pos),
+            Some(SeparatorRuntimeProjection {
+                progress_bits: 0x3f80_0000,
+                warmup_bits: 0x4000_0000,
+                seed: 17,
+            })
+        );
+        assert_eq!(
+            session.separator_runtime_projection_at(disassembler_pos),
+            Some(SeparatorRuntimeProjection {
+                progress_bits: 0x4040_0000,
+                warmup_bits: 0x4080_0000,
+                seed: -7,
+            })
+        );
+    }
+
+    #[test]
     fn apply_loaded_world_block_snapshot_entries_forwards_shielded_wall_runtime_summary() {
         let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let build_pos = pack_build_pos_for_block_snapshot_test(65, 66);
@@ -27806,6 +28143,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: Some(ShieldedWallRuntimeProjection {
                     shield_bits: 0x4280_0000,
                 }),
@@ -27896,6 +28234,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -27960,6 +28299,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -28021,6 +28361,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -28082,6 +28423,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -28143,6 +28485,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -28212,6 +28555,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -28273,6 +28617,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -28334,6 +28679,7 @@ mod tests {
                 core_runtime: None,
                 repair_turret_runtime: None,
                 radar_runtime: None,
+                separator_runtime: None,
                 shielded_wall_runtime: None,
                 launch_pad_runtime: None,
                 interplanetary_accelerator_runtime: None,
@@ -39113,6 +39459,20 @@ mod tests {
             .configured_block_projection
             .item_source_item_by_build_pos
             .contains_key(&build_pos));
+        session
+            .state
+            .configured_block_projection
+            .apply_radar_runtime(
+                build_pos,
+                crate::session_state::RadarRuntimeProjection {
+                    progress_bits: 0x3f80_0000,
+                },
+            );
+        assert!(session
+            .state()
+            .configured_block_projection
+            .radar_runtime_by_build_pos
+            .contains_key(&build_pos));
 
         ingest_deconstruct_finish_for_block_config_test(
             &mut session,
@@ -39124,6 +39484,11 @@ mod tests {
             .state()
             .configured_block_projection
             .item_source_item_by_build_pos
+            .contains_key(&build_pos));
+        assert!(!session
+            .state()
+            .configured_block_projection
+            .radar_runtime_by_build_pos
             .contains_key(&build_pos));
     }
 
@@ -48277,12 +48642,19 @@ mod tests {
             deferred,
             ClientSessionEvent::DeferredPacketWhileLoading { .. }
         ));
+        session.radar_runtime_by_build_pos.borrow_mut().insert(
+            77,
+            RadarRuntimeProjection {
+                progress_bits: 0x3f80_0000,
+            },
+        );
         assert_eq!(session.state().deferred_inbound_packet_count, 1);
 
         let reset = session.ingest_packet_bytes(&world_data_begin).unwrap();
         assert_eq!(reset, ClientSessionEvent::WorldDataBegin);
         assert!(!session.state().client_loaded);
         assert_eq!(session.state().deferred_inbound_packet_count, 0);
+        assert!(session.radar_runtime_by_build_pos.borrow().is_empty());
         assert!(session.take_replayed_loading_events().is_empty());
         assert_eq!(
             session.state().last_reset_kind,
@@ -48849,6 +49221,29 @@ mod tests {
         session.last_inbound_at_ms = Some(123);
         session.last_keepalive_at_ms = Some(456);
         session.next_client_snapshot_id = 42;
+        session.radar_runtime_by_build_pos.borrow_mut().insert(
+            61,
+            RadarRuntimeProjection {
+                progress_bits: 0x3f80_0000,
+            },
+        );
+        session.separator_runtime_by_build_pos.borrow_mut().insert(
+            62,
+            SeparatorRuntimeProjection {
+                progress_bits: 0x3f80_0000,
+                warmup_bits: 0x3f00_0000,
+                seed: 7,
+            },
+        );
+        session
+            .shielded_wall_runtime_by_build_pos
+            .borrow_mut()
+            .insert(
+                63,
+                ShieldedWallRuntimeProjection {
+                    shield_bits: 0x4260_0000,
+                },
+            );
         session
             .queue_tile_config(Some(321), TypeIoObject::Int(7))
             .unwrap();
@@ -48889,6 +49284,12 @@ mod tests {
         assert!(!session.timed_out);
         assert!(!session.loading_world_data);
         assert!(session.loaded_world_bundle().is_none());
+        assert!(session.radar_runtime_by_build_pos.borrow().is_empty());
+        assert!(session.separator_runtime_by_build_pos.borrow().is_empty());
+        assert!(session
+            .shielded_wall_runtime_by_build_pos
+            .borrow()
+            .is_empty());
         assert_eq!(session.state().received_connect_redirect_count, 1);
         assert_eq!(
             session.state().last_connect_redirect_ip.as_deref(),

@@ -430,6 +430,13 @@ pub struct ShieldedWallRuntimeProjection {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SeparatorRuntimeProjection {
+    pub progress_bits: u32,
+    pub warmup_bits: u32,
+    pub seed: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConveyorRuntimeProjection {
     pub item_count: usize,
     pub first_item_id: Option<i16>,
@@ -1922,6 +1929,7 @@ pub struct ConfiguredBlockProjection {
     pub interplanetary_accelerator_runtime_by_build_pos:
         BTreeMap<i32, InterplanetaryAcceleratorRuntimeProjection>,
     pub shielded_wall_runtime_by_build_pos: BTreeMap<i32, ShieldedWallRuntimeProjection>,
+    pub separator_runtime_by_build_pos: BTreeMap<i32, SeparatorRuntimeProjection>,
     pub conveyor_runtime_by_build_pos: BTreeMap<i32, ConveyorRuntimeProjection>,
     pub unit_cargo_unload_point_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub item_source_item_by_build_pos: BTreeMap<i32, Option<i16>>,
@@ -2010,6 +2018,15 @@ impl ConfiguredBlockProjection {
         projection: ShieldedWallRuntimeProjection,
     ) {
         self.shielded_wall_runtime_by_build_pos
+            .insert(build_pos, projection);
+    }
+
+    pub fn apply_separator_runtime(
+        &mut self,
+        build_pos: i32,
+        projection: SeparatorRuntimeProjection,
+    ) {
+        self.separator_runtime_by_build_pos
             .insert(build_pos, projection);
     }
 
@@ -2302,6 +2319,12 @@ impl ConfiguredBlockProjection {
 
     pub fn clear_building_state(&mut self, build_pos: i32) {
         self.core_runtime_by_build_pos.remove(&build_pos);
+        self.repair_turret_runtime_by_build_pos.remove(&build_pos);
+        self.radar_runtime_by_build_pos.remove(&build_pos);
+        self.shielded_wall_runtime_by_build_pos.remove(&build_pos);
+        self.launch_pad_runtime_by_build_pos.remove(&build_pos);
+        self.interplanetary_accelerator_runtime_by_build_pos
+            .remove(&build_pos);
         self.conveyor_runtime_by_build_pos.remove(&build_pos);
         self.unit_cargo_unload_point_item_by_build_pos
             .remove(&build_pos);
@@ -2336,6 +2359,8 @@ impl ConfiguredBlockProjection {
         self.duct_unloader_item_by_build_pos.remove(&build_pos);
         self.duct_unloader_runtime_by_build_pos.remove(&build_pos);
         self.duct_router_item_by_build_pos.remove(&build_pos);
+        self.shield_projector_runtime_by_build_pos
+            .remove(&build_pos);
         self.mass_driver_link_by_build_pos.remove(&build_pos);
         self.mass_driver_runtime_by_build_pos.remove(&build_pos);
         self.payload_mass_driver_link_by_build_pos
@@ -2348,6 +2373,7 @@ impl ConfiguredBlockProjection {
         self.power_node_links_by_build_pos.remove(&build_pos);
         self.reconstructor_command_by_build_pos.remove(&build_pos);
         self.reconstructor_runtime_by_build_pos.remove(&build_pos);
+        self.separator_runtime_by_build_pos.remove(&build_pos);
         self.memory_values_bits_by_build_pos.remove(&build_pos);
         self.canvas_bytes_by_build_pos.remove(&build_pos);
         self.unit_assembler_by_build_pos.remove(&build_pos);
@@ -9395,6 +9421,50 @@ mod tests {
                     shield_bits: Some(0x4260_0000),
                 },
             ))
+        );
+    }
+
+    #[test]
+    fn configured_block_projection_stores_separator_disassembler_runtime_projection() {
+        let mut projection = ConfiguredBlockProjection::default();
+        let separator_build_pos = 0x0006_0021i32;
+        let disassembler_build_pos = 0x0006_0022i32;
+        projection.apply_separator_runtime(
+            separator_build_pos,
+            SeparatorRuntimeProjection {
+                progress_bits: 0x3f80_0000,
+                warmup_bits: 0x3f00_0000,
+                seed: 17,
+            },
+        );
+        projection.apply_separator_runtime(
+            disassembler_build_pos,
+            SeparatorRuntimeProjection {
+                progress_bits: 0x3fc0_0000,
+                warmup_bits: 0x3f40_0000,
+                seed: 29,
+            },
+        );
+
+        assert_eq!(
+            projection
+                .separator_runtime_by_build_pos
+                .get(&separator_build_pos),
+            Some(&SeparatorRuntimeProjection {
+                progress_bits: 0x3f80_0000,
+                warmup_bits: 0x3f00_0000,
+                seed: 17,
+            })
+        );
+        assert_eq!(
+            projection
+                .separator_runtime_by_build_pos
+                .get(&disassembler_build_pos),
+            Some(&SeparatorRuntimeProjection {
+                progress_bits: 0x3fc0_0000,
+                warmup_bits: 0x3f40_0000,
+                seed: 29,
+            })
         );
     }
 
