@@ -611,8 +611,16 @@ pub fn read_payload_summary_prefix(
 }
 
 fn write_length_prefixed_json(out: &mut Vec<u8>, value: &str) {
-    let bytes = value.as_bytes();
-    write_int(out, bytes.len() as i32);
+    write_length_prefixed_json_bytes(out, value.as_bytes());
+}
+
+fn write_length_prefixed_json_bytes(out: &mut Vec<u8>, bytes: &[u8]) {
+    write_length_prefixed_json_len(out, bytes.len(), bytes);
+}
+
+fn write_length_prefixed_json_len(out: &mut Vec<u8>, len: usize, bytes: &[u8]) {
+    let len: i32 = len.try_into().expect("length-prefixed json too long");
+    write_int(out, len);
     out.extend_from_slice(bytes);
 }
 
@@ -894,6 +902,25 @@ mod tests {
         let declared = i32::from_be_bytes(bytes[0..4].try_into().unwrap()) as usize;
         assert_eq!(declared, bytes.len() - 4);
         assert_eq!(&bytes[4..], OBJECTIVE_MARKER_BASIC_JSON.as_bytes());
+    }
+
+    #[test]
+    fn length_prefixed_json_round_trip_preserves_payload() {
+        let mut bytes = Vec::new();
+        write_length_prefixed_json(&mut bytes, RULES_BASIC_JSON);
+
+        assert_eq!(
+            i32::from_be_bytes(bytes[0..4].try_into().unwrap()) as usize,
+            RULES_BASIC_JSON.len()
+        );
+        assert_eq!(read_rules_json(&bytes).unwrap(), RULES_BASIC_JSON);
+    }
+
+    #[test]
+    #[should_panic(expected = "length-prefixed json too long")]
+    fn length_prefixed_json_rejects_lengths_outside_i32_range() {
+        let mut bytes = Vec::new();
+        write_length_prefixed_json_len(&mut bytes, i32::MAX as usize + 1, b"x");
     }
 
     #[test]
