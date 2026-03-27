@@ -331,6 +331,34 @@ pub fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<Stri
             ClientSessionEvent::AssemblerUnitSpawned { tile_pos } => {
                 Some(format!("assembler_unit_spawned: tile_pos={tile_pos:?}"))
             }
+            ClientSessionEvent::EffectRequested {
+                effect_id,
+                x,
+                y,
+                rotation,
+                color_rgba,
+                data_object,
+            } => Some(format_effect_requested_summary(
+                *effect_id,
+                *x,
+                *y,
+                *rotation,
+                *color_rgba,
+                data_object.as_ref(),
+            )),
+            ClientSessionEvent::EffectReliableRequested {
+                effect_id,
+                x,
+                y,
+                rotation,
+                color_rgba,
+            } => Some(format_effect_reliable_requested_summary(
+                *effect_id,
+                *x,
+                *y,
+                *rotation,
+                *color_rgba,
+            )),
             ClientSessionEvent::TraceInfoReceived {
                 player_id,
                 ip,
@@ -814,7 +842,93 @@ pub fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<Stri
             } => Some(format_set_unit_stance_summary(
                 unit_ids, *stance_id, *enable,
             )),
-            _ => None,
+            ClientSessionEvent::BeginBreak {
+                x,
+                y,
+                team_id,
+                builder_kind,
+                builder_value,
+            } => Some(format_begin_break_summary(
+                *x,
+                *y,
+                *team_id,
+                *builder_kind,
+                *builder_value,
+            )),
+            ClientSessionEvent::BeginPlace {
+                x,
+                y,
+                block_id,
+                rotation,
+                team_id,
+                config_kind,
+                config_kind_name,
+                builder_kind,
+                builder_value,
+            } => Some(format_begin_place_summary(
+                *x,
+                *y,
+                *block_id,
+                *rotation,
+                *team_id,
+                *config_kind,
+                config_kind_name,
+                *builder_kind,
+                *builder_value,
+            )),
+            ClientSessionEvent::RemoveQueueBlock {
+                x,
+                y,
+                breaking,
+                removed_local_plan,
+            } => Some(format_remove_queue_block_summary(
+                *x,
+                *y,
+                *breaking,
+                *removed_local_plan,
+            )),
+            ClientSessionEvent::ConstructFinish {
+                tile_pos,
+                block_id,
+                builder_kind,
+                builder_value,
+                rotation,
+                team_id,
+                config_kind,
+                removed_local_plan,
+            } => Some(format_construct_finish_summary(
+                *tile_pos,
+                *block_id,
+                *builder_kind,
+                *builder_value,
+                *rotation,
+                *team_id,
+                *config_kind,
+                *removed_local_plan,
+            )),
+            ClientSessionEvent::DeconstructFinish {
+                tile_pos,
+                block_id,
+                builder_kind,
+                builder_value,
+                removed_local_plan,
+            } => Some(format_deconstruct_finish_summary(
+                *tile_pos,
+                *block_id,
+                *builder_kind,
+                *builder_value,
+                *removed_local_plan,
+            )),
+            ClientSessionEvent::BuildHealthUpdate {
+                pair_count,
+                first_build_pos,
+                first_health_bits,
+                ..
+            } => Some(format_build_health_update_summary(
+                *pair_count,
+                *first_build_pos,
+                *first_health_bits,
+            )),
         })
         .collect()
 }
@@ -1154,6 +1268,116 @@ fn format_set_unit_stance_summary(unit_ids: &[i32], stance_id: Option<u8>, enabl
     )
 }
 
+fn format_effect_requested_summary(
+    effect_id: Option<i16>,
+    x: f32,
+    y: f32,
+    rotation: f32,
+    color_rgba: u32,
+    data_object: Option<&TypeIoObject>,
+) -> String {
+    format!(
+        "effect_requested: effect_id={effect_id:?} x_bits=0x{:08x} y_bits=0x{:08x} rotation_bits=0x{:08x} color_rgba=0x{color_rgba:08x} data_object={data_object:?}",
+        x.to_bits(),
+        y.to_bits(),
+        rotation.to_bits(),
+    )
+}
+
+fn format_effect_reliable_requested_summary(
+    effect_id: Option<i16>,
+    x: f32,
+    y: f32,
+    rotation: f32,
+    color_rgba: u32,
+) -> String {
+    format!(
+        "effect_reliable_requested: effect_id={effect_id:?} x_bits=0x{:08x} y_bits=0x{:08x} rotation_bits=0x{:08x} color_rgba=0x{color_rgba:08x}",
+        x.to_bits(),
+        y.to_bits(),
+        rotation.to_bits(),
+    )
+}
+
+fn format_begin_break_summary(
+    x: i32,
+    y: i32,
+    team_id: u8,
+    builder_kind: u8,
+    builder_value: i32,
+) -> String {
+    format!("begin_break: x={x} y={y} team_id={team_id} builder_kind={builder_kind} builder_value={builder_value}")
+}
+
+fn format_begin_place_summary(
+    x: i32,
+    y: i32,
+    block_id: Option<i16>,
+    rotation: i32,
+    team_id: u8,
+    config_kind: u8,
+    config_kind_name: &str,
+    builder_kind: u8,
+    builder_value: i32,
+) -> String {
+    format!(
+        "begin_place: x={x} y={y} block_id={block_id:?} rotation={rotation} team_id={team_id} config_kind={config_kind} config_kind_name={config_kind_name:?} builder_kind={builder_kind} builder_value={builder_value}"
+    )
+}
+
+fn format_remove_queue_block_summary(
+    x: i32,
+    y: i32,
+    breaking: bool,
+    removed_local_plan: bool,
+) -> String {
+    format!(
+        "remove_queue_block: x={x} y={y} breaking={breaking} removed_local_plan={removed_local_plan}"
+    )
+}
+
+fn format_construct_finish_summary(
+    tile_pos: i32,
+    block_id: Option<i16>,
+    builder_kind: u8,
+    builder_value: i32,
+    rotation: u8,
+    team_id: u8,
+    config_kind: u8,
+    removed_local_plan: bool,
+) -> String {
+    format!(
+        "construct_finish: tile_pos={tile_pos} block_id={block_id:?} builder_kind={builder_kind} builder_value={builder_value} rotation={rotation} team_id={team_id} config_kind={config_kind} removed_local_plan={removed_local_plan}"
+    )
+}
+
+fn format_deconstruct_finish_summary(
+    tile_pos: i32,
+    block_id: Option<i16>,
+    builder_kind: u8,
+    builder_value: i32,
+    removed_local_plan: bool,
+) -> String {
+    format!(
+        "deconstruct_finish: tile_pos={tile_pos} block_id={block_id:?} builder_kind={builder_kind} builder_value={builder_value} removed_local_plan={removed_local_plan}"
+    )
+}
+
+fn format_build_health_update_summary(
+    pair_count: usize,
+    first_build_pos: Option<i32>,
+    first_health_bits: Option<u32>,
+) -> String {
+    format!(
+        "build_health_update: pair_count={pair_count} first_build_pos={first_build_pos:?} first_health_bits={}",
+        format_optional_u32_bits(first_health_bits)
+    )
+}
+
+fn format_optional_u32_bits(bits: Option<u32>) -> String {
+    bits.map_or_else(|| "None".to_string(), |bits| format!("Some(0x{bits:08x})"))
+}
+
 fn encode_hex_text(bytes: &[u8]) -> String {
     let mut output = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
@@ -1378,6 +1602,97 @@ mod tests {
                 "snapshot_received: method=EntitySnapshot".to_string(),
                 "transfer_item_to: unit=Some(UnitRefProjection { kind: 2, value: 44 }) item_id=Some(8) amount=12 x_bits=0x3f800000 y_bits=0x40000000 build_pos=Some(65538)".to_string(),
                 "unit_entered_payload: unit=Some(UnitRefProjection { kind: 2, value: 88 }) build_pos=Some(196612) removed_entity_projection=false".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn summarize_client_packet_events_includes_build_and_effect_events() {
+        let lines = summarize_client_packet_events(&[
+            ClientSessionEvent::EffectRequested {
+                effect_id: Some(14),
+                x: 32.5,
+                y: -4.0,
+                rotation: 90.0,
+                color_rgba: 0x11223344,
+                data_object: Some(mdt_typeio::TypeIoObject::Int(7)),
+            },
+            ClientSessionEvent::EffectReliableRequested {
+                effect_id: Some(21),
+                x: -5.0,
+                y: 6.5,
+                rotation: 180.0,
+                color_rgba: 0xaabbccdd,
+            },
+            ClientSessionEvent::BeginBreak {
+                x: 100,
+                y: 99,
+                team_id: 1,
+                builder_kind: 2,
+                builder_value: 42,
+            },
+            ClientSessionEvent::BeginPlace {
+                x: 100,
+                y: 99,
+                block_id: Some(0x0101),
+                rotation: 3,
+                team_id: 1,
+                config_kind: 1,
+                config_kind_name: "int",
+                builder_kind: 2,
+                builder_value: 42,
+            },
+            ClientSessionEvent::RemoveQueueBlock {
+                x: 100,
+                y: 99,
+                breaking: true,
+                removed_local_plan: false,
+            },
+            ClientSessionEvent::ConstructFinish {
+                tile_pos: 0x0001_0002,
+                block_id: Some(0x0101),
+                builder_kind: 2,
+                builder_value: 42,
+                rotation: 3,
+                team_id: 1,
+                config_kind: 1,
+                removed_local_plan: true,
+            },
+            ClientSessionEvent::DeconstructFinish {
+                tile_pos: 0x0003_0004,
+                block_id: Some(0x0102),
+                builder_kind: 2,
+                builder_value: 84,
+                removed_local_plan: false,
+            },
+            ClientSessionEvent::BuildHealthUpdate {
+                pair_count: 2,
+                first_build_pos: Some(123),
+                first_health_bits: Some(1.25f32.to_bits()),
+                pairs: vec![
+                    crate::client_session::BuildHealthPair {
+                        build_pos: 123,
+                        health_bits: 1.25f32.to_bits(),
+                    },
+                    crate::client_session::BuildHealthPair {
+                        build_pos: 456,
+                        health_bits: 0.5f32.to_bits(),
+                    },
+                ],
+            },
+        ]);
+
+        assert_eq!(
+            lines,
+            vec![
+                "effect_requested: effect_id=Some(14) x_bits=0x42020000 y_bits=0xc0800000 rotation_bits=0x42b40000 color_rgba=0x11223344 data_object=Some(Int(7))".to_string(),
+                "effect_reliable_requested: effect_id=Some(21) x_bits=0xc0a00000 y_bits=0x40d00000 rotation_bits=0x43340000 color_rgba=0xaabbccdd".to_string(),
+                "begin_break: x=100 y=99 team_id=1 builder_kind=2 builder_value=42".to_string(),
+                "begin_place: x=100 y=99 block_id=Some(257) rotation=3 team_id=1 config_kind=1 config_kind_name=\"int\" builder_kind=2 builder_value=42".to_string(),
+                "remove_queue_block: x=100 y=99 breaking=true removed_local_plan=false".to_string(),
+                "construct_finish: tile_pos=65538 block_id=Some(257) builder_kind=2 builder_value=42 rotation=3 team_id=1 config_kind=1 removed_local_plan=true".to_string(),
+                "deconstruct_finish: tile_pos=196612 block_id=Some(258) builder_kind=2 builder_value=84 removed_local_plan=false".to_string(),
+                "build_health_update: pair_count=2 first_build_pos=Some(123) first_health_bits=Some(0x3fa00000)".to_string(),
             ]
         );
     }

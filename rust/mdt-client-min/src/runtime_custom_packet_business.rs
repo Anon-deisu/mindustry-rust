@@ -33,7 +33,7 @@ pub fn resolve_runtime_custom_packet_business_marker(
     if entry.semantic != RuntimeCustomPacketSemanticKind::UnitId {
         return None;
     }
-    let unit_id = entry.stable_value.parse::<i32>().ok()?;
+    let unit_id = entry.stable_value.trim().parse::<i32>().ok()?;
     let projection = session_state.runtime_typed_entity_projection();
     let entity = projection.entity_at(unit_id)?;
     Some(RuntimeCustomPacketBusinessMarker {
@@ -210,6 +210,49 @@ mod tests {
                     y_bits: 120.0f32.to_bits(),
                 }),
                 rect_target: None,
+            })
+        );
+    }
+
+    #[test]
+    fn resolve_runtime_custom_packet_business_marker_trims_unit_id_whitespace() {
+        let entry = RuntimeCustomPacketSurfaceSummaryEntry {
+            key: "logic.unit".to_string(),
+            encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+            semantic: RuntimeCustomPacketSemanticKind::UnitId,
+            stable_value: " 77 ".to_string(),
+            marker: None,
+        };
+        let mut state = SessionState::default();
+        state
+            .runtime_typed_entity_apply_projection
+            .by_entity_id
+            .insert(
+                77,
+                crate::session_state::TypedRuntimeEntityModel::Player(
+                    crate::session_state::TypedRuntimePlayerEntity {
+                        base: crate::session_state::TypedRuntimeEntityBase {
+                            entity_id: 77,
+                            class_id: 0,
+                            hidden: false,
+                            is_local_player: false,
+                            unit_kind: 0,
+                            unit_value: 0,
+                            x_bits: 16.0f32.to_bits(),
+                            y_bits: 24.0f32.to_bits(),
+                            last_seen_entity_snapshot_count: 1,
+                        },
+                        semantic: crate::session_state::EntityPlayerSemanticProjection::default(),
+                    },
+                ),
+            );
+
+        assert_eq!(
+            resolve_runtime_custom_packet_business_marker(&entry, &state),
+            Some(RuntimeCustomPacketBusinessMarker {
+                source: RuntimeCustomPacketBusinessMarkerSource::RuntimeEntity,
+                x: 16.0,
+                y: 24.0,
             })
         );
     }

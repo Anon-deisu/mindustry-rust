@@ -790,6 +790,50 @@ mod tests {
     }
 
     #[test]
+    fn combined_packet_registries_classify_packet_ids_by_priority_over_overlapping_registries() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let combined = CombinedPacketRegistries::from_remote_manifest(&manifest).unwrap();
+
+        let inbound_logic_data_packet_id = combined
+            .inbound_remote
+            .packet_id(InboundRemoteFamily::ClientLogicDataReliable)
+            .unwrap();
+        let custom_text_packet_id = combined
+            .custom_channel
+            .packet_id(CustomChannelRemoteFamily::ServerPacketReliable)
+            .unwrap();
+
+        let mut high_frequency_preferred = combined.clone();
+        high_frequency_preferred.client_snapshot_packet_id = inbound_logic_data_packet_id;
+        assert_eq!(
+            high_frequency_preferred.classify_packet_id(inbound_logic_data_packet_id),
+            Some(RemotePacketClassification::HighFrequency {
+                method: HighFrequencyRemoteMethod::ClientSnapshot,
+            })
+        );
+
+        let mut custom_preferred = combined.clone();
+        custom_preferred.well_known_remote.ping_packet_id = Some(custom_text_packet_id);
+        assert_eq!(
+            custom_preferred.classify_packet_id(custom_text_packet_id),
+            Some(RemotePacketClassification::CustomChannel {
+                family: CustomChannelRemoteFamily::ServerPacketReliable,
+                payload_kind: CustomChannelRemotePayloadKind::Text,
+            })
+        );
+
+        let mut inbound_preferred = combined;
+        inbound_preferred.well_known_remote.ping_packet_id = Some(inbound_logic_data_packet_id);
+        assert_eq!(
+            inbound_preferred.classify_packet_id(inbound_logic_data_packet_id),
+            Some(RemotePacketClassification::InboundRemote {
+                family: InboundRemoteFamily::ClientLogicDataReliable,
+                payload_kind: CustomChannelRemotePayloadKind::LogicData,
+            })
+        );
+    }
+
+    #[test]
     fn generated_remote_registry_constants_match_manifest_and_combined_views() {
         use crate::generated::remote_high_frequency_gen::CLIENT_SNAPSHOT_PACKET_ID;
         use crate::generated::remote_registry_gen::{

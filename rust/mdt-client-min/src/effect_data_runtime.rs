@@ -522,6 +522,51 @@ mod tests {
     }
 
     #[test]
+    fn derive_effect_data_business_input_preserves_object_semantics_on_parse_failure() {
+        let object = TypeIoObject::ObjectArray(vec![
+            TypeIoObject::Point2 { x: 4, y: 6 },
+            TypeIoObject::ContentRaw {
+                content_type: 1,
+                content_id: 33,
+            },
+        ]);
+
+        let input = derive_effect_data_business_input(
+            Some(26),
+            Some(&object),
+            Some(5),
+            true,
+            Some("decode"),
+        );
+
+        assert_eq!(input.contract_name, Some("payload_target_content"));
+        assert_eq!(
+            input.data_kind.as_deref(),
+            Some("object[len=2]{0=Point2,1=Content(raw)}")
+        );
+        assert_eq!(input.semantic, Some(EffectDataSemantic::ObjectArrayLen(2)));
+        assert_eq!(
+            input.primary,
+            Some(EffectDataBusinessHint::PayloadTargetContent {
+                content_kind: EffectBusinessContentKind::Content,
+                content_type: 1,
+                content_id: 33,
+                content_path: vec![1],
+                target: EffectDataBusinessTargetHint::PositionHint(
+                    TypeIoEffectPositionHint::Point2 {
+                        x: 4,
+                        y: 6,
+                        path: vec![0],
+                    },
+                ),
+            })
+        );
+        assert_eq!(input.data_type_tag, Some(5));
+        assert!(input.parse_failed);
+        assert_eq!(input.parse_error.as_deref(), Some("decode"));
+    }
+
+    #[test]
     fn derive_effect_data_semantic_preserves_existing_scalar_and_semantic_ref_mapping() {
         assert_eq!(
             derive_effect_data_semantic(Some(&TypeIoObject::Int(7)), Some(1), false),
