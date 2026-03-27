@@ -18,13 +18,13 @@ use crate::session_state::{
     ConfiguredBlockProjection, ConfiguredContentRef, CoreInventoryRuntimeBindingKind,
     EffectBusinessContentKind, EffectBusinessPositionSource, EffectBusinessProjection,
     EffectDataSemantic, EffectRuntimeBindingState, HiddenSnapshotDeltaProjection,
-    ReconnectPhaseProjection, ReconnectReasonKind, SessionResetKind, SessionState,
-    SessionTimeoutKind, StateSnapshotAuthorityProjection, StateSnapshotBusinessProjection,
-    TileConfigAuthoritySource, TileConfigProjection, TypedBuildingRuntimeKind,
-    TypedBuildingRuntimeModel, TypedBuildingRuntimeProjection, TypedBuildingRuntimeValue,
-    TypedRuntimeEntityModel, TypedRuntimeEntityProjection, UnitAssemblerRuntimeProjection,
-    UnitFactoryRuntimeProjection, UnitRefProjection, WorldBootstrapProjection,
-    WorldReloadProjection,
+    PayloadLoaderRuntimeProjection, ReconnectPhaseProjection, ReconnectReasonKind,
+    SessionResetKind, SessionState, SessionTimeoutKind, StateSnapshotAuthorityProjection,
+    StateSnapshotBusinessProjection, TileConfigAuthoritySource, TileConfigProjection,
+    TypedBuildingRuntimeKind, TypedBuildingRuntimeModel, TypedBuildingRuntimeProjection,
+    TypedBuildingRuntimeValue, TypedRuntimeEntityModel, TypedRuntimeEntityProjection,
+    UnitAssemblerRuntimeProjection, UnitFactoryRuntimeProjection, UnitRefProjection,
+    WorldBootstrapProjection, WorldReloadProjection,
 };
 use mdt_remote::{HighFrequencyRemoteMethod, HIGH_FREQUENCY_REMOTE_METHOD_COUNT};
 use mdt_render_ui::hud_model::{
@@ -1520,6 +1520,10 @@ fn runtime_configured_block_projection_label(projection: &ConfiguredBlockProject
             &projection.constructor_recipe_block_by_build_pos,
         ),
         runtime_configured_int_family_label("il", &projection.light_color_by_build_pos),
+        runtime_configured_payload_loader_family_label(
+            "pl",
+            &projection.payload_loader_runtime_by_build_pos,
+        ),
         runtime_configured_raw_content_family_label(
             "ps",
             &projection.payload_source_content_by_build_pos,
@@ -1635,6 +1639,40 @@ fn runtime_configured_raw_content_family_label(
         Some((build_pos, None)) => {
             let (x, y) = unpack_runtime_point2(*build_pos);
             format!("{prefix}{count}@{x}:{y}=clear")
+        }
+        None => format!("{prefix}{count}"),
+    }
+}
+
+fn runtime_configured_payload_loader_family_label(
+    prefix: &str,
+    values: &BTreeMap<i32, PayloadLoaderRuntimeProjection>,
+) -> String {
+    let count = values.len();
+    match values.last_key_value() {
+        Some((build_pos, projection)) => {
+            let (x, y) = unpack_runtime_point2(*build_pos);
+            let payload = projection
+                .payload_build_block_id
+                .map(|content_id| format!("b:{content_id}"))
+                .or_else(|| {
+                    projection
+                        .payload_unit_class_id
+                        .map(|class_id| format!("uc:{class_id}"))
+                })
+                .unwrap_or_else(|| {
+                    if projection.payload_present {
+                        "present".to_string()
+                    } else {
+                        "none".to_string()
+                    }
+                });
+            format!(
+                "{prefix}{count}@{x}:{y}={}:y{}:r{:08x}:{payload}",
+                if projection.exporting { "exp" } else { "imp" },
+                if projection.payload_present { 1 } else { 0 },
+                projection.pay_rotation_bits,
+            )
         }
         None => format!("{prefix}{count}"),
     }
@@ -3308,6 +3346,34 @@ fn runtime_typed_build_config_value_label(
                 .unwrap_or_else(|| "clear".to_string())
         ),
         TypedBuildingRuntimeValue::Color(value) => format!("color=0x{value:08x}"),
+        TypedBuildingRuntimeValue::PayloadLoader {
+            exporting,
+            payload_present,
+            pay_rotation_bits,
+            payload_build_block_id,
+            payload_unit_class_id,
+        } => {
+            let mut parts = vec![format!(
+                "mode={}",
+                match exporting {
+                    Some(true) => "export",
+                    Some(false) => "import",
+                    None => "unknown",
+                }
+            )];
+            if let Some(payload_present) = payload_present {
+                parts.push(format!("y{}", if *payload_present { 1 } else { 0 }));
+            }
+            if let Some(pay_rotation_bits) = pay_rotation_bits {
+                parts.push(format!("r{pay_rotation_bits:08x}"));
+            }
+            if let Some(payload_build_block_id) = payload_build_block_id {
+                parts.push(format!("payload=b:{payload_build_block_id}"));
+            } else if let Some(payload_unit_class_id) = payload_unit_class_id {
+                parts.push(format!("payload=uc:{payload_unit_class_id}"));
+            }
+            parts.join(":")
+        }
         TypedBuildingRuntimeValue::Content(content) => format!(
             "content={}",
             content
@@ -7629,6 +7695,19 @@ mod tests {
             );
         state
             .configured_block_projection
+            .payload_loader_runtime_by_build_pos
+            .insert(
+                pack_runtime_point2(25, 47),
+                crate::session_state::PayloadLoaderRuntimeProjection {
+                    exporting: false,
+                    payload_present: true,
+                    pay_rotation_bits: 0x4000_0000,
+                    payload_build_block_id: Some(12),
+                    payload_unit_class_id: None,
+                },
+            );
+        state
+            .configured_block_projection
             .unit_factory_current_plan_by_build_pos
             .insert(pack_runtime_point2(24, 46), 7);
         state
@@ -7692,6 +7771,7 @@ mod tests {
             (pack_runtime_point2(22, 44), "payload-router"),
             (pack_runtime_point2(23, 45), "power-node"),
             (pack_runtime_point2(24, 46), "ground-factory"),
+            (pack_runtime_point2(25, 47), "payload-unloader"),
             (pack_runtime_point2(26, 48), "additive-reconstructor"),
             (pack_runtime_point2(27, 49), "memory-cell"),
             (pack_runtime_point2(28, 50), "build-tower"),
@@ -7737,6 +7817,9 @@ mod tests {
         assert!(hud.status_text.contains(":mg1@18:40=len5:"));
         assert!(hud.status_text.contains(":ct1@19:41=5:"));
         assert!(hud.status_text.contains(":il1@20:42=11223344:"));
+        assert!(hud
+            .status_text
+            .contains(":pl1@25:47=imp:y1:r40000000:b:12:"));
         assert!(hud.status_text.contains(":ps1@21:43=b:7:"));
         assert!(hud.status_text.contains(":pr1@22:44=u:9:"));
         assert!(hud
@@ -7766,6 +7849,10 @@ mod tests {
         }));
         assert!(build_ui.inspector_entries.iter().any(|entry| {
             entry.family == "power-node" && entry.sample == "23:45:links=24:46|25:47"
+        }));
+        assert!(build_ui.inspector_entries.iter().any(|entry| {
+            entry.family == "payload-loader"
+                && entry.sample == "25:47:payload-unloader:mode=import:y1:r40000000:payload=b:12"
         }));
         assert!(build_ui.inspector_entries.iter().any(|entry| {
             entry.family == "unit-factory"
@@ -7803,6 +7890,41 @@ mod tests {
             .expect("payload-router config icon should be present");
         assert_eq!(payload_router_icon.x, 176.0);
         assert_eq!(payload_router_icon.y, 352.0);
+    }
+
+    #[test]
+    fn runtime_configured_payload_loader_family_label_compacts_payload_runtime_sample() {
+        let values = BTreeMap::from([(
+            pack_runtime_point2(25, 47),
+            PayloadLoaderRuntimeProjection {
+                exporting: true,
+                payload_present: true,
+                pay_rotation_bits: 0x4000_0000,
+                payload_build_block_id: None,
+                payload_unit_class_id: Some(9),
+            },
+        )]);
+
+        assert_eq!(
+            runtime_configured_payload_loader_family_label("pl", &values),
+            "pl1@25:47=exp:y1:r40000000:uc:9"
+        );
+    }
+
+    #[test]
+    fn runtime_typed_build_config_value_label_formats_payload_loader_like_constructor_runtime() {
+        let label = runtime_typed_build_config_value_label(
+            TypedBuildingRuntimeKind::PayloadLoader,
+            &TypedBuildingRuntimeValue::PayloadLoader {
+                exporting: Some(false),
+                payload_present: Some(true),
+                pay_rotation_bits: Some(0x4040_0000),
+                payload_build_block_id: Some(11),
+                payload_unit_class_id: None,
+            },
+        );
+
+        assert_eq!(label, "mode=import:y1:r40400000:payload=b:11");
     }
 
     #[test]

@@ -363,6 +363,15 @@ pub struct ConstructorRuntimeProjection {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PayloadLoaderRuntimeProjection {
+    pub exporting: bool,
+    pub payload_present: bool,
+    pub pay_rotation_bits: u32,
+    pub payload_build_block_id: Option<i16>,
+    pub payload_unit_class_id: Option<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnitFactoryRuntimeProjection {
     pub progress_bits: u32,
     pub command_pos: Option<(u32, u32)>,
@@ -1773,6 +1782,7 @@ pub struct ConfiguredBlockProjection {
     pub constructor_recipe_block_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub constructor_runtime_by_build_pos: BTreeMap<i32, ConstructorRuntimeProjection>,
     pub light_color_by_build_pos: BTreeMap<i32, i32>,
+    pub payload_loader_runtime_by_build_pos: BTreeMap<i32, PayloadLoaderRuntimeProjection>,
     pub payload_source_content_by_build_pos: BTreeMap<i32, Option<ConfiguredContentRef>>,
     pub payload_router_sorted_content_by_build_pos: BTreeMap<i32, Option<ConfiguredContentRef>>,
     pub item_bridge_link_by_build_pos: BTreeMap<i32, Option<i32>>,
@@ -1850,6 +1860,15 @@ impl ConfiguredBlockProjection {
 
     pub fn apply_light_color(&mut self, build_pos: i32, color: i32) {
         self.light_color_by_build_pos.insert(build_pos, color);
+    }
+
+    pub fn apply_payload_loader_runtime(
+        &mut self,
+        build_pos: i32,
+        projection: PayloadLoaderRuntimeProjection,
+    ) {
+        self.payload_loader_runtime_by_build_pos
+            .insert(build_pos, projection);
     }
 
     pub fn apply_payload_source_content(
@@ -1978,6 +1997,7 @@ impl ConfiguredBlockProjection {
             .remove(&build_pos);
         self.constructor_runtime_by_build_pos.remove(&build_pos);
         self.light_color_by_build_pos.remove(&build_pos);
+        self.payload_loader_runtime_by_build_pos.remove(&build_pos);
         self.payload_source_content_by_build_pos.remove(&build_pos);
         self.payload_router_sorted_content_by_build_pos
             .remove(&build_pos);
@@ -2989,6 +3009,7 @@ pub enum TypedBuildingRuntimeKind {
     Message,
     Constructor,
     Illuminator,
+    PayloadLoader,
     PayloadSource,
     PayloadRouter,
     ItemBridge,
@@ -3028,6 +3049,7 @@ impl TypedBuildingRuntimeKind {
             Self::Message => "message",
             Self::Constructor => "constructor",
             Self::Illuminator => "illuminator",
+            Self::PayloadLoader => "payload-loader",
             Self::PayloadSource => "payload-source",
             Self::PayloadRouter => "payload-router",
             Self::ItemBridge => "item-bridge",
@@ -3061,6 +3083,13 @@ pub enum TypedBuildingRuntimeValue {
     Constructor {
         recipe_block_id: Option<i16>,
         progress_bits: Option<u32>,
+        payload_present: Option<bool>,
+        pay_rotation_bits: Option<u32>,
+        payload_build_block_id: Option<i16>,
+        payload_unit_class_id: Option<u8>,
+    },
+    PayloadLoader {
+        exporting: Option<bool>,
         payload_present: Option<bool>,
         pay_rotation_bits: Option<u32>,
         payload_build_block_id: Option<i16>,
@@ -3395,6 +3424,29 @@ fn typed_runtime_building_model(
                     .and_then(|projection| projection.payload_unit_class_id),
             },
         ),
+        "payload-loader" | "payload-unloader" => {
+            let runtime = configured
+                .payload_loader_runtime_by_build_pos
+                .get(&build_pos);
+            (
+                TypedBuildingRuntimeKind::PayloadLoader,
+                TypedBuildingRuntimeValue::PayloadLoader {
+                    exporting: runtime.map(|projection| projection.exporting).or_else(|| {
+                        match block_name {
+                            "payload-loader" => Some(true),
+                            "payload-unloader" => Some(false),
+                            _ => None,
+                        }
+                    }),
+                    payload_present: runtime.map(|projection| projection.payload_present),
+                    pay_rotation_bits: runtime.map(|projection| projection.pay_rotation_bits),
+                    payload_build_block_id: runtime
+                        .and_then(|projection| projection.payload_build_block_id),
+                    payload_unit_class_id: runtime
+                        .and_then(|projection| projection.payload_unit_class_id),
+                },
+            )
+        }
         "illuminator" => (
             TypedBuildingRuntimeKind::Illuminator,
             TypedBuildingRuntimeValue::Color(
@@ -3485,12 +3537,8 @@ fn typed_runtime_building_model(
                     .copied()?,
             ),
         ),
-        "ground-factory"
-        | "air-factory"
-        | "naval-factory"
-        | "tank-fabricator"
-        | "ship-fabricator"
-        | "mech-fabricator" => {
+        "ground-factory" | "air-factory" | "naval-factory" | "tank-fabricator"
+        | "ship-fabricator" | "mech-fabricator" => {
             let runtime = configured.unit_factory_runtime_by_build_pos.get(&build_pos);
             (
                 TypedBuildingRuntimeKind::UnitFactory,
@@ -7981,6 +8029,152 @@ mod tests {
                 TypedBuildingRuntimeValue::Constructor {
                     recipe_block_id: Some(7),
                     progress_bits: Some(0x3f40_0000),
+                    payload_present: Some(true),
+                    pay_rotation_bits: Some(0x4000_0000),
+                    payload_build_block_id: Some(11),
+                    payload_unit_class_id: None,
+                },
+                Vec::new(),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(6),
+                Some(0x3f80_0000),
+                Some(0x3f00_0000),
+                Some(126),
+                Some(false),
+                Some(0x40a0_0000),
+                Some(true),
+                Some(0x50),
+                Some(0x28),
+                Some(66),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_gives_payload_loader_family_empty_shell() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0008_000ci32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            304,
+            Some("payload-unloader".to_string()),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(6),
+            Some(0x3f80_0000),
+            Some(0x3f00_0000),
+            Some(126),
+            Some(false),
+            None,
+            Some(0x40a0_0000),
+            Some(true),
+            Some(0x50),
+            Some(0x28),
+            Some(66),
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(
+            state.typed_runtime_building_at(build_pos),
+            Some(expected_typed_runtime_building(
+                build_pos,
+                304,
+                "payload-unloader",
+                TypedBuildingRuntimeKind::PayloadLoader,
+                TypedBuildingRuntimeValue::PayloadLoader {
+                    exporting: Some(false),
+                    payload_present: None,
+                    pay_rotation_bits: None,
+                    payload_build_block_id: None,
+                    payload_unit_class_id: None,
+                },
+                Vec::new(),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(6),
+                Some(0x3f80_0000),
+                Some(0x3f00_0000),
+                Some(126),
+                Some(false),
+                Some(0x40a0_0000),
+                Some(true),
+                Some(0x50),
+                Some(0x28),
+                Some(66),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_payload_loader_family_runtime() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0008_000di32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            305,
+            Some("payload-loader".to_string()),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(6),
+            Some(0x3f80_0000),
+            Some(0x3f00_0000),
+            Some(126),
+            Some(false),
+            None,
+            Some(0x40a0_0000),
+            Some(true),
+            Some(0x50),
+            Some(0x28),
+            Some(66),
+            None,
+            None,
+            None,
+        );
+        state
+            .configured_block_projection
+            .apply_payload_loader_runtime(
+                build_pos,
+                PayloadLoaderRuntimeProjection {
+                    exporting: true,
+                    payload_present: true,
+                    pay_rotation_bits: 0x4000_0000,
+                    payload_build_block_id: Some(11),
+                    payload_unit_class_id: None,
+                },
+            );
+
+        assert_eq!(
+            state.typed_runtime_building_at(build_pos),
+            Some(expected_typed_runtime_building(
+                build_pos,
+                305,
+                "payload-loader",
+                TypedBuildingRuntimeKind::PayloadLoader,
+                TypedBuildingRuntimeValue::PayloadLoader {
+                    exporting: Some(true),
                     payload_present: Some(true),
                     pay_rotation_bits: Some(0x4000_0000),
                     payload_build_block_id: Some(11),
