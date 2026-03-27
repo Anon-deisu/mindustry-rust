@@ -26434,7 +26434,15 @@ fn parse_save_map_region(
     let mut reader = Reader::new(bytes);
     let width = reader.read_u16()? as usize;
     let height = reader.read_u16()? as usize;
-    let tile_count = width * height;
+    let tile_count = checked_tile_count(width, height, "save map region")?;
+    let available_bytes = reader.remaining_len();
+    let max_tile_count = available_bytes.saturating_mul(256) / 9;
+    if tile_count > max_tile_count {
+        return Err(format!(
+            "save map region dimensions are too large for remaining bytes: width={} height={} tiles={} remaining={}",
+            width, height, tile_count, available_bytes
+        ));
+    }
 
     let mut floors = vec![0u16; tile_count];
     let mut overlays = vec![0u16; tile_count];
@@ -26445,15 +26453,29 @@ fn parse_save_map_region(
         let floor = reader.read_u16()?;
         let overlay = reader.read_u16()?;
         let consecutives = reader.read_u8()? as usize;
+        let run_end = i.checked_add(consecutives).ok_or_else(|| {
+            format!(
+                "save map region floor run overflows index space at tile {} with run length {}",
+                i, consecutives
+            )
+        })?;
+        if run_end >= tile_count {
+            return Err(format!(
+                "save map region floor run overruns map bounds: start={} run_len={} tiles={}",
+                i,
+                consecutives + 1,
+                tile_count
+            ));
+        }
         floor_region_bytes.extend_from_slice(&floor.to_be_bytes());
         floor_region_bytes.extend_from_slice(&overlay.to_be_bytes());
         floor_region_bytes.push(consecutives as u8);
-        for j in 0..=consecutives {
-            floors[i + j] = floor;
-            overlays[i + j] = overlay;
+        for j in i..=run_end {
+            floors[j] = floor;
+            overlays[j] = overlay;
         }
         floor_runs += 1;
-        i += consecutives + 1;
+        i = run_end + 1;
     }
 
     let mut blocks = vec![0u16; tile_count];
@@ -26494,6 +26516,17 @@ fn parse_save_map_region(
             let chunk_len_start = reader.position();
             let chunk_len = read_save_chunk_len(&mut reader, save_version)?;
             let chunk_len_end = reader.position();
+            let remaining_bytes = reader.remaining_len();
+            if chunk_len > remaining_bytes {
+                return Err(format!(
+                    "save building center chunk at ({}, {}) for block {:04x} exceeds remaining bytes: length={} remaining={}",
+                    i % width,
+                    i / width,
+                    block,
+                    chunk_len,
+                    remaining_bytes
+                ));
+            }
             let chunk = reader.read_exact_vec(chunk_len)?;
             let block_name = resolve_content_name(content_header, BLOCK_CONTENT_TYPE, block);
             let building =
@@ -26524,11 +26557,25 @@ fn parse_save_map_region(
             block_region_bytes.push(reader.read_u8()?);
         } else if !had_data_new && !had_entity {
             let consecutives = reader.read_u8()? as usize;
-            block_region_bytes.push(consecutives as u8);
-            for j in 1..=consecutives {
-                blocks[i + j] = block;
+            let run_end = i.checked_add(consecutives).ok_or_else(|| {
+                format!(
+                    "save map region block run overflows index space at tile {} with run length {}",
+                    i, consecutives
+                )
+            })?;
+            if run_end >= tile_count {
+                return Err(format!(
+                    "save map region block run overruns map bounds: start={} run_len={} tiles={}",
+                    i,
+                    consecutives + 1,
+                    tile_count
+                ));
             }
-            i += consecutives;
+            block_region_bytes.push(consecutives as u8);
+            for j in (i + 1)..=run_end {
+                blocks[j] = block;
+            }
+            i = run_end;
         }
 
         block_runs += 1;
@@ -26584,10 +26631,25 @@ fn parse_save_map_region(
 fn parse_save_custom_chunks_region(bytes: &[u8]) -> Result<Vec<CustomChunkEntry>, String> {
     let mut reader = Reader::new(bytes);
     let custom_chunk_count = reader.read_u32()? as usize;
+    let available_bytes = reader.remaining_len();
+    let max_custom_chunk_count = available_bytes / 6;
+    if custom_chunk_count > max_custom_chunk_count {
+        return Err(format!(
+            "save custom region declares too many chunks: count={} remaining={}",
+            custom_chunk_count, available_bytes
+        ));
+    }
     let mut custom_chunks = Vec::with_capacity(custom_chunk_count);
     for _ in 0..custom_chunk_count {
         let name = reader.read_java_utf()?;
         let chunk_len = reader.read_u32()? as usize;
+        let remaining_bytes = reader.remaining_len();
+        if chunk_len > remaining_bytes {
+            return Err(format!(
+                "save custom chunk {:?} length {} exceeds remaining bytes {}",
+                name, chunk_len, remaining_bytes
+            ));
+        }
         let chunk_bytes = reader.read_exact_vec(chunk_len)?;
         let parsed = parse_known_custom_chunk(&name, &chunk_bytes)?;
         custom_chunks.push(CustomChunkEntry {
@@ -26714,6 +26776,15 @@ fn read_save_chunk_len(reader: &mut Reader<'_>, save_version: i32) -> Result<usi
     } else {
         Ok(reader.read_u16()? as usize)
     }
+}
+
+fn checked_tile_count(width: usize, height: usize, label: &str) -> Result<usize, String> {
+    width.checked_mul(height).ok_or_else(|| {
+        format!(
+            "{label} dimensions overflow: width={} height={}",
+            width, height
+        )
+    })
 }
 
 fn parse_save_world_entity_chunks(
@@ -38731,7 +38802,24 @@ fn parse_static_fog_chunk(bytes: &[u8]) -> Result<StaticFogChunk, String> {
     let used_teams = reader.read_u8()? as usize;
     let width = reader.read_u16()? as usize;
     let height = reader.read_u16()? as usize;
-    let len = width * height;
+    let len = checked_tile_count(width, height, "static fog chunk")?;
+    let available_bytes = reader.remaining_len();
+    if used_teams > 0 {
+        if available_bytes < used_teams {
+            return Err(format!(
+                "static fog chunk declares {} teams but only {} bytes remain",
+                used_teams, available_bytes
+            ));
+        }
+        let run_bytes_per_team = (available_bytes - used_teams) / used_teams;
+        let max_len = run_bytes_per_team.saturating_mul(127);
+        if len > max_len {
+            return Err(format!(
+                "static fog chunk dimensions are too large for remaining bytes: width={} height={} tiles={} remaining={}",
+                width, height, len, available_bytes
+            ));
+        }
+    }
     let mut teams = Vec::with_capacity(used_teams);
 
     for _ in 0..used_teams {
@@ -38750,21 +38838,26 @@ fn parse_static_fog_chunk(bytes: &[u8]) -> Result<StaticFogChunk, String> {
                     "static fog chunk contains zero-length run for team {team_id}"
                 ));
             }
-            if pos + consec > len {
+            let run_end = pos.checked_add(consec).ok_or_else(|| {
+                format!(
+                    "static fog chunk run overflows index space for team {team_id}: pos={} run_len={}",
+                    pos, consec
+                )
+            })?;
+            if run_end > len {
                 return Err(format!(
-                    "static fog chunk overruns map bounds for team {team_id}: pos={} consec={} len={len}",
-                    pos,
-                    consec
+                    "static fog chunk overruns map bounds for team {team_id}: pos={} run_len={} len={len}",
+                    pos, consec
                 ));
             }
 
             rle_bytes.push(data);
             if sign {
-                for index in pos..pos + consec {
+                for index in pos..run_end {
                     discovered[index] = true;
                 }
             }
-            pos += consec;
+            pos = run_end;
             run_count += 1;
         }
 
@@ -39637,6 +39730,10 @@ impl<'a> Reader<'a> {
     fn remaining_bytes(&self) -> Vec<u8> {
         let pos = self.cursor.position() as usize;
         self.cursor.get_ref()[pos..].to_vec()
+    }
+
+    fn remaining_len(&self) -> usize {
+        self.cursor.get_ref().len() - self.position()
     }
 
     fn position(&self) -> usize {
@@ -53195,6 +53292,90 @@ mod tests {
         assert_eq!(chunk.is_discovered(5, 3, 0), Some(true));
         assert_eq!(chunk.is_discovered(5, 0, 0), Some(false));
         assert_eq!(chunk.is_discovered(1, 4, 0), None);
+    }
+
+    #[test]
+    fn parses_small_save_map_region() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1u16.to_be_bytes());
+        bytes.extend_from_slice(&1u16.to_be_bytes());
+        bytes.extend_from_slice(&0x0011u16.to_be_bytes());
+        bytes.extend_from_slice(&0x0022u16.to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0x0033u16.to_be_bytes());
+        bytes.push(0);
+        bytes.push(0);
+
+        let parsed = parse_save_map_region(11, &[], &bytes).unwrap();
+        assert_eq!(parsed.world.width, 1);
+        assert_eq!(parsed.world.height, 1);
+        assert_eq!(parsed.world.floors, vec![0x0011]);
+        assert_eq!(parsed.world.overlays, vec![0x0022]);
+        assert_eq!(parsed.world.blocks, vec![0x0033]);
+        assert!(parsed.world.building_centers.is_empty());
+    }
+
+    #[test]
+    fn rejects_overlong_save_map_floor_run() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1u16.to_be_bytes());
+        bytes.extend_from_slice(&1u16.to_be_bytes());
+        bytes.extend_from_slice(&0x0011u16.to_be_bytes());
+        bytes.extend_from_slice(&0x0022u16.to_be_bytes());
+        bytes.push(1);
+
+        let error = parse_save_map_region(11, &[], &bytes).unwrap_err();
+        assert!(error.contains("floor run overruns map bounds"));
+    }
+
+    #[test]
+    fn rejects_large_save_map_building_chunk_len() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1u16.to_be_bytes());
+        bytes.extend_from_slice(&1u16.to_be_bytes());
+        bytes.extend_from_slice(&0x0011u16.to_be_bytes());
+        bytes.extend_from_slice(&0x0022u16.to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0x0033u16.to_be_bytes());
+        bytes.push(1);
+        bytes.push(1);
+        bytes.extend_from_slice(&1u32.to_be_bytes());
+
+        let error = parse_save_map_region(11, &[], &bytes).unwrap_err();
+        assert!(error.contains("exceeds remaining bytes"));
+    }
+
+    #[test]
+    fn parses_empty_save_custom_chunks_region() {
+        let bytes = 0u32.to_be_bytes().to_vec();
+        let parsed = parse_save_custom_chunks_region(&bytes).unwrap();
+        assert!(parsed.is_empty());
+    }
+
+    #[test]
+    fn rejects_large_save_custom_chunk_count_and_len() {
+        let count_bytes = u32::MAX.to_be_bytes().to_vec();
+        let count_error = parse_save_custom_chunks_region(&count_bytes).unwrap_err();
+        assert!(count_error.contains("too many chunks"));
+
+        let mut len_bytes = Vec::new();
+        len_bytes.extend_from_slice(&1u32.to_be_bytes());
+        write_java_utf(&mut len_bytes, "").unwrap();
+        len_bytes.extend_from_slice(&u32::MAX.to_be_bytes());
+        let len_error = parse_save_custom_chunks_region(&len_bytes).unwrap_err();
+        assert!(len_error.contains("exceeds remaining bytes"));
+    }
+
+    #[test]
+    fn rejects_unreasonable_static_fog_dimensions() {
+        let mut bytes = Vec::new();
+        bytes.push(1);
+        bytes.extend_from_slice(&u16::MAX.to_be_bytes());
+        bytes.extend_from_slice(&u16::MAX.to_be_bytes());
+        bytes.push(7);
+
+        let error = parse_static_fog_chunk(&bytes).unwrap_err();
+        assert!(error.contains("dimensions are too large"));
     }
 
     #[test]
