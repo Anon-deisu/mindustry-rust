@@ -1,4 +1,4 @@
-use crate::effect_data_runtime::EffectDataBusinessHint;
+use crate::effect_data_runtime::{derive_effect_data_semantic, EffectDataBusinessHint};
 use crate::entity_snapshot_families::{
     ALPHA_SHAPE_ENTITY_CLASS_IDS, BUILDING_TETHER_PAYLOAD_ENTITY_CLASS_IDS, FIRE_ENTITY_CLASS_IDS,
     MECH_SHAPE_ENTITY_CLASS_IDS, MISSILE_SHAPE_ENTITY_CLASS_IDS, PAYLOAD_SHAPE_ENTITY_CLASS_IDS,
@@ -313,6 +313,43 @@ pub enum EffectDataSemantic {
     ObjectArrayLen(usize),
     UnitCommand(u16),
     OpaqueTypeTag(u8),
+}
+
+const EFFECT_DATA_NESTED_SEMANTIC_MAX_DEPTH: usize = 3;
+const EFFECT_DATA_NESTED_SEMANTIC_MAX_NODES: usize = 64;
+
+pub fn refine_effect_data_semantic_for_nested_object_array(
+    object: Option<&TypeIoObject>,
+    semantic: Option<EffectDataSemantic>,
+) -> Option<EffectDataSemantic> {
+    let Some(EffectDataSemantic::ObjectArrayLen(_)) = semantic else {
+        return semantic;
+    };
+    let Some(object) = object else {
+        return semantic;
+    };
+
+    let Some(matched) = object.find_first_dfs_bounded(
+        EFFECT_DATA_NESTED_SEMANTIC_MAX_DEPTH,
+        EFFECT_DATA_NESTED_SEMANTIC_MAX_NODES,
+        |value| {
+            matches!(
+                value,
+                TypeIoObject::ContentRaw { .. }
+                    | TypeIoObject::TechNodeRaw { .. }
+                    | TypeIoObject::BuildingPos(_)
+                    | TypeIoObject::UnitId(_)
+                    | TypeIoObject::Point2 { .. }
+                    | TypeIoObject::Float(_)
+                    | TypeIoObject::Double(_)
+                    | TypeIoObject::Vec2 { .. }
+            )
+        },
+    ) else {
+        return semantic;
+    };
+
+    derive_effect_data_semantic(Some(matched.value), None, false).or(semantic)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

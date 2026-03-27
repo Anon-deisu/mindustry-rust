@@ -6050,7 +6050,11 @@ impl ClientSession {
                         business_input.contract_name.map(str::to_string);
                     self.state.last_effect_data_consumed_len = effect.data_consumed_len;
                     self.state.last_effect_data_object = effect.data_object.clone();
-                    self.state.last_effect_data_semantic = business_input.semantic.clone();
+                    self.state.last_effect_data_semantic =
+                        crate::session_state::refine_effect_data_semantic_for_nested_object_array(
+                            effect.data_object.as_ref(),
+                            business_input.semantic.clone(),
+                        );
                     self.state.last_effect_data_business_hint = business_input.primary.clone();
                     let business_projection = derive_effect_business_projection(
                         &self.state,
@@ -47203,6 +47207,10 @@ mod tests {
             })
         );
         assert_eq!(session.state().last_effect_business_path, Some(vec![1, 0]));
+        assert_eq!(
+            session.state().last_effect_data_semantic,
+            Some(EffectDataSemantic::Point2 { x: 10, y: 20 })
+        );
         assert!(!session.state().last_effect_data_parse_failed);
     }
 
