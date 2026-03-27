@@ -11,6 +11,7 @@ use mdt_remote::{
     InboundRemoteFamily, InboundRemoteRegistry, RemoteManifest, RemoteManifestError,
     RemotePacketIdFixedTable, WellKnownRemoteMethod, WellKnownRemoteRegistry,
     CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT, INBOUND_REMOTE_FAMILY_COUNT,
+    WELL_KNOWN_REMOTE_METHOD_COUNT,
 };
 use typed_remote_glue::PacketRegistryTypedRemoteGlue;
 
@@ -269,58 +270,74 @@ impl WellKnownRemotePacketIds {
     }
 
     fn from_typed_registry(registry: WellKnownRemoteRegistry) -> Self {
+        Self::from_resolved_packet_ids(registry.resolved_packet_ids())
+    }
+
+    fn from_resolved_packet_ids(
+        resolved_packet_ids: [(WellKnownRemoteMethod, Option<u8>); WELL_KNOWN_REMOTE_METHOD_COUNT],
+    ) -> Self {
+        let packet_id = |method| {
+            resolved_packet_ids
+                .iter()
+                .find_map(|(resolved_method, packet_id)| {
+                    (*resolved_method == method).then_some(*packet_id)
+                })
+                .flatten()
+        };
+
         Self {
-            ping_packet_id: registry.packet_id(WellKnownRemoteMethod::Ping),
-            client_plan_snapshot_packet_id: registry
-                .packet_id(WellKnownRemoteMethod::ClientPlanSnapshot),
-            client_plan_snapshot_received_packet_id: registry
-                .packet_id(WellKnownRemoteMethod::ClientPlanSnapshotReceived),
-            ping_response_packet_id: registry.packet_id(WellKnownRemoteMethod::PingResponse),
-            ping_location_packet_id: registry.packet_id(WellKnownRemoteMethod::PingLocation),
-            debug_status_client_unreliable_packet_id: registry
-                .packet_id(WellKnownRemoteMethod::DebugStatusClientUnreliable),
-            trace_info_packet_id: registry.packet_id(WellKnownRemoteMethod::TraceInfo),
-            set_rules_packet_id: registry.packet_id(WellKnownRemoteMethod::SetRules),
-            set_objectives_packet_id: registry.packet_id(WellKnownRemoteMethod::SetObjectives),
-            set_rule_packet_id: registry.packet_id(WellKnownRemoteMethod::SetRule),
+            ping_packet_id: packet_id(WellKnownRemoteMethod::Ping),
+            client_plan_snapshot_packet_id: packet_id(WellKnownRemoteMethod::ClientPlanSnapshot),
+            client_plan_snapshot_received_packet_id: packet_id(
+                WellKnownRemoteMethod::ClientPlanSnapshotReceived,
+            ),
+            ping_response_packet_id: packet_id(WellKnownRemoteMethod::PingResponse),
+            ping_location_packet_id: packet_id(WellKnownRemoteMethod::PingLocation),
+            debug_status_client_unreliable_packet_id: packet_id(
+                WellKnownRemoteMethod::DebugStatusClientUnreliable,
+            ),
+            trace_info_packet_id: packet_id(WellKnownRemoteMethod::TraceInfo),
+            set_rules_packet_id: packet_id(WellKnownRemoteMethod::SetRules),
+            set_objectives_packet_id: packet_id(WellKnownRemoteMethod::SetObjectives),
+            set_rule_packet_id: packet_id(WellKnownRemoteMethod::SetRule),
         }
     }
 
+    pub fn packet_id(&self, method: WellKnownRemoteMethod) -> Option<u8> {
+        match method {
+            WellKnownRemoteMethod::Ping => self.ping_packet_id,
+            WellKnownRemoteMethod::ClientPlanSnapshot => self.client_plan_snapshot_packet_id,
+            WellKnownRemoteMethod::ClientPlanSnapshotReceived => {
+                self.client_plan_snapshot_received_packet_id
+            }
+            WellKnownRemoteMethod::PingResponse => self.ping_response_packet_id,
+            WellKnownRemoteMethod::PingLocation => self.ping_location_packet_id,
+            WellKnownRemoteMethod::DebugStatusClientUnreliable => {
+                self.debug_status_client_unreliable_packet_id
+            }
+            WellKnownRemoteMethod::TraceInfo => self.trace_info_packet_id,
+            WellKnownRemoteMethod::SetRules => self.set_rules_packet_id,
+            WellKnownRemoteMethod::SetObjectives => self.set_objectives_packet_id,
+            WellKnownRemoteMethod::SetRule => self.set_rule_packet_id,
+        }
+    }
+
+    pub fn contains_packet_id(&self, packet_id: u8) -> bool {
+        self.method(packet_id).is_some()
+    }
+
+    pub fn resolved_packet_ids(
+        &self,
+    ) -> [(WellKnownRemoteMethod, Option<u8>); WELL_KNOWN_REMOTE_METHOD_COUNT] {
+        WellKnownRemoteMethod::ordered().map(|method| (method, self.packet_id(method)))
+    }
+
     pub fn method(&self, packet_id: u8) -> Option<WellKnownRemoteMethod> {
-        [
-            (WellKnownRemoteMethod::Ping, self.ping_packet_id),
-            (
-                WellKnownRemoteMethod::ClientPlanSnapshot,
-                self.client_plan_snapshot_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::ClientPlanSnapshotReceived,
-                self.client_plan_snapshot_received_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::PingResponse,
-                self.ping_response_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::PingLocation,
-                self.ping_location_packet_id,
-            ),
-            (
-                WellKnownRemoteMethod::DebugStatusClientUnreliable,
-                self.debug_status_client_unreliable_packet_id,
-            ),
-            (WellKnownRemoteMethod::TraceInfo, self.trace_info_packet_id),
-            (WellKnownRemoteMethod::SetRules, self.set_rules_packet_id),
-            (
-                WellKnownRemoteMethod::SetObjectives,
-                self.set_objectives_packet_id,
-            ),
-            (WellKnownRemoteMethod::SetRule, self.set_rule_packet_id),
-        ]
-        .into_iter()
-        .find_map(|(method, resolved_packet_id)| {
-            (resolved_packet_id == Some(packet_id)).then_some(method)
-        })
+        self.resolved_packet_ids()
+            .into_iter()
+            .find_map(|(method, resolved_packet_id)| {
+                (resolved_packet_id == Some(packet_id)).then_some(method)
+            })
     }
 }
 
@@ -840,6 +857,9 @@ mod tests {
     fn well_known_remote_packet_ids_reject_method_name_decoys() {
         let manifest = well_known_remote_manifest_with_decoys();
         let well_known = WellKnownRemotePacketIds::from_remote_manifest(&manifest).unwrap();
+        let typed_fixed_table = WellKnownRemoteRegistry::from_manifest(&manifest)
+            .unwrap()
+            .packet_id_fixed_table();
 
         assert_eq!(well_known.ping_packet_id, Some(5));
         assert_eq!(well_known.client_plan_snapshot_packet_id, Some(7));
@@ -854,6 +874,23 @@ mod tests {
         assert_eq!(well_known.set_rules_packet_id, Some(16));
         assert_eq!(well_known.set_objectives_packet_id, Some(17));
         assert_eq!(well_known.set_rule_packet_id, Some(19));
+        assert_eq!(
+            well_known.method(5),
+            Some(WellKnownRemoteMethod::Ping)
+        );
+        assert_eq!(well_known.method(6), None);
+        assert!(well_known.contains_packet_id(5));
+        assert!(!well_known.contains_packet_id(6));
+        assert_eq!(well_known.method(5), typed_fixed_table.get(5));
+        assert_eq!(well_known.method(6), typed_fixed_table.get(6));
+        assert_eq!(
+            well_known.contains_packet_id(5),
+            typed_fixed_table.contains_packet_id(5)
+        );
+        assert_eq!(
+            well_known.contains_packet_id(6),
+            typed_fixed_table.contains_packet_id(6)
+        );
     }
 
     #[test]
@@ -908,6 +945,20 @@ mod tests {
                 typed_registry.packet_id(method),
                 "typed well-known packet id mismatch for {}",
                 method.method_name()
+            );
+        }
+        assert_eq!(well_known.resolved_packet_ids(), typed_registry.resolved_packet_ids());
+        let typed_fixed_table = typed_registry.packet_id_fixed_table();
+        for packet_id in 0..=u8::MAX {
+            assert_eq!(
+                well_known.method(packet_id),
+                typed_fixed_table.get(packet_id),
+                "typed well-known classification mismatch for packet_id={packet_id}"
+            );
+            assert_eq!(
+                well_known.contains_packet_id(packet_id),
+                typed_fixed_table.contains_packet_id(packet_id),
+                "typed well-known containment mismatch for packet_id={packet_id}"
             );
         }
     }
