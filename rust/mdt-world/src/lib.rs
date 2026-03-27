@@ -1006,6 +1006,13 @@ pub struct MsavRegionObservation {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MsavRegionSurface<'a> {
+    pub name: &'static str,
+    pub chunk_length: usize,
+    pub chunk_sha256: &'a str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SaveEntityRemapEntry {
     pub custom_id: u16,
     pub name: String,
@@ -1206,6 +1213,21 @@ pub struct MsavSaveObservation {
 impl MsavSaveObservation {
     pub fn region(&self, name: &str) -> Option<&MsavRegionObservation> {
         self.regions.iter().find(|region| region.name == name)
+    }
+
+    pub fn region_names(&self) -> Vec<&'static str> {
+        self.regions.iter().map(|region| region.name).collect()
+    }
+
+    pub fn region_surfaces(&self) -> Vec<MsavRegionSurface<'_>> {
+        self.regions
+            .iter()
+            .map(|region| MsavRegionSurface {
+                name: region.name,
+                chunk_length: region.chunk_length,
+                chunk_sha256: &region.chunk_sha256,
+            })
+            .collect()
     }
 
     pub fn post_load_entity_summary(&self) -> SaveEntityPostLoadSummary {
@@ -40329,6 +40351,7 @@ mod tests {
                 original.envelope.leading_region_length
             );
             assert_eq!(reparsed.regions.len(), original.regions.len());
+            assert_eq!(reparsed.region_names(), original.region_names());
             for (lhs, rhs) in reparsed.regions.iter().zip(&original.regions) {
                 assert_eq!(lhs.name, rhs.name);
                 assert_eq!(lhs.chunk_length, rhs.chunk_length);
@@ -40365,6 +40388,7 @@ mod tests {
 
             assert_eq!(save.envelope.save_version, save_version);
             assert_eq!(save.envelope.leading_region_length, Some(2));
+            assert_eq!(save.region_names(), expected_regions);
             assert_eq!(
                 save.regions
                     .iter()
@@ -40388,6 +40412,7 @@ mod tests {
         let save = parse_msav_save(&bytes).unwrap();
 
         assert_eq!(save.envelope.save_version, 6);
+        assert_eq!(save.region_names(), vec!["meta", "content", "map", "entities"]);
         assert_eq!(
             save.regions
                 .iter()
@@ -40410,6 +40435,13 @@ mod tests {
         );
         assert_eq!(save.entities.team_count, 1);
         assert_eq!(save.entities.total_plans, 1);
+        let surfaces = save.region_surfaces();
+        assert_eq!(surfaces.len(), save.regions.len());
+        for (surface, region) in surfaces.iter().zip(&save.regions) {
+            assert_eq!(surface.name, region.name);
+            assert_eq!(surface.chunk_length, region.chunk_length);
+            assert_eq!(surface.chunk_sha256, region.chunk_sha256.as_str());
+        }
         assert_eq!(
             save.entities.team_region_bytes,
             generate_team_plan_sample_bytes()
