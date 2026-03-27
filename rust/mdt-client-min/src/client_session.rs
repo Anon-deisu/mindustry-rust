@@ -7605,6 +7605,18 @@ impl ClientSession {
             .replace_entity_item_stack_exact(Some(entity_id), stack_item_id, stack_amount);
     }
 
+    fn entity_snapshot_unit_item_stack_projection(
+        stack_item_id: i16,
+        stack_amount: i32,
+    ) -> Option<crate::session_state::ResourceUnitItemStack> {
+        (stack_amount > 0 && stack_item_id >= 0).then_some(
+            crate::session_state::ResourceUnitItemStack {
+                item_id: Some(stack_item_id),
+                amount: stack_amount,
+            },
+        )
+    }
+
     fn apply_parseable_alpha_unit_row_from_entity_snapshot(
         &mut self,
         entity_id: i32,
@@ -7656,6 +7668,8 @@ impl ClientSession {
             sync.stack_item_id,
             sync.stack_amount,
         );
+        self.state
+            .clear_entity_snapshot_payload_apply_projection(entity_id);
         self.state
             .refresh_runtime_typed_entity_from_tables(entity_id);
     }
@@ -7795,6 +7809,8 @@ impl ClientSession {
                 row.sync.stack_amount,
             );
             self.state
+                .clear_entity_snapshot_payload_apply_projection(row.entity_id);
+            self.state
                 .refresh_runtime_typed_entity_from_tables(row.entity_id);
         }
     }
@@ -7850,6 +7866,8 @@ impl ClientSession {
                 row.sync.stack_amount,
             );
             self.state
+                .clear_entity_snapshot_payload_apply_projection(row.entity_id);
+            self.state
                 .refresh_runtime_typed_entity_from_tables(row.entity_id);
         }
     }
@@ -7903,6 +7921,16 @@ impl ClientSession {
                 row.entity_id,
                 row.sync.stack_item_id,
                 row.sync.stack_amount,
+            );
+            self.state.apply_entity_snapshot_payload_apply_projection(
+                row.entity_id,
+                row.class_id,
+                row.sync.payload_count,
+                None,
+                Self::entity_snapshot_unit_item_stack_projection(
+                    row.sync.stack_item_id,
+                    row.sync.stack_amount,
+                ),
             );
             self.state
                 .refresh_runtime_typed_entity_from_tables(row.entity_id);
@@ -7958,6 +7986,16 @@ impl ClientSession {
                 row.entity_id,
                 row.sync.stack_item_id,
                 row.sync.stack_amount,
+            );
+            self.state.apply_entity_snapshot_payload_apply_projection(
+                row.entity_id,
+                row.class_id,
+                row.sync.payload_count,
+                Some(row.sync.building_pos),
+                Self::entity_snapshot_unit_item_stack_projection(
+                    row.sync.stack_item_id,
+                    row.sync.stack_amount,
+                ),
             );
             self.state
                 .refresh_runtime_typed_entity_from_tables(row.entity_id);
@@ -9547,6 +9585,9 @@ impl ClientSession {
             .clear_for_world_reload();
         self.state
             .player_semantic_projection
+            .clear_for_world_reload();
+        self.state
+            .entity_snapshot_payload_apply_projection
             .clear_for_world_reload();
         self.state
             .runtime_typed_entity_apply_projection
@@ -12105,8 +12146,13 @@ fn remove_entity_projection_for_entity_id(state: &mut SessionState, entity_id: i
     let removed_entity = state.entity_table_projection.remove_entity(entity_id);
     let removed_semantic = state.entity_semantic_projection.remove_entity(entity_id);
     let removed_player_semantic = state.player_semantic_projection.remove_entity(entity_id);
+    let removed_payload_apply = state.clear_entity_snapshot_payload_apply_projection(entity_id);
     let removed_runtime = state.remove_runtime_typed_entity(entity_id);
-    removed_entity || removed_semantic || removed_player_semantic || removed_runtime
+    removed_entity
+        || removed_semantic
+        || removed_player_semantic
+        || removed_payload_apply
+        || removed_runtime
 }
 
 fn remove_entity_projection_for_unit_ref(
@@ -21185,6 +21231,166 @@ mod tests {
                         })
             ));
         }
+    }
+
+    #[test]
+    fn payload_entity_snapshot_apply_tracks_payload_depth_projection_and_runtime_stack() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        session.state.received_entity_snapshot_count = 1;
+
+        let mut payload_row = try_parse_payload_sync_rows_from_entity_snapshot_prefix(
+            &build_entity_snapshot_payload(&[build_entity_snapshot_row(
+                777,
+                5,
+                &synthetic_payload_sync_bytes(),
+            )]),
+        )
+        .into_iter()
+        .next()
+        .unwrap();
+        payload_row.sync.payload_count = 2;
+        payload_row.sync.stack_item_id = 6;
+        payload_row.sync.stack_amount = 8;
+
+        let mut tether_row =
+            try_parse_building_tether_payload_sync_rows_from_entity_snapshot_prefix(
+                &build_entity_snapshot_payload(&[build_entity_snapshot_row(
+                    888,
+                    36,
+                    &synthetic_building_tether_payload_sync_bytes(),
+                )]),
+            )
+            .into_iter()
+            .next()
+            .unwrap();
+        tether_row.sync.payload_count = 3;
+        tether_row.sync.building_pos = 12345;
+        tether_row.sync.stack_item_id = 7;
+        tether_row.sync.stack_amount = 9;
+
+        session.apply_parseable_payload_rows_from_entity_snapshot(&[payload_row.clone()]);
+        session.apply_parseable_building_tether_payload_rows_from_entity_snapshot(&[
+            tether_row.clone()
+        ]);
+
+        assert_eq!(
+            session
+                .state()
+                .entity_snapshot_payload_apply_projection
+                .by_entity_id
+                .get(&777),
+            Some(&crate::session_state::EntitySnapshotPayloadApplyEntry {
+                class_id: 5,
+                last_seen_entity_snapshot_count: 1,
+                payload_count: 2,
+                building_pos: None,
+                carried_item_stack: Some(crate::session_state::ResourceUnitItemStack {
+                    item_id: Some(6),
+                    amount: 8,
+                }),
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .entity_snapshot_payload_apply_projection
+                .by_entity_id
+                .get(&888),
+            Some(&crate::session_state::EntitySnapshotPayloadApplyEntry {
+                class_id: 36,
+                last_seen_entity_snapshot_count: 1,
+                payload_count: 3,
+                building_pos: Some(12345),
+                carried_item_stack: Some(crate::session_state::ResourceUnitItemStack {
+                    item_id: Some(7),
+                    amount: 9,
+                }),
+            })
+        );
+        assert!(matches!(
+            session.state().runtime_typed_entity_projection().entity_at(777),
+            Some(crate::session_state::TypedRuntimeEntityModel::Unit(unit))
+                if unit.semantic.payload_count == Some(2)
+                    && unit.semantic.building_pos.is_none()
+                    && unit.carried_item_stack
+                        == Some(crate::session_state::ResourceUnitItemStack {
+                            item_id: Some(6),
+                            amount: 8,
+                        })
+        ));
+        assert!(matches!(
+            session.state().runtime_typed_entity_projection().entity_at(888),
+            Some(crate::session_state::TypedRuntimeEntityModel::Unit(unit))
+                if unit.semantic.payload_count == Some(3)
+                    && unit.semantic.building_pos == Some(12345)
+                    && unit.carried_item_stack
+                        == Some(crate::session_state::ResourceUnitItemStack {
+                            item_id: Some(7),
+                            amount: 9,
+                        })
+        ));
+
+        let sample_payload = sample_snapshot_packet("entitySnapshot.packet");
+        let mut alpha_row = try_parse_alpha_sync_rows_from_entity_snapshot_prefix(&sample_payload)
+            .into_iter()
+            .next()
+            .unwrap();
+        alpha_row.sync.stack_item_id = 1;
+        alpha_row.sync.stack_amount = 4;
+
+        let mut mech_row = try_parse_mech_sync_rows_from_entity_snapshot_prefix(
+            &build_entity_snapshot_payload(&[build_entity_snapshot_row(
+                888,
+                4,
+                &synthetic_mech_sync_bytes(),
+            )]),
+        )
+        .into_iter()
+        .next()
+        .unwrap();
+        mech_row.sync.stack_item_id = 2;
+        mech_row.sync.stack_amount = 5;
+
+        session.apply_parseable_alpha_unit_row_from_entity_snapshot(
+            777,
+            alpha_row.class_id,
+            &alpha_row.sync,
+        );
+        session.apply_parseable_mech_rows_from_entity_snapshot(&[mech_row]);
+
+        assert!(!session
+            .state()
+            .entity_snapshot_payload_apply_projection
+            .by_entity_id
+            .contains_key(&777));
+        assert!(!session
+            .state()
+            .entity_snapshot_payload_apply_projection
+            .by_entity_id
+            .contains_key(&888));
+        assert!(matches!(
+            session.state().runtime_typed_entity_projection().entity_at(777),
+            Some(crate::session_state::TypedRuntimeEntityModel::Unit(unit))
+                if unit.semantic.payload_count.is_none()
+                    && unit.semantic.building_pos.is_none()
+                    && unit.carried_item_stack
+                        == Some(crate::session_state::ResourceUnitItemStack {
+                            item_id: Some(1),
+                            amount: 4,
+                        })
+        ));
+        assert!(matches!(
+            session.state().runtime_typed_entity_projection().entity_at(888),
+            Some(crate::session_state::TypedRuntimeEntityModel::Unit(unit))
+                if unit.semantic.payload_count.is_none()
+                    && unit.semantic.building_pos.is_none()
+                    && unit.carried_item_stack
+                        == Some(crate::session_state::ResourceUnitItemStack {
+                            item_id: Some(2),
+                            amount: 5,
+                        })
+        ));
     }
 
     #[test]

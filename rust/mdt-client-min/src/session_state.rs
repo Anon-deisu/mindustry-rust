@@ -5450,6 +5450,57 @@ impl PlayerSemanticProjectionTable {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntitySnapshotPayloadApplyEntry {
+    pub class_id: u8,
+    pub last_seen_entity_snapshot_count: u64,
+    pub payload_count: i32,
+    pub building_pos: Option<i32>,
+    pub carried_item_stack: Option<ResourceUnitItemStack>,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct EntitySnapshotPayloadApplyProjection {
+    pub by_entity_id: BTreeMap<i32, EntitySnapshotPayloadApplyEntry>,
+}
+
+impl EntitySnapshotPayloadApplyProjection {
+    pub fn upsert(
+        &mut self,
+        entity_id: i32,
+        class_id: u8,
+        last_seen_entity_snapshot_count: u64,
+        payload_count: i32,
+        building_pos: Option<i32>,
+        carried_item_stack: Option<ResourceUnitItemStack>,
+    ) {
+        self.by_entity_id.insert(
+            entity_id,
+            EntitySnapshotPayloadApplyEntry {
+                class_id,
+                last_seen_entity_snapshot_count,
+                payload_count,
+                building_pos,
+                carried_item_stack,
+            },
+        );
+    }
+
+    pub fn remove_entity(&mut self, entity_id: i32) -> bool {
+        self.by_entity_id.remove(&entity_id).is_some()
+    }
+
+    pub fn remove_entities<'a>(&mut self, entity_ids: impl IntoIterator<Item = &'a i32>) {
+        for entity_id in entity_ids {
+            self.by_entity_id.remove(entity_id);
+        }
+    }
+
+    pub fn clear_for_world_reload(&mut self) {
+        self.by_entity_id.clear();
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TypedRuntimeEntityBase {
     pub entity_id: i32,
     pub class_id: u8,
@@ -5699,19 +5750,29 @@ fn typed_runtime_entity_model(
     entity_id: i32,
     entity: &EntityProjection,
     semantic: Option<&EntitySemanticProjectionEntry>,
+    payload_apply: Option<&EntitySnapshotPayloadApplyEntry>,
     player_semantic: Option<&EntityPlayerSemanticProjection>,
     resource_delta: &ResourceDeltaProjection,
 ) -> Option<TypedRuntimeEntityModel> {
     let base = typed_runtime_entity_base(entity_id, entity);
     match semantic.map(|entry| &entry.projection) {
         Some(EntitySemanticProjection::Unit(unit)) => {
+            let mut semantic = unit.clone();
+            if let Some(payload_apply) = payload_apply {
+                semantic.payload_count = Some(payload_apply.payload_count);
+                semantic.building_pos = payload_apply.building_pos;
+            }
             Some(TypedRuntimeEntityModel::Unit(TypedRuntimeUnitEntity {
                 base,
-                semantic: unit.clone(),
-                carried_item_stack: resource_delta
-                    .entity_item_stack_by_entity_id
-                    .get(&entity_id)
-                    .cloned(),
+                semantic,
+                carried_item_stack: payload_apply
+                    .and_then(|entry| entry.carried_item_stack.clone())
+                    .or_else(|| {
+                        resource_delta
+                            .entity_item_stack_by_entity_id
+                            .get(&entity_id)
+                            .cloned()
+                    }),
             }))
         }
         Some(EntitySemanticProjection::Fire(fire)) => {
@@ -6595,6 +6656,7 @@ pub struct SessionState {
     pub last_hidden_snapshot_parse_error_payload_len: Option<usize>,
     pub entity_table_projection: EntityTableProjection,
     pub entity_semantic_projection: EntitySemanticProjectionTable,
+    pub entity_snapshot_payload_apply_projection: EntitySnapshotPayloadApplyProjection,
     pub player_semantic_projection: PlayerSemanticProjectionTable,
     pub runtime_typed_entity_apply_projection: TypedRuntimeEntityProjection,
     pub runtime_typed_building_apply_projection: TypedBuildingRuntimeProjection,
@@ -6642,6 +6704,9 @@ impl SessionState {
             entity_id,
             entity,
             self.entity_semantic_projection.by_entity_id.get(&entity_id),
+            self.entity_snapshot_payload_apply_projection
+                .by_entity_id
+                .get(&entity_id),
             self.player_semantic_projection.by_entity_id.get(&entity_id),
             &self.resource_delta_projection,
         )
@@ -6656,6 +6721,9 @@ impl SessionState {
                     *entity_id,
                     entity,
                     self.entity_semantic_projection.by_entity_id.get(entity_id),
+                    self.entity_snapshot_payload_apply_projection
+                        .by_entity_id
+                        .get(entity_id),
                     self.player_semantic_projection.by_entity_id.get(entity_id),
                     &self.resource_delta_projection,
                 )
@@ -6757,6 +6825,9 @@ impl SessionState {
                     entity_id,
                     entity,
                     self.entity_semantic_projection.by_entity_id.get(&entity_id),
+                    self.entity_snapshot_payload_apply_projection
+                        .by_entity_id
+                        .get(&entity_id),
                     self.player_semantic_projection.by_entity_id.get(&entity_id),
                     &self.resource_delta_projection,
                 )
@@ -6803,6 +6874,9 @@ impl SessionState {
                 entity_id,
                 entity,
                 self.entity_semantic_projection.by_entity_id.get(&entity_id),
+                self.entity_snapshot_payload_apply_projection
+                    .by_entity_id
+                    .get(&entity_id),
                 self.player_semantic_projection.by_entity_id.get(&entity_id),
                 &self.resource_delta_projection,
             );
@@ -6825,6 +6899,29 @@ impl SessionState {
     pub fn remove_runtime_typed_entity(&mut self, entity_id: i32) -> bool {
         self.runtime_typed_entity_apply_projection
             .remove_runtime_entity(entity_id)
+    }
+
+    pub fn apply_entity_snapshot_payload_apply_projection(
+        &mut self,
+        entity_id: i32,
+        class_id: u8,
+        payload_count: i32,
+        building_pos: Option<i32>,
+        carried_item_stack: Option<ResourceUnitItemStack>,
+    ) {
+        self.entity_snapshot_payload_apply_projection.upsert(
+            entity_id,
+            class_id,
+            self.received_entity_snapshot_count,
+            payload_count,
+            building_pos,
+            carried_item_stack,
+        );
+    }
+
+    pub fn clear_entity_snapshot_payload_apply_projection(&mut self, entity_id: i32) -> bool {
+        self.entity_snapshot_payload_apply_projection
+            .remove_entity(entity_id)
     }
 
     pub fn remove_runtime_typed_building(&mut self, build_pos: i32) -> bool {
@@ -7220,6 +7317,8 @@ impl SessionState {
         let lifecycle_remove_ids = transition.lifecycle_remove_ids();
         self.entity_semantic_projection
             .remove_hidden_entities(&lifecycle_remove_ids, local_player_entity_id);
+        self.entity_snapshot_payload_apply_projection
+            .remove_entities(&hidden_removed_ids);
         self.player_semantic_projection
             .remove_entities(&hidden_removed_ids);
         self.resource_delta_projection
@@ -13580,6 +13679,109 @@ mod tests {
             }))
         );
         assert_eq!(state.typed_runtime_entities().len(), 1);
+    }
+
+    #[test]
+    fn session_state_records_entity_snapshot_payload_apply_projection_for_payload_bearing_rows() {
+        let mut state = SessionState::default();
+        state.received_entity_snapshot_count = 11;
+        state.entity_table_projection.by_entity_id.insert(
+            202,
+            EntityProjection {
+                class_id: 5,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 202,
+                x_bits: 3.5f32.to_bits(),
+                y_bits: 4.5f32.to_bits(),
+                last_seen_entity_snapshot_count: 11,
+            },
+        );
+        state.entity_semantic_projection.upsert(
+            202,
+            5,
+            11,
+            EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
+                team_id: 2,
+                unit_type_id: 55,
+                health_bits: 0x3f80_0000,
+                rotation_bits: 0x4000_0000,
+                shield_bits: 0x4040_0000,
+                mine_tile_pos: 77,
+                status_count: 3,
+                payload_count: None,
+                building_pos: None,
+                lifetime_bits: None,
+                time_bits: None,
+                runtime_sync: None,
+                controller_type: 0,
+                controller_value: None,
+            }),
+        );
+        state.apply_entity_snapshot_payload_apply_projection(
+            202,
+            5,
+            2,
+            Some(88),
+            Some(ResourceUnitItemStack {
+                item_id: Some(6),
+                amount: 4,
+            }),
+        );
+
+        assert_eq!(
+            state
+                .entity_snapshot_payload_apply_projection
+                .by_entity_id
+                .get(&202),
+            Some(&EntitySnapshotPayloadApplyEntry {
+                class_id: 5,
+                last_seen_entity_snapshot_count: 11,
+                payload_count: 2,
+                building_pos: Some(88),
+                carried_item_stack: Some(ResourceUnitItemStack {
+                    item_id: Some(6),
+                    amount: 4,
+                }),
+            })
+        );
+        assert_eq!(
+            state.typed_runtime_entity_at(202),
+            Some(TypedRuntimeEntityModel::Unit(TypedRuntimeUnitEntity {
+                base: TypedRuntimeEntityBase {
+                    entity_id: 202,
+                    class_id: 5,
+                    hidden: false,
+                    is_local_player: false,
+                    unit_kind: 2,
+                    unit_value: 202,
+                    x_bits: 3.5f32.to_bits(),
+                    y_bits: 4.5f32.to_bits(),
+                    last_seen_entity_snapshot_count: 11,
+                },
+                semantic: EntityUnitSemanticProjection {
+                    team_id: 2,
+                    unit_type_id: 55,
+                    health_bits: 0x3f80_0000,
+                    rotation_bits: 0x4000_0000,
+                    shield_bits: 0x4040_0000,
+                    mine_tile_pos: 77,
+                    status_count: 3,
+                    payload_count: Some(2),
+                    building_pos: Some(88),
+                    lifetime_bits: None,
+                    time_bits: None,
+                    runtime_sync: None,
+                    controller_type: 0,
+                    controller_value: None,
+                },
+                carried_item_stack: Some(ResourceUnitItemStack {
+                    item_id: Some(6),
+                    amount: 4,
+                }),
+            }))
+        );
     }
 
     #[test]
