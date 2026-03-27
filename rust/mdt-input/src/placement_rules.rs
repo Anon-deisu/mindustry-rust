@@ -59,11 +59,17 @@ pub fn valid_place_against_local_plans(
     local_plans: &[LocalPlanPlacement],
     ignore_plan_index: Option<usize>,
 ) -> bool {
+    if request.size <= 0 {
+        return false;
+    }
     let request_bounds = placement_bounds(request.x, request.y, request.size);
 
     local_plans.iter().enumerate().all(|(index, plan)| {
         if Some(index) == ignore_plan_index || plan.breaking {
             return true;
+        }
+        if plan.size <= 0 {
+            return false;
         }
 
         let plan_bounds = placement_bounds(plan.x, plan.y, plan.size);
@@ -113,8 +119,6 @@ impl PlacementBounds {
 }
 
 fn placement_bounds(x: i32, y: i32, size: i32) -> PlacementBounds {
-    debug_assert!(size > 0);
-
     let offset = block_offset(size);
     let half_extent = size as f32 * TILE_SIZE / 2.0;
     let center_x = x as f32 * TILE_SIZE + offset;
@@ -237,6 +241,40 @@ mod tests {
                 },
             ],
             Some(0),
+        ));
+    }
+
+    #[test]
+    fn valid_place_against_local_plans_rejects_non_positive_sizes() {
+        assert!(!valid_place_against_local_plans(
+            PlacementRequest {
+                x: 3,
+                y: 4,
+                size: 0,
+            },
+            &[LocalPlanPlacement {
+                x: 3,
+                y: 4,
+                size: 1,
+                breaking: false,
+                candidate_can_replace_plan: false,
+            }],
+            None,
+        ));
+        assert!(!valid_place_against_local_plans(
+            PlacementRequest {
+                x: 3,
+                y: 4,
+                size: 1,
+            },
+            &[LocalPlanPlacement {
+                x: 3,
+                y: 4,
+                size: 0,
+                breaking: false,
+                candidate_can_replace_plan: false,
+            }],
+            None,
         ));
     }
 
