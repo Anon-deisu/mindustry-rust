@@ -128,6 +128,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut relative_build_plans_applied = false;
     let mut auto_build_plans_applied = false;
     let mut ascii_scene_printed = false;
+    let mut final_runtime_view_center = None;
     let mut world_stream_dumped = false;
     let mut render_runtime_adapter = RenderRuntimeAdapter::default();
     let mut window_scene_presenter = args.render_window_live.then(|| {
@@ -228,6 +229,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ) {
             relative_build_plans_applied = false;
             auto_build_plans_applied = false;
+            final_runtime_view_center = None;
         }
         let runtime_effect_clip_view = session.snapshot_input().view_size.and_then(|view_size| {
             let bundle = session.loaded_world_bundle()?;
@@ -244,6 +246,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             })
         });
         render_runtime_adapter.observe_events_with_view(&report.events, runtime_effect_clip_view);
+        if let Some(bundle) = session.loaded_world_bundle() {
+            if let Ok(loaded_session) = bundle.loaded_session() {
+                final_runtime_view_center = runtime_scene_view_center(
+                    &session,
+                    &report.events,
+                    loaded_session.state().player_position(),
+                );
+            }
+        }
         maybe_print_runtime_input(
             &mut session,
             &args,
@@ -349,6 +360,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         relative_build_plans_applied = false;
                         auto_build_plans_applied = false;
                         ascii_scene_printed = false;
+                        final_runtime_view_center = None;
                         world_stream_dumped = false;
                         render_runtime_adapter = RenderRuntimeAdapter::default();
                         reset_runtime_command_mode_from_cli_ops(
@@ -482,6 +494,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     maybe_print_final_ascii_scene(
         &session,
         &args,
+        final_runtime_view_center,
         &mut render_runtime_adapter,
         &runtime_command_mode,
         custom_packet_surface.as_ref(),
@@ -4430,14 +4443,9 @@ fn maybe_print_ascii_scene(
     let Ok(loaded_session) = bundle.loaded_session() else {
         return;
     };
-    let fallback_player_position =
-        fallback_runtime_player_position(session, loaded_session.state().player_position());
-    let Some(runtime_view_center) = resolved_runtime_view_center(
-        events,
-        session.snapshot_input().view_center,
-        session.snapshot_input().position,
-        fallback_player_position,
-    ) else {
+    let Some(runtime_view_center) =
+        runtime_scene_view_center(session, events, loaded_session.state().player_position())
+    else {
         return;
     };
 
@@ -4461,6 +4469,7 @@ fn maybe_print_ascii_scene(
 fn maybe_print_final_ascii_scene(
     session: &ClientSession,
     args: &CliArgs,
+    last_runtime_view_center: Option<(f32, f32)>,
     render_runtime_adapter: &mut RenderRuntimeAdapter,
     runtime_command_mode: &CommandModeState,
     custom_packet_surface: Option<&RuntimeCustomPacketSurface>,
@@ -4475,15 +4484,11 @@ fn maybe_print_final_ascii_scene(
     let Ok(loaded_session) = bundle.loaded_session() else {
         return;
     };
-    let fallback_player_position =
-        fallback_runtime_player_position(session, loaded_session.state().player_position());
-    let runtime_view_center = session
-        .snapshot_input()
-        .view_center
-        .or(session.snapshot_input().position)
-        .or(latest_runtime_player_position(session))
-        .or(latest_world_player_position(session))
-        .or(Some(fallback_player_position));
+    let runtime_view_center = final_runtime_view_center(
+        session,
+        last_runtime_view_center,
+        loaded_session.state().player_position(),
+    );
     let (mut scene, mut hud) = project_scene_models_with_view_window(
         &loaded_session,
         &args.locale,
@@ -4542,14 +4547,8 @@ fn maybe_present_window_scene(
     let Ok(loaded_session) = bundle.loaded_session() else {
         return;
     };
-    let fallback_player_position =
-        fallback_runtime_player_position(session, loaded_session.state().player_position());
-    let runtime_view_center = resolved_runtime_view_center(
-        events,
-        session.snapshot_input().view_center,
-        session.snapshot_input().position,
-        fallback_player_position,
-    );
+    let runtime_view_center =
+        runtime_scene_view_center(session, events, loaded_session.state().player_position());
 
     let (mut scene, mut hud) = project_scene_models_with_view_window(
         &loaded_session,
@@ -4689,6 +4688,27 @@ fn resolved_runtime_view_center(
 ) -> Option<(f32, f32)> {
     latest_runtime_view_center(events, snapshot_view_center, snapshot_position)
         .or(Some(loaded_player_position))
+}
+
+fn runtime_scene_view_center(
+    session: &ClientSession,
+    events: &[ClientSessionEvent],
+    loaded_player_position: (f32, f32),
+) -> Option<(f32, f32)> {
+    resolved_runtime_view_center(
+        events,
+        session.snapshot_input().view_center,
+        session.snapshot_input().position,
+        fallback_runtime_player_position(session, loaded_player_position),
+    )
+}
+
+fn final_runtime_view_center(
+    session: &ClientSession,
+    last_runtime_view_center: Option<(f32, f32)>,
+    loaded_player_position: (f32, f32),
+) -> Option<(f32, f32)> {
+    last_runtime_view_center.or_else(|| runtime_scene_view_center(session, &[], loaded_player_position))
 }
 
 fn fallback_runtime_player_position(
@@ -13946,6 +13966,22 @@ mod tests {
         assert_eq!(
             resolved_runtime_view_center(&events, None, None, (9.0, 10.0)),
             Some((9.0, 10.0))
+        );
+    }
+
+    #[test]
+    fn final_runtime_view_center_prefers_last_live_center_over_snapshot_state() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
+        {
+            let input = session.snapshot_input_mut();
+            input.view_center = Some((5.0, 6.0));
+            input.position = Some((7.0, 8.0));
+        }
+
+        assert_eq!(
+            final_runtime_view_center(&session, Some((30.0, 40.0)), (9.0, 10.0)),
+            Some((30.0, 40.0))
         );
     }
 
