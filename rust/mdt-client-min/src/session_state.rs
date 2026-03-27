@@ -6508,6 +6508,37 @@ impl SessionState {
         *self = Self::default();
     }
 
+    pub fn reset_for_reconnect(&mut self) {
+        let last_timeout = self.last_timeout.clone();
+        let timeout_count = self.timeout_count;
+        let connect_or_loading_timeout_count = self.connect_or_loading_timeout_count;
+        let ready_snapshot_timeout_count = self.ready_snapshot_timeout_count;
+        let reconnect_projection = self.reconnect_projection.clone();
+        let reset_count = self.reset_count;
+        let reconnect_reset_count = self.reconnect_reset_count;
+        let world_reload_count = self.world_reload_count;
+        let kick_reset_count = self.kick_reset_count;
+        let last_world_reload = self.last_world_reload.clone();
+        let received_connect_redirect_count = self.received_connect_redirect_count;
+        let last_connect_redirect_ip = self.last_connect_redirect_ip.clone();
+        let last_connect_redirect_port = self.last_connect_redirect_port;
+
+        *self = Self::default();
+        self.last_timeout = last_timeout;
+        self.timeout_count = timeout_count;
+        self.connect_or_loading_timeout_count = connect_or_loading_timeout_count;
+        self.ready_snapshot_timeout_count = ready_snapshot_timeout_count;
+        self.reconnect_projection = reconnect_projection;
+        self.reset_count = reset_count;
+        self.reconnect_reset_count = reconnect_reset_count;
+        self.world_reload_count = world_reload_count;
+        self.kick_reset_count = kick_reset_count;
+        self.last_world_reload = last_world_reload;
+        self.received_connect_redirect_count = received_connect_redirect_count;
+        self.last_connect_redirect_ip = last_connect_redirect_ip;
+        self.last_connect_redirect_port = last_connect_redirect_port;
+    }
+
     pub fn typed_runtime_entity_at(&self, entity_id: i32) -> Option<TypedRuntimeEntityModel> {
         let entity = self.entity_table_projection.by_entity_id.get(&entity_id)?;
         typed_runtime_entity_model(
@@ -7700,6 +7731,114 @@ mod tests {
             state.reconnect_projection.hint_text.as_deref(),
             Some("session timed out")
         );
+    }
+
+    #[test]
+    fn session_state_reset_for_reconnect_keeps_only_reconnect_state() {
+        let mut state = SessionState::default();
+        state.session_id = Some(42);
+        state.connect_packet_sent = true;
+        state.world_stream_loaded = true;
+        state.last_chat_message = Some("hello".to_string());
+        state.last_reset_kind = Some(SessionResetKind::Kick);
+        state.timeout_count = 3;
+        state.connect_or_loading_timeout_count = 5;
+        state.ready_snapshot_timeout_count = 7;
+        state.last_timeout = Some(SessionTimeoutProjection {
+            kind: SessionTimeoutKind::ReadySnapshotStall,
+            idle_ms: 900,
+        });
+        state.reset_count = 11;
+        state.reconnect_reset_count = 13;
+        state.world_reload_count = 17;
+        state.kick_reset_count = 19;
+        state.last_world_reload = Some(WorldReloadProjection {
+            had_loaded_world: true,
+            had_client_loaded: true,
+            was_ready_to_enter_world: false,
+            had_connect_confirm_sent: true,
+            cleared_pending_packets: 2,
+            cleared_deferred_inbound_packets: 3,
+            cleared_replayed_loading_events: 4,
+        });
+        state.received_connect_redirect_count = 23;
+        state.last_connect_redirect_ip = Some("127.0.0.1".to_string());
+        state.last_connect_redirect_port = Some(6567);
+        state.reconnect_projection.phase = ReconnectPhaseProjection::Attempting;
+        state.reconnect_projection.phase_transition_count = 7;
+        state.reconnect_projection.reason_kind = Some(ReconnectReasonKind::Timeout);
+        state.reconnect_projection.reason_text = Some("timeout".to_string());
+        state.reconnect_projection.reason_ordinal = Some(9);
+        state.reconnect_projection.hint_text = Some("retry later".to_string());
+
+        state.reset_for_reconnect();
+
+        assert_eq!(state.session_id, None);
+        assert!(!state.connect_packet_sent);
+        assert!(!state.world_stream_loaded);
+        assert_eq!(state.last_chat_message, None);
+        assert_eq!(state.last_reset_kind, None);
+        assert_eq!(state.timeout_count, 3);
+        assert_eq!(state.connect_or_loading_timeout_count, 5);
+        assert_eq!(state.ready_snapshot_timeout_count, 7);
+        assert_eq!(
+            state.last_timeout,
+            Some(SessionTimeoutProjection {
+                kind: SessionTimeoutKind::ReadySnapshotStall,
+                idle_ms: 900,
+            })
+        );
+        assert_eq!(state.reset_count, 11);
+        assert_eq!(state.reconnect_reset_count, 13);
+        assert_eq!(state.world_reload_count, 17);
+        assert_eq!(state.kick_reset_count, 19);
+        assert_eq!(
+            state.last_world_reload,
+            Some(WorldReloadProjection {
+                had_loaded_world: true,
+                had_client_loaded: true,
+                was_ready_to_enter_world: false,
+                had_connect_confirm_sent: true,
+                cleared_pending_packets: 2,
+                cleared_deferred_inbound_packets: 3,
+                cleared_replayed_loading_events: 4,
+            })
+        );
+        assert_eq!(state.received_connect_redirect_count, 23);
+        assert_eq!(state.last_connect_redirect_ip.as_deref(), Some("127.0.0.1"));
+        assert_eq!(state.last_connect_redirect_port, Some(6567));
+        assert_eq!(
+            state.reconnect_projection,
+            ReconnectProjection {
+                phase: ReconnectPhaseProjection::Attempting,
+                phase_transition_count: 7,
+                reason_kind: Some(ReconnectReasonKind::Timeout),
+                reason_text: Some("timeout".to_string()),
+                reason_ordinal: Some(9),
+                hint_text: Some("retry later".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn session_state_reset_remains_full_default_clear() {
+        let mut state = SessionState::default();
+        state.session_id = Some(42);
+        state.connect_packet_sent = true;
+        state.reset_count = 11;
+        state.reconnect_reset_count = 13;
+        state.last_reset_kind = Some(SessionResetKind::Reconnect);
+        state.reconnect_projection.phase = ReconnectPhaseProjection::Succeeded;
+        state.reconnect_projection.phase_transition_count = 4;
+        state.reconnect_projection.reason_text = Some("kept".to_string());
+
+        state.reset();
+
+        assert_eq!(state, SessionState::default());
+        assert_eq!(state.reconnect_projection.phase_transition_count, 0);
+        assert_eq!(state.reset_count, 0);
+        assert_eq!(state.reconnect_reset_count, 0);
+        assert_eq!(state.last_reset_kind, None);
     }
 
     #[test]
