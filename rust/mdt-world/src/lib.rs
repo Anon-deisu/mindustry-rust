@@ -40970,6 +40970,54 @@ mod tests {
     }
 
     #[test]
+    fn msav_post_load_world_exposes_runtime_seed_surface_for_seedable_regions() {
+        let save = parse_msav_save(&sample_msav_post_load_save11_bytes()).unwrap();
+        let mut post_load = save.post_load_world().unwrap();
+        post_load.world_entity_chunks[0].custom_name = None;
+        post_load.entity_summary = SaveEntityRegionObservation {
+            remap_count: post_load.entity_remap_entries.len(),
+            remap_entries: post_load.entity_remap_entries.clone(),
+            remap_bytes: post_load.entity_remap_bytes.clone(),
+            team_count: post_load.team_plan_groups.len(),
+            total_plans: post_load
+                .team_plan_groups
+                .iter()
+                .map(|group| group.plans.len())
+                .sum(),
+            team_plan_groups: post_load.team_plan_groups.clone(),
+            team_region_bytes: post_load.team_region_bytes.clone(),
+            world_entity_count: post_load.world_entity_count,
+            world_entity_bytes: post_load.world_entity_bytes.clone(),
+            entity_chunks: post_load.world_entity_chunks.clone(),
+        }
+        .post_load_summary();
+
+        let batch_plan_view = post_load.runtime_apply_batch_plan_view();
+        let seed_surface = post_load.runtime_seed_surface();
+
+        assert!(batch_plan_view.can_seed_runtime_apply);
+        assert!(seed_surface.can_seed_runtime_apply);
+        assert!(seed_surface.world_shell_ready);
+        assert_eq!(
+            (
+                seed_surface.next_apply_now_batch_index,
+                seed_surface.next_apply_now_batch_step_count,
+            ),
+            batch_plan_view
+                .next_apply_now_batch()
+                .map(|batch| (Some(batch.batch_index), Some(batch.step_count)))
+                .unwrap()
+        );
+        assert!(seed_surface.blocked_regions.is_empty());
+        assert!(seed_surface.awaiting_world_shell_regions.is_empty());
+        assert_eq!(seed_surface.blocked_region_count(), 0);
+        assert_eq!(seed_surface.awaiting_world_shell_region_count(), 0);
+        assert_eq!(seed_surface.region_count(), 0);
+        assert!(!seed_surface.has_blockers());
+        assert!(!seed_surface.has_pending_world_shell());
+    }
+
+    #[test]
     fn msav_post_load_world_groups_runtime_readiness_by_save_regions_for_save11_regions() {
         let save = parse_msav_save(&sample_msav_post_load_save11_bytes()).unwrap();
         let post_load = save.post_load_world().unwrap();
