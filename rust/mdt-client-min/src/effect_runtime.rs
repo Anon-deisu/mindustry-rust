@@ -236,6 +236,7 @@ pub fn spawn_runtime_effect_overlay(
     lifetime_ticks: u8,
 ) -> RuntimeEffectOverlay {
     let contract = effect_contract(effect_id);
+    let spawn_position_bits = (x.to_bits(), y.to_bits());
     let payload_target_content = contract
         .and_then(|contract| derive_runtime_effect_payload_target_content(contract, data_object));
     let content_ref = payload_target_content
@@ -261,11 +262,18 @@ pub fn spawn_runtime_effect_overlay(
         .as_ref()
         .and_then(|binding| binding.initial_position_bits);
     let binding = binding.map(|binding| binding.binding);
-    let (x_bits, y_bits) = payload_target_content
+    let selected_position_bits = payload_target_content
         .map(|(target_x_bits, target_y_bits, _)| (target_x_bits, target_y_bits))
         .or_else(|| polyline_points.last().copied())
         .or(binding_initial_position)
-        .unwrap_or((x.to_bits(), y.to_bits()));
+        .unwrap_or(spawn_position_bits);
+    let (x_bits, y_bits) = if world_bits_are_finite(selected_position_bits) {
+        selected_position_bits
+    } else {
+        binding_initial_position
+            .filter(|&(x_bits, y_bits)| world_bits_are_finite((x_bits, y_bits)))
+            .unwrap_or(spawn_position_bits)
+    };
 
     RuntimeEffectOverlay {
         effect_id,
@@ -629,8 +637,10 @@ fn payload_target_world_bits(value: &TypeIoObject) -> Option<(u32, u32)> {
             let (world_x, world_y) = point2_world_coords(i32::from(tile_x), i32::from(tile_y));
             Some((world_x.to_bits(), world_y.to_bits()))
         }
-        TypeIoObject::Vec2 { x, y } => Some((x.to_bits(), y.to_bits())),
-        TypeIoObject::Vec2Array(values) => values.first().map(|(x, y)| (x.to_bits(), y.to_bits())),
+        TypeIoObject::Vec2 { x, y } => finite_world_position_bits(*x, *y),
+        TypeIoObject::Vec2Array(values) => values
+            .first()
+            .and_then(|(x, y)| finite_world_position_bits(*x, *y)),
         _ => match value.semantic_ref()? {
             TypeIoSemanticRef::Building { build_pos } => {
                 let (world_x, world_y) = world_coords_from_tile_pos(build_pos);
@@ -657,6 +667,14 @@ fn position_hint_world_bits(position_hint: &TypeIoEffectPositionHint) -> (u32, u
         TypeIoEffectPositionHint::Vec2 { x_bits, y_bits, .. }
         | TypeIoEffectPositionHint::Vec2ArrayFirst { x_bits, y_bits, .. } => (*x_bits, *y_bits),
     }
+}
+
+fn finite_world_position_bits(x: f32, y: f32) -> Option<(u32, u32)> {
+    (x.is_finite() && y.is_finite()).then_some((x.to_bits(), y.to_bits()))
+}
+
+fn world_bits_are_finite((x_bits, y_bits): (u32, u32)) -> bool {
+    f32::from_bits(x_bits).is_finite() && f32::from_bits(y_bits).is_finite()
 }
 
 fn resolve_binding_position(
@@ -1058,6 +1076,85 @@ mod tests {
         assert_eq!(overlay.contract_name, Some("leg_destroy"));
         assert_eq!(overlay.binding, None);
         assert_eq!(overlay.source_binding, None);
+        assert_eq!(overlay.x_bits, 12.0f32.to_bits());
+        assert_eq!(overlay.y_bits, 20.0f32.to_bits());
+    }
+
+    #[test]
+    fn effect_runtime_payload_target_vec2_non_finite_falls_back_to_spawn_position() {
+        let overlay = spawn_runtime_effect_overlay(
+            Some(26),
+            12.0,
+            20.0,
+            12.0,
+            20.0,
+            0.0,
+            0,
+            false,
+            Some(&TypeIoObject::ObjectArray(vec![
+                TypeIoObject::ContentRaw {
+                    content_type: 1,
+                    content_id: 7,
+                },
+                TypeIoObject::Vec2 {
+                    x: f32::NAN,
+                    y: 160.0,
+                },
+            ])),
+            10,
+        );
+
+        assert_eq!(overlay.x_bits, 12.0f32.to_bits());
+        assert_eq!(overlay.y_bits, 20.0f32.to_bits());
+    }
+
+    #[test]
+    fn effect_runtime_payload_target_vec2_array_non_finite_falls_back_to_spawn_position() {
+        let overlay = spawn_runtime_effect_overlay(
+            Some(26),
+            12.0,
+            20.0,
+            12.0,
+            20.0,
+            0.0,
+            0,
+            false,
+            Some(&TypeIoObject::ObjectArray(vec![
+                TypeIoObject::ContentRaw {
+                    content_type: 1,
+                    content_id: 7,
+                },
+                TypeIoObject::Vec2Array(vec![(f32::INFINITY, 160.0)]),
+            ])),
+            10,
+        );
+
+        assert_eq!(overlay.x_bits, 12.0f32.to_bits());
+        assert_eq!(overlay.y_bits, 20.0f32.to_bits());
+    }
+
+    #[test]
+    fn effect_runtime_spawn_runtime_effect_overlay_non_finite_initial_position_falls_back_to_spawn_position(
+    ) {
+        let overlay = spawn_runtime_effect_overlay(
+            None,
+            12.0,
+            20.0,
+            12.0,
+            20.0,
+            0.0,
+            0,
+            false,
+            Some(&TypeIoObject::ObjectArray(vec![
+                TypeIoObject::UnitId(9999),
+                TypeIoObject::Vec2 {
+                    x: f32::NAN,
+                    y: 160.0,
+                },
+            ])),
+            10,
+        );
+
         assert_eq!(overlay.x_bits, 12.0f32.to_bits());
         assert_eq!(overlay.y_bits, 20.0f32.to_bits());
     }
