@@ -523,10 +523,16 @@ fn ascii_render_command<'a>(
         RenderObjectSemanticKind::MarkerLineEnd => None,
         RenderObjectSemanticKind::MarkerLine => {
             if let Some(line_end) = line_end_objects.get(&object.id) {
+                let Some(start_tile) = ascii_world_object_tile(object) else {
+                    return None;
+                };
+                let Some(end_tile) = ascii_world_object_tile(line_end) else {
+                    return None;
+                };
                 return Some(AsciiRenderCommand::Line {
                     layer: object.layer,
-                    start_tile: ascii_world_object_tile(object),
-                    end_tile: ascii_world_object_tile(line_end),
+                    start_tile,
+                    end_tile,
                     sprite: sprite_for_id(&object.id),
                 });
             }
@@ -585,11 +591,9 @@ fn ascii_primitive_render_command<'a>(
             text,
             ..
         } => {
-            let tile_x = crate::presenter_view::world_to_tile_index_floor(*x, TILE_SIZE);
-            let tile_y = crate::presenter_view::world_to_tile_index_floor(*y, TILE_SIZE);
-            if tile_x < 0 || tile_y < 0 {
+            let Some((tile_x, tile_y)) = finite_world_tile(*x, *y) else {
                 return None;
-            }
+            };
             let (tile_x, tile_y) = (tile_x as usize, tile_y as usize);
             if tile_x < window.origin_x
                 || tile_y < window.origin_y
@@ -614,10 +618,11 @@ fn ascii_primitive_render_command<'a>(
             bottom,
             ..
         } => {
-            let left_tile = crate::presenter_view::world_to_tile_index_floor(*left, TILE_SIZE);
-            let top_tile = crate::presenter_view::world_to_tile_index_floor(*top, TILE_SIZE);
-            let right_tile = crate::presenter_view::world_to_tile_index_floor(*right, TILE_SIZE);
-            let bottom_tile = crate::presenter_view::world_to_tile_index_floor(*bottom, TILE_SIZE);
+            let Some((left_tile, top_tile, right_tile, bottom_tile)) =
+                finite_world_rect_tiles(*left, *top, *right, *bottom)
+            else {
+                return None;
+            };
             if right_tile < window.origin_x as i32
                 || bottom_tile < window.origin_y as i32
                 || left_tile >= window.origin_x.saturating_add(window.width) as i32
@@ -641,11 +646,9 @@ fn ascii_primitive_render_command<'a>(
             y,
             ..
         } => {
-            let tile_x = crate::presenter_view::world_to_tile_index_floor(*x, TILE_SIZE);
-            let tile_y = crate::presenter_view::world_to_tile_index_floor(*y, TILE_SIZE);
-            if tile_x < 0 || tile_y < 0 {
+            let Some((tile_x, tile_y)) = finite_world_tile(*x, *y) else {
                 return None;
-            }
+            };
             let (tile_x, tile_y) = (tile_x as usize, tile_y as usize);
             if tile_x < window.origin_x
                 || tile_y < window.origin_y
@@ -665,11 +668,29 @@ fn ascii_primitive_render_command<'a>(
     }
 }
 
-fn ascii_world_object_tile(object: &crate::RenderObject) -> (i32, i32) {
-    (
-        crate::presenter_view::world_to_tile_index_floor(object.x, TILE_SIZE),
-        crate::presenter_view::world_to_tile_index_floor(object.y, TILE_SIZE),
-    )
+fn ascii_world_object_tile(object: &crate::RenderObject) -> Option<(i32, i32)> {
+    finite_world_tile(object.x, object.y)
+}
+
+fn finite_world_tile(x: f32, y: f32) -> Option<(i32, i32)> {
+    (x.is_finite() && y.is_finite()).then_some((
+        crate::presenter_view::world_to_tile_index_floor(x, TILE_SIZE),
+        crate::presenter_view::world_to_tile_index_floor(y, TILE_SIZE),
+    ))
+}
+
+fn finite_world_rect_tiles(
+    left: f32,
+    top: f32,
+    right: f32,
+    bottom: f32,
+) -> Option<(i32, i32, i32, i32)> {
+    (left.is_finite() && top.is_finite() && right.is_finite() && bottom.is_finite()).then_some((
+        crate::presenter_view::world_to_tile_index_floor(left, TILE_SIZE),
+        crate::presenter_view::world_to_tile_index_floor(top, TILE_SIZE),
+        crate::presenter_view::world_to_tile_index_floor(right, TILE_SIZE),
+        crate::presenter_view::world_to_tile_index_floor(bottom, TILE_SIZE),
+    ))
 }
 
 fn draw_ascii_line_segment(
@@ -759,18 +780,20 @@ fn compose_render_rect_status_text(
                 right,
                 bottom,
                 ..
-            } => Some((family, layer, left, top, right, bottom)),
+            } => finite_world_rect_tiles(left, top, right, bottom)
+                .map(|tiles| (family, layer, left, top, right, bottom, tiles)),
             _ => None,
         })
-        .filter(|(_, _, left, top, right, bottom)| {
-            let left_tile = crate::presenter_view::world_to_tile_index_floor(*left, TILE_SIZE);
-            let top_tile = crate::presenter_view::world_to_tile_index_floor(*top, TILE_SIZE);
-            let right_tile = crate::presenter_view::world_to_tile_index_floor(*right, TILE_SIZE);
-            let bottom_tile = crate::presenter_view::world_to_tile_index_floor(*bottom, TILE_SIZE);
-            !(right_tile < window.origin_x as i32
+        .filter_map(|(family, layer, left, top, right, bottom, (left_tile, top_tile, right_tile, bottom_tile))| {
+            if right_tile < window.origin_x as i32
                 || bottom_tile < window.origin_y as i32
                 || left_tile >= window.origin_x.saturating_add(window.width) as i32
-                || top_tile >= window.origin_y.saturating_add(window.height) as i32)
+                || top_tile >= window.origin_y.saturating_add(window.height) as i32
+            {
+                None
+            } else {
+                Some((family, layer, left, top, right, bottom, left_tile, top_tile, right_tile, bottom_tile))
+            }
         })
         .collect::<Vec<_>>();
 
@@ -778,9 +801,9 @@ fn compose_render_rect_status_text(
         return None;
     }
 
-    rect_primitives.sort_by_key(|(_, layer, _, _, _, _)| *layer);
+    rect_primitives.sort_by_key(|(_, layer, _, _, _, _, _, _, _, _)| *layer);
     let mut parts = vec![format!("count={}", rect_primitives.len())];
-    for (family, layer, left, top, right, bottom) in rect_primitives.into_iter().take(2) {
+    for (family, layer, left, top, right, bottom, _, _, _, _) in rect_primitives.into_iter().take(2) {
         parts.push(format!(
             "{family}@{layer}:{}:{}:{}:{}",
             left as i32, top as i32, right as i32, bottom as i32
@@ -804,18 +827,21 @@ fn compose_render_icon_status_text(
                 x,
                 y,
                 ..
-            } => Some((family, variant, layer, x, y)),
+            } => finite_world_tile(x, y).map(|(tile_x, tile_y)| (family, variant, layer, tile_x, tile_y)),
             _ => None,
         })
-        .filter(|(_, _, _, x, y)| {
-            let tile_x = crate::presenter_view::world_to_tile_index_floor(*x, TILE_SIZE);
-            let tile_y = crate::presenter_view::world_to_tile_index_floor(*y, TILE_SIZE);
-            tile_x >= 0
+        .filter_map(|(family, variant, layer, tile_x, tile_y)| {
+            if tile_x >= 0
                 && tile_y >= 0
                 && (tile_x as usize) >= window.origin_x
                 && (tile_y as usize) >= window.origin_y
                 && (tile_x as usize) < window.origin_x.saturating_add(window.width)
                 && (tile_y as usize) < window.origin_y.saturating_add(window.height)
+            {
+                Some((family, variant, layer, tile_x, tile_y))
+            } else {
+                None
+            }
         })
         .collect::<Vec<_>>();
 
@@ -825,9 +851,7 @@ fn compose_render_icon_status_text(
 
     icon_primitives.sort_by_key(|(_, _, layer, _, _)| *layer);
     let mut parts = vec![format!("count={}", icon_primitives.len())];
-    for (family, variant, layer, x, y) in icon_primitives.into_iter().take(2) {
-        let tile_x = crate::presenter_view::world_to_tile_index_floor(x, TILE_SIZE);
-        let tile_y = crate::presenter_view::world_to_tile_index_floor(y, TILE_SIZE);
+    for (family, variant, layer, tile_x, tile_y) in icon_primitives.into_iter().take(2) {
         parts.push(format!(
             "{}/{}@{layer}:{tile_x}:{tile_y}",
             family.label(),
@@ -3117,7 +3141,10 @@ fn command_stance_text(value: Option<crate::RuntimeCommandStanceObservability>) 
 
 #[cfg(test)]
 mod tests {
-    use super::AsciiScenePresenter;
+    use super::{
+        ascii_line_end_object_pair, ascii_primitive_render_command, ascii_render_command,
+        AsciiScenePresenter,
+    };
     use crate::{
         hud_model::{
             HudSummary, RuntimeReconnectObservability, RuntimeReconnectPhaseObservability,
@@ -3125,13 +3152,15 @@ mod tests {
             RuntimeSessionObservability, RuntimeSessionResetKind, RuntimeSessionTimeoutKind,
             RuntimeWorldReloadObservability,
         },
-        project_scene_models, project_scene_models_with_view_window, HudModel, RenderModel,
-        RenderObject, RuntimeAdminObservability, RuntimeHudTextObservability,
+        panel_model::PresenterViewWindow, project_scene_models, project_scene_models_with_view_window,
+        render_model::{RenderIconPrimitiveFamily, RenderObjectSemanticKind, RenderPrimitive},
+        HudModel, RenderModel, RenderObject, RuntimeAdminObservability, RuntimeHudTextObservability,
         RuntimeMenuObservability, RuntimeRulesObservability, RuntimeTextInputObservability,
         RuntimeToastObservability, RuntimeUiObservability, RuntimeWorldLabelObservability,
         ScenePresenter, Viewport,
     };
     use mdt_world::parse_world_bundle;
+    use std::collections::BTreeMap;
 
     fn runtime_stack_test_scene() -> RenderModel {
         RenderModel {
@@ -4600,6 +4629,136 @@ mod tests {
         let frame = presenter.last_frame();
         assert!(frame.contains("Hello"));
         assert!(frame.contains("Marker"));
+    }
+
+    #[test]
+    fn ascii_presenter_ignores_non_finite_coordinates_in_ascii_filters() {
+        let window = PresenterViewWindow {
+            origin_x: 0,
+            origin_y: 0,
+            width: 4,
+            height: 4,
+        };
+        let line = RenderObject {
+            id: "marker:line:demo".to_string(),
+            layer: 1,
+            x: f32::NAN,
+            y: 0.0,
+        };
+        let line_end = RenderObject {
+            id: "marker:line:demo:line-end".to_string(),
+            layer: 1,
+            x: 8.0,
+            y: 0.0,
+        };
+        let line_objects = vec![line.clone(), line_end.clone()];
+        let line_end_objects = line_objects
+            .iter()
+            .filter_map(ascii_line_end_object_pair)
+            .collect::<BTreeMap<_, _>>();
+        assert!(ascii_render_command(&line, &line_end_objects, window).is_none());
+
+        let text_primitive = RenderPrimitive::Text {
+            id: "world-label:7:text:48656c6c6f".to_string(),
+            kind: RenderObjectSemanticKind::RuntimeWorldLabel,
+            layer: 1,
+            x: f32::INFINITY,
+            y: 0.0,
+            text: "Hello".to_string(),
+        };
+        assert!(ascii_primitive_render_command(&text_primitive, window).is_none());
+
+        let rect_primitive = RenderPrimitive::Rect {
+            id: "marker:line:runtime-command-rect".to_string(),
+            family: "runtime-command-rect".to_string(),
+            layer: 1,
+            left: f32::NAN,
+            top: f32::NAN,
+            right: f32::NAN,
+            bottom: f32::NAN,
+            line_ids: vec!["a".to_string(), "b".to_string(), "c".to_string(), "d".to_string()],
+        };
+        assert!(ascii_primitive_render_command(&rect_primitive, window).is_none());
+
+        let icon_primitive = RenderPrimitive::Icon {
+            id: "marker:runtime-health:1:2".to_string(),
+            family: RenderIconPrimitiveFamily::RuntimeHealth,
+            variant: "health".to_string(),
+            layer: 1,
+            x: f32::NAN,
+            y: 8.0,
+        };
+        assert!(ascii_primitive_render_command(&icon_primitive, window).is_none());
+
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 16.0,
+                height: 16.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: "marker:runtime-health:1:2".to_string(),
+                    layer: 1,
+                    x: f32::NAN,
+                    y: 8.0,
+                },
+                RenderObject {
+                    id: "marker:line:runtime-command-rect:top:1:1:2:1".to_string(),
+                    layer: 1,
+                    x: f32::NAN,
+                    y: f32::NAN,
+                },
+                RenderObject {
+                    id: "marker:line:runtime-command-rect:top:1:1:2:1:line-end".to_string(),
+                    layer: 1,
+                    x: f32::NAN,
+                    y: f32::NAN,
+                },
+                RenderObject {
+                    id: "marker:line:runtime-command-rect:right:2:1:2:2".to_string(),
+                    layer: 1,
+                    x: f32::NAN,
+                    y: f32::NAN,
+                },
+                RenderObject {
+                    id: "marker:line:runtime-command-rect:right:2:1:2:2:line-end".to_string(),
+                    layer: 1,
+                    x: f32::NAN,
+                    y: f32::NAN,
+                },
+                RenderObject {
+                    id: "marker:line:runtime-command-rect:bottom:2:2:1:2".to_string(),
+                    layer: 1,
+                    x: f32::NAN,
+                    y: f32::NAN,
+                },
+                RenderObject {
+                    id: "marker:line:runtime-command-rect:bottom:2:2:1:2:line-end".to_string(),
+                    layer: 1,
+                    x: f32::NAN,
+                    y: f32::NAN,
+                },
+                RenderObject {
+                    id: "marker:line:runtime-command-rect:left:1:2:1:1".to_string(),
+                    layer: 1,
+                    x: f32::NAN,
+                    y: f32::NAN,
+                },
+                RenderObject {
+                    id: "marker:line:runtime-command-rect:left:1:2:1:1:line-end".to_string(),
+                    layer: 1,
+                    x: f32::NAN,
+                    y: f32::NAN,
+                },
+            ],
+        };
+        let mut presenter = AsciiScenePresenter::default();
+        presenter.present(&scene, &HudModel::default());
+        let frame = presenter.last_frame();
+        assert!(!frame.contains("RENDER-ICON:"));
+        assert!(!frame.contains("RENDER-RECT:"));
     }
 
     #[test]

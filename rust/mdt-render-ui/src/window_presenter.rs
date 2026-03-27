@@ -531,18 +531,38 @@ fn compose_window_minimap_inset(
             panel.map_height,
             8,
         ),
-        tile_action_tiles: runtime_tile_action_minimap_tiles(scene, panel.map_width, panel.map_height, 8),
+        tile_action_tiles: runtime_tile_action_minimap_tiles(
+            scene,
+            panel.map_width,
+            panel.map_height,
+            8,
+        ),
         command_tiles: runtime_command_minimap_tiles(scene, panel.map_width, panel.map_height, 8),
         command_rects: runtime_command_minimap_rects(scene, panel.map_width, panel.map_height, 2),
-        runtime_break_rects: runtime_break_minimap_rects(scene, panel.map_width, panel.map_height, 2),
+        runtime_break_rects: runtime_break_minimap_rects(
+            scene,
+            panel.map_width,
+            panel.map_height,
+            2,
+        ),
         unit_assembler_rects: runtime_unit_assembler_minimap_rects(
             scene,
             panel.map_width,
             panel.map_height,
             4,
         ),
-        world_label_tiles: runtime_world_label_minimap_tiles(scene, panel.map_width, panel.map_height, 8),
-        runtime_overlay_tiles: runtime_minimap_overlay_tiles(scene, panel.map_width, panel.map_height, 8),
+        world_label_tiles: runtime_world_label_minimap_tiles(
+            scene,
+            panel.map_width,
+            panel.map_height,
+            8,
+        ),
+        runtime_overlay_tiles: runtime_minimap_overlay_tiles(
+            scene,
+            panel.map_width,
+            panel.map_height,
+            8,
+        ),
     })
 }
 
@@ -566,12 +586,7 @@ fn runtime_ping_minimap_tile(
         .iter()
         .rev()
         .find(|object| object.id.starts_with("marker:text:runtime-ping:"))?;
-    let tile_x = crate::presenter_view::world_to_tile_index_floor(ping.x, TILE_SIZE);
-    let tile_y = crate::presenter_view::world_to_tile_index_floor(ping.y, TILE_SIZE);
-    if tile_x < 0 || tile_y < 0 {
-        return None;
-    }
-    clamp_window_minimap_tile(Some((tile_x as usize, tile_y as usize)), map_width, map_height)
+    runtime_minimap_object_tile(ping, map_width, map_height)
 }
 
 fn runtime_world_label_minimap_tiles(
@@ -587,14 +602,7 @@ fn runtime_world_label_minimap_tiles(
         if !object.id.starts_with("world-label:") {
             continue;
         }
-        let tile_x = crate::presenter_view::world_to_tile_index_floor(object.x, TILE_SIZE);
-        let tile_y = crate::presenter_view::world_to_tile_index_floor(object.y, TILE_SIZE);
-        if tile_x < 0 || tile_y < 0 {
-            continue;
-        }
-        let Some(tile) =
-            clamp_window_minimap_tile(Some((tile_x as usize, tile_y as usize)), map_width, map_height)
-        else {
+        let Some(tile) = runtime_minimap_object_tile(object, map_width, map_height) else {
             continue;
         };
         if !seen.insert(tile) {
@@ -629,16 +637,7 @@ fn runtime_command_minimap_tiles(
             if !object.id.starts_with(prefix) {
                 continue;
             }
-            let tile_x = crate::presenter_view::world_to_tile_index_floor(object.x, TILE_SIZE);
-            let tile_y = crate::presenter_view::world_to_tile_index_floor(object.y, TILE_SIZE);
-            if tile_x < 0 || tile_y < 0 {
-                continue;
-            }
-            let Some(tile) = clamp_window_minimap_tile(
-                Some((tile_x as usize, tile_y as usize)),
-                map_width,
-                map_height,
-            ) else {
+            let Some(tile) = runtime_minimap_object_tile(object, map_width, map_height) else {
                 continue;
             };
             if !seen.insert(tile) {
@@ -671,16 +670,7 @@ fn runtime_unit_assembler_minimap_tiles(
             if !object.id.starts_with(prefix) {
                 continue;
             }
-            let tile_x = crate::presenter_view::world_to_tile_index_floor(object.x, TILE_SIZE);
-            let tile_y = crate::presenter_view::world_to_tile_index_floor(object.y, TILE_SIZE);
-            if tile_x < 0 || tile_y < 0 {
-                continue;
-            }
-            let Some(tile) = clamp_window_minimap_tile(
-                Some((tile_x as usize, tile_y as usize)),
-                map_width,
-                map_height,
-            ) else {
+            let Some(tile) = runtime_minimap_object_tile(object, map_width, map_height) else {
                 continue;
             };
             if !seen.insert(tile) {
@@ -766,9 +756,13 @@ fn runtime_command_minimap_rects(
             "runtime-command-target-rect" => WindowMinimapCommandRectKind::Target,
             _ => continue,
         };
+        if !left.is_finite() || !top.is_finite() || !right.is_finite() || !bottom.is_finite() {
+            continue;
+        }
         let origin_x = runtime_world_to_minimap_tile(left, map_width);
         let origin_y = runtime_world_to_minimap_tile(top, map_height);
-        let width = runtime_world_span_to_tile_span(right - left, map_width.saturating_sub(origin_x));
+        let width =
+            runtime_world_span_to_tile_span(right - left, map_width.saturating_sub(origin_x));
         let height =
             runtime_world_span_to_tile_span(bottom - top, map_height.saturating_sub(origin_y));
         rects.push(WindowMinimapCommandRect {
@@ -809,9 +803,13 @@ fn runtime_break_minimap_rects(
         if family != "runtime-break-rect" {
             continue;
         }
+        if !left.is_finite() || !top.is_finite() || !right.is_finite() || !bottom.is_finite() {
+            continue;
+        }
         let origin_x = runtime_world_to_minimap_tile(left, map_width);
         let origin_y = runtime_world_to_minimap_tile(top, map_height);
-        let width = runtime_world_span_to_tile_span(right - left, map_width.saturating_sub(origin_x));
+        let width =
+            runtime_world_span_to_tile_span(right - left, map_width.saturating_sub(origin_x));
         let height =
             runtime_world_span_to_tile_span(bottom - top, map_height.saturating_sub(origin_y));
         rects.push(WindowMinimapBreakRect {
@@ -851,9 +849,13 @@ fn runtime_unit_assembler_minimap_rects(
         if family != "runtime-unit-assembler-area" {
             continue;
         }
+        if !left.is_finite() || !top.is_finite() || !right.is_finite() || !bottom.is_finite() {
+            continue;
+        }
         let origin_x = runtime_world_to_minimap_tile(left, map_width);
         let origin_y = runtime_world_to_minimap_tile(top, map_height);
-        let width = runtime_world_span_to_tile_span(right - left, map_width.saturating_sub(origin_x));
+        let width =
+            runtime_world_span_to_tile_span(right - left, map_width.saturating_sub(origin_x));
         let height =
             runtime_world_span_to_tile_span(bottom - top, map_height.saturating_sub(origin_y));
         rects.push(WindowMinimapUnitAssemblerRect {
@@ -889,16 +891,7 @@ fn runtime_minimap_overlay_tiles(
             if runtime_minimap_overlay_kind(object.semantic_kind()) != Some(kind) {
                 continue;
             }
-            let tile_x = crate::presenter_view::world_to_tile_index_floor(object.x, TILE_SIZE);
-            let tile_y = crate::presenter_view::world_to_tile_index_floor(object.y, TILE_SIZE);
-            if tile_x < 0 || tile_y < 0 {
-                continue;
-            }
-            let Some(tile) = clamp_window_minimap_tile(
-                Some((tile_x as usize, tile_y as usize)),
-                map_width,
-                map_height,
-            ) else {
+            let Some(tile) = runtime_minimap_object_tile(object, map_width, map_height) else {
                 continue;
             };
             if !seen.insert(tile) {
@@ -936,7 +929,7 @@ fn runtime_minimap_overlay_kind(
 }
 
 fn runtime_world_to_minimap_tile(world_position: f32, bound: usize) -> usize {
-    if bound == 0 {
+    if bound == 0 || !world_position.is_finite() {
         return 0;
     }
     crate::presenter_view::world_to_tile_index_floor(world_position, TILE_SIZE)
@@ -944,10 +937,30 @@ fn runtime_world_to_minimap_tile(world_position: f32, bound: usize) -> usize {
 }
 
 fn runtime_world_span_to_tile_span(world_span: f32, bound: usize) -> usize {
-    if bound == 0 {
+    if bound == 0 || !world_span.is_finite() || world_span <= 0.0 {
         return 0;
     }
     ((world_span / TILE_SIZE).round() as usize).clamp(1, bound)
+}
+
+fn runtime_minimap_object_tile(
+    object: &RenderObject,
+    map_width: usize,
+    map_height: usize,
+) -> Option<(usize, usize)> {
+    if !object.x.is_finite() || !object.y.is_finite() {
+        return None;
+    }
+    let tile_x = crate::presenter_view::world_to_tile_index_floor(object.x, TILE_SIZE);
+    let tile_y = crate::presenter_view::world_to_tile_index_floor(object.y, TILE_SIZE);
+    if tile_x < 0 || tile_y < 0 {
+        return None;
+    }
+    clamp_window_minimap_tile(
+        Some((tile_x as usize, tile_y as usize)),
+        map_width,
+        map_height,
+    )
 }
 
 fn crop_window(
@@ -5153,15 +5166,16 @@ fn encode_ppm(frame: &WindowFrame) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::{
-        color_for_object, compose_frame, scale_frame_pixels, window_hud_bar_height,
-        window_hud_top_line, BackendSignal, WindowBackend, WindowFrame, WindowMinimapInset,
-        WindowMinimapBreakRect, WindowMinimapCommandRect, WindowMinimapCommandRectKind,
-        WindowMinimapUnitAssemblerRect,
-        WindowMinimapRuntimeOverlayKind, WindowMinimapRuntimeOverlayTile, WindowPresenter,
-        COLOR_BLOCK, COLOR_EMPTY, COLOR_ICON_BUILD_CONFIG, COLOR_ICON_RUNTIME_BREAK,
-        COLOR_ICON_RUNTIME_BULLET, COLOR_ICON_RUNTIME_COMMAND, COLOR_ICON_RUNTIME_EFFECT,
-        COLOR_ICON_RUNTIME_EFFECT_MARKER, COLOR_ICON_RUNTIME_HEALTH,
-        COLOR_ICON_RUNTIME_LOGIC_EXPLOSION, COLOR_ICON_RUNTIME_SOUND_AT,
+        color_for_object, compose_frame, runtime_command_minimap_tiles,
+        runtime_ping_minimap_tile, runtime_world_label_minimap_tiles,
+        runtime_world_span_to_tile_span, scale_frame_pixels, window_hud_bar_height,
+        window_hud_top_line, BackendSignal, WindowBackend, WindowFrame, WindowMinimapBreakRect,
+        WindowMinimapCommandRect, WindowMinimapCommandRectKind, WindowMinimapInset,
+        WindowMinimapRuntimeOverlayKind, WindowMinimapRuntimeOverlayTile,
+        WindowMinimapUnitAssemblerRect, WindowPresenter, COLOR_BLOCK, COLOR_EMPTY,
+        COLOR_ICON_BUILD_CONFIG, COLOR_ICON_RUNTIME_BREAK, COLOR_ICON_RUNTIME_BULLET,
+        COLOR_ICON_RUNTIME_COMMAND, COLOR_ICON_RUNTIME_EFFECT, COLOR_ICON_RUNTIME_EFFECT_MARKER,
+        COLOR_ICON_RUNTIME_HEALTH, COLOR_ICON_RUNTIME_LOGIC_EXPLOSION, COLOR_ICON_RUNTIME_SOUND_AT,
         COLOR_ICON_RUNTIME_TILE_ACTION, COLOR_ICON_RUNTIME_UNIT_ASSEMBLER, COLOR_MARKER,
         COLOR_MINIMAP_INSET_VIEWPORT, COLOR_PLAN, COLOR_PLAYER, COLOR_RUNTIME, COLOR_TERRAIN,
         COLOR_UNKNOWN, COLOR_WINDOW_HUD_BAR, COLOR_WINDOW_HUD_TEXT, WINDOW_HUD_BAR_PADDING_X,
@@ -5910,6 +5924,44 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn minimap_helpers_ignore_non_finite_coordinates_and_spans() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 32.0,
+                height: 32.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: "marker:text:runtime-ping:9:text:70696e67".to_string(),
+                    layer: 31,
+                    x: f32::NAN,
+                    y: 24.0,
+                },
+                RenderObject {
+                    id: "world-label:event:7:text:6c6162656c".to_string(),
+                    layer: 39,
+                    x: 48.0,
+                    y: f32::INFINITY,
+                },
+                RenderObject {
+                    id: "marker:runtime-command-build-target:9:10".to_string(),
+                    layer: 29,
+                    x: f32::INFINITY,
+                    y: 80.0,
+                },
+            ],
+        };
+
+        assert_eq!(runtime_ping_minimap_tile(&scene, 80, 60), None);
+        assert!(runtime_world_label_minimap_tiles(&scene, 80, 60, 8).is_empty());
+        assert!(runtime_command_minimap_tiles(&scene, 80, 60, 8).is_empty());
+        assert_eq!(runtime_world_span_to_tile_span(f32::NAN, 12), 0);
+        assert_eq!(runtime_world_span_to_tile_span(-4.0, 12), 0);
     }
 
     #[test]
