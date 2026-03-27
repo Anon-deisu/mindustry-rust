@@ -31,11 +31,11 @@ pub struct LiveIntentBindingProfile {
 
 impl LiveIntentBindingProfile {
     pub fn has_motion(&self) -> bool {
-        self.move_axis != (0.0, 0.0)
+        normalize_axis(self.move_axis) != (0.0, 0.0)
     }
 
     pub fn has_aim(&self) -> bool {
-        self.aim_axis != (0.0, 0.0)
+        normalize_axis(self.aim_axis) != (0.0, 0.0)
     }
 
     pub fn has_transient_signals(&self) -> bool {
@@ -65,10 +65,10 @@ impl LiveIntentState {
         for intent in intents {
             match intent {
                 PlayerIntent::SetMoveAxis { x, y } => {
-                    self.move_axis = (*x, *y);
+                    self.move_axis = normalize_axis((*x, *y));
                 }
                 PlayerIntent::SetAimAxis { x, y } => {
-                    self.aim_axis = (*x, *y);
+                    self.aim_axis = normalize_axis((*x, *y));
                 }
                 PlayerIntent::SetMiningTile { tile } => {
                     self.mining_tile = *tile;
@@ -112,8 +112,8 @@ impl LiveIntentState {
 
     pub fn binding_profile(&self) -> LiveIntentBindingProfile {
         LiveIntentBindingProfile {
-            move_axis: self.move_axis,
-            aim_axis: self.aim_axis,
+            move_axis: normalize_axis(self.move_axis),
+            aim_axis: normalize_axis(self.aim_axis),
             mining_tile: self.mining_tile,
             building: self.building,
             last_config_tap_tile: self.last_config_tap_tile,
@@ -248,8 +248,8 @@ fn runtime_snapshot_apply_key(
     Vec<BinaryAction>,
 ) {
     (
-        state.move_axis,
-        state.aim_axis,
+        normalize_axis(state.move_axis),
+        normalize_axis(state.aim_axis),
         state.mining_tile,
         state.building,
         state.last_config_tap_tile,
@@ -269,6 +269,14 @@ fn push_unique(actions: &mut Vec<BinaryAction>, action: BinaryAction) {
 fn remove_action(actions: &mut Vec<BinaryAction>, action: BinaryAction) {
     if let Some(index) = actions.iter().position(|existing| *existing == action) {
         actions.remove(index);
+    }
+}
+
+fn normalize_axis(axis: (f32, f32)) -> (f32, f32) {
+    if axis.0.is_finite() && axis.1.is_finite() {
+        axis
+    } else {
+        (0.0, 0.0)
     }
 }
 
@@ -321,6 +329,47 @@ mod tests {
         assert_eq!(state.released_actions, vec![BinaryAction::Fire]);
         assert!(!state.is_action_active(BinaryAction::Fire));
         assert!(state.is_action_active(BinaryAction::Boost));
+    }
+
+    #[test]
+    fn apply_intents_normalizes_non_finite_axes_before_state_update() {
+        let mut state = LiveIntentState::default();
+
+        state.apply_intents(&[
+            PlayerIntent::SetMoveAxis {
+                x: f32::NAN,
+                y: 3.0,
+            },
+            PlayerIntent::SetAimAxis {
+                x: 12.0,
+                y: f32::INFINITY,
+            },
+        ]);
+
+        assert_eq!(state.move_axis, (0.0, 0.0));
+        assert_eq!(state.aim_axis, (0.0, 0.0));
+        assert!(!state.binding_profile().has_motion());
+        assert!(!state.binding_profile().has_aim());
+        assert!(state.binding_profile().is_idle());
+    }
+
+    #[test]
+    fn runtime_intent_tracker_ignores_non_finite_axes_in_apply_key() {
+        let mut tracker = RuntimeIntentTracker::new(IntentSamplingMode::LiveSampling);
+        tracker.state.move_axis = (f32::NAN, 1.0);
+        tracker.state.aim_axis = (2.0, f32::INFINITY);
+
+        assert!(!tracker.sample_runtime_snapshot(&InputSnapshot {
+            move_axis: (0.0, 0.0),
+            aim_axis: (0.0, 0.0),
+            mining_tile: None,
+            building: false,
+            config_tap_tile: None,
+            build_pulse: None,
+            active_actions: Vec::new(),
+        }));
+        assert_eq!(tracker.state.move_axis, (0.0, 0.0));
+        assert_eq!(tracker.state.aim_axis, (0.0, 0.0));
     }
 
     #[test]

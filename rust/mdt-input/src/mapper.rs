@@ -95,13 +95,15 @@ impl IntentMapper for StatelessIntentMapper {
         let mut intents =
             Vec::with_capacity(4 + active_actions.len() + self.active_actions_prev.len());
 
+        let move_axis = normalize_axis(snapshot.move_axis);
+        let aim_axis = normalize_axis(snapshot.aim_axis);
         intents.push(PlayerIntent::SetMoveAxis {
-            x: snapshot.move_axis.0,
-            y: snapshot.move_axis.1,
+            x: move_axis.0,
+            y: move_axis.1,
         });
         intents.push(PlayerIntent::SetAimAxis {
-            x: snapshot.aim_axis.0,
-            y: snapshot.aim_axis.1,
+            x: aim_axis.0,
+            y: aim_axis.1,
         });
         intents.push(PlayerIntent::SetMiningTile {
             tile: snapshot.mining_tile,
@@ -169,6 +171,14 @@ fn action_order_key(action: &BinaryAction) -> u8 {
         BinaryAction::Boost => 5,
         BinaryAction::Chat => 6,
         BinaryAction::Interact => 7,
+    }
+}
+
+fn normalize_axis(axis: (f32, f32)) -> (f32, f32) {
+    if axis.0.is_finite() && axis.1.is_finite() {
+        axis
+    } else {
+        (0.0, 0.0)
     }
 }
 
@@ -396,6 +406,21 @@ mod tests {
         assert_eq!(second[2], PlayerIntent::SetMiningTile { tile: None });
         assert_eq!(second[3], PlayerIntent::SetBuilding { building: false });
         assert_eq!(second[4], PlayerIntent::ActionHeld(BinaryAction::Chat));
+    }
+
+    #[test]
+    fn non_finite_axes_are_normalized_before_mapping() {
+        let mut mapper = StatelessIntentMapper::default();
+
+        assert_eq!(
+            mapper.map_snapshot(&snapshot((f32::NAN, 1.0), (2.0, f32::INFINITY), &[])),
+            vec![
+                PlayerIntent::SetMoveAxis { x: 0.0, y: 0.0 },
+                PlayerIntent::SetAimAxis { x: 0.0, y: 0.0 },
+                PlayerIntent::SetMiningTile { tile: None },
+                PlayerIntent::SetBuilding { building: false },
+            ]
+        );
     }
 
     #[test]
