@@ -7216,16 +7216,13 @@ impl ClientSession {
 
     fn apply_snapshot_input_from_bootstrap(&mut self, bootstrap: &LoadedWorldBootstrap) {
         let unit_id = bootstrap_player_unit_id(bootstrap);
-        let position = (
-            sanitize_bootstrap_coord(bootstrap.player_x_bits),
-            sanitize_bootstrap_coord(bootstrap.player_y_bits),
-        );
+        let position = sanitize_bootstrap_position(bootstrap.player_x_bits, bootstrap.player_y_bits);
         let semantic = player_semantic_projection_from_bootstrap(bootstrap);
 
         self.snapshot_input.unit_id = unit_id;
         self.snapshot_input.dead = bootstrap.player_unit_kind == 0;
-        self.snapshot_input.position = Some(position);
-        self.snapshot_input.view_center = Some(position);
+        self.snapshot_input.position = position;
+        self.snapshot_input.view_center = position;
         let pointer = (
             f32::from_bits(bootstrap.mouse_x_bits),
             f32::from_bits(bootstrap.mouse_y_bits),
@@ -7241,15 +7238,15 @@ impl ClientSession {
         self.snapshot_input.selected_rotation =
             i32::try_from(bootstrap.selected_rotation).unwrap_or(0);
         self.state.world_player_semantic_projection = Some(semantic.clone());
-        if let Some(player_id) = self.state.world_player_id {
+        if let (Some(player_id), Some((x, y))) = (self.state.world_player_id, position) {
             self.state
                 .entity_table_projection
                 .upsert_bootstrap_local_player(
                     player_id,
                     bootstrap.player_unit_kind,
                     bootstrap.player_unit_value,
-                    position.0.to_bits(),
-                    position.1.to_bits(),
+                    x.to_bits(),
+                    y.to_bits(),
                     false,
                 );
             self.state
@@ -10079,13 +10076,17 @@ fn pack_point2(x: i32, y: i32) -> i32 {
     ((x & 0xffff) << 16) | (y & 0xffff)
 }
 
-fn sanitize_bootstrap_coord(bits: u32) -> f32 {
+fn sanitize_bootstrap_coord(bits: u32) -> Option<f32> {
     let value = f32::from_bits(bits);
     if value.is_finite() {
-        value
+        Some(value)
     } else {
-        0.0
+        None
     }
+}
+
+fn sanitize_bootstrap_position(x_bits: u32, y_bits: u32) -> Option<(f32, f32)> {
+    Some((sanitize_bootstrap_coord(x_bits)?, sanitize_bootstrap_coord(y_bits)?))
 }
 
 fn bootstrap_player_unit_id(bootstrap: &LoadedWorldBootstrap) -> Option<i32> {
@@ -17749,9 +17750,9 @@ mod tests {
 
         let expected_unit_id =
             i32::try_from(session.state().world_player_unit_value.unwrap()).unwrap();
-        let expected_position = (
-            sanitize_bootstrap_coord(session.state().world_player_x_bits.unwrap()),
-            sanitize_bootstrap_coord(session.state().world_player_y_bits.unwrap()),
+        let expected_position = sanitize_bootstrap_position(
+            session.state().world_player_x_bits.unwrap(),
+            session.state().world_player_y_bits.unwrap(),
         );
         let expected_semantic = session
             .state()
@@ -17762,8 +17763,8 @@ mod tests {
         let input = session.snapshot_input_mut();
         assert_eq!(input.unit_id, Some(expected_unit_id));
         assert!(!input.dead);
-        assert_eq!(input.position, Some(expected_position));
-        assert_eq!(input.view_center, Some(expected_position));
+        assert_eq!(input.position, expected_position);
+        assert_eq!(input.view_center, expected_position);
         assert_eq!(
             input.pointer,
             Some((
@@ -17790,6 +17791,22 @@ mod tests {
                 if player.semantic == expected_semantic
                     && player.base.unit_value == session.state().world_player_unit_value.unwrap()
         ));
+    }
+
+    #[test]
+    fn sanitize_bootstrap_position_rejects_non_finite_coordinates() {
+        assert_eq!(
+            sanitize_bootstrap_position(f32::NAN.to_bits(), 12.0f32.to_bits()),
+            None
+        );
+        assert_eq!(
+            sanitize_bootstrap_position(12.0f32.to_bits(), f32::INFINITY.to_bits()),
+            None
+        );
+        assert_eq!(
+            sanitize_bootstrap_position(12.5f32.to_bits(), 7.25f32.to_bits()),
+            Some((12.5, 7.25))
+        );
     }
 
     #[test]
