@@ -857,7 +857,9 @@ impl BuilderQueueStateMachine {
                 BuilderQueueHeadExecutionAction::OutOfRange
             }
             (Some(entry), BuilderQueueHeadExecutionObservation::PendingBegin) => {
-                if entry.breaking {
+                if entry.stage == BuilderQueueStage::InFlight {
+                    BuilderQueueHeadExecutionAction::ContinueConstruct
+                } else if entry.breaking {
                     BuilderQueueHeadExecutionAction::BeginBreak
                 } else if entry.block_id.is_some() {
                     BuilderQueueHeadExecutionAction::BeginPlace
@@ -3850,6 +3852,49 @@ mod tests {
             Some(BuilderQueueStage::InFlight)
         );
         assert_eq!(queue.queued_count, 1);
+        assert_eq!(queue.inflight_count, 1);
+        assert_eq!(queue.last_front_promotion, None);
+    }
+
+    #[test]
+    fn apply_head_execution_observation_does_not_rebegin_inflight_head() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.enqueue_local(
+            BuilderQueueEntryObservation {
+                x: 8,
+                y: 8,
+                breaking: false,
+                block_id: Some(80),
+                rotation: 0,
+            },
+            true,
+        );
+        queue
+            .active_by_tile
+            .get_mut(&(8, 8))
+            .expect("head entry")
+            .stage = BuilderQueueStage::InFlight;
+        queue.recount();
+
+        let result = queue
+            .apply_head_execution_observation(BuilderQueueHeadExecutionObservation::PendingBegin);
+
+        assert_eq!(
+            result,
+            BuilderQueueHeadExecutionResult {
+                action: BuilderQueueHeadExecutionAction::ContinueConstruct,
+                head_tile_before: Some((8, 8)),
+                head_tile_after: Some((8, 8)),
+                removed_entry: None,
+            }
+        );
+        assert_eq!(queue.ordered_tiles, vec![(8, 8)]);
+        assert_eq!(queue.head_tile, Some((8, 8)));
+        assert_eq!(
+            queue.head_entry().map(|entry| entry.stage),
+            Some(BuilderQueueStage::InFlight)
+        );
+        assert_eq!(queue.queued_count, 0);
         assert_eq!(queue.inflight_count, 1);
         assert_eq!(queue.last_front_promotion, None);
     }
