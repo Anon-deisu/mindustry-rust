@@ -1,8 +1,8 @@
 use crate::client_session::ClientSessionEvent;
 use crate::session_state::{
     ConfiguredBlockOutcome, PayloadDroppedProjection, PickedBuildPayloadProjection,
-    PickedUnitPayloadProjection, TakeItemsProjection, TransferItemToUnitProjection,
-    UnitRefProjection,
+    PickedUnitPayloadProjection, TakeItemsProjection, TransferItemToProjection,
+    TransferItemToUnitProjection, UnitEnteredPayloadProjection, UnitRefProjection,
 };
 use mdt_typeio::TypeIoObject;
 
@@ -24,6 +24,51 @@ pub fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<Stri
     events
         .iter()
         .filter_map(|event| match event {
+            ClientSessionEvent::WorldStreamStarted {
+                stream_id,
+                total_bytes,
+            } => Some(format!(
+                "world_stream_started: stream_id={stream_id} total_bytes={total_bytes}"
+            )),
+            ClientSessionEvent::WorldStreamChunk {
+                stream_id,
+                received_bytes,
+                total_bytes,
+            } => Some(format!(
+                "world_stream_chunk: stream_id={stream_id} received_bytes={received_bytes} total_bytes={total_bytes}"
+            )),
+            ClientSessionEvent::WorldStreamReady {
+                stream_id,
+                map_width,
+                map_height,
+                player_id,
+                ready_to_enter_world,
+            } => Some(format!(
+                "world_stream_ready: stream_id={stream_id} map_width={map_width} map_height={map_height} player_id={player_id} ready_to_enter_world={ready_to_enter_world}"
+            )),
+            ClientSessionEvent::ClientPlanSnapshot { group_id, plans } => Some(format!(
+                "client_plan_snapshot: group_id={group_id} plan_count={}",
+                plans.as_ref().map_or(0, Vec::len)
+            )),
+            ClientSessionEvent::ClientPlanSnapshotReceived {
+                player_id,
+                group_id,
+                plans,
+            } => Some(format!(
+                "client_plan_snapshot_received: player_id={player_id:?} group_id={group_id} plan_count={}",
+                plans.as_ref().map_or(0, Vec::len)
+            )),
+            ClientSessionEvent::PingLocation {
+                player_id,
+                x_bits,
+                y_bits,
+                text,
+            } => Some(format!(
+                "ping_location: player_id={player_id:?} x_bits=0x{x_bits:08x} y_bits=0x{y_bits:08x} text={text:?}"
+            )),
+            ClientSessionEvent::SnapshotReceived(method) => {
+                Some(format!("snapshot_received: method={method:?}"))
+            }
             ClientSessionEvent::ConnectRedirectRequested { ip, port } => {
                 Some(format!("connect_redirect: ip={ip:?} port={port}"))
             }
@@ -181,6 +226,9 @@ pub fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<Stri
             ClientSessionEvent::TakeItems { projection } => {
                 Some(format_take_items_summary(projection))
             }
+            ClientSessionEvent::TransferItemTo { projection } => {
+                Some(format_transfer_item_to_summary(projection))
+            }
             ClientSessionEvent::TransferItemToUnit { projection } => {
                 Some(format_transfer_item_to_unit_summary(projection))
             }
@@ -197,6 +245,13 @@ pub fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<Stri
             ClientSessionEvent::PickedUnitPayload { projection } => {
                 Some(format_picked_unit_payload_summary(projection))
             }
+            ClientSessionEvent::UnitEnteredPayload {
+                projection,
+                removed_entity_projection,
+            } => Some(format_unit_entered_payload_summary(
+                projection,
+                *removed_entity_projection,
+            )),
             ClientSessionEvent::CreateWeather {
                 weather_id,
                 intensity,
@@ -999,6 +1054,18 @@ fn format_take_items_summary(projection: &TakeItemsProjection) -> String {
     )
 }
 
+fn format_transfer_item_to_summary(projection: &TransferItemToProjection) -> String {
+    format!(
+        "transfer_item_to: unit={:?} item_id={:?} amount={} x_bits=0x{:08x} y_bits=0x{:08x} build_pos={:?}",
+        projection.unit,
+        projection.item_id,
+        projection.amount,
+        projection.x_bits,
+        projection.y_bits,
+        projection.build_pos
+    )
+}
+
 fn format_transfer_item_to_unit_summary(projection: &TransferItemToUnitProjection) -> String {
     format!(
         "transfer_item_to_unit: item_id={:?} x_bits=0x{:08x} y_bits=0x{:08x} to_entity_id={:?}",
@@ -1033,6 +1100,16 @@ fn format_unit_despawned_summary(
 ) -> String {
     format!(
         "unit_despawned: unit={unit:?} removed_entity_projection={removed_entity_projection}"
+    )
+}
+
+fn format_unit_entered_payload_summary(
+    projection: &UnitEnteredPayloadProjection,
+    removed_entity_projection: bool,
+) -> String {
+    format!(
+        "unit_entered_payload: unit={:?} build_pos={:?} removed_entity_projection={removed_entity_projection}",
+        projection.unit, projection.build_pos
     )
 }
 
@@ -1109,8 +1186,10 @@ mod tests {
     use super::*;
     use crate::session_state::{
         PayloadDroppedProjection, PickedBuildPayloadProjection, PickedUnitPayloadProjection,
-        TakeItemsProjection, TransferItemToUnitProjection,
+        TakeItemsProjection, TransferItemToProjection, TransferItemToUnitProjection,
+        UnitEnteredPayloadProjection,
     };
+    use mdt_remote::HighFrequencyRemoteMethod;
 
     #[test]
     fn summarize_client_packet_events_includes_remote_observability_slice() {
@@ -1215,6 +1294,90 @@ mod tests {
                 "picked_build_payload: unit=Some(UnitRefProjection { kind: 2, value: 101 }) build_pos=Some(262148) on_ground=false".to_string(),
                 "picked_unit_payload: unit=Some(UnitRefProjection { kind: 2, value: 101 }) target=Some(UnitRefProjection { kind: 2, value: 202 })".to_string(),
                 "unit_despawned: unit=Some(UnitRefProjection { kind: 2, value: 99 }) removed_entity_projection=true".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn summarize_client_packet_events_includes_world_stream_lifecycle() {
+        let lines = summarize_client_packet_events(&[
+            ClientSessionEvent::WorldStreamStarted {
+                stream_id: 7,
+                total_bytes: 2048,
+            },
+            ClientSessionEvent::WorldStreamChunk {
+                stream_id: 7,
+                received_bytes: 1536,
+                total_bytes: 2048,
+            },
+            ClientSessionEvent::WorldStreamReady {
+                stream_id: 7,
+                map_width: 256,
+                map_height: 128,
+                player_id: 42,
+                ready_to_enter_world: true,
+            },
+        ]);
+
+        assert_eq!(
+            lines,
+            vec![
+                "world_stream_started: stream_id=7 total_bytes=2048".to_string(),
+                "world_stream_chunk: stream_id=7 received_bytes=1536 total_bytes=2048"
+                    .to_string(),
+                "world_stream_ready: stream_id=7 map_width=256 map_height=128 player_id=42 ready_to_enter_world=true".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn summarize_client_packet_events_includes_snapshot_plan_and_payload_edges() {
+        let lines = summarize_client_packet_events(&[
+            ClientSessionEvent::ClientPlanSnapshot {
+                group_id: 3,
+                plans: Some(vec![]),
+            },
+            ClientSessionEvent::ClientPlanSnapshotReceived {
+                player_id: Some(9),
+                group_id: 5,
+                plans: None,
+            },
+            ClientSessionEvent::PingLocation {
+                player_id: Some(7),
+                x_bits: 2.5f32.to_bits(),
+                y_bits: (-3.0f32).to_bits(),
+                text: Some("north".to_string()),
+            },
+            ClientSessionEvent::SnapshotReceived(HighFrequencyRemoteMethod::EntitySnapshot),
+            ClientSessionEvent::TransferItemTo {
+                projection: TransferItemToProjection {
+                    unit: Some(UnitRefProjection { kind: 2, value: 44 }),
+                    item_id: Some(8),
+                    amount: 12,
+                    x_bits: 1.0f32.to_bits(),
+                    y_bits: 2.0f32.to_bits(),
+                    build_pos: Some(0x0001_0002),
+                },
+            },
+            ClientSessionEvent::UnitEnteredPayload {
+                projection: UnitEnteredPayloadProjection {
+                    unit: Some(UnitRefProjection { kind: 2, value: 88 }),
+                    build_pos: Some(0x0003_0004),
+                },
+                removed_entity_projection: false,
+            },
+        ]);
+
+        assert_eq!(
+            lines,
+            vec![
+                "client_plan_snapshot: group_id=3 plan_count=0".to_string(),
+                "client_plan_snapshot_received: player_id=Some(9) group_id=5 plan_count=0"
+                    .to_string(),
+                "ping_location: player_id=Some(7) x_bits=0x40200000 y_bits=0xc0400000 text=Some(\"north\")".to_string(),
+                "snapshot_received: method=EntitySnapshot".to_string(),
+                "transfer_item_to: unit=Some(UnitRefProjection { kind: 2, value: 44 }) item_id=Some(8) amount=12 x_bits=0x3f800000 y_bits=0x40000000 build_pos=Some(65538)".to_string(),
+                "unit_entered_payload: unit=Some(UnitRefProjection { kind: 2, value: 88 }) build_pos=Some(196612) removed_entity_projection=false".to_string(),
             ]
         );
     }

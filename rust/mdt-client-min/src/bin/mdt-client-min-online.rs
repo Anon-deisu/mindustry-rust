@@ -9305,37 +9305,71 @@ mod tests {
             ClientSessionEvent::SnapshotReceived(HighFrequencyRemoteMethod::EntitySnapshot),
         ]);
 
-        assert_eq!(lines.len(), 8);
-        assert!(lines[0].contains("client_packet: transport=reliable"));
-        assert!(lines[0].contains("type=\"custom.text.r\""));
-        assert!(lines[0].contains("len=8"));
-        assert!(lines[0].contains("preview=\"line\\\\none\""));
-        assert!(lines[1].contains("client_packet: transport=unreliable"));
-        assert!(lines[1].contains("type=\"custom.text.u\""));
-        assert!(lines[1].contains("len=5"));
-        assert!(lines[2].contains("client_binary_packet: transport=reliable"));
-        assert!(lines[2].contains("type=\"custom.bin.r\""));
-        assert!(lines[2].contains("len=20"));
-        assert!(lines[2].contains("hex_prefix=000102030405060708090a0b0c0d0e0f"));
-        assert!(lines[3].contains("client_binary_packet: transport=unreliable"));
-        assert!(lines[3].contains("type=\"custom.bin.u\""));
-        assert!(lines[3].contains("len=3"));
-        assert!(lines[3].contains("hex_prefix=aabbcc"));
-        assert!(lines[4].contains("server_packet: transport=reliable"));
-        assert!(lines[4].contains("type=\"server.text.r\""));
-        assert!(lines[4].contains("len=6"));
-        assert!(lines[5].contains("server_binary_packet: transport=unreliable"));
-        assert!(lines[5].contains("type=\"server.bin.u\""));
-        assert!(lines[5].contains("len=2"));
-        assert!(lines[5].contains("hex_prefix=1020"));
-        assert!(lines[6].contains("client_logic_data: transport=reliable"));
-        assert!(lines[6].contains("channel=\"logic.r\""));
-        assert!(lines[6].contains("kind=\"string\""));
-        assert!(lines[6].contains("String(Some(\\\"hello\\\"))"));
-        assert!(lines[7].contains("client_logic_data: transport=unreliable"));
-        assert!(lines[7].contains("channel=\"logic.u\""));
-        assert!(lines[7].contains("kind=\"object[]\""));
-        assert!(lines[7].contains("ObjectArray([Int(7), Bool(true)])"));
+        let reliable_text = lines
+            .iter()
+            .find(|line| line.contains("client_packet: transport=reliable"))
+            .expect("missing reliable client text summary");
+        assert!(reliable_text.contains("type=\"custom.text.r\""));
+        assert!(reliable_text.contains("len=8"));
+        assert!(reliable_text.contains("preview=\"line\\\\none\""));
+
+        let unreliable_text = lines
+            .iter()
+            .find(|line| line.contains("client_packet: transport=unreliable"))
+            .expect("missing unreliable client text summary");
+        assert!(unreliable_text.contains("type=\"custom.text.u\""));
+        assert!(unreliable_text.contains("len=5"));
+
+        let reliable_binary = lines
+            .iter()
+            .find(|line| line.contains("client_binary_packet: transport=reliable"))
+            .expect("missing reliable client binary summary");
+        assert!(reliable_binary.contains("type=\"custom.bin.r\""));
+        assert!(reliable_binary.contains("len=20"));
+        assert!(reliable_binary.contains("hex_prefix=000102030405060708090a0b0c0d0e0f"));
+
+        let unreliable_binary = lines
+            .iter()
+            .find(|line| line.contains("client_binary_packet: transport=unreliable"))
+            .expect("missing unreliable client binary summary");
+        assert!(unreliable_binary.contains("type=\"custom.bin.u\""));
+        assert!(unreliable_binary.contains("len=3"));
+        assert!(unreliable_binary.contains("hex_prefix=aabbcc"));
+
+        let reliable_server_text = lines
+            .iter()
+            .find(|line| line.contains("server_packet: transport=reliable"))
+            .expect("missing reliable server text summary");
+        assert!(reliable_server_text.contains("type=\"server.text.r\""));
+        assert!(reliable_server_text.contains("len=6"));
+
+        let unreliable_server_binary = lines
+            .iter()
+            .find(|line| line.contains("server_binary_packet: transport=unreliable"))
+            .expect("missing unreliable server binary summary");
+        assert!(unreliable_server_binary.contains("type=\"server.bin.u\""));
+        assert!(unreliable_server_binary.contains("len=2"));
+        assert!(unreliable_server_binary.contains("hex_prefix=1020"));
+
+        let reliable_logic = lines
+            .iter()
+            .find(|line| line.contains("client_logic_data: transport=reliable"))
+            .expect("missing reliable logic summary");
+        assert!(reliable_logic.contains("channel=\"logic.r\""));
+        assert!(reliable_logic.contains("kind=\"string\""));
+        assert!(reliable_logic.contains("String(Some(\\\"hello\\\"))"));
+
+        let unreliable_logic = lines
+            .iter()
+            .find(|line| line.contains("client_logic_data: transport=unreliable"))
+            .expect("missing unreliable logic summary");
+        assert!(unreliable_logic.contains("channel=\"logic.u\""));
+        assert!(unreliable_logic.contains("kind=\"object[]\""));
+        assert!(unreliable_logic.contains("ObjectArray([Int(7), Bool(true)])"));
+
+        assert!(lines
+            .iter()
+            .any(|line| line.contains("snapshot_received: method=EntitySnapshot")));
     }
 
     #[test]
