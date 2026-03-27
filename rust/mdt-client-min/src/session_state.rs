@@ -400,6 +400,22 @@ pub struct SorterRuntimeProjection {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ItemBridgeBufferRuntimeProjection {
+    pub index: i8,
+    pub capacity: usize,
+    pub normalized_index: i32,
+    pub entry_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ItemBridgeRuntimeProjection {
+    pub warmup_bits: u32,
+    pub incoming_count: usize,
+    pub moved: bool,
+    pub buffer: Option<ItemBridgeBufferRuntimeProjection>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PayloadSourceRuntimeProjection {
     pub command_pos: Option<(u32, u32)>,
     pub pay_vector_x_bits: u32,
@@ -1856,6 +1872,7 @@ pub struct ConfiguredBlockProjection {
     pub payload_router_sorted_content_by_build_pos: BTreeMap<i32, Option<ConfiguredContentRef>>,
     pub payload_router_runtime_by_build_pos: BTreeMap<i32, PayloadRouterRuntimeProjection>,
     pub item_bridge_link_by_build_pos: BTreeMap<i32, Option<i32>>,
+    pub item_bridge_runtime_by_build_pos: BTreeMap<i32, ItemBridgeRuntimeProjection>,
     pub unloader_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub directional_unloader_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub duct_unloader_item_by_build_pos: BTreeMap<i32, Option<i16>>,
@@ -1997,6 +2014,15 @@ impl ConfiguredBlockProjection {
         self.item_bridge_link_by_build_pos.insert(build_pos, link);
     }
 
+    pub fn apply_item_bridge_runtime(
+        &mut self,
+        build_pos: i32,
+        projection: ItemBridgeRuntimeProjection,
+    ) {
+        self.item_bridge_runtime_by_build_pos
+            .insert(build_pos, projection);
+    }
+
     pub fn apply_unloader_item(&mut self, build_pos: i32, item_id: Option<i16>) {
         self.unloader_item_by_build_pos.insert(build_pos, item_id);
     }
@@ -2128,6 +2154,7 @@ impl ConfiguredBlockProjection {
             .remove(&build_pos);
         self.payload_router_runtime_by_build_pos.remove(&build_pos);
         self.item_bridge_link_by_build_pos.remove(&build_pos);
+        self.item_bridge_runtime_by_build_pos.remove(&build_pos);
         self.unloader_item_by_build_pos.remove(&build_pos);
         self.directional_unloader_item_by_build_pos
             .remove(&build_pos);
@@ -3278,6 +3305,16 @@ pub enum TypedBuildingRuntimeValue {
         non_empty_side_mask: Option<u8>,
         buffered_item_count: Option<u16>,
     },
+    ItemBridge {
+        link: Option<i32>,
+        warmup_bits: Option<u32>,
+        incoming_count: Option<usize>,
+        moved: Option<bool>,
+        buffer_index: Option<i8>,
+        buffer_capacity: Option<usize>,
+        buffer_normalized_index: Option<i32>,
+        buffer_entry_count: Option<usize>,
+    },
     Block(Option<i16>),
     Color(i32),
     Content(Option<ConfiguredContentRef>),
@@ -3724,15 +3761,41 @@ fn typed_runtime_building_model(
                 },
             )
         }
-        "bridge-conveyor" | "phase-conveyor" | "bridge-conduit" | "phase-conduit" => (
-            TypedBuildingRuntimeKind::ItemBridge,
-            TypedBuildingRuntimeValue::Link(
-                configured
-                    .item_bridge_link_by_build_pos
-                    .get(&build_pos)
-                    .copied()?,
-            ),
-        ),
+        "bridge-conveyor" | "phase-conveyor" | "bridge-conduit" | "phase-conduit" => {
+            let link = configured
+                .item_bridge_link_by_build_pos
+                .get(&build_pos)
+                .copied();
+            let runtime = configured.item_bridge_runtime_by_build_pos.get(&build_pos);
+            if link.is_none() && runtime.is_none() {
+                return None;
+            }
+
+            (
+                TypedBuildingRuntimeKind::ItemBridge,
+                TypedBuildingRuntimeValue::ItemBridge {
+                    link: link.flatten(),
+                    warmup_bits: runtime.map(|projection| projection.warmup_bits),
+                    incoming_count: runtime.map(|projection| projection.incoming_count),
+                    moved: runtime.map(|projection| projection.moved),
+                    buffer_index: runtime.and_then(|projection| {
+                        projection.buffer.as_ref().map(|buffer| buffer.index)
+                    }),
+                    buffer_capacity: runtime.and_then(|projection| {
+                        projection.buffer.as_ref().map(|buffer| buffer.capacity)
+                    }),
+                    buffer_normalized_index: runtime.and_then(|projection| {
+                        projection
+                            .buffer
+                            .as_ref()
+                            .map(|buffer| buffer.normalized_index)
+                    }),
+                    buffer_entry_count: runtime.and_then(|projection| {
+                        projection.buffer.as_ref().map(|buffer| buffer.entry_count)
+                    }),
+                },
+            )
+        }
         "unloader" => (
             TypedBuildingRuntimeKind::Unloader,
             TypedBuildingRuntimeValue::Item(
@@ -7861,7 +7924,16 @@ mod tests {
                 301,
                 "phase-conduit",
                 TypedBuildingRuntimeKind::ItemBridge,
-                TypedBuildingRuntimeValue::Link(Some(target_pos)),
+                TypedBuildingRuntimeValue::ItemBridge {
+                    link: Some(target_pos),
+                    warmup_bits: None,
+                    incoming_count: None,
+                    moved: None,
+                    buffer_index: None,
+                    buffer_capacity: None,
+                    buffer_normalized_index: None,
+                    buffer_entry_count: None,
+                },
                 Vec::new(),
                 Some(1),
                 Some(2),
@@ -7876,6 +7948,94 @@ mod tests {
                 Some(0x30),
                 Some(0x10),
                 Some(88),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_buffered_item_bridge_runtime() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0006_0010i32;
+        let target_pos = 0x0006_0016i32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            302,
+            Some("bridge-conveyor".to_string()),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(0x3f40_0000),
+            Some(0x3f10_0000),
+            Some(126),
+            Some(true),
+            Some(TypeIoObject::Null),
+            Some(0x4080_0000),
+            Some(false),
+            Some(0x31),
+            Some(0x11),
+            Some(89),
+            None,
+            None,
+            None,
+        );
+        state
+            .configured_block_projection
+            .apply_item_bridge_link(build_pos, Some(target_pos));
+        state.configured_block_projection.apply_item_bridge_runtime(
+            build_pos,
+            ItemBridgeRuntimeProjection {
+                warmup_bits: 0x3f00_0000,
+                incoming_count: 2,
+                moved: true,
+                buffer: Some(ItemBridgeBufferRuntimeProjection {
+                    index: 1,
+                    capacity: 4,
+                    normalized_index: 1,
+                    entry_count: 2,
+                }),
+            },
+        );
+
+        assert_eq!(
+            state.typed_runtime_building_at(build_pos),
+            Some(expected_typed_runtime_building(
+                build_pos,
+                302,
+                "bridge-conveyor",
+                TypedBuildingRuntimeKind::ItemBridge,
+                TypedBuildingRuntimeValue::ItemBridge {
+                    link: Some(target_pos),
+                    warmup_bits: Some(0x3f00_0000),
+                    incoming_count: Some(2),
+                    moved: Some(true),
+                    buffer_index: Some(1),
+                    buffer_capacity: Some(4),
+                    buffer_normalized_index: Some(1),
+                    buffer_entry_count: Some(2),
+                },
+                Vec::new(),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(0x3f40_0000),
+                Some(0x3f10_0000),
+                Some(126),
+                Some(true),
+                Some(0x4080_0000),
+                Some(false),
+                Some(0x31),
+                Some(0x11),
+                Some(89),
                 None,
                 None,
                 None,

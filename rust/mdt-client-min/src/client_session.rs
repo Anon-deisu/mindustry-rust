@@ -25,17 +25,17 @@ use crate::session_state::{
     EntityPlayerSemanticProjection, EntityPuddleSemanticProjection, EntitySemanticProjection,
     EntityUnitRuntimeSyncProjection, EntityUnitSemanticProjection,
     EntityWeatherStateSemanticProjection, EntityWorldLabelSemanticProjection,
-    FinishConnectingProjection, GameplayStateProjection, MassDriverRuntimeProjection,
-    PayloadDroppedProjection, PayloadLoaderRuntimeProjection, PayloadMassDriverRuntimeProjection,
-    PayloadRouterPayloadKind, PayloadRouterRuntimeProjection, PayloadSourceRuntimeProjection,
-    PickedBuildPayloadProjection, PickedUnitPayloadProjection, ReconnectPhaseProjection,
-    ReconnectReasonKind, ReconstructorRuntimeProjection, RemotePlanSnapshotFirstPlanProjection,
-    SessionResetKind, SessionState, SessionTimeoutKind, SessionTimeoutProjection,
-    SorterRuntimeProjection, TakeItemsProjection, TileConfigAuthoritySource,
-    TileConfigBusinessApply, TransferItemEffectProjection, TransferItemToProjection,
-    TransferItemToUnitProjection, TypedBuildingRuntimeModel, UnitAssemblerRuntimeProjection,
-    UnitEnteredPayloadProjection, UnitFactoryRuntimeProjection, UnitRefProjection,
-    WorldReloadProjection,
+    FinishConnectingProjection, GameplayStateProjection, ItemBridgeBufferRuntimeProjection,
+    ItemBridgeRuntimeProjection, MassDriverRuntimeProjection, PayloadDroppedProjection,
+    PayloadLoaderRuntimeProjection, PayloadMassDriverRuntimeProjection, PayloadRouterPayloadKind,
+    PayloadRouterRuntimeProjection, PayloadSourceRuntimeProjection, PickedBuildPayloadProjection,
+    PickedUnitPayloadProjection, ReconnectPhaseProjection, ReconnectReasonKind,
+    ReconstructorRuntimeProjection, RemotePlanSnapshotFirstPlanProjection, SessionResetKind,
+    SessionState, SessionTimeoutKind, SessionTimeoutProjection, SorterRuntimeProjection,
+    TakeItemsProjection, TileConfigAuthoritySource, TileConfigBusinessApply,
+    TransferItemEffectProjection, TransferItemToProjection, TransferItemToUnitProjection,
+    TypedBuildingRuntimeModel, UnitAssemblerRuntimeProjection, UnitEnteredPayloadProjection,
+    UnitFactoryRuntimeProjection, UnitRefProjection, WorldReloadProjection,
 };
 use crate::typed_remote_dispatch::{
     TypedCustomChannelRemoteDispatch, TypedCustomChannelRemoteDispatcher,
@@ -8200,6 +8200,8 @@ impl ClientSession {
             let payload_mass_driver_runtime =
                 summarize_payload_mass_driver_projection(&building.parsed_tail);
             let sorter_runtime = summarize_sorter_runtime_projection(&building.parsed_tail);
+            let item_bridge_runtime =
+                summarize_item_bridge_runtime_projection(&building.parsed_tail);
 
             let entry = BlockSnapshotExtraEntrySummary {
                 build_pos,
@@ -8250,6 +8252,7 @@ impl ClientSession {
                 sorter_runtime,
                 nullable_item_id: summarize_nullable_item_config_item_id(&building.parsed_tail),
                 item_bridge_link: summarize_item_bridge_link(&building.parsed_tail),
+                item_bridge_runtime,
                 light_color: summarize_one_i32_tail_value(&building.parsed_tail),
                 switch_enabled: summarize_one_bool_tail_value(&building.parsed_tail),
                 build_item_stacks: summarize_item_module_stacks(building.base.item_module.as_ref()),
@@ -8470,6 +8473,21 @@ impl ClientSession {
                     .apply_item_bridge_link(build_pos, Some(link));
             }
         }
+        if let Some(projection) = summarize_item_bridge_runtime_projection(parsed_tail) {
+            if matches!(
+                block_name,
+                Some(
+                    BLOCK_NAME_BRIDGE_CONVEYOR
+                        | BLOCK_NAME_PHASE_CONVEYOR
+                        | BLOCK_NAME_BRIDGE_CONDUIT
+                        | BLOCK_NAME_PHASE_CONDUIT
+                )
+            ) {
+                self.state
+                    .configured_block_projection
+                    .apply_item_bridge_runtime(build_pos, projection);
+            }
+        }
         if let Some(link) = summarize_mass_driver_link(parsed_tail) {
             if block_name == Some(BLOCK_NAME_MASS_DRIVER) {
                 self.state
@@ -8667,6 +8685,21 @@ impl ClientSession {
                 self.state
                     .configured_block_projection
                     .apply_item_bridge_link(entry.build_pos, Some(link));
+            }
+        }
+        if let Some(projection) = entry.item_bridge_runtime.clone() {
+            if matches!(
+                entry.block_name.as_deref(),
+                Some(
+                    BLOCK_NAME_BRIDGE_CONVEYOR
+                        | BLOCK_NAME_PHASE_CONVEYOR
+                        | BLOCK_NAME_BRIDGE_CONDUIT
+                        | BLOCK_NAME_PHASE_CONDUIT
+                )
+            ) {
+                self.state
+                    .configured_block_projection
+                    .apply_item_bridge_runtime(entry.build_pos, projection);
             }
         }
         if let Some(link) = entry.mass_driver_link {
@@ -13087,6 +13120,7 @@ struct BlockSnapshotExtraEntrySummary {
     sorter_runtime: Option<SorterRuntimeProjection>,
     nullable_item_id: Option<Option<i16>>,
     item_bridge_link: Option<i32>,
+    item_bridge_runtime: Option<ItemBridgeRuntimeProjection>,
     light_color: Option<i32>,
     switch_enabled: Option<bool>,
     build_item_stacks: Vec<(i16, i32)>,
@@ -13732,6 +13766,33 @@ fn summarize_sorter_runtime_projection(
         non_empty_side_mask,
         buffered_item_count: u16::try_from(buffered_item_count).unwrap_or(u16::MAX),
     })
+}
+
+fn summarize_item_bridge_runtime_projection(
+    parsed_tail: &mdt_world::ParsedBuildingTail,
+) -> Option<ItemBridgeRuntimeProjection> {
+    match parsed_tail {
+        mdt_world::ParsedBuildingTail::ItemBridge(bridge) => Some(ItemBridgeRuntimeProjection {
+            warmup_bits: bridge.warmup_bits,
+            incoming_count: bridge.incoming.len(),
+            moved: bridge.moved,
+            buffer: None,
+        }),
+        mdt_world::ParsedBuildingTail::BufferedItemBridge(bridge) => {
+            Some(ItemBridgeRuntimeProjection {
+                warmup_bits: bridge.bridge.warmup_bits,
+                incoming_count: bridge.bridge.incoming.len(),
+                moved: bridge.bridge.moved,
+                buffer: Some(ItemBridgeBufferRuntimeProjection {
+                    index: bridge.buffer.index,
+                    capacity: bridge.buffer.capacity,
+                    normalized_index: bridge.buffer.normalized_index,
+                    entry_count: bridge.buffer.entries.len(),
+                }),
+            })
+        }
+        _ => None,
+    }
 }
 
 fn summarize_item_bridge_link(parsed_tail: &mdt_world::ParsedBuildingTail) -> Option<i32> {
@@ -21555,6 +21616,7 @@ mod tests {
                 sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
+                item_bridge_runtime: None,
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
@@ -21644,6 +21706,7 @@ mod tests {
                 sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
+                item_bridge_runtime: None,
                 light_color: None,
                 switch_enabled: Some(true),
                 build_item_stacks: Vec::new(),
@@ -21724,6 +21787,7 @@ mod tests {
                 sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
+                item_bridge_runtime: None,
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
@@ -21826,6 +21890,7 @@ mod tests {
                 sorter_runtime: None,
                 nullable_item_id: Some(Some(7)),
                 item_bridge_link: None,
+                item_bridge_runtime: None,
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: vec![(7, 11), (8, 0)],
@@ -21887,6 +21952,7 @@ mod tests {
                 sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
+                item_bridge_runtime: None,
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
@@ -22478,6 +22544,74 @@ mod tests {
     }
 
     #[test]
+    fn summarize_item_bridge_runtime_projection_extracts_plain_bridge_runtime() {
+        assert_eq!(
+            summarize_item_bridge_runtime_projection(&mdt_world::ParsedBuildingTail::ItemBridge(
+                mdt_world::ItemBridgeTailSnapshot {
+                    link: 24,
+                    warmup_bits: 0x3f00_0000,
+                    incoming: vec![1, 2],
+                    moved: true,
+                },
+            )),
+            Some(ItemBridgeRuntimeProjection {
+                warmup_bits: 0x3f00_0000,
+                incoming_count: 2,
+                moved: true,
+                buffer: None,
+            })
+        );
+    }
+
+    #[test]
+    fn summarize_item_bridge_runtime_projection_extracts_buffered_bridge_runtime() {
+        assert_eq!(
+            summarize_item_bridge_runtime_projection(
+                &mdt_world::ParsedBuildingTail::BufferedItemBridge(
+                    mdt_world::BufferedItemBridgeTailSnapshot {
+                        bridge: mdt_world::ItemBridgeTailSnapshot {
+                            link: 25,
+                            warmup_bits: 0,
+                            incoming: Vec::new(),
+                            moved: false,
+                        },
+                        buffer: mdt_world::ItemBufferTailSnapshot {
+                            index: 1,
+                            capacity: 4,
+                            normalized_index: 1,
+                            entries: vec![
+                                mdt_world::TimeItemSnapshot {
+                                    raw: 0,
+                                    data: 0,
+                                    item_id: 3,
+                                    time_bits: 0x3f00_0000,
+                                },
+                                mdt_world::TimeItemSnapshot {
+                                    raw: 0,
+                                    data: 1,
+                                    item_id: 4,
+                                    time_bits: 0x3f20_0000,
+                                },
+                            ],
+                        },
+                    },
+                )
+            ),
+            Some(ItemBridgeRuntimeProjection {
+                warmup_bits: 0,
+                incoming_count: 0,
+                moved: false,
+                buffer: Some(ItemBridgeBufferRuntimeProjection {
+                    index: 1,
+                    capacity: 4,
+                    normalized_index: 1,
+                    entry_count: 2,
+                }),
+            })
+        );
+    }
+
+    #[test]
     fn loaded_world_tail_business_helper_applies_additional_configured_tail_projection() {
         let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let payload_source_pos = pack_build_pos_for_block_snapshot_test(32, 33);
@@ -22633,9 +22767,9 @@ mod tests {
             Some(BLOCK_NAME_PHASE_CONVEYOR),
             &mdt_world::ParsedBuildingTail::ItemBridge(mdt_world::ItemBridgeTailSnapshot {
                 link: phase_link,
-                warmup_bits: 0,
-                incoming: Vec::new(),
-                moved: false,
+                warmup_bits: 0x3f00_0000,
+                incoming: vec![phase_link - 1, phase_link - 2],
+                moved: true,
             }),
         );
         session.apply_loaded_world_parsed_tail_business(
@@ -22650,10 +22784,23 @@ mod tests {
                         moved: false,
                     },
                     buffer: mdt_world::ItemBufferTailSnapshot {
-                        index: 0,
-                        capacity: 0,
-                        normalized_index: 0,
-                        entries: Vec::new(),
+                        index: 1,
+                        capacity: 4,
+                        normalized_index: 1,
+                        entries: vec![
+                            mdt_world::TimeItemSnapshot {
+                                raw: 0,
+                                data: 0,
+                                item_id: item_id,
+                                time_bits: 0x3f00_0000,
+                            },
+                            mdt_world::TimeItemSnapshot {
+                                raw: 0,
+                                data: 1,
+                                item_id: item_id,
+                                time_bits: 0x3f20_0000,
+                            },
+                        ],
                     },
                 },
             ),
@@ -22774,9 +22921,40 @@ mod tests {
             session
                 .state()
                 .configured_block_projection
+                .item_bridge_runtime_by_build_pos
+                .get(&phase_conveyor_pos),
+            Some(&ItemBridgeRuntimeProjection {
+                warmup_bits: 0x3f00_0000,
+                incoming_count: 2,
+                moved: true,
+                buffer: None,
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
                 .item_bridge_link_by_build_pos
                 .get(&bridge_conveyor_pos),
             Some(&Some(bridge_link))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .item_bridge_runtime_by_build_pos
+                .get(&bridge_conveyor_pos),
+            Some(&ItemBridgeRuntimeProjection {
+                warmup_bits: 0,
+                incoming_count: 0,
+                moved: false,
+                buffer: Some(ItemBridgeBufferRuntimeProjection {
+                    index: 1,
+                    capacity: 4,
+                    normalized_index: 1,
+                    entry_count: 2,
+                }),
+            })
         );
     }
 
@@ -23434,9 +23612,35 @@ mod tests {
             session
                 .state()
                 .configured_block_projection
+                .item_bridge_runtime_by_build_pos
+                .get(&bridge_pos),
+            Some(&ItemBridgeRuntimeProjection {
+                warmup_bits: 0,
+                incoming_count: 0,
+                moved: false,
+                buffer: None,
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
                 .item_bridge_link_by_build_pos
                 .get(&conduit_pos),
             Some(&Some(18))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .item_bridge_runtime_by_build_pos
+                .get(&conduit_pos),
+            Some(&ItemBridgeRuntimeProjection {
+                warmup_bits: 0,
+                incoming_count: 0,
+                moved: false,
+                buffer: None,
+            })
         );
         assert_eq!(
             session
@@ -23654,6 +23858,7 @@ mod tests {
                 sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
+                item_bridge_runtime: None,
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
@@ -23705,6 +23910,7 @@ mod tests {
                 sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
+                item_bridge_runtime: None,
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
@@ -23753,6 +23959,7 @@ mod tests {
                 sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
+                item_bridge_runtime: None,
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
@@ -23880,6 +24087,7 @@ mod tests {
                 sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
+                item_bridge_runtime: None,
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
@@ -23928,6 +24136,7 @@ mod tests {
                 sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
+                item_bridge_runtime: None,
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
@@ -24014,6 +24223,7 @@ mod tests {
                 }),
                 nullable_item_id: Some(Some(item_id)),
                 item_bridge_link: None,
+                item_bridge_runtime: None,
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
@@ -24062,6 +24272,7 @@ mod tests {
                 sorter_runtime: None,
                 nullable_item_id: Some(None),
                 item_bridge_link: None,
+                item_bridge_runtime: None,
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
@@ -24110,6 +24321,12 @@ mod tests {
                 sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: Some(14),
+                item_bridge_runtime: Some(ItemBridgeRuntimeProjection {
+                    warmup_bits: 0x3f00_0000,
+                    incoming_count: 2,
+                    moved: true,
+                    buffer: None,
+                }),
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
@@ -24158,6 +24375,17 @@ mod tests {
                 sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: Some(16),
+                item_bridge_runtime: Some(ItemBridgeRuntimeProjection {
+                    warmup_bits: 0,
+                    incoming_count: 0,
+                    moved: false,
+                    buffer: Some(ItemBridgeBufferRuntimeProjection {
+                        index: 1,
+                        capacity: 4,
+                        normalized_index: 1,
+                        entry_count: 2,
+                    }),
+                }),
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
@@ -24209,6 +24437,7 @@ mod tests {
                 sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
+                item_bridge_runtime: None,
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
@@ -24257,6 +24486,7 @@ mod tests {
                 sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
+                item_bridge_runtime: None,
                 light_color: Some(0x55667788),
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
@@ -24305,6 +24535,7 @@ mod tests {
                 sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
+                item_bridge_runtime: None,
                 light_color: None,
                 switch_enabled: Some(false),
                 build_item_stacks: Vec::new(),
@@ -24353,6 +24584,7 @@ mod tests {
                 sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
+                item_bridge_runtime: None,
                 light_color: None,
                 switch_enabled: Some(true),
                 build_item_stacks: Vec::new(),
@@ -24400,9 +24632,40 @@ mod tests {
             session
                 .state()
                 .configured_block_projection
+                .item_bridge_runtime_by_build_pos
+                .get(&bridge_pos),
+            Some(&ItemBridgeRuntimeProjection {
+                warmup_bits: 0x3f00_0000,
+                incoming_count: 2,
+                moved: true,
+                buffer: None,
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
                 .item_bridge_link_by_build_pos
                 .get(&conduit_pos),
             Some(&Some(16))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .item_bridge_runtime_by_build_pos
+                .get(&conduit_pos),
+            Some(&ItemBridgeRuntimeProjection {
+                warmup_bits: 0,
+                incoming_count: 0,
+                moved: false,
+                buffer: Some(ItemBridgeBufferRuntimeProjection {
+                    index: 1,
+                    capacity: 4,
+                    normalized_index: 1,
+                    entry_count: 2,
+                }),
+            })
         );
         assert_eq!(
             session
@@ -24500,6 +24763,7 @@ mod tests {
                 sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
+                item_bridge_runtime: None,
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
@@ -24606,6 +24870,7 @@ mod tests {
                 sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
+                item_bridge_runtime: None,
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
@@ -24732,6 +24997,7 @@ mod tests {
                 sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
+                item_bridge_runtime: None,
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
@@ -24867,6 +25133,7 @@ mod tests {
                 sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
+                item_bridge_runtime: None,
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
@@ -24983,6 +25250,7 @@ mod tests {
                 sorter_runtime: None,
                 nullable_item_id: Some(Some(item_id)),
                 item_bridge_link: None,
+                item_bridge_runtime: None,
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
@@ -25031,6 +25299,7 @@ mod tests {
                 sorter_runtime: None,
                 nullable_item_id: Some(Some(item_id)),
                 item_bridge_link: None,
+                item_bridge_runtime: None,
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
@@ -25079,6 +25348,7 @@ mod tests {
                 sorter_runtime: None,
                 nullable_item_id: Some(Some(liquid_id)),
                 item_bridge_link: None,
+                item_bridge_runtime: None,
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
@@ -25232,6 +25502,7 @@ mod tests {
                 sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
+                item_bridge_runtime: None,
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
@@ -25280,6 +25551,7 @@ mod tests {
                 sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
+                item_bridge_runtime: None,
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
@@ -25328,6 +25600,7 @@ mod tests {
                 sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
+                item_bridge_runtime: None,
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
@@ -25376,6 +25649,7 @@ mod tests {
                 sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
+                item_bridge_runtime: None,
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
@@ -25432,6 +25706,7 @@ mod tests {
                 sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
+                item_bridge_runtime: None,
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
@@ -25480,6 +25755,7 @@ mod tests {
                 sorter_runtime: None,
                 nullable_item_id: Some(Some(item_id)),
                 item_bridge_link: None,
+                item_bridge_runtime: None,
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
@@ -25528,6 +25804,7 @@ mod tests {
                 sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: None,
+                item_bridge_runtime: None,
                 light_color: Some(0x2233_4455),
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
@@ -25576,6 +25853,12 @@ mod tests {
                 sorter_runtime: None,
                 nullable_item_id: None,
                 item_bridge_link: Some(phase_link),
+                item_bridge_runtime: Some(ItemBridgeRuntimeProjection {
+                    warmup_bits: 0x3f00_0000,
+                    incoming_count: 2,
+                    moved: true,
+                    buffer: None,
+                }),
                 light_color: None,
                 switch_enabled: None,
                 build_item_stacks: Vec::new(),
@@ -25665,6 +25948,19 @@ mod tests {
                 .item_bridge_link_by_build_pos
                 .get(&phase_conveyor_pos),
             Some(&Some(phase_link))
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .item_bridge_runtime_by_build_pos
+                .get(&phase_conveyor_pos),
+            Some(&ItemBridgeRuntimeProjection {
+                warmup_bits: 0x3f00_0000,
+                incoming_count: 2,
+                moved: true,
+                buffer: None,
+            })
         );
     }
 

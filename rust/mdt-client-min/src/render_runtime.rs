@@ -3642,6 +3642,47 @@ fn runtime_typed_build_config_value_label(
             }
             parts.join(":")
         }
+        TypedBuildingRuntimeValue::ItemBridge {
+            link,
+            warmup_bits,
+            incoming_count,
+            moved,
+            buffer_index,
+            buffer_capacity,
+            buffer_normalized_index,
+            buffer_entry_count,
+        } => {
+            let mut parts = vec![format!(
+                "link={}",
+                link.map(runtime_build_config_pos_label)
+                    .unwrap_or_else(|| "clear".to_string())
+            )];
+            if let Some(warmup_bits) = warmup_bits {
+                parts.push(format!("warmup=0x{warmup_bits:08x}"));
+            }
+            if let Some(incoming_count) = incoming_count {
+                parts.push(format!("incoming={incoming_count}"));
+            }
+            if let Some(moved) = moved {
+                parts.push(format!("moved={}", if *moved { 1 } else { 0 }));
+            }
+            if let (
+                Some(buffer_index),
+                Some(buffer_capacity),
+                Some(buffer_normalized_index),
+                Some(buffer_entry_count),
+            ) = (
+                buffer_index,
+                buffer_capacity,
+                buffer_normalized_index,
+                buffer_entry_count,
+            ) {
+                parts.push(format!(
+                    "buf={buffer_index}/{buffer_capacity}@{buffer_normalized_index}:n{buffer_entry_count}"
+                ));
+            }
+            parts.join(":")
+        }
         TypedBuildingRuntimeValue::Content(content) => format!(
             "content={}",
             content
@@ -8160,6 +8201,25 @@ mod tests {
                     buffered_item_count: 3,
                 },
             );
+        state
+            .configured_block_projection
+            .item_bridge_link_by_build_pos
+            .insert(
+                pack_runtime_point2(33, 55),
+                Some(pack_runtime_point2(60, 61)),
+            );
+        state
+            .configured_block_projection
+            .item_bridge_runtime_by_build_pos
+            .insert(
+                pack_runtime_point2(33, 55),
+                crate::session_state::ItemBridgeRuntimeProjection {
+                    warmup_bits: 0x3f00_0000,
+                    incoming_count: 2,
+                    moved: true,
+                    buffer: None,
+                },
+            );
         for (build_pos, block_name) in [
             (pack_runtime_point2(18, 40), "message"),
             (pack_runtime_point2(19, 41), "constructor"),
@@ -8175,6 +8235,7 @@ mod tests {
             (pack_runtime_point2(30, 52), "mass-driver"),
             (pack_runtime_point2(31, 53), "payload-mass-driver"),
             (pack_runtime_point2(32, 54), "sorter"),
+            (pack_runtime_point2(33, 55), "bridge-conduit"),
         ] {
             state.building_table_projection.by_build_pos.insert(
                 build_pos,
@@ -8229,6 +8290,7 @@ mod tests {
             .contains(":ua1@29:51=p3f000000:u2:b3:sb:8:c0x41480000:0x41a00000:y1:r40400000:"));
         assert!(hud.status_text.contains(":pn1@23:45=n2:24:46|25:47:"));
         assert!(hud.status_text.contains(":rc1@26:48=12"));
+        assert!(hud.status_text.contains(":ib1@33:55=60:61:"));
         let build_ui = hud
             .build_ui
             .as_ref()
@@ -8292,6 +8354,11 @@ mod tests {
         assert!(build_ui.inspector_entries.iter().any(|entry| {
             entry.family == "sorter"
                 && entry.sample == "32:54:item=7:legacy=1:sides=0x05:buffered=3"
+        }));
+        assert!(build_ui.inspector_entries.iter().any(|entry| {
+            entry.family == "item-bridge"
+                && entry.sample
+                    == "33:55:bridge-conduit:link=60:61:warmup=0x3f000000:incoming=2:moved=1"
         }));
         let payload_source_icon = scene
             .objects
@@ -8473,6 +8540,47 @@ mod tests {
         );
 
         assert_eq!(label, "item=7:legacy=1:sides=0x05:buffered=3");
+    }
+
+    #[test]
+    fn runtime_typed_build_config_value_label_formats_item_bridge_runtime() {
+        let label = runtime_typed_build_config_value_label(
+            TypedBuildingRuntimeKind::ItemBridge,
+            &TypedBuildingRuntimeValue::ItemBridge {
+                link: Some(pack_runtime_point2(60, 61)),
+                warmup_bits: Some(0x3f00_0000),
+                incoming_count: Some(2),
+                moved: Some(true),
+                buffer_index: None,
+                buffer_capacity: None,
+                buffer_normalized_index: None,
+                buffer_entry_count: None,
+            },
+        );
+
+        assert_eq!(label, "link=60:61:warmup=0x3f000000:incoming=2:moved=1");
+    }
+
+    #[test]
+    fn runtime_typed_build_config_value_label_formats_buffered_item_bridge_runtime() {
+        let label = runtime_typed_build_config_value_label(
+            TypedBuildingRuntimeKind::ItemBridge,
+            &TypedBuildingRuntimeValue::ItemBridge {
+                link: Some(pack_runtime_point2(62, 63)),
+                warmup_bits: Some(0),
+                incoming_count: Some(0),
+                moved: Some(false),
+                buffer_index: Some(1),
+                buffer_capacity: Some(4),
+                buffer_normalized_index: Some(1),
+                buffer_entry_count: Some(2),
+            },
+        );
+
+        assert_eq!(
+            label,
+            "link=62:63:warmup=0x00000000:incoming=0:moved=0:buf=1/4@1:n2"
+        );
     }
 
     #[test]
