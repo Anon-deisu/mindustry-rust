@@ -223,17 +223,21 @@ impl RenderModel {
 
         self.objects
             .iter()
-            .find(|object| {
+            .filter(|object| {
                 matches!(
                     object.semantic_kind(),
                     RenderObjectSemanticKind::Player | RenderObjectSemanticKind::RuntimeUnit
                 )
             })
-            .map(|object| {
-                (
+            .find_map(|object| {
+                if !object.x.is_finite() || !object.y.is_finite() {
+                    return None;
+                }
+
+                Some((
                     world_to_tile_index_floor(object.x, tile_size).max(0) as usize,
                     world_to_tile_index_floor(object.y, tile_size).max(0) as usize,
-                )
+                ))
             })
     }
 
@@ -1543,6 +1547,43 @@ mod tests {
         };
 
         assert_eq!(scene.player_focus_tile(8.0), Some((3, 4)));
+    }
+
+    #[test]
+    fn render_model_skips_non_finite_player_focus_candidates() {
+        let scene = RenderModel {
+            viewport: Viewport::default(),
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: "player:7".to_string(),
+                    layer: 40,
+                    x: f32::NAN,
+                    y: 32.0,
+                },
+                RenderObject {
+                    id: "unit:8".to_string(),
+                    layer: 41,
+                    x: 24.0,
+                    y: 40.0,
+                },
+            ],
+        };
+
+        assert_eq!(scene.player_focus_tile(8.0), Some((3, 5)));
+
+        let scene = RenderModel {
+            viewport: Viewport::default(),
+            view_window: None,
+            objects: vec![RenderObject {
+                id: "player:7".to_string(),
+                layer: 40,
+                x: f32::INFINITY,
+                y: f32::NEG_INFINITY,
+            }],
+        };
+
+        assert_eq!(scene.player_focus_tile(8.0), None);
     }
 
     #[test]

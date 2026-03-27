@@ -66,6 +66,11 @@ pub(crate) fn visible_window_tile(
     window_width: usize,
     window_height: usize,
 ) -> Option<(&RenderObject, usize, usize)> {
+    if !tile_size.is_finite() || tile_size <= 0.0 || !object.x.is_finite() || !object.y.is_finite()
+    {
+        return None;
+    }
+
     let tile_x = world_to_tile_index_floor(object.x, tile_size) as isize;
     let tile_y = world_to_tile_index_floor(object.y, tile_size) as isize;
     if tile_x < 0 || tile_y < 0 {
@@ -162,6 +167,27 @@ mod tests {
         assert!(visible_window_tile(&object, TILE_SIZE, 6, 2, 4, 4).is_none());
         assert_eq!(world_to_tile_index_floor(40.0, TILE_SIZE), 5);
         assert_eq!(world_to_tile_index_floor(f32::NAN, TILE_SIZE), 0);
+    }
+
+    #[test]
+    fn visible_window_tile_rejects_non_finite_object_coordinates_and_tile_size() {
+        let object = RenderObject {
+            id: "plan:build".to_string(),
+            layer: 1,
+            x: f32::NAN,
+            y: 24.0,
+        };
+
+        assert!(visible_window_tile(&object, TILE_SIZE, 0, 0, 4, 4).is_none());
+
+        let object = RenderObject {
+            id: "plan:build".to_string(),
+            layer: 1,
+            x: 16.0,
+            y: 24.0,
+        };
+
+        assert!(visible_window_tile(&object, f32::INFINITY, 0, 0, 4, 4).is_none());
     }
 
     #[test]
