@@ -503,7 +503,9 @@ fn project_team_plan(plan: TeamPlanRef<'_>) -> RenderObject {
 fn project_marker_objects(marker: &MarkerEntry) -> Vec<RenderObject> {
     let mut objects = Vec::with_capacity(2);
     let marker_kind = marker_kind_id_segment(marker);
-    if let Some((x, y)) = marker_world_position(marker) {
+    let start_world = marker_world_position(marker);
+    let start_tile = marker.marker.tile_coords();
+    if let Some((x, y)) = start_world {
         let marker_id = marker_text_payload(marker)
             .filter(|text| !text.is_empty())
             .map_or_else(
@@ -518,14 +520,20 @@ fn project_marker_objects(marker: &MarkerEntry) -> Vec<RenderObject> {
         });
     }
 
-    if let Some((x, y)) = line_marker_end_world_position(marker) {
-        if marker_world_position(marker) != Some((x, y)) {
-            objects.push(RenderObject {
-                id: format!("marker:{marker_kind}:{}:line-end", marker.id),
-                layer: i32::from(ProjectionLayer::Marker),
-                x,
-                y,
-            });
+    if let MarkerModel::Line(line) = &marker.marker {
+        if let Some((x, y)) = line_marker_end_world_position(line) {
+            let same_tile = match (start_tile, line.end_tile_coords()) {
+                (Some(start_tile), Some(end_tile)) => start_tile == end_tile,
+                _ => false,
+            };
+            if !(same_tile || start_world == Some((x, y))) {
+                objects.push(RenderObject {
+                    id: format!("marker:{marker_kind}:{}:line-end", marker.id),
+                    layer: i32::from(ProjectionLayer::Marker),
+                    x,
+                    y,
+                });
+            }
         }
     }
 
@@ -562,11 +570,7 @@ fn marker_world_position(marker: &MarkerEntry) -> Option<(f32, f32)> {
     })
 }
 
-fn line_marker_end_world_position(marker: &MarkerEntry) -> Option<(f32, f32)> {
-    let MarkerModel::Line(line) = &marker.marker else {
-        return None;
-    };
-
+fn line_marker_end_world_position(line: &LineMarkerModel) -> Option<(f32, f32)> {
     finite_line_marker_world_position(line).or_else(|| {
         line.end_tile_coords()
             .map(|(x, y)| (x as f32 * TILE_SIZE, y as f32 * TILE_SIZE))
@@ -789,6 +793,34 @@ mod tests {
         assert_eq!((objects[0].x, objects[0].y), (16.0, 24.0));
         assert_eq!(objects[1].id, "marker:line:77:line-end");
         assert_eq!((objects[1].x, objects[1].y), (40.0, 56.0));
+    }
+
+    #[test]
+    fn line_marker_dedupes_line_end_when_both_anchors_share_a_tile() {
+        let marker = MarkerEntry {
+            id: 78,
+            marker: MarkerModel::Line(LineMarkerModel {
+                class_tag: "Line".to_string(),
+                world: true,
+                minimap: true,
+                autoscale: false,
+                draw_layer_bits: 0,
+                x_bits: 16.0004f32.to_bits(),
+                y_bits: 24.0004f32.to_bits(),
+                end_x_bits: 16.0007f32.to_bits(),
+                end_y_bits: 24.0007f32.to_bits(),
+                stroke_bits: 1.0f32.to_bits(),
+                outline: true,
+                color1: Some("ffd37f".to_string()),
+                color2: Some("ffd37f".to_string()),
+            }),
+        };
+
+        let objects = super::project_marker_objects(&marker);
+
+        assert_eq!(objects.len(), 1);
+        assert_eq!(objects[0].id, "marker:line:78");
+        assert_eq!((objects[0].x, objects[0].y), (16.0004, 24.0004));
     }
 
     #[test]
