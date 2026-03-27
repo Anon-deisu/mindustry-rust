@@ -4393,10 +4393,7 @@ fn apply_snapshot_overrides(session: &mut ClientSession, args: &CliArgs) {
     if queue_selection.building {
         input.building = true;
     }
-    if let Some(block_id) = queue_selection.selected_block_id {
-        input.selected_block_id = Some(block_id);
-        input.selected_rotation = i32::from(queue_selection.selected_rotation);
-    }
+    sync_snapshot_build_selection_from_queue(input, &queue_selection);
     if let Some(building) = args.snapshot_building {
         input.building = building;
     }
@@ -4797,11 +4794,11 @@ fn maybe_apply_auto_build_plans(
         let Some(world) = session.loaded_world_state() else {
             return;
         };
-        let existing_plans = session.snapshot_input().plans.clone();
-        let selected_block_id = session.snapshot_input().selected_block_id;
-        let selected_rotation = u8::try_from(session.snapshot_input().selected_rotation)
-            .ok()
-            .unwrap_or(0);
+        let input = session.snapshot_input();
+        let existing_plans = input.plans.clone();
+        let queue_selection = snapshot_builder_queue_selection(session);
+        let (selected_block_id, selected_rotation) =
+            resolved_snapshot_build_selection(input, &queue_selection);
         let mut plans = Vec::new();
 
         if args.auto_break_near_player {
@@ -4957,12 +4954,13 @@ fn block_name_size_hint(block_name: &str) -> i32 {
 
 fn sync_runtime_build_selection_state(session: &mut ClientSession, args: &CliArgs) {
     let previous_building = session.snapshot_input().building;
-    let has_snapshot_plan_state = session.snapshot_input().plans.is_some();
     let queue_selection = snapshot_builder_queue_selection(session);
+    let (selected_block_id, has_snapshot_plan_state) = {
+        let input = session.snapshot_input();
+        let (selected_block_id, _) = resolved_snapshot_build_selection(input, &queue_selection);
+        (selected_block_id, input.plans.is_some())
+    };
     let input = session.snapshot_input_mut();
-    let selected_block_id = queue_selection
-        .selected_block_id
-        .or(input.selected_block_id);
     input.building = synced_runtime_building_flag(
         args,
         previous_building,
@@ -4970,11 +4968,7 @@ fn sync_runtime_build_selection_state(session: &mut ClientSession, args: &CliArg
         queue_selection.building,
         selected_block_id,
     );
-
-    if let Some(block_id) = queue_selection.selected_block_id {
-        input.selected_block_id = Some(block_id);
-        input.selected_rotation = i32::from(queue_selection.selected_rotation);
-    }
+    sync_snapshot_build_selection_from_queue(input, &queue_selection);
 }
 
 fn maybe_queue_runtime_builder_head_action(
@@ -5106,6 +5100,33 @@ fn snapshot_builder_queue_selection(session: &ClientSession) -> BuilderQueueBuil
     }
 
     queue.build_selection()
+}
+
+fn resolved_snapshot_build_selection(
+    input: &mdt_client_min::client_session::ClientSnapshotInputState,
+    queue_selection: &BuilderQueueBuildSelection,
+) -> (Option<i16>, u8) {
+    if input.plans.is_some() {
+        (
+            queue_selection.selected_block_id,
+            queue_selection.selected_rotation,
+        )
+    } else {
+        (
+            input.selected_block_id,
+            u8::try_from(input.selected_rotation).ok().unwrap_or(0),
+        )
+    }
+}
+
+fn sync_snapshot_build_selection_from_queue(
+    input: &mut mdt_client_min::client_session::ClientSnapshotInputState,
+    queue_selection: &BuilderQueueBuildSelection,
+) {
+    if input.plans.is_some() || queue_selection.selected_block_id.is_some() {
+        input.selected_block_id = queue_selection.selected_block_id;
+        input.selected_rotation = i32::from(queue_selection.selected_rotation);
+    }
 }
 
 fn builder_queue_state_machine_from_plans(
@@ -12073,6 +12094,35 @@ mod tests {
     }
 
     #[test]
+    fn maybe_apply_auto_build_plans_ignores_stale_selected_block_when_plan_queue_is_empty() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
+        ingest_sample_world(&mut session);
+        {
+            let input = session.snapshot_input_mut();
+            input.selected_block_id = Some(0x0101);
+            input.selected_rotation = 2;
+            input.plans = Some(Vec::new());
+        }
+        let args = parse_args(sample_args(&["--plan-place-near-player", "selected"])).unwrap();
+        let mut applied = false;
+
+        maybe_apply_auto_build_plans(
+            &mut session,
+            &args,
+            &[ClientSessionEvent::PlayerSpawned {
+                player_id: 7,
+                x: 32.0,
+                y: 32.0,
+            }],
+            &mut applied,
+        );
+
+        assert!(!applied);
+        assert_eq!(session.snapshot_input().plans, Some(Vec::new()));
+    }
+
+    #[test]
     fn maybe_apply_auto_build_plans_prefers_core_conflict_tile_for_reject_path() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
@@ -12814,6 +12864,27 @@ mod tests {
         sync_runtime_build_selection_state(&mut session, &args);
 
         assert!(session.snapshot_input().building);
+    }
+
+    #[test]
+    fn sync_runtime_build_selection_state_clears_stale_selected_block_when_plan_queue_is_empty() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
+        let args = parse_args(sample_args(&[])).unwrap();
+        {
+            let input = session.snapshot_input_mut();
+            input.building = false;
+            input.selected_block_id = Some(0x0102);
+            input.selected_rotation = 3;
+            input.plans = Some(Vec::new());
+        }
+
+        sync_runtime_build_selection_state(&mut session, &args);
+
+        let input = session.snapshot_input();
+        assert!(!input.building);
+        assert_eq!(input.selected_block_id, None);
+        assert_eq!(input.selected_rotation, 0);
     }
 
     #[test]
