@@ -97,12 +97,11 @@ pub(super) fn resolve_typed_runtime_entity_ownership(
             ));
     }
 
-    for (unit_entity_id, mut claimants) in ownership_claims_by_unit_id {
-        if claimants.len() != 1 {
+    for (unit_entity_id, claimants) in ownership_claims_by_unit_id {
+        let Some(player_entity_id) = unique_latest_claim_entity_id(&claimants) else {
             record_conflict_units(&mut resolution, [unit_entity_id]);
             continue;
-        }
-        let (_, player_entity_id) = claimants.pop().unwrap();
+        };
         resolution
             .player_owned_unit_by_player_entity_id
             .insert(player_entity_id, unit_entity_id);
@@ -287,6 +286,32 @@ mod tests {
             Some(&101)
         );
         assert_eq!(resolution.ownership_conflict_count, 0);
+    }
+
+    #[test]
+    fn newer_heuristic_player_claim_wins_for_same_unit() {
+        let by_entity_id = BTreeMap::from([
+            (101, player(101, 202, 7)),
+            (102, player(102, 202, 9)),
+            (202, unit(202, 0, None, 1)),
+        ]);
+
+        let resolution = resolve_typed_runtime_entity_ownership(&by_entity_id);
+
+        assert_eq!(
+            resolution.player_owned_unit_by_player_entity_id.get(&101),
+            None
+        );
+        assert_eq!(
+            resolution.player_owned_unit_by_player_entity_id.get(&102),
+            Some(&202)
+        );
+        assert_eq!(
+            resolution.unit_owner_player_by_unit_entity_id.get(&202),
+            Some(&102)
+        );
+        assert_eq!(resolution.ownership_conflict_count, 0);
+        assert!(resolution.ownership_conflict_unit_sample.is_empty());
     }
 
     #[test]
