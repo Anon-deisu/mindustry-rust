@@ -1405,7 +1405,7 @@ impl SaveEntityRegionObservation {
         let mut duplicate_custom_ids = BTreeSet::new();
         let mut seen_names = BTreeSet::new();
         let mut duplicate_names = BTreeSet::new();
-        let mut effective_entries = BTreeMap::new();
+        let effective_entries = effective_remap_names_first_seen(&self.remap_entries);
 
         for entry in &self.remap_entries {
             if !seen_custom_ids.insert(entry.custom_id) {
@@ -1414,7 +1414,6 @@ impl SaveEntityRegionObservation {
             if !seen_names.insert(entry.name.clone()) {
                 duplicate_names.insert(entry.name.clone());
             }
-            effective_entries.insert(entry.custom_id, entry.name.clone());
         }
 
         let mut resolved_builtin_custom_ids = Vec::new();
@@ -1524,6 +1523,18 @@ impl SaveEntityRegionObservation {
                 .collect(),
         }
     }
+}
+
+fn effective_remap_names_first_seen(
+    remap_entries: &[SaveEntityRemapEntry],
+) -> BTreeMap<u16, String> {
+    let mut effective_entries = BTreeMap::new();
+    for entry in remap_entries {
+        effective_entries
+            .entry(entry.custom_id)
+            .or_insert_with(|| entry.name.clone());
+    }
+    effective_entries
 }
 
 pub fn lookup_builtin_entity_class_name(class_id: u8) -> Option<&'static str> {
@@ -26712,10 +26723,7 @@ fn parse_save_world_entity_chunks(
 ) -> Result<(usize, Vec<SaveEntityChunkObservation>, Vec<u8>), String> {
     let start = reader.position();
     let world_entity_count = reader.read_u32()? as usize;
-    let remap_names = remap_entries
-        .iter()
-        .map(|entry| (entry.custom_id, entry.name.as_str()))
-        .collect::<BTreeMap<_, _>>();
+    let remap_names = effective_remap_names_first_seen(remap_entries);
     let mut entity_chunks = Vec::with_capacity(world_entity_count);
 
     for index in 0..world_entity_count {
@@ -26733,9 +26741,7 @@ fn parse_save_world_entity_chunks(
             chunk_len,
             chunk_sha256: sha256_hex(&chunk_bytes),
             class_id,
-            custom_name: remap_names
-                .get(&(class_id as u16))
-                .map(|name| (*name).to_string()),
+            custom_name: remap_names.get(&(class_id as u16)).cloned(),
             entity_id,
             body_len: body_bytes.len(),
             body_sha256: sha256_hex(&body_bytes),
@@ -40249,7 +40255,7 @@ mod tests {
     }
 
     #[test]
-    fn save_entity_post_load_summary_applies_last_wins_builtin_remap() {
+    fn save_entity_post_load_summary_applies_first_wins_builtin_remap() {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&3u16.to_be_bytes());
         bytes.extend_from_slice(&99u16.to_be_bytes());
@@ -40271,14 +40277,11 @@ mod tests {
         let summary = parsed.post_load_summary();
         let remap_summary = parsed.post_load_remap_summary();
 
-        assert_eq!(first.custom_name.as_deref(), Some("flare"));
-        assert_eq!(
-            first.post_load_kind(),
-            SaveEntityPostLoadKind::RemappedBuiltin
-        );
-        assert_eq!(first.post_load_class_id(), Some(3));
-        assert_eq!(first.post_load_resolved_name().as_deref(), Some("flare"));
-        assert!(!first.would_post_load_skip());
+        assert_eq!(first.custom_name.as_deref(), Some("mod-alpha"));
+        assert_eq!(first.post_load_kind(), SaveEntityPostLoadKind::UnresolvedCustom);
+        assert_eq!(first.post_load_class_id(), None);
+        assert_eq!(first.post_load_resolved_name().as_deref(), None);
+        assert!(first.would_post_load_skip());
 
         assert_eq!(
             second.post_load_kind(),
@@ -40293,8 +40296,8 @@ mod tests {
         assert_eq!(third.post_load_resolved_name().as_deref(), Some("flare"));
         assert!(!third.would_post_load_skip());
 
-        assert_eq!(summary.loadable_entities, 3);
-        assert_eq!(summary.skipped_entities, 0);
+        assert_eq!(summary.loadable_entities, 2);
+        assert_eq!(summary.skipped_entities, 1);
         assert_eq!(
             summary.post_load_class_summaries,
             vec![
@@ -40306,24 +40309,28 @@ mod tests {
                     count: 1,
                 },
                 SaveEntityPostLoadClassSummary {
-                    source_class_ids: vec![99],
-                    effective_class_id: Some(3),
-                    kind: SaveEntityPostLoadKind::RemappedBuiltin,
-                    resolved_name: "flare".to_string(),
-                    count: 1,
-                },
-                SaveEntityPostLoadClassSummary {
                     source_class_ids: vec![120],
                     effective_class_id: Some(4),
                     kind: SaveEntityPostLoadKind::RemappedBuiltin,
                     resolved_name: "mace".to_string(),
                     count: 1,
                 },
+                SaveEntityPostLoadClassSummary {
+                    source_class_ids: vec![99],
+                    effective_class_id: None,
+                    kind: SaveEntityPostLoadKind::UnresolvedCustom,
+                    resolved_name: "unresolved:mod-alpha".to_string(),
+                    count: 1,
+                },
             ]
         );
         assert_eq!(remap_summary.effective_custom_ids, 2);
-        assert_eq!(remap_summary.resolved_builtin_custom_ids, vec![99, 120]);
-        assert!(remap_summary.unresolved_effective_names.is_empty());
+        assert_eq!(remap_summary.duplicate_custom_ids, vec![99]);
+        assert_eq!(remap_summary.resolved_builtin_custom_ids, vec![120]);
+        assert_eq!(
+            remap_summary.unresolved_effective_names,
+            vec!["mod-alpha".to_string()]
+        );
     }
 
     #[test]
