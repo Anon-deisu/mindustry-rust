@@ -2291,10 +2291,13 @@ fn compose_runtime_stack_depth_status_text(hud: &HudModel) -> Option<String> {
         return None;
     }
     Some(format!(
-        "stackdepth:p{}:n{}:c{}:g{}:t{}",
+        "stackdepth:p{}:n{}:c{}:m{}:h{}:d{}:g{}:t{}",
         summary.prompt_depth,
         summary.notice_depth,
         summary.chat_depth,
+        summary.menu_depth(),
+        summary.hud_depth(),
+        summary.dialog_depth(),
         summary.active_group_count,
         summary.total_depth,
     ))
@@ -2308,7 +2311,7 @@ fn compose_runtime_dialog_stack_status_text(hud: &HudModel) -> Option<String> {
     let prompt_layers = summary.prompt_layer_labels().join(">");
     let notice_layers = summary.notice_layer_labels().join(">");
     Some(format!(
-        "stackx:f={}:p={}@{}:m{}:fo{}:i{}:n={}@{}:c{}:{}/{}:tin{}:s{}:t{}",
+        "stackx:f={}:p={}@{}:m{}:fo{}:i{}:n={}@{}:md{}:hd{}:c{}:{}/{}:tin{}:s{}:dd{}:t{}",
         summary.foreground_label(),
         summary.prompt_label(),
         if prompt_layers.is_empty() {
@@ -2325,11 +2328,14 @@ fn compose_runtime_dialog_stack_status_text(hud: &HudModel) -> Option<String> {
         } else {
             notice_layers.as_str()
         },
+        summary.menu_depth(),
+        summary.hud_depth(),
         if summary.chat_active { 1 } else { 0 },
         summary.server_message_count,
         summary.chat_message_count,
         optional_i32_label(summary.text_input_last_id),
         optional_i32_label(summary.last_chat_sender_entity_id),
+        summary.dialog_depth(),
         summary.total_depth(),
     ))
 }
@@ -7019,7 +7025,7 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "RUNTIME-STACK-DEPTH: stackdepth:p2:n4:c1:g3:t7",
+            "RUNTIME-STACK-DEPTH: stackdepth:p2:n4:c1:m2:h4:d7:g3:t7",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
@@ -7027,7 +7033,7 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "RUNTIME-DIALOG-STACK: stackx:f=input:p=input@input>menu:m16:fo0:i53:n=warn@hud>reliable>info>warn:c1:7/8:tin404:s404:t7",
+            "RUNTIME-DIALOG-STACK: stackx:f=input:p=input@input>menu:m16:fo0:i53:n=warn@hud>reliable>info>warn:md2:hd4:c1:7/8:tin404:s404:dd7:t7",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
@@ -7475,28 +7481,28 @@ mod tests {
                 "chat-only",
                 runtime_stack_test_hud(chat_only),
                 "RUNTIME-STACK: stack:f=chat:p0@none:n=none@none:c1:g1:t1:tinnone:s42",
-                "RUNTIME-STACK-DEPTH: stackdepth:p0:n0:c1:g1:t1",
+                "RUNTIME-STACK-DEPTH: stackdepth:p0:n0:c1:m0:h0:d1:g1:t1",
                 "RUNTIME-STACK-DETAIL: stackd:f=chat:g1:t1:p=none:m0:fo0:i0:n=none:h0:r0:i0:w0:c1:1/2:sid42",
             ),
             (
                 "menu-only",
                 runtime_stack_test_hud(menu_only),
                 "RUNTIME-STACK: stack:f=menu:p1@menu:n=none@none:c0:g1:t1:tinnone:snone",
-                "RUNTIME-STACK-DEPTH: stackdepth:p1:n0:c0:g1:t1",
+                "RUNTIME-STACK-DEPTH: stackdepth:p1:n0:c0:m1:h0:d1:g1:t1",
                 "RUNTIME-STACK-DETAIL: stackd:f=menu:g1:t1:p=menu:m1:fo0:i0:n=none:h0:r0:i0:w0:c0:0/0:sidnone",
             ),
             (
                 "follow-up-without-text-input",
                 runtime_stack_test_hud(follow_up_only),
                 "RUNTIME-STACK: stack:f=follow-up:p1@follow-up:n=none@none:c0:g1:t1:tinnone:snone",
-                "RUNTIME-STACK-DEPTH: stackdepth:p1:n0:c0:g1:t1",
+                "RUNTIME-STACK-DEPTH: stackdepth:p1:n0:c0:m1:h0:d1:g1:t1",
                 "RUNTIME-STACK-DETAIL: stackd:f=follow-up:g1:t1:p=follow:m0:fo1:i0:n=none:h0:r0:i0:w0:c0:0/0:sidnone",
             ),
             (
                 "text-input+notice+chat",
                 runtime_stack_test_hud(input_notice_chat),
                 "RUNTIME-STACK: stack:f=input:p1@input:n=warn@warn:c1:g3:t3:tin404:s404",
-                "RUNTIME-STACK-DEPTH: stackdepth:p1:n1:c1:g3:t3",
+                "RUNTIME-STACK-DEPTH: stackdepth:p1:n1:c1:m1:h1:d3:g3:t3",
                 "RUNTIME-STACK-DETAIL: stackd:f=input:g3:t3:p=input:m0:fo0:i1:n=warn:h0:r0:i0:w1:c1:1/1:sid404",
             ),
         ];
@@ -7556,7 +7562,7 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "RUNTIME-STACK-DEPTH: stackdepth:p0:n0:c1:g1:t1",
+            "RUNTIME-STACK-DEPTH: stackdepth:p0:n0:c1:m0:h0:d1:g1:t1",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
@@ -7564,7 +7570,7 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "RUNTIME-DIALOG-STACK: stackx:f=chat:p=none@none:m1:fo0:i1:n=none@none:c1:1/2:tin404:s42:t1",
+            "RUNTIME-DIALOG-STACK: stackx:f=chat:p=none@none:m1:fo0:i1:n=none@none:md0:hd0:c1:1/2:tin404:s42:dd1:t1",
         );
     }
 

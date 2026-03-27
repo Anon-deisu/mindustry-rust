@@ -1457,10 +1457,13 @@ fn compose_runtime_stack_depth_text(hud: &HudModel) -> Option<String> {
         return None;
     }
     Some(format!(
-        "prompt={} notice={} chat={} groups={} total={}",
+        "prompt={} notice={} chat={} menu={} hud={} dialog={} groups={} total={}",
         summary.prompt_depth,
         summary.notice_depth,
         summary.chat_depth,
+        summary.menu_depth(),
+        summary.hud_depth(),
+        summary.dialog_depth(),
         summary.active_group_count,
         summary.total_depth,
     ))
@@ -1474,7 +1477,7 @@ fn compose_runtime_dialog_stack_text(hud: &HudModel) -> Option<String> {
     let prompt_layers = summary.prompt_layer_labels().join(">");
     let notice_layers = summary.notice_layer_labels().join(">");
     Some(format!(
-        "front={} prompt={}@{} menu={} follow-up={} input={} notice={}@{} chat={} server={} local={} tin={} sender={} total={}",
+        "front={} prompt={}@{} menu={} follow-up={} input={} notice={}@{} depths=menu:{}/hud:{}/dialog:{} chat={} server={} local={} tin={} sender={} total={}",
         summary.foreground_label(),
         summary.prompt_label(),
         if prompt_layers.is_empty() {
@@ -1491,6 +1494,9 @@ fn compose_runtime_dialog_stack_text(hud: &HudModel) -> Option<String> {
         } else {
             notice_layers.as_str()
         },
+        summary.menu_depth(),
+        summary.hud_depth(),
+        summary.dialog_depth(),
         bool_flag(summary.chat_active),
         summary.server_message_count,
         summary.chat_message_count,
@@ -4192,12 +4198,14 @@ mod tests {
         assert!(frame.contains(
             "RUNTIME-STACK: front=input prompt=2@input>menu notice=warn@hud>reliable>info>warn chat=1 groups=3 total=7 tin=404 sender=404"
         ));
-        assert!(frame.contains("RUNTIME-STACK-DEPTH: prompt=2 notice=4 chat=1 groups=3 total=7"));
+        assert!(frame.contains(
+            "RUNTIME-STACK-DEPTH: prompt=2 notice=4 chat=1 menu=2 hud=4 dialog=7 groups=3 total=7"
+        ));
         assert!(frame.contains(
             "RUNTIME-STACK-DETAIL: dialog=front:input groups:3 total:7 prompt=input/menu:1/follow-up:0/input:53 notice=warn/hud:1/reliable:1/info:1/warn:1 chat=active:1/server:7/local:8 sender=404"
         ));
         assert!(frame.contains(
-            "RUNTIME-DIALOG-STACK: front=input prompt=input@input>menu menu=16 follow-up=0 input=53 notice=warn@hud>reliable>info>warn chat=1 server=7 local=8 tin=404 sender=404 total=7"
+            "RUNTIME-DIALOG-STACK: front=input prompt=input@input>menu menu=16 follow-up=0 input=53 notice=warn@hud>reliable>info>warn depths=menu:2/hud:4/dialog:7 chat=1 server=7 local=8 tin=404 sender=404 total=7"
         ));
         assert!(frame.contains(
             "RUNTIME-COMMAND: act=1 sel=4@11,22,33 bld=2@327686 rect=-3:4:12:18 groups=2#3@11,4#1@99 target=b589834:u2:808:p0x42400000:0x42c00000:r1:2:3:4 cmd=5 stance=7/0"
@@ -4490,28 +4498,28 @@ mod tests {
                 "chat-only",
                 runtime_stack_test_hud(chat_only),
                 "RUNTIME-STACK: front=chat prompt=0@none notice=none@none chat=1 groups=1 total=1 tin=none sender=42",
-                "RUNTIME-STACK-DEPTH: prompt=0 notice=0 chat=1 groups=1 total=1",
+                "RUNTIME-STACK-DEPTH: prompt=0 notice=0 chat=1 menu=0 hud=0 dialog=1 groups=1 total=1",
                 "RUNTIME-STACK-DETAIL: dialog=front:chat groups:1 total:1 prompt=none/menu:0/follow-up:0/input:0 notice=none/hud:0/reliable:0/info:0/warn:0 chat=active:1/server:1/local:2 sender=42",
             ),
             (
                 "menu-only",
                 runtime_stack_test_hud(menu_only),
                 "RUNTIME-STACK: front=menu prompt=1@menu notice=none@none chat=0 groups=1 total=1 tin=none sender=none",
-                "RUNTIME-STACK-DEPTH: prompt=1 notice=0 chat=0 groups=1 total=1",
+                "RUNTIME-STACK-DEPTH: prompt=1 notice=0 chat=0 menu=1 hud=0 dialog=1 groups=1 total=1",
                 "RUNTIME-STACK-DETAIL: dialog=front:menu groups:1 total:1 prompt=menu/menu:1/follow-up:0/input:0 notice=none/hud:0/reliable:0/info:0/warn:0 chat=active:0/server:0/local:0 sender=none",
             ),
             (
                 "follow-up-without-text-input",
                 runtime_stack_test_hud(follow_up_only),
                 "RUNTIME-STACK: front=follow-up prompt=1@follow-up notice=none@none chat=0 groups=1 total=1 tin=none sender=none",
-                "RUNTIME-STACK-DEPTH: prompt=1 notice=0 chat=0 groups=1 total=1",
+                "RUNTIME-STACK-DEPTH: prompt=1 notice=0 chat=0 menu=1 hud=0 dialog=1 groups=1 total=1",
                 "RUNTIME-STACK-DETAIL: dialog=front:follow-up groups:1 total:1 prompt=follow/menu:0/follow-up:1/input:0 notice=none/hud:0/reliable:0/info:0/warn:0 chat=active:0/server:0/local:0 sender=none",
             ),
             (
                 "text-input+notice+chat",
                 runtime_stack_test_hud(input_notice_chat),
                 "RUNTIME-STACK: front=input prompt=1@input notice=warn@warn chat=1 groups=3 total=3 tin=404 sender=404",
-                "RUNTIME-STACK-DEPTH: prompt=1 notice=1 chat=1 groups=3 total=3",
+                "RUNTIME-STACK-DEPTH: prompt=1 notice=1 chat=1 menu=1 hud=1 dialog=3 groups=3 total=3",
                 "RUNTIME-STACK-DETAIL: dialog=front:input groups:3 total:3 prompt=input/menu:0/follow-up:0/input:1 notice=warn/hud:0/reliable:0/info:0/warn:1 chat=active:1/server:1/local:1 sender=404",
             ),
         ];
@@ -4557,12 +4565,14 @@ mod tests {
         assert!(frame.contains(
             "RUNTIME-STACK: front=chat prompt=0@none notice=none@none chat=1 groups=1 total=1 tin=404 sender=42"
         ));
-        assert!(frame.contains("RUNTIME-STACK-DEPTH: prompt=0 notice=0 chat=1 groups=1 total=1"));
+        assert!(frame.contains(
+            "RUNTIME-STACK-DEPTH: prompt=0 notice=0 chat=1 menu=0 hud=0 dialog=1 groups=1 total=1"
+        ));
         assert!(frame.contains(
             "RUNTIME-STACK-DETAIL: dialog=front:chat groups:1 total:1 prompt=none/menu:0/follow-up:0/input:1 notice=none/hud:0/reliable:0/info:0/warn:0 chat=active:1/server:1/local:2 sender=42"
         ));
         assert!(frame.contains(
-            "RUNTIME-DIALOG-STACK: front=chat prompt=none@none menu=1 follow-up=0 input=1 notice=none@none chat=1 server=1 local=2 tin=404 sender=42 total=1"
+            "RUNTIME-DIALOG-STACK: front=chat prompt=none@none menu=1 follow-up=0 input=1 notice=none@none depths=menu:0/hud:0/dialog:1 chat=1 server=1 local=2 tin=404 sender=42 total=1"
         ));
     }
 

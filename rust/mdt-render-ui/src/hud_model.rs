@@ -186,6 +186,18 @@ impl RuntimeUiStackSummary {
     pub(crate) fn total_depth(&self) -> usize {
         self.prompt_depth() + self.notice_depth() + self.chat_depth()
     }
+
+    pub(crate) fn menu_depth(&self) -> usize {
+        self.prompt_depth()
+    }
+
+    pub(crate) fn hud_depth(&self) -> usize {
+        self.notice_depth()
+    }
+
+    pub(crate) fn dialog_depth(&self) -> usize {
+        self.total_depth()
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -200,6 +212,18 @@ pub(crate) struct RuntimeUiStackDepthSummary {
 impl RuntimeUiStackDepthSummary {
     pub(crate) fn is_empty(&self) -> bool {
         self.total_depth == 0
+    }
+
+    pub(crate) fn menu_depth(&self) -> usize {
+        self.prompt_depth
+    }
+
+    pub(crate) fn hud_depth(&self) -> usize {
+        self.notice_depth
+    }
+
+    pub(crate) fn dialog_depth(&self) -> usize {
+        self.total_depth
     }
 }
 
@@ -939,6 +963,9 @@ mod tests {
         assert_eq!(summary.prompt_depth(), 3);
         assert_eq!(summary.notice_depth(), 4);
         assert_eq!(summary.chat_depth(), 1);
+        assert_eq!(summary.menu_depth(), 3);
+        assert_eq!(summary.hud_depth(), 4);
+        assert_eq!(summary.dialog_depth(), 8);
         assert_eq!(summary.active_group_count(), 3);
         assert_eq!(summary.total_depth(), 8);
         assert!(!summary.is_empty());
@@ -984,6 +1011,9 @@ mod tests {
         assert_eq!(summary.prompt_depth, 3);
         assert_eq!(summary.notice_depth, 4);
         assert_eq!(summary.chat_depth, 1);
+        assert_eq!(summary.menu_depth(), 3);
+        assert_eq!(summary.hud_depth(), 4);
+        assert_eq!(summary.dialog_depth(), 8);
         assert_eq!(summary.active_group_count, 3);
         assert_eq!(summary.total_depth, 8);
         assert!(!summary.is_empty());
@@ -1002,6 +1032,9 @@ mod tests {
         assert_eq!(summary.prompt_depth, 0);
         assert_eq!(summary.notice_depth, 0);
         assert_eq!(summary.chat_depth, 0);
+        assert_eq!(summary.menu_depth(), 0);
+        assert_eq!(summary.hud_depth(), 0);
+        assert_eq!(summary.dialog_depth(), 0);
         assert_eq!(summary.active_group_count, 0);
         assert_eq!(summary.total_depth, 0);
         assert!(summary.is_empty());
@@ -1037,6 +1070,9 @@ mod tests {
         assert_eq!(summary.prompt_kind, None);
         assert!(summary.prompt_layers.is_empty());
         assert_eq!(summary.prompt_depth(), 0);
+        assert_eq!(summary.menu_depth(), 0);
+        assert_eq!(summary.hud_depth(), 0);
+        assert_eq!(summary.dialog_depth(), 0);
         assert_eq!(summary.total_depth(), 0);
 
         let depth = hud
