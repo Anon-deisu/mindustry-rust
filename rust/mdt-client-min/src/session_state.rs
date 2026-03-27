@@ -4426,6 +4426,7 @@ fn typed_runtime_building_model(
         ),
         "mender"
         | "mend-projector"
+        | "regen-projector"
         | "overdrive-projector"
         | "overdrive-dome"
         | "force-projector" => (
@@ -9660,6 +9661,7 @@ mod tests {
             (0x0006_001bi32, 313, "overdrive-projector"),
             (0x0006_001ci32, 314, "overdrive-dome"),
             (0x0006_001di32, 315, "force-projector"),
+            (0x0006_001ei32, 316, "regen-projector"),
         ] {
             let mut state = SessionState::default();
             state.building_table_projection.apply_block_snapshot_head(
