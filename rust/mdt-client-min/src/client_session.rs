@@ -17,21 +17,22 @@ use crate::packet_registry::{
     CombinedPacketRegistries, CustomChannelPacketRegistry, InboundSnapshotPacketRegistry,
 };
 use crate::session_state::{
-    BuilderQueueEntryObservation, BuildingProjection, BuildingTableProjection,
-    BuildingTailSummaryProjection, ConfiguredBlockOutcome, ConfiguredContentRef,
-    ConstructorRuntimeProjection, CoreInventoryRuntimeBindingKind, CreateBulletProjection,
-    DestroyPayloadProjection, EffectBusinessContentKind, EffectBusinessPositionSource,
-    EffectBusinessProjection, EntityFireSemanticProjection, EntityPlayerSemanticProjection,
-    EntityPuddleSemanticProjection, EntitySemanticProjection, EntityUnitRuntimeSyncProjection,
-    EntityUnitSemanticProjection, EntityWeatherStateSemanticProjection,
-    EntityWorldLabelSemanticProjection, FinishConnectingProjection, GameplayStateProjection,
-    PayloadDroppedProjection, PickedBuildPayloadProjection, PickedUnitPayloadProjection,
-    ReconnectPhaseProjection, ReconnectReasonKind, ReconstructorRuntimeProjection,
-    RemotePlanSnapshotFirstPlanProjection, SessionResetKind, SessionState, SessionTimeoutKind,
-    SessionTimeoutProjection, TakeItemsProjection, TileConfigAuthoritySource,
-    TileConfigBusinessApply, TransferItemEffectProjection, TransferItemToProjection,
-    TransferItemToUnitProjection, TypedBuildingRuntimeModel, UnitAssemblerRuntimeProjection,
-    UnitEnteredPayloadProjection, UnitRefProjection, WorldReloadProjection,
+    merge_building_projection_with_anchor, BuilderQueueEntryObservation, BuildingProjection,
+    BuildingTableProjection, BuildingTailSummaryProjection, ConfiguredBlockOutcome,
+    ConfiguredContentRef, ConstructorRuntimeProjection, CoreInventoryRuntimeBindingKind,
+    CreateBulletProjection, DestroyPayloadProjection, EffectBusinessContentKind,
+    EffectBusinessPositionSource, EffectBusinessProjection, EntityFireSemanticProjection,
+    EntityPlayerSemanticProjection, EntityPuddleSemanticProjection, EntitySemanticProjection,
+    EntityUnitRuntimeSyncProjection, EntityUnitSemanticProjection,
+    EntityWeatherStateSemanticProjection, EntityWorldLabelSemanticProjection,
+    FinishConnectingProjection, GameplayStateProjection, PayloadDroppedProjection,
+    PickedBuildPayloadProjection, PickedUnitPayloadProjection, ReconnectPhaseProjection,
+    ReconnectReasonKind, ReconstructorRuntimeProjection, RemotePlanSnapshotFirstPlanProjection,
+    SessionResetKind, SessionState, SessionTimeoutKind, SessionTimeoutProjection,
+    TakeItemsProjection, TileConfigAuthoritySource, TileConfigBusinessApply,
+    TransferItemEffectProjection, TransferItemToProjection, TransferItemToUnitProjection,
+    TypedBuildingRuntimeModel, UnitAssemblerRuntimeProjection, UnitEnteredPayloadProjection,
+    UnitRefProjection, WorldReloadProjection,
 };
 use crate::typed_remote_dispatch::{
     TypedCustomChannelRemoteDispatch, TypedCustomChannelRemoteDispatcher,
@@ -1556,64 +1557,11 @@ impl ClientSession {
             (None, None) => None,
             (Some(anchor), None) => Some(anchor),
             (None, Some(projection)) => Some(projection),
-            (Some(anchor), Some(projection)) => {
-                let block_id = projection.block_id.or(anchor.block_id);
-                let block_name = projection.block_name.clone().or_else(|| {
-                    block_id.and_then(|block_id| {
-                        if anchor.block_id == Some(block_id) {
-                            anchor.block_name.clone()
-                        } else {
-                            self.loaded_world_block_name(block_id)
-                        }
-                    })
-                });
-                Some(BuildingProjection {
-                    block_id,
-                    block_name,
-                    rotation: projection.rotation.or(anchor.rotation),
-                    team_id: projection.team_id.or(anchor.team_id),
-                    io_version: projection.io_version.or(anchor.io_version),
-                    module_bitmask: projection.module_bitmask.or(anchor.module_bitmask),
-                    time_scale_bits: projection.time_scale_bits.or(anchor.time_scale_bits),
-                    time_scale_duration_bits: projection
-                        .time_scale_duration_bits
-                        .or(anchor.time_scale_duration_bits),
-                    last_disabler_pos: projection.last_disabler_pos.or(anchor.last_disabler_pos),
-                    legacy_consume_connected: projection
-                        .legacy_consume_connected
-                        .or(anchor.legacy_consume_connected),
-                    config: projection.config.clone(),
-                    health_bits: projection.health_bits.or(anchor.health_bits),
-                    enabled: projection.enabled.or(anchor.enabled),
-                    efficiency: projection.efficiency.or(anchor.efficiency),
-                    optional_efficiency: projection
-                        .optional_efficiency
-                        .or(anchor.optional_efficiency),
-                    visible_flags: projection.visible_flags.or(anchor.visible_flags),
-                    turret_reload_counter_bits: projection
-                        .turret_reload_counter_bits
-                        .or(anchor.turret_reload_counter_bits),
-                    turret_rotation_bits: projection
-                        .turret_rotation_bits
-                        .or(anchor.turret_rotation_bits),
-                    item_turret_ammo_count: projection
-                        .item_turret_ammo_count
-                        .or(anchor.item_turret_ammo_count),
-                    continuous_turret_last_length_bits: projection
-                        .continuous_turret_last_length_bits
-                        .or(anchor.continuous_turret_last_length_bits),
-                    build_turret_rotation_bits: projection
-                        .build_turret_rotation_bits
-                        .or(anchor.build_turret_rotation_bits),
-                    build_turret_plans_present: projection
-                        .build_turret_plans_present
-                        .or(anchor.build_turret_plans_present),
-                    build_turret_plan_count: projection
-                        .build_turret_plan_count
-                        .or(anchor.build_turret_plan_count),
-                    last_update: projection.last_update,
-                })
-            }
+            (Some(anchor), Some(projection)) => Some(merge_building_projection_with_anchor(
+                &anchor,
+                &projection,
+                |block_id| self.loaded_world_block_name(block_id),
+            )),
         }
     }
 
@@ -7223,7 +7171,8 @@ impl ClientSession {
 
     fn apply_snapshot_input_from_bootstrap(&mut self, bootstrap: &LoadedWorldBootstrap) {
         let unit_id = bootstrap_player_unit_id(bootstrap);
-        let position = sanitize_bootstrap_position(bootstrap.player_x_bits, bootstrap.player_y_bits);
+        let position =
+            sanitize_bootstrap_position(bootstrap.player_x_bits, bootstrap.player_y_bits);
         let semantic = player_semantic_projection_from_bootstrap(bootstrap);
 
         self.snapshot_input.unit_id = unit_id;
@@ -10093,7 +10042,10 @@ fn sanitize_bootstrap_coord(bits: u32) -> Option<f32> {
 }
 
 fn sanitize_bootstrap_position(x_bits: u32, y_bits: u32) -> Option<(f32, f32)> {
-    Some((sanitize_bootstrap_coord(x_bits)?, sanitize_bootstrap_coord(y_bits)?))
+    Some((
+        sanitize_bootstrap_coord(x_bits)?,
+        sanitize_bootstrap_coord(y_bits)?,
+    ))
 }
 
 fn bootstrap_player_unit_id(bootstrap: &LoadedWorldBootstrap) -> Option<i32> {
@@ -30781,7 +30733,13 @@ mod tests {
                 configured_block_name: None,
             }
         );
-        assert_eq!(session.state().tile_config_projection.fallback_missing_authority_count, 1);
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .fallback_missing_authority_count,
+            1
+        );
         assert_eq!(session.state().tile_config_projection.rollback_count, 0);
         assert_eq!(
             session
@@ -30800,13 +30758,11 @@ mod tests {
                 .map(|queue| queue.iter().cloned().collect::<Vec<_>>()),
             Some(vec![second_value.clone()])
         );
-        assert!(
-            session
-                .state()
-                .tile_config_projection
-                .authoritative_by_build_pos
-                .is_empty()
-        );
+        assert!(session
+            .state()
+            .tile_config_projection
+            .authoritative_by_build_pos
+            .is_empty());
     }
 
     #[test]
@@ -41594,10 +41550,7 @@ mod tests {
     #[test]
     fn is_server_restarting_kick_accepts_text_only_restart_reason() {
         assert!(is_server_restarting_kick(Some("serverRestarting"), None));
-        assert!(is_server_restarting_kick(
-            Some("serverRestarting"),
-            Some(4)
-        ));
+        assert!(is_server_restarting_kick(Some("serverRestarting"), Some(4)));
         assert!(!is_server_restarting_kick(Some("gameover"), None));
         assert!(!is_server_restarting_kick(None, Some(4)));
     }

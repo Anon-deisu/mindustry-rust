@@ -2870,6 +2870,72 @@ fn preserve_matching_block_name(
     })
 }
 
+pub(crate) fn merge_building_projection_with_anchor<F>(
+    anchor: &BuildingProjection,
+    projection: &BuildingProjection,
+    mut resolve_block_name: F,
+) -> BuildingProjection
+where
+    F: FnMut(i16) -> Option<String>,
+{
+    let block_id = projection.block_id.or(anchor.block_id);
+    let block_name = projection.block_name.clone().or_else(|| {
+        block_id.and_then(|block_id| {
+            if anchor.block_id == Some(block_id) {
+                anchor.block_name.clone()
+            } else {
+                resolve_block_name(block_id)
+            }
+        })
+    });
+    BuildingProjection {
+        block_id,
+        block_name,
+        rotation: projection.rotation.or(anchor.rotation),
+        team_id: projection.team_id.or(anchor.team_id),
+        io_version: projection.io_version.or(anchor.io_version),
+        module_bitmask: projection.module_bitmask.or(anchor.module_bitmask),
+        time_scale_bits: projection.time_scale_bits.or(anchor.time_scale_bits),
+        time_scale_duration_bits: projection
+            .time_scale_duration_bits
+            .or(anchor.time_scale_duration_bits),
+        last_disabler_pos: projection.last_disabler_pos.or(anchor.last_disabler_pos),
+        legacy_consume_connected: projection
+            .legacy_consume_connected
+            .or(anchor.legacy_consume_connected),
+        config: projection.config.clone(),
+        health_bits: projection.health_bits.or(anchor.health_bits),
+        enabled: projection.enabled.or(anchor.enabled),
+        efficiency: projection.efficiency.or(anchor.efficiency),
+        optional_efficiency: projection
+            .optional_efficiency
+            .or(anchor.optional_efficiency),
+        visible_flags: projection.visible_flags.or(anchor.visible_flags),
+        turret_reload_counter_bits: projection
+            .turret_reload_counter_bits
+            .or(anchor.turret_reload_counter_bits),
+        turret_rotation_bits: projection
+            .turret_rotation_bits
+            .or(anchor.turret_rotation_bits),
+        item_turret_ammo_count: projection
+            .item_turret_ammo_count
+            .or(anchor.item_turret_ammo_count),
+        continuous_turret_last_length_bits: projection
+            .continuous_turret_last_length_bits
+            .or(anchor.continuous_turret_last_length_bits),
+        build_turret_rotation_bits: projection
+            .build_turret_rotation_bits
+            .or(anchor.build_turret_rotation_bits),
+        build_turret_plans_present: projection
+            .build_turret_plans_present
+            .or(anchor.build_turret_plans_present),
+        build_turret_plan_count: projection
+            .build_turret_plan_count
+            .or(anchor.build_turret_plan_count),
+        last_update: projection.last_update,
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TypedBuildingRuntimeKind {
     Core,
@@ -6550,6 +6616,35 @@ mod tests {
         )
     }
 
+    fn test_building_projection(last_update: BuildingProjectionUpdateKind) -> BuildingProjection {
+        BuildingProjection {
+            block_id: None,
+            block_name: None,
+            rotation: None,
+            team_id: None,
+            io_version: None,
+            module_bitmask: None,
+            time_scale_bits: None,
+            time_scale_duration_bits: None,
+            last_disabler_pos: None,
+            legacy_consume_connected: None,
+            config: None,
+            health_bits: None,
+            enabled: None,
+            efficiency: None,
+            optional_efficiency: None,
+            visible_flags: None,
+            turret_reload_counter_bits: None,
+            turret_rotation_bits: None,
+            item_turret_ammo_count: None,
+            continuous_turret_last_length_bits: None,
+            build_turret_rotation_bits: None,
+            build_turret_plans_present: None,
+            build_turret_plan_count: None,
+            last_update,
+        }
+    }
+
     #[test]
     fn reconnect_projection_counts_only_distinct_phase_transitions() {
         let mut state = SessionState::default();
@@ -6649,6 +6744,155 @@ mod tests {
         assert_eq!(
             building_after_construct.block_name.as_deref(),
             Some("payload-router")
+        );
+    }
+
+    #[test]
+    fn building_projection_merge_helper_prefers_live_fields_over_anchor() {
+        let anchor = BuildingProjection {
+            block_id: Some(10),
+            block_name: Some("anchor-block".to_string()),
+            rotation: Some(1),
+            team_id: Some(2),
+            io_version: Some(3),
+            module_bitmask: Some(4),
+            time_scale_bits: Some(5),
+            time_scale_duration_bits: Some(6),
+            last_disabler_pos: Some(7),
+            legacy_consume_connected: Some(false),
+            config: Some(TypeIoObject::Int(1)),
+            health_bits: Some(8),
+            enabled: Some(false),
+            efficiency: Some(9),
+            optional_efficiency: Some(10),
+            visible_flags: Some(11),
+            turret_reload_counter_bits: Some(12),
+            turret_rotation_bits: Some(13),
+            item_turret_ammo_count: Some(14),
+            continuous_turret_last_length_bits: Some(15),
+            build_turret_rotation_bits: Some(16),
+            build_turret_plans_present: Some(false),
+            build_turret_plan_count: Some(17),
+            last_update: BuildingProjectionUpdateKind::WorldBaseline,
+        };
+        let live = BuildingProjection {
+            block_id: Some(20),
+            block_name: None,
+            rotation: Some(21),
+            team_id: Some(22),
+            io_version: Some(23),
+            module_bitmask: Some(24),
+            time_scale_bits: Some(25),
+            time_scale_duration_bits: Some(26),
+            last_disabler_pos: Some(27),
+            legacy_consume_connected: Some(true),
+            config: Some(TypeIoObject::Int(2)),
+            health_bits: Some(28),
+            enabled: Some(true),
+            efficiency: Some(29),
+            optional_efficiency: Some(30),
+            visible_flags: Some(31),
+            turret_reload_counter_bits: Some(32),
+            turret_rotation_bits: Some(33),
+            item_turret_ammo_count: Some(34),
+            continuous_turret_last_length_bits: Some(35),
+            build_turret_rotation_bits: Some(36),
+            build_turret_plans_present: Some(true),
+            build_turret_plan_count: Some(37),
+            last_update: BuildingProjectionUpdateKind::TileConfig,
+        };
+
+        let merged = merge_building_projection_with_anchor(&anchor, &live, |block_id| {
+            (block_id == 20).then(|| "resolved-live-block".to_string())
+        });
+
+        assert_eq!(merged.block_id, Some(20));
+        assert_eq!(merged.block_name.as_deref(), Some("resolved-live-block"));
+        assert_eq!(merged.rotation, Some(21));
+        assert_eq!(merged.team_id, Some(22));
+        assert_eq!(merged.io_version, Some(23));
+        assert_eq!(merged.module_bitmask, Some(24));
+        assert_eq!(merged.time_scale_bits, Some(25));
+        assert_eq!(merged.time_scale_duration_bits, Some(26));
+        assert_eq!(merged.last_disabler_pos, Some(27));
+        assert_eq!(merged.legacy_consume_connected, Some(true));
+        assert_eq!(merged.config, Some(TypeIoObject::Int(2)));
+        assert_eq!(merged.health_bits, Some(28));
+        assert_eq!(merged.enabled, Some(true));
+        assert_eq!(merged.efficiency, Some(29));
+        assert_eq!(merged.optional_efficiency, Some(30));
+        assert_eq!(merged.visible_flags, Some(31));
+        assert_eq!(merged.turret_reload_counter_bits, Some(32));
+        assert_eq!(merged.turret_rotation_bits, Some(33));
+        assert_eq!(merged.item_turret_ammo_count, Some(34));
+        assert_eq!(merged.continuous_turret_last_length_bits, Some(35));
+        assert_eq!(merged.build_turret_rotation_bits, Some(36));
+        assert_eq!(merged.build_turret_plans_present, Some(true));
+        assert_eq!(merged.build_turret_plan_count, Some(37));
+        assert_eq!(merged.last_update, BuildingProjectionUpdateKind::TileConfig);
+    }
+
+    #[test]
+    fn building_projection_merge_helper_falls_back_to_anchor_for_missing_live_fields() {
+        let anchor = BuildingProjection {
+            block_id: Some(10),
+            block_name: Some("anchor-block".to_string()),
+            rotation: Some(1),
+            team_id: Some(2),
+            io_version: Some(3),
+            module_bitmask: Some(4),
+            time_scale_bits: Some(5),
+            time_scale_duration_bits: Some(6),
+            last_disabler_pos: Some(7),
+            legacy_consume_connected: Some(true),
+            config: Some(TypeIoObject::Int(1)),
+            health_bits: Some(8),
+            enabled: Some(false),
+            efficiency: Some(9),
+            optional_efficiency: Some(10),
+            visible_flags: Some(11),
+            turret_reload_counter_bits: Some(12),
+            turret_rotation_bits: Some(13),
+            item_turret_ammo_count: Some(14),
+            continuous_turret_last_length_bits: Some(15),
+            build_turret_rotation_bits: Some(16),
+            build_turret_plans_present: Some(true),
+            build_turret_plan_count: Some(17),
+            last_update: BuildingProjectionUpdateKind::WorldBaseline,
+        };
+        let mut live = test_building_projection(BuildingProjectionUpdateKind::BuildHealthUpdate);
+        live.block_id = Some(10);
+
+        let merged = merge_building_projection_with_anchor(&anchor, &live, |_| {
+            panic!("resolver should not run when anchor block metadata is reusable")
+        });
+
+        assert_eq!(merged.block_id, Some(10));
+        assert_eq!(merged.block_name.as_deref(), Some("anchor-block"));
+        assert_eq!(merged.rotation, Some(1));
+        assert_eq!(merged.team_id, Some(2));
+        assert_eq!(merged.io_version, Some(3));
+        assert_eq!(merged.module_bitmask, Some(4));
+        assert_eq!(merged.time_scale_bits, Some(5));
+        assert_eq!(merged.time_scale_duration_bits, Some(6));
+        assert_eq!(merged.last_disabler_pos, Some(7));
+        assert_eq!(merged.legacy_consume_connected, Some(true));
+        assert_eq!(merged.config, None);
+        assert_eq!(merged.health_bits, Some(8));
+        assert_eq!(merged.enabled, Some(false));
+        assert_eq!(merged.efficiency, Some(9));
+        assert_eq!(merged.optional_efficiency, Some(10));
+        assert_eq!(merged.visible_flags, Some(11));
+        assert_eq!(merged.turret_reload_counter_bits, Some(12));
+        assert_eq!(merged.turret_rotation_bits, Some(13));
+        assert_eq!(merged.item_turret_ammo_count, Some(14));
+        assert_eq!(merged.continuous_turret_last_length_bits, Some(15));
+        assert_eq!(merged.build_turret_rotation_bits, Some(16));
+        assert_eq!(merged.build_turret_plans_present, Some(true));
+        assert_eq!(merged.build_turret_plan_count, Some(17));
+        assert_eq!(
+            merged.last_update,
+            BuildingProjectionUpdateKind::BuildHealthUpdate
         );
     }
 
@@ -8341,8 +8585,10 @@ mod tests {
             },
         );
 
-        let transition = state
-            .hidden_snapshot_runtime_transition(&BTreeSet::from([101, 202, 303, 404, 505]), Some(101));
+        let transition = state.hidden_snapshot_runtime_transition(
+            &BTreeSet::from([101, 202, 303, 404, 505]),
+            Some(101),
+        );
 
         assert_eq!(
             transition.auxiliary_cleanup_ids,
