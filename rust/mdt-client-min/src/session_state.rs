@@ -3425,6 +3425,7 @@ pub enum TypedBuildingRuntimeKind {
     ShieldProjector,
     DuctUnloader,
     DuctRouter,
+    StackRouter,
     OverflowDuct,
     MassDriver,
     PayloadMassDriver,
@@ -3479,6 +3480,7 @@ impl TypedBuildingRuntimeKind {
             Self::ShieldProjector => "shield-projector",
             Self::DuctUnloader => "duct-unloader",
             Self::DuctRouter => "duct-router",
+            Self::StackRouter => "stack-router",
             Self::OverflowDuct => "overflow-duct",
             Self::MassDriver => "mass-driver",
             Self::PayloadMassDriver => "payload-mass-driver",
@@ -4055,16 +4057,31 @@ fn typed_runtime_building_model(
         }
         "junction" | "router" | "distributor" | "overflow-gate" | "underflow-gate"
         | "surge-router" => {
-            let runtime = configured.item_buffer_runtime_by_build_pos.get(&build_pos);
-            (
-                TypedBuildingRuntimeKind::ItemBuffer,
-                TypedBuildingRuntimeValue::Sorter {
-                    item_id: inventory_item_stacks.first().map(|(item_id, _)| *item_id),
-                    legacy: runtime.map(|projection| projection.legacy),
-                    non_empty_side_mask: runtime.map(|projection| projection.non_empty_side_mask),
-                    buffered_item_count: runtime.map(|projection| projection.buffered_item_count),
-                },
-            )
+            if block_name == "surge-router" {
+                (
+                    TypedBuildingRuntimeKind::StackRouter,
+                    TypedBuildingRuntimeValue::Item(
+                        configured
+                            .duct_router_item_by_build_pos
+                            .get(&build_pos)
+                            .copied()
+                            .flatten(),
+                    ),
+                )
+            } else {
+                let runtime = configured.item_buffer_runtime_by_build_pos.get(&build_pos);
+                (
+                    TypedBuildingRuntimeKind::ItemBuffer,
+                    TypedBuildingRuntimeValue::Sorter {
+                        item_id: inventory_item_stacks.first().map(|(item_id, _)| *item_id),
+                        legacy: runtime.map(|projection| projection.legacy),
+                        non_empty_side_mask: runtime
+                            .map(|projection| projection.non_empty_side_mask),
+                        buffered_item_count: runtime
+                            .map(|projection| projection.buffered_item_count),
+                    },
+                )
+            }
         }
         "landing-pad" => {
             let configured_item_id = configured
@@ -10928,7 +10945,6 @@ mod tests {
             (0x0006_001ci32, "distributor", Vec::new(), None),
             (0x0006_001di32, "overflow-gate", vec![(34, 3)], Some(34)),
             (0x0006_001ei32, "underflow-gate", vec![(35, 5)], Some(35)),
-            (0x0006_001fi32, "surge-router", vec![(36, 6)], Some(36)),
         ] {
             let mut state = SessionState::default();
             state.building_table_projection.apply_block_snapshot_head(
@@ -10994,6 +11010,67 @@ mod tests {
 
             assert_eq!(state.typed_runtime_building_at(build_pos), Some(expected));
         }
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_stack_router_family_shells() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0006_001fi32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            304,
+            Some("surge-router".to_string()),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(0x3f80_0000),
+            Some(0x3f20_0000),
+            Some(127),
+            Some(false),
+            Some(TypeIoObject::Null),
+            Some(0x4080_0000),
+            Some(true),
+            Some(0x44),
+            Some(0x12),
+            Some(85),
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(
+            state.typed_runtime_building_at(build_pos),
+            Some(expected_typed_runtime_building(
+                build_pos,
+                304,
+                "surge-router",
+                TypedBuildingRuntimeKind::StackRouter,
+                TypedBuildingRuntimeValue::Item(None),
+                Vec::new(),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(0x3f80_0000),
+                Some(0x3f20_0000),
+                Some(127),
+                Some(false),
+                Some(0x4080_0000),
+                Some(true),
+                Some(0x44),
+                Some(0x12),
+                Some(85),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
+        );
     }
 
     #[test]

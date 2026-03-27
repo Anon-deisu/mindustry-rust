@@ -9161,6 +9161,52 @@ mod tests {
     }
 
     #[test]
+    fn render_runtime_adapter_reports_stack_transport_family_in_inspector() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        let build_pos = pack_runtime_point2(38, 60);
+
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            315,
+            Some("surge-router".to_string()),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(0x3f80_0000),
+            Some(0x3f20_0000),
+            Some(127),
+            Some(false),
+            Some(TypeIoObject::Null),
+            Some(0x4080_0000),
+            Some(true),
+            Some(0x44),
+            Some(0x12),
+            Some(85),
+            None,
+            None,
+            None,
+        );
+        state
+            .configured_block_projection
+            .apply_duct_router_item(build_pos, Some(36));
+
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let build_ui = hud
+            .build_ui
+            .as_ref()
+            .expect("build_ui observability should be present");
+        assert!(build_ui.inspector_entries.iter().any(|entry| {
+            entry.family == "stack-router" && entry.sample == "38:60:surge-router:item=36"
+        }));
+    }
+
+    #[test]
     fn render_runtime_adapter_reports_repair_turret_runtime_in_inspector() {
         let mut adapter = RenderRuntimeAdapter::default();
         let mut scene = RenderModel::default();

@@ -24552,6 +24552,7 @@ fn parse_building_tail_with_context(
             ParsedBuildingTail::Core(parse_core_tail_snapshot(revision, tail_bytes)?),
         ),
         Some("duct-router")
+        | Some("surge-router")
         | Some("unloader")
         | Some("directional-unloader")
         | Some("unit-cargo-unload-point")
@@ -43565,6 +43566,13 @@ mod tests {
         assert_eq!(
             legacy_unloader,
             ParsedBuildingTail::NullableItemRef(NullableItemRefTailSnapshot { item_id: None })
+        );
+
+        let surge_router =
+            parse_building_tail(Some("surge-router"), 1, &(6u16).to_be_bytes()).unwrap();
+        assert_eq!(
+            surge_router,
+            ParsedBuildingTail::NullableItemRef(NullableItemRefTailSnapshot { item_id: Some(6) })
         );
     }
 
