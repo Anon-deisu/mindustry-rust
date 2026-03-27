@@ -171,6 +171,11 @@ fn kick_reason_name_from_ordinal(reason_ordinal: i32) -> Option<&'static str> {
         .and_then(|index| KICK_REASON_NAMES.get(index).copied())
 }
 
+pub fn is_server_restarting_kick(reason_text: Option<&str>, reason_ordinal: Option<i32>) -> bool {
+    reason_text == Some("serverRestarting")
+        || reason_ordinal == Some(KICK_REASON_SERVER_RESTARTING_ORDINAL)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KickReasonHintCategory {
     Banned,
@@ -191,6 +196,12 @@ fn kick_reason_hint_from(
     reason_text: Option<&str>,
     reason_ordinal: Option<i32>,
 ) -> Option<(KickReasonHintCategory, &'static str)> {
+    if is_server_restarting_kick(reason_text, reason_ordinal) {
+        return Some((
+            KickReasonHintCategory::ServerRestarting,
+            "server is restarting; retry connection shortly.",
+        ));
+    }
     let normalized = reason_text.or_else(|| reason_ordinal.and_then(kick_reason_name_from_ordinal));
     match normalized {
         Some("banned") => Some((
@@ -236,10 +247,6 @@ fn kick_reason_hint_from(
         Some("playerLimit") => Some((
             KickReasonHintCategory::PlayerLimit,
             "server is full; wait for an open slot or use an identity with reserved access.",
-        )),
-        Some("serverRestarting") => Some((
-            KickReasonHintCategory::ServerRestarting,
-            "server is restarting; retry connection shortly.",
         )),
         _ => None,
     }
@@ -41585,6 +41592,17 @@ mod tests {
     }
 
     #[test]
+    fn is_server_restarting_kick_accepts_text_only_restart_reason() {
+        assert!(is_server_restarting_kick(Some("serverRestarting"), None));
+        assert!(is_server_restarting_kick(
+            Some("serverRestarting"),
+            Some(4)
+        ));
+        assert!(!is_server_restarting_kick(Some("gameover"), None));
+        assert!(!is_server_restarting_kick(None, Some(4)));
+    }
+
+    #[test]
     fn kick_reason_hint_mapping_covers_high_signal_taxonomy() {
         assert_eq!(
             kick_reason_hint_from(Some("banned"), None),
@@ -41671,6 +41689,64 @@ mod tests {
             ))
         );
         assert_eq!(kick_reason_hint_from(Some("gameover"), Some(4)), None);
+    }
+
+    #[test]
+    fn kick_string_packet_decodes_text_only_server_restarting_as_scheduled_reconnect() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let kick_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "kick"
+                    && entry.params.len() == 1
+                    && entry.params[0].java_type == "java.lang.String"
+            })
+            .unwrap()
+            .packet_id;
+        let packet = encode_packet(
+            kick_packet_id,
+            &encode_typeio_string_payload("serverRestarting"),
+            false,
+        )
+        .unwrap();
+
+        let event = session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            event,
+            ClientSessionEvent::Kicked {
+                reason_text: Some("serverRestarting".to_string()),
+                reason_ordinal: None,
+                duration_ms: None,
+            }
+        );
+        assert!(session.kicked());
+        assert_eq!(session.last_kick_reason_text(), Some("serverRestarting"));
+        assert_eq!(session.last_kick_reason_ordinal(), None);
+        assert_eq!(
+            session.last_kick_hint_category(),
+            Some(KickReasonHintCategory::ServerRestarting)
+        );
+        assert_eq!(
+            session.last_kick_hint_text(),
+            Some("server is restarting; retry connection shortly.")
+        );
+        assert_eq!(
+            session.reconnect_phase(),
+            ReconnectPhaseProjection::Scheduled
+        );
+        assert_eq!(
+            session.reconnect_reason_kind(),
+            Some(ReconnectReasonKind::Kick)
+        );
+        assert_eq!(session.reconnect_reason_text(), Some("serverRestarting"));
+        assert_eq!(session.reconnect_reason_ordinal(), None);
+        assert_eq!(
+            session.reconnect_hint_text(),
+            Some("server is restarting; retry connection shortly.")
+        );
     }
 
     #[test]

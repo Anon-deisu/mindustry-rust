@@ -12,7 +12,7 @@ use mdt_client_min::client_session::{
     client_build_plan_config_to_typeio_object, ClientBuildPlan, ClientBuildPlanConfig,
     ClientLogicDataTransport, ClientPacketTransport, ClientSession, ClientSessionEvent,
     ClientSessionTiming, ClientUnitRef, IgnoredRemotePacketMeta, StateSnapshotAppliedProjection,
-    KICK_REASON_SERVER_RESTARTING_ORDINAL,
+    is_server_restarting_kick, KICK_REASON_SERVER_RESTARTING_ORDINAL,
 };
 use mdt_client_min::connect_packet::{
     default_connect_build, default_connect_version_type, ConnectCompatibilityWarning,
@@ -549,10 +549,12 @@ fn first_connect_redirect_target(events: &[ClientSessionEvent]) -> Option<(Strin
 fn first_server_restart_reconnect_delay_ms(events: &[ClientSessionEvent]) -> Option<u64> {
     events.iter().find_map(|event| match event {
         ClientSessionEvent::Kicked {
-            reason_ordinal: Some(KICK_REASON_SERVER_RESTARTING_ORDINAL),
+            reason_text,
+            reason_ordinal,
             duration_ms,
-            ..
-        } => Some(duration_ms.unwrap_or(0)),
+        } if is_server_restarting_kick(reason_text.as_deref(), *reason_ordinal) => {
+            Some(duration_ms.unwrap_or(0))
+        }
         _ => None,
     })
 }
@@ -14313,6 +14315,17 @@ mod tests {
     }
 
     #[test]
+    fn first_server_restart_reconnect_delay_ms_matches_text_only_server_restarting_kick() {
+        let events = vec![ClientSessionEvent::Kicked {
+            reason_text: Some("serverRestarting".to_string()),
+            reason_ordinal: None,
+            duration_ms: Some(2_500),
+        }];
+
+        assert_eq!(first_server_restart_reconnect_delay_ms(&events), Some(2_500));
+    }
+
+    #[test]
     fn reconnect_executor_prioritizes_redirect_over_due_restart_and_timeout() {
         let events = vec![ClientSessionEvent::ConnectRedirectRequested {
             ip: "127.0.0.2".to_string(),
@@ -14348,8 +14361,8 @@ mod tests {
     #[test]
     fn reconnect_executor_schedules_restart_and_returns_due_attempt_once() {
         let events = vec![ClientSessionEvent::Kicked {
-            reason_text: None,
-            reason_ordinal: Some(KICK_REASON_SERVER_RESTARTING_ORDINAL),
+            reason_text: Some("serverRestarting".to_string()),
+            reason_ordinal: None,
             duration_ms: Some(250),
         }];
         let mut state = ReconnectExecutorState::default();
