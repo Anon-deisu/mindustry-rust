@@ -282,6 +282,7 @@ impl CommandModeState {
 
     pub fn record_building_control_select(&mut self, build_pos: Option<i32>) {
         self.active = true;
+        self.selected_units.clear();
         self.command_buildings = build_pos.into_iter().collect();
         self.command_rect = None;
         self.last_target = Some(CommandModeTargetProjection {
@@ -577,10 +578,27 @@ mod tests {
     fn building_selection_helpers_accept_none_and_control_groups_survive_clear() {
         let mut state = CommandModeState::default();
         state.bind_control_group(1, &[44, 55]);
+        state.select_unit_target(Some(unit(2, 11)), &[11, 22], CommandModeSelectionOp::Replace);
+        assert_eq!(state.projection().selected_units, vec![11, 22]);
+
+        state.record_building_control_select(Some(90));
+        assert!(state.projection().selected_units.is_empty());
+        assert_eq!(state.projection().command_buildings, vec![90]);
+        assert_eq!(
+            state.projection().last_target,
+            Some(CommandModeTargetProjection {
+                build_target: Some(90),
+                unit_target: None,
+                position_target: None,
+                rect_target: None,
+            })
+        );
+
         state.record_unit_building_control_select(Some(unit(2, 44)), &[44], Some(90));
         assert_eq!(state.projection().command_buildings, vec![90]);
 
         state.record_building_control_select(None);
+        assert!(state.projection().selected_units.is_empty());
         assert!(state.projection().command_buildings.is_empty());
         assert_eq!(
             state.projection().last_target,
