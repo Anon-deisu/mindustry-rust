@@ -3466,6 +3466,14 @@ fn runtime_typed_build_config_value_label(
             }
             parts.join(":")
         }
+        TypedBuildingRuntimeValue::StackConveyor { link, cooldown_bits } => format!(
+            "link={}:cooldown={}",
+            link.map(|value| value.to_string())
+                .unwrap_or_else(|| "clear".to_string()),
+            cooldown_bits
+                .map(|bits| format!("0x{bits:08x}"))
+                .unwrap_or_else(|| "none".to_string())
+        ),
         TypedBuildingRuntimeValue::Item(value) => format!(
             "{}={}",
             runtime_typed_build_config_item_label(kind),
@@ -9167,12 +9175,13 @@ mod tests {
         let mut hud = HudModel::default();
         let input = ClientSnapshotInputState::default();
         let mut state = SessionState::default();
-        let build_pos = pack_runtime_point2(38, 60);
+        let plastanium_pos = pack_runtime_point2(38, 60);
+        let surge_pos = pack_runtime_point2(39, 60);
 
         state.building_table_projection.apply_block_snapshot_head(
-            build_pos,
+            plastanium_pos,
             315,
-            Some("surge-router".to_string()),
+            Some("plastanium-conveyor".to_string()),
             Some(2),
             Some(3),
             Some(4),
@@ -9193,7 +9202,45 @@ mod tests {
         );
         state
             .configured_block_projection
-            .apply_duct_router_item(build_pos, Some(36));
+            .apply_stack_conveyor_runtime(
+                plastanium_pos,
+                crate::session_state::StackConveyorRuntimeProjection {
+                    link: 36,
+                    cooldown_bits: 0x3f80_0000,
+                },
+            );
+
+        state.building_table_projection.apply_block_snapshot_head(
+            surge_pos,
+            315,
+            Some("surge-conveyor".to_string()),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(0x3f80_0000),
+            Some(0x3f20_0000),
+            Some(127),
+            Some(false),
+            Some(TypeIoObject::Null),
+            Some(0x4080_0000),
+            Some(true),
+            Some(0x44),
+            Some(0x12),
+            Some(85),
+            None,
+            None,
+            None,
+        );
+        state
+            .configured_block_projection
+            .apply_stack_conveyor_runtime(
+                surge_pos,
+                crate::session_state::StackConveyorRuntimeProjection {
+                    link: 36,
+                    cooldown_bits: 0x4140_0000,
+                },
+            );
 
         adapter.apply(&mut scene, &mut hud, &input, &state);
 
@@ -9202,7 +9249,9 @@ mod tests {
             .as_ref()
             .expect("build_ui observability should be present");
         assert!(build_ui.inspector_entries.iter().any(|entry| {
-            entry.family == "stack-router" && entry.sample == "38:60:surge-router:item=36"
+            entry.family == "stack-conveyor"
+                && entry.tracked_count == 2
+                && entry.sample == "39:60:surge-conveyor:link=36:cooldown=0x41400000"
         }));
     }
 

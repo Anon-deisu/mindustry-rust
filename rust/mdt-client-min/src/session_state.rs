@@ -460,6 +460,12 @@ pub struct ConveyorRuntimeProjection {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StackConveyorRuntimeProjection {
+    pub link: i32,
+    pub cooldown_bits: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ItemBridgeBufferRuntimeProjection {
     pub index: i8,
     pub capacity: usize,
@@ -1948,6 +1954,7 @@ pub struct ConfiguredBlockProjection {
     pub shielded_wall_runtime_by_build_pos: BTreeMap<i32, ShieldedWallRuntimeProjection>,
     pub separator_runtime_by_build_pos: BTreeMap<i32, SeparatorRuntimeProjection>,
     pub conveyor_runtime_by_build_pos: BTreeMap<i32, ConveyorRuntimeProjection>,
+    pub stack_conveyor_runtime_by_build_pos: BTreeMap<i32, StackConveyorRuntimeProjection>,
     pub unit_cargo_unload_point_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub item_source_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub liquid_source_liquid_by_build_pos: BTreeMap<i32, Option<i16>>,
@@ -2071,6 +2078,15 @@ impl ConfiguredBlockProjection {
         projection: ConveyorRuntimeProjection,
     ) {
         self.conveyor_runtime_by_build_pos
+            .insert(build_pos, projection);
+    }
+
+    pub fn apply_stack_conveyor_runtime(
+        &mut self,
+        build_pos: i32,
+        projection: StackConveyorRuntimeProjection,
+    ) {
+        self.stack_conveyor_runtime_by_build_pos
             .insert(build_pos, projection);
     }
 
@@ -3401,6 +3417,7 @@ pub enum TypedBuildingRuntimeKind {
     ShieldedWall,
     Separator,
     Conveyor,
+    StackConveyor,
     UnitCargoUnloadPoint,
     ItemSource,
     LiquidSource,
@@ -3456,6 +3473,7 @@ impl TypedBuildingRuntimeKind {
             Self::ShieldedWall => "shielded-wall",
             Self::Separator => "separator",
             Self::Conveyor => "conveyor",
+            Self::StackConveyor => "stack-conveyor",
             Self::UnitCargoUnloadPoint => "unit-cargo-unload-point",
             Self::ItemSource => "item-source",
             Self::LiquidSource => "liquid-source",
@@ -3549,6 +3567,10 @@ pub enum TypedBuildingRuntimeValue {
         first_item_id: Option<i16>,
         first_x_raw: Option<i8>,
         first_y_raw: Option<i8>,
+    },
+    StackConveyor {
+        link: Option<i32>,
+        cooldown_bits: Option<u32>,
     },
     Item(Option<i16>),
     LandingPad {
@@ -4052,6 +4074,18 @@ fn typed_runtime_building_model(
                     first_item_id: runtime.and_then(|projection| projection.first_item_id),
                     first_x_raw: runtime.and_then(|projection| projection.first_x_raw),
                     first_y_raw: runtime.and_then(|projection| projection.first_y_raw),
+                },
+            )
+        }
+        "plastanium-conveyor" | "surge-conveyor" => {
+            let runtime = configured
+                .stack_conveyor_runtime_by_build_pos
+                .get(&build_pos);
+            (
+                TypedBuildingRuntimeKind::StackConveyor,
+                TypedBuildingRuntimeValue::StackConveyor {
+                    link: runtime.map(|projection| projection.link),
+                    cooldown_bits: runtime.map(|projection| projection.cooldown_bits),
                 },
             )
         }
@@ -11112,6 +11146,127 @@ mod tests {
                     first_item_id: None,
                     first_x_raw: None,
                     first_y_raw: None,
+                },
+                Vec::new(),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(0x3f80_0000),
+                Some(0x3f20_0000),
+                Some(127),
+                Some(false),
+                Some(0x4080_0000),
+                Some(true),
+                Some(0x44),
+                Some(0x12),
+                Some(85),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_stack_conveyor_family_shells() {
+        let mut state = SessionState::default();
+        let plastanium_pos = 0x0006_001ai32;
+        let surge_pos = 0x0006_001bi32;
+
+        for (build_pos, block_name, link, cooldown_bits) in [
+            (
+                plastanium_pos,
+                "plastanium-conveyor",
+                0x0000_0021i32,
+                0x3f80_0000u32,
+            ),
+            (surge_pos, "surge-conveyor", -0x0000_0022i32, 0x4140_0000u32),
+        ] {
+            state.building_table_projection.apply_block_snapshot_head(
+                build_pos,
+                304,
+                Some(block_name.to_string()),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(0x3f80_0000),
+                Some(0x3f20_0000),
+                Some(127),
+                Some(false),
+                Some(TypeIoObject::Null),
+                Some(0x4080_0000),
+                Some(true),
+                Some(0x44),
+                Some(0x12),
+                Some(85),
+                None,
+                None,
+                None,
+            );
+            state
+                .configured_block_projection
+                .apply_stack_conveyor_runtime(
+                    build_pos,
+                    StackConveyorRuntimeProjection {
+                        link,
+                        cooldown_bits,
+                    },
+                );
+        }
+
+        assert_eq!(
+            state.typed_runtime_building_at(plastanium_pos),
+            Some(expected_typed_runtime_building(
+                plastanium_pos,
+                304,
+                "plastanium-conveyor",
+                TypedBuildingRuntimeKind::StackConveyor,
+                TypedBuildingRuntimeValue::StackConveyor {
+                    link: Some(0x0000_0021),
+                    cooldown_bits: Some(0x3f80_0000),
+                },
+                Vec::new(),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(0x3f80_0000),
+                Some(0x3f20_0000),
+                Some(127),
+                Some(false),
+                Some(0x4080_0000),
+                Some(true),
+                Some(0x44),
+                Some(0x12),
+                Some(85),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
+        );
+
+        assert_eq!(
+            state.typed_runtime_building_at(surge_pos),
+            Some(expected_typed_runtime_building(
+                surge_pos,
+                304,
+                "surge-conveyor",
+                TypedBuildingRuntimeKind::StackConveyor,
+                TypedBuildingRuntimeValue::StackConveyor {
+                    link: Some(-0x0000_0022),
+                    cooldown_bits: Some(0x4140_0000),
                 },
                 Vec::new(),
                 Some(2),

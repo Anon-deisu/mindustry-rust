@@ -15269,6 +15269,12 @@ pub struct ConveyorTailSnapshot {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StackConveyorTailSnapshot {
+    pub link: i32,
+    pub cooldown_bits: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CoreTailSnapshot {
     pub command_pos_present: bool,
     pub command_pos_x_bits: u32,
@@ -15609,6 +15615,7 @@ pub struct CanvasTailSnapshot {
 pub enum ParsedBuildingTail {
     Empty,
     Conveyor(ConveyorTailSnapshot),
+    StackConveyor(StackConveyorTailSnapshot),
     Core(CoreTailSnapshot),
     UnitFactory(UnitFactoryTailSnapshot),
     Reconstructor(ReconstructorTailSnapshot),
@@ -15926,6 +15933,7 @@ fn building_tail_kind(parsed_tail: &ParsedBuildingTail) -> &'static str {
     match parsed_tail {
         ParsedBuildingTail::Empty => "empty",
         ParsedBuildingTail::Conveyor(_) => "conveyor",
+        ParsedBuildingTail::StackConveyor(_) => "stackConveyor",
         ParsedBuildingTail::Core(_) => "core",
         ParsedBuildingTail::UnitFactory(_) => "unitFactory",
         ParsedBuildingTail::Reconstructor(_) => "reconstructor",
@@ -24536,6 +24544,9 @@ fn parse_building_tail_with_context(
         Some("conveyor") => Ok(ParsedBuildingTail::Conveyor(parse_conveyor_tail_snapshot(
             revision, tail_bytes,
         )?)),
+        Some("plastanium-conveyor") | Some("surge-conveyor") => Ok(
+            ParsedBuildingTail::StackConveyor(parse_stack_conveyor_tail_snapshot(tail_bytes)?),
+        ),
         Some("phase-conveyor") | Some("bridge-conduit") | Some("phase-conduit") => Ok(
             ParsedBuildingTail::ItemBridge(parse_item_bridge_tail_snapshot(revision, tail_bytes)?),
         ),
@@ -24757,6 +24768,26 @@ fn parse_conveyor_tail_snapshot(
     }
 
     Ok(ConveyorTailSnapshot { len, items })
+}
+
+fn parse_stack_conveyor_tail_snapshot(
+    tail_bytes: &[u8],
+) -> Result<StackConveyorTailSnapshot, String> {
+    let mut reader = Reader::new(tail_bytes);
+    let link = reader.read_i32()?;
+    let cooldown_bits = reader.read_u32()?;
+
+    if !reader.remaining_bytes().is_empty() {
+        return Err(format!(
+            "unexpected stack conveyor tail remainder: {} bytes",
+            reader.remaining_bytes().len()
+        ));
+    }
+
+    Ok(StackConveyorTailSnapshot {
+        link,
+        cooldown_bits,
+    })
 }
 
 fn read_non_negative_byte_len(label: &str, value: i8) -> Result<usize, String> {
@@ -27288,6 +27319,7 @@ pub fn format_world_model_goldens(model: &WorldModel) -> String {
             match &center.building.parsed_tail {
                 ParsedBuildingTail::Empty => "empty",
                 ParsedBuildingTail::Conveyor(_) => "conveyor",
+                ParsedBuildingTail::StackConveyor(_) => "stackConveyor",
                 ParsedBuildingTail::Core(_) => "core",
                 ParsedBuildingTail::UnitFactory(_) => "unitFactory",
                 ParsedBuildingTail::Reconstructor(_) => "reconstructor",
@@ -27365,6 +27397,18 @@ pub fn format_world_model_goldens(model: &WorldModel) -> String {
                             .map(|item| item.y_raw as i32)
                             .collect::<Vec<_>>(),
                     ),
+                );
+            }
+            ParsedBuildingTail::StackConveyor(stack_conveyor) => {
+                push_str(
+                    &mut lines,
+                    &format!("{prefix}.tail.stackConveyor.link"),
+                    &format!("{:08x}", stack_conveyor.link as u32),
+                );
+                push_str(
+                    &mut lines,
+                    &format!("{prefix}.tail.stackConveyor.cooldownBits"),
+                    &format!("{:08x}", stack_conveyor.cooldown_bits),
                 );
             }
             ParsedBuildingTail::Core(core) => {
@@ -43573,6 +43617,37 @@ mod tests {
         assert_eq!(
             surge_router,
             ParsedBuildingTail::NullableItemRef(NullableItemRefTailSnapshot { item_id: Some(6) })
+        );
+    }
+
+    #[test]
+    fn parses_stack_transport_family_tails() {
+        let plastanium_bytes = {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&0x11223344i32.to_be_bytes());
+            bytes.extend_from_slice(&0x3f800000u32.to_be_bytes());
+            bytes
+        };
+        assert_eq!(
+            parse_building_tail(Some("plastanium-conveyor"), 0, &plastanium_bytes).unwrap(),
+            ParsedBuildingTail::StackConveyor(StackConveyorTailSnapshot {
+                link: 0x1122_3344,
+                cooldown_bits: 0x3f80_0000,
+            })
+        );
+
+        let surge_bytes = {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&(-0x55667788i32).to_be_bytes());
+            bytes.extend_from_slice(&0x41400000u32.to_be_bytes());
+            bytes
+        };
+        assert_eq!(
+            parse_building_tail(Some("surge-conveyor"), 0, &surge_bytes).unwrap(),
+            ParsedBuildingTail::StackConveyor(StackConveyorTailSnapshot {
+                link: -0x5566_7788,
+                cooldown_bits: 0x4140_0000,
+            })
         );
     }
 

@@ -146,6 +146,7 @@ pub(crate) fn building_tail_kind(parsed_tail: &ParsedBuildingTail) -> &'static s
     match parsed_tail {
         ParsedBuildingTail::Empty => "empty",
         ParsedBuildingTail::Conveyor(_) => "conveyor",
+        ParsedBuildingTail::StackConveyor(_) => "stackConveyor",
         ParsedBuildingTail::Core(_) => "core",
         ParsedBuildingTail::UnitFactory(_) => "unitFactory",
         ParsedBuildingTail::Reconstructor(_) => "reconstructor",
