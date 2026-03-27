@@ -10314,6 +10314,7 @@ mod tests {
                     kind: 2,
                     value: 704,
                 }),
+                removed_entity_projection: true,
             },
         ]);
 

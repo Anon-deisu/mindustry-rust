@@ -5568,8 +5568,12 @@ impl ClientSession {
                         self.state.received_unit_cap_death_count.saturating_add(1);
                     self.state.last_unit_cap_death = unit;
                     self.state.record_remove_resource_delta_entity(unit);
-                    let _ = remove_entity_projection_for_unit_ref(&mut self.state, unit);
-                    Ok(ClientSessionEvent::UnitCapDeath { unit })
+                    let removed_entity_projection =
+                        remove_entity_projection_for_unit_ref(&mut self.state, unit);
+                    Ok(ClientSessionEvent::UnitCapDeath {
+                        unit,
+                        removed_entity_projection,
+                    })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
                         packet_id: packet.packet_id,
@@ -9043,6 +9047,7 @@ pub enum ClientSessionEvent {
     },
     UnitCapDeath {
         unit: Option<UnitRefProjection>,
+        removed_entity_projection: bool,
     },
     CreateWeather {
         weather_id: Option<i16>,
@@ -37402,6 +37407,7 @@ mod tests {
                     kind: 2,
                     value: 704,
                 }),
+                removed_entity_projection: true,
             }
         );
 

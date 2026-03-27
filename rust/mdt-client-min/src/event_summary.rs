@@ -692,9 +692,12 @@ pub fn summarize_client_packet_events(events: &[ClientSessionEvent]) -> Vec<Stri
             } => Some(format!(
                 "unit_safe_death: unit={unit:?} removed_entity_projection={removed_entity_projection}"
             )),
-            ClientSessionEvent::UnitCapDeath { unit } => {
-                Some(format!("unit_cap_death: unit={unit:?}"))
-            }
+            ClientSessionEvent::UnitCapDeath {
+                unit,
+                removed_entity_projection,
+            } => Some(format!(
+                "unit_cap_death: unit={unit:?} removed_entity_projection={removed_entity_projection}"
+            )),
             ClientSessionEvent::UnitClear => Some("unit_clear".to_string()),
             ClientSessionEvent::UnitControl { target } => {
                 Some(format!("unit_control: target={target:?}"))
