@@ -425,6 +425,12 @@ pub struct InterplanetaryAcceleratorRuntimeProjection {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PowerGeneratorRuntimeProjection {
+    pub production_efficiency_bits: u32,
+    pub generate_time_bits: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShieldedWallRuntimeProjection {
     pub shield_bits: u32,
 }
@@ -1928,6 +1934,7 @@ pub struct ConfiguredBlockProjection {
     pub launch_pad_runtime_by_build_pos: BTreeMap<i32, LaunchPadRuntimeProjection>,
     pub interplanetary_accelerator_runtime_by_build_pos:
         BTreeMap<i32, InterplanetaryAcceleratorRuntimeProjection>,
+    pub power_generator_runtime_by_build_pos: BTreeMap<i32, PowerGeneratorRuntimeProjection>,
     pub shielded_wall_runtime_by_build_pos: BTreeMap<i32, ShieldedWallRuntimeProjection>,
     pub separator_runtime_by_build_pos: BTreeMap<i32, SeparatorRuntimeProjection>,
     pub conveyor_runtime_by_build_pos: BTreeMap<i32, ConveyorRuntimeProjection>,
@@ -2009,6 +2016,15 @@ impl ConfiguredBlockProjection {
         projection: InterplanetaryAcceleratorRuntimeProjection,
     ) {
         self.interplanetary_accelerator_runtime_by_build_pos
+            .insert(build_pos, projection);
+    }
+
+    pub fn apply_power_generator_runtime(
+        &mut self,
+        build_pos: i32,
+        projection: PowerGeneratorRuntimeProjection,
+    ) {
+        self.power_generator_runtime_by_build_pos
             .insert(build_pos, projection);
     }
 
@@ -2325,6 +2341,7 @@ impl ConfiguredBlockProjection {
         self.launch_pad_runtime_by_build_pos.remove(&build_pos);
         self.interplanetary_accelerator_runtime_by_build_pos
             .remove(&build_pos);
+        self.power_generator_runtime_by_build_pos.remove(&build_pos);
         self.conveyor_runtime_by_build_pos.remove(&build_pos);
         self.unit_cargo_unload_point_item_by_build_pos
             .remove(&build_pos);
@@ -3357,6 +3374,7 @@ pub enum TypedBuildingRuntimeKind {
     Radar,
     LaunchPad,
     InterplanetaryAccelerator,
+    PowerGenerator,
     ShieldedWall,
     Separator,
     Conveyor,
@@ -3406,6 +3424,7 @@ impl TypedBuildingRuntimeKind {
             Self::Radar => "radar",
             Self::LaunchPad => "launch-pad",
             Self::InterplanetaryAccelerator => "interplanetary-accelerator",
+            Self::PowerGenerator => "power-generator",
             Self::ShieldedWall => "shielded-wall",
             Self::Separator => "separator",
             Self::Conveyor => "conveyor",
@@ -3465,6 +3484,10 @@ pub enum TypedBuildingRuntimeValue {
     },
     InterplanetaryAccelerator {
         progress_bits: Option<u32>,
+    },
+    PowerGenerator {
+        production_efficiency_bits: Option<u32>,
+        generate_time_bits: Option<u32>,
     },
     ShieldedWall {
         shield_bits: Option<u32>,
@@ -3756,6 +3779,22 @@ impl TypedBuildingRuntimeProjection {
     }
 }
 
+fn is_power_generator_block_name(block_name: &str) -> bool {
+    matches!(
+        block_name,
+        "thermal-generator"
+            | "turbine-condenser"
+            | "combustion-generator"
+            | "steam-generator"
+            | "differential-generator"
+            | "rtg-generator"
+            | "solar-panel"
+            | "solar-panel-large"
+            | "chemical-combustion-chamber"
+            | "pyrolysis-generator"
+    )
+}
+
 fn typed_runtime_building_model(
     build_pos: i32,
     building: &BuildingProjection,
@@ -3811,6 +3850,19 @@ fn typed_runtime_building_model(
                     .interplanetary_accelerator_runtime_by_build_pos
                     .get(&build_pos)
                     .map(|projection| projection.progress_bits),
+            },
+        ),
+        block_name if is_power_generator_block_name(block_name) => (
+            TypedBuildingRuntimeKind::PowerGenerator,
+            TypedBuildingRuntimeValue::PowerGenerator {
+                production_efficiency_bits: configured
+                    .power_generator_runtime_by_build_pos
+                    .get(&build_pos)
+                    .map(|projection| projection.production_efficiency_bits),
+                generate_time_bits: configured
+                    .power_generator_runtime_by_build_pos
+                    .get(&build_pos)
+                    .map(|projection| projection.generate_time_bits),
             },
         ),
         "shielded-wall" => (
@@ -9471,6 +9523,177 @@ mod tests {
                 },
             ))
         );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_power_generator_family_shells() {
+        for (build_pos, block_id, block_name) in [
+            (0x0006_0021i32, 319, "thermal-generator"),
+            (0x0006_0022i32, 320, "solar-panel-large"),
+            (0x0006_0023i32, 321, "chemical-combustion-chamber"),
+            (0x0006_0024i32, 322, "pyrolysis-generator"),
+        ] {
+            let mut state = SessionState::default();
+            state.building_table_projection.apply_block_snapshot_head(
+                build_pos,
+                block_id,
+                Some(block_name.to_string()),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(0x3f80_0000),
+                Some(0x3f20_0000),
+                Some(131),
+                Some(false),
+                Some(TypeIoObject::Null),
+                Some(0x4080_0000),
+                Some(true),
+                Some(0x44),
+                Some(0x12),
+                Some(85),
+                None,
+                None,
+                None,
+            );
+
+            let expected = expected_typed_runtime_building(
+                build_pos,
+                block_id,
+                block_name,
+                TypedBuildingRuntimeKind::PowerGenerator,
+                TypedBuildingRuntimeValue::PowerGenerator {
+                    production_efficiency_bits: None,
+                    generate_time_bits: None,
+                },
+                Vec::new(),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(0x3f80_0000),
+                Some(0x3f20_0000),
+                Some(131),
+                Some(false),
+                Some(0x4080_0000),
+                Some(true),
+                Some(0x44),
+                Some(0x12),
+                Some(85),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            );
+
+            assert_eq!(
+                state.typed_runtime_building_at(build_pos),
+                Some(expected.clone())
+            );
+            state.refresh_runtime_typed_building_from_tables(build_pos);
+            assert_eq!(
+                state
+                    .runtime_typed_building_apply_projection
+                    .building_at(build_pos),
+                Some(&expected)
+            );
+        }
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_power_generator_family_runtime() {
+        for (build_pos, block_id, block_name, production_efficiency_bits, generate_time_bits) in [
+            (0x0006_0025i32, 323, "solar-panel", 0x3f80_0000, 0x4000_0000),
+            (
+                0x0006_0026i32,
+                324,
+                "pyrolysis-generator",
+                0x4040_0000,
+                0x4080_0000,
+            ),
+        ] {
+            let mut state = SessionState::default();
+            state.building_table_projection.apply_block_snapshot_head(
+                build_pos,
+                block_id,
+                Some(block_name.to_string()),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(0x3f80_0000),
+                Some(0x3f20_0000),
+                Some(132),
+                Some(true),
+                Some(TypeIoObject::Null),
+                Some(0x4080_0000),
+                Some(false),
+                Some(0x45),
+                Some(0x13),
+                Some(84),
+                None,
+                None,
+                None,
+            );
+            state
+                .configured_block_projection
+                .apply_power_generator_runtime(
+                    build_pos,
+                    PowerGeneratorRuntimeProjection {
+                        production_efficiency_bits,
+                        generate_time_bits,
+                    },
+                );
+
+            let expected = expected_typed_runtime_building(
+                build_pos,
+                block_id,
+                block_name,
+                TypedBuildingRuntimeKind::PowerGenerator,
+                TypedBuildingRuntimeValue::PowerGenerator {
+                    production_efficiency_bits: Some(production_efficiency_bits),
+                    generate_time_bits: Some(generate_time_bits),
+                },
+                Vec::new(),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(0x3f80_0000),
+                Some(0x3f20_0000),
+                Some(132),
+                Some(true),
+                Some(0x4080_0000),
+                Some(false),
+                Some(0x45),
+                Some(0x13),
+                Some(84),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            );
+
+            assert_eq!(
+                state.typed_runtime_building_at(build_pos),
+                Some(expected.clone())
+            );
+            state.refresh_runtime_typed_building_from_tables(build_pos);
+            assert_eq!(
+                state
+                    .runtime_typed_building_apply_projection
+                    .building_at(build_pos),
+                Some(&expected)
+            );
+        }
     }
 
     #[test]

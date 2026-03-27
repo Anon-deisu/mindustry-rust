@@ -3364,6 +3364,18 @@ fn runtime_typed_build_config_value_label(
                 .map(|bits| format!("0x{bits:08x}"))
                 .unwrap_or_else(|| "none".to_string())
         ),
+        TypedBuildingRuntimeValue::PowerGenerator {
+            production_efficiency_bits,
+            generate_time_bits,
+        } => format!(
+            "eff={}:time={}",
+            production_efficiency_bits
+                .map(|bits| format!("0x{bits:08x}"))
+                .unwrap_or_else(|| "none".to_string()),
+            generate_time_bits
+                .map(|bits| format!("0x{bits:08x}"))
+                .unwrap_or_else(|| "none".to_string())
+        ),
         TypedBuildingRuntimeValue::Separator {
             progress_bits,
             warmup_bits,
@@ -8898,6 +8910,19 @@ mod tests {
     }
 
     #[test]
+    fn runtime_typed_build_config_value_label_formats_power_generator_runtime() {
+        let label = runtime_typed_build_config_value_label(
+            TypedBuildingRuntimeKind::PowerGenerator,
+            &TypedBuildingRuntimeValue::PowerGenerator {
+                production_efficiency_bits: Some(0x3f80_0000),
+                generate_time_bits: Some(0x4000_0000),
+            },
+        );
+
+        assert_eq!(label, "eff=0x3f800000:time=0x40000000");
+    }
+
+    #[test]
     fn runtime_typed_build_config_value_label_formats_separator_runtime() {
         let label = runtime_typed_build_config_value_label(
             TypedBuildingRuntimeKind::Separator,
@@ -9319,6 +9344,67 @@ mod tests {
             entry.family == "separator"
                 && entry.sample
                     == "42:64:disassembler:progress=0x3f800000:warmup=0x40000000:seed=-7"
+        }));
+    }
+
+    #[test]
+    fn render_runtime_adapter_reports_power_generator_runtime_in_inspector() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        let build_pos = pack_runtime_point2(42, 64);
+
+        state
+            .runtime_typed_building_apply_projection
+            .by_build_pos
+            .insert(
+                build_pos,
+                crate::session_state::TypedBuildingRuntimeModel {
+                    build_pos,
+                    block_id: Some(1),
+                    block_name: "pyrolysis-generator".to_string(),
+                    kind: TypedBuildingRuntimeKind::PowerGenerator,
+                    value: TypedBuildingRuntimeValue::PowerGenerator {
+                        production_efficiency_bits: Some(0x3f80_0000),
+                        generate_time_bits: Some(0x4000_0000),
+                    },
+                    inventory_item_stacks: vec![],
+                    inventory_liquid_stacks: vec![],
+                    rotation: None,
+                    team_id: None,
+                    io_version: None,
+                    module_bitmask: None,
+                    time_scale_bits: None,
+                    time_scale_duration_bits: None,
+                    last_disabler_pos: None,
+                    legacy_consume_connected: None,
+                    health_bits: None,
+                    enabled: None,
+                    efficiency: None,
+                    optional_efficiency: None,
+                    visible_flags: None,
+                    turret_reload_counter_bits: None,
+                    turret_rotation_bits: None,
+                    item_turret_ammo_count: None,
+                    continuous_turret_last_length_bits: None,
+                    build_turret_rotation_bits: None,
+                    build_turret_plans_present: None,
+                    build_turret_plan_count: None,
+                    last_update: crate::session_state::BuildingProjectionUpdateKind::TileConfig,
+                },
+            );
+
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let build_ui = hud
+            .build_ui
+            .as_ref()
+            .expect("build_ui observability should be present");
+        assert!(build_ui.inspector_entries.iter().any(|entry| {
+            entry.family == "power-generator"
+                && entry.sample == "42:64:pyrolysis-generator:eff=0x3f800000:time=0x40000000"
         }));
     }
 
