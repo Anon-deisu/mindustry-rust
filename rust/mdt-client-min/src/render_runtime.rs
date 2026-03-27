@@ -1054,6 +1054,7 @@ fn upsert_runtime_world_label_overlay(
     world_x: f32,
     world_y: f32,
 ) {
+    let remaining_ticks = runtime_world_label_overlay_ttl_ticks(duration);
     let existing_overlay_key = label_id.and_then(|label_id| {
         runtime_world_overlay
             .world_label_overlays
@@ -1066,6 +1067,9 @@ fn upsert_runtime_world_label_overlay(
                     .overlay_key
             })
     });
+    if remaining_ticks == 0 {
+        return;
+    }
     let overlay = RuntimeWorldLabelOverlay {
         overlay_key: existing_overlay_key.unwrap_or_else(|| {
             let overlay_key = runtime_world_overlay.next_world_label_overlay_key;
@@ -1079,7 +1083,7 @@ fn upsert_runtime_world_label_overlay(
         message,
         x_bits: world_x.to_bits(),
         y_bits: world_y.to_bits(),
-        remaining_ticks: runtime_world_label_overlay_ttl_ticks(duration),
+        remaining_ticks,
     };
     runtime_world_overlay.world_label_overlays.push(overlay);
     if runtime_world_overlay.world_label_overlays.len() > WORLD_LABEL_OVERLAY_LIMIT {
@@ -1149,8 +1153,14 @@ fn runtime_effect_event_inside_clip_view(
     let Some(clip_view) = clip_view else {
         return true;
     };
-    if clip_view.size.0 <= 0.0 || clip_view.size.1 <= 0.0 {
-        return true;
+    if !clip_view.center.0.is_finite()
+        || !clip_view.center.1.is_finite()
+        || !clip_view.size.0.is_finite()
+        || !clip_view.size.1.is_finite()
+        || clip_view.size.0 <= 0.0
+        || clip_view.size.1 <= 0.0
+    {
+        return false;
     }
 
     let clip_half = runtime_effect_overlay_clip_size(effect_id) * 0.5;
@@ -1216,7 +1226,7 @@ fn advance_runtime_effect_overlays(runtime_world_overlay: &mut RuntimeWorldOverl
 
 fn runtime_world_label_overlay_ttl_ticks(duration: f32) -> u16 {
     if !duration.is_finite() {
-        return 1;
+        return 0;
     }
     (duration.max(0.0) * 60.0)
         .ceil()
@@ -5041,7 +5051,10 @@ fn append_runtime_ping_location_objects(scene: &mut RenderModel, session_state: 
         .unwrap_or("ping");
     scene.objects.push(RenderObject {
         id: render_text_scene_object_id(
-            format!("marker:text:runtime-ping:{}", projection.last_player_id.unwrap_or(-1)),
+            format!(
+                "marker:text:runtime-ping:{}",
+                projection.last_player_id.unwrap_or(-1)
+            ),
             Some(text),
         ),
         layer: 31,
@@ -5077,7 +5090,7 @@ fn append_runtime_live_entity_objects(scene: &mut RenderModel, session_state: &S
     let has_player_focus_object = scene
         .objects
         .iter()
-        .any(|object| object.id.starts_with("player:") || object.id.starts_with("unit:"));
+        .any(|object| object.id.starts_with("player:"));
 
     let local_player_entity_id = projection
         .local_player()
@@ -5829,6 +5842,31 @@ mod tests {
     }
 
     #[test]
+    fn render_runtime_adapter_skips_world_label_event_overlay_with_non_finite_duration() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
+
+        adapter.observe_events(&[ClientSessionEvent::WorldLabel {
+            reliable: false,
+            label_id: Some(99),
+            message: Some("runtime-event".to_string()),
+            duration: f32::NAN,
+            world_x: 48.0,
+            world_y: 64.0,
+        }]);
+        assert!(adapter.world_overlay().world_label_overlays.is_empty());
+
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+        assert!(!scene
+            .objects
+            .iter()
+            .any(|object| object.id.starts_with("world-label:event:")));
+    }
+
+    #[test]
     fn render_runtime_adapter_renders_create_bullet_marker() {
         let mut adapter = RenderRuntimeAdapter::default();
         let mut scene = RenderModel::default();
@@ -6048,6 +6086,46 @@ mod tests {
 
         assert!(scene_object_by_id(&scene, "player:101").is_none());
         assert_eq!(scene.player_focus_tile(8.0), Some((3, 4)));
+    }
+
+    #[test]
+    fn render_runtime_adapter_does_not_treat_unit_object_as_existing_player_focus() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        scene.objects.push(RenderObject {
+            id: "unit:7".to_string(),
+            layer: 40,
+            x: 24.0,
+            y: 32.0,
+        });
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        state
+            .runtime_typed_entity_apply_projection
+            .upsert_runtime_entity(crate::session_state::TypedRuntimeEntityModel::Player(
+                crate::session_state::TypedRuntimePlayerEntity {
+                    base: crate::session_state::TypedRuntimeEntityBase {
+                        entity_id: 101,
+                        class_id: 12,
+                        hidden: false,
+                        is_local_player: true,
+                        unit_kind: 2,
+                        unit_value: 101,
+                        x_bits: 80.0f32.to_bits(),
+                        y_bits: 96.0f32.to_bits(),
+                        last_seen_entity_snapshot_count: 5,
+                    },
+                    semantic: crate::session_state::EntityPlayerSemanticProjection::default(),
+                },
+            ));
+
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let player =
+            scene_object_by_id(&scene, "player:101").expect("missing runtime local player");
+        assert_eq!(player.x, 80.0);
+        assert_eq!(player.y, 96.0);
     }
 
     #[test]
@@ -7878,6 +7956,36 @@ mod tests {
             Some(RuntimeEffectClipView {
                 center: (0.0, 0.0),
                 size: (100.0, 100.0),
+            }),
+        );
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        assert!(!scene
+            .objects
+            .iter()
+            .any(|object| object.id.starts_with("marker:runtime-effect:")));
+    }
+
+    #[test]
+    fn render_runtime_adapter_skips_effect_requested_with_invalid_clip_view() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
+
+        adapter.observe_events_with_view(
+            &[ClientSessionEvent::EffectRequested {
+                effect_id: None,
+                x: 0.0,
+                y: 0.0,
+                rotation: 0.0,
+                color_rgba: 0x11223344,
+                data_object: None,
+            }],
+            Some(RuntimeEffectClipView {
+                center: (0.0, 0.0),
+                size: (0.0, 100.0),
             }),
         );
         adapter.apply(&mut scene, &mut hud, &input, &state);
@@ -10233,9 +10341,9 @@ mod tests {
             assert_eq!(
                 runtime_effect_binding_label(&input, &state, &RuntimeWorldOverlay::default()),
                 expected
-        );
+            );
+        }
     }
-}
 
     #[test]
     fn render_runtime_adapter_reports_snapshot_observability_in_hud() {
