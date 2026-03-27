@@ -390,6 +390,7 @@ impl BuilderQueueStateMachine {
         progress_permyriad: Option<u16>,
     ) -> Option<BuilderQueueEntry> {
         let key = (entry.x, entry.y);
+        let was_head = self.head_tile == Some(key);
         let previous = self.active_by_tile.remove(&key);
         self.ordered_tiles.retain(|tile| *tile != key);
         self.active_by_tile.insert(
@@ -415,7 +416,8 @@ impl BuilderQueueStateMachine {
         }
         self.last_skip_reason = None;
         self.last_validation_removal_reasons.clear();
-        self.last_front_promotion = (!tail).then_some(BuilderQueueFrontPromotion::EnqueueFront);
+        self.last_front_promotion = (!tail && !was_head)
+            .then_some(BuilderQueueFrontPromotion::EnqueueFront);
         self.recount();
         previous
     }
@@ -559,15 +561,19 @@ impl BuilderQueueStateMachine {
 
     pub fn move_to_front(&mut self, x: i32, y: i32, breaking: bool) -> bool {
         let key = (x, y);
+        let was_head = self.head_tile == Some(key);
         if self
             .active_by_tile
             .get(&key)
             .is_some_and(|entry| entry.breaking == breaking)
         {
-            self.promote_to_front(key);
+            if !was_head {
+                self.promote_to_front(key);
+            }
             self.last_skip_reason = None;
             self.last_validation_removal_reasons.clear();
-            self.last_front_promotion = Some(BuilderQueueFrontPromotion::ExplicitMoveToFront);
+            self.last_front_promotion = (!was_head)
+                .then_some(BuilderQueueFrontPromotion::ExplicitMoveToFront);
             self.recount();
             true
         } else {
@@ -2232,6 +2238,76 @@ mod tests {
         assert_eq!(queue.ordered_tiles, vec![(19, 19)]);
         assert_eq!(queue.queued_count, 1);
         assert_eq!(queue.inflight_count, 0);
+    }
+
+    #[test]
+    fn enqueue_local_with_progress_replacing_head_does_not_report_front_promotion() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.enqueue_local(
+            BuilderQueueEntryObservation {
+                x: 20,
+                y: 20,
+                breaking: false,
+                block_id: Some(200),
+                rotation: 1,
+            },
+            true,
+        );
+
+        let replaced = queue.enqueue_local_with_progress(
+            BuilderQueueEntryObservation {
+                x: 20,
+                y: 20,
+                breaking: false,
+                block_id: Some(201),
+                rotation: 2,
+            },
+            false,
+            Some(8_800),
+        );
+
+        assert_eq!(
+            replaced,
+            Some(BuilderQueueEntry {
+                x: 20,
+                y: 20,
+                breaking: false,
+                block_id: Some(200),
+                rotation: Some(1),
+                progress_permyriad: None,
+                stage: BuilderQueueStage::Queued,
+            })
+        );
+        assert_eq!(queue.ordered_tiles, vec![(20, 20)]);
+        assert_eq!(queue.head_tile, Some((20, 20)));
+        assert_eq!(queue.head_entry().map(|entry| entry.progress_permyriad), Some(Some(8_800)));
+        assert_eq!(queue.last_front_promotion, None);
+    }
+
+    #[test]
+    fn move_to_front_on_current_head_is_a_noop_without_promotion() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 21,
+                y: 21,
+                breaking: false,
+                block_id: Some(210),
+                rotation: 0,
+            },
+            BuilderQueueEntryObservation {
+                x: 22,
+                y: 22,
+                breaking: false,
+                block_id: Some(220),
+                rotation: 1,
+            },
+        ]);
+
+        assert!(queue.move_to_front(21, 21, false));
+        assert_eq!(queue.ordered_tiles, vec![(21, 21), (22, 22)]);
+        assert_eq!(queue.head_tile, Some((21, 21)));
+        assert_eq!(queue.last_front_promotion, None);
     }
 
     #[test]
