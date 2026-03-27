@@ -3534,7 +3534,11 @@ fn typed_runtime_building_model(
         "additive-reconstructor"
         | "multiplicative-reconstructor"
         | "exponential-reconstructor"
-        | "tetrative-reconstructor" => {
+        | "tetrative-reconstructor"
+        | "tank-refabricator"
+        | "ship-refabricator"
+        | "mech-refabricator"
+        | "prime-refabricator" => {
             let command_id = configured
                 .reconstructor_command_by_build_pos
                 .get(&build_pos)
@@ -7377,7 +7381,7 @@ mod tests {
         state.building_table_projection.apply_block_snapshot_head(
             build_pos,
             304,
-            Some("additive-reconstructor".to_string()),
+            Some("prime-refabricator".to_string()),
             Some(3),
             Some(4),
             Some(5),
@@ -7402,7 +7406,7 @@ mod tests {
             Some(expected_typed_runtime_building(
                 build_pos,
                 304,
-                "additive-reconstructor",
+                "prime-refabricator",
                 TypedBuildingRuntimeKind::Reconstructor,
                 TypedBuildingRuntimeValue::Reconstructor {
                     command_id: None,

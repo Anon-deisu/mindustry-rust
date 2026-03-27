@@ -164,6 +164,10 @@ const BLOCK_NAME_ADDITIVE_RECONSTRUCTOR: &str = "additive-reconstructor";
 const BLOCK_NAME_MULTIPLICATIVE_RECONSTRUCTOR: &str = "multiplicative-reconstructor";
 const BLOCK_NAME_EXPONENTIAL_RECONSTRUCTOR: &str = "exponential-reconstructor";
 const BLOCK_NAME_TETRATIVE_RECONSTRUCTOR: &str = "tetrative-reconstructor";
+const BLOCK_NAME_TANK_REFABRICATOR: &str = "tank-refabricator";
+const BLOCK_NAME_SHIP_REFABRICATOR: &str = "ship-refabricator";
+const BLOCK_NAME_MECH_REFABRICATOR: &str = "mech-refabricator";
+const BLOCK_NAME_PRIME_REFABRICATOR: &str = "prime-refabricator";
 #[cfg(test)]
 const BLOCK_NAME_MEMORY_CELL: &str = "memory-cell";
 #[cfg(test)]
@@ -2545,7 +2549,11 @@ impl ClientSession {
             BLOCK_NAME_ADDITIVE_RECONSTRUCTOR
             | BLOCK_NAME_MULTIPLICATIVE_RECONSTRUCTOR
             | BLOCK_NAME_EXPONENTIAL_RECONSTRUCTOR
-            | BLOCK_NAME_TETRATIVE_RECONSTRUCTOR => {
+            | BLOCK_NAME_TETRATIVE_RECONSTRUCTOR
+            | BLOCK_NAME_TANK_REFABRICATOR
+            | BLOCK_NAME_SHIP_REFABRICATOR
+            | BLOCK_NAME_MECH_REFABRICATOR
+            | BLOCK_NAME_PRIME_REFABRICATOR => {
                 if let Some(command_id) = configured_reconstructor_command(config_object) {
                     self.state
                         .configured_block_projection
@@ -22479,12 +22487,12 @@ mod tests {
     fn loaded_world_tail_business_helper_applies_reconstructor_projection() {
         let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let build_pos = pack_build_pos_for_block_snapshot_test(58, 59);
-        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_ADDITIVE_RECONSTRUCTOR);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_PRIME_REFABRICATOR);
 
         session.state.building_table_projection.seed_world_baseline(
             build_pos,
             block_id,
-            Some(BLOCK_NAME_ADDITIVE_RECONSTRUCTOR.to_string()),
+            Some(BLOCK_NAME_PRIME_REFABRICATOR.to_string()),
             1,
             2,
             Some(3),
@@ -22502,7 +22510,7 @@ mod tests {
 
         session.apply_loaded_world_parsed_tail_business(
             build_pos,
-            Some(BLOCK_NAME_ADDITIVE_RECONSTRUCTOR),
+            Some(BLOCK_NAME_PRIME_REFABRICATOR),
             &mdt_world::ParsedBuildingTail::Reconstructor(mdt_world::ReconstructorTailSnapshot {
                 payload_block: mdt_world::PayloadBlockTailSnapshot {
                     pay_vector_x_bits: 0x4120_0000,
@@ -34195,6 +34203,30 @@ mod tests {
                 BLOCK_NAME_TETRATIVE_RECONSTRUCTOR,
                 9u16,
                 10u16,
+            ),
+            (
+                pack_point2(50, 72),
+                BLOCK_NAME_TANK_REFABRICATOR,
+                11u16,
+                12u16,
+            ),
+            (
+                pack_point2(51, 73),
+                BLOCK_NAME_SHIP_REFABRICATOR,
+                13u16,
+                14u16,
+            ),
+            (
+                pack_point2(52, 74),
+                BLOCK_NAME_MECH_REFABRICATOR,
+                15u16,
+                16u16,
+            ),
+            (
+                pack_point2(53, 75),
+                BLOCK_NAME_PRIME_REFABRICATOR,
+                17u16,
+                18u16,
             ),
         ] {
             let block_id = loaded_world_block_id_for_name(&session, block_name);
