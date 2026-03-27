@@ -33,11 +33,11 @@ use crate::session_state::{
     PickedBuildPayloadProjection, PickedUnitPayloadProjection, ReconnectPhaseProjection,
     ReconnectReasonKind, ReconstructorRuntimeProjection, RemotePlanSnapshotFirstPlanProjection,
     SessionResetKind, SessionState, SessionTimeoutKind, SessionTimeoutProjection,
-    SorterRuntimeProjection, TakeItemsProjection, TileConfigAuthoritySource,
-    TileConfigBusinessApply, TransferItemEffectProjection, TransferItemToProjection,
-    TransferItemToUnitProjection, TypedBuildingRuntimeModel, UnitAssemblerRuntimeProjection,
-    UnitEnteredPayloadProjection, UnitFactoryRuntimeProjection, UnitRefProjection,
-    WorldReloadProjection,
+    ShieldProjectorRuntimeProjection, SorterRuntimeProjection, TakeItemsProjection,
+    TileConfigAuthoritySource, TileConfigBusinessApply, TransferItemEffectProjection,
+    TransferItemToProjection, TransferItemToUnitProjection, TypedBuildingRuntimeModel,
+    UnitAssemblerRuntimeProjection, UnitEnteredPayloadProjection, UnitFactoryRuntimeProjection,
+    UnitRefProjection, WorldReloadProjection,
 };
 use crate::typed_remote_dispatch::{
     TypedCustomChannelRemoteDispatch, TypedCustomChannelRemoteDispatcher,
@@ -157,6 +157,8 @@ const BLOCK_NAME_UNLOADER: &str = "unloader";
 const BLOCK_NAME_DIRECTIONAL_UNLOADER: &str = "directional-unloader";
 const BLOCK_NAME_DUCT: &str = "duct";
 const BLOCK_NAME_ARMORED_DUCT: &str = "armored-duct";
+const BLOCK_NAME_SHIELD_PROJECTOR: &str = "shield-projector";
+const BLOCK_NAME_LARGE_SHIELD_PROJECTOR: &str = "large-shield-projector";
 const BLOCK_NAME_DUCT_UNLOADER: &str = "duct-unloader";
 const BLOCK_NAME_DUCT_ROUTER: &str = "duct-router";
 const BLOCK_NAME_MASS_DRIVER: &str = "mass-driver";
@@ -8201,6 +8203,8 @@ impl ClientSession {
             let duct_unloader_runtime =
                 summarize_duct_unloader_runtime_projection(&building.parsed_tail);
             let duct_runtime = summarize_duct_runtime_projection(&building.parsed_tail);
+            let shield_projector_runtime =
+                summarize_shield_projector_runtime_projection(&building.parsed_tail);
             let reconstructor_command_id =
                 summarize_reconstructor_command_id(&building.parsed_tail);
             let memory_values_bits = summarize_memory_values_bits(&building.parsed_tail);
@@ -8254,6 +8258,7 @@ impl ClientSession {
                 duct_unloader_item_id,
                 duct_unloader_runtime,
                 duct_runtime,
+                shield_projector_runtime,
                 directional_unloader_item_id: if candidate.block_name
                     == BLOCK_NAME_DIRECTIONAL_UNLOADER
                 {
@@ -8422,6 +8427,16 @@ impl ClientSession {
                 self.state
                     .configured_block_projection
                     .apply_duct_runtime(build_pos, projection);
+            }
+        }
+        if let Some(projection) = summarize_shield_projector_runtime_projection(parsed_tail) {
+            if matches!(
+                block_name,
+                Some(BLOCK_NAME_SHIELD_PROJECTOR | BLOCK_NAME_LARGE_SHIELD_PROJECTOR)
+            ) {
+                self.state
+                    .configured_block_projection
+                    .apply_shield_projector_runtime(build_pos, projection);
             }
         }
         if let Some(command_id) = summarize_reconstructor_command_id(parsed_tail) {
@@ -8686,6 +8701,16 @@ impl ClientSession {
                 self.state
                     .configured_block_projection
                     .apply_duct_runtime(entry.build_pos, projection);
+            }
+        }
+        if let Some(projection) = entry.shield_projector_runtime.clone() {
+            if matches!(
+                entry.block_name.as_deref(),
+                Some(BLOCK_NAME_SHIELD_PROJECTOR | BLOCK_NAME_LARGE_SHIELD_PROJECTOR)
+            ) {
+                self.state
+                    .configured_block_projection
+                    .apply_shield_projector_runtime(entry.build_pos, projection);
             }
         }
         if let Some(item_id) = entry.directional_unloader_item_id {
@@ -13217,6 +13242,7 @@ struct BlockSnapshotExtraEntrySummary {
     duct_unloader_item_id: Option<Option<i16>>,
     duct_unloader_runtime: Option<DuctUnloaderRuntimeProjection>,
     duct_runtime: Option<DuctRuntimeProjection>,
+    shield_projector_runtime: Option<ShieldProjectorRuntimeProjection>,
     directional_unloader_item_id: Option<Option<i16>>,
     reconstructor_command_id: Option<Option<u16>>,
     memory_values_bits: Option<Vec<u64>>,
@@ -13767,6 +13793,18 @@ fn summarize_duct_runtime_projection(
     };
     Some(DuctRuntimeProjection {
         rec_dir: value.value,
+    })
+}
+
+fn summarize_shield_projector_runtime_projection(
+    parsed_tail: &mdt_world::ParsedBuildingTail,
+) -> Option<ShieldProjectorRuntimeProjection> {
+    let mdt_world::ParsedBuildingTail::OneF32Bool(value) = parsed_tail else {
+        return None;
+    };
+    Some(ShieldProjectorRuntimeProjection {
+        smooth_radius_bits: value.bits,
+        broken: value.flag,
     })
 }
 
@@ -21807,6 +21845,7 @@ mod tests {
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
                 duct_runtime: None,
+                shield_projector_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -21903,6 +21942,7 @@ mod tests {
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
                 duct_runtime: None,
+                shield_projector_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -21990,6 +22030,7 @@ mod tests {
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
                 duct_runtime: None,
+                shield_projector_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -22099,6 +22140,7 @@ mod tests {
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
                 duct_runtime: None,
+                shield_projector_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -22167,6 +22209,7 @@ mod tests {
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
                 duct_runtime: None,
+                shield_projector_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -22858,6 +22901,22 @@ mod tests {
     }
 
     #[test]
+    fn summarize_shield_projector_runtime_projection_extracts_runtime() {
+        assert_eq!(
+            summarize_shield_projector_runtime_projection(
+                &mdt_world::ParsedBuildingTail::OneF32Bool(mdt_world::OneF32BoolTailSnapshot {
+                    bits: 0x4280_0000,
+                    flag: true,
+                })
+            ),
+            Some(ShieldProjectorRuntimeProjection {
+                smooth_radius_bits: 0x4280_0000,
+                broken: true,
+            })
+        );
+    }
+
+    #[test]
     fn summarize_item_buffer_runtime_projection_extracts_runtime() {
         assert_eq!(
             summarize_item_buffer_runtime_projection(&mdt_world::ParsedBuildingTail::Junction(
@@ -23485,6 +23544,33 @@ mod tests {
                 .duct_runtime_by_build_pos
                 .get(&build_pos),
             Some(&DuctRuntimeProjection { rec_dir: 2 })
+        );
+    }
+
+    #[test]
+    fn loaded_world_tail_business_helper_applies_shield_projector_runtime_projection() {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_build_pos_for_block_snapshot_test(57, 58);
+
+        session.apply_loaded_world_parsed_tail_business(
+            build_pos,
+            Some(BLOCK_NAME_SHIELD_PROJECTOR),
+            &mdt_world::ParsedBuildingTail::OneF32Bool(mdt_world::OneF32BoolTailSnapshot {
+                bits: 0x4280_0000,
+                flag: true,
+            }),
+        );
+
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .shield_projector_runtime_by_build_pos
+                .get(&build_pos),
+            Some(&ShieldProjectorRuntimeProjection {
+                smooth_radius_bits: 0x4280_0000,
+                broken: true,
+            })
         );
     }
 
@@ -24381,6 +24467,7 @@ mod tests {
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
                 duct_runtime: None,
+                shield_projector_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -24439,6 +24526,7 @@ mod tests {
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
                 duct_runtime: None,
+                shield_projector_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -24494,6 +24582,7 @@ mod tests {
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
                 duct_runtime: None,
+                shield_projector_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: Some(memory_values_bits.clone()),
@@ -24628,6 +24717,7 @@ mod tests {
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
                 duct_runtime: None,
+                shield_projector_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -24689,6 +24779,7 @@ mod tests {
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
                 duct_runtime: None,
+                shield_projector_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -24810,6 +24901,7 @@ mod tests {
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
                 duct_runtime: None,
+                shield_projector_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -24869,6 +24961,7 @@ mod tests {
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
                 duct_runtime: None,
+                shield_projector_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -24924,6 +25017,7 @@ mod tests {
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
                 duct_runtime: None,
+                shield_projector_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -24984,6 +25078,7 @@ mod tests {
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
                 duct_runtime: None,
+                shield_projector_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -25049,6 +25144,7 @@ mod tests {
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
                 duct_runtime: None,
+                shield_projector_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -25107,6 +25203,7 @@ mod tests {
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
                 duct_runtime: None,
+                shield_projector_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -25162,6 +25259,7 @@ mod tests {
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
                 duct_runtime: None,
+                shield_projector_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -25217,6 +25315,7 @@ mod tests {
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
                 duct_runtime: None,
+                shield_projector_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -25402,6 +25501,7 @@ mod tests {
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
                 duct_runtime: None,
+                shield_projector_runtime: None,
                 directional_unloader_item_id: Some(Some(item_id)),
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -25515,6 +25615,7 @@ mod tests {
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
                 duct_runtime: None,
+                shield_projector_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -25648,6 +25749,7 @@ mod tests {
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
                 duct_runtime: None,
+                shield_projector_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -25790,6 +25892,7 @@ mod tests {
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
                 duct_runtime: None,
+                shield_projector_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -25913,6 +26016,7 @@ mod tests {
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
                 duct_runtime: None,
+                shield_projector_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -25968,6 +26072,7 @@ mod tests {
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
                 duct_runtime: None,
+                shield_projector_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -26023,6 +26128,7 @@ mod tests {
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
                 duct_runtime: None,
+                shield_projector_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -26170,6 +26276,7 @@ mod tests {
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
                 duct_runtime: None,
+                shield_projector_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -26273,6 +26380,7 @@ mod tests {
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
                 duct_runtime: None,
+                shield_projector_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -26368,6 +26476,7 @@ mod tests {
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
                 duct_runtime: Some(DuctRuntimeProjection { rec_dir: 2 }),
+                shield_projector_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -26407,6 +26516,100 @@ mod tests {
                 crate::session_state::TypedBuildingRuntimeValue::Duct {
                     item_id: Some(item_id),
                     rec_dir: Some(2),
+                },
+            ))
+        );
+    }
+
+    #[test]
+    fn apply_loaded_world_block_snapshot_entries_forwards_shield_projector_runtime_summary() {
+        let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_build_pos_for_block_snapshot_test(61, 62);
+
+        session.apply_block_snapshot_entries_from_loaded_world_entries(vec![
+            BlockSnapshotExtraEntrySummary {
+                build_pos,
+                block_id: 322,
+                block_name: Some(BLOCK_NAME_LARGE_SHIELD_PROJECTOR.to_string()),
+                health_bits: Some(0x3f80_0000),
+                rotation: Some(1),
+                team_id: Some(2),
+                io_version: Some(3),
+                enabled: Some(true),
+                module_bitmask: Some(4),
+                time_scale_bits: Some(0x3f00_0000),
+                time_scale_duration_bits: Some(0x3e80_0000),
+                last_disabler_pos: Some(77),
+                legacy_consume_connected: Some(false),
+                efficiency: Some(0x40),
+                optional_efficiency: Some(0x20),
+                visible_flags: Some(9),
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                core_runtime: None,
+                conveyor_runtime: None,
+                constructor_recipe_block_id: None,
+                constructor_runtime: None,
+                unit_factory_current_plan: None,
+                unit_factory_runtime: None,
+                payload_loader_runtime: None,
+                landing_pad_config_item_id: None,
+                landing_pad_runtime: None,
+                message_text: None,
+                payload_source_content: None,
+                payload_source_runtime: None,
+                payload_router_sorted_content: None,
+                payload_router_runtime: None,
+                duct_unloader_item_id: None,
+                duct_unloader_runtime: None,
+                duct_runtime: None,
+                shield_projector_runtime: Some(ShieldProjectorRuntimeProjection {
+                    smooth_radius_bits: 0x4280_0000,
+                    broken: true,
+                }),
+                directional_unloader_item_id: None,
+                reconstructor_command_id: None,
+                memory_values_bits: None,
+                canvas_bytes: None,
+                mass_driver_link: None,
+                mass_driver_runtime: None,
+                payload_mass_driver_link: None,
+                payload_mass_driver_runtime: None,
+                sorter_runtime: None,
+                item_buffer_runtime: None,
+                nullable_item_id: None,
+                item_bridge_link: None,
+                item_bridge_runtime: None,
+                light_color: None,
+                switch_enabled: None,
+                build_item_stacks: Vec::new(),
+                build_liquid_stacks: Vec::new(),
+            },
+        ]);
+
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .shield_projector_runtime_by_build_pos
+                .get(&build_pos),
+            Some(&ShieldProjectorRuntimeProjection {
+                smooth_radius_bits: 0x4280_0000,
+                broken: true,
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos)
+                .map(|building| (building.kind, building.value.clone())),
+            Some((
+                crate::session_state::TypedBuildingRuntimeKind::ShieldProjector,
+                crate::session_state::TypedBuildingRuntimeValue::ShieldProjector {
+                    smooth_radius_bits: Some(0x4280_0000),
+                    broken: Some(true),
                 },
             ))
         );
@@ -26456,6 +26659,7 @@ mod tests {
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
                 duct_runtime: None,
+                shield_projector_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -26558,6 +26762,7 @@ mod tests {
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
                 duct_runtime: None,
+                shield_projector_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -26613,6 +26818,7 @@ mod tests {
                 duct_unloader_item_id: Some(Some(item_id)),
                 duct_unloader_runtime: Some(DuctUnloaderRuntimeProjection { offset: 11 }),
                 duct_runtime: None,
+                shield_projector_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -26668,6 +26874,7 @@ mod tests {
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
                 duct_runtime: None,
+                shield_projector_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: Some(Some(7)),
                 memory_values_bits: None,
@@ -26723,6 +26930,7 @@ mod tests {
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
                 duct_runtime: None,
+                shield_projector_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -26778,6 +26986,7 @@ mod tests {
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
                 duct_runtime: None,
+                shield_projector_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -26841,6 +27050,7 @@ mod tests {
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
                 duct_runtime: None,
+                shield_projector_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -26896,6 +27106,7 @@ mod tests {
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
                 duct_runtime: None,
+                shield_projector_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,
@@ -26951,6 +27162,7 @@ mod tests {
                 duct_unloader_item_id: None,
                 duct_unloader_runtime: None,
                 duct_runtime: None,
+                shield_projector_runtime: None,
                 directional_unloader_item_id: None,
                 reconstructor_command_id: None,
                 memory_values_bits: None,

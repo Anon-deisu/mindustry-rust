@@ -3767,6 +3767,24 @@ fn runtime_typed_build_config_value_label(
             }
             parts.join(":")
         }
+        TypedBuildingRuntimeValue::ShieldProjector {
+            smooth_radius_bits,
+            broken,
+        } => {
+            let mut parts = vec![format!(
+                "radius={}",
+                smooth_radius_bits
+                    .map(|bits| format!("0x{bits:08x}"))
+                    .unwrap_or_else(|| "unknown".to_string())
+            )];
+            parts.push(format!(
+                "broken={}",
+                broken
+                    .map(|value| if value { 1 } else { 0 }.to_string())
+                    .unwrap_or_else(|| "unknown".to_string())
+            ));
+            parts.join(":")
+        }
         TypedBuildingRuntimeValue::DuctUnloader { item_id, offset } => {
             let mut parts = vec![format!(
                 "item={}",
@@ -8892,6 +8910,65 @@ mod tests {
     }
 
     #[test]
+    fn render_runtime_adapter_reports_shield_projector_runtime_in_inspector() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        let build_pos = pack_runtime_point2(39, 61);
+
+        state
+            .configured_block_projection
+            .apply_shield_projector_runtime(
+                build_pos,
+                crate::session_state::ShieldProjectorRuntimeProjection {
+                    smooth_radius_bits: 0x4280_0000,
+                    broken: true,
+                },
+            );
+        state.building_table_projection.by_build_pos.insert(
+            build_pos,
+            crate::session_state::BuildingProjection {
+                block_id: Some(1),
+                block_name: Some("shield-projector".to_string()),
+                rotation: None,
+                team_id: None,
+                io_version: None,
+                module_bitmask: None,
+                time_scale_bits: None,
+                time_scale_duration_bits: None,
+                last_disabler_pos: None,
+                legacy_consume_connected: None,
+                config: None,
+                health_bits: None,
+                enabled: None,
+                efficiency: None,
+                optional_efficiency: None,
+                visible_flags: None,
+                turret_reload_counter_bits: None,
+                turret_rotation_bits: None,
+                item_turret_ammo_count: None,
+                continuous_turret_last_length_bits: None,
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                last_update: crate::session_state::BuildingProjectionUpdateKind::BlockSnapshotHead,
+            },
+        );
+
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let build_ui = hud
+            .build_ui
+            .as_ref()
+            .expect("build_ui observability should be present");
+        assert!(build_ui.inspector_entries.iter().any(|entry| {
+            entry.family == "shield-projector" && entry.sample == "39:61:radius=0x42800000:broken=1"
+        }));
+    }
+
+    #[test]
     fn runtime_typed_build_config_value_label_formats_landing_pad_runtime() {
         let label = runtime_typed_build_config_value_label(
             TypedBuildingRuntimeKind::LandingPad,
@@ -8953,6 +9030,19 @@ mod tests {
         );
 
         assert_eq!(label, "item=7:rec-dir=2");
+    }
+
+    #[test]
+    fn runtime_typed_build_config_value_label_formats_shield_projector_runtime() {
+        let label = runtime_typed_build_config_value_label(
+            TypedBuildingRuntimeKind::ShieldProjector,
+            &TypedBuildingRuntimeValue::ShieldProjector {
+                smooth_radius_bits: Some(0x4280_0000),
+                broken: Some(true),
+            },
+        );
+
+        assert_eq!(label, "radius=0x42800000:broken=1");
     }
 
     #[test]

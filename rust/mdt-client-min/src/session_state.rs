@@ -434,6 +434,12 @@ pub struct DuctRuntimeProjection {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShieldProjectorRuntimeProjection {
+    pub smooth_radius_bits: u32,
+    pub broken: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DuctUnloaderRuntimeProjection {
     pub offset: i16,
 }
@@ -1912,6 +1918,7 @@ pub struct ConfiguredBlockProjection {
     pub unloader_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub directional_unloader_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub duct_runtime_by_build_pos: BTreeMap<i32, DuctRuntimeProjection>,
+    pub shield_projector_runtime_by_build_pos: BTreeMap<i32, ShieldProjectorRuntimeProjection>,
     pub duct_unloader_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub duct_unloader_runtime_by_build_pos: BTreeMap<i32, DuctUnloaderRuntimeProjection>,
     pub duct_router_item_by_build_pos: BTreeMap<i32, Option<i16>>,
@@ -2094,6 +2101,15 @@ impl ConfiguredBlockProjection {
 
     pub fn apply_duct_runtime(&mut self, build_pos: i32, projection: DuctRuntimeProjection) {
         self.duct_runtime_by_build_pos.insert(build_pos, projection);
+    }
+
+    pub fn apply_shield_projector_runtime(
+        &mut self,
+        build_pos: i32,
+        projection: ShieldProjectorRuntimeProjection,
+    ) {
+        self.shield_projector_runtime_by_build_pos
+            .insert(build_pos, projection);
     }
 
     pub fn apply_unloader_item(&mut self, build_pos: i32, item_id: Option<i16>) {
@@ -3261,6 +3277,7 @@ pub enum TypedBuildingRuntimeKind {
     Unloader,
     DirectionalUnloader,
     Duct,
+    ShieldProjector,
     DuctUnloader,
     DuctRouter,
     MassDriver,
@@ -3303,6 +3320,7 @@ impl TypedBuildingRuntimeKind {
             Self::Unloader => "unloader",
             Self::DirectionalUnloader => "directional-unloader",
             Self::Duct => "duct",
+            Self::ShieldProjector => "shield-projector",
             Self::DuctUnloader => "duct-unloader",
             Self::DuctRouter => "duct-router",
             Self::MassDriver => "mass-driver",
@@ -3426,6 +3444,10 @@ pub enum TypedBuildingRuntimeValue {
     Duct {
         item_id: Option<i16>,
         rec_dir: Option<i8>,
+    },
+    ShieldProjector {
+        smooth_radius_bits: Option<u32>,
+        broken: Option<bool>,
     },
     DuctUnloader {
         item_id: Option<i16>,
@@ -3966,6 +3988,18 @@ fn typed_runtime_building_model(
                     .map(|projection| projection.rec_dir),
             },
         ),
+        "shield-projector" | "large-shield-projector" => {
+            let runtime = configured
+                .shield_projector_runtime_by_build_pos
+                .get(&build_pos);
+            (
+                TypedBuildingRuntimeKind::ShieldProjector,
+                TypedBuildingRuntimeValue::ShieldProjector {
+                    smooth_radius_bits: runtime.map(|projection| projection.smooth_radius_bits),
+                    broken: runtime.map(|projection| projection.broken),
+                },
+            )
+        }
         "directional-unloader" => (
             TypedBuildingRuntimeKind::DirectionalUnloader,
             TypedBuildingRuntimeValue::Item(
@@ -8552,6 +8586,120 @@ mod tests {
                 TypedBuildingRuntimeValue::Duct {
                     item_id: Some(41),
                     rec_dir: Some(2),
+                },
+            ))
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_shield_projector_family_shells() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0006_0017i32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            309,
+            Some("large-shield-projector".to_string()),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(0x3f80_0000),
+            Some(0x3f20_0000),
+            Some(127),
+            Some(false),
+            Some(TypeIoObject::Null),
+            Some(0x4080_0000),
+            Some(true),
+            Some(0x44),
+            Some(0x12),
+            Some(85),
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(
+            state.typed_runtime_building_at(build_pos),
+            Some(expected_typed_runtime_building(
+                build_pos,
+                309,
+                "large-shield-projector",
+                TypedBuildingRuntimeKind::ShieldProjector,
+                TypedBuildingRuntimeValue::ShieldProjector {
+                    smooth_radius_bits: None,
+                    broken: None,
+                },
+                Vec::new(),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(0x3f80_0000),
+                Some(0x3f20_0000),
+                Some(127),
+                Some(false),
+                Some(0x4080_0000),
+                Some(true),
+                Some(0x44),
+                Some(0x12),
+                Some(85),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_shield_projector_family_runtime() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0006_0018i32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            310,
+            Some("shield-projector".to_string()),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(0x3f80_0000),
+            Some(0x3f20_0000),
+            Some(128),
+            Some(true),
+            Some(TypeIoObject::Null),
+            Some(0x4080_0000),
+            Some(false),
+            Some(0x45),
+            Some(0x13),
+            Some(84),
+            None,
+            None,
+            None,
+        );
+        state
+            .configured_block_projection
+            .apply_shield_projector_runtime(
+                build_pos,
+                ShieldProjectorRuntimeProjection {
+                    smooth_radius_bits: 0x4280_0000,
+                    broken: true,
+                },
+            );
+
+        assert_eq!(
+            state
+                .typed_runtime_building_at(build_pos)
+                .map(|building| (building.kind, building.value.clone())),
+            Some((
+                TypedBuildingRuntimeKind::ShieldProjector,
+                TypedBuildingRuntimeValue::ShieldProjector {
+                    smooth_radius_bits: Some(0x4280_0000),
+                    broken: Some(true),
                 },
             ))
         );
