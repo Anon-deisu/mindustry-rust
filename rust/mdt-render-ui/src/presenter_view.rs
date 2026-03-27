@@ -2,22 +2,22 @@ use crate::{panel_model::PresenterViewWindow, RenderModel, RenderObject};
 
 pub(crate) fn projected_window(
     scene: &RenderModel,
-    width: usize,
-    height: usize,
+    viewport_width: usize,
+    viewport_height: usize,
 ) -> PresenterViewWindow {
     scene
         .view_window
         .map(|window| PresenterViewWindow {
-            origin_x: window.origin_x,
-            origin_y: window.origin_y,
-            width: window.width.min(width),
-            height: window.height.min(height),
+            origin_x: clamp_window_origin(window.origin_x, window.width, viewport_width),
+            origin_y: clamp_window_origin(window.origin_y, window.height, viewport_height),
+            width: window.width.min(viewport_width),
+            height: window.height.min(viewport_height),
         })
         .unwrap_or(PresenterViewWindow {
             origin_x: 0,
             origin_y: 0,
-            width,
-            height,
+            width: viewport_width,
+            height: viewport_height,
         })
 }
 
@@ -53,9 +53,15 @@ pub(crate) fn crop_window_to_focus(
 
 pub(crate) fn crop_origin(focus: usize, origin: usize, bound: usize, window: usize) -> usize {
     let half = window / 2;
+    let max_origin = bound.saturating_sub(window);
+    let origin = origin.min(max_origin);
     focus
         .saturating_sub(half)
-        .clamp(origin, origin.saturating_add(bound.saturating_sub(window)))
+        .clamp(origin, max_origin)
+}
+
+fn clamp_window_origin(origin: usize, window: usize, bound: usize) -> usize {
+    origin.min(bound.saturating_sub(window))
 }
 
 pub(crate) fn visible_window_tile(
@@ -113,7 +119,7 @@ pub(crate) fn world_to_tile_index_floor(world_position: f32, tile_size: f32) -> 
 #[cfg(test)]
 mod tests {
     use super::{
-        crop_window_to_focus, normalize_zoom, projected_window, visible_window_tile,
+        crop_origin, crop_window_to_focus, normalize_zoom, projected_window, visible_window_tile,
         world_to_tile_index_floor, zoomed_view_tile_span,
     };
     use crate::{RenderModel, RenderObject, Viewport};
@@ -145,10 +151,40 @@ mod tests {
         let base = projected_window(&scene, 10, 10);
         let cropped = crop_window_to_focus(&scene, TILE_SIZE, base, 4, 4);
 
-        assert_eq!(cropped.origin_x, 7);
-        assert_eq!(cropped.origin_y, 5);
+        assert_eq!(cropped.origin_x, 4);
+        assert_eq!(cropped.origin_y, 2);
         assert_eq!(cropped.width, 4);
         assert_eq!(cropped.height, 4);
+    }
+
+    #[test]
+    fn projected_window_clamps_scene_origin_to_viewport_bounds() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 80.0,
+                height: 80.0,
+                zoom: 1.0,
+            },
+            view_window: Some(crate::RenderViewWindow {
+                origin_x: 12,
+                origin_y: 13,
+                width: 8,
+                height: 6,
+            }),
+            objects: vec![],
+        };
+
+        let window = projected_window(&scene, 10, 10);
+
+        assert_eq!(window.origin_x, 2);
+        assert_eq!(window.origin_y, 4);
+        assert_eq!(window.width, 8);
+        assert_eq!(window.height, 6);
+    }
+
+    #[test]
+    fn crop_origin_clamps_invalid_origin_to_window_bounds() {
+        assert_eq!(crop_origin(7, 12, 8, 4), 4);
     }
 
     #[test]
