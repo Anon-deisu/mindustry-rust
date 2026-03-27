@@ -773,6 +773,49 @@ mod tests {
     }
 
     #[test]
+    fn map_snapshot_batch_with_final_snapshot_preserves_both_transient_structured_intents() {
+        let mut mapper = StatelessIntentMapper::new(IntentSamplingMode::LiveSampling);
+        let transient = vec![InputSnapshot {
+            move_axis: (1.0, 0.0),
+            aim_axis: (16.0, 24.0),
+            mining_tile: Some((3, 4)),
+            building: true,
+            config_tap_tile: Some((5, 6)),
+            build_pulse: Some(BuildPulse {
+                tile: (7, 8),
+                breaking: false,
+            }),
+            active_actions: vec![BinaryAction::Fire],
+        }];
+        let runtime_snapshot = InputSnapshot {
+            move_axis: (9.0, 9.0),
+            aim_axis: (99.0, 99.0),
+            mining_tile: Some((7, 8)),
+            building: true,
+            config_tap_tile: None,
+            build_pulse: None,
+            active_actions: vec![],
+        };
+
+        assert_eq!(
+            mapper.map_snapshot_batch_with_final_snapshot(&transient, &runtime_snapshot),
+            vec![
+                PlayerIntent::SetMoveAxis { x: 9.0, y: 9.0 },
+                PlayerIntent::SetAimAxis { x: 99.0, y: 99.0 },
+                PlayerIntent::SetMiningTile { tile: Some((7, 8)) },
+                PlayerIntent::SetBuilding { building: true },
+                PlayerIntent::ConfigTap { tile: (5, 6) },
+                PlayerIntent::BuildPulse(BuildPulse {
+                    tile: (7, 8),
+                    breaking: false,
+                }),
+                PlayerIntent::ActionPressed(BinaryAction::Fire),
+                PlayerIntent::ActionReleased(BinaryAction::Fire),
+            ]
+        );
+    }
+
+    #[test]
     fn map_snapshot_batch_with_final_snapshot_keeps_runtime_state_and_transient_edges() {
         let mut mapper = StatelessIntentMapper::new(IntentSamplingMode::LiveSampling);
         let transient = vec![
