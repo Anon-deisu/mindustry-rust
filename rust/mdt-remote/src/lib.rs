@@ -2887,6 +2887,69 @@ mod tests {
     }
 
     #[test]
+    fn typed_remote_registries_bundle_preserves_well_known_remote_decoy_lookup_tables() {
+        let baseline_manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut manifest = baseline_manifest.clone();
+        let decoy_packets = well_known_manifest_with_decoys()
+            .remote_packets
+            .into_iter()
+            .filter(|packet| packet.packet_class.contains("Decoy"))
+            .collect::<Vec<_>>();
+        manifest.remote_packets.splice(0..0, decoy_packets);
+        let baseline = TypedRemoteRegistries::from_manifest(&baseline_manifest).unwrap();
+        let bundle = TypedRemoteRegistries::from_manifest(&manifest).unwrap();
+
+        assert_eq!(
+            bundle.well_known.resolved_packet_ids(),
+            baseline.well_known.resolved_packet_ids()
+        );
+        assert_eq!(
+            bundle.well_known.packet_id_fixed_table(),
+            baseline.well_known.packet_id_fixed_table()
+        );
+
+        assert_eq!(
+            bundle.well_known.packet_id(WellKnownRemoteMethod::Ping),
+            baseline.well_known.packet_id(WellKnownRemoteMethod::Ping)
+        );
+        assert_eq!(
+            bundle
+                .well_known
+                .packet_id(WellKnownRemoteMethod::ClientPlanSnapshot),
+            baseline
+                .well_known
+                .packet_id(WellKnownRemoteMethod::ClientPlanSnapshot)
+        );
+        assert_eq!(
+            bundle
+                .well_known
+                .packet_id(WellKnownRemoteMethod::PingResponse),
+            baseline
+                .well_known
+                .packet_id(WellKnownRemoteMethod::PingResponse)
+        );
+        assert_eq!(
+            bundle
+                .well_known
+                .packet_id(WellKnownRemoteMethod::DebugStatusClientUnreliable),
+            baseline
+                .well_known
+                .packet_id(WellKnownRemoteMethod::DebugStatusClientUnreliable)
+        );
+        assert_eq!(
+            bundle.well_known.packet_id(WellKnownRemoteMethod::SetRule),
+            baseline.well_known.packet_id(WellKnownRemoteMethod::SetRule)
+        );
+
+        let fixed_table = bundle.well_known.packet_id_fixed_table();
+        let baseline_fixed_table = baseline.well_known.packet_id_fixed_table();
+        assert_eq!(fixed_table.get(5), baseline_fixed_table.get(5));
+        assert_eq!(fixed_table.get(19), baseline_fixed_table.get(19));
+        assert_eq!(fixed_table.get(4), baseline_fixed_table.get(4));
+        assert_eq!(fixed_table.get(18), baseline_fixed_table.get(18));
+    }
+
+    #[test]
     fn well_known_remote_registry_exposes_expected_lookup_tables() {
         let manifest = well_known_manifest_with_decoys();
         let registry = WellKnownRemoteRegistry::from_manifest(&manifest).unwrap();
