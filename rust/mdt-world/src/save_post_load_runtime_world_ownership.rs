@@ -13,6 +13,7 @@ pub enum SavePostLoadRuntimeWorldSurfaceKind {
     StaticFog,
     Buildings,
     LoadableEntities,
+    SkippedEntities,
 }
 
 impl SavePostLoadRuntimeWorldSurfaceKind {
@@ -20,7 +21,7 @@ impl SavePostLoadRuntimeWorldSurfaceKind {
         source_region_name_for_stage_kind(self.stage_kind())
     }
 
-    pub const fn ordered() -> [Self; 6] {
+    pub const fn ordered() -> [Self; 7] {
         [
             Self::WorldShell,
             Self::TeamPlans,
@@ -28,6 +29,7 @@ impl SavePostLoadRuntimeWorldSurfaceKind {
             Self::StaticFog,
             Self::Buildings,
             Self::LoadableEntities,
+            Self::SkippedEntities,
         ]
     }
 
@@ -39,9 +41,9 @@ impl SavePostLoadRuntimeWorldSurfaceKind {
             SavePostLoadConsumerStageKind::StaticFog => Some(Self::StaticFog),
             SavePostLoadConsumerStageKind::Buildings => Some(Self::Buildings),
             SavePostLoadConsumerStageKind::LoadableEntities => Some(Self::LoadableEntities),
+            SavePostLoadConsumerStageKind::SkippedEntities => Some(Self::SkippedEntities),
             SavePostLoadConsumerStageKind::EntityRemaps
-            | SavePostLoadConsumerStageKind::CustomChunks
-            | SavePostLoadConsumerStageKind::SkippedEntities => None,
+            | SavePostLoadConsumerStageKind::CustomChunks => None,
         }
     }
 
@@ -53,9 +55,9 @@ impl SavePostLoadRuntimeWorldSurfaceKind {
             SavePostLoadRuntimeApplyStep::StaticFog => Some(Self::StaticFog),
             SavePostLoadRuntimeApplyStep::Building { .. } => Some(Self::Buildings),
             SavePostLoadRuntimeApplyStep::LoadableEntity { .. } => Some(Self::LoadableEntities),
+            SavePostLoadRuntimeApplyStep::SkippedEntity { .. } => Some(Self::SkippedEntities),
             SavePostLoadRuntimeApplyStep::EntityRemap { .. }
-            | SavePostLoadRuntimeApplyStep::CustomChunk { .. }
-            | SavePostLoadRuntimeApplyStep::SkippedEntity { .. } => None,
+            | SavePostLoadRuntimeApplyStep::CustomChunk { .. } => None,
         }
     }
 
@@ -77,6 +79,9 @@ impl SavePostLoadRuntimeWorldSurfaceKind {
             SavePostLoadRuntimeWorldSurfaceKind::LoadableEntities => {
                 SavePostLoadConsumerStageKind::LoadableEntities
             }
+            SavePostLoadRuntimeWorldSurfaceKind::SkippedEntities => {
+                SavePostLoadConsumerStageKind::SkippedEntities
+            }
         }
     }
 }
@@ -88,6 +93,7 @@ pub enum SavePostLoadRuntimeWorldOwnershipStatus {
     Failed,
     AwaitingWorldShell,
     Blocked,
+    Deferred,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -158,6 +164,7 @@ impl SavePostLoadRuntimeWorldOwnership {
                     surface.status,
                     SavePostLoadRuntimeWorldOwnershipStatus::Absent
                         | SavePostLoadRuntimeWorldOwnershipStatus::Owned
+                        | SavePostLoadRuntimeWorldOwnershipStatus::Deferred
                 )
             })
     }
@@ -218,7 +225,7 @@ pub(crate) fn build_runtime_world_ownership(
                         SavePostLoadRuntimeWorldOwnershipStatus::Blocked
                     }
                     crate::SavePostLoadConsumerRuntimeDisposition::Deferred => {
-                        SavePostLoadRuntimeWorldOwnershipStatus::Absent
+                        SavePostLoadRuntimeWorldOwnershipStatus::Deferred
                     }
                 }
             };
@@ -355,6 +362,28 @@ mod tests {
                 .status,
             SavePostLoadRuntimeWorldOwnershipStatus::Blocked
         );
+    }
+
+    #[test]
+    fn runtime_world_ownership_preserves_deferred_skipped_entities_surface() {
+        let mut observation = test_observation();
+        make_observation_seedable(&mut observation);
+        let mut plan = observation.runtime_seed_plan();
+        let mut skipped = plan.loadable_entity_seeds[1].clone();
+        skipped.entity_index = 99;
+        plan.skipped_entity_seeds.push(skipped);
+
+        let execution = plan.execute_runtime_world_semantics();
+        let skipped_surface = execution
+            .ownership
+            .surface(SavePostLoadRuntimeWorldSurfaceKind::SkippedEntities)
+            .unwrap();
+
+        assert!(execution.can_apply_world_semantics());
+        assert_eq!(skipped_surface.status, SavePostLoadRuntimeWorldOwnershipStatus::Deferred);
+        assert!(!skipped_surface.is_owned());
+        assert_eq!(skipped_surface.required_step_count, 1);
+        assert_eq!(skipped_surface.claimed_step_count, 0);
     }
 
     fn make_observation_seedable(observation: &mut SavePostLoadWorldObservation) {
