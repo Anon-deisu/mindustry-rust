@@ -7592,6 +7592,30 @@ impl SessionState {
         entry.removed_carrier = false;
     }
 
+    pub fn record_destroy_payload_lifecycle(&mut self, build_pos: Option<i32>) {
+        let Some(build_pos) = build_pos else {
+            return;
+        };
+        let Some(entry) = self.payload_lifecycle_projection.by_carrier.get_mut(
+            &UnitRefProjection {
+                kind: 1,
+                value: build_pos,
+            },
+        ) else {
+            return;
+        };
+        if entry.target_unit.is_none() {
+            return;
+        }
+        entry.target_unit = None;
+        entry.target_build = None;
+        entry.drop_tile = None;
+        entry.on_ground = Some(false);
+        entry.removed_target_unit = true;
+        entry.removed_target_build = false;
+        entry.removed_carrier = false;
+    }
+
     pub fn mark_payload_lifecycle_unit_despawn(&mut self, unit: Option<UnitRefProjection>) {
         let Some(unit) = unit else {
             return;
@@ -13955,6 +13979,109 @@ mod tests {
                 on_ground: Some(false),
                 removed_target_unit: true,
                 removed_target_build: false,
+                removed_carrier: false,
+            })
+        );
+    }
+
+    #[test]
+    fn destroy_payload_lifecycle_clears_block_carrier_unit_target() {
+        let mut state = SessionState::default();
+        let build_pos = pack_point2(4, 4);
+        state.payload_lifecycle_projection.by_carrier.insert(
+            UnitRefProjection {
+                kind: 1,
+                value: build_pos,
+            },
+            PayloadLifecycleCarrierProjection {
+                carrier: UnitRefProjection {
+                    kind: 1,
+                    value: build_pos,
+                },
+                target_unit: Some(UnitRefProjection {
+                    kind: 2,
+                    value: 202,
+                }),
+                target_build: None,
+                drop_tile: Some(pack_point2(6, 6)),
+                on_ground: Some(true),
+                removed_target_unit: false,
+                removed_target_build: false,
+                removed_carrier: false,
+            },
+        );
+
+        state.record_destroy_payload_lifecycle(Some(build_pos));
+
+        assert_eq!(
+            state
+                .payload_lifecycle_projection
+                .by_carrier
+                .get(&UnitRefProjection {
+                    kind: 1,
+                    value: build_pos,
+                }),
+            Some(&PayloadLifecycleCarrierProjection {
+                carrier: UnitRefProjection {
+                    kind: 1,
+                    value: build_pos,
+                },
+                target_unit: None,
+                target_build: None,
+                drop_tile: None,
+                on_ground: Some(false),
+                removed_target_unit: true,
+                removed_target_build: false,
+                removed_carrier: false,
+            })
+        );
+    }
+
+    #[test]
+    fn destroy_payload_lifecycle_ignores_block_build_payload_entry() {
+        let mut state = SessionState::default();
+        let build_pos = pack_point2(7, 7);
+        state.payload_lifecycle_projection.by_carrier.insert(
+            UnitRefProjection {
+                kind: 1,
+                value: build_pos,
+            },
+            PayloadLifecycleCarrierProjection {
+                carrier: UnitRefProjection {
+                    kind: 1,
+                    value: build_pos,
+                },
+                target_unit: None,
+                target_build: Some(pack_point2(9, 9)),
+                drop_tile: None,
+                on_ground: Some(false),
+                removed_target_unit: false,
+                removed_target_build: true,
+                removed_carrier: false,
+            },
+        );
+
+        state.record_destroy_payload_lifecycle(Some(build_pos));
+
+        assert_eq!(
+            state
+                .payload_lifecycle_projection
+                .by_carrier
+                .get(&UnitRefProjection {
+                    kind: 1,
+                    value: build_pos,
+                }),
+            Some(&PayloadLifecycleCarrierProjection {
+                carrier: UnitRefProjection {
+                    kind: 1,
+                    value: build_pos,
+                },
+                target_unit: None,
+                target_build: Some(pack_point2(9, 9)),
+                drop_tile: None,
+                on_ground: Some(false),
+                removed_target_unit: false,
+                removed_target_build: true,
                 removed_carrier: false,
             })
         );

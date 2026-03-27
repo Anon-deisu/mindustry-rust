@@ -5535,6 +5535,8 @@ impl ClientSession {
                     self.state.received_destroy_payload_count =
                         self.state.received_destroy_payload_count.saturating_add(1);
                     self.state.last_destroy_payload = Some(projection.clone());
+                    self.state
+                        .record_destroy_payload_lifecycle(projection.build_pos);
                     Ok(ClientSessionEvent::DestroyPayload { projection })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -43115,6 +43117,12 @@ mod tests {
     fn destroy_payload_packet_emits_event_and_updates_state() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let picked_unit_payload_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "pickedUnitPayload")
+            .unwrap()
+            .packet_id;
         let packet_id = manifest
             .remote_packets
             .iter()
@@ -43124,6 +43132,19 @@ mod tests {
         let projection = DestroyPayloadProjection {
             build_pos: Some(pack_point2(14, 9)),
         };
+        session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    picked_unit_payload_packet_id,
+                    &encode_picked_unit_payload(
+                        ClientUnitRef::Block(pack_point2(14, 9)),
+                        ClientUnitRef::Standard(88),
+                    ),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
         let packet = encode_packet(
             packet_id,
             &encode_destroy_payload_payload(projection.build_pos),
@@ -43141,6 +43162,29 @@ mod tests {
         );
         assert_eq!(session.state().received_destroy_payload_count, 1);
         assert_eq!(session.state().last_destroy_payload, Some(projection));
+        assert_eq!(
+            session
+                .state()
+                .payload_lifecycle_projection
+                .by_carrier
+                .get(&UnitRefProjection {
+                    kind: 1,
+                    value: pack_point2(14, 9),
+                }),
+            Some(&crate::session_state::PayloadLifecycleCarrierProjection {
+                carrier: UnitRefProjection {
+                    kind: 1,
+                    value: pack_point2(14, 9),
+                },
+                target_unit: None,
+                target_build: None,
+                drop_tile: None,
+                on_ground: Some(false),
+                removed_target_unit: true,
+                removed_target_build: false,
+                removed_carrier: false,
+            })
+        );
     }
 
     #[test]
