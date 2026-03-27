@@ -5,7 +5,9 @@ use crate::client_session::{
     ClientSessionEvent,
 };
 use crate::session_state::{ReconnectReasonKind, SessionTimeoutKind};
-use mdt_protocol::{decode_framework_message, FrameworkCodecError};
+use mdt_protocol::{
+    decode_framework_message, encode_framework_message, FrameworkCodecError, FrameworkMessage,
+};
 use std::fmt;
 use std::io;
 use std::net::{SocketAddr, UdpSocket};
@@ -53,8 +55,9 @@ impl UdpSessionDriver {
                     }
 
                     let packet = &inbound[..len];
-                    if decode_framework_message(packet).is_ok() {
+                    if let Ok(message) = decode_framework_message(packet) {
                         report.inbound_framework_messages += 1;
+                        self.handle_framework_message(message, &mut report)?;
                         continue;
                     }
 
@@ -100,6 +103,32 @@ impl UdpSessionDriver {
         }
 
         Ok(report)
+    }
+
+    fn handle_framework_message(
+        &self,
+        message: FrameworkMessage,
+        report: &mut UdpTickReport,
+    ) -> Result<(), UdpLoopError> {
+        match message {
+            FrameworkMessage::RegisterUdp { .. } => {}
+            FrameworkMessage::Ping {
+                id,
+                is_reply: false,
+            } => {
+                let reply = encode_framework_message(&FrameworkMessage::Ping {
+                    id,
+                    is_reply: true,
+                });
+                self.socket.send_to(&reply, self.server_addr)?;
+                report.outbound_framework_messages += 1;
+            }
+            FrameworkMessage::DiscoverHost
+            | FrameworkMessage::KeepAlive
+            | FrameworkMessage::RegisterTcp { .. }
+            | FrameworkMessage::Ping { .. } => {}
+        }
+        Ok(())
     }
 }
 
@@ -161,7 +190,10 @@ mod tests {
     use super::*;
     use crate::bootstrap_flow::encode_world_stream_packets;
     use crate::client_session::ClientSessionTiming;
-    use mdt_protocol::{decode_packet, encode_packet};
+    use mdt_protocol::{
+        decode_framework_message, decode_packet, encode_framework_message, encode_packet,
+        FrameworkMessage,
+    };
     use mdt_remote::read_remote_manifest;
     use std::net::UdpSocket;
     use std::path::PathBuf;
@@ -373,6 +405,61 @@ mod tests {
         assert_eq!(
             report.timed_out_kind,
             Some(SessionTimeoutKind::ConnectOrLoading)
+        );
+    }
+
+    #[test]
+    fn handles_udp_framework_register_and_ping() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let timing = ClientSessionTiming {
+            keepalive_interval_ms: 60_000,
+            client_snapshot_interval_ms: 60_000,
+            connect_timeout_ms: 120_000,
+            timeout_ms: 120_000,
+        };
+        let mut session =
+            ClientSession::from_remote_manifest_with_timing(&manifest, "fr", timing).unwrap();
+
+        let server = UdpSocket::bind("127.0.0.1:0").unwrap();
+        server.set_nonblocking(true).unwrap();
+        let server_addr = server.local_addr().unwrap();
+
+        let client = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let driver = UdpSessionDriver::new(client, server_addr).unwrap();
+        let client_addr = driver.local_addr().unwrap();
+
+        server
+            .send_to(
+                &encode_framework_message(&FrameworkMessage::RegisterUdp {
+                    connection_id: 77,
+                }),
+                client_addr,
+            )
+            .unwrap();
+        server
+            .send_to(
+                &encode_framework_message(&FrameworkMessage::Ping {
+                    id: 123,
+                    is_reply: false,
+                }),
+                client_addr,
+            )
+            .unwrap();
+
+        let report = driver.tick(&mut session, 1, 32).unwrap();
+        assert_eq!(report.inbound_framework_messages, 2);
+        assert_eq!(report.outbound_framework_messages, 1);
+        assert_eq!(report.inbound_packets, 0);
+
+        let mut recv = [0u8; 1024];
+        let (len, from) = server.recv_from(&mut recv).unwrap();
+        assert_eq!(from, client_addr);
+        assert_eq!(
+            decode_framework_message(&recv[..len]).unwrap(),
+            FrameworkMessage::Ping {
+                id: 123,
+                is_reply: true,
+            }
         );
     }
 }
