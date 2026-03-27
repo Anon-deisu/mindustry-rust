@@ -1031,6 +1031,17 @@ pub struct SaveEntityChunkObservation {
     pub body_sha256: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SaveEntityChunkSurface<'a> {
+    pub chunk_len: usize,
+    pub chunk_sha256: &'a str,
+    pub class_id: u8,
+    pub custom_name: Option<&'a str>,
+    pub entity_id: i32,
+    pub body_len: usize,
+    pub body_sha256: &'a str,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SaveEntityClassKind {
     Builtin,
@@ -1310,6 +1321,13 @@ impl SavePostLoadWorldObservation {
     pub fn runtime_seed_surface(&self) -> SavePostLoadRuntimeSeedSurface {
         self.runtime_seed_plan().runtime_seed_surface()
     }
+
+    pub fn world_entity_chunk_surfaces(&self) -> Vec<SaveEntityChunkSurface<'_>> {
+        self.world_entity_chunks
+            .iter()
+            .map(SaveEntityChunkObservation::surface)
+            .collect()
+    }
 }
 
 impl SavePostLoadRuntimeSeedPlan {
@@ -1360,6 +1378,18 @@ fn collect_runtime_seed_regions(
 impl SaveEntityChunkObservation {
     pub fn builtin_name(&self) -> Option<&'static str> {
         lookup_builtin_entity_class_name(self.class_id)
+    }
+
+    pub fn surface(&self) -> SaveEntityChunkSurface<'_> {
+        SaveEntityChunkSurface {
+            chunk_len: self.chunk_len,
+            chunk_sha256: &self.chunk_sha256,
+            class_id: self.class_id,
+            custom_name: self.custom_name.as_deref(),
+            entity_id: self.entity_id,
+            body_len: self.body_len,
+            body_sha256: &self.body_sha256,
+        }
     }
 
     pub fn class_kind(&self) -> SaveEntityClassKind {
@@ -1437,6 +1467,13 @@ impl SaveEntityChunkObservation {
 }
 
 impl SaveEntityRegionObservation {
+    pub fn entity_chunk_surfaces(&self) -> Vec<SaveEntityChunkSurface<'_>> {
+        self.entity_chunks
+            .iter()
+            .map(SaveEntityChunkObservation::surface)
+            .collect()
+    }
+
     pub fn post_load_remap_summary(&self) -> SaveEntityRemapSummary {
         let mut seen_custom_ids = BTreeSet::new();
         let mut duplicate_custom_ids = BTreeSet::new();
@@ -40461,6 +40498,33 @@ mod tests {
         assert_eq!(second.custom_name, None);
         assert_eq!(second.entity_id, 0x1122_3344);
         assert_eq!(second.body_bytes, vec![0xcc]);
+
+        let surfaces = save.entities.entity_chunk_surfaces();
+        assert_eq!(surfaces.len(), save.entities.entity_chunks.len());
+        assert_eq!(
+            surfaces[0],
+            SaveEntityChunkSurface {
+                chunk_len: first.chunk_len,
+                chunk_sha256: first.chunk_sha256.as_str(),
+                class_id: first.class_id,
+                custom_name: first.custom_name.as_deref(),
+                entity_id: first.entity_id,
+                body_len: first.body_len,
+                body_sha256: first.body_sha256.as_str(),
+            }
+        );
+        assert_eq!(
+            surfaces[1],
+            SaveEntityChunkSurface {
+                chunk_len: second.chunk_len,
+                chunk_sha256: second.chunk_sha256.as_str(),
+                class_id: second.class_id,
+                custom_name: second.custom_name.as_deref(),
+                entity_id: second.entity_id,
+                body_len: second.body_len,
+                body_sha256: second.body_sha256.as_str(),
+            }
+        );
     }
 
     #[test]
@@ -41044,6 +41108,9 @@ mod tests {
                 .map(|batch| (Some(batch.batch_index), Some(batch.step_count)))
                 .unwrap()
         );
+        let chunk_surfaces = post_load.world_entity_chunk_surfaces();
+        assert_eq!(chunk_surfaces.len(), post_load.world_entity_chunks.len());
+        assert_eq!(chunk_surfaces[0], post_load.world_entity_chunks[0].surface());
     }
 
     #[test]
