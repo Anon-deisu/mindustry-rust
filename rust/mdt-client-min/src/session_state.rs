@@ -410,6 +410,16 @@ pub struct RepairTurretRuntimeProjection {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RadarRuntimeProjection {
+    pub progress_bits: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LaunchPadRuntimeProjection {
+    pub launch_counter_bits: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConveyorRuntimeProjection {
     pub item_count: usize,
     pub first_item_id: Option<i16>,
@@ -1897,6 +1907,8 @@ impl TileConfigProjection {
 pub struct ConfiguredBlockProjection {
     pub core_runtime_by_build_pos: BTreeMap<i32, CoreRuntimeProjection>,
     pub repair_turret_runtime_by_build_pos: BTreeMap<i32, RepairTurretRuntimeProjection>,
+    pub radar_runtime_by_build_pos: BTreeMap<i32, RadarRuntimeProjection>,
+    pub launch_pad_runtime_by_build_pos: BTreeMap<i32, LaunchPadRuntimeProjection>,
     pub conveyor_runtime_by_build_pos: BTreeMap<i32, ConveyorRuntimeProjection>,
     pub unit_cargo_unload_point_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub item_source_item_by_build_pos: BTreeMap<i32, Option<i16>>,
@@ -1953,6 +1965,20 @@ impl ConfiguredBlockProjection {
         projection: RepairTurretRuntimeProjection,
     ) {
         self.repair_turret_runtime_by_build_pos
+            .insert(build_pos, projection);
+    }
+
+    pub fn apply_radar_runtime(&mut self, build_pos: i32, projection: RadarRuntimeProjection) {
+        self.radar_runtime_by_build_pos
+            .insert(build_pos, projection);
+    }
+
+    pub fn apply_launch_pad_runtime(
+        &mut self,
+        build_pos: i32,
+        projection: LaunchPadRuntimeProjection,
+    ) {
+        self.launch_pad_runtime_by_build_pos
             .insert(build_pos, projection);
     }
 
@@ -3271,6 +3297,8 @@ where
 pub enum TypedBuildingRuntimeKind {
     Core,
     RepairTurret,
+    Radar,
+    LaunchPad,
     Conveyor,
     UnitCargoUnloadPoint,
     ItemSource,
@@ -3315,6 +3343,8 @@ impl TypedBuildingRuntimeKind {
         match self {
             Self::Core => "core",
             Self::RepairTurret => "repair-turret",
+            Self::Radar => "radar",
+            Self::LaunchPad => "launch-pad",
             Self::Conveyor => "conveyor",
             Self::UnitCargoUnloadPoint => "unit-cargo-unload-point",
             Self::ItemSource => "item-source",
@@ -3363,6 +3393,12 @@ pub enum TypedBuildingRuntimeValue {
     },
     RepairTurret {
         rotation_bits: Option<u32>,
+    },
+    Radar {
+        progress_bits: Option<u32>,
+    },
+    LaunchPad {
+        launch_counter_bits: Option<u32>,
     },
     Conveyor {
         item_count: Option<usize>,
@@ -3674,6 +3710,24 @@ fn typed_runtime_building_model(
                     .repair_turret_runtime_by_build_pos
                     .get(&build_pos)
                     .map(|projection| projection.rotation_bits),
+            },
+        ),
+        "radar" => (
+            TypedBuildingRuntimeKind::Radar,
+            TypedBuildingRuntimeValue::Radar {
+                progress_bits: configured
+                    .radar_runtime_by_build_pos
+                    .get(&build_pos)
+                    .map(|projection| projection.progress_bits),
+            },
+        ),
+        "launch-pad" | "advanced-launch-pad" => (
+            TypedBuildingRuntimeKind::LaunchPad,
+            TypedBuildingRuntimeValue::LaunchPad {
+                launch_counter_bits: configured
+                    .launch_pad_runtime_by_build_pos
+                    .get(&build_pos)
+                    .map(|projection| projection.launch_counter_bits),
             },
         ),
         "unit-cargo-unload-point" => (
@@ -8840,6 +8894,224 @@ mod tests {
                 TypedBuildingRuntimeKind::RepairTurret,
                 TypedBuildingRuntimeValue::RepairTurret {
                     rotation_bits: Some(0x41a0_0000),
+                },
+            ))
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_radar_family_shells() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0006_001bi32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            313,
+            Some("radar".to_string()),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(0x3f80_0000),
+            Some(0x3f20_0000),
+            Some(127),
+            Some(false),
+            Some(TypeIoObject::Null),
+            Some(0x4080_0000),
+            Some(true),
+            Some(0x44),
+            Some(0x12),
+            Some(85),
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(
+            state.typed_runtime_building_at(build_pos),
+            Some(expected_typed_runtime_building(
+                build_pos,
+                313,
+                "radar",
+                TypedBuildingRuntimeKind::Radar,
+                TypedBuildingRuntimeValue::Radar {
+                    progress_bits: None,
+                },
+                Vec::new(),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(0x3f80_0000),
+                Some(0x3f20_0000),
+                Some(127),
+                Some(false),
+                Some(0x4080_0000),
+                Some(true),
+                Some(0x44),
+                Some(0x12),
+                Some(85),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_radar_family_runtime() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0006_001ci32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            314,
+            Some("radar".to_string()),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(0x3f80_0000),
+            Some(0x3f20_0000),
+            Some(128),
+            Some(true),
+            Some(TypeIoObject::Null),
+            Some(0x4080_0000),
+            Some(false),
+            Some(0x45),
+            Some(0x13),
+            Some(84),
+            None,
+            None,
+            None,
+        );
+        state.configured_block_projection.apply_radar_runtime(
+            build_pos,
+            RadarRuntimeProjection {
+                progress_bits: 0x3f80_0000,
+            },
+        );
+
+        assert_eq!(
+            state
+                .typed_runtime_building_at(build_pos)
+                .map(|building| (building.kind, building.value.clone())),
+            Some((
+                TypedBuildingRuntimeKind::Radar,
+                TypedBuildingRuntimeValue::Radar {
+                    progress_bits: Some(0x3f80_0000),
+                },
+            ))
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_launch_pad_family_shells() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0006_001di32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            315,
+            Some("advanced-launch-pad".to_string()),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(0x3f80_0000),
+            Some(0x3f20_0000),
+            Some(127),
+            Some(false),
+            Some(TypeIoObject::Null),
+            Some(0x4080_0000),
+            Some(true),
+            Some(0x44),
+            Some(0x12),
+            Some(85),
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(
+            state.typed_runtime_building_at(build_pos),
+            Some(expected_typed_runtime_building(
+                build_pos,
+                315,
+                "advanced-launch-pad",
+                TypedBuildingRuntimeKind::LaunchPad,
+                TypedBuildingRuntimeValue::LaunchPad {
+                    launch_counter_bits: None,
+                },
+                Vec::new(),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(0x3f80_0000),
+                Some(0x3f20_0000),
+                Some(127),
+                Some(false),
+                Some(0x4080_0000),
+                Some(true),
+                Some(0x44),
+                Some(0x12),
+                Some(85),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_launch_pad_family_runtime() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0006_001ei32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            316,
+            Some("launch-pad".to_string()),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(0x3f80_0000),
+            Some(0x3f20_0000),
+            Some(128),
+            Some(true),
+            Some(TypeIoObject::Null),
+            Some(0x4080_0000),
+            Some(false),
+            Some(0x45),
+            Some(0x13),
+            Some(84),
+            None,
+            None,
+            None,
+        );
+        state.configured_block_projection.apply_launch_pad_runtime(
+            build_pos,
+            LaunchPadRuntimeProjection {
+                launch_counter_bits: 0x4200_0000,
+            },
+        );
+
+        assert_eq!(
+            state
+                .typed_runtime_building_at(build_pos)
+                .map(|building| (building.kind, building.value.clone())),
+            Some((
+                TypedBuildingRuntimeKind::LaunchPad,
+                TypedBuildingRuntimeValue::LaunchPad {
+                    launch_counter_bits: Some(0x4200_0000),
                 },
             ))
         );
