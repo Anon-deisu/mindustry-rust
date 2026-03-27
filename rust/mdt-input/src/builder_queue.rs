@@ -895,6 +895,14 @@ impl BuilderQueueStateMachine {
             }
         };
 
+        if matches!(
+            action,
+            BuilderQueueHeadExecutionAction::BeginPlace
+                | BuilderQueueHeadExecutionAction::BeginBreak
+                | BuilderQueueHeadExecutionAction::ContinueConstruct
+        ) {
+            self.last_transition = Some(BuilderQueueTransition::Started);
+        }
         self.last_skip_reason = None;
         self.last_validation_removal_reasons.clear();
         self.last_front_promotion = (action
@@ -3808,6 +3816,7 @@ mod tests {
         );
         assert_eq!(queue.ordered_tiles, vec![(12, 12)]);
         assert_eq!(queue.head_tile, Some((12, 12)));
+        assert_eq!(queue.last_transition, Some(BuilderQueueTransition::Started));
         assert_eq!(queue.last_front_promotion, None);
     }
 
@@ -3839,6 +3848,7 @@ mod tests {
         );
         assert_eq!(queue.ordered_tiles, vec![(13, 13)]);
         assert_eq!(queue.head_tile, Some((13, 13)));
+        assert_eq!(queue.last_transition, Some(BuilderQueueTransition::Started));
     }
 
     #[test]
@@ -3929,6 +3939,7 @@ mod tests {
         );
         assert_eq!(queue.queued_count, 1);
         assert_eq!(queue.inflight_count, 1);
+        assert_eq!(queue.last_transition, Some(BuilderQueueTransition::Started));
         assert_eq!(queue.last_front_promotion, None);
     }
 
@@ -3972,6 +3983,7 @@ mod tests {
         );
         assert_eq!(queue.queued_count, 0);
         assert_eq!(queue.inflight_count, 1);
+        assert_eq!(queue.last_transition, Some(BuilderQueueTransition::Started));
         assert_eq!(queue.last_front_promotion, None);
     }
 
