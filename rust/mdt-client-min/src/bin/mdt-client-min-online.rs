@@ -124,7 +124,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .clone()
         .map(RuntimePlanEditLoopState::new);
     let mut runtime_command_mode = CommandModeState::default();
-    apply_runtime_command_mode_cli_ops(&mut runtime_command_mode, &args.command_mode_ops);
+    reset_runtime_command_mode_from_cli_ops(&mut runtime_command_mode, &args.command_mode_ops);
     let mut relative_build_plans_applied = false;
     let mut auto_build_plans_applied = false;
     let mut ascii_scene_printed = false;
@@ -221,15 +221,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 report.events
             );
         }
-        if report
-            .events
-            .iter()
-            .any(|event| matches!(event, ClientSessionEvent::WorldDataBegin))
-        {
+        if reapply_runtime_command_mode_on_world_data_begin(
+            &mut runtime_command_mode,
+            &args.command_mode_ops,
+            &report.events,
+        ) {
             relative_build_plans_applied = false;
             auto_build_plans_applied = false;
-            runtime_command_mode.clear();
-            apply_runtime_command_mode_cli_ops(&mut runtime_command_mode, &args.command_mode_ops);
         }
         let runtime_effect_clip_view = session.snapshot_input().view_size.and_then(|view_size| {
             let bundle = session.loaded_world_bundle()?;
@@ -353,8 +351,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         ascii_scene_printed = false;
                         world_stream_dumped = false;
                         render_runtime_adapter = RenderRuntimeAdapter::default();
-                        runtime_command_mode.clear();
-                        apply_runtime_command_mode_cli_ops(
+                        reset_runtime_command_mode_from_cli_ops(
                             &mut runtime_command_mode,
                             &args.command_mode_ops,
                         );
@@ -2645,6 +2642,29 @@ fn apply_runtime_command_mode_cli_ops(
             }
         }
     }
+}
+
+fn reset_runtime_command_mode_from_cli_ops(
+    runtime_command_mode: &mut CommandModeState,
+    ops: &[CommandModeCliOp],
+) {
+    runtime_command_mode.clear();
+    apply_runtime_command_mode_cli_ops(runtime_command_mode, ops);
+}
+
+fn reapply_runtime_command_mode_on_world_data_begin(
+    runtime_command_mode: &mut CommandModeState,
+    ops: &[CommandModeCliOp],
+    events: &[ClientSessionEvent],
+) -> bool {
+    if !events
+        .iter()
+        .any(|event| matches!(event, ClientSessionEvent::WorldDataBegin))
+    {
+        return false;
+    }
+    reset_runtime_command_mode_from_cli_ops(runtime_command_mode, ops);
+    true
 }
 
 fn resolve_session_timing(args: &CliArgs) -> ClientSessionTiming {
@@ -11514,6 +11534,104 @@ mod tests {
                 stance_id: None,
                 enabled: false,
             })
+        );
+    }
+
+    #[test]
+    fn reset_runtime_command_mode_from_cli_ops_replays_cli_state_after_runtime_changes() {
+        let mut runtime_command_mode = CommandModeState::default();
+        runtime_command_mode.bind_control_group(2, &[99]);
+        runtime_command_mode.record_building_control_select(Some(404));
+        runtime_command_mode.record_set_unit_command(&[77, 88, 77], Some(7));
+        runtime_command_mode.set_command_rect(Some(CommandModeRectProjection {
+            x0: -9,
+            y0: 3,
+            x1: 12,
+            y1: 18,
+        }));
+
+        reset_runtime_command_mode_from_cli_ops(
+            &mut runtime_command_mode,
+            &[
+                CommandModeCliOp::BindGroup {
+                    index: 2,
+                    unit_ids: vec![11, 22, 11],
+                },
+                CommandModeCliOp::RecallGroup { index: 2 },
+                CommandModeCliOp::SetTarget {
+                    build_target: Some(808),
+                    unit_target: ClientUnitRef::Standard(909),
+                    pos_target: Some((1.5, -2.25)),
+                },
+            ],
+        );
+
+        assert_eq!(
+            runtime_command_mode.projection(),
+            mdt_input::CommandModeProjection {
+                active: true,
+                selected_units: vec![11, 22],
+                command_buildings: Vec::new(),
+                command_rect: None,
+                control_groups: vec![mdt_input::CommandModeControlGroupProjection {
+                    index: 2,
+                    unit_ids: vec![11, 22],
+                }],
+                last_target: Some(mdt_input::CommandModeTargetProjection {
+                    build_target: Some(808),
+                    unit_target: Some(mdt_input::CommandUnitRef {
+                        kind: 2,
+                        value: 909,
+                    }),
+                    position_target: Some(mdt_input::CommandModePositionTarget {
+                        x_bits: 1.5f32.to_bits(),
+                        y_bits: (-2.25f32).to_bits(),
+                    }),
+                    rect_target: None,
+                }),
+                last_command_selection: None,
+                last_stance_selection: None,
+            }
+        );
+    }
+
+    #[test]
+    fn reapply_runtime_command_mode_on_world_data_begin_requires_matching_event() {
+        let mut runtime_command_mode = CommandModeState::default();
+        runtime_command_mode.record_building_control_select(Some(404));
+        runtime_command_mode.record_set_unit_stance(&[77, 88, 77], Some(6), false);
+        let before = runtime_command_mode.projection();
+
+        assert!(!reapply_runtime_command_mode_on_world_data_begin(
+            &mut runtime_command_mode,
+            &[CommandModeCliOp::SelectUnits {
+                unit_ids: vec![11, 22, 11],
+            }],
+            &[ClientSessionEvent::ServerMessage {
+                message: "hello".to_string(),
+            }],
+        ));
+        assert_eq!(runtime_command_mode.projection(), before);
+
+        assert!(reapply_runtime_command_mode_on_world_data_begin(
+            &mut runtime_command_mode,
+            &[CommandModeCliOp::SelectUnits {
+                unit_ids: vec![11, 22, 11],
+            }],
+            &[ClientSessionEvent::WorldDataBegin],
+        ));
+        assert_eq!(
+            runtime_command_mode.projection(),
+            mdt_input::CommandModeProjection {
+                active: true,
+                selected_units: vec![11, 22],
+                command_buildings: Vec::new(),
+                command_rect: None,
+                control_groups: Vec::new(),
+                last_target: Some(mdt_input::CommandModeTargetProjection::default()),
+                last_command_selection: None,
+                last_stance_selection: None,
+            }
         );
     }
 
