@@ -420,6 +420,16 @@ pub struct LaunchPadRuntimeProjection {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InterplanetaryAcceleratorRuntimeProjection {
+    pub progress_bits: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShieldedWallRuntimeProjection {
+    pub shield_bits: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConveyorRuntimeProjection {
     pub item_count: usize,
     pub first_item_id: Option<i16>,
@@ -1909,6 +1919,9 @@ pub struct ConfiguredBlockProjection {
     pub repair_turret_runtime_by_build_pos: BTreeMap<i32, RepairTurretRuntimeProjection>,
     pub radar_runtime_by_build_pos: BTreeMap<i32, RadarRuntimeProjection>,
     pub launch_pad_runtime_by_build_pos: BTreeMap<i32, LaunchPadRuntimeProjection>,
+    pub interplanetary_accelerator_runtime_by_build_pos:
+        BTreeMap<i32, InterplanetaryAcceleratorRuntimeProjection>,
+    pub shielded_wall_runtime_by_build_pos: BTreeMap<i32, ShieldedWallRuntimeProjection>,
     pub conveyor_runtime_by_build_pos: BTreeMap<i32, ConveyorRuntimeProjection>,
     pub unit_cargo_unload_point_item_by_build_pos: BTreeMap<i32, Option<i16>>,
     pub item_source_item_by_build_pos: BTreeMap<i32, Option<i16>>,
@@ -1979,6 +1992,24 @@ impl ConfiguredBlockProjection {
         projection: LaunchPadRuntimeProjection,
     ) {
         self.launch_pad_runtime_by_build_pos
+            .insert(build_pos, projection);
+    }
+
+    pub fn apply_interplanetary_accelerator_runtime(
+        &mut self,
+        build_pos: i32,
+        projection: InterplanetaryAcceleratorRuntimeProjection,
+    ) {
+        self.interplanetary_accelerator_runtime_by_build_pos
+            .insert(build_pos, projection);
+    }
+
+    pub fn apply_shielded_wall_runtime(
+        &mut self,
+        build_pos: i32,
+        projection: ShieldedWallRuntimeProjection,
+    ) {
+        self.shielded_wall_runtime_by_build_pos
             .insert(build_pos, projection);
     }
 
@@ -3299,6 +3330,8 @@ pub enum TypedBuildingRuntimeKind {
     RepairTurret,
     Radar,
     LaunchPad,
+    InterplanetaryAccelerator,
+    ShieldedWall,
     Conveyor,
     UnitCargoUnloadPoint,
     ItemSource,
@@ -3345,6 +3378,8 @@ impl TypedBuildingRuntimeKind {
             Self::RepairTurret => "repair-turret",
             Self::Radar => "radar",
             Self::LaunchPad => "launch-pad",
+            Self::InterplanetaryAccelerator => "interplanetary-accelerator",
+            Self::ShieldedWall => "shielded-wall",
             Self::Conveyor => "conveyor",
             Self::UnitCargoUnloadPoint => "unit-cargo-unload-point",
             Self::ItemSource => "item-source",
@@ -3399,6 +3434,12 @@ pub enum TypedBuildingRuntimeValue {
     },
     LaunchPad {
         launch_counter_bits: Option<u32>,
+    },
+    InterplanetaryAccelerator {
+        progress_bits: Option<u32>,
+    },
+    ShieldedWall {
+        shield_bits: Option<u32>,
     },
     Conveyor {
         item_count: Option<usize>,
@@ -3728,6 +3769,24 @@ fn typed_runtime_building_model(
                     .launch_pad_runtime_by_build_pos
                     .get(&build_pos)
                     .map(|projection| projection.launch_counter_bits),
+            },
+        ),
+        "interplanetary-accelerator" => (
+            TypedBuildingRuntimeKind::InterplanetaryAccelerator,
+            TypedBuildingRuntimeValue::InterplanetaryAccelerator {
+                progress_bits: configured
+                    .interplanetary_accelerator_runtime_by_build_pos
+                    .get(&build_pos)
+                    .map(|projection| projection.progress_bits),
+            },
+        ),
+        "shielded-wall" => (
+            TypedBuildingRuntimeKind::ShieldedWall,
+            TypedBuildingRuntimeValue::ShieldedWall {
+                shield_bits: configured
+                    .shielded_wall_runtime_by_build_pos
+                    .get(&build_pos)
+                    .map(|projection| projection.shield_bits),
             },
         ),
         "unit-cargo-unload-point" => (
@@ -9112,6 +9171,228 @@ mod tests {
                 TypedBuildingRuntimeKind::LaunchPad,
                 TypedBuildingRuntimeValue::LaunchPad {
                     launch_counter_bits: Some(0x4200_0000),
+                },
+            ))
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_interplanetary_accelerator_family_shells(
+    ) {
+        let mut state = SessionState::default();
+        let build_pos = 0x0006_001fi32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            317,
+            Some("interplanetary-accelerator".to_string()),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(0x3f80_0000),
+            Some(0x3f20_0000),
+            Some(129),
+            Some(false),
+            Some(TypeIoObject::Null),
+            Some(0x4080_0000),
+            Some(true),
+            Some(0x44),
+            Some(0x12),
+            Some(85),
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(
+            state.typed_runtime_building_at(build_pos),
+            Some(expected_typed_runtime_building(
+                build_pos,
+                317,
+                "interplanetary-accelerator",
+                TypedBuildingRuntimeKind::InterplanetaryAccelerator,
+                TypedBuildingRuntimeValue::InterplanetaryAccelerator {
+                    progress_bits: None,
+                },
+                Vec::new(),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(0x3f80_0000),
+                Some(0x3f20_0000),
+                Some(129),
+                Some(false),
+                Some(0x4080_0000),
+                Some(true),
+                Some(0x44),
+                Some(0x12),
+                Some(85),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_interplanetary_accelerator_family_runtime(
+    ) {
+        let mut state = SessionState::default();
+        let build_pos = 0x0006_0020i32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            318,
+            Some("interplanetary-accelerator".to_string()),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(0x3f80_0000),
+            Some(0x3f20_0000),
+            Some(130),
+            Some(true),
+            Some(TypeIoObject::Null),
+            Some(0x4080_0000),
+            Some(false),
+            Some(0x45),
+            Some(0x13),
+            Some(84),
+            None,
+            None,
+            None,
+        );
+        state
+            .configured_block_projection
+            .apply_interplanetary_accelerator_runtime(
+                build_pos,
+                InterplanetaryAcceleratorRuntimeProjection {
+                    progress_bits: 0x4240_0000,
+                },
+            );
+
+        assert_eq!(
+            state
+                .typed_runtime_building_at(build_pos)
+                .map(|building| (building.kind, building.value.clone())),
+            Some((
+                TypedBuildingRuntimeKind::InterplanetaryAccelerator,
+                TypedBuildingRuntimeValue::InterplanetaryAccelerator {
+                    progress_bits: Some(0x4240_0000),
+                },
+            ))
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_shielded_wall_family_shells() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0006_001fi32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            317,
+            Some("shielded-wall".to_string()),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(0x3f80_0000),
+            Some(0x3f20_0000),
+            Some(129),
+            Some(false),
+            Some(TypeIoObject::Null),
+            Some(0x4080_0000),
+            Some(true),
+            Some(0x44),
+            Some(0x12),
+            Some(85),
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(
+            state.typed_runtime_building_at(build_pos),
+            Some(expected_typed_runtime_building(
+                build_pos,
+                317,
+                "shielded-wall",
+                TypedBuildingRuntimeKind::ShieldedWall,
+                TypedBuildingRuntimeValue::ShieldedWall { shield_bits: None },
+                Vec::new(),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(0x3f80_0000),
+                Some(0x3f20_0000),
+                Some(129),
+                Some(false),
+                Some(0x4080_0000),
+                Some(true),
+                Some(0x44),
+                Some(0x12),
+                Some(85),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_shielded_wall_family_runtime() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0006_0020i32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            318,
+            Some("shielded-wall".to_string()),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(0x3f80_0000),
+            Some(0x3f20_0000),
+            Some(130),
+            Some(true),
+            Some(TypeIoObject::Null),
+            Some(0x4080_0000),
+            Some(false),
+            Some(0x45),
+            Some(0x13),
+            Some(84),
+            None,
+            None,
+            None,
+        );
+        state
+            .configured_block_projection
+            .apply_shielded_wall_runtime(
+                build_pos,
+                ShieldedWallRuntimeProjection {
+                    shield_bits: 0x4260_0000,
+                },
+            );
+
+        assert_eq!(
+            state
+                .typed_runtime_building_at(build_pos)
+                .map(|building| (building.kind, building.value.clone())),
+            Some((
+                TypedBuildingRuntimeKind::ShieldedWall,
+                TypedBuildingRuntimeValue::ShieldedWall {
+                    shield_bits: Some(0x4260_0000),
                 },
             ))
         );

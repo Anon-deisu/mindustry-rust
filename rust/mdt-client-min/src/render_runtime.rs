@@ -13,8 +13,6 @@ use crate::effect_runtime::{
     EffectRuntimeInputView, RuntimeEffectBinding, RuntimeEffectOverlay,
 };
 #[cfg(test)]
-use crate::session_state::LaunchPadRuntimeProjection;
-#[cfg(test)]
 use crate::session_state::RadarRuntimeProjection;
 use crate::session_state::{
     AuthoritativeStateMirror, BuilderPlanStage, BuilderQueueProjection, BuildingProjection,
@@ -3342,6 +3340,12 @@ fn runtime_typed_build_config_value_label(
                 .map(|bits| format!("0x{bits:08x}"))
                 .unwrap_or_else(|| "none".to_string())
         ),
+        TypedBuildingRuntimeValue::InterplanetaryAccelerator { progress_bits } => format!(
+            "progress={}",
+            progress_bits
+                .map(|bits| format!("0x{bits:08x}"))
+                .unwrap_or_else(|| "none".to_string())
+        ),
         TypedBuildingRuntimeValue::Conveyor {
             item_count,
             first_item_id,
@@ -3796,7 +3800,7 @@ fn runtime_typed_build_config_value_label(
             broken,
         } => {
             let mut parts = vec![format!(
-                "radius={}",
+                "shield={}",
                 smooth_radius_bits
                     .map(|bits| format!("0x{bits:08x}"))
                     .unwrap_or_else(|| "unknown".to_string())
@@ -3809,6 +3813,12 @@ fn runtime_typed_build_config_value_label(
             ));
             parts.join(":")
         }
+        TypedBuildingRuntimeValue::ShieldedWall { shield_bits } => format!(
+            "shield={}",
+            shield_bits
+                .map(|bits| format!("0x{bits:08x}"))
+                .unwrap_or_else(|| "none".to_string())
+        ),
         TypedBuildingRuntimeValue::DuctUnloader { item_id, offset } => {
             let mut parts = vec![format!(
                 "item={}",
@@ -8791,6 +8801,18 @@ mod tests {
     }
 
     #[test]
+    fn runtime_typed_build_config_value_label_formats_interplanetary_accelerator_runtime() {
+        let label = runtime_typed_build_config_value_label(
+            TypedBuildingRuntimeKind::InterplanetaryAccelerator,
+            &TypedBuildingRuntimeValue::InterplanetaryAccelerator {
+                progress_bits: Some(0x4240_0000),
+            },
+        );
+
+        assert_eq!(label, "progress=0x42400000");
+    }
+
+    #[test]
     fn render_runtime_adapter_reports_item_buffer_runtime_in_inspector() {
         let mut adapter = RenderRuntimeAdapter::default();
         let mut scene = RenderModel::default();
@@ -9034,12 +9056,14 @@ mod tests {
         let mut state = SessionState::default();
         let build_pos = pack_runtime_point2(40, 62);
 
-        state.configured_block_projection.apply_launch_pad_runtime(
-            build_pos,
-            LaunchPadRuntimeProjection {
-                launch_counter_bits: 0x4200_0000,
-            },
-        );
+        state
+            .configured_block_projection
+            .apply_launch_pad_runtime(
+                build_pos,
+                crate::session_state::LaunchPadRuntimeProjection {
+                    launch_counter_bits: 0x4200_0000,
+                },
+            );
         state.building_table_projection.by_build_pos.insert(
             build_pos,
             crate::session_state::BuildingProjection {
@@ -9079,6 +9103,65 @@ mod tests {
         assert!(build_ui.inspector_entries.iter().any(|entry| {
             entry.family == "launch-pad"
                 && entry.sample == "40:62:advanced-launch-pad:progress=0x42000000"
+        }));
+    }
+
+    #[test]
+    fn render_runtime_adapter_reports_interplanetary_accelerator_runtime_in_inspector() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        let build_pos = pack_runtime_point2(41, 63);
+
+        state
+            .configured_block_projection
+            .apply_interplanetary_accelerator_runtime(
+                build_pos,
+                crate::session_state::InterplanetaryAcceleratorRuntimeProjection {
+                    progress_bits: 0x4200_0000,
+                },
+            );
+        state.building_table_projection.by_build_pos.insert(
+            build_pos,
+            crate::session_state::BuildingProjection {
+                block_id: Some(1),
+                block_name: Some("interplanetary-accelerator".to_string()),
+                rotation: None,
+                team_id: None,
+                io_version: None,
+                module_bitmask: None,
+                time_scale_bits: None,
+                time_scale_duration_bits: None,
+                last_disabler_pos: None,
+                legacy_consume_connected: None,
+                config: None,
+                health_bits: None,
+                enabled: None,
+                efficiency: None,
+                optional_efficiency: None,
+                visible_flags: None,
+                turret_reload_counter_bits: None,
+                turret_rotation_bits: None,
+                item_turret_ammo_count: None,
+                continuous_turret_last_length_bits: None,
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                last_update: crate::session_state::BuildingProjectionUpdateKind::BlockSnapshotHead,
+            },
+        );
+
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let build_ui = hud
+            .build_ui
+            .as_ref()
+            .expect("build_ui observability should be present");
+        assert!(build_ui.inspector_entries.iter().any(|entry| {
+            entry.family == "interplanetary-accelerator"
+                && entry.sample == "41:63:progress=0x42000000"
         }));
     }
 
@@ -9141,7 +9224,7 @@ mod tests {
     }
 
     #[test]
-    fn render_runtime_adapter_reports_shield_projector_runtime_in_inspector() {
+    fn render_runtime_adapter_reports_shielded_wall_runtime_in_inspector() {
         let mut adapter = RenderRuntimeAdapter::default();
         let mut scene = RenderModel::default();
         let mut hud = HudModel::default();
@@ -9151,18 +9234,17 @@ mod tests {
 
         state
             .configured_block_projection
-            .apply_shield_projector_runtime(
+            .apply_shielded_wall_runtime(
                 build_pos,
-                crate::session_state::ShieldProjectorRuntimeProjection {
-                    smooth_radius_bits: 0x4280_0000,
-                    broken: true,
+                crate::session_state::ShieldedWallRuntimeProjection {
+                    shield_bits: 0x4280_0000,
                 },
             );
         state.building_table_projection.by_build_pos.insert(
             build_pos,
             crate::session_state::BuildingProjection {
                 block_id: Some(1),
-                block_name: Some("shield-projector".to_string()),
+                block_name: Some("shielded-wall".to_string()),
                 rotation: None,
                 team_id: None,
                 io_version: None,
@@ -9195,7 +9277,7 @@ mod tests {
             .as_ref()
             .expect("build_ui observability should be present");
         assert!(build_ui.inspector_entries.iter().any(|entry| {
-            entry.family == "shield-projector" && entry.sample == "39:61:radius=0x42800000:broken=1"
+            entry.family == "shielded-wall" && entry.sample == "39:61:shield=0x42800000"
         }));
     }
 
@@ -9264,16 +9346,25 @@ mod tests {
     }
 
     #[test]
-    fn runtime_typed_build_config_value_label_formats_shield_projector_runtime() {
+    fn runtime_typed_build_config_value_label_formats_shielded_wall_runtime() {
         let label = runtime_typed_build_config_value_label(
-            TypedBuildingRuntimeKind::ShieldProjector,
-            &TypedBuildingRuntimeValue::ShieldProjector {
-                smooth_radius_bits: Some(0x4280_0000),
-                broken: Some(true),
+            TypedBuildingRuntimeKind::ShieldedWall,
+            &TypedBuildingRuntimeValue::ShieldedWall {
+                shield_bits: Some(0x4280_0000),
             },
         );
 
-        assert_eq!(label, "radius=0x42800000:broken=1");
+        assert_eq!(label, "shield=0x42800000");
+    }
+
+    #[test]
+    fn runtime_typed_build_config_value_label_formats_shielded_wall_runtime_without_shield_bits() {
+        let label = runtime_typed_build_config_value_label(
+            TypedBuildingRuntimeKind::ShieldedWall,
+            &TypedBuildingRuntimeValue::ShieldedWall { shield_bits: None },
+        );
+
+        assert_eq!(label, "shield=none");
     }
 
     #[test]
