@@ -3318,6 +3318,25 @@ fn runtime_typed_build_config_value_label(
         TypedBuildingRuntimeValue::Core { command_pos } => command_pos
             .map(|(x_bits, y_bits)| format!("core:command=0x{x_bits:08x}:0x{y_bits:08x}"))
             .unwrap_or_else(|| "core".to_string()),
+        TypedBuildingRuntimeValue::Conveyor {
+            item_count,
+            first_item_id,
+            first_x_raw,
+            first_y_raw,
+        } => {
+            let mut parts = vec![format!(
+                "items={}",
+                item_count
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "unknown".to_string())
+            )];
+            if let (Some(first_item_id), Some(first_x_raw), Some(first_y_raw)) =
+                (first_item_id, first_x_raw, first_y_raw)
+            {
+                parts.push(format!("first={first_item_id}@{first_x_raw}:{first_y_raw}"));
+            }
+            parts.join(":")
+        }
         TypedBuildingRuntimeValue::Item(value) => format!(
             "{}={}",
             runtime_typed_build_config_item_label(kind),
@@ -8667,6 +8686,21 @@ mod tests {
     }
 
     #[test]
+    fn runtime_typed_build_config_value_label_formats_conveyor_runtime() {
+        let label = runtime_typed_build_config_value_label(
+            TypedBuildingRuntimeKind::Conveyor,
+            &TypedBuildingRuntimeValue::Conveyor {
+                item_count: Some(2),
+                first_item_id: Some(7),
+                first_x_raw: Some(-3),
+                first_y_raw: Some(5),
+            },
+        );
+
+        assert_eq!(label, "items=2:first=7@-3:5");
+    }
+
+    #[test]
     fn render_runtime_adapter_reports_item_buffer_runtime_in_inspector() {
         let mut adapter = RenderRuntimeAdapter::default();
         let mut scene = RenderModel::default();
@@ -8725,6 +8759,65 @@ mod tests {
         assert!(build_ui.inspector_entries.iter().any(|entry| {
             entry.family == "item-buffer"
                 && entry.sample == "36:58:junction:item=7:legacy=1:sides=0x05:buffered=3"
+        }));
+    }
+
+    #[test]
+    fn render_runtime_adapter_reports_conveyor_runtime_in_inspector() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        let build_pos = pack_runtime_point2(37, 59);
+
+        state.configured_block_projection.apply_conveyor_runtime(
+            build_pos,
+            crate::session_state::ConveyorRuntimeProjection {
+                item_count: 2,
+                first_item_id: Some(7),
+                first_x_raw: Some(-3),
+                first_y_raw: Some(5),
+            },
+        );
+        state.building_table_projection.by_build_pos.insert(
+            build_pos,
+            crate::session_state::BuildingProjection {
+                block_id: Some(1),
+                block_name: Some("conveyor".to_string()),
+                rotation: None,
+                team_id: None,
+                io_version: None,
+                module_bitmask: None,
+                time_scale_bits: None,
+                time_scale_duration_bits: None,
+                last_disabler_pos: None,
+                legacy_consume_connected: None,
+                config: None,
+                health_bits: None,
+                enabled: None,
+                efficiency: None,
+                optional_efficiency: None,
+                visible_flags: None,
+                turret_reload_counter_bits: None,
+                turret_rotation_bits: None,
+                item_turret_ammo_count: None,
+                continuous_turret_last_length_bits: None,
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                last_update: crate::session_state::BuildingProjectionUpdateKind::BlockSnapshotHead,
+            },
+        );
+
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let build_ui = hud
+            .build_ui
+            .as_ref()
+            .expect("build_ui observability should be present");
+        assert!(build_ui.inspector_entries.iter().any(|entry| {
+            entry.family == "conveyor" && entry.sample == "37:59:items=2:first=7@-3:5"
         }));
     }
 
