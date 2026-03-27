@@ -3754,7 +3754,7 @@ fn runtime_world_reload_label(projection: Option<&WorldReloadProjection>) -> Str
 
 fn runtime_rules_label(session_state: &SessionState) -> String {
     format!(
-        "sr{}:srf{}:so{}:sof{}:rule{}:rf{}:clr{}:cmp{}:wv{}:pvp{}:obj{}:q{}:par{}:fg{}:oor{}:last{}",
+        "sr{}:srf{}:so{}:sof{}:rule{}:rf{}:clr{}:cmp{}:wv{}:pvp{}:uc{}:dt{}:wt{}:iws{}:obj{}:q{}:par{}:fg{}:oor{}:last{}",
         session_state.received_set_rules_count,
         session_state.failed_set_rules_parse_count,
         session_state.received_set_objectives_count,
@@ -3765,6 +3765,10 @@ fn runtime_rules_label(session_state: &SessionState) -> String {
         session_state.received_complete_objective_count,
         runtime_optional_bool_label(session_state.rules_projection.waves),
         runtime_optional_bool_label(session_state.rules_projection.pvp),
+        runtime_optional_display_label(session_state.rules_projection.unit_cap),
+        runtime_optional_display_label(session_state.rules_projection.default_team_id),
+        runtime_optional_display_label(session_state.rules_projection.wave_team_id),
+        runtime_optional_display_label(session_state.rules_projection.initial_wave_spacing),
         session_state.objectives_projection.objectives.len(),
         session_state.objectives_projection.qualified_count(),
         session_state.objectives_projection.parent_edge_count(),
@@ -5597,6 +5601,22 @@ mod tests {
     }
 
     #[test]
+    fn runtime_rules_label_includes_high_signal_rule_fields() {
+        let mut state = SessionState::default();
+        state.rules_projection.waves = Some(true);
+        state.rules_projection.pvp = Some(false);
+        state.rules_projection.unit_cap = Some(180);
+        state.rules_projection.default_team_id = Some(1);
+        state.rules_projection.wave_team_id = Some(2);
+        state.rules_projection.initial_wave_spacing = Some(90.0);
+
+        assert_eq!(
+            runtime_rules_label(&state),
+            "sr0:srf0:so0:sof0:rule0:rf0:clr0:cmp0:wv1:pvp0:uc180:dt1:wt2:iws90:obj0:q0:par0:fg0:oor0:last-1"
+        );
+    }
+
+    #[test]
     fn render_runtime_adapter_appends_visible_runtime_live_unit_object() {
         let mut adapter = RenderRuntimeAdapter::default();
         let mut scene = RenderModel::default();
@@ -6828,6 +6848,7 @@ mod tests {
                     index: 4,
                     unit_ids: vec![99],
                 }],
+                last_control_group_operation: None,
                 last_target: Some(mdt_input::CommandModeTargetProjection {
                     unit_target: Some(mdt_input::CommandUnitRef {
                         kind: 2,
@@ -10651,6 +10672,10 @@ mod tests {
         state.received_complete_objective_count = 74;
         state.rules_projection.waves = Some(true);
         state.rules_projection.pvp = Some(false);
+        state.rules_projection.unit_cap = Some(180);
+        state.rules_projection.default_team_id = Some(1);
+        state.rules_projection.wave_team_id = Some(2);
+        state.rules_projection.initial_wave_spacing = Some(90.0);
         state.objectives_projection.objectives = vec![
             crate::rules_objectives_semantics::ObjectiveProjection::default(),
             crate::rules_objectives_semantics::ObjectiveProjection::default(),
@@ -11147,7 +11172,7 @@ mod tests {
             "runtime_loading=defer59:replay60:drop61:qdrop0:sfail62:scfail63:efail64:rdy65@66"
         ));
         assert!(hud.status_text.contains(
-            "runtime_rules=sr67:srf68:so69:sof70:rule71:rf72:clr73:cmp74:wv1:pvp0:obj2:q1:par1:fg2:oor75:last9"
+            "runtime_rules=sr67:srf68:so69:sof70:rule71:rf72:clr73:cmp74:wv1:pvp0:uc180:dt1:wt2:iws90:obj2:q1:par1:fg2:oor75:last9"
         ));
         assert!(hud.status_text.contains(
             "runtime_ui_notice=hud9:hudr10:hide11:ann12:info13:toast14:warn15:popup16:popr17:clip51@copied#6:uri52@https_//exam~#19:https"

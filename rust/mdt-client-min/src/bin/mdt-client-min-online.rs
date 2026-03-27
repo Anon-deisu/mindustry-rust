@@ -11666,6 +11666,9 @@ mod tests {
                     index: 2,
                     unit_ids: vec![11, 22],
                 }],
+                last_control_group_operation: Some(
+                    mdt_input::command_mode::CommandModeRecentControlGroupOperation::Recall,
+                ),
                 last_target: Some(mdt_input::CommandModeTargetProjection {
                     build_target: Some(808),
                     unit_target: Some(mdt_input::CommandUnitRef {
@@ -11717,6 +11720,7 @@ mod tests {
                 command_buildings: Vec::new(),
                 command_rect: None,
                 control_groups: Vec::new(),
+                last_control_group_operation: None,
                 last_target: Some(mdt_input::CommandModeTargetProjection::default()),
                 last_command_selection: None,
                 last_stance_selection: None,
