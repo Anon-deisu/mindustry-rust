@@ -101,22 +101,26 @@ impl SavePostLoadRuntimeSeedPlan {
             expand_stage_steps(self, stage.kind, &mut stage_steps);
             debug_assert_eq!(stage.step_count, stage_steps.len());
 
-            match batches.last_mut() {
-                Some(batch) if batch.disposition == stage.disposition => {
-                    batch.step_count += stage.step_count;
-                    extend_unique_blockers(&mut batch.blockers, &stage.blockers);
-                    batch.stages.push(stage.clone());
-                    batch.steps.extend(stage_steps);
-                }
-                _ => batches.push(SavePostLoadRuntimeApplyBatchPlan {
-                    batch_index: batches.len(),
+            push_or_merge_runtime_apply_batch(
+                &mut batches,
+                stage,
+                stage_steps,
+                |batch, stage| batch.disposition == stage.disposition,
+                |batch_index, stage, steps| SavePostLoadRuntimeApplyBatchPlan {
+                    batch_index,
                     disposition: stage.disposition,
                     step_count: stage.step_count,
                     blockers: stage.blockers.clone(),
                     stages: vec![stage.clone()],
-                    steps: stage_steps,
-                }),
-            }
+                    steps,
+                },
+                |batch, stage, steps| {
+                    batch.step_count += stage.step_count;
+                    extend_unique_blockers(&mut batch.blockers, &stage.blockers);
+                    batch.stages.push(stage.clone());
+                    batch.steps.extend(steps);
+                },
+            );
         }
 
         let stage_count = batches.iter().map(|batch| batch.stages.len()).sum();
@@ -136,25 +140,51 @@ impl SavePostLoadConsumerApplyPlan {
     }
 }
 
+fn push_or_merge_runtime_apply_batch<B, P, FCreate, FCanMerge, FMerge>(
+    batches: &mut Vec<B>,
+    stage: &SavePostLoadConsumerRuntimeStageHelper,
+    payload: P,
+    mut can_merge: FCanMerge,
+    mut create_batch: FCreate,
+    mut merge_batch: FMerge,
+) where
+    FCreate: FnMut(usize, &SavePostLoadConsumerRuntimeStageHelper, P) -> B,
+    FCanMerge: FnMut(&B, &SavePostLoadConsumerRuntimeStageHelper) -> bool,
+    FMerge: FnMut(&mut B, &SavePostLoadConsumerRuntimeStageHelper, P),
+{
+    let should_merge = batches.last().is_some_and(|batch| can_merge(batch, stage));
+    if should_merge {
+        if let Some(batch) = batches.last_mut() {
+            merge_batch(batch, stage, payload);
+        }
+    } else {
+        batches.push(create_batch(batches.len(), stage, payload));
+    }
+}
+
 impl SavePostLoadConsumerRuntimeHelper {
     pub fn runtime_apply_batch_view(&self) -> SavePostLoadRuntimeApplyBatchView {
         let mut batches: Vec<SavePostLoadRuntimeApplyBatch> = Vec::new();
 
         for stage in self.stages.iter().filter(|stage| stage.step_count > 0) {
-            match batches.last_mut() {
-                Some(batch) if batch.disposition == stage.disposition => {
-                    batch.step_count += stage.step_count;
-                    extend_unique_blockers(&mut batch.blockers, &stage.blockers);
-                    batch.stages.push(stage.clone());
-                }
-                _ => batches.push(SavePostLoadRuntimeApplyBatch {
-                    batch_index: batches.len(),
+            push_or_merge_runtime_apply_batch(
+                &mut batches,
+                stage,
+                (),
+                |batch, stage| batch.disposition == stage.disposition,
+                |batch_index, stage, ()| SavePostLoadRuntimeApplyBatch {
+                    batch_index,
                     disposition: stage.disposition,
                     step_count: stage.step_count,
                     blockers: stage.blockers.clone(),
                     stages: vec![stage.clone()],
-                }),
-            }
+                },
+                |batch, stage, ()| {
+                    batch.step_count += stage.step_count;
+                    extend_unique_blockers(&mut batch.blockers, &stage.blockers);
+                    batch.stages.push(stage.clone());
+                },
+            );
         }
 
         let stage_count = batches.iter().map(|batch| batch.stages.len()).sum();
@@ -615,6 +645,34 @@ mod tests {
                 ),
             ]
         );
+    }
+
+    #[test]
+    fn runtime_apply_batch_view_and_plan_view_share_batch_merging_and_counts() {
+        let observation = test_observation();
+
+        let batch_view = observation.runtime_apply_batch_view();
+        let batch_plan_view = observation.runtime_apply_batch_plan_view();
+
+        assert_eq!(batch_view.stage_count, batch_plan_view.stage_count);
+        assert_eq!(batch_view.batch_count(), batch_plan_view.batch_count());
+        assert_eq!(
+            batch_view
+                .batches
+                .iter()
+                .map(|batch| (batch.batch_index, batch.disposition, batch.stages.len()))
+                .collect::<Vec<_>>(),
+            batch_plan_view
+                .batches
+                .iter()
+                .map(|batch| (batch.batch_index, batch.disposition, batch.stages.len()))
+                .collect::<Vec<_>>(),
+        );
+        assert!(batch_view.batch_count() < batch_view.stage_count);
+        assert!(batch_view
+            .batches
+            .windows(2)
+            .all(|window| window[0].disposition != window[1].disposition));
     }
 
     fn test_observation() -> SavePostLoadWorldObservation {
