@@ -12,6 +12,8 @@ use crate::effect_runtime::{
     resolve_runtime_effect_overlay_source_position, spawn_runtime_effect_overlay,
     EffectRuntimeInputView, RuntimeEffectBinding, RuntimeEffectOverlay,
 };
+#[cfg(test)]
+use crate::session_state::RadarRuntimeProjection;
 use crate::session_state::{
     AuthoritativeStateMirror, BuilderPlanStage, BuilderQueueProjection, BuildingProjection,
     BuildingProjectionUpdateKind, BuildingTableProjection, ConfiguredBlockOutcome,
@@ -3321,6 +3323,12 @@ fn runtime_typed_build_config_value_label(
         TypedBuildingRuntimeValue::RepairTurret { rotation_bits } => format!(
             "rot={}",
             rotation_bits
+                .map(|bits| format!("0x{bits:08x}"))
+                .unwrap_or_else(|| "none".to_string())
+        ),
+        TypedBuildingRuntimeValue::Radar { progress_bits } => format!(
+            "progress={}",
+            progress_bits
                 .map(|bits| format!("0x{bits:08x}"))
                 .unwrap_or_else(|| "none".to_string())
         ),
@@ -8749,6 +8757,18 @@ mod tests {
     }
 
     #[test]
+    fn runtime_typed_build_config_value_label_formats_radar_runtime() {
+        let label = runtime_typed_build_config_value_label(
+            TypedBuildingRuntimeKind::Radar,
+            &TypedBuildingRuntimeValue::Radar {
+                progress_bits: Some(0x3f80_0000),
+            },
+        );
+
+        assert_eq!(label, "progress=0x3f800000");
+    }
+
+    #[test]
     fn render_runtime_adapter_reports_item_buffer_runtime_in_inspector() {
         let mut adapter = RenderRuntimeAdapter::default();
         let mut scene = RenderModel::default();
@@ -8924,6 +8944,62 @@ mod tests {
             .expect("build_ui observability should be present");
         assert!(build_ui.inspector_entries.iter().any(|entry| {
             entry.family == "repair-turret" && entry.sample == "38:60:repair-point:rot=0x41a00000"
+        }));
+    }
+
+    #[test]
+    fn render_runtime_adapter_reports_radar_runtime_in_inspector() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        let build_pos = pack_runtime_point2(39, 61);
+
+        state.configured_block_projection.apply_radar_runtime(
+            build_pos,
+            RadarRuntimeProjection {
+                progress_bits: 0x3f80_0000,
+            },
+        );
+        state.building_table_projection.by_build_pos.insert(
+            build_pos,
+            crate::session_state::BuildingProjection {
+                block_id: Some(1),
+                block_name: Some("radar".to_string()),
+                rotation: None,
+                team_id: None,
+                io_version: None,
+                module_bitmask: None,
+                time_scale_bits: None,
+                time_scale_duration_bits: None,
+                last_disabler_pos: None,
+                legacy_consume_connected: None,
+                config: None,
+                health_bits: None,
+                enabled: None,
+                efficiency: None,
+                optional_efficiency: None,
+                visible_flags: None,
+                turret_reload_counter_bits: None,
+                turret_rotation_bits: None,
+                item_turret_ammo_count: None,
+                continuous_turret_last_length_bits: None,
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                last_update: crate::session_state::BuildingProjectionUpdateKind::BlockSnapshotHead,
+            },
+        );
+
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        let build_ui = hud
+            .build_ui
+            .as_ref()
+            .expect("build_ui observability should be present");
+        assert!(build_ui.inspector_entries.iter().any(|entry| {
+            entry.family == "radar" && entry.sample == "39:61:progress=0x3f800000"
         }));
     }
 
