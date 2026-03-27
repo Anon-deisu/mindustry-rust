@@ -264,7 +264,12 @@ pub struct BuilderQueueProfile {
     pub head_stage: Option<BuilderQueueStage>,
     pub queued_count: usize,
     pub inflight_count: usize,
+    pub finished_count: u64,
+    pub rejected_count: u64,
+    pub orphan_authoritative_count: u64,
     pub last_transition: Option<BuilderQueueTransition>,
+    pub last_removed_local_plan: bool,
+    pub last_orphan_authoritative: bool,
     pub last_skip_reason: Option<BuilderQueueSkipReason>,
     pub last_front_promotion: Option<BuilderQueueFrontPromotion>,
 }
@@ -290,14 +295,57 @@ impl BuilderQueueProfile {
         }
     }
 
+    pub fn head_kind_label(self) -> &'static str {
+        match self.head_breaking {
+            Some(true) => "break",
+            Some(false) => "place",
+            None => "none",
+        }
+    }
+
+    pub fn head_target_label(self) -> String {
+        match self.head_breaking {
+            Some(true) => "air".to_string(),
+            Some(false) => {
+                let block_label = self
+                    .head_block_id
+                    .map_or_else(|| "?".to_string(), |block_id| block_id.to_string());
+                let rotation_label = self
+                    .head_rotation
+                    .map_or_else(|| "?".to_string(), |rotation| rotation.to_string());
+                format!("{block_label}@r{rotation_label}")
+            }
+            None => "none".to_string(),
+        }
+    }
+
+    pub fn head_progress_label(self) -> String {
+        self.head_progress_permyriad
+            .map_or_else(|| "none".to_string(), |progress| progress.to_string())
+    }
+
+    pub fn last_outcome_label(self) -> &'static str {
+        if self.last_orphan_authoritative {
+            "orphan-authoritative"
+        } else if self.last_removed_local_plan {
+            "removed-local-plan"
+        } else {
+            "none"
+        }
+    }
+
     pub fn summary_label(self) -> String {
         let head_label = self
             .head_tile
             .map_or_else(|| "none".to_string(), |(x, y)| format!("{x}:{y}"));
+        let head_kind_label = self.head_kind_label();
+        let head_target_label = self.head_target_label();
+        let progress_label = self.head_progress_label();
         let stage_label = self.head_stage.map_or("none", BuilderQueueStage::label);
         let last_transition_label = self
             .last_transition
             .map_or("none", BuilderQueueTransition::label);
+        let outcome_label = self.last_outcome_label();
         let skip_label = self
             .last_skip_reason
             .map_or("none", BuilderQueueSkipReason::label);
@@ -306,13 +354,20 @@ impl BuilderQueueProfile {
             .map_or("none", BuilderQueueFrontPromotion::label);
 
         format!(
-            "state={} head={} stage={} q={} i={} last={} skip={} promo={}",
+            "state={} head={} kind={} target={} progress={} stage={} q={} i={} done={} rej={} orphan={} last={} outcome={} skip={} promo={}",
             self.state_label(),
             head_label,
+            head_kind_label,
+            head_target_label,
+            progress_label,
             stage_label,
             self.queued_count,
             self.inflight_count,
+            self.finished_count,
+            self.rejected_count,
+            self.orphan_authoritative_count,
             last_transition_label,
+            outcome_label,
             skip_label,
             promotion_label,
         )
@@ -555,7 +610,12 @@ impl BuilderQueueStateMachine {
             head_stage: head_entry.map(|entry| entry.stage),
             queued_count: self.queued_count,
             inflight_count: self.inflight_count,
+            finished_count: self.finished_count,
+            rejected_count: self.rejected_count,
+            orphan_authoritative_count: self.orphan_authoritative_count,
             last_transition: self.last_transition,
+            last_removed_local_plan: self.last_removed_local_plan,
+            last_orphan_authoritative: self.last_orphan_authoritative,
             last_skip_reason: self.last_skip_reason,
             last_front_promotion: self.last_front_promotion,
         }
@@ -1185,7 +1245,12 @@ mod tests {
                 head_stage: Some(BuilderQueueStage::Queued),
                 queued_count: 2,
                 inflight_count: 0,
+                finished_count: 0,
+                rejected_count: 0,
+                orphan_authoritative_count: 0,
                 last_transition: None,
+                last_removed_local_plan: false,
+                last_orphan_authoritative: false,
                 last_skip_reason: None,
                 last_front_promotion: None,
             }
@@ -1193,9 +1258,13 @@ mod tests {
         assert_eq!(profile.active_count(), 2);
         assert!(profile.has_head());
         assert_eq!(profile.state_label(), "queued");
+        assert_eq!(profile.head_kind_label(), "place");
+        assert_eq!(profile.head_target_label(), "7@r1");
+        assert_eq!(profile.head_progress_label(), "none");
+        assert_eq!(profile.last_outcome_label(), "none");
         assert_eq!(
             profile.summary_label(),
-            "state=queued head=2:2 stage=queued q=2 i=0 last=none skip=none promo=none"
+            "state=queued head=2:2 kind=place target=7@r1 progress=none stage=queued q=2 i=0 done=0 rej=0 orphan=0 last=none outcome=none skip=none promo=none"
         );
 
         let activity = queue.update_local_activity([BuilderQueueActivityObservation {
@@ -1211,15 +1280,23 @@ mod tests {
             BuilderQueueHeadSelection::ObservationMissing
         );
         let profile = queue.profile();
-        assert_eq!(profile.last_skip_reason, Some(BuilderQueueSkipReason::ObservationMissing));
+        assert_eq!(
+            profile.last_skip_reason,
+            Some(BuilderQueueSkipReason::ObservationMissing)
+        );
         assert_eq!(profile.last_front_promotion, None);
         assert_eq!(profile.head_tile, Some((2, 2)));
-        assert_eq!(profile.summary_label(), "state=queued head=2:2 stage=queued q=2 i=0 last=none skip=observation-missing promo=none");
+        assert_eq!(
+            profile.summary_label(),
+            "state=queued head=2:2 kind=place target=7@r1 progress=none stage=queued q=2 i=0 done=0 rej=0 orphan=0 last=none outcome=none skip=observation-missing promo=none"
+        );
 
         assert!(queue.move_to_front(4, 4, true));
         let profile = queue.profile();
         assert_eq!(profile.head_tile, Some((4, 4)));
         assert_eq!(profile.head_breaking, Some(true));
+        assert_eq!(profile.head_kind_label(), "break");
+        assert_eq!(profile.head_target_label(), "air");
         assert_eq!(
             profile.last_front_promotion,
             Some(BuilderQueueFrontPromotion::ExplicitMoveToFront)
@@ -1227,16 +1304,21 @@ mod tests {
         assert_eq!(profile.last_skip_reason, None);
         assert_eq!(
             profile.summary_label(),
-            "state=queued head=4:4 stage=queued q=2 i=0 last=none skip=none promo=explicit-move-to-front"
+            "state=queued head=4:4 kind=break target=air progress=none stage=queued q=2 i=0 done=0 rej=0 orphan=0 last=none outcome=none skip=none promo=explicit-move-to-front"
         );
 
         queue.mark_begin(4, 4, true, None, 0);
+        assert!(queue.observe_progress(4, 4, true, 4_200));
         let profile = queue.profile();
         assert_eq!(profile.head_tile, Some((4, 4)));
         assert_eq!(profile.head_stage, Some(BuilderQueueStage::InFlight));
+        assert_eq!(profile.head_progress_permyriad, Some(4_200));
         assert_eq!(profile.queued_count, 1);
         assert_eq!(profile.inflight_count, 1);
-        assert_eq!(profile.last_transition, Some(BuilderQueueTransition::Started));
+        assert_eq!(
+            profile.last_transition,
+            Some(BuilderQueueTransition::Started)
+        );
         assert_eq!(
             profile.last_front_promotion,
             Some(BuilderQueueFrontPromotion::BeginInFlight)
@@ -1244,7 +1326,46 @@ mod tests {
         assert_eq!(profile.state_label(), "mixed");
         assert_eq!(
             profile.summary_label(),
-            "state=mixed head=4:4 stage=in-flight q=1 i=1 last=started skip=none promo=begin-in-flight"
+            "state=mixed head=4:4 kind=break target=air progress=4200 stage=in-flight q=1 i=1 done=0 rej=0 orphan=0 last=started outcome=none skip=none promo=begin-in-flight"
+        );
+    }
+
+    #[test]
+    fn builder_queue_summary_tracks_transition_outcomes_and_cumulative_counts() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([BuilderQueueEntryObservation {
+            x: 1,
+            y: 1,
+            breaking: false,
+            block_id: Some(11),
+            rotation: 2,
+        }]);
+
+        queue.mark_reject(99, 99, false, false);
+
+        let profile = queue.profile();
+        assert_eq!(profile.rejected_count, 1);
+        assert_eq!(profile.orphan_authoritative_count, 1);
+        assert!(!profile.last_removed_local_plan);
+        assert!(profile.last_orphan_authoritative);
+        assert_eq!(profile.last_outcome_label(), "orphan-authoritative");
+        assert_eq!(
+            profile.summary_label(),
+            "state=queued head=1:1 kind=place target=11@r2 progress=none stage=queued q=1 i=0 done=0 rej=1 orphan=1 last=rejected outcome=orphan-authoritative skip=none promo=none"
+        );
+
+        queue.mark_finish(1, 1, false, true);
+
+        let profile = queue.profile();
+        assert_eq!(profile.finished_count, 1);
+        assert_eq!(profile.rejected_count, 1);
+        assert_eq!(profile.orphan_authoritative_count, 1);
+        assert!(profile.last_removed_local_plan);
+        assert!(!profile.last_orphan_authoritative);
+        assert_eq!(profile.last_outcome_label(), "removed-local-plan");
+        assert_eq!(
+            profile.summary_label(),
+            "state=idle head=none kind=none target=none progress=none stage=none q=0 i=0 done=1 rej=1 orphan=1 last=finished outcome=removed-local-plan skip=none promo=none"
         );
     }
 
@@ -3709,8 +3830,9 @@ mod tests {
             },
         ]);
 
-        let result = queue
-            .apply_head_execution_observation(BuilderQueueHeadExecutionObservation::ActiveConstruct);
+        let result = queue.apply_head_execution_observation(
+            BuilderQueueHeadExecutionObservation::ActiveConstruct,
+        );
 
         assert_eq!(
             result,
