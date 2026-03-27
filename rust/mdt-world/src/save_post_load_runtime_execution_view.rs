@@ -190,6 +190,7 @@ fn build_step_status_lookup(
     deferred_steps: &[SavePostLoadRuntimeApplyStep],
 ) -> BTreeMap<SavePostLoadRuntimeApplyStep, SavePostLoadRuntimeExecutionStepStatus> {
     let mut lookup = BTreeMap::new();
+    // Preserve the first status assigned to a step so later buckets never overwrite it.
     insert_statuses(
         &mut lookup,
         executed_steps,
@@ -224,7 +225,7 @@ fn insert_statuses(
     status: SavePostLoadRuntimeExecutionStepStatus,
 ) {
     for step in steps {
-        lookup.insert(step.clone(), status);
+        lookup.entry(step.clone()).or_insert(status);
     }
 }
 
@@ -428,10 +429,45 @@ mod tests {
         );
         assert!(status_buckets.iter().any(|bucket| {
             bucket.status == SavePostLoadRuntimeExecutionStepStatus::Failed
-                && bucket
+            && bucket
                     .steps
                     .contains(&SavePostLoadRuntimeApplyStep::Marker { marker_index: 1 })
         }));
+    }
+
+    #[test]
+    fn build_step_status_lookup_keeps_first_status_for_duplicate_steps() {
+        let step = SavePostLoadRuntimeApplyStep::WorldShell;
+
+        let lookup = build_step_status_lookup(
+            &[step.clone()],
+            &[step.clone()],
+            &[step.clone()],
+            &[step.clone()],
+            &[step.clone()],
+        );
+        let status_counts = status_counts(&lookup);
+        let status_buckets = status_buckets(&lookup);
+
+        assert_eq!(
+            lookup.get(&step),
+            Some(&SavePostLoadRuntimeExecutionStepStatus::Executed)
+        );
+        assert_eq!(lookup.len(), 1);
+        assert_eq!(
+            status_counts.get(&SavePostLoadRuntimeExecutionStepStatus::Executed),
+            Some(&1)
+        );
+        assert_eq!(
+            status_counts.get(&SavePostLoadRuntimeExecutionStepStatus::Failed),
+            Some(&0)
+        );
+        assert_eq!(status_buckets.len(), 1);
+        assert_eq!(
+            status_buckets[0].status,
+            SavePostLoadRuntimeExecutionStepStatus::Executed
+        );
+        assert_eq!(status_buckets[0].steps, vec![step]);
     }
 
     fn make_observation_seedable(observation: &mut crate::SavePostLoadWorldObservation) {
