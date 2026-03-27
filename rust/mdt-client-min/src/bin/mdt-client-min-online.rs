@@ -238,7 +238,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &report.events,
                 session.snapshot_input().view_center,
                 session.snapshot_input().position,
-                loaded_session.state().player_position(),
+                Some(loaded_session.state().player_position()),
             )?;
             Some(RuntimeEffectClipView {
                 center,
@@ -251,7 +251,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 final_runtime_view_center = runtime_scene_view_center(
                     &session,
                     &report.events,
-                    loaded_session.state().player_position(),
+                    Some(loaded_session.state().player_position()),
                 );
             }
         }
@@ -4444,7 +4444,7 @@ fn maybe_print_ascii_scene(
         return;
     };
     let Some(runtime_view_center) =
-        runtime_scene_view_center(session, events, loaded_session.state().player_position())
+        runtime_scene_view_center(session, events, Some(loaded_session.state().player_position()))
     else {
         return;
     };
@@ -4487,7 +4487,7 @@ fn maybe_print_final_ascii_scene(
     let runtime_view_center = final_runtime_view_center(
         session,
         last_runtime_view_center,
-        loaded_session.state().player_position(),
+        Some(loaded_session.state().player_position()),
     );
     let (mut scene, mut hud) = project_scene_models_with_view_window(
         &loaded_session,
@@ -4548,7 +4548,7 @@ fn maybe_present_window_scene(
         return;
     };
     let runtime_view_center =
-        runtime_scene_view_center(session, events, loaded_session.state().player_position());
+        runtime_scene_view_center(session, events, Some(loaded_session.state().player_position()));
 
     let (mut scene, mut hud) = project_scene_models_with_view_window(
         &loaded_session,
@@ -4673,27 +4673,27 @@ fn latest_runtime_view_center(
         .find_map(|event| match event {
             ClientSessionEvent::CameraPositionUpdated { x, y }
             | ClientSessionEvent::PlayerSpawned { x, y, .. }
-            | ClientSessionEvent::PlayerPositionUpdated { x, y } => Some((*x, *y)),
+            | ClientSessionEvent::PlayerPositionUpdated { x, y } => finite_position((*x, *y)),
             _ => None,
         })
-        .or(snapshot_view_center)
-        .or(snapshot_position)
+        .or_else(|| snapshot_view_center.and_then(finite_position))
+        .or_else(|| snapshot_position.and_then(finite_position))
 }
 
 fn resolved_runtime_view_center(
     events: &[ClientSessionEvent],
     snapshot_view_center: Option<(f32, f32)>,
     snapshot_position: Option<(f32, f32)>,
-    loaded_player_position: (f32, f32),
+    loaded_player_position: Option<(f32, f32)>,
 ) -> Option<(f32, f32)> {
     latest_runtime_view_center(events, snapshot_view_center, snapshot_position)
-        .or(Some(loaded_player_position))
+        .or_else(|| loaded_player_position.and_then(finite_position))
 }
 
 fn runtime_scene_view_center(
     session: &ClientSession,
     events: &[ClientSessionEvent],
-    loaded_player_position: (f32, f32),
+    loaded_player_position: Option<(f32, f32)>,
 ) -> Option<(f32, f32)> {
     resolved_runtime_view_center(
         events,
@@ -4706,18 +4706,18 @@ fn runtime_scene_view_center(
 fn final_runtime_view_center(
     session: &ClientSession,
     last_runtime_view_center: Option<(f32, f32)>,
-    loaded_player_position: (f32, f32),
+    loaded_player_position: Option<(f32, f32)>,
 ) -> Option<(f32, f32)> {
     last_runtime_view_center.or_else(|| runtime_scene_view_center(session, &[], loaded_player_position))
 }
 
 fn fallback_runtime_player_position(
     session: &ClientSession,
-    loaded_player_position: (f32, f32),
-) -> (f32, f32) {
+    loaded_player_position: Option<(f32, f32)>,
+) -> Option<(f32, f32)> {
     latest_runtime_player_position(session)
-        .or(latest_world_player_position(session))
-        .unwrap_or(loaded_player_position)
+        .or_else(|| latest_world_player_position(session))
+        .or_else(|| loaded_player_position.and_then(finite_position))
 }
 
 fn should_render_ascii_on_events(events: &[ClientSessionEvent]) -> bool {
@@ -5236,20 +5236,23 @@ fn latest_runtime_player_position(session: &ClientSession) -> Option<(f32, f32)>
         .state()
         .runtime_typed_entity_projection()
         .local_player()
-        .map(|player| {
-            (
+        .and_then(|player| {
+            finite_position((
                 f32::from_bits(player.base.x_bits),
                 f32::from_bits(player.base.y_bits),
-            )
+            ))
         })
 }
 
 fn latest_world_player_position(session: &ClientSession) -> Option<(f32, f32)> {
     let state = session.state();
-    Some((
-        f32::from_bits(state.world_player_x_bits?),
-        f32::from_bits(state.world_player_y_bits?),
-    ))
+    finite_position((f32::from_bits(state.world_player_x_bits?), f32::from_bits(
+        state.world_player_y_bits?,
+    )))
+}
+
+fn finite_position(position: (f32, f32)) -> Option<(f32, f32)> {
+    (position.0.is_finite() && position.1.is_finite()).then_some(position)
 }
 
 fn builder_queue_activity_observation(
@@ -14041,8 +14044,20 @@ mod tests {
         )];
 
         assert_eq!(
-            resolved_runtime_view_center(&events, None, None, (9.0, 10.0)),
+            resolved_runtime_view_center(&events, None, None, Some((9.0, 10.0))),
             Some((9.0, 10.0))
+        );
+    }
+
+    #[test]
+    fn resolved_runtime_view_center_ignores_non_finite_loaded_player_position() {
+        let events = vec![ClientSessionEvent::SnapshotReceived(
+            HighFrequencyRemoteMethod::StateSnapshot,
+        )];
+
+        assert_eq!(
+            resolved_runtime_view_center(&events, None, None, Some((f32::NAN, 10.0))),
+            None
         );
     }
 
@@ -14057,7 +14072,7 @@ mod tests {
         }
 
         assert_eq!(
-            final_runtime_view_center(&session, Some((30.0, 40.0)), (9.0, 10.0)),
+            final_runtime_view_center(&session, Some((30.0, 40.0)), Some((9.0, 10.0))),
             Some((30.0, 40.0))
         );
     }
@@ -14091,8 +14106,23 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            fallback_runtime_player_position(&session, (9.0, 10.0)),
-            (target_tile.0 as f32 * 8.0, target_tile.1 as f32 * 8.0)
+            fallback_runtime_player_position(&session, Some((9.0, 10.0))),
+            Some((target_tile.0 as f32 * 8.0, target_tile.1 as f32 * 8.0))
+        );
+    }
+
+    #[test]
+    fn fallback_runtime_player_position_ignores_non_finite_loaded_player_position() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let session = ClientSession::from_remote_manifest(&manifest, "en_US").unwrap();
+
+        assert_eq!(
+            fallback_runtime_player_position(&session, Some((f32::NAN, 10.0))),
+            None
+        );
+        assert_eq!(
+            fallback_runtime_player_position(&session, Some((9.0, 10.0))),
+            Some((9.0, 10.0))
         );
     }
 

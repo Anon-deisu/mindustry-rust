@@ -259,8 +259,9 @@ pub fn apply_world_bootstrap(
     });
     state.world_player_unit_kind = Some(bootstrap.player_unit_kind);
     state.world_player_unit_value = Some(bootstrap.player_unit_value);
-    state.world_player_x_bits = Some(bootstrap.player_x_bits);
-    state.world_player_y_bits = Some(bootstrap.player_y_bits);
+    let player_position_bits = sanitize_bootstrap_player_position_bits(bootstrap);
+    state.world_player_x_bits = player_position_bits.map(|(x_bits, _)| x_bits);
+    state.world_player_y_bits = player_position_bits.map(|(_, y_bits)| y_bits);
     state.world_display_title = bootstrap.display_title.clone();
     state.world_bootstrap_projection = Some(WorldBootstrapProjection {
         rules_sha256: bootstrap.rules_sha256.clone(),
@@ -274,6 +275,14 @@ pub fn apply_world_bootstrap(
         static_fog_team_count: bootstrap.static_fog_team_count,
     });
     state.ready_to_enter_world = bootstrap.ready_to_enter_world;
+}
+
+fn sanitize_bootstrap_player_position_bits(
+    bootstrap: &LoadedWorldBootstrap,
+) -> Option<(u32, u32)> {
+    let x = f32::from_bits(bootstrap.player_x_bits);
+    let y = f32::from_bits(bootstrap.player_y_bits);
+    (x.is_finite() && y.is_finite()).then_some((bootstrap.player_x_bits, bootstrap.player_y_bits))
 }
 
 #[derive(Debug)]
@@ -524,6 +533,29 @@ mod tests {
             })
         );
         assert!(state.ready_to_enter_world);
+    }
+
+    #[test]
+    fn applies_login_bootstrap_skips_non_finite_player_coordinates() {
+        let connect_payload = sample_connect_payload();
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+        let mut login = LoginBootstrap::from_stream_packets(
+            &connect_payload,
+            &begin_packet,
+            &chunk_packets,
+            "fr",
+        )
+        .unwrap();
+        login.bootstrap.player_x_bits = f32::NAN.to_bits();
+        login.bootstrap.player_y_bits = f32::INFINITY.to_bits();
+        let mut state = SessionState::default();
+
+        apply_login_bootstrap(&mut state, &login);
+
+        assert_eq!(state.world_player_x_bits, None);
+        assert_eq!(state.world_player_y_bits, None);
     }
 
     #[test]
