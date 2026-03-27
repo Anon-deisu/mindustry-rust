@@ -153,11 +153,27 @@ pub struct BuilderQueueHeadExecutionResult {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuilderQueueBuildSelectionSource {
+    Head,
+    Fallback,
+}
+
+impl BuilderQueueBuildSelectionSource {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Head => "head",
+            Self::Fallback => "fallback",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BuilderQueueBuildSelection {
     pub building: bool,
     pub selected_tile: Option<(i32, i32)>,
     pub selected_block_id: Option<i16>,
     pub selected_rotation: u8,
+    pub selection_source: Option<BuilderQueueBuildSelectionSource>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -563,18 +579,27 @@ impl BuilderQueueStateMachine {
     }
 
     pub fn build_selection(&self) -> BuilderQueueBuildSelection {
+        let head_tile = self.head_tile;
         let selection_entry = self
             .head_entry()
             .filter(|entry| !entry.breaking && entry.block_id.is_some())
             .or_else(|| self.active_non_breaking_entry());
+        let selection_source = selection_entry.map(|entry| {
+            if Some((entry.x, entry.y)) == head_tile {
+                BuilderQueueBuildSelectionSource::Head
+            } else {
+                BuilderQueueBuildSelectionSource::Fallback
+            }
+        });
 
         BuilderQueueBuildSelection {
-            building: self.head_entry().is_some(),
+            building: head_tile.is_some(),
             selected_tile: selection_entry.map(|entry| (entry.x, entry.y)),
             selected_block_id: selection_entry.and_then(|entry| entry.block_id),
             selected_rotation: selection_entry
                 .and_then(|entry| entry.rotation)
                 .unwrap_or(0),
+            selection_source,
         }
     }
 
@@ -995,11 +1020,11 @@ impl BuilderQueueStateMachine {
 mod tests {
     use super::{
         BuilderQueueActivityObservation, BuilderQueueActivityState, BuilderQueueBuildSelection,
-        BuilderQueueEntry, BuilderQueueEntryObservation, BuilderQueueFrontPromotion,
-        BuilderQueueHeadExecutionAction, BuilderQueueHeadExecutionObservation,
-        BuilderQueueHeadExecutionResult, BuilderQueueHeadSelection, BuilderQueueLocalStepResult,
-        BuilderQueueProfile, BuilderQueueReconcileOutcome, BuilderQueueSkipReason,
-        BuilderQueueStage,
+        BuilderQueueBuildSelectionSource, BuilderQueueEntry, BuilderQueueEntryObservation,
+        BuilderQueueFrontPromotion, BuilderQueueHeadExecutionAction,
+        BuilderQueueHeadExecutionObservation, BuilderQueueHeadExecutionResult,
+        BuilderQueueHeadSelection, BuilderQueueLocalStepResult, BuilderQueueProfile,
+        BuilderQueueReconcileOutcome, BuilderQueueSkipReason, BuilderQueueStage,
         BuilderQueueStateMachine, BuilderQueueTileStateObservation, BuilderQueueTransition,
         BuilderQueueValidationRemovalReason, BuilderQueueValidationResult,
     };
@@ -3820,6 +3845,7 @@ mod tests {
                 selected_tile: Some((2, 2)),
                 selected_block_id: Some(22),
                 selected_rotation: 3,
+                selection_source: Some(BuilderQueueBuildSelectionSource::Fallback),
             }
         );
 
@@ -3831,6 +3857,30 @@ mod tests {
                 selected_tile: Some((2, 2)),
                 selected_block_id: Some(22),
                 selected_rotation: 3,
+                selection_source: Some(BuilderQueueBuildSelectionSource::Head),
+            }
+        );
+    }
+
+    #[test]
+    fn build_selection_marks_head_source_for_single_place_plan() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([BuilderQueueEntryObservation {
+            x: 4,
+            y: 5,
+            breaking: false,
+            block_id: Some(33),
+            rotation: 2,
+        }]);
+
+        assert_eq!(
+            queue.build_selection(),
+            BuilderQueueBuildSelection {
+                building: true,
+                selected_tile: Some((4, 5)),
+                selected_block_id: Some(33),
+                selected_rotation: 2,
+                selection_source: Some(BuilderQueueBuildSelectionSource::Head),
             }
         );
     }
