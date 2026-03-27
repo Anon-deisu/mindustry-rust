@@ -104,6 +104,8 @@ impl LiveIntentState {
     }
 
     pub fn clear_transient_edges(&mut self) {
+        self.last_config_tap_tile = None;
+        self.last_build_pulse = None;
         self.pressed_actions.clear();
         self.released_actions.clear();
     }
@@ -571,6 +573,18 @@ mod tests {
         assert_eq!(tracker.state().pressed_actions, vec![BinaryAction::Fire]);
         assert_eq!(tracker.state().released_actions, vec![BinaryAction::Fire]);
         assert!(!tracker.state().is_action_active(BinaryAction::Fire));
+
+        tracker.state.last_config_tap_tile = Some((9, 10));
+        tracker.state.last_build_pulse = Some(BuildPulse {
+            tile: (11, 12),
+            breaking: true,
+        });
+
+        assert!(!tracker.sample_runtime_snapshot_batch(&[]));
+        assert!(tracker.state().last_config_tap_tile.is_none());
+        assert!(tracker.state().last_build_pulse.is_none());
+        assert!(tracker.state().pressed_actions.is_empty());
+        assert!(tracker.state().released_actions.is_empty());
     }
 
     #[test]
