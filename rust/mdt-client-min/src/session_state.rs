@@ -13785,6 +13785,108 @@ mod tests {
     }
 
     #[test]
+    fn session_state_clear_entity_snapshot_payload_apply_projection_restores_runtime_fallbacks() {
+        let mut state = SessionState::default();
+        state.received_entity_snapshot_count = 11;
+        state.entity_table_projection.by_entity_id.insert(
+            202,
+            EntityProjection {
+                class_id: 5,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 202,
+                x_bits: 3.5f32.to_bits(),
+                y_bits: 4.5f32.to_bits(),
+                last_seen_entity_snapshot_count: 11,
+            },
+        );
+        state.entity_semantic_projection.upsert(
+            202,
+            5,
+            11,
+            EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
+                team_id: 2,
+                unit_type_id: 55,
+                health_bits: 0x3f80_0000,
+                rotation_bits: 0x4000_0000,
+                shield_bits: 0x4040_0000,
+                mine_tile_pos: 77,
+                status_count: 3,
+                payload_count: None,
+                building_pos: None,
+                lifetime_bits: None,
+                time_bits: None,
+                runtime_sync: None,
+                controller_type: 0,
+                controller_value: None,
+            }),
+        );
+        state
+            .resource_delta_projection
+            .entity_item_stack_by_entity_id
+            .insert(
+                202,
+                ResourceUnitItemStack {
+                    item_id: Some(9),
+                    amount: 2,
+                },
+            );
+        state.apply_entity_snapshot_payload_apply_projection(
+            202,
+            5,
+            2,
+            Some(88),
+            Some(ResourceUnitItemStack {
+                item_id: Some(6),
+                amount: 4,
+            }),
+        );
+
+        assert!(matches!(
+            state.typed_runtime_entity_at(202),
+            Some(TypedRuntimeEntityModel::Unit(unit))
+                if unit.semantic.payload_count == Some(2)
+                    && unit.semantic.building_pos == Some(88)
+                    && unit.carried_item_stack
+                        == Some(ResourceUnitItemStack {
+                            item_id: Some(6),
+                            amount: 4,
+                        })
+        ));
+
+        assert!(state.clear_entity_snapshot_payload_apply_projection(202));
+        state.refresh_runtime_typed_entity_from_tables(202);
+
+        assert!(!state
+            .entity_snapshot_payload_apply_projection
+            .by_entity_id
+            .contains_key(&202));
+        assert!(matches!(
+            state.typed_runtime_entity_at(202),
+            Some(TypedRuntimeEntityModel::Unit(unit))
+                if unit.semantic.payload_count.is_none()
+                    && unit.semantic.building_pos.is_none()
+                    && unit.carried_item_stack
+                        == Some(ResourceUnitItemStack {
+                            item_id: Some(9),
+                            amount: 2,
+                        })
+        ));
+
+        state
+            .resource_delta_projection
+            .entity_item_stack_by_entity_id
+            .remove(&202);
+        state.rebuild_runtime_typed_entity_projection_from_tables();
+
+        assert!(matches!(
+            state.typed_runtime_entity_at(202),
+            Some(TypedRuntimeEntityModel::Unit(unit)) if unit.carried_item_stack.is_none()
+        ));
+    }
+
+    #[test]
     fn session_state_typed_runtime_entity_at_joins_world_label_semantic_projection() {
         let mut state = SessionState::default();
         state.entity_table_projection.by_entity_id.insert(
