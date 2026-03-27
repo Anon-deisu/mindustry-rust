@@ -171,6 +171,7 @@ impl RuntimeIntentTracker {
 
     pub fn sample_runtime_snapshot_batch(&mut self, runtime_snapshots: &[InputSnapshot]) -> bool {
         if runtime_snapshots.is_empty() && self.override_snapshot.is_none() {
+            let _ = self.mapper.map_snapshot(&InputSnapshot::default());
             self.state.clear_transient_edges();
             return false;
         }
@@ -1061,6 +1062,35 @@ mod tests {
         assert!(tracker.state().pressed_actions.is_empty());
         assert!(tracker.state().released_actions.is_empty());
         assert!(!tracker.state().is_action_active(BinaryAction::Fire));
+    }
+
+    #[test]
+    fn runtime_intent_tracker_empty_batch_clears_transient_edges_without_desyncing_mapper_state() {
+        let mut tracker = RuntimeIntentTracker::new(IntentSamplingMode::LiveSampling);
+        let active_snapshot = InputSnapshot {
+            move_axis: (1.0, 0.0),
+            aim_axis: (2.0, 3.0),
+            mining_tile: None,
+            building: false,
+            config_tap_tile: None,
+            build_pulse: None,
+            active_actions: vec![BinaryAction::Fire],
+        };
+
+        assert!(tracker.sample_runtime_snapshot_batch(&[active_snapshot.clone()]));
+        assert_eq!(tracker.state().pressed_actions, vec![BinaryAction::Fire]);
+        assert!(tracker.state().released_actions.is_empty());
+        assert!(tracker.state().is_action_active(BinaryAction::Fire));
+
+        assert!(!tracker.sample_runtime_snapshot_batch(&[]));
+        assert!(tracker.state().pressed_actions.is_empty());
+        assert!(tracker.state().released_actions.is_empty());
+        assert!(tracker.state().is_action_active(BinaryAction::Fire));
+
+        assert!(tracker.sample_runtime_snapshot_batch(&[active_snapshot]));
+        assert_eq!(tracker.state().pressed_actions, vec![BinaryAction::Fire]);
+        assert!(tracker.state().released_actions.is_empty());
+        assert!(tracker.state().is_action_active(BinaryAction::Fire));
     }
 
     #[test]
