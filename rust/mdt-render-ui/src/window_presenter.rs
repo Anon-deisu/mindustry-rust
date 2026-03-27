@@ -3079,13 +3079,14 @@ fn compose_build_flow_detail_status_text(
     let panel = build_build_user_flow_panel(scene, hud, window)?;
     let route = panel.route.join(">");
     Some(format!(
-        "cfgflowd:b{}:route={}:focus={}:pan={}:target={}",
+        "cfgflowd:b{}:route={}:m={}:focus={}:pan={}:target={}",
         panel.blocker_count(),
         if route.is_empty() {
             "none"
         } else {
             route.as_str()
         },
+        panel.minimap_next_action,
         panel.focus_state.label(),
         panel.pan_label(),
         panel.target_kind.label(),
@@ -3101,8 +3102,9 @@ fn compose_build_route_status_text(
     let blockers = panel.blocker_labels().join(">");
     let route = panel.route.join(">");
     Some(format!(
-        "cfgroute:n={}:b{}@{}:r{}@{}",
+        "cfgroute:n={}:m={}:b{}@{}:r{}@{}",
         panel.next_action,
+        panel.minimap_next_action,
         panel.blocker_count(),
         if blockers.is_empty() {
             "none"
@@ -7225,7 +7227,7 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "BUILD-ROUTE: cfgroute:n=resolve:b2@resolve>survey:r3@resolve>survey>commit",
+            "BUILD-ROUTE: cfgroute:n=resolve:m=survey:b2@resolve>survey:r3@resolve>survey>commit",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
@@ -7233,7 +7235,7 @@ mod tests {
         );
         assert_frame_line_contains(
             &frame.panel_lines,
-            "BUILD-FLOW-DETAIL: cfgflowd:b2:route=resolve>survey>commit:focus=inside:pan=hold:target=player",
+            "BUILD-FLOW-DETAIL: cfgflowd:b2:route=resolve>survey>commit:m=survey:focus=inside:pan=hold:target=player",
         );
     }
 
