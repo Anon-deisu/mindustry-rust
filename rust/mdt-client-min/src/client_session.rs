@@ -25072,9 +25072,12 @@ mod tests {
         let message_pos = pack_build_pos_for_block_snapshot_test(24, 25);
         let router_pos = pack_build_pos_for_block_snapshot_test(26, 27);
         let memory_pos = pack_build_pos_for_block_snapshot_test(28, 29);
+        let memory_bank_pos = pack_build_pos_for_block_snapshot_test(29, 30);
         let payload_block_id =
             loaded_world_content_id_for_name(&session, BLOCK_CONTENT_TYPE, "copper-wall");
         let memory_values_bits = vec![4.0f64.to_bits(), (-6.5f64).to_bits()];
+        let memory_bank_values_bits =
+            vec![0.25f64.to_bits(), 2.0f64.to_bits(), (-8.75f64).to_bits()];
         let payload_router_runtime = PayloadRouterRuntimeProjection {
             progress_bits: 0x3f40_0000,
             item_rotation_bits: 0x4040_0000,
@@ -25280,6 +25283,68 @@ mod tests {
                 build_item_stacks: Vec::new(),
                 build_liquid_stacks: Vec::new(),
             },
+            BlockSnapshotExtraEntrySummary {
+                build_pos: memory_bank_pos,
+                block_id: 303,
+                block_name: Some(BLOCK_NAME_MEMORY_BANK.to_string()),
+                health_bits: Some(0x3f20_0000),
+                rotation: Some(2),
+                team_id: Some(3),
+                io_version: Some(4),
+                enabled: Some(false),
+                module_bitmask: Some(5),
+                time_scale_bits: Some(0x3f40_0000),
+                time_scale_duration_bits: Some(0x3e40_0000),
+                last_disabler_pos: Some(78),
+                legacy_consume_connected: Some(true),
+                efficiency: Some(0x41),
+                optional_efficiency: Some(0x21),
+                visible_flags: Some(10),
+                build_turret_rotation_bits: None,
+                build_turret_plans_present: None,
+                build_turret_plan_count: None,
+                core_runtime: None,
+                repair_turret_runtime: None,
+                radar_runtime: None,
+                separator_runtime: None,
+                shielded_wall_runtime: None,
+                launch_pad_runtime: None,
+                interplanetary_accelerator_runtime: None,
+                constructor_recipe_block_id: None,
+                constructor_runtime: None,
+                unit_factory_current_plan: None,
+                unit_factory_runtime: None,
+                payload_loader_runtime: None,
+                landing_pad_config_item_id: None,
+                landing_pad_runtime: None,
+                message_text: None,
+                payload_source_content: None,
+                payload_source_runtime: None,
+                payload_router_sorted_content: None,
+                payload_router_runtime: None,
+                duct_unloader_item_id: None,
+                duct_unloader_runtime: None,
+                duct_runtime: None,
+                shield_projector_runtime: None,
+                directional_unloader_item_id: None,
+                reconstructor_command_id: None,
+                memory_values_bits: Some(memory_bank_values_bits.clone()),
+                canvas_bytes: None,
+                mass_driver_link: None,
+                mass_driver_runtime: None,
+                payload_mass_driver_link: None,
+                payload_mass_driver_runtime: None,
+                sorter_runtime: None,
+                item_buffer_runtime: None,
+                conveyor_runtime: None,
+                nullable_item_id: None,
+                item_bridge_link: None,
+                item_bridge_runtime: None,
+                light_color: None,
+                switch_enabled: None,
+                build_item_stacks: Vec::new(),
+                build_liquid_stacks: Vec::new(),
+            },
         ]);
 
         assert_eq!(
@@ -25320,6 +25385,14 @@ mod tests {
         assert_eq!(
             session
                 .state()
+                .configured_block_projection
+                .memory_values_bits_by_build_pos
+                .get(&memory_bank_pos),
+            Some(&memory_bank_values_bits)
+        );
+        assert_eq!(
+            session
+                .state()
                 .runtime_typed_building_apply_projection
                 .building_at(router_pos)
                 .map(|building| (building.kind, building.value.clone())),
@@ -25345,6 +25418,39 @@ mod tests {
                     ),
                     rec_dir: Some(payload_router_runtime.rec_dir),
                 },
+            ))
+        );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(memory_pos)
+                .map(|building| (building.kind, building.value.clone())),
+            Some((
+                crate::session_state::TypedBuildingRuntimeKind::Memory,
+                crate::session_state::TypedBuildingRuntimeValue::Memory(memory_values_bits),
+            ))
+        );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(memory_bank_pos)
+                .map(|building| {
+                    (
+                        building.block_name.as_str(),
+                        building.kind,
+                        building.value.clone(),
+                        building.rotation,
+                        building.health_bits,
+                    )
+                }),
+            Some((
+                BLOCK_NAME_MEMORY_BANK,
+                crate::session_state::TypedBuildingRuntimeKind::Memory,
+                crate::session_state::TypedBuildingRuntimeValue::Memory(memory_bank_values_bits),
+                Some(2),
+                Some(0x3f20_0000),
             ))
         );
     }

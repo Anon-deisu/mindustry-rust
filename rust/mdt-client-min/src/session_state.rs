@@ -7853,6 +7853,146 @@ mod tests {
     }
 
     #[test]
+    fn configured_block_projection_clear_building_state_covers_aliases_and_optional_families() {
+        let seed_building =
+            |state: &mut SessionState, build_pos: i32, block_id: i16, block_name: &str| {
+                state.building_table_projection.apply_block_snapshot_head(
+                    build_pos,
+                    block_id,
+                    Some(block_name.to_string()),
+                    Some(1),
+                    Some(2),
+                    Some(3),
+                    Some(4),
+                    Some(0x3f80_0000),
+                    Some(0x3f00_0000),
+                    Some(123),
+                    Some(true),
+                    None,
+                    Some(0x4000_0000),
+                    Some(false),
+                    Some(0x40),
+                    Some(0x20),
+                    Some(99),
+                    None,
+                    None,
+                    None,
+                );
+            };
+
+        for (build_pos, block_id, block_name) in [
+            (0x0005_0010i32, 310, "message"),
+            (0x0005_0011i32, 311, "reinforced-message"),
+            (0x0005_0012i32, 312, "world-message"),
+        ] {
+            let mut state = SessionState::default();
+            seed_building(&mut state, build_pos, block_id, block_name);
+            state
+                .configured_block_projection
+                .apply_message_text(build_pos, "tracked".to_string());
+
+            assert_eq!(
+                state
+                    .typed_runtime_building_at(build_pos)
+                    .map(|building| building.value.clone()),
+                Some(TypedBuildingRuntimeValue::Text("tracked".to_string()))
+            );
+
+            state
+                .configured_block_projection
+                .clear_building_state(build_pos);
+            state.refresh_runtime_typed_building_from_tables(build_pos);
+
+            assert_eq!(
+                state
+                    .typed_runtime_building_at(build_pos)
+                    .map(|building| building.value.clone()),
+                Some(TypedBuildingRuntimeValue::Text(String::new()))
+            );
+            assert_eq!(
+                state
+                    .runtime_typed_building_apply_projection
+                    .building_at(build_pos)
+                    .map(|building| building.value.clone()),
+                Some(TypedBuildingRuntimeValue::Text(String::new()))
+            );
+        }
+
+        for (build_pos, block_id, block_name, bytes) in [
+            (0x0005_0013i32, 313, "canvas", vec![0xaa, 0xbb, 0xcc, 0xdd]),
+            (
+                0x0005_0014i32,
+                314,
+                "large-canvas",
+                vec![0x10, 0x20, 0x30, 0x40, 0x50, 0x60],
+            ),
+        ] {
+            let mut state = SessionState::default();
+            seed_building(&mut state, build_pos, block_id, block_name);
+            state
+                .configured_block_projection
+                .apply_canvas_bytes(build_pos, bytes.clone());
+
+            assert_eq!(
+                state
+                    .typed_runtime_building_at(build_pos)
+                    .map(|building| building.value.clone()),
+                Some(TypedBuildingRuntimeValue::Bytes(bytes))
+            );
+
+            state
+                .configured_block_projection
+                .clear_building_state(build_pos);
+            state.refresh_runtime_typed_building_from_tables(build_pos);
+
+            assert_eq!(state.typed_runtime_building_at(build_pos), None);
+            assert_eq!(
+                state
+                    .runtime_typed_building_apply_projection
+                    .building_at(build_pos),
+                None
+            );
+        }
+
+        for (build_pos, block_id, block_name, item_id) in [
+            (0x0005_0015i32, 315, "unloader", Some(7)),
+            (0x0005_0016i32, 316, "duct-router", Some(9)),
+        ] {
+            let mut state = SessionState::default();
+            seed_building(&mut state, build_pos, block_id, block_name);
+            match block_name {
+                "unloader" => state
+                    .configured_block_projection
+                    .apply_unloader_item(build_pos, item_id),
+                "duct-router" => state
+                    .configured_block_projection
+                    .apply_duct_router_item(build_pos, item_id),
+                _ => unreachable!(),
+            }
+
+            assert_eq!(
+                state
+                    .typed_runtime_building_at(build_pos)
+                    .map(|building| building.value.clone()),
+                Some(TypedBuildingRuntimeValue::Item(item_id))
+            );
+
+            state
+                .configured_block_projection
+                .clear_building_state(build_pos);
+            state.refresh_runtime_typed_building_from_tables(build_pos);
+
+            assert_eq!(state.typed_runtime_building_at(build_pos), None);
+            assert_eq!(
+                state
+                    .runtime_typed_building_apply_projection
+                    .building_at(build_pos),
+                None
+            );
+        }
+    }
+
+    #[test]
     fn session_state_runtime_typed_building_projection_supports_core_runtime() {
         let mut state = SessionState::default();
         let build_pos = 0x0005_0008i32;
@@ -10172,43 +10312,44 @@ mod tests {
 
     #[test]
     fn session_state_runtime_typed_building_projection_supports_memory_family() {
-        let mut state = SessionState::default();
-        let build_pos = 0x0007_0009i32;
         let values_bits = vec![1.5f64.to_bits(), (-2.25f64).to_bits(), f64::NAN.to_bits()];
-        state.building_table_projection.apply_block_snapshot_head(
-            build_pos,
-            302,
-            Some("memory-cell".to_string()),
-            Some(2),
-            Some(3),
-            Some(4),
-            Some(5),
-            Some(0x3f80_0000),
-            Some(0x3f00_0000),
-            Some(125),
-            Some(true),
-            None,
-            Some(0x4080_0000),
-            Some(true),
-            Some(0x20),
-            Some(0x10),
-            Some(77),
-            None,
-            None,
-            None,
-        );
-        state
-            .configured_block_projection
-            .apply_memory_values_bits(build_pos, values_bits.clone());
-
-        assert_eq!(
-            state.typed_runtime_building_at(build_pos),
-            Some(expected_typed_runtime_building(
+        for (build_pos, block_id, block_name) in [
+            (0x0007_0009i32, 302, "memory-cell"),
+            (0x0007_000ai32, 303, "memory-bank"),
+        ] {
+            let mut state = SessionState::default();
+            state.building_table_projection.apply_block_snapshot_head(
                 build_pos,
-                302,
-                "memory-cell",
+                block_id,
+                Some(block_name.to_string()),
+                Some(2),
+                Some(3),
+                Some(4),
+                Some(5),
+                Some(0x3f80_0000),
+                Some(0x3f00_0000),
+                Some(125),
+                Some(true),
+                None,
+                Some(0x4080_0000),
+                Some(true),
+                Some(0x20),
+                Some(0x10),
+                Some(77),
+                None,
+                None,
+                None,
+            );
+            state
+                .configured_block_projection
+                .apply_memory_values_bits(build_pos, values_bits.clone());
+
+            let expected = expected_typed_runtime_building(
+                build_pos,
+                block_id,
+                block_name,
                 TypedBuildingRuntimeKind::Memory,
-                TypedBuildingRuntimeValue::Memory(values_bits),
+                TypedBuildingRuntimeValue::Memory(values_bits.clone()),
                 Vec::new(),
                 Some(2),
                 Some(3),
@@ -10231,8 +10372,20 @@ mod tests {
                 None,
                 None,
                 BuildingProjectionUpdateKind::BlockSnapshotHead,
-            ))
-        );
+            );
+
+            assert_eq!(
+                state.typed_runtime_building_at(build_pos),
+                Some(expected.clone())
+            );
+            state.refresh_runtime_typed_building_from_tables(build_pos);
+            assert_eq!(
+                state
+                    .runtime_typed_building_apply_projection
+                    .building_at(build_pos),
+                Some(&expected)
+            );
+        }
     }
 
     #[test]
