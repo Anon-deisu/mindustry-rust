@@ -42,7 +42,7 @@ impl RuntimeInputSampleKind {
 
 impl RuntimeInputSample {
     pub fn has_movement(self) -> bool {
-        self.velocity != (0.0, 0.0)
+        is_finite_vector(self.velocity) && self.velocity != (0.0, 0.0)
     }
 
     pub fn has_actions(self) -> bool {
@@ -111,6 +111,9 @@ impl MovementProbeController {
             return None;
         }
         let (x, y) = runtime.position?;
+        if !is_finite_vector((x, y)) || !is_finite_vector(self.config.step) {
+            return None;
+        }
         if runtime.dead || runtime.unit_id.is_none() {
             return None;
         }
@@ -151,7 +154,7 @@ pub fn sample_runtime_input_snapshot(sample: RuntimeInputSample) -> InputSnapsho
     }
 
     InputSnapshot {
-        move_axis: sample.velocity,
+        move_axis: normalize_vector(sample.velocity),
         aim_axis: resolve_aim_axis(sample.pointer, sample.position),
         mining_tile: sample.mining_tile,
         building: sample.building,
@@ -188,6 +191,18 @@ fn resolve_probe_pointer(
         .filter(|(x, y)| x.is_finite() && y.is_finite())
         .or_else(|| runtime_pointer.filter(|(x, y)| x.is_finite() && y.is_finite()))
         .unwrap_or(fallback)
+}
+
+fn is_finite_vector(value: (f32, f32)) -> bool {
+    value.0.is_finite() && value.1.is_finite()
+}
+
+fn normalize_vector(value: (f32, f32)) -> (f32, f32) {
+    if is_finite_vector(value) {
+        value
+    } else {
+        (0.0, 0.0)
+    }
 }
 
 #[cfg(test)]
@@ -338,6 +353,43 @@ mod tests {
     }
 
     #[test]
+    fn advance_ignores_non_finite_position_or_step() {
+        let mut controller = MovementProbeController::new(MovementProbeConfig {
+            step: (f32::NAN, 1.0),
+        });
+        assert_eq!(
+            controller.advance(
+                RuntimeInputState {
+                    unit_id: Some(7),
+                    dead: false,
+                    position: Some((10.0, 20.0)),
+                    pointer: None,
+                },
+                100,
+                50,
+                None,
+            ),
+            None
+        );
+
+        let mut controller = MovementProbeController::new(MovementProbeConfig { step: (1.0, 2.0) });
+        assert_eq!(
+            controller.advance(
+                RuntimeInputState {
+                    unit_id: Some(7),
+                    dead: false,
+                    position: Some((f32::INFINITY, 20.0)),
+                    pointer: None,
+                },
+                100,
+                50,
+                None,
+            ),
+            None
+        );
+    }
+
+    #[test]
     fn sample_runtime_input_snapshot_prefers_pointer_and_maps_actions() {
         let snapshot = sample_runtime_input_snapshot(RuntimeInputSample {
             position: Some((5.0, 6.0)),
@@ -400,7 +452,7 @@ mod tests {
         let snapshot = sample_runtime_input_snapshot(RuntimeInputSample {
             position: Some((f32::INFINITY, 6.0)),
             pointer: Some((f32::NAN, 24.0)),
-            velocity: (0.0, 0.0),
+            velocity: (f32::NAN, 0.0),
             mining_tile: None,
             building: false,
             shooting: false,
@@ -409,6 +461,35 @@ mod tests {
         });
 
         assert_eq!(snapshot.aim_axis, (0.0, 0.0));
+        assert_eq!(snapshot.move_axis, (0.0, 0.0));
+        assert!(!(RuntimeInputSample {
+            position: None,
+            pointer: None,
+            velocity: (f32::NAN, 0.0),
+            mining_tile: None,
+            building: false,
+            shooting: false,
+            boosting: false,
+            chatting: false,
+        }
+        .has_movement()));
+    }
+
+    #[test]
+    fn classify_runtime_input_sample_ignores_non_finite_velocity_for_movement() {
+        assert_eq!(
+            classify_runtime_input_sample(RuntimeInputSample {
+                position: Some((1.0, 2.0)),
+                pointer: None,
+                velocity: (f32::INFINITY, 0.0),
+                mining_tile: None,
+                building: false,
+                shooting: false,
+                boosting: false,
+                chatting: false,
+            }),
+            RuntimeInputSampleKind::Idle
+        );
     }
 
     #[test]
