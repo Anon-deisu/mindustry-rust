@@ -22045,7 +22045,7 @@ mod tests {
 
         session.apply_loaded_world_parsed_tail_business(
             build_pos_message,
-            Some(BLOCK_NAME_MESSAGE),
+            Some(BLOCK_NAME_WORLD_MESSAGE),
             &mdt_world::ParsedBuildingTail::Message(mdt_world::MessageTailSnapshot {
                 message: "loaded-world note".to_string(),
             }),
@@ -22176,17 +22176,17 @@ mod tests {
         let memory_pos = pack_build_pos_for_block_snapshot_test(22, 23);
         let canvas_pos = pack_build_pos_for_block_snapshot_test(24, 25);
         let build_tower_pos = pack_build_pos_for_block_snapshot_test(26, 27);
-        let message_block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_MESSAGE);
+        let message_block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_WORLD_MESSAGE);
         let memory_block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_MEMORY_BANK);
-        let canvas_block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_CANVAS);
+        let canvas_block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_LARGE_CANVAS);
         let build_tower_block_id = loaded_world_block_id_for_name(&session, "build-tower");
         let memory_values_bits = vec![0.5f64.to_bits(), 8.0f64.to_bits(), (-1.25f64).to_bits()];
-        let canvas_bytes = canvas_config_bytes(CANVAS_CONFIG_BYTES_LEN, 0x81);
+        let canvas_bytes = canvas_config_bytes(LARGE_CANVAS_CONFIG_BYTES_LEN, 0x81);
 
         session.state.building_table_projection.seed_world_baseline(
             message_pos,
             message_block_id,
-            Some(BLOCK_NAME_MESSAGE.to_string()),
+            Some(BLOCK_NAME_WORLD_MESSAGE.to_string()),
             1,
             2,
             Some(3),
@@ -22222,7 +22222,7 @@ mod tests {
         session.state.building_table_projection.seed_world_baseline(
             canvas_pos,
             canvas_block_id,
-            Some(BLOCK_NAME_CANVAS.to_string()),
+            Some(BLOCK_NAME_LARGE_CANVAS.to_string()),
             3,
             4,
             None,
@@ -22265,7 +22265,7 @@ mod tests {
 
         session.apply_loaded_world_parsed_tail_business(
             message_pos,
-            Some(BLOCK_NAME_MESSAGE),
+            Some(BLOCK_NAME_WORLD_MESSAGE),
             &mdt_world::ParsedBuildingTail::Message(mdt_world::MessageTailSnapshot {
                 message: "loaded-world note".to_string(),
             }),
@@ -22280,7 +22280,7 @@ mod tests {
         );
         session.apply_loaded_world_parsed_tail_business(
             canvas_pos,
-            Some(BLOCK_NAME_CANVAS),
+            Some(BLOCK_NAME_LARGE_CANVAS),
             &mdt_world::ParsedBuildingTail::Canvas(mdt_world::CanvasTailSnapshot {
                 data_len: canvas_bytes.len(),
                 data_sha256: String::new(),
@@ -22306,7 +22306,7 @@ mod tests {
             Some(&crate::session_state::TypedBuildingRuntimeModel {
                 build_pos: message_pos,
                 block_id: Some(message_block_id),
-                block_name: BLOCK_NAME_MESSAGE.to_string(),
+                block_name: BLOCK_NAME_WORLD_MESSAGE.to_string(),
                 kind: crate::session_state::TypedBuildingRuntimeKind::Message,
                 value: crate::session_state::TypedBuildingRuntimeValue::Text(
                     "loaded-world note".to_string()
@@ -22670,7 +22670,7 @@ mod tests {
         let bridge_conveyor_pos = pack_build_pos_for_block_snapshot_test(52, 53);
         let unit_id = loaded_world_content_id_for_name(&session, UNIT_CONTENT_TYPE, "dagger");
         let item_id = loaded_world_content_id_for_name(&session, ITEM_CONTENT_TYPE, "copper");
-        let canvas_bytes = vec![0x11, 0x22, 0x33, 0x44];
+        let canvas_bytes = canvas_config_bytes(LARGE_CANVAS_CONFIG_BYTES_LEN, 0x11);
         let phase_link = pack_build_pos_for_block_snapshot_test(60, 61);
         let bridge_link = pack_build_pos_for_block_snapshot_test(62, 63);
 
@@ -22736,7 +22736,7 @@ mod tests {
         );
         session.apply_loaded_world_parsed_tail_business(
             canvas_pos,
-            Some(BLOCK_NAME_CANVAS),
+            Some(BLOCK_NAME_LARGE_CANVAS),
             &mdt_world::ParsedBuildingTail::Canvas(mdt_world::CanvasTailSnapshot {
                 data_len: canvas_bytes.len(),
                 data_sha256: String::new(),
@@ -23869,7 +23869,7 @@ mod tests {
             BlockSnapshotExtraEntrySummary {
                 build_pos: message_pos,
                 block_id: 300,
-                block_name: Some(BLOCK_NAME_MESSAGE.to_string()),
+                block_name: Some(BLOCK_NAME_REINFORCED_MESSAGE.to_string()),
                 health_bits: Some(0x3f80_0000),
                 rotation: Some(1),
                 team_id: Some(2),
@@ -25523,7 +25523,7 @@ mod tests {
         let phase_conveyor_pos = pack_build_pos_for_block_snapshot_test(56, 57);
         let unit_id = loaded_world_content_id_for_name(&session, UNIT_CONTENT_TYPE, "dagger");
         let item_id = loaded_world_content_id_for_name(&session, ITEM_CONTENT_TYPE, "copper");
-        let canvas_bytes = vec![0xaa, 0xbb, 0xcc, 0xdd];
+        let canvas_bytes = canvas_config_bytes(LARGE_CANVAS_CONFIG_BYTES_LEN, 0xaa);
         let phase_link = pack_build_pos_for_block_snapshot_test(64, 65);
 
         session.apply_block_snapshot_entries_from_loaded_world_entries(vec![
@@ -25683,7 +25683,7 @@ mod tests {
             BlockSnapshotExtraEntrySummary {
                 build_pos: canvas_pos,
                 block_id: 307,
-                block_name: Some(BLOCK_NAME_CANVAS.to_string()),
+                block_name: Some(BLOCK_NAME_LARGE_CANVAS.to_string()),
                 health_bits: Some(0x3f80_0000),
                 rotation: Some(1),
                 team_id: Some(2),

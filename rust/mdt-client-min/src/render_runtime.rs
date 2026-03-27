@@ -1515,6 +1515,7 @@ fn runtime_configured_block_projection_label(projection: &ConfiguredBlockProject
         runtime_configured_bool_family_label("sw", &projection.switch_enabled_by_build_pos),
         runtime_configured_bool_family_label("do", &projection.door_open_by_build_pos),
         runtime_configured_string_family_label("mg", &projection.message_text_by_build_pos),
+        runtime_configured_bytes_family_label("cv", &projection.canvas_bytes_by_build_pos),
         runtime_configured_content_family_label(
             "ct",
             &projection.constructor_recipe_block_by_build_pos,
@@ -1605,6 +1606,25 @@ fn runtime_configured_string_family_label(prefix: &str, values: &BTreeMap<i32, S
         Some((build_pos, text)) => {
             let (x, y) = unpack_runtime_point2(*build_pos);
             format!("{prefix}{count}@{x}:{y}=len{}", text.chars().count())
+        }
+        None => format!("{prefix}{count}"),
+    }
+}
+
+fn runtime_configured_bytes_family_label(prefix: &str, values: &BTreeMap<i32, Vec<u8>>) -> String {
+    let count = values.len();
+    match values.last_key_value() {
+        Some((build_pos, bytes)) if bytes.is_empty() => {
+            let (x, y) = unpack_runtime_point2(*build_pos);
+            format!("{prefix}{count}@{x}:{y}=empty")
+        }
+        Some((build_pos, bytes)) => {
+            let (x, y) = unpack_runtime_point2(*build_pos);
+            format!(
+                "{prefix}{count}@{x}:{y}=len{}:{}",
+                bytes.len(),
+                runtime_build_config_bytes_sample(bytes, 4)
+            )
         }
         None => format!("{prefix}{count}"),
     }
@@ -7997,6 +8017,10 @@ mod tests {
             .insert(pack_runtime_point2(18, 40), "hello".to_string());
         state
             .configured_block_projection
+            .canvas_bytes_by_build_pos
+            .insert(pack_runtime_point2(35, 57), vec![0xaa, 0xbb, 0xcc, 0xdd]);
+        state
+            .configured_block_projection
             .constructor_recipe_block_by_build_pos
             .insert(pack_runtime_point2(19, 41), Some(5));
         state
@@ -8244,7 +8268,7 @@ mod tests {
                 },
             );
         for (build_pos, block_name) in [
-            (pack_runtime_point2(18, 40), "message"),
+            (pack_runtime_point2(18, 40), "world-message"),
             (pack_runtime_point2(19, 41), "constructor"),
             (pack_runtime_point2(21, 43), "payload-source"),
             (pack_runtime_point2(22, 44), "payload-router"),
@@ -8260,6 +8284,7 @@ mod tests {
             (pack_runtime_point2(32, 54), "sorter"),
             (pack_runtime_point2(33, 55), "bridge-conduit"),
             (pack_runtime_point2(34, 56), "duct-unloader"),
+            (pack_runtime_point2(35, 57), "large-canvas"),
         ] {
             state.building_table_projection.by_build_pos.insert(
                 build_pos,
@@ -8299,6 +8324,7 @@ mod tests {
             .status_text
             .contains("runtime_configured=uc1@14:36=clear:is1@12:34=0:ls1@13:35=0"));
         assert!(hud.status_text.contains(":mg1@18:40=len5:"));
+        assert!(hud.status_text.contains(":cv1@35:57=len4:aa-bb-cc-dd:"));
         assert!(hud.status_text.contains(":ct1@19:41=5:"));
         assert!(hud.status_text.contains(":il1@20:42=11223344:"));
         assert!(hud
@@ -8321,7 +8347,7 @@ mod tests {
             .as_ref()
             .expect("build_ui observability should be present");
         assert!(build_ui.inspector_entries.iter().any(|entry| {
-            entry.family == "message" && entry.sample == "18:40:len=5:text=hello"
+            entry.family == "message" && entry.sample == "18:40:world-message:len=5:text=hello"
         }));
         assert!(build_ui.inspector_entries.iter().any(|entry| {
             entry.family == "constructor"
@@ -8388,6 +8414,9 @@ mod tests {
         assert!(build_ui.inspector_entries.iter().any(|entry| {
             entry.family == "duct-unloader" && entry.sample == "34:56:item=7:offset=11"
         }));
+        assert!(build_ui.inspector_entries.iter().any(|entry| {
+            entry.family == "canvas" && entry.sample == "35:57:large-canvas:len=4:hex=aa-bb-cc-dd"
+        }));
         let payload_source_icon = scene
             .objects
             .iter()
@@ -8434,6 +8463,16 @@ mod tests {
         assert_eq!(
             runtime_configured_payload_loader_family_label("pl", &values),
             "pl1@25:47=exp:y1:t0:r40000000:uc:9:l128:s0123456789ab"
+        );
+    }
+
+    #[test]
+    fn runtime_configured_bytes_family_label_compacts_canvas_sample() {
+        let values = BTreeMap::from([(pack_runtime_point2(35, 57), vec![0xaa, 0xbb, 0xcc, 0xdd])]);
+
+        assert_eq!(
+            runtime_configured_bytes_family_label("cv", &values),
+            "cv1@35:57=len4:aa-bb-cc-dd"
         );
     }
 
