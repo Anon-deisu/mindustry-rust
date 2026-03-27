@@ -3890,7 +3890,8 @@ impl TypedBuildingRuntimeProjection {
 fn is_power_generator_block_name(block_name: &str) -> bool {
     matches!(
         block_name,
-        "thermal-generator"
+        "power-source"
+            | "thermal-generator"
             | "turbine-condenser"
             | "combustion-generator"
             | "steam-generator"
@@ -4074,6 +4075,12 @@ fn typed_runtime_building_model(
                     .copied()?,
             ),
         ),
+        "item-void" => (
+            TypedBuildingRuntimeKind::ItemSource,
+            TypedBuildingRuntimeValue::Item(
+                inventory_item_stacks.first().map(|(item_id, _)| *item_id),
+            ),
+        ),
         "liquid-source" => (
             TypedBuildingRuntimeKind::LiquidSource,
             TypedBuildingRuntimeValue::Liquid(
@@ -4081,6 +4088,14 @@ fn typed_runtime_building_model(
                     .liquid_source_liquid_by_build_pos
                     .get(&build_pos)
                     .copied()?,
+            ),
+        ),
+        "liquid-void" => (
+            TypedBuildingRuntimeKind::LiquidSource,
+            TypedBuildingRuntimeValue::Liquid(
+                inventory_liquid_stacks
+                    .first()
+                    .map(|(liquid_id, _)| *liquid_id),
             ),
         ),
         "liquid-router"
@@ -4306,7 +4321,7 @@ fn typed_runtime_building_model(
                     .copied()?,
             ),
         ),
-        "payload-source" => {
+        "payload-source" | "payload-void" => {
             let runtime = configured
                 .payload_source_runtime_by_build_pos
                 .get(&build_pos);
@@ -8997,6 +9012,110 @@ mod tests {
     }
 
     #[test]
+    fn session_state_runtime_typed_building_projection_supports_item_void_family_shell() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0005_0009i32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            301,
+            Some("item-void".to_string()),
+            Some(1),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(0x3f80_0000),
+            Some(0x3f00_0000),
+            Some(123),
+            Some(false),
+            Some(TypeIoObject::Null),
+            Some(0x4000_0000),
+            Some(true),
+            Some(0x41),
+            Some(0x21),
+            Some(97),
+            None,
+            None,
+            None,
+        );
+        state
+            .resource_delta_projection
+            .seed_world_build_items(build_pos, &[(14, 4), (16, 1)]);
+
+        assert_eq!(
+            state
+                .typed_runtime_building_at(build_pos)
+                .map(|building| (building.kind, building.value.clone())),
+            Some((
+                TypedBuildingRuntimeKind::ItemSource,
+                TypedBuildingRuntimeValue::Item(Some(14)),
+            ))
+        );
+        state.refresh_runtime_typed_building_from_tables(build_pos);
+        assert_eq!(
+            state
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos)
+                .map(|building| (building.kind, building.value.clone())),
+            Some((
+                TypedBuildingRuntimeKind::ItemSource,
+                TypedBuildingRuntimeValue::Item(Some(14)),
+            ))
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_supports_liquid_void_family_shell() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0005_000ai32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            302,
+            Some("liquid-void".to_string()),
+            Some(1),
+            Some(2),
+            Some(3),
+            Some(4),
+            Some(0x3f80_0000),
+            Some(0x3f00_0000),
+            Some(124),
+            Some(true),
+            Some(TypeIoObject::Null),
+            Some(0x4000_0000),
+            Some(false),
+            Some(0x42),
+            Some(0x22),
+            Some(96),
+            None,
+            None,
+            None,
+        );
+        state
+            .resource_delta_projection
+            .seed_world_build_liquids(build_pos, &[(15, 0.75f32.to_bits()), (17, 0.0f32.to_bits())]);
+
+        assert_eq!(
+            state
+                .typed_runtime_building_at(build_pos)
+                .map(|building| (building.kind, building.value.clone())),
+            Some((
+                TypedBuildingRuntimeKind::LiquidSource,
+                TypedBuildingRuntimeValue::Liquid(Some(15)),
+            ))
+        );
+        state.refresh_runtime_typed_building_from_tables(build_pos);
+        assert_eq!(
+            state
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos)
+                .map(|building| (building.kind, building.value.clone())),
+            Some((
+                TypedBuildingRuntimeKind::LiquidSource,
+                TypedBuildingRuntimeValue::Liquid(Some(15)),
+            ))
+        );
+    }
+
+    #[test]
     fn session_state_runtime_typed_building_projection_supports_liquid_bridge_family() {
         let mut state = SessionState::default();
         let build_pos = 0x0006_0008i32;
@@ -10167,10 +10286,11 @@ mod tests {
     #[test]
     fn session_state_runtime_typed_building_projection_supports_power_generator_family_shells() {
         for (build_pos, block_id, block_name) in [
-            (0x0006_0021i32, 319, "thermal-generator"),
-            (0x0006_0022i32, 320, "solar-panel-large"),
-            (0x0006_0023i32, 321, "chemical-combustion-chamber"),
-            (0x0006_0024i32, 322, "pyrolysis-generator"),
+            (0x0006_0021i32, 319, "power-source"),
+            (0x0006_0022i32, 320, "thermal-generator"),
+            (0x0006_0023i32, 321, "solar-panel-large"),
+            (0x0006_0024i32, 322, "chemical-combustion-chamber"),
+            (0x0006_0025i32, 323, "pyrolysis-generator"),
         ] {
             let mut state = SessionState::default();
             state.building_table_projection.apply_block_snapshot_head(
@@ -12282,6 +12402,57 @@ mod tests {
                 None,
                 None,
                 BuildingProjectionUpdateKind::BlockSnapshotHead,
+            ))
+        );
+    }
+
+    #[test]
+    fn session_state_runtime_typed_building_projection_gives_payload_void_family_shell() {
+        let mut state = SessionState::default();
+        let build_pos = 0x0008_0014i32;
+        state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            310,
+            Some("payload-void".to_string()),
+            Some(3),
+            Some(4),
+            Some(5),
+            Some(6),
+            Some(0x3f80_0000),
+            Some(0x3f00_0000),
+            Some(127),
+            Some(false),
+            None,
+            Some(0x40a0_0000),
+            Some(true),
+            Some(0x51),
+            Some(0x29),
+            Some(65),
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(
+            state
+                .typed_runtime_building_at(build_pos)
+                .map(|building| (building.kind, building.value.clone())),
+            Some((
+                TypedBuildingRuntimeKind::PayloadSource,
+                TypedBuildingRuntimeValue::PayloadSource {
+                    configured_content: None,
+                    command_pos: None,
+                    pay_vector_x_bits: None,
+                    pay_vector_y_bits: None,
+                    pay_rotation_bits: None,
+                    payload_present: None,
+                    payload_type: None,
+                    payload_build_block_id: None,
+                    payload_build_revision: None,
+                    payload_unit_class_id: None,
+                    payload_unit_payload_len: None,
+                    payload_unit_payload_sha256: None,
+                },
             ))
         );
     }
