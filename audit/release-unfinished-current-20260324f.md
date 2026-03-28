@@ -198,7 +198,8 @@ These are already landed and should not be re-opened as if missing:
   - remaining `U5` work is still landing additional narrow `effect_id -> contract/executor` families, not re-adding this first `drop_item` slice
 - narrow `effect_id=10` `point_beam` contract/executor wiring is now also landed.
   - `effect_contract(Some(10))` now resolves to `point_beam`, contract-aware business projection still reuses the existing `PositionTarget { source, target }` payload semantics, and runtime rendering now keeps the dedicated beam line behavior keyed to `effect_id=10`
-  - remaining `U5` work is still landing additional narrow `effect_id -> contract/executor` families, not re-adding this `point_beam` slice
+  - Rust now also carries the same narrow unit-parent source-follow binding for `effect_id=10`, so the spawned beam start no longer freezes at the original packet origin when the parent unit later moves
+  - remaining `U5` work is still landing additional narrow `effect_id -> contract/executor` families plus deeper parent/source parity, not re-adding this `point_beam` slice
 - narrow `effect_id=11` `pointHit` contract/executor wiring is now also landed.
   - `effect_contract(Some(11))` now resolves to `point_hit`, session/runtime surfaces keep the dedicated contract name, and runtime rendering now emits an expanding hit-ring fallback from the effect position instead of stopping at a generic marker
   - remaining `U5` work is still landing additional narrow `effect_id -> contract/executor` families, not re-adding this `pointHit` slice

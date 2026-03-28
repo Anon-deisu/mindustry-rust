@@ -48292,7 +48292,38 @@ mod tests {
             .unwrap()
             .packet_id;
 
-        for effect_id in [8i16, 9, 178, 261, 262] {
+        for (effect_id, contract_name, binding_state) in [
+            (
+                8i16,
+                "position_target",
+                crate::session_state::EffectRuntimeBindingState::ParentFollow,
+            ),
+            (
+                9,
+                "position_target",
+                crate::session_state::EffectRuntimeBindingState::ParentFollow,
+            ),
+            (
+                10,
+                "point_beam",
+                crate::session_state::EffectRuntimeBindingState::BindingRejected,
+            ),
+            (
+                178,
+                "position_target",
+                crate::session_state::EffectRuntimeBindingState::ParentFollow,
+            ),
+            (
+                261,
+                "position_target",
+                crate::session_state::EffectRuntimeBindingState::ParentFollow,
+            ),
+            (
+                262,
+                "position_target",
+                crate::session_state::EffectRuntimeBindingState::ParentFollow,
+            ),
+        ] {
             let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
             session.state.entity_table_projection.by_entity_id.insert(
                 4321,
@@ -48315,7 +48346,7 @@ mod tests {
 
             assert_eq!(
                 session.state().last_effect_contract_name.as_deref(),
-                Some("position_target"),
+                Some(contract_name),
                 "effect_id {effect_id}"
             );
             assert_eq!(
@@ -48325,7 +48356,7 @@ mod tests {
             );
             assert_eq!(
                 session.state().last_effect_runtime_source_binding_state,
-                Some(crate::session_state::EffectRuntimeBindingState::ParentFollow),
+                Some(binding_state),
                 "effect_id {effect_id}"
             );
         }
@@ -48341,7 +48372,38 @@ mod tests {
             .unwrap()
             .packet_id;
 
-        for effect_id in [8i16, 9, 178, 261, 262] {
+        for (effect_id, contract_name, binding_state) in [
+            (
+                8i16,
+                "position_target",
+                crate::session_state::EffectRuntimeBindingState::ParentFollow,
+            ),
+            (
+                9,
+                "position_target",
+                crate::session_state::EffectRuntimeBindingState::ParentFollow,
+            ),
+            (
+                10,
+                "point_beam",
+                crate::session_state::EffectRuntimeBindingState::ParentFollow,
+            ),
+            (
+                178,
+                "position_target",
+                crate::session_state::EffectRuntimeBindingState::ParentFollow,
+            ),
+            (
+                261,
+                "position_target",
+                crate::session_state::EffectRuntimeBindingState::ParentFollow,
+            ),
+            (
+                262,
+                "position_target",
+                crate::session_state::EffectRuntimeBindingState::ParentFollow,
+            ),
+        ] {
             let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
             let mut payload = encode_effect_payload(effect_id, 32.5, 48.0, 90.0, 0x11223344);
             write_typeio_object(&mut payload, &TypeIoObject::UnitId(404));
@@ -48351,7 +48413,7 @@ mod tests {
 
             assert_eq!(
                 session.state().last_effect_contract_name.as_deref(),
-                Some("position_target"),
+                Some(contract_name),
                 "effect_id {effect_id}"
             );
             assert_eq!(
@@ -48377,7 +48439,14 @@ mod tests {
             .unwrap()
             .packet_id;
 
-        for effect_id in [8i16, 9, 178, 261, 262] {
+        for (effect_id, contract_name) in [
+            (8i16, "position_target"),
+            (9, "position_target"),
+            (10, "point_beam"),
+            (178, "position_target"),
+            (261, "position_target"),
+            (262, "position_target"),
+        ] {
             let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
             let mut payload = encode_effect_payload(effect_id, 32.5, 48.0, 90.0, 0x11223344);
             write_typeio_object(&mut payload, &TypeIoObject::BuildingPos(pack_point2(7, 11)));
@@ -48387,12 +48456,12 @@ mod tests {
 
             assert_eq!(
                 session.state().last_effect_contract_name.as_deref(),
-                Some("position_target"),
+                Some(contract_name),
                 "effect_id {effect_id}"
             );
             assert_eq!(
                 session.state().last_effect_runtime_binding_state,
-                Some(crate::session_state::EffectRuntimeBindingState::ParentFollow),
+                Some(binding_state),
                 "effect_id {effect_id}"
             );
             assert_eq!(

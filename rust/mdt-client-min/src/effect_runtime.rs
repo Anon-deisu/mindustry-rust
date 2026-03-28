@@ -944,7 +944,7 @@ fn parent_binding_rotates_with_parent(effect_id: Option<i16>) -> bool {
 }
 
 fn source_binding_enabled(effect_id: Option<i16>) -> bool {
-    matches!(effect_id, Some(8 | 9 | 178 | 261 | 262))
+    matches!(effect_id, Some(8 | 9 | 10 | 178 | 261 | 262))
 }
 
 fn world_coords_from_tile_pos(tile_pos: i32) -> (f32, f32) {
@@ -966,10 +966,10 @@ fn unpack_point2(value: i32) -> (i16, i16) {
 mod tests {
     use super::{
         effect_contract, effect_contract_name, observe_runtime_effect_binding_state,
-        observe_runtime_effect_source_binding_state,
-        resolve_runtime_effect_overlay_position, resolve_runtime_effect_overlay_source_position,
-        spawn_runtime_effect_overlay, EffectRuntimeBindingState, EffectRuntimeInputView,
-        RuntimeEffectBinding, RuntimeEffectContract,
+        observe_runtime_effect_source_binding_state, resolve_runtime_effect_overlay_position,
+        resolve_runtime_effect_overlay_source_position, spawn_runtime_effect_overlay,
+        EffectRuntimeBindingState, EffectRuntimeInputView, RuntimeEffectBinding,
+        RuntimeEffectContract,
     };
     use crate::session_state::{
         EntityProjection, EntitySemanticProjection, EntitySemanticProjectionEntry,
@@ -1332,6 +1332,79 @@ mod tests {
     }
 
     #[test]
+    fn effect_runtime_resolve_runtime_effect_overlay_source_position_follows_parent_unit_for_point_beam(
+    ) {
+        let mut overlay = spawn_runtime_effect_overlay(
+            Some(10),
+            80.0,
+            160.0,
+            12.0,
+            20.0,
+            0.0,
+            0,
+            false,
+            Some(&TypeIoObject::ObjectArray(vec![
+                TypeIoObject::UnitId(404),
+                TypeIoObject::Point2 { x: 10, y: 20 },
+            ])),
+            10,
+        );
+        let input = EffectRuntimeInputView::default();
+        let mut state = SessionState::default();
+        state.entity_table_projection.by_entity_id.insert(
+            404,
+            EntityProjection {
+                class_id: 12,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 0,
+                unit_value: 0,
+                x_bits: 80.0f32.to_bits(),
+                y_bits: 160.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
+
+        let first_position =
+            resolve_runtime_effect_overlay_source_position(&mut overlay, &state, &input);
+        assert_eq!(first_position, (12.0f32.to_bits(), 20.0f32.to_bits()));
+        assert_eq!(
+            overlay.source_binding,
+            Some(RuntimeEffectBinding::ParentUnit {
+                unit_id: 404,
+                spawn_x_bits: 12.0f32.to_bits(),
+                spawn_y_bits: 20.0f32.to_bits(),
+                offset_x_bits: (-68.0f32).to_bits(),
+                offset_y_bits: (-140.0f32).to_bits(),
+                offset_initialized: true,
+                preserve_spawn_offset: true,
+                allow_fallback_offset_initialization: true,
+                rotate_with_parent: false,
+                parent_rotation_reference_bits: 0.0f32.to_bits(),
+                rotation_offset_bits: 0.0f32.to_bits(),
+                rotation_initialized: false,
+            })
+        );
+
+        state
+            .entity_table_projection
+            .by_entity_id
+            .get_mut(&404)
+            .expect("missing entity 404")
+            .x_bits = 96.0f32.to_bits();
+        state
+            .entity_table_projection
+            .by_entity_id
+            .get_mut(&404)
+            .expect("missing entity 404")
+            .y_bits = 184.0f32.to_bits();
+
+        let second_position =
+            resolve_runtime_effect_overlay_source_position(&mut overlay, &state, &input);
+        assert_eq!(second_position, (28.0f32.to_bits(), 44.0f32.to_bits()));
+    }
+
+    #[test]
     fn effect_runtime_resolve_runtime_effect_overlay_source_position_follows_parent_unit_for_regen_suppress_seek(
     ) {
         let mut overlay = spawn_runtime_effect_overlay(
@@ -1635,7 +1708,7 @@ mod tests {
     {
         let object = TypeIoObject::UnitId(404);
         let followed = session_state_with_unit_entity(404, 32.0, 48.0);
-        for effect_id in [8i16, 9, 178, 261, 262] {
+        for effect_id in [8i16, 9, 10, 178, 261, 262] {
             assert_eq!(
                 observe_runtime_effect_source_binding_state(
                     Some(effect_id),
@@ -1670,7 +1743,7 @@ mod tests {
             content_id: 9,
         };
 
-        for effect_id in [8i16, 9, 178, 261, 262] {
+        for effect_id in [8i16, 9, 10, 178, 261, 262] {
             assert_eq!(
                 observe_runtime_effect_source_binding_state(
                     Some(effect_id),

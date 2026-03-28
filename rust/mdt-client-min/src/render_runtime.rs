@@ -10657,6 +10657,139 @@ mod tests {
         let mut hud = HudModel::default();
         let input = ClientSnapshotInputState::default();
         let state = SessionState::default();
+    #[test]
+    fn render_runtime_adapter_renders_point_beam_executor_line_from_followed_parent_unit_source()
+    {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        state.entity_table_projection.by_entity_id.insert(
+            404,
+            crate::session_state::EntityProjection {
+                class_id: 12,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 2,
+                unit_value: 88,
+                x_bits: 80.0f32.to_bits(),
+                y_bits: 160.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 3,
+            },
+        );
+
+        adapter.observe_events(&[ClientSessionEvent::EffectRequested {
+            effect_id: Some(10),
+            x: 12.0,
+            y: 20.0,
+            rotation: 45.0,
+            color_rgba: 0x11223344,
+            data_object: Some(mdt_typeio::TypeIoObject::ObjectArray(vec![
+                mdt_typeio::TypeIoObject::UnitId(404),
+                mdt_typeio::TypeIoObject::Point2 { x: 10, y: 20 },
+            ])),
+        }]);
+        let mut first_scene = RenderModel::default();
+        let mut first_hud = HudModel::default();
+        adapter.apply(&mut first_scene, &mut first_hud, &input, &state);
+
+        let marker = first_runtime_effect_marker(&first_scene);
+        assert_eq!(
+            marker.id,
+            format!(
+                "marker:runtime-effect:normal:10:0x{:08x}:0x{:08x}:1",
+                80.0f32.to_bits(),
+                160.0f32.to_bits()
+            )
+        );
+        assert_eq!(marker.x, 80.0);
+        assert_eq!(marker.y, 160.0);
+
+        let line = first_runtime_effect_line(&first_scene);
+        assert_eq!(
+            line.id,
+            format!(
+                "marker:line:runtime-effect-point-beam:normal:10:0x{:08x}:0x{:08x}:0x{:08x}:0x{:08x}",
+                12.0f32.to_bits(),
+                20.0f32.to_bits(),
+                80.0f32.to_bits(),
+                160.0f32.to_bits()
+            )
+        );
+        assert_eq!(line.x, 12.0);
+        assert_eq!(line.y, 20.0);
+
+        let line_end = first_runtime_effect_line_end(&first_scene);
+        assert_eq!(
+            line_end.id,
+            format!(
+                "marker:line:runtime-effect-point-beam:normal:10:0x{:08x}:0x{:08x}:0x{:08x}:0x{:08x}:line-end",
+                12.0f32.to_bits(),
+                20.0f32.to_bits(),
+                80.0f32.to_bits(),
+                160.0f32.to_bits()
+            )
+        );
+        assert_eq!(line_end.x, 80.0);
+        assert_eq!(line_end.y, 160.0);
+
+        state
+            .entity_table_projection
+            .by_entity_id
+            .get_mut(&404)
+            .expect("missing entity 404")
+            .x_bits = 96.0f32.to_bits();
+        state
+            .entity_table_projection
+            .by_entity_id
+            .get_mut(&404)
+            .expect("missing entity 404")
+            .y_bits = 184.0f32.to_bits();
+
+        let mut second_scene = RenderModel::default();
+        let mut second_hud = HudModel::default();
+        adapter.apply(&mut second_scene, &mut second_hud, &input, &state);
+
+        let updated_marker = first_runtime_effect_marker(&second_scene);
+        assert_eq!(
+            updated_marker.id,
+            format!(
+                "marker:runtime-effect:normal:10:0x{:08x}:0x{:08x}:1",
+                96.0f32.to_bits(),
+                184.0f32.to_bits()
+            )
+        );
+        assert_eq!(updated_marker.x, 96.0);
+        assert_eq!(updated_marker.y, 184.0);
+
+        let updated_line = first_runtime_effect_line(&second_scene);
+        assert_eq!(
+            updated_line.id,
+            format!(
+                "marker:line:runtime-effect-point-beam:normal:10:0x{:08x}:0x{:08x}:0x{:08x}:0x{:08x}",
+                28.0f32.to_bits(),
+                44.0f32.to_bits(),
+                96.0f32.to_bits(),
+                184.0f32.to_bits()
+            )
+        );
+        assert_eq!(updated_line.x, 28.0);
+        assert_eq!(updated_line.y, 44.0);
+
+        let updated_line_end = first_runtime_effect_line_end(&second_scene);
+        assert_eq!(
+            updated_line_end.id,
+            format!(
+                "marker:line:runtime-effect-point-beam:normal:10:0x{:08x}:0x{:08x}:0x{:08x}:0x{:08x}:line-end",
+                28.0f32.to_bits(),
+                44.0f32.to_bits(),
+                96.0f32.to_bits(),
+                184.0f32.to_bits()
+            )
+        );
+        assert_eq!(updated_line_end.x, 96.0);
+        assert_eq!(updated_line_end.y, 184.0);
+    }
+
 
         adapter.observe_events(&[ClientSessionEvent::EffectRequested {
             effect_id: Some(263),
