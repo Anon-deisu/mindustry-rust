@@ -180,6 +180,9 @@ impl AsciiScenePresenter {
         if let Some(minimap_visibility_text) = compose_minimap_visibility_line(scene, hud, window) {
             out.push_str(&format!("MINIMAP-VIS: {minimap_visibility_text}\n"));
         }
+        if let Some(visibility_minimap_text) = compose_visibility_minimap_text(scene, hud, window) {
+            out.push_str(&format!("VIS-MINIMAP: {visibility_minimap_text}\n"));
+        }
         if let Some(minimap_flow_text) = compose_minimap_flow_line(scene, hud, window) {
             out.push_str(&format!("MINIMAP-FLOW: {minimap_flow_text}\n"));
         }
@@ -994,6 +997,41 @@ fn compose_hud_visibility_text(hud: &HudModel) -> Option<String> {
         visibility.hidden_known_percent,
         visibility.unknown_tile_count,
         visibility.unknown_tile_percent,
+    ))
+}
+
+fn compose_visibility_minimap_text(
+    scene: &RenderModel,
+    hud: &HudModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let visibility = build_hud_visibility_panel(hud)?;
+    let minimap = build_minimap_panel(scene, hud, window)?;
+    Some(format!(
+        "overlay={} fog={} known={}({}%) vis={}({}%/{}%) hid={}({}%/{}%) map={}x{} window={}:{}->{}:{} size={}x{} cover={}/{}({}%) focus={} in-window={}",
+        bool_flag(visibility.overlay_visible),
+        bool_flag(visibility.fog_enabled),
+        visibility.known_tile_count,
+        visibility.known_tile_percent,
+        visibility.visible_tile_count,
+        visibility.visible_known_percent,
+        visibility.visible_map_percent(),
+        visibility.hidden_tile_count,
+        visibility.hidden_known_percent,
+        visibility.hidden_map_percent(),
+        minimap.map_width,
+        minimap.map_height,
+        minimap.window.origin_x,
+        minimap.window.origin_y,
+        minimap.window_last_x,
+        minimap.window_last_y,
+        minimap.window.width,
+        minimap.window.height,
+        minimap.window_tile_count,
+        minimap.map_tile_count,
+        minimap.window_coverage_percent,
+        optional_focus_tile_text(minimap.focus_tile),
+        optional_bool_label(minimap.focus_in_window),
     ))
 }
 
@@ -4132,6 +4170,9 @@ mod tests {
         ));
         assert!(frame.contains(
             "MINIMAP-VIS: overlay=1 fog=1 known=144(3%) vis=120(83%/2%) hid=24(16%/0%) unseen=4656(97%) density=map:4/4800(0%) window:4/1(400%) offscreen:0/4(0%)"
+        ));
+        assert!(frame.contains(
+            "VIS-MINIMAP: overlay=1 fog=1 known=144(3%) vis=120(83%/2%) hid=24(16%/0%) map=80x60 window=0:0->0:0 size=1x1 cover=1/4800(0%) focus=0:0 in-window=1"
         ));
         assert!(frame.contains(
             "MINIMAP-KINDS: tracked=4 player=1 marker=1 plan=1 block=1 runtime=0 terrain=0 unknown=0"

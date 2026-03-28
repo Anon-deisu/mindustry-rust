@@ -552,6 +552,45 @@ mod tests {
     }
 
     #[test]
+    fn derive_effect_data_business_input_accepts_unit_content_for_content_icon_contract() {
+        let object = TypeIoObject::ContentRaw {
+            content_type: 6,
+            content_id: 44,
+        };
+
+        let input = derive_effect_data_business_input(Some(3), Some(&object), Some(5), false, None);
+
+        assert_eq!(
+            input.primary,
+            Some(EffectDataBusinessHint::ContentRef {
+                kind: EffectBusinessContentKind::Content,
+                content_type: 6,
+                content_id: 44,
+                path: vec![],
+            })
+        );
+        assert_eq!(input.contract_name, Some("content_icon"));
+    }
+
+    #[test]
+    fn derive_effect_data_business_input_rejects_item_for_block_content_icon_contract() {
+        let object = TypeIoObject::ContentRaw {
+            content_type: 0,
+            content_id: 12,
+        };
+
+        let input =
+            derive_effect_data_business_input(Some(15), Some(&object), Some(5), false, None);
+
+        assert_eq!(input.contract_name, Some("block_content_icon"));
+        assert_eq!(input.semantic, Some(EffectDataSemantic::ContentRaw {
+            content_type: 0,
+            content_id: 12,
+        }));
+        assert_eq!(input.primary, None);
+    }
+
+    #[test]
     fn derive_effect_data_business_input_captures_deep_payload_target_content_hints() {
         let object = nested_object_array(
             3,
