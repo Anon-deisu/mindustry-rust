@@ -150,11 +150,7 @@ fn derive_primary_business_hint(
     object: &TypeIoObject,
 ) -> Option<EffectDataBusinessHint> {
     match crate::effect_runtime::effect_contract(effect_id) {
-        Some(contract) => derive_contract_business_hint(contract, object).or_else(|| {
-            matches!(contract, RuntimeEffectContract::LightningPath)
-                .then(|| derive_fallback_business_hint(object))
-                .flatten()
-        }),
+        Some(contract) => derive_contract_business_hint(contract, object),
         None => derive_fallback_business_hint(object),
     }
 }
@@ -250,30 +246,48 @@ fn first_content_hint(
     object: &TypeIoObject,
     predicate: impl Fn(u8) -> bool,
 ) -> Option<EffectDataBusinessHint> {
-    first_semantic_match(object).and_then(|matched| match matched.semantic_ref {
-        TypeIoSemanticRef::Content {
-            content_type,
-            content_id,
-        } if predicate(content_type) => Some(EffectDataBusinessHint::ContentRef {
-            kind: EffectBusinessContentKind::Content,
-            content_type,
-            content_id,
-            path: matched.path,
-        }),
-        TypeIoSemanticRef::TechNode {
-            content_type,
-            content_id,
-        } if predicate(content_type) => Some(EffectDataBusinessHint::ContentRef {
-            kind: EffectBusinessContentKind::TechNode,
-            content_type,
-            content_id,
-            path: matched.path,
-        }),
-        TypeIoSemanticRef::TechNode { .. }
-        | TypeIoSemanticRef::Content { .. }
-        | TypeIoSemanticRef::Building { .. }
-        | TypeIoSemanticRef::Unit { .. } => None,
-    })
+    object
+        .find_first_dfs_bounded(EFFECT_DATA_MAX_DEPTH, EFFECT_DATA_MAX_NODES, |value| {
+            matches!(
+                value.semantic_ref(),
+                Some(TypeIoSemanticRef::Content { content_type, .. })
+                    if predicate(content_type)
+            ) || matches!(
+                value.semantic_ref(),
+                Some(TypeIoSemanticRef::TechNode { content_type, .. })
+                    if predicate(content_type)
+            )
+        })
+        .and_then(|matched| {
+            Some(TypeIoSemanticMatch {
+                semantic_ref: matched.value.semantic_ref()?,
+                path: matched.path,
+            })
+        })
+        .and_then(|matched| match matched.semantic_ref {
+            TypeIoSemanticRef::Content {
+                content_type,
+                content_id,
+            } if predicate(content_type) => Some(EffectDataBusinessHint::ContentRef {
+                kind: EffectBusinessContentKind::Content,
+                content_type,
+                content_id,
+                path: matched.path,
+            }),
+            TypeIoSemanticRef::TechNode {
+                content_type,
+                content_id,
+            } if predicate(content_type) => Some(EffectDataBusinessHint::ContentRef {
+                kind: EffectBusinessContentKind::TechNode,
+                content_type,
+                content_id,
+                path: matched.path,
+            }),
+            TypeIoSemanticRef::TechNode { .. }
+            | TypeIoSemanticRef::Content { .. }
+            | TypeIoSemanticRef::Building { .. }
+            | TypeIoSemanticRef::Unit { .. } => None,
+        })
 }
 
 fn first_semantic_match(object: &TypeIoObject) -> Option<TypeIoSemanticMatch> {
@@ -321,48 +335,29 @@ fn lightning_polyline_hint(object: &TypeIoObject) -> Option<EffectDataBusinessHi
 }
 
 fn payload_target_content_hint(object: &TypeIoObject) -> Option<EffectDataBusinessHint> {
-    let content = object
-        .find_first_dfs_bounded(EFFECT_DATA_MAX_DEPTH, EFFECT_DATA_MAX_NODES, |value| {
-            matches!(value.semantic_ref(), Some(TypeIoSemanticRef::Content { content_type, .. })
-                if matches!(content_type, BLOCK_CONTENT_TYPE | UNIT_CONTENT_TYPE))
-                || matches!(value.semantic_ref(), Some(TypeIoSemanticRef::TechNode { content_type, .. })
-                    if matches!(content_type, BLOCK_CONTENT_TYPE | UNIT_CONTENT_TYPE))
-        })
-        .and_then(|matched| match matched.value.semantic_ref() {
-            Some(TypeIoSemanticRef::Content {
-                content_type,
-                content_id,
-            }) => Some((
-                EffectBusinessContentKind::Content,
-                content_type,
-                content_id,
-                matched.path,
-            )),
-            Some(TypeIoSemanticRef::TechNode {
-                content_type,
-                content_id,
-            }) => Some((
-                EffectBusinessContentKind::TechNode,
-                content_type,
-                content_id,
-                matched.path,
-            )),
-            _ => None,
-        })?;
-    let target = object
-        .find_first_dfs_bounded(EFFECT_DATA_MAX_DEPTH, EFFECT_DATA_MAX_NODES, |value| {
-            matches!(
-                value.semantic_ref(),
-                Some(TypeIoSemanticRef::Building { .. } | TypeIoSemanticRef::Unit { .. })
-            ) || matches!(
-                value,
-                TypeIoObject::Point2 { .. }
-                    | TypeIoObject::PackedPoint2Array(_)
-                    | TypeIoObject::Vec2 { .. }
-                    | TypeIoObject::Vec2Array(_)
-            )
-        })
-        .and_then(|matched| target_hint_from_match(matched.value, matched.path))?;
+    payload_target_content_hint_in_group(object)
+}
+
+fn payload_target_content_hint_in_group(object: &TypeIoObject) -> Option<EffectDataBusinessHint> {
+    let TypeIoObject::ObjectArray(values) = object else {
+        return None;
+    };
+
+    for (index, value) in values.iter().enumerate() {
+        if let Some(hint) = payload_target_content_hint_in_group(value) {
+            return Some(prepend_payload_target_content_hint_path(hint, index));
+        }
+    }
+
+    let content = values.iter().enumerate().find_map(|(index, value)| {
+        payload_target_content_direct_child_hint(value)
+            .map(|(kind, content_type, content_id)| (kind, content_type, content_id, vec![index]))
+    })?;
+    let target = values
+        .iter()
+        .enumerate()
+        .find_map(|(index, value)| target_hint_from_match(value, vec![index]))?;
+
     Some(EffectDataBusinessHint::PayloadTargetContent {
         content_kind: content.0,
         content_type: content.1,
@@ -370,6 +365,114 @@ fn payload_target_content_hint(object: &TypeIoObject) -> Option<EffectDataBusine
         content_path: content.3,
         target,
     })
+}
+
+fn payload_target_content_direct_child_hint(
+    value: &TypeIoObject,
+) -> Option<(EffectBusinessContentKind, u8, i16)> {
+    match value.semantic_ref() {
+        Some(TypeIoSemanticRef::Content {
+            content_type,
+            content_id,
+        }) if matches!(content_type, BLOCK_CONTENT_TYPE | UNIT_CONTENT_TYPE) => {
+            Some((EffectBusinessContentKind::Content, content_type, content_id))
+        }
+        Some(TypeIoSemanticRef::TechNode {
+            content_type,
+            content_id,
+        }) if matches!(content_type, BLOCK_CONTENT_TYPE | UNIT_CONTENT_TYPE) => Some((
+            EffectBusinessContentKind::TechNode,
+            content_type,
+            content_id,
+        )),
+        _ => None,
+    }
+}
+
+fn prepend_payload_target_content_hint_path(
+    hint: EffectDataBusinessHint,
+    index: usize,
+) -> EffectDataBusinessHint {
+    let EffectDataBusinessHint::PayloadTargetContent {
+        content_kind,
+        content_type,
+        content_id,
+        mut content_path,
+        target,
+    } = hint
+    else {
+        return hint;
+    };
+    content_path.insert(0, index);
+
+    EffectDataBusinessHint::PayloadTargetContent {
+        content_kind,
+        content_type,
+        content_id,
+        content_path,
+        target: prepend_payload_target_hint_path(target, index),
+    }
+}
+
+fn prepend_payload_target_hint_path(
+    target: EffectDataBusinessTargetHint,
+    index: usize,
+) -> EffectDataBusinessTargetHint {
+    match target {
+        EffectDataBusinessTargetHint::SemanticRef(mut matched) => {
+            matched.path.insert(0, index);
+            EffectDataBusinessTargetHint::SemanticRef(matched)
+        }
+        EffectDataBusinessTargetHint::PositionHint(hint) => {
+            EffectDataBusinessTargetHint::PositionHint(prepend_position_hint_path(hint, index))
+        }
+    }
+}
+
+fn prepend_position_hint_path(
+    hint: TypeIoEffectPositionHint,
+    index: usize,
+) -> TypeIoEffectPositionHint {
+    match hint {
+        TypeIoEffectPositionHint::Point2 { x, y, mut path } => {
+            path.insert(0, index);
+            TypeIoEffectPositionHint::Point2 { x, y, path }
+        }
+        TypeIoEffectPositionHint::Vec2 {
+            x_bits,
+            y_bits,
+            mut path,
+        } => {
+            path.insert(0, index);
+            TypeIoEffectPositionHint::Vec2 {
+                x_bits,
+                y_bits,
+                path,
+            }
+        }
+        TypeIoEffectPositionHint::PackedPoint2ArrayFirst {
+            packed_point2,
+            mut path,
+        } => {
+            path.insert(0, index);
+            TypeIoEffectPositionHint::PackedPoint2ArrayFirst {
+                packed_point2,
+                path,
+            }
+        }
+        TypeIoEffectPositionHint::Vec2ArrayFirst {
+            x_bits,
+            y_bits,
+            mut path,
+        } => {
+            path.insert(0, index);
+            TypeIoEffectPositionHint::Vec2ArrayFirst {
+                x_bits,
+                y_bits,
+                path,
+            }
+        }
+    }
 }
 
 fn target_hint_from_match(
@@ -432,7 +535,9 @@ mod tests {
         EffectDataBusinessInput, EffectDataBusinessTargetHint,
     };
     use crate::session_state::{EffectBusinessContentKind, EffectDataSemantic};
-    use mdt_typeio::{TypeIoEffectPositionHint, TypeIoObject, TypeIoSemanticMatch, TypeIoSemanticRef};
+    use mdt_typeio::{
+        TypeIoEffectPositionHint, TypeIoObject, TypeIoSemanticMatch, TypeIoSemanticRef,
+    };
 
     fn nested_object_array(depth: usize, leaf: TypeIoObject) -> TypeIoObject {
         if depth == 0 {
@@ -573,6 +678,34 @@ mod tests {
     }
 
     #[test]
+    fn derive_effect_data_business_input_finds_later_eligible_content_ref_for_content_icon_contract(
+    ) {
+        let object = TypeIoObject::ObjectArray(vec![
+            TypeIoObject::ContentRaw {
+                content_type: 0,
+                content_id: 12,
+            },
+            TypeIoObject::TechNodeRaw {
+                content_type: 1,
+                content_id: 33,
+            },
+        ]);
+
+        let input = derive_effect_data_business_input(Some(3), Some(&object), Some(5), false, None);
+
+        assert_eq!(input.contract_name, Some("content_icon"));
+        assert_eq!(
+            input.primary,
+            Some(EffectDataBusinessHint::ContentRef {
+                kind: EffectBusinessContentKind::TechNode,
+                content_type: 1,
+                content_id: 33,
+                path: vec![1],
+            })
+        );
+    }
+
+    #[test]
     fn derive_effect_data_business_input_rejects_item_for_block_content_icon_contract() {
         let object = TypeIoObject::ContentRaw {
             content_type: 0,
@@ -583,10 +716,13 @@ mod tests {
             derive_effect_data_business_input(Some(15), Some(&object), Some(5), false, None);
 
         assert_eq!(input.contract_name, Some("block_content_icon"));
-        assert_eq!(input.semantic, Some(EffectDataSemantic::ContentRaw {
-            content_type: 0,
-            content_id: 12,
-        }));
+        assert_eq!(
+            input.semantic,
+            Some(EffectDataSemantic::ContentRaw {
+                content_type: 0,
+                content_id: 12,
+            })
+        );
         assert_eq!(input.primary, None);
     }
 
@@ -696,6 +832,24 @@ mod tests {
     }
 
     #[test]
+    fn derive_effect_data_business_input_does_not_splice_payload_target_content_from_different_branches(
+    ) {
+        let object = TypeIoObject::ObjectArray(vec![
+            TypeIoObject::ContentRaw {
+                content_type: 1,
+                content_id: 33,
+            },
+            TypeIoObject::ObjectArray(vec![TypeIoObject::UnitId(404)]),
+        ]);
+
+        let input =
+            derive_effect_data_business_input(Some(26), Some(&object), Some(5), false, None);
+
+        assert_eq!(input.contract_name, Some("payload_target_content"));
+        assert_eq!(input.primary, None);
+    }
+
+    #[test]
     fn derive_effect_data_business_input_prefers_parent_ref_for_unit_parent_contract() {
         let object = TypeIoObject::ObjectArray(vec![
             TypeIoObject::UnitId(404),
@@ -762,10 +916,7 @@ mod tests {
 
     #[test]
     fn derive_effect_data_business_input_emits_polyline_for_deep_lightning_contract() {
-        let object = nested_object_array(
-            4,
-            TypeIoObject::Vec2Array(vec![(1.0, 2.0), (3.5, 4.5)]),
-        );
+        let object = nested_object_array(4, TypeIoObject::Vec2Array(vec![(1.0, 2.0), (3.5, 4.5)]));
 
         let input =
             derive_effect_data_business_input(Some(13), Some(&object), Some(17), false, None);
@@ -781,6 +932,25 @@ mod tests {
             })
         );
         assert_eq!(input.contract_name, Some("lightning"));
+    }
+
+    #[test]
+    fn derive_effect_data_business_input_does_not_fallback_to_generic_hint_for_lightning_contract()
+    {
+        let object = TypeIoObject::ObjectArray(vec![
+            TypeIoObject::Point2 { x: 4, y: 6 },
+            TypeIoObject::UnitId(404),
+        ]);
+
+        let input =
+            derive_effect_data_business_input(Some(13), Some(&object), Some(17), false, None);
+
+        assert_eq!(input.contract_name, Some("lightning"));
+        assert_eq!(input.primary, None);
+        assert_eq!(
+            input.data_kind.as_deref(),
+            Some("object[len=2]{0=Point2,1=Unit(raw)}")
+        );
     }
 
     #[test]
@@ -813,8 +983,8 @@ mod tests {
     }
 
     #[test]
-    fn derive_effect_data_business_input_leaves_semantic_empty_when_object_is_missing_without_parse_failure()
-    {
+    fn derive_effect_data_business_input_leaves_semantic_empty_when_object_is_missing_without_parse_failure(
+    ) {
         let input = derive_effect_data_business_input(None, None, Some(0x55), false, None);
 
         assert_eq!(input.contract_name, None);
@@ -872,7 +1042,8 @@ mod tests {
     }
 
     #[test]
-    fn derive_effect_data_business_input_falls_back_to_content_hint_for_unstructured_mixed_payload() {
+    fn derive_effect_data_business_input_falls_back_to_content_hint_for_unstructured_mixed_payload()
+    {
         let object = TypeIoObject::ObjectArray(vec![
             TypeIoObject::ContentRaw {
                 content_type: 1,
@@ -927,8 +1098,7 @@ mod tests {
         );
 
         let unit = TypeIoObject::UnitId(404);
-        let unit_input =
-            derive_effect_data_business_input(None, Some(&unit), Some(5), false, None);
+        let unit_input = derive_effect_data_business_input(None, Some(&unit), Some(5), false, None);
 
         assert_eq!(
             unit_input.primary,
@@ -975,12 +1145,19 @@ mod tests {
             Some(EffectDataSemantic::Vec2ArrayLen(2))
         );
         assert_eq!(
-            derive_effect_data_semantic(Some(&TypeIoObject::PackedPoint2Array(vec![])), None, false),
+            derive_effect_data_semantic(
+                Some(&TypeIoObject::PackedPoint2Array(vec![])),
+                None,
+                false
+            ),
             Some(EffectDataSemantic::PackedPoint2ArrayLen(0))
         );
         assert_eq!(
             derive_effect_data_semantic(
-                Some(&TypeIoObject::PackedPoint2Array(vec![0x0001_0002, 0x0003_0004])),
+                Some(&TypeIoObject::PackedPoint2Array(vec![
+                    0x0001_0002,
+                    0x0003_0004
+                ])),
                 None,
                 false
             ),
