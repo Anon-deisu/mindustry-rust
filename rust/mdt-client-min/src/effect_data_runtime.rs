@@ -314,17 +314,30 @@ fn lightning_polyline_hint(object: &TypeIoObject) -> Option<EffectDataBusinessHi
 fn payload_target_content_hint(object: &TypeIoObject) -> Option<EffectDataBusinessHint> {
     let content = object
         .find_first_dfs_bounded(EFFECT_DATA_MAX_DEPTH, EFFECT_DATA_MAX_NODES, |value| {
-            matches!(
-                value.semantic_ref(),
-                Some(TypeIoSemanticRef::Content { content_type, .. })
-                    if matches!(content_type, BLOCK_CONTENT_TYPE | UNIT_CONTENT_TYPE)
-            )
+            matches!(value.semantic_ref(), Some(TypeIoSemanticRef::Content { content_type, .. })
+                if matches!(content_type, BLOCK_CONTENT_TYPE | UNIT_CONTENT_TYPE))
+                || matches!(value.semantic_ref(), Some(TypeIoSemanticRef::TechNode { content_type, .. })
+                    if matches!(content_type, BLOCK_CONTENT_TYPE | UNIT_CONTENT_TYPE))
         })
         .and_then(|matched| match matched.value.semantic_ref() {
             Some(TypeIoSemanticRef::Content {
                 content_type,
                 content_id,
-            }) => Some((content_type, content_id, matched.path)),
+            }) => Some((
+                EffectBusinessContentKind::Content,
+                content_type,
+                content_id,
+                matched.path,
+            )),
+            Some(TypeIoSemanticRef::TechNode {
+                content_type,
+                content_id,
+            }) => Some((
+                EffectBusinessContentKind::TechNode,
+                content_type,
+                content_id,
+                matched.path,
+            )),
             _ => None,
         })?;
     let target = object
@@ -342,10 +355,10 @@ fn payload_target_content_hint(object: &TypeIoObject) -> Option<EffectDataBusine
         })
         .and_then(|matched| target_hint_from_match(matched.value, matched.path))?;
     Some(EffectDataBusinessHint::PayloadTargetContent {
-        content_kind: EffectBusinessContentKind::Content,
-        content_type: content.0,
-        content_id: content.1,
-        content_path: content.2,
+        content_kind: content.0,
+        content_type: content.1,
+        content_id: content.2,
+        content_path: content.3,
         target,
     })
 }
@@ -441,6 +454,45 @@ mod tests {
                             x: 4,
                             y: 6,
                             path: vec![0],
+                        },
+                    ),
+                }),
+                data_type_tag: Some(5),
+                parse_failed: false,
+                parse_error: None,
+            }
+        );
+    }
+
+    #[test]
+    fn derive_effect_data_business_input_captures_technode_payload_target_content_hints() {
+        let object = TypeIoObject::ObjectArray(vec![
+            TypeIoObject::TechNodeRaw {
+                content_type: 1,
+                content_id: 33,
+            },
+            TypeIoObject::Point2 { x: 4, y: 6 },
+        ]);
+
+        let input =
+            derive_effect_data_business_input(Some(26), Some(&object), Some(5), false, None);
+
+        assert_eq!(
+            input,
+            EffectDataBusinessInput {
+                contract_name: Some("payload_target_content"),
+                data_kind: Some("object[len=2]{0=TechNode(raw),1=Point2}".to_string()),
+                semantic: Some(EffectDataSemantic::ObjectArrayLen(2)),
+                primary: Some(EffectDataBusinessHint::PayloadTargetContent {
+                    content_kind: EffectBusinessContentKind::TechNode,
+                    content_type: 1,
+                    content_id: 33,
+                    content_path: vec![0],
+                    target: EffectDataBusinessTargetHint::PositionHint(
+                        TypeIoEffectPositionHint::Point2 {
+                            x: 4,
+                            y: 6,
+                            path: vec![1],
                         },
                     ),
                 }),

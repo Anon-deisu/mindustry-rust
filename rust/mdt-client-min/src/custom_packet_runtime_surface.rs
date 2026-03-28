@@ -1373,6 +1373,206 @@ mod tests {
     }
 
     #[test]
+    fn runtime_custom_packet_surface_handles_team_bool_and_number_semantics() {
+        let mut state = RuntimeCustomPacketSurfaceState::default();
+        for (key, encoding, semantic) in [
+            (
+                "text.team",
+                RuntimeCustomPacketSemanticEncoding::Text,
+                RuntimeCustomPacketSemanticKind::Team,
+            ),
+            (
+                "logic.team",
+                RuntimeCustomPacketSemanticEncoding::LogicData,
+                RuntimeCustomPacketSemanticKind::Team,
+            ),
+            (
+                "text.bool",
+                RuntimeCustomPacketSemanticEncoding::Text,
+                RuntimeCustomPacketSemanticKind::Bool,
+            ),
+            (
+                "logic.bool",
+                RuntimeCustomPacketSemanticEncoding::LogicData,
+                RuntimeCustomPacketSemanticKind::Bool,
+            ),
+            (
+                "text.number",
+                RuntimeCustomPacketSemanticEncoding::Text,
+                RuntimeCustomPacketSemanticKind::Number,
+            ),
+            (
+                "logic.number",
+                RuntimeCustomPacketSemanticEncoding::LogicData,
+                RuntimeCustomPacketSemanticKind::Number,
+            ),
+        ] {
+            state.register(&RuntimeCustomPacketSemanticSpec {
+                key: key.to_string(),
+                encoding,
+                semantic,
+            });
+        }
+
+        state.record_event(RuntimeCustomPacketSemanticEncoding::Text, "text.team", true);
+        state.record_text_handler("text.team", "7");
+        state.record_event(RuntimeCustomPacketSemanticEncoding::LogicData, "logic.team", true);
+        state.record_logic_data_handler(
+            "logic.team",
+            ClientLogicDataTransport::Reliable,
+            &TypeIoObject::Team(7),
+        );
+
+        state.record_event(RuntimeCustomPacketSemanticEncoding::Text, "text.bool", true);
+        state.record_text_handler("text.bool", "true");
+        state.record_event(RuntimeCustomPacketSemanticEncoding::LogicData, "logic.bool", true);
+        state.record_logic_data_handler(
+            "logic.bool",
+            ClientLogicDataTransport::Reliable,
+            &TypeIoObject::Bool(true),
+        );
+
+        state.record_event(RuntimeCustomPacketSemanticEncoding::Text, "text.number", true);
+        state.record_text_handler("text.number", "12.5");
+        state.record_event(RuntimeCustomPacketSemanticEncoding::LogicData, "logic.number", true);
+        state.record_logic_data_handler(
+            "logic.number",
+            ClientLogicDataTransport::Reliable,
+            &TypeIoObject::Float(12.5),
+        );
+
+        let lines = state.drain_lines();
+        assert_eq!(lines.len(), 6);
+        assert!(lines.iter().any(|line| {
+            line.contains("encoding=text")
+                && line.contains("semantic=team")
+                && line.contains("key=\"text.team\"")
+                && line.contains("team=7")
+        }));
+        assert!(lines.iter().any(|line| {
+            line.contains("encoding=logic")
+                && line.contains("semantic=team")
+                && line.contains("key=\"logic.team\"")
+                && line.contains("team=7")
+        }));
+        assert!(lines.iter().any(|line| {
+            line.contains("encoding=text")
+                && line.contains("semantic=bool")
+                && line.contains("key=\"text.bool\"")
+                && line.contains("value=true")
+        }));
+        assert!(lines.iter().any(|line| {
+            line.contains("encoding=logic")
+                && line.contains("semantic=bool")
+                && line.contains("key=\"logic.bool\"")
+                && line.contains("value=true")
+        }));
+        assert!(lines.iter().any(|line| {
+            line.contains("encoding=text")
+                && line.contains("semantic=number")
+                && line.contains("key=\"text.number\"")
+                && line.contains("value=12.5")
+        }));
+        assert!(lines.iter().any(|line| {
+            line.contains("encoding=logic")
+                && line.contains("semantic=number")
+                && line.contains("key=\"logic.number\"")
+                && line.contains("value=12.5")
+        }));
+
+        let summary_text = state
+            .overlay_summary_text(6)
+            .expect("expected a compact surface summary");
+        assert!(summary_text.contains("text:text.team=7"));
+        assert!(summary_text.contains("logic:logic.team=7"));
+        assert!(summary_text.contains("text:text.bool=true"));
+        assert!(summary_text.contains("logic:logic.bool=true"));
+        assert!(summary_text.contains("text:text.number=12.5"));
+        assert!(summary_text.contains("logic:logic.number=12.5"));
+
+        let summaries = state.summary_lines();
+        assert_eq!(summaries.len(), 6);
+        assert!(summaries.iter().any(|line| {
+            line.contains("encoding=text")
+                && line.contains("semantic=team")
+                && line.contains("last=Some(\"7\")")
+                && line.contains("parity=ok")
+        }));
+        assert!(summaries.iter().any(|line| {
+            line.contains("encoding=logic")
+                && line.contains("semantic=team")
+                && line.contains("last=Some(\"7\")")
+                && line.contains("parity=ok")
+        }));
+        assert!(summaries.iter().any(|line| {
+            line.contains("encoding=text")
+                && line.contains("semantic=bool")
+                && line.contains("last=Some(\"true\")")
+                && line.contains("parity=ok")
+        }));
+        assert!(summaries.iter().any(|line| {
+            line.contains("encoding=logic")
+                && line.contains("semantic=bool")
+                && line.contains("last=Some(\"true\")")
+                && line.contains("parity=ok")
+        }));
+        assert!(summaries.iter().any(|line| {
+            line.contains("encoding=text")
+                && line.contains("semantic=number")
+                && line.contains("last=Some(\"12.5\")")
+                && line.contains("parity=ok")
+        }));
+        assert!(summaries.iter().any(|line| {
+            line.contains("encoding=logic")
+                && line.contains("semantic=number")
+                && line.contains("last=Some(\"12.5\")")
+                && line.contains("parity=ok")
+        }));
+
+        let latest = state.latest_summary_entries(6);
+        assert_eq!(latest.len(), 6);
+        assert!(latest.iter().all(|entry| entry.marker.is_none()));
+        assert!(latest.iter().any(|entry| {
+            entry.key == "text.team"
+                && entry.encoding == RuntimeCustomPacketSemanticEncoding::Text
+                && entry.semantic == RuntimeCustomPacketSemanticKind::Team
+                && entry.stable_value == "7"
+        }));
+        assert!(latest.iter().any(|entry| {
+            entry.key == "logic.team"
+                && entry.encoding == RuntimeCustomPacketSemanticEncoding::LogicData
+                && entry.semantic == RuntimeCustomPacketSemanticKind::Team
+                && entry.stable_value == "7"
+        }));
+        assert!(latest.iter().any(|entry| {
+            entry.key == "text.bool"
+                && entry.encoding == RuntimeCustomPacketSemanticEncoding::Text
+                && entry.semantic == RuntimeCustomPacketSemanticKind::Bool
+                && entry.stable_value == "true"
+        }));
+        assert!(latest.iter().any(|entry| {
+            entry.key == "logic.bool"
+                && entry.encoding == RuntimeCustomPacketSemanticEncoding::LogicData
+                && entry.semantic == RuntimeCustomPacketSemanticKind::Bool
+                && entry.stable_value == "true"
+        }));
+        assert!(latest.iter().any(|entry| {
+            entry.key == "text.number"
+                && entry.encoding == RuntimeCustomPacketSemanticEncoding::Text
+                && entry.semantic == RuntimeCustomPacketSemanticKind::Number
+                && entry.stable_value == "12.5"
+        }));
+        assert!(latest.iter().any(|entry| {
+            entry.key == "logic.number"
+                && entry.encoding == RuntimeCustomPacketSemanticEncoding::LogicData
+                && entry.semantic == RuntimeCustomPacketSemanticKind::Number
+                && entry.stable_value == "12.5"
+        }));
+
+        assert!(state.overlay_markers(6).is_empty());
+    }
+
+    #[test]
     fn runtime_custom_packet_surface_overlay_markers_export_world_and_build_positions() {
         let mut state = RuntimeCustomPacketSurfaceState::default();
         state.register(&RuntimeCustomPacketSemanticSpec {
