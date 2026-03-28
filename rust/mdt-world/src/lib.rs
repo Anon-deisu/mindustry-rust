@@ -40207,6 +40207,13 @@ mod tests {
     }
 
     #[test]
+    fn rejects_truncated_msav_zlib_header() {
+        let error = read_msav_zlib_header(&[0x78]).unwrap_err();
+
+        assert!(error.contains(".msav envelope too short for zlib header"));
+    }
+
+    #[test]
     fn rejects_invalid_msav_zlib_header_checksum() {
         let error = read_msav_zlib_header(&[0x78, 0x00]).unwrap_err();
 
