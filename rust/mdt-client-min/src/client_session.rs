@@ -1815,6 +1815,7 @@ impl ClientSession {
     }
 
     fn clear_authoritative_building_state(&mut self, build_pos: i32, block_id: Option<i16>) {
+        self.state.mark_payload_lifecycle_build_removed(build_pos);
         self.state
             .tile_config_projection
             .remove_building_state(build_pos);
@@ -36138,6 +36139,18 @@ mod tests {
             .resource_delta_projection
             .building_items_by_build
             .insert(build_pos, std::collections::BTreeMap::from([(4, 9)]));
+        session
+            .state
+            .record_picked_unit_payload_lifecycle(
+                Some(UnitRefProjection {
+                    kind: 1,
+                    value: build_pos,
+                }),
+                Some(UnitRefProjection {
+                    kind: 2,
+                    value: 88,
+                }),
+            );
 
         let build_destroyed_event = session
             .ingest_packet_bytes(
@@ -36191,6 +36204,14 @@ mod tests {
             Some(crate::session_state::BuildingProjectionUpdateKind::DeconstructFinish)
         );
         assert!(session.state().building_table_projection.last_removed);
+        assert!(!session
+            .state()
+            .payload_lifecycle_projection
+            .by_carrier
+            .contains_key(&UnitRefProjection {
+                kind: 1,
+                value: build_pos,
+            }));
     }
 
     #[test]
