@@ -207,6 +207,10 @@ pub fn write_int(out: &mut Vec<u8>, value: i32) {
     out.extend_from_slice(&value.to_be_bytes());
 }
 
+pub fn write_long(out: &mut Vec<u8>, value: i64) {
+    out.extend_from_slice(&value.to_be_bytes());
+}
+
 pub fn write_float(out: &mut Vec<u8>, value: f32) {
     out.extend_from_slice(&value.to_bits().to_be_bytes());
 }
@@ -506,6 +510,17 @@ pub fn read_int(bytes: &[u8]) -> Result<i32, TypeIoReadError> {
 pub fn read_int_prefix(bytes: &[u8]) -> Result<(i32, usize), TypeIoReadError> {
     let mut reader = PrimitiveReader::new(bytes);
     Ok((reader.read_i32()?, reader.position()))
+}
+
+pub fn read_long(bytes: &[u8]) -> Result<i64, TypeIoReadError> {
+    let (value, consumed) = read_long_prefix(bytes)?;
+    ensure_consumed(consumed, bytes.len())?;
+    Ok(value)
+}
+
+pub fn read_long_prefix(bytes: &[u8]) -> Result<(i64, usize), TypeIoReadError> {
+    let mut reader = PrimitiveReader::new(bytes);
+    Ok((reader.read_i64()?, reader.position()))
 }
 
 pub fn read_float(bytes: &[u8]) -> Result<f32, TypeIoReadError> {
@@ -978,6 +993,13 @@ impl<'a> PrimitiveReader<'a> {
         Ok(i32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
     }
 
+    fn read_i64(&mut self) -> Result<i64, TypeIoReadError> {
+        let bytes = self.read_exact(8)?;
+        Ok(i64::from_be_bytes([
+            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+        ]))
+    }
+
     fn read_f32(&mut self) -> Result<f32, TypeIoReadError> {
         Ok(f32::from_bits(self.read_i32()? as u32))
     }
@@ -1023,6 +1045,10 @@ pub fn generate_typeio_goldens() -> String {
     bytes.clear();
     write_plans_queue_net(&mut bytes);
     samples.insert("plans.queue.net", encode_hex(&bytes));
+
+    bytes.clear();
+    write_long(&mut bytes, 0x0102_0304_0506_0708);
+    samples.insert("long.basic", encode_hex(&bytes));
 
     bytes.clear();
     write_rules_basic(&mut bytes);
@@ -1101,6 +1127,7 @@ mod tests {
         let text = generate_typeio_goldens();
         assert!(text.contains("block.conveyor=0101"));
         assert!(text.contains("content.block.conveyor=010101"));
+        assert!(text.contains("long.basic=0102030405060708"));
         assert!(text.contains("object.point2=070000000300000004"));
         assert!(text.contains("objectives.basic="));
         assert!(text.contains("objectiveMarker.basic="));
@@ -1169,6 +1196,22 @@ mod tests {
         bytes.clear();
         write_int(&mut bytes, 0x1122_3344);
         assert_eq!(read_int(&bytes).unwrap(), 0x1122_3344);
+
+        bytes.clear();
+        write_long(&mut bytes, -0x0102_0304_0506_0708);
+        assert_eq!(read_long(&bytes).unwrap(), -0x0102_0304_0506_0708);
+
+        bytes.clear();
+        write_long(&mut bytes, 0x0102_0304_0506_0708);
+        bytes.extend_from_slice(&[0xaa, 0xbb]);
+        let (value, consumed) = read_long_prefix(&bytes).unwrap();
+        assert_eq!(value, 0x0102_0304_0506_0708);
+        assert_eq!(consumed, 8);
+        assert!(matches!(
+            read_long(&bytes),
+            Err(TypeIoReadError::TrailingBytes { consumed, total })
+                if consumed == 8 && total == 10
+        ));
 
         bytes.clear();
         write_float(&mut bytes, 12.5);
