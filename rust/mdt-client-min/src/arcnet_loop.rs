@@ -23,11 +23,50 @@ pub(crate) fn transport_timeout_kind(session: &ClientSession) -> Option<SessionT
 // One length-prefixed TCP frame: 2-byte header plus the largest u16 payload.
 const MAX_TCP_READ_BUFFER_BYTES: usize = u16::MAX as usize + 2;
 
+#[derive(Debug, Default)]
+struct PendingTcpWrite {
+    bytes: Vec<u8>,
+    offset: usize,
+}
+
+impl PendingTcpWrite {
+    fn enqueue_frame(&mut self, payload: &[u8]) -> Result<(), ArcNetLoopError> {
+        let len = u16::try_from(payload.len())
+            .map_err(|_| ArcNetLoopError::FrameTooLarge(payload.len()))?;
+        self.bytes.extend_from_slice(&len.to_be_bytes());
+        self.bytes.extend_from_slice(payload);
+        Ok(())
+    }
+
+    fn flush<W: Write>(&mut self, writer: &mut W) -> Result<(), ArcNetLoopError> {
+        while self.offset < self.bytes.len() {
+            match writer.write(&self.bytes[self.offset..]) {
+                Ok(0) => return Err(ArcNetLoopError::TcpClosed),
+                Ok(written) => self.offset += written,
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(()),
+                Err(error) => return Err(ArcNetLoopError::Io(error)),
+            }
+        }
+
+        if self.offset > 0 {
+            self.bytes.clear();
+            self.offset = 0;
+        }
+        Ok(())
+    }
+
+    fn clear(&mut self) {
+        self.bytes.clear();
+        self.offset = 0;
+    }
+}
+
 #[derive(Debug)]
 pub struct ArcNetSessionDriver {
     tcp: TcpStream,
     udp: UdpSocket,
     tcp_read_buffer: Vec<u8>,
+    pending_tcp_write: PendingTcpWrite,
     connection_id: Option<i32>,
     udp_registered: bool,
     connect_sent: bool,
@@ -68,18 +107,34 @@ impl ArcNetSessionDriver {
         socket.send_to(discover_payload, target)?;
 
         let mut response = [0u8; 65_536];
-        match socket.recv_from(&mut response) {
-            Ok((_, responder)) => Ok(Some(responder)),
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
-                ) =>
-            {
-                Ok(None)
+        loop {
+            match socket.recv_from(&mut response) {
+                Ok((len, responder)) => {
+                    let Ok(message) = decode_framework_message(&response[..len]) else {
+                        continue;
+                    };
+                    if Self::is_valid_discovery_reply(&message) {
+                        return Ok(Some(responder));
+                    }
+                }
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
+                    ) =>
+                {
+                    return Ok(None);
+                }
+                Err(error) => return Err(ArcNetLoopError::Io(error)),
             }
-            Err(error) => Err(ArcNetLoopError::Io(error)),
         }
+    }
+
+    fn is_valid_discovery_reply(message: &FrameworkMessage) -> bool {
+        matches!(
+            message,
+            FrameworkMessage::DiscoverHost | FrameworkMessage::Ping { is_reply: true, .. }
+        )
     }
 
     pub fn connect(server_addr: SocketAddr) -> Result<Self, ArcNetLoopError> {
@@ -100,6 +155,7 @@ impl ArcNetSessionDriver {
             tcp,
             udp,
             tcp_read_buffer: Vec::new(),
+            pending_tcp_write: PendingTcpWrite::default(),
             connection_id: None,
             udp_registered: false,
             connect_sent: false,
@@ -161,6 +217,7 @@ impl ArcNetSessionDriver {
         self.drain_tcp_frames(session, max_tcp_frames, &mut report)?;
         self.recv_udp_packets(session, max_udp_packets, &mut report)?;
         post_ingest(session);
+        self.flush_pending_tcp_payload()?;
 
         if self.udp_registered && !self.connect_sent {
             if let Some(connect) = self.pending_connect.take() {
@@ -341,16 +398,18 @@ impl ArcNetSessionDriver {
         Ok(Some(payload))
     }
 
+    fn flush_pending_tcp_payload(&mut self) -> Result<(), ArcNetLoopError> {
+        self.pending_tcp_write.flush(&mut self.tcp)
+    }
+
     fn send_tcp_payload(&mut self, payload: &[u8]) -> Result<(), ArcNetLoopError> {
-        let len = u16::try_from(payload.len())
-            .map_err(|_| ArcNetLoopError::FrameTooLarge(payload.len()))?;
-        self.tcp.write_all(&len.to_be_bytes())?;
-        self.tcp.write_all(payload)?;
-        Ok(())
+        self.pending_tcp_write.enqueue_frame(payload)?;
+        self.flush_pending_tcp_payload()
     }
 
     fn quiet_reset_transport_state(&mut self) {
         self.tcp_read_buffer.clear();
+        self.pending_tcp_write.clear();
         self.connection_id = None;
         self.udp_registered = false;
         self.connect_sent = false;
@@ -422,6 +481,7 @@ mod tests {
     use crate::client_session::{ClientSession, ClientSessionTiming};
     use mdt_protocol::{decode_packet, encode_packet, CONNECT_PACKET_ID};
     use mdt_remote::{read_remote_manifest, HighFrequencyRemoteMethod};
+    use std::io::{self, Write};
     use std::net::{TcpListener, UdpSocket};
     use std::path::PathBuf;
     use std::thread;
@@ -520,7 +580,15 @@ mod tests {
                 decode_framework_message(&packet[..len]).unwrap(),
                 FrameworkMessage::DiscoverHost
             );
-            server.send_to(b"mdt-discovery-ok", from).unwrap();
+            server
+                .send_to(
+                    &encode_framework_message(&FrameworkMessage::Ping {
+                        id: 7,
+                        is_reply: true,
+                    }),
+                    from,
+                )
+                .unwrap();
         });
 
         let found =
@@ -544,6 +612,38 @@ mod tests {
     }
 
     #[test]
+    fn discover_first_server_rejects_non_framework_replies() {
+        let server = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let server_addr = server.local_addr().unwrap();
+        let handle = thread::spawn(move || {
+            let mut packet = [0u8; 64];
+            let (len, from) = server.recv_from(&mut packet).unwrap();
+            assert_eq!(
+                decode_framework_message(&packet[..len]).unwrap(),
+                FrameworkMessage::DiscoverHost
+            );
+            server.send_to(b"plain-udp-noise", from).unwrap();
+            thread::sleep(Duration::from_millis(25));
+            server
+                .send_to(
+                    &encode_framework_message(&FrameworkMessage::Ping {
+                        id: 99,
+                        is_reply: true,
+                    }),
+                    from,
+                )
+                .unwrap();
+        });
+
+        let found =
+            ArcNetSessionDriver::discover_first_server(&[server_addr], Duration::from_millis(250))
+                .unwrap();
+
+        assert_eq!(found, Some(server_addr));
+        handle.join().unwrap();
+    }
+
+    #[test]
     fn discover_first_server_skips_silent_targets_and_returns_later_responder() {
         let _silent = UdpSocket::bind("127.0.0.1:0").unwrap();
         let silent_addr = _silent.local_addr().unwrap();
@@ -556,7 +656,15 @@ mod tests {
                 decode_framework_message(&packet[..len]).unwrap(),
                 FrameworkMessage::DiscoverHost
             );
-            responder.send_to(b"mdt-discovery-ok", from).unwrap();
+            responder
+                .send_to(
+                    &encode_framework_message(&FrameworkMessage::Ping {
+                        id: 11,
+                        is_reply: true,
+                    }),
+                    from,
+                )
+                .unwrap();
         });
 
         let found = ArcNetSessionDriver::discover_first_server(
@@ -614,6 +722,63 @@ mod tests {
         assert!(!driver.connect_sent);
         assert!(driver.pending_connect.is_none());
         assert!(driver.tcp_read_buffer.is_empty());
+    }
+
+    #[test]
+    fn send_tcp_payload_handles_nonblocking_backpressure() {
+        #[derive(Debug)]
+        struct ScriptedWriter {
+            max_bytes_per_write: usize,
+            block_after_write: bool,
+            blocked: bool,
+            written: Vec<u8>,
+        }
+
+        impl Write for ScriptedWriter {
+            fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+                if self.blocked {
+                    return Err(io::Error::new(io::ErrorKind::WouldBlock, "blocked"));
+                }
+
+                let written = buf.len().min(self.max_bytes_per_write);
+                self.written.extend_from_slice(&buf[..written]);
+                if self.block_after_write {
+                    self.blocked = true;
+                }
+                Ok(written)
+            }
+
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let mut pending = PendingTcpWrite::default();
+        let payload = vec![0x5a; 32];
+        pending.enqueue_frame(&payload).unwrap();
+
+        let mut writer = ScriptedWriter {
+            max_bytes_per_write: 5,
+            block_after_write: true,
+            blocked: false,
+            written: Vec::new(),
+        };
+
+        pending.flush(&mut writer).unwrap();
+        assert!(!pending.bytes.is_empty());
+        assert!(pending.offset > 0);
+        assert_eq!(writer.written.len(), 5);
+
+        writer.blocked = false;
+        writer.block_after_write = false;
+        writer.max_bytes_per_write = usize::MAX;
+
+        pending.flush(&mut writer).unwrap();
+        assert!(pending.bytes.is_empty());
+        assert_eq!(pending.offset, 0);
+        assert_eq!(writer.written.len(), payload.len() + 2);
+        assert_eq!(&writer.written[..2], &(payload.len() as u16).to_be_bytes());
+        assert_eq!(&writer.written[2..], payload.as_slice());
     }
 
     #[test]
