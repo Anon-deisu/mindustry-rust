@@ -178,7 +178,7 @@ fn unit_allows_heuristic_player_ownership(unit: &TypedRuntimeUnitEntity) -> bool
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_typed_runtime_entity_ownership;
+    use super::{record_conflict_units, resolve_typed_runtime_entity_ownership};
     use crate::session_state::{
         EntityPlayerSemanticProjection, EntityUnitSemanticProjection, TypedRuntimeEntityBase,
         TypedRuntimeEntityModel, TypedRuntimePlayerEntity, TypedRuntimeUnitEntity,
@@ -380,6 +380,20 @@ mod tests {
         );
         assert_eq!(resolution.ownership_conflict_count, 2);
         assert_eq!(resolution.ownership_conflict_unit_sample, vec![202, 303]);
+    }
+
+    #[test]
+    fn record_conflict_units_caps_sample_and_preserves_order() {
+        let mut resolution = Default::default();
+
+        record_conflict_units(&mut resolution, [42, 7, 19, 23, 88, 91]);
+
+        assert_eq!(resolution.ownership_conflict_count, 6);
+        assert_eq!(resolution.ownership_conflict_unit_sample.len(), 4);
+        assert_eq!(
+            resolution.ownership_conflict_unit_sample,
+            vec![42, 7, 19, 23]
+        );
     }
 
     #[test]
