@@ -5,20 +5,20 @@ use std::{
     path::{Path, PathBuf},
 };
 
-fn main() -> Result<(), Box<dyn Error>> {
-    let mut args = env::args();
-    let _bin = args.next();
+const USAGE: &str =
+    "usage: mdt-remote <manifest-path> [registry-output-path] [high-frequency-output-path] [inbound-dispatch-output-path]";
 
-    let manifest_path = args.next().ok_or("usage: mdt-remote <manifest-path> [registry-output-path] [high-frequency-output-path] [inbound-dispatch-output-path]")?;
-    let output_path = args.next().map(PathBuf::from);
+fn main() -> Result<(), Box<dyn Error>> {
+    let (manifest_path, output_path, high_frequency_output_path, inbound_dispatch_output_path) =
+        parse_args(env::args().skip(1))?;
     let output_path = output_path.as_deref().map(resolve_cli_path).transpose()?;
-    let high_frequency_output_path = match args.next() {
+    let high_frequency_output_path = match high_frequency_output_path {
         Some(path) => Some(resolve_cli_path(Path::new(&path))?),
         None => output_path
             .as_deref()
             .map(default_high_frequency_output_path),
     };
-    let inbound_dispatch_output_path = match args.next() {
+    let inbound_dispatch_output_path = match inbound_dispatch_output_path {
         Some(path) => Some(resolve_cli_path(Path::new(&path))?),
         None => output_path
             .as_deref()
@@ -43,6 +43,25 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     Ok(())
+}
+
+fn parse_args(
+    mut args: impl Iterator<Item = String>,
+) -> Result<(String, Option<PathBuf>, Option<PathBuf>, Option<PathBuf>), &'static str> {
+    let manifest_path = args.next().ok_or(USAGE)?;
+    let output_path = args.next().map(PathBuf::from);
+    let high_frequency_output_path = args.next().map(PathBuf::from);
+    let inbound_dispatch_output_path = args.next().map(PathBuf::from);
+    if args.next().is_some() {
+        return Err(USAGE);
+    }
+
+    Ok((
+        manifest_path,
+        output_path,
+        high_frequency_output_path,
+        inbound_dispatch_output_path,
+    ))
 }
 
 fn resolve_cli_path(path: &Path) -> io::Result<PathBuf> {
@@ -88,7 +107,9 @@ fn write_output_file(path: &Path, contents: &str) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{default_high_frequency_output_path, default_inbound_dispatch_output_path};
+    use super::{
+        default_high_frequency_output_path, default_inbound_dispatch_output_path, parse_args, USAGE,
+    };
     use std::path::Path;
 
     #[test]
@@ -115,5 +136,20 @@ mod tests {
     fn inbound_dispatch_output_falls_back_to_current_directory_for_bare_filename() {
         let actual = default_inbound_dispatch_output_path(Path::new("remote-registry.rs"));
         assert!(actual.ends_with("remote-inbound-dispatch.rs"));
+    }
+
+    #[test]
+    fn rejects_extra_arguments() {
+        let err = parse_args(vec![
+            "manifest.json".to_string(),
+            "registry.rs".to_string(),
+            "high-frequency.rs".to_string(),
+            "inbound.rs".to_string(),
+            "extra.rs".to_string(),
+        ]
+        .into_iter())
+        .unwrap_err();
+
+        assert_eq!(err, USAGE);
     }
 }
