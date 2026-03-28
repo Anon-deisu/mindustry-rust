@@ -61,6 +61,30 @@ pub struct UnitPayloadHeader {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnitRefRaw {
+    Null,
+    Block(i32),
+    Standard(i32),
+}
+
+impl UnitRefRaw {
+    pub fn kind(self) -> u8 {
+        match self {
+            UnitRefRaw::Null => 0,
+            UnitRefRaw::Block(_) => 1,
+            UnitRefRaw::Standard(_) => 2,
+        }
+    }
+
+    pub fn value(self) -> i32 {
+        match self {
+            UnitRefRaw::Null => 0,
+            UnitRefRaw::Block(value) | UnitRefRaw::Standard(value) => value,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PayloadType {
     Unit,
     Build,
@@ -208,6 +232,11 @@ pub fn write_tile(out: &mut Vec<u8>, x: i32, y: i32) {
 pub fn write_unit_null(out: &mut Vec<u8>) {
     write_byte(out, 0);
     write_int(out, 0);
+}
+
+pub fn write_unit_ref(out: &mut Vec<u8>, value: UnitRefRaw) {
+    write_byte(out, value.kind());
+    write_int(out, value.value());
 }
 
 pub fn write_vec2(out: &mut Vec<u8>, x: f32, y: f32) {
@@ -521,6 +550,31 @@ pub fn read_unit_null_prefix(bytes: &[u8]) -> Result<((u8, i32), usize), TypeIoR
     let marker = reader.read_u8()?;
     let unit_id = reader.read_i32()?;
     Ok(((marker, unit_id), reader.position()))
+}
+
+pub fn read_unit_ref(bytes: &[u8]) -> Result<UnitRefRaw, TypeIoReadError> {
+    let (value, consumed) = read_unit_ref_prefix(bytes)?;
+    ensure_consumed(consumed, bytes.len())?;
+    Ok(value)
+}
+
+pub fn read_unit_ref_prefix(bytes: &[u8]) -> Result<(UnitRefRaw, usize), TypeIoReadError> {
+    let mut reader = PrimitiveReader::new(bytes);
+    let type_position = reader.position();
+    let kind = reader.read_u8()?;
+    let value = reader.read_i32()?;
+    let unit_ref = match kind {
+        0 => UnitRefRaw::Null,
+        1 => UnitRefRaw::Block(value),
+        2 => UnitRefRaw::Standard(value),
+        _ => {
+            return Err(TypeIoReadError::UnsupportedType {
+                type_id: kind,
+                position: type_position,
+            })
+        }
+    };
+    Ok((unit_ref, reader.position()))
 }
 
 pub fn read_vec2(bytes: &[u8]) -> Result<(f32, f32), TypeIoReadError> {
@@ -980,6 +1034,21 @@ mod tests {
         assert_eq!(read_unit_null(&bytes).unwrap(), (0, 0));
 
         bytes.clear();
+        write_unit_ref(&mut bytes, UnitRefRaw::Null);
+        assert_eq!(read_unit_ref(&bytes).unwrap(), UnitRefRaw::Null);
+
+        bytes.clear();
+        write_unit_ref(&mut bytes, UnitRefRaw::Standard(123));
+        assert_eq!(read_unit_ref(&bytes).unwrap(), UnitRefRaw::Standard(123));
+
+        bytes.clear();
+        write_unit_ref(&mut bytes, UnitRefRaw::Block(pack_point2(7, 8)));
+        assert_eq!(
+            read_unit_ref(&bytes).unwrap(),
+            UnitRefRaw::Block(pack_point2(7, 8))
+        );
+
+        bytes.clear();
         write_vec2(&mut bytes, 12.5, -3.25);
         assert_eq!(read_vec2(&bytes).unwrap(), (12.5, -3.25));
 
@@ -1115,6 +1184,28 @@ mod tests {
                 consumed,
                 total
             }) if consumed == bytes.len() - 2 && total == bytes.len()
+        ));
+    }
+
+    #[test]
+    fn unit_ref_codec_handles_null_standard_block_and_truncation() {
+        assert_eq!(read_unit_ref(&[0, 0, 0, 0, 0]).unwrap(), UnitRefRaw::Null);
+        assert_eq!(
+            read_unit_ref(&[2, 0, 0, 0, 7]).unwrap(),
+            UnitRefRaw::Standard(7)
+        );
+        assert_eq!(
+            read_unit_ref(&[1, 0, 1, 0, 2]).unwrap(),
+            UnitRefRaw::Block(pack_point2(1, 2))
+        );
+
+        assert!(matches!(
+            read_unit_ref(&[2, 0, 0, 0]).unwrap_err(),
+            TypeIoReadError::UnexpectedEof {
+                position: 1,
+                needed: 4,
+                remaining: 3
+            }
         ));
     }
 
