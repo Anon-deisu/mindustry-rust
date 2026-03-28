@@ -44,6 +44,7 @@ pub enum FrameworkCodecError {
     TooShort,
     InvalidPrefix(u8),
     UnknownType(u8),
+    InvalidReplyFlag(u8),
     TrailingBytes(usize),
 }
 
@@ -53,6 +54,7 @@ impl fmt::Display for FrameworkCodecError {
             Self::TooShort => write!(f, "framework message buffer too short"),
             Self::InvalidPrefix(value) => write!(f, "invalid framework prefix: {value}"),
             Self::UnknownType(value) => write!(f, "unknown framework message type: {value}"),
+            Self::InvalidReplyFlag(value) => write!(f, "invalid ping reply flag: {value}"),
             Self::TrailingBytes(length) => write!(f, "unexpected trailing bytes: {length}"),
         }
     }
@@ -230,9 +232,14 @@ pub fn decode_framework_message(bytes: &[u8]) -> Result<FrameworkMessage, Framew
             if bytes.len() != 7 {
                 return Err(FrameworkCodecError::TrailingBytes(bytes.len() - 7));
             }
+            let is_reply = match bytes[6] {
+                0 => false,
+                1 => true,
+                value => return Err(FrameworkCodecError::InvalidReplyFlag(value)),
+            };
             Ok(FrameworkMessage::Ping {
                 id: i32::from_be_bytes([bytes[2], bytes[3], bytes[4], bytes[5]]),
-                is_reply: bytes[6] == 1,
+                is_reply,
             })
         }
         FRAMEWORK_DISCOVER_HOST_ID => {
@@ -507,8 +514,6 @@ mod tests {
             0x10,
             0x20,
             0x30,
-            0x40,
-            0x50,
         ];
         let decoded = decode_packet(&encoded).unwrap();
 
@@ -578,6 +583,24 @@ mod tests {
         assert!(matches!(
             decode_framework_message(&encoded),
             Err(FrameworkCodecError::TrailingBytes(1))
+        ));
+    }
+
+    #[test]
+    fn decode_framework_message_rejects_invalid_ping_reply_flag() {
+        let encoded = vec![
+            FRAMEWORK_MESSAGE_PREFIX,
+            FRAMEWORK_PING_ID,
+            0x00,
+            0x00,
+            0x00,
+            0x01,
+            0x02,
+        ];
+
+        assert!(matches!(
+            decode_framework_message(&encoded),
+            Err(FrameworkCodecError::InvalidReplyFlag(2))
         ));
     }
 
