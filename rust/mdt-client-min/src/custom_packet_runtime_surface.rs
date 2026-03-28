@@ -791,7 +791,9 @@ fn render_message_like_surface(text: &str) -> Result<RenderedSurfaceValue, &'sta
 }
 
 fn render_text_world_pos(text: &str) -> Result<RenderedSurfaceValue, &'static str> {
-    let (x, y, source) = parse_text_world_pos(text).ok_or("invalid_world_pos")?;
+    let (x, y, source) = parse_text_world_pos(text)
+        .and_then(|(x, y, source)| finite_world_pos(x, y).map(|(x, y)| (x, y, source)))
+        .ok_or("invalid_world_pos")?;
     let overlay = format_compact_world_pos(x, y);
     Ok(RenderedSurfaceValue {
         detail: format!("x={x} y={y} source={source}"),
@@ -915,6 +917,7 @@ fn extract_logic_world_pos(value: &TypeIoObject) -> Result<RenderedSurfaceValue,
             })
             .ok_or("no_world_pos_payload")?,
     };
+    let (x, y) = finite_world_pos(x, y).ok_or("invalid_world_pos")?;
     let overlay = format_compact_world_pos(x, y);
     Ok(RenderedSurfaceValue {
         detail: format!("x={x} y={y} source={source}"),
@@ -968,6 +971,10 @@ fn extract_logic_build_pos(value: &TypeIoObject) -> Result<RenderedSurfaceValue,
             world_y,
         )),
     })
+}
+
+fn finite_world_pos(x: f64, y: f64) -> Option<(f64, f64)> {
+    (x.is_finite() && y.is_finite()).then_some((x, y))
 }
 
 fn extract_logic_unit_id(value: &TypeIoObject) -> Result<RenderedSurfaceValue, &'static str> {
@@ -1416,7 +1423,11 @@ mod tests {
 
         state.record_event(RuntimeCustomPacketSemanticEncoding::Text, "text.team", true);
         state.record_text_handler("text.team", "7");
-        state.record_event(RuntimeCustomPacketSemanticEncoding::LogicData, "logic.team", true);
+        state.record_event(
+            RuntimeCustomPacketSemanticEncoding::LogicData,
+            "logic.team",
+            true,
+        );
         state.record_logic_data_handler(
             "logic.team",
             ClientLogicDataTransport::Reliable,
@@ -1425,16 +1436,28 @@ mod tests {
 
         state.record_event(RuntimeCustomPacketSemanticEncoding::Text, "text.bool", true);
         state.record_text_handler("text.bool", "true");
-        state.record_event(RuntimeCustomPacketSemanticEncoding::LogicData, "logic.bool", true);
+        state.record_event(
+            RuntimeCustomPacketSemanticEncoding::LogicData,
+            "logic.bool",
+            true,
+        );
         state.record_logic_data_handler(
             "logic.bool",
             ClientLogicDataTransport::Reliable,
             &TypeIoObject::Bool(true),
         );
 
-        state.record_event(RuntimeCustomPacketSemanticEncoding::Text, "text.number", true);
+        state.record_event(
+            RuntimeCustomPacketSemanticEncoding::Text,
+            "text.number",
+            true,
+        );
         state.record_text_handler("text.number", "12.5");
-        state.record_event(RuntimeCustomPacketSemanticEncoding::LogicData, "logic.number", true);
+        state.record_event(
+            RuntimeCustomPacketSemanticEncoding::LogicData,
+            "logic.number",
+            true,
+        );
         state.record_logic_data_handler(
             "logic.number",
             ClientLogicDataTransport::Reliable,
@@ -1694,6 +1717,18 @@ mod tests {
         state.observe_events(&[ClientSessionEvent::WorldDataBegin]);
 
         assert!(state.latest_summary_entries(4).is_empty());
+    }
+
+    #[test]
+    fn runtime_custom_packet_surface_rejects_non_finite_world_positions() {
+        assert_eq!(render_text_world_pos("NaN,9"), Err("invalid_world_pos"));
+        assert_eq!(
+            extract_logic_world_pos(&TypeIoObject::Vec2 {
+                x: f32::INFINITY,
+                y: 9.0,
+            }),
+            Err("invalid_world_pos")
+        );
     }
 
     #[test]
