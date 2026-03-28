@@ -5617,6 +5617,29 @@ mod tests {
     }
 
     #[test]
+    fn window_hud_top_line_ignores_empty_strings() {
+        let frame = WindowFrame {
+            frame_id: 0,
+            title: "demo".to_string(),
+            wave_text: Some(String::new()),
+            session_banner_text: Some(String::new()),
+            status_text: String::new(),
+            build_strip_text: None,
+            panel_lines: Vec::new(),
+            overlay_lines: Vec::new(),
+            overlay_summary_text: None,
+            fps: None,
+            zoom: 1.0,
+            width: 12,
+            height: 8,
+            minimap_inset: None,
+            pixels: vec![COLOR_EMPTY; 12 * 8],
+        };
+
+        assert_eq!(window_hud_top_line(&frame), None);
+    }
+
+    #[test]
     fn compose_frame_rasterizes_marker_line_segments_across_window_bounds() {
         let scene = RenderModel {
             viewport: Viewport {

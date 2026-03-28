@@ -40738,6 +40738,12 @@ mod tests {
     }
 
     #[test]
+    fn lookup_builtin_entity_class_lookup_returns_none_for_unknown_inputs() {
+        assert_eq!(lookup_builtin_entity_class_name(255), None);
+        assert_eq!(lookup_builtin_entity_class_id("not-a-real-class"), None);
+    }
+
+    #[test]
     fn save_entity_post_load_summary_tracks_unknown_classes_and_duplicate_entity_ids() {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&0u16.to_be_bytes());

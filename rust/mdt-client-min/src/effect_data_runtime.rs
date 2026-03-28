@@ -260,6 +260,15 @@ fn first_content_hint(
             content_id,
             path: matched.path,
         }),
+        TypeIoSemanticRef::TechNode {
+            content_type,
+            content_id,
+        } if predicate(content_type) => Some(EffectDataBusinessHint::ContentRef {
+            kind: EffectBusinessContentKind::TechNode,
+            content_type,
+            content_id,
+            path: matched.path,
+        }),
         TypeIoSemanticRef::TechNode { .. }
         | TypeIoSemanticRef::Content { .. }
         | TypeIoSemanticRef::Building { .. }
@@ -503,6 +512,37 @@ mod tests {
                             path: vec![1],
                         },
                     ),
+                }),
+                data_type_tag: Some(5),
+                parse_failed: false,
+                parse_error: None,
+            }
+        );
+    }
+
+    #[test]
+    fn derive_effect_data_business_input_accepts_technode_for_content_icon_contract() {
+        let object = TypeIoObject::TechNodeRaw {
+            content_type: 1,
+            content_id: 33,
+        };
+
+        let input = derive_effect_data_business_input(Some(3), Some(&object), Some(5), false, None);
+
+        assert_eq!(
+            input,
+            EffectDataBusinessInput {
+                contract_name: Some("content_icon"),
+                data_kind: Some("TechNode(raw)".to_string()),
+                semantic: Some(EffectDataSemantic::TechNodeRaw {
+                    content_type: 1,
+                    content_id: 33,
+                }),
+                primary: Some(EffectDataBusinessHint::ContentRef {
+                    kind: EffectBusinessContentKind::TechNode,
+                    content_type: 1,
+                    content_id: 33,
+                    path: vec![],
                 }),
                 data_type_tag: Some(5),
                 parse_failed: false,
