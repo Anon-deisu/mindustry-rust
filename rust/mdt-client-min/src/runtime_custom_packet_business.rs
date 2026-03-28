@@ -57,6 +57,9 @@ pub fn resolve_runtime_custom_packet_command_target(
             let (x, y) = marker
                 .map(|marker| (marker.x, marker.y))
                 .or_else(|| parse_world_pos(&entry.stable_value))?;
+            if !x.is_finite() || !y.is_finite() {
+                return None;
+            }
             Some(CommandModeTargetProjection {
                 position_target: Some(position_target(x, y)),
                 ..CommandModeTargetProjection::default()
@@ -312,6 +315,22 @@ mod tests {
                 }),
                 rect_target: None,
             })
+        );
+    }
+
+    #[test]
+    fn resolve_runtime_custom_packet_command_target_rejects_non_finite_world_pos() {
+        let entry = RuntimeCustomPacketSurfaceSummaryEntry {
+            key: "logic.world".to_string(),
+            encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+            semantic: RuntimeCustomPacketSemanticKind::WorldPos,
+            stable_value: "NaN,inf".to_string(),
+            marker: None,
+        };
+
+        assert_eq!(
+            resolve_runtime_custom_packet_command_target(&entry, &SessionState::default(), None),
+            None
         );
     }
 }
