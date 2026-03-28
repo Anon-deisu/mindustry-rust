@@ -110,6 +110,9 @@ impl MovementProbeController {
         if !self.should_step(now_ms, min_step_interval_ms) {
             return None;
         }
+        if self.config.step == (0.0, 0.0) {
+            return None;
+        }
         let (x, y) = runtime.position?;
         if !is_finite_vector((x, y)) || !is_finite_vector(self.config.step) {
             return None;
@@ -360,6 +363,22 @@ mod tests {
         let mut controller = MovementProbeController::new(MovementProbeConfig {
             step: (f32::NAN, 1.0),
         });
+        assert_eq!(
+            controller.advance(
+                RuntimeInputState {
+                    unit_id: Some(7),
+                    dead: false,
+                    position: Some((10.0, 20.0)),
+                    pointer: None,
+                },
+                100,
+                50,
+                None,
+            ),
+            None
+        );
+
+        let mut controller = MovementProbeController::new(MovementProbeConfig { step: (0.0, 0.0) });
         assert_eq!(
             controller.advance(
                 RuntimeInputState {
