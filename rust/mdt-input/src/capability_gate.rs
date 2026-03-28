@@ -216,9 +216,18 @@ impl CapabilityGate {
             PlayerIntent::SetMiningTile { tile: Some(tile) } => {
                 self.evaluate_mining(context, *tile)
             }
-            PlayerIntent::SetBuilding { building: true }
-            | PlayerIntent::ConfigTap { .. }
-            | PlayerIntent::BuildPulse(_) => self.evaluate_build_intent(context),
+            PlayerIntent::SetBuilding { building: true } | PlayerIntent::ConfigTap { .. } => {
+                self.evaluate_build_intent(context)
+            }
+            PlayerIntent::BuildPulse(pulse) => self.evaluate_build(
+                context,
+                &CapabilityBuildRequest {
+                    tile: pulse.tile,
+                    breaking: pulse.breaking,
+                    block_id: None,
+                    rotation: None,
+                },
+            ),
             _ => CapabilityDecision::allowed(),
         }
     }
@@ -562,6 +571,32 @@ mod tests {
                 &PlayerIntent::SetBuilding { building: true }
             ),
             CapabilityDecision::denied(CapabilityDenyReason::MissingControlledUnit)
+        );
+    }
+
+    #[test]
+    fn build_pulse_without_block_is_denied() {
+        let gate = CapabilityGate;
+
+        assert_eq!(
+            gate.evaluate_intent(
+                &context(),
+                &PlayerIntent::BuildPulse(BuildPulse {
+                    tile: (7, 9),
+                    breaking: false,
+                })
+            ),
+            CapabilityDecision::denied(CapabilityDenyReason::MissingBuildBlock)
+        );
+        assert_eq!(
+            gate.evaluate_intent(
+                &context(),
+                &PlayerIntent::BuildPulse(BuildPulse {
+                    tile: (7, 9),
+                    breaking: true,
+                })
+            ),
+            CapabilityDecision::allowed()
         );
     }
 

@@ -112,7 +112,10 @@ impl SavePostLoadRuntimeWorldSemanticsExecution {
     }
 
     pub fn can_activate_live_runtime(&self) -> bool {
-        self.world_shell_ready && self.can_apply_world_semantics() && self.has_world_shell()
+        self.world_shell_ready
+            && self.can_apply_world_semantics()
+            && self.has_world_shell()
+            && self.failed_steps.is_empty()
     }
 
     pub fn targeted_step_count(&self) -> usize {
@@ -872,6 +875,23 @@ mod tests {
         assert_eq!(execution.executed_step_count(), 0);
         assert_eq!(execution.pending_step_count(), 9);
         assert_eq!(execution.targeted_step_count(), 9);
+    }
+
+    #[test]
+    fn world_semantics_activation_rejects_failed_world_steps() {
+        let mut observation = test_observation();
+        make_observation_seedable(&mut observation);
+
+        let mut execution = observation.execute_runtime_world_semantics();
+        execution
+            .failed_steps
+            .push(SavePostLoadRuntimeApplyStep::Building { center_index: 0 });
+
+        assert!(execution.world_shell_ready);
+        assert!(execution.can_apply_world_semantics());
+        assert!(execution.has_world_shell());
+        assert!(!execution.failed_steps.is_empty());
+        assert!(!execution.can_activate_live_runtime());
     }
 
     fn make_observation_seedable(observation: &mut crate::SavePostLoadWorldObservation) {

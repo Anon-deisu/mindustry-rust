@@ -61,7 +61,11 @@ pub(crate) fn crop_origin(focus: usize, origin: usize, bound: usize, window: usi
 }
 
 fn clamp_window_origin(origin: usize, window: usize, bound: usize) -> usize {
-    origin.min(bound.saturating_sub(window))
+    if bound == 0 {
+        return 0;
+    }
+
+    origin.min(bound.saturating_sub(window.max(1)))
 }
 
 pub(crate) fn visible_window_tile(
@@ -183,6 +187,31 @@ mod tests {
         assert_eq!(window.origin_y, 4);
         assert_eq!(window.width, 8);
         assert_eq!(window.height, 6);
+    }
+
+    #[test]
+    fn projected_window_clamps_zero_sized_window_origin() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 80.0,
+                height: 80.0,
+                zoom: 1.0,
+            },
+            view_window: Some(crate::RenderViewWindow {
+                origin_x: 12,
+                origin_y: 13,
+                width: 0,
+                height: 0,
+            }),
+            objects: vec![],
+        };
+
+        let window = projected_window(&scene, 10, 10);
+
+        assert_eq!(window.origin_x, 9);
+        assert_eq!(window.origin_y, 9);
+        assert_eq!(window.width, 0);
+        assert_eq!(window.height, 0);
     }
 
     #[test]
