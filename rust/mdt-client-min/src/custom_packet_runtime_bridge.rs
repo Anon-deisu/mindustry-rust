@@ -256,10 +256,35 @@ fn parse_debug_string(value: &str) -> Option<String> {
             'n' => parsed.push('\n'),
             'r' => parsed.push('\r'),
             't' => parsed.push('\t'),
+            'u' => parsed.push(parse_unicode_escape(&mut chars)?),
             other => parsed.push(other),
         }
     }
     Some(parsed)
+}
+
+fn parse_unicode_escape(chars: &mut std::str::Chars<'_>) -> Option<char> {
+    if chars.next()? != '{' {
+        return None;
+    }
+
+    let mut value = 0u32;
+    let mut digit_count = 0usize;
+    loop {
+        let ch = chars.next()?;
+        if ch == '}' {
+            break;
+        }
+        let digit = ch.to_digit(16)?;
+        value = value.checked_mul(16)?.checked_add(digit)?;
+        digit_count += 1;
+    }
+
+    if digit_count == 0 {
+        return None;
+    }
+
+    char::from_u32(value)
 }
 
 fn parse_encoding(value: &str) -> Option<RuntimeCustomPacketSemanticEncoding> {
@@ -470,6 +495,21 @@ mod tests {
         assert_eq!(
             bridge.business_summary_text(4).as_deref(),
             Some("text:custom.status(hud_text)#2=wave resumed")
+        );
+    }
+
+    #[test]
+    fn parse_debug_string_decodes_unicode_escape_sequences() {
+        assert_eq!(
+            parse_debug_string(r#""emoji-\u{1f680}""#),
+            Some("emoji-🚀".to_string())
+        );
+        assert_eq!(
+            parse_surface_update(
+                "runtime_custom_packet_surface_update: encoding=text key=\"team-\\u{3a9}\" semantic=hud_text count=1 message=\"ok\""
+            )
+            .map(|update| update.route.key),
+            Some("team-Ω".to_string())
         );
     }
 }
