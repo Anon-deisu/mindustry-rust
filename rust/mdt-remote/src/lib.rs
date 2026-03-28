@@ -909,6 +909,18 @@ pub fn validate_remote_manifest(manifest: &RemoteManifest) -> Result<(), RemoteM
                 packet.packet_id
             )));
         }
+        let packet_const_name = remote_packet_const_name_raw(&packet.packet_class);
+        if packet_const_name.is_empty()
+            || packet_const_name
+                .as_bytes()
+                .first()
+                .is_some_and(|byte| byte.is_ascii_digit())
+        {
+            return Err(RemoteManifestError::InvalidRemotePacketMetadata(format!(
+                "remote packet {} has packetClass that would generate invalid Rust const name: {}",
+                packet.packet_class, packet_const_name
+            )));
+        }
         if packet.declaring_type.trim().is_empty() {
             return Err(RemoteManifestError::InvalidRemotePacketMetadata(format!(
                 "remote packet {} has empty declaringType",
@@ -1516,6 +1528,21 @@ pub fn generate_inbound_dispatch_rust_module(
 }
 
 pub fn remote_packet_const_name(packet_class: &str) -> String {
+    let raw_name = remote_packet_const_name_raw(packet_class);
+    if raw_name.is_empty() {
+        return "PACKET".into();
+    }
+    if raw_name
+        .as_bytes()
+        .first()
+        .is_some_and(|byte| byte.is_ascii_digit())
+    {
+        return format!("_{}", raw_name);
+    }
+    raw_name
+}
+
+fn remote_packet_const_name_raw(packet_class: &str) -> String {
     let simple_name = packet_class
         .rsplit(['.', '$'])
         .next()
@@ -2532,6 +2559,23 @@ mod tests {
             ));
             assert_eq!(error.to_string(), expected_message);
         }
+    }
+
+    #[test]
+    fn generate_rust_registry_rejects_non_identifier_packet_class() {
+        let manifest = SAMPLE_MANIFEST.replace(
+            "\"packetClass\": \"mindustry.gen.TestCallPacket\"",
+            "\"packetClass\": \"mindustry.gen.1TestCallPacket\"",
+        );
+        let error = parse_remote_manifest(&manifest).unwrap_err();
+        assert!(matches!(
+            error,
+            RemoteManifestError::InvalidRemotePacketMetadata(_)
+        ));
+        assert_eq!(
+            error.to_string(),
+            "remote packet mindustry.gen.1TestCallPacket has packetClass that would generate invalid Rust const name: 1_TEST_CALL_PACKET"
+        );
     }
 
     #[test]
