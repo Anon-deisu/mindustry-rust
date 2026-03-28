@@ -324,10 +324,12 @@ impl MinifbWindowBackend {
     }
 
     fn ensure_window(&mut self, frame: &WindowFrame) -> Result<(), String> {
-        let surface_size = (
-            frame.width.max(1) * self.tile_pixels,
-            frame.height.max(1) * self.tile_pixels,
-        );
+        let Some((surface_width, surface_height, _)) =
+            scaled_surface_metrics(frame, self.tile_pixels)
+        else {
+            return Err("window surface size overflowed".to_string());
+        };
+        let surface_size = (surface_width, surface_height);
         let needs_recreate = self
             .surface_size
             .map(|current| current != surface_size)
@@ -955,8 +957,8 @@ fn runtime_world_to_minimap_tile(world_position: f32, bound: usize) -> usize {
         return 0;
     }
     let upper = bound.saturating_sub(1).min(i32::MAX as usize) as i32;
-    crate::presenter_view::world_to_tile_index_floor(world_position, TILE_SIZE)
-        .clamp(0, upper) as usize
+    crate::presenter_view::world_to_tile_index_floor(world_position, TILE_SIZE).clamp(0, upper)
+        as usize
 }
 
 fn runtime_world_span_to_tile_span(world_span: f32, bound: usize) -> usize {
@@ -4155,13 +4157,29 @@ fn command_stance_status_text(value: Option<crate::RuntimeCommandStanceObservabi
         .unwrap_or_else(|| "none".to_string())
 }
 
-fn scale_frame_pixels(frame: &WindowFrame, tile_pixels: usize) -> Vec<u32> {
+fn scaled_surface_metrics(
+    frame: &WindowFrame,
+    tile_pixels: usize,
+) -> Option<(usize, usize, usize)> {
     let tile_pixels = tile_pixels.max(1);
     let width = frame.width.max(1);
     let height = frame.height.max(1);
-    let mut pixels = vec![COLOR_EMPTY; width * height * tile_pixels * tile_pixels];
-    let surface_width = width * tile_pixels;
-    let surface_height = height * tile_pixels;
+    let surface_width = width.checked_mul(tile_pixels)?;
+    let surface_height = height.checked_mul(tile_pixels)?;
+    let pixel_count = surface_width.checked_mul(surface_height)?;
+    Some((surface_width, surface_height, pixel_count))
+}
+
+fn scale_frame_pixels(frame: &WindowFrame, tile_pixels: usize) -> Vec<u32> {
+    let Some((surface_width, surface_height, pixel_count)) =
+        scaled_surface_metrics(frame, tile_pixels)
+    else {
+        return Vec::new();
+    };
+    let tile_pixels = tile_pixels.max(1);
+    let width = frame.width.max(1);
+    let height = frame.height.max(1);
+    let mut pixels = vec![COLOR_EMPTY; pixel_count];
 
     for y in 0..height {
         for x in 0..width {
@@ -5293,17 +5311,16 @@ mod tests {
         runtime_unit_assembler_minimap_tiles, runtime_world_label_minimap_tiles,
         runtime_world_span_to_tile_span, runtime_world_to_minimap_tile, scale_frame_pixels,
         window_hud_bar_height, window_hud_top_line, BackendSignal,
-        StableMinimapOverlayTileCandidate, WindowBackend, WindowFrame,
-        WindowMinimapBreakRect, WindowMinimapCommandRect, WindowMinimapCommandRectKind,
-        WindowMinimapInset, WindowMinimapRuntimeOverlayKind, WindowMinimapRuntimeOverlayTile,
+        StableMinimapOverlayTileCandidate, WindowBackend, WindowFrame, WindowMinimapBreakRect,
+        WindowMinimapCommandRect, WindowMinimapCommandRectKind, WindowMinimapInset,
+        WindowMinimapRuntimeOverlayKind, WindowMinimapRuntimeOverlayTile,
         WindowMinimapUnitAssemblerRect, WindowPresenter, COLOR_BLOCK, COLOR_EMPTY,
         COLOR_ICON_BUILD_CONFIG, COLOR_ICON_RUNTIME_BREAK, COLOR_ICON_RUNTIME_BULLET,
         COLOR_ICON_RUNTIME_COMMAND, COLOR_ICON_RUNTIME_EFFECT, COLOR_ICON_RUNTIME_EFFECT_MARKER,
-        COLOR_ICON_RUNTIME_HEALTH, COLOR_ICON_RUNTIME_LOGIC_EXPLOSION,
-        COLOR_ICON_RUNTIME_SOUND_AT, COLOR_ICON_RUNTIME_TILE_ACTION,
-        COLOR_ICON_RUNTIME_UNIT_ASSEMBLER, COLOR_MARKER, COLOR_MINIMAP_INSET_VIEWPORT,
-        COLOR_PLAN, COLOR_PLAYER, COLOR_RUNTIME, COLOR_TERRAIN, COLOR_UNKNOWN,
-        COLOR_WINDOW_HUD_BAR, COLOR_WINDOW_HUD_TEXT, WINDOW_HUD_BAR_PADDING_X,
+        COLOR_ICON_RUNTIME_HEALTH, COLOR_ICON_RUNTIME_LOGIC_EXPLOSION, COLOR_ICON_RUNTIME_SOUND_AT,
+        COLOR_ICON_RUNTIME_TILE_ACTION, COLOR_ICON_RUNTIME_UNIT_ASSEMBLER, COLOR_MARKER,
+        COLOR_MINIMAP_INSET_VIEWPORT, COLOR_PLAN, COLOR_PLAYER, COLOR_RUNTIME, COLOR_TERRAIN,
+        COLOR_UNKNOWN, COLOR_WINDOW_HUD_BAR, COLOR_WINDOW_HUD_TEXT, WINDOW_HUD_BAR_PADDING_X,
         WINDOW_HUD_BAR_PADDING_Y, WINDOW_HUD_FONT_HEIGHT,
     };
     use crate::{
@@ -5620,6 +5637,31 @@ mod tests {
             pixels,
             vec![0x112233, 0x112233, 0x445566, 0x445566, 0x112233, 0x112233, 0x445566, 0x445566,]
         );
+    }
+
+    #[test]
+    fn scale_frame_pixels_handles_large_dimensions_without_overflow() {
+        let frame = WindowFrame {
+            frame_id: 0,
+            title: "demo".to_string(),
+            wave_text: None,
+            session_banner_text: None,
+            status_text: String::new(),
+            build_strip_text: None,
+            panel_lines: Vec::new(),
+            overlay_lines: Vec::new(),
+            overlay_summary_text: None,
+            fps: None,
+            zoom: 1.0,
+            width: usize::MAX,
+            height: 2,
+            minimap_inset: None,
+            pixels: Vec::new(),
+        };
+
+        let pixels = scale_frame_pixels(&frame, 2);
+
+        assert!(pixels.is_empty());
     }
 
     #[test]
