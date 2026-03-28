@@ -140,13 +140,11 @@ fn build_user_flow_from_panel_options(
         )
     };
 
+    let next_action = if missing { "missing" } else { next_action };
+
     if missing {
-        if blockers.first().copied() != Some(BuildUserFlowBlocker::Missing) {
-            blockers.insert(0, BuildUserFlowBlocker::Missing);
-        }
-        if route.first().copied() != Some("missing") {
-            route.insert(0, "missing");
-        }
+        blockers = vec![BuildUserFlowBlocker::Missing];
+        route = vec!["missing"];
     }
 
     BuildUserFlowPanelModel {
@@ -741,5 +739,54 @@ mod tests {
         assert_eq!(panel.target_kind, MinimapUserTargetKind::Marker);
         assert_eq!(panel.config_scope, "missing");
         assert_eq!(panel.authority_state, BuildInteractionAuthorityState::Applied);
+    }
+
+    #[test]
+    fn build_build_user_flow_panel_marks_partial_missing_state_as_missing() {
+        let panel = super::build_user_flow_from_panel_options(
+            Some(&BuildMinimapAssistPanelModel {
+                mode: BuildInteractionMode::Place,
+                selection_state: BuildInteractionSelectionState::HeadAligned,
+                queue_state: BuildInteractionQueueState::Empty,
+                place_ready: true,
+                config_family_count: 1,
+                config_sample_count: 1,
+                top_config_family: Some("message".to_string()),
+                authority_state: BuildInteractionAuthorityState::Applied,
+                focus_tile: Some((4, 6)),
+                focus_in_window: Some(true),
+                visible_map_percent: 100,
+                unknown_tile_percent: 0,
+                window_coverage_percent: 40,
+                tracked_object_count: 3,
+                runtime_count: 0,
+            }),
+            None,
+            Some(&BuildInteractionPanelModel {
+                mode: BuildInteractionMode::Place,
+                selection_state: BuildInteractionSelectionState::HeadAligned,
+                queue_state: BuildInteractionQueueState::Empty,
+                selected_block_id: Some(1),
+                selected_rotation: 0,
+                pending_count: 0,
+                orphan_authoritative_count: 0,
+                place_ready: true,
+                config_available: true,
+                config_family_count: 1,
+                config_sample_count: 1,
+                top_config_family: Some("message".to_string()),
+                head: None,
+                authority_state: BuildInteractionAuthorityState::Applied,
+                authority_pending_match: Some(true),
+                authority_source: None,
+                authority_tile: None,
+                authority_block_name: None,
+            }),
+        );
+
+        assert_eq!(panel.next_action, "missing");
+        assert_eq!(panel.blocker_labels(), vec!["missing"]);
+        assert_eq!(panel.route, vec!["missing"]);
+        assert_eq!(panel.minimap_next_action, "missing");
     }
 }
