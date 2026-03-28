@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use crate::{
     marker_region_is_empty, MarkerModel, SaveEntityPostLoadSummary, SaveEntityRegionObservation,
     SavePostLoadWorldObservation, WorldLoadUnknownCoverageSummary,
@@ -34,10 +36,13 @@ pub enum SavePostLoadWorldIssue {
     BuildingCenterReferenceMismatch,
     TeamPlanOverlayMismatch,
     TeamPlanOutOfBounds,
+    DuplicateTeamPlanGroupIds,
     MarkerRegionMismatch,
     MarkerOutOfBounds,
+    DuplicateMarkerIds,
     StaticFogDimensionMismatch,
     StaticFogCoverageMismatch,
+    DuplicateCustomChunkNames,
     WorldEntityCountMismatch,
     DuplicateWorldEntityIds,
     EntitySummaryMismatch,
@@ -178,6 +183,16 @@ fn overlay_surface_consistent(
         consistent = false;
     }
 
+    if has_duplicate_values(
+        observation
+            .team_plan_groups
+            .iter()
+            .map(|group| group.team_id),
+    ) {
+        push_issue(issues, SavePostLoadWorldIssue::DuplicateTeamPlanGroupIds);
+        consistent = false;
+    }
+
     consistent
 }
 
@@ -190,8 +205,7 @@ fn marker_surface_consistent(
     let height = observation.map.world.height;
     let empty_marker_region = marker_region_is_empty(&observation.marker_region_bytes);
 
-    if observation.markers.is_empty() != empty_marker_region
-    {
+    if observation.markers.is_empty() != empty_marker_region {
         push_issue(issues, SavePostLoadWorldIssue::MarkerRegionMismatch);
         consistent = false;
     }
@@ -202,6 +216,11 @@ fn marker_surface_consistent(
         .any(|entry| !marker_in_bounds(&entry.marker, width, height))
     {
         push_issue(issues, SavePostLoadWorldIssue::MarkerOutOfBounds);
+        consistent = false;
+    }
+
+    if has_duplicate_values(observation.markers.iter().map(|entry| entry.id)) {
+        push_issue(issues, SavePostLoadWorldIssue::DuplicateMarkerIds);
         consistent = false;
     }
 
@@ -230,6 +249,15 @@ fn static_fog_surface_consistent(
     issues: &mut Vec<SavePostLoadWorldIssue>,
 ) -> bool {
     let mut consistent = true;
+    if has_duplicate_values(
+        observation
+            .custom_chunks
+            .iter()
+            .map(|chunk| chunk.name.as_str()),
+    ) {
+        push_issue(issues, SavePostLoadWorldIssue::DuplicateCustomChunkNames);
+        consistent = false;
+    }
     if let Some(chunk) = observation.static_fog_chunk() {
         if chunk.width != observation.map.world.width
             || chunk.height != observation.map.world.height
@@ -304,6 +332,19 @@ fn push_issue(issues: &mut Vec<SavePostLoadWorldIssue>, issue: SavePostLoadWorld
     if !issues.contains(&issue) {
         issues.push(issue);
     }
+}
+
+fn has_duplicate_values<T>(values: impl IntoIterator<Item = T>) -> bool
+where
+    T: Ord,
+{
+    let mut seen = BTreeSet::new();
+    for value in values {
+        if !seen.insert(value) {
+            return true;
+        }
+    }
+    false
 }
 
 fn checked_tile_count(width: usize, height: usize) -> Option<usize> {
@@ -407,6 +448,56 @@ mod tests {
         assert!(contract
             .issues
             .contains(&SavePostLoadWorldIssue::EntitySummaryMismatch));
+    }
+
+    #[test]
+    fn projection_contract_flags_duplicate_team_plan_group_ids() {
+        let mut observation = test_observation();
+        observation
+            .team_plan_groups
+            .push(observation.team_plan_groups[0].clone());
+        observation.map.world.team_count = 2;
+        observation.map.world.total_plans = 2;
+        observation.map.world.team_ids = vec![1, 1];
+        observation.map.world.team_plan_counts = vec![1, 1];
+
+        let contract = observation.projection_contract();
+
+        assert!(!contract.can_project_world_shell());
+        assert!(!contract.overlay_surface_consistent);
+        assert!(contract
+            .issues
+            .contains(&SavePostLoadWorldIssue::DuplicateTeamPlanGroupIds));
+    }
+
+    #[test]
+    fn projection_contract_flags_duplicate_marker_ids() {
+        let mut observation = test_observation();
+        observation.markers.push(observation.markers[0].clone());
+
+        let contract = observation.projection_contract();
+
+        assert!(!contract.can_project_world_shell());
+        assert!(!contract.marker_surface_consistent);
+        assert!(contract
+            .issues
+            .contains(&SavePostLoadWorldIssue::DuplicateMarkerIds));
+    }
+
+    #[test]
+    fn projection_contract_flags_duplicate_custom_chunk_names() {
+        let mut observation = test_observation();
+        observation
+            .custom_chunks
+            .push(observation.custom_chunks[0].clone());
+
+        let contract = observation.projection_contract();
+
+        assert!(!contract.can_project_world_shell());
+        assert!(!contract.static_fog_surface_consistent);
+        assert!(contract
+            .issues
+            .contains(&SavePostLoadWorldIssue::DuplicateCustomChunkNames));
     }
 
     #[test]
