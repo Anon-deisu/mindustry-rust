@@ -12447,12 +12447,12 @@ impl<'a> LoadedWorldState<'a> {
             .map_err(|err| format!("failed to parse rules json: {err}"))?;
         let map_locales = json5::from_str(&normalized_map_locales)
             .map_err(|err| format!("failed to parse mapLocales json: {err}"))?;
-        let tags = self
-            .bundle
-            .tag_pairs
-            .iter()
-            .map(|(key, value)| (key.clone(), value.clone()))
-            .collect::<BTreeMap<_, _>>();
+        let mut tags = BTreeMap::new();
+        for (key, value) in &self.bundle.tag_pairs {
+            if tags.insert(key.clone(), value.clone()).is_some() {
+                return Err(format!("duplicate tag key in typed load context: {key}"));
+            }
+        }
         let content_patches = self
             .bundle
             .patches
@@ -24828,7 +24828,7 @@ fn parse_conveyor_tail_snapshot(
     tail_bytes: &[u8],
 ) -> Result<ConveyorTailSnapshot, String> {
     let mut reader = Reader::new(tail_bytes);
-    let len = reader.read_i32()? as usize;
+    let len = read_non_negative_i32_len("conveyor tail item count", reader.read_i32()?)?;
     let mut items = Vec::with_capacity(len);
     for _ in 0..len {
         let (item_id, x_raw, y_raw) = if revision == 0 {
@@ -24879,6 +24879,13 @@ fn parse_stack_conveyor_tail_snapshot(
 }
 
 fn read_non_negative_byte_len(label: &str, value: i8) -> Result<usize, String> {
+    if value < 0 {
+        return Err(format!("negative {}: {}", label, value));
+    }
+    Ok(value as usize)
+}
+
+fn read_non_negative_i16_len(label: &str, value: i16) -> Result<usize, String> {
     if value < 0 {
         return Err(format!("negative {}: {}", label, value));
     }
@@ -39858,7 +39865,7 @@ fn read_typeio_object(reader: &mut Reader<'_>) -> Result<TypeIoValue, String> {
             content_id: reader.read_i16()?,
         }),
         6 => {
-            let len = reader.read_i16()? as usize;
+            let len = read_non_negative_i16_len("TypeIO int sequence length", reader.read_i16()?)?;
             let mut values = Vec::with_capacity(len);
             for _ in 0..len {
                 values.push(reader.read_i32()?);
@@ -39886,12 +39893,13 @@ fn read_typeio_object(reader: &mut Reader<'_>) -> Result<TypeIoValue, String> {
         12 => Ok(TypeIoValue::BuildingPos(reader.read_i32()?)),
         13 => Ok(TypeIoValue::LogicAccess(reader.read_u16()?)),
         14 => {
-            let len = reader.read_i32()? as usize;
+            let len = read_non_negative_i32_len("TypeIO byte array length", reader.read_i32()?)?;
             Ok(TypeIoValue::Bytes(reader.read_exact_vec(len)?))
         }
         15 => Ok(TypeIoValue::LegacyUnitCommandNull(reader.read_u8()?)),
         16 => {
-            let len = reader.read_i32()? as usize;
+            let len =
+                read_non_negative_i32_len("TypeIO boolean array length", reader.read_i32()?)?;
             let mut values = Vec::with_capacity(len);
             for _ in 0..len {
                 values.push(reader.read_bool()?);
@@ -39900,7 +39908,7 @@ fn read_typeio_object(reader: &mut Reader<'_>) -> Result<TypeIoValue, String> {
         }
         17 => Ok(TypeIoValue::UnitId(reader.read_i32()?)),
         18 => {
-            let len = reader.read_i16()? as usize;
+            let len = read_non_negative_i16_len("TypeIO vec2 array length", reader.read_i16()?)?;
             let mut values = Vec::with_capacity(len);
             for _ in 0..len {
                 values.push((reader.read_f32()?, reader.read_f32()?));
@@ -39913,7 +39921,7 @@ fn read_typeio_object(reader: &mut Reader<'_>) -> Result<TypeIoValue, String> {
         }),
         20 => Ok(TypeIoValue::Team(reader.read_u8()?)),
         21 => {
-            let len = reader.read_i16()? as usize;
+            let len = read_non_negative_i16_len("TypeIO int array length", reader.read_i16()?)?;
             let mut values = Vec::with_capacity(len);
             for _ in 0..len {
                 values.push(reader.read_i32()?);
@@ -39921,7 +39929,7 @@ fn read_typeio_object(reader: &mut Reader<'_>) -> Result<TypeIoValue, String> {
             Ok(TypeIoValue::IntArray(values))
         }
         22 => {
-            let len = reader.read_i32()? as usize;
+            let len = read_non_negative_i32_len("TypeIO object array length", reader.read_i32()?)?;
             let mut values = Vec::with_capacity(len);
             for _ in 0..len {
                 values.push(read_typeio_object(reader)?);
@@ -39989,7 +39997,11 @@ impl<'a> Reader<'a> {
     }
 
     fn read_bool(&mut self) -> Result<bool, String> {
-        Ok(self.read_u8()? != 0)
+        match self.read_u8()? {
+            0 => Ok(false),
+            1 => Ok(true),
+            value => Err(format!("invalid boolean value: {value}")),
+        }
     }
 
     fn read_u16(&mut self) -> Result<u16, String> {
@@ -45411,6 +45423,57 @@ mod tests {
                 .sum::<usize>(),
             bundle.patches.iter().map(Vec::len).sum::<usize>()
         );
+    }
+
+    #[test]
+    fn typed_load_context_rejects_duplicate_tags() {
+        let mut bundle = sample_world_bundle();
+        bundle
+            .tag_pairs
+            .push(("golden-tag".to_string(), "duplicate".to_string()));
+
+        let error = bundle.typed_load_context().unwrap_err();
+        assert!(error.contains("duplicate tag key"));
+    }
+
+    #[test]
+    fn parse_conveyor_tail_snapshot_rejects_negative_item_count() {
+        let error = parse_conveyor_tail_snapshot(1, &(-1i32).to_be_bytes()).unwrap_err();
+        assert!(error.contains("negative conveyor tail item count"));
+    }
+
+    #[test]
+    fn read_typeio_object_rejects_negative_lengths() {
+        let cases: &[(&str, &[u8])] = &[
+            ("TypeIO int sequence length", &[6, 0xff, 0xff]),
+            (
+                "TypeIO byte array length",
+                &[14, 0xff, 0xff, 0xff, 0xff],
+            ),
+            (
+                "TypeIO boolean array length",
+                &[16, 0xff, 0xff, 0xff, 0xff],
+            ),
+            ("TypeIO vec2 array length", &[18, 0xff, 0xff]),
+            ("TypeIO int array length", &[21, 0xff, 0xff]),
+            (
+                "TypeIO object array length",
+                &[22, 0xff, 0xff, 0xff, 0xff],
+            ),
+        ];
+
+        for &(label, bytes) in cases {
+            let mut reader = Reader::new(bytes);
+            let error = read_typeio_object(&mut reader).unwrap_err();
+            assert!(error.contains(label), "{label}: {error}");
+        }
+    }
+
+    #[test]
+    fn reader_read_bool_rejects_non_binary_values() {
+        let mut reader = Reader::new(&[2]);
+        let error = reader.read_bool().unwrap_err();
+        assert!(error.contains("invalid boolean value"));
     }
 
     #[test]
