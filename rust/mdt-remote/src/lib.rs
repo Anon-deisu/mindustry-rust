@@ -2312,6 +2312,47 @@ mod tests {
     }
 
     #[test]
+    fn rejects_remote_packet_with_empty_metadata_field() {
+        let cases = [
+            (
+                "\"packetClass\": \"mindustry.gen.TestCallPacket\"",
+                "\"packetClass\": \"   \"",
+                "remote packet 4 has empty packetClass",
+            ),
+            (
+                "\"declaringType\": \"mindustry.core.NetServer\"",
+                "\"declaringType\": \"   \"",
+                "remote packet mindustry.gen.TestCallPacket has empty declaringType",
+            ),
+            (
+                "\"method\": \"test\"",
+                "\"method\": \"   \"",
+                "remote packet mindustry.gen.TestCallPacket has empty method",
+            ),
+            (
+                "\"called\": \"server\"",
+                "\"called\": \"   \"",
+                "remote packet mindustry.gen.TestCallPacket has empty called",
+            ),
+            (
+                "\"variants\": \"all\"",
+                "\"variants\": \"   \"",
+                "remote packet mindustry.gen.TestCallPacket has empty variants",
+            ),
+        ];
+
+        for (needle, replacement, expected_message) in cases {
+            let manifest = SAMPLE_MANIFEST.replace(needle, replacement);
+            let error = parse_remote_manifest(&manifest).unwrap_err();
+            assert!(matches!(
+                error,
+                RemoteManifestError::InvalidRemotePacketMetadata(_)
+            ));
+            assert_eq!(error.to_string(), expected_message);
+        }
+    }
+
+    #[test]
     fn rejects_remote_targets_drift() {
         let manifest = SAMPLE_MANIFEST.replace("\"targets\": \"client\"", "\"targets\": \"all\"");
         let error = parse_remote_manifest(&manifest).unwrap_err();
@@ -2938,7 +2979,9 @@ mod tests {
         );
         assert_eq!(
             bundle.well_known.packet_id(WellKnownRemoteMethod::SetRule),
-            baseline.well_known.packet_id(WellKnownRemoteMethod::SetRule)
+            baseline
+                .well_known
+                .packet_id(WellKnownRemoteMethod::SetRule)
         );
 
         let fixed_table = bundle.well_known.packet_id_fixed_table();

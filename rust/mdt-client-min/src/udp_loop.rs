@@ -462,4 +462,46 @@ mod tests {
             }
         );
     }
+
+    #[test]
+    fn ignores_udp_framework_ping_reply_without_echoing() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let timing = ClientSessionTiming {
+            keepalive_interval_ms: 60_000,
+            client_snapshot_interval_ms: 60_000,
+            connect_timeout_ms: 120_000,
+            timeout_ms: 120_000,
+        };
+        let mut session =
+            ClientSession::from_remote_manifest_with_timing(&manifest, "fr", timing).unwrap();
+
+        let server = UdpSocket::bind("127.0.0.1:0").unwrap();
+        server.set_nonblocking(true).unwrap();
+        let server_addr = server.local_addr().unwrap();
+
+        let client = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let driver = UdpSessionDriver::new(client, server_addr).unwrap();
+        let client_addr = driver.local_addr().unwrap();
+
+        server
+            .send_to(
+                &encode_framework_message(&FrameworkMessage::Ping {
+                    id: 123,
+                    is_reply: true,
+                }),
+                client_addr,
+            )
+            .unwrap();
+
+        let report = driver.tick(&mut session, 1, 32).unwrap();
+        assert_eq!(report.inbound_framework_messages, 1);
+        assert_eq!(report.outbound_framework_messages, 0);
+        assert_eq!(report.inbound_packets, 0);
+
+        let mut recv = [0u8; 1024];
+        assert_eq!(
+            server.recv_from(&mut recv).unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+    }
 }
