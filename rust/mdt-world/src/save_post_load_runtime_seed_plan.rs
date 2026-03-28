@@ -179,9 +179,7 @@ impl SavePostLoadWorldObservation {
                 marker: entry.marker.clone(),
             })
             .collect();
-        let static_fog_seed = self
-            .custom_chunk("static-fog-data")
-            .and_then(runtime_static_fog_seed);
+        let static_fog_seed = runtime_static_fog_seed(&self.custom_chunks);
         let custom_chunk_seeds = self
             .custom_chunks
             .iter()
@@ -240,7 +238,23 @@ fn runtime_entity_remap_seed(
     }
 }
 
-fn runtime_static_fog_seed(chunk: &CustomChunkEntry) -> Option<SavePostLoadRuntimeStaticFogSeed> {
+fn runtime_static_fog_seed(
+    custom_chunks: &[CustomChunkEntry],
+) -> Option<SavePostLoadRuntimeStaticFogSeed> {
+    let mut static_fog_chunks = custom_chunks
+        .iter()
+        .filter(|chunk| chunk.name == "static-fog-data");
+    let chunk = static_fog_chunks.next()?;
+    if static_fog_chunks.next().is_some() {
+        return None;
+    }
+
+    runtime_static_fog_seed_from_chunk(chunk)
+}
+
+fn runtime_static_fog_seed_from_chunk(
+    chunk: &CustomChunkEntry,
+) -> Option<SavePostLoadRuntimeStaticFogSeed> {
     let fog = chunk.static_fog()?;
     Some(SavePostLoadRuntimeStaticFogSeed {
         source_chunk_name: chunk.name.clone(),
@@ -507,6 +521,30 @@ mod tests {
                 .map(|seed| seed.activation.entity_id)
                 .collect::<Vec<_>>(),
             vec![42, 43, 44]
+        );
+    }
+
+    #[test]
+    fn runtime_seed_plan_blocks_duplicate_static_fog_data_chunks() {
+        let mut observation = test_observation();
+        observation.custom_chunks.push(CustomChunkEntry {
+            name: "static-fog-data".to_string(),
+            chunk_len: 1,
+            chunk_bytes: vec![10],
+            chunk_sha256: "fog-duplicate".to_string(),
+            parsed: ParsedCustomChunk::Unknown,
+        });
+
+        let plan = observation.runtime_seed_plan();
+
+        assert!(plan.static_fog_seed.is_none());
+        assert_eq!(plan.custom_chunk_seeds.len(), 3);
+        assert_eq!(
+            plan.custom_chunk_seeds
+                .iter()
+                .filter(|seed| seed.name == "static-fog-data")
+                .count(),
+            2
         );
     }
 
