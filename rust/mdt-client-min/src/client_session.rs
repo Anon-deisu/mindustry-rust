@@ -5638,6 +5638,12 @@ impl ClientSession {
                     self.state.received_unit_death_count =
                         self.state.received_unit_death_count.saturating_add(1);
                     self.state.last_unit_death_id = Some(unit_id);
+                    self.state.mark_payload_lifecycle_unit_despawn(Some(
+                        UnitRefProjection {
+                            kind: 2,
+                            value: unit_id,
+                        },
+                    ));
                     self.state
                         .record_remove_resource_delta_entity_by_id(Some(unit_id));
                     let removed_entity_projection =
@@ -5658,6 +5664,12 @@ impl ClientSession {
                     self.state.received_unit_destroy_count =
                         self.state.received_unit_destroy_count.saturating_add(1);
                     self.state.last_unit_destroy_id = Some(unit_id);
+                    self.state.mark_payload_lifecycle_unit_despawn(Some(
+                        UnitRefProjection {
+                            kind: 2,
+                            value: unit_id,
+                        },
+                    ));
                     self.state
                         .record_remove_resource_delta_entity_by_id(Some(unit_id));
                     let removed_entity_projection =
@@ -44854,6 +44866,19 @@ mod tests {
             );
         session
             .state
+            .record_picked_unit_payload_lifecycle(
+                Some(UnitRefProjection { kind: 2, value: 705 }),
+                Some(UnitRefProjection { kind: 2, value: 701 }),
+            );
+        session
+            .state
+            .record_picked_build_payload_lifecycle(
+                Some(UnitRefProjection { kind: 2, value: 702 }),
+                Some(pack_point2(9, 12)),
+                true,
+            );
+        session
+            .state
             .rebuild_runtime_typed_entity_projection_from_tables();
         let build_destroyed_packet_id = manifest
             .remote_packets
@@ -45081,6 +45106,40 @@ mod tests {
                 .runtime_typed_entity_projection()
                 .entity_at(704),
             None
+        );
+        assert_eq!(
+            session
+                .state()
+                .payload_lifecycle_projection
+                .by_carrier
+                .get(&UnitRefProjection { kind: 2, value: 705 }),
+            Some(&crate::session_state::PayloadLifecycleCarrierProjection {
+                carrier: UnitRefProjection { kind: 2, value: 705 },
+                target_unit: Some(UnitRefProjection { kind: 2, value: 701 }),
+                target_build: None,
+                drop_tile: None,
+                on_ground: Some(false),
+                removed_target_unit: true,
+                removed_target_build: false,
+                removed_carrier: false,
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .payload_lifecycle_projection
+                .by_carrier
+                .get(&UnitRefProjection { kind: 2, value: 702 }),
+            Some(&crate::session_state::PayloadLifecycleCarrierProjection {
+                carrier: UnitRefProjection { kind: 2, value: 702 },
+                target_unit: None,
+                target_build: Some(pack_point2(9, 12)),
+                drop_tile: None,
+                on_ground: Some(true),
+                removed_target_unit: false,
+                removed_target_build: true,
+                removed_carrier: true,
+            })
         );
     }
 
