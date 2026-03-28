@@ -8,6 +8,18 @@ fn dedupe_i32(values: &[i32]) -> Vec<i32> {
     deduped
 }
 
+fn command_mode_position_target(position: (f32, f32)) -> Option<CommandModePositionTarget> {
+    let (x, y) = position;
+    if x.is_finite() && y.is_finite() {
+        Some(CommandModePositionTarget {
+            x_bits: x.to_bits(),
+            y_bits: y.to_bits(),
+        })
+    } else {
+        None
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CommandUnitRef {
     pub kind: u8,
@@ -369,10 +381,7 @@ impl CommandModeState {
         self.command_buildings = dedupe_i32(buildings);
         self.command_rect = None;
         self.last_target = Some(CommandModeTargetProjection {
-            position_target: Some(CommandModePositionTarget {
-                x_bits: position.0.to_bits(),
-                y_bits: position.1.to_bits(),
-            }),
+            position_target: command_mode_position_target(position),
             ..CommandModeTargetProjection::default()
         });
     }
@@ -391,10 +400,7 @@ impl CommandModeState {
         self.last_target = Some(CommandModeTargetProjection {
             build_target,
             unit_target,
-            position_target: pos_target.map(|(x, y)| CommandModePositionTarget {
-                x_bits: x.to_bits(),
-                y_bits: y.to_bits(),
-            }),
+            position_target: pos_target.and_then(command_mode_position_target),
             rect_target: None,
         });
     }
@@ -628,6 +634,38 @@ mod tests {
                     enabled: true,
                 }),
             }
+        );
+    }
+
+    #[test]
+    fn record_command_positions_reject_or_canonicalize_non_finite_coordinates() {
+        let mut state = CommandModeState::default();
+
+        state.record_command_building(&[3, 3, 4], (f32::NAN, 2.0));
+        assert_eq!(state.projection().command_buildings, vec![3, 4]);
+        assert_eq!(
+            state.projection().last_target,
+            Some(CommandModeTargetProjection {
+                position_target: None,
+                ..CommandModeTargetProjection::default()
+            })
+        );
+
+        state.record_command_units(
+            &[8, 8, 9],
+            Some(1),
+            Some(unit(7, 12)),
+            Some((f32::INFINITY, 5.0)),
+        );
+        assert_eq!(state.projection().selected_units, vec![8, 9]);
+        assert_eq!(
+            state.projection().last_target,
+            Some(CommandModeTargetProjection {
+                build_target: Some(1),
+                unit_target: Some(unit(7, 12)),
+                position_target: None,
+                rect_target: None,
+            })
         );
     }
 
