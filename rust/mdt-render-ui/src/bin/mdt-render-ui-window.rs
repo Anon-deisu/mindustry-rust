@@ -101,7 +101,7 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<ParseOutcome, String
                 ));
             }
             "--duration-ms" => {
-                duration = Duration::from_millis(parse_u64(
+                duration = Duration::from_millis(parse_positive_u64(
                     "--duration-ms",
                     &pending.next().ok_or("missing value for --duration-ms")?,
                 )?);
@@ -346,5 +346,22 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.contains("invalid --frame-ms: must be greater than 0"));
+    }
+
+    #[test]
+    fn parse_args_rejects_zero_duration_ms() {
+        let err = parse_args(
+            vec![
+                "--duration-ms".to_string(),
+                "0".to_string(),
+                "--player-x".to_string(),
+                "1".to_string(),
+                "--player-y".to_string(),
+                "2".to_string(),
+            ]
+            .into_iter(),
+        )
+        .unwrap_err();
+        assert!(err.contains("invalid --duration-ms: must be greater than 0"));
     }
 }
