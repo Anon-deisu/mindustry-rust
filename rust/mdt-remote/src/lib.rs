@@ -60,6 +60,7 @@ impl From<serde_json::Error> for RemoteManifestError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RemoteManifest {
     pub schema: String,
     pub generator: RemoteGeneratorInfo,
@@ -71,6 +72,7 @@ pub struct RemoteManifest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RemoteGeneratorInfo {
     pub source: String,
     #[serde(rename = "callClass")]
@@ -78,6 +80,7 @@ pub struct RemoteGeneratorInfo {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BasePacketEntry {
     pub id: u8,
     #[serde(rename = "class")]
@@ -85,6 +88,7 @@ pub struct BasePacketEntry {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RemotePacketEntry {
     #[serde(rename = "remoteIndex")]
     pub remote_index: usize,
@@ -109,6 +113,7 @@ pub struct RemotePacketEntry {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RemoteParamEntry {
     pub name: String,
     #[serde(rename = "javaType")]
@@ -120,6 +125,7 @@ pub struct RemoteParamEntry {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct WireSpec {
     #[serde(rename = "packetIdByte")]
     pub packet_id_byte: String,
@@ -132,6 +138,7 @@ pub struct WireSpec {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CompressionFlagSpec {
     #[serde(rename = "0")]
     pub none: String,
@@ -921,8 +928,8 @@ impl<'de> de::Visitor<'de> for StrictJsonValueVisitor {
         A: de::SeqAccess<'de>,
     {
         let mut values = Vec::new();
-        while let Some(value) = seq.next_element()? {
-            values.push(value);
+        while let Some(value) = seq.next_element::<StrictJsonValue>()? {
+            values.push(value.0);
         }
         Ok(serde_json::Value::Array(values))
     }
@@ -939,8 +946,8 @@ impl<'de> de::Visitor<'de> for StrictJsonValueVisitor {
                 return Err(de::Error::custom(format!("duplicate JSON key: {key}")));
             }
 
-            let value = map.next_value()?;
-            object.insert(key, value);
+            let value = map.next_value::<StrictJsonValue>()?;
+            object.insert(key, value.0);
         }
 
         Ok(serde_json::Value::Object(object))
@@ -2432,12 +2439,12 @@ mod tests {
     }
 
     #[test]
-    fn parse_remote_manifest_rejects_duplicate_json_keys() {
+    fn parse_remote_manifest_rejects_nested_duplicate_keys() {
         let manifest = r#"{
   "schema": "mdt.remote.manifest.v1",
-  "schema": "overridden",
   "generator": {
     "source": "mindustry.annotations.remote",
+    "source": "overridden",
     "callClass": "mindustry.gen.Call"
   },
   "basePackets": [],
@@ -2454,7 +2461,45 @@ mod tests {
         assert!(matches!(error, RemoteManifestError::Json(_)));
         assert!(error
             .to_string()
-            .contains("duplicate JSON key: schema"));
+            .contains("duplicate JSON key: source"));
+    }
+
+    #[test]
+    fn parse_remote_manifest_rejects_unknown_manifest_fields() {
+        let manifest = r#"{
+  "schema": "mdt.remote.manifest.v1",
+  "generator": {
+    "source": "mindustry.annotations.remote",
+    "callClass": "mindustry.gen.Call"
+  },
+  "basePackets": [],
+  "remotePackets": [],
+  "wire": {
+    "packetIdByte": "u8",
+    "lengthField": "u16be",
+    "compressionFlag": {"0": "none", "1": "lz4"},
+    "compressionThreshold": 36
+  },
+  "unexpectedField": true
+}"#;
+
+        let error = parse_remote_manifest(manifest).unwrap_err();
+        assert!(matches!(error, RemoteManifestError::Json(_)));
+        assert!(error.to_string().contains("unknown field `unexpectedField`"));
+
+        let wire_error = serde_json::from_str::<WireSpec>(
+            r#"{
+  "packetIdByte": "u8",
+  "lengthField": "u16be",
+  "compressionFlag": {"0": "none", "1": "lz4"},
+  "compressionThreshold": 36,
+  "unexpectedField": true
+}"#,
+        )
+        .unwrap_err();
+        assert!(wire_error
+            .to_string()
+            .contains("unknown field `unexpectedField`"));
     }
 
     #[test]

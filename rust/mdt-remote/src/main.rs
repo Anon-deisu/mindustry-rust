@@ -97,13 +97,15 @@ fn reject_overlapping_output_paths(
         let Some(path) = path else {
             continue;
         };
+        let normalized_path = normalize_path_for_overlap(path);
 
         for (other_label, other_path) in output_paths.iter().skip(index + 1) {
             let Some(other_path) = other_path else {
                 continue;
             };
+            let normalized_other_path = normalize_path_for_overlap(other_path);
 
-            if paths_overlap(path, other_path) {
+            if paths_overlap(&normalized_path, &normalized_other_path) {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
                     format!(
@@ -121,6 +123,31 @@ fn reject_overlapping_output_paths(
 
 fn paths_overlap(path: &Path, other_path: &Path) -> bool {
     path.starts_with(other_path) || other_path.starts_with(path)
+}
+
+fn normalize_path_for_overlap(path: &Path) -> PathBuf {
+    use std::path::Component;
+
+    let mut normalized = PathBuf::new();
+    let mut is_absolute = false;
+
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !normalized.pop() && !is_absolute {
+                    normalized.push(component.as_os_str());
+                }
+            }
+            Component::RootDir => {
+                is_absolute = true;
+                normalized.push(component.as_os_str());
+            }
+            _ => normalized.push(component.as_os_str()),
+        }
+    }
+
+    normalized
 }
 
 fn emit_outputs<T, R, H, I, EH, EI>(
@@ -141,14 +168,25 @@ where
 {
     if let Some(output_path) = output_path {
         let generated = generate_registry(manifest);
+        let generated_high_frequency = high_frequency_output_path
+            .map(|_| generate_high_frequency(manifest).map_err(Into::into))
+            .transpose()?;
+        let generated_inbound_dispatch = inbound_dispatch_output_path
+            .map(|_| generate_inbound_dispatch(manifest).map_err(Into::into))
+            .transpose()?;
+
         write_output_file(output_path, &generated)?;
         if let Some(high_frequency_output_path) = high_frequency_output_path {
-            let generated_high_frequency = generate_high_frequency(manifest).map_err(Into::into)?;
-            write_output_file(high_frequency_output_path, &generated_high_frequency)?;
+            write_output_file(
+                high_frequency_output_path,
+                generated_high_frequency.as_deref().expect("generated above"),
+            )?;
         }
         if let Some(inbound_dispatch_output_path) = inbound_dispatch_output_path {
-            let generated_inbound_dispatch = generate_inbound_dispatch(manifest).map_err(Into::into)?;
-            write_output_file(inbound_dispatch_output_path, &generated_inbound_dispatch)?;
+            write_output_file(
+                inbound_dispatch_output_path,
+                generated_inbound_dispatch.as_deref().expect("generated above"),
+            )?;
         }
         Ok(None)
     } else {
@@ -187,7 +225,11 @@ mod tests {
         default_high_frequency_output_path, default_inbound_dispatch_output_path,
         emit_outputs, parse_args, reject_overlapping_output_paths, USAGE,
     };
-    use std::path::Path;
+    use std::{
+        fs,
+        path::Path,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     #[test]
     fn derives_sibling_high_frequency_output_path() {
@@ -251,10 +293,59 @@ mod tests {
     }
 
     #[test]
+    fn emit_outputs_does_not_leave_partial_artifacts_on_generation_error() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "mdt-remote-emit-outputs-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let registry_path = temp_dir.join("registry.rs");
+        let high_frequency_path = temp_dir.join("high-frequency.rs");
+        let inbound_dispatch_path = temp_dir.join("inbound-dispatch.rs");
+
+        let err = emit_outputs(
+            &(),
+            Some(&registry_path),
+            Some(&high_frequency_path),
+            Some(&inbound_dispatch_path),
+            |_| "registry".to_string(),
+            |_| -> Result<String, Box<dyn std::error::Error>> { Err("boom".into()) },
+            |_| -> Result<String, Box<dyn std::error::Error>> {
+                panic!("inbound-dispatch generation should not run after a failure")
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(err.to_string(), "boom");
+        assert!(!registry_path.exists());
+        assert!(!high_frequency_path.exists());
+        assert!(!inbound_dispatch_path.exists());
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
     fn rejects_overlapping_output_paths() {
         let err = reject_overlapping_output_paths(
             Some(Path::new("build/mdt-remote/remote-registry.rs")),
             Some(Path::new("build/mdt-remote/remote-registry.rs")),
+            Some(Path::new("build/mdt-remote/remote-inbound-dispatch.rs")),
+        )
+        .unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("output paths for registry and high-frequency must not overlap"));
+    }
+
+    #[test]
+    fn reject_overlapping_output_paths_canonicalizes_relative_segments() {
+        let err = reject_overlapping_output_paths(
+            Some(Path::new("build/mdt-remote/remote-registry.rs")),
+            Some(Path::new("build/mdt-remote/./remote-registry.rs")),
             Some(Path::new("build/mdt-remote/remote-inbound-dispatch.rs")),
         )
         .unwrap_err();
