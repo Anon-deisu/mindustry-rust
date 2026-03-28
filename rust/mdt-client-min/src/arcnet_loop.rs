@@ -20,6 +20,9 @@ pub(crate) fn transport_timeout_kind(session: &ClientSession) -> Option<SessionT
         .or(Some(SessionTimeoutKind::ConnectOrLoading))
 }
 
+// One length-prefixed TCP frame: 2-byte header plus the largest u16 payload.
+const MAX_TCP_READ_BUFFER_BYTES: usize = u16::MAX as usize + 2;
+
 #[derive(Debug)]
 pub struct ArcNetSessionDriver {
     tcp: TcpStream,
@@ -207,7 +210,11 @@ impl ArcNetSessionDriver {
     fn fill_tcp_read_buffer(&mut self) -> Result<(), ArcNetLoopError> {
         let mut chunk = [0u8; 4096];
         loop {
-            match self.tcp.read(&mut chunk) {
+            if self.tcp_read_buffer.len() >= MAX_TCP_READ_BUFFER_BYTES {
+                break;
+            }
+            let read_len = (MAX_TCP_READ_BUFFER_BYTES - self.tcp_read_buffer.len()).min(chunk.len());
+            match self.tcp.read(&mut chunk[..read_len]) {
                 Ok(0) => return Err(ArcNetLoopError::TcpClosed),
                 Ok(len) => self.tcp_read_buffer.extend_from_slice(&chunk[..len]),
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
@@ -607,6 +614,36 @@ mod tests {
         assert!(!driver.connect_sent);
         assert!(driver.pending_connect.is_none());
         assert!(driver.tcp_read_buffer.is_empty());
+    }
+
+    #[test]
+    fn test_cap_tcp_read_buffer_growth_on_fragmented_frames() {
+        let (tcp_listener, _udp_socket, server_addr) = bind_local_arcnet_server();
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let server = thread::spawn(move || {
+            let (mut tcp_stream, _) = tcp_listener.accept().unwrap();
+            tcp_stream
+                .set_write_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+
+            let mut frame = Vec::with_capacity(MAX_TCP_READ_BUFFER_BYTES + 4);
+            frame.extend_from_slice(&u16::MAX.to_be_bytes());
+            frame.extend(std::iter::repeat(0x5au8).take(u16::MAX as usize));
+            frame.extend_from_slice(&[0x12, 0x34, 0x56, 0x78]);
+
+            for chunk in frame.chunks(512) {
+                tcp_stream.write_all(chunk).unwrap();
+            }
+            ready_tx.send(()).unwrap();
+            thread::sleep(Duration::from_millis(100));
+        });
+
+        let mut driver = ArcNetSessionDriver::connect(server_addr).unwrap();
+        ready_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        driver.fill_tcp_read_buffer().unwrap();
+        assert_eq!(driver.tcp_read_buffer.len(), MAX_TCP_READ_BUFFER_BYTES);
+        server.join().unwrap();
     }
 
     #[test]
