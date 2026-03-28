@@ -150,7 +150,7 @@ fn normalize_path_for_overlap(path: &Path) -> PathBuf {
     normalized
 }
 
-fn emit_outputs<T, R, H, I, EH, EI>(
+fn emit_outputs<T, R, H, I, ER, EH, EI>(
     manifest: &T,
     output_path: Option<&Path>,
     high_frequency_output_path: Option<&Path>,
@@ -160,14 +160,15 @@ fn emit_outputs<T, R, H, I, EH, EI>(
     generate_inbound_dispatch: I,
 ) -> Result<Option<String>, Box<dyn Error>>
 where
-    R: FnOnce(&T) -> String,
+    R: FnOnce(&T) -> Result<String, ER>,
     H: FnOnce(&T) -> Result<String, EH>,
     I: FnOnce(&T) -> Result<String, EI>,
+    ER: Into<Box<dyn Error>>,
     EH: Into<Box<dyn Error>>,
     EI: Into<Box<dyn Error>>,
 {
     if let Some(output_path) = output_path {
-        let generated = generate_registry(manifest);
+        let generated = generate_registry(manifest).map_err(Into::into)?;
         let generated_high_frequency = high_frequency_output_path
             .map(|_| generate_high_frequency(manifest).map_err(Into::into))
             .transpose()?;
@@ -190,7 +191,7 @@ where
         }
         Ok(None)
     } else {
-        Ok(Some(generate_registry(manifest)))
+        Ok(Some(generate_registry(manifest).map_err(Into::into)?))
     }
 }
 
@@ -279,7 +280,7 @@ mod tests {
             None,
             Some(Path::new("high-frequency.rs")),
             Some(Path::new("inbound-dispatch.rs")),
-            |_| "registry".to_string(),
+            |_| Ok::<String, Box<dyn std::error::Error>>("registry".to_string()),
             |_| -> Result<String, Box<dyn std::error::Error>> {
                 panic!("high-frequency generation should not run in stdout mode")
             },
@@ -311,7 +312,7 @@ mod tests {
             Some(&registry_path),
             Some(&high_frequency_path),
             Some(&inbound_dispatch_path),
-            |_| "registry".to_string(),
+            |_| Ok::<String, Box<dyn std::error::Error>>("registry".to_string()),
             |_| -> Result<String, Box<dyn std::error::Error>> { Err("boom".into()) },
             |_| -> Result<String, Box<dyn std::error::Error>> {
                 panic!("inbound-dispatch generation should not run after a failure")
