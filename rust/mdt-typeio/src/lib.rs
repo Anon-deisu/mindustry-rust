@@ -211,6 +211,16 @@ pub fn write_int(out: &mut Vec<u8>, value: i32) {
     out.extend_from_slice(&value.to_be_bytes());
 }
 
+pub fn write_ints(out: &mut Vec<u8>, values: &[i32]) {
+    write_short(
+        out,
+        i16::try_from(values.len()).expect("int[] length exceeds i16"),
+    );
+    for value in values {
+        write_int(out, *value);
+    }
+}
+
 pub fn write_long(out: &mut Vec<u8>, value: i64) {
     out.extend_from_slice(&value.to_be_bytes());
 }
@@ -538,6 +548,22 @@ pub fn read_int(bytes: &[u8]) -> Result<i32, TypeIoReadError> {
 pub fn read_int_prefix(bytes: &[u8]) -> Result<(i32, usize), TypeIoReadError> {
     let mut reader = PrimitiveReader::new(bytes);
     Ok((reader.read_i32()?, reader.position()))
+}
+
+pub fn read_ints(bytes: &[u8]) -> Result<Vec<i32>, TypeIoReadError> {
+    let (value, consumed) = read_ints_prefix(bytes)?;
+    ensure_consumed(consumed, bytes.len())?;
+    Ok(value)
+}
+
+pub fn read_ints_prefix(bytes: &[u8]) -> Result<(Vec<i32>, usize), TypeIoReadError> {
+    let mut reader = PrimitiveReader::new(bytes);
+    let count = read_non_negative_i16_len(&mut reader, "int[] length")?;
+    let mut values = Vec::with_capacity(count);
+    for _ in 0..count {
+        values.push(reader.read_i32()?);
+    }
+    Ok((values, reader.position()))
 }
 
 pub fn read_long(bytes: &[u8]) -> Result<i64, TypeIoReadError> {
@@ -1293,6 +1319,11 @@ mod tests {
         write_int(&mut bytes, 0x1122_3344);
         assert_eq!(read_int(&bytes).unwrap(), 0x1122_3344);
 
+        let ints = vec![0x1122_3344, -7, 0, i32::MAX];
+        bytes.clear();
+        write_ints(&mut bytes, &ints);
+        assert_eq!(read_ints(&bytes).unwrap(), ints);
+
         bytes.clear();
         write_long(&mut bytes, -0x0102_0304_0506_0708);
         assert_eq!(read_long(&bytes).unwrap(), -0x0102_0304_0506_0708);
@@ -1324,6 +1355,35 @@ mod tests {
         bytes.clear();
         write_string(&mut bytes, None);
         assert_eq!(read_string(&bytes).unwrap(), None);
+
+        bytes.clear();
+        write_ints(&mut bytes, &[1, -2, 3]);
+        bytes.push(0xaa);
+        let (decoded_ints, consumed) = read_ints_prefix(&bytes).unwrap();
+        assert_eq!(decoded_ints, vec![1, -2, 3]);
+        assert_eq!(consumed, bytes.len() - 1);
+        assert!(matches!(
+            read_ints(&bytes),
+            Err(TypeIoReadError::TrailingBytes { consumed, total })
+                if consumed == bytes.len() - 1 && total == bytes.len()
+        ));
+
+        assert!(matches!(
+            read_ints(&[0, 2, 0, 0, 0, 1, 0, 0, 0]),
+            Err(TypeIoReadError::UnexpectedEof {
+                position: 6,
+                needed: 4,
+                remaining: 3
+            })
+        ));
+        assert_eq!(
+            read_ints(&(-1i16).to_be_bytes()).unwrap_err(),
+            TypeIoReadError::NegativeLength {
+                field: "int[] length",
+                length: -1,
+                position: 0,
+            }
+        );
 
         let strings = vec![Some("alpha".to_string()), None, Some("gamma".to_string())];
         bytes.clear();
@@ -1584,6 +1644,14 @@ mod tests {
                 remaining: 1
             })
         ));
+    }
+
+    #[test]
+    #[should_panic(expected = "int[] length exceeds i16")]
+    fn write_ints_rejects_lengths_outside_i16_range() {
+        let ints = vec![0i32; i16::MAX as usize + 1];
+        let mut bytes = Vec::new();
+        write_ints(&mut bytes, &ints);
     }
 
     #[test]
