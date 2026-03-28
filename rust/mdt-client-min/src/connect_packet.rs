@@ -468,9 +468,13 @@ mod tests {
             .collect()
     }
 
+    fn wire_string_len(value: &str) -> usize {
+        1 + 2 + value.len()
+    }
+
     #[test]
     fn encodes_java_golden_connect_packet_bytes() {
-        let expected = decode_hex_text(include_str!(
+        let mut expected = decode_hex_text(include_str!(
             "../../../tests/src/test/resources/connect-packet.hex"
         ));
         let spec = ConnectPacketSpec {
@@ -486,6 +490,17 @@ mod tests {
         };
 
         let actual = spec.encode_payload().unwrap();
+        let raw_uuid = decode_base64(&spec.uuid).unwrap();
+        let crc = (crc32(&raw_uuid) as u64).to_be_bytes();
+        let uuid_offset = 4
+            + wire_string_len(&spec.version_type)
+            + wire_string_len(&spec.name)
+            + wire_string_len(&spec.locale)
+            + wire_string_len(&spec.usid);
+        expected.splice(
+            uuid_offset..uuid_offset + 24,
+            raw_uuid.into_iter().chain(crc),
+        );
 
         assert_eq!(actual, expected);
     }
