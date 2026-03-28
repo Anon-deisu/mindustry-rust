@@ -433,6 +433,10 @@ pub enum TypeIoReadError {
         marker: u8,
         position: usize,
     },
+    InvalidBooleanByte {
+        value: u8,
+        position: usize,
+    },
     NegativeLength {
         field: &'static str,
         length: i32,
@@ -482,6 +486,9 @@ impl fmt::Display for TypeIoReadError {
             }
             TypeIoReadError::InvalidStringMarker { marker, position } => {
                 write!(f, "invalid string marker {marker} at {position}")
+            }
+            TypeIoReadError::InvalidBooleanByte { value, position } => {
+                write!(f, "invalid boolean byte {value} at {position}")
             }
             TypeIoReadError::NegativeLength {
                 field,
@@ -828,7 +835,7 @@ fn read_object_from_reader(
             content_type: reader.read_u8()?,
             content_id: reader.read_i16()?,
         }),
-        10 => Ok(TypeIoObject::Bool(reader.read_u8()? != 0)),
+        10 => Ok(TypeIoObject::Bool(read_binary_bool(reader)?)),
         11 => Ok(TypeIoObject::Double(reader.read_f64()?)),
         12 => Ok(TypeIoObject::BuildingPos(reader.read_i32()?)),
         13 => Ok(TypeIoObject::LAccess(reader.read_i16()?)),
@@ -850,7 +857,7 @@ fn read_object_from_reader(
             )?;
             let mut values = Vec::with_capacity(len);
             for _ in 0..len {
-                values.push(reader.read_u8()? != 0);
+                values.push(read_binary_bool(reader)?);
             }
             Ok(TypeIoObject::BoolArray(values))
         }
@@ -938,6 +945,15 @@ fn read_string_value(
             marker,
             position: marker_position,
         }),
+    }
+}
+
+fn read_binary_bool(reader: &mut Reader<'_>) -> Result<bool, TypeIoReadError> {
+    let position = reader.position();
+    match reader.read_u8()? {
+        0 => Ok(false),
+        1 => Ok(true),
+        value => Err(TypeIoReadError::InvalidBooleanByte { value, position }),
     }
 }
 
@@ -1290,6 +1306,24 @@ mod tests {
             TypeIoReadError::InvalidStringMarker {
                 marker: 2,
                 position: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn rejects_non_binary_boolean_bytes() {
+        assert_eq!(
+            read_object(&[10, 2]).unwrap_err(),
+            TypeIoReadError::InvalidBooleanByte {
+                value: 2,
+                position: 1,
+            }
+        );
+        assert_eq!(
+            read_object(&[16, 0, 0, 0, 2, 0, 3]).unwrap_err(),
+            TypeIoReadError::InvalidBooleanByte {
+                value: 3,
+                position: 6,
             }
         );
     }
