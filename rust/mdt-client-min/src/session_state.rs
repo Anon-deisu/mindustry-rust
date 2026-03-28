@@ -13210,6 +13210,105 @@ mod tests {
     }
 
     #[test]
+    fn merged_build_tower_projection_preserves_tail_summary_when_live_head_lacks_it() {
+        let state = SessionState::default();
+        let build_pos = 0x0008_000bi32;
+        let anchor = BuildingProjection {
+            block_id: Some(303),
+            block_name: Some("build-tower".to_string()),
+            rotation: Some(4),
+            team_id: Some(5),
+            io_version: Some(6),
+            module_bitmask: Some(7),
+            time_scale_bits: Some(0x3f20_0000),
+            time_scale_duration_bits: Some(0x3e80_0000),
+            last_disabler_pos: Some(126),
+            legacy_consume_connected: Some(false),
+            config: None,
+            health_bits: Some(0x4060_0000),
+            enabled: Some(true),
+            efficiency: Some(0x28),
+            optional_efficiency: Some(0x14),
+            visible_flags: Some(55),
+            turret_reload_counter_bits: None,
+            turret_rotation_bits: None,
+            item_turret_ammo_count: None,
+            continuous_turret_last_length_bits: None,
+            build_turret_rotation_bits: Some(0x4210_0000),
+            build_turret_plans_present: Some(true),
+            build_turret_plan_count: Some(5),
+            last_update: BuildingProjectionUpdateKind::WorldBaseline,
+        };
+        let live_head = BuildingProjection {
+            block_id: Some(303),
+            block_name: None,
+            rotation: Some(9),
+            team_id: Some(10),
+            io_version: None,
+            module_bitmask: None,
+            time_scale_bits: None,
+            time_scale_duration_bits: None,
+            last_disabler_pos: None,
+            legacy_consume_connected: None,
+            config: None,
+            health_bits: Some(0x4080_0000),
+            enabled: None,
+            efficiency: None,
+            optional_efficiency: None,
+            visible_flags: None,
+            turret_reload_counter_bits: None,
+            turret_rotation_bits: None,
+            item_turret_ammo_count: None,
+            continuous_turret_last_length_bits: None,
+            build_turret_rotation_bits: None,
+            build_turret_plans_present: None,
+            build_turret_plan_count: None,
+            last_update: BuildingProjectionUpdateKind::ConstructFinish,
+        };
+
+        let merged = merge_building_projection_with_anchor(&anchor, &live_head, |_| {
+            panic!("resolver should not run when the anchor block metadata already matches")
+        });
+
+        assert_eq!(
+            state.typed_runtime_building_from_projection(build_pos, &merged),
+            Some(expected_typed_runtime_building(
+                build_pos,
+                303,
+                "build-tower",
+                TypedBuildingRuntimeKind::BuildTower,
+                TypedBuildingRuntimeValue::BuildTower {
+                    rotation_bits: Some(0x4210_0000),
+                    plans_present: Some(true),
+                    plan_count: Some(5),
+                },
+                Vec::new(),
+                Some(9),
+                Some(10),
+                Some(6),
+                Some(7),
+                Some(0x3f20_0000),
+                Some(0x3e80_0000),
+                Some(126),
+                Some(false),
+                Some(0x4080_0000),
+                Some(true),
+                Some(0x28),
+                Some(0x14),
+                Some(55),
+                None,
+                None,
+                None,
+                None,
+                Some(0x4210_0000),
+                Some(true),
+                Some(5),
+                BuildingProjectionUpdateKind::ConstructFinish,
+            ))
+        );
+    }
+
+    #[test]
     fn session_state_runtime_typed_building_projection_supports_turret_family_variants() {
         let mut state = SessionState::default();
 

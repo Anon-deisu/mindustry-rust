@@ -283,6 +283,9 @@ Write scope:
 
 Remaining gap:
 - low-risk loaded-world tail/base folds, `block_name` carry-through, a persistent typed building apply layer, and the first runtime build-inspector consumer are landed, but Rust still does not have Java-like `tile.build.readSync(..., version)` runtime ownership or broad per-family live building semantics.
+- narrow `BuildTurret`/`build-tower` anchor-order hardening is now also landed.
+  - loaded-world building anchors now preserve `build_turret rotation/plans/count` from parsed tails, and `client_session` now refreshes the runtime typed building apply projection from merged live state across loaded-world tail business, authoritative tile/team updates, and authoritative config paths instead of dropping back to raw table-only refresh in those slices
+  - regression coverage now proves the merge helper keeps `build-tower` tail summary when the live head lacks it, and the runtime typed building apply layer stays coherent when `build-tower` tail-derived anchor state is refreshed before a later authoritative `constructFinish`
 
 Best bounded next slice:
 - extend the typed building runtime model one low-risk family at a time above the already landed persistent apply layer
