@@ -48,8 +48,7 @@ impl SavePostLoadActivationSurface {
     }
 
     pub fn can_seed_runtime_apply(&self) -> bool {
-        self.world_shell_ready
-            && self.entity_ids_unique
+        self.entity_ids_unique
             && self.duplicate_custom_ids.is_empty()
             && self.duplicate_names.is_empty()
             && self.skipped_entities.is_empty()
