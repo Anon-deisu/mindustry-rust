@@ -677,6 +677,51 @@ mod tests {
     }
 
     #[test]
+    fn derive_effect_data_business_input_position_contract_prefers_position_over_parent_ref() {
+        let object = TypeIoObject::ObjectArray(vec![
+            TypeIoObject::UnitId(404),
+            TypeIoObject::Point2 { x: 4, y: 6 },
+        ]);
+
+        let input =
+            derive_effect_data_business_input(Some(8), Some(&object), Some(18), false, None);
+
+        assert_eq!(
+            input.primary,
+            Some(EffectDataBusinessHint::PositionHint(
+                TypeIoEffectPositionHint::Point2 {
+                    x: 4,
+                    y: 6,
+                    path: vec![1],
+                },
+            ))
+        );
+        assert_eq!(input.contract_name, Some("position_target"));
+    }
+
+    #[test]
+    fn derive_effect_data_business_input_accepts_item_for_drop_item_contract() {
+        let object = TypeIoObject::ContentRaw {
+            content_type: 0,
+            content_id: 33,
+        };
+
+        let input =
+            derive_effect_data_business_input(Some(142), Some(&object), Some(5), false, None);
+
+        assert_eq!(
+            input.primary,
+            Some(EffectDataBusinessHint::ContentRef {
+                kind: EffectBusinessContentKind::Content,
+                content_type: 0,
+                content_id: 33,
+                path: vec![],
+            })
+        );
+        assert_eq!(input.contract_name, Some("drop_item"));
+    }
+
+    #[test]
     fn derive_effect_data_business_input_emits_polyline_for_deep_lightning_contract() {
         let object = nested_object_array(
             4,

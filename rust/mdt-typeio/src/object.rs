@@ -1913,4 +1913,25 @@ mod tests {
             })
         );
     }
+
+    #[test]
+    fn effect_summary_position_hint_for_packed_point2_array_uses_first_element_path() {
+        let value = TypeIoObject::ObjectArray(vec![
+            TypeIoObject::Bool(false),
+            TypeIoObject::PackedPoint2Array(vec![0x0004_0006]),
+        ]);
+
+        let summary = value.effect_summary();
+        let hint = summary.first_position_hint.clone().unwrap();
+
+        assert_eq!(hint.kind(), "point2ArrayFirst");
+        assert_eq!(hint.path(), [1, 0]);
+        assert_eq!(
+            summary.first_position_hint,
+            Some(TypeIoEffectPositionHint::PackedPoint2ArrayFirst {
+                packed_point2: 0x0004_0006,
+                path: vec![1, 0],
+            })
+        );
+    }
 }
