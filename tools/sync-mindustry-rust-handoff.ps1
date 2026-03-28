@@ -261,6 +261,22 @@ function Copy-RelativeDirectory([string]$RelativePath) {
     if (!(Test-Path $targetPath)) {
         New-Item -ItemType Directory -Path $targetPath -Force | Out-Null
     }
+    $sourceEntries = @{}
+    foreach ($entry in Get-ChildItem -Path $sourcePath -Recurse -Force) {
+        $relativeChild = Get-NormalizedRelativeChildPath -RootPath $sourcePath -ChildPath $entry.FullName
+        $sourceEntries[$relativeChild] = [bool]$entry.PSIsContainer
+    }
+    $targetEntries = Get-ChildItem -Path $targetPath -Recurse -Force | Sort-Object FullName -Descending
+    foreach ($entry in $targetEntries) {
+        $relativeChild = Get-NormalizedRelativeChildPath -RootPath $targetPath -ChildPath $entry.FullName
+        if (-not $sourceEntries.ContainsKey($relativeChild)) {
+            Remove-Item -Path $entry.FullName -Recurse -Force
+            continue
+        }
+        if ([bool]$entry.PSIsContainer -ne $sourceEntries[$relativeChild]) {
+            Remove-Item -Path $entry.FullName -Recurse -Force
+        }
+    }
     Copy-Item -Path (Join-Path $sourcePath "*") -Destination $targetPath -Recurse -Force
 }
 
@@ -275,6 +291,15 @@ function Copy-MappedFile([string]$SourceRelativePath, [string]$TargetRelativePat
         New-Item -ItemType Directory -Path $parent -Force | Out-Null
     }
     Copy-Item -Path $sourcePath -Destination $targetPath -Force
+}
+
+function Get-NormalizedRelativeChildPath([string]$RootPath, [string]$ChildPath) {
+    $normalizedRoot = [System.IO.Path]::GetFullPath($RootPath).TrimEnd('\') + '\'
+    $normalizedChild = [System.IO.Path]::GetFullPath($ChildPath)
+    if ($normalizedChild.StartsWith($normalizedRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $normalizedChild.Substring($normalizedRoot.Length).Replace('\', '/').ToLowerInvariant()
+    }
+    throw "Child path is not rooted under ${RootPath}: $ChildPath"
 }
 
 function Remove-RelativePathIfPresent([string]$RelativePath) {
