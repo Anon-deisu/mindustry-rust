@@ -665,7 +665,7 @@ fn item_transfer_geometry(
         let normal_x = -dy / distance;
         let normal_y = dx / distance;
         let lateral =
-            effect_overlay_signed_seed(overlay, 0.25) * slope * ITEM_TRANSFER_LATERAL_OFFSET_MAX;
+            effect_overlay_signed_seed(overlay, 0.0) * slope * ITEM_TRANSFER_LATERAL_OFFSET_MAX;
         center_x += normal_x * lateral;
         center_y += normal_y * lateral;
     }
@@ -2681,6 +2681,82 @@ mod tests {
                     < 0.01
             );
         }
+    }
+
+    #[test]
+    fn item_transfer_geometry_uses_raw_stable_overlay_seed_without_flooring() {
+        let base_overlay = RuntimeEffectOverlay {
+            effect_id: Some(ITEM_TRANSFER_EFFECT_ID),
+            source_x_bits: 12.0f32.to_bits(),
+            source_y_bits: 20.0f32.to_bits(),
+            source_binding: None,
+            x_bits: 80.0f32.to_bits(),
+            y_bits: 160.0f32.to_bits(),
+            rotation_bits: 15.0f32.to_bits(),
+            color_rgba: 0x55667788,
+            reliable: false,
+            has_data: true,
+            lifetime_ticks: 20,
+            remaining_ticks: 10,
+            contract_name: Some("position_target"),
+            binding: None,
+            content_ref: None,
+            polyline_points: Vec::new(),
+        };
+
+        let mut overlay = None;
+        let mut raw_seed = 0.0f32;
+        for color_rgba in 0..4096u32 {
+            let candidate = RuntimeEffectOverlay {
+                color_rgba,
+                ..base_overlay.clone()
+            };
+            let seed = effect_overlay_signed_seed(&candidate, 0.0);
+            if seed.abs() < 0.25 {
+                overlay = Some(candidate);
+                raw_seed = seed;
+                break;
+            }
+        }
+
+        let overlay = overlay.expect("expected to find a low-magnitude stable seed");
+        let (center_x, center_y, outer_radius, inner_radius) = item_transfer_geometry(
+            &overlay,
+            overlay.source_x_bits,
+            overlay.source_y_bits,
+            overlay.x_bits,
+            overlay.y_bits,
+            overlay.remaining_ticks,
+            overlay.lifetime_ticks,
+        )
+        .expect("item transfer geometry");
+
+        let progress = inclusive_overlay_progress(overlay.remaining_ticks, overlay.lifetime_ticks);
+        let slope = midlife_slope(progress);
+        let path_t = progress.powi(3);
+        let (base_x, base_y) = lerp_point(
+            f32::from_bits(overlay.source_x_bits),
+            f32::from_bits(overlay.source_y_bits),
+            f32::from_bits(overlay.x_bits),
+            f32::from_bits(overlay.y_bits),
+            path_t,
+        );
+        let dx = f32::from_bits(overlay.x_bits) - f32::from_bits(overlay.source_x_bits);
+        let dy = f32::from_bits(overlay.y_bits) - f32::from_bits(overlay.source_y_bits);
+        let distance = (dx * dx + dy * dy).sqrt();
+        let normal_x = -dy / distance;
+        let normal_y = dx / distance;
+        let expected_lateral = raw_seed * slope * ITEM_TRANSFER_LATERAL_OFFSET_MAX;
+        let expected_center_x = base_x + normal_x * expected_lateral;
+        let expected_center_y = base_y + normal_y * expected_lateral;
+
+        assert!(
+            raw_seed.abs() < 0.25,
+            "expected a seed below the legacy floor, got {raw_seed}"
+        );
+        assert!((center_x - expected_center_x).abs() < 0.01);
+        assert!((center_y - expected_center_y).abs() < 0.01);
+        assert!(outer_radius > inner_radius);
     }
 
     #[test]
