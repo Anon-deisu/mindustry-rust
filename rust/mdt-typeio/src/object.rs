@@ -581,11 +581,11 @@ pub fn write_object(out: &mut Vec<u8>, value: &TypeIoObject) {
         }
         TypeIoObject::PackedPoint2Array(values) => {
             out.push(8);
-            let len: i8 = values
+            let len: u8 = values
                 .len()
                 .try_into()
-                .expect("TypeIO Point2[] too long for signed byte length");
-            out.push(len as u8);
+                .expect("TypeIO Point2[] too long for unsigned byte length");
+            out.push(len);
             for value in values {
                 out.extend_from_slice(&value.to_be_bytes());
             }
@@ -824,7 +824,7 @@ fn read_object_from_reader(
         }),
         8 => {
             ensure_arrays_allowed(type_id, type_position, options)?;
-            let len = read_non_negative_i8_len(reader, "Point2[] length")?;
+            let len = read_u8_len(reader, "Point2[] length")?;
             let mut values = Vec::with_capacity(len);
             for _ in 0..len {
                 values.push(reader.read_i32()?);
@@ -957,20 +957,11 @@ fn read_binary_bool(reader: &mut Reader<'_>) -> Result<bool, TypeIoReadError> {
     }
 }
 
-fn read_non_negative_i8_len(
+fn read_u8_len(
     reader: &mut Reader<'_>,
-    field: &'static str,
+    _field: &'static str,
 ) -> Result<usize, TypeIoReadError> {
-    let position = reader.position();
-    let len = reader.read_i8()?;
-    if len < 0 {
-        return Err(TypeIoReadError::NegativeLength {
-            field,
-            length: len as i32,
-            position,
-        });
-    }
-    Ok(len as usize)
+    Ok(reader.read_u8()? as usize)
 }
 
 fn read_non_negative_i16_len(
@@ -1060,10 +1051,6 @@ impl<'a> Reader<'a> {
     fn read_u16(&mut self) -> Result<u16, TypeIoReadError> {
         let bytes = self.read_exact(2)?;
         Ok(u16::from_be_bytes([bytes[0], bytes[1]]))
-    }
-
-    fn read_i8(&mut self) -> Result<i8, TypeIoReadError> {
-        Ok(self.read_u8()? as i8)
     }
 
     fn read_i16(&mut self) -> Result<i16, TypeIoReadError> {
@@ -1365,14 +1352,6 @@ mod tests {
             }
         );
         assert_eq!(
-            read_object(&[8, 0xff]).unwrap_err(),
-            TypeIoReadError::NegativeLength {
-                field: "Point2[] length",
-                length: -1,
-                position: 1
-            }
-        );
-        assert_eq!(
             read_object(&[21, 0xff, 0xff]).unwrap_err(),
             TypeIoReadError::NegativeLength {
                 field: "int[] length",
@@ -1412,6 +1391,30 @@ mod tests {
                 position: 1
             }
         );
+    }
+
+    #[test]
+    fn write_object_serializes_point2_arrays_up_to_255() {
+        let value = TypeIoObject::PackedPoint2Array(vec![0x0001_0002; 255]);
+        let mut bytes = Vec::new();
+
+        write_object(&mut bytes, &value);
+
+        assert_eq!(bytes[0], 8);
+        assert_eq!(bytes[1], 255);
+        assert_eq!(bytes.len(), 2 + 255 * 4);
+        assert_eq!(read_object(&bytes).unwrap(), value);
+    }
+
+    #[test]
+    fn read_object_accepts_point2_arrays_up_to_255() {
+        let mut bytes = vec![8, 255];
+        let expected = TypeIoObject::PackedPoint2Array(vec![0x0001_0002; 255]);
+        for _ in 0..255 {
+            bytes.extend_from_slice(&0x0001_0002i32.to_be_bytes());
+        }
+
+        assert_eq!(read_object(&bytes).unwrap(), expected);
     }
 
     #[test]
