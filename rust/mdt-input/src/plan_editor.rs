@@ -95,14 +95,14 @@ impl PlanBlockMeta {
         if !self.rotate && self.lock_rotation {
             0
         } else {
-            rotation.rem_euclid(4)
+            rotation
         }
     }
 
     pub fn flip_rotation(self, rotation: i32, flip_x: bool) -> i32 {
         let even_rotation = rotation.rem_euclid(2) == 0;
         if (flip_x == even_rotation) != self.invert_flip {
-            self.plan_rotation(rotation + 2)
+            self.plan_rotation((rotation + 2).rem_euclid(4))
         } else {
             rotation
         }
@@ -360,7 +360,7 @@ pub fn rotate_plans<P: PlanEditable>(plans: &mut [P], origin: (i32, i32), direct
         let next_x = world_to_tile(wx - block.offset) + origin_x;
         let next_y = world_to_tile(wy - block.offset) + origin_y;
         plan.set_tile(next_x, next_y);
-        plan.set_rotation(block.plan_rotation(plan.rotation() + direction));
+        plan.set_rotation(block.plan_rotation((plan.rotation() + direction).rem_euclid(4)));
     }
 }
 
@@ -650,6 +650,16 @@ mod tests {
     fn world_to_tile_matches_java_rounding_for_negative_half_tile() {
         assert_eq!(world_to_tile(4.0), 1);
         assert_eq!(world_to_tile(-4.0), 0);
+    }
+
+    #[test]
+    fn plan_rotation_matches_java_passthrough_semantics() {
+        let mut block = PlanBlockMeta::with_size(1);
+        block.rotate = true;
+        block.lock_rotation = false;
+
+        assert_eq!(block.plan_rotation(5), 5);
+        assert_eq!(block.flip_rotation(4, true), 2);
     }
 
     #[test]
