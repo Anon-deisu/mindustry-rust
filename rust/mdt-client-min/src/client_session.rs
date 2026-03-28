@@ -6763,7 +6763,12 @@ impl ClientSession {
             .core_inventory_runtime_missing_team_sample
             .clear();
 
-        let Some(core_data) = self.state.last_state_snapshot_core_data.clone() else {
+        let Some(core_data) = self
+            .state
+            .last_state_snapshot_core_data
+            .clone()
+            .or_else(|| self.state.last_good_state_snapshot_core_data.clone())
+        else {
             return;
         };
         if self.loaded_world_bundle.is_none() {
@@ -30915,6 +30920,130 @@ mod tests {
         assert_eq!(
             session.state().core_inventory_runtime_missing_team_sample,
             vec![missing_team_id]
+        );
+    }
+
+    #[test]
+    fn state_snapshot_core_data_parse_failure_preserves_runtime_core_binding_from_last_good() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let core_center = session
+            .loaded_world_bundle()
+            .unwrap()
+            .world
+            .building_centers
+            .iter()
+            .find(|center| {
+                matches!(
+                    center.building.parsed_tail,
+                    mdt_world::ParsedBuildingTail::Core(_)
+                )
+            })
+            .unwrap()
+            .clone();
+        let core_build_pos = pack_point2(core_center.x as i32, core_center.y as i32);
+        let expected_inventory = vec![(0i16, 321i32), (1i16, 45i32)];
+        let mut core_data = Vec::new();
+        core_data.push(1);
+        core_data.push(core_center.building.base.team_id);
+        core_data.extend_from_slice(&2u16.to_be_bytes());
+        core_data.extend_from_slice(&0u16.to_be_bytes());
+        core_data.extend_from_slice(&321i32.to_be_bytes());
+        core_data.extend_from_slice(&1u16.to_be_bytes());
+        core_data.extend_from_slice(&45i32.to_be_bytes());
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == HighFrequencyRemoteMethod::StateSnapshot.method_name())
+            .unwrap()
+            .packet_id;
+        let baseline_packet = encode_packet(
+            packet_id,
+            &encode_state_snapshot_payload(
+                123.5f32.to_bits(),
+                7,
+                0,
+                false,
+                false,
+                654_321,
+                60,
+                111_111_111,
+                222_222_222,
+                &core_data,
+            ),
+            false,
+        )
+        .unwrap();
+
+        let baseline_event = session.ingest_packet_bytes(&baseline_packet).unwrap();
+
+        assert!(matches!(
+            baseline_event,
+            ClientSessionEvent::StateSnapshotApplied { .. }
+        ));
+        assert_eq!(
+            session.state().core_inventory_runtime_binding_kind,
+            Some(CoreInventoryRuntimeBindingKind::FirstCorePerTeamApproximation)
+        );
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .building_items_by_build
+                .get(&core_build_pos)
+                .map(|items| items
+                    .iter()
+                    .map(|(&item_id, &amount)| (item_id, amount))
+                    .collect::<Vec<_>>()),
+            Some(expected_inventory.clone())
+        );
+
+        let malformed_core_data = [0x01, core_center.building.base.team_id, 0x00];
+        let malformed_packet = encode_packet(
+            packet_id,
+            &encode_state_snapshot_payload(
+                124.5f32.to_bits(),
+                8,
+                0,
+                false,
+                false,
+                654_322,
+                60,
+                333_333_333,
+                444_444_444,
+                &malformed_core_data,
+            ),
+            false,
+        )
+        .unwrap();
+
+        let malformed_event = session.ingest_packet_bytes(&malformed_packet).unwrap();
+
+        assert!(matches!(
+            malformed_event,
+            ClientSessionEvent::StateSnapshotApplied { .. }
+        ));
+        assert_eq!(session.state().last_state_snapshot_core_data, None);
+        assert!(session.state().last_good_state_snapshot_core_data.is_some());
+        assert_eq!(
+            session.state().core_inventory_runtime_binding_kind,
+            Some(CoreInventoryRuntimeBindingKind::FirstCorePerTeamApproximation)
+        );
+        assert_eq!(
+            session.state().core_inventory_runtime_ambiguous_team_count,
+            0
+        );
+        assert_eq!(session.state().core_inventory_runtime_missing_team_count, 0);
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .building_items_by_build
+                .get(&core_build_pos)
+                .map(|items| items
+                    .iter()
+                    .map(|(&item_id, &amount)| (item_id, amount))
+                    .collect::<Vec<_>>()),
+            Some(expected_inventory)
         );
     }
 

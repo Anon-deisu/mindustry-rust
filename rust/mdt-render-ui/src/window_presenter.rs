@@ -954,8 +954,9 @@ fn runtime_world_to_minimap_tile(world_position: f32, bound: usize) -> usize {
     if bound == 0 || !world_position.is_finite() {
         return 0;
     }
+    let upper = bound.saturating_sub(1).min(i32::MAX as usize) as i32;
     crate::presenter_view::world_to_tile_index_floor(world_position, TILE_SIZE)
-        .clamp(0, bound.saturating_sub(1) as i32) as usize
+        .clamp(0, upper) as usize
 }
 
 fn runtime_world_span_to_tile_span(world_span: f32, bound: usize) -> usize {
@@ -6666,8 +6667,11 @@ mod tests {
     fn fit_window_minimap_size_rejects_small_bounds_and_caps_scale() {
         assert_eq!(fit_window_minimap_size(0, 24, 128, 128), None);
         assert_eq!(fit_window_minimap_size(24, 0, 128, 128), None);
+        assert_eq!(fit_window_minimap_size(24, 24, 0, 128), None);
+        assert_eq!(fit_window_minimap_size(24, 24, 128, 0), None);
         assert_eq!(fit_window_minimap_size(24, 24, 11, 128), None);
         assert_eq!(fit_window_minimap_size(24, 24, 128, 11), None);
+        assert_eq!(fit_window_minimap_size(1, 1, 12, 12), Some((4, 4)));
         assert_eq!(
             fit_window_minimap_size(100, 50, 1000, 1000),
             Some((400, 200))
@@ -6684,10 +6688,15 @@ mod tests {
     fn runtime_world_to_minimap_tile_clamps_and_rejects_nonfinite_input() {
         assert_eq!(runtime_world_to_minimap_tile(f32::NAN, 8), 0);
         assert_eq!(runtime_world_to_minimap_tile(f32::INFINITY, 8), 0);
+        assert_eq!(runtime_world_to_minimap_tile(f32::NEG_INFINITY, 8), 0);
         assert_eq!(runtime_world_to_minimap_tile(-1.0, 8), 0);
         assert_eq!(runtime_world_to_minimap_tile(16.0, 8), 2);
         assert_eq!(runtime_world_to_minimap_tile(64.0, 8), 7);
         assert_eq!(runtime_world_to_minimap_tile(16.0, 0), 0);
+        assert_eq!(
+            runtime_world_to_minimap_tile(16.0, (i32::MAX as usize) + 1),
+            2
+        );
     }
 
     #[test]

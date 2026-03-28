@@ -186,11 +186,9 @@ fn marker_surface_consistent(
     let mut consistent = true;
     let width = observation.map.world.width;
     let height = observation.map.world.height;
-    let marker_region_present = !observation.marker_region_bytes.is_empty();
     let empty_marker_region = marker_region_is_empty(&observation.marker_region_bytes);
 
-    if (observation.markers.is_empty() && !empty_marker_region)
-        || (!observation.markers.is_empty() && !marker_region_present)
+    if observation.markers.is_empty() != empty_marker_region
     {
         push_issue(issues, SavePostLoadWorldIssue::MarkerRegionMismatch);
         consistent = false;
@@ -412,6 +410,20 @@ mod tests {
         assert!(contract.can_project_world_shell());
         assert!(contract.marker_surface_consistent);
         assert!(!contract
+            .issues
+            .contains(&SavePostLoadWorldIssue::MarkerRegionMismatch));
+    }
+
+    #[test]
+    fn projection_contract_flags_brace_object_marker_region_when_markers_exist() {
+        let mut observation = test_observation();
+        observation.marker_region_bytes = b"{}".to_vec();
+
+        let contract = observation.projection_contract();
+
+        assert!(!contract.can_project_world_shell());
+        assert!(!contract.marker_surface_consistent);
+        assert!(contract
             .issues
             .contains(&SavePostLoadWorldIssue::MarkerRegionMismatch));
     }

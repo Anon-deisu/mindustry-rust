@@ -7329,7 +7329,17 @@ impl SessionState {
     pub fn clear_hidden_snapshot_after_parse_failure(&mut self) {
         let previous_hidden_ids = std::mem::take(&mut self.hidden_snapshot_ids);
         self.last_hidden_snapshot = None;
-        self.hidden_snapshot_delta_projection = None;
+        self.hidden_snapshot_delta_projection = Some(HiddenSnapshotDeltaProjection {
+            active_count: 0,
+            added_count: 0,
+            removed_count: previous_hidden_ids.len(),
+            added_sample_ids: Vec::new(),
+            removed_sample_ids: previous_hidden_ids
+                .iter()
+                .take(HIDDEN_SNAPSHOT_SAMPLE_LIMIT)
+                .copied()
+                .collect(),
+        });
         self.last_hidden_lifecycle_removed_ids_sample.clear();
         if previous_hidden_ids.is_empty() {
             return;
@@ -13893,7 +13903,16 @@ mod tests {
 
         assert!(state.hidden_snapshot_ids.is_empty());
         assert_eq!(state.last_hidden_snapshot, None);
-        assert_eq!(state.hidden_snapshot_delta_projection, None);
+        assert_eq!(
+            state.hidden_snapshot_delta_projection,
+            Some(HiddenSnapshotDeltaProjection {
+                active_count: 0,
+                added_count: 0,
+                removed_count: 1,
+                added_sample_ids: Vec::new(),
+                removed_sample_ids: vec![303],
+            })
+        );
         assert!(state.last_hidden_lifecycle_removed_ids_sample.is_empty());
         assert_eq!(
             state
@@ -13948,6 +13967,26 @@ mod tests {
         assert!(state.hidden_snapshot_ids.is_empty());
         assert!(!state.entity_snapshot_tombstones.contains_key(&303));
         assert!(!state.entity_snapshot_tombstone_blocks_upsert(303));
+    }
+
+    #[test]
+    fn clear_hidden_snapshot_after_parse_failure_records_empty_delta_projection() {
+        let mut state = SessionState::default();
+
+        state.clear_hidden_snapshot_after_parse_failure();
+
+        assert_eq!(state.hidden_snapshot_ids, BTreeSet::new());
+        assert_eq!(state.last_hidden_snapshot, None);
+        assert_eq!(
+            state.hidden_snapshot_delta_projection,
+            Some(HiddenSnapshotDeltaProjection {
+                active_count: 0,
+                added_count: 0,
+                removed_count: 0,
+                added_sample_ids: Vec::new(),
+                removed_sample_ids: Vec::new(),
+            })
+        );
     }
 
     #[test]

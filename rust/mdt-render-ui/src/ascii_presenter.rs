@@ -2958,7 +2958,8 @@ fn runtime_ui_text_len(value: Option<&str>) -> usize {
 
 fn runtime_ui_uri_scheme(value: Option<&str>) -> String {
     value
-        .and_then(|uri| uri.split_once(':').map(|(scheme, _)| scheme))
+        .map(str::trim)
+        .and_then(|uri| uri.split_once(':').map(|(scheme, _)| scheme.trim()))
         .filter(|scheme| !scheme.is_empty())
         .map(|scheme| compact_runtime_ui_text(Some(scheme)))
         .unwrap_or_else(|| "none".to_string())
@@ -4503,6 +4504,21 @@ mod tests {
 
         assert!(frame.contains("RUNTIME-NOTICE-DETAIL:"));
         assert!(frame.contains("scheme=https"));
+    }
+
+    #[test]
+    fn runtime_ui_uri_scheme_trims_whitespace_around_the_uri() {
+        let scene = runtime_stack_test_scene();
+        let mut presenter = AsciiScenePresenter::default();
+        let mut runtime_ui = RuntimeUiObservability::default();
+        runtime_ui.toast.last_open_uri = Some("  https://example.com  ".to_string());
+
+        presenter.present(&scene, &runtime_stack_test_hud(runtime_ui));
+        let frame = presenter.last_frame();
+
+        assert!(frame.contains("RUNTIME-NOTICE-DETAIL:"));
+        assert!(frame.contains("scheme=https"));
+        assert!(!frame.contains("scheme=_https"));
     }
 
     #[test]
