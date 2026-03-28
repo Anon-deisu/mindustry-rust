@@ -227,6 +227,19 @@ mod tests {
     }
 
     #[test]
+    fn visible_window_tile_rejects_empty_window() {
+        let object = RenderObject {
+            id: "plan:build".to_string(),
+            layer: 1,
+            x: 40.0,
+            y: 24.0,
+        };
+
+        assert!(visible_window_tile(&object, TILE_SIZE, 5, 3, 0, 4).is_none());
+        assert!(visible_window_tile(&object, TILE_SIZE, 5, 3, 4, 0).is_none());
+    }
+
+    #[test]
     fn zoom_helpers_fall_back_safely() {
         assert_eq!(normalize_zoom(0.0), 1.0);
         assert_eq!(normalize_zoom(-2.0), 1.0);

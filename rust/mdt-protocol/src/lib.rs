@@ -447,6 +447,20 @@ mod tests {
     }
 
     #[test]
+    fn packet_length_overflow_is_rejected() {
+        let payload = vec![0u8; 65_536];
+
+        assert!(matches!(
+            encode_packet(CONNECT_PACKET_ID, &payload, false),
+            Err(PacketCodecError::LengthOverflow(65_536))
+        ));
+        assert!(matches!(
+            stream_chunk_payload(7, &payload),
+            Err(PacketCodecError::LengthOverflow(65_536))
+        ));
+    }
+
+    #[test]
     fn forced_uncompressed_packet_round_trips() {
         let payload = stream_chunk_payload(7, &(1u8..=48).collect::<Vec<_>>()).unwrap();
         let encoded = encode_packet(STREAM_CHUNK_PACKET_ID, &payload, true).unwrap();
