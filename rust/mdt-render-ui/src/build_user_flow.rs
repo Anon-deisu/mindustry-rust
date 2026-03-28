@@ -12,6 +12,7 @@ use crate::{HudModel, RenderModel};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BuildUserFlowBlocker {
     Arm,
+    Missing,
     Realign,
     Resolve,
     Refocus,
@@ -22,6 +23,7 @@ impl BuildUserFlowBlocker {
     pub(crate) fn label(self) -> &'static str {
         match self {
             Self::Arm => "arm",
+            Self::Missing => "missing",
             Self::Realign => "realign",
             Self::Resolve => "resolve",
             Self::Refocus => "refocus",
@@ -83,10 +85,93 @@ pub(crate) fn build_build_user_flow_panel(
     hud: &HudModel,
     window: PresenterViewWindow,
 ) -> Option<BuildUserFlowPanelModel> {
-    let assist = build_build_minimap_assist_panel(scene, hud, window)?;
-    let minimap = build_minimap_user_flow_panel(scene, hud, window)?;
-    let interaction = build_build_interaction_panel(hud)?;
-    Some(build_user_flow_from_panels(&assist, &minimap, &interaction))
+    let assist = build_build_minimap_assist_panel(scene, hud, window);
+    let minimap = build_minimap_user_flow_panel(scene, hud, window);
+    let interaction = build_build_interaction_panel(hud);
+    Some(build_user_flow_from_panel_options(
+        assist.as_ref(),
+        minimap.as_ref(),
+        interaction.as_ref(),
+    ))
+}
+
+fn build_user_flow_from_panel_options(
+    assist: Option<&BuildMinimapAssistPanelModel>,
+    minimap: Option<&crate::minimap_user_flow::MinimapUserFlowPanelModel>,
+    interaction: Option<&crate::panel_model::BuildInteractionPanelModel>,
+) -> BuildUserFlowPanelModel {
+    let missing = assist.is_none() || minimap.is_none() || interaction.is_none();
+
+    let (next_action, mut blockers, mut route, config_scope) = if let Some(assist) = assist {
+        let blockers = build_blockers(assist);
+        let mut route = blockers
+            .iter()
+            .copied()
+            .map(BuildUserFlowBlocker::label)
+            .collect::<Vec<_>>();
+
+        match assist.mode {
+            BuildInteractionMode::Idle => push_route_step(&mut route, "idle"),
+            BuildInteractionMode::Break => push_route_step(&mut route, "break"),
+            BuildInteractionMode::Place => {
+                if !assist.place_ready {
+                    push_route_step(&mut route, "arm");
+                } else {
+                    if matches!(assist.queue_state, BuildInteractionQueueState::Empty) {
+                        push_route_step(&mut route, "seed");
+                    }
+                    push_route_step(&mut route, "commit");
+                }
+            }
+        }
+
+        (
+            assist.next_action_label(),
+            blockers,
+            route,
+            assist.config_scope_label(),
+        )
+    } else {
+        (
+            "missing",
+            vec![BuildUserFlowBlocker::Missing],
+            vec!["missing"],
+            "missing",
+        )
+    };
+
+    if missing {
+        if blockers.first().copied() != Some(BuildUserFlowBlocker::Missing) {
+            blockers.insert(0, BuildUserFlowBlocker::Missing);
+        }
+        if route.first().copied() != Some("missing") {
+            route.insert(0, "missing");
+        }
+    }
+
+    BuildUserFlowPanelModel {
+        next_action,
+        blockers,
+        route,
+        minimap_next_action: minimap.map_or("missing", |minimap| minimap.next_action),
+        focus_state: minimap.map_or(MinimapUserFocusState::Missing, |minimap| {
+            minimap.focus_state
+        }),
+        pan_horizontal: minimap.map_or(MinimapPanAxisDirection::None, |minimap| {
+            minimap.pan_horizontal
+        }),
+        pan_vertical: minimap.map_or(MinimapPanAxisDirection::None, |minimap| {
+            minimap.pan_vertical
+        }),
+        target_kind: minimap.map_or(MinimapUserTargetKind::None, |minimap| minimap.target_kind),
+        config_scope,
+        authority_state: interaction.map_or(BuildInteractionAuthorityState::None, |interaction| {
+            interaction.authority_state
+        }),
+        head_tile: interaction
+            .as_ref()
+            .and_then(|interaction| interaction.head.as_ref().map(|head| (head.x, head.y))),
+    }
 }
 
 fn build_user_flow_from_panels(
@@ -94,41 +179,7 @@ fn build_user_flow_from_panels(
     minimap: &crate::minimap_user_flow::MinimapUserFlowPanelModel,
     interaction: &crate::panel_model::BuildInteractionPanelModel,
 ) -> BuildUserFlowPanelModel {
-    let blockers = build_blockers(assist);
-    let mut route = blockers
-        .iter()
-        .copied()
-        .map(BuildUserFlowBlocker::label)
-        .collect::<Vec<_>>();
-
-    match assist.mode {
-        BuildInteractionMode::Idle => push_route_step(&mut route, "idle"),
-        BuildInteractionMode::Break => push_route_step(&mut route, "break"),
-        BuildInteractionMode::Place => {
-            if !assist.place_ready {
-                push_route_step(&mut route, "arm");
-            } else {
-                if matches!(assist.queue_state, BuildInteractionQueueState::Empty) {
-                    push_route_step(&mut route, "seed");
-                }
-                push_route_step(&mut route, "commit");
-            }
-        }
-    }
-
-    BuildUserFlowPanelModel {
-        next_action: assist.next_action_label(),
-        blockers,
-        route,
-        minimap_next_action: minimap.next_action,
-        focus_state: minimap.focus_state,
-        pan_horizontal: minimap.pan_horizontal,
-        pan_vertical: minimap.pan_vertical,
-        target_kind: minimap.target_kind,
-        config_scope: assist.config_scope_label(),
-        authority_state: interaction.authority_state,
-        head_tile: interaction.head.as_ref().map(|head| (head.x, head.y)),
-    }
+    build_user_flow_from_panel_options(Some(assist), Some(minimap), Some(interaction))
 }
 
 fn build_blockers(assist: &BuildMinimapAssistPanelModel) -> Vec<BuildUserFlowBlocker> {
@@ -635,5 +686,59 @@ mod tests {
                 head_tile: None,
             }
         );
+    }
+
+    #[test]
+    fn build_build_user_flow_panel_preserves_missing_state() {
+        let panel = super::build_user_flow_from_panel_options(
+            None,
+            Some(&MinimapUserFlowPanelModel {
+                next_action: "inspect",
+                focus_state: MinimapUserFocusState::Inside,
+                pan_horizontal: MinimapPanAxisDirection::None,
+                pan_vertical: MinimapPanAxisDirection::None,
+                target_kind: MinimapUserTargetKind::Marker,
+                focus_tile: Some((4, 6)),
+                window_clamped_left: false,
+                window_clamped_top: false,
+                window_clamped_right: false,
+                window_clamped_bottom: false,
+                focus_offset_x: Some(0),
+                focus_offset_y: Some(0),
+                overlay_target_count: 1,
+                visible_map_percent: 100,
+                unknown_tile_percent: 0,
+                window_coverage_percent: 40,
+            }),
+            Some(&BuildInteractionPanelModel {
+                mode: BuildInteractionMode::Place,
+                selection_state: BuildInteractionSelectionState::HeadAligned,
+                queue_state: BuildInteractionQueueState::Empty,
+                selected_block_id: Some(1),
+                selected_rotation: 0,
+                pending_count: 0,
+                orphan_authoritative_count: 0,
+                place_ready: true,
+                config_available: true,
+                config_family_count: 1,
+                config_sample_count: 1,
+                top_config_family: Some("message".to_string()),
+                head: None,
+                authority_state: BuildInteractionAuthorityState::Applied,
+                authority_pending_match: Some(true),
+                authority_source: None,
+                authority_tile: None,
+                authority_block_name: None,
+            }),
+        );
+
+        assert_eq!(panel.next_action, "missing");
+        assert_eq!(panel.blocker_labels(), vec!["missing"]);
+        assert_eq!(panel.route, vec!["missing"]);
+        assert_eq!(panel.minimap_next_action, "inspect");
+        assert_eq!(panel.focus_state, MinimapUserFocusState::Inside);
+        assert_eq!(panel.target_kind, MinimapUserTargetKind::Marker);
+        assert_eq!(panel.config_scope, "missing");
+        assert_eq!(panel.authority_state, BuildInteractionAuthorityState::Applied);
     }
 }
