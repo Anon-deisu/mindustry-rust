@@ -5690,6 +5690,7 @@ impl ClientSession {
                     self.state.received_unit_env_death_count =
                         self.state.received_unit_env_death_count.saturating_add(1);
                     self.state.last_unit_env_death = unit;
+                    self.state.mark_payload_lifecycle_unit_despawn(unit);
                     self.state.record_remove_resource_delta_entity(unit);
                     let removed_entity_projection =
                         remove_entity_projection_for_unit_ref(&mut self.state, unit);
@@ -5709,6 +5710,7 @@ impl ClientSession {
                     self.state.received_unit_safe_death_count =
                         self.state.received_unit_safe_death_count.saturating_add(1);
                     self.state.last_unit_safe_death = unit;
+                    self.state.mark_payload_lifecycle_unit_despawn(unit);
                     self.state.record_remove_resource_delta_entity(unit);
                     let removed_entity_projection =
                         remove_entity_projection_for_unit_ref(&mut self.state, unit);
@@ -5728,6 +5730,7 @@ impl ClientSession {
                     self.state.received_unit_cap_death_count =
                         self.state.received_unit_cap_death_count.saturating_add(1);
                     self.state.last_unit_cap_death = unit;
+                    self.state.mark_payload_lifecycle_unit_despawn(unit);
                     self.state.record_remove_resource_delta_entity(unit);
                     let removed_entity_projection =
                         remove_entity_projection_for_unit_ref(&mut self.state, unit);
@@ -44879,6 +44882,28 @@ mod tests {
             );
         session
             .state
+            .record_picked_unit_payload_lifecycle(
+                Some(UnitRefProjection { kind: 2, value: 706 }),
+                Some(UnitRefProjection { kind: 2, value: 703 }),
+            );
+        session
+            .state
+            .record_picked_unit_payload_lifecycle(
+                Some(UnitRefProjection { kind: 2, value: 707 }),
+                Some(UnitRefProjection {
+                    kind: 1,
+                    value: pack_point2(11, 12),
+                }),
+            );
+        session
+            .state
+            .record_picked_build_payload_lifecycle(
+                Some(UnitRefProjection { kind: 2, value: 704 }),
+                Some(pack_point2(10, 13)),
+                true,
+            );
+        session
+            .state
             .rebuild_runtime_typed_entity_projection_from_tables();
         let build_destroyed_packet_id = manifest
             .remote_packets
@@ -45134,6 +45159,60 @@ mod tests {
                 carrier: UnitRefProjection { kind: 2, value: 702 },
                 target_unit: None,
                 target_build: Some(pack_point2(9, 12)),
+                drop_tile: None,
+                on_ground: Some(true),
+                removed_target_unit: false,
+                removed_target_build: true,
+                removed_carrier: true,
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .payload_lifecycle_projection
+                .by_carrier
+                .get(&UnitRefProjection { kind: 2, value: 706 }),
+            Some(&crate::session_state::PayloadLifecycleCarrierProjection {
+                carrier: UnitRefProjection { kind: 2, value: 706 },
+                target_unit: Some(UnitRefProjection { kind: 2, value: 703 }),
+                target_build: None,
+                drop_tile: None,
+                on_ground: Some(false),
+                removed_target_unit: true,
+                removed_target_build: false,
+                removed_carrier: false,
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .payload_lifecycle_projection
+                .by_carrier
+                .get(&UnitRefProjection { kind: 2, value: 707 }),
+            Some(&crate::session_state::PayloadLifecycleCarrierProjection {
+                carrier: UnitRefProjection { kind: 2, value: 707 },
+                target_unit: Some(UnitRefProjection {
+                    kind: 1,
+                    value: pack_point2(11, 12),
+                }),
+                target_build: None,
+                drop_tile: None,
+                on_ground: Some(false),
+                removed_target_unit: true,
+                removed_target_build: false,
+                removed_carrier: false,
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .payload_lifecycle_projection
+                .by_carrier
+                .get(&UnitRefProjection { kind: 2, value: 704 }),
+            Some(&crate::session_state::PayloadLifecycleCarrierProjection {
+                carrier: UnitRefProjection { kind: 2, value: 704 },
+                target_unit: None,
+                target_build: Some(pack_point2(10, 13)),
                 drop_tile: None,
                 on_ground: Some(true),
                 removed_target_unit: false,
