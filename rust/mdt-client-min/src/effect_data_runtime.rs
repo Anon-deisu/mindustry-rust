@@ -547,6 +547,43 @@ mod tests {
     }
 
     #[test]
+    fn derive_effect_data_business_input_prefers_mixed_content_and_position_hints() {
+        let object = TypeIoObject::ObjectArray(vec![
+            TypeIoObject::ContentRaw {
+                content_type: 1,
+                content_id: 33,
+            },
+            TypeIoObject::Point2 { x: 4, y: 6 },
+            TypeIoObject::UnitId(404),
+        ]);
+
+        let input =
+            derive_effect_data_business_input(Some(26), Some(&object), Some(5), false, None);
+
+        assert_eq!(input.contract_name, Some("payload_target_content"));
+        assert_eq!(
+            input.primary,
+            Some(EffectDataBusinessHint::PayloadTargetContent {
+                content_kind: EffectBusinessContentKind::Content,
+                content_type: 1,
+                content_id: 33,
+                content_path: vec![0],
+                target: EffectDataBusinessTargetHint::PositionHint(
+                    TypeIoEffectPositionHint::Point2 {
+                        x: 4,
+                        y: 6,
+                        path: vec![1],
+                    },
+                ),
+            })
+        );
+        assert_eq!(
+            input.data_kind.as_deref(),
+            Some("object[len=3]{0=Content(raw),1=Point2,2=Unit(raw)}")
+        );
+    }
+
+    #[test]
     fn derive_effect_data_business_input_prefers_parent_ref_for_unit_parent_contract() {
         let object = TypeIoObject::ObjectArray(vec![
             TypeIoObject::UnitId(404),

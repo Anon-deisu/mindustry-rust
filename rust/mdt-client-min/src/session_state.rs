@@ -8079,6 +8079,29 @@ mod tests {
     }
 
     #[test]
+    fn refine_effect_data_semantic_for_nested_object_array_promotes_nested_semantic_refs() {
+        let cases = [
+            (
+                TypeIoObject::BuildingPos(0x0001_0002),
+                Some(EffectDataSemantic::BuildingPos(0x0001_0002)),
+            ),
+            (
+                TypeIoObject::UnitId(0x0102_0304),
+                Some(EffectDataSemantic::UnitId(0x0102_0304)),
+            ),
+        ];
+
+        for (inner, expected) in cases {
+            let semantic = refine_effect_data_semantic_for_nested_object_array(
+                Some(&nested_object_array(inner)),
+                Some(EffectDataSemantic::ObjectArrayLen(1)),
+            );
+
+            assert_eq!(semantic, expected);
+        }
+    }
+
+    #[test]
     fn session_state_reset_for_reconnect_keeps_only_reconnect_state() {
         let mut state = SessionState::default();
         state.session_id = Some(42);

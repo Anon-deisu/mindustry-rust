@@ -533,6 +533,39 @@ mod tests {
     }
 
     #[test]
+    fn typed_dispatch_reports_binary_route_label_symmetry() {
+        let manifest = custom_channel_manifest_with_decoys();
+        let inbound_dispatcher = TypedInboundRemoteDispatcher::from_remote_manifest(&manifest).unwrap();
+        let custom_dispatcher =
+            TypedCustomChannelRemoteDispatcher::from_remote_manifest(&manifest).unwrap();
+        let payload = encode_binary_payload("mod.bin", &[1, 2, 3, 4]);
+
+        let inbound = inbound_dispatcher.dispatch(12, &payload).unwrap().unwrap();
+        assert_eq!(inbound.payload_kind_label(), "binary");
+        assert_eq!(inbound.route_label(), "serverBinaryPacketReliable/binary");
+        assert_eq!(
+            inbound,
+            TypedInboundRemoteDispatch::Binary {
+                family: InboundRemoteFamily::ServerBinaryPacketReliable,
+                packet_type: "mod.bin".to_string(),
+                contents: vec![1, 2, 3, 4],
+            }
+        );
+
+        let custom = custom_dispatcher.dispatch(8, &payload).unwrap().unwrap();
+        assert_eq!(custom.payload_kind_label(), "binary");
+        assert_eq!(custom.route_label(), "clientBinaryPacketUnreliable/binary");
+        assert_eq!(
+            custom,
+            TypedCustomChannelRemoteDispatch::Binary {
+                family: CustomChannelRemoteFamily::ClientBinaryPacketUnreliable,
+                packet_type: "mod.bin".to_string(),
+                contents: vec![1, 2, 3, 4],
+            }
+        );
+    }
+
+    #[test]
     fn custom_channel_typed_dispatch_ignores_method_only_decoy_packet_ids() {
         let manifest = custom_channel_manifest_with_decoys();
         let dispatcher =

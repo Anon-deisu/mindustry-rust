@@ -51155,6 +51155,8 @@ mod tests {
         session.state.last_tile_config_parse_failed = true;
         session.state.failed_tile_config_parse_count = 3;
         session.state.last_tile_config_parse_error = Some("stale_tile_config".to_string());
+        session.state.last_replayed_packet_id = Some(87);
+        session.state.last_replayed_packet_method = Some("sendMessage".to_string());
         session.state.last_construct_finish_tile_pos = Some(pack_point2(5, 5));
         session.state.last_construct_finish_block_id = Some(42);
         session.state.last_construct_finish_config_kind = Some(3);
@@ -51198,6 +51200,8 @@ mod tests {
         assert_eq!(session.state().finish_connecting_commit_count, 0);
         assert_eq!(session.state().last_finish_connecting, None);
         assert_eq!(session.state().last_client_snapshot_at_ms, None);
+        assert_eq!(session.state().last_replayed_packet_id, None);
+        assert_eq!(session.state().last_replayed_packet_method, None);
         assert_eq!(session.state().received_snapshot_count, 0);
         assert_eq!(session.state().last_snapshot_packet_id, None);
         assert_eq!(session.state().last_snapshot_method, None);
