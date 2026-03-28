@@ -420,35 +420,7 @@ fn parse_objective_list(json_data: &str) -> Vec<ObjectiveProjection> {
     array_value_slices(json_data)
         .unwrap_or_default()
         .into_iter()
-        .map(|entry| {
-            let target_name = ["content", "item", "unit", "block"]
-                .into_iter()
-                .find_map(|field| object_field_string(entry, field));
-            ObjectiveProjection {
-                objective_type: object_field_string(entry, "type"),
-                completed: object_field_bool(entry, "completed")
-                    .or_else(|| object_field_bool(entry, "complete"))
-                    .unwrap_or(false),
-                qualified: false,
-                hidden: object_field_bool(entry, "hidden").unwrap_or(false),
-                target_name,
-                amount: object_field_i32(entry, "amount")
-                    .or_else(|| object_field_i32(entry, "count")),
-                text: object_field_string(entry, "text"),
-                details: object_field_string(entry, "details"),
-                completion_logic_code: object_field_string(entry, "completionLogicCode"),
-                flag: object_field_string(entry, "flag"),
-                team: object_field_string(entry, "team"),
-                team_id: object_field_i32(entry, "team"),
-                parents: object_field_usize_array(entry, "parents"),
-                has_position: object_field_value(entry, "pos").is_some(),
-                positions_count: object_field_array_len(entry, "positions"),
-                flags_added: object_field_string_array(entry, "flagsAdded"),
-                flags_added_count: object_field_array_len(entry, "flagsAdded"),
-                flags_removed: object_field_string_array(entry, "flagsRemoved"),
-                flags_removed_count: object_field_array_len(entry, "flagsRemoved"),
-            }
-        })
+        .filter_map(parse_objective_projection)
         .collect()
 }
 
@@ -486,19 +458,6 @@ fn object_field_string_array(json: &str, key: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn object_field_usize_array(json: &str, key: &str) -> Vec<usize> {
-    object_field_value(json, key)
-        .and_then(array_value_slices)
-        .map(|values| {
-            values
-                .into_iter()
-                .filter_map(parse_json_i32_literal)
-                .filter_map(|value| usize::try_from(value).ok())
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
 fn parse_json_bool_literal(raw: &str) -> Option<bool> {
     match raw.trim() {
         "true" => Some(true),
@@ -508,7 +467,8 @@ fn parse_json_bool_literal(raw: &str) -> Option<bool> {
 }
 
 fn parse_json_f64_literal(raw: &str) -> Option<f64> {
-    raw.trim().parse::<f64>().ok()
+    let value = raw.trim().parse::<f64>().ok()?;
+    value.is_finite().then_some(value)
 }
 
 fn parse_json_i32_literal(raw: &str) -> Option<i32> {
@@ -529,33 +489,128 @@ fn parse_json_string_literal(raw: &str) -> Option<String> {
 }
 
 fn object_field_value<'a>(json: &'a str, key: &str) -> Option<&'a str> {
+    match object_field_status(json, key) {
+        ObjectFieldStatus::Present(value) => Some(value),
+        ObjectFieldStatus::Missing | ObjectFieldStatus::Invalid => None,
+    }
+}
+
+fn parse_json_usize_array_literal(raw: &str) -> Option<Vec<usize>> {
+    let values = array_value_slices(raw)?;
+    let mut parsed = Vec::with_capacity(values.len());
+    for value in values {
+        let value = parse_json_i32_literal(value)?;
+        parsed.push(usize::try_from(value).ok()?);
+    }
+    Some(parsed)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ObjectFieldStatus<'a> {
+    Missing,
+    Present(&'a str),
+    Invalid,
+}
+
+fn parse_objective_projection(entry: &str) -> Option<ObjectiveProjection> {
+    let target_name = ["content", "item", "unit", "block"]
+        .into_iter()
+        .find_map(|field| object_field_string(entry, field));
+    let completed = match object_field_status(entry, "completed") {
+        ObjectFieldStatus::Present(raw) => parse_json_bool_literal(raw)?,
+        ObjectFieldStatus::Missing => match object_field_status(entry, "complete") {
+            ObjectFieldStatus::Present(raw) => parse_json_bool_literal(raw)?,
+            ObjectFieldStatus::Missing => false,
+            ObjectFieldStatus::Invalid => return None,
+        },
+        ObjectFieldStatus::Invalid => return None,
+    };
+    let hidden = match object_field_status(entry, "hidden") {
+        ObjectFieldStatus::Present(raw) => parse_json_bool_literal(raw)?,
+        ObjectFieldStatus::Missing => false,
+        ObjectFieldStatus::Invalid => return None,
+    };
+    let parents = match object_field_status(entry, "parents") {
+        ObjectFieldStatus::Present(raw) => parse_json_usize_array_literal(raw)?,
+        ObjectFieldStatus::Missing => Vec::new(),
+        ObjectFieldStatus::Invalid => return None,
+    };
+
+    Some(ObjectiveProjection {
+        objective_type: object_field_string(entry, "type"),
+        completed,
+        qualified: false,
+        hidden,
+        target_name,
+        amount: object_field_i32(entry, "amount").or_else(|| object_field_i32(entry, "count")),
+        text: object_field_string(entry, "text"),
+        details: object_field_string(entry, "details"),
+        completion_logic_code: object_field_string(entry, "completionLogicCode"),
+        flag: object_field_string(entry, "flag"),
+        team: object_field_string(entry, "team"),
+        team_id: object_field_i32(entry, "team"),
+        parents,
+        has_position: object_field_value(entry, "pos").is_some(),
+        positions_count: object_field_array_len(entry, "positions"),
+        flags_added: object_field_string_array(entry, "flagsAdded"),
+        flags_added_count: object_field_array_len(entry, "flagsAdded"),
+        flags_removed: object_field_string_array(entry, "flagsRemoved"),
+        flags_removed_count: object_field_array_len(entry, "flagsRemoved"),
+    })
+}
+
+fn object_field_status<'a>(json: &'a str, key: &str) -> ObjectFieldStatus<'a> {
     let bytes = json.as_bytes();
     let mut cursor = skip_ws(bytes, 0);
     if bytes.get(cursor).copied() != Some(b'{') {
-        return None;
+        return ObjectFieldStatus::Invalid;
     }
     cursor += 1;
+    let mut matched_value: Option<(usize, usize)> = None;
     loop {
         cursor = skip_ws(bytes, cursor);
         if bytes.get(cursor).copied() == Some(b'}') {
-            return None;
+            cursor += 1;
+            if skip_ws(bytes, cursor) != bytes.len() {
+                return ObjectFieldStatus::Invalid;
+            }
+            return matched_value
+                .map(|(start, end)| ObjectFieldStatus::Present(json[start..end].trim()))
+                .unwrap_or(ObjectFieldStatus::Missing);
         }
-        let (field, next_cursor) = parse_json_string_raw(json, cursor)?;
+        let Some((field, next_cursor)) = parse_json_string_raw(json, cursor) else {
+            return ObjectFieldStatus::Invalid;
+        };
         cursor = skip_ws(bytes, next_cursor);
         if bytes.get(cursor).copied() != Some(b':') {
-            return None;
+            return ObjectFieldStatus::Invalid;
         }
         cursor = skip_ws(bytes, cursor + 1);
         let value_start = cursor;
-        let value_end = skip_json_value(bytes, cursor)?;
-        if field == key {
-            return Some(json[value_start..value_end].trim());
-        }
+        let Some(value_end) = skip_json_value(bytes, cursor) else {
+            return ObjectFieldStatus::Invalid;
+        };
         cursor = skip_ws(bytes, value_end);
         match bytes.get(cursor).copied() {
-            Some(b',') => cursor += 1,
-            Some(b'}') => return None,
-            _ => return None,
+            Some(b',') => {
+                if field == key && matched_value.is_none() {
+                    matched_value = Some((value_start, value_end));
+                }
+                cursor += 1;
+            }
+            Some(b'}') => {
+                if field == key && matched_value.is_none() {
+                    matched_value = Some((value_start, value_end));
+                }
+                cursor += 1;
+                if skip_ws(bytes, cursor) != bytes.len() {
+                    return ObjectFieldStatus::Invalid;
+                }
+                return matched_value
+                    .map(|(start, end)| ObjectFieldStatus::Present(json[start..end].trim()))
+                    .unwrap_or(ObjectFieldStatus::Missing);
+            }
+            _ => return ObjectFieldStatus::Invalid,
         }
     }
 }
@@ -579,7 +634,13 @@ fn array_value_slices(json: &str) -> Option<Vec<&str>> {
         cursor = skip_ws(bytes, value_end);
         match bytes.get(cursor).copied() {
             Some(b',') => cursor += 1,
-            Some(b']') => return Some(values),
+            Some(b']') => {
+                cursor += 1;
+                if skip_ws(bytes, cursor) == bytes.len() {
+                    return Some(values);
+                }
+                return None;
+            }
             _ => return None,
         }
     }
@@ -931,13 +992,34 @@ mod tests {
     }
 
     #[test]
+    fn rules_projection_rejects_non_finite_and_trailing_garbage_f64_literals() {
+        let mut projection = RulesProjection::default();
+
+        projection.apply_set_rule_patch("waveSpacing", "NaN");
+        projection.apply_set_rule_patch("initialWaveSpacing", "inf");
+        projection.apply_set_rule_patch("buildSpeedMultiplier", "1.5garbage");
+        projection.apply_set_rule_patch("objectiveTimerMultiplier", "2.25");
+
+        assert_eq!(projection.wave_spacing, None);
+        assert_eq!(projection.initial_wave_spacing, None);
+        assert_eq!(projection.build_speed_multiplier, None);
+        assert_eq!(projection.objective_timer_multiplier, Some(2.25));
+        assert_eq!(projection.ignored_set_rule_patch_count, 3);
+        assert_eq!(projection.applied_set_rule_patch_count, 4);
+        assert_eq!(
+            projection.last_ignored_set_rule_patch_name.as_deref(),
+            Some("buildSpeedMultiplier")
+        );
+    }
+
+    #[test]
     fn objectives_projection_replaces_completes_and_clears() {
         let mut projection = ObjectivesProjection::default();
         projection.replace_from_json(
             r#"[{"type":"Timer","text":"@wave","count":90,"hidden":true,"details":"Hold out","completionLogicCode":"sensor @unit @dead"},{"type":"Item","item":"lead","amount":15,"flagsAdded":["a","b"],"flagsRemoved":["c"],"parents":[0]},{"type":"DestroyBlocks","block":"router","team":2,"positions":[{"x":1,"y":2},{"x":3,"y":4}],"details":"Break routers","parents":[0,9,0]},{"type":"DestroyBlock","block":"duo","team":"malis","pos":{"x":8,"y":9},"completed":true,"completionLogicCode":"print 1"},{"type":"Flag","flag":"boss","text":"@boss","parents":[1]},42]"#,
         );
 
-        assert_eq!(projection.objectives.len(), 6);
+        assert_eq!(projection.objectives.len(), 5);
         assert_eq!(
             projection.objectives[0].objective_type.as_deref(),
             Some("Timer")
@@ -997,7 +1079,7 @@ mod tests {
         assert!(projection.objectives[0].qualified);
         assert!(projection.objectives[3].completed);
         assert!(!projection.objectives[3].qualified);
-        assert_eq!(projection.qualified_count(), 2);
+        assert_eq!(projection.qualified_count(), 1);
         assert_eq!(projection.parent_edge_count(), 3);
         assert_eq!(projection.replaced_from_set_objectives_count, 1);
 
@@ -1009,7 +1091,7 @@ mod tests {
         assert!(projection.objectives[1].completed);
         assert!(projection.objectives[2].qualified);
         assert!(projection.objectives[4].qualified);
-        assert_eq!(projection.qualified_count(), 3);
+        assert_eq!(projection.qualified_count(), 2);
         assert!(projection.objective_flags.contains("a"));
         assert!(projection.objective_flags.contains("b"));
         assert!(!projection.objective_flags.contains("c"));
@@ -1023,6 +1105,34 @@ mod tests {
         assert!(projection.objective_flags.contains("a"));
         assert!(projection.objective_flags.contains("b"));
         assert_eq!(projection.last_completed_index, None);
+    }
+
+    #[test]
+    fn objectives_projection_rejects_invalid_sensitive_fields_and_trailing_bytes() {
+        let mut projection = ObjectivesProjection::default();
+
+        projection.replace_from_json(
+            r#"[{"type":"Research","content":"router","completed":false,"hidden":false},{"type":"Research","content":"bad-completed","completed":null},{"type":"Research","content":"bad-hidden","completed":false,"hidden":"yes"},{"type":"Research","content":"bad-parents","completed":false,"parents":[0,"x"]}]"#,
+        );
+
+        assert_eq!(projection.objectives.len(), 1);
+        assert_eq!(
+            projection.objectives[0].objective_type.as_deref(),
+            Some("Research")
+        );
+        assert_eq!(projection.objectives[0].target_name.as_deref(), Some("router"));
+        assert!(!projection.objectives[0].completed);
+        assert!(!projection.objectives[0].hidden);
+        assert!(projection.objectives[0].parents.is_empty());
+
+        projection.replace_from_json(
+            r#"[{"type":"Research","content":"router","completed":false}] trailing"#,
+        );
+        assert!(projection.objectives.is_empty());
+
+        let mut rules = RulesProjection::default();
+        rules.apply_set_rules_json(r#"{"waves":true} trailing"#);
+        assert_eq!(rules.waves, None);
     }
 
     #[test]
