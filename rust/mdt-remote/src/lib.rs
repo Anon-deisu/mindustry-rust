@@ -1118,6 +1118,10 @@ fn validate_wire_spec(wire: &WireSpec) -> Result<(), RemoteManifestError> {
 }
 
 fn remote_packet_definition_key(packet: &RemotePacketEntry, flow: RemoteFlow) -> String {
+    let wire_flow = match flow {
+        RemoteFlow::Bidirectional => bidirectional_wire_flow(packet),
+        _ => flow,
+    };
     let param_java_types = packet
         .params
         .iter()
@@ -1130,7 +1134,7 @@ fn remote_packet_definition_key(packet: &RemotePacketEntry, flow: RemoteFlow) ->
             param_is_wire_included_client_server(
                 param.network_included_when_caller_is_client,
                 param.network_included_when_caller_is_server,
-                flow,
+                wire_flow,
             )
         })
         .map(|param| remote_param_kind(&param.java_type))
@@ -1691,6 +1695,30 @@ fn remote_priority_from_str(priority: &str) -> Result<RemotePriority, RemoteMani
     }
 }
 
+fn bidirectional_wire_flow(packet: &RemotePacketEntry) -> RemoteFlow {
+    let mut has_client_only = false;
+    let mut has_server_only = false;
+
+    for param in &packet.params {
+        match (
+            param.network_included_when_caller_is_client,
+            param.network_included_when_caller_is_server,
+        ) {
+            (true, false) => has_client_only = true,
+            (false, true) => has_server_only = true,
+            _ => {}
+        }
+    }
+
+    if has_client_only {
+        RemoteFlow::ClientToServer
+    } else if has_server_only {
+        RemoteFlow::ServerToClient
+    } else {
+        RemoteFlow::ClientToServer
+    }
+}
+
 fn param_is_wire_included_client_server(
     network_included_when_caller_is_client: bool,
     network_included_when_caller_is_server: bool,
@@ -1699,9 +1727,7 @@ fn param_is_wire_included_client_server(
     match flow {
         RemoteFlow::ClientToServer => network_included_when_caller_is_client,
         RemoteFlow::ServerToClient => network_included_when_caller_is_server,
-        RemoteFlow::Bidirectional => {
-            network_included_when_caller_is_client || network_included_when_caller_is_server
-        }
+        RemoteFlow::Bidirectional => unreachable!("bidirectional flow should be normalized first"),
     }
 }
 
@@ -2316,6 +2342,10 @@ fn typed_remote_packet_metadata(
 ) -> Result<TypedRemotePacketMetadata<'_>, RemoteManifestError> {
     let flow = remote_flow_from_targets(&entry.targets)?;
     let priority = remote_priority_from_str(&entry.priority)?;
+    let wire_flow = match flow {
+        RemoteFlow::Bidirectional => bidirectional_wire_flow(entry),
+        _ => flow,
+    };
     let params = entry
         .params
         .iter()
@@ -2333,7 +2363,7 @@ fn typed_remote_packet_metadata(
             param_is_wire_included_client_server(
                 param.network_included_when_caller_is_client,
                 param.network_included_when_caller_is_server,
-                flow,
+                wire_flow,
             )
         })
         .map(|param| TypedRemoteParamSpec {
@@ -2775,6 +2805,63 @@ mod tests {
         assert!(registry.contains("pub const TEST_CALL_PACKET_ID: u8 = 4;"));
         assert!(registry.contains("pub const REMOTE_PACKET_SPECS: &[RemotePacketSpec] = &["));
         assert!(registry.contains("priority: \"high\""));
+    }
+
+    #[test]
+    fn bidirectional_wire_params_preserve_directional_shape() {
+        let manifest = parse_remote_manifest(
+            r#"{
+  "schema": "mdt.remote.manifest.v1",
+  "generator": {
+    "source": "mindustry.annotations.remote",
+    "callClass": "mindustry.gen.Call"
+  },
+  "basePackets": [
+    {"id": 0, "class": "mindustry.net.Packets$StreamBegin"},
+    {"id": 1, "class": "mindustry.net.Packets$StreamChunk"},
+    {"id": 2, "class": "mindustry.net.Packets$WorldStream"},
+    {"id": 3, "class": "mindustry.net.Packets$ConnectPacket"}
+  ],
+  "remotePackets": [
+    {
+      "remoteIndex": 0,
+      "packetId": 4,
+      "packetClass": "mindustry.gen.BidirectionalShapeCallPacket",
+      "declaringType": "mindustry.core.NetClient",
+      "method": "bidirectionalShape",
+      "targets": "both",
+      "called": "both",
+      "variants": "both",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "shared", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "clientOnly", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": false},
+        {"name": "serverOnly", "javaType": "float", "networkIncludedWhenCallerIsClient": false, "networkIncludedWhenCallerIsServer": true}
+      ]
+    }
+  ],
+  "wire": {
+    "packetIdByte": "u8",
+    "lengthField": "u16be",
+    "compressionFlag": {"0": "none", "1": "lz4"},
+    "compressionThreshold": 36
+  }
+}"#,
+        )
+        .unwrap();
+
+        let registry = RemotePacketRegistry::from_manifest(&manifest).unwrap();
+        let packet = registry.get_by_packet_id(4).unwrap();
+
+        assert_eq!(packet.flow, RemoteFlow::Bidirectional);
+        assert_eq!(packet.params.len(), 3);
+        assert_eq!(packet.wire_params.len(), 2);
+        assert_eq!(packet.wire_params[0].name, "shared");
+        assert_eq!(packet.wire_params[1].name, "clientOnly");
+        assert_eq!(packet.params[1].name, "clientOnly");
+        assert_eq!(packet.params[2].name, "serverOnly");
     }
 
     #[test]
