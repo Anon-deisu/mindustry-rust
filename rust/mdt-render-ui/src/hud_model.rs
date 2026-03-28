@@ -137,6 +137,11 @@ impl RuntimeUiStackSummary {
             && self.foreground_kind.is_none()
             && self.text_input_last_id.is_none()
             && self.last_chat_sender_entity_id.is_none()
+            && self.menu_open_count == 0
+            && self.outstanding_follow_up_count == 0
+            && self.text_input_open_count == 0
+            && self.server_message_count == 0
+            && self.chat_message_count == 0
     }
 
     pub(crate) fn foreground_label(&self) -> &'static str {
@@ -876,6 +881,7 @@ mod tests {
         HudModel, RuntimeChatObservability, RuntimeHudTextObservability, RuntimeMenuObservability,
         RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiNoticeLayerKind,
         RuntimeUiObservability, RuntimeUiPromptLayerKind, RuntimeUiStackForegroundSummaryKind,
+        RuntimeUiStackSummary,
     };
 
     #[test]
@@ -1079,5 +1085,19 @@ mod tests {
             .runtime_ui_stack_depth_summary()
             .expect("runtime ui depth summary");
         assert!(depth.is_empty());
+    }
+
+    #[test]
+    fn runtime_ui_stack_summary_with_recent_counts_is_not_empty() {
+        let summary = RuntimeUiStackSummary {
+            menu_open_count: 1,
+            outstanding_follow_up_count: 1,
+            text_input_open_count: 1,
+            server_message_count: 1,
+            chat_message_count: 1,
+            ..RuntimeUiStackSummary::default()
+        };
+
+        assert!(!summary.is_empty());
     }
 }
