@@ -423,7 +423,7 @@ mod tests {
         EffectDataBusinessInput, EffectDataBusinessTargetHint,
     };
     use crate::session_state::{EffectBusinessContentKind, EffectDataSemantic};
-    use mdt_typeio::{TypeIoEffectPositionHint, TypeIoObject, TypeIoSemanticRef};
+    use mdt_typeio::{TypeIoEffectPositionHint, TypeIoObject, TypeIoSemanticMatch, TypeIoSemanticRef};
 
     fn nested_object_array(depth: usize, leaf: TypeIoObject) -> TypeIoObject {
         if depth == 0 {
@@ -581,6 +581,39 @@ mod tests {
             input.data_kind.as_deref(),
             Some("object[len=3]{0=Content(raw),1=Point2,2=Unit(raw)}")
         );
+    }
+
+    #[test]
+    fn derive_effect_data_business_input_uses_semantic_ref_target_for_payload_target_content() {
+        let object = TypeIoObject::ObjectArray(vec![
+            TypeIoObject::ContentRaw {
+                content_type: 1,
+                content_id: 33,
+            },
+            TypeIoObject::UnitId(404),
+        ]);
+
+        let input =
+            derive_effect_data_business_input(Some(26), Some(&object), Some(5), false, None);
+
+        assert_eq!(
+            input.primary,
+            Some(EffectDataBusinessHint::PayloadTargetContent {
+                content_kind: EffectBusinessContentKind::Content,
+                content_type: 1,
+                content_id: 33,
+                content_path: vec![0],
+                target: EffectDataBusinessTargetHint::SemanticRef(TypeIoSemanticMatch {
+                    semantic_ref: TypeIoSemanticRef::Unit { unit_id: 404 },
+                    path: vec![1],
+                }),
+            })
+        );
+        assert_eq!(
+            input.data_kind.as_deref(),
+            Some("object[len=2]{0=Content(raw),1=Unit(raw)}")
+        );
+        assert_eq!(input.contract_name, Some("payload_target_content"));
     }
 
     #[test]

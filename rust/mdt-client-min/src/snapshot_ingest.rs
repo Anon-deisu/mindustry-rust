@@ -2368,6 +2368,50 @@ mod tests {
     }
 
     #[test]
+    fn hidden_snapshot_ingest_preserves_duplicate_samples_but_deduplicates_active_set() {
+        let payload = [
+            0x00, 0x00, 0x00, 0x04, // count
+            0x00, 0x00, 0x00, 0x65, // 101
+            0x00, 0x00, 0x00, 0x65, // 101
+            0x00, 0x00, 0x00, 0xCA, // 202
+            0x00, 0x00, 0x00, 0x65, // 101
+        ];
+        let mut state = SessionState::default();
+
+        ingest_inbound_snapshot(
+            &mut state,
+            InboundSnapshot::new(HighFrequencyRemoteMethod::HiddenSnapshot, 49, &payload),
+        );
+
+        assert_eq!(
+            state.last_hidden_snapshot,
+            Some(AppliedHiddenSnapshotIds {
+                count: 4,
+                first_id: Some(101),
+                sample_ids: vec![101, 101, 202, 101],
+            })
+        );
+        assert_eq!(
+            state.hidden_snapshot_delta_projection,
+            Some(HiddenSnapshotDeltaProjection {
+                active_count: 2,
+                added_count: 2,
+                removed_count: 0,
+                added_sample_ids: vec![101, 202],
+                removed_sample_ids: vec![],
+            })
+        );
+        assert_eq!(
+            state
+                .hidden_snapshot_ids
+                .iter()
+                .copied()
+                .collect::<Vec<_>>(),
+            vec![101, 202]
+        );
+    }
+
+    #[test]
     fn hidden_snapshot_removes_non_local_unit_rows_but_keeps_local_player() {
         let payload = [
             0x00, 0x00, 0x00, 0x02, // count
