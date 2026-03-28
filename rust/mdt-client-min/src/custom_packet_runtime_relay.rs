@@ -6,6 +6,8 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::rc::Rc;
 
+const MAX_PENDING_ENTRIES: usize = 256;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RuntimeCustomPacketRelayEncoding {
     Text,
@@ -226,7 +228,9 @@ impl RuntimeCustomPacketRelayState {
                 ),
             });
         }
-        self.pending_entries.extend(queued_entries);
+        for entry in queued_entries {
+            self.enqueue_pending_entry(entry);
+        }
     }
 
     fn record_binary_handler(&mut self, inbound_key: &str, bytes: &[u8]) {
@@ -258,7 +262,9 @@ impl RuntimeCustomPacketRelayState {
                 ),
             });
         }
-        self.pending_entries.extend(queued_entries);
+        for entry in queued_entries {
+            self.enqueue_pending_entry(entry);
+        }
     }
 
     fn record_logic_data_handler(&mut self, inbound_key: &str, value: &TypeIoObject) {
@@ -289,7 +295,9 @@ impl RuntimeCustomPacketRelayState {
                 ),
             });
         }
-        self.pending_entries.extend(queued_entries);
+        for entry in queued_entries {
+            self.enqueue_pending_entry(entry);
+        }
     }
 
     fn observe_events(&mut self, events: &[ClientSessionEvent]) {
@@ -343,6 +351,13 @@ impl RuntimeCustomPacketRelayState {
                 route.event_unreliable_count = route.event_unreliable_count.saturating_add(1);
             }
         }
+    }
+
+    fn enqueue_pending_entry(&mut self, entry: RuntimeCustomPacketRelayEntry) {
+        while self.pending_entries.len() >= MAX_PENDING_ENTRIES {
+            self.pending_entries.pop_front();
+        }
+        self.pending_entries.push_back(entry);
     }
 
     fn drain_entries(&mut self) -> Vec<RuntimeCustomPacketRelayEntry> {
@@ -702,5 +717,41 @@ mod tests {
         assert!(summaries[1].contains("event_unreliable=1"));
         assert!(summaries[2].contains("transport=unreliable"));
         assert!(summaries[2].contains("event_reliable=1"));
+    }
+
+    #[test]
+    fn runtime_custom_packet_relays_bounds_pending_entries_growth() {
+        let mut state = RuntimeCustomPacketRelayState::default();
+        state.register(&RuntimeCustomPacketRelaySpec::Text {
+            inbound_type: "custom.ping".to_string(),
+            outbound_type: "custom.pong".to_string(),
+            transport: ClientPacketTransport::Tcp,
+        });
+
+        let total_events = MAX_PENDING_ENTRIES + 44;
+        for index in 0..total_events {
+            state.record_text_handler("custom.ping", &format!("wave-{index:03}"));
+        }
+
+        assert_eq!(state.pending_entries.len(), MAX_PENDING_ENTRIES);
+
+        let entries = state.drain_entries();
+        assert_eq!(entries.len(), MAX_PENDING_ENTRIES);
+        assert_eq!(
+            entries.first().unwrap().action,
+            RuntimeCustomPacketRelayAction::Text {
+                packet_type: "custom.pong".to_string(),
+                contents: "wave-044".to_string(),
+                transport: ClientPacketTransport::Tcp,
+            }
+        );
+        assert_eq!(
+            entries.last().unwrap().action,
+            RuntimeCustomPacketRelayAction::Text {
+                packet_type: "custom.pong".to_string(),
+                contents: format!("wave-{index:03}", index = total_events - 1),
+                transport: ClientPacketTransport::Tcp,
+            }
+        );
     }
 }
