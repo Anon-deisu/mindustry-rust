@@ -7,7 +7,14 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 fn main() -> Result<(), String> {
-    let args = parse_args(std::env::args().skip(1))?;
+    let args = match parse_args(std::env::args().skip(1)) {
+        Ok(args) => args,
+        Err(err) if err.starts_with("Usage: ") => {
+            println!("{err}");
+            return Ok(());
+        }
+        Err(err) => return Err(err),
+    };
     let bytes = read_world_stream_bytes(args.world_stream_hex.as_deref())?;
     let bundle = parse_world_bundle(&bytes)?;
     let session = bundle.loaded_session()?;
@@ -222,5 +229,11 @@ mod tests {
                 animate_player: true,
             }
         );
+    }
+
+    #[test]
+    fn parse_args_help_is_not_an_error() {
+        let err = parse_args(vec!["--help".to_string()].into_iter()).unwrap_err();
+        assert!(err.starts_with("Usage: mdt-render-ui-window-bench"));
     }
 }

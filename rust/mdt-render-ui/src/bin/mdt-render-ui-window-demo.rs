@@ -6,7 +6,13 @@ use mdt_world::parse_world_bundle;
 use std::path::PathBuf;
 
 fn main() -> Result<(), String> {
-    let args = parse_args(std::env::args().skip(1))?;
+    let args = match parse_args(std::env::args().skip(1))? {
+        ParseOutcome::Help(usage) => {
+            println!("{usage}");
+            return Ok(());
+        }
+        ParseOutcome::Args(args) => args,
+    };
     let bytes = read_world_stream_bytes(args.world_stream_hex.as_deref())?;
     let bundle = parse_world_bundle(&bytes)?;
     let session = bundle.loaded_session()?;
@@ -38,6 +44,12 @@ fn main() -> Result<(), String> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+enum ParseOutcome {
+    Args(Args),
+    Help(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
 struct Args {
     locale: String,
     frames: u64,
@@ -48,7 +60,7 @@ struct Args {
     world_stream_hex: Option<PathBuf>,
 }
 
-fn parse_args(args: impl Iterator<Item = String>) -> Result<Args, String> {
+fn parse_args(args: impl Iterator<Item = String>) -> Result<ParseOutcome, String> {
     let mut locale = String::from("en");
     let mut frames = 120u64;
     let mut fps = 30u32;
@@ -116,7 +128,7 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Args, String> {
                 ));
             }
             "--help" | "-h" => {
-                return Err("Usage: mdt-render-ui-window-demo [--locale <locale>] [--frames <n>] [--fps <n>] [--tile-pixels <n>] [--max-view-tiles <width:height>] [--player-x <f32> --player-y <f32>] [--world-stream-hex <path>]".to_string());
+                return Ok(ParseOutcome::Help(usage()));
             }
             other => {
                 return Err(format!("unknown argument: {other}"));
@@ -130,7 +142,7 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Args, String> {
         _ => return Err("both --player-x and --player-y are required".to_string()),
     };
 
-    Ok(Args {
+    Ok(ParseOutcome::Args(Args {
         locale,
         frames,
         fps,
@@ -138,7 +150,7 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Args, String> {
         max_view_tiles,
         player_position,
         world_stream_hex,
-    })
+    }))
 }
 
 fn animated_player_position(origin: (f32, f32), frame_id: u64) -> (f32, f32) {
@@ -163,14 +175,18 @@ fn parse_dimensions(value: &str) -> Result<(usize, usize), String> {
     ))
 }
 
+fn usage() -> String {
+    "Usage: mdt-render-ui-window-demo [--locale <locale>] [--frames <n>] [--fps <n>] [--tile-pixels <n>] [--max-view-tiles <width:height>] [--player-x <f32> --player-y <f32>] [--world-stream-hex <path>]".to_string()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{parse_args, Args};
+    use super::{parse_args, Args, ParseOutcome};
     use std::path::PathBuf;
 
     #[test]
     fn parse_args_accepts_demo_options() {
-        let args = parse_args(
+        let args = match parse_args(
             vec![
                 "--locale".to_string(),
                 "fr".to_string(),
@@ -191,7 +207,11 @@ mod tests {
             ]
             .into_iter(),
         )
-        .unwrap();
+        .unwrap()
+        {
+            ParseOutcome::Args(args) => args,
+            ParseOutcome::Help(_) => panic!("expected parsed args"),
+        };
 
         assert_eq!(
             args,
@@ -205,5 +225,17 @@ mod tests {
                 world_stream_hex: Some(PathBuf::from("sample.hex")),
             }
         );
+    }
+
+    #[test]
+    fn parse_args_help_is_not_an_error() {
+        let outcome = parse_args(vec!["--help".to_string()].into_iter()).unwrap();
+
+        match outcome {
+            ParseOutcome::Help(usage) => {
+                assert!(usage.starts_with("Usage: mdt-render-ui-window-demo"))
+            }
+            ParseOutcome::Args(_) => panic!("expected help"),
+        }
     }
 }
