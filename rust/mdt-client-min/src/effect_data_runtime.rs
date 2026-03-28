@@ -762,4 +762,32 @@ mod tests {
             Some(EffectDataSemantic::OpaqueTypeTag(0x55))
         );
     }
+
+    #[test]
+    fn derive_effect_data_semantic_maps_array_lengths() {
+        assert_eq!(
+            derive_effect_data_semantic(Some(&TypeIoObject::Vec2Array(vec![])), None, false),
+            Some(EffectDataSemantic::Vec2ArrayLen(0))
+        );
+        assert_eq!(
+            derive_effect_data_semantic(
+                Some(&TypeIoObject::Vec2Array(vec![(1.5, -2.25), (3.0, 4.0)])),
+                None,
+                false
+            ),
+            Some(EffectDataSemantic::Vec2ArrayLen(2))
+        );
+        assert_eq!(
+            derive_effect_data_semantic(Some(&TypeIoObject::PackedPoint2Array(vec![])), None, false),
+            Some(EffectDataSemantic::PackedPoint2ArrayLen(0))
+        );
+        assert_eq!(
+            derive_effect_data_semantic(
+                Some(&TypeIoObject::PackedPoint2Array(vec![0x0001_0002, 0x0003_0004])),
+                None,
+                false
+            ),
+            Some(EffectDataSemantic::PackedPoint2ArrayLen(2))
+        );
+    }
 }

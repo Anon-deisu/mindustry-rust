@@ -1166,6 +1166,41 @@ mod tests {
     }
 
     #[test]
+    fn state_snapshot_ingest_rejects_trailing_bytes_in_core_data_payload() {
+        let malformed_core_data = [0x01, 0x01, 0x00, 0x00, 0xFF];
+        let payload = build_state_snapshot_payload(
+            7,
+            0,
+            false,
+            false,
+            654_321,
+            60,
+            111_111_111,
+            222_222_222,
+            &malformed_core_data,
+        );
+        let mut state = SessionState::default();
+
+        ingest_inbound_snapshot(
+            &mut state,
+            InboundSnapshot::new(HighFrequencyRemoteMethod::StateSnapshot, 125, &payload),
+        );
+
+        assert_eq!(state.applied_state_snapshot_count, 1);
+        assert_eq!(state.failed_state_snapshot_parse_count, 0);
+        assert_eq!(state.last_state_snapshot_core_data, None);
+        assert_eq!(state.failed_state_snapshot_core_data_parse_count, 1);
+        assert_eq!(
+            state.last_state_snapshot_core_data_parse_error.as_deref(),
+            Some("state_snapshot_core_data_trailing_bytes:4/5")
+        );
+        assert_eq!(
+            state.last_state_snapshot_core_data_parse_error_payload_len,
+            Some(malformed_core_data.len())
+        );
+    }
+
+    #[test]
     fn state_snapshot_ingest_rejects_impossible_core_data_item_count() {
         let malformed_core_data = [0x01, 0x01, 0xFF, 0xFF];
         let payload = build_state_snapshot_payload(
@@ -1851,6 +1886,31 @@ mod tests {
                 .block_snapshot_head_apply_count,
             1
         );
+    }
+
+    #[test]
+    fn block_snapshot_ingest_rejects_negative_amount() {
+        let payload = [0xFF, 0xFF];
+        let mut state = SessionState::default();
+
+        ingest_inbound_snapshot(
+            &mut state,
+            InboundSnapshot::new(HighFrequencyRemoteMethod::BlockSnapshot, 11, &payload),
+        );
+
+        assert_eq!(state.received_block_snapshot_count, 1);
+        assert_eq!(state.applied_block_snapshot_count, 0);
+        assert_eq!(state.failed_block_snapshot_parse_count, 1);
+        assert_eq!(
+            state.last_block_snapshot_parse_error.as_deref(),
+            Some("negative_block_snapshot_amount:-1")
+        );
+        assert_eq!(
+            state.last_block_snapshot_parse_error_payload_len,
+            Some(payload.len())
+        );
+        assert_eq!(state.last_block_snapshot, None);
+        assert_eq!(state.block_snapshot_head_projection, None);
     }
 
     #[test]
