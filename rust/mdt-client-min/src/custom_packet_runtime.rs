@@ -903,11 +903,7 @@ fn parse_text_f64(text: &str) -> Option<f64> {
 }
 
 fn extract_json_number_field(text: &str, field: &str) -> Option<f64> {
-    let needle = format!("\"{field}\"");
-    let index = text.find(&needle)?;
-    let rest = &text[index + needle.len()..];
-    let colon = rest.find(':')?;
-    let mut value = rest[colon + 1..].trim_start();
+    let value = extract_json_field_value(text, field)?;
     let mut end = 0usize;
     for (idx, ch) in value.char_indices() {
         if idx == 0 && (ch == '-' || ch == '+') {
@@ -923,23 +919,39 @@ fn extract_json_number_field(text: &str, field: &str) -> Option<f64> {
     if end == 0 {
         return None;
     }
-    value = &value[..end];
-    value.parse::<f64>().ok()
+    json_literal_terminated(value, end).then(|| value[..end].parse::<f64>().ok())?
 }
 
 fn extract_json_bool_field(text: &str, field: &str) -> Option<bool> {
-    let needle = format!("\"{field}\"");
-    let index = text.find(&needle)?;
-    let rest = &text[index + needle.len()..];
-    let colon = rest.find(':')?;
-    let value = rest[colon + 1..].trim_start();
-    if value.starts_with("true") {
-        Some(true)
-    } else if value.starts_with("false") {
-        Some(false)
-    } else {
-        None
+    let value = extract_json_field_value(text, field)?;
+    if value.starts_with("true") && json_literal_terminated(value, "true".len()) {
+        return Some(true);
     }
+    if value.starts_with("false") && json_literal_terminated(value, "false".len()) {
+        return Some(false);
+    }
+    None
+}
+
+fn extract_json_field_value<'a>(text: &'a str, field: &str) -> Option<&'a str> {
+    let needle = format!("\"{field}\"");
+    let mut search_start = 0usize;
+    while let Some(found) = text[search_start..].find(&needle) {
+        let index = search_start + found;
+        let rest = text[index + needle.len()..].trim_start();
+        if let Some(value) = rest.strip_prefix(':') {
+            return Some(value.trim_start());
+        }
+        search_start = index + needle.len();
+    }
+    None
+}
+
+fn json_literal_terminated(value: &str, parsed_len: usize) -> bool {
+    value[parsed_len..]
+        .chars()
+        .next()
+        .is_none_or(|ch| ch.is_ascii_whitespace() || matches!(ch, ',' | '}' | ']'))
 }
 
 fn finite_world_pos(x: f64, y: f64) -> Option<(f64, f64)> {
@@ -1186,6 +1198,20 @@ mod tests {
 
         let parsed = parse_text_f64("{\"number\":-2.5E-4}").unwrap();
         assert!((parsed + 0.00025).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn parse_text_number_fields_require_exact_json_keys() {
+        assert_eq!(parse_text_world_pos("{\"xCoord\":12,\"yCoord\":-4}"), None);
+        assert_eq!(parse_text_i32("{\"idValue\":7}"), None);
+        assert_eq!(parse_text_u8("{\"teamValue\":3}"), None);
+        assert_eq!(parse_text_f64("{\"numberValue\":1.5}"), None);
+    }
+
+    #[test]
+    fn parse_text_literals_reject_trailing_garbage() {
+        assert_eq!(parse_text_bool("{\"value\":falsehood}"), None);
+        assert_eq!(parse_text_f64("{\"value\":12abc}"), None);
     }
 
     #[test]
