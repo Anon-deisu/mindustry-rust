@@ -3232,7 +3232,8 @@ impl ClientSession {
     }
 
     fn needs_world_reload_reset_for_stream_begin(&self) -> bool {
-        self.state.client_loaded
+        self.loading_world_data
+            || self.state.client_loaded
             || self.state.ready_to_enter_world
             || self.state.connect_confirm_sent
             || self.state.connect_confirm_flushed
@@ -50749,6 +50750,59 @@ mod tests {
             session.state().last_server_message.as_deref(),
             Some("[accent]queued second load")
         );
+    }
+
+    #[test]
+    fn stream_begin_reentry_while_loading_resets_stale_reload_state() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (first_begin_packet, _) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+        let (second_begin_packet, _) =
+            encode_world_stream_packets(&compressed_world_stream, 99, 1024).unwrap();
+        let send_message_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "sendMessage" && entry.params.len() == 1)
+            .unwrap()
+            .packet_id;
+        let queued_packet = encode_packet(
+            send_message_packet_id,
+            &encode_typeio_string_payload("[accent]stale"),
+            false,
+        )
+        .unwrap();
+
+        session.ingest_packet_bytes(&first_begin_packet).unwrap();
+        session.state.last_ready_inbound_liveness_anchor_at_ms = Some(123);
+        session.state.ready_inbound_liveness_anchor_count = 2;
+        session.last_ready_inbound_liveness_at_ms = Some(123);
+        session.pending_packets.push_back(PendingClientPacket {
+            packet_id: send_message_packet_id,
+            transport: ClientPacketTransport::Tcp,
+            bytes: queued_packet,
+        });
+        session.deferred_inbound_packets.push_back(DeferredInboundPacket {
+            packet_id: send_message_packet_id,
+            payload: encode_typeio_string_payload("[accent]stale"),
+        });
+
+        let event = session.ingest_packet_bytes(&second_begin_packet).unwrap();
+        assert_eq!(
+            event,
+            ClientSessionEvent::WorldStreamStarted {
+                stream_id: 99,
+                total_bytes: compressed_world_stream.len(),
+            }
+        );
+        assert!(session.loading_world_data);
+        assert_eq!(session.state().bootstrap_stream_id, Some(99));
+        assert_eq!(session.state().last_ready_inbound_liveness_anchor_at_ms, None);
+        assert_eq!(session.state().ready_inbound_liveness_anchor_count, 0);
+        assert_eq!(session.last_ready_inbound_liveness_at_ms, None);
+        assert!(session.pending_packets.is_empty());
+        assert!(session.deferred_inbound_packets.is_empty());
     }
 
     #[test]

@@ -7196,6 +7196,18 @@ impl SessionState {
             .clear();
     }
 
+    fn clear_entity_snapshot_tombstones_for_ids(&mut self, entity_ids: &BTreeSet<i32>) {
+        if entity_ids.is_empty() {
+            return;
+        }
+
+        for entity_id in entity_ids {
+            self.entity_snapshot_tombstones.remove(entity_id);
+        }
+        self.last_entity_snapshot_tombstone_skipped_ids_sample
+            .retain(|entity_id| !entity_ids.contains(entity_id));
+    }
+
     pub fn clear_entity_snapshot_tombstone(&mut self, entity_id: i32) -> bool {
         self.entity_snapshot_tombstones.remove(&entity_id).is_some()
     }
@@ -7322,6 +7334,8 @@ impl SessionState {
         if previous_hidden_ids.is_empty() {
             return;
         }
+
+        self.clear_entity_snapshot_tombstones_for_ids(&previous_hidden_ids);
 
         let cleared_hidden_ids = BTreeSet::new();
         let typed_runtime_transition = HiddenSnapshotTypedRuntimeTransition {
@@ -13895,6 +13909,45 @@ mod tests {
                 if !world_label.base.hidden
                     && world_label.semantic.text.as_deref() == Some("hello world")
         ));
+    }
+
+    #[test]
+    fn clear_hidden_snapshot_after_parse_failure_clears_tombstones_for_restored_hidden_ids() {
+        let mut state = SessionState::default();
+        state.entity_table_projection.by_entity_id.insert(
+            303,
+            EntityProjection {
+                class_id: 35,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 0,
+                unit_value: 0,
+                x_bits: 5.5f32.to_bits(),
+                y_bits: 6.5f32.to_bits(),
+                last_seen_entity_snapshot_count: 11,
+            },
+        );
+
+        state.apply_hidden_snapshot(
+            AppliedHiddenSnapshotIds {
+                count: 1,
+                first_id: Some(303),
+                sample_ids: vec![303],
+            },
+            BTreeSet::from([303]),
+        );
+
+        assert!(state.hidden_snapshot_ids.contains(&303));
+        state.record_entity_snapshot_tombstone(303);
+
+        assert!(state.entity_snapshot_tombstones.contains_key(&303));
+        assert!(state.entity_snapshot_tombstone_blocks_upsert(303));
+
+        state.clear_hidden_snapshot_after_parse_failure();
+
+        assert!(state.hidden_snapshot_ids.is_empty());
+        assert!(!state.entity_snapshot_tombstones.contains_key(&303));
+        assert!(!state.entity_snapshot_tombstone_blocks_upsert(303));
     }
 
     #[test]
