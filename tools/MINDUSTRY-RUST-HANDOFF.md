@@ -31,6 +31,7 @@ Architecture boundary source of truth:
 - sync command: `powershell -ExecutionPolicy Bypass -File .\tools\sync-mindustry-rust-handoff.ps1 -Stage`
 - manifest self-check: `powershell -ExecutionPolicy Bypass -File .\tools\sync-mindustry-rust-handoff.ps1 -ValidateManifest`
 - sync guard: the sync script now rejects `SourceRoot == TargetCheckout`; if you run it outside the source workspace, pass `-SourceRoot` explicitly
+- target checkout paths from `-TargetCheckout`, git config, or `MDT_TARGET_CHECKOUT` are resolved against the source workspace when relative
 
 Canonical fixture layout (source + target):
 

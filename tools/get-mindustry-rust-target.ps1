@@ -30,6 +30,19 @@ if (!(Test-Path $configPath)) {
 
 $config = Get-Content -Raw -Path $configPath | ConvertFrom-Json
 $repoRoot = (Resolve-Path (Join-Path $scriptDir "..")).Path
+
+function Resolve-CheckoutPath([string]$Path, [string]$BasePath) {
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ''
+    }
+
+    if ([System.IO.Path]::IsPathRooted($Path)) {
+        return [System.IO.Path]::GetFullPath($Path)
+    }
+
+    return [System.IO.Path]::GetFullPath((Join-Path $BasePath $Path))
+}
+
 $gitConfiguredCheckout = (& git -C $repoRoot config --local --get mdt.targetcheckout 2>$null)
 if ($LASTEXITCODE -ne 0) {
     $gitConfiguredCheckout = ''
@@ -42,6 +55,7 @@ $effectiveCheckout = if (-not [string]::IsNullOrWhiteSpace($gitConfiguredCheckou
 } else {
     ''
 }
+$effectiveCheckout = Resolve-CheckoutPath -Path $effectiveCheckout -BasePath $repoRoot
 
 if ($Json) {
     $config | ConvertTo-Json -Depth 8

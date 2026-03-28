@@ -982,6 +982,10 @@ pub fn validate_remote_manifest(manifest: &RemoteManifest) -> Result<(), RemoteM
     let remote_id_offset = manifest.base_packets.len();
     let mut seen_remote_packet_definitions =
         std::collections::HashSet::with_capacity(manifest.remote_packets.len());
+    let mut seen_remote_packet_classes =
+        std::collections::HashSet::with_capacity(manifest.remote_packets.len());
+    let mut seen_remote_packet_const_names =
+        std::collections::HashSet::with_capacity(manifest.remote_packets.len());
     for (index, packet) in manifest.remote_packets.iter().enumerate() {
         if packet.remote_index != index {
             return Err(RemoteManifestError::InvalidPacketSequence(format!(
@@ -1012,6 +1016,12 @@ pub fn validate_remote_manifest(manifest: &RemoteManifest) -> Result<(), RemoteM
                 packet.packet_id
             )));
         }
+        if !seen_remote_packet_classes.insert(packet.packet_class.as_str()) {
+            return Err(RemoteManifestError::InvalidRemotePacketMetadata(format!(
+                "duplicate remote packetClass: {}",
+                packet.packet_class
+            )));
+        }
         let packet_const_name = remote_packet_const_name_raw(&packet.packet_class);
         if packet_const_name.is_empty()
             || packet_const_name
@@ -1022,6 +1032,13 @@ pub fn validate_remote_manifest(manifest: &RemoteManifest) -> Result<(), RemoteM
             return Err(RemoteManifestError::InvalidRemotePacketMetadata(format!(
                 "remote packet {} has packetClass that would generate invalid Rust const name: {}",
                 packet.packet_class, packet_const_name
+            )));
+        }
+        let packet_const_name = remote_packet_const_name(&packet.packet_class);
+        if !seen_remote_packet_const_names.insert(packet_const_name.clone()) {
+            return Err(RemoteManifestError::InvalidRemotePacketMetadata(format!(
+                "duplicate generated remote packet const name: {}",
+                packet_const_name
             )));
         }
         if packet.declaring_type.trim().is_empty() {
@@ -2687,6 +2704,136 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "duplicate remote packet definition: mindustry.gen.DuplicateRemotePacketB"
+        );
+    }
+
+    #[test]
+    fn validate_remote_manifest_rejects_duplicate_packet_class() {
+        let manifest = RemoteManifest {
+            schema: REMOTE_MANIFEST_SCHEMA_V1.into(),
+            generator: RemoteGeneratorInfo {
+                source: "test".into(),
+                call_class: "mindustry.gen.Call".into(),
+            },
+            base_packets: vec![],
+            remote_packets: vec![
+                RemotePacketEntry {
+                    remote_index: 0,
+                    packet_id: 0,
+                    packet_class: "mindustry.gen.DuplicateRemotePacket".into(),
+                    declaring_type: "mindustry.core.NetServer".into(),
+                    method: "duplicateRemotePacketA".into(),
+                    targets: "client".into(),
+                    called: "server".into(),
+                    variants: "all".into(),
+                    allow_on_client: None,
+                    allow_on_server: None,
+                    forward: false,
+                    unreliable: true,
+                    priority: "high".into(),
+                    params: vec![],
+                },
+                RemotePacketEntry {
+                    remote_index: 1,
+                    packet_id: 1,
+                    packet_class: "mindustry.gen.DuplicateRemotePacket".into(),
+                    declaring_type: "mindustry.core.NetServer".into(),
+                    method: "duplicateRemotePacketB".into(),
+                    targets: "client".into(),
+                    called: "server".into(),
+                    variants: "all".into(),
+                    allow_on_client: None,
+                    allow_on_server: None,
+                    forward: false,
+                    unreliable: true,
+                    priority: "high".into(),
+                    params: vec![],
+                },
+            ],
+            wire: WireSpec {
+                packet_id_byte: REMOTE_WIRE_PACKET_ID_BYTE_U8.into(),
+                length_field: REMOTE_WIRE_LENGTH_FIELD_U16BE.into(),
+                compression_flag: CompressionFlagSpec {
+                    none: REMOTE_WIRE_COMPRESSION_NONE.into(),
+                    lz4: REMOTE_WIRE_COMPRESSION_LZ4.into(),
+                },
+                compression_threshold: REMOTE_WIRE_COMPRESSION_THRESHOLD,
+            },
+        };
+
+        let error = validate_remote_manifest(&manifest).unwrap_err();
+        assert!(matches!(
+            error,
+            RemoteManifestError::InvalidRemotePacketMetadata(_)
+        ));
+        assert_eq!(
+            error.to_string(),
+            "duplicate remote packetClass: mindustry.gen.DuplicateRemotePacket"
+        );
+    }
+
+    #[test]
+    fn generate_rust_registry_rejects_duplicate_packet_const_names() {
+        let manifest = RemoteManifest {
+            schema: REMOTE_MANIFEST_SCHEMA_V1.into(),
+            generator: RemoteGeneratorInfo {
+                source: "test".into(),
+                call_class: "mindustry.gen.Call".into(),
+            },
+            base_packets: vec![],
+            remote_packets: vec![
+                RemotePacketEntry {
+                    remote_index: 0,
+                    packet_id: 0,
+                    packet_class: "mindustry.gen.DuplicateRemotePacketA".into(),
+                    declaring_type: "mindustry.core.NetServer".into(),
+                    method: "duplicateRemotePacketA".into(),
+                    targets: "client".into(),
+                    called: "server".into(),
+                    variants: "all".into(),
+                    allow_on_client: None,
+                    allow_on_server: None,
+                    forward: false,
+                    unreliable: true,
+                    priority: "high".into(),
+                    params: vec![],
+                },
+                RemotePacketEntry {
+                    remote_index: 1,
+                    packet_id: 1,
+                    packet_class: "other.gen.DuplicateRemotePacketA".into(),
+                    declaring_type: "mindustry.core.NetServer".into(),
+                    method: "duplicateRemotePacketB".into(),
+                    targets: "client".into(),
+                    called: "server".into(),
+                    variants: "all".into(),
+                    allow_on_client: None,
+                    allow_on_server: None,
+                    forward: false,
+                    unreliable: true,
+                    priority: "high".into(),
+                    params: vec![],
+                },
+            ],
+            wire: WireSpec {
+                packet_id_byte: REMOTE_WIRE_PACKET_ID_BYTE_U8.into(),
+                length_field: REMOTE_WIRE_LENGTH_FIELD_U16BE.into(),
+                compression_flag: CompressionFlagSpec {
+                    none: REMOTE_WIRE_COMPRESSION_NONE.into(),
+                    lz4: REMOTE_WIRE_COMPRESSION_LZ4.into(),
+                },
+                compression_threshold: REMOTE_WIRE_COMPRESSION_THRESHOLD,
+            },
+        };
+
+        let error = generate_rust_registry(&manifest).unwrap_err();
+        assert!(matches!(
+            error,
+            RemoteManifestError::InvalidRemotePacketMetadata(_)
+        ));
+        assert_eq!(
+            error.to_string(),
+            "duplicate generated remote packet const name: DUPLICATE_REMOTE_PACKET_A"
         );
     }
 

@@ -535,6 +535,10 @@ fn parse_objective_projection(entry: &str) -> Option<ObjectiveProjection> {
         ObjectFieldStatus::Missing => Vec::new(),
         ObjectFieldStatus::Invalid => return None,
     };
+    let flags_added = object_field_string_array(entry, "flagsAdded");
+    let flags_added_count = Some(flags_added.len());
+    let flags_removed = object_field_string_array(entry, "flagsRemoved");
+    let flags_removed_count = Some(flags_removed.len());
 
     Some(ObjectiveProjection {
         objective_type: object_field_string(entry, "type"),
@@ -552,10 +556,10 @@ fn parse_objective_projection(entry: &str) -> Option<ObjectiveProjection> {
         parents,
         has_position: object_field_value(entry, "pos").is_some(),
         positions_count: object_field_array_len(entry, "positions"),
-        flags_added: object_field_string_array(entry, "flagsAdded"),
-        flags_added_count: object_field_array_len(entry, "flagsAdded"),
-        flags_removed: object_field_string_array(entry, "flagsRemoved"),
-        flags_removed_count: object_field_array_len(entry, "flagsRemoved"),
+        flags_added,
+        flags_added_count,
+        flags_removed,
+        flags_removed_count,
     })
 }
 
@@ -1148,6 +1152,21 @@ mod tests {
         assert!(projection.objective_flags.contains("wave-start"));
         assert!(!projection.objective_flags.contains("boss"));
         assert_eq!(projection.objective_flags.len(), 1);
+    }
+
+    #[test]
+    fn objectives_projection_counts_only_parsed_string_flags() {
+        let mut projection = ObjectivesProjection::default();
+
+        projection.replace_from_json(
+            r#"[{"type":"Research","content":"router","flagsAdded":["a",1,"b"],"flagsRemoved":[null,"c",false]}]"#,
+        );
+
+        assert_eq!(projection.objectives.len(), 1);
+        assert_eq!(projection.objectives[0].flags_added, vec!["a", "b"]);
+        assert_eq!(projection.objectives[0].flags_added_count, Some(2));
+        assert_eq!(projection.objectives[0].flags_removed, vec!["c"]);
+        assert_eq!(projection.objectives[0].flags_removed_count, Some(1));
     }
 
     #[test]

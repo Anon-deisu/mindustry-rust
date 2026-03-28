@@ -704,6 +704,44 @@ mod tests {
     }
 
     #[test]
+    fn execute_runtime_world_semantics_ignores_duplicate_non_world_custom_chunk_failures() {
+        let mut observation = test_observation();
+        make_observation_seedable(&mut observation);
+        observation.custom_chunks.push(CustomChunkEntry {
+            name: observation.custom_chunks[1].name.clone(),
+            chunk_len: 1,
+            chunk_bytes: vec![0xee],
+            chunk_sha256: "mystery-duplicate".to_string(),
+            parsed: ParsedCustomChunk::Unknown,
+        });
+
+        let runtime_apply = observation.execute_runtime_apply();
+        let execution = observation.execute_runtime_world_semantics();
+        let shell = execution.world_shell.as_ref().unwrap();
+
+        assert_eq!(
+            runtime_apply.failed_steps,
+            vec![SavePostLoadRuntimeApplyStep::CustomChunk { chunk_index: 2 }]
+        );
+        assert_eq!(
+            runtime_apply.issues,
+            vec![SavePostLoadRuntimeApplyIssue::DuplicateCustomChunkName(
+                "mystery".to_string(),
+            )]
+        );
+        assert!(!runtime_apply.can_activate_live_runtime());
+
+        assert!(execution.world_shell_ready);
+        assert!(execution.has_world_shell());
+        assert!(execution.awaiting_world_shell_steps.is_empty());
+        assert!(execution.blocked_steps.is_empty());
+        assert!(execution.failed_steps.is_empty());
+        assert!(execution.issues.is_empty());
+        assert!(execution.can_activate_live_runtime());
+        assert!(shell.static_fog.is_some());
+    }
+
+    #[test]
     fn execute_runtime_apply_records_duplicate_marker_ids_without_overwriting_first_marker() {
         let mut observation = test_observation();
         make_observation_seedable(&mut observation);
@@ -720,6 +758,37 @@ mod tests {
             execution.issues,
             vec![SavePostLoadRuntimeApplyIssue::DuplicateMarkerId(11)]
         );
+        assert_eq!(
+            shell.owned_step_count(SavePostLoadRuntimeWorldSurfaceKind::Markers),
+            1
+        );
+        assert_eq!(shell.markers.len(), 1);
+        assert_eq!(shell.markers_by_id.len(), 1);
+        assert!(shell.markers_by_id.contains_key(&11));
+    }
+
+    #[test]
+    fn execute_runtime_world_semantics_rejects_duplicate_marker_ids_after_world_shell_ready() {
+        let mut observation = test_observation();
+        make_observation_seedable(&mut observation);
+        observation.markers[1].id = observation.markers[0].id;
+
+        let execution = observation.execute_runtime_world_semantics();
+        let shell = execution.world_shell.as_ref().unwrap();
+
+        assert!(execution.world_shell_ready);
+        assert!(execution.has_world_shell());
+        assert!(execution.awaiting_world_shell_steps.is_empty());
+        assert!(execution.blocked_steps.is_empty());
+        assert_eq!(
+            execution.failed_steps,
+            vec![SavePostLoadRuntimeApplyStep::Marker { marker_index: 1 }]
+        );
+        assert_eq!(
+            execution.issues,
+            vec![SavePostLoadRuntimeApplyIssue::DuplicateMarkerId(11)]
+        );
+        assert!(!execution.can_activate_live_runtime());
         assert_eq!(
             shell.owned_step_count(SavePostLoadRuntimeWorldSurfaceKind::Markers),
             1

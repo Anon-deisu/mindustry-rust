@@ -91,6 +91,18 @@ function Get-ManifestStringList([object]$ManifestValue, [string]$FieldName) {
     return $result
 }
 
+function Resolve-CheckoutPath([string]$Path, [string]$BasePath) {
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return ''
+    }
+
+    if ([System.IO.Path]::IsPathRooted($Path)) {
+        return [System.IO.Path]::GetFullPath($Path)
+    }
+
+    return [System.IO.Path]::GetFullPath((Join-Path $BasePath $Path))
+}
+
 function Normalize-RepositoryRemote([string]$RemoteUrl) {
     if ([string]::IsNullOrWhiteSpace($RemoteUrl)) {
         return ''
@@ -209,6 +221,10 @@ if ([string]::IsNullOrWhiteSpace($TargetCheckout)) {
     } else {
         throw "TargetCheckout is not configured. Run this script from the source workspace (not the target repo), or pass -TargetCheckout explicitly. $targetCheckoutResolutionOrder"
     }
+}
+
+if (-not [string]::IsNullOrWhiteSpace($TargetCheckout)) {
+    $TargetCheckout = Resolve-CheckoutPath -Path $TargetCheckout -BasePath $SourceRoot
 }
 
 if (!(Test-Path $TargetCheckout)) {

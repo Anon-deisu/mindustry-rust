@@ -524,9 +524,12 @@ fn parse_surface_i32(value: &str) -> Option<i32> {
 }
 
 fn parse_surface_world_pos(value: &str) -> Option<(f32, f32)> {
-    let mut parts = value.splitn(2, ',');
-    let x = parts.next()?.trim().parse::<f32>().ok()?;
-    let y = parts.next()?.trim().parse::<f32>().ok()?;
+    let trimmed = value.trim();
+    let (left, right) = trimmed
+        .split_once(',')
+        .or_else(|| trimmed.split_once(':'))?;
+    let x = left.trim().parse::<f32>().ok()?;
+    let y = right.trim().parse::<f32>().ok()?;
     Some((x, y))
 }
 
@@ -866,5 +869,34 @@ mod tests {
         invalid_entry.marker.as_mut().unwrap().x = f32::NAN;
         host.observe_summary_entries(43, &[invalid_entry]);
         assert!(host.drain_actions().is_empty());
+    }
+
+    #[test]
+    fn runtime_custom_packet_host_parses_colon_separated_world_pos_drop_actions() {
+        let mut host = RuntimeCustomPacketHost::from_specs_with_actions(
+            &[logic_pos_spec()],
+            &[drop_action_spec()],
+        )
+        .unwrap();
+
+        host.observe_summary_entries(
+            42,
+            &[RuntimeCustomPacketSurfaceSummaryEntry {
+                key: "logic.pos".to_string(),
+                encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+                semantic: RuntimeCustomPacketSemanticKind::WorldPos,
+                stable_value: "7:9".to_string(),
+                marker: None,
+            }],
+        );
+
+        assert_eq!(
+            host.drain_actions(),
+            vec![RuntimeCustomPacketHostAction::RequestDropPayload {
+                key: "logic.pos".to_string(),
+                x: 7.0,
+                y: 9.0,
+            }]
+        );
     }
 }
