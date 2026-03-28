@@ -54173,6 +54173,18 @@ mod tests {
     }
 
     #[test]
+    fn parse_save_custom_chunks_region_rejects_trailing_bytes_after_last_chunk() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1u32.to_be_bytes());
+        write_java_utf(&mut bytes, "alpha").unwrap();
+        bytes.extend_from_slice(&0u32.to_be_bytes());
+        bytes.push(0xaa);
+
+        let error = parse_save_custom_chunks_region(&bytes).unwrap_err();
+        assert!(error.contains("unexpected trailing bytes after save custom region"));
+    }
+
+    #[test]
     fn rejects_unreasonable_static_fog_dimensions() {
         let mut bytes = Vec::new();
         bytes.push(1);
@@ -54214,6 +54226,16 @@ mod tests {
             _ => panic!("expected point marker"),
         };
         assert_eq!(point.color.as_deref(), Some("ffd37fff"));
+    }
+
+    #[test]
+    fn parse_markers_rejects_trailing_bytes_after_marker_region() {
+        let mut bytes = generate_marker_sample_bytes();
+        bytes.extend_from_slice(&[0xde, 0xad]);
+
+        let error = parse_markers(&bytes).unwrap_err();
+
+        assert!(error.contains("unexpected trailing bytes after marker region"));
     }
 
     #[test]

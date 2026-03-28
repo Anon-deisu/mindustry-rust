@@ -6045,6 +6045,40 @@ mod tests {
     }
 
     #[test]
+    fn runtime_ping_minimap_tile_prefers_latest_runtime_ping_marker() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 32.0,
+                height: 32.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: "marker:text:runtime-ping:1:text:6f6c64".to_string(),
+                    layer: 31,
+                    x: 8.0,
+                    y: 16.0,
+                },
+                RenderObject {
+                    id: "terrain:sentinel".to_string(),
+                    layer: 0,
+                    x: 0.0,
+                    y: 0.0,
+                },
+                RenderObject {
+                    id: "marker:text:runtime-ping:9:text:6e6577".to_string(),
+                    layer: 31,
+                    x: 24.0,
+                    y: 32.0,
+                },
+            ],
+        };
+
+        assert_eq!(runtime_ping_minimap_tile(&scene, 80, 60), Some((3, 4)));
+    }
+
+    #[test]
     fn fit_window_minimap_size_rejects_small_bounds_and_caps_scale() {
         assert_eq!(fit_window_minimap_size(0, 24, 128, 128), None);
         assert_eq!(fit_window_minimap_size(24, 0, 128, 128), None);

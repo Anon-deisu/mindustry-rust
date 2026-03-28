@@ -30979,6 +30979,14 @@ mod tests {
             session.state().failed_state_snapshot_core_data_parse_count,
             1
         );
+        assert_eq!(
+            session.state().last_state_snapshot_core_data_parse_error.as_deref(),
+            Some("truncated_state_snapshot_core_data")
+        );
+        assert_eq!(
+            session.state().last_state_snapshot_core_data_parse_error_payload_len,
+            Some(malformed_core_data.len())
+        );
         assert_eq!(session.state().last_state_snapshot_core_data, None);
         assert!(session.state().last_good_state_snapshot_core_data.is_some());
         assert_eq!(session.state().received_wave_advance_signal_count, 2);
@@ -31248,6 +31256,8 @@ mod tests {
         assert_eq!(session.state().last_entity_snapshot_amount, Some(2));
         assert_eq!(session.state().last_entity_snapshot_body_len, Some(155));
         assert_eq!(session.state().entity_snapshot_with_local_target_count, 0);
+        assert_eq!(session.state().entity_snapshot_tombstone_skip_count, 0);
+        assert_eq!(session.state().entity_snapshot_hidden_skip_count, 0);
         assert_eq!(
             session
                 .state()
@@ -42259,20 +42269,64 @@ mod tests {
     fn deconstruct_finish_packet_emits_summary_event() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let build_pos = pack_point2(100, 99);
+        let pending_value = TypeIoObject::Int(9);
         session
             .state
             .tile_config_projection
-            .seed_authoritative_state(pack_point2(100, 99), TypeIoObject::Int(7));
+            .seed_authoritative_state(build_pos, TypeIoObject::Int(7));
         session
             .state
             .building_table_projection
             .apply_construct_finish(
-                pack_point2(100, 99),
+                build_pos,
                 Some(0x0101),
                 None,
                 0,
                 1,
                 TypeIoObject::Null,
+            );
+        session
+            .queue_tile_config(Some(build_pos), pending_value.clone())
+            .unwrap();
+        session
+            .state
+            .runtime_typed_building_apply_projection
+            .by_build_pos
+            .insert(
+                build_pos,
+                crate::session_state::TypedBuildingRuntimeModel {
+                    build_pos,
+                    block_id: Some(0x0101),
+                    block_name: "test-block".to_string(),
+                    kind: crate::session_state::TypedBuildingRuntimeKind::Message,
+                    value: crate::session_state::TypedBuildingRuntimeValue::Text(
+                        "hello".to_string(),
+                    ),
+                    inventory_item_stacks: Vec::new(),
+                    inventory_liquid_stacks: Vec::new(),
+                    rotation: Some(0),
+                    team_id: Some(1),
+                    io_version: None,
+                    module_bitmask: None,
+                    time_scale_bits: None,
+                    time_scale_duration_bits: None,
+                    last_disabler_pos: None,
+                    legacy_consume_connected: None,
+                    health_bits: None,
+                    enabled: None,
+                    efficiency: None,
+                    optional_efficiency: None,
+                    visible_flags: None,
+                    turret_reload_counter_bits: None,
+                    turret_rotation_bits: None,
+                    item_turret_ammo_count: None,
+                    continuous_turret_last_length_bits: None,
+                    build_turret_rotation_bits: None,
+                    build_turret_plans_present: None,
+                    build_turret_plan_count: None,
+                    last_update: crate::session_state::BuildingProjectionUpdateKind::ConstructFinish,
+                },
             );
         {
             let input = session.snapshot_input_mut();
@@ -42303,7 +42357,7 @@ mod tests {
         assert_eq!(
             event,
             ClientSessionEvent::DeconstructFinish {
-                tile_pos: pack_point2(100, 99),
+                tile_pos: build_pos,
                 block_id: Some(0x0101),
                 builder_kind: 2,
                 builder_value: 42,
@@ -42313,7 +42367,7 @@ mod tests {
         assert_eq!(session.state().received_deconstruct_finish_count, 1);
         assert_eq!(
             session.state().last_deconstruct_finish_tile_pos,
-            Some(pack_point2(100, 99))
+            Some(build_pos)
         );
         assert_eq!(
             session.state().last_deconstruct_finish_block_id,
@@ -42340,12 +42394,27 @@ mod tests {
         assert!(session
             .state()
             .tile_config_projection
+            .pending_local_by_build_pos
+            .is_empty());
+        assert!(session
+            .state()
+            .tile_config_projection
+            .pending_local_request_queue_by_build_pos
+            .is_empty());
+        assert!(session
+            .state()
+            .tile_config_projection
             .authoritative_by_build_pos
             .is_empty());
         assert!(session
             .state()
             .tile_config_projection
             .canonical_authoritative_by_build_pos
+            .is_empty());
+        assert!(session
+            .state()
+            .runtime_typed_building_apply_projection
+            .by_build_pos
             .is_empty());
         assert_eq!(
             session.state().building_table_projection.last_update,
@@ -49330,6 +49399,7 @@ mod tests {
         assert!(session.prepare_connect_confirm_packet().unwrap().is_none());
         assert!(session.state().connect_confirm_sent);
         assert!(!session.state().connect_confirm_flushed);
+        assert_eq!(session.last_snapshot_at_ms, Some(0));
 
         let actions = session.advance_time(1_201).unwrap();
 
@@ -50614,6 +50684,7 @@ mod tests {
         assert_eq!(session.state().last_connect_confirm_flushed_at_ms, None);
         assert_eq!(session.state().finish_connecting_commit_count, 0);
         assert_eq!(session.state().last_finish_connecting, None);
+        assert!(session.loaded_world_bundle().is_none());
         assert!(session.pending_packets.is_empty());
         assert_eq!(
             session.state().last_world_reload,
@@ -50824,6 +50895,7 @@ mod tests {
         assert!(!session.state().connect_confirm_flushed);
         assert_eq!(session.state().last_connect_confirm_at_ms, Some(0));
         assert_eq!(session.state().last_connect_confirm_flushed_at_ms, None);
+        assert_eq!(session.state().last_outbound_at_ms, Some(0));
         assert_eq!(session.last_snapshot_at_ms, Some(0));
         assert_eq!(session.pending_packets.len(), 1);
         assert_eq!(
@@ -51010,6 +51082,7 @@ mod tests {
         assert_eq!(reset, ClientSessionEvent::WorldDataBegin);
         assert!(!session.state().client_loaded);
         assert_eq!(session.state().deferred_inbound_packet_count, 0);
+        assert!(session.pending_world_stream.is_none());
         assert!(session.radar_runtime_by_build_pos.borrow().is_empty());
         assert!(session.take_replayed_loading_events().is_empty());
         assert_eq!(
@@ -51086,6 +51159,7 @@ mod tests {
             .find(|entry| entry.method == HighFrequencyRemoteMethod::HiddenSnapshot.method_name())
             .unwrap()
             .packet_id;
+        let hidden_snapshot_payload = sample_snapshot_packet("hiddenSnapshot.packet");
         let state_snapshot = encode_packet(
             state_snapshot_packet_id,
             &sample_snapshot_packet("stateSnapshot.packet"),
@@ -51102,7 +51176,7 @@ mod tests {
         session.ingest_packet_bytes(&block_snapshot).unwrap();
         let hidden_snapshot = encode_packet(
             hidden_snapshot_packet_id,
-            &sample_snapshot_packet("hiddenSnapshot.packet"),
+            &hidden_snapshot_payload,
             false,
         )
         .unwrap();
@@ -51115,6 +51189,12 @@ mod tests {
             .state_snapshot_authority_projection
             .is_some());
         assert!(session.state().last_block_snapshot.is_some());
+        assert!(session.state().seen_hidden_snapshot);
+        assert_eq!(session.state().received_hidden_snapshot_count, 1);
+        assert_eq!(
+            session.state().last_hidden_snapshot_payload_len,
+            Some(hidden_snapshot_payload.len())
+        );
         assert!(session.state().last_hidden_snapshot.is_some());
         let tile_config_packet_id = manifest
             .remote_packets
@@ -51301,6 +51381,9 @@ mod tests {
         assert_eq!(session.state().world_player_y_bits, None);
         assert_eq!(session.state().last_block_snapshot, None);
         assert_eq!(session.state().last_hidden_snapshot, None);
+        assert!(!session.state().seen_hidden_snapshot);
+        assert_eq!(session.state().received_hidden_snapshot_count, 0);
+        assert_eq!(session.state().last_hidden_snapshot_payload_len, None);
         assert_eq!(session.state().hidden_snapshot_delta_projection, None);
         assert!(session.state().hidden_snapshot_ids.is_empty());
         assert_eq!(session.state().entity_snapshot_hidden_skip_count, 0);
