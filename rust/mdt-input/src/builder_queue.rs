@@ -865,7 +865,9 @@ impl BuilderQueueStateMachine {
                 BuilderQueueHeadExecutionAction::OutOfRange
             }
             (Some(entry), BuilderQueueHeadExecutionObservation::PendingBegin) => {
-                if entry.stage == BuilderQueueStage::InFlight {
+                if entry.stage == BuilderQueueStage::InFlight
+                    && (entry.breaking || entry.block_id.is_some())
+                {
                     BuilderQueueHeadExecutionAction::ContinueConstruct
                 } else if entry.breaking {
                     BuilderQueueHeadExecutionAction::BeginBreak
@@ -1062,8 +1064,13 @@ impl BuilderQueueStateMachine {
                 .is_none()
                 .then_some(BuilderQueueValidationRemovalReason::BreakAlreadyAir)
         } else {
-            let same_block = observation.block_id == entry.block_id;
-            if !same_block {
+            let Some(entry_block_id) = entry.block_id else {
+                return None;
+            };
+            let Some(observed_block_id) = observation.block_id else {
+                return None;
+            };
+            if observed_block_id != entry_block_id {
                 return None;
             }
             if !observation.requires_rotation_match {
@@ -3188,6 +3195,51 @@ mod tests {
     }
 
     #[test]
+    fn validate_against_tile_states_does_not_remove_place_plan_with_unknown_block_id() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 16,
+                y: 16,
+                breaking: false,
+                block_id: None,
+                rotation: 1,
+            },
+            BuilderQueueEntryObservation {
+                x: 17,
+                y: 17,
+                breaking: true,
+                block_id: None,
+                rotation: 0,
+            },
+        ]);
+
+        let validation = queue.validate_against_tile_states([BuilderQueueTileStateObservation {
+            x: 16,
+            y: 16,
+            block_id: None,
+            rotation: Some(1),
+            requires_rotation_match: false,
+        }]);
+
+        assert_eq!(
+            validation,
+            BuilderQueueValidationResult {
+                removed_count: 0,
+                removed_head: false,
+                removed_tiles: Vec::new(),
+                head_tile_before: Some((16, 16)),
+                head_tile_after: Some((16, 16)),
+                reconcile_outcome: BuilderQueueReconcileOutcome::Unchanged,
+            }
+        );
+        assert_eq!(queue.ordered_tiles, vec![(16, 16), (17, 17)]);
+        assert_eq!(queue.head_tile, Some((16, 16)));
+        assert_eq!(queue.queued_count, 2);
+        assert_eq!(queue.inflight_count, 0);
+    }
+
+    #[test]
     fn validate_against_tile_states_removes_place_entry_when_rotation_match_is_not_required() {
         let mut queue = BuilderQueueStateMachine::default();
         queue.sync_local_entries([
@@ -4060,6 +4112,57 @@ mod tests {
         assert_eq!(queue.queued_count, 0);
         assert_eq!(queue.inflight_count, 1);
         assert_eq!(queue.last_transition, Some(BuilderQueueTransition::Started));
+        assert_eq!(queue.last_front_promotion, None);
+    }
+
+    #[test]
+    fn apply_head_execution_observation_removes_blockless_inflight_place_head() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.enqueue_local(
+            BuilderQueueEntryObservation {
+                x: 18,
+                y: 18,
+                breaking: false,
+                block_id: None,
+                rotation: 1,
+            },
+            true,
+        );
+        queue
+            .active_by_tile
+            .get_mut(&(18, 18))
+            .expect("head entry")
+            .stage = BuilderQueueStage::InFlight;
+        queue.recount();
+
+        let result = queue
+            .apply_head_execution_observation(BuilderQueueHeadExecutionObservation::PendingBegin);
+
+        assert_eq!(
+            result,
+            BuilderQueueHeadExecutionResult {
+                action: BuilderQueueHeadExecutionAction::RemovedInvalidHead,
+                head_tile_before: Some((18, 18)),
+                head_tile_after: None,
+                removed_entry: Some(BuilderQueueEntry {
+                    x: 18,
+                    y: 18,
+                    breaking: false,
+                    block_id: None,
+                    rotation: Some(1),
+                    progress_permyriad: None,
+                    stage: BuilderQueueStage::InFlight,
+                }),
+            }
+        );
+        assert!(queue.ordered_tiles.is_empty());
+        assert_eq!(queue.head_tile, None);
+        assert_eq!(queue.queued_count, 0);
+        assert_eq!(queue.inflight_count, 0);
+        assert_eq!(
+            queue.last_transition,
+            Some(BuilderQueueTransition::RemovedInvalidHead)
+        );
         assert_eq!(queue.last_front_promotion, None);
     }
 
