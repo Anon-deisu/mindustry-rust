@@ -301,6 +301,12 @@ impl RuntimeCustomPacketRelayState {
     }
 
     fn observe_events(&mut self, events: &[ClientSessionEvent]) {
+        if events
+            .iter()
+            .any(|event| matches!(event, ClientSessionEvent::WorldDataBegin))
+        {
+            self.clear_runtime_state();
+        }
         for event in events {
             match event {
                 ClientSessionEvent::ClientPacketReliable { packet_type, .. }
@@ -328,6 +334,13 @@ impl RuntimeCustomPacketRelayState {
                 _ => {}
             }
         }
+    }
+
+    fn clear_runtime_state(&mut self) {
+        self.pending_entries.clear();
+        clear_route_states(&mut self.text_routes);
+        clear_route_states(&mut self.binary_routes);
+        clear_route_states(&mut self.logic_routes);
     }
 
     fn record_event(
@@ -581,6 +594,17 @@ fn append_summary_lines(
     }
 }
 
+fn clear_route_states(routes: &mut BTreeMap<String, Vec<RuntimeCustomPacketRelayRouteState>>) {
+    for route_states in routes.values_mut() {
+        for route in route_states {
+            route.handler_count = 0;
+            route.event_reliable_count = 0;
+            route.event_unreliable_count = 0;
+            route.last_preview = None;
+        }
+    }
+}
+
 fn encode_hex_prefix(bytes: &[u8]) -> String {
     bytes
         .iter()
@@ -753,5 +777,33 @@ mod tests {
                 transport: ClientPacketTransport::Tcp,
             }
         );
+    }
+
+    #[test]
+    fn runtime_custom_packet_relays_clear_state_on_world_data_begin() {
+        let mut state = RuntimeCustomPacketRelayState::default();
+        state.register(&RuntimeCustomPacketRelaySpec::Text {
+            inbound_type: "custom.ping".to_string(),
+            outbound_type: "custom.pong".to_string(),
+            transport: ClientPacketTransport::Tcp,
+        });
+
+        state.record_text_handler("custom.ping", "wave ready");
+        state.observe_events(&[ClientSessionEvent::ServerPacketReliable {
+            packet_type: "custom.ping".to_string(),
+            contents: "wave ready".to_string(),
+        }]);
+
+        assert_eq!(state.pending_entries.len(), 1);
+        assert!(state.summary_lines()[0].contains("count=1"));
+
+        state.observe_events(&[ClientSessionEvent::WorldDataBegin]);
+
+        assert!(state.pending_entries.is_empty());
+        let summary = state.summary_lines();
+        assert_eq!(summary.len(), 1);
+        assert!(summary[0].contains("count=0"));
+        assert!(summary[0].contains("event_total=0"));
+        assert!(summary[0].contains("last=None"));
     }
 }
