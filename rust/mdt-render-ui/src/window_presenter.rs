@@ -401,8 +401,8 @@ fn compose_frame(
     frame_id: u64,
     max_view_tiles: Option<(usize, usize)>,
 ) -> WindowFrame {
-    let width = ((scene.viewport.width / TILE_SIZE).round().max(0.0) as usize).max(1);
-    let height = ((scene.viewport.height / TILE_SIZE).round().max(0.0) as usize).max(1);
+    let width = viewport_tile_span(scene.viewport.width);
+    let height = viewport_tile_span(scene.viewport.height);
     let window = crop_window(scene, width, height, max_view_tiles);
     let mut tiles = vec![COLOR_EMPTY; window.width.saturating_mul(window.height)];
     let line_end_objects = scene
@@ -1148,10 +1148,15 @@ fn window_render_command<'a>(
         RenderObjectSemanticKind::MarkerLineEnd => None,
         RenderObjectSemanticKind::MarkerLine => {
             if let Some(line_end) = line_end_objects.get(&object.id) {
+                let (Some(start_tile), Some(end_tile)) =
+                    (window_world_object_tile(object), window_world_object_tile(line_end))
+                else {
+                    return None;
+                };
                 return Some(WindowRenderCommand::Line {
                     layer: object.layer,
-                    start_tile: window_world_object_tile(object),
-                    end_tile: window_world_object_tile(line_end),
+                    start_tile,
+                    end_tile,
                     color: color_for_object(object),
                 });
             }
@@ -1258,6 +1263,13 @@ fn window_primitive_render_command<'a>(
     }
 }
 
+fn viewport_tile_span(world_span: f32) -> usize {
+    if !world_span.is_finite() {
+        return 1;
+    }
+    ((world_span / TILE_SIZE).round().max(0.0) as usize).max(1)
+}
+
 fn finite_tile_coords(world_x: f32, world_y: f32) -> Option<(i32, i32)> {
     if !world_x.is_finite() || !world_y.is_finite() {
         return None;
@@ -1268,11 +1280,8 @@ fn finite_tile_coords(world_x: f32, world_y: f32) -> Option<(i32, i32)> {
     ))
 }
 
-fn window_world_object_tile(object: &RenderObject) -> (i32, i32) {
-    (
-        crate::presenter_view::world_to_tile_index_floor(object.x, TILE_SIZE),
-        crate::presenter_view::world_to_tile_index_floor(object.y, TILE_SIZE),
-    )
+fn window_world_object_tile(object: &RenderObject) -> Option<(i32, i32)> {
+    finite_tile_coords(object.x, object.y)
 }
 
 fn draw_window_line_segment(
@@ -5836,6 +5845,58 @@ mod tests {
         assert_eq!(frame.pixel(1, 0), Some(COLOR_MARKER));
         assert_eq!(frame.pixel(2, 0), Some(COLOR_MARKER));
         assert_eq!(frame.pixel(3, 0), Some(COLOR_EMPTY));
+    }
+
+    #[test]
+    fn compose_frame_clamps_non_finite_viewport_span_to_one_tile() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: f32::NAN,
+                height: f32::INFINITY,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: Vec::new(),
+        };
+
+        let frame = compose_frame(&scene, &HudModel::default(), 0, None);
+
+        assert_eq!((frame.width, frame.height), (1, 1));
+        assert_eq!(frame.pixel(0, 0), Some(COLOR_EMPTY));
+    }
+
+    #[test]
+    fn compose_frame_drops_marker_lines_with_non_finite_endpoints() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 16.0,
+                height: 16.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: "marker:line:demo".to_string(),
+                    layer: 15,
+                    x: 8.0,
+                    y: 8.0,
+                },
+                RenderObject {
+                    id: "marker:line:demo:line-end".to_string(),
+                    layer: 15,
+                    x: f32::NAN,
+                    y: f32::INFINITY,
+                },
+            ],
+        };
+
+        let frame = compose_frame(&scene, &HudModel::default(), 0, None);
+
+        assert_eq!((frame.width, frame.height), (2, 2));
+        assert_eq!(frame.pixel(0, 0), Some(COLOR_EMPTY));
+        assert_eq!(frame.pixel(1, 0), Some(COLOR_EMPTY));
+        assert_eq!(frame.pixel(0, 1), Some(COLOR_EMPTY));
+        assert_eq!(frame.pixel(1, 1), Some(COLOR_EMPTY));
     }
 
     #[test]
