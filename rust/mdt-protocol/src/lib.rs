@@ -26,6 +26,7 @@ pub enum PacketCodecError {
     TooShort,
     UnsupportedCompression(u8),
     LengthOverflow(usize),
+    TrailingBytes(usize),
     Lz4(lz4_flex::block::DecompressError),
 }
 
@@ -43,6 +44,7 @@ pub enum FrameworkCodecError {
     TooShort,
     InvalidPrefix(u8),
     UnknownType(u8),
+    TrailingBytes(usize),
 }
 
 impl fmt::Display for FrameworkCodecError {
@@ -51,6 +53,7 @@ impl fmt::Display for FrameworkCodecError {
             Self::TooShort => write!(f, "framework message buffer too short"),
             Self::InvalidPrefix(value) => write!(f, "invalid framework prefix: {value}"),
             Self::UnknownType(value) => write!(f, "unknown framework message type: {value}"),
+            Self::TrailingBytes(length) => write!(f, "unexpected trailing bytes: {length}"),
         }
     }
 }
@@ -65,6 +68,7 @@ impl fmt::Display for PacketCodecError {
                 write!(f, "unsupported compression flag: {value}")
             }
             Self::LengthOverflow(length) => write!(f, "payload too large for u16 length: {length}"),
+            Self::TrailingBytes(length) => write!(f, "unexpected trailing bytes: {length}"),
             Self::Lz4(error) => write!(f, "lz4 decode failed: {error}"),
         }
     }
@@ -116,7 +120,10 @@ pub fn decode_packet(bytes: &[u8]) -> Result<EncodedPacket, PacketCodecError> {
             if remaining.len() < raw_length_usize {
                 return Err(PacketCodecError::TooShort);
             }
-            remaining[..raw_length_usize].to_vec()
+            if remaining.len() != raw_length_usize {
+                return Err(PacketCodecError::TrailingBytes(remaining.len() - raw_length_usize));
+            }
+            remaining.to_vec()
         }
         1 => lz4_flex::block::decompress(remaining, raw_length_usize)?,
         value => return Err(PacketCodecError::UnsupportedCompression(value)),
@@ -220,16 +227,32 @@ pub fn decode_framework_message(bytes: &[u8]) -> Result<FrameworkMessage, Framew
             if bytes.len() < 7 {
                 return Err(FrameworkCodecError::TooShort);
             }
+            if bytes.len() != 7 {
+                return Err(FrameworkCodecError::TrailingBytes(bytes.len() - 7));
+            }
             Ok(FrameworkMessage::Ping {
                 id: i32::from_be_bytes([bytes[2], bytes[3], bytes[4], bytes[5]]),
                 is_reply: bytes[6] == 1,
             })
         }
-        FRAMEWORK_DISCOVER_HOST_ID => Ok(FrameworkMessage::DiscoverHost),
-        FRAMEWORK_KEEP_ALIVE_ID => Ok(FrameworkMessage::KeepAlive),
+        FRAMEWORK_DISCOVER_HOST_ID => {
+            if bytes.len() != 2 {
+                return Err(FrameworkCodecError::TrailingBytes(bytes.len() - 2));
+            }
+            Ok(FrameworkMessage::DiscoverHost)
+        }
+        FRAMEWORK_KEEP_ALIVE_ID => {
+            if bytes.len() != 2 {
+                return Err(FrameworkCodecError::TrailingBytes(bytes.len() - 2));
+            }
+            Ok(FrameworkMessage::KeepAlive)
+        }
         FRAMEWORK_REGISTER_UDP_ID => {
             if bytes.len() < 6 {
                 return Err(FrameworkCodecError::TooShort);
+            }
+            if bytes.len() != 6 {
+                return Err(FrameworkCodecError::TrailingBytes(bytes.len() - 6));
             }
             Ok(FrameworkMessage::RegisterUdp {
                 connection_id: i32::from_be_bytes([bytes[2], bytes[3], bytes[4], bytes[5]]),
@@ -238,6 +261,9 @@ pub fn decode_framework_message(bytes: &[u8]) -> Result<FrameworkMessage, Framew
         FRAMEWORK_REGISTER_TCP_ID => {
             if bytes.len() < 6 {
                 return Err(FrameworkCodecError::TooShort);
+            }
+            if bytes.len() != 6 {
+                return Err(FrameworkCodecError::TrailingBytes(bytes.len() - 6));
             }
             Ok(FrameworkMessage::RegisterTcp {
                 connection_id: i32::from_be_bytes([bytes[2], bytes[3], bytes[4], bytes[5]]),
@@ -503,6 +529,25 @@ mod tests {
     }
 
     #[test]
+    fn decode_packet_rejects_uncompressed_trailing_bytes() {
+        let encoded = vec![
+            CONNECT_PACKET_ID,
+            0x00,
+            0x03,
+            0x00,
+            0x10,
+            0x20,
+            0x30,
+            0x40,
+        ];
+
+        assert!(matches!(
+            decode_packet(&encoded),
+            Err(PacketCodecError::TrailingBytes(1))
+        ));
+    }
+
+    #[test]
     fn framework_messages_round_trip() {
         let cases = vec![
             FrameworkMessage::Ping {
@@ -524,6 +569,16 @@ mod tests {
             let decoded = decode_framework_message(&encoded).unwrap();
             assert_eq!(decoded, case);
         }
+    }
+
+    #[test]
+    fn decode_framework_message_rejects_trailing_bytes() {
+        let encoded = vec![FRAMEWORK_MESSAGE_PREFIX, FRAMEWORK_KEEP_ALIVE_ID, 0x7f];
+
+        assert!(matches!(
+            decode_framework_message(&encoded),
+            Err(FrameworkCodecError::TrailingBytes(1))
+        ));
     }
 
     #[test]
