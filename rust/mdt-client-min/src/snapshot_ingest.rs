@@ -215,6 +215,7 @@ pub fn ingest_inbound_snapshot(state: &mut SessionState, snapshot: InboundSnapsh
                 Err(error) => {
                     state.failed_hidden_snapshot_parse_count =
                         state.failed_hidden_snapshot_parse_count.saturating_add(1);
+                    state.clear_hidden_snapshot_after_parse_failure();
                     state.last_hidden_snapshot_parse_error = Some(error.to_string());
                     state.last_hidden_snapshot_parse_error_payload_len =
                         Some(snapshot.payload.len());
@@ -3080,6 +3081,106 @@ mod tests {
             state.last_hidden_snapshot_parse_error_payload_len,
             Some(payload.len())
         );
+    }
+
+    #[test]
+    fn malformed_hidden_snapshot_clears_prior_hidden_state() {
+        let initial_payload = [
+            0x00, 0x00, 0x00, 0x02, // count
+            0x00, 0x00, 0x00, 0x65, // 101
+            0x00, 0x00, 0x01, 0x2F, // 303
+        ];
+        let malformed_payload = [0xFF, 0xFF, 0xFF, 0xFF];
+        let mut state = SessionState::default();
+        state.entity_table_projection.by_entity_id.insert(
+            101,
+            EntityProjection {
+                class_id: 12,
+                hidden: false,
+                is_local_player: true,
+                unit_kind: 2,
+                unit_value: 100,
+                x_bits: 0.0f32.to_bits(),
+                y_bits: 0.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
+        state.entity_table_projection.by_entity_id.insert(
+            303,
+            EntityProjection {
+                class_id: 33,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 0,
+                unit_value: 0,
+                x_bits: 1.0f32.to_bits(),
+                y_bits: 2.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
+        state.entity_semantic_projection.by_entity_id.insert(
+            303,
+            EntitySemanticProjectionEntry {
+                class_id: 4,
+                last_seen_entity_snapshot_count: 1,
+                projection: EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
+                    team_id: 2,
+                    unit_type_id: 3,
+                    health_bits: 4.0f32.to_bits(),
+                    rotation_bits: 5.0f32.to_bits(),
+                    shield_bits: 6.0f32.to_bits(),
+                    mine_tile_pos: 0,
+                    status_count: 0,
+                    payload_count: None,
+                    building_pos: None,
+                    lifetime_bits: None,
+                    time_bits: None,
+                    runtime_sync: None,
+                    controller_type: 0,
+                    controller_value: None,
+                }),
+            },
+        );
+
+        ingest_inbound_snapshot(
+            &mut state,
+            InboundSnapshot::new(
+                HighFrequencyRemoteMethod::HiddenSnapshot,
+                49,
+                &initial_payload,
+            ),
+        );
+        assert!(state.entity_table_projection.by_entity_id[&101].hidden);
+        assert_eq!(state.last_hidden_lifecycle_removed_ids_sample, vec![303]);
+
+        ingest_inbound_snapshot(
+            &mut state,
+            InboundSnapshot::new(
+                HighFrequencyRemoteMethod::HiddenSnapshot,
+                49,
+                &malformed_payload,
+            ),
+        );
+
+        assert_eq!(state.received_hidden_snapshot_count, 2);
+        assert_eq!(state.applied_hidden_snapshot_count, 1);
+        assert_eq!(state.failed_hidden_snapshot_parse_count, 1);
+        assert_eq!(
+            state.last_hidden_snapshot_parse_error.as_deref(),
+            Some("negative_hidden_snapshot_count:-1")
+        );
+        assert_eq!(
+            state.last_hidden_snapshot_parse_error_payload_len,
+            Some(malformed_payload.len())
+        );
+        assert_eq!(state.last_hidden_snapshot, None);
+        assert!(state.hidden_snapshot_ids.is_empty());
+        assert_eq!(state.hidden_snapshot_delta_projection, None);
+        assert!(!state.entity_table_projection.by_entity_id[&101].hidden);
+        assert_eq!(state.entity_table_projection.hidden_apply_count, 2);
+        assert_eq!(state.entity_table_projection.hidden_count, 0);
+        assert_eq!(state.hidden_lifecycle_remove_count, 1);
+        assert!(state.last_hidden_lifecycle_removed_ids_sample.is_empty());
     }
 
     #[test]

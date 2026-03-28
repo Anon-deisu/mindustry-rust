@@ -7305,6 +7305,32 @@ impl SessionState {
         self.apply_hidden_snapshot_typed_runtime_transition(&typed_runtime_transition);
     }
 
+    pub fn clear_hidden_snapshot_after_parse_failure(&mut self) {
+        let previous_hidden_ids = std::mem::take(&mut self.hidden_snapshot_ids);
+        self.last_hidden_snapshot = None;
+        self.hidden_snapshot_delta_projection = None;
+        self.last_hidden_lifecycle_removed_ids_sample.clear();
+        if previous_hidden_ids.is_empty() {
+            return;
+        }
+
+        let cleared_hidden_ids = BTreeSet::new();
+        let typed_runtime_transition = HiddenSnapshotTypedRuntimeTransition {
+            refresh_ids: previous_hidden_ids.iter().copied().collect(),
+        };
+        self.entity_table_projection
+            .apply_hidden_ids(&cleared_hidden_ids);
+        let local_player_entity_id = self.entity_table_projection.local_player_entity_id;
+        let runtime_transition =
+            self.hidden_snapshot_runtime_transition(&cleared_hidden_ids, local_player_entity_id);
+        let _ = self.apply_hidden_snapshot_runtime_transition(
+            &runtime_transition,
+            local_player_entity_id,
+        );
+        self.hidden_snapshot_ids = cleared_hidden_ids;
+        self.apply_hidden_snapshot_typed_runtime_transition(&typed_runtime_transition);
+    }
+
     fn hidden_snapshot_runtime_transition(
         &self,
         trigger_hidden_ids: &BTreeSet<i32>,
