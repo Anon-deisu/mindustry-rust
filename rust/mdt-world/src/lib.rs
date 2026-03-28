@@ -24725,6 +24725,9 @@ fn parse_building_tail_with_context(
                 parse_payload_mass_driver_tail_snapshot(content_header, revision, tail_bytes)?,
             ))
         }
+        Some("block-producer") => Ok(ParsedBuildingTail::BlockProducer(
+            parse_block_producer_tail_snapshot(content_header, tail_bytes)?,
+        )),
         Some("constructor") | Some("large-constructor") => Ok(ParsedBuildingTail::Constructor(
             parse_constructor_tail_snapshot(content_header, tail_bytes)?,
         )),
@@ -45353,6 +45356,55 @@ mod tests {
                 rec_dir: 3,
             })
         );
+    }
+
+    #[test]
+    fn parse_building_tail_supports_block_producer_family() {
+        let tail_bytes = {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&0x01020304u32.to_be_bytes());
+            bytes.extend_from_slice(&0x05060708u32.to_be_bytes());
+            bytes.extend_from_slice(&0x090a0b0cu32.to_be_bytes());
+            bytes.push(0);
+            bytes.extend_from_slice(&0x3f800000u32.to_be_bytes());
+            bytes
+        };
+        let expected_tail = ParsedBuildingTail::BlockProducer(BlockProducerTailSnapshot {
+            payload_block: PayloadBlockTailSnapshot {
+                pay_vector_x_bits: 0x01020304,
+                pay_vector_y_bits: 0x05060708,
+                pay_rotation_bits: 0x090a0b0c,
+                payload_present: false,
+                payload_type: None,
+                build_block_id: None,
+                build_revision: None,
+                build_payload: None,
+                unit_class_id: None,
+                unit_payload_len: None,
+                unit_payload_sha256: None,
+            },
+            progress_bits: 0x3f800000,
+        });
+
+        let parsed_tail = parse_building_tail(Some("block-producer"), 0, &tail_bytes).unwrap();
+        assert_eq!(parsed_tail, expected_tail);
+
+        let snapshot = parse_building_snapshot(&[], Some("block-producer"), &{
+            let mut chunk = Vec::new();
+            chunk.push(1);
+            chunk.extend_from_slice(&1.0f32.to_bits().to_be_bytes());
+            chunk.push(0);
+            chunk.push(1);
+            chunk.extend_from_slice(&tail_bytes);
+            chunk
+        })
+        .unwrap();
+        assert_eq!(snapshot.revision, 1);
+        assert_eq!(snapshot.base.health_bits, 1.0f32.to_bits());
+        assert_eq!(snapshot.base.rotation, 0);
+        assert_eq!(snapshot.base.team_id, 1);
+        assert_eq!(snapshot.tail_bytes, tail_bytes);
+        assert_eq!(snapshot.parsed_tail, expected_tail);
     }
 
     #[test]
