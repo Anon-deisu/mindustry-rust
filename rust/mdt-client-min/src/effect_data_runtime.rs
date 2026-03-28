@@ -339,34 +339,55 @@ fn payload_target_content_hint(object: &TypeIoObject) -> Option<EffectDataBusine
 }
 
 fn payload_target_content_hint_in_group(object: &TypeIoObject) -> Option<EffectDataBusinessHint> {
-    let TypeIoObject::ObjectArray(values) = object else {
-        return None;
-    };
+    let mut stack = vec![(object, Vec::new(), 0usize)];
+    let mut visited_nodes = 0usize;
 
-    let content = values.iter().enumerate().find_map(|(index, value)| {
-        payload_target_content_direct_child_hint(value)
-            .map(|(kind, content_type, content_id)| (kind, content_type, content_id, vec![index]))
-    });
-    let target = values
-        .iter()
-        .enumerate()
-        .find_map(|(index, value)| target_hint_from_match(value, vec![index]));
+    while let Some((object, path, depth)) = stack.pop() {
+        if depth > EFFECT_DATA_MAX_DEPTH || visited_nodes >= EFFECT_DATA_MAX_NODES {
+            return None;
+        }
+        visited_nodes += 1;
 
-    if let (Some(content), Some(target)) = (content, target) {
-        return Some(EffectDataBusinessHint::PayloadTargetContent {
-            content_kind: content.0,
-            content_type: content.1,
-            content_id: content.2,
-            content_path: content.3,
-            target,
+        let TypeIoObject::ObjectArray(values) = object else {
+            continue;
+        };
+
+        let content = values.iter().enumerate().find_map(|(index, value)| {
+            payload_target_content_direct_child_hint(value).map(|(kind, content_type, content_id)| {
+                let mut content_path = path.clone();
+                content_path.push(index);
+                (kind, content_type, content_id, content_path)
+            })
         });
-    }
+        let target = values.iter().enumerate().find_map(|(index, value)| {
+            let mut target_path = path.clone();
+            target_path.push(index);
+            target_hint_from_match(value, target_path)
+        });
 
-    for (index, value) in values.iter().enumerate() {
-        if let Some(hint) = payload_target_content_hint_in_group(value) {
-            return Some(prepend_payload_target_content_hint_path(hint, index));
+        if let (Some(content), Some(target)) = (content, target) {
+            return Some(EffectDataBusinessHint::PayloadTargetContent {
+                content_kind: content.0,
+                content_type: content.1,
+                content_id: content.2,
+                content_path: content.3,
+                target,
+            });
+        }
+
+        if depth == EFFECT_DATA_MAX_DEPTH {
+            continue;
+        }
+
+        for (index, value) in values.iter().enumerate().rev() {
+            if matches!(value, TypeIoObject::ObjectArray(_)) {
+                let mut child_path = path.clone();
+                child_path.push(index);
+                stack.push((value, child_path, depth + 1));
+            }
         }
     }
+
     None
 }
 
@@ -389,92 +410,6 @@ fn payload_target_content_direct_child_hint(
             content_id,
         )),
         _ => None,
-    }
-}
-
-fn prepend_payload_target_content_hint_path(
-    hint: EffectDataBusinessHint,
-    index: usize,
-) -> EffectDataBusinessHint {
-    let EffectDataBusinessHint::PayloadTargetContent {
-        content_kind,
-        content_type,
-        content_id,
-        mut content_path,
-        target,
-    } = hint
-    else {
-        return hint;
-    };
-    content_path.insert(0, index);
-
-    EffectDataBusinessHint::PayloadTargetContent {
-        content_kind,
-        content_type,
-        content_id,
-        content_path,
-        target: prepend_payload_target_hint_path(target, index),
-    }
-}
-
-fn prepend_payload_target_hint_path(
-    target: EffectDataBusinessTargetHint,
-    index: usize,
-) -> EffectDataBusinessTargetHint {
-    match target {
-        EffectDataBusinessTargetHint::SemanticRef(mut matched) => {
-            matched.path.insert(0, index);
-            EffectDataBusinessTargetHint::SemanticRef(matched)
-        }
-        EffectDataBusinessTargetHint::PositionHint(hint) => {
-            EffectDataBusinessTargetHint::PositionHint(prepend_position_hint_path(hint, index))
-        }
-    }
-}
-
-fn prepend_position_hint_path(
-    hint: TypeIoEffectPositionHint,
-    index: usize,
-) -> TypeIoEffectPositionHint {
-    match hint {
-        TypeIoEffectPositionHint::Point2 { x, y, mut path } => {
-            path.insert(0, index);
-            TypeIoEffectPositionHint::Point2 { x, y, path }
-        }
-        TypeIoEffectPositionHint::Vec2 {
-            x_bits,
-            y_bits,
-            mut path,
-        } => {
-            path.insert(0, index);
-            TypeIoEffectPositionHint::Vec2 {
-                x_bits,
-                y_bits,
-                path,
-            }
-        }
-        TypeIoEffectPositionHint::PackedPoint2ArrayFirst {
-            packed_point2,
-            mut path,
-        } => {
-            path.insert(0, index);
-            TypeIoEffectPositionHint::PackedPoint2ArrayFirst {
-                packed_point2,
-                path,
-            }
-        }
-        TypeIoEffectPositionHint::Vec2ArrayFirst {
-            x_bits,
-            y_bits,
-            mut path,
-        } => {
-            path.insert(0, index);
-            TypeIoEffectPositionHint::Vec2ArrayFirst {
-                x_bits,
-                y_bits,
-                path,
-            }
-        }
     }
 }
 
@@ -762,6 +697,27 @@ mod tests {
             })
         );
         assert_eq!(input.contract_name, Some("payload_target_content"));
+    }
+
+    #[test]
+    fn derive_effect_data_business_input_handles_deeply_nested_payload_target_groups() {
+        let object = nested_object_array(
+            super::EFFECT_DATA_MAX_DEPTH + 1,
+            TypeIoObject::ObjectArray(vec![
+                TypeIoObject::ContentRaw {
+                    content_type: 1,
+                    content_id: 33,
+                },
+                TypeIoObject::Point2 { x: 4, y: 6 },
+            ]),
+        );
+
+        let input =
+            derive_effect_data_business_input(Some(26), Some(&object), Some(5), false, None);
+
+        assert_eq!(input.contract_name, Some("payload_target_content"));
+        assert_eq!(input.primary, None);
+        assert_eq!(input.semantic, Some(EffectDataSemantic::ObjectArrayLen(1)));
     }
 
     #[test]

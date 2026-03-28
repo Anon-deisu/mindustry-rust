@@ -221,11 +221,12 @@ fn parse_surface_update(line: &str) -> Option<ParsedSurfaceUpdate> {
     let prefix = "runtime_custom_packet_surface_update: encoding=";
     let rest = line.strip_prefix(prefix)?;
     let (encoding, rest) = rest.split_once(" key=")?;
-    let (key, rest) = rest.split_once(" semantic=")?;
+    let (key, rest) = parse_debug_string_prefix(rest)?;
+    let rest = rest.strip_prefix(" semantic=")?;
     let (semantic, _) = rest.split_once(" count=")?;
     Some(ParsedSurfaceUpdate {
         route: RuntimeCustomPacketBridgeRouteKey {
-            key: parse_debug_string(key)?,
+            key,
             encoding: parse_encoding(encoding)?,
             semantic: parse_semantic(semantic)?,
         },
@@ -235,8 +236,40 @@ fn parse_surface_update(line: &str) -> Option<ParsedSurfaceUpdate> {
 fn parse_surface_reset(line: &str) -> Option<ParsedSurfaceReset<'_>> {
     let prefix = "runtime_custom_packet_surface_reset: reason=";
     let rest = line.strip_prefix(prefix)?;
-    let (reason, _) = rest.split_once(" cleared_routes=")?;
+    let (reason, _) = rest.rsplit_once(" cleared_routes=")?;
     Some(ParsedSurfaceReset { reason })
+}
+
+fn parse_debug_string_prefix(value: &str) -> Option<(String, &str)> {
+    if !value.starts_with('"') {
+        return None;
+    }
+
+    let bytes = value.as_bytes();
+    let mut idx = 1usize;
+    let mut escaped = false;
+    while idx < bytes.len() {
+        let byte = bytes[idx];
+        if escaped {
+            escaped = false;
+            idx += 1;
+            continue;
+        }
+
+        match byte {
+            b'\\' => {
+                escaped = true;
+                idx += 1;
+            }
+            b'"' => {
+                let parsed = parse_debug_string(&value[..=idx])?;
+                return Some((parsed, &value[idx + 1..]));
+            }
+            _ => idx += 1,
+        }
+    }
+
+    None
 }
 
 fn parse_debug_string(value: &str) -> Option<String> {
@@ -517,5 +550,23 @@ mod tests {
     #[test]
     fn parse_debug_string_decodes_nul_escape() {
         assert_eq!(parse_debug_string(r#""a\0b""#), Some("a\0b".to_string()));
+    }
+
+    #[test]
+    fn parse_surface_update_handles_separator_substrings_inside_quoted_key() {
+        assert_eq!(
+            parse_surface_update(
+                "runtime_custom_packet_surface_update: encoding=text key=\"alpha key= beta semantic= gamma count= delta cleared_routes= epsilon\" semantic=hud_text count=1 message=\"ok\""
+            )
+            .map(|update| update.route.key),
+            Some("alpha key= beta semantic= gamma count= delta cleared_routes= epsilon".to_string())
+        );
+        assert_eq!(
+            parse_surface_reset(
+                "runtime_custom_packet_surface_reset: reason=route cleared_routes=ignored cleared_routes=3"
+            )
+            .map(|reset| reset.reason),
+            Some("route cleared_routes=ignored")
+        );
     }
 }
