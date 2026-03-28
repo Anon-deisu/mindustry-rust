@@ -493,6 +493,46 @@ mod tests {
     }
 
     #[test]
+    fn typed_dispatch_reports_trailing_bytes_for_text_payloads() {
+        let manifest = custom_channel_manifest_with_decoys();
+        let inbound_dispatcher = TypedInboundRemoteDispatcher::from_remote_manifest(&manifest).unwrap();
+        let mut inbound_payload = encode_text_payload("mod.echo", "hello");
+        inbound_payload.push(0xff);
+        let inbound_error = inbound_dispatcher.dispatch(10, &inbound_payload).unwrap_err();
+        assert_eq!(inbound_error.family, InboundRemoteFamily::ServerPacketReliable);
+        assert_eq!(inbound_error.packet_id, 10);
+        assert_eq!(inbound_error.payload_kind, CustomChannelRemotePayloadKind::Text);
+        assert_eq!(
+            inbound_error.reason,
+            format!(
+                "payload has trailing bytes: consumed {}, total {}",
+                inbound_payload.len() - 1,
+                inbound_payload.len()
+            )
+        );
+
+        let custom_dispatcher =
+            TypedCustomChannelRemoteDispatcher::from_remote_manifest(&manifest).unwrap();
+        let mut custom_payload = encode_text_payload("mod.client", "hello");
+        custom_payload.push(0xff);
+        let custom_error = custom_dispatcher.dispatch(5, &custom_payload).unwrap_err();
+        assert_eq!(
+            custom_error.family,
+            CustomChannelRemoteFamily::ClientPacketReliable
+        );
+        assert_eq!(custom_error.packet_id, 5);
+        assert_eq!(custom_error.payload_kind, CustomChannelRemotePayloadKind::Text);
+        assert_eq!(
+            custom_error.reason,
+            format!(
+                "payload has trailing bytes: consumed {}, total {}",
+                custom_payload.len() - 1,
+                custom_payload.len()
+            )
+        );
+    }
+
+    #[test]
     fn custom_channel_typed_dispatch_ignores_method_only_decoy_packet_ids() {
         let manifest = custom_channel_manifest_with_decoys();
         let dispatcher =
