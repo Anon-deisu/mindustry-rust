@@ -40185,6 +40185,20 @@ mod tests {
         mdt_protocol::deflate_zlib(&inflated).unwrap()
     }
 
+    #[test]
+    fn rejects_truncated_java_modified_utf_two_byte_sequence() {
+        let error = decode_java_modified_utf(&[0xc2]).unwrap_err();
+
+        assert!(error.contains("truncated Java modified UTF-8 two-byte sequence"));
+    }
+
+    #[test]
+    fn rejects_invalid_msav_zlib_header_checksum() {
+        let error = read_msav_zlib_header(&[0x78, 0x00]).unwrap_err();
+
+        assert!(error.contains("invalid .msav zlib header checksum"));
+    }
+
     fn encode_save_region(bytes: &[u8]) -> Vec<u8> {
         let mut out = Vec::new();
         out.extend_from_slice(&(bytes.len() as u32).to_be_bytes());

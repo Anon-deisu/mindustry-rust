@@ -402,6 +402,21 @@ mod tests {
     }
 
     #[test]
+    fn projection_contract_treats_brace_object_marker_region_as_empty() {
+        let mut observation = test_observation();
+        observation.markers.clear();
+        observation.marker_region_bytes = b"{}".to_vec();
+
+        let contract = observation.projection_contract();
+
+        assert!(contract.can_project_world_shell());
+        assert!(contract.marker_surface_consistent);
+        assert!(!contract
+            .issues
+            .contains(&SavePostLoadWorldIssue::MarkerRegionMismatch));
+    }
+
+    #[test]
     fn projection_contract_flags_post_load_entity_summary_drift() {
         let mut observation = test_observation();
         observation.entity_summary.loadable_entities = 1;
