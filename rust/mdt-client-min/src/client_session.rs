@@ -30438,7 +30438,7 @@ mod tests {
                 .state()
                 .building_table_projection
                 .block_snapshot_head_apply_count,
-            1
+            0
         );
         assert_eq!(
             session
@@ -30464,6 +30464,90 @@ mod tests {
             .as_deref()
             .unwrap()
             .starts_with("loaded_world_block_snapshot_extra_trailing_bytes:"));
+    }
+
+    #[test]
+    fn block_snapshot_packet_rejects_negative_loaded_world_extra_amount_and_falls_back_to_head() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let (mut payload, entries) = build_loaded_world_block_snapshot_payload(&session, 2);
+        let (first_build_pos, first_block_id, _) = entries[0];
+        let (second_build_pos, _, _) = entries[1];
+        let first_block_name = session.loaded_world_block_name(first_block_id);
+        let second_before = session
+            .state()
+            .building_table_projection
+            .by_build_pos
+            .get(&second_build_pos)
+            .cloned();
+        payload[0..2].copy_from_slice(&(-1i16).to_be_bytes());
+
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == HighFrequencyRemoteMethod::BlockSnapshot.method_name())
+            .unwrap()
+            .packet_id;
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        let event = session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            event,
+            ClientSessionEvent::SnapshotReceived(HighFrequencyRemoteMethod::BlockSnapshot)
+        );
+        assert_eq!(
+            session
+                .state()
+                .building_table_projection
+                .by_build_pos
+                .get(&first_build_pos)
+                .and_then(|building| building.block_id),
+            Some(first_block_id)
+        );
+        assert_eq!(
+            session
+                .state()
+                .building_table_projection
+                .by_build_pos
+                .get(&first_build_pos)
+                .and_then(|building| building.block_name.clone()),
+            first_block_name
+        );
+        assert_eq!(
+            session
+                .state()
+                .building_table_projection
+                .by_build_pos
+                .get(&second_build_pos)
+                .cloned(),
+            second_before
+        );
+        assert_eq!(
+            session
+                .state()
+                .building_table_projection
+                .block_snapshot_head_apply_count,
+            0
+        );
+        assert_eq!(
+            session
+                .state()
+                .applied_loaded_world_block_snapshot_extra_entry_count,
+            0
+        );
+        assert_eq!(
+            session
+                .state()
+                .failed_loaded_world_block_snapshot_extra_entry_parse_count,
+            1
+        );
+        assert_eq!(
+            session
+                .state()
+                .last_loaded_world_block_snapshot_extra_entry_parse_error
+                .as_deref(),
+            Some("negative_block_snapshot_amount:-1")
+        );
     }
 
     #[test]
