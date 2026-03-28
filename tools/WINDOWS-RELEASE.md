@@ -71,8 +71,8 @@ powershell -ExecutionPolicy Bypass -File .\tools\package-mdt-client-min-release-
 
 This routes the check through `tools\verify-rust-workspaces.ps1`, which now
 emits `remote_freshness_check: ...` and `verified_rust_workspaces: remote_freshness_checked=...`.
-If the current checkout is a minimal handoff repo without a Gradle wrapper, the
-same path reports `remote_freshness_check: status=skipped`.
+If the current checkout does not include a Gradle wrapper, the same path fails
+explicitly instead of silently skipping the freshness check.
 
 R+2 policy is canonical-only fixtures:
 

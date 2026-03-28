@@ -135,8 +135,8 @@ try {
     if ($VerifyRemoteFreshness) {
         $gradleWrapperPath = Find-GradleWrapperPath -RepoRoot $repoRoot
         if ([string]::IsNullOrWhiteSpace($gradleWrapperPath)) {
-            $remoteFreshnessStatus = 'skipped_wrapper_missing'
-            Write-Output "remote_freshness_check: status=skipped reason=gradle_wrapper_missing task=verifyMdtRemoteFreshness"
+            $remoteFreshnessStatus = 'failed_wrapper_missing'
+            throw 'verifyMdtRemoteFreshness requested but no Gradle wrapper was found at the repository root.'
         } else {
             Write-Output "remote_freshness_check: status=running wrapper=$gradleWrapperPath task=verifyMdtRemoteFreshness"
             $remoteFreshnessResult = Invoke-RemoteFreshnessGradleTask -GradleWrapperPath $gradleWrapperPath
