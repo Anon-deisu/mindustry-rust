@@ -48,7 +48,8 @@ impl SavePostLoadWorldObservation {
         let mut issues = Vec::new();
         let has_world_graph = self.map.world.width > 0
             && self.map.world.height > 0
-            && self.map.world.tile_count() > 0;
+            && checked_tile_count(self.map.world.width, self.map.world.height)
+                .map_or(false, |tile_count| tile_count > 0);
         if !has_world_graph {
             push_issue(&mut issues, SavePostLoadWorldIssue::EmptyWorldGraph);
         }
@@ -77,27 +78,28 @@ fn tile_surface_consistent(
     issues: &mut Vec<SavePostLoadWorldIssue>,
 ) -> bool {
     let world = &observation.map.world;
-    let tile_count = world.tile_count();
+    let tile_count = checked_tile_count(world.width, world.height);
     let mut consistent = true;
 
-    if world.tiles.len() != tile_count
-        || world.floors.len() != tile_count
-        || world.overlays.len() != tile_count
-        || world.blocks.len() != tile_count
-    {
+    if tile_count.map_or(true, |tile_count| {
+        world.tiles.len() != tile_count
+            || world.floors.len() != tile_count
+            || world.overlays.len() != tile_count
+            || world.blocks.len() != tile_count
+    }) {
         push_issue(issues, SavePostLoadWorldIssue::TileSurfaceCountMismatch);
         consistent = false;
     }
 
     for (index, tile) in world.tiles.iter().enumerate() {
-        let expected_index = tile.x + tile.y.saturating_mul(world.width);
+        let expected_index = checked_surface_index(tile.x, tile.y, world.width);
         let same_surface = world.floors.get(index) == Some(&tile.floor_id)
             && world.overlays.get(index) == Some(&tile.overlay_id)
             && world.blocks.get(index) == Some(&tile.block_id);
         if tile.tile_index != index
             || tile.x >= world.width
             || tile.y >= world.height
-            || tile.tile_index != expected_index
+            || expected_index != Some(tile.tile_index)
             || !same_surface
         {
             push_issue(issues, SavePostLoadWorldIssue::TileSurfaceIndexMismatch);
@@ -108,13 +110,13 @@ fn tile_surface_consistent(
 
     for (center_index, center) in world.building_centers.iter().enumerate() {
         let tile = world.tiles.get(center.tile_index);
-        let expected_index = center.x + center.y.saturating_mul(world.width);
+        let expected_index = checked_surface_index(center.x, center.y, world.width);
         let center_ok = tile
             .map(|tile| tile.building_center_index == Some(center_index))
             .unwrap_or(false);
         if center.x >= world.width
             || center.y >= world.height
-            || center.tile_index != expected_index
+            || expected_index != Some(center.tile_index)
             || !center_ok
         {
             push_issue(
@@ -304,6 +306,14 @@ fn push_issue(issues: &mut Vec<SavePostLoadWorldIssue>, issue: SavePostLoadWorld
     }
 }
 
+fn checked_tile_count(width: usize, height: usize) -> Option<usize> {
+    width.checked_mul(height)
+}
+
+fn checked_surface_index(x: usize, y: usize, width: usize) -> Option<usize> {
+    y.checked_mul(width)?.checked_add(x)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -473,6 +483,31 @@ mod tests {
         assert!(contract
             .issues
             .contains(&SavePostLoadWorldIssue::TileSurfaceCountMismatch));
+        assert!(contract
+            .issues
+            .contains(&SavePostLoadWorldIssue::BuildingCenterReferenceMismatch));
+    }
+
+    #[test]
+    fn projection_contract_does_not_panic_on_overflowing_tile_coordinates() {
+        let mut observation = test_observation();
+        observation.map.world.width = usize::MAX;
+        observation.map.world.height = 2;
+        observation.map.world.tiles[0].x = usize::MAX - 1;
+        observation.map.world.tiles[0].y = 1;
+        observation.map.world.building_centers[0].x = usize::MAX - 1;
+        observation.map.world.building_centers[0].y = 1;
+        observation.custom_chunks.clear();
+
+        let contract = observation.projection_contract();
+
+        assert!(!contract.can_project_world_shell());
+        assert!(contract
+            .issues
+            .contains(&SavePostLoadWorldIssue::TileSurfaceCountMismatch));
+        assert!(contract
+            .issues
+            .contains(&SavePostLoadWorldIssue::TileSurfaceIndexMismatch));
         assert!(contract
             .issues
             .contains(&SavePostLoadWorldIssue::BuildingCenterReferenceMismatch));
