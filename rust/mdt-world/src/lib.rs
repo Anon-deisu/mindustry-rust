@@ -26579,9 +26579,15 @@ fn parse_save_content_header_region(bytes: &[u8]) -> Result<Vec<ContentHeaderEnt
     let mut reader = Reader::new(bytes);
     let mapped_types = reader.read_u8()? as usize;
     let mut content_header = Vec::with_capacity(mapped_types);
+    let mut seen_content_types = HashSet::with_capacity(mapped_types);
 
     for _ in 0..mapped_types {
         let content_type = reader.read_u8()?;
+        if !seen_content_types.insert(content_type) {
+            return Err(format!(
+                "duplicate content type in save content region: {content_type}"
+            ));
+        }
         let total = reader.read_u16()? as usize;
         let mut names = Vec::with_capacity(total);
         for _ in 0..total {
@@ -39511,11 +39517,15 @@ fn parse_markers_from_ubjson_value(value: &UbjsonValue) -> Result<Vec<MarkerEntr
         .as_object()
         .ok_or_else(|| "marker region root is not an object".to_string())?;
     let mut markers = Vec::with_capacity(entries.len());
+    let mut seen_ids = HashSet::with_capacity(entries.len());
 
     for (id_text, marker_value) in entries {
         let id = id_text
             .parse::<i32>()
             .map_err(|_| format!("marker id is not an integer: {id_text}"))?;
+        if !seen_ids.insert(id) {
+            return Err(format!("duplicate marker id in marker region: {id}"));
+        }
         markers.push(MarkerEntry {
             id,
             marker: parse_marker_model(marker_value)?,
@@ -54441,6 +54451,35 @@ mod tests {
         let error = parse_markers(&bytes).unwrap_err();
 
         assert!(error.contains("unexpected trailing bytes after marker region"));
+    }
+
+    #[test]
+    fn parse_save_content_header_region_rejects_duplicate_content_types() {
+        let mut bytes = Vec::new();
+        bytes.push(2);
+        bytes.push(0x01);
+        bytes.extend_from_slice(&1u16.to_be_bytes());
+        write_java_utf(&mut bytes, "alpha").unwrap();
+        bytes.push(0x01);
+        bytes.extend_from_slice(&1u16.to_be_bytes());
+        write_java_utf(&mut bytes, "beta").unwrap();
+
+        let error = parse_save_content_header_region(&bytes).unwrap_err();
+
+        assert!(error.contains("duplicate content type"));
+    }
+
+    #[test]
+    fn parse_markers_rejects_duplicate_ids() {
+        let marker = marker_object("Minimap", vec![]);
+        let value = UbjsonValue::Object(vec![
+            ("11".to_string(), marker.clone()),
+            ("11".to_string(), marker),
+        ]);
+
+        let error = parse_markers_from_ubjson_value(&value).unwrap_err();
+
+        assert!(error.contains("duplicate marker id"));
     }
 
     #[test]
