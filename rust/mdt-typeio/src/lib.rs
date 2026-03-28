@@ -96,6 +96,10 @@ pub struct LiquidStackRaw {
     pub amount: f32,
 }
 
+pub type ColorRaw = u32;
+pub type StringsRaw = Vec<Option<String>>;
+pub type StringArrayRaw = Vec<StringsRaw>;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PayloadType {
     Unit,
@@ -215,6 +219,10 @@ pub fn write_float(out: &mut Vec<u8>, value: f32) {
     out.extend_from_slice(&value.to_bits().to_be_bytes());
 }
 
+pub fn write_color(out: &mut Vec<u8>, color_rgba: ColorRaw) {
+    out.extend_from_slice(&color_rgba.to_be_bytes());
+}
+
 pub fn write_string(out: &mut Vec<u8>, value: Option<&str>) {
     match value {
         Some(value) => {
@@ -225,6 +233,26 @@ pub fn write_string(out: &mut Vec<u8>, value: Option<&str>) {
             out.extend_from_slice(bytes);
         }
         None => write_byte(out, 0),
+    }
+}
+
+pub fn write_strings(out: &mut Vec<u8>, values: &[Option<String>]) {
+    write_byte(
+        out,
+        u8::try_from(values.len()).expect("string count exceeds u8"),
+    );
+    for value in values {
+        write_string(out, value.as_deref());
+    }
+}
+
+pub fn write_string_array(out: &mut Vec<u8>, rows: &[StringsRaw]) {
+    write_byte(
+        out,
+        u8::try_from(rows.len()).expect("string array row count exceeds u8"),
+    );
+    for row in rows {
+        write_strings(out, row);
     }
 }
 
@@ -534,6 +562,17 @@ pub fn read_float_prefix(bytes: &[u8]) -> Result<(f32, usize), TypeIoReadError> 
     Ok((reader.read_f32()?, reader.position()))
 }
 
+pub fn read_color(bytes: &[u8]) -> Result<ColorRaw, TypeIoReadError> {
+    let (value, consumed) = read_color_prefix(bytes)?;
+    ensure_consumed(consumed, bytes.len())?;
+    Ok(value)
+}
+
+pub fn read_color_prefix(bytes: &[u8]) -> Result<(ColorRaw, usize), TypeIoReadError> {
+    let mut reader = PrimitiveReader::new(bytes);
+    Ok((reader.read_u32()?, reader.position()))
+}
+
 pub fn read_string(bytes: &[u8]) -> Result<Option<String>, TypeIoReadError> {
     let (value, consumed) = read_string_prefix(bytes)?;
     ensure_consumed(consumed, bytes.len())?;
@@ -542,25 +581,40 @@ pub fn read_string(bytes: &[u8]) -> Result<Option<String>, TypeIoReadError> {
 
 pub fn read_string_prefix(bytes: &[u8]) -> Result<(Option<String>, usize), TypeIoReadError> {
     let mut reader = PrimitiveReader::new(bytes);
-    let marker_position = reader.position();
-    let marker = reader.read_u8()?;
-    match marker {
-        0 => Ok((None, reader.position())),
-        1 => {
-            let len = reader.read_u16()? as usize;
-            let string_position = reader.position();
-            let raw = reader.read_vec(len)?;
-            let value = String::from_utf8(raw).map_err(|error| TypeIoReadError::InvalidUtf8 {
-                position: string_position,
-                message: error.to_string(),
-            })?;
-            Ok((Some(value), reader.position()))
-        }
-        _ => Err(TypeIoReadError::InvalidStringMarker {
-            marker,
-            position: marker_position,
-        }),
+    Ok((read_string_from_reader(&mut reader)?, reader.position()))
+}
+
+pub fn read_strings(bytes: &[u8]) -> Result<StringsRaw, TypeIoReadError> {
+    let (value, consumed) = read_strings_prefix(bytes)?;
+    ensure_consumed(consumed, bytes.len())?;
+    Ok(value)
+}
+
+pub fn read_strings_prefix(bytes: &[u8]) -> Result<(StringsRaw, usize), TypeIoReadError> {
+    let mut reader = PrimitiveReader::new(bytes);
+    let count = reader.read_u8()? as usize;
+    let mut values = Vec::with_capacity(count);
+    for _ in 0..count {
+        values.push(read_string_from_reader(&mut reader)?);
     }
+    Ok((values, reader.position()))
+}
+
+pub fn read_string_array(bytes: &[u8]) -> Result<StringArrayRaw, TypeIoReadError> {
+    let (value, consumed) = read_string_array_prefix(bytes)?;
+    ensure_consumed(consumed, bytes.len())?;
+    Ok(value)
+}
+
+pub fn read_string_array_prefix(bytes: &[u8]) -> Result<(StringArrayRaw, usize), TypeIoReadError> {
+    let mut reader = PrimitiveReader::new(bytes);
+    let row_count = reader.read_u8()? as usize;
+    let mut rows = Vec::with_capacity(row_count);
+    for _ in 0..row_count {
+        let row = read_strings_from_reader(&mut reader)?;
+        rows.push(row);
+    }
+    Ok((rows, reader.position()))
 }
 
 pub fn read_block(bytes: &[u8]) -> Result<i16, TypeIoReadError> {
@@ -632,7 +686,9 @@ pub fn read_item_stacks(bytes: &[u8]) -> Result<Vec<ItemStackRaw>, TypeIoReadErr
     Ok(value)
 }
 
-pub fn read_item_stacks_prefix(bytes: &[u8]) -> Result<(Vec<ItemStackRaw>, usize), TypeIoReadError> {
+pub fn read_item_stacks_prefix(
+    bytes: &[u8],
+) -> Result<(Vec<ItemStackRaw>, usize), TypeIoReadError> {
     let mut reader = PrimitiveReader::new(bytes);
     let count = read_non_negative_i16_len(&mut reader, "item stack count")?;
     let mut stacks = Vec::with_capacity(count);
@@ -993,6 +1049,11 @@ impl<'a> PrimitiveReader<'a> {
         Ok(i32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
     }
 
+    fn read_u32(&mut self) -> Result<u32, TypeIoReadError> {
+        let bytes = self.read_exact(4)?;
+        Ok(u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+    }
+
     fn read_i64(&mut self) -> Result<i64, TypeIoReadError> {
         let bytes = self.read_exact(8)?;
         Ok(i64::from_be_bytes([
@@ -1021,6 +1082,41 @@ impl<'a> PrimitiveReader<'a> {
         self.position += len;
         Ok(&self.bytes[start..self.position])
     }
+}
+
+fn read_string_from_reader(
+    reader: &mut PrimitiveReader<'_>,
+) -> Result<Option<String>, TypeIoReadError> {
+    let marker_position = reader.position();
+    let marker = reader.read_u8()?;
+    match marker {
+        0 => Ok(None),
+        1 => {
+            let len = reader.read_u16()? as usize;
+            let string_position = reader.position();
+            let raw = reader.read_vec(len)?;
+            let value = String::from_utf8(raw).map_err(|error| TypeIoReadError::InvalidUtf8 {
+                position: string_position,
+                message: error.to_string(),
+            })?;
+            Ok(Some(value))
+        }
+        _ => Err(TypeIoReadError::InvalidStringMarker {
+            marker,
+            position: marker_position,
+        }),
+    }
+}
+
+fn read_strings_from_reader(
+    reader: &mut PrimitiveReader<'_>,
+) -> Result<StringsRaw, TypeIoReadError> {
+    let count = reader.read_u8()? as usize;
+    let mut values = Vec::with_capacity(count);
+    for _ in 0..count {
+        values.push(read_string_from_reader(reader)?);
+    }
+    Ok(values)
 }
 
 pub fn generate_typeio_goldens() -> String {
@@ -1218,12 +1314,29 @@ mod tests {
         assert_eq!(read_float(&bytes).unwrap(), 12.5);
 
         bytes.clear();
+        write_color(&mut bytes, 0x1122_3344);
+        assert_eq!(read_color(&bytes).unwrap(), 0x1122_3344);
+
+        bytes.clear();
         write_string(&mut bytes, Some("hello"));
         assert_eq!(read_string(&bytes).unwrap().as_deref(), Some("hello"));
 
         bytes.clear();
         write_string(&mut bytes, None);
         assert_eq!(read_string(&bytes).unwrap(), None);
+
+        let strings = vec![Some("alpha".to_string()), None, Some("gamma".to_string())];
+        bytes.clear();
+        write_strings(&mut bytes, &strings);
+        assert_eq!(read_strings(&bytes).unwrap(), strings);
+
+        let string_array = vec![
+            vec![Some("menu".to_string()), Some("play".to_string())],
+            vec![None, Some("quit".to_string())],
+        ];
+        bytes.clear();
+        write_string_array(&mut bytes, &string_array);
+        assert_eq!(read_string_array(&bytes).unwrap(), string_array);
 
         bytes.clear();
         write_content(&mut bytes, CONTENT_TYPE_BLOCK, CONVEYOR_BLOCK_ID);
@@ -1403,6 +1516,73 @@ mod tests {
                 consumed,
                 total
             }) if consumed == bytes.len() - 2 && total == bytes.len()
+        ));
+    }
+
+    #[test]
+    fn color_and_string_collection_prefix_readers_preserve_boundaries() {
+        let mut bytes = Vec::new();
+        write_color(&mut bytes, 0xaabb_ccdd);
+        bytes.push(0xee);
+
+        let (color, consumed) = read_color_prefix(&bytes).unwrap();
+        assert_eq!(color, 0xaabb_ccdd);
+        assert_eq!(consumed, 4);
+        assert!(matches!(
+            read_color(&bytes),
+            Err(TypeIoReadError::TrailingBytes { consumed: 4, total })
+                if total == bytes.len()
+        ));
+
+        let strings = vec![Some("alpha".to_string()), None, Some("gamma".to_string())];
+        bytes.clear();
+        write_strings(&mut bytes, &strings);
+        bytes.push(0xdd);
+
+        let (decoded_strings, consumed) = read_strings_prefix(&bytes).unwrap();
+        assert_eq!(decoded_strings, strings);
+        assert_eq!(consumed, bytes.len() - 1);
+        assert!(matches!(
+            read_strings(&bytes),
+            Err(TypeIoReadError::TrailingBytes { consumed, total })
+                if consumed == bytes.len() - 1 && total == bytes.len()
+        ));
+
+        let string_array = vec![
+            vec![Some("menu".to_string()), Some("play".to_string())],
+            vec![None, Some("quit".to_string())],
+        ];
+        bytes.clear();
+        write_string_array(&mut bytes, &string_array);
+        bytes.push(0xcc);
+
+        let (decoded_rows, consumed) = read_string_array_prefix(&bytes).unwrap();
+        assert_eq!(decoded_rows, string_array);
+        assert_eq!(consumed, bytes.len() - 1);
+        assert!(matches!(
+            read_string_array(&bytes),
+            Err(TypeIoReadError::TrailingBytes { consumed, total })
+                if consumed == bytes.len() - 1 && total == bytes.len()
+        ));
+    }
+
+    #[test]
+    fn string_collection_readers_reject_truncated_payloads() {
+        assert!(matches!(
+            read_strings(&[1, 1, 0]),
+            Err(TypeIoReadError::UnexpectedEof {
+                position: 2,
+                needed: 2,
+                remaining: 1
+            })
+        ));
+        assert!(matches!(
+            read_string_array(&[1, 1, 1, 1]),
+            Err(TypeIoReadError::UnexpectedEof {
+                position: 3,
+                needed: 2,
+                remaining: 1
+            })
         ));
     }
 
