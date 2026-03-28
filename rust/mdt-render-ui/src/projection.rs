@@ -143,12 +143,14 @@ fn project_render_model_with_player_position_visibility(
 
     if overlay_visible {
         for plan in session.player_team_plans() {
-            if !tile_visible_under_fog(
-                session,
-                fog_visibility,
-                plan.plan.x as usize,
-                plan.plan.y as usize,
-            ) {
+            let plan_x = i32::from(plan.plan.x);
+            let plan_y = i32::from(plan.plan.y);
+            let Some((plan_tile_x, plan_tile_y)) =
+                tile_coords_in_bounds(plan_x, plan_y, graph.width(), graph.height())
+            else {
+                continue;
+            };
+            if !tile_visible_under_fog(session, fog_visibility, plan_tile_x, plan_tile_y) {
                 continue;
             }
             objects.push(project_team_plan(plan));
@@ -156,8 +158,14 @@ fn project_render_model_with_player_position_visibility(
 
         for marker in graph.markers() {
             for object in project_marker_objects(marker) {
-                let marker_tile_x = world_to_tile_index_clamped(object.x, graph.width());
-                let marker_tile_y = world_to_tile_index_clamped(object.y, graph.height());
+                let Some((marker_tile_x, marker_tile_y)) = world_position_tile_coords_in_bounds(
+                    object.x,
+                    object.y,
+                    graph.width(),
+                    graph.height(),
+                ) else {
+                    continue;
+                };
                 if !tile_visible_under_fog(session, fog_visibility, marker_tile_x, marker_tile_y) {
                     continue;
                 }
@@ -246,17 +254,19 @@ fn project_render_model_with_view_window_visibility(
 
     if overlay_visible {
         for plan in session.player_team_plans() {
-            if !tile_visible_under_fog(
-                session,
-                fog_visibility,
-                plan.plan.x as usize,
-                plan.plan.y as usize,
-            ) {
+            let plan_x = i32::from(plan.plan.x);
+            let plan_y = i32::from(plan.plan.y);
+            let Some((plan_tile_x, plan_tile_y)) =
+                tile_coords_in_bounds(plan_x, plan_y, graph.width(), graph.height())
+            else {
+                continue;
+            };
+            if !tile_visible_under_fog(session, fog_visibility, plan_tile_x, plan_tile_y) {
                 continue;
             }
             if tile_in_window(
-                i32::from(plan.plan.x),
-                i32::from(plan.plan.y),
+                plan_x,
+                plan_y,
                 window_x,
                 window_y,
                 window_width,
@@ -268,8 +278,14 @@ fn project_render_model_with_view_window_visibility(
 
         for marker in graph.markers() {
             for object in project_marker_objects(marker) {
-                let marker_tile_x = world_to_tile_index_clamped(object.x, graph.width());
-                let marker_tile_y = world_to_tile_index_clamped(object.y, graph.height());
+                let Some((marker_tile_x, marker_tile_y)) = world_position_tile_coords_in_bounds(
+                    object.x,
+                    object.y,
+                    graph.width(),
+                    graph.height(),
+                ) else {
+                    continue;
+                };
                 if !tile_visible_under_fog(session, fog_visibility, marker_tile_x, marker_tile_y) {
                     continue;
                 }
@@ -592,11 +608,45 @@ fn world_to_tile_index_floor(world_position: f32) -> i32 {
     (world_position / TILE_SIZE).floor() as i32
 }
 
+fn world_to_tile_index_in_bounds(world_position: f32, bound: usize) -> Option<usize> {
+    if bound == 0 || !world_position.is_finite() {
+        return None;
+    }
+    let tile = (world_position / TILE_SIZE).floor();
+    if tile < 0.0 || tile >= bound as f32 {
+        return None;
+    }
+    Some(tile as usize)
+}
+
+fn world_position_tile_coords_in_bounds(
+    world_x: f32,
+    world_y: f32,
+    width: usize,
+    height: usize,
+) -> Option<(usize, usize)> {
+    Some((
+        world_to_tile_index_in_bounds(world_x, width)?,
+        world_to_tile_index_in_bounds(world_y, height)?,
+    ))
+}
+
 fn world_to_tile_index_clamped(world_position: f32, bound: usize) -> usize {
     if bound == 0 {
         return 0;
     }
     world_to_tile_index_floor(world_position).clamp(0, bound.saturating_sub(1) as i32) as usize
+}
+
+fn tile_coords_in_bounds(
+    tile_x: i32,
+    tile_y: i32,
+    width: usize,
+    height: usize,
+) -> Option<(usize, usize)> {
+    let tile_x = usize::try_from(tile_x).ok()?;
+    let tile_y = usize::try_from(tile_y).ok()?;
+    (tile_x < width && tile_y < height).then_some((tile_x, tile_y))
 }
 
 fn view_window_bounds(
@@ -1080,6 +1130,72 @@ mod tests {
             .objects
             .iter()
             .any(|object| object.id == format!("terrain:{revealed_tile}")));
+    }
+
+    #[test]
+    fn render_projection_drops_out_of_bounds_plans_under_fog() {
+        let mut bundle = parse_world_bundle(&decode_hex(include_str!(
+            "../../../tests/src/test/resources/world-stream.hex"
+        )))
+        .unwrap();
+        let player_team_id = {
+            let session = bundle.loaded_session().unwrap();
+            session.player().team_id as u32
+        };
+        let group = bundle
+            .team_plan_groups
+            .iter_mut()
+            .find(|group| group.team_id == player_team_id)
+            .expect("expected player team plan group in sample world");
+        group.plan_count += 1;
+        group.plans.push(mdt_world::TeamPlan {
+            x: -1,
+            y: 0,
+            rotation: 0,
+            block_id: 0x0101,
+            config: mdt_world::TypeIoValue::Null,
+            config_bytes: Vec::new(),
+            config_sha256: "out-of-bounds-plan".to_string(),
+        });
+
+        let session = bundle.loaded_session().unwrap();
+        let render = project_render_model(&session);
+
+        assert!(!render
+            .objects
+            .iter()
+            .any(|object| object.id == format!("plan:build:{player_team_id}:-1:0:257")));
+    }
+
+    #[test]
+    fn render_projection_drops_out_of_bounds_markers_under_fog() {
+        let mut bundle = parse_world_bundle(&decode_hex(include_str!(
+            "../../../tests/src/test/resources/world-stream.hex"
+        )))
+        .unwrap();
+        bundle.markers.push(MarkerEntry {
+            id: 999,
+            marker: MarkerModel::Point(PointMarkerModel {
+                class_tag: "OutOfBounds".to_string(),
+                world: true,
+                minimap: true,
+                autoscale: false,
+                draw_layer_bits: 0,
+                x_bits: (-8.0f32).to_bits(),
+                y_bits: 8.0f32.to_bits(),
+                radius_bits: 1.0f32.to_bits(),
+                stroke_bits: 0.5f32.to_bits(),
+                color: Some("ffffff".to_string()),
+            }),
+        });
+
+        let session = bundle.loaded_session().unwrap();
+        let render = project_render_model_with_view_window(&session, None, (4, 4));
+
+        assert!(!render
+            .objects
+            .iter()
+            .any(|object| object.id == "marker:point:999"));
     }
 
     #[test]
