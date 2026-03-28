@@ -7294,6 +7294,9 @@ impl SessionState {
             .into_iter()
             .take(HIDDEN_SNAPSHOT_SAMPLE_LIMIT)
             .collect();
+        for entity_id in &removed_ids {
+            self.clear_entity_snapshot_tombstone(*entity_id);
+        }
         self.hidden_snapshot_ids = trigger_hidden_ids;
         self.hidden_snapshot_delta_projection = Some(HiddenSnapshotDeltaProjection {
             active_count: trigger_count,
@@ -13725,6 +13728,28 @@ mod tests {
         );
 
         assert!(state.hidden_snapshot_ids.contains(&303));
+        assert!(!state.entity_snapshot_tombstones.contains_key(&303));
+        assert!(!state.entity_snapshot_tombstone_blocks_upsert(303));
+    }
+
+    #[test]
+    fn hidden_snapshot_clears_tombstones_for_ids_removed_from_hidden_set() {
+        let mut state = SessionState::default();
+        state.hidden_snapshot_ids = BTreeSet::from([303]);
+        state.record_entity_snapshot_tombstone(303);
+
+        assert!(state.entity_snapshot_tombstone_blocks_upsert(303));
+
+        state.apply_hidden_snapshot(
+            AppliedHiddenSnapshotIds {
+                count: 0,
+                first_id: None,
+                sample_ids: vec![],
+            },
+            BTreeSet::new(),
+        );
+
+        assert!(!state.hidden_snapshot_ids.contains(&303));
         assert!(!state.entity_snapshot_tombstones.contains_key(&303));
         assert!(!state.entity_snapshot_tombstone_blocks_upsert(303));
     }
