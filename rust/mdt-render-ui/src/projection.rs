@@ -477,10 +477,11 @@ fn tile_visible_under_fog(
     tile_y: usize,
 ) -> bool {
     !fog_visibility.enabled
-        || session
-            .graph()
-            .fog_revealed(fog_visibility.team_id, tile_x, tile_y)
-            .unwrap_or(true)
+        || fog_reveal_is_visible(
+            session
+                .graph()
+                .fog_revealed(fog_visibility.team_id, tile_x, tile_y),
+        )
 }
 
 fn fog_tile_counts(
@@ -494,16 +495,20 @@ fn fog_tile_counts(
 
     grid.iter_tiles()
         .fold((0usize, 0usize), |(visible, hidden), tile| {
-            if session
-                .graph()
-                .fog_revealed(fog_visibility.team_id, tile.x as usize, tile.y as usize)
-                .unwrap_or(true)
-            {
+            if fog_reveal_is_visible(session.graph().fog_revealed(
+                fog_visibility.team_id,
+                tile.x as usize,
+                tile.y as usize,
+            )) {
                 (visible + 1, hidden)
             } else {
                 (visible, hidden + 1)
             }
         })
+}
+
+fn fog_reveal_is_visible(revealed: Option<bool>) -> bool {
+    matches!(revealed, Some(true))
 }
 
 fn project_team_plan(plan: TeamPlanRef<'_>) -> RenderObject {
@@ -697,7 +702,10 @@ fn tile_in_window(
 
 #[cfg(test)]
 mod tests {
-    use super::{project_hud_model, project_render_model, project_render_model_with_view_window};
+    use super::{
+        fog_reveal_is_visible, project_hud_model, project_render_model,
+        project_render_model_with_view_window,
+    };
     use crate::render_model::{
         RenderObjectSemanticKind, RenderPrimitive, RenderPrimitivePayloadValue,
     };
@@ -763,6 +771,13 @@ mod tests {
         assert_eq!(summary.map_height, 8);
         assert!(summary.overlay_visible);
         assert!(summary.fog_enabled);
+    }
+
+    #[test]
+    fn render_projection_treats_missing_fog_reveal_data_as_hidden() {
+        assert!(!fog_reveal_is_visible(None));
+        assert!(!fog_reveal_is_visible(Some(false)));
+        assert!(fog_reveal_is_visible(Some(true)));
     }
 
     #[test]
