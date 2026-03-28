@@ -132,10 +132,20 @@ fn position_target(x: f32, y: f32) -> CommandModePositionTarget {
 
 fn parse_world_pos(value: &str) -> Option<(f32, f32)> {
     if let Some((x, y)) = value.split_once(',') {
-        return Some((x.trim().parse().ok()?, y.trim().parse().ok()?));
+        let x: f32 = x.trim().parse().ok()?;
+        let y: f32 = y.trim().parse().ok()?;
+        if !x.is_finite() || !y.is_finite() {
+            return None;
+        }
+        return Some((x, y));
     }
     if let Some((x, y)) = value.split_once(':') {
-        return Some((x.trim().parse().ok()?, y.trim().parse().ok()?));
+        let x: f32 = x.trim().parse().ok()?;
+        let y: f32 = y.trim().parse().ok()?;
+        if !x.is_finite() || !y.is_finite() {
+            return None;
+        }
+        return Some((x, y));
     }
     None
 }
@@ -174,6 +184,22 @@ mod tests {
                 }),
                 rect_target: None,
             })
+        );
+    }
+
+    #[test]
+    fn resolve_runtime_custom_packet_command_target_rejects_non_finite_world_pos() {
+        let entry = RuntimeCustomPacketSurfaceSummaryEntry {
+            key: "logic.target".to_string(),
+            encoding: RuntimeCustomPacketSemanticEncoding::Text,
+            semantic: RuntimeCustomPacketSemanticKind::WorldPos,
+            stable_value: "NaN,12".to_string(),
+            marker: None,
+        };
+
+        assert_eq!(
+            resolve_runtime_custom_packet_command_target(&entry, &SessionState::default(), None),
+            None
         );
     }
 
@@ -330,22 +356,6 @@ mod tests {
                 }),
                 rect_target: None,
             })
-        );
-    }
-
-    #[test]
-    fn resolve_runtime_custom_packet_command_target_rejects_non_finite_world_pos() {
-        let entry = RuntimeCustomPacketSurfaceSummaryEntry {
-            key: "logic.world".to_string(),
-            encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
-            semantic: RuntimeCustomPacketSemanticKind::WorldPos,
-            stable_value: "NaN,inf".to_string(),
-            marker: None,
-        };
-
-        assert_eq!(
-            resolve_runtime_custom_packet_command_target(&entry, &SessionState::default(), None),
-            None
         );
     }
 
