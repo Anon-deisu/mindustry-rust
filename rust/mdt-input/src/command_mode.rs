@@ -365,6 +365,7 @@ impl CommandModeState {
 
     pub fn record_command_building(&mut self, buildings: &[i32], position: (f32, f32)) {
         self.active = true;
+        self.selected_units.clear();
         self.command_buildings = dedupe_i32(buildings);
         self.command_rect = None;
         self.last_target = Some(CommandModeTargetProjection {
@@ -385,6 +386,7 @@ impl CommandModeState {
     ) {
         self.active = true;
         self.selected_units = dedupe_i32(unit_ids);
+        self.command_buildings.clear();
         self.command_rect = None;
         self.last_target = Some(CommandModeTargetProjection {
             build_target,
@@ -702,6 +704,43 @@ mod tests {
         assert_eq!(state.projection().last_target, None);
         assert_eq!(state.projection().last_command_selection, None);
         assert_eq!(state.projection().last_stance_selection, None);
+    }
+
+    #[test]
+    fn command_entries_clear_stale_opposite_selection_state() {
+        let mut state = CommandModeState::default();
+        state.select_unit_target(Some(unit(2, 11)), &[11, 22], CommandModeSelectionOp::Replace);
+        state.record_command_building(&[90, 91, 90], (3.0, 4.0));
+
+        assert!(state.projection().selected_units.is_empty());
+        assert_eq!(state.projection().command_buildings, vec![90, 91]);
+        assert_eq!(
+            state.projection().last_target,
+            Some(CommandModeTargetProjection {
+                position_target: Some(CommandModePositionTarget {
+                    x_bits: 3.0f32.to_bits(),
+                    y_bits: 4.0f32.to_bits(),
+                }),
+                ..CommandModeTargetProjection::default()
+            })
+        );
+
+        state.record_command_units(&[7, 8, 7], Some(12), Some(unit(1, 44)), Some((5.0, 6.0)));
+
+        assert_eq!(state.projection().selected_units, vec![7, 8]);
+        assert!(state.projection().command_buildings.is_empty());
+        assert_eq!(
+            state.projection().last_target,
+            Some(CommandModeTargetProjection {
+                build_target: Some(12),
+                unit_target: Some(unit(1, 44)),
+                position_target: Some(CommandModePositionTarget {
+                    x_bits: 5.0f32.to_bits(),
+                    y_bits: 6.0f32.to_bits(),
+                }),
+                rect_target: None,
+            })
+        );
     }
 
     #[test]
