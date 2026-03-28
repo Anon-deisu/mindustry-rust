@@ -36,11 +36,15 @@ pub fn resolve_runtime_custom_packet_business_marker(
     let unit_id = entry.stable_value.trim().parse::<i32>().ok()?;
     let projection = session_state.runtime_typed_entity_projection();
     let entity = projection.entity_at(unit_id)?;
-    Some(RuntimeCustomPacketBusinessMarker {
+    let marker = RuntimeCustomPacketBusinessMarker {
         source: RuntimeCustomPacketBusinessMarkerSource::RuntimeEntity,
         x: f32::from_bits(entity.base().x_bits),
         y: f32::from_bits(entity.base().y_bits),
-    })
+    };
+    if !marker.x.is_finite() || !marker.y.is_finite() {
+        return None;
+    }
+    Some(marker)
 }
 
 pub fn resolve_runtime_custom_packet_command_target(
@@ -51,6 +55,11 @@ pub fn resolve_runtime_custom_packet_command_target(
     let resolved_marker = marker
         .cloned()
         .or_else(|| resolve_runtime_custom_packet_business_marker(entry, session_state));
+    if let Some(marker) = resolved_marker.as_ref() {
+        if !marker.x.is_finite() || !marker.y.is_finite() {
+            return None;
+        }
+    }
     let marker = resolved_marker.as_ref();
     match entry.semantic {
         RuntimeCustomPacketSemanticKind::WorldPos => {
@@ -98,13 +107,19 @@ pub fn apply_runtime_custom_packet_command_target(
     if target.is_empty() {
         return;
     }
+    let position_target = target
+        .position_target
+        .map(|target| (f32::from_bits(target.x_bits), f32::from_bits(target.y_bits)));
+    if let Some((x, y)) = position_target {
+        if !x.is_finite() || !y.is_finite() {
+            return;
+        }
+    }
     runtime_command_mode.record_command_units(
         &[],
         target.build_target,
         target.unit_target,
-        target
-            .position_target
-            .map(|target| (f32::from_bits(target.x_bits), f32::from_bits(target.y_bits))),
+        position_target,
     );
 }
 
@@ -330,6 +345,66 @@ mod tests {
 
         assert_eq!(
             resolve_runtime_custom_packet_command_target(&entry, &SessionState::default(), None),
+            None
+        );
+    }
+
+    #[test]
+    fn reject_non_finite_runtime_entity_marker_for_build_and_unit_targets() {
+        let mut state = SessionState::default();
+        state
+            .runtime_typed_entity_apply_projection
+            .by_entity_id
+            .insert(
+                77,
+                crate::session_state::TypedRuntimeEntityModel::Player(
+                    crate::session_state::TypedRuntimePlayerEntity {
+                        base: crate::session_state::TypedRuntimeEntityBase {
+                            entity_id: 77,
+                            class_id: 0,
+                            hidden: false,
+                            is_local_player: false,
+                            unit_kind: 0,
+                            unit_value: 0,
+                            x_bits: f32::NAN.to_bits(),
+                            y_bits: f32::INFINITY.to_bits(),
+                            last_seen_entity_snapshot_count: 1,
+                        },
+                        semantic: crate::session_state::EntityPlayerSemanticProjection::default(),
+                    },
+                ),
+            );
+
+        let unit_entry = RuntimeCustomPacketSurfaceSummaryEntry {
+            key: "logic.unit".to_string(),
+            encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+            semantic: RuntimeCustomPacketSemanticKind::UnitId,
+            stable_value: "77".to_string(),
+            marker: None,
+        };
+        let build_entry = RuntimeCustomPacketSurfaceSummaryEntry {
+            key: "build.select".to_string(),
+            encoding: RuntimeCustomPacketSemanticEncoding::Text,
+            semantic: RuntimeCustomPacketSemanticKind::BuildPos,
+            stable_value: pack_point2(3, 5).to_string(),
+            marker: None,
+        };
+        let marker = RuntimeCustomPacketBusinessMarker {
+            source: RuntimeCustomPacketBusinessMarkerSource::RuntimeEntity,
+            x: f32::NAN,
+            y: f32::INFINITY,
+        };
+
+        assert_eq!(
+            resolve_runtime_custom_packet_business_marker(&unit_entry, &state),
+            None
+        );
+        assert_eq!(
+            resolve_runtime_custom_packet_command_target(&build_entry, &state, Some(&marker)),
+            None
+        );
+        assert_eq!(
+            resolve_runtime_custom_packet_command_target(&unit_entry, &state, Some(&marker)),
             None
         );
     }
