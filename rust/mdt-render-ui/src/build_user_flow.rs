@@ -175,7 +175,7 @@ fn authority_needs_attention(state: BuildInteractionAuthorityState) -> bool {
 }
 
 fn focus_needs_refocus(assist: &BuildMinimapAssistPanelModel) -> bool {
-    assist.focus_tile.is_none() || matches!(assist.focus_in_window, Some(false))
+    assist.focus_tile.is_none() || assist.focus_in_window != Some(true)
 }
 
 fn push_route_step(route: &mut Vec<&'static str>, step: &'static str) {
@@ -358,6 +358,77 @@ mod tests {
         assert_eq!(panel.pan_label(), "hold");
         assert_eq!(panel.target_kind, MinimapUserTargetKind::Marker);
         assert_eq!(panel.config_scope, "single");
+    }
+
+    #[test]
+    fn build_user_flow_unknown_focus_window_state_requires_refocus() {
+        let panel = build_user_flow_from_panels(
+            &BuildMinimapAssistPanelModel {
+                mode: BuildInteractionMode::Break,
+                selection_state: BuildInteractionSelectionState::BreakingHead,
+                queue_state: BuildInteractionQueueState::Queued,
+                place_ready: false,
+                config_family_count: 0,
+                config_sample_count: 0,
+                top_config_family: None,
+                authority_state: BuildInteractionAuthorityState::Applied,
+                focus_tile: Some((9, 7)),
+                focus_in_window: None,
+                visible_map_percent: 100,
+                unknown_tile_percent: 0,
+                window_coverage_percent: 50,
+                tracked_object_count: 2,
+                runtime_count: 0,
+            },
+            &MinimapUserFlowPanelModel {
+                next_action: "locate",
+                focus_state: MinimapUserFocusState::Missing,
+                pan_horizontal: MinimapPanAxisDirection::None,
+                pan_vertical: MinimapPanAxisDirection::None,
+                target_kind: MinimapUserTargetKind::None,
+                focus_tile: Some((9, 7)),
+                window_clamped_left: false,
+                window_clamped_top: false,
+                window_clamped_right: false,
+                window_clamped_bottom: false,
+                focus_offset_x: None,
+                focus_offset_y: None,
+                overlay_target_count: 0,
+                visible_map_percent: 100,
+                unknown_tile_percent: 0,
+                window_coverage_percent: 50,
+            },
+            &BuildInteractionPanelModel {
+                mode: BuildInteractionMode::Break,
+                selection_state: BuildInteractionSelectionState::BreakingHead,
+                queue_state: BuildInteractionQueueState::Queued,
+                selected_block_id: None,
+                selected_rotation: 0,
+                pending_count: 1,
+                orphan_authoritative_count: 0,
+                place_ready: false,
+                config_available: false,
+                config_family_count: 0,
+                config_sample_count: 0,
+                top_config_family: None,
+                head: Some(BuildConfigHeadModel {
+                    x: 9,
+                    y: 7,
+                    breaking: true,
+                    block_id: None,
+                    rotation: None,
+                    stage: crate::BuildQueueHeadStage::Queued,
+                }),
+                authority_state: BuildInteractionAuthorityState::Applied,
+                authority_pending_match: None,
+                authority_source: None,
+                authority_tile: None,
+                authority_block_name: None,
+            },
+        );
+
+        assert_eq!(panel.blocker_labels(), vec!["refocus"]);
+        assert_eq!(panel.route, vec!["refocus", "break"]);
     }
 
     #[test]
