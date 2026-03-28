@@ -5180,11 +5180,11 @@ fn encode_ppm(frame: &WindowFrame) -> Vec<u8> {
 mod tests {
     use super::{
         color_for_object, compose_frame, runtime_command_minimap_tiles,
-        runtime_ping_minimap_tile, runtime_world_label_minimap_tiles,
-        runtime_world_span_to_tile_span, scale_frame_pixels, window_hud_bar_height,
-        window_hud_top_line, BackendSignal, WindowBackend, WindowFrame, WindowMinimapBreakRect,
-        WindowMinimapCommandRect, WindowMinimapCommandRectKind, WindowMinimapInset,
-        WindowMinimapRuntimeOverlayKind, WindowMinimapRuntimeOverlayTile,
+        fit_window_minimap_size, runtime_ping_minimap_tile, runtime_world_label_minimap_tiles,
+        runtime_world_span_to_tile_span, runtime_world_to_minimap_tile, scale_frame_pixels,
+        window_hud_bar_height, window_hud_top_line, BackendSignal, WindowBackend, WindowFrame,
+        WindowMinimapBreakRect, WindowMinimapCommandRect, WindowMinimapCommandRectKind,
+        WindowMinimapInset, WindowMinimapRuntimeOverlayKind, WindowMinimapRuntimeOverlayTile,
         WindowMinimapUnitAssemblerRect, WindowPresenter, COLOR_BLOCK, COLOR_EMPTY,
         COLOR_ICON_BUILD_CONFIG, COLOR_ICON_RUNTIME_BREAK, COLOR_ICON_RUNTIME_BULLET,
         COLOR_ICON_RUNTIME_COMMAND, COLOR_ICON_RUNTIME_EFFECT, COLOR_ICON_RUNTIME_EFFECT_MARKER,
@@ -6042,6 +6042,25 @@ mod tests {
         assert!(runtime_command_minimap_tiles(&scene, 80, 60, 8).is_empty());
         assert_eq!(runtime_world_span_to_tile_span(f32::NAN, 12), 0);
         assert_eq!(runtime_world_span_to_tile_span(-4.0, 12), 0);
+    }
+
+    #[test]
+    fn fit_window_minimap_size_rejects_small_bounds_and_caps_scale() {
+        assert_eq!(fit_window_minimap_size(0, 24, 128, 128), None);
+        assert_eq!(fit_window_minimap_size(24, 0, 128, 128), None);
+        assert_eq!(fit_window_minimap_size(24, 24, 11, 128), None);
+        assert_eq!(fit_window_minimap_size(24, 24, 128, 11), None);
+        assert_eq!(fit_window_minimap_size(100, 50, 1000, 1000), Some((400, 200)));
+    }
+
+    #[test]
+    fn runtime_world_to_minimap_tile_clamps_and_rejects_nonfinite_input() {
+        assert_eq!(runtime_world_to_minimap_tile(f32::NAN, 8), 0);
+        assert_eq!(runtime_world_to_minimap_tile(f32::INFINITY, 8), 0);
+        assert_eq!(runtime_world_to_minimap_tile(-1.0, 8), 0);
+        assert_eq!(runtime_world_to_minimap_tile(16.0, 8), 2);
+        assert_eq!(runtime_world_to_minimap_tile(64.0, 8), 7);
+        assert_eq!(runtime_world_to_minimap_tile(16.0, 0), 0);
     }
 
     #[test]

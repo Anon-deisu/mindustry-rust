@@ -3422,6 +3422,46 @@ mod tests {
     }
 
     #[test]
+    fn build_runtime_world_label_panel_saturates_total_count() {
+        let hud = HudModel {
+            runtime_ui: Some(RuntimeUiObservability {
+                hud_text: RuntimeHudTextObservability::default(),
+                toast: RuntimeToastObservability::default(),
+                text_input: RuntimeTextInputObservability::default(),
+                chat: crate::RuntimeChatObservability::default(),
+                admin: RuntimeAdminObservability::default(),
+                menu: RuntimeMenuObservability::default(),
+                command_mode: RuntimeCommandModeObservability::default(),
+                rules: RuntimeRulesObservability::default(),
+                world_labels: RuntimeWorldLabelObservability {
+                    label_count: u64::MAX - 1,
+                    reliable_label_count: 1,
+                    remove_label_count: 9,
+                    active_count: 0,
+                    inactive_count: 0,
+                    last_entity_id: None,
+                    last_text: None,
+                    last_flags: None,
+                    last_font_size_bits: None,
+                    last_z_bits: None,
+                    last_position: None,
+                },
+                markers: crate::hud_model::RuntimeMarkerObservability::default(),
+                session: RuntimeSessionObservability::default(),
+                live: RuntimeLiveSummaryObservability::default(),
+            }),
+            ..HudModel::default()
+        };
+
+        let panel = build_runtime_world_label_panel(&hud).expect("expected runtime world-label panel");
+
+        assert_eq!(panel.label_count, u64::MAX - 1);
+        assert_eq!(panel.reliable_label_count, 1);
+        assert_eq!(panel.remove_label_count, 9);
+        assert_eq!(panel.total_count, u64::MAX);
+    }
+
+    #[test]
     fn runtime_world_label_panel_derived_metrics_handle_multiline_and_non_finite_bits() {
         let panel = RuntimeWorldLabelPanelModel {
             label_count: 1,

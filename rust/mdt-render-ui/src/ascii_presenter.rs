@@ -4439,6 +4439,50 @@ mod tests {
     }
 
     #[test]
+    fn runtime_ui_uri_scheme_rejects_empty_and_colonless_values() {
+        let scene = runtime_stack_test_scene();
+        let mut presenter = AsciiScenePresenter::default();
+
+        for uri in ["", "noscheme", "://example.com"] {
+            let mut runtime_ui = RuntimeUiObservability::default();
+            runtime_ui.toast.last_open_uri = Some(uri.to_string());
+
+            presenter.present(&scene, &runtime_stack_test_hud(runtime_ui));
+            let frame = presenter.last_frame();
+
+            assert!(frame.contains("RUNTIME-NOTICE-DETAIL:"));
+            assert!(frame.contains("scheme=none"));
+        }
+
+        let mut runtime_ui = RuntimeUiObservability::default();
+        runtime_ui.toast.last_open_uri = Some("https://example.com".to_string());
+
+        presenter.present(&scene, &runtime_stack_test_hud(runtime_ui));
+        let frame = presenter.last_frame();
+
+        assert!(frame.contains("RUNTIME-NOTICE-DETAIL:"));
+        assert!(frame.contains("scheme=https"));
+    }
+
+    #[test]
+    fn runtime_ui_notice_panel_is_empty_rejects_single_active_field() {
+        let scene = runtime_stack_test_scene();
+        let mut presenter = AsciiScenePresenter::default();
+
+        presenter.present(&scene, &runtime_stack_test_hud(RuntimeUiObservability::default()));
+        assert!(!presenter.last_frame().contains("RUNTIME-NOTICE-DETAIL:"));
+
+        let mut runtime_ui = RuntimeUiObservability::default();
+        runtime_ui.toast.last_open_uri = Some("https://example.com".to_string());
+
+        presenter.present(&scene, &runtime_stack_test_hud(runtime_ui));
+        let frame = presenter.last_frame();
+
+        assert!(frame.contains("RUNTIME-NOTICE-DETAIL:"));
+        assert!(frame.contains("scheme=https"));
+    }
+
+    #[test]
     fn ascii_presenter_omits_runtime_session_row_for_empty_default_state() {
         let scene = RenderModel {
             viewport: Viewport {
