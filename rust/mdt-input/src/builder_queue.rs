@@ -661,7 +661,7 @@ impl BuilderQueueStateMachine {
         });
 
         BuilderQueueBuildSelection {
-            building: head_tile.is_some(),
+            building: selection_entry.is_some(),
             selected_tile: selection_entry.map(|entry| (entry.x, entry.y)),
             selected_block_id: selection_entry.and_then(|entry| entry.block_id),
             selected_rotation: selection_entry
@@ -4323,6 +4323,29 @@ mod tests {
                 selected_block_id: Some(33),
                 selected_rotation: 2,
                 selection_source: Some(BuilderQueueBuildSelectionSource::Head),
+            }
+        );
+    }
+
+    #[test]
+    fn build_selection_does_not_mark_break_only_queue_as_building() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([BuilderQueueEntryObservation {
+            x: 7,
+            y: 8,
+            breaking: true,
+            block_id: None,
+            rotation: 0,
+        }]);
+
+        assert_eq!(
+            queue.build_selection(),
+            BuilderQueueBuildSelection {
+                building: false,
+                selected_tile: None,
+                selected_block_id: None,
+                selected_rotation: 0,
+                selection_source: None,
             }
         );
     }
