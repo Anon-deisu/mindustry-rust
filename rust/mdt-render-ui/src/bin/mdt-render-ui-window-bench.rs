@@ -117,22 +117,16 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Args, String> {
                     parse_dimensions(&pending.next().ok_or("missing value for --max-view-tiles")?)?;
             }
             "--player-x" => {
-                player_x = Some(
-                    pending
-                        .next()
-                        .ok_or("missing value for --player-x")?
-                        .parse::<f32>()
-                        .map_err(|err| err.to_string())?,
-                );
+                player_x = Some(parse_finite_f32(
+                    "--player-x",
+                    &pending.next().ok_or("missing value for --player-x")?,
+                )?);
             }
             "--player-y" => {
-                player_y = Some(
-                    pending
-                        .next()
-                        .ok_or("missing value for --player-y")?
-                        .parse::<f32>()
-                        .map_err(|err| err.to_string())?,
-                );
+                player_y = Some(parse_finite_f32(
+                    "--player-y",
+                    &pending.next().ok_or("missing value for --player-y")?,
+                )?);
             }
             "--world-stream-hex" => {
                 world_stream_hex = Some(PathBuf::from(
@@ -180,15 +174,29 @@ fn parse_dimensions(value: &str) -> Result<(usize, usize), String> {
         return Err("invalid --max-view-tiles, expected <width:height>".to_string());
     }
     Ok((
-        parts[0]
-            .parse::<usize>()
-            .map_err(|err| err.to_string())?
-            .max(1),
-        parts[1]
-            .parse::<usize>()
-            .map_err(|err| err.to_string())?
-            .max(1),
+        parse_positive_usize("--max-view-tiles width", parts[0])?,
+        parse_positive_usize("--max-view-tiles height", parts[1])?,
     ))
+}
+
+fn parse_positive_usize(flag: &str, value: &str) -> Result<usize, String> {
+    let parsed = value
+        .parse::<usize>()
+        .map_err(|err| format!("invalid {flag}: {err}"))?;
+    if parsed == 0 {
+        return Err(format!("invalid {flag}: must be greater than 0"));
+    }
+    Ok(parsed)
+}
+
+fn parse_finite_f32(flag: &str, value: &str) -> Result<f32, String> {
+    let parsed = value
+        .parse::<f32>()
+        .map_err(|err| format!("invalid {flag}: {err}"))?;
+    if !parsed.is_finite() {
+        return Err(format!("invalid {flag}: must be finite"));
+    }
+    Ok(parsed)
 }
 
 #[cfg(test)]
@@ -235,5 +243,46 @@ mod tests {
     fn parse_args_help_is_not_an_error() {
         let err = parse_args(vec!["--help".to_string()].into_iter()).unwrap_err();
         assert!(err.starts_with("Usage: mdt-render-ui-window-bench"));
+    }
+
+    #[test]
+    fn parse_args_rejects_nonfinite_player_coords_and_zero_sizes() {
+        let err = parse_args(
+            vec![
+                "--player-x".to_string(),
+                "NaN".to_string(),
+                "--player-y".to_string(),
+                "12".to_string(),
+            ]
+            .into_iter(),
+        )
+        .unwrap_err();
+        assert!(err.contains("invalid --player-x: must be finite"));
+
+        let err = parse_args(
+            vec![
+                "--max-view-tiles".to_string(),
+                "0:24".to_string(),
+                "--player-x".to_string(),
+                "1".to_string(),
+                "--player-y".to_string(),
+                "2".to_string(),
+            ]
+            .into_iter(),
+        )
+        .unwrap_err();
+        assert!(err.contains("invalid --max-view-tiles width: must be greater than 0"));
+
+        let err = parse_args(
+            vec![
+                "--player-x".to_string(),
+                "inf".to_string(),
+                "--player-y".to_string(),
+                "12".to_string(),
+            ]
+            .into_iter(),
+        )
+        .unwrap_err();
+        assert!(err.contains("invalid --player-x: must be finite"));
     }
 }
