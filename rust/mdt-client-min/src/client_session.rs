@@ -1821,6 +1821,15 @@ impl ClientSession {
         self.state
             .configured_block_projection
             .clear_building_state(build_pos);
+        self.radar_runtime_by_build_pos
+            .borrow_mut()
+            .remove(&build_pos);
+        self.separator_runtime_by_build_pos
+            .borrow_mut()
+            .remove(&build_pos);
+        self.shielded_wall_runtime_by_build_pos
+            .borrow_mut()
+            .remove(&build_pos);
         let block_name = block_id.and_then(|block_id| self.loaded_world_block_name(block_id));
         self.state
             .building_table_projection
@@ -5177,31 +5186,8 @@ impl ClientSession {
                         .saturating_add(1);
                     self.state.last_deconstruct_finish_tile_pos = Some(summary.tile_pos);
                     self.state.last_deconstruct_finish_block_id = summary.block_id;
-                    self.state
-                        .tile_config_projection
-                        .remove_building_state(summary.tile_pos);
-                    self.state
-                        .configured_block_projection
-                        .clear_building_state(summary.tile_pos);
-                    self.radar_runtime_by_build_pos
-                        .borrow_mut()
-                        .remove(&summary.tile_pos);
-                    self.separator_runtime_by_build_pos
-                        .borrow_mut()
-                        .remove(&summary.tile_pos);
-                    self.shielded_wall_runtime_by_build_pos
-                        .borrow_mut()
-                        .remove(&summary.tile_pos);
-                    let block_name = summary
-                        .block_id
-                        .and_then(|block_id| self.loaded_world_block_name(block_id));
                     self.apply_loaded_world_tile_patch(summary.tile_pos, None, None, Some(None));
-                    self.state
-                        .building_table_projection
-                        .apply_deconstruct_finish(summary.tile_pos, summary.block_id, block_name);
-                    self.state.remove_runtime_typed_building(summary.tile_pos);
-                    self.state
-                        .record_remove_building_resource_delta(Some(summary.tile_pos));
+                    self.clear_authoritative_building_state(summary.tile_pos, summary.block_id);
                     self.state.last_deconstruct_finish_removed_local_plan = removed_local_plan;
                     self.state.builder_queue_projection.mark_deconstruct_finish(
                         i32::from(tile_x),
