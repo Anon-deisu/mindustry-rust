@@ -357,6 +357,32 @@ mod tests {
     }
 
     #[test]
+    fn equal_authoritative_unit_claims_for_same_player_record_conflict() {
+        let by_entity_id = BTreeMap::from([
+            (101, player(101, 202, 9)),
+            (202, unit(202, 0, Some(101), 9)),
+            (303, unit(303, 0, Some(101), 9)),
+        ]);
+
+        let resolution = resolve_typed_runtime_entity_ownership(&by_entity_id);
+
+        assert_eq!(
+            resolution.player_owned_unit_by_player_entity_id.get(&101),
+            None
+        );
+        assert_eq!(
+            resolution.unit_owner_player_by_unit_entity_id.get(&202),
+            None
+        );
+        assert_eq!(
+            resolution.unit_owner_player_by_unit_entity_id.get(&303),
+            None
+        );
+        assert_eq!(resolution.ownership_conflict_count, 2);
+        assert_eq!(resolution.ownership_conflict_unit_sample, vec![202, 303]);
+    }
+
+    #[test]
     fn heuristic_claim_does_not_override_authoritative_owner_for_same_player() {
         let by_entity_id = BTreeMap::from([
             (101, player(101, 303, 9)),
