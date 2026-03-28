@@ -429,6 +429,10 @@ pub enum TypeIoReadError {
         type_id: u8,
         position: usize,
     },
+    InvalidStringMarker {
+        marker: u8,
+        position: usize,
+    },
     NegativeLength {
         field: &'static str,
         length: i32,
@@ -475,6 +479,9 @@ impl fmt::Display for TypeIoReadError {
             }
             TypeIoReadError::UnsupportedPayloadType { type_id, position } => {
                 write!(f, "unsupported payload type id {type_id} at {position}")
+            }
+            TypeIoReadError::InvalidStringMarker { marker, position } => {
+                write!(f, "invalid string marker {marker} at {position}")
             }
             TypeIoReadError::NegativeLength {
                 field,
@@ -910,21 +917,28 @@ fn read_string_value(
     reader: &mut Reader<'_>,
     max_len: Option<usize>,
 ) -> Result<TypeIoObject, TypeIoReadError> {
+    let marker_position = reader.position();
     let marker = reader.read_u8()?;
-    if marker == 0 {
-        return Ok(TypeIoObject::String(None));
+    match marker {
+        0 => Ok(TypeIoObject::String(None)),
+        1 => {
+            let len = reader.read_u16()? as usize;
+            if let Some(max_len) = max_len {
+                ensure_length_limit("string length", len, max_len, reader.position() - 2)?;
+            }
+            let string_position = reader.position();
+            let bytes = reader.read_vec(len)?;
+            let value = String::from_utf8(bytes).map_err(|e| TypeIoReadError::InvalidUtf8 {
+                position: string_position,
+                message: e.to_string(),
+            })?;
+            Ok(TypeIoObject::String(Some(value)))
+        }
+        _ => Err(TypeIoReadError::InvalidStringMarker {
+            marker,
+            position: marker_position,
+        }),
     }
-    let len = reader.read_u16()? as usize;
-    if let Some(max_len) = max_len {
-        ensure_length_limit("string length", len, max_len, reader.position() - 2)?;
-    }
-    let string_position = reader.position();
-    let bytes = reader.read_vec(len)?;
-    let value = String::from_utf8(bytes).map_err(|e| TypeIoReadError::InvalidUtf8 {
-        position: string_position,
-        message: e.to_string(),
-    })?;
-    Ok(TypeIoObject::String(Some(value)))
 }
 
 fn read_non_negative_i8_len(
@@ -1267,6 +1281,17 @@ mod tests {
     fn parses_typeio_string_null_marker() {
         let value = read_object(&[4, 0]).unwrap();
         assert_eq!(value, TypeIoObject::String(None));
+    }
+
+    #[test]
+    fn rejects_invalid_typeio_string_marker() {
+        assert_eq!(
+            read_object(&[4, 2]).unwrap_err(),
+            TypeIoReadError::InvalidStringMarker {
+                marker: 2,
+                position: 1,
+            }
+        );
     }
 
     #[test]
