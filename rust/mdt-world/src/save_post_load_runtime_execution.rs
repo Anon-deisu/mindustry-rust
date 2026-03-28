@@ -115,6 +115,8 @@ impl SavePostLoadRuntimeWorldSemanticsExecution {
         self.world_shell_ready
             && self.can_apply_world_semantics()
             && self.has_world_shell()
+            && self.awaiting_world_shell_steps.is_empty()
+            && self.blocked_steps.is_empty()
             && self.failed_steps.is_empty()
     }
 
@@ -888,6 +890,39 @@ mod tests {
         assert!(execution.can_apply_world_semantics());
         assert!(execution.has_world_shell());
         assert!(!execution.failed_steps.is_empty());
+        assert!(!execution.can_activate_live_runtime());
+    }
+
+    #[test]
+    fn world_semantics_activation_rejects_pending_steps() {
+        let mut observation = test_observation();
+        make_observation_seedable(&mut observation);
+
+        let mut execution = observation.execute_runtime_world_semantics();
+        execution
+            .awaiting_world_shell_steps
+            .push(SavePostLoadRuntimeApplyStep::TeamPlan {
+                group_index: 0,
+                plan_index: 0,
+            });
+
+        assert!(execution.world_shell_ready);
+        assert!(execution.can_apply_world_semantics());
+        assert!(execution.has_world_shell());
+        assert!(execution.failed_steps.is_empty());
+        assert!(!execution.awaiting_world_shell_steps.is_empty());
+        assert!(!execution.can_activate_live_runtime());
+
+        let mut execution = observation.execute_runtime_world_semantics();
+        execution
+            .blocked_steps
+            .push(SavePostLoadRuntimeApplyStep::Building { center_index: 0 });
+
+        assert!(execution.world_shell_ready);
+        assert!(execution.can_apply_world_semantics());
+        assert!(execution.has_world_shell());
+        assert!(execution.failed_steps.is_empty());
+        assert!(!execution.blocked_steps.is_empty());
         assert!(!execution.can_activate_live_runtime());
     }
 
