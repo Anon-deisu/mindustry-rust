@@ -10,10 +10,10 @@ use mdt_protocol::{
     generate_world_stream_transport_goldens,
 };
 
+const USAGE: &str = "usage: mdt-protocol <output-dir>";
+
 fn main() -> Result<(), Box<dyn Error>> {
-    let output_dir = env::args()
-        .nth(1)
-        .ok_or("usage: mdt-protocol <output-dir>")?;
+    let output_dir = parse_args(env::args().skip(1))?;
     let output_dir = Path::new(&output_dir);
     fs::create_dir_all(output_dir).map_err(|err| {
         io::Error::new(
@@ -59,6 +59,18 @@ fn main() -> Result<(), Box<dyn Error>> {
         "world stream transport goldens",
     )?;
     Ok(())
+}
+
+fn parse_args(args: impl Iterator<Item = String>) -> Result<PathBuf, io::Error> {
+    let mut args = args;
+    let output_dir = args
+        .next()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, USAGE))?;
+    if args.next().is_some() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, USAGE));
+    }
+
+    Ok(PathBuf::from(output_dir))
 }
 
 fn decode_hex(text: &str) -> Result<Vec<u8>, Box<dyn Error>> {
@@ -115,4 +127,25 @@ fn write_text(path: PathBuf, contents: String, label: &str) -> Result<(), Box<dy
         )
         .into()
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_args, USAGE};
+    use std::path::PathBuf;
+
+    #[test]
+    fn rejects_extra_arguments() {
+        let err = parse_args(vec!["out".to_string(), "extra".to_string()].into_iter())
+            .unwrap_err();
+
+        assert_eq!(err.to_string(), USAGE);
+    }
+
+    #[test]
+    fn accepts_single_output_dir() {
+        let output_dir = parse_args(vec!["out".to_string()].into_iter()).unwrap();
+
+        assert_eq!(output_dir, PathBuf::from("out"));
+    }
 }
