@@ -113,6 +113,9 @@ pub(crate) fn world_to_tile_index_floor(world_position: f32, tile_size: f32) -> 
     if !world_position.is_finite() {
         return 0;
     }
+    if !tile_size.is_finite() || tile_size <= 0.0 {
+        return -1;
+    }
     (world_position / tile_size).floor() as i32
 }
 
@@ -203,6 +206,13 @@ mod tests {
         assert!(visible_window_tile(&object, TILE_SIZE, 6, 2, 4, 4).is_none());
         assert_eq!(world_to_tile_index_floor(40.0, TILE_SIZE), 5);
         assert_eq!(world_to_tile_index_floor(f32::NAN, TILE_SIZE), 0);
+    }
+
+    #[test]
+    fn world_to_tile_index_floor_rejects_non_positive_tile_size() {
+        assert_eq!(world_to_tile_index_floor(40.0, 0.0), -1);
+        assert_eq!(world_to_tile_index_floor(40.0, -8.0), -1);
+        assert_eq!(world_to_tile_index_floor(40.0, f32::INFINITY), -1);
     }
 
     #[test]

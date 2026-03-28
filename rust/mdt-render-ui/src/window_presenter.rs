@@ -230,7 +230,13 @@ impl<B: WindowBackend> WindowPresenter<B> {
         hud: &HudModel,
     ) -> Result<BackendSignal, String> {
         let frame = compose_frame(scene, hud, self.frame_id, self.max_view_tiles);
-        let signal = self.backend.present(&frame)?;
+        let signal = match self.backend.present(&frame) {
+            Ok(signal) => signal,
+            Err(err) => {
+                self.last_error = Some(err.clone());
+                return Err(err);
+            }
+        };
         self.frame_id += 1;
         self.last_error = None;
         Ok(signal)
@@ -5313,6 +5319,20 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct FailingBackend {
+        error: String,
+    }
+
+    impl WindowBackend for FailingBackend {
+        fn present(&mut self, _frame: &WindowFrame) -> Result<BackendSignal, String> {
+            if self.error.is_empty() {
+                self.error = "backend failure".to_string();
+            }
+            Err(self.error.clone())
+        }
+    }
+
     #[test]
     fn present_once_renders_layered_tile_surface() {
         let backend = RecordingBackend::default();
@@ -5363,6 +5383,36 @@ mod tests {
         assert_eq!(frame.pixel(0, 1), Some(COLOR_BLOCK));
         assert_eq!(frame.pixel(1, 0), Some(COLOR_PLAYER));
         assert_eq!(frame.pixel(0, 0), Some(COLOR_TERRAIN));
+    }
+
+    #[test]
+    fn present_once_records_last_error_on_backend_failure() {
+        let backend = FailingBackend::default();
+        let mut presenter = WindowPresenter::new(backend);
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 8.0,
+                height: 8.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: Vec::new(),
+        };
+        let hud = HudModel {
+            title: "demo".to_string(),
+            wave_text: None,
+            status_text: "ok".to_string(),
+            overlay_summary_text: None,
+            fps: Some(60.0),
+            summary: None,
+            runtime_ui: None,
+            build_ui: None,
+        };
+
+        let err = presenter.present_once(&scene, &hud).unwrap_err();
+        assert_eq!(err, "backend failure");
+        assert_eq!(presenter.last_error(), Some("backend failure"));
+        assert_eq!(presenter.frame_id(), 0);
     }
 
     #[test]
