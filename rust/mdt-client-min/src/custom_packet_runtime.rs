@@ -838,6 +838,11 @@ fn logic_number_value(value: &TypeIoObject) -> Option<String> {
 
 fn parse_text_world_pos(text: &str) -> Option<(f64, f64, &'static str)> {
     let trimmed = text.trim();
+    if trimmed.starts_with('{') {
+        let x = extract_json_number_field(trimmed, "x")?;
+        let y = extract_json_number_field(trimmed, "y")?;
+        return Some((x, y, "json_xy"));
+    }
     if let Some((left, right)) = trimmed.split_once(':') {
         return Some((
             left.trim().parse().ok()?,
@@ -909,7 +914,7 @@ fn extract_json_number_field(text: &str, field: &str) -> Option<f64> {
             end = idx + ch.len_utf8();
             continue;
         }
-        if ch.is_ascii_digit() || ch == '.' {
+        if ch.is_ascii_digit() || matches!(ch, '.' | 'e' | 'E' | '+' | '-') {
             end = idx + ch.len_utf8();
             continue;
         }
@@ -1165,6 +1170,22 @@ mod tests {
             .stable_value,
             format!("7,{}", i32::MIN)
         );
+    }
+
+    #[test]
+    fn render_text_world_pos_accepts_json_xy_before_pair_syntax() {
+        let rendered = render_text_world_pos("{\"x\":12.5,\"y\":-4}").unwrap();
+        assert_eq!(rendered.stable_value, "12.5,-4");
+        assert!(rendered.detail.contains("source=json_xy"));
+    }
+
+    #[test]
+    fn parse_text_f64_accepts_scientific_notation() {
+        assert_eq!(parse_text_f64("1e3"), Some(1000.0));
+        assert_eq!(parse_text_f64("{\"value\":1e3}"), Some(1000.0));
+
+        let parsed = parse_text_f64("{\"number\":-2.5E-4}").unwrap();
+        assert!((parsed + 0.00025).abs() < f64::EPSILON);
     }
 
     #[test]
