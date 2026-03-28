@@ -4483,6 +4483,22 @@ mod tests {
     }
 
     #[test]
+    fn runtime_ui_text_len_counts_unicode_scalars_not_bytes() {
+        let scene = runtime_stack_test_scene();
+        let mut presenter = AsciiScenePresenter::default();
+        let mut runtime_ui = RuntimeUiObservability::default();
+        runtime_ui.text_input.open_count = 1;
+        runtime_ui.text_input.last_title = Some("é🙂a".to_string());
+
+        presenter.present(&scene, &runtime_stack_test_hud(runtime_ui));
+
+        let frame = presenter.last_frame();
+        assert!(frame.contains("RUNTIME-NOTICE-DETAIL:"));
+        assert!(frame.contains("title-len=3"));
+        assert!(!frame.contains("title-len=7"));
+    }
+
+    #[test]
     fn ascii_presenter_omits_runtime_session_row_for_empty_default_state() {
         let scene = RenderModel {
             viewport: Viewport {

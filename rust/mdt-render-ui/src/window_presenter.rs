@@ -6054,6 +6054,12 @@ mod tests {
     }
 
     #[test]
+    fn fit_window_minimap_size_preserves_exact_scale_boundary_rounding() {
+        assert_eq!(fit_window_minimap_size(16, 16, 64, 64), Some((64, 64)));
+        assert_eq!(fit_window_minimap_size(17, 10, 68, 39), Some((66, 39)));
+    }
+
+    #[test]
     fn runtime_world_to_minimap_tile_clamps_and_rejects_nonfinite_input() {
         assert_eq!(runtime_world_to_minimap_tile(f32::NAN, 8), 0);
         assert_eq!(runtime_world_to_minimap_tile(f32::INFINITY, 8), 0);
@@ -6061,6 +6067,16 @@ mod tests {
         assert_eq!(runtime_world_to_minimap_tile(16.0, 8), 2);
         assert_eq!(runtime_world_to_minimap_tile(64.0, 8), 7);
         assert_eq!(runtime_world_to_minimap_tile(16.0, 0), 0);
+    }
+
+    #[test]
+    fn runtime_world_to_minimap_tile_handles_unit_bounds_and_upper_edge() {
+        assert_eq!(runtime_world_to_minimap_tile(0.0, 1), 0);
+        assert_eq!(runtime_world_to_minimap_tile(999.0, 1), 0);
+        assert_eq!(runtime_world_to_minimap_tile(0.0, 2), 0);
+        assert_eq!(runtime_world_to_minimap_tile(7.999, 2), 0);
+        assert_eq!(runtime_world_to_minimap_tile(8.0, 2), 1);
+        assert_eq!(runtime_world_to_minimap_tile(999.0, 2), 1);
     }
 
     #[test]
