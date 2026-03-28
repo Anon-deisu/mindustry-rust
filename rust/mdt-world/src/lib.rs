@@ -40200,6 +40200,20 @@ mod tests {
     }
 
     #[test]
+    fn rejects_truncated_java_modified_utf_three_byte_sequence() {
+        let error = decode_java_modified_utf(&[0xe1, 0x80]).unwrap_err();
+
+        assert!(error.contains("truncated Java modified UTF-8 three-byte sequence"));
+    }
+
+    #[test]
+    fn rejects_invalid_java_modified_utf_three_byte_continuation_bytes() {
+        let error = decode_java_modified_utf(&[0xe1, 0x80, 0x20]).unwrap_err();
+
+        assert!(error.contains("invalid Java modified UTF-8 continuation bytes"));
+    }
+
+    #[test]
     fn rejects_unsupported_java_modified_utf_leading_byte() {
         let error = decode_java_modified_utf(&[0x80]).unwrap_err();
 
@@ -40225,6 +40239,16 @@ mod tests {
         let error = read_msav_zlib_header(&[0x79, 0x01]).unwrap_err();
 
         assert!(error.contains("unsupported .msav zlib compression method"));
+    }
+
+    #[test]
+    fn reads_msav_zlib_header_preserves_preset_dictionary_flag() {
+        let header = read_msav_zlib_header(&[0x78, 0xbb]).unwrap();
+
+        assert_eq!(header.cmf, 0x78);
+        assert_eq!(header.flg, 0xbb);
+        assert!(header.header_checksum_ok);
+        assert!(header.preset_dictionary);
     }
 
     fn encode_save_region(bytes: &[u8]) -> Vec<u8> {
