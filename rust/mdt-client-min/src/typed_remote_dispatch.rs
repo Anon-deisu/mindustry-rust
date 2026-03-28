@@ -443,6 +443,56 @@ mod tests {
     }
 
     #[test]
+    fn typed_dispatch_reports_trailing_bytes_for_binary_payloads() {
+        let manifest = custom_channel_manifest_with_decoys();
+        let dispatcher =
+            TypedCustomChannelRemoteDispatcher::from_remote_manifest(&manifest).unwrap();
+
+        let mut binary_payload = encode_binary_payload("mod.bin", &[1, 2, 3, 4]);
+        binary_payload.push(0xff);
+        let binary_error = dispatcher.dispatch(8, &binary_payload).unwrap_err();
+        assert_eq!(
+            binary_error.family,
+            CustomChannelRemoteFamily::ClientBinaryPacketUnreliable
+        );
+        assert_eq!(binary_error.packet_id, 8);
+        assert_eq!(
+            binary_error.payload_kind,
+            CustomChannelRemotePayloadKind::Binary
+        );
+        assert_eq!(
+            binary_error.reason,
+            format!(
+                "payload has trailing bytes: consumed {}, total {}",
+                binary_payload.len() - 1,
+                binary_payload.len()
+            )
+        );
+
+        let value = TypeIoObject::ObjectArray(vec![TypeIoObject::Int(3), TypeIoObject::Bool(false)]);
+        let mut logic_payload = encode_logic_payload("logic.beta", &value);
+        logic_payload.push(0xff);
+        let logic_error = dispatcher.dispatch(14, &logic_payload).unwrap_err();
+        assert_eq!(
+            logic_error.family,
+            CustomChannelRemoteFamily::ClientLogicDataReliable
+        );
+        assert_eq!(logic_error.packet_id, 14);
+        assert_eq!(
+            logic_error.payload_kind,
+            CustomChannelRemotePayloadKind::LogicData
+        );
+        assert_eq!(
+            logic_error.reason,
+            format!(
+                "payload has trailing bytes: consumed {}, total {}",
+                logic_payload.len() - 1,
+                logic_payload.len()
+            )
+        );
+    }
+
+    #[test]
     fn custom_channel_typed_dispatch_ignores_method_only_decoy_packet_ids() {
         let manifest = custom_channel_manifest_with_decoys();
         let dispatcher =
