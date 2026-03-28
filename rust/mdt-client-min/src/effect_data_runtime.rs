@@ -701,6 +701,35 @@ mod tests {
     }
 
     #[test]
+    fn derive_effect_data_business_input_falls_back_to_content_hint_for_unstructured_mixed_payload() {
+        let object = TypeIoObject::ObjectArray(vec![
+            TypeIoObject::ContentRaw {
+                content_type: 1,
+                content_id: 33,
+            },
+            TypeIoObject::Point2 { x: 4, y: 6 },
+        ]);
+
+        let input = derive_effect_data_business_input(None, Some(&object), Some(5), false, None);
+
+        assert_eq!(input.contract_name, None);
+        assert_eq!(input.semantic, Some(EffectDataSemantic::ObjectArrayLen(2)));
+        assert_eq!(
+            input.primary,
+            Some(EffectDataBusinessHint::ContentRef {
+                kind: EffectBusinessContentKind::Content,
+                content_type: 1,
+                content_id: 33,
+                path: vec![0],
+            })
+        );
+        assert_eq!(
+            input.data_kind.as_deref(),
+            Some("object[len=2]{0=Content(raw),1=Point2}")
+        );
+    }
+
+    #[test]
     fn derive_effect_data_semantic_preserves_existing_scalar_and_semantic_ref_mapping() {
         assert_eq!(
             derive_effect_data_semantic(Some(&TypeIoObject::Int(7)), Some(1), false),

@@ -13831,6 +13831,73 @@ mod tests {
     }
 
     #[test]
+    fn clear_hidden_snapshot_after_parse_failure_restores_kept_hidden_runtime_rows() {
+        let mut state = SessionState::default();
+        state.entity_table_projection.by_entity_id.insert(
+            303,
+            EntityProjection {
+                class_id: 35,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 0,
+                unit_value: 0,
+                x_bits: 5.5f32.to_bits(),
+                y_bits: 6.5f32.to_bits(),
+                last_seen_entity_snapshot_count: 11,
+            },
+        );
+        state.entity_semantic_projection.upsert(
+            303,
+            35,
+            11,
+            EntitySemanticProjection::WorldLabel(EntityWorldLabelSemanticProjection {
+                flags: 3,
+                font_size_bits: 1.5f32.to_bits(),
+                text: Some("hello world".to_string()),
+                z_bits: 120.0f32.to_bits(),
+            }),
+        );
+        state.rebuild_runtime_typed_entity_projection_from_tables();
+
+        state.apply_hidden_snapshot(
+            AppliedHiddenSnapshotIds {
+                count: 1,
+                first_id: Some(303),
+                sample_ids: vec![303],
+            },
+            BTreeSet::from([303]),
+        );
+        state.last_hidden_lifecycle_removed_ids_sample = vec![777];
+
+        assert!(state.hidden_snapshot_ids.contains(&303));
+        assert!(matches!(
+            state.runtime_typed_entity_projection().entity_at(303),
+            Some(TypedRuntimeEntityModel::WorldLabel(world_label)) if world_label.base.hidden
+        ));
+
+        state.clear_hidden_snapshot_after_parse_failure();
+
+        assert!(state.hidden_snapshot_ids.is_empty());
+        assert_eq!(state.last_hidden_snapshot, None);
+        assert_eq!(state.hidden_snapshot_delta_projection, None);
+        assert!(state.last_hidden_lifecycle_removed_ids_sample.is_empty());
+        assert_eq!(
+            state
+                .entity_table_projection
+                .by_entity_id
+                .get(&303)
+                .map(|entity| entity.hidden),
+            Some(false)
+        );
+        assert!(matches!(
+            state.runtime_typed_entity_projection().entity_at(303),
+            Some(TypedRuntimeEntityModel::WorldLabel(world_label))
+                if !world_label.base.hidden
+                    && world_label.semantic.text.as_deref() == Some("hello world")
+        ));
+    }
+
+    #[test]
     fn hidden_snapshot_records_lifecycle_remove_count_and_sample_for_removed_ids() {
         let mut state = SessionState::default();
         state.entity_table_projection.by_entity_id.insert(

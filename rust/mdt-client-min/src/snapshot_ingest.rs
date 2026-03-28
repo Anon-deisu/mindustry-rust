@@ -2193,6 +2193,33 @@ mod tests {
             0x00, 0x00, 0x01, 0x2F, // 303
         ];
         let mut state = SessionState::default();
+        state.entity_table_projection.local_player_entity_id = Some(101);
+        state.entity_table_projection.by_entity_id.insert(
+            101,
+            EntityProjection {
+                class_id: 12,
+                hidden: false,
+                is_local_player: true,
+                unit_kind: 2,
+                unit_value: 100,
+                x_bits: 0.0f32.to_bits(),
+                y_bits: 0.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
+        state.entity_table_projection.by_entity_id.insert(
+            303,
+            EntityProjection {
+                class_id: 33,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 0,
+                unit_value: 0,
+                x_bits: 1.0f32.to_bits(),
+                y_bits: 2.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
 
         ingest_inbound_snapshot(
             &mut state,
@@ -3217,6 +3244,88 @@ mod tests {
         assert_eq!(
             state.last_hidden_snapshot_parse_error.as_deref(),
             Some("negative_hidden_snapshot_count:-1")
+        );
+        assert_eq!(
+            state.last_hidden_snapshot_parse_error_payload_len,
+            Some(malformed_payload.len())
+        );
+        assert_eq!(state.last_hidden_snapshot, None);
+        assert!(state.hidden_snapshot_ids.is_empty());
+        assert_eq!(state.hidden_snapshot_delta_projection, None);
+        assert!(!state.entity_table_projection.by_entity_id[&101].hidden);
+        assert_eq!(state.entity_table_projection.hidden_apply_count, 2);
+        assert_eq!(state.entity_table_projection.hidden_count, 0);
+        assert_eq!(state.hidden_lifecycle_remove_count, 1);
+        assert!(state.last_hidden_lifecycle_removed_ids_sample.is_empty());
+    }
+
+    #[test]
+    fn malformed_hidden_snapshot_with_trailing_bytes_clears_prior_hidden_state() {
+        let initial_payload = [
+            0x00, 0x00, 0x00, 0x02, // count
+            0x00, 0x00, 0x00, 0x65, // 101
+            0x00, 0x00, 0x01, 0x2F, // 303
+        ];
+        let malformed_payload = [
+            0x00, 0x00, 0x00, 0x01, // count
+            0x00, 0x00, 0x00, 0x65, // 101
+            0xFF, // trailing byte
+        ];
+        let mut state = SessionState::default();
+        state.entity_table_projection.local_player_entity_id = Some(101);
+        state.entity_table_projection.by_entity_id.insert(
+            101,
+            EntityProjection {
+                class_id: 12,
+                hidden: false,
+                is_local_player: true,
+                unit_kind: 2,
+                unit_value: 100,
+                x_bits: 0.0f32.to_bits(),
+                y_bits: 0.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
+        state.entity_table_projection.by_entity_id.insert(
+            303,
+            EntityProjection {
+                class_id: 33,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 0,
+                unit_value: 0,
+                x_bits: 1.0f32.to_bits(),
+                y_bits: 2.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
+
+        ingest_inbound_snapshot(
+            &mut state,
+            InboundSnapshot::new(
+                HighFrequencyRemoteMethod::HiddenSnapshot,
+                49,
+                &initial_payload,
+            ),
+        );
+        assert!(state.entity_table_projection.by_entity_id[&101].hidden);
+        assert_eq!(state.hidden_snapshot_ids.len(), 2);
+
+        ingest_inbound_snapshot(
+            &mut state,
+            InboundSnapshot::new(
+                HighFrequencyRemoteMethod::HiddenSnapshot,
+                49,
+                &malformed_payload,
+            ),
+        );
+
+        assert_eq!(state.received_hidden_snapshot_count, 2);
+        assert_eq!(state.applied_hidden_snapshot_count, 1);
+        assert_eq!(state.failed_hidden_snapshot_parse_count, 1);
+        assert_eq!(
+            state.last_hidden_snapshot_parse_error.as_deref(),
+            Some("hidden_snapshot_trailing_bytes:8/9")
         );
         assert_eq!(
             state.last_hidden_snapshot_parse_error_payload_len,

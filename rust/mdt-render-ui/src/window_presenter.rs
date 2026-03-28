@@ -6114,6 +6114,17 @@ mod tests {
     }
 
     #[test]
+    fn runtime_world_span_to_tile_span_clamps_upper_bound_and_handles_unit_bounds() {
+        assert_eq!(runtime_world_span_to_tile_span(0.0, 1), 0);
+        assert_eq!(runtime_world_span_to_tile_span(7.9, 1), 1);
+        assert_eq!(runtime_world_span_to_tile_span(999.0, 1), 1);
+        assert_eq!(runtime_world_span_to_tile_span(7.9, 2), 1);
+        assert_eq!(runtime_world_span_to_tile_span(8.1, 2), 1);
+        assert_eq!(runtime_world_span_to_tile_span(16.1, 2), 2);
+        assert_eq!(runtime_world_span_to_tile_span(999.0, 2), 2);
+    }
+
+    #[test]
     fn present_once_crops_view_around_player_with_stable_orientation() {
         let backend = RecordingBackend::default();
         let mut presenter = WindowPresenter::new(backend).with_max_view_tiles(4, 4);
