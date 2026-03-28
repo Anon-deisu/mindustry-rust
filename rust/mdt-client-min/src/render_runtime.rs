@@ -1445,7 +1445,7 @@ fn runtime_state_business_projection_label(
     projection
         .map(|projection| {
             format!(
-                "w{}:e{}:t{}:c{}/{}:adv{}:core{}:s{}:nd{}:tr{}:wreg{}:ca{}:cas{}",
+                "w{}:e{}:t{}:c{}/{}:adv{}:core{}:s{}:nd{}:tr{}:wreg{}:ca{}:cas{}:wt0x{:08x}:r0{}:r1{}",
                 projection.wave,
                 projection.enemies,
                 projection.tps,
@@ -1474,6 +1474,9 @@ fn runtime_state_business_projection_label(
                     &projection.core_inventory_changed_team_sample,
                     projection.core_inventory_changed_team_count,
                 ),
+                projection.wave_time_bits,
+                projection.rand0,
+                projection.rand1,
             )
         })
         .unwrap_or_else(|| "none".to_string())
@@ -1879,7 +1882,7 @@ fn runtime_state_projection_label(
 ) -> String {
     if let Some(projection) = runtime {
         return format!(
-            "w{}:e{}:t{}:c{}/{}:adv{}:core{}:s{}:nd{}:tr{}:wreg{}:ca{}:cas{}",
+            "w{}:e{}:t{}:c{}/{}:adv{}:core{}:s{}:nd{}:tr{}:wreg{}:ca{}:cas{}:wt0x{:08x}:r0{}:r1{}",
             projection.wave,
             projection.enemies,
             projection.tps,
@@ -1904,11 +1907,14 @@ fn runtime_state_projection_label(
                 &projection.core_inventory_changed_team_sample,
                 projection.core_inventory_changed_team_count,
             ),
+            projection.wave_time_bits,
+            projection.rand0,
+            projection.rand1,
         );
     }
     if let Some(projection) = authority {
         return format!(
-            "w{}:e{}:t{}:c{}/{}:adv{}:core{}:s{}:nd{}:tr{}:wreg{}:ca{}:cas{}",
+            "w{}:e{}:t{}:c{}/{}:adv{}:core{}:s{}:nd{}:tr{}:wreg{}:ca{}:cas{}:wt0x{:08x}:r0{}:r1{}",
             projection.wave,
             projection.enemies,
             projection.tps,
@@ -1933,6 +1939,9 @@ fn runtime_state_projection_label(
                 &projection.core_inventory_changed_team_sample,
                 projection.core_inventory_changed_team_count,
             ),
+            projection.wave_time_bits,
+            projection.rand0,
+            projection.rand1,
         );
     }
     runtime_state_business_projection_label(business)
@@ -7002,6 +7011,22 @@ mod tests {
                 },
             ]);
         }
+        let set_camera_position_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "setCameraPosition")
+            .unwrap()
+            .packet_id;
+        let mut set_camera_position_payload = Vec::new();
+        set_camera_position_payload.extend_from_slice(&52.0f32.to_bits().to_be_bytes());
+        set_camera_position_payload.extend_from_slice(&68.0f32.to_bits().to_be_bytes());
+        let set_camera_position =
+            encode_packet(set_camera_position_packet_id, &set_camera_position_payload, false)
+                .unwrap();
+        for _ in 0..80 {
+            session.ingest_packet_bytes(&set_camera_position).unwrap();
+        }
+        session.snapshot_input_mut().view_center = Some((30.0, 40.0));
 
         let bundle = session.loaded_world_bundle().unwrap();
         let loaded_session = bundle.loaded_session().unwrap();
@@ -13509,7 +13534,10 @@ mod tests {
         assert!(hud.status_text.contains("runtime_tps=60"));
         assert!(hud
             .status_text
-            .contains("runtime_state_apply=w7:e3:t60:c1/2:adv1:core1"));
+            .contains("runtime_state_apply=w7:e3:t60:c1/2:adv1:core1:splay:nd60:tr0:wreg0:ca1:cas1:wt0x42f70000:r0111111111:r1222222222"),
+            "{}",
+            hud.status_text
+        );
         assert!(hud.status_text.contains(":ca1:cas1"));
         assert!(hud
             .status_text
@@ -14322,8 +14350,11 @@ mod tests {
         assert!(hud.status_text.contains("runtime_enemies=6"));
         assert!(hud.status_text.contains("runtime_tps=24"));
         assert!(hud.status_text.contains(
-            "runtime_state_apply=w11:e6:t24:c3/5:adv1:core1:sgameover:nd12:tr0:wreg1:ca2:cas2,7"
-        ));
+            "runtime_state_apply=w11:e6:t24:c3/5:adv1:core1:sgameover:nd12:tr0:wreg1:ca2:cas2,7:wt0x00000000:r030:r140"
+        ),
+        "{}",
+        hud.status_text
+        );
         assert!(hud.status_text.contains("runtime_core_teams=3"));
         assert!(hud.status_text.contains("runtime_core_items=5"));
     }

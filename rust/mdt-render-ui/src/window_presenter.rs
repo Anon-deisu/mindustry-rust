@@ -153,7 +153,8 @@ impl WindowFrame {
         if x >= self.width || y >= self.height {
             return None;
         }
-        Some(self.pixels[y * self.width + x])
+        let index = y.checked_mul(self.width)?.checked_add(x)?;
+        self.pixels.get(index).copied()
     }
 }
 
@@ -5362,6 +5363,29 @@ mod tests {
         assert_eq!(frame.pixel(0, 1), Some(COLOR_BLOCK));
         assert_eq!(frame.pixel(1, 0), Some(COLOR_PLAYER));
         assert_eq!(frame.pixel(0, 0), Some(COLOR_TERRAIN));
+    }
+
+    #[test]
+    fn window_frame_pixel_returns_none_for_short_buffer() {
+        let frame = WindowFrame {
+            frame_id: 0,
+            title: String::new(),
+            wave_text: None,
+            session_banner_text: None,
+            status_text: String::new(),
+            build_strip_text: None,
+            panel_lines: Vec::new(),
+            overlay_lines: Vec::new(),
+            overlay_summary_text: None,
+            fps: None,
+            zoom: 1.0,
+            width: 2,
+            height: 2,
+            minimap_inset: None,
+            pixels: vec![1, 2, 3],
+        };
+
+        assert_eq!(frame.pixel(1, 1), None);
     }
 
     #[test]
