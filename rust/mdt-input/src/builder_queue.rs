@@ -2931,6 +2931,78 @@ mod tests {
     }
 
     #[test]
+    fn update_local_activity_keeps_in_range_head_even_when_a_later_tile_is_closer() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 1,
+                y: 1,
+                breaking: false,
+                block_id: Some(10),
+                rotation: 0,
+            },
+            BuilderQueueEntryObservation {
+                x: 2,
+                y: 2,
+                breaking: false,
+                block_id: Some(20),
+                rotation: 1,
+            },
+            BuilderQueueEntryObservation {
+                x: 3,
+                y: 3,
+                breaking: false,
+                block_id: Some(30),
+                rotation: 2,
+            },
+        ]);
+
+        let activity = queue.update_local_activity([
+            BuilderQueueActivityObservation {
+                x: 1,
+                y: 1,
+                breaking: false,
+                in_range: true,
+                should_skip: false,
+                distance_sq: 64,
+            },
+            BuilderQueueActivityObservation {
+                x: 2,
+                y: 2,
+                breaking: false,
+                in_range: true,
+                should_skip: false,
+                distance_sq: 4,
+            },
+            BuilderQueueActivityObservation {
+                x: 3,
+                y: 3,
+                breaking: false,
+                in_range: false,
+                should_skip: false,
+                distance_sq: 1,
+            },
+        ]);
+
+        assert_eq!(
+            activity,
+            BuilderQueueActivityState {
+                head_tile: Some((1, 1)),
+                actively_building: true,
+                head_in_range: true,
+                head_should_skip: false,
+                reordered: false,
+                used_closest_in_range_fallback: false,
+                head_selection: BuilderQueueHeadSelection::HeadInRange,
+            }
+        );
+        assert_eq!(queue.ordered_tiles, vec![(1, 1), (2, 2), (3, 3)]);
+        assert_eq!(queue.head_tile, Some((1, 1)));
+        assert_eq!(queue.last_skip_reason, None);
+        assert_eq!(queue.last_front_promotion, None);
+    }
+
+    #[test]
     fn update_local_activity_does_not_fallback_when_scan_is_incomplete() {
         let mut queue = BuilderQueueStateMachine::default();
         queue.sync_local_entries([

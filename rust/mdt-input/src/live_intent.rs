@@ -1094,6 +1094,38 @@ mod tests {
     }
 
     #[test]
+    fn runtime_intent_tracker_empty_batch_preserves_active_actions_and_counts() {
+        let mut tracker = RuntimeIntentTracker::new(IntentSamplingMode::LiveSampling);
+
+        assert!(tracker.sample_runtime_snapshot(&InputSnapshot {
+            move_axis: (1.0, 0.0),
+            aim_axis: (2.0, 3.0),
+            mining_tile: Some((4, 5)),
+            building: true,
+            config_tap_tile: Some((6, 7)),
+            build_pulse: Some(BuildPulse {
+                tile: (8, 9),
+                breaking: true,
+            }),
+            active_actions: vec![BinaryAction::Fire],
+        }));
+        assert_eq!(tracker.state().config_tap_count, 1);
+        assert_eq!(tracker.state().build_pulse_count, 1);
+        assert!(tracker.state().is_action_active(BinaryAction::Fire));
+        assert_eq!(tracker.state().pressed_actions, vec![BinaryAction::Fire]);
+
+        assert!(!tracker.sample_runtime_snapshot_batch(&[]));
+        assert_eq!(tracker.state().config_tap_count, 1);
+        assert_eq!(tracker.state().build_pulse_count, 1);
+        assert!(tracker.state().is_action_active(BinaryAction::Fire));
+        assert!(tracker.state().pressed_actions.is_empty());
+        assert!(tracker.state().released_actions.is_empty());
+        assert!(tracker.state().last_config_tap_tile.is_none());
+        assert!(tracker.state().last_build_pulse.is_none());
+        assert!(!tracker.binding_profile().has_transient_signals());
+    }
+
+    #[test]
     fn binding_profile_reflects_live_state_and_transient_edges() {
         let mut tracker = RuntimeIntentTracker::new(IntentSamplingMode::LiveSampling);
 

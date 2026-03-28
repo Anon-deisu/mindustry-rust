@@ -967,4 +967,34 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn map_snapshot_batch_or_override_keeps_mapper_history_in_sync_after_override() {
+        let mut mapper = StatelessIntentMapper::new(IntentSamplingMode::LiveSampling);
+        let batch = vec![snapshot((0.0, 0.0), (1.0, 1.0), &[BinaryAction::Fire])];
+        let override_snapshot = snapshot((2.0, 3.0), (4.0, 5.0), &[BinaryAction::Chat]);
+
+        assert_eq!(
+            mapper.map_snapshot_batch_or_override(&batch, Some(&override_snapshot)),
+            vec![
+                PlayerIntent::SetMoveAxis { x: 2.0, y: 3.0 },
+                PlayerIntent::SetAimAxis { x: 4.0, y: 5.0 },
+                PlayerIntent::SetMiningTile { tile: None },
+                PlayerIntent::SetBuilding { building: false },
+                PlayerIntent::ActionPressed(BinaryAction::Chat),
+            ]
+        );
+
+        assert_eq!(
+            mapper.map_snapshot_batch_or_override(&batch, None),
+            vec![
+                PlayerIntent::SetMoveAxis { x: 0.0, y: 0.0 },
+                PlayerIntent::SetAimAxis { x: 1.0, y: 1.0 },
+                PlayerIntent::SetMiningTile { tile: None },
+                PlayerIntent::SetBuilding { building: false },
+                PlayerIntent::ActionPressed(BinaryAction::Fire),
+                PlayerIntent::ActionReleased(BinaryAction::Chat),
+            ]
+        );
+    }
 }
