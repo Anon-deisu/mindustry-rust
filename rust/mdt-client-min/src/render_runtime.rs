@@ -1385,6 +1385,22 @@ fn runtime_block_snapshot_label(session_state: &SessionState) -> String {
                     if let Some(module_bitmask) = snapshot.first_module_bitmask {
                         label.push_str(&format!(":m{module_bitmask}"));
                     }
+                    if let Some(time_scale_bits) = snapshot.first_time_scale_bits {
+                        label.push_str(&format!(":ts0x{time_scale_bits:08x}"));
+                    }
+                    if let Some(time_scale_duration_bits) = snapshot.first_time_scale_duration_bits {
+                        label.push_str(&format!(":tsd0x{time_scale_duration_bits:08x}"));
+                    }
+                    if let Some(last_disabler_pos) = snapshot.first_last_disabler_pos {
+                        let (dx, dy) = unpack_runtime_point2(last_disabler_pos);
+                        label.push_str(&format!(":ld{dx}:{dy}"));
+                    }
+                    if let Some(legacy_consume_connected) = snapshot.first_legacy_consume_connected {
+                        label.push_str(&format!(
+                            ":lcc{}",
+                            if legacy_consume_connected { 1 } else { 0 }
+                        ));
+                    }
                     if let Some(visible_flags) = snapshot.first_visible_flags {
                         label.push_str(&format!(":vf{visible_flags}"));
                     }
@@ -2213,7 +2229,7 @@ fn runtime_entity_gate_label(session_state: &SessionState) -> String {
 
 fn runtime_entity_sync_label(session_state: &SessionState) -> String {
     format!(
-        "lt{}:tp{}:ok{}:amb{}@{}:miss{}:fail{}",
+        "lt{}:tp{}:ok{}:amb{}@{}:miss{}:fail{}:amt{}:len{}",
         session_state.entity_snapshot_with_local_target_count,
         runtime_optional_display_label(session_state.last_entity_snapshot_target_player_id),
         u8::from(session_state.last_entity_snapshot_local_player_sync_applied),
@@ -2221,6 +2237,8 @@ fn runtime_entity_sync_label(session_state: &SessionState) -> String {
         session_state.last_entity_snapshot_local_player_sync_match_count,
         session_state.missed_local_player_sync_from_entity_snapshot_count,
         session_state.failed_entity_snapshot_parse_count,
+        runtime_optional_display_label(session_state.last_entity_snapshot_amount),
+        runtime_optional_display_label(session_state.last_entity_snapshot_body_len),
     )
 }
 
@@ -4666,7 +4684,7 @@ fn runtime_optional_unit_ref_label(value: Option<UnitRefProjection>) -> String {
 fn runtime_world_label_label(session_state: &SessionState) -> String {
     let observability = runtime_world_label_observability(session_state);
     format!(
-        "lbl{}:lblr{}:rml{}:act{}:last{}:f{}:fs{}:z{}:pos{}:txt{}",
+        "lbl{}:lblr{}:rml{}:act{}:last{}:f{}:fs{}:z{}:dur{}:pos{}:txt{}",
         observability.label_count,
         observability.reliable_label_count,
         observability.remove_label_count,
@@ -4675,6 +4693,7 @@ fn runtime_world_label_label(session_state: &SessionState) -> String {
         runtime_optional_display_label(observability.last_flags),
         runtime_optional_display_label(observability.last_font_size_bits),
         runtime_optional_display_label(observability.last_z_bits),
+        runtime_optional_bits_label(session_state.last_world_label_duration_bits),
         runtime_optional_world_label_position_label(observability.last_position),
         runtime_optional_world_label_text_label(observability.last_text.as_deref()),
     )
@@ -12922,14 +12941,16 @@ mod tests {
             first_io_version: Some(3),
             first_enabled: Some(true),
             first_module_bitmask: Some(9),
-            first_time_scale_bits: None,
-            first_time_scale_duration_bits: None,
-            first_last_disabler_pos: None,
-            first_legacy_consume_connected: None,
+            first_time_scale_bits: Some(1.5f32.to_bits()),
+            first_time_scale_duration_bits: Some(2.5f32.to_bits()),
+            first_last_disabler_pos: Some(pack_runtime_point2(7, 8)),
+            first_legacy_consume_connected: Some(true),
             first_efficiency: Some(0),
             first_optional_efficiency: Some(0),
             first_visible_flags: None,
         });
+        state.last_entity_snapshot_amount = Some(12);
+        state.last_entity_snapshot_body_len = Some(345);
         state.last_hidden_snapshot = Some(crate::session_state::AppliedHiddenSnapshotIds {
             count: 3,
             first_id: Some(100),
@@ -13221,6 +13242,7 @@ mod tests {
         state.received_world_label_count = 19;
         state.received_world_label_reliable_count = 20;
         state.received_remove_world_label_count = 21;
+        state.last_world_label_duration_bits = Some(1.25f32.to_bits());
         state.received_create_marker_count = 54;
         state.received_remove_marker_count = 55;
         state.received_update_marker_count = 56;
@@ -13581,7 +13603,7 @@ mod tests {
         assert!(hud.status_text.contains(":trb0x42100000"));
         assert!(hud
             .status_text
-            .contains("runtime_block=1x39@100:99#301:r0:t1:v3:on1:e0:oe0"));
+            .contains("runtime_block=1x39@100:99#301:r0:t1:v3:on1:e0:oe0:m9:ts0x3fc00000:tsd0x40200000:ld7:8:lcc1"));
         assert!(hud.status_text.contains("runtime_block_fail=2"));
         assert!(hud.status_text.contains("runtime_hidden=3@100,101,202"));
         assert!(hud
@@ -13593,7 +13615,7 @@ mod tests {
             .contains("runtime_entity_gate=ts5@100,202+3:a2"));
         assert!(hud
             .status_text
-            .contains("runtime_entity_sync=lt6:tp404:ok0:amb1@2:miss7:fail64"));
+            .contains("runtime_entity_sync=lt6:tp404:ok0:amb1@2:miss7:fail64:amt12:len345"));
         assert!(hud.status_text.contains("runtime_effects=11"));
         assert!(hud.status_text.contains("runtime_effect_data_kind=Point2"));
         assert!(hud
@@ -13988,7 +14010,7 @@ mod tests {
         );
         assert!(hud
             .status_text
-            .contains("runtime_world_label=lbl19:lblr20:rml21:act2:last904:f3:fs1094713344:z1082130432:pos40.0:60.0:txtworld_label"));
+            .contains("runtime_world_label=lbl19:lblr20:rml21:act2:last904:f3:fs1094713344:z1082130432:dur0x3fa00000:pos40.0:60.0:txtworld_label"));
         assert!(hud
             .status_text
             .contains("runtime_marker=cr54:rm55:up56:txt57:tex58:fail2:last808:flushText"));
@@ -14426,7 +14448,7 @@ mod tests {
         let mut state = SessionState::default();
         assert_eq!(
             runtime_entity_sync_label(&state),
-            "lt0:tpnone:ok0:amb0@0:miss0:fail0"
+            "lt0:tpnone:ok0:amb0@0:miss0:fail0:amtnone:lennone"
         );
 
         state.entity_snapshot_with_local_target_count = 3;
@@ -14436,9 +14458,11 @@ mod tests {
         state.last_entity_snapshot_local_player_sync_match_count = 1;
         state.missed_local_player_sync_from_entity_snapshot_count = 2;
         state.failed_entity_snapshot_parse_count = 5;
+        state.last_entity_snapshot_amount = Some(9);
+        state.last_entity_snapshot_body_len = Some(128);
         assert_eq!(
             runtime_entity_sync_label(&state),
-            "lt3:tp44:ok1:amb0@1:miss2:fail5"
+            "lt3:tp44:ok1:amb0@1:miss2:fail5:amt9:len128"
         );
     }
 
