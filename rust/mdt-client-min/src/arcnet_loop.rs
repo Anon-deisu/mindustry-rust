@@ -7,6 +7,7 @@ use crate::session_state::{ReconnectReasonKind, SessionTimeoutKind};
 use mdt_protocol::{
     decode_framework_message, encode_framework_message, FrameworkCodecError, FrameworkMessage,
 };
+use std::collections::VecDeque;
 use std::fmt;
 use std::io::{self, Read, Write};
 use std::net::{SocketAddr, TcpStream, UdpSocket};
@@ -23,27 +24,49 @@ pub(crate) fn transport_timeout_kind(session: &ClientSession) -> Option<SessionT
 // One length-prefixed TCP frame: 2-byte header plus the largest u16 payload.
 const MAX_TCP_READ_BUFFER_BYTES: usize = u16::MAX as usize + 2;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PendingTcpFrame {
+    packet_id: Option<u8>,
+    remaining_bytes: usize,
+}
+
 #[derive(Debug, Default)]
 struct PendingTcpWrite {
     bytes: Vec<u8>,
     offset: usize,
+    frames: VecDeque<PendingTcpFrame>,
 }
 
 impl PendingTcpWrite {
-    fn enqueue_frame(&mut self, payload: &[u8]) -> Result<(), ArcNetLoopError> {
+    fn enqueue_frame(
+        &mut self,
+        payload: &[u8],
+        packet_id: Option<u8>,
+    ) -> Result<(), ArcNetLoopError> {
         let len = u16::try_from(payload.len())
             .map_err(|_| ArcNetLoopError::FrameTooLarge(payload.len()))?;
+        let frame_len = usize::from(len).saturating_add(2);
         self.bytes.extend_from_slice(&len.to_be_bytes());
         self.bytes.extend_from_slice(payload);
+        self.frames.push_back(PendingTcpFrame {
+            packet_id,
+            remaining_bytes: frame_len,
+        });
         Ok(())
     }
 
-    fn flush<W: Write>(&mut self, writer: &mut W) -> Result<(), ArcNetLoopError> {
+    fn flush<W: Write>(&mut self, writer: &mut W) -> Result<Vec<u8>, ArcNetLoopError> {
+        let mut completed_packet_ids = Vec::new();
         while self.offset < self.bytes.len() {
             match writer.write(&self.bytes[self.offset..]) {
                 Ok(0) => return Err(ArcNetLoopError::TcpClosed),
-                Ok(written) => self.offset += written,
-                Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(()),
+                Ok(written) => {
+                    self.offset += written;
+                    self.record_flushed_bytes(written, &mut completed_packet_ids);
+                }
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    return Ok(completed_packet_ids);
+                }
                 Err(error) => return Err(ArcNetLoopError::Io(error)),
             }
         }
@@ -52,12 +75,32 @@ impl PendingTcpWrite {
             self.bytes.clear();
             self.offset = 0;
         }
-        Ok(())
+        debug_assert!(self.frames.is_empty());
+        Ok(completed_packet_ids)
+    }
+
+    fn record_flushed_bytes(&mut self, mut written: usize, completed_packet_ids: &mut Vec<u8>) {
+        while written > 0 {
+            let Some(frame) = self.frames.front_mut() else {
+                debug_assert_eq!(written, 0);
+                return;
+            };
+            let consumed = frame.remaining_bytes.min(written);
+            frame.remaining_bytes -= consumed;
+            written -= consumed;
+            if frame.remaining_bytes == 0 {
+                let frame = self.frames.pop_front().expect("pending TCP frame metadata");
+                if let Some(packet_id) = frame.packet_id {
+                    completed_packet_ids.push(packet_id);
+                }
+            }
+        }
     }
 
     fn clear(&mut self) {
         self.bytes.clear();
         self.offset = 0;
+        self.frames.clear();
     }
 }
 
@@ -67,6 +110,7 @@ pub struct ArcNetSessionDriver {
     udp: UdpSocket,
     tcp_read_buffer: Vec<u8>,
     pending_tcp_write: PendingTcpWrite,
+    completed_tcp_packet_ids: VecDeque<u8>,
     connection_id: Option<i32>,
     udp_registered: bool,
     connect_sent: bool,
@@ -156,6 +200,7 @@ impl ArcNetSessionDriver {
             udp,
             tcp_read_buffer: Vec::new(),
             pending_tcp_write: PendingTcpWrite::default(),
+            completed_tcp_packet_ids: VecDeque::new(),
             connection_id: None,
             udp_registered: false,
             connect_sent: false,
@@ -218,6 +263,7 @@ impl ArcNetSessionDriver {
         self.recv_udp_packets(session, max_udp_packets, &mut report)?;
         post_ingest(session);
         self.flush_pending_tcp_payload()?;
+        self.drain_completed_tcp_packets(session, now_ms);
 
         if self.udp_registered && !self.connect_sent {
             if let Some(connect) = self.pending_connect.take() {
@@ -237,8 +283,8 @@ impl ArcNetSessionDriver {
                         bytes,
                     } => match transport {
                         ClientPacketTransport::Tcp => {
-                            self.send_tcp_payload(&bytes)?;
-                            session.mark_tcp_packet_flushed(packet_id, now_ms);
+                            self.send_tcp_packet_payload(packet_id, &bytes)?;
+                            self.drain_completed_tcp_packets(session, now_ms);
                             report.outbound_tcp_frames += 1;
                         }
                         ClientPacketTransport::Udp => {
@@ -248,6 +294,7 @@ impl ArcNetSessionDriver {
                     },
                     ClientSessionAction::SendFramework { bytes, .. } => {
                         self.send_tcp_payload(&bytes)?;
+                        self.drain_completed_tcp_packets(session, now_ms);
                         report.outbound_tcp_frames += 1;
                         report.outbound_framework_messages += 1;
                     }
@@ -399,17 +446,36 @@ impl ArcNetSessionDriver {
     }
 
     fn flush_pending_tcp_payload(&mut self) -> Result<(), ArcNetLoopError> {
-        self.pending_tcp_write.flush(&mut self.tcp)
+        let completed_packet_ids = self.pending_tcp_write.flush(&mut self.tcp)?;
+        self.completed_tcp_packet_ids
+            .extend(completed_packet_ids);
+        Ok(())
     }
 
     fn send_tcp_payload(&mut self, payload: &[u8]) -> Result<(), ArcNetLoopError> {
-        self.pending_tcp_write.enqueue_frame(payload)?;
+        self.pending_tcp_write.enqueue_frame(payload, None)?;
         self.flush_pending_tcp_payload()
+    }
+
+    fn send_tcp_packet_payload(
+        &mut self,
+        packet_id: u8,
+        payload: &[u8],
+    ) -> Result<(), ArcNetLoopError> {
+        self.pending_tcp_write.enqueue_frame(payload, Some(packet_id))?;
+        self.flush_pending_tcp_payload()
+    }
+
+    fn drain_completed_tcp_packets(&mut self, session: &mut ClientSession, now_ms: u64) {
+        while let Some(packet_id) = self.completed_tcp_packet_ids.pop_front() {
+            session.mark_tcp_packet_flushed(packet_id, now_ms);
+        }
     }
 
     fn quiet_reset_transport_state(&mut self) {
         self.tcp_read_buffer.clear();
         self.pending_tcp_write.clear();
+        self.completed_tcp_packet_ids.clear();
         self.connection_id = None;
         self.udp_registered = false;
         self.connect_sent = false;
@@ -508,6 +574,15 @@ mod tests {
         decode_hex_text(include_str!(
             "../../../tests/src/test/resources/world-stream.hex"
         ))
+    }
+
+    fn encode_typeio_string_payload(text: &str) -> Vec<u8> {
+        let mut payload = Vec::new();
+        let bytes = text.as_bytes();
+        payload.push(1);
+        payload.extend_from_slice(&(bytes.len() as u16).to_be_bytes());
+        payload.extend_from_slice(bytes);
+        payload
     }
 
     fn sample_snapshot_packet(key: &str) -> Vec<u8> {
@@ -755,7 +830,7 @@ mod tests {
 
         let mut pending = PendingTcpWrite::default();
         let payload = vec![0x5a; 32];
-        pending.enqueue_frame(&payload).unwrap();
+        pending.enqueue_frame(&payload, Some(77)).unwrap();
 
         let mut writer = ScriptedWriter {
             max_bytes_per_write: 5,
@@ -764,21 +839,23 @@ mod tests {
             written: Vec::new(),
         };
 
-        pending.flush(&mut writer).unwrap();
+        let completed_packet_ids = pending.flush(&mut writer).unwrap();
         assert!(!pending.bytes.is_empty());
         assert!(pending.offset > 0);
         assert_eq!(writer.written.len(), 5);
+        assert!(completed_packet_ids.is_empty());
 
         writer.blocked = false;
         writer.block_after_write = false;
         writer.max_bytes_per_write = usize::MAX;
 
-        pending.flush(&mut writer).unwrap();
+        let completed_packet_ids = pending.flush(&mut writer).unwrap();
         assert!(pending.bytes.is_empty());
         assert_eq!(pending.offset, 0);
         assert_eq!(writer.written.len(), payload.len() + 2);
         assert_eq!(&writer.written[..2], &(payload.len() as u16).to_be_bytes());
         assert_eq!(&writer.written[2..], payload.as_slice());
+        assert_eq!(completed_packet_ids, vec![77]);
     }
 
     #[test]
@@ -1119,6 +1196,124 @@ mod tests {
         assert!(session.state().connect_confirm_flushed);
         assert_eq!(session.state().sent_client_snapshot_count, 1);
         assert_eq!(session.state().last_sent_client_snapshot_id, Some(1));
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn flushes_connect_confirm_before_queued_chat_on_first_arcnet_ready_tick() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let timing = ClientSessionTiming {
+            keepalive_interval_ms: 60_000,
+            client_snapshot_interval_ms: 60_000,
+            connect_timeout_ms: 60_000,
+            timeout_ms: 60_000,
+        };
+        let mut session =
+            ClientSession::from_remote_manifest_with_timing(&manifest, "fr", timing).unwrap();
+        let connect = session
+            .prepare_connect_packet(&sample_connect_payload())
+            .unwrap();
+        session
+            .queue_send_chat_message("/sync".to_string())
+            .unwrap();
+        let expected_connect_confirm_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "connectConfirm")
+            .unwrap()
+            .packet_id;
+        let expected_chat_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "sendChatMessage")
+            .unwrap()
+            .packet_id;
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+
+        let (tcp_listener, udp_socket, server_addr) = bind_local_arcnet_server();
+        let server = thread::spawn(move || {
+            let (mut tcp_stream, _) = tcp_listener.accept().unwrap();
+            tcp_stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            tcp_stream
+                .set_write_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+
+            write_tcp_frame(
+                &mut tcp_stream,
+                &encode_framework_message(&FrameworkMessage::RegisterTcp { connection_id: 891 }),
+            );
+
+            let mut udp_buf = [0u8; 2048];
+            let (udp_len, _) = udp_socket.recv_from(&mut udp_buf).unwrap();
+            assert_eq!(
+                decode_framework_message(&udp_buf[..udp_len]).unwrap(),
+                FrameworkMessage::RegisterUdp { connection_id: 891 }
+            );
+
+            write_tcp_frame(
+                &mut tcp_stream,
+                &encode_framework_message(&FrameworkMessage::RegisterUdp { connection_id: 0 }),
+            );
+
+            let connect_frame = read_tcp_frame(&mut tcp_stream);
+            let connect_packet = decode_packet(&connect_frame).unwrap();
+            assert_eq!(connect_packet.packet_id, CONNECT_PACKET_ID);
+
+            write_tcp_frame(&mut tcp_stream, &begin_packet);
+            for chunk in &chunk_packets {
+                write_tcp_frame(&mut tcp_stream, chunk);
+            }
+
+            let mut saw_connect_confirm = false;
+            let mut saw_chat = false;
+            for _ in 0..6 {
+                let frame = read_tcp_frame(&mut tcp_stream);
+                if let Ok(packet) = decode_packet(&frame) {
+                    if !saw_connect_confirm {
+                        if packet.packet_id == expected_connect_confirm_packet_id {
+                            assert!(packet.payload.is_empty());
+                            saw_connect_confirm = true;
+                            continue;
+                        }
+                    } else if packet.packet_id == expected_chat_packet_id {
+                        assert_eq!(packet.payload, encode_typeio_string_payload("/sync"));
+                        saw_chat = true;
+                        break;
+                    }
+                    panic!("unexpected TCP packet after world ready: {}", packet.packet_id);
+                }
+                assert_eq!(
+                    decode_framework_message(&frame).unwrap(),
+                    FrameworkMessage::KeepAlive
+                );
+            }
+            assert!(saw_connect_confirm);
+            assert!(saw_chat);
+        });
+
+        let mut driver = ArcNetSessionDriver::connect(server_addr).unwrap();
+        driver.send_connect(&connect).unwrap();
+
+        for tick in 0..100u64 {
+            driver.tick(&mut session, tick * 100, 32, 32).unwrap();
+            if session.state().connect_confirm_flushed
+                && session
+                    .state()
+                    .last_connect_confirm_flushed_at_ms
+                    .is_some()
+            {
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+
+        assert!(session.state().world_stream_loaded);
+        assert!(session.state().connect_confirm_sent);
+        assert!(session.state().connect_confirm_flushed);
         server.join().unwrap();
     }
 

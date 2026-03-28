@@ -232,7 +232,9 @@ These are already landed and should not be re-opened as if missing:
   - the online harness now reuses `custom_packet_runtime_surface` across `--consume-client-*` custom/logic flows, emits runtime/business overlay summaries on updates and resets, and re-installs that surface after reconnect/redirect rebuilds
   - remaining `M6-3` work is still deeper Java-equivalent business integration, not re-adding this harness/runtime summary bridge
 - `connectConfirm` queued-vs-flushed observability is now landed as the first narrow `U6` transport split.
-  - `SessionState` now tracks both `connect_confirm_sent` and `connect_confirm_flushed`, ArcNet only flips the flushed bit after a real TCP write succeeds, and UDP-only driver paths preserve the intended `queued-but-not-flushed` boundary
+  - `SessionState` now tracks both `connect_confirm_sent` and `connect_confirm_flushed`, ArcNet only flips the flushed bit after a real TCP frame fully drains (not merely after enqueue / partial nonblocking write progress), and UDP-only driver paths preserve the intended `queued-but-not-flushed` boundary
+  - `finish_connecting()` replay-failure rollback now also has regression coverage for the prequeued-`connectConfirm` case, so preexisting TCP backlog survives late deferred replay failure byte-for-byte instead of being silently mutated by the aborted load-complete path
+  - ArcNet ready-tick coverage now also pins `connectConfirm` ahead of later queued chat/gameplay TCP traffic on the first post-load flush
   - remaining `U6` work is still deeper Java-equivalent lifecycle atomicity, not re-adding this first queued/flushed split
 - `mdt-remote` manifest validation now also rejects duplicate `packetClass` values and duplicate generated Rust packet const names.
   - remaining work is broader typed-registry/session adoption, not re-adding this manifest/codegen guardrail

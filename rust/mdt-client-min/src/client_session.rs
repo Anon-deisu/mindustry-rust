@@ -51332,6 +51332,61 @@ mod tests {
     }
 
     #[test]
+    fn finish_connecting_restores_prequeued_connect_confirm_and_client_packets_on_replay_failure() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let send_message_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "sendMessage" && entry.params.len() == 1)
+            .unwrap()
+            .packet_id;
+        let queued_confirm = encode_packet(session.connect_confirm_packet_id, &[], false).unwrap();
+        session.loading_world_data = true;
+        session.state.ready_to_enter_world = true;
+        session.pending_packets.push_back(PendingClientPacket {
+            packet_id: session.connect_confirm_packet_id,
+            transport: ClientPacketTransport::Tcp,
+            bytes: queued_confirm,
+        });
+        session
+            .queue_send_chat_message("/queued".to_string())
+            .unwrap();
+        let pending_before = session.pending_packets.clone();
+        session.deferred_inbound_packets = std::collections::VecDeque::from([
+            DeferredInboundPacket {
+                packet_id: send_message_packet_id,
+                payload: encode_typeio_string_payload("[accent]queued before failure"),
+            },
+            DeferredInboundPacket {
+                packet_id: STREAM_BEGIN_PACKET_ID,
+                payload: Vec::new(),
+            },
+        ]);
+
+        let result = session.finish_connecting();
+
+        assert!(result.is_err());
+        assert!(session.loading_world_data);
+        assert!(!session.state().client_loaded);
+        assert!(!session.state().connect_confirm_sent);
+        assert!(!session.state().connect_confirm_flushed);
+        assert_eq!(session.state().finish_connecting_commit_count, 0);
+        assert_eq!(session.state().last_finish_connecting, None);
+        assert_eq!(session.state().replayed_inbound_packet_count, 0);
+        assert_eq!(session.state().received_server_message_count, 0);
+        assert_eq!(session.state().last_server_message, None);
+        assert_eq!(session.pending_packets, pending_before);
+        assert_eq!(
+            session
+                .deferred_inbound_packets
+                .iter()
+                .map(|packet| packet.packet_id)
+                .collect::<Vec<_>>(),
+            vec![send_message_packet_id, STREAM_BEGIN_PACKET_ID]
+        );
+    }
+    #[test]
     fn normal_priority_packets_continue_to_queue_past_previous_cap_while_loading() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
