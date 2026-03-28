@@ -41754,6 +41754,76 @@ mod tests {
     }
 
     #[test]
+    fn runtime_typed_building_apply_projection_clears_build_tower_after_deconstruct_finish() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(40, 62);
+        let block_id = loaded_world_block_id_for_name(&session, "build-tower");
+        session.state.building_table_projection.apply_block_snapshot_head(
+            build_pos,
+            block_id,
+            Some("build-tower".to_string()),
+            Some(4),
+            Some(5),
+            Some(6),
+            Some(7),
+            Some(0x3f20_0000),
+            Some(0x3e80_0000),
+            Some(126),
+            Some(false),
+            None,
+            Some(0x4060_0000),
+            Some(true),
+            Some(0x28),
+            Some(0x14),
+            Some(55),
+            Some(0x4210_0000),
+            Some(true),
+            Some(5),
+        );
+        session.state.refresh_runtime_typed_building_from_tables(build_pos);
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos)
+                .map(|building| {
+                    (
+                        &building.kind,
+                        &building.value,
+                        building.build_turret_rotation_bits,
+                        building.build_turret_plans_present,
+                        building.build_turret_plan_count,
+                    )
+                }),
+            Some((
+                &crate::session_state::TypedBuildingRuntimeKind::BuildTower,
+                &crate::session_state::TypedBuildingRuntimeValue::BuildTower {
+                    rotation_bits: Some(0x4210_0000),
+                    plans_present: Some(true),
+                    plan_count: Some(5),
+                },
+                Some(0x4210_0000),
+                Some(true),
+                Some(5),
+            ))
+        );
+
+        ingest_deconstruct_finish_for_block_config_test(&mut session, &manifest, build_pos, block_id);
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos),
+            None
+        );
+        assert!(!session
+            .state()
+            .building_table_projection
+            .by_build_pos
+            .contains_key(&build_pos));
+    }
+
+    #[test]
     fn deconstruct_finish_clears_configured_block_projection_state() {
         let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let build_pos = pack_point2(15, 37);
