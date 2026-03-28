@@ -409,6 +409,7 @@ impl ArcNetSessionDriver {
                 id,
                 is_reply: false,
             } => {
+                report.inbound_ping_requests += 1;
                 let reply = FrameworkMessage::Ping { id, is_reply: true };
                 if from_tcp {
                     let bytes = encode_framework_message(&reply);
@@ -421,9 +422,14 @@ impl ArcNetSessionDriver {
                 }
                 report.outbound_framework_messages += 1;
             }
-            FrameworkMessage::KeepAlive
-            | FrameworkMessage::DiscoverHost
-            | FrameworkMessage::Ping { .. } => {}
+            FrameworkMessage::Ping { is_reply: true, .. } => {
+                if from_tcp {
+                    report.inbound_tcp_ping_replies += 1;
+                } else {
+                    report.inbound_udp_ping_replies += 1;
+                }
+            }
+            FrameworkMessage::KeepAlive | FrameworkMessage::DiscoverHost => {}
         }
         Ok(())
     }
@@ -491,6 +497,9 @@ pub struct ArcNetTickReport {
     pub inbound_udp_packets: usize,
     pub inbound_framework_messages: usize,
     pub outbound_framework_messages: usize,
+    pub inbound_ping_requests: usize,
+    pub inbound_tcp_ping_replies: usize,
+    pub inbound_udp_ping_replies: usize,
     pub udp_registered: bool,
     pub connect_sent: bool,
     pub timed_out: Option<u64>,
@@ -1534,6 +1543,99 @@ mod tests {
         assert!(outbound_tcp_frames >= 2);
         assert!(outbound_udp_packets >= 2);
         assert!(outbound_framework_messages >= 3);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn ping_replies_are_transport_observable() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let timing = ClientSessionTiming {
+            keepalive_interval_ms: 60_000,
+            client_snapshot_interval_ms: 60_000,
+            connect_timeout_ms: 60_000,
+            timeout_ms: 60_000,
+        };
+        let mut session =
+            ClientSession::from_remote_manifest_with_timing(&manifest, "fr", timing).unwrap();
+        let connect = session
+            .prepare_connect_packet(&sample_connect_payload())
+            .unwrap();
+
+        let (tcp_listener, udp_socket, server_addr) = bind_local_arcnet_server();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let server = thread::spawn(move || {
+            let (mut tcp_stream, _) = tcp_listener.accept().unwrap();
+            tcp_stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            tcp_stream
+                .set_write_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+
+            write_tcp_frame(
+                &mut tcp_stream,
+                &encode_framework_message(&FrameworkMessage::RegisterTcp { connection_id: 904 }),
+            );
+
+            let mut udp_buf = [0u8; 1024];
+            let (udp_len, client_addr) = udp_socket.recv_from(&mut udp_buf).unwrap();
+            assert_eq!(
+                decode_framework_message(&udp_buf[..udp_len]).unwrap(),
+                FrameworkMessage::RegisterUdp { connection_id: 904 }
+            );
+
+            udp_socket
+                .send_to(
+                    &encode_framework_message(&FrameworkMessage::RegisterUdp {
+                        connection_id: 904,
+                    }),
+                    client_addr,
+                )
+                .unwrap();
+
+            let connect_frame = read_tcp_frame(&mut tcp_stream);
+            let connect_packet = decode_packet(&connect_frame).unwrap();
+            assert_eq!(connect_packet.packet_id, CONNECT_PACKET_ID);
+
+            write_tcp_frame(
+                &mut tcp_stream,
+                &encode_framework_message(&FrameworkMessage::Ping {
+                    id: 51,
+                    is_reply: true,
+                }),
+            );
+            udp_socket
+                .send_to(
+                    &encode_framework_message(&FrameworkMessage::Ping {
+                        id: 52,
+                        is_reply: true,
+                    }),
+                    client_addr,
+                )
+                .unwrap();
+
+            let _ = done_rx.recv_timeout(Duration::from_secs(5));
+        });
+
+        let mut driver = ArcNetSessionDriver::connect(server_addr).unwrap();
+        driver.send_connect(&connect).unwrap();
+
+        let mut inbound_tcp_ping_replies = 0usize;
+        let mut inbound_udp_ping_replies = 0usize;
+
+        for tick in 0..100u64 {
+            let report = driver.tick(&mut session, tick * 100, 32, 32).unwrap();
+            inbound_tcp_ping_replies += report.inbound_tcp_ping_replies;
+            inbound_udp_ping_replies += report.inbound_udp_ping_replies;
+            if inbound_tcp_ping_replies >= 1 && inbound_udp_ping_replies >= 1 {
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+
+        assert_eq!(inbound_tcp_ping_replies, 1);
+        assert_eq!(inbound_udp_ping_replies, 1);
+        done_tx.send(()).unwrap();
         server.join().unwrap();
     }
 
