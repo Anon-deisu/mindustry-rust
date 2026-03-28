@@ -13043,7 +13043,7 @@ fn derive_effect_business_projection(
             .min_by(|(_, left_path), (_, right_path)| left_path.cmp(right_path))
     }
 
-    const EFFECT_BUSINESS_MAX_DEPTH: usize = 3;
+    const EFFECT_BUSINESS_MAX_DEPTH: usize = 4;
     const EFFECT_BUSINESS_MAX_NODES: usize = 64;
 
     let Some(object) = object else {
@@ -47029,6 +47029,45 @@ mod tests {
     }
 
     #[test]
+    fn effect_packet_with_deeply_nested_lightning_path_contract_projects_full_polyline() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "effect" && entry.params.len() == 6)
+            .unwrap()
+            .packet_id;
+        let mut payload = encode_effect_payload(13, 32.5, 48.0, 90.0, 0x11223344);
+        write_typeio_object(
+            &mut payload,
+            &TypeIoObject::ObjectArray(vec![TypeIoObject::ObjectArray(vec![
+                TypeIoObject::ObjectArray(vec![TypeIoObject::ObjectArray(vec![
+                    TypeIoObject::Vec2Array(vec![(5.5, -7.25), (9.0, 11.0)]),
+                ])]),
+            ])]),
+        );
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            session.state().last_effect_contract_name.as_deref(),
+            Some("lightning")
+        );
+        assert_eq!(
+            session.state().last_effect_business_projection,
+            Some(EffectBusinessProjection::LightningPath {
+                points: vec![
+                    (5.5f32.to_bits(), (-7.25f32).to_bits()),
+                    (9.0f32.to_bits(), 11.0f32.to_bits()),
+                ],
+            })
+        );
+        assert_eq!(session.state().last_effect_business_path, Some(vec![0, 0, 0, 0]));
+    }
+
+    #[test]
     fn effect_packet_with_lightning_path_contract_falls_back_to_generic_position_projection() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
@@ -47292,6 +47331,51 @@ mod tests {
             })
         );
         assert_eq!(session.state().last_effect_business_path, Some(vec![0, 0]));
+    }
+
+    #[test]
+    fn effect_packet_with_deeply_nested_payload_target_content_contract_accepts_block_payload() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "effect" && entry.params.len() == 6)
+            .unwrap()
+            .packet_id;
+        let mut payload = encode_effect_payload(26, 32.5, 48.0, 90.0, 0x11223344);
+        write_typeio_object(
+            &mut payload,
+            &TypeIoObject::ObjectArray(vec![TypeIoObject::ObjectArray(vec![
+                TypeIoObject::ObjectArray(vec![TypeIoObject::ObjectArray(vec![
+                    TypeIoObject::ContentRaw {
+                        content_type: BLOCK_CONTENT_TYPE,
+                        content_id: 42,
+                    },
+                    TypeIoObject::Point2 { x: 10, y: 20 },
+                ])]),
+            ])]),
+        );
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            session.state().last_effect_contract_name.as_deref(),
+            Some("payload_target_content")
+        );
+        assert_eq!(
+            session.state().last_effect_business_projection,
+            Some(EffectBusinessProjection::PayloadTargetContent {
+                source_x_bits: 32.5f32.to_bits(),
+                source_y_bits: 48.0f32.to_bits(),
+                target_x_bits: 80.0f32.to_bits(),
+                target_y_bits: 160.0f32.to_bits(),
+                content_type: BLOCK_CONTENT_TYPE,
+                content_id: 42,
+            })
+        );
+        assert_eq!(session.state().last_effect_business_path, Some(vec![0, 0, 0, 1]));
     }
 
     #[test]

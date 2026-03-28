@@ -2,7 +2,7 @@ use crate::effect_runtime::{effect_contract_name, RuntimeEffectContract};
 use crate::session_state::{EffectBusinessContentKind, EffectDataSemantic};
 use mdt_typeio::{TypeIoEffectPositionHint, TypeIoObject, TypeIoSemanticMatch, TypeIoSemanticRef};
 
-const EFFECT_DATA_MAX_DEPTH: usize = 3;
+const EFFECT_DATA_MAX_DEPTH: usize = 4;
 const EFFECT_DATA_MAX_NODES: usize = 64;
 const ITEM_CONTENT_TYPE: u8 = 0;
 const BLOCK_CONTENT_TYPE: u8 = 1;
@@ -425,6 +425,14 @@ mod tests {
     use crate::session_state::{EffectBusinessContentKind, EffectDataSemantic};
     use mdt_typeio::{TypeIoEffectPositionHint, TypeIoObject, TypeIoSemanticRef};
 
+    fn nested_object_array(depth: usize, leaf: TypeIoObject) -> TypeIoObject {
+        if depth == 0 {
+            leaf
+        } else {
+            TypeIoObject::ObjectArray(vec![nested_object_array(depth - 1, leaf)])
+        }
+    }
+
     #[test]
     fn derive_effect_data_business_input_captures_payload_target_content_hints() {
         let object = TypeIoObject::ObjectArray(vec![
@@ -504,6 +512,41 @@ mod tests {
     }
 
     #[test]
+    fn derive_effect_data_business_input_captures_deep_payload_target_content_hints() {
+        let object = nested_object_array(
+            3,
+            TypeIoObject::ObjectArray(vec![
+                TypeIoObject::ContentRaw {
+                    content_type: 1,
+                    content_id: 33,
+                },
+                TypeIoObject::Point2 { x: 4, y: 6 },
+            ]),
+        );
+
+        let input =
+            derive_effect_data_business_input(Some(26), Some(&object), Some(5), false, None);
+
+        assert_eq!(
+            input.primary,
+            Some(EffectDataBusinessHint::PayloadTargetContent {
+                content_kind: EffectBusinessContentKind::Content,
+                content_type: 1,
+                content_id: 33,
+                content_path: vec![0, 0, 0, 0],
+                target: EffectDataBusinessTargetHint::PositionHint(
+                    TypeIoEffectPositionHint::Point2 {
+                        x: 4,
+                        y: 6,
+                        path: vec![0, 0, 0, 1],
+                    },
+                ),
+            })
+        );
+        assert_eq!(input.contract_name, Some("payload_target_content"));
+    }
+
+    #[test]
     fn derive_effect_data_business_input_prefers_parent_ref_for_unit_parent_contract() {
         let object = TypeIoObject::ObjectArray(vec![
             TypeIoObject::UnitId(404),
@@ -524,9 +567,11 @@ mod tests {
     }
 
     #[test]
-    fn derive_effect_data_business_input_emits_polyline_for_lightning_contract() {
-        let object =
-            TypeIoObject::ObjectArray(vec![TypeIoObject::Vec2Array(vec![(1.0, 2.0), (3.5, 4.5)])]);
+    fn derive_effect_data_business_input_emits_polyline_for_deep_lightning_contract() {
+        let object = nested_object_array(
+            4,
+            TypeIoObject::Vec2Array(vec![(1.0, 2.0), (3.5, 4.5)]),
+        );
 
         let input =
             derive_effect_data_business_input(Some(13), Some(&object), Some(17), false, None);
@@ -538,7 +583,7 @@ mod tests {
                     (1.0f32.to_bits(), 2.0f32.to_bits()),
                     (3.5f32.to_bits(), 4.5f32.to_bits())
                 ],
-                path: vec![0],
+                path: vec![0, 0, 0, 0],
             })
         );
         assert_eq!(input.contract_name, Some("lightning"));

@@ -340,6 +340,12 @@ pub fn refine_effect_data_semantic_for_nested_object_array(
                     | TypeIoObject::BuildingPos(_)
                     | TypeIoObject::UnitId(_)
                     | TypeIoObject::Point2 { .. }
+                    | TypeIoObject::Int(_)
+                    | TypeIoObject::Long(_)
+                    | TypeIoObject::Bool(_)
+                    | TypeIoObject::Bytes(_)
+                    | TypeIoObject::IntArray(_)
+                    | TypeIoObject::UnitCommand(_)
                     | TypeIoObject::Float(_)
                     | TypeIoObject::Double(_)
                     | TypeIoObject::Vec2 { .. }
@@ -7979,6 +7985,10 @@ mod tests {
         }
     }
 
+    fn nested_object_array(inner: TypeIoObject) -> TypeIoObject {
+        TypeIoObject::ObjectArray(vec![TypeIoObject::ObjectArray(vec![inner])])
+    }
+
     #[test]
     fn reconnect_projection_counts_only_distinct_phase_transitions() {
         let mut state = SessionState::default();
@@ -8023,6 +8033,49 @@ mod tests {
             state.reconnect_projection.hint_text.as_deref(),
             Some("session timed out")
         );
+    }
+
+    #[test]
+    fn refine_effect_data_semantic_for_nested_object_array_promotes_nested_scalar_semantics() {
+        let cases = [
+            (TypeIoObject::Int(7), Some(EffectDataSemantic::Int(7))),
+            (TypeIoObject::Long(-7), Some(EffectDataSemantic::Long(-7))),
+            (
+                TypeIoObject::Bool(true),
+                Some(EffectDataSemantic::Bool(true)),
+            ),
+            (
+                TypeIoObject::Bytes(vec![1, 2, 3]),
+                Some(EffectDataSemantic::BytesLen(3)),
+            ),
+            (
+                TypeIoObject::IntArray(vec![4, 5, 6]),
+                Some(EffectDataSemantic::IntArrayLen(3)),
+            ),
+            (
+                TypeIoObject::UnitCommand(42),
+                Some(EffectDataSemantic::UnitCommand(42)),
+            ),
+        ];
+
+        for (inner, expected) in cases {
+            let semantic = refine_effect_data_semantic_for_nested_object_array(
+                Some(&nested_object_array(inner)),
+                Some(EffectDataSemantic::ObjectArrayLen(1)),
+            );
+
+            assert_eq!(semantic, expected);
+        }
+    }
+
+    #[test]
+    fn refine_effect_data_semantic_for_nested_object_array_keeps_unmatched_object_array_len() {
+        let semantic = refine_effect_data_semantic_for_nested_object_array(
+            Some(&nested_object_array(TypeIoObject::String(Some("noop".to_string())))),
+            Some(EffectDataSemantic::ObjectArrayLen(1)),
+        );
+
+        assert_eq!(semantic, Some(EffectDataSemantic::ObjectArrayLen(1)));
     }
 
     #[test]
