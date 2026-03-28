@@ -91,6 +91,25 @@ function Get-ManifestStringList([object]$ManifestValue, [string]$FieldName) {
     return $result
 }
 
+function Normalize-RepositoryRemote([string]$RemoteUrl) {
+    if ([string]::IsNullOrWhiteSpace($RemoteUrl)) {
+        return ''
+    }
+
+    $trimmed = $RemoteUrl.Trim()
+    if ($trimmed -match '^(?:https?://)?github\.com/(?<path>[^?#]+?)(?:\.git)?/?$') {
+        return "github.com/$($matches.path.Trim('/').ToLowerInvariant())"
+    }
+    if ($trimmed -match '^ssh://git@github\.com/(?<path>[^?#]+?)(?:\.git)?/?$') {
+        return "github.com/$($matches.path.Trim('/').ToLowerInvariant())"
+    }
+    if ($trimmed -match '^git@github\.com:(?<path>[^?#]+?)(?:\.git)?$') {
+        return "github.com/$($matches.path.Trim('/').ToLowerInvariant())"
+    }
+
+    return $trimmed.TrimEnd('/').ToLowerInvariant()
+}
+
 function Get-ValidatedHandoffManifest([string]$ManifestPath, [string]$ResolvedSourceRoot) {
     if (!(Test-Path $ManifestPath -PathType Leaf)) {
         throw "Missing handoff manifest: $ManifestPath"
@@ -209,10 +228,10 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $expectedRepo = $config.target_repo
-$normalizedOrigin = $originUrl.TrimEnd("/")
-$normalizedExpected = $expectedRepo.TrimEnd("/")
+$normalizedOrigin = Normalize-RepositoryRemote $originUrl
+$normalizedExpected = Normalize-RepositoryRemote $expectedRepo
 
-if ($normalizedOrigin -ne $normalizedExpected -and $normalizedOrigin -ne "$normalizedExpected.git") {
+if ($normalizedOrigin -ne $normalizedExpected) {
     throw "Target checkout origin mismatch. expected=$expectedRepo actual=$originUrl"
 }
 
