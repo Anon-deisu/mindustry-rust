@@ -13,9 +13,9 @@ pub use unit_sync::{
     read_abilities, read_abilities_into, read_abilities_into_prefix, read_abilities_prefix,
     read_status_entries, read_status_entries_prefix, read_status_entry, read_status_entry_prefix,
     read_weapon_mounts, read_weapon_mounts_into, read_weapon_mounts_into_prefix,
-    read_weapon_mounts_prefix, write_abilities, write_status_entries, write_status_entry,
-    write_weapon_mounts, AbilityRaw, StatusDynamicFieldsRaw, StatusEntryRaw, WeaponMountRaw,
-    status_id_uses_dynamic_fields, status_name_uses_dynamic_fields,
+    read_weapon_mounts_prefix, status_id_uses_dynamic_fields, status_name_uses_dynamic_fields,
+    write_abilities, write_status_entries, write_status_entry, write_weapon_mounts, AbilityRaw,
+    StatusDynamicFieldsRaw, StatusEntryRaw, WeaponMountRaw,
 };
 
 pub const CONVEYOR_BLOCK_ID: i16 = 0x0101;
@@ -448,19 +448,25 @@ pub fn read_string(bytes: &[u8]) -> Result<Option<String>, TypeIoReadError> {
 
 pub fn read_string_prefix(bytes: &[u8]) -> Result<(Option<String>, usize), TypeIoReadError> {
     let mut reader = PrimitiveReader::new(bytes);
+    let marker_position = reader.position();
     let marker = reader.read_u8()?;
-    if marker == 0 {
-        return Ok((None, reader.position()));
+    match marker {
+        0 => Ok((None, reader.position())),
+        1 => {
+            let len = reader.read_u16()? as usize;
+            let string_position = reader.position();
+            let raw = reader.read_vec(len)?;
+            let value = String::from_utf8(raw).map_err(|error| TypeIoReadError::InvalidUtf8 {
+                position: string_position,
+                message: error.to_string(),
+            })?;
+            Ok((Some(value), reader.position()))
+        }
+        _ => Err(TypeIoReadError::InvalidStringMarker {
+            marker,
+            position: marker_position,
+        }),
     }
-
-    let len = reader.read_u16()? as usize;
-    let string_position = reader.position();
-    let raw = reader.read_vec(len)?;
-    let value = String::from_utf8(raw).map_err(|error| TypeIoReadError::InvalidUtf8 {
-        position: string_position,
-        message: error.to_string(),
-    })?;
-    Ok((Some(value), reader.position()))
 }
 
 pub fn read_block(bytes: &[u8]) -> Result<i16, TypeIoReadError> {
@@ -1109,6 +1115,17 @@ mod tests {
                 consumed,
                 total
             }) if consumed == bytes.len() - 2 && total == bytes.len()
+        ));
+    }
+
+    #[test]
+    fn string_reader_rejects_invalid_markers() {
+        assert!(matches!(
+            read_string_prefix(&[2u8]),
+            Err(TypeIoReadError::InvalidStringMarker {
+                marker: 2,
+                position: 0
+            })
         ));
     }
 

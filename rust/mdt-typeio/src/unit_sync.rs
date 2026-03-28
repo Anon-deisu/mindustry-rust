@@ -423,7 +423,10 @@ mod tests {
         let consumed = read_abilities_into_prefix(&bytes, &mut abilities).unwrap();
 
         assert_eq!(consumed, bytes.len());
-        assert_eq!(abilities, vec![AbilityRaw { data: 12.5 }, AbilityRaw { data: -3.25 }]);
+        assert_eq!(
+            abilities,
+            vec![AbilityRaw { data: 12.5 }, AbilityRaw { data: -3.25 }]
+        );
     }
 
     #[test]
@@ -523,7 +526,18 @@ mod tests {
 
     #[test]
     fn weapon_mounts_into_prefix_overwrites_existing_entries() {
-        let bytes = vec![1, 0b0000_0011, 0x41, 0x48, 0x00, 0x00, 0xc0, 0x50, 0x00, 0x00];
+        let bytes = vec![
+            1,
+            0b0000_0011,
+            0x41,
+            0x48,
+            0x00,
+            0x00,
+            0xc0,
+            0x50,
+            0x00,
+            0x00,
+        ];
         let mut mounts = vec![WeaponMountRaw {
             shoot: false,
             rotate: false,
@@ -547,7 +561,19 @@ mod tests {
 
     #[test]
     fn weapon_mounts_into_rejects_trailing_payload() {
-        let bytes = vec![1, 0b0000_0011, 0x41, 0x48, 0x00, 0x00, 0xc0, 0x50, 0x00, 0x00, 0xff];
+        let bytes = vec![
+            1,
+            0b0000_0011,
+            0x41,
+            0x48,
+            0x00,
+            0x00,
+            0xc0,
+            0x50,
+            0x00,
+            0x00,
+            0xff,
+        ];
         let mut mounts = vec![WeaponMountRaw {
             shoot: false,
             rotate: false,
@@ -687,6 +713,27 @@ mod tests {
                 position: 7,
                 needed: 4,
                 remaining: 1,
+            })
+        ));
+    }
+
+    #[test]
+    fn status_entry_reader_reports_trailing_payload() {
+        let entry = StatusEntryRaw {
+            status_id: 27,
+            time: 45.5,
+            dynamic_fields: None,
+        };
+        let mut bytes = Vec::new();
+
+        write_status_entry(&mut bytes, &entry);
+        bytes.push(0xff);
+
+        assert!(matches!(
+            read_status_entry(&bytes, false),
+            Err(TypeIoReadError::TrailingBytes {
+                consumed: 6,
+                total: 7,
             })
         ));
     }

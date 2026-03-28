@@ -233,6 +233,17 @@ These are already landed and should not be re-opened as if missing:
 - `connectConfirm` queued-vs-flushed observability is now landed as the first narrow `U6` transport split.
   - `SessionState` now tracks both `connect_confirm_sent` and `connect_confirm_flushed`, ArcNet only flips the flushed bit after a real TCP write succeeds, and UDP-only driver paths preserve the intended `queued-but-not-flushed` boundary
   - remaining `U6` work is still deeper Java-equivalent lifecycle atomicity, not re-adding this first queued/flushed split
+- `mdt-remote` manifest validation now also rejects duplicate `packetClass` values and duplicate generated Rust packet const names.
+  - remaining work is broader typed-registry/session adoption, not re-adding this manifest/codegen guardrail
+- `rules_objectives_semantics` objective flag counts now track only successfully parsed string flags.
+  - malformed mixed-type `flagsAdded` / `flagsRemoved` arrays no longer overstate count metadata
+- `custom_packet_runtime_host` world-position fallback now accepts both `x,y` and `x:y`.
+  - the narrow `RequestDropPayload` host-action path already has regression coverage for the colon form
+- `mdt-world` post-load runtime execution now has explicit regression coverage for the current shell-vs-full-apply split.
+  - duplicate non-world custom chunks still fail full runtime apply but do not block `execute_runtime_world_semantics()`
+  - duplicate marker ids still fail world-semantic activation after `world_shell_ready`
+- handoff target-checkout resolution now normalizes relative paths against the source workspace before validation.
+  - this applies consistently across `-TargetCheckout`, source-workspace git config, and `MDT_TARGET_CHECKOUT`
 
 ## Highest-Confidence Remaining Lanes
 
