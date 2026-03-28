@@ -589,7 +589,9 @@ fn render_message_like_text(text: &str) -> Result<RenderedSemantic, &'static str
 }
 
 fn render_text_world_pos(text: &str) -> Result<RenderedSemantic, &'static str> {
-    let (x, y, source) = parse_text_world_pos(text).ok_or("invalid_world_pos")?;
+    let (x, y, source) = parse_text_world_pos(text)
+        .and_then(|(x, y, source)| finite_world_pos(x, y).map(|(x, y)| (x, y, source)))
+        .ok_or("invalid_world_pos")?;
     Ok(RenderedSemantic {
         detail: format!("x={x} y={y} source={source}"),
         stable_value: format!("{x},{y}"),
@@ -678,6 +680,7 @@ fn extract_logic_world_pos(value: &TypeIoObject) -> Result<RenderedSemantic, &'s
             })
             .ok_or("no_world_pos_payload")?,
     };
+    let (x, y) = finite_world_pos(x, y).ok_or("invalid_world_pos")?;
     Ok(RenderedSemantic {
         detail: format!("x={x} y={y} source={source}"),
         stable_value: format!("{x},{y}"),
@@ -934,6 +937,10 @@ fn extract_json_bool_field(text: &str, field: &str) -> Option<bool> {
     }
 }
 
+fn finite_world_pos(x: f64, y: f64) -> Option<(f64, f64)> {
+    (x.is_finite() && y.is_finite()).then_some((x, y))
+}
+
 fn f64_to_i32(value: f64) -> Option<i32> {
     (value.fract() == 0.0 && value >= i32::MIN as f64 && value <= i32::MAX as f64)
         .then_some(value as i32)
@@ -1136,6 +1143,28 @@ mod tests {
         assert_eq!(summaries.len(), 2);
         assert!(summaries[0].contains("decode_errors=1"));
         assert!(summaries[1].contains("decode_errors=1"));
+    }
+
+    #[test]
+    fn runtime_custom_packet_runtime_rejects_non_finite_world_positions() {
+        assert_eq!(render_text_world_pos("NaN,9"), Err("invalid_world_pos"));
+        assert_eq!(render_text_world_pos("7:inf"), Err("invalid_world_pos"));
+        assert_eq!(
+            extract_logic_world_pos(&TypeIoObject::Vec2 {
+                x: f32::INFINITY,
+                y: 9.0,
+            }),
+            Err("invalid_world_pos")
+        );
+        assert_eq!(
+            extract_logic_world_pos(&TypeIoObject::Point2 {
+                x: 7,
+                y: i32::MIN,
+            })
+            .unwrap()
+            .stable_value,
+            format!("7,{}", i32::MIN)
+        );
     }
 
     #[test]
