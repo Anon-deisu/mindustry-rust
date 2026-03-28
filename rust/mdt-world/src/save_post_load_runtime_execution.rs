@@ -165,10 +165,7 @@ impl SavePostLoadRuntimeApplyExecution {
             && self.has_world_shell()
             && self.awaiting_world_shell_steps.is_empty()
             && self.blocked_steps.is_empty()
-            && self
-                .failed_steps
-                .iter()
-                .all(|step| !step.targets_world_semantics())
+            && self.failed_steps.is_empty()
     }
 
     fn from_script(script: SavePostLoadRuntimeApplyScript) -> Self {
@@ -680,7 +677,7 @@ mod tests {
     }
 
     #[test]
-    fn execute_runtime_apply_keeps_live_runtime_activation_ready_with_auxiliary_failures() {
+    fn execute_runtime_apply_blocks_activation_on_auxiliary_failures() {
         let mut observation = test_observation();
         make_observation_seedable(&mut observation);
         observation.custom_chunks[1].name = observation.custom_chunks[0].name.clone();
@@ -701,7 +698,7 @@ mod tests {
                 "static-fog-data".to_string(),
             )]
         );
-        assert!(execution.can_activate_live_runtime());
+        assert!(!execution.can_activate_live_runtime());
     }
 
     #[test]

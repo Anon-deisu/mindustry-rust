@@ -61,7 +61,7 @@ impl SavePostLoadRuntimeRegionReadiness {
     }
 
     pub fn can_apply_now(&self) -> bool {
-        self.step_count > 0 && self.disposition == SavePostLoadConsumerRuntimeDisposition::ApplyNow
+        self.disposition == SavePostLoadConsumerRuntimeDisposition::ApplyNow
     }
 }
 
@@ -595,6 +595,20 @@ mod tests {
         assert!(entities.has_blockers());
         assert!(entities.has_pending_world_shell());
         assert!(entities.has_deferred());
+    }
+
+    #[test]
+    fn runtime_readiness_can_apply_now_accepts_zero_step_apply_now_regions() {
+        let region = SavePostLoadRuntimeRegionReadiness {
+            kind: SavePostLoadRuntimeRegionKind::CustomChunks,
+            source_region_name: "custom",
+            step_count: 0,
+            disposition: SavePostLoadConsumerRuntimeDisposition::ApplyNow,
+            blockers: Vec::new(),
+        };
+
+        assert!(region.can_apply_now());
+        assert!(!region.has_blockers());
     }
 
     fn make_observation_seedable(observation: &mut SavePostLoadWorldObservation) {

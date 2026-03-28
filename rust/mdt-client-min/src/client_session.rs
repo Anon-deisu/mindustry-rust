@@ -8341,10 +8341,12 @@ impl ClientSession {
                 }
                 return Ok(LoadedWorldBlockSnapshotEntryCollection::Partial { entries, error });
             };
-            let candidate = resolve_loaded_world_building_sync_candidate(
+            let candidate = resolve_loaded_world_block_snapshot_sync_candidate(
                 &loaded_world,
                 Some(&self.state.building_table_projection),
+                self.state.block_snapshot_head_projection.as_ref(),
                 build_pos,
+                block_id,
             )
             .ok_or_else(|| {
                 format!("loaded_world_block_snapshot_entry_{index}_missing_center:{build_pos}")
@@ -15470,6 +15472,74 @@ fn resolve_loaded_world_building_sync_candidate(
                 })
                 .map(str::to_string)
         })?;
+    let revision = projection.and_then(|building| building.io_version)?;
+    Some(LoadedWorldBuildingSyncCandidate {
+        build_pos,
+        block_id,
+        revision,
+        x_bits: (tile_x as f32 * 8.0).to_bits(),
+        y_bits: (tile_y as f32 * 8.0).to_bits(),
+        block_name,
+    })
+}
+
+fn resolve_loaded_world_block_snapshot_sync_candidate(
+    loaded_world: &LoadedWorldState<'_>,
+    building_table: Option<&BuildingTableProjection>,
+    block_snapshot_head: Option<&crate::session_state::BlockSnapshotHeadProjection>,
+    build_pos: i32,
+    packet_block_id: i16,
+) -> Option<LoadedWorldBuildingSyncCandidate> {
+    let (tile_x, tile_y) = unpack_point2(build_pos);
+    let tile_x = usize::try_from(tile_x).ok()?;
+    let tile_y = usize::try_from(tile_y).ok()?;
+    let projection = building_table.and_then(|table| table.by_build_pos.get(&build_pos));
+    let block_name_for_packet_id = || {
+        usize::try_from(packet_block_id)
+            .ok()
+            .and_then(|block_content_id| loaded_world.content_name(BLOCK_CONTENT_TYPE, block_content_id))
+            .map(str::to_string)
+    };
+
+    if let Some(head) = block_snapshot_head {
+        if head.build_pos == build_pos
+            && head.block_id == packet_block_id
+            && head.io_version.is_some()
+        {
+            return Some(LoadedWorldBuildingSyncCandidate {
+                build_pos,
+                block_id: packet_block_id,
+                revision: head.io_version?,
+                x_bits: (tile_x as f32 * 8.0).to_bits(),
+                y_bits: (tile_y as f32 * 8.0).to_bits(),
+                block_name: block_name_for_packet_id()
+                    .or_else(|| projection.and_then(|building| building.block_name.clone()))?,
+            });
+        }
+    }
+
+    if let Some(center) = loaded_world.graph().building_center_at(tile_x, tile_y) {
+        let block_id = i16::try_from(center.block_id).ok()?;
+        if block_id == packet_block_id {
+            return Some(LoadedWorldBuildingSyncCandidate {
+                build_pos,
+                block_id,
+                revision: center.building.revision,
+                x_bits: (tile_x as f32 * 8.0).to_bits(),
+                y_bits: (tile_y as f32 * 8.0).to_bits(),
+                block_name: block_name_for_packet_id()
+                    .or_else(|| projection.and_then(|building| building.block_name.clone()))?,
+            });
+        }
+    }
+
+    let block_id = projection.and_then(|building| building.block_id)?;
+    if block_id != packet_block_id {
+        return None;
+    }
+    let block_name = projection
+        .and_then(|building| building.block_name.clone())
+        .or_else(block_name_for_packet_id)?;
     let revision = projection.and_then(|building| building.io_version)?;
     Some(LoadedWorldBuildingSyncCandidate {
         build_pos,
@@ -30249,6 +30319,98 @@ mod tests {
                 .get(&second_build_pos)
                 .and_then(|building| building.health_bits),
             Some(second_health_bits)
+        );
+        assert_eq!(
+            session
+                .state()
+                .applied_loaded_world_block_snapshot_extra_entry_count,
+            2
+        );
+        assert_eq!(
+            session
+                .state()
+                .last_loaded_world_block_snapshot_extra_entry_count,
+            2
+        );
+        assert_eq!(
+            session
+                .state()
+                .failed_loaded_world_block_snapshot_extra_entry_parse_count,
+            0
+        );
+        assert_eq!(
+            session
+                .state()
+                .last_loaded_world_block_snapshot_extra_entry_parse_error,
+            None
+        );
+    }
+
+    #[test]
+    fn loaded_world_block_snapshot_extra_entries_use_packet_head_context_not_current_table_state() {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let (payload, entries) = build_loaded_world_block_snapshot_payload(&session, 2);
+        let world = &session.loaded_world_bundle().unwrap().world;
+        let second_center = &world.building_centers[1];
+        let (second_build_pos, second_block_id, _) = entries[1];
+        let stale_block_id = world
+            .building_centers
+            .iter()
+            .map(|center| center.block_id as i16)
+            .find(|block_id| *block_id != second_block_id)
+            .or_else(|| {
+                let message_block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_MESSAGE);
+                (message_block_id != second_block_id).then_some(message_block_id)
+            })
+            .expect("expected a valid stale block id");
+        session
+            .state
+            .building_table_projection
+            .apply_block_snapshot_head(
+                second_build_pos,
+                stale_block_id,
+                session.loaded_world_block_name(stale_block_id),
+                Some(second_center.building.base.rotation),
+                Some(second_center.building.base.team_id),
+                Some(second_center.building.revision),
+                second_center.building.base.module_bitmask,
+                second_center.building.base.time_scale_bits,
+                second_center.building.base.time_scale_duration_bits,
+                second_center.building.base.last_disabler_pos,
+                second_center.building.base.legacy_consume_connected,
+                None,
+                Some(second_center.building.base.health_bits),
+                second_center.building.base.enabled,
+                second_center.building.base.efficiency,
+                second_center.building.base.optional_efficiency,
+                second_center.building.base.visible_flags,
+                None,
+                None,
+                None,
+            );
+
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == HighFrequencyRemoteMethod::BlockSnapshot.method_name())
+            .unwrap()
+            .packet_id;
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        let event = session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            event,
+            ClientSessionEvent::SnapshotReceived(HighFrequencyRemoteMethod::BlockSnapshot)
+        );
+        assert_eq!(
+            session
+                .state()
+                .building_table_projection
+                .by_build_pos
+                .get(&second_build_pos)
+                .and_then(|building| building.block_id),
+            Some(second_block_id)
         );
         assert_eq!(
             session

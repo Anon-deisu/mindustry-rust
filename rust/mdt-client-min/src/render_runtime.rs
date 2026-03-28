@@ -11851,6 +11851,28 @@ mod tests {
     }
 
     #[test]
+    fn render_runtime_adapter_keeps_explicit_hidden_delta_after_parse_failure_rollback() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let mut state = SessionState::default();
+        state.hidden_snapshot_ids = BTreeSet::from([100, 202]);
+        state.failed_hidden_snapshot_parse_count = 1;
+
+        state.clear_hidden_snapshot_after_parse_failure();
+
+        adapter.apply(&mut scene, &mut hud, &input, &state);
+
+        assert!(hud.status_text.contains("runtime_hidden=none"));
+        assert!(hud
+            .status_text
+            .contains("runtime_hidden_delta=+0|-2@100,202"));
+        assert!(!hud.status_text.contains("runtime_hidden_delta=none"));
+        assert!(hud.status_text.contains("runtime_hidden_fail=1"));
+    }
+
+    #[test]
     fn runtime_effect_overlay_ttl_ticks_match_rot_with_parent_effect_lifetimes() {
         assert_eq!(runtime_effect_overlay_ttl_ticks(Some(67)), 80);
         assert_eq!(runtime_effect_overlay_ttl_ticks(Some(68)), 40);
