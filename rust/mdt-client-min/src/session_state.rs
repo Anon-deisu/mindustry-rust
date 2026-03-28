@@ -7357,7 +7357,7 @@ impl SessionState {
             &transition.auxiliary_cleanup_ids,
             local_player_entity_id,
         );
-        for entity_id in &hidden_removed_ids {
+        for entity_id in &transition.auxiliary_cleanup_ids {
             self.clear_entity_snapshot_tombstone(*entity_id);
         }
         hidden_removed_ids
@@ -13660,6 +13660,28 @@ mod tests {
             .entity_semantic_projection
             .by_entity_id
             .contains_key(&303));
+        assert!(!state.entity_snapshot_tombstones.contains_key(&303));
+        assert!(!state.entity_snapshot_tombstone_blocks_upsert(303));
+    }
+
+    #[test]
+    fn hidden_snapshot_clears_retained_hidden_entity_tombstones() {
+        let mut state = SessionState::default();
+        state.hidden_snapshot_ids = BTreeSet::from([303]);
+        state.record_entity_snapshot_tombstone(303);
+
+        assert!(state.entity_snapshot_tombstone_blocks_upsert(303));
+
+        state.apply_hidden_snapshot(
+            AppliedHiddenSnapshotIds {
+                count: 1,
+                first_id: Some(303),
+                sample_ids: vec![303],
+            },
+            BTreeSet::from([303]),
+        );
+
+        assert!(state.hidden_snapshot_ids.contains(&303));
         assert!(!state.entity_snapshot_tombstones.contains_key(&303));
         assert!(!state.entity_snapshot_tombstone_blocks_upsert(303));
     }
