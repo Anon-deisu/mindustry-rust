@@ -130,6 +130,7 @@ pub struct RuntimeIntentTracker {
     mapper: StatelessIntentMapper,
     state: LiveIntentState,
     override_snapshot: Option<InputSnapshot>,
+    empty_batch_needs_reconcile: bool,
 }
 
 impl RuntimeIntentTracker {
@@ -138,6 +139,7 @@ impl RuntimeIntentTracker {
             mapper: StatelessIntentMapper::new(sampling_mode),
             state: LiveIntentState::default(),
             override_snapshot: None,
+            empty_batch_needs_reconcile: false,
         }
     }
 
@@ -163,15 +165,17 @@ impl RuntimeIntentTracker {
         runtime_snapshot: &InputSnapshot,
     ) -> bool {
         let final_snapshot = self.override_snapshot.as_ref().unwrap_or(runtime_snapshot);
+        let current_active_actions = final_snapshot.active_actions.clone();
         let intents = self
             .mapper
             .map_snapshot_batch_with_final_snapshot(transient_snapshots, final_snapshot);
-        self.apply_mapped_intents(intents, true)
+        self.apply_mapped_intents(intents, true, &current_active_actions)
     }
 
     pub fn sample_runtime_snapshot_batch(&mut self, runtime_snapshots: &[InputSnapshot]) -> bool {
         if runtime_snapshots.is_empty() && self.override_snapshot.is_none() {
             let _ = self.mapper.map_snapshot(&InputSnapshot::default());
+            self.empty_batch_needs_reconcile = true;
             self.state.clear_transient_edges();
             return false;
         }
@@ -187,7 +191,7 @@ impl RuntimeIntentTracker {
         let intents = self
             .mapper
             .map_snapshot_batch_with_final_snapshot(runtime_snapshots, override_snapshot);
-        self.apply_mapped_intents(intents, true)
+        self.apply_mapped_intents(intents, true, &override_snapshot.active_actions)
     }
 
     fn apply_runtime_batch(
@@ -195,10 +199,17 @@ impl RuntimeIntentTracker {
         runtime_snapshots: &[InputSnapshot],
         override_snapshot: Option<&InputSnapshot>,
     ) -> bool {
+        let current_active_actions: &[BinaryAction] = if let Some(snapshot) = override_snapshot {
+            &snapshot.active_actions
+        } else if let Some(snapshot) = runtime_snapshots.last() {
+            &snapshot.active_actions
+        } else {
+            &[]
+        };
         let intents = self
             .mapper
             .map_snapshot_batch_or_override(runtime_snapshots, override_snapshot);
-        self.apply_mapped_intents(intents, true)
+        self.apply_mapped_intents(intents, true, current_active_actions)
     }
 
     pub fn sample_runtime_snapshot_with_override(
@@ -217,15 +228,25 @@ impl RuntimeIntentTracker {
         let snapshot = override_snapshot
             .or(self.override_snapshot.as_ref())
             .unwrap_or(runtime_snapshot);
+        let current_active_actions = snapshot.active_actions.clone();
         let intents = self.mapper.map_snapshot(snapshot);
-        self.apply_mapped_intents(intents, false)
+        self.apply_mapped_intents(intents, false, &current_active_actions)
     }
 
     fn apply_mapped_intents(
         &mut self,
-        intents: Vec<PlayerIntent>,
+        mut intents: Vec<PlayerIntent>,
         include_transient_edges: bool,
+        current_active_actions: &[BinaryAction],
     ) -> bool {
+        if self.empty_batch_needs_reconcile {
+            for action in self.state.active_actions.iter().copied() {
+                if !current_active_actions.contains(&action) {
+                    intents.push(PlayerIntent::ActionReleased(action));
+                }
+            }
+            self.empty_batch_needs_reconcile = false;
+        }
         let previous_key = runtime_snapshot_apply_key(&self.state);
         self.state.apply_intents(&intents);
         runtime_snapshot_apply_key(&self.state) != previous_key
@@ -1123,6 +1144,37 @@ mod tests {
         assert!(tracker.state().last_config_tap_tile.is_none());
         assert!(tracker.state().last_build_pulse.is_none());
         assert!(!tracker.binding_profile().has_transient_signals());
+    }
+
+    #[test]
+    fn runtime_intent_tracker_empty_batch_then_inactive_snapshot_releases_previous_actions() {
+        let mut tracker = RuntimeIntentTracker::new(IntentSamplingMode::LiveSampling);
+
+        assert!(tracker.sample_runtime_snapshot_batch(&[InputSnapshot {
+            move_axis: (1.0, 0.0),
+            aim_axis: (2.0, 3.0),
+            mining_tile: None,
+            building: false,
+            config_tap_tile: None,
+            build_pulse: None,
+            active_actions: vec![BinaryAction::Fire],
+        }]));
+        assert!(tracker.state().is_action_active(BinaryAction::Fire));
+
+        assert!(!tracker.sample_runtime_snapshot_batch(&[]));
+        assert!(tracker.state().is_action_active(BinaryAction::Fire));
+
+        assert!(tracker.sample_runtime_snapshot(&InputSnapshot {
+            move_axis: (0.0, 0.0),
+            aim_axis: (4.0, 5.0),
+            mining_tile: None,
+            building: false,
+            config_tap_tile: None,
+            build_pulse: None,
+            active_actions: vec![],
+        }));
+        assert_eq!(tracker.state().released_actions, vec![BinaryAction::Fire]);
+        assert!(!tracker.state().is_action_active(BinaryAction::Fire));
     }
 
     #[test]
