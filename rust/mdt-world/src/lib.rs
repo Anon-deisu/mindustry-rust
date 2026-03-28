@@ -40193,10 +40193,31 @@ mod tests {
     }
 
     #[test]
+    fn rejects_invalid_java_modified_utf_continuation_byte() {
+        let error = decode_java_modified_utf(&[0xc2, 0x20]).unwrap_err();
+
+        assert!(error.contains("invalid Java modified UTF-8 continuation byte"));
+    }
+
+    #[test]
+    fn rejects_unsupported_java_modified_utf_leading_byte() {
+        let error = decode_java_modified_utf(&[0x80]).unwrap_err();
+
+        assert!(error.contains("unsupported Java modified UTF-8 leading byte"));
+    }
+
+    #[test]
     fn rejects_invalid_msav_zlib_header_checksum() {
         let error = read_msav_zlib_header(&[0x78, 0x00]).unwrap_err();
 
         assert!(error.contains("invalid .msav zlib header checksum"));
+    }
+
+    #[test]
+    fn rejects_unsupported_msav_zlib_compression_method() {
+        let error = read_msav_zlib_header(&[0x79, 0x01]).unwrap_err();
+
+        assert!(error.contains("unsupported .msav zlib compression method"));
     }
 
     fn encode_save_region(bytes: &[u8]) -> Vec<u8> {
