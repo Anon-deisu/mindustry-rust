@@ -1235,8 +1235,7 @@ fn window_primitive_render_command<'a>(
             y,
             ..
         } => {
-            let tile_x = crate::presenter_view::world_to_tile_index_floor(*x, TILE_SIZE);
-            let tile_y = crate::presenter_view::world_to_tile_index_floor(*y, TILE_SIZE);
+            let (tile_x, tile_y) = finite_tile_coords(*x, *y)?;
             if tile_x < 0 || tile_y < 0 {
                 return None;
             }
@@ -1257,6 +1256,16 @@ fn window_primitive_render_command<'a>(
         }
         _ => None,
     }
+}
+
+fn finite_tile_coords(world_x: f32, world_y: f32) -> Option<(i32, i32)> {
+    if !world_x.is_finite() || !world_y.is_finite() {
+        return None;
+    }
+    Some((
+        crate::presenter_view::world_to_tile_index_floor(world_x, TILE_SIZE),
+        crate::presenter_view::world_to_tile_index_floor(world_y, TILE_SIZE),
+    ))
 }
 
 fn window_world_object_tile(object: &RenderObject) -> (i32, i32) {
@@ -1791,8 +1800,9 @@ fn compose_render_text_status_text(
             _ => None,
         })
         .filter(|(_, _, x, y, _)| {
-            let tile_x = crate::presenter_view::world_to_tile_index_floor(*x, TILE_SIZE);
-            let tile_y = crate::presenter_view::world_to_tile_index_floor(*y, TILE_SIZE);
+            let Some((tile_x, tile_y)) = finite_tile_coords(*x, *y) else {
+                return false;
+            };
             tile_x >= 0
                 && tile_y >= 0
                 && (tile_x as usize) >= window.origin_x
@@ -1887,8 +1897,9 @@ fn compose_render_icon_status_text(
             _ => None,
         })
         .filter(|(_, _, _, x, y)| {
-            let tile_x = crate::presenter_view::world_to_tile_index_floor(*x, TILE_SIZE);
-            let tile_y = crate::presenter_view::world_to_tile_index_floor(*y, TILE_SIZE);
+            let Some((tile_x, tile_y)) = finite_tile_coords(*x, *y) else {
+                return false;
+            };
             tile_x >= 0
                 && tile_y >= 0
                 && (tile_x as usize) >= window.origin_x
@@ -1905,8 +1916,9 @@ fn compose_render_icon_status_text(
     icon_primitives.sort_by_key(|(_, _, layer, _, _)| *layer);
     let mut parts = vec![format!("count={}", icon_primitives.len())];
     for (family, variant, layer, x, y) in icon_primitives.into_iter().take(2) {
-        let tile_x = crate::presenter_view::world_to_tile_index_floor(x, TILE_SIZE);
-        let tile_y = crate::presenter_view::world_to_tile_index_floor(y, TILE_SIZE);
+        let Some((tile_x, tile_y)) = finite_tile_coords(x, y) else {
+            continue;
+        };
         parts.push(format!(
             "{}/{}@{layer}:{tile_x}:{tile_y}",
             family.label(),
@@ -8440,6 +8452,37 @@ mod tests {
     }
 
     #[test]
+    fn present_once_ignores_non_finite_text_primitives() {
+        let backend = RecordingBackend::default();
+        let mut presenter = WindowPresenter::new(backend);
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 32.0,
+                height: 16.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![RenderObject {
+                id: "world-label:9:text:48656c6c6f".to_string(),
+                layer: 39,
+                x: f32::NAN,
+                y: 0.0,
+            }],
+        };
+
+        presenter
+            .present_once(&scene, &HudModel::default())
+            .unwrap();
+
+        let backend = presenter.into_backend();
+        let frame = backend.frames.last().unwrap();
+        assert!(!frame
+            .panel_lines
+            .iter()
+            .any(|line| line.starts_with("RENDER-TEXT:")));
+    }
+
+    #[test]
     fn present_once_surfaces_rect_primitive_summary() {
         let backend = RecordingBackend::default();
         let mut presenter = WindowPresenter::new(backend);
@@ -8737,6 +8780,39 @@ mod tests {
         );
         assert_eq!(frame.pixel(0, 0), Some(COLOR_ICON_RUNTIME_EFFECT));
         assert_eq!(frame.pixel(1, 0), Some(COLOR_ICON_BUILD_CONFIG));
+    }
+
+    #[test]
+    fn present_once_ignores_non_finite_icon_primitives() {
+        let backend = RecordingBackend::default();
+        let mut presenter = WindowPresenter::new(backend);
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 16.0,
+                height: 8.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![RenderObject {
+                id: "marker:runtime-effect-icon:content-icon:normal:-1:6:9:0x00000000:0x00000000"
+                    .to_string(),
+                layer: 31,
+                x: f32::INFINITY,
+                y: 0.0,
+            }],
+        };
+
+        presenter
+            .present_once(&scene, &HudModel::default())
+            .unwrap();
+
+        let backend = presenter.into_backend();
+        let frame = backend.frames.last().unwrap();
+        assert!(!frame
+            .panel_lines
+            .iter()
+            .any(|line| line.starts_with("RENDER-ICON:")));
+        assert_ne!(frame.pixel(0, 0), Some(COLOR_ICON_RUNTIME_EFFECT));
     }
 
     #[test]
