@@ -9631,6 +9631,14 @@ impl ClientSession {
         self.state.last_effect_data_business_hint = None;
         self.state.last_effect_business_projection = None;
         self.state.last_effect_business_path = None;
+        self.state.last_tile_config_build_pos = None;
+        self.state.last_tile_config_kind = None;
+        self.state.last_tile_config_kind_name = None;
+        self.state.last_tile_config_consumed_len = None;
+        self.state.last_tile_config_object = None;
+        self.state.last_tile_config_parse_failed = false;
+        self.state.failed_tile_config_parse_count = 0;
+        self.state.last_tile_config_parse_error = None;
         self.state.tile_config_projection.clear_for_world_reload();
         self.state
             .configured_block_projection
@@ -9638,7 +9646,20 @@ impl ClientSession {
         self.state
             .building_table_projection
             .clear_for_world_reload();
+        self.state.last_construct_finish_tile_pos = None;
+        self.state.last_construct_finish_block_id = None;
+        self.state.last_construct_finish_config_kind = None;
+        self.state.last_construct_finish_config_kind_name = None;
+        self.state.last_construct_finish_config_consumed_len = None;
+        self.state.last_construct_finish_config_object = None;
+        self.state.last_construct_finish_removed_local_plan = false;
+        self.state.last_deconstruct_finish_tile_pos = None;
+        self.state.last_deconstruct_finish_block_id = None;
+        self.state.last_deconstruct_finish_removed_local_plan = false;
         self.state.builder_queue_projection.clear_for_world_reload();
+        self.state.last_build_health_update_pair_count = 0;
+        self.state.last_build_health_update_first_build_pos = None;
+        self.state.last_build_health_update_first_health_bits = None;
         self.last_client_snapshot_at_ms = None;
         self.last_ready_inbound_liveness_at_ms = None;
         self.last_snapshot_at_ms = None;
@@ -50844,6 +50865,27 @@ mod tests {
         session.state.resource_delta_projection.take_items_count = 5;
         session.state.resource_delta_projection.last_kind = Some("take");
         session.state.resource_delta_projection.last_item_id = Some(6);
+        session.state.last_tile_config_build_pos = Some(pack_point2(4, 4));
+        session.state.last_tile_config_kind = Some(22);
+        session.state.last_tile_config_kind_name = Some("String".to_string());
+        session.state.last_tile_config_consumed_len = Some(9);
+        session.state.last_tile_config_object = Some(TypeIoObject::String(Some("stale".into())));
+        session.state.last_tile_config_parse_failed = true;
+        session.state.failed_tile_config_parse_count = 3;
+        session.state.last_tile_config_parse_error = Some("stale_tile_config".to_string());
+        session.state.last_construct_finish_tile_pos = Some(pack_point2(5, 5));
+        session.state.last_construct_finish_block_id = Some(42);
+        session.state.last_construct_finish_config_kind = Some(3);
+        session.state.last_construct_finish_config_kind_name = Some("Int".to_string());
+        session.state.last_construct_finish_config_consumed_len = Some(4);
+        session.state.last_construct_finish_config_object = Some(TypeIoObject::Int(7));
+        session.state.last_construct_finish_removed_local_plan = true;
+        session.state.last_deconstruct_finish_tile_pos = Some(pack_point2(6, 6));
+        session.state.last_deconstruct_finish_block_id = Some(43);
+        session.state.last_deconstruct_finish_removed_local_plan = true;
+        session.state.last_build_health_update_pair_count = 2;
+        session.state.last_build_health_update_first_build_pos = Some(pack_point2(7, 7));
+        session.state.last_build_health_update_first_health_bits = Some(1.5f32.to_bits());
         session.state.entity_table_projection.upsert_local_player(
             777,
             2,
@@ -50909,6 +50951,27 @@ mod tests {
             crate::session_state::ResourceDeltaProjection::default()
         );
         assert_eq!(session.state().last_effect_business_projection, None);
+        assert_eq!(session.state().last_tile_config_build_pos, None);
+        assert_eq!(session.state().last_tile_config_kind, None);
+        assert_eq!(session.state().last_tile_config_kind_name, None);
+        assert_eq!(session.state().last_tile_config_consumed_len, None);
+        assert_eq!(session.state().last_tile_config_object, None);
+        assert!(!session.state().last_tile_config_parse_failed);
+        assert_eq!(session.state().failed_tile_config_parse_count, 0);
+        assert_eq!(session.state().last_tile_config_parse_error, None);
+        assert_eq!(session.state().last_construct_finish_tile_pos, None);
+        assert_eq!(session.state().last_construct_finish_block_id, None);
+        assert_eq!(session.state().last_construct_finish_config_kind, None);
+        assert_eq!(session.state().last_construct_finish_config_kind_name, None);
+        assert_eq!(session.state().last_construct_finish_config_consumed_len, None);
+        assert_eq!(session.state().last_construct_finish_config_object, None);
+        assert!(!session.state().last_construct_finish_removed_local_plan);
+        assert_eq!(session.state().last_deconstruct_finish_tile_pos, None);
+        assert_eq!(session.state().last_deconstruct_finish_block_id, None);
+        assert!(!session.state().last_deconstruct_finish_removed_local_plan);
+        assert_eq!(session.state().last_build_health_update_pair_count, 0);
+        assert_eq!(session.state().last_build_health_update_first_build_pos, None);
+        assert_eq!(session.state().last_build_health_update_first_health_bits, None);
         assert!(session.loaded_world_bundle().is_none());
         let input = session.snapshot_input_mut();
         assert_eq!(input.unit_id, None);
