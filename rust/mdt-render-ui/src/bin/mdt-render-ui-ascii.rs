@@ -38,19 +38,29 @@ struct Args {
 fn parse_args(args: impl Iterator<Item = String>) -> Result<ParseOutcome, String> {
     let mut locale = String::from("en");
     let mut world_stream_hex = None;
+    let mut locale_set = false;
+    let mut world_stream_hex_set = false;
     let mut pending = args.collect::<Vec<_>>().into_iter();
 
     while let Some(arg) = pending.next() {
         match arg.as_str() {
             "--locale" => {
+                if locale_set {
+                    return Err("duplicate argument: --locale".to_string());
+                }
                 locale = pending.next().ok_or("missing value for --locale")?;
+                locale_set = true;
             }
             "--world-stream-hex" => {
+                if world_stream_hex_set {
+                    return Err("duplicate argument: --world-stream-hex".to_string());
+                }
                 world_stream_hex = Some(PathBuf::from(
                     pending
                         .next()
                         .ok_or("missing value for --world-stream-hex")?,
                 ));
+                world_stream_hex_set = true;
             }
             "--help" | "-h" => {
                 return Ok(ParseOutcome::Help(usage()));
@@ -110,5 +120,32 @@ mod tests {
             ParseOutcome::Help(usage) => assert!(usage.starts_with("Usage: mdt-render-ui-ascii")),
             ParseOutcome::Args(_) => panic!("expected help"),
         }
+    }
+
+    #[test]
+    fn parse_args_rejects_duplicate_ascii_flags() {
+        let locale_err = parse_args(
+            vec![
+                "--locale".to_string(),
+                "fr".to_string(),
+                "--locale".to_string(),
+                "de".to_string(),
+            ]
+            .into_iter(),
+        )
+        .unwrap_err();
+        assert_eq!(locale_err, "duplicate argument: --locale");
+
+        let hex_err = parse_args(
+            vec![
+                "--world-stream-hex".to_string(),
+                "a.hex".to_string(),
+                "--world-stream-hex".to_string(),
+                "b.hex".to_string(),
+            ]
+            .into_iter(),
+        )
+        .unwrap_err();
+        assert_eq!(hex_err, "duplicate argument: --world-stream-hex");
     }
 }

@@ -175,12 +175,14 @@ fn project_render_model_with_player_position_visibility(
     }
 
     let (player_x, player_y) = player_position.unwrap_or_else(|| session.state().player_position());
-    objects.push(RenderObject {
-        id: format!("player:{}", session.player().id),
-        layer: i32::from(ProjectionLayer::Player),
-        x: player_x,
-        y: player_y,
-    });
+    if player_x.is_finite() && player_y.is_finite() {
+        objects.push(RenderObject {
+            id: format!("player:{}", session.player().id),
+            layer: i32::from(ProjectionLayer::Player),
+            x: player_x,
+            y: player_y,
+        });
+    }
 
     RenderModel {
         viewport: Viewport {
@@ -303,12 +305,14 @@ fn project_render_model_with_view_window_visibility(
         }
     }
 
-    objects.push(RenderObject {
-        id: format!("player:{}", session.player().id),
-        layer: i32::from(ProjectionLayer::Player),
-        x: player_x,
-        y: player_y,
-    });
+    if player_x.is_finite() && player_y.is_finite() {
+        objects.push(RenderObject {
+            id: format!("player:{}", session.player().id),
+            layer: i32::from(ProjectionLayer::Player),
+            x: player_x,
+            y: player_y,
+        });
+    }
 
     RenderModel {
         viewport: Viewport {
@@ -665,10 +669,14 @@ fn view_window_bounds(
         return (0, 0, width, height);
     }
 
-    let focus = (
-        world_to_tile_index_clamped(player_position.0, width),
-        world_to_tile_index_clamped(player_position.1, height),
-    );
+    let focus = if player_position.0.is_finite() && player_position.1.is_finite() {
+        (
+            world_to_tile_index_clamped(player_position.0, width),
+            world_to_tile_index_clamped(player_position.1, height),
+        )
+    } else {
+        (width / 2, height / 2)
+    };
     let window_width = max_width.min(width);
     let window_height = max_height.min(height);
     let window_x = crop_origin(focus.0, width, window_width);
@@ -704,7 +712,7 @@ fn tile_in_window(
 mod tests {
     use super::{
         fog_reveal_is_visible, project_hud_model, project_render_model,
-        project_render_model_with_view_window,
+        project_render_model_with_player_position, project_render_model_with_view_window,
     };
     use crate::render_model::{
         RenderObjectSemanticKind, RenderPrimitive, RenderPrimitivePayloadValue,
@@ -1214,6 +1222,22 @@ mod tests {
     }
 
     #[test]
+    fn project_render_model_rejects_non_finite_player_position() {
+        let bundle = parse_world_bundle(&decode_hex(include_str!(
+            "../../../tests/src/test/resources/world-stream.hex"
+        )))
+        .unwrap();
+        let session = bundle.loaded_session().unwrap();
+
+        let render = project_render_model_with_player_position(&session, Some((f32::NAN, f32::INFINITY)));
+
+        assert!(!render
+            .objects
+            .iter()
+            .any(|object| object.id == format!("player:{}", session.player().id)));
+    }
+
+    #[test]
     fn view_window_bounds_is_stable_around_half_tile_positions() {
         let left = super::view_window_bounds(8, 8, (27.9, 32.0), (4, 4));
         let right = super::view_window_bounds(8, 8, (28.1, 32.0), (4, 4));
@@ -1241,6 +1265,13 @@ mod tests {
         let summary = hud.summary.as_ref().expect("summary should be present");
 
         assert_eq!(summary.minimap.focus_tile, None);
+    }
+
+    #[test]
+    fn view_window_bounds_handles_non_finite_player_position_without_origin_drift() {
+        let bounds = super::view_window_bounds(8, 8, (f32::NAN, f32::INFINITY), (4, 4));
+
+        assert_eq!(bounds, (2, 2, 4, 4));
     }
 
     #[test]

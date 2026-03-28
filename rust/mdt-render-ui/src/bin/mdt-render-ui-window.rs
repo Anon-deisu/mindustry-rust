@@ -88,12 +88,30 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<ParseOutcome, String
     let mut player_x = None;
     let mut player_y = None;
     let mut animate_player = true;
+    let mut locale_seen = false;
+    let mut world_stream_hex_seen = false;
+    let mut duration_seen = false;
+    let mut frame_time_seen = false;
+    let mut tile_pixels_seen = false;
+    let mut max_view_tiles_seen = false;
+    let mut player_x_seen = false;
+    let mut player_y_seen = false;
     let mut pending = args.collect::<Vec<_>>().into_iter();
 
     while let Some(arg) = pending.next() {
         match arg.as_str() {
-            "--locale" => locale = pending.next().ok_or("missing value for --locale")?,
+            "--locale" => {
+                if locale_seen {
+                    return Err("duplicate argument: --locale".to_string());
+                }
+                locale_seen = true;
+                locale = pending.next().ok_or("missing value for --locale")?;
+            }
             "--world-stream-hex" => {
+                if world_stream_hex_seen {
+                    return Err("duplicate argument: --world-stream-hex".to_string());
+                }
+                world_stream_hex_seen = true;
                 world_stream_hex = Some(PathBuf::from(
                     pending
                         .next()
@@ -101,34 +119,58 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<ParseOutcome, String
                 ));
             }
             "--duration-ms" => {
+                if duration_seen {
+                    return Err("duplicate argument: --duration-ms".to_string());
+                }
+                duration_seen = true;
                 duration = Duration::from_millis(parse_positive_u64(
                     "--duration-ms",
                     &pending.next().ok_or("missing value for --duration-ms")?,
                 )?);
             }
             "--frame-ms" => {
+                if frame_time_seen {
+                    return Err("duplicate argument: --frame-ms".to_string());
+                }
+                frame_time_seen = true;
                 frame_time = Duration::from_millis(parse_positive_u64(
                     "--frame-ms",
                     &pending.next().ok_or("missing value for --frame-ms")?,
                 )?);
             }
             "--max-view-tiles" => {
+                if max_view_tiles_seen {
+                    return Err("duplicate argument: --max-view-tiles".to_string());
+                }
+                max_view_tiles_seen = true;
                 max_view_tiles =
                     parse_dimensions(&pending.next().ok_or("missing value for --max-view-tiles")?)?;
             }
             "--tile-pixels" => {
+                if tile_pixels_seen {
+                    return Err("duplicate argument: --tile-pixels".to_string());
+                }
+                tile_pixels_seen = true;
                 tile_pixels = parse_positive_usize(
                     "--tile-pixels",
                     &pending.next().ok_or("missing value for --tile-pixels")?,
                 )?;
             }
             "--player-x" => {
+                if player_x_seen {
+                    return Err("duplicate argument: --player-x".to_string());
+                }
+                player_x_seen = true;
                 player_x = Some(parse_finite_f32(
                     "--player-x",
                     &pending.next().ok_or("missing value for --player-x")?,
                 )?);
             }
             "--player-y" => {
+                if player_y_seen {
+                    return Err("duplicate argument: --player-y".to_string());
+                }
+                player_y_seen = true;
                 player_y = Some(parse_finite_f32(
                     "--player-y",
                     &pending.next().ok_or("missing value for --player-y")?,
@@ -363,5 +405,24 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.contains("invalid --duration-ms: must be greater than 0"));
+    }
+
+    #[test]
+    fn parse_args_rejects_duplicate_window_flags() {
+        let cases = [
+            vec!["--locale", "fr", "--locale", "de"],
+            vec!["--world-stream-hex", "a.hex", "--world-stream-hex", "b.hex"],
+            vec!["--duration-ms", "2500", "--duration-ms", "3000"],
+            vec!["--frame-ms", "20", "--frame-ms", "25"],
+            vec!["--tile-pixels", "10", "--tile-pixels", "12"],
+            vec!["--max-view-tiles", "48:24", "--max-view-tiles", "32:16"],
+            vec!["--player-x", "1", "--player-x", "2", "--player-y", "3"],
+            vec!["--player-y", "1", "--player-x", "2", "--player-y", "3"],
+        ];
+
+        for case in cases {
+            let err = parse_args(case.into_iter().map(str::to_string)).unwrap_err();
+            assert!(err.starts_with("duplicate argument: "), "{err}");
+        }
     }
 }

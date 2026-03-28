@@ -1,4 +1,4 @@
-use flate2::{read::ZlibDecoder, write::ZlibEncoder, Compression};
+use flate2::{bufread::ZlibDecoder, write::ZlibEncoder, Compression};
 use std::fmt;
 use std::io::{Read, Write};
 
@@ -234,6 +234,13 @@ pub fn inflate_zlib(bytes: &[u8]) -> std::io::Result<Vec<u8>> {
     let mut decoder = ZlibDecoder::new(bytes);
     let mut out = Vec::new();
     decoder.read_to_end(&mut out)?;
+    let trailing = decoder.into_inner();
+    if !trailing.is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("unexpected trailing bytes after zlib stream: {}", trailing.len()),
+        ));
+    }
     Ok(out)
 }
 
@@ -698,6 +705,17 @@ mod tests {
         let decoded = inflate_zlib(&encoded).unwrap();
 
         assert_eq!(decoded, payload);
+    }
+
+    #[test]
+    fn inflate_zlib_rejects_trailing_bytes() {
+        let mut encoded = deflate_zlib(b"mindustry").unwrap();
+        encoded.extend_from_slice(&[0xde, 0xad]);
+
+        let error = inflate_zlib(&encoded).unwrap_err();
+
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("unexpected trailing bytes"));
     }
 
     #[test]

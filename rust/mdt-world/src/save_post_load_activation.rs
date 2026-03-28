@@ -31,6 +31,8 @@ pub struct SavePostLoadActivationSurface {
     pub world_shell_ready: bool,
     pub entity_ids_unique: bool,
     pub duplicate_entity_ids: Vec<i32>,
+    pub duplicate_custom_ids: Vec<u16>,
+    pub duplicate_names: Vec<String>,
     pub unresolved_effective_names: Vec<String>,
     pub building_candidates: Vec<SavePostLoadBuildingActivationCandidate>,
     pub loadable_entities: Vec<SavePostLoadEntityActivationCandidate>,
@@ -48,6 +50,8 @@ impl SavePostLoadActivationSurface {
     pub fn can_seed_runtime_apply(&self) -> bool {
         self.world_shell_ready
             && self.entity_ids_unique
+            && self.duplicate_custom_ids.is_empty()
+            && self.duplicate_names.is_empty()
             && self.skipped_entities.is_empty()
             && self.valid_building_reference_count() == self.building_candidates.len()
     }
@@ -87,6 +91,11 @@ pub(crate) fn activation_surface_from_contract(
         world_shell_ready: contract.can_project_world_shell(),
         entity_ids_unique: observation.entity_summary.duplicate_entity_ids.is_empty(),
         duplicate_entity_ids: observation.entity_summary.duplicate_entity_ids.clone(),
+        duplicate_custom_ids: observation
+            .entity_remap_summary
+            .duplicate_custom_ids
+            .clone(),
+        duplicate_names: observation.entity_remap_summary.duplicate_names.clone(),
         unresolved_effective_names: observation
             .entity_remap_summary
             .unresolved_effective_names
@@ -279,6 +288,30 @@ mod tests {
         assert_eq!(surface.valid_building_reference_count(), 0);
         assert!(!surface.building_candidates[0].center_reference_valid);
         assert!(!surface.can_seed_runtime_apply());
+    }
+
+    #[test]
+    fn activation_surface_rejects_duplicate_entity_remap_keys() {
+        let mut custom_id_observation = test_observation();
+        custom_id_observation.entity_remap_summary.duplicate_custom_ids = vec![99];
+
+        let custom_id_surface = custom_id_observation.activation_surface();
+        assert_eq!(custom_id_surface.duplicate_custom_ids, vec![99]);
+        assert!(custom_id_surface.duplicate_names.is_empty());
+        assert!(!custom_id_surface.can_seed_runtime_apply());
+
+        let mut name_observation = test_observation();
+        name_observation.entity_remap_summary.duplicate_names = vec![
+            "mod-duplicate".to_string(),
+        ];
+
+        let name_surface = name_observation.activation_surface();
+        assert!(name_surface.duplicate_custom_ids.is_empty());
+        assert_eq!(
+            name_surface.duplicate_names,
+            vec!["mod-duplicate".to_string()]
+        );
+        assert!(!name_surface.can_seed_runtime_apply());
     }
 
     fn test_observation() -> SavePostLoadWorldObservation {

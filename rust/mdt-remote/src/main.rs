@@ -25,20 +25,22 @@ fn main() -> Result<(), Box<dyn Error>> {
             .map(default_inbound_dispatch_output_path),
     };
 
-    let manifest = mdt_remote::read_remote_manifest(&manifest_path)?;
-    let generated = mdt_remote::generate_rust_registry(&manifest);
-    let generated_high_frequency = mdt_remote::generate_high_frequency_rust_module(&manifest)?;
-    let generated_inbound_dispatch = mdt_remote::generate_inbound_dispatch_rust_module(&manifest)?;
+    reject_overlapping_output_paths(
+        output_path.as_deref(),
+        high_frequency_output_path.as_deref(),
+        inbound_dispatch_output_path.as_deref(),
+    )?;
 
-    if let Some(output_path) = output_path {
-        write_output_file(&output_path, &generated)?;
-        if let Some(high_frequency_output_path) = high_frequency_output_path {
-            write_output_file(&high_frequency_output_path, &generated_high_frequency)?;
-        }
-        if let Some(inbound_dispatch_output_path) = inbound_dispatch_output_path {
-            write_output_file(&inbound_dispatch_output_path, &generated_inbound_dispatch)?;
-        }
-    } else {
+    let manifest = mdt_remote::read_remote_manifest(&manifest_path)?;
+    if let Some(generated) = emit_outputs(
+        &manifest,
+        output_path.as_deref(),
+        high_frequency_output_path.as_deref(),
+        inbound_dispatch_output_path.as_deref(),
+        mdt_remote::generate_rust_registry,
+        mdt_remote::generate_high_frequency_rust_module,
+        mdt_remote::generate_inbound_dispatch_rust_module,
+    )? {
         print!("{generated}");
     }
 
@@ -80,6 +82,80 @@ fn default_inbound_dispatch_output_path(output_path: &Path) -> PathBuf {
     output_path.with_file_name("remote-inbound-dispatch.rs")
 }
 
+fn reject_overlapping_output_paths(
+    output_path: Option<&Path>,
+    high_frequency_output_path: Option<&Path>,
+    inbound_dispatch_output_path: Option<&Path>,
+) -> io::Result<()> {
+    let output_paths = [
+        ("registry", output_path),
+        ("high-frequency", high_frequency_output_path),
+        ("inbound-dispatch", inbound_dispatch_output_path),
+    ];
+
+    for (index, (label, path)) in output_paths.iter().enumerate() {
+        let Some(path) = path else {
+            continue;
+        };
+
+        for (other_label, other_path) in output_paths.iter().skip(index + 1) {
+            let Some(other_path) = other_path else {
+                continue;
+            };
+
+            if paths_overlap(path, other_path) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!(
+                        "output paths for {label} and {other_label} must not overlap: '{}' and '{}'",
+                        path.display(),
+                        other_path.display()
+                    ),
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn paths_overlap(path: &Path, other_path: &Path) -> bool {
+    path.starts_with(other_path) || other_path.starts_with(path)
+}
+
+fn emit_outputs<T, R, H, I, EH, EI>(
+    manifest: &T,
+    output_path: Option<&Path>,
+    high_frequency_output_path: Option<&Path>,
+    inbound_dispatch_output_path: Option<&Path>,
+    generate_registry: R,
+    generate_high_frequency: H,
+    generate_inbound_dispatch: I,
+) -> Result<Option<String>, Box<dyn Error>>
+where
+    R: FnOnce(&T) -> String,
+    H: FnOnce(&T) -> Result<String, EH>,
+    I: FnOnce(&T) -> Result<String, EI>,
+    EH: Into<Box<dyn Error>>,
+    EI: Into<Box<dyn Error>>,
+{
+    if let Some(output_path) = output_path {
+        let generated = generate_registry(manifest);
+        write_output_file(output_path, &generated)?;
+        if let Some(high_frequency_output_path) = high_frequency_output_path {
+            let generated_high_frequency = generate_high_frequency(manifest).map_err(Into::into)?;
+            write_output_file(high_frequency_output_path, &generated_high_frequency)?;
+        }
+        if let Some(inbound_dispatch_output_path) = inbound_dispatch_output_path {
+            let generated_inbound_dispatch = generate_inbound_dispatch(manifest).map_err(Into::into)?;
+            write_output_file(inbound_dispatch_output_path, &generated_inbound_dispatch)?;
+        }
+        Ok(None)
+    } else {
+        Ok(Some(generate_registry(manifest)))
+    }
+}
+
 fn write_output_file(path: &Path, contents: &str) -> io::Result<()> {
     if let Some(parent) = path
         .parent()
@@ -108,7 +184,8 @@ fn write_output_file(path: &Path, contents: &str) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        default_high_frequency_output_path, default_inbound_dispatch_output_path, parse_args, USAGE,
+        default_high_frequency_output_path, default_inbound_dispatch_output_path,
+        emit_outputs, parse_args, reject_overlapping_output_paths, USAGE,
     };
     use std::path::Path;
 
@@ -151,5 +228,39 @@ mod tests {
         .unwrap_err();
 
         assert_eq!(err, USAGE);
+    }
+
+    #[test]
+    fn stdout_registry_generation_does_not_depend_on_auxiliary_generation() {
+        let generated = emit_outputs(
+            &(),
+            None,
+            Some(Path::new("high-frequency.rs")),
+            Some(Path::new("inbound-dispatch.rs")),
+            |_| "registry".to_string(),
+            |_| -> Result<String, Box<dyn std::error::Error>> {
+                panic!("high-frequency generation should not run in stdout mode")
+            },
+            |_| -> Result<String, Box<dyn std::error::Error>> {
+                panic!("inbound-dispatch generation should not run in stdout mode")
+            },
+        )
+        .unwrap();
+
+        assert_eq!(generated, Some("registry".to_string()));
+    }
+
+    #[test]
+    fn rejects_overlapping_output_paths() {
+        let err = reject_overlapping_output_paths(
+            Some(Path::new("build/mdt-remote/remote-registry.rs")),
+            Some(Path::new("build/mdt-remote/remote-registry.rs")),
+            Some(Path::new("build/mdt-remote/remote-inbound-dispatch.rs")),
+        )
+        .unwrap_err();
+
+        assert!(err
+            .to_string()
+            .contains("output paths for registry and high-frequency must not overlap"));
     }
 }
