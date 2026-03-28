@@ -40726,6 +40726,135 @@ mod tests {
     }
 
     #[test]
+    fn power_node_construct_finish_seeds_canonical_authority_for_later_parse_failed_tile_config_fallback(
+    ) {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let build_pos = pack_point2(60, 82);
+        let block_id = loaded_world_block_id_for_name(&session, BLOCK_NAME_POWER_NODE_LARGE);
+        let authoritative_target = pack_point2(61, 82);
+        let pending_target = pack_point2(60, 84);
+        let authoritative_value = TypeIoObject::Int(authoritative_target);
+        let canonical_authoritative_value =
+            TypeIoObject::PackedPoint2Array(vec![pack_point2(1, 0)]);
+
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            block_id,
+            &authoritative_value,
+        );
+
+        let expected_targets = [authoritative_target].into_iter().collect::<BTreeSet<_>>();
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .power_node_links_by_build_pos
+                .get(&build_pos),
+            Some(&expected_targets)
+        );
+        assert_eq!(
+            session.state().tile_config_projection.last_business_source,
+            Some(crate::session_state::TileConfigAuthoritySource::ConstructFinish)
+        );
+        assert_eq!(
+            session.state().tile_config_projection.last_business_value,
+            Some(authoritative_value.clone())
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .authoritative_by_build_pos
+                .get(&build_pos),
+            Some(&authoritative_value)
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .canonical_authoritative_by_build_pos
+                .get(&build_pos),
+            Some(&canonical_authoritative_value)
+        );
+
+        session
+            .queue_tile_config(Some(build_pos), TypeIoObject::Int(pending_target))
+            .unwrap();
+
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "tileConfig")
+            .unwrap()
+            .packet_id;
+        let mut payload =
+            encode_tile_config_payload(Some(build_pos), &TypeIoObject::Int(pending_target));
+        payload.push(0xff);
+        let event = session
+            .ingest_packet_bytes(&encode_packet(packet_id, &payload, false).unwrap())
+            .unwrap();
+
+        assert_eq!(
+            event,
+            ClientSessionEvent::TileConfig {
+                build_pos: Some(build_pos),
+                config_kind: Some(1),
+                config_kind_name: Some("int".to_string()),
+                parse_failed: true,
+                business_applied: true,
+                cleared_pending_local: true,
+                was_rollback: true,
+                pending_local_match: Some(false),
+                configured_block_outcome: Some(
+                    crate::session_state::ConfiguredBlockOutcome::Applied,
+                ),
+                configured_block_name: Some(BLOCK_NAME_POWER_NODE_LARGE.to_string()),
+            }
+        );
+        assert_eq!(
+            session
+                .state()
+                .configured_block_projection
+                .power_node_links_by_build_pos
+                .get(&build_pos),
+            Some(&expected_targets)
+        );
+        assert_eq!(
+            session.state().tile_config_projection.last_business_value,
+            Some(canonical_authoritative_value.clone())
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .authoritative_by_build_pos
+                .get(&build_pos),
+            Some(&authoritative_value)
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .canonical_authoritative_by_build_pos
+                .get(&build_pos),
+            Some(&canonical_authoritative_value)
+        );
+        assert!(matches!(
+            session
+                .state()
+                .runtime_typed_building_projection()
+                .building_at(build_pos),
+            Some(model)
+                if matches!(
+                    &model.value,
+                    crate::session_state::TypedBuildingRuntimeValue::Links(links)
+                        if links == &expected_targets
+                )
+        ));
+    }
+    #[test]
     fn reconstructor_config_business_dispatch_applies_command_and_clear() {
         let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
 

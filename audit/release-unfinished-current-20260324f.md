@@ -44,6 +44,7 @@ These are already landed and should not be re-opened as if missing:
   - per-building local intents now keep FIFO request order
   - authoritative `tileConfig` / `constructFinish` / parse-fail fallback only resolve the oldest pending request
   - later local config intents on the same building are preserved instead of being cleared by the first authoritative response
+  - power-node `constructFinish` now also has family-specific canonical-authority regression coverage, including seeding canonical full-replace authority and later parse-failed `tileConfig` fallback without double-toggle drift
 - inbound custom/logic packet typed registry glue is already landed.
   - `mdt-remote` now exposes `payload_kind()` for inbound custom-channel families
   - `mdt-client-min` now has typed inbound dispatch specs and `typed_remote_dispatch.rs` helper coverage
