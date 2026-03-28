@@ -817,6 +817,46 @@ mod tests {
     }
 
     #[test]
+    fn derive_effect_data_business_input_fallback_uses_top_level_semantic_refs() {
+        let tech_node = TypeIoObject::TechNodeRaw {
+            content_type: 1,
+            content_id: 33,
+        };
+        let tech_input =
+            derive_effect_data_business_input(None, Some(&tech_node), Some(5), false, None);
+
+        assert_eq!(
+            tech_input.primary,
+            Some(EffectDataBusinessHint::ContentRef {
+                kind: EffectBusinessContentKind::TechNode,
+                content_type: 1,
+                content_id: 33,
+                path: vec![],
+            })
+        );
+        assert_eq!(
+            tech_input.semantic,
+            Some(EffectDataSemantic::TechNodeRaw {
+                content_type: 1,
+                content_id: 33,
+            })
+        );
+
+        let unit = TypeIoObject::UnitId(404);
+        let unit_input =
+            derive_effect_data_business_input(None, Some(&unit), Some(5), false, None);
+
+        assert_eq!(
+            unit_input.primary,
+            Some(EffectDataBusinessHint::ParentRef {
+                semantic_ref: TypeIoSemanticRef::Unit { unit_id: 404 },
+                path: vec![],
+            })
+        );
+        assert_eq!(unit_input.semantic, Some(EffectDataSemantic::UnitId(404)));
+    }
+
+    #[test]
     fn derive_effect_data_semantic_preserves_existing_scalar_and_semantic_ref_mapping() {
         assert_eq!(
             derive_effect_data_semantic(Some(&TypeIoObject::Int(7)), Some(1), false),

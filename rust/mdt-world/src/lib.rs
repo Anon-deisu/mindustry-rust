@@ -42552,6 +42552,34 @@ mod tests {
         assert_eq!(snapshot.y_bits, 24.0f32.to_bits());
     }
 
+    #[test]
+    fn parses_entity_player_sync_bytes_marks_dead_player_and_omits_unit_id() {
+        let mut bytes = Vec::new();
+        bytes.push(0);
+        bytes.push(1);
+        bytes.extend_from_slice(&0x5566_7788u32.to_be_bytes());
+        bytes.extend_from_slice(&(-4.0f32).to_bits().to_be_bytes());
+        bytes.extend_from_slice(&8.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&(0u16).to_be_bytes());
+        bytes.extend_from_slice(&0u32.to_be_bytes());
+        bytes.push(0);
+        bytes.push(1);
+        bytes.push(0);
+        bytes.push(0);
+        bytes.extend_from_slice(&0u32.to_be_bytes());
+        bytes.extend_from_slice(&32.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&48.0f32.to_bits().to_be_bytes());
+
+        let (snapshot, consumed) = parse_entity_player_sync_bytes(&bytes).unwrap();
+
+        assert_eq!(consumed, bytes.len());
+        assert_eq!(snapshot.unit_kind, 0);
+        assert!(snapshot.is_dead());
+        assert_eq!(snapshot.snapshot_unit_id(), None);
+        assert_eq!(snapshot.unit_value, 0);
+    }
+
     fn build_entity_alpha_sync_bytes_with_controller(controller_bytes: &[u8]) -> Vec<u8> {
         let mut bytes = Vec::new();
         bytes.push(0);

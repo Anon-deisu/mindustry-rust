@@ -6030,6 +6030,67 @@ mod tests {
     }
 
     #[test]
+    fn present_once_clamps_minimap_tiles_to_map_bounds() {
+        let backend = RecordingBackend::default();
+        let mut presenter = WindowPresenter::new(backend);
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 64.0,
+                height: 64.0,
+                zoom: 1.0,
+            },
+            view_window: Some(RenderViewWindow {
+                origin_x: 2,
+                origin_y: 3,
+                width: 4,
+                height: 3,
+            }),
+            objects: vec![RenderObject {
+                id: "player:focus".to_string(),
+                layer: 40,
+                x: 999.0,
+                y: 999.0,
+            }],
+        };
+        let hud = HudModel {
+            summary: Some(HudSummary {
+                player_name: "operator".to_string(),
+                team_id: 2,
+                selected_block: "router".to_string(),
+                plan_count: 0,
+                marker_count: 0,
+                map_width: 80,
+                map_height: 60,
+                overlay_visible: true,
+                fog_enabled: false,
+                visible_tile_count: 10,
+                hidden_tile_count: 20,
+                minimap: crate::hud_model::HudMinimapSummary {
+                    focus_tile: Some((999, 999)),
+                    view_window: crate::hud_model::HudViewWindowSummary {
+                        origin_x: 0,
+                        origin_y: 0,
+                        width: 80,
+                        height: 60,
+                    },
+                },
+            }),
+            ..HudModel::default()
+        };
+
+        presenter.present_once(&scene, &hud).unwrap();
+
+        let backend = presenter.into_backend();
+        let frame = backend.frames.last().unwrap();
+        let inset = frame.minimap_inset.as_ref().expect("minimap inset");
+
+        assert_eq!(inset.map_width, 80);
+        assert_eq!(inset.map_height, 60);
+        assert_eq!(inset.focus_tile, Some((79, 59)));
+        assert_eq!(inset.player_tile, Some((79, 59)));
+    }
+
+    #[test]
     fn minimap_helpers_ignore_non_finite_coordinates_and_spans() {
         let scene = RenderModel {
             viewport: Viewport {
