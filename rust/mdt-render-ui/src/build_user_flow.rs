@@ -174,6 +174,7 @@ fn build_user_flow_from_panel_options(
     }
 }
 
+#[cfg(test)]
 fn build_user_flow_from_panels(
     assist: &BuildMinimapAssistPanelModel,
     minimap: &crate::minimap_user_flow::MinimapUserFlowPanelModel,
