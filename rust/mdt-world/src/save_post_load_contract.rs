@@ -42,6 +42,7 @@ pub enum SavePostLoadWorldIssue {
     DuplicateMarkerIds,
     StaticFogDimensionMismatch,
     StaticFogCoverageMismatch,
+    DuplicateStaticFogTeamIds,
     DuplicateCustomChunkNames,
     WorldEntityCountMismatch,
     DuplicateWorldEntityIds,
@@ -275,6 +276,11 @@ fn static_fog_surface_consistent(
             push_issue(issues, SavePostLoadWorldIssue::StaticFogCoverageMismatch);
             consistent = false;
         }
+
+        if has_duplicate_values(chunk.teams.iter().map(|team| team.team_id)) {
+            push_issue(issues, SavePostLoadWorldIssue::DuplicateStaticFogTeamIds);
+            consistent = false;
+        }
     }
 
     consistent
@@ -498,6 +504,30 @@ mod tests {
         assert!(contract
             .issues
             .contains(&SavePostLoadWorldIssue::DuplicateCustomChunkNames));
+    }
+
+    #[test]
+    fn projection_contract_rejects_duplicate_static_fog_team_ids() {
+        let mut observation = test_observation();
+        let mut duplicate = observation.custom_chunks[0].clone();
+        if let ParsedCustomChunk::StaticFog(chunk) = &mut duplicate.parsed {
+            chunk.used_teams = 2;
+            chunk.teams.push(StaticFogTeam {
+                team_id: chunk.teams[0].team_id,
+                run_count: chunk.teams[0].run_count,
+                rle_bytes: chunk.teams[0].rle_bytes.clone(),
+                discovered: chunk.teams[0].discovered.clone(),
+            });
+        }
+        observation.custom_chunks[0] = duplicate;
+
+        let contract = observation.projection_contract();
+
+        assert!(!contract.can_project_world_shell());
+        assert!(!contract.static_fog_surface_consistent);
+        assert!(contract
+            .issues
+            .contains(&SavePostLoadWorldIssue::DuplicateStaticFogTeamIds));
     }
 
     #[test]

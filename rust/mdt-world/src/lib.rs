@@ -2202,7 +2202,7 @@ impl WorldBundle {
     }
 
     pub fn markers_are_empty(&self) -> bool {
-        self.marker_count == 0 && self.marker_region_bytes == b"{}"
+        self.marker_count == 0 && marker_region_is_empty(&self.marker_region_bytes)
     }
 }
 
@@ -12339,7 +12339,13 @@ impl<'a> WorldGraph<'a> {
     pub fn markers_at_tile(&self, x: usize, y: usize) -> Vec<&'a MarkerEntry> {
         self.markers
             .iter()
-            .filter(|marker| marker.marker.tile_coords() == Some((x as i16, y as i16)))
+            .filter(|marker| {
+                marker.marker.tile_coords().is_some_and(|(marker_x, marker_y)| {
+                    marker_x >= 0
+                        && marker_y >= 0
+                        && (marker_x as usize, marker_y as usize) == (x, y)
+                })
+            })
             .collect()
     }
 
@@ -45612,6 +45618,16 @@ mod tests {
     }
 
     #[test]
+    fn world_bundle_markers_are_empty_accepts_empty_marker_region_bytes() {
+        let mut bundle = sample_world_bundle();
+        bundle.marker_count = 0;
+        bundle.markers.clear();
+        bundle.marker_region_bytes.clear();
+
+        assert!(bundle.markers_are_empty());
+    }
+
+    #[test]
     fn world_graph_exposes_unified_queries() {
         let hex = include_str!("../../../tests/src/test/resources/world-stream.hex")
             .replace(char::is_whitespace, "");
@@ -45641,6 +45657,32 @@ mod tests {
         assert_eq!(graph.all_team_plans().count(), 1);
         assert_eq!(graph.team_plans_at(1, 2).len(), 1);
         assert_eq!(graph.markers_at_tile(1, 2).len(), 1);
+    }
+
+    #[test]
+    fn world_graph_markers_at_tile_handles_coordinates_above_i16_max() {
+        let mut bundle = sample_world_bundle();
+        let coord = (i16::MIN as f32) * 8.0;
+        bundle.markers = vec![MarkerEntry {
+            id: 999,
+            marker: MarkerModel::Point(PointMarkerModel {
+                class_tag: "marker".to_string(),
+                world: true,
+                minimap: true,
+                autoscale: false,
+                draw_layer_bits: 0,
+                x_bits: coord.to_bits(),
+                y_bits: coord.to_bits(),
+                radius_bits: 0,
+                stroke_bits: 0,
+                color: None,
+            }),
+        }];
+
+        let graph = bundle.graph();
+        let tile = (i16::MAX as usize) + 1;
+
+        assert_eq!(graph.markers_at_tile(tile, tile).len(), 0);
     }
 
     #[test]
