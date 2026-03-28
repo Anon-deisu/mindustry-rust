@@ -176,6 +176,10 @@ if ($IncludeBenchTools) {
     }
 }
 
+if (Test-Path $StageDir) {
+    Remove-StagePath -Path $StageDir -Label 'stage dir'
+}
+
 New-Item -ItemType Directory -Force -Path $StageDir | Out-Null
 $exeTarget = Join-Path $StageDir 'mdt-client-min-online.exe'
 $manifestTarget = Join-Path $StageDir 'remote-manifest-v1.json'
