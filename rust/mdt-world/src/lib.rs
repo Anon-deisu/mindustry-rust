@@ -73,6 +73,7 @@ const UNIT_CONTENT_TYPE: u8 = 6;
 const WEATHER_CONTENT_TYPE: u8 = 7;
 const MAX_UNIT_PAYLOAD_DEPTH: usize = 8;
 const MSAV_HEADER: [u8; 4] = *b"MSAV";
+const MAX_MSAV_INFLATED_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorldLoadSummary {
@@ -29223,9 +29224,17 @@ pub fn format_world_enter_playable_session_goldens(
 }
 
 fn inflate_zlib(bytes: &[u8]) -> Result<Vec<u8>, String> {
-    let mut decoder = ZlibDecoder::new(bytes);
+    let decoder = ZlibDecoder::new(bytes);
     let mut out = Vec::new();
-    decoder.read_to_end(&mut out).map_err(|e| e.to_string())?;
+    let mut limited = decoder.take((MAX_MSAV_INFLATED_BYTES as u64).saturating_add(1));
+    limited.read_to_end(&mut out).map_err(|e| e.to_string())?;
+    if out.len() > MAX_MSAV_INFLATED_BYTES {
+        return Err(format!(
+            "inflated .msav payload too large: {} bytes (limit {})",
+            out.len(),
+            MAX_MSAV_INFLATED_BYTES
+        ));
+    }
     Ok(out)
 }
 
@@ -40610,6 +40619,15 @@ mod tests {
         assert_eq!(header.flg, 0xbb);
         assert!(header.header_checksum_ok);
         assert!(header.preset_dictionary);
+    }
+
+    #[test]
+    fn rejects_oversized_msav_inflate() {
+        let inflated = vec![0u8; MAX_MSAV_INFLATED_BYTES + 1];
+        let compressed = compress_zlib_bytes(&inflated);
+
+        let error = inflate_zlib(&compressed).unwrap_err();
+        assert!(error.contains("inflated .msav payload too large"));
     }
 
     fn encode_save_region(bytes: &[u8]) -> Vec<u8> {
