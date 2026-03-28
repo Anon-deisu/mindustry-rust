@@ -823,4 +823,40 @@ mod tests {
             Some(EffectDataSemantic::PackedPoint2ArrayLen(2))
         );
     }
+
+    #[test]
+    fn derive_effect_data_semantic_maps_semantic_refs() {
+        assert_eq!(
+            derive_effect_data_semantic(
+                Some(&TypeIoObject::ContentRaw {
+                    content_type: 1,
+                    content_id: 33,
+                }),
+                None,
+                false
+            ),
+            Some(EffectDataSemantic::ContentRaw {
+                content_type: 1,
+                content_id: 33,
+            })
+        );
+        assert_eq!(
+            derive_effect_data_semantic(
+                Some(&TypeIoObject::TechNodeRaw {
+                    content_type: 2,
+                    content_id: 44,
+                }),
+                None,
+                false
+            ),
+            Some(EffectDataSemantic::TechNodeRaw {
+                content_type: 2,
+                content_id: 44,
+            })
+        );
+        assert_eq!(
+            derive_effect_data_semantic(Some(&TypeIoObject::UnitId(404)), None, false),
+            Some(EffectDataSemantic::UnitId(404))
+        );
+    }
 }

@@ -1201,6 +1201,46 @@ mod tests {
     }
 
     #[test]
+    fn malformed_state_snapshot_with_trailing_bytes_rejects_entire_payload() {
+        let mut payload = build_state_snapshot_payload(
+            7,
+            0,
+            false,
+            false,
+            654_321,
+            60,
+            111_111_111,
+            222_222_222,
+            &[],
+        );
+        payload.push(0xFF);
+        let expected_error = format!(
+            "state_snapshot_trailing_bytes:{}/{}",
+            payload.len().saturating_sub(1),
+            payload.len()
+        );
+        let mut state = SessionState::default();
+
+        ingest_inbound_snapshot(
+            &mut state,
+            InboundSnapshot::new(HighFrequencyRemoteMethod::StateSnapshot, 125, &payload),
+        );
+
+        assert_eq!(state.applied_state_snapshot_count, 0);
+        assert_eq!(state.failed_state_snapshot_parse_count, 1);
+        assert_eq!(
+            state.last_state_snapshot_parse_error.as_deref(),
+            Some(expected_error.as_str())
+        );
+        assert_eq!(
+            state.last_state_snapshot_parse_error_payload_len,
+            Some(payload.len())
+        );
+        assert_eq!(state.last_state_snapshot, None);
+        assert_eq!(state.state_snapshot_authority_projection, None);
+    }
+
+    #[test]
     fn state_snapshot_ingest_rejects_impossible_core_data_item_count() {
         let malformed_core_data = [0x01, 0x01, 0xFF, 0xFF];
         let payload = build_state_snapshot_payload(
@@ -1904,6 +1944,50 @@ mod tests {
         assert_eq!(
             state.last_block_snapshot_parse_error.as_deref(),
             Some("negative_block_snapshot_amount:-1")
+        );
+        assert_eq!(
+            state.last_block_snapshot_parse_error_payload_len,
+            Some(payload.len())
+        );
+        assert_eq!(state.last_block_snapshot, None);
+        assert_eq!(state.block_snapshot_head_projection, None);
+    }
+
+    #[test]
+    fn malformed_block_snapshot_with_trailing_bytes_rejects_entire_payload() {
+        let mut payload = vec![
+            0x00, 0x01, // amount
+            0x00, 0x11, // data len
+            0x00, 0x64, 0x00, 0x63, // first build pos = pack(100, 99)
+            0x01, 0x2d, // first block id = 301
+            0x3f, 0x80, 0x00, 0x00, // health = 1.0
+            0x82, // rotation = 2 with version marker bit
+            0x05, // team = 5
+            0x03, // io version = 3
+            0x01, // enabled = true
+            0x08, // module bitmask
+            0x80, // efficiency
+            0x40, // optional efficiency
+        ];
+        payload.push(0xFF);
+        let expected_error = format!(
+            "block_snapshot_trailing_bytes:{}/{}",
+            payload.len().saturating_sub(1),
+            payload.len()
+        );
+        let mut state = SessionState::default();
+
+        ingest_inbound_snapshot(
+            &mut state,
+            InboundSnapshot::new(HighFrequencyRemoteMethod::BlockSnapshot, 11, &payload),
+        );
+
+        assert_eq!(state.received_block_snapshot_count, 1);
+        assert_eq!(state.applied_block_snapshot_count, 0);
+        assert_eq!(state.failed_block_snapshot_parse_count, 1);
+        assert_eq!(
+            state.last_block_snapshot_parse_error.as_deref(),
+            Some(expected_error.as_str())
         );
         assert_eq!(
             state.last_block_snapshot_parse_error_payload_len,
