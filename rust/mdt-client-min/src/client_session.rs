@@ -37690,6 +37690,104 @@ mod tests {
     }
 
     #[test]
+    fn tile_config_parse_failure_without_build_pos_keeps_pending_local_requests() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "tileConfig")
+            .unwrap()
+            .packet_id;
+        let first_value = TypeIoObject::Int(7);
+        let second_value = TypeIoObject::Int(9);
+        session
+            .queue_tile_config(Some(777), first_value.clone())
+            .unwrap();
+        session
+            .queue_tile_config(Some(888), second_value.clone())
+            .unwrap();
+        let payload = (-1i32).to_be_bytes().to_vec();
+        let packet = encode_packet(packet_id, &payload, false).unwrap();
+
+        let event = session.ingest_packet_bytes(&packet).unwrap();
+
+        assert_eq!(
+            event,
+            ClientSessionEvent::TileConfig {
+                build_pos: None,
+                config_kind: None,
+                config_kind_name: None,
+                parse_failed: true,
+                business_applied: false,
+                cleared_pending_local: false,
+                was_rollback: false,
+                pending_local_match: None,
+                configured_block_outcome: None,
+                configured_block_name: None,
+            }
+        );
+        assert!(session.state().last_tile_config_parse_failed);
+        assert_eq!(
+            session.state().last_tile_config_parse_error.as_deref(),
+            Some("missing tileConfig TypeIO payload")
+        );
+        assert_eq!(session.state().tile_config_projection.rollback_count, 0);
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .fallback_missing_authority_count,
+            0
+        );
+        assert!(!session
+            .state()
+            .tile_config_projection
+            .last_cleared_pending_local);
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .last_replaced_local_value,
+            None
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .pending_local_by_build_pos
+                .get(&777),
+            Some(&first_value)
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .pending_local_by_build_pos
+                .get(&888),
+            Some(&second_value)
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .pending_local_request_queue_by_build_pos
+                .get(&777)
+                .map(|queue| queue.iter().cloned().collect::<Vec<_>>()),
+            Some(vec![first_value])
+        );
+        assert_eq!(
+            session
+                .state()
+                .tile_config_projection
+                .pending_local_request_queue_by_build_pos
+                .get(&888)
+                .map(|queue| queue.iter().cloned().collect::<Vec<_>>()),
+            Some(vec![second_value])
+        );
+    }
+
+    #[test]
     fn tile_config_parse_failure_reapplies_known_authority_to_building_and_configured_state() {
         let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
         let build_pos = pack_point2(44, 55);
@@ -42159,6 +42257,11 @@ mod tests {
             .state()
             .tile_config_projection
             .authoritative_by_build_pos
+            .is_empty());
+        assert!(session
+            .state()
+            .tile_config_projection
+            .canonical_authoritative_by_build_pos
             .is_empty());
         assert_eq!(
             session.state().building_table_projection.last_update,
