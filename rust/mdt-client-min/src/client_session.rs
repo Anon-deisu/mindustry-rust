@@ -9357,6 +9357,12 @@ impl ClientSession {
     }
 
     fn try_apply_player_disconnect(&mut self, player_id: i32) -> bool {
+        self.state.mark_payload_lifecycle_unit_despawn(Some(
+            UnitRefProjection {
+                kind: 2,
+                value: player_id,
+            },
+        ));
         remove_entity_projection_for_entity_id(&mut self.state, player_id);
         if Some(player_id) != self.state.world_player_id {
             return false;
@@ -48510,6 +48516,25 @@ mod tests {
         session
             .state
             .apply_entity_snapshot_payload_apply_projection(local_player_id, 12, 1, None, None);
+        session
+            .state
+            .record_picked_unit_payload_lifecycle(
+                Some(UnitRefProjection { kind: 2, value: 777 }),
+                Some(UnitRefProjection {
+                    kind: 2,
+                    value: local_player_id,
+                }),
+            );
+        session
+            .state
+            .record_picked_build_payload_lifecycle(
+                Some(UnitRefProjection {
+                    kind: 2,
+                    value: local_player_id,
+                }),
+                Some(pack_point2(9, 12)),
+                true,
+            );
         assert!(session
             .state()
             .entity_snapshot_payload_apply_projection
@@ -48576,6 +48601,49 @@ mod tests {
             .entity_snapshot_payload_apply_projection
             .by_entity_id
             .contains_key(&local_player_id));
+        assert_eq!(
+            session
+                .state()
+                .payload_lifecycle_projection
+                .by_carrier
+                .get(&UnitRefProjection { kind: 2, value: 777 }),
+            Some(&crate::session_state::PayloadLifecycleCarrierProjection {
+                carrier: UnitRefProjection { kind: 2, value: 777 },
+                target_unit: Some(UnitRefProjection {
+                    kind: 2,
+                    value: local_player_id,
+                }),
+                target_build: None,
+                drop_tile: None,
+                on_ground: Some(false),
+                removed_target_unit: true,
+                removed_target_build: false,
+                removed_carrier: false,
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .payload_lifecycle_projection
+                .by_carrier
+                .get(&UnitRefProjection {
+                    kind: 2,
+                    value: local_player_id,
+                }),
+            Some(&crate::session_state::PayloadLifecycleCarrierProjection {
+                carrier: UnitRefProjection {
+                    kind: 2,
+                    value: local_player_id,
+                },
+                target_unit: None,
+                target_build: Some(pack_point2(9, 12)),
+                drop_tile: None,
+                on_ground: Some(true),
+                removed_target_unit: false,
+                removed_target_build: true,
+                removed_carrier: true,
+            })
+        );
         assert!(session
             .state()
             .entity_snapshot_tombstones
@@ -48617,6 +48685,25 @@ mod tests {
             None,
             None,
         );
+        session
+            .state
+            .record_picked_unit_payload_lifecycle(
+                Some(UnitRefProjection { kind: 2, value: 888 }),
+                Some(UnitRefProjection {
+                    kind: 2,
+                    value: local_player_id + 1000,
+                }),
+            );
+        session
+            .state
+            .record_picked_build_payload_lifecycle(
+                Some(UnitRefProjection {
+                    kind: 2,
+                    value: local_player_id + 1000,
+                }),
+                Some(pack_point2(10, 13)),
+                true,
+            );
         let packet_id = manifest
             .remote_packets
             .iter()
@@ -48649,6 +48736,49 @@ mod tests {
             .entity_snapshot_payload_apply_projection
             .by_entity_id
             .contains_key(&other_player_id));
+        assert_eq!(
+            session
+                .state()
+                .payload_lifecycle_projection
+                .by_carrier
+                .get(&UnitRefProjection { kind: 2, value: 888 }),
+            Some(&crate::session_state::PayloadLifecycleCarrierProjection {
+                carrier: UnitRefProjection { kind: 2, value: 888 },
+                target_unit: Some(UnitRefProjection {
+                    kind: 2,
+                    value: other_player_id,
+                }),
+                target_build: None,
+                drop_tile: None,
+                on_ground: Some(false),
+                removed_target_unit: true,
+                removed_target_build: false,
+                removed_carrier: false,
+            })
+        );
+        assert_eq!(
+            session
+                .state()
+                .payload_lifecycle_projection
+                .by_carrier
+                .get(&UnitRefProjection {
+                    kind: 2,
+                    value: other_player_id,
+                }),
+            Some(&crate::session_state::PayloadLifecycleCarrierProjection {
+                carrier: UnitRefProjection {
+                    kind: 2,
+                    value: other_player_id,
+                },
+                target_unit: None,
+                target_build: Some(pack_point2(10, 13)),
+                drop_tile: None,
+                on_ground: Some(true),
+                removed_target_unit: false,
+                removed_target_build: true,
+                removed_carrier: true,
+            })
+        );
     }
 
     #[test]
