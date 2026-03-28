@@ -2263,6 +2263,51 @@ mod tests {
     }
 
     #[test]
+    fn hidden_snapshot_ingest_limits_sample_ids_but_tracks_full_unique_set() {
+        let payload = [
+            0x00, 0x00, 0x00, 0x05, // count
+            0x00, 0x00, 0x00, 0x65, // 101
+            0x00, 0x00, 0x00, 0xCA, // 202
+            0x00, 0x00, 0x01, 0x2F, // 303
+            0x00, 0x00, 0x01, 0x94, // 404
+            0x00, 0x00, 0x01, 0xF9, // 505
+        ];
+        let mut state = SessionState::default();
+
+        ingest_inbound_snapshot(
+            &mut state,
+            InboundSnapshot::new(HighFrequencyRemoteMethod::HiddenSnapshot, 49, &payload),
+        );
+
+        assert_eq!(
+            state.last_hidden_snapshot,
+            Some(AppliedHiddenSnapshotIds {
+                count: 5,
+                first_id: Some(101),
+                sample_ids: vec![101, 202, 303, 404],
+            })
+        );
+        assert_eq!(
+            state.hidden_snapshot_delta_projection,
+            Some(HiddenSnapshotDeltaProjection {
+                active_count: 5,
+                added_count: 5,
+                removed_count: 0,
+                added_sample_ids: vec![101, 202, 303, 404],
+                removed_sample_ids: vec![],
+            })
+        );
+        assert_eq!(
+            state
+                .hidden_snapshot_ids
+                .iter()
+                .copied()
+                .collect::<Vec<_>>(),
+            vec![101, 202, 303, 404, 505]
+        );
+    }
+
+    #[test]
     fn hidden_snapshot_removes_non_local_unit_rows_but_keeps_local_player() {
         let payload = [
             0x00, 0x00, 0x00, 0x02, // count
@@ -2391,6 +2436,66 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![303]
         );
+    }
+
+    #[test]
+    fn hidden_snapshot_empty_set_clears_active_ids_and_records_empty_applied_snapshot() {
+        let initial_payload = [
+            0x00, 0x00, 0x00, 0x02, // count
+            0x00, 0x00, 0x00, 0x65, // 101
+            0x00, 0x00, 0x01, 0x2F, // 303
+        ];
+        let empty_payload = [0x00, 0x00, 0x00, 0x00];
+        let mut state = SessionState::default();
+        state.entity_table_projection.by_entity_id.insert(
+            101,
+            EntityProjection {
+                class_id: 12,
+                hidden: false,
+                is_local_player: true,
+                unit_kind: 2,
+                unit_value: 100,
+                x_bits: 0.0f32.to_bits(),
+                y_bits: 0.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
+
+        ingest_inbound_snapshot(
+            &mut state,
+            InboundSnapshot::new(
+                HighFrequencyRemoteMethod::HiddenSnapshot,
+                49,
+                &initial_payload,
+            ),
+        );
+        assert!(state.entity_table_projection.by_entity_id[&101].hidden);
+
+        ingest_inbound_snapshot(
+            &mut state,
+            InboundSnapshot::new(HighFrequencyRemoteMethod::HiddenSnapshot, 49, &empty_payload),
+        );
+
+        assert_eq!(
+            state.last_hidden_snapshot,
+            Some(AppliedHiddenSnapshotIds {
+                count: 0,
+                first_id: None,
+                sample_ids: vec![],
+            })
+        );
+        assert_eq!(
+            state.hidden_snapshot_delta_projection,
+            Some(HiddenSnapshotDeltaProjection {
+                active_count: 0,
+                added_count: 0,
+                removed_count: 2,
+                added_sample_ids: vec![],
+                removed_sample_ids: vec![101, 303],
+            })
+        );
+        assert!(state.hidden_snapshot_ids.is_empty());
+        assert!(!state.entity_table_projection.by_entity_id[&101].hidden);
     }
 
     #[test]
@@ -3156,6 +3261,63 @@ mod tests {
         assert_eq!(
             state.last_hidden_snapshot_parse_error_payload_len,
             Some(payload.len())
+        );
+    }
+
+    #[test]
+    fn successful_hidden_snapshot_after_parse_failure_clears_parse_error_fields() {
+        let malformed_payload = [0xFF, 0xFF, 0xFF, 0xFF];
+        let valid_payload = [
+            0x00, 0x00, 0x00, 0x01, // count
+            0x00, 0x00, 0x00, 0x65, // 101
+        ];
+        let mut state = SessionState::default();
+
+        ingest_inbound_snapshot(
+            &mut state,
+            InboundSnapshot::new(
+                HighFrequencyRemoteMethod::HiddenSnapshot,
+                49,
+                &malformed_payload,
+            ),
+        );
+        assert_eq!(state.failed_hidden_snapshot_parse_count, 1);
+
+        ingest_inbound_snapshot(
+            &mut state,
+            InboundSnapshot::new(HighFrequencyRemoteMethod::HiddenSnapshot, 49, &valid_payload),
+        );
+
+        assert_eq!(state.received_hidden_snapshot_count, 2);
+        assert_eq!(state.applied_hidden_snapshot_count, 1);
+        assert_eq!(state.failed_hidden_snapshot_parse_count, 1);
+        assert_eq!(state.last_hidden_snapshot_parse_error, None);
+        assert_eq!(state.last_hidden_snapshot_parse_error_payload_len, None);
+        assert_eq!(
+            state.last_hidden_snapshot,
+            Some(AppliedHiddenSnapshotIds {
+                count: 1,
+                first_id: Some(101),
+                sample_ids: vec![101],
+            })
+        );
+        assert_eq!(
+            state.hidden_snapshot_delta_projection,
+            Some(HiddenSnapshotDeltaProjection {
+                active_count: 1,
+                added_count: 1,
+                removed_count: 0,
+                added_sample_ids: vec![101],
+                removed_sample_ids: vec![],
+            })
+        );
+        assert_eq!(
+            state
+                .hidden_snapshot_ids
+                .iter()
+                .copied()
+                .collect::<Vec<_>>(),
+            vec![101]
         );
     }
 

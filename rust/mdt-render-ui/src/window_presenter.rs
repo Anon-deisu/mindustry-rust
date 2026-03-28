@@ -6045,6 +6045,55 @@ mod tests {
     }
 
     #[test]
+    fn runtime_command_minimap_tiles_deduplicates_tiles_across_prefixes() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 32.0,
+                height: 32.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![
+                RenderObject {
+                    id: "marker:runtime-command-build-target:1".to_string(),
+                    layer: 29,
+                    x: 8.0,
+                    y: 8.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-command-position-target:2".to_string(),
+                    layer: 29,
+                    x: 24.0,
+                    y: 16.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-command-unit-target:3".to_string(),
+                    layer: 29,
+                    x: 32.0,
+                    y: 24.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-command-selected-unit:4".to_string(),
+                    layer: 29,
+                    x: 40.0,
+                    y: 32.0,
+                },
+                RenderObject {
+                    id: "marker:runtime-command-building:5".to_string(),
+                    layer: 29,
+                    x: 8.0,
+                    y: 8.0,
+                },
+            ],
+        };
+
+        assert_eq!(
+            runtime_command_minimap_tiles(&scene, 80, 60, 8),
+            vec![(1, 1), (3, 2), (4, 3), (5, 4)]
+        );
+    }
+
+    #[test]
     fn runtime_ping_minimap_tile_prefers_latest_runtime_ping_marker() {
         let scene = RenderModel {
             viewport: Viewport {

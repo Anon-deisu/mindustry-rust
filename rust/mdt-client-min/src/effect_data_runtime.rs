@@ -656,6 +656,20 @@ mod tests {
     }
 
     #[test]
+    fn derive_effect_data_business_input_leaves_semantic_empty_when_object_is_missing_without_parse_failure()
+    {
+        let input = derive_effect_data_business_input(None, None, Some(0x55), false, None);
+
+        assert_eq!(input.contract_name, None);
+        assert_eq!(input.data_kind, None);
+        assert_eq!(input.semantic, None);
+        assert_eq!(input.primary, None);
+        assert_eq!(input.data_type_tag, Some(0x55));
+        assert!(!input.parse_failed);
+        assert_eq!(input.parse_error, None);
+    }
+
+    #[test]
     fn derive_effect_data_business_input_preserves_object_semantics_on_parse_failure() {
         let object = TypeIoObject::ObjectArray(vec![
             TypeIoObject::Point2 { x: 4, y: 6 },
