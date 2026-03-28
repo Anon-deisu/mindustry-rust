@@ -877,6 +877,8 @@ pub fn validate_remote_manifest(manifest: &RemoteManifest) -> Result<(), RemoteM
     }
 
     let remote_id_offset = manifest.base_packets.len();
+    let mut seen_remote_packet_definitions =
+        std::collections::HashSet::with_capacity(manifest.remote_packets.len());
     for (index, packet) in manifest.remote_packets.iter().enumerate() {
         if packet.remote_index != index {
             return Err(RemoteManifestError::InvalidPacketSequence(format!(
@@ -932,7 +934,7 @@ pub fn validate_remote_manifest(manifest: &RemoteManifest) -> Result<(), RemoteM
             )));
         }
 
-        remote_flow_from_targets(&packet.targets)?;
+        let flow = remote_flow_from_targets(&packet.targets)?;
         remote_priority_from_str(&packet.priority)?;
 
         for param in &packet.params {
@@ -948,6 +950,13 @@ pub fn validate_remote_manifest(manifest: &RemoteManifest) -> Result<(), RemoteM
                     packet.packet_class, param.name
                 )));
             }
+        }
+
+        if !seen_remote_packet_definitions.insert(remote_packet_definition_key(packet, flow)) {
+            return Err(RemoteManifestError::InvalidPacketSequence(format!(
+                "duplicate remote packet definition: {}",
+                packet.packet_class
+            )));
         }
     }
 
@@ -991,6 +1000,31 @@ fn validate_wire_spec(wire: &WireSpec) -> Result<(), RemoteManifestError> {
     }
 
     Ok(())
+}
+
+fn remote_packet_definition_key(packet: &RemotePacketEntry, flow: RemoteFlow) -> String {
+    let param_java_types = packet
+        .params
+        .iter()
+        .map(|param| param.java_type.as_str())
+        .collect::<Vec<_>>();
+    let wire_param_kinds = packet
+        .params
+        .iter()
+        .filter(|param| {
+            param_is_wire_included_client_server(
+                param.network_included_when_caller_is_client,
+                param.network_included_when_caller_is_server,
+                flow,
+            )
+        })
+        .map(|param| remote_param_kind(&param.java_type))
+        .collect::<Vec<_>>();
+
+    format!(
+        "{}|{:?}|{}|{:?}|{:?}",
+        packet.method, flow, packet.unreliable, param_java_types, wire_param_kinds
+    )
 }
 
 pub fn high_frequency_remote_packets(
@@ -2339,6 +2373,71 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "remote packet mindustry.gen.RemotePacket1 has packetId 0, expected packet id exceeds u8 range"
+        );
+    }
+
+    #[test]
+    fn validate_remote_manifest_rejects_duplicate_packet_definition() {
+        let manifest = RemoteManifest {
+            schema: REMOTE_MANIFEST_SCHEMA_V1.into(),
+            generator: RemoteGeneratorInfo {
+                source: "test".into(),
+                call_class: "mindustry.gen.Call".into(),
+            },
+            base_packets: vec![],
+            remote_packets: vec![
+                RemotePacketEntry {
+                    remote_index: 0,
+                    packet_id: 0,
+                    packet_class: "mindustry.gen.DuplicateRemotePacketA".into(),
+                    declaring_type: "mindustry.core.NetServer".into(),
+                    method: "duplicateRemotePacket".into(),
+                    targets: "client".into(),
+                    called: "server".into(),
+                    variants: "all".into(),
+                    allow_on_client: None,
+                    allow_on_server: None,
+                    forward: false,
+                    unreliable: true,
+                    priority: "high".into(),
+                    params: vec![],
+                },
+                RemotePacketEntry {
+                    remote_index: 1,
+                    packet_id: 1,
+                    packet_class: "mindustry.gen.DuplicateRemotePacketB".into(),
+                    declaring_type: "mindustry.core.NetServer".into(),
+                    method: "duplicateRemotePacket".into(),
+                    targets: "client".into(),
+                    called: "server".into(),
+                    variants: "all".into(),
+                    allow_on_client: None,
+                    allow_on_server: None,
+                    forward: false,
+                    unreliable: true,
+                    priority: "high".into(),
+                    params: vec![],
+                },
+            ],
+            wire: WireSpec {
+                packet_id_byte: REMOTE_WIRE_PACKET_ID_BYTE_U8.into(),
+                length_field: REMOTE_WIRE_LENGTH_FIELD_U16BE.into(),
+                compression_flag: CompressionFlagSpec {
+                    none: REMOTE_WIRE_COMPRESSION_NONE.into(),
+                    lz4: REMOTE_WIRE_COMPRESSION_LZ4.into(),
+                },
+                compression_threshold: REMOTE_WIRE_COMPRESSION_THRESHOLD,
+            },
+        };
+
+        let error = validate_remote_manifest(&manifest).unwrap_err();
+        assert!(matches!(
+            error,
+            RemoteManifestError::InvalidPacketSequence(_)
+        ));
+        assert_eq!(
+            error.to_string(),
+            "duplicate remote packet definition: mindustry.gen.DuplicateRemotePacketB"
         );
     }
 
