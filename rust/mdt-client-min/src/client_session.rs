@@ -1662,10 +1662,9 @@ impl ClientSession {
         let aligned_center =
             center.filter(|center| i16::try_from(center.block_id).ok() == Some(block_id));
         let base = aligned_center.map(|center| &center.building.base);
-        let (build_turret_rotation_bits, build_turret_plans_present, build_turret_plan_count) =
-            aligned_center
-                .map(|center| summarize_build_turret_tail_fields(&center.building.parsed_tail))
-                .unwrap_or((None, None, None));
+        let turret_tail_summary = aligned_center
+            .map(|center| summarize_building_turret_tail_fields(&center.building.parsed_tail))
+            .unwrap_or_default();
         Some(BuildingProjection {
             block_id: Some(block_id),
             block_name: self.loaded_world_block_name(block_id),
@@ -1685,13 +1684,14 @@ impl ClientSession {
             efficiency: base.and_then(|base| base.efficiency),
             optional_efficiency: base.and_then(|base| base.optional_efficiency),
             visible_flags: base.and_then(|base| base.visible_flags),
-            turret_reload_counter_bits: None,
-            turret_rotation_bits: None,
-            item_turret_ammo_count: None,
-            continuous_turret_last_length_bits: None,
-            build_turret_rotation_bits,
-            build_turret_plans_present,
-            build_turret_plan_count,
+            turret_reload_counter_bits: turret_tail_summary.turret_reload_counter_bits,
+            turret_rotation_bits: turret_tail_summary.turret_rotation_bits,
+            item_turret_ammo_count: turret_tail_summary.item_turret_ammo_count,
+            continuous_turret_last_length_bits: turret_tail_summary
+                .continuous_turret_last_length_bits,
+            build_turret_rotation_bits: turret_tail_summary.build_turret_rotation_bits,
+            build_turret_plans_present: turret_tail_summary.build_turret_plans_present,
+            build_turret_plan_count: turret_tail_summary.build_turret_plan_count,
             last_update: crate::session_state::BuildingProjectionUpdateKind::WorldBaseline,
         })
     }
@@ -23810,6 +23810,131 @@ mod tests {
         );
     }
 
+
+    #[test]
+    fn turret_runtime_apply_projection_uses_loaded_world_anchor_across_tail_then_construct_finish_order(
+    ) {
+        let (manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
+        let turret_block_id = loaded_world_block_id_for_name(&session, "lancer");
+        let tail = mdt_world::ParsedBuildingTail::Turret(mdt_world::TurretTailSnapshot {
+            reload_counter_bits: 0x3f80_0000,
+            rotation_bits: 0x4120_0000,
+        });
+        let build_pos = {
+            let center = session
+                .loaded_world_bundle()
+                .unwrap()
+                .world
+                .building_centers[0]
+                .clone();
+            let build_pos = pack_build_pos_for_block_snapshot_test(center.x, center.y);
+            {
+                let center = &mut session.loaded_world_bundle.as_mut().unwrap().world.building_centers[0];
+                center.block_id = u16::try_from(turret_block_id).unwrap();
+                center.building.base.rotation = 4;
+                center.building.base.team_id = 5;
+                center.building.base.save_version = Some(6);
+                center.building.base.module_bitmask = Some(7);
+                center.building.base.time_scale_bits = Some(0x3f20_0000);
+                center.building.base.time_scale_duration_bits = Some(0x3e80_0000);
+                center.building.base.last_disabler_pos = Some(126);
+                center.building.base.legacy_consume_connected = Some(false);
+                center.building.base.health_bits = 0x4060_0000;
+                center.building.base.enabled = Some(true);
+                center.building.base.efficiency = Some(0x28);
+                center.building.base.optional_efficiency = Some(0x14);
+                center.building.base.visible_flags = Some(55);
+                center.building.parsed_tail = tail.clone();
+            }
+            session.apply_loaded_world_tile_patch(build_pos, None, None, Some(Some(turret_block_id)));
+            build_pos
+        };
+
+        session.clear_authoritative_building_state(build_pos, Some(turret_block_id));
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos),
+            None
+        );
+
+        session.apply_loaded_world_parsed_tail_business(build_pos, Some("lancer"), &tail);
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos)
+                .map(|building| {
+                    (
+                        building.block_id,
+                        building.rotation,
+                        building.team_id,
+                        building.health_bits,
+                        &building.kind,
+                        &building.value,
+                        building.turret_reload_counter_bits,
+                        building.turret_rotation_bits,
+                        building.last_update,
+                    )
+                }),
+            Some((
+                Some(turret_block_id),
+                Some(4),
+                Some(5),
+                Some(0x4060_0000),
+                &crate::session_state::TypedBuildingRuntimeKind::Turret,
+                &crate::session_state::TypedBuildingRuntimeValue::Turret {
+                    reload_counter_bits: Some(0x3f80_0000),
+                    rotation_bits: Some(0x4120_0000),
+                },
+                Some(0x3f80_0000),
+                Some(0x4120_0000),
+                crate::session_state::BuildingProjectionUpdateKind::WorldBaseline,
+            ))
+        );
+
+        ingest_construct_finish_for_block_config_test(
+            &mut session,
+            &manifest,
+            build_pos,
+            turret_block_id,
+            &TypeIoObject::Null,
+        );
+        assert_eq!(
+            session
+                .state()
+                .runtime_typed_building_apply_projection
+                .building_at(build_pos)
+                .map(|building| {
+                    (
+                        building.block_id,
+                        building.rotation,
+                        building.team_id,
+                        building.health_bits,
+                        &building.kind,
+                        &building.value,
+                        building.turret_reload_counter_bits,
+                        building.turret_rotation_bits,
+                        building.last_update,
+                    )
+                }),
+            Some((
+                Some(turret_block_id),
+                Some(0),
+                Some(1),
+                Some(0x4060_0000),
+                &crate::session_state::TypedBuildingRuntimeKind::Turret,
+                &crate::session_state::TypedBuildingRuntimeValue::Turret {
+                    reload_counter_bits: Some(0x3f80_0000),
+                    rotation_bits: Some(0x4120_0000),
+                },
+                Some(0x3f80_0000),
+                Some(0x4120_0000),
+                crate::session_state::BuildingProjectionUpdateKind::ConstructFinish,
+            ))
+        );
+    }
     #[test]
     fn loaded_world_tail_business_helper_applies_constructor_and_landing_pad_projection() {
         let (_manifest, mut session) = loaded_world_ready_session_for_block_snapshot_test();
