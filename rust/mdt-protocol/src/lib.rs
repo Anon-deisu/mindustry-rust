@@ -127,7 +127,13 @@ pub fn decode_packet(bytes: &[u8]) -> Result<EncodedPacket, PacketCodecError> {
             }
             remaining.to_vec()
         }
-        1 => lz4_flex::block::decompress(remaining, raw_length_usize)?,
+        1 => {
+            let consumed = lz4_block_consumed_len(remaining, raw_length_usize)?;
+            if consumed != remaining.len() {
+                return Err(PacketCodecError::TrailingBytes(remaining.len() - consumed));
+            }
+            lz4_flex::block::decompress(remaining, raw_length_usize)?
+        }
         value => return Err(PacketCodecError::UnsupportedCompression(value)),
     };
 
@@ -137,6 +143,67 @@ pub fn decode_packet(bytes: &[u8]) -> Result<EncodedPacket, PacketCodecError> {
         compression,
         payload,
     })
+}
+
+fn read_lz4_length(input: &[u8], pos: &mut usize) -> Result<usize, PacketCodecError> {
+    let mut extra = 0usize;
+    loop {
+        if *pos >= input.len() {
+            return Err(PacketCodecError::TooShort);
+        }
+        let byte = input[*pos];
+        *pos += 1;
+        extra += byte as usize;
+        if byte != 0xFF {
+            return Ok(extra);
+        }
+    }
+}
+
+fn lz4_block_consumed_len(input: &[u8], raw_length: usize) -> Result<usize, PacketCodecError> {
+    let mut pos = 0usize;
+    let mut produced = 0usize;
+
+    while pos < input.len() {
+        let token = input[pos];
+        pos += 1;
+
+        let mut literal_length = (token >> 4) as usize;
+        if literal_length == 15 {
+            literal_length += read_lz4_length(input, &mut pos)?;
+        }
+
+        if input.len() - pos < literal_length {
+            return Err(PacketCodecError::TooShort);
+        }
+        pos += literal_length;
+        produced += literal_length;
+        if produced == raw_length {
+            return Ok(pos);
+        }
+        if produced > raw_length {
+            return Err(PacketCodecError::TooShort);
+        }
+
+        if input.len() - pos < 2 {
+            return Err(PacketCodecError::TooShort);
+        }
+        pos += 2;
+
+        let mut match_length = 4 + (token & 0x0F) as usize;
+        if match_length == 19 {
+            match_length += read_lz4_length(input, &mut pos)?;
+        }
+        produced += match_length;
+        if produced == raw_length {
+            return Ok(pos);
+        }
+        if produced > raw_length {
+            return Err(PacketCodecError::TooShort);
+        }
+    }
+
+    Err(PacketCodecError::TooShort)
 }
 
 pub fn stream_begin_payload(id: i32, total: i32, kind: u8) -> Vec<u8> {
@@ -545,6 +612,18 @@ mod tests {
             0x30,
             0x40,
         ];
+
+        assert!(matches!(
+            decode_packet(&encoded),
+            Err(PacketCodecError::TrailingBytes(1))
+        ));
+    }
+
+    #[test]
+    fn decode_packet_rejects_compressed_trailing_bytes() {
+        let payload = (0u8..=63).collect::<Vec<_>>();
+        let mut encoded = encode_packet(CONNECT_PACKET_ID, &payload, false).unwrap();
+        encoded.push(0x00);
 
         assert!(matches!(
             decode_packet(&encoded),
