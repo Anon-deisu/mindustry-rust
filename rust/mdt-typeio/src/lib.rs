@@ -85,6 +85,18 @@ impl UnitRefRaw {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ItemStackRaw {
+    pub item_id: Option<i16>,
+    pub amount: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LiquidStackRaw {
+    pub liquid_id: Option<i16>,
+    pub amount: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PayloadType {
     Unit,
     Build,
@@ -219,6 +231,44 @@ pub fn write_block(out: &mut Vec<u8>, block_id: i16) {
 pub fn write_content(out: &mut Vec<u8>, content_type: u8, content_id: i16) {
     write_byte(out, content_type);
     write_short(out, content_id);
+}
+
+pub fn write_item(out: &mut Vec<u8>, item_id: Option<i16>) {
+    write_short(out, item_id.unwrap_or(-1));
+}
+
+pub fn write_liquid(out: &mut Vec<u8>, liquid_id: Option<i16>) {
+    write_short(out, liquid_id.unwrap_or(-1));
+}
+
+pub fn write_item_stack(out: &mut Vec<u8>, stack: ItemStackRaw) {
+    write_item(out, stack.item_id);
+    write_int(out, stack.amount);
+}
+
+pub fn write_item_stacks(out: &mut Vec<u8>, stacks: &[ItemStackRaw]) {
+    write_short(
+        out,
+        i16::try_from(stacks.len()).expect("item stack count exceeds i16"),
+    );
+    for stack in stacks {
+        write_item_stack(out, *stack);
+    }
+}
+
+pub fn write_liquid_stack(out: &mut Vec<u8>, stack: LiquidStackRaw) {
+    write_liquid(out, stack.liquid_id);
+    write_float(out, stack.amount);
+}
+
+pub fn write_liquid_stacks(out: &mut Vec<u8>, stacks: &[LiquidStackRaw]) {
+    write_short(
+        out,
+        i16::try_from(stacks.len()).expect("liquid stack count exceeds i16"),
+    );
+    for stack in stacks {
+        write_liquid_stack(out, *stack);
+    }
 }
 
 pub fn write_team(out: &mut Vec<u8>, team_id: u8) {
@@ -519,6 +569,108 @@ pub fn read_content_prefix(bytes: &[u8]) -> Result<((u8, i16), usize), TypeIoRea
     Ok(((content_type, content_id), reader.position()))
 }
 
+pub fn read_item(bytes: &[u8]) -> Result<Option<i16>, TypeIoReadError> {
+    let (value, consumed) = read_item_prefix(bytes)?;
+    ensure_consumed(consumed, bytes.len())?;
+    Ok(value)
+}
+
+pub fn read_item_prefix(bytes: &[u8]) -> Result<(Option<i16>, usize), TypeIoReadError> {
+    let mut reader = PrimitiveReader::new(bytes);
+    let item_id = reader.read_i16()?;
+    let value = (item_id != -1).then_some(item_id);
+    Ok((value, reader.position()))
+}
+
+pub fn read_liquid(bytes: &[u8]) -> Result<Option<i16>, TypeIoReadError> {
+    let (value, consumed) = read_liquid_prefix(bytes)?;
+    ensure_consumed(consumed, bytes.len())?;
+    Ok(value)
+}
+
+pub fn read_liquid_prefix(bytes: &[u8]) -> Result<(Option<i16>, usize), TypeIoReadError> {
+    let mut reader = PrimitiveReader::new(bytes);
+    let liquid_id = reader.read_i16()?;
+    let value = (liquid_id != -1).then_some(liquid_id);
+    Ok((value, reader.position()))
+}
+
+pub fn read_item_stack(bytes: &[u8]) -> Result<ItemStackRaw, TypeIoReadError> {
+    let (value, consumed) = read_item_stack_prefix(bytes)?;
+    ensure_consumed(consumed, bytes.len())?;
+    Ok(value)
+}
+
+pub fn read_item_stack_prefix(bytes: &[u8]) -> Result<(ItemStackRaw, usize), TypeIoReadError> {
+    let mut reader = PrimitiveReader::new(bytes);
+    let item_id = {
+        let raw = reader.read_i16()?;
+        (raw != -1).then_some(raw)
+    };
+    let amount = reader.read_i32()?;
+    Ok((ItemStackRaw { item_id, amount }, reader.position()))
+}
+
+pub fn read_item_stacks(bytes: &[u8]) -> Result<Vec<ItemStackRaw>, TypeIoReadError> {
+    let (value, consumed) = read_item_stacks_prefix(bytes)?;
+    ensure_consumed(consumed, bytes.len())?;
+    Ok(value)
+}
+
+pub fn read_item_stacks_prefix(bytes: &[u8]) -> Result<(Vec<ItemStackRaw>, usize), TypeIoReadError> {
+    let mut reader = PrimitiveReader::new(bytes);
+    let count = read_non_negative_i16_len(&mut reader, "item stack count")?;
+    let mut stacks = Vec::with_capacity(count);
+    for _ in 0..count {
+        let item_id = {
+            let raw = reader.read_i16()?;
+            (raw != -1).then_some(raw)
+        };
+        let amount = reader.read_i32()?;
+        stacks.push(ItemStackRaw { item_id, amount });
+    }
+    Ok((stacks, reader.position()))
+}
+
+pub fn read_liquid_stack(bytes: &[u8]) -> Result<LiquidStackRaw, TypeIoReadError> {
+    let (value, consumed) = read_liquid_stack_prefix(bytes)?;
+    ensure_consumed(consumed, bytes.len())?;
+    Ok(value)
+}
+
+pub fn read_liquid_stack_prefix(bytes: &[u8]) -> Result<(LiquidStackRaw, usize), TypeIoReadError> {
+    let mut reader = PrimitiveReader::new(bytes);
+    let liquid_id = {
+        let raw = reader.read_i16()?;
+        (raw != -1).then_some(raw)
+    };
+    let amount = reader.read_f32()?;
+    Ok((LiquidStackRaw { liquid_id, amount }, reader.position()))
+}
+
+pub fn read_liquid_stacks(bytes: &[u8]) -> Result<Vec<LiquidStackRaw>, TypeIoReadError> {
+    let (value, consumed) = read_liquid_stacks_prefix(bytes)?;
+    ensure_consumed(consumed, bytes.len())?;
+    Ok(value)
+}
+
+pub fn read_liquid_stacks_prefix(
+    bytes: &[u8],
+) -> Result<(Vec<LiquidStackRaw>, usize), TypeIoReadError> {
+    let mut reader = PrimitiveReader::new(bytes);
+    let count = read_non_negative_i16_len(&mut reader, "liquid stack count")?;
+    let mut stacks = Vec::with_capacity(count);
+    for _ in 0..count {
+        let liquid_id = {
+            let raw = reader.read_i16()?;
+            (raw != -1).then_some(raw)
+        };
+        let amount = reader.read_f32()?;
+        stacks.push(LiquidStackRaw { liquid_id, amount });
+    }
+    Ok((stacks, reader.position()))
+}
+
 pub fn read_team(bytes: &[u8]) -> Result<u8, TypeIoReadError> {
     read_byte(bytes)
 }
@@ -763,6 +915,22 @@ fn read_length_prefixed_json_prefix(
         message: error.to_string(),
     })?;
     Ok((value, reader.position()))
+}
+
+fn read_non_negative_i16_len(
+    reader: &mut PrimitiveReader<'_>,
+    field: &'static str,
+) -> Result<usize, TypeIoReadError> {
+    let position = reader.position();
+    let len = reader.read_i16()?;
+    if len < 0 {
+        return Err(TypeIoReadError::NegativeLength {
+            field,
+            length: len as i32,
+            position,
+        });
+    }
+    Ok(len as usize)
 }
 
 fn ensure_consumed(consumed: usize, total: usize) -> Result<(), TypeIoReadError> {
@@ -1022,6 +1190,14 @@ mod tests {
         );
 
         bytes.clear();
+        write_item(&mut bytes, Some(11));
+        assert_eq!(read_item(&bytes).unwrap(), Some(11));
+
+        bytes.clear();
+        write_liquid(&mut bytes, None);
+        assert_eq!(read_liquid(&bytes).unwrap(), None);
+
+        bytes.clear();
         write_team(&mut bytes, TEAM_SHARDED_ID);
         assert_eq!(read_team(&bytes).unwrap(), TEAM_SHARDED_ID);
 
@@ -1206,6 +1382,83 @@ mod tests {
                 needed: 4,
                 remaining: 3
             }
+        ));
+    }
+
+    #[test]
+    fn item_and_liquid_stack_codecs_handle_empty_single_multiple_and_reader_edges() {
+        let empty_items = Vec::<ItemStackRaw>::new();
+        let mut item_bytes = Vec::new();
+        write_item_stacks(&mut item_bytes, &empty_items);
+        assert_eq!(read_item_stacks(&item_bytes).unwrap(), empty_items);
+
+        let item_stacks = vec![
+            ItemStackRaw {
+                item_id: Some(3),
+                amount: 7,
+            },
+            ItemStackRaw {
+                item_id: None,
+                amount: 11,
+            },
+        ];
+        item_bytes.clear();
+        write_item_stacks(&mut item_bytes, &item_stacks);
+        assert_eq!(read_item_stacks(&item_bytes).unwrap(), item_stacks);
+
+        let mut item_bytes_with_tail = item_bytes.clone();
+        item_bytes_with_tail.push(0xff);
+        assert!(matches!(
+            read_item_stacks(&item_bytes_with_tail),
+            Err(TypeIoReadError::TrailingBytes {
+                consumed,
+                total
+            }) if consumed == item_bytes.len() && total == item_bytes.len() + 1
+        ));
+        assert!(matches!(
+            read_item_stacks(&[0, 1, 0, 3, 0, 0, 0]),
+            Err(TypeIoReadError::UnexpectedEof {
+                position: 4,
+                needed: 4,
+                remaining: 3
+            })
+        ));
+
+        let empty_liquids = Vec::<LiquidStackRaw>::new();
+        let mut liquid_bytes = Vec::new();
+        write_liquid_stacks(&mut liquid_bytes, &empty_liquids);
+        assert_eq!(read_liquid_stacks(&liquid_bytes).unwrap(), empty_liquids);
+
+        let liquid_stacks = vec![
+            LiquidStackRaw {
+                liquid_id: Some(5),
+                amount: 1.5,
+            },
+            LiquidStackRaw {
+                liquid_id: None,
+                amount: 0.25,
+            },
+        ];
+        liquid_bytes.clear();
+        write_liquid_stacks(&mut liquid_bytes, &liquid_stacks);
+        assert_eq!(read_liquid_stacks(&liquid_bytes).unwrap(), liquid_stacks);
+
+        let mut liquid_bytes_with_tail = liquid_bytes.clone();
+        liquid_bytes_with_tail.push(0xaa);
+        assert!(matches!(
+            read_liquid_stacks(&liquid_bytes_with_tail),
+            Err(TypeIoReadError::TrailingBytes {
+                consumed,
+                total
+            }) if consumed == liquid_bytes.len() && total == liquid_bytes.len() + 1
+        ));
+        assert!(matches!(
+            read_liquid_stacks(&[0, 1, 0, 5, 0x3f, 0xc0, 0x00]),
+            Err(TypeIoReadError::UnexpectedEof {
+                position: 4,
+                needed: 4,
+                remaining: 3
+            })
         ));
     }
 
