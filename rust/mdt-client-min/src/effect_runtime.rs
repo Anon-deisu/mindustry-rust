@@ -1081,6 +1081,39 @@ mod tests {
     }
 
     #[test]
+    fn effect_runtime_spawn_runtime_effect_overlay_extracts_payload_target_content_and_position_from_nested_object_array(
+    ) {
+        let overlay = spawn_runtime_effect_overlay(
+            Some(26),
+            12.0,
+            20.0,
+            12.0,
+            20.0,
+            0.0,
+            0,
+            false,
+            Some(&TypeIoObject::ObjectArray(vec![
+                TypeIoObject::ObjectArray(vec![
+                    TypeIoObject::ContentRaw {
+                        content_type: 1,
+                        content_id: 7,
+                    },
+                    TypeIoObject::Bool(true),
+                ]),
+                TypeIoObject::ObjectArray(vec![TypeIoObject::Point2 { x: 9, y: 11 }]),
+            ])),
+            10,
+        );
+
+        assert_eq!(overlay.contract_name, Some("payload_target_content"));
+        assert_eq!(overlay.content_ref, Some((1, 7)));
+        assert_eq!(overlay.x_bits, 72.0f32.to_bits());
+        assert_eq!(overlay.y_bits, 88.0f32.to_bits());
+        assert!(overlay.binding.is_none());
+        assert!(overlay.polyline_points.is_empty());
+    }
+
+    #[test]
     fn effect_runtime_payload_target_vec2_non_finite_falls_back_to_spawn_position() {
         let overlay = spawn_runtime_effect_overlay(
             Some(26),
