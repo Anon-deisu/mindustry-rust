@@ -27083,7 +27083,7 @@ pub fn parse_world_bundle(compressed: &[u8]) -> Result<WorldBundle, String> {
 
     let width = reader.read_u16()? as usize;
     let height = reader.read_u16()? as usize;
-    let tile_count = width * height;
+    let tile_count = checked_tile_count(width, height, "world bundle")?;
 
     let mut floors = vec![0u16; tile_count];
     let mut overlays = vec![0u16; tile_count];
@@ -27094,15 +27094,29 @@ pub fn parse_world_bundle(compressed: &[u8]) -> Result<WorldBundle, String> {
         let floor = reader.read_u16()?;
         let overlay = reader.read_u16()?;
         let consecutives = reader.read_u8()? as usize;
+        let run_end = i.checked_add(consecutives).ok_or_else(|| {
+            format!(
+                "world bundle floor run overflows index space at tile {} with run length {}",
+                i, consecutives
+            )
+        })?;
+        if run_end >= tile_count {
+            return Err(format!(
+                "world bundle floor run overruns map bounds: start={} run_len={} tiles={}",
+                i,
+                consecutives + 1,
+                tile_count
+            ));
+        }
         floor_region_bytes.extend_from_slice(&floor.to_be_bytes());
         floor_region_bytes.extend_from_slice(&overlay.to_be_bytes());
         floor_region_bytes.push(consecutives as u8);
-        for j in 0..=consecutives {
-            floors[i + j] = floor;
-            overlays[i + j] = overlay;
+        for j in i..=run_end {
+            floors[j] = floor;
+            overlays[j] = overlay;
         }
         floor_runs += 1;
-        i += consecutives + 1;
+        i = run_end + 1;
     }
 
     let mut blocks = vec![0u16; tile_count];
@@ -27167,11 +27181,25 @@ pub fn parse_world_bundle(compressed: &[u8]) -> Result<WorldBundle, String> {
             });
         } else if !had_data && !had_entity {
             let consecutives = reader.read_u8()? as usize;
-            block_region_bytes.push(consecutives as u8);
-            for j in 1..=consecutives {
-                blocks[i + j] = block;
+            let run_end = i.checked_add(consecutives).ok_or_else(|| {
+                format!(
+                    "world bundle block run overflows index space at tile {} with run length {}",
+                    i, consecutives
+                )
+            })?;
+            if run_end >= tile_count {
+                return Err(format!(
+                    "world bundle block run overruns map bounds: start={} run_len={} tiles={}",
+                    i,
+                    consecutives + 1,
+                    tile_count
+                ));
             }
-            i += consecutives;
+            block_region_bytes.push(consecutives as u8);
+            for j in (i + 1)..=run_end {
+                blocks[j] = block;
+            }
+            i = run_end;
         }
 
         block_runs += 1;
@@ -39737,6 +39765,14 @@ struct TeamPlanParseResult {
 
 fn parse_team_plan_groups(reader: &mut Reader<'_>) -> Result<TeamPlanParseResult, String> {
     let team_count = reader.read_u32()? as usize;
+    let available_bytes = reader.remaining_len();
+    let max_team_count = available_bytes / 8;
+    if team_count > max_team_count {
+        return Err(format!(
+            "team plan region declares too many teams: count={} remaining={}",
+            team_count, available_bytes
+        ));
+    }
     let mut total_plans = 0usize;
     let mut team_ids = Vec::with_capacity(team_count);
     let mut team_plan_counts = Vec::with_capacity(team_count);
@@ -39746,9 +39782,22 @@ fn parse_team_plan_groups(reader: &mut Reader<'_>) -> Result<TeamPlanParseResult
     for _ in 0..team_count {
         let team_id = reader.read_u32()?;
         let plans = reader.read_u32()? as usize;
+        let remaining_bytes = reader.remaining_len();
+        let max_plans = remaining_bytes / 11;
+        if plans > max_plans {
+            return Err(format!(
+                "team plan group declares too many plans for team {}: count={} remaining={}",
+                team_id, plans, remaining_bytes
+            ));
+        }
         team_region_bytes.extend_from_slice(&team_id.to_be_bytes());
         team_region_bytes.extend_from_slice(&(plans as u32).to_be_bytes());
-        total_plans += plans;
+        total_plans = total_plans.checked_add(plans).ok_or_else(|| {
+            format!(
+                "team plan region total plan count overflows usize after team {}",
+                team_id
+            )
+        })?;
         team_ids.push(team_id);
         team_plan_counts.push(plans as u32);
 
@@ -40034,7 +40083,7 @@ impl<'a> Reader<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use flate2::{write::ZlibEncoder, Compression};
+    use flate2::{read::ZlibDecoder, write::ZlibEncoder, Compression};
     use std::collections::HashMap;
     use std::io::Write;
 
@@ -40095,6 +40144,35 @@ mod tests {
             .step_by(2)
             .map(|i| u8::from_str_radix(&cleaned[i..i + 2], 16).unwrap())
             .collect::<Vec<_>>()
+    }
+
+    fn compress_zlib_bytes(bytes: &[u8]) -> Vec<u8> {
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(bytes).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    fn sample_world_bundle_compressed_with_mutated_runs(
+        floor_run: Option<u8>,
+        block_run: Option<u8>,
+    ) -> Vec<u8> {
+        let compressed = sample_world_stream_bytes();
+        let mut decoder = ZlibDecoder::new(&compressed[..]);
+        let mut inflated = Vec::new();
+        decoder.read_to_end(&mut inflated).unwrap();
+
+        let map_start = inflated
+            .windows(4)
+            .position(|window| window == [0x00, 0x08, 0x00, 0x08])
+            .expect("missing world map dimensions in sample bundle");
+        if let Some(run) = floor_run {
+            inflated[map_start + 8] = run;
+        }
+        if let Some(run) = block_run {
+            inflated[map_start + 12] = run;
+        }
+
+        compress_zlib_bytes(&inflated)
     }
 
     fn sample_snapshot_packet(key: &str) -> Vec<u8> {
@@ -54107,6 +54185,36 @@ mod tests {
         assert!(text.contains("teamBlocks.totalPlans=00000001"));
         assert!(text.contains("teamPlans.count=00000001"));
         assert!(text.contains("teamPlans.configKinds=Point2"));
+    }
+
+    #[test]
+    fn rejects_overlong_world_bundle_floor_run() {
+        let compressed = sample_world_bundle_compressed_with_mutated_runs(Some(255), None);
+        let error = parse_world_bundle(&compressed).unwrap_err();
+        assert!(error.contains("floor run overruns map bounds"));
+    }
+
+    #[test]
+    fn rejects_overlong_world_bundle_block_run() {
+        let compressed = sample_world_bundle_compressed_with_mutated_runs(None, Some(255));
+        let error = parse_world_bundle(&compressed).unwrap_err();
+        assert!(error.contains("block run overruns map bounds"));
+    }
+
+    #[test]
+    fn rejects_excessive_team_plan_group_counts() {
+        let bytes = u32::MAX.to_be_bytes().to_vec();
+        let mut reader = Reader::new(&bytes);
+        let error = parse_team_plan_groups(&mut reader).err().unwrap();
+        assert!(error.contains("too many teams"));
+
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1u32.to_be_bytes());
+        bytes.extend_from_slice(&1u32.to_be_bytes());
+        bytes.extend_from_slice(&u32::MAX.to_be_bytes());
+        let mut reader = Reader::new(&bytes);
+        let error = parse_team_plan_groups(&mut reader).err().unwrap();
+        assert!(error.contains("too many plans"));
     }
 
     #[test]

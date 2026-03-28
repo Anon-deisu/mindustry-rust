@@ -588,12 +588,25 @@ fn runtime_ping_minimap_tile(
     map_width: usize,
     map_height: usize,
 ) -> Option<(usize, usize)> {
-    let ping = scene
+    scene
         .objects
         .iter()
-        .rev()
-        .find(|object| object.id.starts_with("marker:text:runtime-ping:"))?;
-    runtime_minimap_object_tile(ping, map_width, map_height)
+        .filter(|object| object.id.starts_with("marker:text:runtime-ping:"))
+        .filter_map(|object| {
+            let tile = runtime_minimap_object_tile(object, map_width, map_height)?;
+            Some((
+                runtime_ping_minimap_sequence(&object.id).unwrap_or(0),
+                object.id.as_str(),
+                tile,
+            ))
+        })
+        .max_by(|left, right| {
+            left.0
+                .cmp(&right.0)
+                .then(left.1.cmp(right.1))
+                .then(left.2.cmp(&right.2))
+        })
+        .map(|(_, _, tile)| tile)
 }
 
 fn runtime_world_label_minimap_tiles(
@@ -602,26 +615,23 @@ fn runtime_world_label_minimap_tiles(
     map_height: usize,
     max_tiles: usize,
 ) -> Vec<(usize, usize)> {
-    let mut seen = BTreeSet::new();
-    let mut tiles = Vec::new();
+    let mut candidates = Vec::new();
 
-    for object in scene.objects.iter().rev() {
+    for object in &scene.objects {
         if !object.id.starts_with("world-label:") {
             continue;
         }
         let Some(tile) = runtime_minimap_object_tile(object, map_width, map_height) else {
             continue;
         };
-        if !seen.insert(tile) {
-            continue;
-        }
-        tiles.push(tile);
-        if tiles.len() >= max_tiles {
-            break;
-        }
+        candidates.push(StableMinimapTileCandidate {
+            priority: 0,
+            tile,
+            id: object.id.clone(),
+        });
     }
 
-    tiles
+    collect_stable_minimap_tiles(candidates, max_tiles)
 }
 
 fn runtime_command_minimap_tiles(
@@ -630,34 +640,31 @@ fn runtime_command_minimap_tiles(
     map_height: usize,
     max_tiles: usize,
 ) -> Vec<(usize, usize)> {
-    let mut seen = BTreeSet::new();
-    let mut tiles = Vec::new();
+    let mut candidates = Vec::new();
 
-    for prefix in [
-        "marker:runtime-command-build-target:",
-        "marker:runtime-command-position-target:",
-        "marker:runtime-command-unit-target:",
-        "marker:runtime-command-selected-unit:",
-        "marker:runtime-command-building:",
+    for (priority, prefix) in [
+        (0, "marker:runtime-command-build-target:"),
+        (1, "marker:runtime-command-position-target:"),
+        (2, "marker:runtime-command-unit-target:"),
+        (3, "marker:runtime-command-selected-unit:"),
+        (4, "marker:runtime-command-building:"),
     ] {
-        for object in scene.objects.iter().rev() {
+        for object in &scene.objects {
             if !object.id.starts_with(prefix) {
                 continue;
             }
             let Some(tile) = runtime_minimap_object_tile(object, map_width, map_height) else {
                 continue;
             };
-            if !seen.insert(tile) {
-                continue;
-            }
-            tiles.push(tile);
-            if tiles.len() >= max_tiles {
-                return tiles;
-            }
+            candidates.push(StableMinimapTileCandidate {
+                priority,
+                tile,
+                id: object.id.clone(),
+            });
         }
     }
 
-    tiles
+    collect_stable_minimap_tiles(candidates, max_tiles)
 }
 
 fn runtime_unit_assembler_minimap_tiles(
@@ -666,31 +673,28 @@ fn runtime_unit_assembler_minimap_tiles(
     map_height: usize,
     max_tiles: usize,
 ) -> Vec<(usize, usize)> {
-    let mut seen = BTreeSet::new();
-    let mut tiles = Vec::new();
+    let mut candidates = Vec::new();
 
-    for prefix in [
-        "marker:runtime-unit-assembler-progress:",
-        "marker:runtime-unit-assembler-command:",
+    for (priority, prefix) in [
+        (0, "marker:runtime-unit-assembler-progress:"),
+        (1, "marker:runtime-unit-assembler-command:"),
     ] {
-        for object in scene.objects.iter().rev() {
+        for object in &scene.objects {
             if !object.id.starts_with(prefix) {
                 continue;
             }
             let Some(tile) = runtime_minimap_object_tile(object, map_width, map_height) else {
                 continue;
             };
-            if !seen.insert(tile) {
-                continue;
-            }
-            tiles.push(tile);
-            if tiles.len() >= max_tiles {
-                return tiles;
-            }
+            candidates.push(StableMinimapTileCandidate {
+                priority,
+                tile,
+                id: object.id.clone(),
+            });
         }
     }
 
-    tiles
+    collect_stable_minimap_tiles(candidates, max_tiles)
 }
 
 fn runtime_tile_action_minimap_tiles(
@@ -699,17 +703,16 @@ fn runtime_tile_action_minimap_tiles(
     map_height: usize,
     max_tiles: usize,
 ) -> Vec<(usize, usize)> {
-    let mut seen = BTreeSet::new();
-    let mut tiles = Vec::new();
+    let mut candidates = Vec::new();
 
-    for prefix in [
-        "marker:runtime-unit-block-spawn:",
-        "marker:runtime-unit-tether-block-spawned:",
-        "marker:runtime-landing-pad-landed:",
-        "marker:runtime-assembler-drone-spawned:",
-        "marker:runtime-assembler-unit-spawned:",
+    for (priority, prefix) in [
+        (0, "marker:runtime-unit-block-spawn:"),
+        (1, "marker:runtime-unit-tether-block-spawned:"),
+        (2, "marker:runtime-landing-pad-landed:"),
+        (3, "marker:runtime-assembler-drone-spawned:"),
+        (4, "marker:runtime-assembler-unit-spawned:"),
     ] {
-        for object in scene.objects.iter().rev() {
+        for object in &scene.objects {
             if !object.id.starts_with(prefix) {
                 continue;
             }
@@ -725,17 +728,15 @@ fn runtime_tile_action_minimap_tiles(
             ) else {
                 continue;
             };
-            if !seen.insert(tile) {
-                continue;
-            }
-            tiles.push(tile);
-            if tiles.len() >= max_tiles {
-                return tiles;
-            }
+            candidates.push(StableMinimapTileCandidate {
+                priority,
+                tile,
+                id: object.id.clone(),
+            });
         }
     }
 
-    tiles
+    collect_stable_minimap_tiles(candidates, max_tiles)
 }
 
 fn runtime_command_minimap_rects(
@@ -779,11 +780,17 @@ fn runtime_command_minimap_rects(
             height,
             kind,
         });
-        if rects.len() >= max_rects {
-            break;
-        }
     }
 
+    rects.sort_unstable_by(|left, right| {
+        runtime_command_rect_kind_priority(left.kind)
+            .cmp(&runtime_command_rect_kind_priority(right.kind))
+            .then(left.origin_y.cmp(&right.origin_y))
+            .then(left.origin_x.cmp(&right.origin_x))
+            .then(left.width.cmp(&right.width))
+            .then(left.height.cmp(&right.height))
+    });
+    rects.truncate(max_rects);
     rects
 }
 
@@ -825,11 +832,16 @@ fn runtime_break_minimap_rects(
             width,
             height,
         });
-        if rects.len() >= max_rects {
-            break;
-        }
     }
 
+    rects.sort_unstable_by(|left, right| {
+        left.origin_y
+            .cmp(&right.origin_y)
+            .then(left.origin_x.cmp(&right.origin_x))
+            .then(left.width.cmp(&right.width))
+            .then(left.height.cmp(&right.height))
+    });
+    rects.truncate(max_rects);
     rects
 }
 
@@ -871,11 +883,16 @@ fn runtime_unit_assembler_minimap_rects(
             width,
             height,
         });
-        if rects.len() >= max_rects {
-            break;
-        }
     }
 
+    rects.sort_unstable_by(|left, right| {
+        left.origin_y
+            .cmp(&right.origin_y)
+            .then(left.origin_x.cmp(&right.origin_x))
+            .then(left.width.cmp(&right.width))
+            .then(left.height.cmp(&right.height))
+    });
+    rects.truncate(max_rects);
     rects
 }
 
@@ -885,33 +902,31 @@ fn runtime_minimap_overlay_tiles(
     map_height: usize,
     max_tiles: usize,
 ) -> Vec<WindowMinimapRuntimeOverlayTile> {
-    let mut seen = BTreeSet::new();
-    let mut tiles = Vec::new();
+    let mut candidates = Vec::new();
 
-    for kind in [
-        WindowMinimapRuntimeOverlayKind::ConfigAlert,
-        WindowMinimapRuntimeOverlayKind::Config,
-        WindowMinimapRuntimeOverlayKind::Break,
-        WindowMinimapRuntimeOverlayKind::Place,
+    for (priority, kind) in [
+        (0, WindowMinimapRuntimeOverlayKind::ConfigAlert),
+        (1, WindowMinimapRuntimeOverlayKind::Config),
+        (2, WindowMinimapRuntimeOverlayKind::Break),
+        (3, WindowMinimapRuntimeOverlayKind::Place),
     ] {
-        for object in scene.objects.iter().rev() {
+        for object in &scene.objects {
             if runtime_minimap_overlay_kind(object.semantic_kind()) != Some(kind) {
                 continue;
             }
             let Some(tile) = runtime_minimap_object_tile(object, map_width, map_height) else {
                 continue;
             };
-            if !seen.insert(tile) {
-                continue;
-            }
-            tiles.push(WindowMinimapRuntimeOverlayTile { tile, kind });
-            if tiles.len() >= max_tiles {
-                return tiles;
-            }
+            candidates.push(StableMinimapOverlayTileCandidate {
+                priority,
+                tile,
+                kind,
+                id: object.id.clone(),
+            });
         }
     }
 
-    tiles
+    collect_stable_minimap_overlay_tiles(candidates, max_tiles)
 }
 
 fn runtime_minimap_overlay_kind(
@@ -968,6 +983,97 @@ fn runtime_minimap_object_tile(
         map_width,
         map_height,
     )
+}
+
+#[derive(Debug, Clone)]
+struct StableMinimapTileCandidate {
+    priority: usize,
+    tile: (usize, usize),
+    id: String,
+}
+
+#[derive(Debug, Clone)]
+struct StableMinimapOverlayTileCandidate {
+    priority: usize,
+    tile: (usize, usize),
+    kind: WindowMinimapRuntimeOverlayKind,
+    id: String,
+}
+
+fn collect_stable_minimap_tiles(
+    mut candidates: Vec<StableMinimapTileCandidate>,
+    max_tiles: usize,
+) -> Vec<(usize, usize)> {
+    if max_tiles == 0 {
+        return Vec::new();
+    }
+
+    candidates.sort_unstable_by(|left, right| {
+        left.priority
+            .cmp(&right.priority)
+            .then(left.tile.1.cmp(&right.tile.1))
+            .then(left.tile.0.cmp(&right.tile.0))
+            .then(left.id.cmp(&right.id))
+    });
+
+    let mut seen = BTreeSet::new();
+    let mut tiles = Vec::new();
+    for candidate in candidates {
+        if seen.insert(candidate.tile) {
+            tiles.push(candidate.tile);
+            if tiles.len() >= max_tiles {
+                break;
+            }
+        }
+    }
+
+    tiles
+}
+
+fn collect_stable_minimap_overlay_tiles(
+    mut candidates: Vec<StableMinimapOverlayTileCandidate>,
+    max_tiles: usize,
+) -> Vec<WindowMinimapRuntimeOverlayTile> {
+    if max_tiles == 0 {
+        return Vec::new();
+    }
+
+    candidates.sort_unstable_by(|left, right| {
+        left.priority
+            .cmp(&right.priority)
+            .then(left.tile.1.cmp(&right.tile.1))
+            .then(left.tile.0.cmp(&right.tile.0))
+            .then(left.id.cmp(&right.id))
+    });
+
+    let mut seen = BTreeSet::new();
+    let mut tiles = Vec::new();
+    for candidate in candidates {
+        if seen.insert(candidate.tile) {
+            tiles.push(WindowMinimapRuntimeOverlayTile {
+                tile: candidate.tile,
+                kind: candidate.kind,
+            });
+            if tiles.len() >= max_tiles {
+                break;
+            }
+        }
+    }
+
+    tiles
+}
+
+fn runtime_ping_minimap_sequence(id: &str) -> Option<usize> {
+    id.strip_prefix("marker:text:runtime-ping:")
+        .and_then(|rest| rest.split(':').next())
+        .and_then(|sequence| sequence.parse().ok())
+}
+
+fn runtime_command_rect_kind_priority(kind: WindowMinimapCommandRectKind) -> usize {
+    match kind {
+        WindowMinimapCommandRectKind::Selection => 0,
+        WindowMinimapCommandRectKind::Target => 1,
+    }
 }
 
 fn crop_window(
@@ -5179,19 +5285,24 @@ fn encode_ppm(frame: &WindowFrame) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::{
-        color_for_object, compose_frame, runtime_command_minimap_tiles,
-        fit_window_minimap_size, runtime_ping_minimap_tile, runtime_world_label_minimap_tiles,
+        collect_stable_minimap_overlay_tiles, color_for_object, compose_frame,
+        fit_window_minimap_size, runtime_break_minimap_rects, runtime_command_minimap_rects,
+        runtime_command_minimap_tiles, runtime_ping_minimap_tile,
+        runtime_tile_action_minimap_tiles, runtime_unit_assembler_minimap_rects,
+        runtime_unit_assembler_minimap_tiles, runtime_world_label_minimap_tiles,
         runtime_world_span_to_tile_span, runtime_world_to_minimap_tile, scale_frame_pixels,
-        window_hud_bar_height, window_hud_top_line, BackendSignal, WindowBackend, WindowFrame,
+        window_hud_bar_height, window_hud_top_line, BackendSignal,
+        StableMinimapOverlayTileCandidate, WindowBackend, WindowFrame,
         WindowMinimapBreakRect, WindowMinimapCommandRect, WindowMinimapCommandRectKind,
         WindowMinimapInset, WindowMinimapRuntimeOverlayKind, WindowMinimapRuntimeOverlayTile,
         WindowMinimapUnitAssemblerRect, WindowPresenter, COLOR_BLOCK, COLOR_EMPTY,
         COLOR_ICON_BUILD_CONFIG, COLOR_ICON_RUNTIME_BREAK, COLOR_ICON_RUNTIME_BULLET,
         COLOR_ICON_RUNTIME_COMMAND, COLOR_ICON_RUNTIME_EFFECT, COLOR_ICON_RUNTIME_EFFECT_MARKER,
-        COLOR_ICON_RUNTIME_HEALTH, COLOR_ICON_RUNTIME_LOGIC_EXPLOSION, COLOR_ICON_RUNTIME_SOUND_AT,
-        COLOR_ICON_RUNTIME_TILE_ACTION, COLOR_ICON_RUNTIME_UNIT_ASSEMBLER, COLOR_MARKER,
-        COLOR_MINIMAP_INSET_VIEWPORT, COLOR_PLAN, COLOR_PLAYER, COLOR_RUNTIME, COLOR_TERRAIN,
-        COLOR_UNKNOWN, COLOR_WINDOW_HUD_BAR, COLOR_WINDOW_HUD_TEXT, WINDOW_HUD_BAR_PADDING_X,
+        COLOR_ICON_RUNTIME_HEALTH, COLOR_ICON_RUNTIME_LOGIC_EXPLOSION,
+        COLOR_ICON_RUNTIME_SOUND_AT, COLOR_ICON_RUNTIME_TILE_ACTION,
+        COLOR_ICON_RUNTIME_UNIT_ASSEMBLER, COLOR_MARKER, COLOR_MINIMAP_INSET_VIEWPORT,
+        COLOR_PLAN, COLOR_PLAYER, COLOR_RUNTIME, COLOR_TERRAIN, COLOR_UNKNOWN,
+        COLOR_WINDOW_HUD_BAR, COLOR_WINDOW_HUD_TEXT, WINDOW_HUD_BAR_PADDING_X,
         WINDOW_HUD_BAR_PADDING_Y, WINDOW_HUD_FONT_HEIGHT,
     };
     use crate::{
@@ -5901,6 +6012,32 @@ mod tests {
             256.0,
             320.0,
         ));
+        objects.extend([
+            RenderObject {
+                id: "marker:runtime-config-rollback:1:2:string".to_string(),
+                layer: 30,
+                x: 8.0,
+                y: 8.0,
+            },
+            RenderObject {
+                id: "marker:runtime-config:2:3:string".to_string(),
+                layer: 30,
+                x: 16.0,
+                y: 16.0,
+            },
+            RenderObject {
+                id: "terrain:runtime-deconstruct:3:4".to_string(),
+                layer: 30,
+                x: 136.0,
+                y: 144.0,
+            },
+            RenderObject {
+                id: "plan:runtime-place:4:5".to_string(),
+                layer: 30,
+                x: 24.0,
+                y: 24.0,
+            },
+        ]);
         let scene = RenderModel {
             viewport: Viewport {
                 width: 64.0,
@@ -6014,11 +6151,11 @@ mod tests {
                     kind: WindowMinimapRuntimeOverlayKind::Config,
                 },
                 WindowMinimapRuntimeOverlayTile {
-                    tile: (17, 18),
+                    tile: (3, 3),
                     kind: WindowMinimapRuntimeOverlayKind::Break,
                 },
                 WindowMinimapRuntimeOverlayTile {
-                    tile: (3, 3),
+                    tile: (17, 18),
                     kind: WindowMinimapRuntimeOverlayKind::Break,
                 },
                 WindowMinimapRuntimeOverlayTile {
@@ -6212,12 +6349,329 @@ mod tests {
     }
 
     #[test]
+    fn minimap_collectors_remain_stable_when_input_order_changes() {
+        let mut objects = vec![
+            RenderObject {
+                id: "world-label:10:text:6161".to_string(),
+                layer: 39,
+                x: 16.0,
+                y: 0.0,
+            },
+            RenderObject {
+                id: "world-label:11:text:6262".to_string(),
+                layer: 39,
+                x: 8.0,
+                y: 16.0,
+            },
+            RenderObject {
+                id: "world-label:12:text:6363".to_string(),
+                layer: 39,
+                x: 24.0,
+                y: 8.0,
+            },
+            RenderObject {
+                id: "world-label:13:text:6464".to_string(),
+                layer: 39,
+                x: 40.0,
+                y: 16.0,
+            },
+            RenderObject {
+                id: "marker:runtime-command-build-target:1".to_string(),
+                layer: 29,
+                x: 8.0,
+                y: 8.0,
+            },
+            RenderObject {
+                id: "marker:runtime-command-position-target:2".to_string(),
+                layer: 29,
+                x: 16.0,
+                y: 8.0,
+            },
+            RenderObject {
+                id: "marker:runtime-command-unit-target:3".to_string(),
+                layer: 29,
+                x: 24.0,
+                y: 8.0,
+            },
+            RenderObject {
+                id: "marker:runtime-command-selected-unit:4".to_string(),
+                layer: 29,
+                x: 8.0,
+                y: 8.0,
+            },
+            RenderObject {
+                id: "marker:runtime-command-building:5".to_string(),
+                layer: 29,
+                x: 32.0,
+                y: 8.0,
+            },
+            RenderObject {
+                id: "marker:runtime-unit-assembler-progress:1".to_string(),
+                layer: 28,
+                x: 8.0,
+                y: 16.0,
+            },
+            RenderObject {
+                id: "marker:runtime-unit-assembler-progress:2".to_string(),
+                layer: 28,
+                x: 24.0,
+                y: 16.0,
+            },
+            RenderObject {
+                id: "marker:runtime-unit-assembler-command:3".to_string(),
+                layer: 28,
+                x: 16.0,
+                y: 16.0,
+            },
+            RenderObject {
+                id: "marker:runtime-unit-block-spawn:1".to_string(),
+                layer: 28,
+                x: 8.0,
+                y: 24.0,
+            },
+            RenderObject {
+                id: "marker:runtime-landing-pad-landed:2".to_string(),
+                layer: 28,
+                x: 16.0,
+                y: 24.0,
+            },
+            RenderObject {
+                id: "marker:runtime-assembler-unit-spawned:3".to_string(),
+                layer: 28,
+                x: 24.0,
+                y: 24.0,
+            },
+            RenderObject {
+                id: "marker:text:runtime-ping:12:text:70696e67".to_string(),
+                layer: 31,
+                x: 40.0,
+                y: 48.0,
+            },
+            RenderObject {
+                id: "marker:text:runtime-ping:9:text:6f6c64".to_string(),
+                layer: 31,
+                x: 24.0,
+                y: 16.0,
+            },
+        ];
+        objects.extend(runtime_command_rect_objects(
+            "runtime-command-rect",
+            40.0,
+            48.0,
+            64.0,
+            72.0,
+        ));
+        objects.extend(runtime_command_rect_objects(
+            "runtime-command-target-rect",
+            8.0,
+            40.0,
+            32.0,
+            56.0,
+        ));
+        objects.extend(runtime_command_rect_objects(
+            "runtime-break-rect",
+            16.0,
+            64.0,
+            40.0,
+            80.0,
+        ));
+        objects.extend(runtime_unit_assembler_area_objects(
+            "tank-assembler",
+            30,
+            40,
+            216.0,
+            280.0,
+            256.0,
+            320.0,
+        ));
+        objects.extend([
+            RenderObject {
+                id: "marker:runtime-config-rollback:1:2:string".to_string(),
+                layer: 24,
+                x: 8.0,
+                y: 8.0,
+            },
+            RenderObject {
+                id: "marker:runtime-config:2:2:string".to_string(),
+                layer: 24,
+                x: 16.0,
+                y: 16.0,
+            },
+            RenderObject {
+                id: "terrain:runtime-deconstruct:17:18".to_string(),
+                layer: 16,
+                x: 136.0,
+                y: 144.0,
+            },
+            RenderObject {
+                id: "plan:runtime-place:0:4:4".to_string(),
+                layer: 20,
+                x: 32.0,
+                y: 32.0,
+            },
+        ]);
+
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 64.0,
+                height: 64.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: objects.clone(),
+        };
+        let mut reordered_scene = scene.clone();
+        reordered_scene.objects.reverse();
+
+        let world_labels = runtime_world_label_minimap_tiles(&scene, 80, 60, 3);
+        let reordered_world_labels = runtime_world_label_minimap_tiles(&reordered_scene, 80, 60, 3);
+        assert_eq!(world_labels, reordered_world_labels);
+        assert_eq!(world_labels, vec![(2, 0), (3, 1), (1, 2)]);
+
+        let command_tiles = runtime_command_minimap_tiles(&scene, 80, 60, 3);
+        let reordered_command_tiles = runtime_command_minimap_tiles(&reordered_scene, 80, 60, 3);
+        assert_eq!(command_tiles, reordered_command_tiles);
+        assert_eq!(command_tiles, vec![(1, 1), (2, 1), (3, 1)]);
+
+        let unit_assembler_tiles = runtime_unit_assembler_minimap_tiles(&scene, 80, 60, 2);
+        let reordered_unit_assembler_tiles =
+            runtime_unit_assembler_minimap_tiles(&reordered_scene, 80, 60, 2);
+        assert_eq!(unit_assembler_tiles, reordered_unit_assembler_tiles);
+        assert_eq!(unit_assembler_tiles, vec![(1, 2), (3, 2)]);
+
+        let tile_action_tiles = runtime_tile_action_minimap_tiles(&scene, 80, 60, 2);
+        let reordered_tile_action_tiles =
+            runtime_tile_action_minimap_tiles(&reordered_scene, 80, 60, 2);
+        assert_eq!(tile_action_tiles, reordered_tile_action_tiles);
+        assert_eq!(tile_action_tiles, vec![(1, 3), (2, 3)]);
+
+        let command_rects = runtime_command_minimap_rects(&scene, 80, 60, 2);
+        let reordered_command_rects = runtime_command_minimap_rects(&reordered_scene, 80, 60, 2);
+        assert_eq!(command_rects, reordered_command_rects);
+        assert_eq!(
+            command_rects,
+            vec![
+                WindowMinimapCommandRect {
+                    origin_x: 5,
+                    origin_y: 6,
+                    width: 3,
+                    height: 3,
+                    kind: WindowMinimapCommandRectKind::Selection,
+                },
+                WindowMinimapCommandRect {
+                    origin_x: 1,
+                    origin_y: 5,
+                    width: 3,
+                    height: 2,
+                    kind: WindowMinimapCommandRectKind::Target,
+                },
+            ]
+        );
+
+        let break_rects = runtime_break_minimap_rects(&scene, 80, 60, 1);
+        let reordered_break_rects = runtime_break_minimap_rects(&reordered_scene, 80, 60, 1);
+        assert_eq!(break_rects, reordered_break_rects);
+        assert_eq!(
+            break_rects,
+            vec![WindowMinimapBreakRect {
+                origin_x: 2,
+                origin_y: 8,
+                width: 3,
+                height: 2,
+            }]
+        );
+
+        let unit_assembler_rects = runtime_unit_assembler_minimap_rects(&scene, 80, 60, 1);
+        let reordered_unit_assembler_rects =
+            runtime_unit_assembler_minimap_rects(&reordered_scene, 80, 60, 1);
+        assert_eq!(unit_assembler_rects, reordered_unit_assembler_rects);
+        assert_eq!(
+            unit_assembler_rects,
+            vec![WindowMinimapUnitAssemblerRect {
+                origin_x: 27,
+                origin_y: 35,
+                width: 5,
+                height: 5,
+            }]
+        );
+
+        assert_eq!(runtime_ping_minimap_tile(&scene, 80, 60), Some((5, 6)));
+        assert_eq!(
+            runtime_ping_minimap_tile(&reordered_scene, 80, 60),
+            Some((5, 6))
+        );
+    }
+
+    #[test]
+    fn collect_stable_minimap_overlay_tiles_remains_deterministic() {
+        let candidates = vec![
+            StableMinimapOverlayTileCandidate {
+                priority: 2,
+                tile: (4, 4),
+                kind: WindowMinimapRuntimeOverlayKind::Place,
+                id: "plan:runtime-place:3".to_string(),
+            },
+            StableMinimapOverlayTileCandidate {
+                priority: 0,
+                tile: (1, 1),
+                kind: WindowMinimapRuntimeOverlayKind::ConfigAlert,
+                id: "marker:runtime-config-rollback:b".to_string(),
+            },
+            StableMinimapOverlayTileCandidate {
+                priority: 0,
+                tile: (1, 1),
+                kind: WindowMinimapRuntimeOverlayKind::ConfigAlert,
+                id: "marker:runtime-config-rollback:a".to_string(),
+            },
+            StableMinimapOverlayTileCandidate {
+                priority: 1,
+                tile: (2, 2),
+                kind: WindowMinimapRuntimeOverlayKind::Config,
+                id: "marker:runtime-config:2".to_string(),
+            },
+            StableMinimapOverlayTileCandidate {
+                priority: 1,
+                tile: (3, 2),
+                kind: WindowMinimapRuntimeOverlayKind::Break,
+                id: "terrain:runtime-deconstruct:3".to_string(),
+            },
+        ];
+        let mut reversed = candidates.clone();
+        reversed.reverse();
+
+        let tiles = collect_stable_minimap_overlay_tiles(candidates, 3);
+        let reversed_tiles = collect_stable_minimap_overlay_tiles(reversed, 3);
+
+        assert_eq!(tiles, reversed_tiles);
+        assert_eq!(
+            tiles,
+            vec![
+                WindowMinimapRuntimeOverlayTile {
+                    tile: (1, 1),
+                    kind: WindowMinimapRuntimeOverlayKind::ConfigAlert,
+                },
+                WindowMinimapRuntimeOverlayTile {
+                    tile: (2, 2),
+                    kind: WindowMinimapRuntimeOverlayKind::Config,
+                },
+                WindowMinimapRuntimeOverlayTile {
+                    tile: (3, 2),
+                    kind: WindowMinimapRuntimeOverlayKind::Break,
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn fit_window_minimap_size_rejects_small_bounds_and_caps_scale() {
         assert_eq!(fit_window_minimap_size(0, 24, 128, 128), None);
         assert_eq!(fit_window_minimap_size(24, 0, 128, 128), None);
         assert_eq!(fit_window_minimap_size(24, 24, 11, 128), None);
         assert_eq!(fit_window_minimap_size(24, 24, 128, 11), None);
-        assert_eq!(fit_window_minimap_size(100, 50, 1000, 1000), Some((400, 200)));
+        assert_eq!(
+            fit_window_minimap_size(100, 50, 1000, 1000),
+            Some((400, 200))
+        );
     }
 
     #[test]
