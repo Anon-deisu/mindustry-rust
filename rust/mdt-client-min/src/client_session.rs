@@ -9363,6 +9363,8 @@ impl ClientSession {
                 value: player_id,
             },
         ));
+        self.state
+            .record_remove_resource_delta_entity_by_id(Some(player_id));
         remove_entity_projection_for_entity_id(&mut self.state, player_id);
         if Some(player_id) != self.state.world_player_id {
             return false;
@@ -9627,6 +9629,45 @@ impl ClientSession {
         self.state.rules_projection = Default::default();
         self.state.objectives_projection = Default::default();
         self.state.clear_runtime_ui_transients_for_world_reload();
+        self.state.received_payload_dropped_count = 0;
+        self.state.last_payload_dropped = None;
+        self.state.received_picked_build_payload_count = 0;
+        self.state.last_picked_build_payload = None;
+        self.state.received_picked_unit_payload_count = 0;
+        self.state.last_picked_unit_payload = None;
+        self.state.received_destroy_payload_count = 0;
+        self.state.last_destroy_payload = None;
+        self.state.payload_lifecycle_projection = Default::default();
+        self.state.received_unit_entered_payload_count = 0;
+        self.state.last_unit_entered_payload = None;
+        self.state.received_building_control_select_count = 0;
+        self.state.last_building_control_select_build_pos = None;
+        self.state.received_unit_control_count = 0;
+        self.state.last_unit_control_target = None;
+        self.state.received_unit_building_control_select_count = 0;
+        self.state.last_unit_building_control_select_target = None;
+        self.state.last_unit_building_control_select_build_pos = None;
+        self.state.received_command_building_count = 0;
+        self.state.last_command_building_count = 0;
+        self.state.last_command_building_first_build_pos = None;
+        self.state.last_command_building_x_bits = None;
+        self.state.last_command_building_y_bits = None;
+        self.state.received_command_units_count = 0;
+        self.state.last_command_units_count = 0;
+        self.state.last_command_units_first_unit_id = None;
+        self.state.last_command_units_build_target = None;
+        self.state.last_command_units_unit_target = None;
+        self.state.last_command_units_x_bits = None;
+        self.state.last_command_units_y_bits = None;
+        self.state.last_command_units_queue = None;
+        self.state.last_command_units_final_batch = None;
+        self.state.received_request_build_payload_count = 0;
+        self.state.last_request_build_payload_build_pos = None;
+        self.state.received_request_drop_payload_count = 0;
+        self.state.last_request_drop_payload_x_bits = None;
+        self.state.last_request_drop_payload_y_bits = None;
+        self.state.received_request_unit_payload_count = 0;
+        self.state.last_request_unit_payload_target = None;
         self.state.resource_delta_projection = Default::default();
         self.state.last_effect_data_business_hint = None;
         self.state.last_effect_business_projection = None;
@@ -9657,6 +9698,8 @@ impl ClientSession {
         self.state.last_deconstruct_finish_block_id = None;
         self.state.last_deconstruct_finish_removed_local_plan = false;
         self.state.builder_queue_projection.clear_for_world_reload();
+        self.state.client_plan_snapshot_projection = Default::default();
+        self.state.client_plan_snapshot_received_projection = Default::default();
         self.state.last_build_health_update_pair_count = 0;
         self.state.last_build_health_update_first_build_pos = None;
         self.state.last_build_health_update_first_health_bits = None;
@@ -48672,6 +48715,58 @@ mod tests {
     }
 
     #[test]
+    fn player_disconnect_packet_clears_resource_delta_and_snapshot_projection_for_local_player() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+
+        session.ingest_packet_bytes(&begin_packet).unwrap();
+        for chunk in chunk_packets {
+            session.ingest_packet_bytes(&chunk).unwrap();
+        }
+
+        let local_player_id = session.state().world_player_id.unwrap();
+        session.state.received_entity_snapshot_count = 1;
+        session.state.apply_entity_snapshot_payload_apply_projection(
+            local_player_id,
+            12,
+            1,
+            None,
+            None,
+        );
+        session.state.resource_delta_projection.entity_item_stack_by_entity_id.insert(
+            local_player_id,
+            crate::session_state::ResourceUnitItemStack {
+                item_id: Some(3),
+                amount: 7,
+            },
+        );
+
+        let packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "playerDisconnect")
+            .unwrap()
+            .packet_id;
+        let packet = encode_packet(packet_id, &local_player_id.to_be_bytes(), false).unwrap();
+
+        session.ingest_packet_bytes(&packet).unwrap();
+
+        assert!(!session
+            .state()
+            .entity_snapshot_payload_apply_projection
+            .by_entity_id
+            .contains_key(&local_player_id));
+        assert!(!session
+            .state()
+            .resource_delta_projection
+            .entity_item_stack_by_entity_id
+            .contains_key(&local_player_id));
+    }
+
+    #[test]
     fn player_disconnect_packet_for_other_player_keeps_local_sync() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
@@ -51190,6 +51285,188 @@ mod tests {
         assert_eq!(session.state().last_world_label_message, None);
         assert_eq!(session.state().received_create_marker_count, 0);
         assert_eq!(session.state().last_marker_control_name, None);
+    }
+
+    #[test]
+    fn world_data_begin_clears_payload_and_control_reload_state() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+
+        session.ingest_packet_bytes(&begin_packet).unwrap();
+        for chunk in &chunk_packets {
+            session.ingest_packet_bytes(chunk).unwrap();
+        }
+
+        let unit = crate::session_state::UnitRefProjection { kind: 2, value: 41 };
+        let target = crate::session_state::UnitRefProjection { kind: 2, value: 42 };
+        session.state.received_payload_dropped_count = 3;
+        session.state.last_payload_dropped = Some(crate::session_state::PayloadDroppedProjection {
+            unit: Some(unit),
+            x_bits: 1.5f32.to_bits(),
+            y_bits: (-2.5f32).to_bits(),
+        });
+        session.state.received_picked_build_payload_count = 4;
+        session.state.last_picked_build_payload =
+            Some(crate::session_state::PickedBuildPayloadProjection {
+                unit: Some(unit),
+                build_pos: Some(pack_point2(7, 8)),
+                on_ground: true,
+            });
+        session.state.received_picked_unit_payload_count = 5;
+        session.state.last_picked_unit_payload =
+            Some(crate::session_state::PickedUnitPayloadProjection {
+                unit: Some(unit),
+                target: Some(target),
+            });
+        session.state.received_destroy_payload_count = 6;
+        session.state.last_destroy_payload = Some(crate::session_state::DestroyPayloadProjection {
+            build_pos: Some(pack_point2(9, 10)),
+        });
+        session.state.payload_lifecycle_projection.by_carrier.insert(
+            unit,
+            crate::session_state::PayloadLifecycleCarrierProjection {
+                carrier: unit,
+                target_unit: Some(target),
+                target_build: Some(pack_point2(11, 12)),
+                drop_tile: Some(pack_point2(13, 14)),
+                on_ground: Some(false),
+                removed_target_unit: false,
+                removed_target_build: false,
+                removed_carrier: false,
+            },
+        );
+        session.state.received_unit_entered_payload_count = 7;
+        session.state.last_unit_entered_payload =
+            Some(crate::session_state::UnitEnteredPayloadProjection {
+                unit: Some(unit),
+                build_pos: Some(pack_point2(15, 16)),
+            });
+        session.state.received_building_control_select_count = 8;
+        session.state.last_building_control_select_build_pos = Some(pack_point2(17, 18));
+        session.state.received_unit_control_count = 9;
+        session.state.last_unit_control_target = Some(target);
+        session.state.received_unit_building_control_select_count = 10;
+        session.state.last_unit_building_control_select_target = Some(target);
+        session.state.last_unit_building_control_select_build_pos = Some(pack_point2(19, 20));
+        session.state.received_command_building_count = 11;
+        session.state.last_command_building_count = 2;
+        session.state.last_command_building_first_build_pos = Some(pack_point2(21, 22));
+        session.state.last_command_building_x_bits = Some(4.5f32.to_bits());
+        session.state.last_command_building_y_bits = Some((-5.5f32).to_bits());
+        session.state.received_command_units_count = 12;
+        session.state.last_command_units_count = 3;
+        session.state.last_command_units_first_unit_id = Some(77);
+        session.state.last_command_units_build_target = Some(pack_point2(23, 24));
+        session.state.last_command_units_unit_target = Some(target);
+        session.state.last_command_units_x_bits = Some(6.5f32.to_bits());
+        session.state.last_command_units_y_bits = Some((-7.5f32).to_bits());
+        session.state.last_command_units_queue = Some(true);
+        session.state.last_command_units_final_batch = Some(false);
+        session.state.received_request_build_payload_count = 13;
+        session.state.last_request_build_payload_build_pos = Some(pack_point2(25, 26));
+        session.state.received_request_drop_payload_count = 14;
+        session.state.last_request_drop_payload_x_bits = Some(8.5f32.to_bits());
+        session.state.last_request_drop_payload_y_bits = Some((-9.5f32).to_bits());
+        session.state.received_request_unit_payload_count = 15;
+        session.state.last_request_unit_payload_target = Some(target);
+        session.state.client_plan_snapshot_projection =
+            crate::session_state::RemotePlanSnapshotProjection {
+                received_count: 1,
+                last_player_id: None,
+                last_group_id: Some(91),
+                last_plan_count: Some(1),
+                last_first_plan: Some(crate::session_state::RemotePlanSnapshotFirstPlanProjection {
+                    x: 31,
+                    y: 32,
+                    breaking: false,
+                    block_id: Some(33),
+                    rotation: 2,
+                    config: mdt_typeio::TypeIoObject::Null,
+                }),
+            };
+        session.state.client_plan_snapshot_received_projection =
+            crate::session_state::RemotePlanSnapshotProjection {
+                received_count: 2,
+                last_player_id: Some(44),
+                last_group_id: Some(92),
+                last_plan_count: Some(1),
+                last_first_plan: Some(crate::session_state::RemotePlanSnapshotFirstPlanProjection {
+                    x: 34,
+                    y: 35,
+                    breaking: true,
+                    block_id: None,
+                    rotation: 0,
+                    config: mdt_typeio::TypeIoObject::Bool(true),
+                }),
+            };
+
+        let world_data_begin_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "worldDataBegin")
+            .unwrap()
+            .packet_id;
+        let world_data_begin = encode_packet(world_data_begin_packet_id, &[], false).unwrap();
+
+        session.ingest_packet_bytes(&world_data_begin).unwrap();
+
+        assert_eq!(session.state().received_payload_dropped_count, 0);
+        assert_eq!(session.state().last_payload_dropped, None);
+        assert_eq!(session.state().received_picked_build_payload_count, 0);
+        assert_eq!(session.state().last_picked_build_payload, None);
+        assert_eq!(session.state().received_picked_unit_payload_count, 0);
+        assert_eq!(session.state().last_picked_unit_payload, None);
+        assert_eq!(session.state().received_destroy_payload_count, 0);
+        assert_eq!(session.state().last_destroy_payload, None);
+        assert!(session
+            .state()
+            .payload_lifecycle_projection
+            .by_carrier
+            .is_empty());
+        assert_eq!(session.state().received_unit_entered_payload_count, 0);
+        assert_eq!(session.state().last_unit_entered_payload, None);
+        assert_eq!(session.state().received_building_control_select_count, 0);
+        assert_eq!(session.state().last_building_control_select_build_pos, None);
+        assert_eq!(session.state().received_unit_control_count, 0);
+        assert_eq!(session.state().last_unit_control_target, None);
+        assert_eq!(session.state().received_unit_building_control_select_count, 0);
+        assert_eq!(session.state().last_unit_building_control_select_target, None);
+        assert_eq!(
+            session.state().last_unit_building_control_select_build_pos,
+            None
+        );
+        assert_eq!(session.state().received_command_building_count, 0);
+        assert_eq!(session.state().last_command_building_count, 0);
+        assert_eq!(session.state().last_command_building_first_build_pos, None);
+        assert_eq!(session.state().last_command_building_x_bits, None);
+        assert_eq!(session.state().last_command_building_y_bits, None);
+        assert_eq!(session.state().received_command_units_count, 0);
+        assert_eq!(session.state().last_command_units_count, 0);
+        assert_eq!(session.state().last_command_units_first_unit_id, None);
+        assert_eq!(session.state().last_command_units_build_target, None);
+        assert_eq!(session.state().last_command_units_unit_target, None);
+        assert_eq!(session.state().last_command_units_x_bits, None);
+        assert_eq!(session.state().last_command_units_y_bits, None);
+        assert_eq!(session.state().last_command_units_queue, None);
+        assert_eq!(session.state().last_command_units_final_batch, None);
+        assert_eq!(session.state().received_request_build_payload_count, 0);
+        assert_eq!(session.state().last_request_build_payload_build_pos, None);
+        assert_eq!(session.state().received_request_drop_payload_count, 0);
+        assert_eq!(session.state().last_request_drop_payload_x_bits, None);
+        assert_eq!(session.state().last_request_drop_payload_y_bits, None);
+        assert_eq!(session.state().received_request_unit_payload_count, 0);
+        assert_eq!(session.state().last_request_unit_payload_target, None);
+        assert_eq!(
+            session.state().client_plan_snapshot_projection,
+            crate::session_state::RemotePlanSnapshotProjection::default()
+        );
+        assert_eq!(
+            session.state().client_plan_snapshot_received_projection,
+            crate::session_state::RemotePlanSnapshotProjection::default()
+        );
     }
 
     #[test]
