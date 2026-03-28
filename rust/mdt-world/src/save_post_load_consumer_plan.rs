@@ -344,10 +344,13 @@ fn contract_issue_blocks_world_shell(issue: SavePostLoadWorldIssue) -> bool {
             | SavePostLoadWorldIssue::BuildingCenterReferenceMismatch
             | SavePostLoadWorldIssue::TeamPlanOverlayMismatch
             | SavePostLoadWorldIssue::TeamPlanOutOfBounds
+            | SavePostLoadWorldIssue::DuplicateTeamPlanGroupIds
             | SavePostLoadWorldIssue::MarkerRegionMismatch
             | SavePostLoadWorldIssue::MarkerOutOfBounds
+            | SavePostLoadWorldIssue::DuplicateMarkerIds
             | SavePostLoadWorldIssue::StaticFogDimensionMismatch
             | SavePostLoadWorldIssue::StaticFogCoverageMismatch
+            | SavePostLoadWorldIssue::DuplicateCustomChunkNames
             | SavePostLoadWorldIssue::WorldEntityCountMismatch
             | SavePostLoadWorldIssue::DuplicateWorldEntityIds
             | SavePostLoadWorldIssue::EntitySummaryMismatch
@@ -370,10 +373,16 @@ fn contract_issue_blocks_stage(
             SavePostLoadWorldIssue::TeamPlanOutOfBounds,
             SavePostLoadConsumerStageKind::TeamPlans,
         ) | (
+            SavePostLoadWorldIssue::DuplicateTeamPlanGroupIds,
+            SavePostLoadConsumerStageKind::TeamPlans,
+        ) | (
             SavePostLoadWorldIssue::MarkerRegionMismatch,
             SavePostLoadConsumerStageKind::Markers,
         ) | (
             SavePostLoadWorldIssue::MarkerOutOfBounds,
+            SavePostLoadConsumerStageKind::Markers,
+        ) | (
+            SavePostLoadWorldIssue::DuplicateMarkerIds,
             SavePostLoadConsumerStageKind::Markers,
         ) | (
             SavePostLoadWorldIssue::StaticFogDimensionMismatch,
@@ -381,6 +390,9 @@ fn contract_issue_blocks_stage(
         ) | (
             SavePostLoadWorldIssue::StaticFogCoverageMismatch,
             SavePostLoadConsumerStageKind::StaticFog,
+        ) | (
+            SavePostLoadWorldIssue::DuplicateCustomChunkNames,
+            SavePostLoadConsumerStageKind::CustomChunks,
         ) | (
             SavePostLoadWorldIssue::WorldEntityCountMismatch,
             SavePostLoadConsumerStageKind::LoadableEntities,
@@ -801,6 +813,60 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn consumer_runtime_helper_blocks_duplicate_team_plan_group_ids_marker_ids_and_custom_chunk_names(
+    ) {
+        let mut observation = test_observation();
+        observation
+            .team_plan_groups
+            .push(observation.team_plan_groups[0].clone());
+        observation.markers.push(observation.markers[0].clone());
+        observation
+            .custom_chunks
+            .push(observation.custom_chunks[0].clone());
+
+        let helper = observation.consumer_runtime_helper();
+
+        assert!(!helper.can_seed_runtime_apply);
+        assert!(!helper.world_shell_ready);
+        assert!(helper.has_blocked_stages());
+        assert!(helper
+            .stages
+            .iter()
+            .any(|stage| stage.kind == SavePostLoadConsumerStageKind::WorldShell
+                && stage.disposition == SavePostLoadConsumerRuntimeDisposition::Blocked));
+        assert!(helper
+            .stages
+            .iter()
+            .any(|stage| stage.kind == SavePostLoadConsumerStageKind::TeamPlans
+                && stage.disposition == SavePostLoadConsumerRuntimeDisposition::Blocked
+                && stage
+                    .blockers
+                    .contains(&SavePostLoadConsumerBlocker::ContractIssue(
+                        SavePostLoadWorldIssue::DuplicateTeamPlanGroupIds,
+                    ))));
+        assert!(helper
+            .stages
+            .iter()
+            .any(|stage| stage.kind == SavePostLoadConsumerStageKind::Markers
+                && stage.disposition == SavePostLoadConsumerRuntimeDisposition::Blocked
+                && stage
+                    .blockers
+                    .contains(&SavePostLoadConsumerBlocker::ContractIssue(
+                        SavePostLoadWorldIssue::DuplicateMarkerIds,
+                    ))));
+        assert!(helper
+            .stages
+            .iter()
+            .any(|stage| stage.kind == SavePostLoadConsumerStageKind::CustomChunks
+                && stage.disposition == SavePostLoadConsumerRuntimeDisposition::Blocked
+                && stage
+                    .blockers
+                    .contains(&SavePostLoadConsumerBlocker::ContractIssue(
+                        SavePostLoadWorldIssue::DuplicateCustomChunkNames,
+                    ))));
     }
 
     fn test_observation() -> SavePostLoadWorldObservation {
