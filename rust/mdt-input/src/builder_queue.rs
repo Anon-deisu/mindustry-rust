@@ -909,6 +909,8 @@ impl BuilderQueueStateMachine {
         } else if action == BuilderQueueHeadExecutionAction::RemovedInvalidHead {
             self.last_transition = Some(BuilderQueueTransition::RemovedInvalidHead);
         }
+        self.last_removed_local_plan = false;
+        self.last_orphan_authoritative = false;
         self.last_skip_reason = None;
         self.last_validation_removal_reasons.clear();
         self.last_front_promotion = (action
@@ -4258,6 +4260,65 @@ mod tests {
             queue.last_transition,
             Some(BuilderQueueTransition::RemovedInvalidHead)
         );
+    }
+
+    #[test]
+    fn apply_head_execution_observation_clears_previous_outcome_flags() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 21,
+                y: 21,
+                breaking: false,
+                block_id: Some(210),
+                rotation: 0,
+            },
+            BuilderQueueEntryObservation {
+                x: 22,
+                y: 22,
+                breaking: false,
+                block_id: Some(220),
+                rotation: 1,
+            },
+        ]);
+
+        queue.mark_finish(22, 22, false, true);
+        assert!(queue.last_removed_local_plan);
+        assert!(!queue.last_orphan_authoritative);
+
+        let result = queue
+            .apply_head_execution_observation(BuilderQueueHeadExecutionObservation::PendingBegin);
+
+        assert_eq!(result.action, BuilderQueueHeadExecutionAction::BeginPlace);
+        assert!(!queue.last_removed_local_plan);
+        assert!(!queue.last_orphan_authoritative);
+        assert_eq!(queue.profile().last_outcome_label(), "none");
+        assert!(queue.profile().summary_label().contains("outcome=none"));
+
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([BuilderQueueEntryObservation {
+            x: 31,
+            y: 31,
+            breaking: false,
+            block_id: Some(310),
+            rotation: 2,
+        }]);
+
+        queue.mark_reject(99, 99, false, false);
+        assert!(!queue.last_removed_local_plan);
+        assert!(queue.last_orphan_authoritative);
+
+        let result = queue
+            .apply_head_execution_observation(BuilderQueueHeadExecutionObservation::InvalidPlan);
+
+        assert_eq!(
+            result.action,
+            BuilderQueueHeadExecutionAction::RemovedInvalidHead
+        );
+        assert!(!queue.last_removed_local_plan);
+        assert!(!queue.last_orphan_authoritative);
+        assert_eq!(queue.profile().last_outcome_label(), "none");
+        assert!(queue.profile().summary_label().contains("outcome=none"));
     }
 
     #[test]
