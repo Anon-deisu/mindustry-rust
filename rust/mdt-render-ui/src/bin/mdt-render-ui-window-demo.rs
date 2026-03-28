@@ -84,11 +84,10 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<ParseOutcome, String
                     .map_err(|err| err.to_string())?;
             }
             "--fps" => {
-                fps = pending
-                    .next()
-                    .ok_or("missing value for --fps")?
-                    .parse::<u32>()
-                    .map_err(|err| err.to_string())?;
+                fps = parse_positive_u32(
+                    "--fps",
+                    &pending.next().ok_or("missing value for --fps")?,
+                )?;
             }
             "--tile-pixels" => {
                 tile_pixels = pending
@@ -168,6 +167,16 @@ fn parse_dimensions(value: &str) -> Result<(usize, usize), String> {
 fn parse_positive_usize(flag: &str, value: &str) -> Result<usize, String> {
     let parsed = value
         .parse::<usize>()
+        .map_err(|err| format!("invalid {flag}: {err}"))?;
+    if parsed == 0 {
+        return Err(format!("invalid {flag}: must be greater than 0"));
+    }
+    Ok(parsed)
+}
+
+fn parse_positive_u32(flag: &str, value: &str) -> Result<u32, String> {
+    let parsed = value
+        .parse::<u32>()
         .map_err(|err| format!("invalid {flag}: {err}"))?;
     if parsed == 0 {
         return Err(format!("invalid {flag}: must be greater than 0"));
@@ -302,5 +311,22 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.contains("invalid --player-x: must be finite"));
+    }
+
+    #[test]
+    fn parse_args_rejects_zero_fps() {
+        let err = parse_args(
+            vec![
+                "--fps".to_string(),
+                "0".to_string(),
+                "--player-x".to_string(),
+                "1".to_string(),
+                "--player-y".to_string(),
+                "2".to_string(),
+            ]
+            .into_iter(),
+        )
+        .unwrap_err();
+        assert!(err.contains("invalid --fps: must be greater than 0"));
     }
 }

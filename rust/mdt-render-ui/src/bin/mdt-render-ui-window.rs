@@ -107,7 +107,7 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<ParseOutcome, String
                 )?);
             }
             "--frame-ms" => {
-                frame_time = Duration::from_millis(parse_u64(
+                frame_time = Duration::from_millis(parse_positive_u64(
                     "--frame-ms",
                     &pending.next().ok_or("missing value for --frame-ms")?,
                 )?);
@@ -185,6 +185,14 @@ fn parse_u64(flag: &str, value: &str) -> Result<u64, String> {
     value
         .parse::<u64>()
         .map_err(|err| format!("invalid {flag}: {err}"))
+}
+
+fn parse_positive_u64(flag: &str, value: &str) -> Result<u64, String> {
+    let parsed = parse_u64(flag, value)?;
+    if parsed == 0 {
+        return Err(format!("invalid {flag}: must be greater than 0"));
+    }
+    Ok(parsed)
 }
 
 fn parse_positive_usize(flag: &str, value: &str) -> Result<usize, String> {
@@ -321,5 +329,22 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.contains("invalid --player-x: must be finite"));
+    }
+
+    #[test]
+    fn parse_args_rejects_zero_frame_ms() {
+        let err = parse_args(
+            vec![
+                "--frame-ms".to_string(),
+                "0".to_string(),
+                "--player-x".to_string(),
+                "1".to_string(),
+                "--player-y".to_string(),
+                "2".to_string(),
+            ]
+            .into_iter(),
+        )
+        .unwrap_err();
+        assert!(err.contains("invalid --frame-ms: must be greater than 0"));
     }
 }
