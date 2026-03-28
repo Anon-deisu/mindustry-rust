@@ -44,6 +44,7 @@ impl StatelessIntentMapper {
         if let Some(snapshot) = snapshots.last() {
             self.map_snapshot(snapshot)
         } else {
+            self.active_actions_prev.clear();
             Vec::new()
         }
     }
@@ -503,6 +504,36 @@ mod tests {
         );
 
         assert!(mapper.map_latest_snapshot(&[]).is_empty());
+    }
+
+    #[test]
+    fn map_latest_snapshot_empty_batch_clears_action_history() {
+        let mut mapper = StatelessIntentMapper::default();
+        let batch = vec![snapshot((0.0, 0.0), (0.0, 0.0), &[BinaryAction::Fire])];
+
+        assert_eq!(
+            mapper.map_latest_snapshot(&batch),
+            vec![
+                PlayerIntent::SetMoveAxis { x: 0.0, y: 0.0 },
+                PlayerIntent::SetAimAxis { x: 0.0, y: 0.0 },
+                PlayerIntent::SetMiningTile { tile: None },
+                PlayerIntent::SetBuilding { building: false },
+                PlayerIntent::ActionPressed(BinaryAction::Fire),
+            ]
+        );
+
+        assert!(mapper.map_latest_snapshot(&[]).is_empty());
+
+        assert_eq!(
+            mapper.map_latest_snapshot(&batch),
+            vec![
+                PlayerIntent::SetMoveAxis { x: 0.0, y: 0.0 },
+                PlayerIntent::SetAimAxis { x: 0.0, y: 0.0 },
+                PlayerIntent::SetMiningTile { tile: None },
+                PlayerIntent::SetBuilding { building: false },
+                PlayerIntent::ActionPressed(BinaryAction::Fire),
+            ]
+        );
     }
 
     #[test]
