@@ -506,7 +506,6 @@ fn project_marker_objects(marker: &MarkerEntry) -> Vec<RenderObject> {
     let mut objects = Vec::with_capacity(2);
     let marker_kind = marker_kind_id_segment(marker);
     let start_world = marker_world_position(marker);
-    let start_tile = marker.marker.tile_coords();
     if let Some((x, y)) = start_world {
         let marker_id = marker_text_payload(marker)
             .filter(|text| !text.is_empty())
@@ -524,11 +523,7 @@ fn project_marker_objects(marker: &MarkerEntry) -> Vec<RenderObject> {
 
     if let MarkerModel::Line(line) = &marker.marker {
         if let Some((x, y)) = line_marker_end_world_position(line) {
-            let same_tile = match (start_tile, line.end_tile_coords()) {
-                (Some(start_tile), Some(end_tile)) => start_tile == end_tile,
-                _ => false,
-            };
-            if !(same_tile || start_world == Some((x, y))) {
+            if start_world != Some((x, y)) {
                 objects.push(RenderObject {
                     id: format!("marker:{marker_kind}:{}:line-end", marker.id),
                     layer: i32::from(ProjectionLayer::Marker),
@@ -800,9 +795,37 @@ mod tests {
     }
 
     #[test]
-    fn line_marker_dedupes_line_end_when_both_anchors_share_a_tile() {
+    fn line_marker_dedupes_line_end_when_both_anchors_share_world_position() {
         let marker = MarkerEntry {
             id: 78,
+            marker: MarkerModel::Line(LineMarkerModel {
+                class_tag: "Line".to_string(),
+                world: true,
+                minimap: true,
+                autoscale: false,
+                draw_layer_bits: 0,
+                x_bits: 16.0004f32.to_bits(),
+                y_bits: 24.0004f32.to_bits(),
+                end_x_bits: 16.0004f32.to_bits(),
+                end_y_bits: 24.0004f32.to_bits(),
+                stroke_bits: 1.0f32.to_bits(),
+                outline: true,
+                color1: Some("ffd37f".to_string()),
+                color2: Some("ffd37f".to_string()),
+            }),
+        };
+
+        let objects = super::project_marker_objects(&marker);
+
+        assert_eq!(objects.len(), 1);
+        assert_eq!(objects[0].id, "marker:line:78");
+        assert_eq!((objects[0].x, objects[0].y), (16.0004, 24.0004));
+    }
+
+    #[test]
+    fn project_marker_objects_keeps_same_tile_nonzero_line_segments() {
+        let marker = MarkerEntry {
+            id: 79,
             marker: MarkerModel::Line(LineMarkerModel {
                 class_tag: "Line".to_string(),
                 world: true,
@@ -822,9 +845,11 @@ mod tests {
 
         let objects = super::project_marker_objects(&marker);
 
-        assert_eq!(objects.len(), 1);
-        assert_eq!(objects[0].id, "marker:line:78");
+        assert_eq!(objects.len(), 2);
+        assert_eq!(objects[0].id, "marker:line:79");
         assert_eq!((objects[0].x, objects[0].y), (16.0004, 24.0004));
+        assert_eq!(objects[1].id, "marker:line:79:line-end");
+        assert_eq!((objects[1].x, objects[1].y), (16.0007, 24.0007));
     }
 
     #[test]
