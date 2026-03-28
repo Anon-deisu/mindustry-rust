@@ -253,6 +253,7 @@ fn parse_debug_string(value: &str) -> Option<String> {
         match chars.next()? {
             '\\' => parsed.push('\\'),
             '"' => parsed.push('"'),
+            '0' => parsed.push('\0'),
             'n' => parsed.push('\n'),
             'r' => parsed.push('\r'),
             't' => parsed.push('\t'),
@@ -511,5 +512,10 @@ mod tests {
             .map(|update| update.route.key),
             Some("team-Ω".to_string())
         );
+    }
+
+    #[test]
+    fn parse_debug_string_decodes_nul_escape() {
+        assert_eq!(parse_debug_string(r#""a\0b""#), Some("a\0b".to_string()));
     }
 }

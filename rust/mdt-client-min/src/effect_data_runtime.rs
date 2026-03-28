@@ -343,28 +343,31 @@ fn payload_target_content_hint_in_group(object: &TypeIoObject) -> Option<EffectD
         return None;
     };
 
+    let content = values.iter().enumerate().find_map(|(index, value)| {
+        payload_target_content_direct_child_hint(value)
+            .map(|(kind, content_type, content_id)| (kind, content_type, content_id, vec![index]))
+    });
+    let target = values
+        .iter()
+        .enumerate()
+        .find_map(|(index, value)| target_hint_from_match(value, vec![index]));
+
+    if let (Some(content), Some(target)) = (content, target) {
+        return Some(EffectDataBusinessHint::PayloadTargetContent {
+            content_kind: content.0,
+            content_type: content.1,
+            content_id: content.2,
+            content_path: content.3,
+            target,
+        });
+    }
+
     for (index, value) in values.iter().enumerate() {
         if let Some(hint) = payload_target_content_hint_in_group(value) {
             return Some(prepend_payload_target_content_hint_path(hint, index));
         }
     }
-
-    let content = values.iter().enumerate().find_map(|(index, value)| {
-        payload_target_content_direct_child_hint(value)
-            .map(|(kind, content_type, content_id)| (kind, content_type, content_id, vec![index]))
-    })?;
-    let target = values
-        .iter()
-        .enumerate()
-        .find_map(|(index, value)| target_hint_from_match(value, vec![index]))?;
-
-    Some(EffectDataBusinessHint::PayloadTargetContent {
-        content_kind: content.0,
-        content_type: content.1,
-        content_id: content.2,
-        content_path: content.3,
-        target,
-    })
+    None
 }
 
 fn payload_target_content_direct_child_hint(
@@ -847,6 +850,45 @@ mod tests {
 
         assert_eq!(input.contract_name, Some("payload_target_content"));
         assert_eq!(input.primary, None);
+    }
+
+    #[test]
+    fn derive_effect_data_business_input_prefers_shallow_payload_target_content_pair() {
+        let object = TypeIoObject::ObjectArray(vec![
+            TypeIoObject::ObjectArray(vec![
+                TypeIoObject::ContentRaw {
+                    content_type: 1,
+                    content_id: 11,
+                },
+                TypeIoObject::Point2 { x: 1, y: 2 },
+            ]),
+            TypeIoObject::ContentRaw {
+                content_type: 1,
+                content_id: 33,
+            },
+            TypeIoObject::Point2 { x: 4, y: 6 },
+        ]);
+
+        let input =
+            derive_effect_data_business_input(Some(26), Some(&object), Some(5), false, None);
+
+        assert_eq!(
+            input.primary,
+            Some(EffectDataBusinessHint::PayloadTargetContent {
+                content_kind: EffectBusinessContentKind::Content,
+                content_type: 1,
+                content_id: 33,
+                content_path: vec![1],
+                target: EffectDataBusinessTargetHint::PositionHint(
+                    TypeIoEffectPositionHint::Point2 {
+                        x: 4,
+                        y: 6,
+                        path: vec![2],
+                    },
+                ),
+            })
+        );
+        assert_eq!(input.contract_name, Some("payload_target_content"));
     }
 
     #[test]
