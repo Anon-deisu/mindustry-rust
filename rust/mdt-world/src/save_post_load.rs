@@ -45,6 +45,10 @@ impl SavePostLoadWorldObservation {
         unique_match(self.custom_chunks.iter(), |chunk| chunk.name == name)
     }
 
+    pub fn world_entity_chunk(&self, entity_id: i32) -> Option<&crate::SaveEntityChunkObservation> {
+        unique_match(self.world_entity_chunks.iter(), |chunk| chunk.entity_id == entity_id)
+    }
+
     pub fn marker(&self, id: i32) -> Option<&MarkerEntry> {
         unique_match(self.markers.iter(), |marker| marker.id == id)
     }
@@ -101,9 +105,10 @@ impl SavePostLoadWorldObservation {
 #[cfg(test)]
 mod tests {
     use crate::{
-        CustomChunkEntry, MarkerEntry, MarkerModel, ParsedCustomChunk, SaveEntityPostLoadSummary,
-        SaveEntityRemapSummary, SaveMapRegionObservation, SavePostLoadWorldObservation,
-        StaticFogChunk, StaticFogTeam, TeamPlanGroup, UnknownMarkerModel, WorldModel,
+        CustomChunkEntry, MarkerEntry, MarkerModel, ParsedCustomChunk, SaveEntityChunkObservation,
+        SaveEntityPostLoadSummary, SaveEntityRemapSummary, SaveMapRegionObservation,
+        SavePostLoadWorldObservation, StaticFogChunk, StaticFogTeam, TeamPlanGroup,
+        UnknownMarkerModel, WorldModel,
     };
 
     #[test]
@@ -112,8 +117,39 @@ mod tests {
 
         assert!(observation.team_plan_group(7).is_none());
         assert!(observation.custom_chunk("static-fog-data").is_none());
+        assert!(observation.world_entity_chunk(11).is_none());
         assert!(observation.marker(11).is_none());
         assert!(observation.static_fog_chunk().is_none());
+    }
+
+    #[test]
+    fn world_entity_chunk_returns_none_for_duplicate_entity_ids() {
+        let observation = test_observation();
+
+        assert!(observation.world_entity_chunk(11).is_none());
+    }
+
+    #[test]
+    fn world_entity_chunk_resolves_unique_entity_ids() {
+        let observation = SavePostLoadWorldObservation {
+            world_entity_chunks: vec![SaveEntityChunkObservation {
+                chunk_len: 4,
+                chunk_bytes: vec![1, 2, 3, 4],
+                chunk_sha256: "unique-chunk".to_string(),
+                class_id: 7,
+                custom_name: None,
+                entity_id: 42,
+                body_len: 2,
+                body_bytes: vec![5, 6],
+                body_sha256: "unique-body".to_string(),
+            }],
+            ..test_observation()
+        };
+
+        let chunk = observation.world_entity_chunk(42).expect("unique entity chunk");
+        assert_eq!(chunk.entity_id, 42);
+        assert_eq!(chunk.class_id, 7);
+        assert_eq!(chunk.chunk_bytes, vec![1, 2, 3, 4]);
     }
 
     fn test_observation() -> SavePostLoadWorldObservation {
@@ -168,7 +204,30 @@ mod tests {
             team_region_bytes: Vec::new(),
             world_entity_count: 0,
             world_entity_bytes: Vec::new(),
-            world_entity_chunks: Vec::new(),
+            world_entity_chunks: vec![
+                SaveEntityChunkObservation {
+                    chunk_len: 4,
+                    chunk_bytes: vec![1, 2, 3, 4],
+                    chunk_sha256: "duplicate-a".to_string(),
+                    class_id: 7,
+                    custom_name: None,
+                    entity_id: 11,
+                    body_len: 2,
+                    body_bytes: vec![5, 6],
+                    body_sha256: "duplicate-body-a".to_string(),
+                },
+                SaveEntityChunkObservation {
+                    chunk_len: 4,
+                    chunk_bytes: vec![7, 8, 9, 10],
+                    chunk_sha256: "duplicate-b".to_string(),
+                    class_id: 8,
+                    custom_name: None,
+                    entity_id: 11,
+                    body_len: 2,
+                    body_bytes: vec![11, 12],
+                    body_sha256: "duplicate-body-b".to_string(),
+                },
+            ],
             markers: vec![
                 MarkerEntry {
                     id: 11,
