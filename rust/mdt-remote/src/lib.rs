@@ -860,6 +860,13 @@ pub fn validate_remote_manifest(manifest: &RemoteManifest) -> Result<(), RemoteM
 
     validate_wire_spec(&manifest.wire)?;
 
+    if manifest.base_packets.len() > u8::MAX as usize {
+        return Err(RemoteManifestError::InvalidPacketSequence(format!(
+            "base packet count exceeds u8 packet id range: {}",
+            manifest.base_packets.len()
+        )));
+    }
+
     for (index, packet) in manifest.base_packets.iter().enumerate() {
         if packet.id != index as u8 {
             return Err(RemoteManifestError::InvalidPacketSequence(format!(
@@ -869,7 +876,7 @@ pub fn validate_remote_manifest(manifest: &RemoteManifest) -> Result<(), RemoteM
         }
     }
 
-    let remote_id_offset = manifest.base_packets.len() as u8;
+    let remote_id_offset = manifest.base_packets.len();
     for (index, packet) in manifest.remote_packets.iter().enumerate() {
         if packet.remote_index != index {
             return Err(RemoteManifestError::InvalidPacketSequence(format!(
@@ -878,7 +885,15 @@ pub fn validate_remote_manifest(manifest: &RemoteManifest) -> Result<(), RemoteM
             )));
         }
 
-        let expected_packet_id = remote_id_offset + index as u8;
+        let expected_packet_id = remote_id_offset + index;
+        if expected_packet_id > u8::MAX as usize {
+            return Err(RemoteManifestError::InvalidPacketSequence(format!(
+                "remote packet {} has packetId {}, expected packet id exceeds u8 range",
+                packet.packet_class, packet.packet_id
+            )));
+        }
+
+        let expected_packet_id = expected_packet_id as u8;
         if packet.packet_id != expected_packet_id {
             return Err(RemoteManifestError::InvalidPacketSequence(format!(
                 "remote packet {} has packetId {}, expected {}",
@@ -2257,6 +2272,74 @@ mod tests {
         assert_eq!(manifest.base_packets.len(), 4);
         assert_eq!(manifest.remote_packets[0].packet_id, 4);
         assert_eq!(manifest.remote_packets[0].params.len(), 2);
+    }
+
+    #[test]
+    fn rejects_packet_id_overflow_in_base_and_remote_sequences() {
+        let make_manifest = |base_packets: usize, remote_packet_ids: &[u8]| RemoteManifest {
+            schema: REMOTE_MANIFEST_SCHEMA_V1.into(),
+            generator: RemoteGeneratorInfo {
+                source: "test".into(),
+                call_class: "mindustry.gen.Call".into(),
+            },
+            base_packets: (0..base_packets)
+                .map(|id| BasePacketEntry {
+                    id: id as u8,
+                    class_name: format!("mindustry.net.Packets$Base{id}"),
+                })
+                .collect(),
+            remote_packets: remote_packet_ids
+                .iter()
+                .enumerate()
+                .map(|(remote_index, &packet_id)| RemotePacketEntry {
+                    remote_index,
+                    packet_id,
+                    packet_class: format!("mindustry.gen.RemotePacket{remote_index}"),
+                    declaring_type: "mindustry.core.NetServer".into(),
+                    method: "test".into(),
+                    targets: "client".into(),
+                    called: "server".into(),
+                    variants: "all".into(),
+                    allow_on_client: None,
+                    allow_on_server: None,
+                    forward: false,
+                    unreliable: true,
+                    priority: "high".into(),
+                    params: vec![],
+                })
+                .collect(),
+            wire: WireSpec {
+                packet_id_byte: REMOTE_WIRE_PACKET_ID_BYTE_U8.into(),
+                length_field: REMOTE_WIRE_LENGTH_FIELD_U16BE.into(),
+                compression_flag: CompressionFlagSpec {
+                    none: REMOTE_WIRE_COMPRESSION_NONE.into(),
+                    lz4: REMOTE_WIRE_COMPRESSION_LZ4.into(),
+                },
+                compression_threshold: REMOTE_WIRE_COMPRESSION_THRESHOLD,
+            },
+        };
+
+        let base_overflow = make_manifest(256, &[]);
+        let error = validate_remote_manifest(&base_overflow).unwrap_err();
+        assert!(matches!(
+            error,
+            RemoteManifestError::InvalidPacketSequence(_)
+        ));
+        assert_eq!(
+            error.to_string(),
+            "base packet count exceeds u8 packet id range: 256"
+        );
+
+        let remote_overflow = make_manifest(255, &[255, 0]);
+        let error = validate_remote_manifest(&remote_overflow).unwrap_err();
+        assert!(matches!(
+            error,
+            RemoteManifestError::InvalidPacketSequence(_)
+        ));
+        assert_eq!(
+            error.to_string(),
+            "remote packet mindustry.gen.RemotePacket1 has packetId 0, expected packet id exceeds u8 range"
+        );
     }
 
     #[test]
