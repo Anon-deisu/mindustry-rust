@@ -421,7 +421,11 @@ pub fn generate_world_stream_transport_goldens(compressed: &[u8]) -> Result<Stri
         return Err("stream chunk rebuild mismatch".to_string());
     }
 
-    let begin_payload = stream_begin_payload(7, compressed.len() as i32, WORLD_STREAM_PACKET_ID);
+    let begin_payload = stream_begin_payload(
+        7,
+        checked_stream_total_len(compressed.len())?,
+        WORLD_STREAM_PACKET_ID,
+    );
     let first_size = chunks.first().map(|chunk| chunk.len()).unwrap_or(0);
     let last_size = chunks.last().map(|chunk| chunk.len()).unwrap_or(0);
 
@@ -445,6 +449,10 @@ pub fn generate_world_stream_transport_goldens(compressed: &[u8]) -> Result<Stri
         first_size,
         last_size,
     ))
+}
+
+fn checked_stream_total_len(len: usize) -> Result<i32, String> {
+    i32::try_from(len).map_err(|_| format!("stream payload too large: {len}"))
 }
 
 fn append_packet_case(out: &mut String, prefix: &str, encoded: &[u8]) -> Result<(), String> {
@@ -703,6 +711,15 @@ mod tests {
         assert_eq!(chunks[1].len(), 1024);
         assert_eq!(chunks[2].len(), 452);
         assert_eq!(rebuilt, payload);
+    }
+
+    #[test]
+    fn generate_world_stream_transport_goldens_rejects_oversized_stream_length() {
+        let oversized = i32::MAX as usize + 1;
+        assert_eq!(
+            checked_stream_total_len(oversized).unwrap_err(),
+            format!("stream payload too large: {oversized}")
+        );
     }
 
     #[test]
