@@ -50,6 +50,7 @@ impl StatelessIntentMapper {
 
     pub fn map_snapshot_batch(&mut self, snapshots: &[InputSnapshot]) -> Vec<PlayerIntent> {
         let Some(last_snapshot) = snapshots.last() else {
+            self.active_actions_prev.clear();
             return Vec::new();
         };
         self.map_snapshot_batch_with_final_snapshot(
@@ -521,6 +522,36 @@ mod tests {
                 PlayerIntent::SetBuilding { building: false },
                 PlayerIntent::ActionPressed(BinaryAction::Fire),
                 PlayerIntent::ActionReleased(BinaryAction::Fire),
+            ]
+        );
+    }
+
+    #[test]
+    fn map_snapshot_batch_empty_batch_resets_action_history() {
+        let mut mapper = StatelessIntentMapper::default();
+        let batch = vec![snapshot((0.0, 0.0), (0.0, 0.0), &[BinaryAction::Fire])];
+
+        assert_eq!(
+            mapper.map_snapshot_batch(&batch),
+            vec![
+                PlayerIntent::SetMoveAxis { x: 0.0, y: 0.0 },
+                PlayerIntent::SetAimAxis { x: 0.0, y: 0.0 },
+                PlayerIntent::SetMiningTile { tile: None },
+                PlayerIntent::SetBuilding { building: false },
+                PlayerIntent::ActionPressed(BinaryAction::Fire),
+            ]
+        );
+
+        assert!(mapper.map_snapshot_batch(&[]).is_empty());
+
+        assert_eq!(
+            mapper.map_snapshot_batch(&batch),
+            vec![
+                PlayerIntent::SetMoveAxis { x: 0.0, y: 0.0 },
+                PlayerIntent::SetAimAxis { x: 0.0, y: 0.0 },
+                PlayerIntent::SetMiningTile { tile: None },
+                PlayerIntent::SetBuilding { building: false },
+                PlayerIntent::ActionPressed(BinaryAction::Fire),
             ]
         );
     }
