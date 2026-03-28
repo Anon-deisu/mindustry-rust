@@ -9346,12 +9346,7 @@ impl ClientSession {
     }
 
     fn try_apply_player_disconnect(&mut self, player_id: i32) -> bool {
-        self.state.record_entity_snapshot_tombstone(player_id);
-        self.state.entity_table_projection.remove_entity(player_id);
-        self.state
-            .player_semantic_projection
-            .remove_entity(player_id);
-        self.state.remove_runtime_typed_entity(player_id);
+        remove_entity_projection_for_entity_id(&mut self.state, player_id);
         if Some(player_id) != self.state.world_player_id {
             return false;
         }
@@ -48249,6 +48244,15 @@ mod tests {
                 .local_player_entity_id,
             Some(local_player_id)
         );
+        session.state.received_entity_snapshot_count = 1;
+        session
+            .state
+            .apply_entity_snapshot_payload_apply_projection(local_player_id, 12, 1, None, None);
+        assert!(session
+            .state()
+            .entity_snapshot_payload_apply_projection
+            .by_entity_id
+            .contains_key(&local_player_id));
         assert!(session.state().world_player_unit_value.is_some());
         assert!(session.state().world_player_x_bits.is_some());
         assert!(session.state().world_player_y_bits.is_some());
@@ -48305,6 +48309,11 @@ mod tests {
             .runtime_typed_entity_projection()
             .by_entity_id
             .contains_key(&local_player_id));
+        assert!(!session
+            .state()
+            .entity_snapshot_payload_apply_projection
+            .by_entity_id
+            .contains_key(&local_player_id));
         assert!(session
             .state()
             .entity_snapshot_tombstones
@@ -48338,6 +48347,14 @@ mod tests {
                 last_seen_entity_snapshot_count: 1,
             },
         );
+        session.state.received_entity_snapshot_count = 1;
+        session.state.apply_entity_snapshot_payload_apply_projection(
+            local_player_id + 1000,
+            33,
+            1,
+            None,
+            None,
+        );
         let packet_id = manifest
             .remote_packets
             .iter()
@@ -48363,6 +48380,11 @@ mod tests {
         assert!(!session
             .state()
             .entity_table_projection
+            .by_entity_id
+            .contains_key(&other_player_id));
+        assert!(!session
+            .state()
+            .entity_snapshot_payload_apply_projection
             .by_entity_id
             .contains_key(&other_player_id));
     }
