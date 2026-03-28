@@ -216,7 +216,6 @@ pub fn ingest_inbound_snapshot(state: &mut SessionState, snapshot: InboundSnapsh
                 Err(error) => {
                     state.failed_hidden_snapshot_parse_count =
                         state.failed_hidden_snapshot_parse_count.saturating_add(1);
-                    state.clear_hidden_snapshot_after_parse_failure();
                     state.last_hidden_snapshot_parse_error = Some(error.to_string());
                     state.last_hidden_snapshot_parse_error_payload_len =
                         Some(snapshot.payload.len());
@@ -3518,7 +3517,7 @@ mod tests {
     }
 
     #[test]
-    fn hidden_snapshot_parse_failure_recovery_rebuilds_hidden_state_after_clear() {
+    fn hidden_snapshot_parse_failure_preserves_hidden_state_until_valid_refresh() {
         let malformed_payload = [0xFF, 0xFF, 0xFF, 0xFF];
         let valid_payload = [
             0x00, 0x00, 0x00, 0x01, // count
@@ -3578,6 +3577,12 @@ mod tests {
             })
         );
         assert_eq!(state.last_hidden_lifecycle_removed_ids_sample, vec![303]);
+        let expected_hidden_snapshot = state.last_hidden_snapshot.clone();
+        let expected_hidden_snapshot_ids = state.hidden_snapshot_ids.clone();
+        let expected_hidden_snapshot_delta_projection =
+            state.hidden_snapshot_delta_projection.clone();
+        let expected_hidden_lifecycle_removed_ids_sample =
+            state.last_hidden_lifecycle_removed_ids_sample.clone();
 
         ingest_inbound_snapshot(
             &mut state,
@@ -3588,18 +3593,18 @@ mod tests {
             ),
         );
 
-        assert!(state.hidden_snapshot_ids.is_empty());
-        assert_eq!(state.last_hidden_snapshot, None);
-        assert_eq!(state.last_hidden_lifecycle_removed_ids_sample, Vec::<i32>::new());
+        assert_eq!(
+            state.last_hidden_snapshot,
+            expected_hidden_snapshot
+        );
+        assert_eq!(state.hidden_snapshot_ids, expected_hidden_snapshot_ids);
         assert_eq!(
             state.hidden_snapshot_delta_projection,
-            Some(HiddenSnapshotDeltaProjection {
-                active_count: 0,
-                added_count: 0,
-                removed_count: 1,
-                added_sample_ids: Vec::new(),
-                removed_sample_ids: vec![303],
-            })
+            expected_hidden_snapshot_delta_projection
+        );
+        assert_eq!(
+            state.last_hidden_lifecycle_removed_ids_sample,
+            expected_hidden_lifecycle_removed_ids_sample
         );
         assert_eq!(
             state.last_hidden_snapshot_parse_error.as_deref(),
@@ -3627,9 +3632,9 @@ mod tests {
             state.hidden_snapshot_delta_projection,
             Some(HiddenSnapshotDeltaProjection {
                 active_count: 1,
-                added_count: 1,
+                added_count: 0,
                 removed_count: 0,
-                added_sample_ids: vec![303],
+                added_sample_ids: Vec::new(),
                 removed_sample_ids: Vec::new(),
             })
         );
@@ -3637,7 +3642,7 @@ mod tests {
     }
 
     #[test]
-    fn malformed_hidden_snapshot_clears_prior_hidden_state() {
+    fn hidden_snapshot_parse_error_leaves_hidden_state_unchanged() {
         let initial_payload = [
             0x00, 0x00, 0x00, 0x02, // count
             0x00, 0x00, 0x00, 0x65, // 101
@@ -3705,6 +3710,16 @@ mod tests {
         );
         assert!(state.entity_table_projection.by_entity_id[&101].hidden);
         assert_eq!(state.last_hidden_lifecycle_removed_ids_sample, vec![303]);
+        let expected_hidden_snapshot = state.last_hidden_snapshot.clone();
+        let expected_hidden_snapshot_ids = state.hidden_snapshot_ids.clone();
+        let expected_hidden_snapshot_delta_projection =
+            state.hidden_snapshot_delta_projection.clone();
+        let expected_entity_hidden = state.entity_table_projection.by_entity_id[&101].hidden;
+        let expected_hidden_apply_count = state.entity_table_projection.hidden_apply_count;
+        let expected_hidden_count = state.entity_table_projection.hidden_count;
+        let expected_hidden_lifecycle_remove_count = state.hidden_lifecycle_remove_count;
+        let expected_hidden_lifecycle_removed_ids_sample =
+            state.last_hidden_lifecycle_removed_ids_sample.clone();
 
         ingest_inbound_snapshot(
             &mut state,
@@ -3726,27 +3741,39 @@ mod tests {
             state.last_hidden_snapshot_parse_error_payload_len,
             Some(malformed_payload.len())
         );
-        assert_eq!(state.last_hidden_snapshot, None);
-        assert!(state.hidden_snapshot_ids.is_empty());
+        assert_eq!(
+            state.last_hidden_snapshot,
+            expected_hidden_snapshot
+        );
+        assert_eq!(state.hidden_snapshot_ids, expected_hidden_snapshot_ids);
         assert_eq!(
             state.hidden_snapshot_delta_projection,
-            Some(HiddenSnapshotDeltaProjection {
-                active_count: 0,
-                added_count: 0,
-                removed_count: 2,
-                added_sample_ids: Vec::new(),
-                removed_sample_ids: vec![101, 303],
-            })
+            expected_hidden_snapshot_delta_projection
         );
-        assert!(!state.entity_table_projection.by_entity_id[&101].hidden);
-        assert_eq!(state.entity_table_projection.hidden_apply_count, 2);
-        assert_eq!(state.entity_table_projection.hidden_count, 0);
-        assert_eq!(state.hidden_lifecycle_remove_count, 1);
-        assert!(state.last_hidden_lifecycle_removed_ids_sample.is_empty());
+        assert_eq!(
+            state.entity_table_projection.by_entity_id[&101].hidden,
+            expected_entity_hidden
+        );
+        assert_eq!(
+            state.entity_table_projection.hidden_apply_count,
+            expected_hidden_apply_count
+        );
+        assert_eq!(
+            state.entity_table_projection.hidden_count,
+            expected_hidden_count
+        );
+        assert_eq!(
+            state.hidden_lifecycle_remove_count,
+            expected_hidden_lifecycle_remove_count
+        );
+        assert_eq!(
+            state.last_hidden_lifecycle_removed_ids_sample,
+            expected_hidden_lifecycle_removed_ids_sample
+        );
     }
 
     #[test]
-    fn malformed_hidden_snapshot_with_trailing_bytes_clears_prior_hidden_state() {
+    fn hidden_snapshot_trailing_bytes_parse_error_leaves_hidden_state_unchanged() {
         let initial_payload = [
             0x00, 0x00, 0x00, 0x02, // count
             0x00, 0x00, 0x00, 0x65, // 101
@@ -3796,6 +3823,16 @@ mod tests {
         );
         assert!(state.entity_table_projection.by_entity_id[&101].hidden);
         assert_eq!(state.hidden_snapshot_ids.len(), 2);
+        let expected_hidden_snapshot = state.last_hidden_snapshot.clone();
+        let expected_hidden_snapshot_ids = state.hidden_snapshot_ids.clone();
+        let expected_hidden_snapshot_delta_projection =
+            state.hidden_snapshot_delta_projection.clone();
+        let expected_entity_hidden = state.entity_table_projection.by_entity_id[&101].hidden;
+        let expected_hidden_apply_count = state.entity_table_projection.hidden_apply_count;
+        let expected_hidden_count = state.entity_table_projection.hidden_count;
+        let expected_hidden_lifecycle_remove_count = state.hidden_lifecycle_remove_count;
+        let expected_hidden_lifecycle_removed_ids_sample =
+            state.last_hidden_lifecycle_removed_ids_sample.clone();
 
         ingest_inbound_snapshot(
             &mut state,
@@ -3817,14 +3854,35 @@ mod tests {
             state.last_hidden_snapshot_parse_error_payload_len,
             Some(malformed_payload.len())
         );
-        assert_eq!(state.last_hidden_snapshot, None);
-        assert!(state.hidden_snapshot_ids.is_empty());
-        assert_eq!(state.hidden_snapshot_delta_projection, None);
-        assert!(!state.entity_table_projection.by_entity_id[&101].hidden);
-        assert_eq!(state.entity_table_projection.hidden_apply_count, 2);
-        assert_eq!(state.entity_table_projection.hidden_count, 0);
-        assert_eq!(state.hidden_lifecycle_remove_count, 1);
-        assert!(state.last_hidden_lifecycle_removed_ids_sample.is_empty());
+        assert_eq!(
+            state.last_hidden_snapshot,
+            expected_hidden_snapshot
+        );
+        assert_eq!(state.hidden_snapshot_ids, expected_hidden_snapshot_ids);
+        assert_eq!(
+            state.hidden_snapshot_delta_projection,
+            expected_hidden_snapshot_delta_projection
+        );
+        assert_eq!(
+            state.entity_table_projection.by_entity_id[&101].hidden,
+            expected_entity_hidden
+        );
+        assert_eq!(
+            state.entity_table_projection.hidden_apply_count,
+            expected_hidden_apply_count
+        );
+        assert_eq!(
+            state.entity_table_projection.hidden_count,
+            expected_hidden_count
+        );
+        assert_eq!(
+            state.hidden_lifecycle_remove_count,
+            expected_hidden_lifecycle_remove_count
+        );
+        assert_eq!(
+            state.last_hidden_lifecycle_removed_ids_sample,
+            expected_hidden_lifecycle_removed_ids_sample
+        );
     }
 
     #[test]
