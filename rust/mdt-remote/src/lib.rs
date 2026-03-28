@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
-use std::{fmt, fs, path::Path};
+use serde::{de, Deserialize, Serialize};
+use std::{collections::HashSet, fmt, fs, path::Path};
 
 pub const REMOTE_MANIFEST_SCHEMA_V1: &str = "mdt.remote.manifest.v1";
 pub const CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT: usize = 10;
@@ -846,9 +846,105 @@ pub fn read_remote_manifest(path: impl AsRef<Path>) -> Result<RemoteManifest, Re
 }
 
 pub fn parse_remote_manifest(text: &str) -> Result<RemoteManifest, RemoteManifestError> {
-    let manifest: RemoteManifest = serde_json::from_str(text)?;
+    let manifest_value = serde_json::from_str::<StrictJsonValue>(text)?.0;
+    let manifest: RemoteManifest = serde_json::from_value(manifest_value)?;
     validate_remote_manifest(&manifest)?;
     Ok(manifest)
+}
+
+#[derive(Debug)]
+struct StrictJsonValue(serde_json::Value);
+
+impl<'de> Deserialize<'de> for StrictJsonValue {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        deserializer
+            .deserialize_any(StrictJsonValueVisitor)
+            .map(Self)
+    }
+}
+
+struct StrictJsonValueVisitor;
+
+impl<'de> de::Visitor<'de> for StrictJsonValueVisitor {
+    type Value = serde_json::Value;
+
+    fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("any valid JSON value")
+    }
+
+    fn visit_bool<E>(self, value: bool) -> Result<Self::Value, E> {
+        Ok(serde_json::Value::Bool(value))
+    }
+
+    fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E> {
+        Ok(serde_json::Value::Number(value.into()))
+    }
+
+    fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E> {
+        Ok(serde_json::Value::Number(value.into()))
+    }
+
+    fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        serde_json::Number::from_f64(value)
+            .map(serde_json::Value::Number)
+            .ok_or_else(|| de::Error::custom("invalid JSON number"))
+    }
+
+    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E> {
+        Ok(serde_json::Value::String(value.to_owned()))
+    }
+
+    fn visit_borrowed_str<E>(self, value: &'de str) -> Result<Self::Value, E> {
+        Ok(serde_json::Value::String(value.to_owned()))
+    }
+
+    fn visit_string<E>(self, value: String) -> Result<Self::Value, E> {
+        Ok(serde_json::Value::String(value))
+    }
+
+    fn visit_none<E>(self) -> Result<Self::Value, E> {
+        Ok(serde_json::Value::Null)
+    }
+
+    fn visit_unit<E>(self) -> Result<Self::Value, E> {
+        Ok(serde_json::Value::Null)
+    }
+
+    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+    where
+        A: de::SeqAccess<'de>,
+    {
+        let mut values = Vec::new();
+        while let Some(value) = seq.next_element()? {
+            values.push(value);
+        }
+        Ok(serde_json::Value::Array(values))
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: de::MapAccess<'de>,
+    {
+        let mut object = serde_json::Map::new();
+        let mut keys = HashSet::new();
+
+        while let Some(key) = map.next_key::<String>()? {
+            if !keys.insert(key.clone()) {
+                return Err(de::Error::custom(format!("duplicate JSON key: {key}")));
+            }
+
+            let value = map.next_value()?;
+            object.insert(key, value);
+        }
+
+        Ok(serde_json::Value::Object(object))
+    }
 }
 
 pub fn validate_remote_manifest(manifest: &RemoteManifest) -> Result<(), RemoteManifestError> {
@@ -2333,6 +2429,32 @@ mod tests {
         assert_eq!(manifest.base_packets.len(), 4);
         assert_eq!(manifest.remote_packets[0].packet_id, 4);
         assert_eq!(manifest.remote_packets[0].params.len(), 2);
+    }
+
+    #[test]
+    fn parse_remote_manifest_rejects_duplicate_json_keys() {
+        let manifest = r#"{
+  "schema": "mdt.remote.manifest.v1",
+  "schema": "overridden",
+  "generator": {
+    "source": "mindustry.annotations.remote",
+    "callClass": "mindustry.gen.Call"
+  },
+  "basePackets": [],
+  "remotePackets": [],
+  "wire": {
+    "packetIdByte": "u8",
+    "lengthField": "u16be",
+    "compressionFlag": {"0": "none", "1": "lz4"},
+    "compressionThreshold": 36
+  }
+}"#;
+
+        let error = parse_remote_manifest(manifest).unwrap_err();
+        assert!(matches!(error, RemoteManifestError::Json(_)));
+        assert!(error
+            .to_string()
+            .contains("duplicate JSON key: schema"));
     }
 
     #[test]

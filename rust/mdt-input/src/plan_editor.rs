@@ -81,6 +81,7 @@ pub struct PlanBlockMeta {
 
 impl PlanBlockMeta {
     pub fn with_size(size: i32) -> Self {
+        assert!(size > 0, "plan block size must be positive");
         Self {
             size,
             offset: block_offset(size),
@@ -242,6 +243,7 @@ impl PlanCollectionSummary {
 
 /// Computes Mindustry block offset from block size.
 pub fn block_offset(size: i32) -> f32 {
+    assert!(size > 0, "plan block size must be positive");
     ((size + 1).rem_euclid(2) as f32) * TILE_SIZE / 2.0
 }
 
@@ -648,5 +650,13 @@ mod tests {
     fn world_to_tile_matches_java_rounding_for_negative_half_tile() {
         assert_eq!(world_to_tile(4.0), 1);
         assert_eq!(world_to_tile(-4.0), 0);
+    }
+
+    #[test]
+    fn plan_block_meta_rejects_non_positive_sizes() {
+        assert!(std::panic::catch_unwind(|| PlanBlockMeta::with_size(0)).is_err());
+        assert!(std::panic::catch_unwind(|| PlanBlockMeta::with_size(-1)).is_err());
+        assert!(std::panic::catch_unwind(|| block_offset(0)).is_err());
+        assert!(std::panic::catch_unwind(|| block_offset(-2)).is_err());
     }
 }

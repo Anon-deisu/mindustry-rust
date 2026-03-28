@@ -25190,7 +25190,7 @@ fn parse_build_turret_tail_snapshot(tail_bytes: &[u8]) -> Result<BuildTurretTail
 fn parse_build_turret_plan_snapshot(
     reader: &mut Reader<'_>,
 ) -> Result<BuildTurretPlanSnapshot, String> {
-    let breaking = reader.read_u8()? != 0;
+    let breaking = reader.read_bool()?;
     let packed_position = reader.read_i32()?;
     let (x, y) = unpack_packed_point2(packed_position);
 
@@ -25212,7 +25212,7 @@ fn parse_build_turret_plan_snapshot(
 
     let block_id = reader.read_u16()?;
     let rotation = reader.read_u8()?;
-    let has_config = reader.read_u8()? == 1;
+    let has_config = reader.read_bool()?;
     let config_start = reader.position();
     let config = read_typeio_object(reader)?;
     let config_end = reader.position();
@@ -27040,8 +27040,13 @@ pub fn parse_world_bundle(compressed: &[u8]) -> Result<WorldBundle, String> {
 
     let tag_count = reader.read_u16()? as usize;
     let mut tag_pairs = Vec::with_capacity(tag_count);
+    let mut seen_tag_keys = HashSet::with_capacity(tag_count);
     for _ in 0..tag_count {
-        tag_pairs.push((reader.read_java_utf()?, reader.read_java_utf()?));
+        let key = reader.read_java_utf()?;
+        if !seen_tag_keys.insert(key.clone()) {
+            return Err(format!("duplicate tag key in world bundle: {key}"));
+        }
+        tag_pairs.push((key, reader.read_java_utf()?));
     }
 
     let wave = reader.read_i32()?;
@@ -27074,8 +27079,14 @@ pub fn parse_world_bundle(compressed: &[u8]) -> Result<WorldBundle, String> {
 
     let mapped_types = reader.read_u8()? as usize;
     let mut content_header = Vec::with_capacity(mapped_types);
+    let mut seen_content_types = HashSet::with_capacity(mapped_types);
     for _ in 0..mapped_types {
         let content_type = reader.read_u8()?;
+        if !seen_content_types.insert(content_type) {
+            return Err(format!(
+                "duplicate content type in world bundle: {content_type}"
+            ));
+        }
         let total = reader.read_u16()? as usize;
         let mut names = Vec::with_capacity(total);
         for _ in 0..total {
@@ -27239,8 +27250,12 @@ pub fn parse_world_bundle(compressed: &[u8]) -> Result<WorldBundle, String> {
     let mut custom_region_bytes = Vec::new();
     custom_region_bytes.extend_from_slice(&(custom_chunk_count as u32).to_be_bytes());
     let mut custom_chunks = Vec::with_capacity(custom_chunk_count);
+    let mut seen_custom_chunk_names = HashSet::with_capacity(custom_chunk_count);
     for _ in 0..custom_chunk_count {
         let name = reader.read_java_utf()?;
+        if !seen_custom_chunk_names.insert(name.clone()) {
+            return Err(format!("duplicate custom chunk name in world bundle: {name}"));
+        }
         write_java_utf(&mut custom_region_bytes, &name)?;
         let chunk_len = reader.read_u32()? as usize;
         custom_region_bytes.extend_from_slice(&(chunk_len as u32).to_be_bytes());
@@ -39259,15 +39274,6 @@ impl UbjsonValue {
         }
     }
 
-    fn as_f32_bits(&self) -> Option<u32> {
-        match self {
-            UbjsonValue::Float32(bits) => Some(*bits),
-            UbjsonValue::Float64(bits) => Some((f64::from_bits(*bits) as f32).to_bits()),
-            UbjsonValue::Int(value) => Some((*value as f32).to_bits()),
-            _ => None,
-        }
-    }
-
     fn as_i32(&self) -> Option<i32> {
         match self {
             UbjsonValue::Int(value) => i32::try_from(*value).ok(),
@@ -39300,6 +39306,16 @@ impl<'a> ObjectFields<'a> {
         self.0
             .iter()
             .find_map(|(name, value)| (name == key).then_some(value))
+    }
+
+    fn ensure_unique_keys(self, context: &str) -> Result<(), String> {
+        let mut seen = HashSet::with_capacity(self.0.len());
+        for (name, _) in self.0 {
+            if !seen.insert(name.as_str()) {
+                return Err(format!("duplicate object key in {context}: {name}"));
+            }
+        }
+        Ok(())
     }
 
     fn len(self) -> usize {
@@ -39349,11 +39365,30 @@ fn marker_i32_field(object: ObjectFields<'_>, key: &str, default: i32) -> i32 {
         .unwrap_or(default)
 }
 
-fn marker_f32_bits_field(object: ObjectFields<'_>, key: &str, default: u32) -> u32 {
-    object
-        .field(key)
-        .and_then(UbjsonValue::as_f32_bits)
-        .unwrap_or(default)
+fn marker_optional_f32_bits(value: Option<&UbjsonValue>, context: &str) -> Result<Option<u32>, String> {
+    match value {
+        Some(UbjsonValue::Float32(bits)) => Ok(Some(*bits)),
+        Some(UbjsonValue::Float64(bits)) => {
+            let narrowed = f64::from_bits(*bits) as f32;
+            if !narrowed.is_finite() {
+                return Err(format!("{context} is non-finite"));
+            }
+            Ok(Some(narrowed.to_bits()))
+        }
+        Some(UbjsonValue::Int(value)) => {
+            let narrowed = *value as f32;
+            if !narrowed.is_finite() {
+                return Err(format!("{context} is non-finite"));
+            }
+            Ok(Some(narrowed.to_bits()))
+        }
+        Some(_) | None => Ok(None),
+    }
+}
+
+fn marker_f32_bits_field(object: ObjectFields<'_>, key: &str, default: u32) -> Result<u32, String> {
+    let context = format!("marker field {key}");
+    Ok(marker_optional_f32_bits(object.field(key), &context)?.unwrap_or(default))
 }
 
 fn marker_string_field(object: ObjectFields<'_>, key: &str, default: &str) -> String {
@@ -39380,42 +39415,47 @@ fn marker_optional_named_color_field(
         .or_else(|| default.map(str::to_string))
 }
 
-fn marker_texture_ref_field(object: ObjectFields<'_>) -> MarkerTextureRef {
+fn marker_texture_ref_field(
+    object: ObjectFields<'_>,
+    family_name: &str,
+) -> Result<MarkerTextureRef, String> {
     if let Some(texture_name) = object.field("textureName").and_then(UbjsonValue::as_str) {
-        return MarkerTextureRef {
+        return Ok(MarkerTextureRef {
             kind: "string".to_string(),
             value: texture_name.to_string(),
-        };
+        });
     }
 
     match object.field("texture") {
-        Some(UbjsonValue::String(value)) => MarkerTextureRef {
+        Some(UbjsonValue::String(value)) => Ok(MarkerTextureRef {
             kind: "string".to_string(),
             value: value.clone(),
-        },
+        }),
         Some(UbjsonValue::Object(entries)) => {
             let texture = ObjectFields(entries);
+            let texture_context = format!("{family_name} marker texture");
+            texture.ensure_unique_keys(&texture_context)?;
             if let Some(value) = texture.field("string").and_then(UbjsonValue::as_str) {
-                return MarkerTextureRef {
+                return Ok(MarkerTextureRef {
                     kind: "string".to_string(),
                     value: value.to_string(),
-                };
+                });
             }
             if let Some(value) = texture.field("content").and_then(UbjsonValue::as_str) {
-                return MarkerTextureRef {
+                return Ok(MarkerTextureRef {
                     kind: "content".to_string(),
                     value: value.to_string(),
-                };
+                });
             }
             if let Some(value) = texture.field("building").and_then(UbjsonValue::as_i32) {
-                return MarkerTextureRef {
+                return Ok(MarkerTextureRef {
                     kind: "building".to_string(),
                     value: value.to_string(),
-                };
+                });
             }
-            marker_default_texture_ref()
+            Ok(marker_default_texture_ref())
         }
-        _ => marker_default_texture_ref(),
+        _ => Ok(marker_default_texture_ref()),
     }
 }
 
@@ -39426,7 +39466,7 @@ fn marker_default_texture_ref() -> MarkerTextureRef {
     }
 }
 
-fn marker_draw_layer_bits(object: ObjectFields<'_>) -> u32 {
+fn marker_draw_layer_bits(object: ObjectFields<'_>) -> Result<u32, String> {
     marker_f32_bits_field(object, "drawLayer", 120.0f32.to_bits())
 }
 
@@ -39438,25 +39478,33 @@ fn marker_required_pos_bits(
         .field("pos")
         .and_then(UbjsonValue::as_object)
         .ok_or_else(|| format!("{family_name} marker missing pos"))?;
-    let x_bits = pos
-        .field("x")
-        .and_then(UbjsonValue::as_f32_bits)
+    let pos_context = format!("{family_name} marker pos");
+    pos.ensure_unique_keys(&pos_context)?;
+    let x_context = format!("{family_name} marker pos.x");
+    let x_bits = marker_optional_f32_bits(pos.field("x"), &x_context)?
         .ok_or_else(|| format!("{family_name} marker missing pos.x"))?;
-    let y_bits = pos
-        .field("y")
-        .and_then(UbjsonValue::as_f32_bits)
+    let y_context = format!("{family_name} marker pos.y");
+    let y_bits = marker_optional_f32_bits(pos.field("y"), &y_context)?
         .ok_or_else(|| format!("{family_name} marker missing pos.y"))?;
     Ok((x_bits, y_bits))
 }
 
-fn marker_optional_pos_bits(object: ObjectFields<'_>) -> (Option<u32>, Option<u32>) {
+fn marker_optional_pos_bits(
+    object: ObjectFields<'_>,
+    family_name: &str,
+) -> Result<(Option<u32>, Option<u32>), String> {
     let pos = object.field("pos").and_then(UbjsonValue::as_object);
-    (
-        pos.and_then(|pos| pos.field("x"))
-            .and_then(UbjsonValue::as_f32_bits),
-        pos.and_then(|pos| pos.field("y"))
-            .and_then(UbjsonValue::as_f32_bits),
-    )
+    let Some(pos) = pos else {
+        return Ok((None, None));
+    };
+    let pos_context = format!("{family_name} marker pos");
+    pos.ensure_unique_keys(&pos_context)?;
+    let x_context = format!("{family_name} marker pos.x");
+    let y_context = format!("{family_name} marker pos.y");
+    Ok((
+        marker_optional_f32_bits(pos.field("x"), &x_context)?,
+        marker_optional_f32_bits(pos.field("y"), &y_context)?,
+    ))
 }
 
 fn marker_pos_bits_field(
@@ -39464,28 +39512,32 @@ fn marker_pos_bits_field(
     key: &str,
     default_x_bits: u32,
     default_y_bits: u32,
-) -> (u32, u32) {
+) -> Result<(u32, u32), String> {
     let pos = object.field(key).and_then(UbjsonValue::as_object);
-    (
-        pos.and_then(|pos| pos.field("x"))
-            .and_then(UbjsonValue::as_f32_bits)
-            .unwrap_or(default_x_bits),
-        pos.and_then(|pos| pos.field("y"))
-            .and_then(UbjsonValue::as_f32_bits)
-            .unwrap_or(default_y_bits),
-    )
+    let Some(pos) = pos else {
+        return Ok((default_x_bits, default_y_bits));
+    };
+    let pos_context = format!("marker field {key}");
+    pos.ensure_unique_keys(&pos_context)?;
+    let x_context = format!("marker field {key}.x");
+    let y_context = format!("marker field {key}.y");
+    Ok((
+        marker_optional_f32_bits(pos.field("x"), &x_context)?.unwrap_or(default_x_bits),
+        marker_optional_f32_bits(pos.field("y"), &y_context)?.unwrap_or(default_y_bits),
+    ))
 }
 
-fn marker_vertices_bits_field(object: ObjectFields<'_>, key: &str) -> Vec<u32> {
+fn marker_vertices_bits_field(object: ObjectFields<'_>, key: &str) -> Result<Vec<u32>, String> {
     let mut values = quad_default_vertices_bits();
     if let Some(UbjsonValue::Array(entries)) = object.field(key) {
         for (index, value) in entries.iter().take(values.len()).enumerate() {
-            if let Some(bits) = value.as_f32_bits() {
+            let context = format!("marker field {key}[{index}]");
+            if let Some(bits) = marker_optional_f32_bits(Some(value), &context)? {
                 values[index] = bits;
             }
         }
     }
-    values
+    Ok(values)
 }
 
 fn quad_default_vertices_bits() -> Vec<u32> {
@@ -39540,6 +39592,7 @@ fn parse_marker_model(value: &UbjsonValue) -> Result<MarkerModel, String> {
     let object = value
         .as_object()
         .ok_or_else(|| "marker entry is not an object".to_string())?;
+    object.ensure_unique_keys("marker entry")?;
     let class_tag = object
         .field("class")
         .and_then(UbjsonValue::as_str)
@@ -39553,11 +39606,11 @@ fn parse_marker_model(value: &UbjsonValue) -> Result<MarkerModel, String> {
                 world: marker_bool_field(object, "world", true),
                 minimap: marker_bool_field(object, "minimap", false),
                 autoscale: marker_bool_field(object, "autoscale", false),
-                draw_layer_bits: marker_draw_layer_bits(object),
+                draw_layer_bits: marker_draw_layer_bits(object)?,
                 x_bits,
                 y_bits,
-                radius_bits: marker_f32_bits_field(object, "radius", 5.0f32.to_bits()),
-                stroke_bits: marker_f32_bits_field(object, "stroke", 11.0f32.to_bits()),
+                radius_bits: marker_f32_bits_field(object, "radius", 5.0f32.to_bits())?,
+                stroke_bits: marker_f32_bits_field(object, "stroke", 11.0f32.to_bits())?,
                 color: marker_optional_color_field(object, None),
             }))
         }
@@ -39568,11 +39621,11 @@ fn parse_marker_model(value: &UbjsonValue) -> Result<MarkerModel, String> {
                 world: marker_bool_field(object, "world", true),
                 minimap: marker_bool_field(object, "minimap", false),
                 autoscale: marker_bool_field(object, "autoscale", false),
-                draw_layer_bits: marker_draw_layer_bits(object),
+                draw_layer_bits: marker_draw_layer_bits(object)?,
                 x_bits,
                 y_bits,
                 text: marker_string_field(object, "text", "uwu"),
-                font_size_bits: marker_f32_bits_field(object, "fontSize", 1.0f32.to_bits()),
+                font_size_bits: marker_f32_bits_field(object, "fontSize", 1.0f32.to_bits())?,
                 flags: marker_i32_field(object, "flags", 3),
                 text_align: marker_i32_field(object, "textAlign", 1),
                 line_align: marker_i32_field(object, "lineAlign", 1),
@@ -39585,14 +39638,14 @@ fn parse_marker_model(value: &UbjsonValue) -> Result<MarkerModel, String> {
                 world: marker_bool_field(object, "world", true),
                 minimap: marker_bool_field(object, "minimap", false),
                 autoscale: marker_bool_field(object, "autoscale", false),
-                draw_layer_bits: marker_draw_layer_bits(object),
+                draw_layer_bits: marker_draw_layer_bits(object)?,
                 x_bits,
                 y_bits,
-                radius_bits: marker_f32_bits_field(object, "radius", 8.0f32.to_bits()),
-                rotation_bits: marker_f32_bits_field(object, "rotation", 0.0f32.to_bits()),
-                stroke_bits: marker_f32_bits_field(object, "stroke", 1.0f32.to_bits()),
-                start_angle_bits: marker_f32_bits_field(object, "startAngle", 0.0f32.to_bits()),
-                end_angle_bits: marker_f32_bits_field(object, "endAngle", 360.0f32.to_bits()),
+                radius_bits: marker_f32_bits_field(object, "radius", 8.0f32.to_bits())?,
+                rotation_bits: marker_f32_bits_field(object, "rotation", 0.0f32.to_bits())?,
+                stroke_bits: marker_f32_bits_field(object, "stroke", 1.0f32.to_bits())?,
+                start_angle_bits: marker_f32_bits_field(object, "startAngle", 0.0f32.to_bits())?,
+                end_angle_bits: marker_f32_bits_field(object, "endAngle", 360.0f32.to_bits())?,
                 fill: marker_bool_field(object, "fill", false),
                 outline: marker_bool_field(object, "outline", true),
                 sides: marker_i32_field(object, "sides", 4),
@@ -39606,17 +39659,17 @@ fn parse_marker_model(value: &UbjsonValue) -> Result<MarkerModel, String> {
                 world: marker_bool_field(object, "world", true),
                 minimap: marker_bool_field(object, "minimap", false),
                 autoscale: marker_bool_field(object, "autoscale", false),
-                draw_layer_bits: marker_draw_layer_bits(object),
+                draw_layer_bits: marker_draw_layer_bits(object)?,
                 x_bits,
                 y_bits,
                 text: marker_string_field(object, "text", "frog"),
-                font_size_bits: marker_f32_bits_field(object, "fontSize", 1.0f32.to_bits()),
-                text_height_bits: marker_f32_bits_field(object, "textHeight", 7.0f32.to_bits()),
+                font_size_bits: marker_f32_bits_field(object, "fontSize", 1.0f32.to_bits())?,
+                text_height_bits: marker_f32_bits_field(object, "textHeight", 7.0f32.to_bits())?,
                 flags: marker_i32_field(object, "flags", 3),
                 text_align: marker_i32_field(object, "textAlign", 1),
                 line_align: marker_i32_field(object, "lineAlign", 1),
-                radius_bits: marker_f32_bits_field(object, "radius", 6.0f32.to_bits()),
-                rotation_bits: marker_f32_bits_field(object, "rotation", 0.0f32.to_bits()),
+                radius_bits: marker_f32_bits_field(object, "radius", 6.0f32.to_bits())?,
+                rotation_bits: marker_f32_bits_field(object, "rotation", 0.0f32.to_bits())?,
                 sides: marker_i32_field(object, "sides", 4),
                 color: marker_optional_color_field(object, Some("ffd37f")),
             }))
@@ -39624,18 +39677,18 @@ fn parse_marker_model(value: &UbjsonValue) -> Result<MarkerModel, String> {
         Some("Line") => {
             let (x_bits, y_bits) = marker_required_pos_bits(object, "line")?;
             let (end_x_bits, end_y_bits) =
-                marker_pos_bits_field(object, "endPos", 0.0f32.to_bits(), 0.0f32.to_bits());
+                marker_pos_bits_field(object, "endPos", 0.0f32.to_bits(), 0.0f32.to_bits())?;
             Ok(MarkerModel::Line(LineMarkerModel {
                 class_tag: class_tag.clone().unwrap(),
                 world: marker_bool_field(object, "world", true),
                 minimap: marker_bool_field(object, "minimap", false),
                 autoscale: marker_bool_field(object, "autoscale", false),
-                draw_layer_bits: marker_draw_layer_bits(object),
+                draw_layer_bits: marker_draw_layer_bits(object)?,
                 x_bits,
                 y_bits,
                 end_x_bits,
                 end_y_bits,
-                stroke_bits: marker_f32_bits_field(object, "stroke", 1.0f32.to_bits()),
+                stroke_bits: marker_f32_bits_field(object, "stroke", 1.0f32.to_bits())?,
                 outline: marker_bool_field(object, "outline", true),
                 color1: marker_optional_named_color_field(object, "color1", Some("ffd37f")),
                 color2: marker_optional_named_color_field(object, "color2", Some("ffd37f")),
@@ -39648,13 +39701,13 @@ fn parse_marker_model(value: &UbjsonValue) -> Result<MarkerModel, String> {
                 world: marker_bool_field(object, "world", true),
                 minimap: marker_bool_field(object, "minimap", false),
                 autoscale: marker_bool_field(object, "autoscale", false),
-                draw_layer_bits: marker_draw_layer_bits(object),
+                draw_layer_bits: marker_draw_layer_bits(object)?,
                 x_bits,
                 y_bits,
-                rotation_bits: marker_f32_bits_field(object, "rotation", 0.0f32.to_bits()),
-                width_bits: marker_f32_bits_field(object, "width", 0.0f32.to_bits()),
-                height_bits: marker_f32_bits_field(object, "height", 0.0f32.to_bits()),
-                texture: marker_texture_ref_field(object),
+                rotation_bits: marker_f32_bits_field(object, "rotation", 0.0f32.to_bits())?,
+                width_bits: marker_f32_bits_field(object, "width", 0.0f32.to_bits())?,
+                height_bits: marker_f32_bits_field(object, "height", 0.0f32.to_bits())?,
+                texture: marker_texture_ref_field(object, "texture")?,
                 color: marker_optional_color_field(object, Some("ffffffff")),
             }))
         }
@@ -39663,18 +39716,21 @@ fn parse_marker_model(value: &UbjsonValue) -> Result<MarkerModel, String> {
             world: marker_bool_field(object, "world", true),
             minimap: marker_bool_field(object, "minimap", false),
             autoscale: marker_bool_field(object, "autoscale", false),
-            draw_layer_bits: marker_draw_layer_bits(object),
-            texture: marker_texture_ref_field(object),
-            vertices_bits: marker_vertices_bits_field(object, "vertices"),
+            draw_layer_bits: marker_draw_layer_bits(object)?,
+            texture: marker_texture_ref_field(object, "quad")?,
+            vertices_bits: marker_vertices_bits_field(object, "vertices")?,
         })),
         _ => {
-            let (x_bits, y_bits) = marker_optional_pos_bits(object);
+            let (x_bits, y_bits) = marker_optional_pos_bits(object, "unknown")?;
             Ok(MarkerModel::Unknown(UnknownMarkerModel {
                 class_tag,
                 world: marker_bool_field(object, "world", true),
                 minimap: marker_bool_field(object, "minimap", false),
                 autoscale: marker_bool_field(object, "autoscale", false),
-                draw_layer_bits: object.field("drawLayer").and_then(UbjsonValue::as_f32_bits),
+                draw_layer_bits: marker_optional_f32_bits(
+                    object.field("drawLayer"),
+                    "unknown marker drawLayer",
+                )?,
                 x_bits,
                 y_bits,
             }))
@@ -40194,6 +40250,205 @@ mod tests {
             inflated[map_start + 12] = run;
         }
 
+        compress_zlib_bytes(&inflated)
+    }
+
+    struct SampleWorldBundleMutationLayout {
+        tag_count_offset: usize,
+        first_tag_entry: Vec<u8>,
+        tag_section_end: usize,
+        mapped_types_offset: usize,
+        first_content_entry: Vec<u8>,
+        content_header_end: usize,
+        custom_chunk_count_offset: usize,
+        first_custom_chunk_entry: Vec<u8>,
+        custom_chunk_section_end: usize,
+    }
+
+    fn inflate_sample_world_bundle_bytes() -> Vec<u8> {
+        let compressed = sample_world_stream_bytes();
+        let mut decoder = ZlibDecoder::new(&compressed[..]);
+        let mut inflated = Vec::new();
+        decoder.read_to_end(&mut inflated).unwrap();
+        inflated
+    }
+
+    fn sample_world_bundle_mutation_layout(inflated: &[u8]) -> SampleWorldBundleMutationLayout {
+        let mut reader = Reader::new(inflated);
+        reader.read_java_utf().unwrap();
+        reader.read_java_utf().unwrap();
+
+        let tag_count_offset = reader.position();
+        let tag_count = reader.read_u16().unwrap() as usize;
+        let mut first_tag_entry = Vec::new();
+        for index in 0..tag_count {
+            let start = reader.position();
+            reader.read_java_utf().unwrap();
+            reader.read_java_utf().unwrap();
+            let end = reader.position();
+            if index == 0 {
+                first_tag_entry = reader.slice(start, end).to_vec();
+            }
+        }
+        let tag_section_end = reader.position();
+
+        reader.read_i32().unwrap();
+        reader.read_u32().unwrap();
+        reader.read_u64().unwrap();
+        reader.read_u64().unwrap();
+        reader.read_u64().unwrap();
+        reader.read_i32().unwrap();
+        reader.read_u16().unwrap();
+        reader.read_bool().unwrap();
+        reader.read_bool().unwrap();
+        reader.read_u32().unwrap();
+        reader.read_u8().unwrap();
+        reader.read_u32().unwrap();
+        reader.read_u32().unwrap();
+        reader.read_typeio_string().unwrap();
+        reader.read_u16().unwrap();
+        reader.read_u32().unwrap();
+        reader.read_bool().unwrap();
+        reader.read_u8().unwrap();
+        reader.read_bool().unwrap();
+        reader.read_u8().unwrap();
+        reader.read_u32().unwrap();
+        reader.read_u32().unwrap();
+        reader.read_u32().unwrap();
+
+        let mapped_types_offset = reader.position();
+        let mapped_types = reader.read_u8().unwrap() as usize;
+        let mut first_content_entry = Vec::new();
+        for index in 0..mapped_types {
+            let start = reader.position();
+            reader.read_u8().unwrap();
+            let total = reader.read_u16().unwrap() as usize;
+            for _ in 0..total {
+                reader.read_java_utf().unwrap();
+            }
+            let end = reader.position();
+            if index == 0 {
+                first_content_entry = reader.slice(start, end).to_vec();
+            }
+        }
+        let content_header_end = reader.position();
+
+        let patch_count = reader.read_u8().unwrap() as usize;
+        for _ in 0..patch_count {
+            let len = reader.read_u32().unwrap() as usize;
+            reader.read_exact_vec(len).unwrap();
+        }
+
+        let width = reader.read_u16().unwrap() as usize;
+        let height = reader.read_u16().unwrap() as usize;
+        let tile_count = checked_tile_count(width, height, "sample world bundle mutation").unwrap();
+
+        let mut tile = 0usize;
+        while tile < tile_count {
+            reader.read_u16().unwrap();
+            reader.read_u16().unwrap();
+            tile += reader.read_u8().unwrap() as usize + 1;
+        }
+
+        let mut tile = 0usize;
+        while tile < tile_count {
+            reader.read_u16().unwrap();
+            let packed = reader.read_u8().unwrap();
+            let had_entity = (packed & 1) != 0;
+            let had_data = (packed & 4) != 0;
+            let mut is_center = true;
+            if had_data {
+                reader.read_u8().unwrap();
+                reader.read_u8().unwrap();
+                reader.read_u8().unwrap();
+                reader.read_u32().unwrap();
+            }
+            if had_entity {
+                is_center = reader.read_bool().unwrap();
+            }
+            if had_entity && is_center {
+                let len = reader.read_u32().unwrap() as usize;
+                reader.read_exact_vec(len).unwrap();
+            } else if !had_data && !had_entity {
+                tile += reader.read_u8().unwrap() as usize;
+            }
+            tile += 1;
+        }
+
+        parse_team_plan_groups(&mut reader).unwrap();
+        read_ubjson_value(&mut reader).unwrap();
+
+        let custom_chunk_count_offset = reader.position();
+        let custom_chunk_count = reader.read_u32().unwrap() as usize;
+        let mut first_custom_chunk_entry = Vec::new();
+        for index in 0..custom_chunk_count {
+            let start = reader.position();
+            reader.read_java_utf().unwrap();
+            let len = reader.read_u32().unwrap() as usize;
+            reader.read_exact_vec(len).unwrap();
+            let end = reader.position();
+            if index == 0 {
+                first_custom_chunk_entry = reader.slice(start, end).to_vec();
+            }
+        }
+        let custom_chunk_section_end = reader.position();
+        assert!(reader.remaining_bytes().is_empty());
+
+        SampleWorldBundleMutationLayout {
+            tag_count_offset,
+            first_tag_entry,
+            tag_section_end,
+            mapped_types_offset,
+            first_content_entry,
+            content_header_end,
+            custom_chunk_count_offset,
+            first_custom_chunk_entry,
+            custom_chunk_section_end,
+        }
+    }
+
+    fn sample_world_bundle_compressed_with_duplicate_tag_key() -> Vec<u8> {
+        let mut inflated = inflate_sample_world_bundle_bytes();
+        let layout = sample_world_bundle_mutation_layout(&inflated);
+        let count = u16::from_be_bytes([
+            inflated[layout.tag_count_offset],
+            inflated[layout.tag_count_offset + 1],
+        ]) + 1;
+        inflated[layout.tag_count_offset..layout.tag_count_offset + 2]
+            .copy_from_slice(&count.to_be_bytes());
+        inflated.splice(
+            layout.tag_section_end..layout.tag_section_end,
+            layout.first_tag_entry,
+        );
+        compress_zlib_bytes(&inflated)
+    }
+
+    fn sample_world_bundle_compressed_with_duplicate_content_type() -> Vec<u8> {
+        let mut inflated = inflate_sample_world_bundle_bytes();
+        let layout = sample_world_bundle_mutation_layout(&inflated);
+        inflated[layout.mapped_types_offset] += 1;
+        inflated.splice(
+            layout.content_header_end..layout.content_header_end,
+            layout.first_content_entry,
+        );
+        compress_zlib_bytes(&inflated)
+    }
+
+    fn sample_world_bundle_compressed_with_duplicate_custom_chunk_name() -> Vec<u8> {
+        let mut inflated = inflate_sample_world_bundle_bytes();
+        let layout = sample_world_bundle_mutation_layout(&inflated);
+        let count = u32::from_be_bytes([
+            inflated[layout.custom_chunk_count_offset],
+            inflated[layout.custom_chunk_count_offset + 1],
+            inflated[layout.custom_chunk_count_offset + 2],
+            inflated[layout.custom_chunk_count_offset + 3],
+        ]) + 1;
+        inflated[layout.custom_chunk_count_offset..layout.custom_chunk_count_offset + 4]
+            .copy_from_slice(&count.to_be_bytes());
+        inflated.splice(
+            layout.custom_chunk_section_end..layout.custom_chunk_section_end,
+            layout.first_custom_chunk_entry,
+        );
         compress_zlib_bytes(&inflated)
     }
 
@@ -44600,6 +44855,33 @@ mod tests {
             shielded_wall,
             ParsedBuildingTail::OneF32(OneF32TailSnapshot { bits: 0x42600000 })
         );
+    }
+
+    #[test]
+    fn parse_build_turret_plan_snapshot_rejects_non_binary_bool_bytes() {
+        let breaking_bytes = {
+            let mut bytes = Vec::new();
+            bytes.push(2);
+            bytes.extend_from_slice(&pack_packed_point2(1, 2).to_be_bytes());
+            bytes
+        };
+        let mut breaking_reader = Reader::new(&breaking_bytes);
+        let error = parse_build_turret_plan_snapshot(&mut breaking_reader).unwrap_err();
+        assert!(error.contains("invalid boolean value"));
+
+        let has_config_bytes = {
+            let mut bytes = Vec::new();
+            bytes.push(0);
+            bytes.extend_from_slice(&pack_packed_point2(1, 2).to_be_bytes());
+            bytes.extend_from_slice(&0x0101u16.to_be_bytes());
+            bytes.push(1);
+            bytes.push(2);
+            bytes.push(0);
+            bytes
+        };
+        let mut has_config_reader = Reader::new(&has_config_bytes);
+        let error = parse_build_turret_plan_snapshot(&mut has_config_reader).unwrap_err();
+        assert!(error.contains("invalid boolean value"));
     }
 
     #[test]
@@ -54275,6 +54557,27 @@ mod tests {
     }
 
     #[test]
+    fn parse_world_bundle_rejects_duplicate_tag_keys() {
+        let compressed = sample_world_bundle_compressed_with_duplicate_tag_key();
+        let error = parse_world_bundle(&compressed).unwrap_err();
+        assert!(error.contains("duplicate tag key in world bundle"));
+    }
+
+    #[test]
+    fn parse_world_bundle_rejects_duplicate_content_types() {
+        let compressed = sample_world_bundle_compressed_with_duplicate_content_type();
+        let error = parse_world_bundle(&compressed).unwrap_err();
+        assert!(error.contains("duplicate content type in world bundle"));
+    }
+
+    #[test]
+    fn parse_world_bundle_rejects_duplicate_custom_chunk_names() {
+        let compressed = sample_world_bundle_compressed_with_duplicate_custom_chunk_name();
+        let error = parse_world_bundle(&compressed).unwrap_err();
+        assert!(error.contains("duplicate custom chunk name in world bundle"));
+    }
+
+    #[test]
     fn rejects_excessive_team_plan_group_counts() {
         let bytes = u32::MAX.to_be_bytes().to_vec();
         let mut reader = Reader::new(&bytes);
@@ -54480,6 +54783,51 @@ mod tests {
         let error = parse_markers_from_ubjson_value(&value).unwrap_err();
 
         assert!(error.contains("duplicate marker id"));
+    }
+
+    #[test]
+    fn parse_markers_rejects_duplicate_object_keys() {
+        let value = UbjsonValue::Object(vec![(
+            "11".to_string(),
+            UbjsonValue::Object(vec![
+                (
+                    "class".to_string(),
+                    UbjsonValue::String("Minimap".to_string()),
+                ),
+                (
+                    "pos".to_string(),
+                    UbjsonValue::Object(vec![
+                        ("x".to_string(), UbjsonValue::Float32(16.0f32.to_bits())),
+                        ("x".to_string(), UbjsonValue::Float32(20.0f32.to_bits())),
+                        ("y".to_string(), UbjsonValue::Float32(24.0f32.to_bits())),
+                    ]),
+                ),
+            ]),
+        )]);
+
+        let error = parse_markers_from_ubjson_value(&value).unwrap_err();
+
+        assert!(error.contains("duplicate object key"));
+    }
+
+    #[test]
+    fn parse_marker_model_rejects_non_finite_float_fields() {
+        let error = parse_marker_model(&UbjsonValue::Object(vec![
+            (
+                "class".to_string(),
+                UbjsonValue::String("Text".to_string()),
+            ),
+            (
+                "pos".to_string(),
+                UbjsonValue::Object(vec![
+                    ("x".to_string(), UbjsonValue::Float64(f64::INFINITY.to_bits())),
+                    ("y".to_string(), UbjsonValue::Float32(24.0f32.to_bits())),
+                ]),
+            ),
+        ]))
+        .unwrap_err();
+
+        assert!(error.contains("non-finite"));
     }
 
     #[test]

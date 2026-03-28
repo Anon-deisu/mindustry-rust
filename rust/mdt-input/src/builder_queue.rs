@@ -491,6 +491,9 @@ impl BuilderQueueStateMachine {
 
         self.active_by_tile = next;
         self.ordered_tiles = next_order;
+        self.last_transition = None;
+        self.last_removed_local_plan = false;
+        self.last_orphan_authoritative = false;
         self.last_skip_reason = None;
         self.last_front_promotion = None;
         self.last_validation_removal_reasons.clear();
@@ -1513,6 +1516,30 @@ mod tests {
 
         assert_eq!(queue.ordered_tiles, vec![(3, 3), (1, 1), (2, 2)]);
         assert_eq!(queue.head_tile, Some((3, 3)));
+    }
+
+    #[test]
+    fn sync_local_entries_clears_stale_transition_and_outcome_flags() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.mark_finish(6, 6, false, false);
+        assert_eq!(queue.last_transition, Some(BuilderQueueTransition::Finished));
+        assert!(!queue.last_removed_local_plan);
+        assert!(queue.last_orphan_authoritative);
+
+        queue.sync_local_entries([BuilderQueueEntryObservation {
+            x: 6,
+            y: 6,
+            breaking: false,
+            block_id: Some(42),
+            rotation: 1,
+        }]);
+
+        assert_eq!(queue.last_transition, None);
+        assert!(!queue.last_removed_local_plan);
+        assert!(!queue.last_orphan_authoritative);
+        assert_eq!(queue.last_skip_reason, None);
+        assert_eq!(queue.last_front_promotion, None);
+        assert!(queue.last_validation_removal_reasons.is_empty());
     }
 
     #[test]
