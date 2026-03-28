@@ -194,6 +194,7 @@ pub fn ingest_inbound_snapshot(state: &mut SessionState, snapshot: InboundSnapsh
                 Err(error) => {
                     state.failed_block_snapshot_parse_count =
                         state.failed_block_snapshot_parse_count.saturating_add(1);
+                    state.block_snapshot_head_projection = None;
                     state.last_block_snapshot_parse_error = Some(error.to_string());
                     state.last_block_snapshot_parse_error_payload_len =
                         Some(snapshot.payload.len());
@@ -1872,6 +1873,54 @@ mod tests {
         assert_eq!(
             state.last_block_snapshot_parse_error_payload_len,
             Some(payload.len())
+        );
+    }
+
+    #[test]
+    fn malformed_block_snapshot_clears_prior_head_projection_but_keeps_last_snapshot() {
+        let valid_payload = [
+            0x00, 0x01, // amount
+            0x00, 0x11, // data len
+            0x00, 0x64, 0x00, 0x63, // first build pos = pack(100, 99)
+            0x01, 0x2d, // first block id = 301
+            0x3f, 0x80, 0x00, 0x00, // health = 1.0
+            0x82, // rotation = 2 with version marker bit
+            0x05, // team = 5
+            0x03, // io version = 3
+            0x01, // enabled = true
+            0x08, // module bitmask
+            0x80, // efficiency
+            0x40, // optional efficiency
+        ];
+        let malformed_payload = [0x00, 0x01, 0x00, 0x03, 0xAA, 0xBB, 0xCC];
+        let mut state = SessionState::default();
+
+        ingest_inbound_snapshot(
+            &mut state,
+            InboundSnapshot::new(HighFrequencyRemoteMethod::BlockSnapshot, 11, &valid_payload),
+        );
+        let last_snapshot = state.last_block_snapshot.clone();
+        assert!(state.block_snapshot_head_projection.is_some());
+
+        ingest_inbound_snapshot(
+            &mut state,
+            InboundSnapshot::new(
+                HighFrequencyRemoteMethod::BlockSnapshot,
+                11,
+                &malformed_payload,
+            ),
+        );
+
+        assert_eq!(state.block_snapshot_head_projection, None);
+        assert_eq!(state.last_block_snapshot, last_snapshot);
+        assert_eq!(state.failed_block_snapshot_parse_count, 1);
+        assert_eq!(
+            state.last_block_snapshot_parse_error.as_deref(),
+            Some("truncated_block_snapshot_first_entry_header:3")
+        );
+        assert_eq!(
+            state.last_block_snapshot_parse_error_payload_len,
+            Some(malformed_payload.len())
         );
     }
 
