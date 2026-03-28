@@ -5595,7 +5595,16 @@ impl ClientSession {
                     self.state.received_build_destroyed_count =
                         self.state.received_build_destroyed_count.saturating_add(1);
                     self.state.last_build_destroyed_build_pos = build_pos;
-                    self.state.record_remove_building_resource_delta(build_pos);
+                    if let Some(build_pos) = build_pos {
+                        let previous_block_id = self
+                            .building_live_state_at(build_pos)
+                            .and_then(|building| building.projection.block_id)
+                            .or_else(|| self.loaded_world_block_id_at(build_pos));
+                        self.apply_loaded_world_tile_patch(build_pos, None, None, Some(None));
+                        self.clear_authoritative_building_state(build_pos, previous_block_id);
+                    } else {
+                        self.state.record_remove_building_resource_delta(None);
+                    }
                     Ok(ClientSessionEvent::BuildDestroyed { build_pos })
                 } else {
                     Ok(ClientSessionEvent::IgnoredPacket {
@@ -36059,6 +36068,114 @@ mod tests {
             .tile_config_projection
             .authoritative_by_build_pos
             .contains_key(&build_pos));
+    }
+
+    #[test]
+    fn build_destroyed_clears_loaded_world_and_authoritative_building_state() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        ingest_sample_world(&mut session);
+        let build_destroyed_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "buildDestroyed")
+            .unwrap()
+            .packet_id;
+        let build_pos = sample_build_positions_with_centers(&session, 1)[0];
+        let (tile_x, tile_y) = build_pos_to_world_xy(build_pos);
+
+        assert_ne!(
+            session
+                .loaded_world_bundle()
+                .unwrap()
+                .world
+                .tile(tile_x, tile_y)
+                .unwrap()
+                .block_id,
+            0
+        );
+        assert!(session.building_live_state_at(build_pos).is_some());
+        session
+            .state
+            .tile_config_projection
+            .seed_authoritative_state(build_pos, TypeIoObject::Int(7));
+        session
+            .state
+            .configured_block_projection
+            .apply_item_source_item(build_pos, Some(42));
+        session
+            .state
+            .configured_block_projection
+            .apply_radar_runtime(
+                build_pos,
+                crate::session_state::RadarRuntimeProjection {
+                    progress_bits: 0x3f80_0000,
+                },
+            );
+        session.radar_runtime_by_build_pos.borrow_mut().insert(
+            build_pos,
+            RadarRuntimeProjection {
+                progress_bits: 0x3f80_0000,
+            },
+        );
+        session
+            .state
+            .resource_delta_projection
+            .building_items_by_build
+            .insert(build_pos, std::collections::BTreeMap::from([(4, 9)]));
+
+        let build_destroyed_event = session
+            .ingest_packet_bytes(
+                &encode_packet(
+                    build_destroyed_packet_id,
+                    &encode_building_payload(Some(build_pos)),
+                    false,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            build_destroyed_event,
+            ClientSessionEvent::BuildDestroyed {
+                build_pos: Some(build_pos),
+            }
+        );
+
+        let world = &session.loaded_world_bundle().unwrap().world;
+        assert_eq!(world.tile(tile_x, tile_y).unwrap().block_id, 0);
+        assert!(session.building_live_state_at(build_pos).is_none());
+        assert!(!session
+            .state()
+            .tile_config_projection
+            .authoritative_by_build_pos
+            .contains_key(&build_pos));
+        assert!(!session
+            .state()
+            .configured_block_projection
+            .item_source_item_by_build_pos
+            .contains_key(&build_pos));
+        assert!(!session
+            .state()
+            .configured_block_projection
+            .radar_runtime_by_build_pos
+            .contains_key(&build_pos));
+        assert!(!session
+            .radar_runtime_by_build_pos
+            .borrow()
+            .contains_key(&build_pos));
+        assert_eq!(
+            session
+                .state()
+                .resource_delta_projection
+                .building_items_by_build
+                .get(&build_pos),
+            None
+        );
+        assert_eq!(
+            session.state().building_table_projection.last_update,
+            Some(crate::session_state::BuildingProjectionUpdateKind::DeconstructFinish)
+        );
+        assert!(session.state().building_table_projection.last_removed);
     }
 
     #[test]
