@@ -343,10 +343,13 @@ fn payload_target_content_hint_in_group(object: &TypeIoObject) -> Option<EffectD
     let mut visited_nodes = 0usize;
 
     while let Some((object, path, depth)) = stack.pop() {
-        if depth > EFFECT_DATA_MAX_DEPTH || visited_nodes >= EFFECT_DATA_MAX_NODES {
+        if visited_nodes >= EFFECT_DATA_MAX_NODES {
             return None;
         }
         visited_nodes += 1;
+        if depth > EFFECT_DATA_MAX_DEPTH {
+            continue;
+        }
 
         let TypeIoObject::ObjectArray(values) = object else {
             continue;
@@ -718,6 +721,48 @@ mod tests {
         assert_eq!(input.contract_name, Some("payload_target_content"));
         assert_eq!(input.primary, None);
         assert_eq!(input.semantic, Some(EffectDataSemantic::ObjectArrayLen(1)));
+    }
+
+    #[test]
+    fn derive_effect_data_business_input_skips_overdeep_sibling_branches() {
+        let object = TypeIoObject::ObjectArray(vec![
+            nested_object_array(
+                super::EFFECT_DATA_MAX_DEPTH + 1,
+                TypeIoObject::ObjectArray(vec![
+                    TypeIoObject::ContentRaw {
+                        content_type: 1,
+                        content_id: 33,
+                    },
+                    TypeIoObject::Point2 { x: 4, y: 6 },
+                ]),
+            ),
+            TypeIoObject::ObjectArray(vec![
+                TypeIoObject::ContentRaw {
+                    content_type: 1,
+                    content_id: 34,
+                },
+                TypeIoObject::Point2 { x: 7, y: 9 },
+            ]),
+        ]);
+
+        let input =
+            derive_effect_data_business_input(Some(26), Some(&object), Some(5), false, None);
+
+        assert_eq!(input.contract_name, Some("payload_target_content"));
+        assert_eq!(
+            input.primary,
+            Some(EffectDataBusinessHint::PayloadTargetContent {
+                content_kind: EffectBusinessContentKind::Content,
+                content_type: 1,
+                content_id: 34,
+                content_path: vec![1, 0],
+                target: EffectDataBusinessTargetHint::PositionHint(TypeIoEffectPositionHint::Point2 {
+                    x: 7,
+                    y: 9,
+                    path: vec![1, 1],
+                }),
+            })
+        );
     }
 
     #[test]
