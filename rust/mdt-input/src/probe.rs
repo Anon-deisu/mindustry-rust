@@ -119,6 +119,9 @@ impl MovementProbeController {
         }
 
         let next = (x + self.config.step.0, y + self.config.step.1);
+        if !is_finite_vector(next) {
+            return None;
+        }
         let rotation_degrees = probe_heading_degrees(self.config.step);
         let pointer = resolve_probe_pointer(locked_pointer, runtime.pointer, next);
         self.last_step_at_ms = Some(now_ms);
@@ -387,6 +390,28 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[test]
+    fn advance_rejects_overflowing_step_results() {
+        let mut controller =
+            MovementProbeController::new(MovementProbeConfig { step: (f32::MAX, 0.0) });
+
+        assert_eq!(
+            controller.advance(
+                RuntimeInputState {
+                    unit_id: Some(7),
+                    dead: false,
+                    position: Some((f32::MAX, 1.0)),
+                    pointer: None,
+                },
+                100,
+                50,
+                None,
+            ),
+            None
+        );
+        assert_eq!(controller.last_step_at_ms(), None);
     }
 
     #[test]
