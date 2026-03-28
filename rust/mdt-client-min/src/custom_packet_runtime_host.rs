@@ -482,8 +482,11 @@ fn build_host_action(
             let (x, y) = entry
                 .marker
                 .as_ref()
-                .map(|marker| (marker.x, marker.y))
-                .or_else(|| parse_surface_world_pos(&entry.stable_value))
+                .and_then(|marker| finite_surface_world_pos(marker.x, marker.y))
+                .or_else(|| {
+                    parse_surface_world_pos(&entry.stable_value)
+                        .and_then(|(x, y)| finite_surface_world_pos(x, y))
+                })
                 .ok_or("invalid_world_pos")?;
             Ok(RuntimeCustomPacketHostAction::RequestDropPayload {
                 key: route.key.clone(),
@@ -525,6 +528,10 @@ fn parse_surface_world_pos(value: &str) -> Option<(f32, f32)> {
     let x = parts.next()?.trim().parse::<f32>().ok()?;
     let y = parts.next()?.trim().parse::<f32>().ok()?;
     Some((x, y))
+}
+
+fn finite_surface_world_pos(x: f32, y: f32) -> Option<(f32, f32)> {
+    (x.is_finite() && y.is_finite()).then_some((x, y))
 }
 
 fn format_host_business_entry(
@@ -832,5 +839,32 @@ mod tests {
                 y: 13.0,
             }]
         );
+    }
+
+    #[test]
+    fn runtime_custom_packet_host_rejects_non_finite_world_pos_drop_actions() {
+        let mut host = RuntimeCustomPacketHost::from_specs_with_actions(
+            &[logic_pos_spec()],
+            &[drop_action_spec()],
+        )
+        .unwrap();
+
+        let mut entry = logic_pos_entry("7,9", 7.0, 9.0);
+        entry.marker.as_mut().unwrap().x = f32::NAN;
+        host.observe_summary_entries(42, &[entry]);
+        assert_eq!(
+            host.drain_actions(),
+            vec![RuntimeCustomPacketHostAction::RequestDropPayload {
+                key: "logic.pos".to_string(),
+                x: 7.0,
+                y: 9.0,
+            }]
+        );
+
+        host.drain_lines();
+        let mut invalid_entry = logic_pos_entry("NaN,9", 7.0, 9.0);
+        invalid_entry.marker.as_mut().unwrap().x = f32::NAN;
+        host.observe_summary_entries(43, &[invalid_entry]);
+        assert!(host.drain_actions().is_empty());
     }
 }
