@@ -66,7 +66,7 @@ impl SavePostLoadConsumerRuntimeStageHelper {
     }
 
     pub fn can_apply_now(&self) -> bool {
-        self.step_count > 0 && self.disposition == SavePostLoadConsumerRuntimeDisposition::ApplyNow
+        self.disposition == SavePostLoadConsumerRuntimeDisposition::ApplyNow
     }
 }
 
@@ -708,6 +708,24 @@ mod tests {
                 .map(|stage| stage.disposition),
             Some(SavePostLoadConsumerRuntimeDisposition::ApplyNow)
         );
+    }
+
+    #[test]
+    fn consumer_runtime_helper_marks_zero_step_apply_now_stage_ready() {
+        let mut observation = test_observation();
+        observation.custom_chunks.clear();
+
+        let helper = observation.consumer_runtime_helper();
+        let stage = helper
+            .stage(SavePostLoadConsumerStageKind::CustomChunks)
+            .expect("custom chunks stage should be present");
+
+        assert_eq!(stage.step_count, 0);
+        assert_eq!(
+            stage.disposition,
+            SavePostLoadConsumerRuntimeDisposition::ApplyNow
+        );
+        assert!(stage.can_apply_now());
     }
 
     #[test]
