@@ -2112,6 +2112,34 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "item stack count exceeds i16")]
+    fn write_item_stacks_rejects_lengths_outside_i16_range() {
+        let stacks = vec![
+            ItemStackRaw {
+                item_id: None,
+                amount: 0,
+            };
+            i16::MAX as usize + 1
+        ];
+        let mut bytes = Vec::new();
+        write_item_stacks(&mut bytes, &stacks);
+    }
+
+    #[test]
+    #[should_panic(expected = "liquid stack count exceeds i16")]
+    fn write_liquid_stacks_rejects_lengths_outside_i16_range() {
+        let stacks = vec![
+            LiquidStackRaw {
+                liquid_id: None,
+                amount: 0.0,
+            };
+            i16::MAX as usize + 1
+        ];
+        let mut bytes = Vec::new();
+        write_liquid_stacks(&mut bytes, &stacks);
+    }
+
+    #[test]
     fn string_reader_rejects_invalid_markers() {
         assert!(matches!(
             read_string_prefix(&[2u8]),
