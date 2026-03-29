@@ -138,14 +138,6 @@ pub struct SavePostLoadRuntimeWorldOwnership {
 }
 
 impl SavePostLoadRuntimeWorldOwnership {
-    fn is_aggregate_surface(kind: SavePostLoadRuntimeWorldSurfaceKind) -> bool {
-        !matches!(
-            kind,
-            SavePostLoadRuntimeWorldSurfaceKind::EntityRemaps
-                | SavePostLoadRuntimeWorldSurfaceKind::CustomChunks
-        )
-    }
-
     pub fn surface(
         &self,
         kind: SavePostLoadRuntimeWorldSurfaceKind,
@@ -154,27 +146,15 @@ impl SavePostLoadRuntimeWorldOwnership {
     }
 
     pub fn required_step_count(&self) -> usize {
-        self.surfaces
-            .iter()
-            .filter(|surface| Self::is_aggregate_surface(surface.kind))
-            .map(|surface| surface.required_step_count)
-            .sum()
+        self.surfaces.iter().map(|surface| surface.required_step_count).sum()
     }
 
     pub fn claimed_step_count(&self) -> usize {
-        self.surfaces
-            .iter()
-            .filter(|surface| Self::is_aggregate_surface(surface.kind))
-            .map(|surface| surface.claimed_step_count)
-            .sum()
+        self.surfaces.iter().map(|surface| surface.claimed_step_count).sum()
     }
 
     pub fn owned_surface_count(&self) -> usize {
-        self.surfaces
-            .iter()
-            .filter(|surface| Self::is_aggregate_surface(surface.kind))
-            .filter(|surface| surface.is_owned())
-            .count()
+        self.surfaces.iter().filter(|surface| surface.is_owned()).count()
     }
 
     pub fn can_apply_world_semantics(&self) -> bool {
@@ -350,9 +330,9 @@ mod tests {
         assert!(ownership.world_shell_ready);
         assert!(ownership.can_apply_world_semantics());
         assert!(ownership.can_activate_live_runtime());
-        assert_eq!(ownership.required_step_count(), 10);
-        assert_eq!(ownership.claimed_step_count(), 10);
-        assert_eq!(ownership.owned_surface_count(), 6);
+        assert_eq!(ownership.required_step_count(), 14);
+        assert_eq!(ownership.claimed_step_count(), 14);
+        assert_eq!(ownership.owned_surface_count(), 8);
         assert_eq!(
             ownership
                 .surface(SavePostLoadRuntimeWorldSurfaceKind::LoadableEntities)
@@ -411,9 +391,9 @@ mod tests {
         assert!(ownership.world_shell_ready);
         assert!(!ownership.can_apply_world_semantics());
         assert!(!ownership.can_activate_live_runtime());
-        assert_eq!(ownership.required_step_count(), 10);
-        assert_eq!(ownership.claimed_step_count(), 9);
-        assert_eq!(ownership.owned_surface_count(), 5);
+        assert_eq!(ownership.required_step_count(), 14);
+        assert_eq!(ownership.claimed_step_count(), 13);
+        assert_eq!(ownership.owned_surface_count(), 7);
         assert_eq!(markers.required_step_count, 2);
         assert_eq!(markers.claimed_step_count, 1);
         assert_eq!(
@@ -469,9 +449,9 @@ mod tests {
         assert!(!ownership.world_shell_ready);
         assert!(!ownership.can_apply_world_semantics());
         assert!(!ownership.can_activate_live_runtime());
-        assert_eq!(ownership.required_step_count(), 10);
-        assert_eq!(ownership.claimed_step_count(), 0);
-        assert_eq!(ownership.owned_surface_count(), 0);
+        assert_eq!(ownership.required_step_count(), 14);
+        assert_eq!(ownership.claimed_step_count(), 4);
+        assert_eq!(ownership.owned_surface_count(), 2);
         assert_eq!(
             ownership
                 .surface(SavePostLoadRuntimeWorldSurfaceKind::WorldShell)

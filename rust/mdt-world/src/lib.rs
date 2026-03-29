@@ -42720,7 +42720,7 @@ mod tests {
 
         assert!(ownership.world_shell_ready);
         assert!(ownership.can_apply_world_semantics());
-        assert_eq!(ownership.owned_surface_count(), 6);
+        assert_eq!(ownership.owned_surface_count(), 8);
         assert_eq!(
             ownership.required_step_count(),
             ownership.claimed_step_count() + skipped_surface.required_step_count
