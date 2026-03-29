@@ -153,9 +153,15 @@ pub fn observe_runtime_effect_binding_state(
     let summary = object.effect_summary();
     let parent_ref = summary.first_parent_ref?;
     match parent_ref.semantic_ref {
-        TypeIoSemanticRef::Building { .. } => (!parent_building_binding_enabled(effect_id))
-            .then_some(EffectRuntimeBindingState::BindingRejected)
-            .or(Some(EffectRuntimeBindingState::ParentFollow)),
+        TypeIoSemanticRef::Building { build_pos } => {
+            if !parent_building_binding_enabled(effect_id)
+                || !has_runtime_parent_building(session_state, build_pos)
+            {
+                Some(EffectRuntimeBindingState::BindingRejected)
+            } else {
+                Some(EffectRuntimeBindingState::ParentFollow)
+            }
+        }
         TypeIoSemanticRef::Unit { unit_id } => {
             if matches!(
                 effect_contract(effect_id),
@@ -414,8 +420,10 @@ fn observe_runtime_effect_overlay_binding_state_from_binding(
     input_view: &EffectRuntimeInputView,
 ) -> Option<EffectRuntimeBindingState> {
     match binding {
-        Some(RuntimeEffectBinding::ParentBuilding { .. }) => {
-            Some(EffectRuntimeBindingState::ParentFollow)
+        Some(RuntimeEffectBinding::ParentBuilding { build_pos, .. }) => {
+            has_runtime_parent_building(session_state, *build_pos)
+                .then_some(EffectRuntimeBindingState::ParentFollow)
+                .or(Some(EffectRuntimeBindingState::BindingRejected))
         }
         Some(RuntimeEffectBinding::ParentUnit { unit_id, .. }) => {
             if resolve_parent_unit_position(*unit_id, session_state, input_view).is_some() {
@@ -733,6 +741,9 @@ fn resolve_binding_position(
             offset_y_bits,
             offset_initialized,
         } => {
+            if !has_runtime_parent_building(session_state, *build_pos) {
+                return None;
+            }
             let (parent_x_bits, parent_y_bits) = world_bits_from_tile_pos(*build_pos);
             if !*offset_initialized {
                 *offset_x_bits = coordinate_delta_bits(*spawn_x_bits, parent_x_bits);
@@ -808,6 +819,13 @@ fn resolve_binding_position(
             }
         }
     }
+}
+
+fn has_runtime_parent_building(session_state: &SessionState, build_pos: i32) -> bool {
+    session_state
+        .building_table_projection
+        .by_build_pos
+        .contains_key(&build_pos)
 }
 
 fn resolve_parent_unit_position(
@@ -1004,11 +1022,12 @@ fn unpack_point2(value: i32) -> (i16, i16) {
 #[cfg(test)]
 mod tests {
     use super::{
-        effect_contract, effect_contract_name, observe_runtime_effect_binding_state,
+        effect_contract, effect_contract_name, lightning_path_points,
+        observe_runtime_effect_binding_state, observe_runtime_effect_overlay_binding_state,
         observe_runtime_effect_source_binding_state, resolve_runtime_effect_overlay_position,
         resolve_runtime_effect_overlay_source_position, spawn_runtime_effect_overlay,
-        lightning_path_points, EffectRuntimeBindingState, EffectRuntimeInputView,
-        RuntimeEffectBinding, RuntimeEffectContract,
+        EffectRuntimeBindingState, EffectRuntimeInputView, RuntimeEffectBinding,
+        RuntimeEffectContract,
     };
     use crate::session_state::{
         EntityProjection, EntitySemanticProjection, EntitySemanticProjectionEntry,
@@ -1352,7 +1371,7 @@ mod tests {
             Some(&TypeIoObject::BuildingPos(build_pos)),
             10,
         );
-        let state = SessionState::default();
+        let state = session_state_with_building(build_pos);
         let input = EffectRuntimeInputView::default();
 
         let resolved = resolve_runtime_effect_overlay_position(&mut overlay, &state, &input);
@@ -1367,6 +1386,51 @@ mod tests {
                 offset_x_bits: 12.0f32.to_bits(),
                 offset_y_bits: (-12.0f32).to_bits(),
                 offset_initialized: true,
+            })
+        );
+    }
+
+    #[test]
+    fn effect_runtime_resolve_runtime_effect_overlay_position_keeps_spawn_position_when_parent_building_is_missing(
+    ) {
+        let build_pos = (10_i32 << 16) | 20_i32;
+        let mut overlay = spawn_runtime_effect_overlay(
+            Some(67),
+            92.0,
+            148.0,
+            92.0,
+            148.0,
+            0.0,
+            0,
+            false,
+            Some(&TypeIoObject::BuildingPos(build_pos)),
+            10,
+        );
+
+        let resolved = resolve_runtime_effect_overlay_position(
+            &mut overlay,
+            &SessionState::default(),
+            &EffectRuntimeInputView::default(),
+        );
+
+        assert_eq!(resolved, (92.0f32.to_bits(), 148.0f32.to_bits()));
+        assert_eq!(
+            observe_runtime_effect_overlay_binding_state(
+                &overlay,
+                &SessionState::default(),
+                &EffectRuntimeInputView::default(),
+            ),
+            Some(EffectRuntimeBindingState::BindingRejected)
+        );
+        assert_eq!(
+            overlay.binding,
+            Some(RuntimeEffectBinding::ParentBuilding {
+                build_pos,
+                spawn_x_bits: 92.0f32.to_bits(),
+                spawn_y_bits: 148.0f32.to_bits(),
+                offset_x_bits: 0.0f32.to_bits(),
+                offset_y_bits: 0.0f32.to_bits(),
+                offset_initialized: false,
             })
         );
     }
@@ -1837,6 +1901,29 @@ mod tests {
         state
     }
 
+    fn session_state_with_building(build_pos: i32) -> SessionState {
+        let mut state = SessionState::default();
+        state.building_table_projection.seed_world_baseline(
+            build_pos,
+            0x0101,
+            Some("conveyor".to_string()),
+            0,
+            1,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            1.0f32.to_bits(),
+            None,
+            None,
+            None,
+            None,
+        );
+        state
+    }
+
     #[test]
     fn effect_runtime_observe_runtime_effect_binding_state_rejects_lightning_building_parent() {
         let object = TypeIoObject::BuildingPos(pack_point2(7, 11));
@@ -1856,7 +1943,17 @@ mod tests {
     fn effect_runtime_observe_runtime_effect_binding_state_follows_unit_parent_buildings_and_rejects_leg_destroy_unit(
     ) {
         let building_object = TypeIoObject::BuildingPos(pack_point2(7, 11));
+        let building_state = session_state_with_building(pack_point2(7, 11));
         for effect_id in [67i16, 68, 122, 257, 260] {
+            assert_eq!(
+                observe_runtime_effect_binding_state(
+                    Some(effect_id),
+                    Some(&building_object),
+                    &building_state,
+                    &EffectRuntimeInputView::default(),
+                ),
+                Some(EffectRuntimeBindingState::ParentFollow)
+            );
             assert_eq!(
                 observe_runtime_effect_binding_state(
                     Some(effect_id),
@@ -1864,7 +1961,7 @@ mod tests {
                     &SessionState::default(),
                     &EffectRuntimeInputView::default(),
                 ),
-                Some(EffectRuntimeBindingState::ParentFollow)
+                Some(EffectRuntimeBindingState::BindingRejected)
             );
         }
 
