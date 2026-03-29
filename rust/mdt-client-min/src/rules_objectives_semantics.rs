@@ -446,6 +446,11 @@ fn object_field_string(json: &str, key: &str) -> Option<String> {
     object_field_value(json, key).and_then(parse_json_string_literal)
 }
 
+fn normalize_flag_name(flag: &str) -> Option<String> {
+    let trimmed = flag.trim();
+    (!trimmed.is_empty()).then_some(trimmed.to_string())
+}
+
 fn object_field_string_array(json: &str, key: &str) -> Vec<String> {
     object_field_value(json, key)
         .and_then(array_value_slices)
@@ -453,6 +458,7 @@ fn object_field_string_array(json: &str, key: &str) -> Vec<String> {
             values
                 .into_iter()
                 .filter_map(parse_json_string_literal)
+                .filter_map(|value| normalize_flag_name(&value))
                 .collect()
         })
         .unwrap_or_default()
@@ -550,7 +556,7 @@ fn parse_objective_projection(entry: &str) -> Option<ObjectiveProjection> {
         text: object_field_string(entry, "text"),
         details: object_field_string(entry, "details"),
         completion_logic_code: object_field_string(entry, "completionLogicCode"),
-        flag: object_field_string(entry, "flag"),
+        flag: object_field_string(entry, "flag").and_then(|flag| normalize_flag_name(&flag)),
         team: object_field_string(entry, "team"),
         team_id: object_field_i32(entry, "team"),
         parents,
@@ -1167,6 +1173,31 @@ mod tests {
         assert_eq!(projection.objectives[0].flags_added_count, Some(2));
         assert_eq!(projection.objectives[0].flags_removed, vec!["c"]);
         assert_eq!(projection.objectives[0].flags_removed_count, Some(1));
+    }
+
+    #[test]
+    fn objectives_projection_trims_and_drops_blank_flags() {
+        let mut projection = ObjectivesProjection::default();
+
+        projection.replace_from_json(
+            r#"[{"type":"Flag","flag":" boss ","flagsAdded":[" a ","","b","   "],"flagsRemoved":[" c "," ",null]}]"#,
+        );
+
+        assert_eq!(projection.objectives.len(), 1);
+        assert_eq!(projection.objectives[0].flag.as_deref(), Some("boss"));
+        assert_eq!(projection.objectives[0].flags_added, vec!["a", "b"]);
+        assert_eq!(projection.objectives[0].flags_added_count, Some(2));
+        assert_eq!(projection.objectives[0].flags_removed, vec!["c"]);
+        assert_eq!(projection.objectives[0].flags_removed_count, Some(1));
+
+        projection.apply_set_flag(Some("c"), true);
+        projection.complete_by_index(0);
+
+        assert!(projection.objective_flags.contains("a"));
+        assert!(projection.objective_flags.contains("b"));
+        assert!(!projection.objective_flags.contains("c"));
+        assert!(!projection.objective_flags.contains(""));
+        assert!(!projection.objective_flags.contains(" "));
     }
 
     #[test]
