@@ -27247,6 +27247,17 @@ fn parse_legacy_building_tail_snapshot(
                 .map(ParsedBuildingTail::OneF32Bool)
                 .unwrap_or(ParsedBuildingTail::Unknown)
         }
+        Some("segment")
+        | Some("parallax")
+        | Some("radar")
+        | Some("repair-point")
+        | Some("repair-turret")
+        | Some("shielded-wall")
+        | Some("launch-pad")
+        | Some("advanced-launch-pad")
+        | Some("interplanetary-accelerator") => parse_one_f32_tail_snapshot(legacy_tail_bytes)
+            .map(ParsedBuildingTail::OneF32)
+            .unwrap_or(ParsedBuildingTail::Unknown),
         Some("duct-unloader") => parse_duct_unloader_tail_snapshot(legacy_tail_bytes)
             .map(ParsedBuildingTail::DuctUnloader)
             .unwrap_or(ParsedBuildingTail::Unknown),
@@ -56131,6 +56142,44 @@ mod tests {
         .unwrap();
 
         assert_eq!(snapshot.parsed_tail, expected);
+    }
+
+    #[test]
+    fn parses_legacy_one_f32_revision_zero_building_snapshots_when_block_name_is_known() {
+        let legacy_tail = 0x3f800000u32.to_be_bytes();
+        for block_name in ["segment", "parallax", "radar", "shielded-wall"] {
+            let expected = parse_building_tail(Some(block_name), 0, &legacy_tail).unwrap();
+            let snapshot = parse_legacy_save_building_snapshot(Some(block_name), &{
+                let mut bytes = vec![0, 0, 10, 0x12, 1];
+                bytes.extend_from_slice(&legacy_tail);
+                bytes
+            })
+            .unwrap();
+
+            assert_eq!(snapshot.parsed_tail, expected);
+        }
+    }
+
+    #[test]
+    fn parses_legacy_one_f32_revision_one_building_snapshots_when_block_name_is_known() {
+        let legacy_tail = 0x41200000u32.to_be_bytes();
+        for block_name in [
+            "repair-point",
+            "repair-turret",
+            "launch-pad",
+            "advanced-launch-pad",
+            "interplanetary-accelerator",
+        ] {
+            let expected = parse_building_tail(Some(block_name), 1, &legacy_tail).unwrap();
+            let snapshot = parse_legacy_save_building_snapshot(Some(block_name), &{
+                let mut bytes = vec![1, 0, 10, 0x12, 1];
+                bytes.extend_from_slice(&legacy_tail);
+                bytes
+            })
+            .unwrap();
+
+            assert_eq!(snapshot.parsed_tail, expected);
+        }
     }
 
     #[test]
