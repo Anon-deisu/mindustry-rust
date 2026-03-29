@@ -267,6 +267,20 @@ pub fn write_string(out: &mut Vec<u8>, value: Option<&str>) {
     }
 }
 
+pub fn write_string_data(out: &mut Vec<u8>, value: Option<&str>) {
+    match value {
+        Some(value) => {
+            let bytes = value.as_bytes();
+            write_short(
+                out,
+                i16::try_from(bytes.len()).expect("string data length exceeds i16"),
+            );
+            out.extend_from_slice(bytes);
+        }
+        None => write_short(out, -1),
+    }
+}
+
 pub fn write_strings(out: &mut Vec<u8>, values: &[Option<String>]) {
     write_byte(
         out,
@@ -665,6 +679,20 @@ pub fn read_string(bytes: &[u8]) -> Result<Option<String>, TypeIoReadError> {
 pub fn read_string_prefix(bytes: &[u8]) -> Result<(Option<String>, usize), TypeIoReadError> {
     let mut reader = PrimitiveReader::new(bytes);
     Ok((read_string_from_reader(&mut reader)?, reader.position()))
+}
+
+pub fn read_string_data(bytes: &[u8]) -> Result<Option<String>, TypeIoReadError> {
+    let (value, consumed) = read_string_data_prefix(bytes)?;
+    ensure_consumed(consumed, bytes.len())?;
+    Ok(value)
+}
+
+pub fn read_string_data_prefix(bytes: &[u8]) -> Result<(Option<String>, usize), TypeIoReadError> {
+    let mut reader = PrimitiveReader::new(bytes);
+    Ok((
+        read_string_data_from_reader(&mut reader)?,
+        reader.position(),
+    ))
 }
 
 pub fn read_strings(bytes: &[u8]) -> Result<StringsRaw, TypeIoReadError> {
@@ -1203,6 +1231,30 @@ fn read_string_from_reader(
     }
 }
 
+fn read_string_data_from_reader(
+    reader: &mut PrimitiveReader<'_>,
+) -> Result<Option<String>, TypeIoReadError> {
+    let length_position = reader.position();
+    let length = reader.read_i16()?;
+    match length {
+        -1 => Ok(None),
+        0.. => {
+            let raw = reader.read_vec(length as usize)?;
+            let string_position = reader.position() - raw.len();
+            let value = String::from_utf8(raw).map_err(|error| TypeIoReadError::InvalidUtf8 {
+                position: string_position,
+                message: error.to_string(),
+            })?;
+            Ok(Some(value))
+        }
+        _ => Err(TypeIoReadError::NegativeLength {
+            field: "string data length",
+            length: i32::from(length),
+            position: length_position,
+        }),
+    }
+}
+
 fn read_strings_from_reader(
     reader: &mut PrimitiveReader<'_>,
 ) -> Result<StringsRaw, TypeIoReadError> {
@@ -1443,8 +1495,19 @@ mod tests {
         assert_eq!(read_string(&bytes).unwrap().as_deref(), Some("hello"));
 
         bytes.clear();
+        write_string_data(&mut bytes, Some("data-hello"));
+        assert_eq!(
+            read_string_data(&bytes).unwrap().as_deref(),
+            Some("data-hello")
+        );
+
+        bytes.clear();
         write_string(&mut bytes, None);
         assert_eq!(read_string(&bytes).unwrap(), None);
+
+        bytes.clear();
+        write_string_data(&mut bytes, None);
+        assert_eq!(read_string_data(&bytes).unwrap(), None);
 
         bytes.clear();
         write_ints(&mut bytes, &[1, -2, 3]);
@@ -1525,9 +1588,7 @@ mod tests {
             ips: (0..14)
                 .map(|index| Some(format!("10.0.0.{index}")))
                 .collect(),
-            names: (0..14)
-                .map(|index| Some(format!("user-{index}")))
-                .collect(),
+            names: (0..14).map(|index| Some(format!("user-{index}"))).collect(),
         };
         bytes.clear();
         write_trace_info(&mut bytes, &trace);
@@ -1541,9 +1602,15 @@ mod tests {
         assert_eq!(decoded_trace.times_kicked, 2);
         assert_eq!(decoded_trace.ips.len(), 12);
         assert_eq!(decoded_trace.names.len(), 12);
-        assert_eq!(decoded_trace.ips.first().and_then(|value| value.as_deref()), Some("10.0.0.0"));
         assert_eq!(
-            decoded_trace.names.last().and_then(|value| value.as_deref()),
+            decoded_trace.ips.first().and_then(|value| value.as_deref()),
+            Some("10.0.0.0")
+        );
+        assert_eq!(
+            decoded_trace
+                .names
+                .last()
+                .and_then(|value| value.as_deref()),
             Some("user-11")
         );
 
@@ -1805,6 +1872,19 @@ mod tests {
             Err(TypeIoReadError::TrailingBytes { consumed, total })
                 if consumed == bytes.len() - 1 && total == bytes.len()
         ));
+
+        bytes.clear();
+        write_string_data(&mut bytes, Some("data"));
+        bytes.push(0xaa);
+
+        let (decoded_string_data, consumed) = read_string_data_prefix(&bytes).unwrap();
+        assert_eq!(decoded_string_data.as_deref(), Some("data"));
+        assert_eq!(consumed, bytes.len() - 1);
+        assert!(matches!(
+            read_string_data(&bytes),
+            Err(TypeIoReadError::TrailingBytes { consumed, total })
+                if consumed == bytes.len() - 1 && total == bytes.len()
+        ));
     }
 
     #[test]
@@ -1853,6 +1933,30 @@ mod tests {
     }
 
     #[test]
+    fn string_data_reader_rejects_truncated_negative_and_invalid_utf8_payloads() {
+        assert!(matches!(
+            read_string_data(&[0, 3, b'a', b'b']),
+            Err(TypeIoReadError::UnexpectedEof {
+                position: 2,
+                needed: 3,
+                remaining: 2
+            })
+        ));
+        assert_eq!(
+            read_string_data(&(-2i16).to_be_bytes()).unwrap_err(),
+            TypeIoReadError::NegativeLength {
+                field: "string data length",
+                length: -2,
+                position: 0,
+            }
+        );
+        assert!(matches!(
+            read_string_data(&[0, 1, 0xFF]),
+            Err(TypeIoReadError::InvalidUtf8 { position: 2, .. })
+        ));
+    }
+
+    #[test]
     #[should_panic(expected = "int[] length exceeds i16")]
     fn write_ints_rejects_lengths_outside_i16_range() {
         let ints = vec![0i32; i16::MAX as usize + 1];
@@ -1866,6 +1970,14 @@ mod tests {
         let bytes = vec![0u8; i16::MAX as usize + 1];
         let mut out = Vec::new();
         write_bytes(&mut out, &bytes);
+    }
+
+    #[test]
+    #[should_panic(expected = "string data length exceeds i16")]
+    fn write_string_data_rejects_lengths_outside_i16_range() {
+        let text = "x".repeat(i16::MAX as usize + 1);
+        let mut out = Vec::new();
+        write_string_data(&mut out, Some(&text));
     }
 
     #[test]
