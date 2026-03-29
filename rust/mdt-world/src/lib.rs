@@ -27579,11 +27579,18 @@ fn parse_save_entity_remap_table(
     let start = reader.position();
     let remap_count = reader.read_u16()? as usize;
     let mut remap_entries = Vec::with_capacity(remap_count);
+    let mut seen_custom_ids = HashSet::with_capacity(remap_count);
+    let mut seen_names = HashSet::with_capacity(remap_count);
     for _ in 0..remap_count {
-        remap_entries.push(SaveEntityRemapEntry {
-            custom_id: reader.read_u16()?,
-            name: reader.read_java_utf()?,
-        });
+        let custom_id = reader.read_u16()?;
+        if !seen_custom_ids.insert(custom_id) {
+            return Err(format!("duplicate entity remap custom id: {custom_id}"));
+        }
+        let name = reader.read_java_utf()?;
+        if !seen_names.insert(name.clone()) {
+            return Err(format!("duplicate entity remap name: {name}"));
+        }
+        remap_entries.push(SaveEntityRemapEntry { custom_id, name });
     }
     let end = reader.position();
     Ok((
@@ -43364,6 +43371,36 @@ mod tests {
         let error = parse_save_entity_region(11, &bytes).unwrap_err();
 
         assert!(error.contains("unexpected trailing bytes after save entity region"));
+    }
+
+    #[test]
+    fn parse_save_entity_remap_table_rejects_duplicate_custom_ids() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&2u16.to_be_bytes());
+        bytes.extend_from_slice(&3u16.to_be_bytes());
+        write_java_utf(&mut bytes, "mod-a").unwrap();
+        bytes.extend_from_slice(&3u16.to_be_bytes());
+        write_java_utf(&mut bytes, "mod-b").unwrap();
+
+        let mut reader = Reader::new(&bytes);
+        let error = parse_save_entity_remap_table(&mut reader).unwrap_err();
+
+        assert!(error.contains("duplicate entity remap custom id: 3"));
+    }
+
+    #[test]
+    fn parse_save_entity_remap_table_rejects_duplicate_names() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&2u16.to_be_bytes());
+        bytes.extend_from_slice(&3u16.to_be_bytes());
+        write_java_utf(&mut bytes, "mod-a").unwrap();
+        bytes.extend_from_slice(&4u16.to_be_bytes());
+        write_java_utf(&mut bytes, "mod-a").unwrap();
+
+        let mut reader = Reader::new(&bytes);
+        let error = parse_save_entity_remap_table(&mut reader).unwrap_err();
+
+        assert!(error.contains("duplicate entity remap name: mod-a"));
     }
 
     fn test_building_center(
