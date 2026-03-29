@@ -57387,6 +57387,17 @@ mod tests {
     }
 
     #[test]
+    fn rejects_save_map_region_when_remaining_bytes_cannot_hold_tiles() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1u16.to_be_bytes());
+        bytes.extend_from_slice(&1u16.to_be_bytes());
+
+        let error = parse_save_map_region(11, &[], &bytes).unwrap_err();
+
+        assert!(error.contains("dimensions are too large for remaining bytes"));
+    }
+
+    #[test]
     fn parses_empty_save_custom_chunks_region() {
         let bytes = 0u32.to_be_bytes().to_vec();
         let parsed = parse_save_custom_chunks_region(&bytes).unwrap();
@@ -57495,6 +57506,15 @@ mod tests {
         let error = parse_markers(&bytes).unwrap_err();
 
         assert!(error.contains("unexpected trailing bytes after marker region"));
+    }
+
+    #[test]
+    fn parse_markers_rejects_non_object_root() {
+        let value = UbjsonValue::Array(vec![]);
+
+        let error = parse_markers_from_ubjson_value(&value).unwrap_err();
+
+        assert!(error.contains("marker region root is not an object"));
     }
 
     #[test]
