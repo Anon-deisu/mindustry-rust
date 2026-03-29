@@ -73,12 +73,27 @@ These are already landed and should not be re-opened as if missing:
   - remaining remote/codegen work is broader semantic adoption, not re-adding these wire-spec guards
 - `connect` payload preflight now also rejects empty `versionType` / `name` / `locale` fields before encoding.
   - `ConnectPacketSpec::encode_payload(...)` now fail-closes on those empty fields instead of letting them encode through as blank strings
+- `connect` payload size-limit boundary regressions are now also landed.
+  - direct tests now pin malformed base64 identity decode plus `TooManyMods` / `StringTooLong` encode failure boundaries instead of leaving those size guards implicit
 - `mdt-remote` fixed-table packet lookup now fail-closes on duplicate `packet_id` values instead of silently overwriting earlier entries.
   - `RemotePacketIdFixedTable::from_iter(...)` now asserts on duplicate packet ids during fixed-table construction
+- `mdt-remote` shared-only bidirectional wire fallback is now explicitly pinned by regression test.
+  - `targets=both` packets whose params are all shared still fall back to `ClientToServer` wire flow without changing `wire_params`, and this should not be reopened as an ambiguity bug
+- `mdt-remote` required-family lookup APIs now also have explicit missing-family regressions.
+  - `high_frequency_remote_packets`, `custom_channel_remote_packets`, and `inbound_remote_packets` now pin their error paths when an expected remote family is absent from the manifest
 - host runtime custom-packet action handling now dedupes repeated actions instead of replaying them.
   - `host` action dedupe is landed and should not be reopened as if still missing
 - relay redirect handling now clears the runtime state before applying the redirect target.
   - `relay` redirect reset is landed and should not be reopened as if still missing
+- runtime custom-packet reset/read-side hardening is now wider than the older unfinished text said.
+  - `relay` now also clears runtime state on `WorldStreamStarted`, and reset regressions now cover text/binary/logic routes instead of only text
+  - `bridge` reset counter regressions now pin `surface_reset_count` vs `reconnect_reset_count` isolation
+  - `bridge` debug-string regressions now pin malformed escape behavior and trailing-backslash rejection
+  - `relay` spec parser regressions now pin empty-field / extra-`@` / invalid-transport rejection
+  - `surface` reset regressions now also pin summary/latest-view clearing for redirect/world-stream resets
+  - `surface` decode-error regressions now also cover invalid UTF-8 binary payloads and logic `no_string_payload` failures
+- `net_loop` inbound packet invariants are now covered on all three low-risk paths.
+  - regression coverage now pins decode-failure no-op, unknown-packet no-op, and classified snapshot success-path counter/state updates
 - minimal command-mode state container is already landed.
   - `mdt-input` now carries `CommandModeState` / `CommandModeProjection` with selected-units, command-buildings, command-rect, control-groups, and last target/command/stance selections
   - `mdt-client-min-online` runtime outbound action sync now updates that container instead of keeping command-mode as packet-observability-only state
@@ -90,6 +105,15 @@ These are already landed and should not be re-opened as if missing:
 - `mdt-world` post-load activation preflight is already landed.
   - `SavePostLoadActivationSurface` exposes loadable/skipped entity candidates, unresolved remap names, building-center reference validity, and `can_seed_runtime_apply()`
   - remaining work is consuming that surface for Java-like live world/entity activation
+- `mdt-world` passive save parser fail-close coverage is now wider than the older unfinished text said.
+  - content/patch parser regressions now pin trailing-byte rejection for `content` header and `patches` regions
+  - `post_load_world()` now has explicit required-region regressions for missing `content` / `map`
+  - `team plan` regressions now pin undersized group bytes for both modern and legacy formats instead of only huge-count rejection
+  - save-map regressions now also pin oversized block-run rejection instead of only floor-run / chunk-len failures
+  - `static fog` regressions now pin overrun and trailing-byte rejection
+  - entity sync regressions now pin invalid `player unit_kind`, dead-player non-zero unit value, and non-finite `weather/world-label` positions
+  - save `entities` region regressions now pin trailing-byte rejection for modern save versions
+  - entity remap parsing now fail-closes duplicate `custom_id` / duplicate `name` instead of silently accepting ambiguous remaps
 - `mdt-world` now also has a deterministic `SavePostLoadRuntimeSeedPlan` layer above that preflight.
   - `.msav -> post_load_world() -> projection_contract() -> activation_surface()` is now folded into a passive seed plan for later runtime/apply consumers
   - remaining M7-3 work is consuming that seed plan in deeper runtime/world ownership, not re-adding the first passive plan layer
