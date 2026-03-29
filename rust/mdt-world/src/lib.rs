@@ -55685,6 +55685,30 @@ mod tests {
     }
 
     #[test]
+    fn legacy_save_map_region_falls_back_to_run_when_chunk_like_bytes_fail_legacy_building_parse() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&4u16.to_be_bytes());
+        bytes.extend_from_slice(&1u16.to_be_bytes());
+        bytes.extend_from_slice(&0x0011u16.to_be_bytes());
+        bytes.extend_from_slice(&0x0022u16.to_be_bytes());
+        bytes.push(3);
+        bytes.extend_from_slice(&0x0033u16.to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0x0501u16.to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0x0080u16.to_be_bytes());
+        bytes.push(1);
+
+        let parsed = parse_save_map_region(3, &[], &bytes).unwrap();
+
+        assert_eq!(parsed.world.width, 4);
+        assert_eq!(parsed.world.height, 1);
+        assert_eq!(parsed.world.blocks, vec![0x0033, 0x0501, 0x0080, 0x0080]);
+        assert!(parsed.world.building_centers.is_empty());
+        assert_eq!(parsed.block_runs, 3);
+    }
+
+    #[test]
     fn rejects_overlong_save_map_floor_run() {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&1u16.to_be_bytes());
