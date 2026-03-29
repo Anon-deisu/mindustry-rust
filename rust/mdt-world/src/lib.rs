@@ -55957,6 +55957,20 @@ mod tests {
     }
 
     #[test]
+    fn rejects_team_plan_group_when_declared_plans_exceed_remaining_bytes() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1u32.to_be_bytes());
+        bytes.extend_from_slice(&2u32.to_be_bytes());
+        bytes.extend_from_slice(&1u32.to_be_bytes());
+        bytes.extend_from_slice(&[0u8; 10]);
+
+        let mut reader = Reader::new(&bytes);
+        let error = parse_team_plan_groups(&mut reader).err().unwrap();
+
+        assert!(error.contains("team plan group declares too many plans for team 2"));
+    }
+
+    #[test]
     fn parses_static_fog_sample_and_exposes_queries() {
         let bytes = generate_static_fog_sample_bytes();
         let chunk = parse_static_fog_chunk(&bytes).unwrap();
