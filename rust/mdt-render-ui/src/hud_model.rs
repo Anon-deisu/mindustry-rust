@@ -28,6 +28,38 @@ pub struct HudSummary {
     pub minimap: HudMinimapSummary,
 }
 
+impl HudSummary {
+    pub fn map_tile_count(&self) -> usize {
+        self.map_width.saturating_mul(self.map_height)
+    }
+
+    pub fn known_tile_count(&self) -> usize {
+        self.visible_tile_count
+            .saturating_add(self.hidden_tile_count)
+    }
+
+    pub fn unknown_tile_count(&self) -> usize {
+        self.map_tile_count()
+            .saturating_sub(self.known_tile_count())
+    }
+
+    pub fn known_tile_percent(&self) -> usize {
+        percent_of(self.known_tile_count(), self.map_tile_count())
+    }
+
+    pub fn unknown_tile_percent(&self) -> usize {
+        percent_of(self.unknown_tile_count(), self.map_tile_count())
+    }
+
+    pub fn visible_map_percent(&self) -> usize {
+        percent_of(self.visible_tile_count, self.map_tile_count())
+    }
+
+    pub fn hidden_map_percent(&self) -> usize {
+        percent_of(self.hidden_tile_count, self.map_tile_count())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HudMinimapSummary {
     pub focus_tile: Option<(usize, usize)>,
@@ -40,6 +72,14 @@ pub struct HudViewWindowSummary {
     pub origin_y: usize,
     pub width: usize,
     pub height: usize,
+}
+
+fn percent_of(part: usize, total: usize) -> usize {
+    if total == 0 {
+        0
+    } else {
+        part.saturating_mul(100) / total
+    }
 }
 
 /// Structured runtime UI observability projection.
@@ -1099,5 +1139,103 @@ mod tests {
         };
 
         assert!(!summary.is_empty());
+    }
+
+    #[test]
+    fn hud_summary_visibility_helpers_compute_counts_and_percentages() {
+        let summary = super::HudSummary {
+            player_name: "operator".to_string(),
+            team_id: 2,
+            selected_block: "payload-router".to_string(),
+            plan_count: 3,
+            marker_count: 4,
+            map_width: 10,
+            map_height: 10,
+            overlay_visible: true,
+            fog_enabled: true,
+            visible_tile_count: 25,
+            hidden_tile_count: 15,
+            minimap: super::HudMinimapSummary {
+                focus_tile: Some((2, 3)),
+                view_window: super::HudViewWindowSummary {
+                    origin_x: 1,
+                    origin_y: 2,
+                    width: 4,
+                    height: 4,
+                },
+            },
+        };
+
+        assert_eq!(summary.map_tile_count(), 100);
+        assert_eq!(summary.known_tile_count(), 40);
+        assert_eq!(summary.unknown_tile_count(), 60);
+        assert_eq!(summary.known_tile_percent(), 40);
+        assert_eq!(summary.unknown_tile_percent(), 60);
+        assert_eq!(summary.visible_map_percent(), 25);
+        assert_eq!(summary.hidden_map_percent(), 15);
+    }
+
+    #[test]
+    fn hud_summary_visibility_helpers_fail_closed_on_empty_and_overflowing_maps() {
+        let empty_summary = super::HudSummary {
+            player_name: String::new(),
+            team_id: 0,
+            selected_block: String::new(),
+            plan_count: 0,
+            marker_count: 0,
+            map_width: 0,
+            map_height: 0,
+            overlay_visible: false,
+            fog_enabled: false,
+            visible_tile_count: usize::MAX,
+            hidden_tile_count: usize::MAX,
+            minimap: super::HudMinimapSummary {
+                focus_tile: None,
+                view_window: super::HudViewWindowSummary {
+                    origin_x: 0,
+                    origin_y: 0,
+                    width: 0,
+                    height: 0,
+                },
+            },
+        };
+
+        assert_eq!(empty_summary.map_tile_count(), 0);
+        assert_eq!(empty_summary.known_tile_count(), usize::MAX);
+        assert_eq!(empty_summary.unknown_tile_count(), 0);
+        assert_eq!(empty_summary.known_tile_percent(), 0);
+        assert_eq!(empty_summary.unknown_tile_percent(), 0);
+        assert_eq!(empty_summary.visible_map_percent(), 0);
+        assert_eq!(empty_summary.hidden_map_percent(), 0);
+
+        let overflowing_summary = super::HudSummary {
+            player_name: String::new(),
+            team_id: 0,
+            selected_block: String::new(),
+            plan_count: 0,
+            marker_count: 0,
+            map_width: usize::MAX,
+            map_height: 2,
+            overlay_visible: false,
+            fog_enabled: false,
+            visible_tile_count: 1,
+            hidden_tile_count: 2,
+            minimap: super::HudMinimapSummary {
+                focus_tile: None,
+                view_window: super::HudViewWindowSummary {
+                    origin_x: 0,
+                    origin_y: 0,
+                    width: 0,
+                    height: 0,
+                },
+            },
+        };
+
+        assert_eq!(overflowing_summary.map_tile_count(), usize::MAX);
+        assert_eq!(overflowing_summary.known_tile_count(), 3);
+        assert_eq!(overflowing_summary.unknown_tile_count(), usize::MAX - 3);
+        assert_eq!(overflowing_summary.known_tile_percent(), 0);
+        assert_eq!(overflowing_summary.visible_map_percent(), 0);
+        assert_eq!(overflowing_summary.hidden_map_percent(), 0);
     }
 }
