@@ -46,7 +46,7 @@ pub fn ingest_inbound_packet_bytes(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mdt_protocol::PacketCodecError;
+    use mdt_protocol::{encode_packet, PacketCodecError};
 
     #[test]
     fn ingest_inbound_packet_bytes_decode_failure_leaves_stats_unchanged() {
@@ -69,6 +69,37 @@ mod tests {
             Err(PacketCodecError::UnsupportedCompression(0x63))
         ));
         assert_eq!(stats, stats_before);
+        assert_eq!(state, state_before);
+    }
+
+    #[test]
+    fn ingest_inbound_packet_bytes_unknown_packet_leaves_state_unchanged_and_counts_packet_only() {
+        let mut stats = NetLoopStats::default();
+        stats.frames = 3;
+        stats.packets_seen = 5;
+        stats.snapshot_packets_seen = 7;
+
+        let mut state = SessionState {
+            session_id: Some(42),
+            last_applied_tick: 99,
+            client_loaded: true,
+            world_map_width: 128,
+            world_map_height: 96,
+            world_display_title: Some("unchanged".to_string()),
+            ..SessionState::default()
+        };
+        let registry = InboundSnapshotPacketRegistry::default();
+        let bytes = encode_packet(26, &[1, 2, 3, 4], false).unwrap();
+
+        let stats_before = stats;
+        let state_before = state.clone();
+
+        let result = ingest_inbound_packet_bytes(&mut stats, &mut state, &registry, &bytes);
+
+        assert!(matches!(result, Ok(None)));
+        assert_eq!(stats.frames, stats_before.frames);
+        assert_eq!(stats.packets_seen, stats_before.packets_seen + 1);
+        assert_eq!(stats.snapshot_packets_seen, stats_before.snapshot_packets_seen);
         assert_eq!(state, state_before);
     }
 }
