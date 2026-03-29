@@ -1951,6 +1951,10 @@ impl<T: Copy> RemotePacketIdFixedTable<T> {
     fn from_iter(entries: impl IntoIterator<Item = (u8, T)>) -> Self {
         let mut by_packet_id = [None; REMOTE_PACKET_ID_SPACE];
         for (packet_id, value) in entries {
+            assert!(
+                by_packet_id[packet_id as usize].is_none(),
+                "duplicate packet id in fixed table: {packet_id}"
+            );
             by_packet_id[packet_id as usize] = Some(value);
         }
         Self { by_packet_id }
@@ -3885,6 +3889,26 @@ mod tests {
         assert_eq!(fixed_table.get(9), None);
         assert!(fixed_table.contains_packet_id(15));
         assert!(!fixed_table.contains_packet_id(250));
+    }
+
+    #[test]
+    fn remote_packet_id_fixed_table_rejects_duplicate_packet_ids() {
+        let panic = std::panic::catch_unwind(|| {
+            RemotePacketIdFixedTable::from_entries(&[
+                (5, WellKnownRemoteMethod::Ping),
+                (5, WellKnownRemoteMethod::SetRules),
+            ])
+        })
+        .unwrap_err();
+        let message = if let Some(message) = panic.downcast_ref::<&'static str>() {
+            (*message).to_string()
+        } else if let Some(message) = panic.downcast_ref::<String>() {
+            message.clone()
+        } else {
+            String::new()
+        };
+
+        assert!(message.contains("duplicate packet id in fixed table: 5"));
     }
 
     #[test]
