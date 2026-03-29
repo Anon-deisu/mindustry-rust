@@ -231,4 +231,31 @@ mod tests {
         assert_eq!(transition.inventory.total_amount, 101);
         assert_eq!(transition.inventory.nonzero_item_count, 2);
     }
+
+    #[test]
+    fn derive_transition_without_core_data_reuses_previous_inventory_without_duplicates() {
+        let previous_inventory = BTreeMap::from([
+            (1u8, BTreeMap::from([(0u16, 10), (2u16, 0)])),
+            (3u8, BTreeMap::from([(4u16, 40)])),
+        ]);
+
+        let transition = derive_state_snapshot_core_inventory_transition(
+            Some(StateSnapshotCoreInventoryPrevious {
+                inventory_by_team: &previous_inventory,
+                item_entry_count: 3,
+                total_amount: 50,
+                nonzero_item_count: 2,
+            }),
+            None,
+        );
+
+        assert!(!transition.synced);
+        assert!(transition.changed_team_ids.is_empty());
+        assert_eq!(transition.inventory.inventory_by_team, previous_inventory);
+        assert_eq!(transition.inventory.item_entry_count, 3);
+        assert_eq!(transition.inventory.total_amount, 50);
+        assert_eq!(transition.inventory.nonzero_item_count, 2);
+        assert_eq!(transition.inventory.duplicate_team_count, 0);
+        assert_eq!(transition.inventory.duplicate_item_count, 0);
+    }
 }
