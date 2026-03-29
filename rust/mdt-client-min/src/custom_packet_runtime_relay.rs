@@ -846,6 +846,66 @@ mod tests {
     }
 
     #[test]
+    fn runtime_custom_packet_relays_clear_state_on_world_data_begin_for_binary_and_logic_data() {
+        let mut state = RuntimeCustomPacketRelayState::default();
+        state.register(&RuntimeCustomPacketRelaySpec::Binary {
+            inbound_type: "bin.ping".to_string(),
+            outbound_type: "bin.pong".to_string(),
+            transport: ClientPacketTransport::Udp,
+        });
+        state.register(&RuntimeCustomPacketRelaySpec::LogicData {
+            inbound_channel: "logic.ping".to_string(),
+            outbound_channel: "logic.pong".to_string(),
+            transport: ClientLogicDataTransport::Reliable,
+        });
+
+        state.record_binary_handler("bin.ping", &[0xAA, 0xBB, 0xCC]);
+        state.record_logic_data_handler("logic.ping", &TypeIoObject::Int(7));
+        state.observe_events(&[
+            ClientSessionEvent::ServerBinaryPacketReliable {
+                packet_type: "bin.ping".to_string(),
+                contents: vec![0xAA, 0xBB, 0xCC],
+            },
+            ClientSessionEvent::ClientLogicDataReliable {
+                channel: "logic.ping".to_string(),
+                value: TypeIoObject::Int(7),
+            },
+        ]);
+
+        assert_eq!(state.pending_entries.len(), 2);
+        let summary_before_clear = state.summary_lines();
+        assert_eq!(summary_before_clear.len(), 2);
+        assert!(summary_before_clear
+            .iter()
+            .any(|line| line.contains("encoding=binary") && line.contains("count=1")));
+        assert!(summary_before_clear
+            .iter()
+            .any(|line| line.contains("encoding=logic") && line.contains("count=1")));
+
+        state.observe_events(&[ClientSessionEvent::WorldDataBegin]);
+
+        assert!(state.pending_entries.is_empty());
+        let summary_after_clear = state.summary_lines();
+        assert_eq!(summary_after_clear.len(), 2);
+        assert!(summary_after_clear
+            .iter()
+            .any(|line| {
+                line.contains("encoding=binary")
+                    && line.contains("count=0")
+                    && line.contains("event_total=0")
+                    && line.contains("last=None")
+            }));
+        assert!(summary_after_clear
+            .iter()
+            .any(|line| {
+                line.contains("encoding=logic")
+                    && line.contains("count=0")
+                    && line.contains("event_total=0")
+                    && line.contains("last=None")
+            }));
+    }
+
+    #[test]
     fn runtime_custom_packet_relays_clear_state_on_world_stream_started() {
         let mut state = RuntimeCustomPacketRelayState::default();
         state.register(&RuntimeCustomPacketRelaySpec::Text {
