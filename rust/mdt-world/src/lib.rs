@@ -39,8 +39,9 @@ pub use save_post_load_runtime_apply_batches::{
     SavePostLoadRuntimeApplyBatchPlanView, SavePostLoadRuntimeApplyBatchView,
 };
 pub use save_post_load_runtime_execution::{
-    SavePostLoadRuntimeApplyExecution, SavePostLoadRuntimeApplyIssue,
-    SavePostLoadRuntimeWorldSemanticsExecution, SavePostLoadRuntimeWorldShell,
+    SavePostLoadLiveRuntimeActivation, SavePostLoadRuntimeApplyExecution,
+    SavePostLoadRuntimeApplyIssue, SavePostLoadRuntimeWorldSemanticsExecution,
+    SavePostLoadRuntimeWorldShell,
 };
 pub use save_post_load_runtime_execution_view::{
     SavePostLoadRuntimeApplyExecutionView, SavePostLoadRuntimeExecutionStatusBucket,

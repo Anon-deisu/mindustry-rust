@@ -106,6 +106,45 @@ pub struct SavePostLoadRuntimeWorldSemanticsExecution {
     pub issues: Vec<SavePostLoadRuntimeApplyIssue>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct SavePostLoadLiveRuntimeActivation {
+    pub world_shell: SavePostLoadRuntimeWorldShell,
+    pub ownership: SavePostLoadRuntimeWorldOwnership,
+    pub entity_remaps: Vec<SavePostLoadRuntimeEntityRemapSeed>,
+    pub entity_remaps_by_custom_id: BTreeMap<u16, SavePostLoadRuntimeEntityRemapSeed>,
+    pub custom_chunks: Vec<SavePostLoadRuntimeCustomChunkSeed>,
+    pub custom_chunks_by_name: BTreeMap<String, SavePostLoadRuntimeCustomChunkSeed>,
+    pub skipped_entities: Vec<SavePostLoadRuntimeEntitySeed>,
+}
+
+impl SavePostLoadLiveRuntimeActivation {
+    fn from_executions(
+        runtime_apply: SavePostLoadRuntimeApplyExecution,
+        runtime_world_semantics: SavePostLoadRuntimeWorldSemanticsExecution,
+    ) -> Option<Self> {
+        if !runtime_apply.can_activate_live_runtime()
+            || !runtime_world_semantics.can_activate_live_runtime()
+        {
+            return None;
+        }
+
+        let world_shell = runtime_apply.world_shell?;
+        if runtime_world_semantics.world_shell.as_ref() != Some(&world_shell) {
+            return None;
+        }
+
+        Some(Self {
+            world_shell,
+            ownership: runtime_world_semantics.ownership,
+            entity_remaps: runtime_apply.entity_remaps,
+            entity_remaps_by_custom_id: runtime_apply.entity_remaps_by_custom_id,
+            custom_chunks: runtime_apply.custom_chunks,
+            custom_chunks_by_name: runtime_apply.custom_chunks_by_name,
+            skipped_entities: runtime_apply.skipped_entities,
+        })
+    }
+}
+
 impl SavePostLoadRuntimeWorldSemanticsExecution {
     pub fn can_apply_world_semantics(&self) -> bool {
         self.ownership.can_apply_world_semantics()
@@ -453,6 +492,10 @@ impl SavePostLoadRuntimeApplyExecution {
 }
 
 impl SavePostLoadWorldObservation {
+    pub fn live_runtime_activation(&self) -> Option<SavePostLoadLiveRuntimeActivation> {
+        self.runtime_seed_plan().live_runtime_activation()
+    }
+
     pub fn execute_runtime_apply(&self) -> SavePostLoadRuntimeApplyExecution {
         self.runtime_seed_plan().execute_runtime_apply()
     }
@@ -463,6 +506,13 @@ impl SavePostLoadWorldObservation {
 }
 
 impl SavePostLoadRuntimeSeedPlan {
+    pub fn live_runtime_activation(&self) -> Option<SavePostLoadLiveRuntimeActivation> {
+        SavePostLoadLiveRuntimeActivation::from_executions(
+            self.execute_runtime_apply(),
+            self.execute_runtime_world_semantics(),
+        )
+    }
+
     pub fn execute_runtime_apply(&self) -> SavePostLoadRuntimeApplyExecution {
         let script = self.runtime_apply_script();
         let mut execution = SavePostLoadRuntimeApplyExecution::from_script(script.clone());
@@ -620,6 +670,43 @@ mod tests {
         );
         assert_eq!(shell.applied_step_count(), 9);
         assert_eq!(shell.seed.tile_count(), 4);
+    }
+
+    #[test]
+    fn live_runtime_activation_materializes_clean_seedable_runtime_bundle() {
+        let mut observation = test_observation();
+        make_observation_seedable(&mut observation);
+
+        let activation = observation
+            .live_runtime_activation()
+            .expect("expected live runtime activation");
+
+        assert!(activation.ownership.can_activate_live_runtime());
+        assert_eq!(activation.world_shell.team_plans.len(), 2);
+        assert_eq!(activation.world_shell.markers.len(), 2);
+        assert_eq!(activation.world_shell.buildings.len(), 1);
+        assert_eq!(activation.world_shell.loadable_entities.len(), 3);
+        assert_eq!(activation.entity_remaps.len(), 2);
+        assert_eq!(activation.entity_remaps_by_custom_id.len(), 2);
+        assert_eq!(activation.custom_chunks.len(), 2);
+        assert_eq!(activation.custom_chunks_by_name.len(), 2);
+        assert!(activation.custom_chunks_by_name.contains_key("static-fog-data"));
+        assert!(activation.skipped_entities.is_empty());
+    }
+
+    #[test]
+    fn live_runtime_activation_rejects_auxiliary_or_world_failures() {
+        let mut observation = test_observation();
+        make_observation_seedable(&mut observation);
+        observation.custom_chunks[1].name = "static-fog-data".to_string();
+
+        assert!(observation.live_runtime_activation().is_none());
+
+        let mut observation = test_observation();
+        make_observation_seedable(&mut observation);
+        observation.map.world.tiles[0].building_center_index = None;
+
+        assert!(observation.live_runtime_activation().is_none());
     }
 
     #[test]
