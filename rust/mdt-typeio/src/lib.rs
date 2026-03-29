@@ -572,7 +572,7 @@ pub fn read_bool(bytes: &[u8]) -> Result<bool, TypeIoReadError> {
 
 pub fn read_bool_prefix(bytes: &[u8]) -> Result<(bool, usize), TypeIoReadError> {
     let mut reader = PrimitiveReader::new(bytes);
-    Ok((reader.read_u8()? != 0, reader.position()))
+    Ok((read_binary_bool(&mut reader)?, reader.position()))
 }
 
 pub fn read_byte(bytes: &[u8]) -> Result<u8, TypeIoReadError> {
@@ -769,8 +769,7 @@ pub fn read_item(bytes: &[u8]) -> Result<Option<i16>, TypeIoReadError> {
 
 pub fn read_item_prefix(bytes: &[u8]) -> Result<(Option<i16>, usize), TypeIoReadError> {
     let mut reader = PrimitiveReader::new(bytes);
-    let item_id = reader.read_i16()?;
-    let value = (item_id != -1).then_some(item_id);
+    let value = read_optional_content_id(&mut reader, "item id")?;
     Ok((value, reader.position()))
 }
 
@@ -782,8 +781,7 @@ pub fn read_liquid(bytes: &[u8]) -> Result<Option<i16>, TypeIoReadError> {
 
 pub fn read_liquid_prefix(bytes: &[u8]) -> Result<(Option<i16>, usize), TypeIoReadError> {
     let mut reader = PrimitiveReader::new(bytes);
-    let liquid_id = reader.read_i16()?;
-    let value = (liquid_id != -1).then_some(liquid_id);
+    let value = read_optional_content_id(&mut reader, "liquid id")?;
     Ok((value, reader.position()))
 }
 
@@ -795,10 +793,7 @@ pub fn read_item_stack(bytes: &[u8]) -> Result<ItemStackRaw, TypeIoReadError> {
 
 pub fn read_item_stack_prefix(bytes: &[u8]) -> Result<(ItemStackRaw, usize), TypeIoReadError> {
     let mut reader = PrimitiveReader::new(bytes);
-    let item_id = {
-        let raw = reader.read_i16()?;
-        (raw != -1).then_some(raw)
-    };
+    let item_id = read_optional_content_id(&mut reader, "item id")?;
     let amount = reader.read_i32()?;
     Ok((ItemStackRaw { item_id, amount }, reader.position()))
 }
@@ -816,10 +811,7 @@ pub fn read_item_stacks_prefix(
     let count = read_non_negative_i16_len(&mut reader, "item stack count")?;
     let mut stacks = Vec::with_capacity(count);
     for _ in 0..count {
-        let item_id = {
-            let raw = reader.read_i16()?;
-            (raw != -1).then_some(raw)
-        };
+        let item_id = read_optional_content_id(&mut reader, "item id")?;
         let amount = reader.read_i32()?;
         stacks.push(ItemStackRaw { item_id, amount });
     }
@@ -834,10 +826,7 @@ pub fn read_liquid_stack(bytes: &[u8]) -> Result<LiquidStackRaw, TypeIoReadError
 
 pub fn read_liquid_stack_prefix(bytes: &[u8]) -> Result<(LiquidStackRaw, usize), TypeIoReadError> {
     let mut reader = PrimitiveReader::new(bytes);
-    let liquid_id = {
-        let raw = reader.read_i16()?;
-        (raw != -1).then_some(raw)
-    };
+    let liquid_id = read_optional_content_id(&mut reader, "liquid id")?;
     let amount = reader.read_f32()?;
     Ok((LiquidStackRaw { liquid_id, amount }, reader.position()))
 }
@@ -855,10 +844,7 @@ pub fn read_liquid_stacks_prefix(
     let count = read_non_negative_i16_len(&mut reader, "liquid stack count")?;
     let mut stacks = Vec::with_capacity(count);
     for _ in 0..count {
-        let liquid_id = {
-            let raw = reader.read_i16()?;
-            (raw != -1).then_some(raw)
-        };
+        let liquid_id = read_optional_content_id(&mut reader, "liquid id")?;
         let amount = reader.read_f32()?;
         stacks.push(LiquidStackRaw { liquid_id, amount });
     }
@@ -978,7 +964,7 @@ pub fn read_payload_header(bytes: &[u8]) -> Result<PayloadHeader, TypeIoReadErro
 
 pub fn read_payload_header_prefix(bytes: &[u8]) -> Result<(PayloadHeader, usize), TypeIoReadError> {
     let mut reader = PrimitiveReader::new(bytes);
-    let payload_present = reader.read_u8()? != 0;
+    let payload_present = read_binary_bool(&mut reader)?;
     if !payload_present {
         return Ok((TypedPayload::Null, reader.position()));
     }
@@ -1125,6 +1111,53 @@ fn read_non_negative_i16_len(
         });
     }
     Ok(len as usize)
+}
+
+fn read_binary_bool(reader: &mut PrimitiveReader<'_>) -> Result<bool, TypeIoReadError> {
+    let position = reader.position();
+    match reader.read_u8()? {
+        0 => Ok(false),
+        1 => Ok(true),
+        value => Err(TypeIoReadError::InvalidBooleanByte { value, position }),
+    }
+}
+
+fn read_optional_content_id(
+    reader: &mut PrimitiveReader<'_>,
+    field: &'static str,
+) -> Result<Option<i16>, TypeIoReadError> {
+    let position = reader.position();
+    match reader.read_i16()? {
+        -1 => Ok(None),
+        value if value >= 0 => Ok(Some(value)),
+        value => Err(TypeIoReadError::NegativeLength {
+            field,
+            length: i32::from(value),
+            position,
+        }),
+    }
+}
+
+fn read_capped_strings_from_reader(
+    reader: &mut PrimitiveReader<'_>,
+    field: &'static str,
+    max: usize,
+) -> Result<StringsRaw, TypeIoReadError> {
+    let position = reader.position();
+    let count = reader.read_u8()? as usize;
+    if count > max {
+        return Err(TypeIoReadError::LengthLimitExceeded {
+            field,
+            length: count,
+            max,
+            position,
+        });
+    }
+    let mut values = Vec::with_capacity(count);
+    for _ in 0..count {
+        values.push(read_string_from_reader(reader)?);
+    }
+    Ok(values)
 }
 
 fn ensure_consumed(consumed: usize, total: usize) -> Result<(), TypeIoReadError> {
@@ -1277,8 +1310,8 @@ fn read_trace_info_from_reader(
         mobile: reader.read_u8()? != 0,
         times_joined: reader.read_i32()?,
         times_kicked: reader.read_i32()?,
-        ips: read_strings_from_reader(reader)?,
-        names: read_strings_from_reader(reader)?,
+        ips: read_capped_strings_from_reader(reader, "trace ips count", 12)?,
+        names: read_capped_strings_from_reader(reader, "trace names count", 12)?,
     })
 }
 
@@ -1724,6 +1757,17 @@ mod tests {
     }
 
     #[test]
+    fn bool_reader_rejects_non_binary_bytes() {
+        assert_eq!(
+            read_bool(&[2]).unwrap_err(),
+            TypeIoReadError::InvalidBooleanByte {
+                value: 2,
+                position: 0,
+            }
+        );
+    }
+
+    #[test]
     fn payload_header_codecs_round_trip_expected_variants() {
         let mut bytes = Vec::new();
         write_payload_null(&mut bytes);
@@ -1933,6 +1977,46 @@ mod tests {
     }
 
     #[test]
+    fn trace_info_reader_rejects_counts_above_writer_cap() {
+        let trace = TraceInfoRaw {
+            ip: None,
+            uuid: None,
+            locale: None,
+            modded: false,
+            mobile: false,
+            times_joined: 0,
+            times_kicked: 0,
+            ips: Vec::new(),
+            names: Vec::new(),
+        };
+        let mut bytes = Vec::new();
+        write_trace_info(&mut bytes, &trace);
+
+        bytes[13] = 13;
+        assert_eq!(
+            read_trace_info(&bytes).unwrap_err(),
+            TypeIoReadError::LengthLimitExceeded {
+                field: "trace ips count",
+                length: 13,
+                max: 12,
+                position: 13,
+            }
+        );
+
+        bytes[13] = 0;
+        bytes[14] = 13;
+        assert_eq!(
+            read_trace_info(&bytes).unwrap_err(),
+            TypeIoReadError::LengthLimitExceeded {
+                field: "trace names count",
+                length: 13,
+                max: 12,
+                position: 14,
+            }
+        );
+    }
+
+    #[test]
     fn string_data_reader_rejects_truncated_negative_and_invalid_utf8_payloads() {
         assert!(matches!(
             read_string_data(&[0, 3, b'a', b'b']),
@@ -2132,6 +2216,58 @@ mod tests {
     }
 
     #[test]
+    fn item_and_liquid_readers_reject_negative_ids_other_than_minus_one() {
+        assert_eq!(
+            read_item(&(-2i16).to_be_bytes()).unwrap_err(),
+            TypeIoReadError::NegativeLength {
+                field: "item id",
+                length: -2,
+                position: 0,
+            }
+        );
+        assert_eq!(
+            read_liquid(&(-3i16).to_be_bytes()).unwrap_err(),
+            TypeIoReadError::NegativeLength {
+                field: "liquid id",
+                length: -3,
+                position: 0,
+            }
+        );
+        assert_eq!(
+            read_item_stack(&[0xff, 0xfe, 0, 0, 0, 1]).unwrap_err(),
+            TypeIoReadError::NegativeLength {
+                field: "item id",
+                length: -2,
+                position: 0,
+            }
+        );
+        assert_eq!(
+            read_liquid_stack(&[0xff, 0xfd, 0x3f, 0x80, 0x00, 0x00]).unwrap_err(),
+            TypeIoReadError::NegativeLength {
+                field: "liquid id",
+                length: -3,
+                position: 0,
+            }
+        );
+        assert_eq!(
+            read_item_stacks(&[0, 1, 0xff, 0xfc, 0, 0, 0, 1]).unwrap_err(),
+            TypeIoReadError::NegativeLength {
+                field: "item id",
+                length: -4,
+                position: 2,
+            }
+        );
+        assert_eq!(
+            read_liquid_stacks(&[0, 1, 0xff, 0xfb, 0x3f, 0x80, 0x00, 0x00]).unwrap_err(),
+            TypeIoReadError::NegativeLength {
+                field: "liquid id",
+                length: -5,
+                position: 2,
+            }
+        );
+    }
+
+    #[test]
     #[should_panic(expected = "item stack count exceeds i16")]
     fn write_item_stacks_rejects_lengths_outside_i16_range() {
         let stacks = vec![
@@ -2289,6 +2425,17 @@ mod tests {
                 position: 1
             })
         ));
+    }
+
+    #[test]
+    fn payload_header_reader_rejects_non_binary_presence_flags() {
+        assert_eq!(
+            read_payload_header(&[2]).unwrap_err(),
+            TypeIoReadError::InvalidBooleanByte {
+                value: 2,
+                position: 0,
+            }
+        );
     }
 
     #[test]

@@ -129,7 +129,14 @@ pub fn read_status_entry_prefix(
     let status_id = reader.read_i16()?;
     let time = reader.read_f32()?;
     let dynamic_fields = if dynamic {
+        let flags_position = reader.position();
         let flags = reader.read_u8()?;
+        if (flags & !0b0111_1111) != 0 {
+            return Err(TypeIoReadError::UnsupportedPayloadType {
+                type_id: flags,
+                position: flags_position,
+            });
+        }
         Some(StatusDynamicFieldsRaw {
             damage_multiplier: read_flagged_f32(&mut reader, flags, 0)?,
             health_multiplier: read_flagged_f32(&mut reader, flags, 1)?,
@@ -755,6 +762,19 @@ mod tests {
                 position: 7,
                 needed: 4,
                 remaining: 1,
+            })
+        ));
+    }
+
+    #[test]
+    fn status_entry_reader_rejects_reserved_dynamic_flag_bits() {
+        let bytes = vec![0, 5, 0x41, 0x40, 0x00, 0x00, 0b1000_0000];
+
+        assert!(matches!(
+            read_status_entry(&bytes, true),
+            Err(TypeIoReadError::UnsupportedPayloadType {
+                type_id: 0b1000_0000,
+                position: 6,
             })
         ));
     }
