@@ -34,6 +34,7 @@ These are already landed and should not be re-opened as if missing:
     - drill / generator / reactor / generic-crafter / `cultivator`
     - payload building families (`payload-loader` / `payload-unloader` / `payload-source` / `payload-router` / `payload-mass-driver` / `constructor` / `landing-pad` / `block-producer` / `unit-assembler`)
     - unit-factory / reconstructor families
+  - malformed legacy building tail regression tests are now also landed for this slice
   - remaining `U3` work is broader live runtime ownership/building semantics, not re-opening these parser branches as if still missing
 - typed runtime building shell coverage is already wider than the older unfinished text said.
   - the low-risk runtime shell batch now also covers:
@@ -74,6 +75,10 @@ These are already landed and should not be re-opened as if missing:
   - `ConnectPacketSpec::encode_payload(...)` now fail-closes on those empty fields instead of letting them encode through as blank strings
 - `mdt-remote` fixed-table packet lookup now fail-closes on duplicate `packet_id` values instead of silently overwriting earlier entries.
   - `RemotePacketIdFixedTable::from_iter(...)` now asserts on duplicate packet ids during fixed-table construction
+- host runtime custom-packet action handling now dedupes repeated actions instead of replaying them.
+  - `host` action dedupe is landed and should not be reopened as if still missing
+- relay redirect handling now clears the runtime state before applying the redirect target.
+  - `relay` redirect reset is landed and should not be reopened as if still missing
 - minimal command-mode state container is already landed.
   - `mdt-input` now carries `CommandModeState` / `CommandModeProjection` with selected-units, command-buildings, command-rect, control-groups, and last target/command/stance selections
   - `mdt-client-min-online` runtime outbound action sync now updates that container instead of keeping command-mode as packet-observability-only state
