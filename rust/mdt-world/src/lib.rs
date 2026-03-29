@@ -44160,6 +44160,54 @@ mod tests {
         assert_eq!(snapshot.unit_value, 0);
     }
 
+    #[test]
+    fn rejects_entity_player_sync_with_unsupported_unit_kind() {
+        let mut bytes = Vec::new();
+        bytes.push(1);
+        bytes.push(0);
+        bytes.extend_from_slice(&0x1122_3344u32.to_be_bytes());
+        bytes.extend_from_slice(&1.5f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&2.5f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&(0x0102u16).to_be_bytes());
+        bytes.extend_from_slice(&3u32.to_be_bytes());
+        bytes.push(1);
+        bytes.push(2);
+        bytes.push(0);
+        bytes.push(3);
+        bytes.extend_from_slice(&99u32.to_be_bytes());
+        bytes.extend_from_slice(&16.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&24.0f32.to_bits().to_be_bytes());
+
+        let error = parse_entity_player_sync_bytes(&bytes).unwrap_err();
+
+        assert!(error.contains("unsupported entity player sync unit kind: 3"));
+    }
+
+    #[test]
+    fn rejects_dead_entity_player_sync_with_nonzero_unit_value() {
+        let mut bytes = Vec::new();
+        bytes.push(0);
+        bytes.push(1);
+        bytes.extend_from_slice(&0x5566_7788u32.to_be_bytes());
+        bytes.extend_from_slice(&(-4.0f32).to_bits().to_be_bytes());
+        bytes.extend_from_slice(&8.0f32.to_bits().to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&(0u16).to_be_bytes());
+        bytes.extend_from_slice(&0u32.to_be_bytes());
+        bytes.push(0);
+        bytes.push(1);
+        bytes.push(0);
+        bytes.push(0);
+        bytes.extend_from_slice(&7u32.to_be_bytes());
+        bytes.extend_from_slice(&32.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&48.0f32.to_bits().to_be_bytes());
+
+        let error = parse_entity_player_sync_bytes(&bytes).unwrap_err();
+
+        assert!(error.contains("dead entity player sync had non-zero unit value: 7"));
+    }
+
     fn build_entity_alpha_sync_bytes_with_controller(controller_bytes: &[u8]) -> Vec<u8> {
         let mut bytes = Vec::new();
         bytes.push(0);
@@ -45343,6 +45391,24 @@ mod tests {
     }
 
     #[test]
+    fn rejects_entity_weather_state_sync_bytes_with_non_finite_position() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1.25f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0.75f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&600.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&0.5f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&2i16.to_be_bytes());
+        bytes.extend_from_slice(&3.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&(-4.0f32).to_bits().to_be_bytes());
+        bytes.extend_from_slice(&f32::NAN.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&60.0f32.to_bits().to_be_bytes());
+
+        let error = parse_entity_weather_state_sync_bytes(&bytes).unwrap_err();
+
+        assert!(error.contains("entity weather state sync contained non-finite position"));
+    }
+
+    #[test]
     fn parses_entity_world_label_sync_bytes() {
         let mut bytes = Vec::new();
         bytes.push(3);
@@ -45384,6 +45450,23 @@ mod tests {
         assert_eq!(snapshot.x_bits, 40.0f32.to_bits());
         assert_eq!(snapshot.y_bits, 60.0f32.to_bits());
         assert_eq!(snapshot.z_bits, 0.0f32.to_bits());
+    }
+
+    #[test]
+    fn rejects_entity_world_label_sync_bytes_with_non_finite_position() {
+        let mut bytes = Vec::new();
+        bytes.push(3);
+        bytes.extend_from_slice(&2.5f32.to_bits().to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&5u16.to_be_bytes());
+        bytes.extend_from_slice(b"hello");
+        bytes.extend_from_slice(&40.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&60.0f32.to_bits().to_be_bytes());
+        bytes.extend_from_slice(&f32::INFINITY.to_bits().to_be_bytes());
+
+        let error = parse_entity_world_label_sync_bytes(&bytes).unwrap_err();
+
+        assert!(error.contains("entity world label sync contained non-finite position"));
     }
 
     #[test]
