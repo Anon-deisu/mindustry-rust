@@ -517,6 +517,26 @@ mod tests {
     }
 
     #[test]
+    fn decode_base64_rejects_invalid_character() {
+        let err = decode_base64("AA*A").unwrap_err();
+
+        assert_eq!(
+            err,
+            ConnectPacketEncodeError::InvalidBase64Char {
+                ch: '*',
+                index: 2,
+            }
+        );
+    }
+
+    #[test]
+    fn decode_base64_rejects_invalid_length() {
+        let err = decode_base64("AAAAA").unwrap_err();
+
+        assert_eq!(err, ConnectPacketEncodeError::InvalidBase64Length(5));
+    }
+
+    #[test]
     fn server_observed_uuid_appends_crc32_bytes() {
         let spec = ConnectPacketSpec {
             version: -1,
