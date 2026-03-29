@@ -552,6 +552,25 @@ mod tests {
         assert_eq!(script.total_step_count(), plan.seed_step_count());
     }
 
+    #[test]
+    fn runtime_seed_plan_blocks_damaged_static_fog_data_chunk() {
+        let mut observation = test_observation();
+        observation.custom_chunks.truncate(1);
+        observation.custom_chunks[0].parsed = ParsedCustomChunk::Unknown;
+        observation.custom_chunks[0].chunk_bytes = vec![10, 11, 12];
+        observation.custom_chunks[0].chunk_sha256 = "fog-corrupt".to_string();
+
+        let plan = observation.runtime_seed_plan();
+        let script = observation.runtime_apply_script();
+
+        assert!(plan.static_fog_seed.is_none());
+        assert_eq!(plan.custom_chunk_seeds.len(), 1);
+        assert_eq!(plan.custom_chunk_seeds[0].name, "static-fog-data");
+        assert_eq!(plan.seed_step_count(), 12);
+        assert_eq!(script.total_step_count(), 12);
+        assert_eq!(script.total_step_count(), plan.seed_step_count());
+    }
+
     fn test_observation() -> SavePostLoadWorldObservation {
         SavePostLoadWorldObservation {
             save_version: 11,
