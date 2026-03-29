@@ -3,6 +3,7 @@ use mdt_typeio::{TypeIoEffectPositionHint, TypeIoObject, TypeIoSemanticRef};
 
 const EFFECT_PATH_MAX_DEPTH: usize = 3;
 const EFFECT_PATH_MAX_NODES: usize = 64;
+const ITEM_CONTENT_TYPE: u8 = 0;
 const BLOCK_CONTENT_TYPE: u8 = 1;
 const UNIT_CONTENT_TYPE: u8 = 6;
 
@@ -547,6 +548,13 @@ fn derive_runtime_effect_content_ref(
                 payload_content_candidate,
             )
             .and_then(|matched| payload_content_ref(matched.value)),
+        RuntimeEffectContract::DropItem => object
+            .find_first_dfs_bounded(
+                EFFECT_PATH_MAX_DEPTH,
+                EFFECT_PATH_MAX_NODES,
+                drop_item_content_candidate,
+            )
+            .and_then(|matched| drop_item_content_ref(matched.value)),
         RuntimeEffectContract::PositionTarget
         | RuntimeEffectContract::LightningPath
         | RuntimeEffectContract::PointBeam
@@ -554,7 +562,6 @@ fn derive_runtime_effect_content_ref(
         | RuntimeEffectContract::DrillSteam
         | RuntimeEffectContract::LegDestroy
         | RuntimeEffectContract::ShieldBreak
-        | RuntimeEffectContract::DropItem
         | RuntimeEffectContract::FloatLength
         | RuntimeEffectContract::PayloadTargetContent
         | RuntimeEffectContract::UnitParent => None,
@@ -602,7 +609,10 @@ fn block_content_ref(value: &TypeIoObject) -> Option<(u8, i16)> {
 fn payload_content_candidate(value: &TypeIoObject) -> bool {
     matches!(
         value.semantic_ref(),
-        Some(TypeIoSemanticRef::Content { content_type, .. })
+        Some(
+            TypeIoSemanticRef::Content { content_type, .. }
+            | TypeIoSemanticRef::TechNode { content_type, .. }
+        )
             if [BLOCK_CONTENT_TYPE, UNIT_CONTENT_TYPE].contains(&content_type)
     )
 }
@@ -612,9 +622,33 @@ fn payload_content_ref(value: &TypeIoObject) -> Option<(u8, i16)> {
         TypeIoSemanticRef::Content {
             content_type,
             content_id,
+        }
+        | TypeIoSemanticRef::TechNode {
+            content_type,
+            content_id,
         } if [BLOCK_CONTENT_TYPE, UNIT_CONTENT_TYPE].contains(&content_type) => {
             Some((content_type, content_id))
         }
+        TypeIoSemanticRef::Content { .. }
+        | TypeIoSemanticRef::Building { .. }
+        | TypeIoSemanticRef::Unit { .. }
+        | TypeIoSemanticRef::TechNode { .. } => None,
+    }
+}
+
+fn drop_item_content_candidate(value: &TypeIoObject) -> bool {
+    matches!(
+        value.semantic_ref(),
+        Some(TypeIoSemanticRef::Content { content_type, .. }) if content_type == ITEM_CONTENT_TYPE
+    )
+}
+
+fn drop_item_content_ref(value: &TypeIoObject) -> Option<(u8, i16)> {
+    match value.semantic_ref()? {
+        TypeIoSemanticRef::Content {
+            content_type: ITEM_CONTENT_TYPE,
+            content_id,
+        } => Some((ITEM_CONTENT_TYPE, content_id)),
         TypeIoSemanticRef::Content { .. }
         | TypeIoSemanticRef::TechNode { .. }
         | TypeIoSemanticRef::Building { .. }
@@ -1111,6 +1145,77 @@ mod tests {
         assert_eq!(overlay.y_bits, 88.0f32.to_bits());
         assert!(overlay.binding.is_none());
         assert!(overlay.polyline_points.is_empty());
+    }
+
+    #[test]
+    fn effect_runtime_spawn_runtime_effect_overlay_extracts_payload_target_technode_content() {
+        let overlay = spawn_runtime_effect_overlay(
+            Some(26),
+            12.0,
+            20.0,
+            12.0,
+            20.0,
+            0.0,
+            0,
+            false,
+            Some(&TypeIoObject::ObjectArray(vec![
+                TypeIoObject::TechNodeRaw {
+                    content_type: 1,
+                    content_id: 33,
+                },
+                TypeIoObject::Point2 { x: 9, y: 11 },
+            ])),
+            10,
+        );
+
+        assert_eq!(overlay.contract_name, Some("payload_target_content"));
+        assert_eq!(overlay.content_ref, Some((1, 33)));
+        assert_eq!(overlay.x_bits, 72.0f32.to_bits());
+        assert_eq!(overlay.y_bits, 88.0f32.to_bits());
+    }
+
+    #[test]
+    fn effect_runtime_spawn_runtime_effect_overlay_extracts_content_icon_technode_content_ref() {
+        let overlay = spawn_runtime_effect_overlay(
+            Some(3),
+            12.0,
+            20.0,
+            12.0,
+            20.0,
+            0.0,
+            0,
+            false,
+            Some(&TypeIoObject::TechNodeRaw {
+                content_type: 1,
+                content_id: 33,
+            }),
+            10,
+        );
+
+        assert_eq!(overlay.contract_name, Some("content_icon"));
+        assert_eq!(overlay.content_ref, Some((1, 33)));
+    }
+
+    #[test]
+    fn effect_runtime_spawn_runtime_effect_overlay_extracts_drop_item_content_ref() {
+        let overlay = spawn_runtime_effect_overlay(
+            Some(142),
+            12.0,
+            20.0,
+            12.0,
+            20.0,
+            90.0,
+            0,
+            false,
+            Some(&TypeIoObject::ContentRaw {
+                content_type: 0,
+                content_id: 12,
+            }),
+            10,
+        );
+
+        assert_eq!(overlay.contract_name, Some("drop_item"));
+        assert_eq!(overlay.content_ref, Some((0, 12)));
     }
 
     #[test]

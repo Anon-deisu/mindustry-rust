@@ -397,6 +397,15 @@ pub(crate) fn content_projections_for_effect_overlay(
                 y_bits: target_y_bits,
             }]
         }
+        (Some("drop_item"), Some((ITEM_CONTENT_TYPE, content_id))) => {
+            vec![RuntimeEffectContentProjection {
+                kind: "drop-item",
+                content_type: ITEM_CONTENT_TYPE,
+                content_id,
+                x_bits: target_x_bits,
+                y_bits: target_y_bits,
+            }]
+        }
         (Some("block_content_icon"), Some((BLOCK_CONTENT_TYPE, content_id))) => {
             vec![RuntimeEffectContentProjection {
                 kind: "block-content-icon",
@@ -3500,6 +3509,39 @@ mod tests {
                 content_id: 9,
                 x_bits: 12.0f32.to_bits(),
                 y_bits: 20.0f32.to_bits(),
+            }]
+        );
+    }
+
+    #[test]
+    fn content_projections_for_effect_overlay_returns_drop_item_projection() {
+        let overlay = RuntimeEffectOverlay {
+            effect_id: Some(142),
+            source_x_bits: 12.0f32.to_bits(),
+            source_y_bits: 20.0f32.to_bits(),
+            x_bits: 12.0f32.to_bits(),
+            y_bits: 40.0f32.to_bits(),
+            rotation_bits: 90.0f32.to_bits(),
+            color_rgba: 0x11223344,
+            reliable: false,
+            has_data: true,
+            lifetime_ticks: 3,
+            remaining_ticks: 3,
+            contract_name: Some("drop_item"),
+            source_binding: None,
+            binding: None,
+            content_ref: Some((ITEM_CONTENT_TYPE, 12)),
+            polyline_points: Vec::new(),
+        };
+
+        assert_eq!(
+            content_projections_for_effect_overlay(&overlay, 12.0f32.to_bits(), 40.0f32.to_bits()),
+            vec![RuntimeEffectContentProjection {
+                kind: "drop-item",
+                content_type: ITEM_CONTENT_TYPE,
+                content_id: 12,
+                x_bits: 12.0f32.to_bits(),
+                y_bits: 40.0f32.to_bits(),
             }]
         );
     }
