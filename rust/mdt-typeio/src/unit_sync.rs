@@ -416,6 +416,22 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "status entry count exceeds wire byte capacity")]
+    fn write_status_entries_rejects_counts_outside_u8_range() {
+        let entries = vec![
+            StatusEntryRaw {
+                status_id: 1,
+                time: 1.0,
+                dynamic_fields: None,
+            };
+            u8::MAX as usize + 1
+        ];
+        let mut bytes = Vec::new();
+
+        write_status_entries(&mut bytes, &entries, false);
+    }
+
+    #[test]
     fn abilities_into_prefix_overwrites_existing_entries() {
         let bytes = vec![2, 0x41, 0x48, 0x00, 0x00, 0xc0, 0x50, 0x00, 0x00];
         let mut abilities = vec![AbilityRaw { data: 99.0 }];
@@ -442,6 +458,15 @@ mod tests {
             })
         ));
         assert_eq!(abilities, vec![AbilityRaw { data: 99.0 }]);
+    }
+
+    #[test]
+    #[should_panic(expected = "ability count exceeds wire byte capacity")]
+    fn write_abilities_rejects_counts_outside_u8_range() {
+        let abilities = vec![AbilityRaw { data: 0.0 }; u8::MAX as usize + 1];
+        let mut bytes = Vec::new();
+
+        write_abilities(&mut bytes, &abilities);
     }
 
     #[test]
@@ -597,6 +622,23 @@ mod tests {
                 aim_y: 99.0,
             }]
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "weapon mount count exceeds wire byte capacity")]
+    fn write_weapon_mounts_rejects_counts_outside_u8_range() {
+        let mounts = vec![
+            WeaponMountRaw {
+                shoot: false,
+                rotate: false,
+                aim_x: 0.0,
+                aim_y: 0.0,
+            };
+            u8::MAX as usize + 1
+        ];
+        let mut bytes = Vec::new();
+
+        write_weapon_mounts(&mut bytes, &mounts);
     }
 
     #[test]
