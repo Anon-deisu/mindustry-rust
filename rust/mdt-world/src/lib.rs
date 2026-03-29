@@ -1458,7 +1458,7 @@ impl SaveEntityChunkObservation {
     }
 
     pub fn would_post_load_skip(&self) -> bool {
-        self.post_load_class_id().is_none()
+        self.entity_id < 0 || self.post_load_class_id().is_none()
     }
 
     fn post_load_summary_name(&self) -> String {
@@ -26633,6 +26633,31 @@ pub fn parse_save_entity_region(
                 entity_chunks,
             )
         }
+        5 => {
+            let (remap_count, remap_entries, remap_bytes) = parse_save_entity_remap_table(&mut reader)?;
+            let team_start = reader.position();
+            let TeamPlanParseResult {
+                team_count,
+                total_plans,
+                team_plan_groups,
+                ..
+            } = parse_team_plan_groups(&mut reader)?;
+            let team_end = reader.position();
+            let (world_entity_count, entity_chunks, world_entity_bytes) =
+                parse_save_world_entity_chunks_without_ids(&mut reader, &remap_entries)?;
+            (
+                remap_count,
+                remap_entries,
+                remap_bytes,
+                team_count,
+                total_plans,
+                team_plan_groups,
+                reader.slice(team_start, team_end).to_vec(),
+                world_entity_count,
+                world_entity_bytes,
+                entity_chunks,
+            )
+        }
         6..=11 => {
             let (remap_count, remap_entries, remap_bytes) = parse_save_entity_remap_table(&mut reader)?;
             let team_start = reader.position();
@@ -27037,7 +27062,7 @@ fn parse_msav_envelope_from_inflated(
 
 fn msav_region_names(save_version: i32) -> Result<&'static [&'static str], String> {
     match save_version {
-        1..=4 | 6 => Ok(&["meta", "content", "map", "entities"]),
+        1..=6 => Ok(&["meta", "content", "map", "entities"]),
         7 => Ok(&["meta", "content", "map", "entities", "custom"]),
         8..=10 => Ok(&["meta", "content", "map", "entities", "markers", "custom"]),
         11 => Ok(&[
@@ -27131,6 +27156,45 @@ fn parse_save_world_entity_chunks(
             format!("failed to read save entity chunk {index} entity id: {error}")
         })?;
         let body_bytes = chunk_reader.remaining_bytes();
+        entity_chunks.push(SaveEntityChunkObservation {
+            chunk_len,
+            chunk_sha256: sha256_hex(&chunk_bytes),
+            class_id,
+            custom_name: remap_names.get(&(class_id as u16)).cloned(),
+            entity_id,
+            body_len: body_bytes.len(),
+            body_sha256: sha256_hex(&body_bytes),
+            body_bytes,
+            chunk_bytes,
+        });
+    }
+
+    let end = reader.position();
+    Ok((
+        world_entity_count,
+        entity_chunks,
+        reader.slice(start, end).to_vec(),
+    ))
+}
+
+fn parse_save_world_entity_chunks_without_ids(
+    reader: &mut Reader<'_>,
+    remap_entries: &[SaveEntityRemapEntry],
+) -> Result<(usize, Vec<SaveEntityChunkObservation>, Vec<u8>), String> {
+    let start = reader.position();
+    let world_entity_count = reader.read_u32()? as usize;
+    let remap_names = effective_remap_names_first_seen(remap_entries);
+    let mut entity_chunks = Vec::with_capacity(world_entity_count);
+
+    for index in 0..world_entity_count {
+        let chunk_len = reader.read_u16()? as usize;
+        let chunk_bytes = reader.read_exact_vec(chunk_len)?;
+        let mut chunk_reader = Reader::new(&chunk_bytes);
+        let class_id = chunk_reader.read_u8().map_err(|error| {
+            format!("failed to read legacy save entity chunk {index} class id: {error}")
+        })?;
+        let body_bytes = chunk_reader.remaining_bytes();
+        let entity_id = synthetic_legacy_entity_id(index)?;
         entity_chunks.push(SaveEntityChunkObservation {
             chunk_len,
             chunk_sha256: sha256_hex(&chunk_bytes),
@@ -40903,6 +40967,13 @@ mod tests {
         out
     }
 
+    fn encode_save_entity_chunk_without_id(class_id: u8, body: &[u8]) -> Vec<u8> {
+        let mut chunk = Vec::new();
+        chunk.push(class_id);
+        chunk.extend_from_slice(body);
+        encode_legacy_short_chunk(&chunk)
+    }
+
     fn sample_legacy_save_entity_group_bytes() -> Vec<u8> {
         let mut out = Vec::new();
         out.push(1);
@@ -40935,6 +41006,15 @@ mod tests {
                     0x1122_3344,
                     &[0xcc],
                 ));
+            }
+            5 => {
+                out.extend_from_slice(&1u16.to_be_bytes());
+                out.extend_from_slice(&3u16.to_be_bytes());
+                write_java_utf(&mut out, "mod-unit").unwrap();
+                out.extend_from_slice(&generate_team_plan_sample_bytes());
+                out.extend_from_slice(&2u32.to_be_bytes());
+                out.extend_from_slice(&encode_save_entity_chunk_without_id(3, &[0xaa, 0xbb]));
+                out.extend_from_slice(&encode_save_entity_chunk_without_id(7, &[0xcc]));
             }
             _ => {
                 out.extend_from_slice(&1u16.to_be_bytes());
@@ -41125,7 +41205,7 @@ mod tests {
 
     #[test]
     fn writes_msav_save_round_trips_envelope_and_region_framing() {
-        for save_version in [1, 2, 3, 4, 6, 7, 8, 9, 10, 11] {
+        for save_version in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] {
             let original = parse_msav_save(&sample_msav_save_bytes(save_version)).unwrap();
             let bytes = write_msav_save(&original).unwrap();
             let reparsed = parse_msav_save(&bytes).unwrap();
@@ -41250,6 +41330,46 @@ mod tests {
         assert_eq!(second.custom_name, None);
         assert_eq!(second.entity_id, 0x1122_3344);
         assert_eq!(second.body_bytes, vec![0xcc]);
+    }
+
+    #[test]
+    fn parses_save5_entities_region_with_synthetic_ids_and_skips_runtime_activation() {
+        let bytes = sample_msav_save_bytes(5);
+        let save = parse_msav_save(&bytes).unwrap();
+
+        assert_eq!(save.envelope.save_version, 5);
+        assert_eq!(save.region_names(), vec!["meta", "content", "map", "entities"]);
+        assert_eq!(save.entities.remap_count, 1);
+        assert_eq!(
+            save.entities.remap_entries,
+            vec![SaveEntityRemapEntry {
+                custom_id: 3,
+                name: "mod-unit".to_string(),
+            }]
+        );
+        assert_eq!(save.entities.team_count, 1);
+        assert_eq!(save.entities.total_plans, 1);
+        assert_eq!(
+            save.entities.team_region_bytes,
+            generate_team_plan_sample_bytes()
+        );
+        assert_eq!(save.entities.world_entity_count, 2);
+
+        let first = &save.entities.entity_chunks[0];
+        assert_eq!(first.chunk_len, 3);
+        assert_eq!(first.class_id, 3);
+        assert_eq!(first.custom_name.as_deref(), Some("mod-unit"));
+        assert_eq!(first.entity_id, -1);
+        assert_eq!(first.body_bytes, vec![0xaa, 0xbb]);
+        assert!(first.would_post_load_skip());
+
+        let second = &save.entities.entity_chunks[1];
+        assert_eq!(second.chunk_len, 2);
+        assert_eq!(second.class_id, 7);
+        assert_eq!(second.custom_name, None);
+        assert_eq!(second.entity_id, -2);
+        assert_eq!(second.body_bytes, vec![0xcc]);
+        assert!(second.would_post_load_skip());
     }
 
     #[test]
