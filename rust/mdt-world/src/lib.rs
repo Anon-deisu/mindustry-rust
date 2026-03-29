@@ -41086,6 +41086,62 @@ mod tests {
         out
     }
 
+    fn encode_legacy_save_map_region_from_bundle(bundle: &WorldBundle) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(&(bundle.world.width as u16).to_be_bytes());
+        out.extend_from_slice(&(bundle.world.height as u16).to_be_bytes());
+        out.extend_from_slice(&bundle.floor_region_bytes);
+
+        let tile_count = bundle.world.width * bundle.world.height;
+        let mut reader = Reader::new(&bundle.block_region_bytes);
+        let mut i = 0usize;
+        while i < tile_count {
+            let block = reader.read_u16().unwrap();
+            let packed = reader.read_u8().unwrap();
+            let had_entity = (packed & 1) != 0;
+            let had_data_old = (packed & 2) != 0;
+            let had_data_new = (packed & 4) != 0;
+            let mut is_center = true;
+
+            out.extend_from_slice(&block.to_be_bytes());
+            out.push(packed);
+
+            if had_data_new {
+                let data = reader.read_u8().unwrap();
+                let floor_data = reader.read_u8().unwrap();
+                let overlay_data = reader.read_u8().unwrap();
+                let extra_data = reader.read_u32().unwrap();
+                out.push(data);
+                out.push(floor_data);
+                out.push(overlay_data);
+                out.extend_from_slice(&extra_data.to_be_bytes());
+            }
+
+            if had_entity {
+                is_center = reader.read_bool().unwrap();
+                out.push(u8::from(is_center));
+            }
+
+            if had_entity && is_center {
+                let chunk_len = reader.read_u32().unwrap() as usize;
+                let chunk = reader.read_exact_vec(chunk_len).unwrap();
+                out.extend_from_slice(&(chunk_len as u16).to_be_bytes());
+                out.extend_from_slice(&chunk);
+            } else if had_data_old && !had_entity {
+                out.push(reader.read_u8().unwrap());
+            } else if !had_data_new && !had_entity {
+                let consecutives = reader.read_u8().unwrap();
+                out.push(consecutives);
+                i += consecutives as usize;
+            }
+
+            i += 1;
+        }
+
+        assert!(reader.remaining_bytes().is_empty());
+        out
+    }
+
     fn sample_msav_post_load_save11_bytes() -> Vec<u8> {
         let bundle = sample_world_bundle();
         let entity_region = sample_save_entity_region_bytes(11);
@@ -41102,6 +41158,48 @@ mod tests {
                 "entities" => entity_region.clone(),
                 "markers" => bundle.marker_region_bytes.clone(),
                 "custom" => bundle.custom_region_bytes.clone(),
+                _ => unreachable!("unexpected region name: {region_name}"),
+            };
+            inflated.extend_from_slice(&encode_save_region(&region_bytes));
+        }
+
+        mdt_protocol::deflate_zlib(&inflated).unwrap()
+    }
+
+    fn sample_msav_post_load_save4_bytes() -> Vec<u8> {
+        let bundle = sample_world_bundle();
+        let entity_region = sample_save_entity_region_bytes(4);
+        let mut inflated = Vec::new();
+        inflated.extend_from_slice(&MSAV_HEADER);
+        inflated.extend_from_slice(&4i32.to_be_bytes());
+
+        for region_name in msav_region_names(4).unwrap() {
+            let region_bytes = match *region_name {
+                "meta" => vec![0xde, 0xad],
+                "content" => encode_content_header_region(&bundle.content_header),
+                "map" => encode_legacy_save_map_region_from_bundle(&bundle),
+                "entities" => entity_region.clone(),
+                _ => unreachable!("unexpected region name: {region_name}"),
+            };
+            inflated.extend_from_slice(&encode_save_region(&region_bytes));
+        }
+
+        mdt_protocol::deflate_zlib(&inflated).unwrap()
+    }
+
+    fn sample_msav_post_load_save5_bytes() -> Vec<u8> {
+        let bundle = sample_world_bundle();
+        let entity_region = sample_save_entity_region_bytes(5);
+        let mut inflated = Vec::new();
+        inflated.extend_from_slice(&MSAV_HEADER);
+        inflated.extend_from_slice(&5i32.to_be_bytes());
+
+        for region_name in msav_region_names(5).unwrap() {
+            let region_bytes = match *region_name {
+                "meta" => vec![0xde, 0xad],
+                "content" => encode_content_header_region(&bundle.content_header),
+                "map" => encode_legacy_save_map_region_from_bundle(&bundle),
+                "entities" => entity_region.clone(),
                 _ => unreachable!("unexpected region name: {region_name}"),
             };
             inflated.extend_from_slice(&encode_save_region(&region_bytes));
@@ -42334,6 +42432,51 @@ mod tests {
         assert!(post_load.custom_chunks.is_empty());
         assert!(post_load.custom_region_bytes.is_empty());
         assert_eq!(post_load.entity_summary, save.post_load_entity_summary());
+    }
+
+    #[test]
+    fn parses_msav_post_load_world_for_save4_regions() {
+        let bundle = sample_world_bundle();
+        let save = parse_msav_save(&sample_msav_post_load_save4_bytes()).unwrap();
+        let post_load = save.post_load_world().unwrap();
+
+        assert_eq!(post_load.save_version, 4);
+        assert_eq!(post_load.content_header, bundle.content_header);
+        assert!(post_load.patches.is_empty());
+        assert_eq!(post_load.map.world.width, bundle.world.width);
+        assert_eq!(post_load.map.world.height, bundle.world.height);
+        assert_eq!(post_load.map.world.building_centers, bundle.world.building_centers);
+        assert_eq!(post_load.map.world.team_count, save.entities.team_count);
+        assert_eq!(post_load.map.world.total_plans, save.entities.total_plans);
+        assert_eq!(post_load.world_entity_count, save.entities.world_entity_count);
+        assert_eq!(post_load.world_entity_chunks, save.entities.entity_chunks);
+        assert_eq!(post_load.entity_summary.loadable_entities, 2);
+        assert_eq!(post_load.entity_summary.skipped_entities, 0);
+        assert!(post_load.markers.is_empty());
+        assert!(post_load.custom_chunks.is_empty());
+        assert!(post_load.runtime_seed_surface().can_seed_runtime_apply);
+    }
+
+    #[test]
+    fn parses_msav_post_load_world_for_save5_regions_conservatively() {
+        let bundle = sample_world_bundle();
+        let save = parse_msav_save(&sample_msav_post_load_save5_bytes()).unwrap();
+        let post_load = save.post_load_world().unwrap();
+        let seed_surface = post_load.runtime_seed_surface();
+
+        assert_eq!(post_load.save_version, 5);
+        assert_eq!(post_load.content_header, bundle.content_header);
+        assert!(post_load.patches.is_empty());
+        assert_eq!(post_load.map.world.width, bundle.world.width);
+        assert_eq!(post_load.map.world.height, bundle.world.height);
+        assert_eq!(post_load.world_entity_count, save.entities.world_entity_count);
+        assert_eq!(post_load.world_entity_chunks, save.entities.entity_chunks);
+        assert_eq!(post_load.entity_summary.loadable_entities, 0);
+        assert_eq!(post_load.entity_summary.skipped_entities, 2);
+        assert!(post_load.markers.is_empty());
+        assert!(post_load.custom_chunks.is_empty());
+        assert!(!seed_surface.can_seed_runtime_apply);
+        assert!(seed_surface.deferred_step_count > 0);
     }
 
     #[test]
