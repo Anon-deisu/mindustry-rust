@@ -1082,12 +1082,14 @@ pub fn validate_remote_manifest(manifest: &RemoteManifest) -> Result<(), RemoteM
                 packet.packet_class
             )));
         }
+        remote_called_from_str(&packet.called)?;
         if packet.variants.trim().is_empty() {
             return Err(RemoteManifestError::InvalidRemotePacketMetadata(format!(
                 "remote packet {} has empty variants",
                 packet.packet_class
             )));
         }
+        remote_variants_from_str(&packet.variants)?;
 
         let flow = remote_flow_from_targets(&packet.targets)?;
         remote_priority_from_str(&packet.priority)?;
@@ -1741,6 +1743,24 @@ fn remote_flow_from_targets(targets: &str) -> Result<RemoteFlow, RemoteManifestE
         "both" => Ok(RemoteFlow::Bidirectional),
         _ => Err(RemoteManifestError::InvalidRemotePacketMetadata(format!(
             "unsupported remote targets: {targets}"
+        ))),
+    }
+}
+
+fn remote_called_from_str(called: &str) -> Result<(), RemoteManifestError> {
+    match called {
+        "server" | "client" | "both" | "none" => Ok(()),
+        _ => Err(RemoteManifestError::InvalidRemotePacketMetadata(format!(
+            "unsupported remote called: {called}"
+        ))),
+    }
+}
+
+fn remote_variants_from_str(variants: &str) -> Result<(), RemoteManifestError> {
+    match variants {
+        "all" | "one" | "both" => Ok(()),
+        _ => Err(RemoteManifestError::InvalidRemotePacketMetadata(format!(
+            "unsupported remote variants: {variants}"
         ))),
     }
 }
@@ -3243,6 +3263,28 @@ mod tests {
             RemoteManifestError::InvalidRemotePacketMetadata(_)
         ));
         assert_eq!(error.to_string(), "unsupported remote priority: urgent");
+    }
+
+    #[test]
+    fn rejects_remote_called_drift() {
+        let manifest = SAMPLE_MANIFEST.replace("\"called\": \"server\"", "\"called\": \"relay\"");
+        let error = parse_remote_manifest(&manifest).unwrap_err();
+        assert!(matches!(
+            error,
+            RemoteManifestError::InvalidRemotePacketMetadata(_)
+        ));
+        assert_eq!(error.to_string(), "unsupported remote called: relay");
+    }
+
+    #[test]
+    fn rejects_remote_variants_drift() {
+        let manifest = SAMPLE_MANIFEST.replace("\"variants\": \"all\"", "\"variants\": \"many\"");
+        let error = parse_remote_manifest(&manifest).unwrap_err();
+        assert!(matches!(
+            error,
+            RemoteManifestError::InvalidRemotePacketMetadata(_)
+        ));
+        assert_eq!(error.to_string(), "unsupported remote variants: many");
     }
 
     #[test]

@@ -330,6 +330,7 @@ These are already landed and should not be re-opened as if missing:
 - `mdt-world` consumer/runtime ownership helpers now keep zero-step `ApplyNow` stages ready, preserve blocked zero-step ownership surfaces, and require `world_shell_ready` before world semantics can apply.
 - `mdt-world` projection-contract tile validation now also fail-closes stale tile-side `building_center_index` references instead of only checking center-to-tile backreferences.
 - `mdt-typeio` plan/trace readers now reject non-binary bool markers on the remaining plan/trace paths, and non-dynamic status-entry batches no longer serialize stray dynamic-field payloads.
+- `mdt-remote` manifest validation now also fail-closes unsupported `called` / `variants` enum drift instead of only checking those fields for non-empty strings.
 
 ## Highest-Confidence Remaining Lanes
 
