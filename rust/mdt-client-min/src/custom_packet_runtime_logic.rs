@@ -32,10 +32,11 @@ pub(crate) fn extract_logic_world_pos(
                 value: (*x as f64, *y as f64),
                 source: "point2",
             }),
-            TypeIoObject::Vec2 { x, y } => Some(LogicValueExtraction {
-                value: (*x as f64, *y as f64),
-                source: "vec2",
-            }),
+            TypeIoObject::Vec2 { x, y } => finite_logic_world_pos(
+                *x as f64,
+                *y as f64,
+                "vec2",
+            ),
             TypeIoObject::PackedPoint2Array(values) => values.first().map(|packed| {
                 let (x, y) = unpack_point2(*packed);
                 LogicValueExtraction {
@@ -43,10 +44,9 @@ pub(crate) fn extract_logic_world_pos(
                     source: "point2_array_first",
                 }
             }),
-            TypeIoObject::Vec2Array(values) => values.first().map(|(x, y)| LogicValueExtraction {
-                value: (*x as f64, *y as f64),
-                source: "vec2_array_first",
-            }),
+            TypeIoObject::Vec2Array(values) => values
+                .first()
+                .and_then(|(x, y)| finite_logic_world_pos(*x as f64, *y as f64, "vec2_array_first")),
             TypeIoObject::ObjectArray(_) => None,
             _ => None,
         },
@@ -61,10 +61,11 @@ pub(crate) fn extract_logic_world_pos(
                 value: (*x as f64, *y as f64),
                 source: "point2_nested",
             }),
-            TypeIoObject::Vec2 { x, y } => Some(LogicValueExtraction {
-                value: (*x as f64, *y as f64),
-                source: "vec2_nested",
-            }),
+            TypeIoObject::Vec2 { x, y } => finite_logic_world_pos(
+                *x as f64,
+                *y as f64,
+                "vec2_nested",
+            ),
             TypeIoObject::PackedPoint2Array(values) => values.first().map(|packed| {
                 let (x, y) = unpack_point2(*packed);
                 LogicValueExtraction {
@@ -72,9 +73,8 @@ pub(crate) fn extract_logic_world_pos(
                     source: "point2_array_first_nested",
                 }
             }),
-            TypeIoObject::Vec2Array(values) => values.first().map(|(x, y)| LogicValueExtraction {
-                value: (*x as f64, *y as f64),
-                source: "vec2_array_first_nested",
+            TypeIoObject::Vec2Array(values) => values.first().and_then(|(x, y)| {
+                finite_logic_world_pos(*x as f64, *y as f64, "vec2_array_first_nested")
             }),
             _ => None,
         },
@@ -315,6 +315,17 @@ where
     None
 }
 
+fn finite_logic_world_pos(
+    x: f64,
+    y: f64,
+    source: &'static str,
+) -> Option<LogicValueExtraction<(f64, f64)>> {
+    (x.is_finite() && y.is_finite()).then_some(LogicValueExtraction {
+        value: (x, y),
+        source,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -415,6 +426,21 @@ mod tests {
                 TypeIoObject::Bool(false),
                 TypeIoObject::Float(f32::INFINITY),
             ])),
+            None
+        );
+    }
+
+    #[test]
+    fn logic_world_pos_rejects_non_finite_vec2_payloads() {
+        assert_eq!(
+            extract_logic_world_pos(&TypeIoObject::Vec2 {
+                x: f32::NAN,
+                y: 9.0,
+            }),
+            None
+        );
+        assert_eq!(
+            extract_logic_world_pos(&TypeIoObject::Vec2Array(vec![(7.0, f32::INFINITY)])),
             None
         );
     }
