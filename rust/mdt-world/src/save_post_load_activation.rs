@@ -48,7 +48,8 @@ impl SavePostLoadActivationSurface {
     }
 
     pub fn can_seed_runtime_apply(&self) -> bool {
-        self.entity_ids_unique
+        self.world_shell_ready
+            && self.entity_ids_unique
             && self.duplicate_custom_ids.is_empty()
             && self.duplicate_names.is_empty()
             && self.unresolved_effective_names.is_empty()
@@ -327,6 +328,26 @@ mod tests {
             surface.unresolved_effective_names,
             vec!["mod-unit".to_string()]
         );
+        assert!(surface.skipped_entities.is_empty());
+        assert!(!surface.can_seed_runtime_apply());
+    }
+
+    #[test]
+    fn activation_surface_rejects_world_shell_contract_failures() {
+        let mut observation = test_observation();
+        if let MarkerModel::Point(marker) = &mut observation.markers[0].marker {
+            marker.x_bits = 99.0f32.to_bits();
+            marker.y_bits = 99.0f32.to_bits();
+        }
+        observation.entity_remap_summary.unresolved_effective_names.clear();
+        observation
+            .world_entity_chunks
+            .retain(|chunk| !chunk.would_post_load_skip());
+
+        let surface = observation.activation_surface();
+
+        assert!(!surface.world_shell_ready);
+        assert!(surface.unresolved_effective_names.is_empty());
         assert!(surface.skipped_entities.is_empty());
         assert!(!surface.can_seed_runtime_apply());
     }
