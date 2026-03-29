@@ -303,6 +303,7 @@ impl RuntimeCustomPacketSurfaceState {
                 matches!(
                     event,
                     ClientSessionEvent::WorldDataBegin
+                        | ClientSessionEvent::WorldStreamStarted { .. }
                         | ClientSessionEvent::ConnectRedirectRequested { .. }
                 )
             })
@@ -314,6 +315,10 @@ impl RuntimeCustomPacketSurfaceState {
                 )
             }) {
                 "connect_redirect"
+            } else if events.iter().any(|event| {
+                matches!(event, ClientSessionEvent::WorldStreamStarted { .. })
+            }) {
+                "world_stream_started"
             } else {
                 "world_data_begin"
             };
@@ -1578,6 +1583,31 @@ mod tests {
         assert!(lines.iter().any(|line| {
             line.contains("runtime_custom_packet_surface_reset:")
                 && line.contains("reason=\"connect_redirect\"")
+        }));
+        assert!(state.overlay_markers(4).is_empty());
+    }
+
+    #[test]
+    fn runtime_custom_packet_surface_overlay_markers_reset_on_world_stream_started() {
+        let mut state = RuntimeCustomPacketSurfaceState::default();
+        state.register(&RuntimeCustomPacketSemanticSpec {
+            key: "text.build".to_string(),
+            encoding: RuntimeCustomPacketSemanticEncoding::Text,
+            semantic: RuntimeCustomPacketSemanticKind::BuildPos,
+        });
+
+        state.record_text_handler("text.build", &pack_point2(4, 6).to_string());
+        assert_eq!(state.overlay_markers(4).len(), 1);
+
+        state.observe_events(&[ClientSessionEvent::WorldStreamStarted {
+            stream_id: 3,
+            total_bytes: 1024,
+        }]);
+
+        let lines = state.drain_lines();
+        assert!(lines.iter().any(|line| {
+            line.contains("runtime_custom_packet_surface_reset:")
+                && line.contains("reason=\"world_stream_started\"")
         }));
         assert!(state.overlay_markers(4).is_empty());
     }
