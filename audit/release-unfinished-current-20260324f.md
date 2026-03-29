@@ -71,6 +71,8 @@ These are already landed and should not be re-opened as if missing:
 - remote manifest validation already fail-closes the wire-level invariants older audit notes used to call out.
   - `mdt-remote` now rejects `packetIdByte`, `lengthField`, compression-flag, and compression-threshold drift during manifest parse, with direct regression coverage
   - remaining remote/codegen work is broader semantic adoption, not re-adding these wire-spec guards
+- remote manifest validation now also rejects duplicate remote `packetId` values before typed/runtime lookup can silently first-match-shadow the later entry.
+  - `validate_remote_manifest(...)` fail-closes duplicate remote ids with regression coverage instead of leaving that ambiguity to `RemotePacketRegistry::get_by_packet_id(...)`
 - `connect` payload preflight now also rejects empty `versionType` / `name` / `locale` fields before encoding.
   - `ConnectPacketSpec::encode_payload(...)` now fail-closes on those empty fields instead of letting them encode through as blank strings
 - `connect` payload size-limit boundary regressions are now also landed.
@@ -128,6 +130,11 @@ These are already landed and should not be re-opened as if missing:
   - remaining `M7-3` work is still executing those batches inside real runtime/world ownership, not re-adding this passive batch-view helper
 - `mdt-typeio` raw `WeaponMount[]` codec is already landed.
   - remaining non-object codec gap is now more about `abilities/status` and wider unit-sync families than mounts specifically
+- `mdt-typeio` read-side guard coverage is now wider for several low-risk scalar/container paths.
+  - payload-header presence bytes now reject non-binary values
+  - `item` / `liquid` ids now reject negative values other than the `-1` null sentinel
+  - `traceInfo` read-side now fail-closes `ips` / `names` counts above the writer's `12` entry cap
+  - dynamic status-entry flags now reject reserved high bits instead of silently ignoring them
 - `mdt-render-ui` runtime dialog summary is already landed.
   - prompt priority: `text input > follow-up menu > menu`
   - notice priority: `warning toast > info toast > reliable hud > hud`
@@ -206,6 +213,8 @@ These are already landed and should not be re-opened as if missing:
 - `mdt-world` post-load contract validation now cross-checks actual entity chunks against the summary.
   - `SavePostLoadWorldObservation::projection_contract()` no longer accepts only `loadable + skipped == total`; it now re-derives the effective post-load entity summary from `world_entity_chunks` and rejects summary drift
   - remaining `M7-3` work is deeper consumer-side runtime/world ownership, not re-adding this stricter passive contract check
+- `mdt-world` post-load contract now also fail-closes the specific `single damaged static-fog-data chunk` case instead of silently treating it as if no static fog existed.
+  - `projection_contract()` now surfaces `StaticFogCoverageMismatch` when the lone `static-fog-data` chunk parses as `Unknown`, with a direct regression test
 - typed high-frequency snapshot registry glue is now landed.
   - `mdt-remote` now exposes `HighFrequencyRemoteRegistry`, `mdt-client-min` snapshot packet registry now consumes typed glue via `snapshot_registry_glue.rs`, and inbound-family registry construction no longer depends on unrelated outbound custom-channel families
   - remaining `M6-1` work is broader typed registry consumption outside the first snapshot/inbound glue path, not re-adding this typed snapshot registry layer
