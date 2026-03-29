@@ -43363,6 +43363,15 @@ mod tests {
     }
 
     #[test]
+    fn rejects_legacy_save_entity_groups_when_remaining_bytes_cannot_hold_groups() {
+        let bytes = vec![1];
+
+        let error = parse_save_entity_region(1, &bytes).unwrap_err();
+
+        assert!(error.contains("declares too many groups"));
+    }
+
+    #[test]
     fn rejects_trailing_bytes_after_modern_save_entity_region() {
         let save = parse_msav_save(&sample_msav_post_load_save11_bytes()).unwrap();
         let mut bytes = save.region("entities").unwrap().chunk_bytes.clone();
@@ -57515,6 +57524,17 @@ mod tests {
         let error = parse_markers_from_ubjson_value(&value).unwrap_err();
 
         assert!(error.contains("marker region root is not an object"));
+    }
+
+    #[test]
+    fn read_ubjson_length_rejects_malformed_markers() {
+        let mut unsupported = Reader::new(b"a");
+        let unsupported_error = read_ubjson_length(&mut unsupported).unwrap_err();
+        assert!(unsupported_error.contains("unsupported UBJSON length marker"));
+
+        let mut negative = Reader::new(&[b'i', 0xff]);
+        let negative_error = read_ubjson_length(&mut negative).unwrap_err();
+        assert!(negative_error.contains("negative UBJSON length"));
     }
 
     #[test]
