@@ -327,6 +327,8 @@ These are already landed and should not be re-opened as if missing:
 - `rules_objectives_semantics` now normalizes blank/whitespace objective flags, rejects malformed JSON string escapes/raw control chars, and treats decoded objective string literals as real JSON strings instead of preserving wire escapes verbatim.
 - custom-packet text/surface/logic helpers now ignore nested text JSON fields for world-position extraction, reject unknown debug-string escapes, and keep non-finite world-position payloads fail-closed.
 - runtime effect helpers now reject non-finite position hints and malformed lightning geometry instead of partially projecting corrupted effect bindings.
+- `effect_id=12` `moveCommand` now also keeps a named runtime/session contract surface on top of the existing circle executor.
+  - `effect_contract_name(...)`, spawned overlays, and named executor lookup now all agree on `move_command` instead of leaving that family as an `effect_id`-only special case
 - snapshot/custom-channel typed registry glue now also rejects `clientSnapshot` packet-id collisions with inbound snapshot ids before fixed-table lookup can shadow the later family.
 - `mdt-world` consumer/runtime ownership helpers now keep zero-step `ApplyNow` stages ready, preserve blocked zero-step ownership surfaces, and require `world_shell_ready` before world semantics can apply.
 - `mdt-world` projection-contract tile validation now also fail-closes stale tile-side `building_center_index` references instead of only checking center-to-tile backreferences.

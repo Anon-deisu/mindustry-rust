@@ -125,6 +125,12 @@ const POINT_HIT_EXECUTOR: RuntimeEffectContractExecutor = RuntimeEffectContractE
     business_world_position: unsupported_business_world_position,
 };
 
+const MOVE_COMMAND_EXECUTOR: RuntimeEffectContractExecutor = RuntimeEffectContractExecutor {
+    contract_name: "move_command",
+    overlay_origin: unsupported_overlay_origin,
+    business_world_position: unsupported_business_world_position,
+};
+
 const DRILL_STEAM_EXECUTOR: RuntimeEffectContractExecutor = RuntimeEffectContractExecutor {
     contract_name: "drill_steam",
     overlay_origin: unsupported_overlay_origin,
@@ -1272,6 +1278,7 @@ fn executor_for_name(name: &str) -> Option<&'static RuntimeEffectContractExecuto
         &LIGHTNING_PATH_EXECUTOR,
         &POINT_BEAM_EXECUTOR,
         &POINT_HIT_EXECUTOR,
+        &MOVE_COMMAND_EXECUTOR,
         &DRILL_STEAM_EXECUTOR,
         &LEG_DESTROY_EXECUTOR,
         &SHIELD_BREAK_EXECUTOR,
@@ -2926,6 +2933,13 @@ mod tests {
     }
 
     #[test]
+    fn executor_for_name_resolves_move_command_contract() {
+        let executor = executor_for_name("move_command").expect("move command executor");
+
+        assert_eq!(executor.contract_name, "move_command");
+    }
+
+    #[test]
     fn line_projections_for_effect_overlay_returns_green_laser_charge_circle_and_spokes() {
         let overlay = RuntimeEffectOverlay {
             effect_id: Some(GREEN_LASER_CHARGE_EFFECT_ID),
@@ -3367,7 +3381,7 @@ mod tests {
             has_data: true,
             lifetime_ticks: 20,
             remaining_ticks: 20,
-            contract_name: None,
+            contract_name: Some("move_command"),
             source_binding: None,
             binding: None,
             content_ref: None,

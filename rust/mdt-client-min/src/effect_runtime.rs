@@ -140,7 +140,11 @@ pub fn effect_contract(effect_id: Option<i16>) -> Option<RuntimeEffectContract> 
 }
 
 pub fn effect_contract_name(effect_id: Option<i16>) -> Option<&'static str> {
-    effect_contract(effect_id).map(RuntimeEffectContract::name)
+    if matches!(effect_id, Some(12)) {
+        Some("move_command")
+    } else {
+        effect_contract(effect_id).map(RuntimeEffectContract::name)
+    }
 }
 
 pub fn observe_runtime_effect_binding_state(
@@ -295,7 +299,7 @@ pub fn spawn_runtime_effect_overlay(
         has_data: data_object.is_some(),
         lifetime_ticks,
         remaining_ticks: lifetime_ticks,
-        contract_name: contract.map(RuntimeEffectContract::name),
+        contract_name: effect_contract_name(effect_id),
         binding,
         content_ref,
         polyline_points,
@@ -1042,6 +1046,12 @@ mod tests {
             Some(RuntimeEffectContract::DrillSteam)
         );
         assert_eq!(effect_contract_name(Some(124)), Some("drill_steam"));
+    }
+
+    #[test]
+    fn effect_runtime_contract_name_maps_move_command_effect_id() {
+        assert_eq!(effect_contract(Some(12)), None);
+        assert_eq!(effect_contract_name(Some(12)), Some("move_command"));
     }
 
     #[test]
