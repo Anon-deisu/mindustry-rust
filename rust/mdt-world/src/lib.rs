@@ -16358,6 +16358,19 @@ pub fn generate_team_plan_sample_bytes() -> Vec<u8> {
     out
 }
 
+pub fn generate_legacy_team_plan_sample_bytes() -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(&1u32.to_be_bytes());
+    out.extend_from_slice(&1u32.to_be_bytes());
+    out.extend_from_slice(&1u32.to_be_bytes());
+    out.extend_from_slice(&1i16.to_be_bytes());
+    out.extend_from_slice(&2i16.to_be_bytes());
+    out.extend_from_slice(&1i16.to_be_bytes());
+    out.extend_from_slice(&0x0101u16.to_be_bytes());
+    out.extend_from_slice(&3i32.to_be_bytes());
+    out
+}
+
 pub fn generate_static_fog_sample_bytes() -> Vec<u8> {
     let width = 4usize;
     let height = 3usize;
@@ -26544,9 +26557,107 @@ pub fn parse_save_entity_region(
     bytes: &[u8],
 ) -> Result<SaveEntityRegionObservation, String> {
     let mut reader = Reader::new(bytes);
-    let (remap_count, remap_entries, remap_bytes) = match save_version {
-        4 => (0usize, Vec::new(), Vec::new()),
-        6..=11 => parse_save_entity_remap_table(&mut reader)?,
+    let (
+        remap_count,
+        remap_entries,
+        remap_bytes,
+        team_count,
+        total_plans,
+        team_plan_groups,
+        team_region_bytes,
+        world_entity_count,
+        world_entity_bytes,
+        entity_chunks,
+    ) = match save_version {
+        1 | 2 => {
+            let (world_entity_count, entity_chunks, world_entity_bytes) =
+                parse_legacy_save_entity_groups(&mut reader)?;
+            (
+                0usize,
+                Vec::new(),
+                Vec::new(),
+                0usize,
+                0usize,
+                Vec::new(),
+                Vec::new(),
+                world_entity_count,
+                world_entity_bytes,
+                entity_chunks,
+            )
+        }
+        3 => {
+            let team_start = reader.position();
+            let TeamPlanParseResult {
+                team_count,
+                total_plans,
+                team_plan_groups,
+                ..
+            } = parse_legacy_team_plan_groups(&mut reader)?;
+            let team_end = reader.position();
+            let (world_entity_count, entity_chunks, world_entity_bytes) =
+                parse_legacy_save_entity_groups(&mut reader)?;
+            (
+                0usize,
+                Vec::new(),
+                Vec::new(),
+                team_count,
+                total_plans,
+                team_plan_groups,
+                reader.slice(team_start, team_end).to_vec(),
+                world_entity_count,
+                world_entity_bytes,
+                entity_chunks,
+            )
+        }
+        4 => {
+            let team_start = reader.position();
+            let TeamPlanParseResult {
+                team_count,
+                total_plans,
+                team_plan_groups,
+                ..
+            } = parse_team_plan_groups(&mut reader)?;
+            let team_end = reader.position();
+            let (world_entity_count, entity_chunks, world_entity_bytes) =
+                parse_save_world_entity_chunks(&mut reader, save_version, &[])?;
+            (
+                0usize,
+                Vec::new(),
+                Vec::new(),
+                team_count,
+                total_plans,
+                team_plan_groups,
+                reader.slice(team_start, team_end).to_vec(),
+                world_entity_count,
+                world_entity_bytes,
+                entity_chunks,
+            )
+        }
+        6..=11 => {
+            let (remap_count, remap_entries, remap_bytes) = parse_save_entity_remap_table(&mut reader)?;
+            let team_start = reader.position();
+            let TeamPlanParseResult {
+                team_count,
+                total_plans,
+                team_plan_groups,
+                ..
+            } = parse_team_plan_groups(&mut reader)?;
+            let team_end = reader.position();
+            let (world_entity_count, entity_chunks, world_entity_bytes) =
+                parse_save_world_entity_chunks(&mut reader, save_version, &remap_entries)?;
+            (
+                remap_count,
+                remap_entries,
+                remap_bytes,
+                team_count,
+                total_plans,
+                team_plan_groups,
+                reader.slice(team_start, team_end).to_vec(),
+                world_entity_count,
+                world_entity_bytes,
+                entity_chunks,
+            )
+        }
         _ => {
             return Err(format!(
                 "unsupported .msav save version for passive entity parsing: {}",
@@ -26554,17 +26665,6 @@ pub fn parse_save_entity_region(
             ));
         }
     };
-    let team_start = reader.position();
-    let TeamPlanParseResult {
-        team_count,
-        total_plans,
-        team_plan_groups,
-        ..
-    } = parse_team_plan_groups(&mut reader)?;
-    let team_end = reader.position();
-    let team_region_bytes = reader.slice(team_start, team_end).to_vec();
-    let (world_entity_count, entity_chunks, world_entity_bytes) =
-        parse_save_world_entity_chunks(&mut reader, save_version, &remap_entries)?;
 
     if !reader.remaining_bytes().is_empty() {
         return Err(format!(
@@ -26937,7 +27037,7 @@ fn parse_msav_envelope_from_inflated(
 
 fn msav_region_names(save_version: i32) -> Result<&'static [&'static str], String> {
     match save_version {
-        4 | 6 => Ok(&["meta", "content", "map", "entities"]),
+        1..=4 | 6 => Ok(&["meta", "content", "map", "entities"]),
         7 => Ok(&["meta", "content", "map", "entities", "custom"]),
         8..=10 => Ok(&["meta", "content", "map", "entities", "markers", "custom"]),
         11 => Ok(&[
@@ -26982,6 +27082,15 @@ fn parse_save_entity_remap_table(
         remap_entries,
         reader.slice(start, end).to_vec(),
     ))
+}
+
+fn synthetic_legacy_entity_id(index: usize) -> Result<i32, String> {
+    let sequence = i32::try_from(index)
+        .map_err(|_| format!("legacy save entity index too large for synthetic id: {index}"))?;
+    sequence
+        .checked_add(1)
+        .map(|value| -value)
+        .ok_or_else(|| format!("legacy save entity index too large for synthetic id: {index}"))
 }
 
 fn read_save_chunk_len(reader: &mut Reader<'_>, save_version: i32) -> Result<usize, String> {
@@ -27038,6 +27147,49 @@ fn parse_save_world_entity_chunks(
     let end = reader.position();
     Ok((
         world_entity_count,
+        entity_chunks,
+        reader.slice(start, end).to_vec(),
+    ))
+}
+
+fn parse_legacy_save_entity_groups(
+    reader: &mut Reader<'_>,
+) -> Result<(usize, Vec<SaveEntityChunkObservation>, Vec<u8>), String> {
+    let start = reader.position();
+    let group_count = reader.read_u8()? as usize;
+    let max_group_count = reader.remaining_len() / 4;
+    if group_count > max_group_count && group_count > 0 {
+        return Err(format!(
+            "legacy save entity region declares too many groups: count={} remaining={}",
+            group_count,
+            reader.remaining_len()
+        ));
+    }
+
+    let mut entity_chunks = Vec::new();
+    for _ in 0..group_count {
+        let amount = reader.read_u32()? as usize;
+        for _ in 0..amount {
+            let chunk_len = reader.read_u16()? as usize;
+            let chunk_bytes = reader.read_exact_vec(chunk_len)?;
+            let entity_id = synthetic_legacy_entity_id(entity_chunks.len())?;
+            entity_chunks.push(SaveEntityChunkObservation {
+                chunk_len,
+                chunk_sha256: sha256_hex(&chunk_bytes),
+                class_id: u8::MAX,
+                custom_name: None,
+                entity_id,
+                body_len: chunk_bytes.len(),
+                body_sha256: sha256_hex(&chunk_bytes),
+                body_bytes: chunk_bytes.clone(),
+                chunk_bytes,
+            });
+        }
+    }
+
+    let end = reader.position();
+    Ok((
+        entity_chunks.len(),
         entity_chunks,
         reader.slice(start, end).to_vec(),
     ))
@@ -39856,6 +40008,87 @@ struct TeamPlanParseResult {
     team_region_bytes: Vec<u8>,
 }
 
+fn parse_legacy_team_plan_groups(reader: &mut Reader<'_>) -> Result<TeamPlanParseResult, String> {
+    let team_count = reader.read_u32()? as usize;
+    let available_bytes = reader.remaining_len();
+    let max_team_count = available_bytes / 8;
+    if team_count > max_team_count {
+        return Err(format!(
+            "team plan region declares too many teams: count={} remaining={}",
+            team_count, available_bytes
+        ));
+    }
+    let mut total_plans = 0usize;
+    let mut team_ids = Vec::with_capacity(team_count);
+    let mut team_plan_counts = Vec::with_capacity(team_count);
+    let mut team_plan_groups = Vec::with_capacity(team_count);
+    let mut team_region_bytes = Vec::new();
+
+    for _ in 0..team_count {
+        let team_id = reader.read_u32()?;
+        let plans = reader.read_u32()? as usize;
+        let remaining_bytes = reader.remaining_len();
+        let max_plans = remaining_bytes / 12;
+        if plans > max_plans {
+            return Err(format!(
+                "legacy team plan group declares too many plans for team {}: count={} remaining={}",
+                team_id, plans, remaining_bytes
+            ));
+        }
+        team_region_bytes.extend_from_slice(&team_id.to_be_bytes());
+        team_region_bytes.extend_from_slice(&(plans as u32).to_be_bytes());
+        total_plans = total_plans.checked_add(plans).ok_or_else(|| {
+            format!(
+                "team plan region total plan count overflows usize after team {}",
+                team_id
+            )
+        })?;
+        team_ids.push(team_id);
+        team_plan_counts.push(plans as u32);
+
+        let mut parsed_plans = Vec::with_capacity(plans);
+        for _ in 0..plans {
+            let x = reader.read_i16()?;
+            let y = reader.read_i16()?;
+            let rotation = reader.read_i16()?;
+            let block_id = reader.read_u16()?;
+            let config = reader.read_i32()?;
+            let config_bytes = config.to_be_bytes().to_vec();
+
+            team_region_bytes.extend_from_slice(&x.to_be_bytes());
+            team_region_bytes.extend_from_slice(&y.to_be_bytes());
+            team_region_bytes.extend_from_slice(&rotation.to_be_bytes());
+            team_region_bytes.extend_from_slice(&block_id.to_be_bytes());
+            team_region_bytes.extend_from_slice(&config_bytes);
+
+            parsed_plans.push(TeamPlan {
+                x,
+                y,
+                rotation,
+                block_id,
+                config: TypeIoValue::Integer(config),
+                config_sha256: sha256_hex(&config_bytes),
+                config_bytes,
+            });
+        }
+
+        team_plan_groups.push(TeamPlanGroup {
+            team_id,
+            plan_count: plans as u32,
+            plans: parsed_plans,
+        });
+    }
+
+    Ok(TeamPlanParseResult {
+        team_count,
+        total_plans,
+        team_ids,
+        team_plan_counts,
+        team_plan_groups,
+        team_region_bytes,
+    })
+}
+
 fn parse_team_plan_groups(reader: &mut Reader<'_>) -> Result<TeamPlanParseResult, String> {
     let team_count = reader.read_u32()? as usize;
     let available_bytes = reader.remaining_len();
@@ -40663,27 +40896,66 @@ mod tests {
         out
     }
 
+    fn encode_legacy_short_chunk(body: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(&(body.len() as u16).to_be_bytes());
+        out.extend_from_slice(body);
+        out
+    }
+
+    fn sample_legacy_save_entity_group_bytes() -> Vec<u8> {
+        let mut out = Vec::new();
+        out.push(1);
+        out.extend_from_slice(&2u32.to_be_bytes());
+        out.extend_from_slice(&encode_legacy_short_chunk(&[0xaa, 0xbb]));
+        out.extend_from_slice(&encode_legacy_short_chunk(&[0xcc]));
+        out
+    }
+
     fn sample_save_entity_region_bytes(save_version: i32) -> Vec<u8> {
         let mut out = Vec::new();
-        if save_version != 4 {
-            out.extend_from_slice(&1u16.to_be_bytes());
-            out.extend_from_slice(&3u16.to_be_bytes());
-            write_java_utf(&mut out, "mod-unit").unwrap();
+        match save_version {
+            1 | 2 => out.extend_from_slice(&sample_legacy_save_entity_group_bytes()),
+            3 => {
+                out.extend_from_slice(&generate_legacy_team_plan_sample_bytes());
+                out.extend_from_slice(&sample_legacy_save_entity_group_bytes());
+            }
+            4 => {
+                out.extend_from_slice(&generate_team_plan_sample_bytes());
+                out.extend_from_slice(&2u32.to_be_bytes());
+                out.extend_from_slice(&encode_save_entity_chunk(
+                    save_version,
+                    3,
+                    0x0102_0304,
+                    &[0xaa, 0xbb],
+                ));
+                out.extend_from_slice(&encode_save_entity_chunk(
+                    save_version,
+                    7,
+                    0x1122_3344,
+                    &[0xcc],
+                ));
+            }
+            _ => {
+                out.extend_from_slice(&1u16.to_be_bytes());
+                out.extend_from_slice(&3u16.to_be_bytes());
+                write_java_utf(&mut out, "mod-unit").unwrap();
+                out.extend_from_slice(&generate_team_plan_sample_bytes());
+                out.extend_from_slice(&2u32.to_be_bytes());
+                out.extend_from_slice(&encode_save_entity_chunk(
+                    save_version,
+                    3,
+                    0x0102_0304,
+                    &[0xaa, 0xbb],
+                ));
+                out.extend_from_slice(&encode_save_entity_chunk(
+                    save_version,
+                    7,
+                    0x1122_3344,
+                    &[0xcc],
+                ));
+            }
         }
-        out.extend_from_slice(&generate_team_plan_sample_bytes());
-        out.extend_from_slice(&2u32.to_be_bytes());
-        out.extend_from_slice(&encode_save_entity_chunk(
-            save_version,
-            3,
-            0x0102_0304,
-            &[0xaa, 0xbb],
-        ));
-        out.extend_from_slice(&encode_save_entity_chunk(
-            save_version,
-            7,
-            0x1122_3344,
-            &[0xcc],
-        ));
         out
     }
 
@@ -40853,7 +41125,7 @@ mod tests {
 
     #[test]
     fn writes_msav_save_round_trips_envelope_and_region_framing() {
-        for save_version in [4, 6, 7, 8, 9, 10, 11] {
+        for save_version in [1, 2, 3, 4, 6, 7, 8, 9, 10, 11] {
             let original = parse_msav_save(&sample_msav_save_bytes(save_version)).unwrap();
             let bytes = write_msav_save(&original).unwrap();
             let reparsed = parse_msav_save(&bytes).unwrap();
@@ -40876,6 +41148,75 @@ mod tests {
                 assert_eq!(lhs.chunk_bytes, rhs.chunk_bytes);
             }
         }
+    }
+
+    #[test]
+    fn parses_save1_and_save2_entities_region_with_legacy_group_chunks() {
+        for save_version in [1, 2] {
+            let bytes = sample_msav_save_bytes(save_version);
+            let save = parse_msav_save(&bytes).unwrap();
+
+            assert_eq!(save.envelope.save_version, save_version);
+            assert_eq!(save.region_names(), vec!["meta", "content", "map", "entities"]);
+            assert_eq!(save.entities.remap_count, 0);
+            assert!(save.entities.remap_entries.is_empty());
+            assert!(save.entities.remap_bytes.is_empty());
+            assert_eq!(save.entities.team_count, 0);
+            assert_eq!(save.entities.total_plans, 0);
+            assert!(save.entities.team_plan_groups.is_empty());
+            assert!(save.entities.team_region_bytes.is_empty());
+            assert_eq!(
+                save.entities.world_entity_bytes,
+                sample_legacy_save_entity_group_bytes()
+            );
+            assert_eq!(save.entities.world_entity_count, 2);
+
+            let first = &save.entities.entity_chunks[0];
+            assert_eq!(first.chunk_len, 2);
+            assert_eq!(first.class_id, u8::MAX);
+            assert_eq!(first.custom_name, None);
+            assert_eq!(first.entity_id, -1);
+            assert_eq!(first.body_bytes, vec![0xaa, 0xbb]);
+
+            let second = &save.entities.entity_chunks[1];
+            assert_eq!(second.chunk_len, 1);
+            assert_eq!(second.class_id, u8::MAX);
+            assert_eq!(second.custom_name, None);
+            assert_eq!(second.entity_id, -2);
+            assert_eq!(second.body_bytes, vec![0xcc]);
+        }
+    }
+
+    #[test]
+    fn parses_save3_entities_region_with_legacy_team_plans_and_group_chunks() {
+        let bytes = sample_msav_save_bytes(3);
+        let save = parse_msav_save(&bytes).unwrap();
+
+        assert_eq!(save.envelope.save_version, 3);
+        assert_eq!(save.region_names(), vec!["meta", "content", "map", "entities"]);
+        assert_eq!(save.entities.remap_count, 0);
+        assert!(save.entities.remap_entries.is_empty());
+        assert!(save.entities.remap_bytes.is_empty());
+        assert_eq!(save.entities.team_count, 1);
+        assert_eq!(save.entities.total_plans, 1);
+        assert_eq!(
+            save.entities.team_region_bytes,
+            generate_legacy_team_plan_sample_bytes()
+        );
+        assert_eq!(save.entities.team_plan_groups.len(), 1);
+        assert_eq!(save.entities.team_plan_groups[0].team_id, 1);
+        assert_eq!(save.entities.team_plan_groups[0].plans.len(), 1);
+        assert_eq!(
+            save.entities.team_plan_groups[0].plans[0].config,
+            TypeIoValue::Integer(3)
+        );
+        assert_eq!(
+            save.entities.world_entity_bytes,
+            sample_legacy_save_entity_group_bytes()
+        );
+        assert_eq!(save.entities.world_entity_count, 2);
+        assert_eq!(save.entities.entity_chunks[0].entity_id, -1);
+        assert_eq!(save.entities.entity_chunks[1].entity_id, -2);
     }
 
     #[test]
