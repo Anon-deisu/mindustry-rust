@@ -70,6 +70,10 @@ These are already landed and should not be re-opened as if missing:
 - remote manifest validation already fail-closes the wire-level invariants older audit notes used to call out.
   - `mdt-remote` now rejects `packetIdByte`, `lengthField`, compression-flag, and compression-threshold drift during manifest parse, with direct regression coverage
   - remaining remote/codegen work is broader semantic adoption, not re-adding these wire-spec guards
+- `connect` payload preflight now also rejects empty `versionType` / `name` / `locale` fields before encoding.
+  - `ConnectPacketSpec::encode_payload(...)` now fail-closes on those empty fields instead of letting them encode through as blank strings
+- `mdt-remote` fixed-table packet lookup now fail-closes on duplicate `packet_id` values instead of silently overwriting earlier entries.
+  - `RemotePacketIdFixedTable::from_iter(...)` now asserts on duplicate packet ids during fixed-table construction
 - minimal command-mode state container is already landed.
   - `mdt-input` now carries `CommandModeState` / `CommandModeProjection` with selected-units, command-buildings, command-rect, control-groups, and last target/command/stance selections
   - `mdt-client-min-online` runtime outbound action sync now updates that container instead of keeping command-mode as packet-observability-only state
@@ -99,6 +103,9 @@ These are already landed and should not be re-opened as if missing:
   - prompt priority: `text input > follow-up menu > menu`
   - notice priority: `warning toast > info toast > reliable hud > hud`
   - remaining gap is richer chat/dialog UI interaction, not re-adding a first dialog summary layer
+- `effect(..., data)` runtime content projection is already widened for the landed clean-file slices.
+  - `content_icon` / `payload_target_content` now accept `TechNode`-backed content refs in the runtime effect overlay path, and `drop_item` now emits a content projection instead of only carrying the drop origin
+  - remaining work is broader `effect` executor depth, not re-adding these landed content-ref / content-projection slices
 - online build planning no longer trusts stale loaded-world plan markers for nearby place/conflict candidate selection.
   - `select_place_near_player_tile_with_visibility(...)` and `select_conflict_place_near_player_tile(...)` now ignore `graph.team_plans_at(...)` and rely on live building projection plus visibility filtering instead
   - regression coverage now pins the `removeTile -> stale team-plan marker` case so it does not block valid live candidates
@@ -123,6 +130,9 @@ These are already landed and should not be re-opened as if missing:
   - `SessionState` now keeps `runtime_typed_entity_apply_projection`, and `client_session` drives it from bootstrap local-player seed, `entitySnapshot` player/unit applies, hidden-snapshot rebuilds, despawn/disconnect removals, and `worldDataBegin` clear
   - runtime HUD live-entity observability now prefers that persistent apply layer instead of only rebuilding typed player/unit joins on demand from the raw projection tables
   - remaining `U1` work is deeper live ownership/group semantics, not re-adding the first persistent typed runtime apply layer
+- `stateSnapshot` core inventory fallback now also has a regression test for the `no new coreData` path.
+  - `derive_state_snapshot_core_inventory_transition(Some(previous), None)` now reuses the previous inventory snapshot with `synced=false` and zero duplicate counts instead of being left implicit
+  - remaining `M7` work is broader core/state ownership semantics, not re-proving this fallback branch
 - runtime live-entity HUD/presenter output now also consumes that typed projection layer.
   - live entity observability/panels now surface typed player/unit counts plus latest typed entity/player/unit ids
   - remaining M9/U1 work is deeper runtime/apply behavior and richer UI depth, not re-adding the first typed live-entity aggregate view
