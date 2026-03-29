@@ -96,7 +96,7 @@ impl RenderRuntimeAdapter {
     ) {
         let runtime_typed_building_projection = session_state.runtime_typed_building_projection();
         let runtime_buildings_label =
-            runtime_building_table_label(&session_state.building_table_projection);
+            runtime_building_label(&session_state.building_table_projection, None);
         self.apply_with_building_view(
             scene,
             hud,
@@ -121,9 +121,9 @@ impl RenderRuntimeAdapter {
             live_building_projection_by_build_pos(&building_live_state);
         let runtime_typed_building_projection =
             live_runtime_typed_building_projection(&building_live_state);
-        let runtime_buildings_label = runtime_building_live_state_label(
-            &building_live_state,
+        let runtime_buildings_label = runtime_building_label(
             &session_state.building_table_projection,
+            Some(&building_live_state),
         );
         self.apply_with_building_view(
             scene,
@@ -410,11 +410,23 @@ fn live_runtime_typed_building_projection(
     }
 }
 
-fn runtime_building_live_state_label(
-    live_state: &BTreeMap<i32, BuildingLiveStateView>,
+fn runtime_building_label(
     projection: &BuildingTableProjection,
+    live_state: Option<&BTreeMap<i32, BuildingLiveStateView>>,
 ) -> String {
+    let merged = runtime_building_table_projection_for_label(projection, live_state);
+    runtime_building_table_label(&merged)
+}
+
+fn runtime_building_table_projection_for_label(
+    projection: &BuildingTableProjection,
+    live_state: Option<&BTreeMap<i32, BuildingLiveStateView>>,
+) -> BuildingTableProjection {
     let mut merged = projection.clone();
+    let Some(live_state) = live_state else {
+        return merged;
+    };
+
     merged.by_build_pos = live_building_projection_by_build_pos(live_state);
     merged.block_known_count = merged
         .by_build_pos
@@ -464,7 +476,7 @@ fn runtime_building_live_state_label(
         }
         None => {}
     }
-    runtime_building_table_label(&merged)
+    merged
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -6417,6 +6429,41 @@ mod tests {
             .expect("expected runtime world-label event object")
     }
 
+    fn sample_building_projection(
+        block_id: Option<i16>,
+        block_name: Option<&str>,
+        rotation: Option<u8>,
+        team_id: Option<u8>,
+        last_update: BuildingProjectionUpdateKind,
+    ) -> BuildingProjection {
+        BuildingProjection {
+            block_id,
+            block_name: block_name.map(str::to_string),
+            rotation,
+            team_id,
+            io_version: None,
+            module_bitmask: None,
+            time_scale_bits: None,
+            time_scale_duration_bits: None,
+            last_disabler_pos: None,
+            legacy_consume_connected: None,
+            config: None,
+            health_bits: None,
+            enabled: None,
+            efficiency: None,
+            optional_efficiency: None,
+            visible_flags: None,
+            turret_reload_counter_bits: None,
+            turret_rotation_bits: None,
+            item_turret_ammo_count: None,
+            continuous_turret_last_length_bits: None,
+            build_turret_rotation_bits: None,
+            build_turret_plans_present: None,
+            build_turret_plan_count: None,
+            last_update,
+        }
+    }
+
     #[test]
     fn runtime_rules_label_includes_high_signal_rule_fields() {
         let mut state = SessionState::default();
@@ -6579,6 +6626,92 @@ mod tests {
                     if id == "world-label:404:text:72756e74696d65" && text == "runtime"
             )
         }));
+    }
+
+    #[test]
+    fn runtime_building_label_uses_shared_projection_merge_for_snapshot_and_live_states() {
+        let mut snapshot = BuildingTableProjection::default();
+        snapshot.by_build_pos.insert(
+            7,
+            sample_building_projection(
+                Some(11),
+                Some("snapshot"),
+                Some(1),
+                Some(2),
+                BuildingProjectionUpdateKind::ConstructFinish,
+            ),
+        );
+        snapshot.block_known_count = 1;
+        snapshot.last_build_pos = Some(7);
+        snapshot.last_block_id = Some(11);
+        snapshot.last_block_name = Some("snapshot".to_string());
+        snapshot.last_rotation = Some(1);
+        snapshot.last_team_id = Some(2);
+        snapshot.last_update = Some(BuildingProjectionUpdateKind::ConstructFinish);
+
+        let live_state = BTreeMap::from([(
+            7,
+            BuildingLiveStateView {
+                build_pos: 7,
+                projection: sample_building_projection(
+                    Some(19),
+                    Some("live"),
+                    Some(3),
+                    Some(4),
+                    BuildingProjectionUpdateKind::BuildHealthUpdate,
+                ),
+                runtime: None,
+            },
+        )]);
+
+        let merged = runtime_building_table_projection_for_label(&snapshot, Some(&live_state));
+        let mut expected = snapshot.clone();
+        expected.by_build_pos.insert(
+            7,
+            sample_building_projection(
+                Some(19),
+                Some("live"),
+                Some(3),
+                Some(4),
+                BuildingProjectionUpdateKind::BuildHealthUpdate,
+            ),
+        );
+        expected.last_block_id = Some(19);
+        expected.last_block_name = Some("live".to_string());
+        expected.last_rotation = Some(3);
+        expected.last_team_id = Some(4);
+        expected.last_update = Some(BuildingProjectionUpdateKind::BuildHealthUpdate);
+        expected.last_removed = false;
+
+        assert_eq!(runtime_building_table_projection_for_label(&snapshot, None), snapshot);
+        assert_eq!(merged, expected);
+        assert_eq!(
+            runtime_building_label(&snapshot, None),
+            runtime_building_table_label(&snapshot)
+        );
+        assert_eq!(
+            runtime_building_label(&snapshot, Some(&live_state)),
+            runtime_building_table_label(&expected)
+        );
+
+        let matching_live_state = BTreeMap::from([(
+            7,
+            BuildingLiveStateView {
+                build_pos: 7,
+                projection: sample_building_projection(
+                    Some(11),
+                    Some("snapshot"),
+                    Some(1),
+                    Some(2),
+                    BuildingProjectionUpdateKind::ConstructFinish,
+                ),
+                runtime: None,
+            },
+        )]);
+        assert_eq!(
+            runtime_building_label(&snapshot, None),
+            runtime_building_label(&snapshot, Some(&matching_live_state))
+        );
     }
 
     #[test]
@@ -10651,13 +10784,6 @@ mod tests {
     }
 
     #[test]
-    fn render_runtime_adapter_renders_leg_destroy_executor_line_to_second_position() {
-        let mut adapter = RenderRuntimeAdapter::default();
-        let mut scene = RenderModel::default();
-        let mut hud = HudModel::default();
-        let input = ClientSnapshotInputState::default();
-        let state = SessionState::default();
-    #[test]
     fn render_runtime_adapter_renders_point_beam_executor_line_from_followed_parent_unit_source()
     {
         let mut adapter = RenderRuntimeAdapter::default();
@@ -10790,6 +10916,13 @@ mod tests {
         assert_eq!(updated_line_end.y, 184.0);
     }
 
+    #[test]
+    fn render_runtime_adapter_renders_leg_destroy_executor_line_to_second_position() {
+        let mut adapter = RenderRuntimeAdapter::default();
+        let mut scene = RenderModel::default();
+        let mut hud = HudModel::default();
+        let input = ClientSnapshotInputState::default();
+        let state = SessionState::default();
 
         adapter.observe_events(&[ClientSessionEvent::EffectRequested {
             effect_id: Some(263),
