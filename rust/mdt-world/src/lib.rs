@@ -43372,6 +43372,17 @@ mod tests {
     }
 
     #[test]
+    fn rejects_truncated_legacy_save_entity_group_payloads() {
+        let mut bytes = Vec::new();
+        bytes.push(1);
+        bytes.extend_from_slice(&1u32.to_be_bytes());
+
+        let error = parse_save_entity_region(1, &bytes).unwrap_err();
+
+        assert!(error.contains("failed to fill whole buffer"));
+    }
+
+    #[test]
     fn rejects_trailing_bytes_after_modern_save_entity_region() {
         let save = parse_msav_save(&sample_msav_post_load_save11_bytes()).unwrap();
         let mut bytes = save.region("entities").unwrap().chunk_bytes.clone();
