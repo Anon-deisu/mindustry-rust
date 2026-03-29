@@ -1092,6 +1092,10 @@ fn extract_json_field_value<'a>(text: &'a str, field: &str) -> Option<&'a str> {
     let mut search_start = 0usize;
     while let Some(found) = text[search_start..].find(&needle) {
         let index = search_start + found;
+        if !json_field_has_object_key_boundary(text, index) {
+            search_start = index + needle.len();
+            continue;
+        }
         let rest = text[index + needle.len()..].trim_start();
         if let Some(value) = rest.strip_prefix(':') {
             return Some(value.trim_start());
@@ -1099,6 +1103,18 @@ fn extract_json_field_value<'a>(text: &'a str, field: &str) -> Option<&'a str> {
         search_start = index + needle.len();
     }
     None
+}
+
+fn json_field_has_object_key_boundary(text: &str, index: usize) -> bool {
+    let bytes = text.as_bytes();
+    let mut cursor = index;
+    while cursor > 0 && bytes[cursor - 1].is_ascii_whitespace() {
+        cursor -= 1;
+    }
+    if cursor == 0 {
+        return false;
+    }
+    matches!(bytes[cursor - 1], b'{' | b',')
 }
 
 fn json_literal_terminated(value: &str, parsed_len: usize) -> bool {
@@ -1748,6 +1764,14 @@ mod tests {
         assert_eq!(parse_text_i32("{\"idValue\":7}"), None);
         assert_eq!(parse_text_u8("{\"teamValue\":3}"), None);
         assert_eq!(parse_text_f64("{\"numberValue\":1.5}"), None);
+    }
+
+    #[test]
+    fn parse_text_json_fields_ignore_prose_strings_that_mention_keys() {
+        assert_eq!(parse_text_bool("note \"value\": false, trailing"), None);
+        assert_eq!(parse_text_f64("prefix \"number\": 12.5, suffix"), None);
+        assert_eq!(parse_text_i32("prefix \"buildPos\": 7, suffix"), None);
+        assert_eq!(parse_text_u8("prefix \"team\": 3, suffix"), None);
     }
 
     #[test]

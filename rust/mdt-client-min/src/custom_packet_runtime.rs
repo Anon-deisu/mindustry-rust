@@ -788,14 +788,34 @@ fn extract_json_bool_field(text: &str, field: &str) -> Option<bool> {
 
 fn extract_json_field_value<'a>(text: &'a str, field: &str) -> Option<&'a str> {
     let needle = format!("\"{field}\"");
-    let mut search_start = 0usize;
-    while let Some(found) = text[search_start..].find(&needle) {
-        let index = search_start + found;
-        let rest = text[index + needle.len()..].trim_start();
-        if let Some(value) = rest.strip_prefix(':') {
-            return Some(value.trim_start());
+    let mut in_string = false;
+    let mut escaped = false;
+    for (index, ch) in text.char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            if ch == '\\' {
+                escaped = true;
+                continue;
+            }
+            if ch == '"' {
+                in_string = false;
+            }
+            continue;
         }
-        search_start = index + needle.len();
+
+        if ch != '"' {
+            continue;
+        }
+        if text[index..].starts_with(&needle) {
+            let rest = text[index + needle.len()..].trim_start();
+            if let Some(value) = rest.strip_prefix(':') {
+                return Some(value.trim_start());
+            }
+        }
+        in_string = true;
     }
     None
 }
@@ -1065,6 +1085,22 @@ mod tests {
     fn parse_text_literals_reject_trailing_garbage() {
         assert_eq!(parse_text_bool("{\"value\":falsehood}"), None);
         assert_eq!(parse_text_f64("{\"value\":12abc}"), None);
+    }
+
+    #[test]
+    fn parse_text_fields_ignore_string_literal_lookalikes() {
+        assert_eq!(
+            parse_text_bool("{\"message\":\"prefix \\\"value\\\":false\"}"),
+            None
+        );
+        assert_eq!(
+            parse_text_f64("{\"message\":\"prefix \\\"number\\\":1e3\"}"),
+            None
+        );
+        assert_eq!(
+            parse_text_world_pos("{\"message\":\"prefix \\\"x\\\":12 \\\"y\\\":-4\"}"),
+            None
+        );
     }
 
     #[test]
