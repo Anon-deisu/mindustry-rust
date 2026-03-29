@@ -1076,6 +1076,91 @@ mod tests {
     }
 
     #[test]
+    fn tick_with_post_ingest_hook_observes_world_stream_before_connect_confirm_flush() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let timing = ClientSessionTiming {
+            keepalive_interval_ms: 10_000,
+            client_snapshot_interval_ms: 10_000,
+            connect_timeout_ms: 60_000,
+            timeout_ms: 60_000,
+        };
+        let mut session =
+            ClientSession::from_remote_manifest_with_timing(&manifest, "fr", timing).unwrap();
+        let connect = session
+            .prepare_connect_packet(&sample_connect_payload())
+            .unwrap();
+        let compressed_world_stream = sample_world_stream_bytes();
+        let (begin_packet, chunk_packets) =
+            encode_world_stream_packets(&compressed_world_stream, 7, 1024).unwrap();
+
+        let (tcp_listener, udp_socket, server_addr) = bind_local_arcnet_server();
+        let server = thread::spawn(move || {
+            let (mut tcp_stream, _) = tcp_listener.accept().unwrap();
+            tcp_stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            tcp_stream
+                .set_write_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+
+            write_tcp_frame(
+                &mut tcp_stream,
+                &encode_framework_message(&FrameworkMessage::RegisterTcp { connection_id: 777 }),
+            );
+
+            let mut udp_buf = [0u8; 1024];
+            let (udp_len, _) = udp_socket.recv_from(&mut udp_buf).unwrap();
+            assert_eq!(
+                decode_framework_message(&udp_buf[..udp_len]).unwrap(),
+                FrameworkMessage::RegisterUdp { connection_id: 777 }
+            );
+
+            write_tcp_frame(
+                &mut tcp_stream,
+                &encode_framework_message(&FrameworkMessage::RegisterUdp { connection_id: 0 }),
+            );
+
+            let connect_frame = read_tcp_frame(&mut tcp_stream);
+            let connect_packet = decode_packet(&connect_frame).unwrap();
+            assert_eq!(connect_packet.packet_id, CONNECT_PACKET_ID);
+
+            write_tcp_frame(&mut tcp_stream, &begin_packet);
+            for chunk in &chunk_packets {
+                write_tcp_frame(&mut tcp_stream, chunk);
+            }
+
+            thread::sleep(Duration::from_millis(100));
+        });
+
+        let mut driver = ArcNetSessionDriver::connect(server_addr).unwrap();
+        driver.send_connect(&connect).unwrap();
+        let mut observed_boundary = false;
+
+        for tick in 0..50u64 {
+            let report = driver
+                .tick_with_post_ingest_hook(&mut session, tick * 100, 32, 32, |session| {
+                    if session.state().world_stream_loaded {
+                        observed_boundary = true;
+                        assert!(session.state().connect_confirm_sent);
+                        assert!(!session.state().connect_confirm_flushed);
+                    }
+                })
+                .unwrap();
+            if session.state().world_stream_loaded {
+                assert!(report.udp_registered);
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+
+        assert!(observed_boundary);
+        assert!(session.state().world_stream_loaded);
+        assert!(session.state().connect_confirm_sent);
+        assert!(session.state().connect_confirm_flushed);
+        server.join().unwrap();
+    }
+
+    #[test]
     fn sends_client_snapshot_over_udp_after_world_ready() {
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
         let timing = ClientSessionTiming {
