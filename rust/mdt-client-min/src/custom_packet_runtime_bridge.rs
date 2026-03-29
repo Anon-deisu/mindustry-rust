@@ -630,6 +630,18 @@ mod tests {
     }
 
     #[test]
+    fn parse_debug_string_preserves_unknown_escape_characters() {
+        assert_eq!(parse_debug_string(r#""a\qb""#), Some("aqb".to_string()));
+        assert_eq!(parse_debug_string(r#""\q""#), Some("q".to_string()));
+    }
+
+    #[test]
+    fn parse_debug_string_rejects_trailing_backslash() {
+        assert_eq!(parse_debug_string(r#""broken\"#), None);
+        assert_eq!(parse_debug_string(r#""also broken\"#), None);
+    }
+
+    #[test]
     fn parse_surface_update_handles_separator_substrings_inside_quoted_key() {
         assert_eq!(
             parse_surface_update(
