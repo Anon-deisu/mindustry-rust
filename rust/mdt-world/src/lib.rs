@@ -24753,7 +24753,8 @@ fn parse_building_tail_with_context(
         Some("duct-unloader") => Ok(ParsedBuildingTail::DuctUnloader(
             parse_duct_unloader_tail_snapshot(tail_bytes)?,
         )),
-        Some("memory-cell") | Some("memory-bank") => Ok(ParsedBuildingTail::Memory(
+        Some("memory-cell") | Some("memory-bank") | Some("world-cell") => Ok(
+            ParsedBuildingTail::Memory(
             parse_memory_tail_snapshot(tail_bytes)?,
         )),
         Some("canvas") | Some("large-canvas") => Ok(ParsedBuildingTail::Canvas(
@@ -45864,7 +45865,7 @@ mod tests {
     #[test]
     fn parses_memory_tail_families_as_raw_double_bits() {
         let expected_bits = vec![1.5f64.to_bits(), f64::NAN.to_bits()];
-        for block_name in ["memory-cell", "memory-bank"] {
+        for block_name in ["memory-cell", "memory-bank", "world-cell"] {
             let parsed = parse_building_tail(Some(block_name), 1, &{
                 let mut bytes = Vec::new();
                 bytes.extend_from_slice(&(expected_bits.len() as i32).to_be_bytes());
