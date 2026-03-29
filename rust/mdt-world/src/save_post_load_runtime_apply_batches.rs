@@ -37,6 +37,10 @@ impl SavePostLoadRuntimeApplyBatchView {
     pub fn batch_count(&self) -> usize {
         self.batches.len()
     }
+
+    pub fn next_apply_now_batch(&self) -> Option<&SavePostLoadRuntimeApplyBatch> {
+        self.batches.iter().find(|batch| batch.can_apply_now())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -346,6 +350,7 @@ mod tests {
         );
         assert!(batch_view.batches[0].can_apply_now());
         assert!(!batch_view.batches[0].has_blockers());
+        assert_eq!(batch_view.next_apply_now_batch(), Some(&batch_view.batches[0]));
     }
 
     #[test]
@@ -464,6 +469,7 @@ mod tests {
         assert!(batch_view.batches[1].can_apply_now());
         assert!(!batch_view.batches[4].can_apply_now());
         assert!(batch_view.batches[4].has_blockers());
+        assert_eq!(batch_view.next_apply_now_batch(), Some(&batch_view.batches[1]));
     }
 
     #[test]
