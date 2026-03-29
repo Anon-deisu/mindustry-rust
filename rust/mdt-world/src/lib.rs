@@ -27278,6 +27278,28 @@ fn parse_legacy_building_tail_snapshot(
                 .map(ParsedBuildingTail::PayloadLoader)
                 .unwrap_or(ParsedBuildingTail::Unknown)
         }
+        Some(
+            "ground-factory"
+            | "air-factory"
+            | "naval-factory"
+            | "tank-fabricator"
+            | "ship-fabricator"
+            | "mech-fabricator",
+        ) => parse_unit_factory_tail_snapshot(&[], revision, legacy_tail_bytes)
+            .map(ParsedBuildingTail::UnitFactory)
+            .unwrap_or(ParsedBuildingTail::Unknown),
+        Some(
+            "additive-reconstructor"
+            | "multiplicative-reconstructor"
+            | "exponential-reconstructor"
+            | "tetrative-reconstructor"
+            | "tank-refabricator"
+            | "ship-refabricator"
+            | "mech-refabricator"
+            | "prime-refabricator",
+        ) => parse_reconstructor_tail_snapshot(&[], revision, legacy_tail_bytes)
+            .map(ParsedBuildingTail::Reconstructor)
+            .unwrap_or(ParsedBuildingTail::Unknown),
         Some("payload-source") => parse_payload_source_tail_snapshot(&[], revision, legacy_tail_bytes)
             .map(ParsedBuildingTail::PayloadSource)
             .unwrap_or(ParsedBuildingTail::Unknown),
@@ -56493,6 +56515,79 @@ mod tests {
         .unwrap();
 
         assert_eq!(snapshot.parsed_tail, expected);
+    }
+
+    #[test]
+    fn parses_legacy_unit_factory_family_building_snapshots_when_block_name_is_known() {
+        let legacy_tail = {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&1u32.to_be_bytes());
+            bytes.extend_from_slice(&2u32.to_be_bytes());
+            bytes.extend_from_slice(&3u32.to_be_bytes());
+            bytes.push(0);
+            bytes.extend_from_slice(&0x3f000000u32.to_be_bytes());
+            bytes.extend_from_slice(&2i16.to_be_bytes());
+            bytes.extend_from_slice(&f32::NAN.to_bits().to_be_bytes());
+            bytes.extend_from_slice(&f32::NAN.to_bits().to_be_bytes());
+            bytes.push(255);
+            bytes
+        };
+
+        for block_name in [
+            "ground-factory",
+            "air-factory",
+            "naval-factory",
+            "tank-fabricator",
+            "ship-fabricator",
+            "mech-fabricator",
+        ] {
+            let expected = parse_building_tail(Some(block_name), 3, &legacy_tail).unwrap();
+            let snapshot = parse_legacy_save_building_snapshot(Some(block_name), &{
+                let mut bytes = vec![3, 0, 10, 0x12, 1];
+                bytes.extend_from_slice(&legacy_tail);
+                bytes
+            })
+            .unwrap();
+
+            assert_eq!(snapshot.parsed_tail, expected);
+        }
+    }
+
+    #[test]
+    fn parses_legacy_reconstructor_family_building_snapshots_when_block_name_is_known() {
+        let legacy_tail = {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&4u32.to_be_bytes());
+            bytes.extend_from_slice(&5u32.to_be_bytes());
+            bytes.extend_from_slice(&6u32.to_be_bytes());
+            bytes.push(0);
+            bytes.extend_from_slice(&0x3e800000u32.to_be_bytes());
+            bytes.extend_from_slice(&0x41200000u32.to_be_bytes());
+            bytes.extend_from_slice(&0x41a00000u32.to_be_bytes());
+            bytes.push(7);
+            bytes
+        };
+
+        for block_name in [
+            "additive-reconstructor",
+            "multiplicative-reconstructor",
+            "exponential-reconstructor",
+            "tetrative-reconstructor",
+            "tank-refabricator",
+            "ship-refabricator",
+            "mech-refabricator",
+            "prime-refabricator",
+        ] {
+            let expected = parse_building_tail(Some(block_name), 3, &legacy_tail).unwrap();
+            let snapshot = parse_legacy_save_building_snapshot(Some(block_name), &{
+                let mut bytes = vec![3, 0, 10, 0x12, 1];
+                bytes.extend_from_slice(&legacy_tail);
+                bytes
+            })
+            .unwrap();
+
+            assert_eq!(snapshot.parsed_tail, expected);
+        }
     }
 
     #[test]
