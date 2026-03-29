@@ -100,6 +100,19 @@ pub type ColorRaw = u32;
 pub type StringsRaw = Vec<Option<String>>;
 pub type StringArrayRaw = Vec<StringsRaw>;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TraceInfoRaw {
+    pub ip: Option<String>,
+    pub uuid: Option<String>,
+    pub locale: Option<String>,
+    pub modded: bool,
+    pub mobile: bool,
+    pub times_joined: i32,
+    pub times_kicked: i32,
+    pub ips: StringsRaw,
+    pub names: StringsRaw,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PayloadType {
     Unit,
@@ -262,6 +275,29 @@ pub fn write_strings(out: &mut Vec<u8>, values: &[Option<String>]) {
     for value in values {
         write_string(out, value.as_deref());
     }
+}
+
+pub fn write_strings_capped(out: &mut Vec<u8>, values: &[Option<String>], max_len: usize) {
+    let capped_len = values.len().min(max_len);
+    write_byte(
+        out,
+        u8::try_from(capped_len).expect("capped string count exceeds u8"),
+    );
+    for value in values.iter().take(capped_len) {
+        write_string(out, value.as_deref());
+    }
+}
+
+pub fn write_trace_info(out: &mut Vec<u8>, trace: &TraceInfoRaw) {
+    write_string(out, trace.ip.as_deref());
+    write_string(out, trace.uuid.as_deref());
+    write_string(out, trace.locale.as_deref());
+    write_bool(out, trace.modded);
+    write_bool(out, trace.mobile);
+    write_int(out, trace.times_joined);
+    write_int(out, trace.times_kicked);
+    write_strings_capped(out, &trace.ips, 12);
+    write_strings_capped(out, &trace.names, 12);
 }
 
 pub fn write_string_array(out: &mut Vec<u8>, rows: &[StringsRaw]) {
@@ -645,6 +681,18 @@ pub fn read_strings_prefix(bytes: &[u8]) -> Result<(StringsRaw, usize), TypeIoRe
         values.push(read_string_from_reader(&mut reader)?);
     }
     Ok((values, reader.position()))
+}
+
+pub fn read_trace_info(bytes: &[u8]) -> Result<TraceInfoRaw, TypeIoReadError> {
+    let (value, consumed) = read_trace_info_prefix(bytes)?;
+    ensure_consumed(consumed, bytes.len())?;
+    Ok(value)
+}
+
+pub fn read_trace_info_prefix(bytes: &[u8]) -> Result<(TraceInfoRaw, usize), TypeIoReadError> {
+    let mut reader = PrimitiveReader::new(bytes);
+    let trace = read_trace_info_from_reader(&mut reader)?;
+    Ok((trace, reader.position()))
 }
 
 pub fn read_string_array(bytes: &[u8]) -> Result<StringArrayRaw, TypeIoReadError> {
@@ -1166,6 +1214,22 @@ fn read_strings_from_reader(
     Ok(values)
 }
 
+fn read_trace_info_from_reader(
+    reader: &mut PrimitiveReader<'_>,
+) -> Result<TraceInfoRaw, TypeIoReadError> {
+    Ok(TraceInfoRaw {
+        ip: read_string_from_reader(reader)?,
+        uuid: read_string_from_reader(reader)?,
+        locale: read_string_from_reader(reader)?,
+        modded: reader.read_u8()? != 0,
+        mobile: reader.read_u8()? != 0,
+        times_joined: reader.read_i32()?,
+        times_kicked: reader.read_i32()?,
+        ips: read_strings_from_reader(reader)?,
+        names: read_strings_from_reader(reader)?,
+    })
+}
+
 pub fn generate_typeio_goldens() -> String {
     let mut samples = BTreeMap::new();
 
@@ -1443,6 +1507,46 @@ mod tests {
         write_strings(&mut bytes, &strings);
         assert_eq!(read_strings(&bytes).unwrap(), strings);
 
+        bytes.clear();
+        write_strings_capped(&mut bytes, &strings, 2);
+        assert_eq!(
+            read_strings(&bytes).unwrap(),
+            vec![Some("alpha".to_string()), None]
+        );
+
+        let trace = TraceInfoRaw {
+            ip: Some("127.0.0.1".to_string()),
+            uuid: Some("uuid-1".to_string()),
+            locale: Some("zh_CN".to_string()),
+            modded: true,
+            mobile: false,
+            times_joined: 7,
+            times_kicked: 2,
+            ips: (0..14)
+                .map(|index| Some(format!("10.0.0.{index}")))
+                .collect(),
+            names: (0..14)
+                .map(|index| Some(format!("user-{index}")))
+                .collect(),
+        };
+        bytes.clear();
+        write_trace_info(&mut bytes, &trace);
+        let decoded_trace = read_trace_info(&bytes).unwrap();
+        assert_eq!(decoded_trace.ip.as_deref(), Some("127.0.0.1"));
+        assert_eq!(decoded_trace.uuid.as_deref(), Some("uuid-1"));
+        assert_eq!(decoded_trace.locale.as_deref(), Some("zh_CN"));
+        assert!(decoded_trace.modded);
+        assert!(!decoded_trace.mobile);
+        assert_eq!(decoded_trace.times_joined, 7);
+        assert_eq!(decoded_trace.times_kicked, 2);
+        assert_eq!(decoded_trace.ips.len(), 12);
+        assert_eq!(decoded_trace.names.len(), 12);
+        assert_eq!(decoded_trace.ips.first().and_then(|value| value.as_deref()), Some("10.0.0.0"));
+        assert_eq!(
+            decoded_trace.names.last().and_then(|value| value.as_deref()),
+            Some("user-11")
+        );
+
         let string_array = vec![
             vec![Some("menu".to_string()), Some("play".to_string())],
             vec![None, Some("quit".to_string())],
@@ -1677,6 +1781,30 @@ mod tests {
             Err(TypeIoReadError::TrailingBytes { consumed, total })
                 if consumed == bytes.len() - 1 && total == bytes.len()
         ));
+
+        let trace = TraceInfoRaw {
+            ip: Some("127.0.0.1".to_string()),
+            uuid: None,
+            locale: Some("en_US".to_string()),
+            modded: false,
+            mobile: true,
+            times_joined: 9,
+            times_kicked: 3,
+            ips: vec![Some("10.0.0.1".to_string())],
+            names: vec![Some("runner".to_string())],
+        };
+        bytes.clear();
+        write_trace_info(&mut bytes, &trace);
+        bytes.push(0xbb);
+
+        let (decoded_trace, consumed) = read_trace_info_prefix(&bytes).unwrap();
+        assert_eq!(decoded_trace, trace);
+        assert_eq!(consumed, bytes.len() - 1);
+        assert!(matches!(
+            read_trace_info(&bytes),
+            Err(TypeIoReadError::TrailingBytes { consumed, total })
+                if consumed == bytes.len() - 1 && total == bytes.len()
+        ));
     }
 
     #[test]
@@ -1700,6 +1828,31 @@ mod tests {
     }
 
     #[test]
+    fn trace_info_reader_rejects_truncated_payloads() {
+        let mut bytes = Vec::new();
+        write_trace_info(
+            &mut bytes,
+            &TraceInfoRaw {
+                ip: Some("127.0.0.1".to_string()),
+                uuid: Some("uuid-1".to_string()),
+                locale: Some("en_US".to_string()),
+                modded: true,
+                mobile: false,
+                times_joined: 1,
+                times_kicked: 0,
+                ips: vec![Some("10.0.0.1".to_string())],
+                names: vec![Some("runner".to_string())],
+            },
+        );
+        bytes.pop();
+
+        assert!(matches!(
+            read_trace_info(&bytes),
+            Err(TypeIoReadError::UnexpectedEof { .. })
+        ));
+    }
+
+    #[test]
     #[should_panic(expected = "int[] length exceeds i16")]
     fn write_ints_rejects_lengths_outside_i16_range() {
         let ints = vec![0i32; i16::MAX as usize + 1];
@@ -1713,6 +1866,14 @@ mod tests {
         let bytes = vec![0u8; i16::MAX as usize + 1];
         let mut out = Vec::new();
         write_bytes(&mut out, &bytes);
+    }
+
+    #[test]
+    #[should_panic(expected = "capped string count exceeds u8")]
+    fn write_strings_capped_rejects_lengths_outside_u8_range() {
+        let strings = vec![None; u8::MAX as usize + 1];
+        let mut out = Vec::new();
+        write_strings_capped(&mut out, &strings, strings.len());
     }
 
     #[test]
