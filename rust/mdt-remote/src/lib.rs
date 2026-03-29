@@ -2661,6 +2661,47 @@ mod tests {
     }
 
     #[test]
+    fn validate_remote_manifest_rejects_base_packet_id_sequence_drift() {
+        let manifest = RemoteManifest {
+            schema: REMOTE_MANIFEST_SCHEMA_V1.into(),
+            generator: RemoteGeneratorInfo {
+                source: "test".into(),
+                call_class: "mindustry.gen.Call".into(),
+            },
+            base_packets: vec![
+                BasePacketEntry {
+                    id: 0,
+                    class_name: "mindustry.net.Packets$StreamBegin".into(),
+                },
+                BasePacketEntry {
+                    id: 2,
+                    class_name: "mindustry.net.Packets$StreamChunk".into(),
+                },
+            ],
+            remote_packets: vec![],
+            wire: WireSpec {
+                packet_id_byte: REMOTE_WIRE_PACKET_ID_BYTE_U8.into(),
+                length_field: REMOTE_WIRE_LENGTH_FIELD_U16BE.into(),
+                compression_flag: CompressionFlagSpec {
+                    none: REMOTE_WIRE_COMPRESSION_NONE.into(),
+                    lz4: REMOTE_WIRE_COMPRESSION_LZ4.into(),
+                },
+                compression_threshold: REMOTE_WIRE_COMPRESSION_THRESHOLD,
+            },
+        };
+
+        let error = validate_remote_manifest(&manifest).unwrap_err();
+        assert!(matches!(
+            error,
+            RemoteManifestError::InvalidPacketSequence(_)
+        ));
+        assert_eq!(
+            error.to_string(),
+            "base packet mindustry.net.Packets$StreamChunk has id 2, expected 1"
+        );
+    }
+
+    #[test]
     fn validate_remote_manifest_rejects_duplicate_packet_definition() {
         let manifest = RemoteManifest {
             schema: REMOTE_MANIFEST_SCHEMA_V1.into(),
