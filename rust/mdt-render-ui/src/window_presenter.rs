@@ -71,6 +71,10 @@ pub struct WindowMinimapInset {
     pub map_width: usize,
     pub map_height: usize,
     pub window: PresenterViewWindow,
+    pub window_coverage_percent: usize,
+    pub map_object_density_percent: usize,
+    pub window_object_density_percent: usize,
+    pub outside_object_percent: usize,
     pub focus_tile: Option<(usize, usize)>,
     pub player_tile: Option<(usize, usize)>,
     pub ping_tile: Option<(usize, usize)>,
@@ -527,6 +531,10 @@ fn compose_window_minimap_inset(
         map_width: panel.map_width,
         map_height: panel.map_height,
         window: panel.window,
+        window_coverage_percent: panel.window_coverage_percent,
+        map_object_density_percent: panel.map_object_density_percent(),
+        window_object_density_percent: panel.window_object_density_percent(),
+        outside_object_percent: panel.outside_object_percent(),
         focus_tile: clamp_window_minimap_tile(panel.focus_tile, panel.map_width, panel.map_height),
         player_tile: clamp_window_minimap_tile(
             scene.player_focus_tile(TILE_SIZE),
@@ -5968,6 +5976,10 @@ mod tests {
                     width: 24,
                     height: 18,
                 },
+                window_coverage_percent: 9,
+                map_object_density_percent: 2,
+                window_object_density_percent: 11,
+                outside_object_percent: 50,
                 focus_tile: Some((60, 40)),
                 player_tile: Some((20, 18)),
                 ping_tile: Some((44, 22)),
@@ -6243,6 +6255,17 @@ mod tests {
         let backend = presenter.into_backend();
         let frame = backend.frames.last().unwrap();
         let inset = frame.minimap_inset.as_ref().expect("minimap inset");
+        let panel = super::build_minimap_panel(
+            &scene,
+            &hud,
+            crate::panel_model::PresenterViewWindow {
+                origin_x: 2,
+                origin_y: 3,
+                width: 4,
+                height: 3,
+            },
+        )
+        .expect("expected minimap panel");
 
         assert_eq!(inset.map_width, 80);
         assert_eq!(inset.map_height, 60);
@@ -6255,6 +6278,16 @@ mod tests {
                 height: 3,
             }
         );
+        assert_eq!(inset.window_coverage_percent, panel.window_coverage_percent);
+        assert_eq!(
+            inset.map_object_density_percent,
+            panel.map_object_density_percent()
+        );
+        assert_eq!(
+            inset.window_object_density_percent,
+            panel.window_object_density_percent()
+        );
+        assert_eq!(inset.outside_object_percent, panel.outside_object_percent());
         assert_eq!(inset.focus_tile, Some((7, 6)));
         assert_eq!(inset.player_tile, Some((4, 2)));
         assert_eq!(inset.ping_tile, Some((5, 3)));
@@ -6324,6 +6357,73 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn present_once_reports_minimap_inset_density_stats() {
+        let backend = RecordingBackend::default();
+        let mut presenter = WindowPresenter::new(backend);
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 80.0,
+                height: 80.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![RenderObject {
+                id: "player:1".to_string(),
+                layer: 0,
+                x: 16.0,
+                y: 24.0,
+            }],
+        };
+        let hud = HudModel {
+            summary: Some(HudSummary {
+                player_name: "operator".to_string(),
+                team_id: 2,
+                selected_block: "router".to_string(),
+                plan_count: 0,
+                marker_count: 0,
+                map_width: 10,
+                map_height: 10,
+                overlay_visible: true,
+                fog_enabled: false,
+                visible_tile_count: 25,
+                hidden_tile_count: 15,
+                minimap: crate::hud_model::HudMinimapSummary {
+                    focus_tile: Some((2, 3)),
+                    view_window: crate::hud_model::HudViewWindowSummary {
+                        origin_x: 0,
+                        origin_y: 0,
+                        width: 10,
+                        height: 10,
+                    },
+                },
+            }),
+            ..HudModel::default()
+        };
+
+        presenter.present_once(&scene, &hud).unwrap();
+
+        let backend = presenter.into_backend();
+        let frame = backend.frames.last().unwrap();
+        let inset = frame.minimap_inset.as_ref().expect("minimap inset");
+        let panel =
+            super::build_minimap_panel(&scene, &hud, inset.window).expect("expected minimap panel");
+
+        assert!(inset.window_coverage_percent > 0);
+        assert!(inset.map_object_density_percent > 0);
+        assert!(inset.window_object_density_percent > 0);
+        assert_eq!(inset.window_coverage_percent, panel.window_coverage_percent);
+        assert_eq!(
+            inset.map_object_density_percent,
+            panel.map_object_density_percent()
+        );
+        assert_eq!(
+            inset.window_object_density_percent,
+            panel.window_object_density_percent()
+        );
+        assert_eq!(inset.outside_object_percent, panel.outside_object_percent());
     }
 
     #[test]
