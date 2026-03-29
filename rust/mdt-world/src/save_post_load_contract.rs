@@ -259,6 +259,17 @@ fn static_fog_surface_consistent(
         push_issue(issues, SavePostLoadWorldIssue::DuplicateCustomChunkNames);
         consistent = false;
     }
+    let mut static_fog_chunks = observation
+        .custom_chunks
+        .iter()
+        .filter(|chunk| chunk.name == "static-fog-data");
+    if static_fog_chunks
+        .next()
+        .is_some_and(|chunk| chunk.static_fog().is_none() && static_fog_chunks.next().is_none())
+    {
+        push_issue(issues, SavePostLoadWorldIssue::StaticFogCoverageMismatch);
+        consistent = false;
+    }
     if let Some(chunk) = observation.static_fog_chunk() {
         if chunk.width != observation.map.world.width
             || chunk.height != observation.map.world.height
@@ -365,8 +376,8 @@ fn checked_surface_index(x: usize, y: usize, width: usize) -> Option<usize> {
 mod tests {
     use super::*;
     use crate::{
-        BuildingBaseSnapshot, BuildingCenter, BuildingSnapshot, CustomChunkEntry, MarkerEntry,
-        LineMarkerModel, MarkerModel, ParsedBuildingTail, ParsedCustomChunk, PointMarkerModel,
+        BuildingBaseSnapshot, BuildingCenter, BuildingSnapshot, CustomChunkEntry, LineMarkerModel,
+        MarkerEntry, MarkerModel, ParsedBuildingTail, ParsedCustomChunk, PointMarkerModel,
         SaveEntityChunkObservation, SaveEntityClassSummary, SaveEntityPostLoadClassSummary,
         SaveEntityPostLoadKind, SaveEntityPostLoadSummary, SaveEntityRemapSummary,
         SaveMapRegionObservation, SavePostLoadWorldObservation, StaticFogChunk, StaticFogTeam,
@@ -556,6 +567,20 @@ mod tests {
         assert!(contract
             .issues
             .contains(&SavePostLoadWorldIssue::DuplicateStaticFogTeamIds));
+    }
+
+    #[test]
+    fn projection_contract_flags_damaged_static_fog_chunks() {
+        let mut observation = test_observation();
+        observation.custom_chunks[0].parsed = ParsedCustomChunk::Unknown;
+
+        let contract = observation.projection_contract();
+
+        assert!(!contract.can_project_world_shell());
+        assert!(!contract.static_fog_surface_consistent);
+        assert!(contract
+            .issues
+            .contains(&SavePostLoadWorldIssue::StaticFogCoverageMismatch));
     }
 
     #[test]
