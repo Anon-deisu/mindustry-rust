@@ -207,12 +207,16 @@ pub(crate) fn build_runtime_world_ownership(
                 .map(|shell| shell.owned_step_count(kind))
                 .unwrap_or_default();
 
-            let status = if stage.step_count == 0 {
-                SavePostLoadRuntimeWorldOwnershipStatus::Absent
-            } else if claimed_step_count == stage.step_count && failed_steps.is_empty() {
-                SavePostLoadRuntimeWorldOwnershipStatus::Owned
-            } else if !failed_steps.is_empty() {
+            let status = if !failed_steps.is_empty() {
                 SavePostLoadRuntimeWorldOwnershipStatus::Failed
+            } else if stage.step_count == 0 {
+                if stage.blockers.is_empty() {
+                    SavePostLoadRuntimeWorldOwnershipStatus::Absent
+                } else {
+                    SavePostLoadRuntimeWorldOwnershipStatus::Blocked
+                }
+            } else if claimed_step_count == stage.step_count {
+                SavePostLoadRuntimeWorldOwnershipStatus::Owned
             } else {
                 match stage.disposition {
                     crate::SavePostLoadConsumerRuntimeDisposition::ApplyNow => {
@@ -346,6 +350,23 @@ mod tests {
             markers.failed_steps,
             vec![SavePostLoadRuntimeApplyStep::Marker { marker_index: 1 }]
         );
+    }
+
+    #[test]
+    fn runtime_world_ownership_marks_zero_step_blocked_surface_blocked_not_absent() {
+        let mut observation = test_observation();
+        observation.team_plan_groups.clear();
+
+        let ownership = observation.runtime_world_ownership();
+        let team_plans = ownership
+            .surface(SavePostLoadRuntimeWorldSurfaceKind::TeamPlans)
+            .unwrap();
+
+        assert_eq!(team_plans.required_step_count, 0);
+        assert_eq!(team_plans.claimed_step_count, 0);
+        assert_eq!(team_plans.status, SavePostLoadRuntimeWorldOwnershipStatus::Blocked);
+        assert!(team_plans.has_blockers());
+        assert_ne!(team_plans.status, SavePostLoadRuntimeWorldOwnershipStatus::Absent);
     }
 
     #[test]
