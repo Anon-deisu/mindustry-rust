@@ -144,6 +144,13 @@ impl SavePostLoadConsumerRuntimeHelper {
             .any(|stage| stage.disposition == SavePostLoadConsumerRuntimeDisposition::Blocked)
     }
 
+    pub fn stage(
+        &self,
+        kind: SavePostLoadConsumerStageKind,
+    ) -> Option<&SavePostLoadConsumerRuntimeStageHelper> {
+        self.stages.iter().find(|stage| stage.kind == kind)
+    }
+
     pub fn apply_now_step_count(&self) -> usize {
         runtime_step_count(self, SavePostLoadConsumerRuntimeDisposition::ApplyNow)
     }
@@ -695,6 +702,12 @@ mod tests {
             .iter()
             .filter(|stage| stage.kind != SavePostLoadConsumerStageKind::SkippedEntities)
             .all(SavePostLoadConsumerRuntimeStageHelper::can_apply_now));
+        assert_eq!(
+            helper
+                .stage(SavePostLoadConsumerStageKind::LoadableEntities)
+                .map(|stage| stage.disposition),
+            Some(SavePostLoadConsumerRuntimeDisposition::ApplyNow)
+        );
     }
 
     #[test]
@@ -825,31 +838,30 @@ mod tests {
         assert!(!helper.world_shell_ready);
         assert!(helper.has_blocked_stages());
         assert!(helper
-            .stages
-            .iter()
-            .any(|stage| stage.kind == SavePostLoadConsumerStageKind::WorldShell
-                && stage.disposition == SavePostLoadConsumerRuntimeDisposition::Blocked));
+            .stage(SavePostLoadConsumerStageKind::WorldShell)
+            .is_some_and(|stage| {
+                stage.disposition == SavePostLoadConsumerRuntimeDisposition::Blocked
+            }));
         assert!(helper
-            .stages
-            .iter()
-            .any(|stage| stage.kind == SavePostLoadConsumerStageKind::TeamPlans
-                && stage.disposition == SavePostLoadConsumerRuntimeDisposition::Blocked
-                && stage
-                    .blockers
-                    .contains(&SavePostLoadConsumerBlocker::ContractIssue(
-                        SavePostLoadWorldIssue::DuplicateTeamPlanGroupIds,
-                    ))));
+            .stage(SavePostLoadConsumerStageKind::TeamPlans)
+            .is_some_and(|stage| {
+                stage.disposition == SavePostLoadConsumerRuntimeDisposition::Blocked
+                    && stage
+                        .blockers
+                        .contains(&SavePostLoadConsumerBlocker::ContractIssue(
+                            SavePostLoadWorldIssue::DuplicateTeamPlanGroupIds,
+                        ))
+            }));
         assert!(helper
-            .stages
-            .iter()
-            .any(|stage| stage.kind == SavePostLoadConsumerStageKind::Markers
-                && stage.disposition
-                    == SavePostLoadConsumerRuntimeDisposition::AwaitingWorldShell));
+            .stage(SavePostLoadConsumerStageKind::Markers)
+            .is_some_and(|stage| {
+                stage.disposition == SavePostLoadConsumerRuntimeDisposition::AwaitingWorldShell
+            }));
         assert!(helper
-            .stages
-            .iter()
-            .any(|stage| stage.kind == SavePostLoadConsumerStageKind::CustomChunks
-                && stage.disposition == SavePostLoadConsumerRuntimeDisposition::ApplyNow));
+            .stage(SavePostLoadConsumerStageKind::CustomChunks)
+            .is_some_and(|stage| {
+                stage.disposition == SavePostLoadConsumerRuntimeDisposition::ApplyNow
+            }));
     }
 
     #[test]
@@ -919,20 +931,20 @@ mod tests {
         assert!(helper.world_shell_ready);
         assert!(!helper.has_blocked_stages());
         assert!(helper
-            .stages
-            .iter()
-            .any(|stage| stage.kind == SavePostLoadConsumerStageKind::WorldShell
-                && stage.disposition == SavePostLoadConsumerRuntimeDisposition::ApplyNow));
+            .stage(SavePostLoadConsumerStageKind::WorldShell)
+            .is_some_and(|stage| {
+                stage.disposition == SavePostLoadConsumerRuntimeDisposition::ApplyNow
+            }));
         assert!(helper
-            .stages
-            .iter()
-            .any(|stage| stage.kind == SavePostLoadConsumerStageKind::Markers
-                && stage.disposition == SavePostLoadConsumerRuntimeDisposition::ApplyNow));
+            .stage(SavePostLoadConsumerStageKind::Markers)
+            .is_some_and(|stage| {
+                stage.disposition == SavePostLoadConsumerRuntimeDisposition::ApplyNow
+            }));
         assert!(helper
-            .stages
-            .iter()
-            .any(|stage| stage.kind == SavePostLoadConsumerStageKind::CustomChunks
-                && stage.disposition == SavePostLoadConsumerRuntimeDisposition::ApplyNow));
+            .stage(SavePostLoadConsumerStageKind::CustomChunks)
+            .is_some_and(|stage| {
+                stage.disposition == SavePostLoadConsumerRuntimeDisposition::ApplyNow
+            }));
     }
 
     fn test_observation() -> SavePostLoadWorldObservation {
