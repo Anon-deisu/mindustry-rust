@@ -5,7 +5,7 @@ pub const REMOTE_MANIFEST_SCHEMA_V1: &str = "mdt.remote.manifest.v1";
 pub const CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT: usize = 10;
 pub const HIGH_FREQUENCY_REMOTE_METHOD_COUNT: usize = 5;
 pub const INBOUND_REMOTE_FAMILY_COUNT: usize = 6;
-pub const WELL_KNOWN_REMOTE_METHOD_COUNT: usize = 43;
+pub const WELL_KNOWN_REMOTE_METHOD_COUNT: usize = 49;
 pub const REMOTE_PACKET_ID_SPACE: usize = u8::MAX as usize + 1;
 pub const REMOTE_WIRE_PACKET_ID_BYTE_U8: &str = "u8";
 pub const REMOTE_WIRE_LENGTH_FIELD_U16BE: &str = "u16be";
@@ -193,6 +193,12 @@ pub enum WellKnownRemoteMethod {
     SectorCapture,
     SetFlag,
     UpdateGameOver,
+    Announce,
+    ClearObjectives,
+    CopyToClipboard,
+    HideHudText,
+    InfoMessage,
+    OpenUri,
     WorldDataBegin,
     KickString,
     KickReason,
@@ -660,6 +666,18 @@ const SET_FLAG_WIRE_PARAM_KINDS: [RemoteParamKind; 2] =
     [RemoteParamKind::Opaque, RemoteParamKind::Bool];
 const UPDATE_GAME_OVER_PARAM_JAVA_TYPES: [&str; 1] = ["mindustry.game.Team"];
 const UPDATE_GAME_OVER_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Opaque];
+const ANNOUNCE_PARAM_JAVA_TYPES: [&str; 1] = ["java.lang.String"];
+const ANNOUNCE_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Opaque];
+const CLEAR_OBJECTIVES_PARAM_JAVA_TYPES: [&str; 0] = [];
+const CLEAR_OBJECTIVES_WIRE_PARAM_KINDS: [RemoteParamKind; 0] = [];
+const COPY_TO_CLIPBOARD_PARAM_JAVA_TYPES: [&str; 1] = ["java.lang.String"];
+const COPY_TO_CLIPBOARD_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Opaque];
+const HIDE_HUD_TEXT_PARAM_JAVA_TYPES: [&str; 0] = [];
+const HIDE_HUD_TEXT_WIRE_PARAM_KINDS: [RemoteParamKind; 0] = [];
+const INFO_MESSAGE_PARAM_JAVA_TYPES: [&str; 1] = ["java.lang.String"];
+const INFO_MESSAGE_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Opaque];
+const OPEN_URI_PARAM_JAVA_TYPES: [&str; 1] = ["java.lang.String"];
+const OPEN_URI_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Opaque];
 const WORLD_DATA_BEGIN_PARAM_JAVA_TYPES: [&str; 0] = [];
 const WORLD_DATA_BEGIN_WIRE_PARAM_KINDS: [RemoteParamKind; 0] = [];
 
@@ -739,6 +757,12 @@ impl WellKnownRemoteMethod {
             Self::SectorCapture,
             Self::SetFlag,
             Self::UpdateGameOver,
+            Self::Announce,
+            Self::ClearObjectives,
+            Self::CopyToClipboard,
+            Self::HideHudText,
+            Self::InfoMessage,
+            Self::OpenUri,
             Self::WorldDataBegin,
             Self::KickString,
             Self::KickReason,
@@ -787,6 +811,12 @@ impl WellKnownRemoteMethod {
             Self::SectorCapture => "sectorCapture",
             Self::SetFlag => "setFlag",
             Self::UpdateGameOver => "updateGameOver",
+            Self::Announce => "announce",
+            Self::ClearObjectives => "clearObjectives",
+            Self::CopyToClipboard => "copyToClipboard",
+            Self::HideHudText => "hideHudText",
+            Self::InfoMessage => "infoMessage",
+            Self::OpenUri => "openURI",
             Self::WorldDataBegin => "worldDataBegin",
             Self::KickString | Self::KickReason => "kick",
             Self::SendChatMessage => "sendChatMessage",
@@ -826,6 +856,12 @@ impl WellKnownRemoteMethod {
             | Self::SectorCapture
             | Self::SetFlag
             | Self::UpdateGameOver
+            | Self::Announce
+            | Self::ClearObjectives
+            | Self::CopyToClipboard
+            | Self::HideHudText
+            | Self::InfoMessage
+            | Self::OpenUri
             | Self::WorldDataBegin
             | Self::KickString
             | Self::KickReason
@@ -891,6 +927,12 @@ impl WellKnownRemoteMethod {
             Self::SectorCapture => &SECTOR_CAPTURE_PARAM_JAVA_TYPES,
             Self::SetFlag => &SET_FLAG_PARAM_JAVA_TYPES,
             Self::UpdateGameOver => &UPDATE_GAME_OVER_PARAM_JAVA_TYPES,
+            Self::Announce => &ANNOUNCE_PARAM_JAVA_TYPES,
+            Self::ClearObjectives => &CLEAR_OBJECTIVES_PARAM_JAVA_TYPES,
+            Self::CopyToClipboard => &COPY_TO_CLIPBOARD_PARAM_JAVA_TYPES,
+            Self::HideHudText => &HIDE_HUD_TEXT_PARAM_JAVA_TYPES,
+            Self::InfoMessage => &INFO_MESSAGE_PARAM_JAVA_TYPES,
+            Self::OpenUri => &OPEN_URI_PARAM_JAVA_TYPES,
             Self::WorldDataBegin => &WORLD_DATA_BEGIN_PARAM_JAVA_TYPES,
             Self::KickString => &KICK_STRING_PARAM_JAVA_TYPES,
             Self::KickReason => &KICK_REASON_PARAM_JAVA_TYPES,
@@ -936,6 +978,12 @@ impl WellKnownRemoteMethod {
             Self::SectorCapture => &SECTOR_CAPTURE_WIRE_PARAM_KINDS,
             Self::SetFlag => &SET_FLAG_WIRE_PARAM_KINDS,
             Self::UpdateGameOver => &UPDATE_GAME_OVER_WIRE_PARAM_KINDS,
+            Self::Announce => &ANNOUNCE_WIRE_PARAM_KINDS,
+            Self::ClearObjectives => &CLEAR_OBJECTIVES_WIRE_PARAM_KINDS,
+            Self::CopyToClipboard => &COPY_TO_CLIPBOARD_WIRE_PARAM_KINDS,
+            Self::HideHudText => &HIDE_HUD_TEXT_WIRE_PARAM_KINDS,
+            Self::InfoMessage => &INFO_MESSAGE_WIRE_PARAM_KINDS,
+            Self::OpenUri => &OPEN_URI_WIRE_PARAM_KINDS,
             Self::WorldDataBegin => &WORLD_DATA_BEGIN_WIRE_PARAM_KINDS,
             Self::KickString => &KICK_STRING_WIRE_PARAM_KINDS,
             Self::KickReason => &KICK_REASON_WIRE_PARAM_KINDS,
@@ -4555,6 +4603,14 @@ mod tests {
             baseline.well_known.packet_id(WellKnownRemoteMethod::SetFlag)
         );
         assert_eq!(
+            bundle.well_known.packet_id(WellKnownRemoteMethod::Announce),
+            baseline.well_known.packet_id(WellKnownRemoteMethod::Announce)
+        );
+        assert_eq!(
+            bundle.well_known.packet_id(WellKnownRemoteMethod::OpenUri),
+            baseline.well_known.packet_id(WellKnownRemoteMethod::OpenUri)
+        );
+        assert_eq!(
             bundle
                 .well_known
                 .packet_id(WellKnownRemoteMethod::DebugStatusClientUnreliable),
@@ -4605,6 +4661,12 @@ mod tests {
             (WellKnownRemoteMethod::SectorCapture, Some(81)),
             (WellKnownRemoteMethod::SetFlag, Some(83)),
             (WellKnownRemoteMethod::UpdateGameOver, Some(85)),
+            (WellKnownRemoteMethod::Announce, Some(87)),
+            (WellKnownRemoteMethod::ClearObjectives, Some(89)),
+            (WellKnownRemoteMethod::CopyToClipboard, Some(91)),
+            (WellKnownRemoteMethod::HideHudText, Some(93)),
+            (WellKnownRemoteMethod::InfoMessage, Some(95)),
+            (WellKnownRemoteMethod::OpenUri, Some(97)),
             (WellKnownRemoteMethod::WorldDataBegin, Some(23)),
             (WellKnownRemoteMethod::KickString, Some(25)),
             (WellKnownRemoteMethod::KickReason, Some(27)),
@@ -4669,6 +4731,12 @@ mod tests {
         assert_eq!(fixed_table.get(81), Some(WellKnownRemoteMethod::SectorCapture));
         assert_eq!(fixed_table.get(83), Some(WellKnownRemoteMethod::SetFlag));
         assert_eq!(fixed_table.get(85), Some(WellKnownRemoteMethod::UpdateGameOver));
+        assert_eq!(fixed_table.get(87), Some(WellKnownRemoteMethod::Announce));
+        assert_eq!(fixed_table.get(89), Some(WellKnownRemoteMethod::ClearObjectives));
+        assert_eq!(fixed_table.get(91), Some(WellKnownRemoteMethod::CopyToClipboard));
+        assert_eq!(fixed_table.get(93), Some(WellKnownRemoteMethod::HideHudText));
+        assert_eq!(fixed_table.get(95), Some(WellKnownRemoteMethod::InfoMessage));
+        assert_eq!(fixed_table.get(97), Some(WellKnownRemoteMethod::OpenUri));
         assert_eq!(
             fixed_table.get(17),
             Some(WellKnownRemoteMethod::SetObjectives)
@@ -4732,6 +4800,12 @@ mod tests {
         assert!(fixed_table.contains_packet_id(81));
         assert!(fixed_table.contains_packet_id(83));
         assert!(fixed_table.contains_packet_id(85));
+        assert!(fixed_table.contains_packet_id(87));
+        assert!(fixed_table.contains_packet_id(89));
+        assert!(fixed_table.contains_packet_id(91));
+        assert!(fixed_table.contains_packet_id(93));
+        assert!(fixed_table.contains_packet_id(95));
+        assert!(fixed_table.contains_packet_id(97));
         assert!(!fixed_table.contains_packet_id(250));
     }
 
@@ -5169,6 +5243,42 @@ mod tests {
                 .first_well_known_method(WellKnownRemoteMethod::UpdateGameOver)
                 .map(|packet| packet.packet_id),
             Some(85)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::Announce)
+                .map(|packet| packet.packet_id),
+            Some(87)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::ClearObjectives)
+                .map(|packet| packet.packet_id),
+            Some(89)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::CopyToClipboard)
+                .map(|packet| packet.packet_id),
+            Some(91)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::HideHudText)
+                .map(|packet| packet.packet_id),
+            Some(93)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::InfoMessage)
+                .map(|packet| packet.packet_id),
+            Some(95)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::OpenUri)
+                .map(|packet| packet.packet_id),
+            Some(97)
         );
         assert_eq!(
             registry
@@ -6975,6 +7085,138 @@ mod tests {
                     "normal",
                     false,
                     vec![test_param("winner", "mindustry.game.Team", true, true)],
+                ),
+                test_remote_packet(
+                    82,
+                    86,
+                    "mindustry.gen.AnnounceDecoyCallPacket",
+                    "mindustry.ui.Menus",
+                    "announce",
+                    "server",
+                    "normal",
+                    true,
+                    vec![test_param("message", "java.lang.String", true, true)],
+                ),
+                test_remote_packet(
+                    83,
+                    87,
+                    "mindustry.gen.AnnounceCallPacket",
+                    "mindustry.ui.Menus",
+                    "announce",
+                    "server",
+                    "normal",
+                    false,
+                    vec![test_param("message", "java.lang.String", true, true)],
+                ),
+                test_remote_packet(
+                    84,
+                    88,
+                    "mindustry.gen.ClearObjectivesDecoyCallPacket",
+                    "mindustry.core.NetClient",
+                    "clearObjectives",
+                    "server",
+                    "normal",
+                    true,
+                    vec![],
+                ),
+                test_remote_packet(
+                    85,
+                    89,
+                    "mindustry.gen.ClearObjectivesCallPacket",
+                    "mindustry.core.NetClient",
+                    "clearObjectives",
+                    "server",
+                    "normal",
+                    false,
+                    vec![],
+                ),
+                test_remote_packet(
+                    86,
+                    90,
+                    "mindustry.gen.CopyToClipboardDecoyCallPacket",
+                    "mindustry.ui.Menus",
+                    "copyToClipboard",
+                    "server",
+                    "normal",
+                    true,
+                    vec![test_param("text", "java.lang.String", true, true)],
+                ),
+                test_remote_packet(
+                    87,
+                    91,
+                    "mindustry.gen.CopyToClipboardCallPacket",
+                    "mindustry.ui.Menus",
+                    "copyToClipboard",
+                    "server",
+                    "normal",
+                    false,
+                    vec![test_param("text", "java.lang.String", true, true)],
+                ),
+                test_remote_packet(
+                    88,
+                    92,
+                    "mindustry.gen.HideHudTextDecoyCallPacket",
+                    "mindustry.ui.Menus",
+                    "hideHudText",
+                    "server",
+                    "normal",
+                    true,
+                    vec![],
+                ),
+                test_remote_packet(
+                    89,
+                    93,
+                    "mindustry.gen.HideHudTextCallPacket",
+                    "mindustry.ui.Menus",
+                    "hideHudText",
+                    "server",
+                    "normal",
+                    false,
+                    vec![],
+                ),
+                test_remote_packet(
+                    90,
+                    94,
+                    "mindustry.gen.InfoMessageDecoyCallPacket",
+                    "mindustry.ui.Menus",
+                    "infoMessage",
+                    "server",
+                    "normal",
+                    true,
+                    vec![test_param("message", "java.lang.String", true, true)],
+                ),
+                test_remote_packet(
+                    91,
+                    95,
+                    "mindustry.gen.InfoMessageCallPacket",
+                    "mindustry.ui.Menus",
+                    "infoMessage",
+                    "server",
+                    "normal",
+                    false,
+                    vec![test_param("message", "java.lang.String", true, true)],
+                ),
+                test_remote_packet(
+                    92,
+                    96,
+                    "mindustry.gen.OpenURIDecoyCallPacket",
+                    "mindustry.ui.Menus",
+                    "openURI",
+                    "server",
+                    "normal",
+                    true,
+                    vec![test_param("uri", "java.lang.String", true, true)],
+                ),
+                test_remote_packet(
+                    93,
+                    97,
+                    "mindustry.gen.OpenURICallPacket",
+                    "mindustry.ui.Menus",
+                    "openURI",
+                    "server",
+                    "normal",
+                    false,
+                    vec![test_param("uri", "java.lang.String", true, true)],
                 ),
             ],
             wire: WireSpec {

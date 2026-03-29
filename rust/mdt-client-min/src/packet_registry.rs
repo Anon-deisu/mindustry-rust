@@ -96,6 +96,12 @@ pub struct WellKnownRemotePacketIds {
     pub sector_capture_packet_id: Option<u8>,
     pub set_flag_packet_id: Option<u8>,
     pub update_game_over_packet_id: Option<u8>,
+    pub announce_packet_id: Option<u8>,
+    pub clear_objectives_packet_id: Option<u8>,
+    pub copy_to_clipboard_packet_id: Option<u8>,
+    pub hide_hud_text_packet_id: Option<u8>,
+    pub info_message_packet_id: Option<u8>,
+    pub open_uri_packet_id: Option<u8>,
     pub world_data_begin_packet_id: Option<u8>,
 }
 
@@ -371,6 +377,12 @@ impl WellKnownRemotePacketIds {
             sector_capture_packet_id: packet_id(WellKnownRemoteMethod::SectorCapture),
             set_flag_packet_id: packet_id(WellKnownRemoteMethod::SetFlag),
             update_game_over_packet_id: packet_id(WellKnownRemoteMethod::UpdateGameOver),
+            announce_packet_id: packet_id(WellKnownRemoteMethod::Announce),
+            clear_objectives_packet_id: packet_id(WellKnownRemoteMethod::ClearObjectives),
+            copy_to_clipboard_packet_id: packet_id(WellKnownRemoteMethod::CopyToClipboard),
+            hide_hud_text_packet_id: packet_id(WellKnownRemoteMethod::HideHudText),
+            info_message_packet_id: packet_id(WellKnownRemoteMethod::InfoMessage),
+            open_uri_packet_id: packet_id(WellKnownRemoteMethod::OpenUri),
             world_data_begin_packet_id: packet_id(WellKnownRemoteMethod::WorldDataBegin),
         }
     }
@@ -429,6 +441,12 @@ impl WellKnownRemotePacketIds {
             WellKnownRemoteMethod::SectorCapture => self.sector_capture_packet_id,
             WellKnownRemoteMethod::SetFlag => self.set_flag_packet_id,
             WellKnownRemoteMethod::UpdateGameOver => self.update_game_over_packet_id,
+            WellKnownRemoteMethod::Announce => self.announce_packet_id,
+            WellKnownRemoteMethod::ClearObjectives => self.clear_objectives_packet_id,
+            WellKnownRemoteMethod::CopyToClipboard => self.copy_to_clipboard_packet_id,
+            WellKnownRemoteMethod::HideHudText => self.hide_hud_text_packet_id,
+            WellKnownRemoteMethod::InfoMessage => self.info_message_packet_id,
+            WellKnownRemoteMethod::OpenUri => self.open_uri_packet_id,
             WellKnownRemoteMethod::WorldDataBegin => self.world_data_begin_packet_id,
         }
     }
@@ -948,15 +966,18 @@ mod tests {
     fn generated_remote_registry_constants_match_manifest_and_combined_views() {
         use crate::generated::remote_high_frequency_gen::CLIENT_SNAPSHOT_PACKET_ID;
         use crate::generated::remote_registry_gen::{
-            ADMIN_REQUEST_CALL_PACKET_ID, CLIENT_SNAPSHOT_CALL_PACKET_ID,
+            ADMIN_REQUEST_CALL_PACKET_ID, ANNOUNCE_CALL_PACKET_ID, CLIENT_SNAPSHOT_CALL_PACKET_ID,
+            CLEAR_OBJECTIVES_CALL_PACKET_ID,
             COMPLETE_OBJECTIVE_CALL_PACKET_ID, CONNECT_CALL_PACKET_ID,
-            CONNECT_CONFIRM_CALL_PACKET_ID, KICK_CALL_PACKET2_ID, KICK_CALL_PACKET_ID,
+            CONNECT_CONFIRM_CALL_PACKET_ID, COPY_TO_CLIPBOARD_CALL_PACKET_ID,
+            KICK_CALL_PACKET2_ID, KICK_CALL_PACKET_ID,
             DEBUG_STATUS_CLIENT_CALL_PACKET_ID, GAME_OVER_CALL_PACKET_ID, PING_CALL_PACKET_ID,
             PLAYER_SPAWN_CALL_PACKET_ID, REMOTE_PACKET_SPECS, REQUEST_DEBUG_STATUS_CALL_PACKET_ID,
             RESEARCHED_CALL_PACKET_ID, SECTOR_CAPTURE_CALL_PACKET_ID,
             SEND_CHAT_MESSAGE_CALL_PACKET_ID, SEND_MESSAGE_CALL_PACKET2_ID,
             SEND_MESSAGE_CALL_PACKET_ID, TILE_CONFIG_CALL_PACKET_ID,
             UPDATE_GAME_OVER_CALL_PACKET_ID, WORLD_DATA_BEGIN_CALL_PACKET_ID,
+            HIDE_HUD_TEXT_CALL_PACKET_ID, INFO_MESSAGE_CALL_PACKET_ID, OPEN_URICALL_PACKET_ID,
             INFO_POPUP_CALL_PACKET_ID,
             INFO_POPUP_CALL_PACKET2_ID, INFO_POPUP_RELIABLE_CALL_PACKET_ID,
             INFO_POPUP_RELIABLE_CALL_PACKET2_ID, LABEL_CALL_PACKET_ID,
@@ -1005,6 +1026,18 @@ mod tests {
             UPDATE_GAME_OVER_CALL_PACKET_ID,
             "updateGameOver"
         ));
+        assert!(has_generated_spec(ANNOUNCE_CALL_PACKET_ID, "announce"));
+        assert!(has_generated_spec(
+            CLEAR_OBJECTIVES_CALL_PACKET_ID,
+            "clearObjectives"
+        ));
+        assert!(has_generated_spec(
+            COPY_TO_CLIPBOARD_CALL_PACKET_ID,
+            "copyToClipboard"
+        ));
+        assert!(has_generated_spec(HIDE_HUD_TEXT_CALL_PACKET_ID, "hideHudText"));
+        assert!(has_generated_spec(INFO_MESSAGE_CALL_PACKET_ID, "infoMessage"));
+        assert!(has_generated_spec(OPEN_URICALL_PACKET_ID, "openURI"));
         assert!(has_generated_spec(TILE_CONFIG_CALL_PACKET_ID, "tileConfig"));
         assert!(has_generated_spec(
             WORLD_DATA_BEGIN_CALL_PACKET_ID,
@@ -1151,6 +1184,30 @@ mod tests {
             Some(UPDATE_GAME_OVER_CALL_PACKET_ID)
         );
         assert_eq!(
+            combined.well_known_remote.announce_packet_id,
+            Some(ANNOUNCE_CALL_PACKET_ID)
+        );
+        assert_eq!(
+            combined.well_known_remote.clear_objectives_packet_id,
+            Some(CLEAR_OBJECTIVES_CALL_PACKET_ID)
+        );
+        assert_eq!(
+            combined.well_known_remote.copy_to_clipboard_packet_id,
+            Some(COPY_TO_CLIPBOARD_CALL_PACKET_ID)
+        );
+        assert_eq!(
+            combined.well_known_remote.hide_hud_text_packet_id,
+            Some(HIDE_HUD_TEXT_CALL_PACKET_ID)
+        );
+        assert_eq!(
+            combined.well_known_remote.info_message_packet_id,
+            Some(INFO_MESSAGE_CALL_PACKET_ID)
+        );
+        assert_eq!(
+            combined.well_known_remote.open_uri_packet_id,
+            Some(OPEN_URICALL_PACKET_ID)
+        );
+        assert_eq!(
             manifest
                 .remote_packets
                 .iter()
@@ -1231,6 +1288,12 @@ mod tests {
         assert_eq!(well_known.sector_capture_packet_id, Some(81));
         assert_eq!(well_known.set_flag_packet_id, Some(83));
         assert_eq!(well_known.update_game_over_packet_id, Some(85));
+        assert_eq!(well_known.announce_packet_id, Some(87));
+        assert_eq!(well_known.clear_objectives_packet_id, Some(89));
+        assert_eq!(well_known.copy_to_clipboard_packet_id, Some(91));
+        assert_eq!(well_known.hide_hud_text_packet_id, Some(93));
+        assert_eq!(well_known.info_message_packet_id, Some(95));
+        assert_eq!(well_known.open_uri_packet_id, Some(97));
         assert_eq!(well_known.world_data_begin_packet_id, Some(23));
         assert_eq!(well_known.method(5), Some(WellKnownRemoteMethod::Ping));
         assert_eq!(well_known.method(6), None);
@@ -1419,6 +1482,30 @@ mod tests {
             (
                 WellKnownRemoteMethod::UpdateGameOver,
                 well_known.update_game_over_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::Announce,
+                well_known.announce_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::ClearObjectives,
+                well_known.clear_objectives_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::CopyToClipboard,
+                well_known.copy_to_clipboard_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::HideHudText,
+                well_known.hide_hud_text_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::InfoMessage,
+                well_known.info_message_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::OpenUri,
+                well_known.open_uri_packet_id,
             ),
             (
                 WellKnownRemoteMethod::WorldDataBegin,
@@ -2918,6 +3005,138 @@ mod tests {
                     "both",
                     false,
                     vec![param("winner", "mindustry.game.Team", true, true)],
+                ),
+                remote_packet(
+                    82,
+                    86,
+                    "mindustry.gen.AnnounceDecoyCallPacket",
+                    "mindustry.ui.Menus",
+                    "announce",
+                    "server",
+                    "normal",
+                    true,
+                    vec![param("message", "java.lang.String", true, true)],
+                ),
+                remote_packet(
+                    83,
+                    87,
+                    "mindustry.gen.AnnounceCallPacket",
+                    "mindustry.ui.Menus",
+                    "announce",
+                    "server",
+                    "normal",
+                    false,
+                    vec![param("message", "java.lang.String", true, true)],
+                ),
+                remote_packet(
+                    84,
+                    88,
+                    "mindustry.gen.ClearObjectivesDecoyCallPacket",
+                    "mindustry.core.NetClient",
+                    "clearObjectives",
+                    "server",
+                    "normal",
+                    true,
+                    vec![],
+                ),
+                remote_packet(
+                    85,
+                    89,
+                    "mindustry.gen.ClearObjectivesCallPacket",
+                    "mindustry.core.NetClient",
+                    "clearObjectives",
+                    "server",
+                    "normal",
+                    false,
+                    vec![],
+                ),
+                remote_packet(
+                    86,
+                    90,
+                    "mindustry.gen.CopyToClipboardDecoyCallPacket",
+                    "mindustry.ui.Menus",
+                    "copyToClipboard",
+                    "server",
+                    "normal",
+                    true,
+                    vec![param("text", "java.lang.String", true, true)],
+                ),
+                remote_packet(
+                    87,
+                    91,
+                    "mindustry.gen.CopyToClipboardCallPacket",
+                    "mindustry.ui.Menus",
+                    "copyToClipboard",
+                    "server",
+                    "normal",
+                    false,
+                    vec![param("text", "java.lang.String", true, true)],
+                ),
+                remote_packet(
+                    88,
+                    92,
+                    "mindustry.gen.HideHudTextDecoyCallPacket",
+                    "mindustry.ui.Menus",
+                    "hideHudText",
+                    "server",
+                    "normal",
+                    true,
+                    vec![],
+                ),
+                remote_packet(
+                    89,
+                    93,
+                    "mindustry.gen.HideHudTextCallPacket",
+                    "mindustry.ui.Menus",
+                    "hideHudText",
+                    "server",
+                    "normal",
+                    false,
+                    vec![],
+                ),
+                remote_packet(
+                    90,
+                    94,
+                    "mindustry.gen.InfoMessageDecoyCallPacket",
+                    "mindustry.ui.Menus",
+                    "infoMessage",
+                    "server",
+                    "normal",
+                    true,
+                    vec![param("message", "java.lang.String", true, true)],
+                ),
+                remote_packet(
+                    91,
+                    95,
+                    "mindustry.gen.InfoMessageCallPacket",
+                    "mindustry.ui.Menus",
+                    "infoMessage",
+                    "server",
+                    "normal",
+                    false,
+                    vec![param("message", "java.lang.String", true, true)],
+                ),
+                remote_packet(
+                    92,
+                    96,
+                    "mindustry.gen.OpenURIDecoyCallPacket",
+                    "mindustry.ui.Menus",
+                    "openURI",
+                    "server",
+                    "normal",
+                    true,
+                    vec![param("uri", "java.lang.String", true, true)],
+                ),
+                remote_packet(
+                    93,
+                    97,
+                    "mindustry.gen.OpenURICallPacket",
+                    "mindustry.ui.Menus",
+                    "openURI",
+                    "server",
+                    "normal",
+                    false,
+                    vec![param("uri", "java.lang.String", true, true)],
                 ),
             ],
             wire: WireSpec {

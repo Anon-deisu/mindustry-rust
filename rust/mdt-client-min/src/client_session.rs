@@ -665,36 +665,20 @@ impl ClientSession {
         let sector_capture_packet_id = well_known_remote.sector_capture_packet_id;
         let set_flag_packet_id = well_known_remote.set_flag_packet_id;
         let update_game_over_packet_id = well_known_remote.update_game_over_packet_id;
-        let announce_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "announce")
-            .map(|entry| entry.packet_id);
-        let copy_to_clipboard_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "copyToClipboard")
-            .map(|entry| entry.packet_id);
+        let announce_packet_id = well_known_remote.announce_packet_id;
+        let copy_to_clipboard_packet_id = well_known_remote.copy_to_clipboard_packet_id;
         let follow_up_menu_packet_id = manifest
             .remote_packets
             .iter()
             .find(|entry| entry.method == "followUpMenu")
             .map(|entry| entry.packet_id);
-        let hide_hud_text_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "hideHudText")
-            .map(|entry| entry.packet_id);
+        let hide_hud_text_packet_id = well_known_remote.hide_hud_text_packet_id;
         let hide_follow_up_menu_packet_id = manifest
             .remote_packets
             .iter()
             .find(|entry| entry.method == "hideFollowUpMenu")
             .map(|entry| entry.packet_id);
-        let info_message_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "infoMessage")
-            .map(|entry| entry.packet_id);
+        let info_message_packet_id = well_known_remote.info_message_packet_id;
         let info_toast_packet_id = manifest
             .remote_packets
             .iter()
@@ -710,11 +694,7 @@ impl ClientSession {
             .iter()
             .find(|entry| entry.method == "menu")
             .map(|entry| entry.packet_id);
-        let open_uri_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "openURI")
-            .map(|entry| entry.packet_id);
+        let open_uri_packet_id = well_known_remote.open_uri_packet_id;
         let create_marker_packet_id = manifest
             .remote_packets
             .iter()
@@ -1152,11 +1132,7 @@ impl ClientSession {
         let set_rules_packet_id = well_known_remote.set_rules_packet_id;
         let set_objectives_packet_id = well_known_remote.set_objectives_packet_id;
         let set_rule_packet_id = well_known_remote.set_rule_packet_id;
-        let clear_objectives_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "clearObjectives")
-            .map(|entry| entry.packet_id);
+        let clear_objectives_packet_id = well_known_remote.clear_objectives_packet_id;
         let complete_objective_packet_id = well_known_remote.complete_objective_packet_id;
         let player_disconnect_packet_id = manifest
             .remote_packets
@@ -51143,6 +51119,30 @@ mod tests {
             expected(WellKnownRemoteMethod::UpdateGameOver)
         );
         assert_eq!(
+            session.announce_packet_id,
+            expected(WellKnownRemoteMethod::Announce)
+        );
+        assert_eq!(
+            session.clear_objectives_packet_id,
+            expected(WellKnownRemoteMethod::ClearObjectives)
+        );
+        assert_eq!(
+            session.copy_to_clipboard_packet_id,
+            expected(WellKnownRemoteMethod::CopyToClipboard)
+        );
+        assert_eq!(
+            session.hide_hud_text_packet_id,
+            expected(WellKnownRemoteMethod::HideHudText)
+        );
+        assert_eq!(
+            session.info_message_packet_id,
+            expected(WellKnownRemoteMethod::InfoMessage)
+        );
+        assert_eq!(
+            session.open_uri_packet_id,
+            expected(WellKnownRemoteMethod::OpenUri)
+        );
+        assert_eq!(
             Some(session.world_data_begin_packet_id),
             expected(WellKnownRemoteMethod::WorldDataBegin)
         );
@@ -52078,6 +52078,192 @@ mod tests {
             session.update_game_over_packet_id,
             Some(expected_update_game_over_packet_id)
         );
+    }
+
+    #[test]
+    fn session_message_utility_packet_ids_reject_well_known_method_decoys() {
+        let mut manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let expected_announce_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "announce"
+                    && entry.params.len() == 1
+                    && entry.params[0].java_type == "java.lang.String"
+                    && !entry.unreliable
+            })
+            .expect("missing announce packet")
+            .packet_id;
+        let expected_clear_objectives_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "clearObjectives" && entry.params.is_empty() && !entry.unreliable
+            })
+            .expect("missing clearObjectives packet")
+            .packet_id;
+        let expected_copy_to_clipboard_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "copyToClipboard"
+                    && entry.params.len() == 1
+                    && entry.params[0].java_type == "java.lang.String"
+                    && !entry.unreliable
+            })
+            .expect("missing copyToClipboard packet")
+            .packet_id;
+        let expected_hide_hud_text_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "hideHudText" && entry.params.is_empty() && !entry.unreliable
+            })
+            .expect("missing hideHudText packet")
+            .packet_id;
+        let expected_info_message_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "infoMessage"
+                    && entry.params.len() == 1
+                    && entry.params[0].java_type == "java.lang.String"
+                    && !entry.unreliable
+            })
+            .expect("missing infoMessage packet")
+            .packet_id;
+        let expected_open_uri_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "openURI"
+                    && entry.params.len() == 1
+                    && entry.params[0].java_type == "java.lang.String"
+                    && !entry.unreliable
+            })
+            .expect("missing openURI packet")
+            .packet_id;
+
+        let mut announce_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "announce"
+                    && entry.params.len() == 1
+                    && entry.params[0].java_type == "java.lang.String"
+                    && !entry.unreliable
+            })
+            .expect("missing announce packet")
+            .clone();
+        announce_decoy.packet_id = 229;
+        announce_decoy.packet_class = "mindustry.gen.AnnounceDecoyCallPacket".into();
+        announce_decoy.unreliable = true;
+
+        let mut clear_objectives_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "clearObjectives" && entry.params.is_empty() && !entry.unreliable
+            })
+            .expect("missing clearObjectives packet")
+            .clone();
+        clear_objectives_decoy.packet_id = 230;
+        clear_objectives_decoy.packet_class =
+            "mindustry.gen.ClearObjectivesDecoyCallPacket".into();
+        clear_objectives_decoy.unreliable = true;
+
+        let mut copy_to_clipboard_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "copyToClipboard"
+                    && entry.params.len() == 1
+                    && entry.params[0].java_type == "java.lang.String"
+                    && !entry.unreliable
+            })
+            .expect("missing copyToClipboard packet")
+            .clone();
+        copy_to_clipboard_decoy.packet_id = 231;
+        copy_to_clipboard_decoy.packet_class =
+            "mindustry.gen.CopyToClipboardDecoyCallPacket".into();
+        copy_to_clipboard_decoy.unreliable = true;
+
+        let mut hide_hud_text_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "hideHudText" && entry.params.is_empty() && !entry.unreliable
+            })
+            .expect("missing hideHudText packet")
+            .clone();
+        hide_hud_text_decoy.packet_id = 232;
+        hide_hud_text_decoy.packet_class = "mindustry.gen.HideHudTextDecoyCallPacket".into();
+        hide_hud_text_decoy.unreliable = true;
+
+        let mut info_message_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "infoMessage"
+                    && entry.params.len() == 1
+                    && entry.params[0].java_type == "java.lang.String"
+                    && !entry.unreliable
+            })
+            .expect("missing infoMessage packet")
+            .clone();
+        info_message_decoy.packet_id = 233;
+        info_message_decoy.packet_class = "mindustry.gen.InfoMessageDecoyCallPacket".into();
+        info_message_decoy.unreliable = true;
+
+        let mut open_uri_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "openURI"
+                    && entry.params.len() == 1
+                    && entry.params[0].java_type == "java.lang.String"
+                    && !entry.unreliable
+            })
+            .expect("missing openURI packet")
+            .clone();
+        open_uri_decoy.packet_id = 234;
+        open_uri_decoy.packet_class = "mindustry.gen.OpenURIDecoyCallPacket".into();
+        open_uri_decoy.unreliable = true;
+
+        manifest.remote_packets.splice(
+            0..0,
+            vec![
+                announce_decoy,
+                clear_objectives_decoy,
+                copy_to_clipboard_decoy,
+                hide_hud_text_decoy,
+                info_message_decoy,
+                open_uri_decoy,
+            ],
+        );
+        for (remote_index, packet) in manifest.remote_packets.iter_mut().enumerate() {
+            packet.remote_index = remote_index;
+        }
+
+        let session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        assert_eq!(session.announce_packet_id, Some(expected_announce_packet_id));
+        assert_eq!(
+            session.clear_objectives_packet_id,
+            Some(expected_clear_objectives_packet_id)
+        );
+        assert_eq!(
+            session.copy_to_clipboard_packet_id,
+            Some(expected_copy_to_clipboard_packet_id)
+        );
+        assert_eq!(
+            session.hide_hud_text_packet_id,
+            Some(expected_hide_hud_text_packet_id)
+        );
+        assert_eq!(
+            session.info_message_packet_id,
+            Some(expected_info_message_packet_id)
+        );
+        assert_eq!(session.open_uri_packet_id, Some(expected_open_uri_packet_id));
     }
 
     #[test]
