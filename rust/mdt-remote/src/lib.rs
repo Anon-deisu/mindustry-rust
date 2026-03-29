@@ -5,7 +5,7 @@ pub const REMOTE_MANIFEST_SCHEMA_V1: &str = "mdt.remote.manifest.v1";
 pub const CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT: usize = 10;
 pub const HIGH_FREQUENCY_REMOTE_METHOD_COUNT: usize = 5;
 pub const INBOUND_REMOTE_FAMILY_COUNT: usize = 6;
-pub const WELL_KNOWN_REMOTE_METHOD_COUNT: usize = 23;
+pub const WELL_KNOWN_REMOTE_METHOD_COUNT: usize = 27;
 pub const REMOTE_PACKET_ID_SPACE: usize = u8::MAX as usize + 1;
 pub const REMOTE_WIRE_PACKET_ID_BYTE_U8: &str = "u8";
 pub const REMOTE_WIRE_LENGTH_FIELD_U16BE: &str = "u16be";
@@ -194,6 +194,10 @@ pub enum WellKnownRemoteMethod {
     InfoPopupWithId,
     InfoPopupReliable,
     InfoPopupReliableWithId,
+    Label,
+    LabelWithId,
+    LabelReliable,
+    LabelReliableWithId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -505,6 +509,22 @@ const INFO_POPUP_WITH_ID_WIRE_PARAM_KINDS: [RemoteParamKind; 8] = [
     RemoteParamKind::Int,
     RemoteParamKind::Int,
 ];
+const LABEL_PARAM_JAVA_TYPES: [&str; 4] = ["java.lang.String", "float", "float", "float"];
+const LABEL_WIRE_PARAM_KINDS: [RemoteParamKind; 4] = [
+    RemoteParamKind::Opaque,
+    RemoteParamKind::Float,
+    RemoteParamKind::Float,
+    RemoteParamKind::Float,
+];
+const LABEL_WITH_ID_PARAM_JAVA_TYPES: [&str; 5] =
+    ["java.lang.String", "int", "float", "float", "float"];
+const LABEL_WITH_ID_WIRE_PARAM_KINDS: [RemoteParamKind; 5] = [
+    RemoteParamKind::Opaque,
+    RemoteParamKind::Int,
+    RemoteParamKind::Float,
+    RemoteParamKind::Float,
+    RemoteParamKind::Float,
+];
 const SET_RULES_PARAM_JAVA_TYPES: [&str; 1] = ["mindustry.game.Rules"];
 const SET_RULES_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Opaque];
 const SET_OBJECTIVES_PARAM_JAVA_TYPES: [&str; 1] = ["mindustry.game.MapObjectives"];
@@ -592,6 +612,10 @@ impl WellKnownRemoteMethod {
             Self::InfoPopupWithId,
             Self::InfoPopupReliable,
             Self::InfoPopupReliableWithId,
+            Self::Label,
+            Self::LabelWithId,
+            Self::LabelReliable,
+            Self::LabelReliableWithId,
         ]
     }
 
@@ -616,6 +640,8 @@ impl WellKnownRemoteMethod {
             Self::SendMessage | Self::SendMessageWithSender => "sendMessage",
             Self::InfoPopup | Self::InfoPopupWithId => "infoPopup",
             Self::InfoPopupReliable | Self::InfoPopupReliableWithId => "infoPopupReliable",
+            Self::Label | Self::LabelWithId => "label",
+            Self::LabelReliable | Self::LabelReliableWithId => "labelReliable",
         }
     }
 
@@ -640,7 +666,11 @@ impl WellKnownRemoteMethod {
             | Self::InfoPopup
             | Self::InfoPopupWithId
             | Self::InfoPopupReliable
-            | Self::InfoPopupReliableWithId => RemoteFlow::ServerToClient,
+            | Self::InfoPopupReliableWithId
+            | Self::Label
+            | Self::LabelWithId
+            | Self::LabelReliable
+            | Self::LabelReliableWithId => RemoteFlow::ServerToClient,
             Self::ConnectConfirm | Self::SendChatMessage => RemoteFlow::ClientToServer,
         }
     }
@@ -653,6 +683,8 @@ impl WellKnownRemoteMethod {
                 | Self::DebugStatusClientUnreliable
                 | Self::InfoPopup
                 | Self::InfoPopupWithId
+                | Self::Label
+                | Self::LabelWithId
         )
     }
 
@@ -681,6 +713,8 @@ impl WellKnownRemoteMethod {
             Self::InfoPopupWithId | Self::InfoPopupReliableWithId => {
                 &INFO_POPUP_WITH_ID_PARAM_JAVA_TYPES
             }
+            Self::Label | Self::LabelReliable => &LABEL_PARAM_JAVA_TYPES,
+            Self::LabelWithId | Self::LabelReliableWithId => &LABEL_WITH_ID_PARAM_JAVA_TYPES,
         }
     }
 
@@ -709,6 +743,8 @@ impl WellKnownRemoteMethod {
             Self::InfoPopupWithId | Self::InfoPopupReliableWithId => {
                 &INFO_POPUP_WITH_ID_WIRE_PARAM_KINDS
             }
+            Self::Label | Self::LabelReliable => &LABEL_WIRE_PARAM_KINDS,
+            Self::LabelWithId | Self::LabelReliableWithId => &LABEL_WITH_ID_WIRE_PARAM_KINDS,
         }
     }
 
@@ -4329,6 +4365,10 @@ mod tests {
             (WellKnownRemoteMethod::InfoPopupWithId, Some(41)),
             (WellKnownRemoteMethod::InfoPopupReliable, Some(43)),
             (WellKnownRemoteMethod::InfoPopupReliableWithId, Some(45)),
+            (WellKnownRemoteMethod::Label, Some(47)),
+            (WellKnownRemoteMethod::LabelWithId, Some(49)),
+            (WellKnownRemoteMethod::LabelReliable, Some(51)),
+            (WellKnownRemoteMethod::LabelReliableWithId, Some(53)),
         ];
 
         assert_eq!(registry.len(), expected.len());
@@ -4380,6 +4420,13 @@ mod tests {
             fixed_table.get(45),
             Some(WellKnownRemoteMethod::InfoPopupReliableWithId)
         );
+        assert_eq!(fixed_table.get(47), Some(WellKnownRemoteMethod::Label));
+        assert_eq!(fixed_table.get(49), Some(WellKnownRemoteMethod::LabelWithId));
+        assert_eq!(fixed_table.get(51), Some(WellKnownRemoteMethod::LabelReliable));
+        assert_eq!(
+            fixed_table.get(53),
+            Some(WellKnownRemoteMethod::LabelReliableWithId)
+        );
         assert_eq!(fixed_table.get(18), None);
         assert!(fixed_table.contains_packet_id(19));
         assert!(fixed_table.contains_packet_id(23));
@@ -4387,6 +4434,7 @@ mod tests {
         assert!(fixed_table.contains_packet_id(37));
         assert!(fixed_table.contains_packet_id(33));
         assert!(fixed_table.contains_packet_id(45));
+        assert!(fixed_table.contains_packet_id(53));
         assert!(!fixed_table.contains_packet_id(250));
     }
 
@@ -4848,6 +4896,30 @@ mod tests {
                 .first_well_known_method(WellKnownRemoteMethod::InfoPopupReliableWithId)
                 .map(|packet| packet.packet_id),
             Some(45)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::Label)
+                .map(|packet| packet.packet_id),
+            Some(47)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::LabelWithId)
+                .map(|packet| packet.packet_id),
+            Some(49)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::LabelReliable)
+                .map(|packet| packet.packet_id),
+            Some(51)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::LabelReliableWithId)
+                .map(|packet| packet.packet_id),
+            Some(53)
         );
     }
 
@@ -5911,6 +5983,138 @@ mod tests {
                         test_param("left", "int", true, true),
                         test_param("bottom", "int", true, true),
                         test_param("right", "int", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    42,
+                    46,
+                    "mindustry.gen.LabelDecoyCallPacket",
+                    "mindustry.ui.Menus",
+                    "label",
+                    "server",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("message", "java.lang.String", true, true),
+                        test_param("duration", "float", true, true),
+                        test_param("worldx", "float", true, true),
+                        test_param("worldy", "float", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    43,
+                    47,
+                    "mindustry.gen.LabelCallPacket",
+                    "mindustry.ui.Menus",
+                    "label",
+                    "server",
+                    "normal",
+                    true,
+                    vec![
+                        test_param("message", "java.lang.String", true, true),
+                        test_param("duration", "float", true, true),
+                        test_param("worldx", "float", true, true),
+                        test_param("worldy", "float", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    44,
+                    48,
+                    "mindustry.gen.LabelDecoyCallPacket2",
+                    "mindustry.ui.Menus",
+                    "label",
+                    "server",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("message", "java.lang.String", true, true),
+                        test_param("id", "int", true, true),
+                        test_param("duration", "float", true, true),
+                        test_param("worldx", "float", true, true),
+                        test_param("worldy", "float", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    45,
+                    49,
+                    "mindustry.gen.LabelCallPacket2",
+                    "mindustry.ui.Menus",
+                    "label",
+                    "server",
+                    "normal",
+                    true,
+                    vec![
+                        test_param("message", "java.lang.String", true, true),
+                        test_param("id", "int", true, true),
+                        test_param("duration", "float", true, true),
+                        test_param("worldx", "float", true, true),
+                        test_param("worldy", "float", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    46,
+                    50,
+                    "mindustry.gen.LabelReliableDecoyCallPacket",
+                    "mindustry.ui.Menus",
+                    "labelReliable",
+                    "server",
+                    "normal",
+                    true,
+                    vec![
+                        test_param("message", "java.lang.String", true, true),
+                        test_param("duration", "float", true, true),
+                        test_param("worldx", "float", true, true),
+                        test_param("worldy", "float", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    47,
+                    51,
+                    "mindustry.gen.LabelReliableCallPacket",
+                    "mindustry.ui.Menus",
+                    "labelReliable",
+                    "server",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("message", "java.lang.String", true, true),
+                        test_param("duration", "float", true, true),
+                        test_param("worldx", "float", true, true),
+                        test_param("worldy", "float", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    48,
+                    52,
+                    "mindustry.gen.LabelReliableDecoyCallPacket2",
+                    "mindustry.ui.Menus",
+                    "labelReliable",
+                    "server",
+                    "normal",
+                    true,
+                    vec![
+                        test_param("message", "java.lang.String", true, true),
+                        test_param("id", "int", true, true),
+                        test_param("duration", "float", true, true),
+                        test_param("worldx", "float", true, true),
+                        test_param("worldy", "float", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    49,
+                    53,
+                    "mindustry.gen.LabelReliableCallPacket2",
+                    "mindustry.ui.Menus",
+                    "labelReliable",
+                    "server",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("message", "java.lang.String", true, true),
+                        test_param("id", "int", true, true),
+                        test_param("duration", "float", true, true),
+                        test_param("worldx", "float", true, true),
+                        test_param("worldy", "float", true, true),
                     ],
                 ),
             ],

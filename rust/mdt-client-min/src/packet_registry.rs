@@ -73,6 +73,10 @@ pub struct WellKnownRemotePacketIds {
     pub info_popup_with_id_packet_id: Option<u8>,
     pub info_popup_reliable_packet_id: Option<u8>,
     pub info_popup_reliable_with_id_packet_id: Option<u8>,
+    pub label_packet_id: Option<u8>,
+    pub label_with_id_packet_id: Option<u8>,
+    pub label_reliable_packet_id: Option<u8>,
+    pub label_reliable_with_id_packet_id: Option<u8>,
     pub set_rules_packet_id: Option<u8>,
     pub set_objectives_packet_id: Option<u8>,
     pub set_rule_packet_id: Option<u8>,
@@ -326,6 +330,12 @@ impl WellKnownRemotePacketIds {
             info_popup_reliable_with_id_packet_id: packet_id(
                 WellKnownRemoteMethod::InfoPopupReliableWithId,
             ),
+            label_packet_id: packet_id(WellKnownRemoteMethod::Label),
+            label_with_id_packet_id: packet_id(WellKnownRemoteMethod::LabelWithId),
+            label_reliable_packet_id: packet_id(WellKnownRemoteMethod::LabelReliable),
+            label_reliable_with_id_packet_id: packet_id(
+                WellKnownRemoteMethod::LabelReliableWithId,
+            ),
             set_rules_packet_id: packet_id(WellKnownRemoteMethod::SetRules),
             set_objectives_packet_id: packet_id(WellKnownRemoteMethod::SetObjectives),
             set_rule_packet_id: packet_id(WellKnownRemoteMethod::SetRule),
@@ -361,6 +371,12 @@ impl WellKnownRemotePacketIds {
             WellKnownRemoteMethod::InfoPopupReliable => self.info_popup_reliable_packet_id,
             WellKnownRemoteMethod::InfoPopupReliableWithId => {
                 self.info_popup_reliable_with_id_packet_id
+            }
+            WellKnownRemoteMethod::Label => self.label_packet_id,
+            WellKnownRemoteMethod::LabelWithId => self.label_with_id_packet_id,
+            WellKnownRemoteMethod::LabelReliable => self.label_reliable_packet_id,
+            WellKnownRemoteMethod::LabelReliableWithId => {
+                self.label_reliable_with_id_packet_id
             }
             WellKnownRemoteMethod::SetRules => self.set_rules_packet_id,
             WellKnownRemoteMethod::SetObjectives => self.set_objectives_packet_id,
@@ -891,7 +907,9 @@ mod tests {
             SEND_MESSAGE_CALL_PACKET_ID, TILE_CONFIG_CALL_PACKET_ID,
             WORLD_DATA_BEGIN_CALL_PACKET_ID, INFO_POPUP_CALL_PACKET_ID,
             INFO_POPUP_CALL_PACKET2_ID, INFO_POPUP_RELIABLE_CALL_PACKET_ID,
-            INFO_POPUP_RELIABLE_CALL_PACKET2_ID,
+            INFO_POPUP_RELIABLE_CALL_PACKET2_ID, LABEL_CALL_PACKET_ID,
+            LABEL_CALL_PACKET2_ID, LABEL_RELIABLE_CALL_PACKET_ID,
+            LABEL_RELIABLE_CALL_PACKET2_ID,
         };
 
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
@@ -974,6 +992,22 @@ mod tests {
             Some(INFO_POPUP_RELIABLE_CALL_PACKET2_ID)
         );
         assert_eq!(
+            combined.well_known_remote.label_packet_id,
+            Some(LABEL_CALL_PACKET_ID)
+        );
+        assert_eq!(
+            combined.well_known_remote.label_with_id_packet_id,
+            Some(LABEL_CALL_PACKET2_ID)
+        );
+        assert_eq!(
+            combined.well_known_remote.label_reliable_packet_id,
+            Some(LABEL_RELIABLE_CALL_PACKET_ID)
+        );
+        assert_eq!(
+            combined.well_known_remote.label_reliable_with_id_packet_id,
+            Some(LABEL_RELIABLE_CALL_PACKET2_ID)
+        );
+        assert_eq!(
             manifest
                 .remote_packets
                 .iter()
@@ -1031,6 +1065,10 @@ mod tests {
         assert_eq!(well_known.info_popup_with_id_packet_id, Some(41));
         assert_eq!(well_known.info_popup_reliable_packet_id, Some(43));
         assert_eq!(well_known.info_popup_reliable_with_id_packet_id, Some(45));
+        assert_eq!(well_known.label_packet_id, Some(47));
+        assert_eq!(well_known.label_with_id_packet_id, Some(49));
+        assert_eq!(well_known.label_reliable_packet_id, Some(51));
+        assert_eq!(well_known.label_reliable_with_id_packet_id, Some(53));
         assert_eq!(well_known.set_rules_packet_id, Some(16));
         assert_eq!(well_known.set_objectives_packet_id, Some(17));
         assert_eq!(well_known.set_rule_packet_id, Some(19));
@@ -1130,6 +1168,22 @@ mod tests {
             (
                 WellKnownRemoteMethod::InfoPopupReliableWithId,
                 well_known.info_popup_reliable_with_id_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::Label,
+                well_known.label_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::LabelWithId,
+                well_known.label_with_id_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::LabelReliable,
+                well_known.label_reliable_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::LabelReliableWithId,
+                well_known.label_reliable_with_id_packet_id,
             ),
             (
                 WellKnownRemoteMethod::SetRules,
@@ -2042,6 +2096,138 @@ mod tests {
                         param("left", "int", true, true),
                         param("bottom", "int", true, true),
                         param("right", "int", true, true),
+                    ],
+                ),
+                remote_packet(
+                    42,
+                    46,
+                    "mindustry.gen.LabelDecoyCallPacket",
+                    "mindustry.ui.Menus",
+                    "label",
+                    "server",
+                    "none",
+                    false,
+                    vec![
+                        param("message", "java.lang.String", true, true),
+                        param("duration", "float", true, true),
+                        param("worldx", "float", true, true),
+                        param("worldy", "float", true, true),
+                    ],
+                ),
+                remote_packet(
+                    43,
+                    47,
+                    "mindustry.gen.LabelCallPacket",
+                    "mindustry.ui.Menus",
+                    "label",
+                    "server",
+                    "none",
+                    true,
+                    vec![
+                        param("message", "java.lang.String", true, true),
+                        param("duration", "float", true, true),
+                        param("worldx", "float", true, true),
+                        param("worldy", "float", true, true),
+                    ],
+                ),
+                remote_packet(
+                    44,
+                    48,
+                    "mindustry.gen.LabelDecoyCallPacket2",
+                    "mindustry.ui.Menus",
+                    "label",
+                    "server",
+                    "none",
+                    false,
+                    vec![
+                        param("message", "java.lang.String", true, true),
+                        param("id", "int", true, true),
+                        param("duration", "float", true, true),
+                        param("worldx", "float", true, true),
+                        param("worldy", "float", true, true),
+                    ],
+                ),
+                remote_packet(
+                    45,
+                    49,
+                    "mindustry.gen.LabelCallPacket2",
+                    "mindustry.ui.Menus",
+                    "label",
+                    "server",
+                    "none",
+                    true,
+                    vec![
+                        param("message", "java.lang.String", true, true),
+                        param("id", "int", true, true),
+                        param("duration", "float", true, true),
+                        param("worldx", "float", true, true),
+                        param("worldy", "float", true, true),
+                    ],
+                ),
+                remote_packet(
+                    46,
+                    50,
+                    "mindustry.gen.LabelReliableDecoyCallPacket",
+                    "mindustry.ui.Menus",
+                    "labelReliable",
+                    "server",
+                    "none",
+                    true,
+                    vec![
+                        param("message", "java.lang.String", true, true),
+                        param("duration", "float", true, true),
+                        param("worldx", "float", true, true),
+                        param("worldy", "float", true, true),
+                    ],
+                ),
+                remote_packet(
+                    47,
+                    51,
+                    "mindustry.gen.LabelReliableCallPacket",
+                    "mindustry.ui.Menus",
+                    "labelReliable",
+                    "server",
+                    "none",
+                    false,
+                    vec![
+                        param("message", "java.lang.String", true, true),
+                        param("duration", "float", true, true),
+                        param("worldx", "float", true, true),
+                        param("worldy", "float", true, true),
+                    ],
+                ),
+                remote_packet(
+                    48,
+                    52,
+                    "mindustry.gen.LabelReliableDecoyCallPacket2",
+                    "mindustry.ui.Menus",
+                    "labelReliable",
+                    "server",
+                    "none",
+                    true,
+                    vec![
+                        param("message", "java.lang.String", true, true),
+                        param("id", "int", true, true),
+                        param("duration", "float", true, true),
+                        param("worldx", "float", true, true),
+                        param("worldy", "float", true, true),
+                    ],
+                ),
+                remote_packet(
+                    49,
+                    53,
+                    "mindustry.gen.LabelReliableCallPacket2",
+                    "mindustry.ui.Menus",
+                    "labelReliable",
+                    "server",
+                    "none",
+                    false,
+                    vec![
+                        param("message", "java.lang.String", true, true),
+                        param("id", "int", true, true),
+                        param("duration", "float", true, true),
+                        param("worldx", "float", true, true),
+                        param("worldy", "float", true, true),
                     ],
                 ),
             ],

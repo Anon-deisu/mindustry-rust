@@ -645,6 +645,11 @@ impl ClientSession {
         let info_popup_reliable_packet_id = well_known_remote.info_popup_reliable_packet_id;
         let info_popup_reliable_with_id_packet_id =
             well_known_remote.info_popup_reliable_with_id_packet_id;
+        let label_packet_id = well_known_remote.label_packet_id;
+        let label_reliable_packet_id = well_known_remote.label_reliable_packet_id;
+        let label_with_id_packet_id = well_known_remote.label_with_id_packet_id;
+        let label_reliable_with_id_packet_id =
+            well_known_remote.label_reliable_with_id_packet_id;
         let admin_request_packet_id = manifest
             .remote_packets
             .iter()
@@ -725,26 +730,6 @@ impl ClientSession {
             .remote_packets
             .iter()
             .find(|entry| entry.method == "infoToast")
-            .map(|entry| entry.packet_id);
-        let label_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "label" && entry.params.len() == 4)
-            .map(|entry| entry.packet_id);
-        let label_reliable_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "labelReliable" && entry.params.len() == 4)
-            .map(|entry| entry.packet_id);
-        let label_with_id_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "label" && entry.params.len() == 5)
-            .map(|entry| entry.packet_id);
-        let label_reliable_with_id_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "labelReliable" && entry.params.len() == 5)
             .map(|entry| entry.packet_id);
         let menu_choose_packet_id = manifest
             .remote_packets
@@ -51151,6 +51136,22 @@ mod tests {
             expected(WellKnownRemoteMethod::InfoPopupReliableWithId)
         );
         assert_eq!(
+            session.label_packet_id,
+            expected(WellKnownRemoteMethod::Label)
+        );
+        assert_eq!(
+            session.label_with_id_packet_id,
+            expected(WellKnownRemoteMethod::LabelWithId)
+        );
+        assert_eq!(
+            session.label_reliable_packet_id,
+            expected(WellKnownRemoteMethod::LabelReliable)
+        );
+        assert_eq!(
+            session.label_reliable_with_id_packet_id,
+            expected(WellKnownRemoteMethod::LabelReliableWithId)
+        );
+        assert_eq!(
             session.set_rules_packet_id,
             expected(WellKnownRemoteMethod::SetRules)
         );
@@ -51533,6 +51534,112 @@ mod tests {
         assert_eq!(
             session.info_popup_reliable_with_id_packet_id,
             Some(expected_info_popup_reliable_with_id_packet_id)
+        );
+    }
+
+    #[test]
+    fn session_label_packet_ids_reject_well_known_method_decoys() {
+        let mut manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let expected_label_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "label" && entry.params.len() == 4 && entry.unreliable)
+            .expect("missing label packet")
+            .packet_id;
+        let expected_label_with_id_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "label" && entry.params.len() == 5 && entry.unreliable)
+            .expect("missing label-with-id packet")
+            .packet_id;
+        let expected_label_reliable_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "labelReliable" && entry.params.len() == 4 && !entry.unreliable
+            })
+            .expect("missing labelReliable packet")
+            .packet_id;
+        let expected_label_reliable_with_id_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "labelReliable" && entry.params.len() == 5 && !entry.unreliable
+            })
+            .expect("missing labelReliable-with-id packet")
+            .packet_id;
+
+        let mut label_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "label" && entry.params.len() == 4 && entry.unreliable)
+            .expect("missing label packet")
+            .clone();
+        label_decoy.packet_id = 236;
+        label_decoy.packet_class = "mindustry.gen.LabelDecoyCallPacket".into();
+        label_decoy.unreliable = false;
+
+        let mut label_with_id_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "label" && entry.params.len() == 5 && entry.unreliable)
+            .expect("missing label-with-id packet")
+            .clone();
+        label_with_id_decoy.packet_id = 237;
+        label_with_id_decoy.packet_class = "mindustry.gen.LabelDecoyCallPacket2".into();
+        label_with_id_decoy.unreliable = false;
+
+        let mut label_reliable_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "labelReliable" && entry.params.len() == 4 && !entry.unreliable
+            })
+            .expect("missing labelReliable packet")
+            .clone();
+        label_reliable_decoy.packet_id = 238;
+        label_reliable_decoy.packet_class = "mindustry.gen.LabelReliableDecoyCallPacket".into();
+        label_reliable_decoy.unreliable = true;
+
+        let mut label_reliable_with_id_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "labelReliable" && entry.params.len() == 5 && !entry.unreliable
+            })
+            .expect("missing labelReliable-with-id packet")
+            .clone();
+        label_reliable_with_id_decoy.packet_id = 239;
+        label_reliable_with_id_decoy.packet_class =
+            "mindustry.gen.LabelReliableDecoyCallPacket2".into();
+        label_reliable_with_id_decoy.unreliable = true;
+
+        manifest.remote_packets.splice(
+            0..0,
+            vec![
+                label_decoy,
+                label_with_id_decoy,
+                label_reliable_decoy,
+                label_reliable_with_id_decoy,
+            ],
+        );
+        for (remote_index, packet) in manifest.remote_packets.iter_mut().enumerate() {
+            packet.remote_index = remote_index;
+        }
+
+        let session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        assert_eq!(session.label_packet_id, Some(expected_label_packet_id));
+        assert_eq!(
+            session.label_with_id_packet_id,
+            Some(expected_label_with_id_packet_id)
+        );
+        assert_eq!(
+            session.label_reliable_packet_id,
+            Some(expected_label_reliable_packet_id)
+        );
+        assert_eq!(
+            session.label_reliable_with_id_packet_id,
+            Some(expected_label_reliable_with_id_packet_id)
         );
     }
 
