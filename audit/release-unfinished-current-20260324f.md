@@ -26,6 +26,15 @@ These are already landed and should not be re-opened as if missing:
     - `bridge-conveyor` / `phase-conveyor`
     - `illuminator`
     - `switch` / `world-switch`
+- `mdt-world` low-risk legacy save building-tail coverage is already much wider than the older unfinished text said.
+  - existing `parse_legacy_building_tail_snapshot(...)` coverage now also includes:
+    - `core-shard` / `core-foundation` / `core-nucleus`
+    - `wave` / `tsunami` / `lancer` / `arc` / `meltdown` / `afflict` / `malign`
+    - item-turret family plus `build-tower` / `lustre` / `sublimate`
+    - drill / generator / reactor / generic-crafter / `cultivator`
+    - payload building families (`payload-loader` / `payload-unloader` / `payload-source` / `payload-router` / `payload-mass-driver` / `constructor` / `landing-pad` / `block-producer` / `unit-assembler`)
+    - unit-factory / reconstructor families
+  - remaining `U3` work is broader live runtime ownership/building semantics, not re-opening these parser branches as if still missing
 - typed runtime building shell coverage is already wider than the older unfinished text said.
   - the low-risk runtime shell batch now also covers:
     - `liquid-router` / `liquid-junction` / `liquid-container` / `liquid-tank`
@@ -36,6 +45,9 @@ These are already landed and should not be re-opened as if missing:
 - `hiddenSnapshot` lifecycle delete is already narrowed to known runtime-owned non-local semantics instead of deleting every hidden entity row.
   - current cleanup now covers non-local `Unit` / `Fire` / `Puddle` / `WeatherState`
   - `WorldLabel` is still intentionally preserved as a conservative boundary
+- `hiddenSnapshot` cleanup regression coverage now also includes hidden `building-tether payload` rows.
+  - `class_id=36` hidden rows are now pinned in the current cleanup matrix instead of being left implicit
+  - remaining hidden work is deeper runtime semantics, not re-proving this cleanup path
 - `hiddenSnapshot` latest-set sync now also clears stale entity hidden flags when ids leave the hidden set.
   - `EntityTableProjection::apply_hidden_ids(...)` mirrors the newest hidden-id set instead of only setting `hidden=true`
   - remaining hidden work is deeper runtime semantics, not re-fixing stale hidden flags on surviving rows
@@ -58,6 +70,9 @@ These are already landed and should not be re-opened as if missing:
 - minimal command-mode state container is already landed.
   - `mdt-input` now carries `CommandModeState` / `CommandModeProjection` with selected-units, command-buildings, command-rect, control-groups, and last target/command/stance selections
   - `mdt-client-min-online` runtime outbound action sync now updates that container instead of keeping command-mode as packet-observability-only state
+- builder-queue local activity now treats incomplete observation sets as non-authoritative for reordering.
+  - `update_local_activity(...)` only rotates/falls back when the active queue has a complete observation set
+  - missing later observations no longer spuriously move the queue head
   - CLI/runtime seed controls for bind/recall/clear-group and rect are also landed, including replay after world reload/reconnect clears
   - remaining work is richer live input binding and command/build UI flow, not re-adding the state container baseline
 - `mdt-world` post-load activation preflight is already landed.
