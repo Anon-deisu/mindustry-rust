@@ -340,7 +340,7 @@ fn derive_runtime_effect_binding(
     let position_hint_bits = summary
         .first_position_hint
         .as_ref()
-        .map(position_hint_world_bits);
+        .and_then(position_hint_world_bits);
 
     if let Some(parent_ref) = summary.first_parent_ref {
         match parent_ref.semantic_ref {
@@ -576,9 +576,12 @@ fn lightning_path_points(value: &TypeIoObject) -> Option<Vec<(u32, u32)>> {
     let TypeIoObject::Vec2Array(values) = value else {
         return None;
     };
+    if values.iter().any(|(x, y)| !x.is_finite() || !y.is_finite()) {
+        return None;
+    }
     let points = values
         .iter()
-        .filter_map(|(x, y)| (x.is_finite() && y.is_finite()).then_some((x.to_bits(), y.to_bits())))
+        .map(|(x, y)| (x.to_bits(), y.to_bits()))
         .collect::<Vec<_>>();
     (!points.is_empty()).then_some(points)
 }
@@ -687,19 +690,21 @@ fn payload_target_world_bits(value: &TypeIoObject) -> Option<(u32, u32)> {
     }
 }
 
-fn position_hint_world_bits(position_hint: &TypeIoEffectPositionHint) -> (u32, u32) {
+fn position_hint_world_bits(position_hint: &TypeIoEffectPositionHint) -> Option<(u32, u32)> {
     match position_hint {
         TypeIoEffectPositionHint::Point2 { x, y, .. } => {
             let (world_x, world_y) = point2_world_coords(*x, *y);
-            (world_x.to_bits(), world_y.to_bits())
+            Some((world_x.to_bits(), world_y.to_bits()))
         }
         TypeIoEffectPositionHint::PackedPoint2ArrayFirst { packed_point2, .. } => {
             let (tile_x, tile_y) = unpack_point2(*packed_point2);
             let (world_x, world_y) = point2_world_coords(i32::from(tile_x), i32::from(tile_y));
-            (world_x.to_bits(), world_y.to_bits())
+            Some((world_x.to_bits(), world_y.to_bits()))
         }
         TypeIoEffectPositionHint::Vec2 { x_bits, y_bits, .. }
-        | TypeIoEffectPositionHint::Vec2ArrayFirst { x_bits, y_bits, .. } => (*x_bits, *y_bits),
+        | TypeIoEffectPositionHint::Vec2ArrayFirst { x_bits, y_bits, .. } => {
+            finite_world_position_bits(f32::from_bits(*x_bits), f32::from_bits(*y_bits))
+        }
     }
 }
 
@@ -1002,8 +1007,8 @@ mod tests {
         effect_contract, effect_contract_name, observe_runtime_effect_binding_state,
         observe_runtime_effect_source_binding_state, resolve_runtime_effect_overlay_position,
         resolve_runtime_effect_overlay_source_position, spawn_runtime_effect_overlay,
-        EffectRuntimeBindingState, EffectRuntimeInputView, RuntimeEffectBinding,
-        RuntimeEffectContract,
+        lightning_path_points, EffectRuntimeBindingState, EffectRuntimeInputView,
+        RuntimeEffectBinding, RuntimeEffectContract,
     };
     use crate::session_state::{
         EntityProjection, EntitySemanticProjection, EntitySemanticProjectionEntry,
@@ -1295,6 +1300,40 @@ mod tests {
 
         assert_eq!(overlay.x_bits, 12.0f32.to_bits());
         assert_eq!(overlay.y_bits, 20.0f32.to_bits());
+    }
+
+    #[test]
+    fn effect_runtime_spawn_runtime_effect_overlay_rejects_non_finite_world_position_hint() {
+        let overlay = spawn_runtime_effect_overlay(
+            None,
+            12.0,
+            20.0,
+            12.0,
+            20.0,
+            0.0,
+            0,
+            false,
+            Some(&TypeIoObject::Vec2 {
+                x: f32::NAN,
+                y: 160.0,
+            }),
+            10,
+        );
+
+        assert_eq!(overlay.x_bits, 12.0f32.to_bits());
+        assert_eq!(overlay.y_bits, 20.0f32.to_bits());
+        assert!(overlay.binding.is_none());
+    }
+
+    #[test]
+    fn effect_runtime_lightning_path_points_rejects_non_finite_points() {
+        assert_eq!(
+            lightning_path_points(&TypeIoObject::Vec2Array(vec![
+                (1.0, 2.0),
+                (f32::INFINITY, 4.5),
+            ])),
+            None
+        );
     }
 
     #[test]
