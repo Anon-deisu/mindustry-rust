@@ -64,6 +64,7 @@ pub use save_post_load_runtime_world_ownership::{
     SavePostLoadRuntimeWorldOwnership, SavePostLoadRuntimeWorldOwnershipStatus,
     SavePostLoadRuntimeWorldOwnershipSurface, SavePostLoadRuntimeWorldSurfaceKind,
 };
+pub use save_post_load::SavePostLoadWorldApplyBundle;
 
 const BLOCK_CONTENT_TYPE: u8 = 1;
 const ITEM_CONTENT_TYPE: u8 = 0;

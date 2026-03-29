@@ -8,9 +8,11 @@ use crate::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SavePostLoadRuntimeWorldSurfaceKind {
     WorldShell,
+    EntityRemaps,
     TeamPlans,
     Markers,
     StaticFog,
+    CustomChunks,
     Buildings,
     LoadableEntities,
     SkippedEntities,
@@ -21,12 +23,14 @@ impl SavePostLoadRuntimeWorldSurfaceKind {
         source_region_name_for_stage_kind(self.stage_kind())
     }
 
-    pub const fn ordered() -> [Self; 7] {
+    pub const fn ordered() -> [Self; 9] {
         [
             Self::WorldShell,
+            Self::EntityRemaps,
             Self::TeamPlans,
             Self::Markers,
             Self::StaticFog,
+            Self::CustomChunks,
             Self::Buildings,
             Self::LoadableEntities,
             Self::SkippedEntities,
@@ -36,28 +40,28 @@ impl SavePostLoadRuntimeWorldSurfaceKind {
     pub(crate) fn from_stage_kind(kind: SavePostLoadConsumerStageKind) -> Option<Self> {
         match kind {
             SavePostLoadConsumerStageKind::WorldShell => Some(Self::WorldShell),
+            SavePostLoadConsumerStageKind::EntityRemaps => Some(Self::EntityRemaps),
             SavePostLoadConsumerStageKind::TeamPlans => Some(Self::TeamPlans),
             SavePostLoadConsumerStageKind::Markers => Some(Self::Markers),
             SavePostLoadConsumerStageKind::StaticFog => Some(Self::StaticFog),
+            SavePostLoadConsumerStageKind::CustomChunks => Some(Self::CustomChunks),
             SavePostLoadConsumerStageKind::Buildings => Some(Self::Buildings),
             SavePostLoadConsumerStageKind::LoadableEntities => Some(Self::LoadableEntities),
             SavePostLoadConsumerStageKind::SkippedEntities => Some(Self::SkippedEntities),
-            SavePostLoadConsumerStageKind::EntityRemaps
-            | SavePostLoadConsumerStageKind::CustomChunks => None,
         }
     }
 
     pub(crate) fn from_step(step: &SavePostLoadRuntimeApplyStep) -> Option<Self> {
         match step {
             SavePostLoadRuntimeApplyStep::WorldShell => Some(Self::WorldShell),
+            SavePostLoadRuntimeApplyStep::EntityRemap { .. } => Some(Self::EntityRemaps),
             SavePostLoadRuntimeApplyStep::TeamPlan { .. } => Some(Self::TeamPlans),
             SavePostLoadRuntimeApplyStep::Marker { .. } => Some(Self::Markers),
             SavePostLoadRuntimeApplyStep::StaticFog => Some(Self::StaticFog),
+            SavePostLoadRuntimeApplyStep::CustomChunk { .. } => Some(Self::CustomChunks),
             SavePostLoadRuntimeApplyStep::Building { .. } => Some(Self::Buildings),
             SavePostLoadRuntimeApplyStep::LoadableEntity { .. } => Some(Self::LoadableEntities),
             SavePostLoadRuntimeApplyStep::SkippedEntity { .. } => Some(Self::SkippedEntities),
-            SavePostLoadRuntimeApplyStep::EntityRemap { .. }
-            | SavePostLoadRuntimeApplyStep::CustomChunk { .. } => None,
         }
     }
 
@@ -66,12 +70,18 @@ impl SavePostLoadRuntimeWorldSurfaceKind {
             SavePostLoadRuntimeWorldSurfaceKind::WorldShell => {
                 SavePostLoadConsumerStageKind::WorldShell
             }
+            SavePostLoadRuntimeWorldSurfaceKind::EntityRemaps => {
+                SavePostLoadConsumerStageKind::EntityRemaps
+            }
             SavePostLoadRuntimeWorldSurfaceKind::TeamPlans => {
                 SavePostLoadConsumerStageKind::TeamPlans
             }
             SavePostLoadRuntimeWorldSurfaceKind::Markers => SavePostLoadConsumerStageKind::Markers,
             SavePostLoadRuntimeWorldSurfaceKind::StaticFog => {
                 SavePostLoadConsumerStageKind::StaticFog
+            }
+            SavePostLoadRuntimeWorldSurfaceKind::CustomChunks => {
+                SavePostLoadConsumerStageKind::CustomChunks
             }
             SavePostLoadRuntimeWorldSurfaceKind::Buildings => {
                 SavePostLoadConsumerStageKind::Buildings
@@ -128,6 +138,14 @@ pub struct SavePostLoadRuntimeWorldOwnership {
 }
 
 impl SavePostLoadRuntimeWorldOwnership {
+    fn is_aggregate_surface(kind: SavePostLoadRuntimeWorldSurfaceKind) -> bool {
+        !matches!(
+            kind,
+            SavePostLoadRuntimeWorldSurfaceKind::EntityRemaps
+                | SavePostLoadRuntimeWorldSurfaceKind::CustomChunks
+        )
+    }
+
     pub fn surface(
         &self,
         kind: SavePostLoadRuntimeWorldSurfaceKind,
@@ -138,6 +156,7 @@ impl SavePostLoadRuntimeWorldOwnership {
     pub fn required_step_count(&self) -> usize {
         self.surfaces
             .iter()
+            .filter(|surface| Self::is_aggregate_surface(surface.kind))
             .map(|surface| surface.required_step_count)
             .sum()
     }
@@ -145,6 +164,7 @@ impl SavePostLoadRuntimeWorldOwnership {
     pub fn claimed_step_count(&self) -> usize {
         self.surfaces
             .iter()
+            .filter(|surface| Self::is_aggregate_surface(surface.kind))
             .map(|surface| surface.claimed_step_count)
             .sum()
     }
@@ -152,6 +172,7 @@ impl SavePostLoadRuntimeWorldOwnership {
     pub fn owned_surface_count(&self) -> usize {
         self.surfaces
             .iter()
+            .filter(|surface| Self::is_aggregate_surface(surface.kind))
             .filter(|surface| surface.is_owned())
             .count()
     }
@@ -193,6 +214,7 @@ pub(crate) fn build_runtime_world_ownership(
     execution: &SavePostLoadRuntimeWorldSemanticsExecution,
 ) -> SavePostLoadRuntimeWorldOwnership {
     let helper = plan.consumer_runtime_helper();
+    let apply_now_steps = plan.runtime_apply_script().apply_now_steps;
     let shell = execution.world_shell.as_ref();
     let surfaces = helper
         .stages
@@ -205,9 +227,18 @@ pub(crate) fn build_runtime_world_ownership(
                 .filter(|step| SavePostLoadRuntimeWorldSurfaceKind::from_step(step) == Some(kind))
                 .cloned()
                 .collect::<Vec<_>>();
-            let claimed_step_count = shell
-                .map(|shell| shell.owned_step_count(kind))
-                .unwrap_or_default();
+            let claimed_step_count = match kind {
+                SavePostLoadRuntimeWorldSurfaceKind::EntityRemaps
+                | SavePostLoadRuntimeWorldSurfaceKind::CustomChunks => apply_now_steps
+                    .iter()
+                    .filter(|step| {
+                        SavePostLoadRuntimeWorldSurfaceKind::from_step(step) == Some(kind)
+                    })
+                    .count(),
+                _ => shell
+                    .map(|shell| shell.owned_step_count(kind))
+                    .unwrap_or_default(),
+            };
 
             let status = if !failed_steps.is_empty() {
                 SavePostLoadRuntimeWorldOwnershipStatus::Failed
@@ -268,30 +299,44 @@ mod tests {
     };
 
     #[test]
-    fn runtime_world_surface_kind_ignores_entity_remaps_and_custom_chunks() {
+    fn runtime_world_surface_kind_includes_entity_remaps_and_custom_chunks() {
         assert_eq!(
             SavePostLoadRuntimeWorldSurfaceKind::from_stage_kind(
                 SavePostLoadConsumerStageKind::EntityRemaps,
             ),
-            None
+            Some(SavePostLoadRuntimeWorldSurfaceKind::EntityRemaps)
         );
         assert_eq!(
             SavePostLoadRuntimeWorldSurfaceKind::from_stage_kind(
                 SavePostLoadConsumerStageKind::CustomChunks,
             ),
-            None
+            Some(SavePostLoadRuntimeWorldSurfaceKind::CustomChunks)
         );
         assert_eq!(
             SavePostLoadRuntimeWorldSurfaceKind::from_step(
                 &SavePostLoadRuntimeApplyStep::EntityRemap { remap_index: 0 }
             ),
-            None
+            Some(SavePostLoadRuntimeWorldSurfaceKind::EntityRemaps)
         );
         assert_eq!(
             SavePostLoadRuntimeWorldSurfaceKind::from_step(
                 &SavePostLoadRuntimeApplyStep::CustomChunk { chunk_index: 0 }
             ),
-            None
+            Some(SavePostLoadRuntimeWorldSurfaceKind::CustomChunks)
+        );
+        assert_eq!(
+            SavePostLoadRuntimeWorldSurfaceKind::ordered(),
+            [
+                SavePostLoadRuntimeWorldSurfaceKind::WorldShell,
+                SavePostLoadRuntimeWorldSurfaceKind::EntityRemaps,
+                SavePostLoadRuntimeWorldSurfaceKind::TeamPlans,
+                SavePostLoadRuntimeWorldSurfaceKind::Markers,
+                SavePostLoadRuntimeWorldSurfaceKind::StaticFog,
+                SavePostLoadRuntimeWorldSurfaceKind::CustomChunks,
+                SavePostLoadRuntimeWorldSurfaceKind::Buildings,
+                SavePostLoadRuntimeWorldSurfaceKind::LoadableEntities,
+                SavePostLoadRuntimeWorldSurfaceKind::SkippedEntities,
+            ]
         );
     }
 
@@ -317,6 +362,34 @@ mod tests {
                 source_region_name: "entities",
                 required_step_count: 3,
                 claimed_step_count: 3,
+                status: SavePostLoadRuntimeWorldOwnershipStatus::Owned,
+                blockers: Vec::new(),
+                failed_steps: Vec::new(),
+            }
+        );
+        assert_eq!(
+            ownership
+                .surface(SavePostLoadRuntimeWorldSurfaceKind::EntityRemaps)
+                .unwrap(),
+            &SavePostLoadRuntimeWorldOwnershipSurface {
+                kind: SavePostLoadRuntimeWorldSurfaceKind::EntityRemaps,
+                source_region_name: "entities",
+                required_step_count: 2,
+                claimed_step_count: 2,
+                status: SavePostLoadRuntimeWorldOwnershipStatus::Owned,
+                blockers: Vec::new(),
+                failed_steps: Vec::new(),
+            }
+        );
+        assert_eq!(
+            ownership
+                .surface(SavePostLoadRuntimeWorldSurfaceKind::CustomChunks)
+                .unwrap(),
+            &SavePostLoadRuntimeWorldOwnershipSurface {
+                kind: SavePostLoadRuntimeWorldSurfaceKind::CustomChunks,
+                source_region_name: "custom",
+                required_step_count: 2,
+                claimed_step_count: 2,
                 status: SavePostLoadRuntimeWorldOwnershipStatus::Owned,
                 blockers: Vec::new(),
                 failed_steps: Vec::new(),
@@ -386,11 +459,19 @@ mod tests {
         observation.map.world.tiles[0].building_center_index = None;
 
         let ownership = observation.runtime_world_ownership();
+        let entity_remaps = ownership
+            .surface(SavePostLoadRuntimeWorldSurfaceKind::EntityRemaps)
+            .unwrap();
+        let custom_chunks = ownership
+            .surface(SavePostLoadRuntimeWorldSurfaceKind::CustomChunks)
+            .unwrap();
 
         assert!(!ownership.world_shell_ready);
         assert!(!ownership.can_apply_world_semantics());
         assert!(!ownership.can_activate_live_runtime());
+        assert_eq!(ownership.required_step_count(), 10);
         assert_eq!(ownership.claimed_step_count(), 0);
+        assert_eq!(ownership.owned_surface_count(), 0);
         assert_eq!(
             ownership
                 .surface(SavePostLoadRuntimeWorldSurfaceKind::WorldShell)
@@ -419,6 +500,18 @@ mod tests {
                 .status,
             SavePostLoadRuntimeWorldOwnershipStatus::Blocked
         );
+        assert_eq!(
+            entity_remaps.status,
+            SavePostLoadRuntimeWorldOwnershipStatus::Owned
+        );
+        assert_eq!(entity_remaps.required_step_count, 2);
+        assert_eq!(entity_remaps.claimed_step_count, 2);
+        assert_eq!(
+            custom_chunks.status,
+            SavePostLoadRuntimeWorldOwnershipStatus::Owned
+        );
+        assert_eq!(custom_chunks.required_step_count, 2);
+        assert_eq!(custom_chunks.claimed_step_count, 2);
     }
 
     #[test]

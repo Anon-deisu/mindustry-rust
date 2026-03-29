@@ -1,7 +1,9 @@
 use crate::{
     marker_region_is_empty, CustomChunkEntry, MarkerEntry, MarkerModel, ParsedBuildingTail,
-    ParsedCustomChunk, SavePostLoadWorldObservation, StaticFogChunk, TeamPlan, TeamPlanGroup,
-    WorldGraph, WorldLoadUnknownCoverageSummary,
+    ParsedCustomChunk, SavePostLoadRuntimeApplyExecution, SavePostLoadRuntimeReadiness,
+    SavePostLoadRuntimeSeedSurface, SavePostLoadRuntimeWorldOwnership,
+    SavePostLoadRuntimeWorldSemanticsExecution, SavePostLoadWorldObservation, StaticFogChunk,
+    TeamPlan, TeamPlanGroup, WorldGraph, WorldLoadUnknownCoverageSummary,
 };
 
 fn unique_match<'a, T, F>(
@@ -19,7 +21,60 @@ where
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct SavePostLoadWorldApplyBundle<'a> {
+    observation: &'a SavePostLoadWorldObservation,
+    pub runtime_readiness: SavePostLoadRuntimeReadiness,
+    pub runtime_seed_surface: SavePostLoadRuntimeSeedSurface,
+    pub runtime_apply: SavePostLoadRuntimeApplyExecution,
+    pub runtime_world_semantics: SavePostLoadRuntimeWorldSemanticsExecution,
+}
+
+impl<'a> SavePostLoadWorldApplyBundle<'a> {
+    pub fn graph(&self) -> WorldGraph<'a> {
+        self.observation.graph()
+    }
+
+    pub fn team_plan_group(&self, team_id: u32) -> Option<&'a TeamPlanGroup> {
+        self.observation.team_plan_group(team_id)
+    }
+
+    pub fn custom_chunk(&self, name: &str) -> Option<&'a CustomChunkEntry> {
+        self.observation.custom_chunk(name)
+    }
+
+    pub fn world_entity_chunk(&self, entity_id: i32) -> Option<&'a crate::SaveEntityChunkObservation> {
+        self.observation.world_entity_chunk(entity_id)
+    }
+
+    pub fn marker(&self, id: i32) -> Option<&'a MarkerEntry> {
+        self.observation.marker(id)
+    }
+
+    pub fn static_fog_chunk(&self) -> Option<&'a StaticFogChunk> {
+        self.observation.static_fog_chunk()
+    }
+
+    pub fn unknown_coverage_summary(&self) -> WorldLoadUnknownCoverageSummary {
+        self.observation.unknown_coverage_summary()
+    }
+
+    pub fn runtime_world_ownership(&self) -> &SavePostLoadRuntimeWorldOwnership {
+        &self.runtime_world_semantics.ownership
+    }
+}
+
 impl SavePostLoadWorldObservation {
+    pub fn post_load_world_apply_bundle(&self) -> SavePostLoadWorldApplyBundle<'_> {
+        SavePostLoadWorldApplyBundle {
+            observation: self,
+            runtime_readiness: self.runtime_readiness(),
+            runtime_seed_surface: self.runtime_seed_surface(),
+            runtime_apply: self.execute_runtime_apply(),
+            runtime_world_semantics: self.execute_runtime_world_semantics(),
+        }
+    }
+
     pub fn graph(&self) -> WorldGraph<'_> {
         WorldGraph::from_parts(
             &self.map.world,
@@ -150,6 +205,82 @@ mod tests {
         assert_eq!(chunk.entity_id, 42);
         assert_eq!(chunk.class_id, 7);
         assert_eq!(chunk.chunk_bytes, vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn post_load_world_apply_bundle_aggregates_runtime_and_query_surfaces() {
+        let observation = SavePostLoadWorldObservation {
+            world_entity_chunks: vec![SaveEntityChunkObservation {
+                chunk_len: 4,
+                chunk_bytes: vec![1, 2, 3, 4],
+                chunk_sha256: "unique-chunk".to_string(),
+                class_id: 7,
+                custom_name: None,
+                entity_id: 42,
+                body_len: 2,
+                body_bytes: vec![5, 6],
+                body_sha256: "unique-body".to_string(),
+            }],
+            markers: vec![MarkerEntry {
+                id: 42,
+                marker: MarkerModel::Unknown(UnknownMarkerModel {
+                    class_tag: None,
+                    world: true,
+                    minimap: false,
+                    autoscale: false,
+                    draw_layer_bits: None,
+                    x_bits: None,
+                    y_bits: None,
+                }),
+            }],
+            team_plan_groups: vec![TeamPlanGroup {
+                team_id: 9,
+                plan_count: 1,
+                plans: Vec::new(),
+            }],
+            custom_chunks: vec![CustomChunkEntry {
+                name: "static-fog-data".to_string(),
+                chunk_len: 1,
+                chunk_bytes: vec![1],
+                chunk_sha256: "fog".to_string(),
+                parsed: ParsedCustomChunk::StaticFog(StaticFogChunk {
+                    used_teams: 1,
+                    width: 1,
+                    height: 1,
+                    teams: vec![StaticFogTeam {
+                        team_id: 1,
+                        run_count: 1,
+                        rle_bytes: vec![1],
+                        discovered: vec![true],
+                    }],
+                }),
+            }],
+            ..test_observation()
+        };
+
+        let bundle = observation.post_load_world_apply_bundle();
+
+        assert_eq!(bundle.runtime_readiness, observation.runtime_readiness());
+        assert_eq!(bundle.runtime_seed_surface, observation.runtime_seed_surface());
+        assert_eq!(bundle.runtime_apply, observation.execute_runtime_apply());
+        assert_eq!(
+            bundle.runtime_world_semantics,
+            observation.execute_runtime_world_semantics()
+        );
+        assert_eq!(
+            bundle.runtime_world_ownership(),
+            &observation.runtime_world_ownership()
+        );
+        assert!(bundle.graph().marker(42).is_some());
+        assert!(bundle.team_plan_group(9).is_some());
+        assert!(bundle.custom_chunk("static-fog-data").is_some());
+        assert!(bundle.world_entity_chunk(42).is_some());
+        assert!(bundle.marker(42).is_some());
+        assert!(bundle.static_fog_chunk().is_some());
+        assert_eq!(
+            bundle.unknown_coverage_summary(),
+            observation.unknown_coverage_summary()
+        );
     }
 
     fn test_observation() -> SavePostLoadWorldObservation {
