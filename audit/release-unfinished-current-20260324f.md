@@ -310,6 +310,8 @@ These are already landed and should not be re-opened as if missing:
 
 - custom-packet text/surface parsers now reject fake JSON key lookalikes, and text/surface/logic number paths now fail-close on non-finite payloads instead of stringifying `NaN`/`inf`.
 - `mdt-remote` now fail-closes blank `generator.source` and `generator.call_class`.
+- `arcnet` now clears the TCP read buffer on `TcpClosed` so partial frames do not linger.
+- `static fog` runtime seeding now blocks damaged single-chunk payloads instead of treating them as seedable.
 - `mdt-world` activation now requires `world_shell_ready` and unresolved effective names to be clear; `projection_contract` now flags line-marker end overflow, legacy save-map / legacy entity-group / malformed UBJSON length regressions are pinned, and repeated readiness source regions merge counts/blockers deterministically.
 - `mdt-typeio` string-writer limits and `mdt-typeio::unit_sync` count ceilings now have explicit panic-bound regressions.
 
