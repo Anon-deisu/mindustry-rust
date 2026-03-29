@@ -320,7 +320,10 @@ impl ArcNetSessionDriver {
             let read_len =
                 (MAX_TCP_READ_BUFFER_BYTES - self.tcp_read_buffer.len()).min(chunk.len());
             match self.tcp.read(&mut chunk[..read_len]) {
-                Ok(0) => return Err(ArcNetLoopError::TcpClosed),
+                Ok(0) => {
+                    self.tcp_read_buffer.clear();
+                    return Err(ArcNetLoopError::TcpClosed);
+                }
                 Ok(len) => self.tcp_read_buffer.extend_from_slice(&chunk[..len]),
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
                 Err(error) => return Err(ArcNetLoopError::Io(error)),
@@ -905,6 +908,25 @@ mod tests {
         driver.fill_tcp_read_buffer().unwrap();
         assert_eq!(driver.tcp_read_buffer.len(), MAX_TCP_READ_BUFFER_BYTES);
         server.join().unwrap();
+    }
+
+    #[test]
+    fn tcp_closed_clears_partial_read_buffer() {
+        let (tcp_listener, _udp_socket, server_addr) = bind_local_arcnet_server();
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+        let server = thread::spawn(move || {
+            let (mut tcp_stream, _) = tcp_listener.accept().unwrap();
+            tcp_stream.write_all(&[0, 3, 0xaa]).unwrap();
+            ready_tx.send(()).unwrap();
+        });
+
+        let mut driver = ArcNetSessionDriver::connect(server_addr).unwrap();
+        ready_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        server.join().unwrap();
+        let error = driver.fill_tcp_read_buffer().unwrap_err();
+
+        assert!(matches!(error, ArcNetLoopError::TcpClosed));
+        assert!(driver.tcp_read_buffer.is_empty());
     }
 
     #[test]
