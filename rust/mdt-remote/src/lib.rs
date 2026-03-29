@@ -971,8 +971,7 @@ pub fn validate_remote_manifest(manifest: &RemoteManifest) -> Result<(), RemoteM
         )));
     }
 
-    let mut seen_base_packet_classes =
-        HashSet::with_capacity(manifest.base_packets.len());
+    let mut seen_base_packet_classes = HashSet::with_capacity(manifest.base_packets.len());
     for (index, packet) in manifest.base_packets.iter().enumerate() {
         if packet.id != index as u8 {
             return Err(RemoteManifestError::InvalidPacketSequence(format!(
@@ -999,6 +998,8 @@ pub fn validate_remote_manifest(manifest: &RemoteManifest) -> Result<(), RemoteM
         std::collections::HashSet::with_capacity(manifest.remote_packets.len());
     let mut seen_remote_packet_classes =
         std::collections::HashSet::with_capacity(manifest.remote_packets.len());
+    let mut seen_remote_packet_ids =
+        std::collections::HashSet::with_capacity(manifest.remote_packets.len());
     let mut seen_remote_packet_const_names =
         std::collections::HashSet::with_capacity(manifest.remote_packets.len());
     for (index, packet) in manifest.remote_packets.iter().enumerate() {
@@ -1006,6 +1007,13 @@ pub fn validate_remote_manifest(manifest: &RemoteManifest) -> Result<(), RemoteM
             return Err(RemoteManifestError::InvalidPacketSequence(format!(
                 "remote packet {} has remoteIndex {}, expected {}",
                 packet.packet_class, packet.remote_index, index
+            )));
+        }
+
+        if !seen_remote_packet_ids.insert(packet.packet_id) {
+            return Err(RemoteManifestError::InvalidPacketSequence(format!(
+                "duplicate remote packetId: {}",
+                packet.packet_id
             )));
         }
 
@@ -1317,9 +1325,7 @@ pub fn typed_inbound_remote_dispatch_specs(
     })
 }
 
-fn validate_remote_packet_id_space(
-    manifest: &RemoteManifest,
-) -> Result<(), RemoteManifestError> {
+fn validate_remote_packet_id_space(manifest: &RemoteManifest) -> Result<(), RemoteManifestError> {
     let packet_id_space = manifest
         .base_packets
         .len()
@@ -1338,9 +1344,7 @@ fn validate_remote_packet_id_space(
     Ok(())
 }
 
-pub fn generate_rust_registry(
-    manifest: &RemoteManifest,
-) -> Result<String, RemoteManifestError> {
+pub fn generate_rust_registry(manifest: &RemoteManifest) -> Result<String, RemoteManifestError> {
     validate_remote_packet_id_space(manifest)?;
     validate_remote_manifest(manifest)?;
     let mut out = StringBuilder::new();
@@ -2567,9 +2571,7 @@ mod tests {
 
         let error = parse_remote_manifest(manifest).unwrap_err();
         assert!(matches!(error, RemoteManifestError::Json(_)));
-        assert!(error
-            .to_string()
-            .contains("duplicate JSON key: source"));
+        assert!(error.to_string().contains("duplicate JSON key: source"));
     }
 
     #[test]
@@ -2593,7 +2595,9 @@ mod tests {
 
         let error = parse_remote_manifest(manifest).unwrap_err();
         assert!(matches!(error, RemoteManifestError::Json(_)));
-        assert!(error.to_string().contains("unknown field `unexpectedField`"));
+        assert!(error
+            .to_string()
+            .contains("unknown field `unexpectedField`"));
 
         let wire_error = serde_json::from_str::<WireSpec>(
             r#"{
@@ -2827,6 +2831,68 @@ mod tests {
             error.to_string(),
             "duplicate remote packet definition: mindustry.gen.DuplicateRemotePacketB"
         );
+    }
+
+    #[test]
+    fn validate_remote_manifest_rejects_duplicate_remote_packet_id() {
+        let manifest = RemoteManifest {
+            schema: REMOTE_MANIFEST_SCHEMA_V1.into(),
+            generator: RemoteGeneratorInfo {
+                source: "test".into(),
+                call_class: "mindustry.gen.Call".into(),
+            },
+            base_packets: vec![],
+            remote_packets: vec![
+                RemotePacketEntry {
+                    remote_index: 0,
+                    packet_id: 0,
+                    packet_class: "mindustry.gen.DuplicatePacketIdA".into(),
+                    declaring_type: "mindustry.core.NetServer".into(),
+                    method: "duplicatePacketIdA".into(),
+                    targets: "client".into(),
+                    called: "server".into(),
+                    variants: "all".into(),
+                    allow_on_client: None,
+                    allow_on_server: None,
+                    forward: false,
+                    unreliable: true,
+                    priority: "high".into(),
+                    params: vec![],
+                },
+                RemotePacketEntry {
+                    remote_index: 1,
+                    packet_id: 0,
+                    packet_class: "mindustry.gen.DuplicatePacketIdB".into(),
+                    declaring_type: "mindustry.core.NetServer".into(),
+                    method: "duplicatePacketIdB".into(),
+                    targets: "client".into(),
+                    called: "server".into(),
+                    variants: "all".into(),
+                    allow_on_client: None,
+                    allow_on_server: None,
+                    forward: false,
+                    unreliable: true,
+                    priority: "high".into(),
+                    params: vec![],
+                },
+            ],
+            wire: WireSpec {
+                packet_id_byte: REMOTE_WIRE_PACKET_ID_BYTE_U8.into(),
+                length_field: REMOTE_WIRE_LENGTH_FIELD_U16BE.into(),
+                compression_flag: CompressionFlagSpec {
+                    none: REMOTE_WIRE_COMPRESSION_NONE.into(),
+                    lz4: REMOTE_WIRE_COMPRESSION_LZ4.into(),
+                },
+                compression_threshold: REMOTE_WIRE_COMPRESSION_THRESHOLD,
+            },
+        };
+
+        let error = validate_remote_manifest(&manifest).unwrap_err();
+        assert!(matches!(
+            error,
+            RemoteManifestError::InvalidPacketSequence(_)
+        ));
+        assert_eq!(error.to_string(), "duplicate remote packetId: 0");
     }
 
     #[test]
