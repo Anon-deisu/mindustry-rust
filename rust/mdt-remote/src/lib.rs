@@ -3198,6 +3198,60 @@ mod tests {
     }
 
     #[test]
+    fn bidirectional_wire_flow_all_shared_falls_back_to_client_to_server() {
+        let manifest = parse_remote_manifest(
+            r#"{
+  "schema": "mdt.remote.manifest.v1",
+  "generator": {
+    "source": "mindustry.annotations.remote",
+    "callClass": "mindustry.gen.Call"
+  },
+  "basePackets": [
+    {"id": 0, "class": "mindustry.net.Packets$StreamBegin"},
+    {"id": 1, "class": "mindustry.net.Packets$StreamChunk"},
+    {"id": 2, "class": "mindustry.net.Packets$WorldStream"},
+    {"id": 3, "class": "mindustry.net.Packets$ConnectPacket"}
+  ],
+  "remotePackets": [
+    {
+      "remoteIndex": 0,
+      "packetId": 4,
+      "packetClass": "mindustry.gen.BidirectionalSharedCallPacket",
+      "declaringType": "mindustry.core.NetClient",
+      "method": "bidirectionalShared",
+      "targets": "both",
+      "called": "both",
+      "variants": "both",
+      "forward": false,
+      "unreliable": false,
+      "priority": "normal",
+      "params": [
+        {"name": "sharedA", "javaType": "java.lang.String", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true},
+        {"name": "sharedB", "javaType": "int", "networkIncludedWhenCallerIsClient": true, "networkIncludedWhenCallerIsServer": true}
+      ]
+    }
+  ],
+  "wire": {
+    "packetIdByte": "u8",
+    "lengthField": "u16be",
+    "compressionFlag": {"0": "none", "1": "lz4"},
+    "compressionThreshold": 36
+  }
+}"#,
+        )
+        .unwrap();
+
+        let packet = &manifest.remote_packets[0];
+        assert_eq!(bidirectional_wire_flow(packet), RemoteFlow::ClientToServer);
+
+        let metadata = typed_remote_packet_metadata(packet).unwrap();
+        assert_eq!(metadata.flow, RemoteFlow::Bidirectional);
+        assert_eq!(metadata.wire_params.len(), 2);
+        assert_eq!(metadata.wire_params[0].name, "sharedA");
+        assert_eq!(metadata.wire_params[1].name, "sharedB");
+    }
+
+    #[test]
     fn builds_full_remote_packet_registry() {
         let manifest = parse_remote_manifest(
             r#"{
