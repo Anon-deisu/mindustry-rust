@@ -543,6 +543,33 @@ mod tests {
     }
 
     #[test]
+    fn bridge_reports_missing_surface_entry_diagnostic() {
+        let specs = vec![RuntimeCustomPacketSemanticSpec {
+            key: "logic.pos".to_string(),
+            encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+            semantic: RuntimeCustomPacketSemanticKind::WorldPos,
+        }];
+        let mut bridge = RuntimeCustomPacketBridge::from_specs(&specs).unwrap();
+
+        bridge.observe_surface_activity(
+            99,
+            &[String::from(
+                "runtime_custom_packet_surface_update: encoding=logic key=\"logic.pos\" semantic=world_pos count=1 transport=reliable x=7 y=9 source=point2",
+            )],
+            &[],
+        );
+
+        assert_eq!(
+            bridge.drain_lines(),
+            vec![
+                "runtime_custom_packet_bridge_missing_surface_entry: tick=99ms encoding=logic key=\"logic.pos\" semantic=world_pos"
+                    .to_string()
+            ]
+        );
+        assert_eq!(bridge.business_summary_text(4), None);
+    }
+
+    #[test]
     fn parse_debug_string_decodes_unicode_escape_sequences() {
         assert_eq!(
             parse_debug_string(r#""emoji-\u{1f680}""#),
