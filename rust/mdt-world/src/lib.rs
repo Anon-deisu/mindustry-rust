@@ -57271,6 +57271,30 @@ mod tests {
     }
 
     #[test]
+    fn rejects_static_fog_run_that_overruns_map_bounds() {
+        let mut bytes = Vec::new();
+        bytes.push(1);
+        bytes.extend_from_slice(&2u16.to_be_bytes());
+        bytes.extend_from_slice(&2u16.to_be_bytes());
+        bytes.push(7);
+        bytes.push(0b1000_0101);
+
+        let error = parse_static_fog_chunk(&bytes).unwrap_err();
+
+        assert!(error.contains("static fog chunk overruns map bounds for team 7"));
+    }
+
+    #[test]
+    fn rejects_trailing_bytes_after_static_fog_chunk() {
+        let mut bytes = generate_static_fog_sample_bytes();
+        bytes.push(0xaa);
+
+        let error = parse_static_fog_chunk(&bytes).unwrap_err();
+
+        assert!(error.contains("unexpected trailing bytes after static fog chunk"));
+    }
+
+    #[test]
     fn formats_static_fog_goldens_for_sample() {
         let bytes = generate_static_fog_sample_bytes();
         let summary = parse_static_fog_goldens(&bytes).unwrap();
