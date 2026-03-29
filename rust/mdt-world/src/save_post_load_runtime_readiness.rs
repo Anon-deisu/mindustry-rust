@@ -753,6 +753,68 @@ mod tests {
         );
     }
 
+    #[test]
+    fn source_regions_merge_repeated_source_names_without_dropping_counts_or_blockers() {
+        let readiness = SavePostLoadRuntimeReadiness {
+            can_seed_runtime_apply: false,
+            world_shell_ready: false,
+            regions: vec![
+                SavePostLoadRuntimeRegionReadiness {
+                    kind: SavePostLoadRuntimeRegionKind::WorldShell,
+                    source_region_name: "shared",
+                    step_count: 1,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::ApplyNow,
+                    blockers: vec![SavePostLoadConsumerBlocker::DuplicateEntityId(1)],
+                },
+                SavePostLoadRuntimeRegionReadiness {
+                    kind: SavePostLoadRuntimeRegionKind::TeamPlans,
+                    source_region_name: "shared",
+                    step_count: 2,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::Blocked,
+                    blockers: vec![
+                        SavePostLoadConsumerBlocker::DuplicateEntityId(1),
+                        SavePostLoadConsumerBlocker::ContractIssue(
+                            SavePostLoadWorldIssue::EntitySummaryMismatch,
+                        ),
+                    ],
+                },
+                SavePostLoadRuntimeRegionReadiness {
+                    kind: SavePostLoadRuntimeRegionKind::Markers,
+                    source_region_name: "shared",
+                    step_count: 3,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::Deferred,
+                    blockers: vec![SavePostLoadConsumerBlocker::DuplicateEntityId(2)],
+                },
+            ],
+        };
+
+        let source_regions = readiness.source_regions();
+
+        assert_eq!(source_regions.len(), 1);
+        assert_eq!(
+            source_regions[0],
+            SavePostLoadRuntimeSourceRegionReadiness {
+                source_region_name: "shared",
+                apply_now_step_count: 1,
+                awaiting_world_shell_step_count: 0,
+                blocked_step_count: 2,
+                deferred_step_count: 3,
+                blockers: vec![
+                    SavePostLoadConsumerBlocker::DuplicateEntityId(1),
+                    SavePostLoadConsumerBlocker::ContractIssue(
+                        SavePostLoadWorldIssue::EntitySummaryMismatch,
+                    ),
+                    SavePostLoadConsumerBlocker::DuplicateEntityId(2),
+                ],
+            }
+        );
+        assert_eq!(source_regions[0].total_step_count(), 6);
+        assert!(source_regions[0].has_blockers());
+        assert!(!source_regions[0].has_pending_world_shell());
+        assert!(source_regions[0].has_deferred());
+        assert_eq!(readiness.source_region("shared"), Some(source_regions[0].clone()));
+    }
+
     fn make_observation_seedable(observation: &mut SavePostLoadWorldObservation) {
         observation.world_entity_chunks[1].class_id = 3;
         observation.world_entity_chunks[1].custom_name = None;
