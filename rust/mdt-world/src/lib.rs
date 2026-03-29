@@ -56026,6 +56026,20 @@ mod tests {
     }
 
     #[test]
+    fn rejects_legacy_team_plan_group_when_declared_plans_exceed_remaining_bytes() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1u32.to_be_bytes());
+        bytes.extend_from_slice(&2u32.to_be_bytes());
+        bytes.extend_from_slice(&1u32.to_be_bytes());
+        bytes.extend_from_slice(&[0u8; 11]);
+
+        let mut reader = Reader::new(&bytes);
+        let error = parse_legacy_team_plan_groups(&mut reader).err().unwrap();
+
+        assert!(error.contains("legacy team plan group declares too many plans for team 2"));
+    }
+
+    #[test]
     fn formats_team_plan_goldens_for_non_zero_sample() {
         let bytes = generate_team_plan_sample_bytes();
         let summary = parse_team_plan_goldens(&bytes).unwrap();
