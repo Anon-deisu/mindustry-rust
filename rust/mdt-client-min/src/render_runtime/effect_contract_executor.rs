@@ -11,6 +11,7 @@ const DROP_ITEM_EFFECT_LENGTH: f32 = 20.0;
 #[cfg(test)]
 const PAYLOAD_DEPOSIT_EFFECT_ID: i16 = 26;
 const LIGHTNING_EFFECT_ID: i16 = 13;
+const MOVE_COMMAND_EFFECT_ID: i16 = 12;
 const UNIT_SPIRIT_EFFECT_ID: i16 = 8;
 const ITEM_TRANSFER_EFFECT_ID: i16 = 9;
 const POINT_BEAM_EFFECT_ID: i16 = 10;
@@ -211,6 +212,12 @@ pub(crate) fn line_projections_for_effect_overlay(
 ) -> Vec<RuntimeEffectLineProjection> {
     match overlay.effect_id {
         Some(LIGHTNING_EFFECT_ID) => lightning_line_projections(&overlay.polyline_points),
+        Some(MOVE_COMMAND_EFFECT_ID) => move_command_line_projections(
+            target_x_bits,
+            target_y_bits,
+            overlay.remaining_ticks,
+            overlay.lifetime_ticks,
+        ),
         Some(UNIT_SPIRIT_EFFECT_ID) => unit_spirit_line_projections(
             source_x_bits,
             source_y_bits,
@@ -1686,6 +1693,23 @@ fn line_projection(
         target_x_bits,
         target_y_bits,
     }
+}
+
+fn move_command_line_projections(
+    target_x_bits: u32,
+    target_y_bits: u32,
+    remaining_ticks: u8,
+    lifetime_ticks: u8,
+) -> Vec<RuntimeEffectLineProjection> {
+    let target_x = f32::from_bits(target_x_bits);
+    let target_y = f32::from_bits(target_y_bits);
+    if !target_x.is_finite() || !target_y.is_finite() {
+        return Vec::new();
+    }
+
+    let radius = 6.0 + inclusive_overlay_progress(remaining_ticks, lifetime_ticks) * 2.0;
+    let points = regular_polygon_points(target_x, target_y, radius, 12, 0.0);
+    closed_polyline_line_projections("move-command", &points)
 }
 
 fn polyline_line_projections(
@@ -3291,7 +3315,7 @@ mod tests {
     #[test]
     fn line_projections_for_effect_overlay_ignores_other_effect_ids() {
         let overlay = RuntimeEffectOverlay {
-            effect_id: Some(12),
+            effect_id: Some(99),
             source_x_bits: 12.0f32.to_bits(),
             source_y_bits: 20.0f32.to_bits(),
             x_bits: 80.0f32.to_bits(),
@@ -3317,6 +3341,49 @@ mod tests {
                 &SessionState::default(),
             ),
             Vec::<RuntimeEffectLineProjection>::new()
+        );
+    }
+
+    #[test]
+    fn line_projections_for_effect_overlay_returns_move_command_circle() {
+        let overlay = RuntimeEffectOverlay {
+            effect_id: Some(MOVE_COMMAND_EFFECT_ID),
+            source_x_bits: 12.0f32.to_bits(),
+            source_y_bits: 20.0f32.to_bits(),
+            x_bits: 80.0f32.to_bits(),
+            y_bits: 160.0f32.to_bits(),
+            rotation_bits: 0.0f32.to_bits(),
+            color_rgba: 0x11223344,
+            reliable: false,
+            has_data: true,
+            lifetime_ticks: 20,
+            remaining_ticks: 20,
+            contract_name: None,
+            source_binding: None,
+            binding: None,
+            content_ref: None,
+            polyline_points: Vec::new(),
+        };
+
+        let lines = test_line_projections_for_overlay(
+            &overlay,
+            80.0f32.to_bits(),
+            160.0f32.to_bits(),
+            &SessionState::default(),
+        );
+        let radius =
+            6.0 + inclusive_overlay_progress(overlay.remaining_ticks, overlay.lifetime_ticks) * 2.0;
+        let circle_points = regular_polygon_points(80.0, 160.0, radius, 12, 0.0);
+
+        assert_eq!(lines.len(), 12);
+        assert!(lines.iter().all(|line| line.kind == "move-command"));
+        assert_eq!(
+            lines.first(),
+            Some(&line_projection(
+                "move-command",
+                circle_points[0],
+                circle_points[1],
+            ))
         );
     }
 
