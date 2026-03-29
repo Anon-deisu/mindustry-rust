@@ -27268,6 +27268,40 @@ fn parse_legacy_building_tail_snapshot(
         Some("illuminator") => parse_one_i32_tail_snapshot(legacy_tail_bytes)
             .map(ParsedBuildingTail::OneI32)
             .unwrap_or(ParsedBuildingTail::Unknown),
+        Some("payload-loader") | Some("payload-unloader") => {
+            parse_payload_loader_tail_snapshot(&[], legacy_tail_bytes)
+                .map(ParsedBuildingTail::PayloadLoader)
+                .unwrap_or(ParsedBuildingTail::Unknown)
+        }
+        Some("payload-source") => parse_payload_source_tail_snapshot(&[], revision, legacy_tail_bytes)
+            .map(ParsedBuildingTail::PayloadSource)
+            .unwrap_or(ParsedBuildingTail::Unknown),
+        Some("payload-router") | Some("reinforced-payload-router") => {
+            parse_payload_router_tail_snapshot(&[], legacy_tail_bytes)
+                .map(ParsedBuildingTail::PayloadRouter)
+                .unwrap_or(ParsedBuildingTail::Unknown)
+        }
+        Some("payload-mass-driver") | Some("large-payload-mass-driver") => {
+            parse_payload_mass_driver_tail_snapshot(&[], revision, legacy_tail_bytes)
+                .map(ParsedBuildingTail::PayloadMassDriver)
+                .unwrap_or(ParsedBuildingTail::Unknown)
+        }
+        Some("block-producer") => parse_block_producer_tail_snapshot(&[], legacy_tail_bytes)
+            .map(ParsedBuildingTail::BlockProducer)
+            .unwrap_or(ParsedBuildingTail::Unknown),
+        Some("constructor") | Some("large-constructor") => {
+            parse_constructor_tail_snapshot(&[], legacy_tail_bytes)
+                .map(ParsedBuildingTail::Constructor)
+                .unwrap_or(ParsedBuildingTail::Unknown)
+        }
+        Some("landing-pad") => parse_landing_pad_tail_snapshot(revision, legacy_tail_bytes)
+            .map(ParsedBuildingTail::LandingPad)
+            .unwrap_or(ParsedBuildingTail::Unknown),
+        Some("tank-assembler") | Some("ship-assembler") | Some("mech-assembler") => {
+            parse_unit_assembler_tail_snapshot(&[], revision, legacy_tail_bytes)
+                .map(ParsedBuildingTail::UnitAssembler)
+                .unwrap_or(ParsedBuildingTail::Unknown)
+        }
         Some("shield-projector") | Some("large-shield-projector") => {
             parse_one_f32_bool_tail_snapshot(revision, legacy_tail_bytes)
                 .map(ParsedBuildingTail::OneF32Bool)
@@ -56390,6 +56424,218 @@ mod tests {
 
             assert_eq!(snapshot.parsed_tail, expected);
         }
+    }
+
+    #[test]
+    fn parses_legacy_payload_loader_family_building_snapshots_when_block_name_is_known() {
+        let legacy_tail = {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&1u32.to_be_bytes());
+            bytes.extend_from_slice(&2u32.to_be_bytes());
+            bytes.extend_from_slice(&3u32.to_be_bytes());
+            bytes.push(0);
+            bytes.push(1);
+            bytes
+        };
+
+        for block_name in ["payload-loader", "payload-unloader"] {
+            let expected = parse_building_tail(Some(block_name), 1, &legacy_tail).unwrap();
+            let snapshot = parse_legacy_save_building_snapshot(Some(block_name), &{
+                let mut bytes = vec![1, 0, 10, 0x12, 1];
+                bytes.extend_from_slice(&legacy_tail);
+                bytes
+            })
+            .unwrap();
+
+            assert_eq!(snapshot.parsed_tail, expected);
+        }
+    }
+
+    #[test]
+    fn parses_legacy_payload_source_building_snapshot_when_block_name_is_known() {
+        let legacy_tail = {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&4u32.to_be_bytes());
+            bytes.extend_from_slice(&5u32.to_be_bytes());
+            bytes.extend_from_slice(&6u32.to_be_bytes());
+            bytes.push(0);
+            bytes.extend_from_slice(&(-1i16).to_be_bytes());
+            bytes.extend_from_slice(&(0x0123i16).to_be_bytes());
+            bytes.extend_from_slice(&0x41200000u32.to_be_bytes());
+            bytes.extend_from_slice(&0x41a00000u32.to_be_bytes());
+            bytes
+        };
+        let expected = parse_building_tail(Some("payload-source"), 1, &legacy_tail).unwrap();
+        let snapshot = parse_legacy_save_building_snapshot(Some("payload-source"), &{
+            let mut bytes = vec![1, 0, 10, 0x12, 1];
+            bytes.extend_from_slice(&legacy_tail);
+            bytes
+        })
+        .unwrap();
+
+        assert_eq!(snapshot.parsed_tail, expected);
+    }
+
+    #[test]
+    fn parses_legacy_payload_router_family_building_snapshots_when_block_name_is_known() {
+        let legacy_tail = {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&0x3f800000u32.to_be_bytes());
+            bytes.extend_from_slice(&0x40000000u32.to_be_bytes());
+            bytes.push(0);
+            bytes.push(BLOCK_CONTENT_TYPE);
+            bytes.extend_from_slice(&(0x0123i16).to_be_bytes());
+            bytes.push(2);
+            bytes
+        };
+
+        for block_name in ["payload-router", "reinforced-payload-router"] {
+            let expected = parse_building_tail(Some(block_name), 1, &legacy_tail).unwrap();
+            let snapshot = parse_legacy_save_building_snapshot(Some(block_name), &{
+                let mut bytes = vec![1, 0, 10, 0x12, 1];
+                bytes.extend_from_slice(&legacy_tail);
+                bytes
+            })
+            .unwrap();
+
+            assert_eq!(snapshot.parsed_tail, expected);
+        }
+    }
+
+    #[test]
+    fn parses_legacy_payload_mass_driver_family_building_snapshots_when_block_name_is_known() {
+        let legacy_tail = {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&7u32.to_be_bytes());
+            bytes.extend_from_slice(&8u32.to_be_bytes());
+            bytes.extend_from_slice(&9u32.to_be_bytes());
+            bytes.push(0);
+            bytes.extend_from_slice(&10i32.to_be_bytes());
+            bytes.extend_from_slice(&0x42200000u32.to_be_bytes());
+            bytes.push(2);
+            bytes.extend_from_slice(&0x3f800000u32.to_be_bytes());
+            bytes.extend_from_slice(&0x40000000u32.to_be_bytes());
+            bytes.push(1);
+            bytes.push(0);
+            bytes
+        };
+
+        for block_name in ["payload-mass-driver", "large-payload-mass-driver"] {
+            let expected = parse_building_tail(Some(block_name), 1, &legacy_tail).unwrap();
+            let snapshot = parse_legacy_save_building_snapshot(Some(block_name), &{
+                let mut bytes = vec![1, 0, 10, 0x12, 1];
+                bytes.extend_from_slice(&legacy_tail);
+                bytes
+            })
+            .unwrap();
+
+            assert_eq!(snapshot.parsed_tail, expected);
+        }
+    }
+
+    #[test]
+    fn parses_legacy_block_producer_building_snapshot_when_block_name_is_known() {
+        let legacy_tail = {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&0x01020304u32.to_be_bytes());
+            bytes.extend_from_slice(&0x05060708u32.to_be_bytes());
+            bytes.extend_from_slice(&0x090a0b0cu32.to_be_bytes());
+            bytes.push(0);
+            bytes.extend_from_slice(&0x3f800000u32.to_be_bytes());
+            bytes
+        };
+        let expected = parse_building_tail(Some("block-producer"), 0, &legacy_tail).unwrap();
+        let snapshot = parse_legacy_save_building_snapshot(Some("block-producer"), &{
+            let mut bytes = vec![0, 0, 10, 0x12, 1];
+            bytes.extend_from_slice(&legacy_tail);
+            bytes
+        })
+        .unwrap();
+
+        assert_eq!(snapshot.parsed_tail, expected);
+    }
+
+    #[test]
+    fn parses_legacy_constructor_family_building_snapshots_when_block_name_is_known() {
+        let legacy_tail = {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&11u32.to_be_bytes());
+            bytes.extend_from_slice(&12u32.to_be_bytes());
+            bytes.extend_from_slice(&13u32.to_be_bytes());
+            bytes.push(0);
+            bytes.extend_from_slice(&0x3f400000u32.to_be_bytes());
+            bytes.extend_from_slice(&0x0123i16.to_be_bytes());
+            bytes
+        };
+
+        for block_name in ["constructor", "large-constructor"] {
+            let expected = parse_building_tail(Some(block_name), 0, &legacy_tail).unwrap();
+            let snapshot = parse_legacy_save_building_snapshot(Some(block_name), &{
+                let mut bytes = vec![0, 0, 10, 0x12, 1];
+                bytes.extend_from_slice(&legacy_tail);
+                bytes
+            })
+            .unwrap();
+
+            assert_eq!(snapshot.parsed_tail, expected);
+        }
+    }
+
+    #[test]
+    fn parses_legacy_unit_assembler_family_building_snapshots_when_block_name_is_known() {
+        let legacy_tail = {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&14u32.to_be_bytes());
+            bytes.extend_from_slice(&15u32.to_be_bytes());
+            bytes.extend_from_slice(&16u32.to_be_bytes());
+            bytes.push(0);
+            bytes.extend_from_slice(&0x3e800000u32.to_be_bytes());
+            bytes.push(2);
+            bytes.extend_from_slice(&100i32.to_be_bytes());
+            bytes.extend_from_slice(&101i32.to_be_bytes());
+            bytes.extend_from_slice(&(-1i16).to_be_bytes());
+            bytes.push(BLOCK_CONTENT_TYPE);
+            bytes.extend_from_slice(&(3i16).to_be_bytes());
+            bytes.extend_from_slice(&(2i32).to_be_bytes());
+            bytes.extend_from_slice(&f32::NAN.to_bits().to_be_bytes());
+            bytes.extend_from_slice(&f32::NAN.to_bits().to_be_bytes());
+            bytes
+        };
+
+        for block_name in ["tank-assembler", "ship-assembler", "mech-assembler"] {
+            let expected = parse_building_tail(Some(block_name), 1, &legacy_tail).unwrap();
+            let snapshot = parse_legacy_save_building_snapshot(Some(block_name), &{
+                let mut bytes = vec![1, 0, 10, 0x12, 1];
+                bytes.extend_from_slice(&legacy_tail);
+                bytes
+            })
+            .unwrap();
+
+            assert_eq!(snapshot.parsed_tail, expected);
+        }
+    }
+
+    #[test]
+    fn parses_legacy_landing_pad_building_snapshot_when_block_name_is_known() {
+        let legacy_tail = {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&1i16.to_be_bytes());
+            bytes.extend_from_slice(&42i32.to_be_bytes());
+            bytes.extend_from_slice(&0x41200000u32.to_be_bytes());
+            bytes.extend_from_slice(&2i16.to_be_bytes());
+            bytes.extend_from_slice(&0x41400000u32.to_be_bytes());
+            bytes.extend_from_slice(&0x3e800000u32.to_be_bytes());
+            bytes
+        };
+        let expected = parse_building_tail(Some("landing-pad"), 1, &legacy_tail).unwrap();
+        let snapshot = parse_legacy_save_building_snapshot(Some("landing-pad"), &{
+            let mut bytes = vec![1, 0, 10, 0x12, 1];
+            bytes.extend_from_slice(&legacy_tail);
+            bytes
+        })
+        .unwrap();
+
+        assert_eq!(snapshot.parsed_tail, expected);
     }
 
     #[test]
