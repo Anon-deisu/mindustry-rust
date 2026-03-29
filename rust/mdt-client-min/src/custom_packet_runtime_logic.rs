@@ -261,8 +261,8 @@ pub(crate) fn logic_number_value(value: &TypeIoObject) -> Option<String> {
     match value {
         TypeIoObject::Int(number) => Some(number.to_string()),
         TypeIoObject::Long(number) => Some(number.to_string()),
-        TypeIoObject::Float(number) => Some(number.to_string()),
-        TypeIoObject::Double(number) => Some(number.to_string()),
+        TypeIoObject::Float(number) => number.is_finite().then(|| number.to_string()),
+        TypeIoObject::Double(number) => number.is_finite().then(|| number.to_string()),
         _ => None,
     }
 }
@@ -404,5 +404,18 @@ mod tests {
         ]);
 
         assert_eq!(extract_logic_number(&number), Some("2".to_string()));
+    }
+
+    #[test]
+    fn logic_number_value_rejects_non_finite_float_payloads() {
+        assert_eq!(logic_number_value(&TypeIoObject::Float(f32::INFINITY)), None);
+        assert_eq!(logic_number_value(&TypeIoObject::Double(f64::NAN)), None);
+        assert_eq!(
+            extract_logic_number(&TypeIoObject::ObjectArray(vec![
+                TypeIoObject::Bool(false),
+                TypeIoObject::Float(f32::INFINITY),
+            ])),
+            None
+        );
     }
 }
