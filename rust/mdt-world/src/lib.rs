@@ -24649,9 +24649,9 @@ fn parse_building_tail_with_context(
     }
 
     match block_name {
-        Some("conveyor") => Ok(ParsedBuildingTail::Conveyor(parse_conveyor_tail_snapshot(
-            revision, tail_bytes,
-        )?)),
+        Some("conveyor") | Some("titanium-conveyor") | Some("armored-conveyor") => Ok(
+            ParsedBuildingTail::Conveyor(parse_conveyor_tail_snapshot(revision, tail_bytes)?),
+        ),
         Some("plastanium-conveyor") | Some("surge-conveyor") => Ok(
             ParsedBuildingTail::StackConveyor(parse_stack_conveyor_tail_snapshot(tail_bytes)?),
         ),
@@ -45269,6 +45269,43 @@ mod tests {
                 cooldown_bits: 0x4140_0000,
             })
         );
+    }
+
+    #[test]
+    fn parses_conveyor_family_tails() {
+        let conveyor_tail = {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&2i32.to_be_bytes());
+            bytes.extend_from_slice(&5u16.to_be_bytes());
+            bytes.push((-2i8) as u8);
+            bytes.push(3);
+            bytes.extend_from_slice(&6u16.to_be_bytes());
+            bytes.push(1);
+            bytes.push((-1i8) as u8);
+            bytes
+        };
+        let expected = ParsedBuildingTail::Conveyor(ConveyorTailSnapshot {
+            len: 2,
+            items: vec![
+                ConveyorItemTailSnapshot {
+                    item_id: 5,
+                    x_raw: -2,
+                    y_raw: 3,
+                },
+                ConveyorItemTailSnapshot {
+                    item_id: 6,
+                    x_raw: 1,
+                    y_raw: -1,
+                },
+            ],
+        });
+
+        for block_name in ["conveyor", "titanium-conveyor", "armored-conveyor"] {
+            assert_eq!(
+                parse_building_tail(Some(block_name), 1, &conveyor_tail).unwrap(),
+                expected
+            );
+        }
     }
 
     #[test]
