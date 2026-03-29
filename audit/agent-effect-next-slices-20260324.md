@@ -36,6 +36,11 @@ Current Rust baseline:
   - `drop_item`
   - `float_length`
   - `unit_parent`
+- Additional named contract surface now implemented without widening `RuntimeEffectContract`:
+  - `move_command` via `effect_contract_name(Some(12))`
+  - spawned overlays now carry `contract_name=move_command`
+  - `render_runtime/effect_contract_executor.rs` now resolves a named executor for `move_command`
+  - keep this as a deliberate `name-only` surface unless the surrounding hot session/runtime files are ready for a wider enum expansion
 - Backlog still says:
   - E1: effect runtime still lacks effect-specific executors.
   - E2: `effect(..., data)` still relies too much on generic projection.
@@ -51,6 +56,16 @@ Current Rust baseline:
 | `8` `Fx.unitSpirit` | Declared at `core/src/mindustry/content/Fx.java:120`, called from `core/src/mindustry/input/InputHandler.java:811`. Java moves two 45-degree squares from source to target with different eased interpolation curves. | Rust still keeps `effect_id=8` on the existing `position_target` contract, renders a narrow double-diamond fallback from the captured source/target bits, and now also carries a source-follow binding so the spawned source point moves with a parent `Unit`. | Landed as an executor-plus-source-follow slice. Keep it closed; remaining work is wider `rotWithParent` / parent-follow parity, not re-opening `unitSpirit` as a missing first-pass executor. | `rust/mdt-client-min/src/effect_runtime.rs`; `rust/mdt-client-min/src/render_runtime/effect_contract_executor.rs`; `rust/mdt-client-min/src/render_runtime.rs` |
 | `9` `Fx.itemTransfer` | Declared at `core/src/mindustry/content/Fx.java:138`, called from `core/src/mindustry/input/InputHandler.java:312`. Java moves a mid-life-tapered circle pair along a `pow3` source-target curve with an `e.id`-seeded lateral offset. | Rust still keeps `effect_id=9` on the existing `position_target` contract, renders a conservative pseudo-seeded double-ring fallback plus a marker-position override, and now also carries a source-follow binding so the spawned source point moves with a parent `Unit`. | Landed as an executor-plus-source-follow slice. Keep it closed as a first-pass implementation; exact Java parity still needs a stable effect-instance seed equivalent to `e.id`, but the family is no longer absent. | `rust/mdt-client-min/src/effect_runtime.rs`; `rust/mdt-client-min/src/render_runtime/effect_contract_executor.rs`; `rust/mdt-client-min/src/render_runtime.rs` |
 | `263` `Fx.legDestroy` | Declared at `core/src/mindustry/content/Fx.java:2945`, called from `core/src/mindustry/entities/comp/LegsComp.java:79-80`. Java depends on `LegDestroyData` plus region/segment geometry. | Rust now maps this id to `leg_destroy`, projects the line target from the second explicit position with first-position fallback, and renders a dedicated runtime line fallback instead of a generic marker. | Landed as a first-pass contract/executor slice. Keep it closed; remaining work is deeper segment/region geometry and effect-instance parity, not re-opening `legDestroy` as a missing family. | `rust/mdt-client-min/src/effect_runtime.rs`; `rust/mdt-client-min/src/client_session.rs`; `rust/mdt-client-min/src/render_runtime/effect_contract_executor.rs`; `rust/mdt-client-min/src/render_runtime.rs` |
+
+Small landed exception worth keeping in mind:
+
+- `12` `move_command`
+  - Rust still does not expose this through `RuntimeEffectContract`.
+  - Rust now does expose the family through a consistent named surface:
+    - `effect_contract_name(Some(12)) == Some("move_command")`
+    - spawned runtime overlays keep `contract_name=move_command`
+    - named executor lookup resolves `move_command`
+  - This is enough for runtime/session observability and executor routing without forcing exhaustiveness churn through the current hot files.
 
 ## Suggested Order
 

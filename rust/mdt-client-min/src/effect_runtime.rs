@@ -1055,6 +1055,27 @@ mod tests {
     }
 
     #[test]
+    fn effect_runtime_spawn_runtime_effect_overlay_keeps_move_command_named_contract() {
+        let overlay = spawn_runtime_effect_overlay(
+            Some(12),
+            12.0,
+            20.0,
+            12.0,
+            20.0,
+            0.0,
+            0,
+            false,
+            None,
+            30,
+        );
+
+        assert_eq!(overlay.effect_id, Some(12));
+        assert_eq!(overlay.contract_name, Some("move_command"));
+        assert_eq!(overlay.binding, None);
+        assert_eq!(overlay.source_binding, None);
+    }
+
+    #[test]
     fn effect_runtime_spawn_runtime_effect_overlay_uses_position_hint_for_unresolved_parent_unit() {
         let overlay = spawn_runtime_effect_overlay(
             None,
