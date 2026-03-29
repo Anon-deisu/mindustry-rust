@@ -24793,10 +24793,12 @@ fn parse_building_tail_with_context(
             | "electrolyzer"
             | "slag-centrifuge"
             | "silicon-crucible"
-            | "cultivator"
             | "vent-condenser",
         ) => Ok(ParsedBuildingTail::TwoF32(
             parse_two_f32_tail_snapshot_always(tail_bytes)?,
+        )),
+        Some("cultivator") => Ok(ParsedBuildingTail::TwoF32(
+            parse_two_f32_tail_snapshot_with_optional_legacy_warmup(tail_bytes)?,
         )),
         Some(
             "mechanical-drill"
@@ -25977,6 +25979,30 @@ fn parse_two_f32_tail_snapshot_always(tail_bytes: &[u8]) -> Result<TwoF32TailSna
             "unexpected two-f32 tail remainder: {} bytes",
             reader.remaining_bytes().len()
         ));
+    }
+    Ok(TwoF32TailSnapshot {
+        first_bits,
+        second_bits,
+    })
+}
+
+fn parse_two_f32_tail_snapshot_with_optional_legacy_warmup(
+    tail_bytes: &[u8],
+) -> Result<TwoF32TailSnapshot, String> {
+    let mut reader = Reader::new(tail_bytes);
+    let first_bits = reader.read_u32()?;
+    let second_bits = reader.read_u32()?;
+    match reader.remaining_len() {
+        0 => {}
+        4 => {
+            let _ = reader.read_u32()?;
+        }
+        remaining => {
+            return Err(format!(
+                "unexpected two-f32 legacy-warmup tail remainder: {} bytes",
+                remaining
+            ));
+        }
     }
     Ok(TwoF32TailSnapshot {
         first_bits,
@@ -46574,6 +46600,22 @@ mod tests {
             ParsedBuildingTail::TwoF32(TwoF32TailSnapshot {
                 first_bits: 0x3f200000,
                 second_bits: 0x40e00000,
+            })
+        );
+
+        let cultivator = parse_building_tail(Some("cultivator"), 0, &{
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&0x41100000u32.to_be_bytes());
+            bytes.extend_from_slice(&0x41400000u32.to_be_bytes());
+            bytes.extend_from_slice(&0x00000000u32.to_be_bytes());
+            bytes
+        })
+        .unwrap();
+        assert_eq!(
+            cultivator,
+            ParsedBuildingTail::TwoF32(TwoF32TailSnapshot {
+                first_bits: 0x41100000,
+                second_bits: 0x41400000,
             })
         );
 
