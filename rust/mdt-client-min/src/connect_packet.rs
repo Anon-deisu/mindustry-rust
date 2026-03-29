@@ -57,6 +57,9 @@ impl ConnectPacketSpec {
     }
 
     pub fn encode_payload(&self) -> Result<Vec<u8>, ConnectPacketEncodeError> {
+        require_non_empty_connect_field("versionType", &self.version_type)?;
+        require_non_empty_connect_field("name", &self.name)?;
+        require_non_empty_connect_field("locale", &self.locale)?;
         let raw_uuid = self.preflight_and_decode_uuid()?;
         let mut out = Vec::new();
         out.extend_from_slice(&self.version.to_be_bytes());
@@ -541,6 +544,33 @@ mod tests {
 
         let err = spec.encode_payload().unwrap_err();
         assert_eq!(err, ConnectPacketEncodeError::EmptyField("usid"));
+    }
+
+    #[test]
+    fn encode_payload_rejects_empty_version_type_preflight() {
+        let mut spec = ConnectPacketSpec::new_default("en_US");
+        spec.version_type = "   ".to_string();
+
+        let err = spec.encode_payload().unwrap_err();
+        assert_eq!(err, ConnectPacketEncodeError::EmptyField("versionType"));
+    }
+
+    #[test]
+    fn encode_payload_rejects_empty_name_preflight() {
+        let mut spec = ConnectPacketSpec::new_default("en_US");
+        spec.name = "   ".to_string();
+
+        let err = spec.encode_payload().unwrap_err();
+        assert_eq!(err, ConnectPacketEncodeError::EmptyField("name"));
+    }
+
+    #[test]
+    fn encode_payload_rejects_empty_locale_preflight() {
+        let mut spec = ConnectPacketSpec::new_default("en_US");
+        spec.locale = "   ".to_string();
+
+        let err = spec.encode_payload().unwrap_err();
+        assert_eq!(err, ConnectPacketEncodeError::EmptyField("locale"));
     }
 
     #[test]
