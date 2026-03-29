@@ -27212,6 +27212,17 @@ fn parse_legacy_building_tail_snapshot(
                 .map(ParsedBuildingTail::NullableItemRef)
                 .unwrap_or(ParsedBuildingTail::Unknown)
         }
+        Some("duct") | Some("armored-duct") => parse_one_i8_tail_snapshot(legacy_tail_bytes)
+            .map(ParsedBuildingTail::OneI8)
+            .unwrap_or(ParsedBuildingTail::Unknown),
+        Some("illuminator") => parse_one_i32_tail_snapshot(legacy_tail_bytes)
+            .map(ParsedBuildingTail::OneI32)
+            .unwrap_or(ParsedBuildingTail::Unknown),
+        Some("shield-projector") | Some("large-shield-projector") => {
+            parse_one_f32_bool_tail_snapshot(revision, legacy_tail_bytes)
+                .map(ParsedBuildingTail::OneF32Bool)
+                .unwrap_or(ParsedBuildingTail::Unknown)
+        }
         _ => ParsedBuildingTail::Unknown,
     }
 }
@@ -55891,6 +55902,47 @@ mod tests {
             Some("duct-router"),
             &[1, 0, 10, 0x12, 1, 0, 5],
         )
+        .unwrap();
+
+        assert_eq!(snapshot.parsed_tail, expected);
+    }
+
+    #[test]
+    fn parses_legacy_duct_building_snapshot_when_block_name_is_known() {
+        let expected = parse_building_tail(Some("duct"), 1, &[5]).unwrap();
+        let snapshot =
+            parse_legacy_save_building_snapshot(Some("duct"), &[1, 0, 10, 0x12, 1, 5]).unwrap();
+
+        assert_eq!(snapshot.parsed_tail, expected);
+    }
+
+    #[test]
+    fn parses_legacy_illuminator_building_snapshot_when_block_name_is_known() {
+        let expected =
+            parse_building_tail(Some("illuminator"), 1, &0x11223344i32.to_be_bytes()).unwrap();
+        let snapshot = parse_legacy_save_building_snapshot(
+            Some("illuminator"),
+            &[1, 0, 10, 0x12, 1, 0x11, 0x22, 0x33, 0x44],
+        )
+        .unwrap();
+
+        assert_eq!(snapshot.parsed_tail, expected);
+    }
+
+    #[test]
+    fn parses_legacy_shield_projector_building_snapshot_when_block_name_is_known() {
+        let shield_tail = {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&0x42800000u32.to_be_bytes());
+            bytes.push(1);
+            bytes
+        };
+        let expected = parse_building_tail(Some("shield-projector"), 1, &shield_tail).unwrap();
+        let snapshot = parse_legacy_save_building_snapshot(Some("shield-projector"), &{
+            let mut bytes = vec![1, 0, 10, 0x12, 1];
+            bytes.extend_from_slice(&shield_tail);
+            bytes
+        })
         .unwrap();
 
         assert_eq!(snapshot.parsed_tail, expected);
