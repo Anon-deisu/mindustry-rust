@@ -659,6 +659,22 @@ mod tests {
     }
 
     #[test]
+    fn encode_payload_accepts_non_empty_variable_uuid_length() {
+        let mut spec = ConnectPacketSpec::new_default("en_US");
+        spec.uuid = "AAECAw==".to_string();
+
+        let encoded = spec.encode_payload().unwrap();
+        let raw_uuid = decode_base64(&spec.uuid).unwrap();
+        let uuid_offset = 4
+            + wire_string_len(&spec.version_type)
+            + wire_string_len(&spec.name)
+            + wire_string_len(&spec.locale)
+            + wire_string_len(&spec.usid);
+
+        assert_eq!(&encoded[uuid_offset..uuid_offset + raw_uuid.len()], raw_uuid.as_slice());
+    }
+
+    #[test]
     fn encode_payload_rejects_empty_mod_entry_preflight() {
         let mut spec = ConnectPacketSpec::new_default("en_US");
         spec.mods = vec!["mod-a:1".to_string(), "  ".to_string()];
