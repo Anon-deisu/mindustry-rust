@@ -51,6 +51,7 @@ impl SavePostLoadActivationSurface {
         self.entity_ids_unique
             && self.duplicate_custom_ids.is_empty()
             && self.duplicate_names.is_empty()
+            && self.unresolved_effective_names.is_empty()
             && self.skipped_entities.is_empty()
             && self.valid_building_reference_count() == self.building_candidates.len()
     }
@@ -311,6 +312,23 @@ mod tests {
             vec!["mod-duplicate".to_string()]
         );
         assert!(!name_surface.can_seed_runtime_apply());
+    }
+
+    #[test]
+    fn activation_surface_rejects_unresolved_effective_names() {
+        let mut observation = test_observation();
+        observation.entity_remap_summary.unresolved_effective_names = vec!["mod-unit".to_string()];
+        observation.world_entity_chunks[1].class_id = 4;
+        observation.world_entity_chunks[1].custom_name = None;
+
+        let surface = observation.activation_surface();
+
+        assert_eq!(
+            surface.unresolved_effective_names,
+            vec!["mod-unit".to_string()]
+        );
+        assert!(surface.skipped_entities.is_empty());
+        assert!(!surface.can_seed_runtime_apply());
     }
 
     fn test_observation() -> SavePostLoadWorldObservation {
