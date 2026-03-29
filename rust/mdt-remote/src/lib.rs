@@ -961,6 +961,7 @@ pub fn validate_remote_manifest(manifest: &RemoteManifest) -> Result<(), RemoteM
         ));
     }
 
+    validate_remote_generator_info(&manifest.generator)?;
     validate_wire_spec(&manifest.wire)?;
 
     if manifest.base_packets.len() > u8::MAX as usize {
@@ -1738,6 +1739,23 @@ fn remote_flow_from_targets(targets: &str) -> Result<RemoteFlow, RemoteManifestE
             "unsupported remote targets: {targets}"
         ))),
     }
+}
+
+fn validate_remote_generator_info(
+    generator: &RemoteGeneratorInfo,
+) -> Result<(), RemoteManifestError> {
+    if generator.source.trim().is_empty() {
+        return Err(RemoteManifestError::InvalidRemotePacketMetadata(
+            "remote manifest generator source must not be empty".to_string(),
+        ));
+    }
+    if generator.call_class.trim().is_empty() {
+        return Err(RemoteManifestError::InvalidRemotePacketMetadata(
+            "remote manifest generator callClass must not be empty".to_string(),
+        ));
+    }
+
+    Ok(())
 }
 
 fn remote_priority_from_str(priority: &str) -> Result<RemotePriority, RemoteManifestError> {
@@ -2657,6 +2675,51 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "remote packet mindustry.gen.RemotePacket1 has packetId 0, expected packet id exceeds u8 range"
+        );
+    }
+
+    #[test]
+    fn validate_remote_manifest_rejects_empty_generator_metadata() {
+        let mut manifest = RemoteManifest {
+            schema: REMOTE_MANIFEST_SCHEMA_V1.into(),
+            generator: RemoteGeneratorInfo {
+                source: "test".into(),
+                call_class: "mindustry.gen.Call".into(),
+            },
+            base_packets: vec![],
+            remote_packets: vec![],
+            wire: WireSpec {
+                packet_id_byte: REMOTE_WIRE_PACKET_ID_BYTE_U8.into(),
+                length_field: REMOTE_WIRE_LENGTH_FIELD_U16BE.into(),
+                compression_flag: CompressionFlagSpec {
+                    none: REMOTE_WIRE_COMPRESSION_NONE.into(),
+                    lz4: REMOTE_WIRE_COMPRESSION_LZ4.into(),
+                },
+                compression_threshold: REMOTE_WIRE_COMPRESSION_THRESHOLD,
+            },
+        };
+
+        manifest.generator.source = "   ".into();
+        let error = validate_remote_manifest(&manifest).unwrap_err();
+        assert!(matches!(
+            error,
+            RemoteManifestError::InvalidRemotePacketMetadata(_)
+        ));
+        assert_eq!(
+            error.to_string(),
+            "remote manifest generator source must not be empty"
+        );
+
+        manifest.generator.source = "test".into();
+        manifest.generator.call_class = "\t".into();
+        let error = validate_remote_manifest(&manifest).unwrap_err();
+        assert!(matches!(
+            error,
+            RemoteManifestError::InvalidRemotePacketMetadata(_)
+        ));
+        assert_eq!(
+            error.to_string(),
+            "remote manifest generator callClass must not be empty"
         );
     }
 
