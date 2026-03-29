@@ -366,9 +366,15 @@ mod tests {
 
         assert_eq!(team_plans.required_step_count, 0);
         assert_eq!(team_plans.claimed_step_count, 0);
-        assert_eq!(team_plans.status, SavePostLoadRuntimeWorldOwnershipStatus::Blocked);
+        assert_eq!(
+            team_plans.status,
+            SavePostLoadRuntimeWorldOwnershipStatus::Blocked
+        );
         assert!(team_plans.has_blockers());
-        assert_ne!(team_plans.status, SavePostLoadRuntimeWorldOwnershipStatus::Absent);
+        assert_ne!(
+            team_plans.status,
+            SavePostLoadRuntimeWorldOwnershipStatus::Absent
+        );
     }
 
     #[test]
@@ -450,6 +456,39 @@ mod tests {
 
         assert!(!ownership.can_apply_world_semantics());
         assert!(!ownership.can_activate_live_runtime());
+    }
+
+    #[test]
+    fn runtime_world_ownership_blocks_duplicate_static_fog_team_ids() {
+        let mut observation = test_observation();
+        make_observation_seedable(&mut observation);
+        if let ParsedCustomChunk::StaticFog(chunk) = &mut observation.custom_chunks[0].parsed {
+            chunk.used_teams = 2;
+            chunk.teams.push(StaticFogTeam {
+                team_id: chunk.teams[0].team_id,
+                run_count: chunk.teams[0].run_count,
+                rle_bytes: chunk.teams[0].rle_bytes.clone(),
+                discovered: chunk.teams[0].discovered.clone(),
+            });
+        }
+
+        let ownership = observation.runtime_world_ownership();
+        let static_fog = ownership
+            .surface(SavePostLoadRuntimeWorldSurfaceKind::StaticFog)
+            .unwrap();
+
+        assert!(!ownership.world_shell_ready);
+        assert!(!ownership.can_apply_world_semantics());
+        assert!(!ownership.can_activate_live_runtime());
+        assert_eq!(
+            static_fog.status,
+            SavePostLoadRuntimeWorldOwnershipStatus::Blocked
+        );
+        assert!(static_fog
+            .blockers
+            .contains(&SavePostLoadConsumerBlocker::ContractIssue(
+                crate::SavePostLoadWorldIssue::DuplicateStaticFogTeamIds,
+            )));
     }
 
     fn make_observation_seedable(observation: &mut SavePostLoadWorldObservation) {

@@ -356,6 +356,7 @@ fn contract_issue_blocks_world_shell(issue: SavePostLoadWorldIssue) -> bool {
             | SavePostLoadWorldIssue::MarkerOutOfBounds
             | SavePostLoadWorldIssue::StaticFogDimensionMismatch
             | SavePostLoadWorldIssue::StaticFogCoverageMismatch
+            | SavePostLoadWorldIssue::DuplicateStaticFogTeamIds
             | SavePostLoadWorldIssue::WorldEntityCountMismatch
             | SavePostLoadWorldIssue::DuplicateWorldEntityIds
             | SavePostLoadWorldIssue::EntitySummaryMismatch
@@ -391,6 +392,9 @@ fn contract_issue_blocks_stage(
             SavePostLoadConsumerStageKind::StaticFog,
         ) | (
             SavePostLoadWorldIssue::StaticFogCoverageMismatch,
+            SavePostLoadConsumerStageKind::StaticFog,
+        ) | (
+            SavePostLoadWorldIssue::DuplicateStaticFogTeamIds,
             SavePostLoadConsumerStageKind::StaticFog,
         ) | (
             SavePostLoadWorldIssue::WorldEntityCountMismatch,
@@ -962,6 +966,45 @@ mod tests {
             .stage(SavePostLoadConsumerStageKind::CustomChunks)
             .is_some_and(|stage| {
                 stage.disposition == SavePostLoadConsumerRuntimeDisposition::ApplyNow
+            }));
+    }
+
+    #[test]
+    fn consumer_runtime_helper_blocks_duplicate_static_fog_team_ids() {
+        let mut observation = test_observation();
+        if let ParsedCustomChunk::StaticFog(chunk) = &mut observation.custom_chunks[0].parsed {
+            chunk.used_teams = 2;
+            chunk.teams.push(StaticFogTeam {
+                team_id: chunk.teams[0].team_id,
+                run_count: chunk.teams[0].run_count,
+                rle_bytes: chunk.teams[0].rle_bytes.clone(),
+                discovered: chunk.teams[0].discovered.clone(),
+            });
+        }
+
+        let helper = observation.consumer_runtime_helper();
+
+        assert!(!helper.can_seed_runtime_apply);
+        assert!(!helper.world_shell_ready);
+        assert!(helper
+            .stage(SavePostLoadConsumerStageKind::WorldShell)
+            .is_some_and(|stage| {
+                stage.disposition == SavePostLoadConsumerRuntimeDisposition::Blocked
+                    && stage
+                        .blockers
+                        .contains(&SavePostLoadConsumerBlocker::ContractIssue(
+                            SavePostLoadWorldIssue::DuplicateStaticFogTeamIds,
+                        ))
+            }));
+        assert!(helper
+            .stage(SavePostLoadConsumerStageKind::StaticFog)
+            .is_some_and(|stage| {
+                stage.disposition == SavePostLoadConsumerRuntimeDisposition::Blocked
+                    && stage
+                        .blockers
+                        .contains(&SavePostLoadConsumerBlocker::ContractIssue(
+                            SavePostLoadWorldIssue::DuplicateStaticFogTeamIds,
+                        ))
             }));
     }
 
