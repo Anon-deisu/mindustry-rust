@@ -791,8 +791,11 @@ fn extract_json_bool_field(text: &str, field: &str) -> Option<bool> {
 
 fn extract_json_field_value<'a>(text: &'a str, field: &str) -> Option<&'a str> {
     let needle = format!("\"{field}\"");
+    let bytes = text.as_bytes();
     let mut in_string = false;
     let mut escaped = false;
+    let mut object_depth = 0usize;
+    let mut array_depth = 0usize;
     for (index, ch) in text.char_indices() {
         if in_string {
             if escaped {
@@ -809,18 +812,47 @@ fn extract_json_field_value<'a>(text: &'a str, field: &str) -> Option<&'a str> {
             continue;
         }
 
-        if ch != '"' {
-            continue;
-        }
-        if text[index..].starts_with(&needle) {
-            let rest = text[index + needle.len()..].trim_start();
-            if let Some(value) = rest.strip_prefix(':') {
-                return Some(value.trim_start());
+        match ch {
+            '{' => {
+                object_depth += 1;
             }
+            '}' => {
+                object_depth = object_depth.saturating_sub(1);
+            }
+            '[' => {
+                array_depth += 1;
+            }
+            ']' => {
+                array_depth = array_depth.saturating_sub(1);
+            }
+            '"' => {
+                if object_depth == 1
+                    && array_depth == 0
+                    && text[index..].starts_with(&needle)
+                    && json_field_has_object_key_boundary(bytes, index)
+                {
+                    let rest = text[index + needle.len()..].trim_start();
+                    if let Some(value) = rest.strip_prefix(':') {
+                        return Some(value.trim_start());
+                    }
+                }
+                in_string = true;
+            }
+            _ => {}
         }
-        in_string = true;
     }
     None
+}
+
+fn json_field_has_object_key_boundary(bytes: &[u8], index: usize) -> bool {
+    let mut cursor = index;
+    while cursor > 0 && bytes[cursor - 1].is_ascii_whitespace() {
+        cursor -= 1;
+    }
+    if cursor == 0 {
+        return false;
+    }
+    matches!(bytes[cursor - 1], b'{' | b',')
 }
 
 fn json_literal_terminated(value: &str, parsed_len: usize) -> bool {
@@ -1109,6 +1141,14 @@ mod tests {
         assert_eq!(
             parse_text_world_pos("{\"message\":\"prefix \\\"x\\\":12 \\\"y\\\":-4\"}"),
             None
+        );
+        assert_eq!(
+            parse_text_world_pos("{\"nested\":{\"x\":12,\"y\":-4}}"),
+            None
+        );
+        assert_eq!(
+            parse_text_world_pos("{\"nested\":{\"x\":99,\"y\":88},\"x\":12,\"y\":-4}"),
+            Some((12.0, -4.0, "json_xy"))
         );
     }
 

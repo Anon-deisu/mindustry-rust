@@ -1092,18 +1092,40 @@ fn extract_json_bool_field(text: &str, field: &str) -> Option<bool> {
 
 fn extract_json_field_value<'a>(text: &'a str, field: &str) -> Option<&'a str> {
     let needle = format!("\"{field}\"");
-    let mut search_start = 0usize;
-    while let Some(found) = text[search_start..].find(&needle) {
-        let index = search_start + found;
-        if !json_field_has_object_key_boundary(text, index) {
-            search_start = index + needle.len();
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    for (index, ch) in text.char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            match ch {
+                '\\' => escaped = true,
+                '"' => in_string = false,
+                _ => {}
+            }
             continue;
         }
-        let rest = text[index + needle.len()..].trim_start();
-        if let Some(value) = rest.strip_prefix(':') {
-            return Some(value.trim_start());
+
+        match ch {
+            '"' => {
+                if depth == 1
+                    && text[index..].starts_with(&needle)
+                    && json_field_has_object_key_boundary(text, index)
+                {
+                    let rest = text[index + needle.len()..].trim_start();
+                    if let Some(value) = rest.strip_prefix(':') {
+                        return Some(value.trim_start());
+                    }
+                }
+                in_string = true;
+            }
+            '{' | '[' => depth = depth.saturating_add(1),
+            '}' | ']' => depth = depth.saturating_sub(1),
+            _ => {}
         }
-        search_start = index + needle.len();
     }
     None
 }
@@ -1781,6 +1803,14 @@ mod tests {
         assert_eq!(parse_text_f64("prefix \"number\": 12.5, suffix"), None);
         assert_eq!(parse_text_i32("prefix \"buildPos\": 7, suffix"), None);
         assert_eq!(parse_text_u8("prefix \"team\": 3, suffix"), None);
+    }
+
+    #[test]
+    fn parse_text_world_pos_ignores_nested_fields() {
+        assert_eq!(
+            parse_text_world_pos("{\"nested\":{\"x\":12,\"y\":-4}}"),
+            None
+        );
     }
 
     #[test]
