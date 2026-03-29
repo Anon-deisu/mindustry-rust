@@ -711,8 +711,14 @@ impl BuilderQueueStateMachine {
         let mut used_closest_in_range_fallback = false;
         let mut missing_head_observation = false;
         let mut encountered_incomplete_observation = false;
+        let observations_complete = self.ordered_tiles.iter().all(|tile| {
+            self.active_by_tile.get(tile).is_some_and(|entry| {
+                observations_by_key
+                    .contains_key(&(entry.x, entry.y, entry.breaking))
+            })
+        });
 
-        if self.ordered_tiles.len() > 1 {
+        if self.ordered_tiles.len() > 1 && observations_complete {
             let mut total = 0usize;
             let size = self.ordered_tiles.len();
             let mut best_index = None;
@@ -3082,6 +3088,69 @@ mod tests {
                 in_range: true,
                 should_skip: true,
                 distance_sq: 4,
+            },
+        ]);
+
+        assert_eq!(
+            activity,
+            BuilderQueueActivityState {
+                head_tile: Some((1, 1)),
+                actively_building: false,
+                head_in_range: false,
+                head_should_skip: false,
+                reordered: false,
+                used_closest_in_range_fallback: false,
+                head_selection: BuilderQueueHeadSelection::HeadOutOfRange,
+            }
+        );
+        assert_eq!(queue.ordered_tiles, expected_order);
+        assert_eq!(queue.head_tile, Some((1, 1)));
+    }
+
+    #[test]
+    fn update_local_activity_keeps_order_stable_when_later_observation_is_missing() {
+        let mut queue = BuilderQueueStateMachine::default();
+        queue.sync_local_entries([
+            BuilderQueueEntryObservation {
+                x: 1,
+                y: 1,
+                breaking: false,
+                block_id: Some(10),
+                rotation: 0,
+            },
+            BuilderQueueEntryObservation {
+                x: 2,
+                y: 2,
+                breaking: false,
+                block_id: Some(20),
+                rotation: 1,
+            },
+            BuilderQueueEntryObservation {
+                x: 3,
+                y: 3,
+                breaking: false,
+                block_id: Some(30),
+                rotation: 2,
+            },
+        ]);
+        let expected_order = queue.ordered_tiles.clone();
+
+        let activity = queue.update_local_activity([
+            BuilderQueueActivityObservation {
+                x: 1,
+                y: 1,
+                breaking: false,
+                in_range: false,
+                should_skip: false,
+                distance_sq: 64,
+            },
+            BuilderQueueActivityObservation {
+                x: 2,
+                y: 2,
+                breaking: false,
+                in_range: true,
+                should_skip: false,
+                distance_sq: 16,
             },
         ]);
 
