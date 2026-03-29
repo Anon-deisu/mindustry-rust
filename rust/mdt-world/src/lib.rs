@@ -57554,6 +57554,17 @@ mod tests {
     }
 
     #[test]
+    fn read_ubjson_object_key_rejects_truncated_and_invalid_utf8_payloads() {
+        let mut truncated = Reader::new(&[b'U', 0x03, b'a', b'b']);
+        let truncated_error = read_ubjson_object_key(&mut truncated).unwrap_err();
+        assert!(truncated_error.contains("failed to fill whole buffer"));
+
+        let mut invalid_utf8 = Reader::new(&[b'U', 0x01, 0xff]);
+        let invalid_utf8_error = read_ubjson_object_key(&mut invalid_utf8).unwrap_err();
+        assert!(invalid_utf8_error.contains("invalid utf-8"));
+    }
+
+    #[test]
     fn parse_save_content_header_region_rejects_duplicate_content_types() {
         let mut bytes = Vec::new();
         bytes.push(2);
