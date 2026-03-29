@@ -642,8 +642,28 @@ mod tests {
     }
 
     #[test]
-    fn command_selection_requests_remain_allowed_with_explicit_none_values_once_active() {
+    fn command_selection_requests_require_active_mode_and_allow_explicit_none_values() {
         let gate = CapabilityGate;
+        assert_eq!(
+            gate.evaluate_command(
+                &context(),
+                &CapabilityCommandRequest::SetCommand(CommandModeCommandSelection {
+                    command_id: None,
+                })
+            ),
+            CapabilityDecision::denied(CapabilityDenyReason::CommandModeInactive)
+        );
+        assert_eq!(
+            gate.evaluate_command(
+                &context(),
+                &CapabilityCommandRequest::SetStance(CommandModeStanceSelection {
+                    stance_id: None,
+                    enabled: true,
+                })
+            ),
+            CapabilityDecision::denied(CapabilityDenyReason::CommandModeInactive)
+        );
+
         let active_context = CapabilityContext {
             command_mode: CommandModeProjection {
                 active: true,
