@@ -4240,6 +4240,22 @@ mod tests {
     }
 
     #[test]
+    fn high_frequency_remote_packets_reject_missing_expected_family() {
+        let mut manifest = high_frequency_manifest_with_decoys();
+        manifest
+            .remote_packets
+            .retain(|packet| packet.method != "hiddenSnapshot");
+
+        let error = high_frequency_remote_packets(&manifest).unwrap_err();
+        match error {
+            RemoteManifestError::MissingHighFrequencyPacket(method) => {
+                assert_eq!(method, "hiddenSnapshot");
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
     fn well_known_remote_lookup_rejects_method_name_decoys() {
         let manifest = well_known_manifest_with_decoys();
         let registry = RemotePacketRegistry::from_manifest(&manifest).unwrap();
@@ -4274,6 +4290,40 @@ mod tests {
                 .map(|packet| packet.packet_id),
             Some(19)
         );
+    }
+
+    #[test]
+    fn custom_channel_remote_packets_reject_missing_expected_family() {
+        let mut manifest = custom_channel_manifest_with_decoys();
+        manifest
+            .remote_packets
+            .retain(|packet| packet.method != "clientLogicDataUnreliable");
+
+        let error = custom_channel_remote_packets(&manifest).unwrap_err();
+        match error {
+            RemoteManifestError::InvalidRemotePacketMetadata(message) => assert_eq!(
+                message,
+                "missing custom-channel remote family packet in manifest: clientLogicDataUnreliable"
+            ),
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn inbound_remote_packets_reject_missing_expected_family() {
+        let mut manifest = custom_channel_manifest_with_decoys();
+        manifest
+            .remote_packets
+            .retain(|packet| packet.method != "clientLogicDataUnreliable");
+
+        let error = inbound_remote_packets(&manifest).unwrap_err();
+        match error {
+            RemoteManifestError::InvalidRemotePacketMetadata(message) => assert_eq!(
+                message,
+                "missing inbound remote family packet in manifest: clientLogicDataUnreliable"
+            ),
+            other => panic!("unexpected error: {other:?}"),
+        }
     }
 
     #[test]
@@ -4331,6 +4381,118 @@ mod tests {
         assert!(generated.contains("name: \"snapshotID\""));
         assert!(!generated.contains("name: \"player\""));
         assert!(!generated.contains("wire_included"));
+    }
+
+    fn high_frequency_manifest_with_decoys() -> RemoteManifest {
+        RemoteManifest {
+            schema: REMOTE_MANIFEST_SCHEMA_V1.to_string(),
+            generator: RemoteGeneratorInfo {
+                source: "mindustry.annotations.remote".into(),
+                call_class: "mindustry.gen.Call".into(),
+            },
+            base_packets: vec![
+                BasePacketEntry {
+                    id: 0,
+                    class_name: "mindustry.net.Packets$StreamBegin".into(),
+                },
+                BasePacketEntry {
+                    id: 1,
+                    class_name: "mindustry.net.Packets$StreamChunk".into(),
+                },
+                BasePacketEntry {
+                    id: 2,
+                    class_name: "mindustry.net.Packets$WorldStream".into(),
+                },
+                BasePacketEntry {
+                    id: 3,
+                    class_name: "mindustry.net.Packets$ConnectPacket".into(),
+                },
+            ],
+            remote_packets: vec![
+                test_remote_packet(
+                    0,
+                    4,
+                    "mindustry.gen.ClientSnapshotCallPacket",
+                    "mindustry.core.NetServer",
+                    "clientSnapshot",
+                    "client",
+                    "high",
+                    true,
+                    vec![
+                        test_param("player", "Player", false, false),
+                        test_param("snapshotID", "int", true, true),
+                        test_param(
+                            "plans",
+                            "arc.struct.Queue<mindustry.entities.units.BuildPlan>",
+                            true,
+                            true,
+                        ),
+                    ],
+                ),
+                test_remote_packet(
+                    1,
+                    5,
+                    "mindustry.gen.StateSnapshotCallPacket",
+                    "mindustry.core.NetClient",
+                    "stateSnapshot",
+                    "server",
+                    "low",
+                    true,
+                    vec![
+                        test_param("waveTime", "float", true, true),
+                        test_param("coreData", "byte[]", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    2,
+                    6,
+                    "mindustry.gen.EntitySnapshotCallPacket",
+                    "mindustry.core.NetClient",
+                    "entitySnapshot",
+                    "server",
+                    "low",
+                    true,
+                    vec![
+                        test_param("amount", "short", true, true),
+                        test_param("data", "byte[]", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    3,
+                    7,
+                    "mindustry.gen.BlockSnapshotCallPacket",
+                    "mindustry.core.NetClient",
+                    "blockSnapshot",
+                    "server",
+                    "low",
+                    true,
+                    vec![
+                        test_param("amount", "short", true, true),
+                        test_param("data", "byte[]", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    4,
+                    8,
+                    "mindustry.gen.HiddenSnapshotCallPacket",
+                    "mindustry.core.NetClient",
+                    "hiddenSnapshot",
+                    "server",
+                    "low",
+                    true,
+                    vec![test_param("ids", "arc.struct.IntSeq", true, true)],
+                ),
+            ],
+            wire: WireSpec {
+                packet_id_byte: "u8".into(),
+                length_field: "u16be".into(),
+                compression_flag: CompressionFlagSpec {
+                    none: "none".into(),
+                    lz4: "lz4".into(),
+                },
+                compression_threshold: 36,
+            },
+        }
     }
 
     fn custom_channel_manifest_with_decoys() -> RemoteManifest {
