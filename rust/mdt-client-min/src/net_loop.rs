@@ -47,6 +47,13 @@ pub fn ingest_inbound_packet_bytes(
 mod tests {
     use super::*;
     use mdt_protocol::{encode_packet, PacketCodecError};
+    use mdt_remote::read_remote_manifest;
+    use std::path::PathBuf;
+
+    fn real_manifest_path() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/remote/remote-manifest-v1.json")
+    }
 
     #[test]
     fn ingest_inbound_packet_bytes_decode_failure_leaves_stats_unchanged() {
@@ -101,5 +108,34 @@ mod tests {
         assert_eq!(stats.packets_seen, stats_before.packets_seen + 1);
         assert_eq!(stats.snapshot_packets_seen, stats_before.snapshot_packets_seen);
         assert_eq!(state, state_before);
+    }
+
+    #[test]
+    fn ingest_inbound_packet_bytes_classified_packet_advances_stats_and_state() {
+        let manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let registry = InboundSnapshotPacketRegistry::from_remote_manifest(&manifest).unwrap();
+
+        let mut stats = NetLoopStats::default();
+        stats.frames = 2;
+        stats.packets_seen = 9;
+        stats.snapshot_packets_seen = 11;
+
+        let mut state = SessionState::default();
+        let state_before = state.clone();
+        let stats_before = stats;
+        let bytes = encode_packet(125, &[1, 2, 3, 4], false).unwrap();
+
+        let result = ingest_inbound_packet_bytes(&mut stats, &mut state, &registry, &bytes);
+
+        assert_eq!(result.unwrap(), Some(HighFrequencyRemoteMethod::StateSnapshot));
+        assert_eq!(stats.frames, stats_before.frames);
+        assert_eq!(stats.packets_seen, stats_before.packets_seen + 1);
+        assert_eq!(stats.snapshot_packets_seen, stats_before.snapshot_packets_seen + 1);
+        assert_ne!(state, state_before);
+        assert_eq!(state.received_snapshot_count, 1);
+        assert_eq!(state.last_snapshot_packet_id, Some(125));
+        assert_eq!(state.last_snapshot_method, Some(HighFrequencyRemoteMethod::StateSnapshot));
+        assert_eq!(state.last_snapshot_payload_len, 4);
+        assert!(state.seen_state_snapshot);
     }
 }
