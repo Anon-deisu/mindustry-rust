@@ -475,6 +475,10 @@ mod tests {
         1 + 2 + value.len()
     }
 
+    fn ascii_string(len: usize) -> String {
+        "a".repeat(len)
+    }
+
     #[test]
     fn encodes_java_golden_connect_packet_bytes() {
         let mut expected = decode_hex_text(include_str!(
@@ -622,6 +626,30 @@ mod tests {
             ConnectPacketEncodeError::InvalidModEntry {
                 index: 1,
                 reason: "must not be empty",
+            }
+        );
+    }
+
+    #[test]
+    fn encode_payload_rejects_too_many_mods_boundary() {
+        let mut spec = ConnectPacketSpec::new_default("en_US");
+        spec.mods = vec![String::from("mod-a:1"); 256];
+
+        let err = spec.encode_payload().unwrap_err();
+        assert_eq!(err, ConnectPacketEncodeError::TooManyMods(256));
+    }
+
+    #[test]
+    fn encode_payload_rejects_string_too_long_boundary() {
+        let mut spec = ConnectPacketSpec::new_default("en_US");
+        spec.name = ascii_string(65_536);
+
+        let err = spec.encode_payload().unwrap_err();
+        assert_eq!(
+            err,
+            ConnectPacketEncodeError::StringTooLong {
+                field: "name",
+                utf_len: 65_536,
             }
         );
     }
