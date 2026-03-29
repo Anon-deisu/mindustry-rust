@@ -157,8 +157,10 @@ impl SavePostLoadRuntimeWorldOwnership {
     }
 
     pub fn can_apply_world_semantics(&self) -> bool {
-        self.surface(SavePostLoadRuntimeWorldSurfaceKind::WorldShell)
-            .is_some_and(SavePostLoadRuntimeWorldOwnershipSurface::is_owned)
+        self.world_shell_ready
+            && self
+                .surface(SavePostLoadRuntimeWorldSurfaceKind::WorldShell)
+                .is_some_and(SavePostLoadRuntimeWorldOwnershipSurface::is_owned)
             && self.surfaces.iter().all(|surface| {
                 matches!(
                     surface.status,
@@ -436,6 +438,18 @@ mod tests {
         assert!(!skipped_surface.is_owned());
         assert_eq!(skipped_surface.required_step_count, 1);
         assert_eq!(skipped_surface.claimed_step_count, 0);
+    }
+
+    #[test]
+    fn runtime_world_ownership_requires_ready_flag_for_world_semantics() {
+        let mut observation = test_observation();
+        make_observation_seedable(&mut observation);
+
+        let mut ownership = observation.runtime_world_ownership();
+        ownership.world_shell_ready = false;
+
+        assert!(!ownership.can_apply_world_semantics());
+        assert!(!ownership.can_activate_live_runtime());
     }
 
     fn make_observation_seedable(observation: &mut SavePostLoadWorldObservation) {
