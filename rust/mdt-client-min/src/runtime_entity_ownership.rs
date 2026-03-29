@@ -421,4 +421,33 @@ mod tests {
         assert_eq!(resolution.ownership_conflict_count, 0);
         assert!(resolution.ownership_conflict_unit_sample.is_empty());
     }
+
+    #[test]
+    fn nonzero_controller_type_blocks_heuristic_fallback() {
+        let by_entity_id =
+            BTreeMap::from([(101, player(101, 202, 7)), (202, unit(202, 1, None, 1))]);
+
+        let resolution = resolve_typed_runtime_entity_ownership(&by_entity_id);
+
+        assert!(resolution.player_owned_unit_by_player_entity_id.is_empty());
+        assert!(resolution.unit_owner_player_by_unit_entity_id.is_empty());
+        assert_eq!(resolution.ownership_conflict_count, 0);
+        assert!(resolution.ownership_conflict_unit_sample.is_empty());
+    }
+
+    #[test]
+    fn invalid_controller_value_blocks_heuristic_fallback() {
+        let by_entity_id = BTreeMap::from([
+            (101, player(101, 202, 7)),
+            (202, unit(202, 0, Some(999), 1)),
+            (999, unit(999, 0, None, 1)),
+        ]);
+
+        let resolution = resolve_typed_runtime_entity_ownership(&by_entity_id);
+
+        assert!(resolution.player_owned_unit_by_player_entity_id.is_empty());
+        assert!(resolution.unit_owner_player_by_unit_entity_id.is_empty());
+        assert_eq!(resolution.ownership_conflict_count, 0);
+        assert!(resolution.ownership_conflict_unit_sample.is_empty());
+    }
 }
