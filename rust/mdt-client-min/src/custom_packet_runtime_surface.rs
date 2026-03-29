@@ -1482,6 +1482,57 @@ mod tests {
     }
 
     #[test]
+    fn runtime_custom_packet_surface_reports_binary_utf8_and_logic_string_decode_errors() {
+        let mut state = RuntimeCustomPacketSurfaceState::default();
+        state.register(&RuntimeCustomPacketSemanticSpec {
+            key: "bin.hud".to_string(),
+            encoding: RuntimeCustomPacketSemanticEncoding::Binary,
+            semantic: RuntimeCustomPacketSemanticKind::HudText,
+        });
+        state.register(&RuntimeCustomPacketSemanticSpec {
+            key: "logic.hud".to_string(),
+            encoding: RuntimeCustomPacketSemanticEncoding::LogicData,
+            semantic: RuntimeCustomPacketSemanticKind::HudText,
+        });
+
+        state.record_binary_handler("bin.hud", &[0xff, 0xfe, 0xfd]);
+        state.record_logic_data_handler(
+            "logic.hud",
+            ClientLogicDataTransport::Reliable,
+            &TypeIoObject::Int(7),
+        );
+
+        let lines = state.drain_lines();
+        assert_eq!(lines.len(), 2);
+        assert!(lines.iter().any(|line| {
+            line.contains("encoding=binary")
+                && line.contains("key=\"bin.hud\"")
+                && line.contains("reason=\"invalid_utf8\"")
+        }));
+        assert!(lines.iter().any(|line| {
+            line.contains("encoding=logic")
+                && line.contains("key=\"logic.hud\"")
+                && line.contains("reason=\"no_string_payload\"")
+                && line.contains("preview=")
+        }));
+
+        let summaries = state.summary_lines();
+        assert_eq!(summaries.len(), 2);
+        assert!(summaries.iter().any(|line| {
+            line.contains("encoding=binary")
+                && line.contains("decode_errors=1")
+                && line.contains("last=None")
+        }));
+        assert!(summaries.iter().any(|line| {
+            line.contains("encoding=logic")
+                && line.contains("decode_errors=1")
+                && line.contains("last=None")
+        }));
+        assert_eq!(state.overlay_summary_text(4), None);
+        assert!(state.latest_summary_entries(4).is_empty());
+    }
+
+    #[test]
     fn parse_text_f64_accepts_scientific_notation() {
         assert_eq!(parse_text_f64("1e3"), Some(1000.0));
         assert_eq!(parse_text_f64("{\"value\":1e3}"), Some(1000.0));
