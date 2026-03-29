@@ -327,6 +327,31 @@ mod tests {
         );
     }
 
+    #[test]
+    fn runtime_apply_script_keeps_skipped_entities_and_empty_stages_out_of_world_semantics() {
+        let observation = test_observation();
+        let script = observation.runtime_apply_script();
+
+        assert!(script
+            .deferred_steps
+            .iter()
+            .all(|step| !step.targets_world_semantics()));
+        assert!(!SavePostLoadRuntimeApplyStep::SkippedEntity { entity_index: 1 }
+            .targets_world_semantics());
+
+        let mut plan = observation.runtime_seed_plan();
+        plan.static_fog_seed = None;
+        let mut stage_steps = Vec::new();
+
+        expand_stage_steps(
+            &plan,
+            crate::SavePostLoadConsumerStageKind::StaticFog,
+            &mut stage_steps,
+        );
+
+        assert!(stage_steps.is_empty());
+    }
+
     fn make_observation_seedable(observation: &mut SavePostLoadWorldObservation) {
         observation.world_entity_chunks[1].class_id = 3;
         observation.world_entity_chunks[1].custom_name = None;

@@ -611,6 +611,148 @@ mod tests {
         assert!(!region.has_blockers());
     }
 
+    #[test]
+    fn source_regions_preserve_first_seen_order_and_dedup_blockers() {
+        let readiness = SavePostLoadRuntimeReadiness {
+            can_seed_runtime_apply: false,
+            world_shell_ready: false,
+            regions: vec![
+                SavePostLoadRuntimeRegionReadiness {
+                    kind: SavePostLoadRuntimeRegionKind::WorldShell,
+                    source_region_name: "beta",
+                    step_count: 1,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::ApplyNow,
+                    blockers: vec![
+                        SavePostLoadConsumerBlocker::ContractIssue(
+                            SavePostLoadWorldIssue::EntitySummaryMismatch,
+                        ),
+                        SavePostLoadConsumerBlocker::DuplicateEntityId(7),
+                    ],
+                },
+                SavePostLoadRuntimeRegionReadiness {
+                    kind: SavePostLoadRuntimeRegionKind::EntityRemaps,
+                    source_region_name: "alpha",
+                    step_count: 2,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::Blocked,
+                    blockers: vec![
+                        SavePostLoadConsumerBlocker::ContractIssue(
+                            SavePostLoadWorldIssue::BuildingCenterReferenceMismatch,
+                        ),
+                        SavePostLoadConsumerBlocker::DuplicateEntityId(7),
+                    ],
+                },
+                SavePostLoadRuntimeRegionReadiness {
+                    kind: SavePostLoadRuntimeRegionKind::TeamPlans,
+                    source_region_name: "beta",
+                    step_count: 3,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::Deferred,
+                    blockers: vec![
+                        SavePostLoadConsumerBlocker::DuplicateEntityId(7),
+                        SavePostLoadConsumerBlocker::ContractIssue(
+                            SavePostLoadWorldIssue::EntitySummaryMismatch,
+                        ),
+                        SavePostLoadConsumerBlocker::DuplicateEntityId(8),
+                    ],
+                },
+                SavePostLoadRuntimeRegionReadiness {
+                    kind: SavePostLoadRuntimeRegionKind::Markers,
+                    source_region_name: "alpha",
+                    step_count: 4,
+                    disposition: SavePostLoadConsumerRuntimeDisposition::AwaitingWorldShell,
+                    blockers: vec![
+                        SavePostLoadConsumerBlocker::ContractIssue(
+                            SavePostLoadWorldIssue::BuildingCenterReferenceMismatch,
+                        ),
+                        SavePostLoadConsumerBlocker::SkippedEntity {
+                            entity_index: 1,
+                            entity_id: 99,
+                            source_name: "mod-unit".to_string(),
+                            effective_name: None,
+                        },
+                    ],
+                },
+            ],
+        };
+
+        assert_eq!(
+            readiness.source_regions(),
+            vec![
+                SavePostLoadRuntimeSourceRegionReadiness {
+                    source_region_name: "beta",
+                    apply_now_step_count: 1,
+                    awaiting_world_shell_step_count: 0,
+                    blocked_step_count: 0,
+                    deferred_step_count: 3,
+                    blockers: vec![
+                        SavePostLoadConsumerBlocker::ContractIssue(
+                            SavePostLoadWorldIssue::EntitySummaryMismatch,
+                        ),
+                        SavePostLoadConsumerBlocker::DuplicateEntityId(7),
+                        SavePostLoadConsumerBlocker::DuplicateEntityId(8),
+                    ],
+                },
+                SavePostLoadRuntimeSourceRegionReadiness {
+                    source_region_name: "alpha",
+                    apply_now_step_count: 0,
+                    awaiting_world_shell_step_count: 4,
+                    blocked_step_count: 2,
+                    deferred_step_count: 0,
+                    blockers: vec![
+                        SavePostLoadConsumerBlocker::ContractIssue(
+                            SavePostLoadWorldIssue::BuildingCenterReferenceMismatch,
+                        ),
+                        SavePostLoadConsumerBlocker::DuplicateEntityId(7),
+                        SavePostLoadConsumerBlocker::SkippedEntity {
+                            entity_index: 1,
+                            entity_id: 99,
+                            source_name: "mod-unit".to_string(),
+                            effective_name: None,
+                        },
+                    ],
+                },
+            ]
+        );
+        assert_eq!(
+            readiness.source_region("alpha"),
+            Some(SavePostLoadRuntimeSourceRegionReadiness {
+                source_region_name: "alpha",
+                apply_now_step_count: 0,
+                awaiting_world_shell_step_count: 4,
+                blocked_step_count: 2,
+                deferred_step_count: 0,
+                blockers: vec![
+                    SavePostLoadConsumerBlocker::ContractIssue(
+                        SavePostLoadWorldIssue::BuildingCenterReferenceMismatch,
+                    ),
+                    SavePostLoadConsumerBlocker::DuplicateEntityId(7),
+                    SavePostLoadConsumerBlocker::SkippedEntity {
+                        entity_index: 1,
+                        entity_id: 99,
+                        source_name: "mod-unit".to_string(),
+                        effective_name: None,
+                    },
+                ],
+            })
+        );
+        assert_eq!(
+            readiness.source_region("beta"),
+            Some(SavePostLoadRuntimeSourceRegionReadiness {
+                source_region_name: "beta",
+                apply_now_step_count: 1,
+                awaiting_world_shell_step_count: 0,
+                blocked_step_count: 0,
+                deferred_step_count: 3,
+                blockers: vec![
+                    SavePostLoadConsumerBlocker::ContractIssue(
+                        SavePostLoadWorldIssue::EntitySummaryMismatch,
+                    ),
+                    SavePostLoadConsumerBlocker::DuplicateEntityId(7),
+                    SavePostLoadConsumerBlocker::DuplicateEntityId(8),
+                ],
+            })
+        );
+    }
+
     fn make_observation_seedable(observation: &mut SavePostLoadWorldObservation) {
         observation.world_entity_chunks[1].class_id = 3;
         observation.world_entity_chunks[1].custom_name = None;
