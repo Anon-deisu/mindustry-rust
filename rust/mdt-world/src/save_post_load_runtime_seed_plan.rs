@@ -137,6 +137,11 @@ impl SavePostLoadWorldObservation {
     pub fn runtime_seed_plan(&self) -> SavePostLoadRuntimeSeedPlan {
         let contract = self.projection_contract();
         let activation = activation_surface_from_contract(self, &contract);
+        let static_fog_chunk_count = self
+            .custom_chunks
+            .iter()
+            .filter(|chunk| chunk.name == "static-fog-data")
+            .count();
         let world_seed = SavePostLoadRuntimeWorldSeed {
             save_version: self.save_version,
             content_header: self.content_header.clone(),
@@ -184,6 +189,9 @@ impl SavePostLoadWorldObservation {
             .custom_chunks
             .iter()
             .enumerate()
+            // Duplicate static-fog chunks are intentionally dropped from the custom-chunk
+            // seed list so the singleton accessor and runtime seeds stay aligned.
+            .filter(|(_, chunk)| static_fog_chunk_count <= 1 || chunk.name != "static-fog-data")
             .map(runtime_custom_chunk_seed)
             .collect();
         let building_seeds = self
@@ -539,16 +547,10 @@ mod tests {
         let script = observation.runtime_apply_script();
 
         assert!(plan.static_fog_seed.is_none());
-        assert_eq!(plan.seed_step_count(), 14);
-        assert_eq!(plan.custom_chunk_seeds.len(), 3);
-        assert_eq!(
-            plan.custom_chunk_seeds
-                .iter()
-                .filter(|seed| seed.name == "static-fog-data")
-                .count(),
-            2
-        );
-        assert_eq!(script.total_step_count(), 14);
+        assert_eq!(plan.seed_step_count(), 12);
+        assert_eq!(plan.custom_chunk_seeds.len(), 1);
+        assert_eq!(plan.custom_chunk_seeds[0].name, "mystery");
+        assert_eq!(script.total_step_count(), 12);
         assert_eq!(script.total_step_count(), plan.seed_step_count());
     }
 
