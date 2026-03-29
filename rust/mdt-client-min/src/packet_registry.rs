@@ -61,9 +61,11 @@ pub struct WellKnownRemotePacketIds {
     pub ping_location_packet_id: Option<u8>,
     pub debug_status_client_unreliable_packet_id: Option<u8>,
     pub trace_info_packet_id: Option<u8>,
+    pub connect_confirm_packet_id: Option<u8>,
     pub set_rules_packet_id: Option<u8>,
     pub set_objectives_packet_id: Option<u8>,
     pub set_rule_packet_id: Option<u8>,
+    pub world_data_begin_packet_id: Option<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -297,9 +299,11 @@ impl WellKnownRemotePacketIds {
                 WellKnownRemoteMethod::DebugStatusClientUnreliable,
             ),
             trace_info_packet_id: packet_id(WellKnownRemoteMethod::TraceInfo),
+            connect_confirm_packet_id: packet_id(WellKnownRemoteMethod::ConnectConfirm),
             set_rules_packet_id: packet_id(WellKnownRemoteMethod::SetRules),
             set_objectives_packet_id: packet_id(WellKnownRemoteMethod::SetObjectives),
             set_rule_packet_id: packet_id(WellKnownRemoteMethod::SetRule),
+            world_data_begin_packet_id: packet_id(WellKnownRemoteMethod::WorldDataBegin),
         }
     }
 
@@ -316,9 +320,11 @@ impl WellKnownRemotePacketIds {
                 self.debug_status_client_unreliable_packet_id
             }
             WellKnownRemoteMethod::TraceInfo => self.trace_info_packet_id,
+            WellKnownRemoteMethod::ConnectConfirm => self.connect_confirm_packet_id,
             WellKnownRemoteMethod::SetRules => self.set_rules_packet_id,
             WellKnownRemoteMethod::SetObjectives => self.set_objectives_packet_id,
             WellKnownRemoteMethod::SetRule => self.set_rule_packet_id,
+            WellKnownRemoteMethod::WorldDataBegin => self.world_data_begin_packet_id,
         }
     }
 
@@ -837,8 +843,8 @@ mod tests {
     fn generated_remote_registry_constants_match_manifest_and_combined_views() {
         use crate::generated::remote_high_frequency_gen::CLIENT_SNAPSHOT_PACKET_ID;
         use crate::generated::remote_registry_gen::{
-            CLIENT_SNAPSHOT_CALL_PACKET_ID, PING_CALL_PACKET_ID, REMOTE_PACKET_SPECS,
-            TILE_CONFIG_CALL_PACKET_ID, WORLD_DATA_BEGIN_CALL_PACKET_ID,
+            CLIENT_SNAPSHOT_CALL_PACKET_ID, CONNECT_CONFIRM_CALL_PACKET_ID, PING_CALL_PACKET_ID,
+            REMOTE_PACKET_SPECS, TILE_CONFIG_CALL_PACKET_ID, WORLD_DATA_BEGIN_CALL_PACKET_ID,
         };
 
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
@@ -867,6 +873,14 @@ mod tests {
         assert_eq!(
             combined.well_known_remote.ping_packet_id,
             Some(PING_CALL_PACKET_ID)
+        );
+        assert_eq!(
+            combined.well_known_remote.connect_confirm_packet_id,
+            Some(CONNECT_CONFIRM_CALL_PACKET_ID)
+        );
+        assert_eq!(
+            combined.well_known_remote.world_data_begin_packet_id,
+            Some(WORLD_DATA_BEGIN_CALL_PACKET_ID)
         );
         assert_eq!(
             manifest
@@ -914,9 +928,11 @@ mod tests {
             Some(13)
         );
         assert_eq!(well_known.trace_info_packet_id, Some(15));
+        assert_eq!(well_known.connect_confirm_packet_id, Some(21));
         assert_eq!(well_known.set_rules_packet_id, Some(16));
         assert_eq!(well_known.set_objectives_packet_id, Some(17));
         assert_eq!(well_known.set_rule_packet_id, Some(19));
+        assert_eq!(well_known.world_data_begin_packet_id, Some(23));
         assert_eq!(
             well_known.method(5),
             Some(WellKnownRemoteMethod::Ping)
@@ -969,6 +985,10 @@ mod tests {
                 well_known.trace_info_packet_id,
             ),
             (
+                WellKnownRemoteMethod::ConnectConfirm,
+                well_known.connect_confirm_packet_id,
+            ),
+            (
                 WellKnownRemoteMethod::SetRules,
                 well_known.set_rules_packet_id,
             ),
@@ -979,6 +999,10 @@ mod tests {
             (
                 WellKnownRemoteMethod::SetRule,
                 well_known.set_rule_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::WorldDataBegin,
+                well_known.world_data_begin_packet_id,
             ),
         ];
 
@@ -1483,6 +1507,50 @@ mod tests {
                         param("rule", "java.lang.String", true, true),
                         param("jsonData", "java.lang.String", true, true),
                     ],
+                ),
+                remote_packet(
+                    16,
+                    20,
+                    "mindustry.gen.ConnectConfirmDecoyCallPacket",
+                    "mindustry.core.NetServer",
+                    "connectConfirm",
+                    "client",
+                    "none",
+                    false,
+                    vec![],
+                ),
+                remote_packet(
+                    17,
+                    21,
+                    "mindustry.gen.ConnectConfirmCallPacket",
+                    "mindustry.core.NetServer",
+                    "connectConfirm",
+                    "client",
+                    "none",
+                    false,
+                    vec![param("player", "Player", false, false)],
+                ),
+                remote_packet(
+                    18,
+                    22,
+                    "mindustry.gen.WorldDataBeginDecoyCallPacket",
+                    "mindustry.core.NetClient",
+                    "worldDataBegin",
+                    "server",
+                    "none",
+                    true,
+                    vec![],
+                ),
+                remote_packet(
+                    19,
+                    23,
+                    "mindustry.gen.WorldDataBeginCallPacket",
+                    "mindustry.core.NetClient",
+                    "worldDataBegin",
+                    "server",
+                    "none",
+                    false,
+                    vec![],
                 ),
             ],
             wire: WireSpec {

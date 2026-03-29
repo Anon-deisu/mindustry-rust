@@ -5,7 +5,7 @@ pub const REMOTE_MANIFEST_SCHEMA_V1: &str = "mdt.remote.manifest.v1";
 pub const CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT: usize = 10;
 pub const HIGH_FREQUENCY_REMOTE_METHOD_COUNT: usize = 5;
 pub const INBOUND_REMOTE_FAMILY_COUNT: usize = 6;
-pub const WELL_KNOWN_REMOTE_METHOD_COUNT: usize = 10;
+pub const WELL_KNOWN_REMOTE_METHOD_COUNT: usize = 12;
 pub const REMOTE_PACKET_ID_SPACE: usize = u8::MAX as usize + 1;
 pub const REMOTE_WIRE_PACKET_ID_BYTE_U8: &str = "u8";
 pub const REMOTE_WIRE_LENGTH_FIELD_U16BE: &str = "u16be";
@@ -178,9 +178,11 @@ pub enum WellKnownRemoteMethod {
     PingLocation,
     DebugStatusClientUnreliable,
     TraceInfo,
+    ConnectConfirm,
     SetRules,
     SetObjectives,
     SetRule,
+    WorldDataBegin,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -431,6 +433,8 @@ const DEBUG_STATUS_CLIENT_UNRELIABLE_WIRE_PARAM_KINDS: [RemoteParamKind; 3] = [
 const TRACE_INFO_PARAM_JAVA_TYPES: [&str; 2] = ["Player", "mindustry.net.Administration.TraceInfo"];
 const TRACE_INFO_WIRE_PARAM_KINDS: [RemoteParamKind; 2] =
     [RemoteParamKind::Opaque, RemoteParamKind::Opaque];
+const CONNECT_CONFIRM_PARAM_JAVA_TYPES: [&str; 1] = ["Player"];
+const CONNECT_CONFIRM_WIRE_PARAM_KINDS: [RemoteParamKind; 0] = [];
 const SET_RULES_PARAM_JAVA_TYPES: [&str; 1] = ["mindustry.game.Rules"];
 const SET_RULES_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Opaque];
 const SET_OBJECTIVES_PARAM_JAVA_TYPES: [&str; 1] = ["mindustry.game.MapObjectives"];
@@ -438,6 +442,8 @@ const SET_OBJECTIVES_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::
 const SET_RULE_PARAM_JAVA_TYPES: [&str; 2] = ["java.lang.String", "java.lang.String"];
 const SET_RULE_WIRE_PARAM_KINDS: [RemoteParamKind; 2] =
     [RemoteParamKind::Opaque, RemoteParamKind::Opaque];
+const WORLD_DATA_BEGIN_PARAM_JAVA_TYPES: [&str; 0] = [];
+const WORLD_DATA_BEGIN_WIRE_PARAM_KINDS: [RemoteParamKind; 0] = [];
 
 impl<'a> RemoteMethodSelector<'a> {
     fn matches(self, method: &str) -> bool {
@@ -500,9 +506,11 @@ impl WellKnownRemoteMethod {
             Self::PingLocation,
             Self::DebugStatusClientUnreliable,
             Self::TraceInfo,
+            Self::ConnectConfirm,
             Self::SetRules,
             Self::SetObjectives,
             Self::SetRule,
+            Self::WorldDataBegin,
         ]
     }
 
@@ -515,9 +523,11 @@ impl WellKnownRemoteMethod {
             Self::PingLocation => "pingLocation",
             Self::DebugStatusClientUnreliable => "debugStatusClientUnreliable",
             Self::TraceInfo => "traceInfo",
+            Self::ConnectConfirm => "connectConfirm",
             Self::SetRules => "setRules",
             Self::SetObjectives => "setObjectives",
             Self::SetRule => "setRule",
+            Self::WorldDataBegin => "worldDataBegin",
         }
     }
 
@@ -531,7 +541,9 @@ impl WellKnownRemoteMethod {
             | Self::TraceInfo
             | Self::SetRules
             | Self::SetObjectives
-            | Self::SetRule => RemoteFlow::ServerToClient,
+            | Self::SetRule
+            | Self::WorldDataBegin => RemoteFlow::ServerToClient,
+            Self::ConnectConfirm => RemoteFlow::ClientToServer,
         }
     }
 
@@ -553,9 +565,11 @@ impl WellKnownRemoteMethod {
             Self::PingLocation => &PING_LOCATION_PARAM_JAVA_TYPES,
             Self::DebugStatusClientUnreliable => &DEBUG_STATUS_CLIENT_UNRELIABLE_PARAM_JAVA_TYPES,
             Self::TraceInfo => &TRACE_INFO_PARAM_JAVA_TYPES,
+            Self::ConnectConfirm => &CONNECT_CONFIRM_PARAM_JAVA_TYPES,
             Self::SetRules => &SET_RULES_PARAM_JAVA_TYPES,
             Self::SetObjectives => &SET_OBJECTIVES_PARAM_JAVA_TYPES,
             Self::SetRule => &SET_RULE_PARAM_JAVA_TYPES,
+            Self::WorldDataBegin => &WORLD_DATA_BEGIN_PARAM_JAVA_TYPES,
         }
     }
 
@@ -568,9 +582,11 @@ impl WellKnownRemoteMethod {
             Self::PingLocation => &PING_LOCATION_WIRE_PARAM_KINDS,
             Self::DebugStatusClientUnreliable => &DEBUG_STATUS_CLIENT_UNRELIABLE_WIRE_PARAM_KINDS,
             Self::TraceInfo => &TRACE_INFO_WIRE_PARAM_KINDS,
+            Self::ConnectConfirm => &CONNECT_CONFIRM_WIRE_PARAM_KINDS,
             Self::SetRules => &SET_RULES_WIRE_PARAM_KINDS,
             Self::SetObjectives => &SET_OBJECTIVES_WIRE_PARAM_KINDS,
             Self::SetRule => &SET_RULE_WIRE_PARAM_KINDS,
+            Self::WorldDataBegin => &WORLD_DATA_BEGIN_WIRE_PARAM_KINDS,
         }
     }
 
@@ -4175,9 +4191,11 @@ mod tests {
             (WellKnownRemoteMethod::PingLocation, Some(11)),
             (WellKnownRemoteMethod::DebugStatusClientUnreliable, Some(13)),
             (WellKnownRemoteMethod::TraceInfo, Some(15)),
+            (WellKnownRemoteMethod::ConnectConfirm, Some(21)),
             (WellKnownRemoteMethod::SetRules, Some(16)),
             (WellKnownRemoteMethod::SetObjectives, Some(17)),
             (WellKnownRemoteMethod::SetRule, Some(19)),
+            (WellKnownRemoteMethod::WorldDataBegin, Some(23)),
         ];
 
         assert_eq!(registry.len(), expected.len());
@@ -4207,8 +4225,11 @@ mod tests {
             fixed_table.get(17),
             Some(WellKnownRemoteMethod::SetObjectives)
         );
+        assert_eq!(fixed_table.get(21), Some(WellKnownRemoteMethod::ConnectConfirm));
+        assert_eq!(fixed_table.get(23), Some(WellKnownRemoteMethod::WorldDataBegin));
         assert_eq!(fixed_table.get(18), None);
         assert!(fixed_table.contains_packet_id(19));
+        assert!(fixed_table.contains_packet_id(23));
         assert!(!fixed_table.contains_packet_id(250));
     }
 
@@ -4592,6 +4613,18 @@ mod tests {
                 .first_well_known_method(WellKnownRemoteMethod::SetRule)
                 .map(|packet| packet.packet_id),
             Some(19)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::ConnectConfirm)
+                .map(|packet| packet.packet_id),
+            Some(21)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::WorldDataBegin)
+                .map(|packet| packet.packet_id),
+            Some(23)
         );
     }
 
@@ -5266,6 +5299,50 @@ mod tests {
                         test_param("rule", "java.lang.String", true, true),
                         test_param("jsonData", "java.lang.String", true, true),
                     ],
+                ),
+                test_remote_packet(
+                    16,
+                    20,
+                    "mindustry.gen.ConnectConfirmDecoyCallPacket",
+                    "mindustry.core.NetServer",
+                    "connectConfirm",
+                    "client",
+                    "high",
+                    false,
+                    vec![],
+                ),
+                test_remote_packet(
+                    17,
+                    21,
+                    "mindustry.gen.ConnectConfirmCallPacket",
+                    "mindustry.core.NetServer",
+                    "connectConfirm",
+                    "client",
+                    "high",
+                    false,
+                    vec![test_param("player", "Player", false, false)],
+                ),
+                test_remote_packet(
+                    18,
+                    22,
+                    "mindustry.gen.WorldDataBeginDecoyCallPacket",
+                    "mindustry.core.NetClient",
+                    "worldDataBegin",
+                    "server",
+                    "normal",
+                    true,
+                    vec![],
+                ),
+                test_remote_packet(
+                    19,
+                    23,
+                    "mindustry.gen.WorldDataBeginCallPacket",
+                    "mindustry.core.NetClient",
+                    "worldDataBegin",
+                    "server",
+                    "normal",
+                    false,
+                    vec![],
                 ),
             ],
             wire: WireSpec {

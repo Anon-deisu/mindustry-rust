@@ -626,6 +626,12 @@ impl ClientSession {
             well_known_remote.client_plan_snapshot_received_packet_id;
         let ping_response_packet_id = well_known_remote.ping_response_packet_id;
         let ping_location_packet_id = well_known_remote.ping_location_packet_id;
+        let connect_confirm_packet_id = well_known_remote
+            .connect_confirm_packet_id
+            .ok_or(ClientSessionError::MissingConnectConfirmPacket)?;
+        let world_data_begin_packet_id = well_known_remote
+            .world_data_begin_packet_id
+            .ok_or(ClientSessionError::MissingWorldDataBeginPacket)?;
         let kick_string_packet_id = manifest
             .remote_packets
             .iter()
@@ -649,18 +655,6 @@ impl ClientSession {
             .iter()
             .find(|entry| entry.method == "connect" && entry.params.len() == 2)
             .map(|entry| entry.packet_id);
-        let connect_confirm_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "connectConfirm")
-            .ok_or(ClientSessionError::MissingConnectConfirmPacket)?
-            .packet_id;
-        let world_data_begin_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "worldDataBegin")
-            .ok_or(ClientSessionError::MissingWorldDataBeginPacket)?
-            .packet_id;
         let player_spawn_packet_id = manifest
             .remote_packets
             .iter()
@@ -51159,6 +51153,10 @@ mod tests {
             expected(WellKnownRemoteMethod::TraceInfo)
         );
         assert_eq!(
+            Some(session.connect_confirm_packet_id),
+            expected(WellKnownRemoteMethod::ConnectConfirm)
+        );
+        assert_eq!(
             session.set_rules_packet_id,
             expected(WellKnownRemoteMethod::SetRules)
         );
@@ -51169,6 +51167,64 @@ mod tests {
         assert_eq!(
             session.set_rule_packet_id,
             expected(WellKnownRemoteMethod::SetRule)
+        );
+        assert_eq!(
+            Some(session.world_data_begin_packet_id),
+            expected(WellKnownRemoteMethod::WorldDataBegin)
+        );
+    }
+
+    #[test]
+    fn session_bootstrap_packet_ids_reject_well_known_method_decoys() {
+        let mut manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let expected_connect_confirm_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "connectConfirm")
+            .expect("missing connectConfirm packet")
+            .packet_id;
+        let expected_world_data_begin_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "worldDataBegin")
+            .expect("missing worldDataBegin packet")
+            .packet_id;
+
+        let mut connect_confirm_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "connectConfirm")
+            .expect("missing connectConfirm packet")
+            .clone();
+        connect_confirm_decoy.packet_id = 250;
+        connect_confirm_decoy.packet_class = "mindustry.gen.ConnectConfirmDecoyCallPacket".into();
+        connect_confirm_decoy.params.clear();
+
+        let mut world_data_begin_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "worldDataBegin")
+            .expect("missing worldDataBegin packet")
+            .clone();
+        world_data_begin_decoy.packet_id = 251;
+        world_data_begin_decoy.packet_class = "mindustry.gen.WorldDataBeginDecoyCallPacket".into();
+        world_data_begin_decoy.unreliable = true;
+
+        manifest
+            .remote_packets
+            .splice(0..0, vec![connect_confirm_decoy, world_data_begin_decoy]);
+        for (remote_index, packet) in manifest.remote_packets.iter_mut().enumerate() {
+            packet.remote_index = remote_index;
+        }
+
+        let session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        assert_eq!(
+            session.connect_confirm_packet_id,
+            expected_connect_confirm_packet_id
+        );
+        assert_eq!(
+            session.world_data_begin_packet_id,
+            expected_world_data_begin_packet_id
         );
     }
 
