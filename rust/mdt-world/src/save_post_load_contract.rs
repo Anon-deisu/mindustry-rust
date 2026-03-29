@@ -275,18 +275,23 @@ fn static_fog_surface_consistent(
         push_issue(issues, SavePostLoadWorldIssue::DuplicateCustomChunkNames);
         consistent = false;
     }
-    let mut static_fog_chunks = observation
+    let static_fog_chunks = observation
         .custom_chunks
         .iter()
-        .filter(|chunk| chunk.name == "static-fog-data");
-    if static_fog_chunks
-        .next()
-        .is_some_and(|chunk| chunk.static_fog().is_none() && static_fog_chunks.next().is_none())
+        .filter(|chunk| chunk.name == "static-fog-data")
+        .collect::<Vec<_>>();
+    if !static_fog_chunks.is_empty()
+        && static_fog_chunks
+            .iter()
+            .any(|chunk| chunk.static_fog().is_none())
     {
         push_issue(issues, SavePostLoadWorldIssue::StaticFogCoverageMismatch);
         consistent = false;
     }
-    if let Some(chunk) = observation.static_fog_chunk() {
+    if let Some(chunk) = static_fog_chunks
+        .iter()
+        .find_map(|chunk| chunk.static_fog())
+    {
         if chunk.width != observation.map.world.width
             || chunk.height != observation.map.world.height
         {
@@ -594,6 +599,26 @@ mod tests {
 
         assert!(!contract.can_project_world_shell());
         assert!(!contract.static_fog_surface_consistent);
+        assert!(contract
+            .issues
+            .contains(&SavePostLoadWorldIssue::StaticFogCoverageMismatch));
+    }
+
+    #[test]
+    fn projection_contract_flags_mixed_duplicate_static_fog_chunks_with_damaged_tail() {
+        let mut observation = test_observation();
+        let mut duplicate = observation.custom_chunks[0].clone();
+        duplicate.chunk_sha256 = "fog-damaged".to_string();
+        duplicate.parsed = ParsedCustomChunk::Unknown;
+        observation.custom_chunks.push(duplicate);
+
+        let contract = observation.projection_contract();
+
+        assert!(!contract.can_project_world_shell());
+        assert!(!contract.static_fog_surface_consistent);
+        assert!(contract
+            .issues
+            .contains(&SavePostLoadWorldIssue::DuplicateCustomChunkNames));
         assert!(contract
             .issues
             .contains(&SavePostLoadWorldIssue::StaticFogCoverageMismatch));
