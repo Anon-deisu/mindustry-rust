@@ -111,6 +111,12 @@ pub struct WellKnownRemotePacketIds {
     pub clear_liquids_packet_id: Option<u8>,
     pub set_item_packet_id: Option<u8>,
     pub set_items_packet_id: Option<u8>,
+    pub request_item_packet_id: Option<u8>,
+    pub request_build_payload_packet_id: Option<u8>,
+    pub request_drop_payload_packet_id: Option<u8>,
+    pub request_unit_payload_packet_id: Option<u8>,
+    pub drop_item_packet_id: Option<u8>,
+    pub transfer_inventory_packet_id: Option<u8>,
     pub world_data_begin_packet_id: Option<u8>,
 }
 
@@ -401,6 +407,12 @@ impl WellKnownRemotePacketIds {
             clear_liquids_packet_id: packet_id(WellKnownRemoteMethod::ClearLiquids),
             set_item_packet_id: packet_id(WellKnownRemoteMethod::SetItem),
             set_items_packet_id: packet_id(WellKnownRemoteMethod::SetItems),
+            request_item_packet_id: packet_id(WellKnownRemoteMethod::RequestItem),
+            request_build_payload_packet_id: packet_id(WellKnownRemoteMethod::RequestBuildPayload),
+            request_drop_payload_packet_id: packet_id(WellKnownRemoteMethod::RequestDropPayload),
+            request_unit_payload_packet_id: packet_id(WellKnownRemoteMethod::RequestUnitPayload),
+            drop_item_packet_id: packet_id(WellKnownRemoteMethod::DropItem),
+            transfer_inventory_packet_id: packet_id(WellKnownRemoteMethod::TransferInventory),
             world_data_begin_packet_id: packet_id(WellKnownRemoteMethod::WorldDataBegin),
         }
     }
@@ -474,6 +486,12 @@ impl WellKnownRemotePacketIds {
             WellKnownRemoteMethod::ClearLiquids => self.clear_liquids_packet_id,
             WellKnownRemoteMethod::SetItem => self.set_item_packet_id,
             WellKnownRemoteMethod::SetItems => self.set_items_packet_id,
+            WellKnownRemoteMethod::RequestItem => self.request_item_packet_id,
+            WellKnownRemoteMethod::RequestBuildPayload => self.request_build_payload_packet_id,
+            WellKnownRemoteMethod::RequestDropPayload => self.request_drop_payload_packet_id,
+            WellKnownRemoteMethod::RequestUnitPayload => self.request_unit_payload_packet_id,
+            WellKnownRemoteMethod::DropItem => self.drop_item_packet_id,
+            WellKnownRemoteMethod::TransferInventory => self.transfer_inventory_packet_id,
             WellKnownRemoteMethod::WorldDataBegin => self.world_data_begin_packet_id,
         }
     }
@@ -1009,6 +1027,9 @@ mod tests {
             WARNING_TOAST_CALL_PACKET_ID,
             CLEAR_ITEMS_CALL_PACKET_ID, CLEAR_LIQUIDS_CALL_PACKET_ID,
             SET_ITEM_CALL_PACKET_ID, SET_ITEMS_CALL_PACKET_ID,
+            REQUEST_ITEM_CALL_PACKET_ID, REQUEST_BUILD_PAYLOAD_CALL_PACKET_ID,
+            REQUEST_DROP_PAYLOAD_CALL_PACKET_ID, REQUEST_UNIT_PAYLOAD_CALL_PACKET_ID,
+            DROP_ITEM_CALL_PACKET_ID, TRANSFER_INVENTORY_CALL_PACKET_ID,
             HIDE_HUD_TEXT_CALL_PACKET_ID, INFO_MESSAGE_CALL_PACKET_ID, OPEN_URICALL_PACKET_ID,
             INFO_POPUP_CALL_PACKET_ID,
             INFO_POPUP_CALL_PACKET2_ID, INFO_POPUP_RELIABLE_CALL_PACKET_ID,
@@ -1085,6 +1106,24 @@ mod tests {
         assert!(has_generated_spec(CLEAR_LIQUIDS_CALL_PACKET_ID, "clearLiquids"));
         assert!(has_generated_spec(SET_ITEM_CALL_PACKET_ID, "setItem"));
         assert!(has_generated_spec(SET_ITEMS_CALL_PACKET_ID, "setItems"));
+        assert!(has_generated_spec(REQUEST_ITEM_CALL_PACKET_ID, "requestItem"));
+        assert!(has_generated_spec(
+            REQUEST_BUILD_PAYLOAD_CALL_PACKET_ID,
+            "requestBuildPayload"
+        ));
+        assert!(has_generated_spec(
+            REQUEST_DROP_PAYLOAD_CALL_PACKET_ID,
+            "requestDropPayload"
+        ));
+        assert!(has_generated_spec(
+            REQUEST_UNIT_PAYLOAD_CALL_PACKET_ID,
+            "requestUnitPayload"
+        ));
+        assert!(has_generated_spec(DROP_ITEM_CALL_PACKET_ID, "dropItem"));
+        assert!(has_generated_spec(
+            TRANSFER_INVENTORY_CALL_PACKET_ID,
+            "transferInventory"
+        ));
         assert!(has_generated_spec(TILE_CONFIG_CALL_PACKET_ID, "tileConfig"));
         assert!(has_generated_spec(
             WORLD_DATA_BEGIN_CALL_PACKET_ID,
@@ -1291,6 +1330,30 @@ mod tests {
             Some(SET_ITEMS_CALL_PACKET_ID)
         );
         assert_eq!(
+            combined.well_known_remote.request_item_packet_id,
+            Some(REQUEST_ITEM_CALL_PACKET_ID)
+        );
+        assert_eq!(
+            combined.well_known_remote.request_build_payload_packet_id,
+            Some(REQUEST_BUILD_PAYLOAD_CALL_PACKET_ID)
+        );
+        assert_eq!(
+            combined.well_known_remote.request_drop_payload_packet_id,
+            Some(REQUEST_DROP_PAYLOAD_CALL_PACKET_ID)
+        );
+        assert_eq!(
+            combined.well_known_remote.request_unit_payload_packet_id,
+            Some(REQUEST_UNIT_PAYLOAD_CALL_PACKET_ID)
+        );
+        assert_eq!(
+            combined.well_known_remote.drop_item_packet_id,
+            Some(DROP_ITEM_CALL_PACKET_ID)
+        );
+        assert_eq!(
+            combined.well_known_remote.transfer_inventory_packet_id,
+            Some(TRANSFER_INVENTORY_CALL_PACKET_ID)
+        );
+        assert_eq!(
             manifest
                 .remote_packets
                 .iter()
@@ -1386,6 +1449,12 @@ mod tests {
         assert_eq!(well_known.clear_liquids_packet_id, Some(111));
         assert_eq!(well_known.set_item_packet_id, Some(113));
         assert_eq!(well_known.set_items_packet_id, Some(115));
+        assert_eq!(well_known.request_item_packet_id, Some(117));
+        assert_eq!(well_known.request_build_payload_packet_id, Some(119));
+        assert_eq!(well_known.request_drop_payload_packet_id, Some(121));
+        assert_eq!(well_known.request_unit_payload_packet_id, Some(123));
+        assert_eq!(well_known.drop_item_packet_id, Some(125));
+        assert_eq!(well_known.transfer_inventory_packet_id, Some(127));
         assert_eq!(well_known.world_data_begin_packet_id, Some(23));
         assert_eq!(well_known.method(5), Some(WellKnownRemoteMethod::Ping));
         assert_eq!(well_known.method(6), None);
@@ -1634,6 +1703,30 @@ mod tests {
             (
                 WellKnownRemoteMethod::SetItems,
                 well_known.set_items_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::RequestItem,
+                well_known.request_item_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::RequestBuildPayload,
+                well_known.request_build_payload_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::RequestDropPayload,
+                well_known.request_drop_payload_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::RequestUnitPayload,
+                well_known.request_unit_payload_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::DropItem,
+                well_known.drop_item_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::TransferInventory,
+                well_known.transfer_inventory_packet_id,
             ),
             (
                 WellKnownRemoteMethod::WorldDataBegin,
@@ -3488,6 +3581,180 @@ mod tests {
                     vec![
                         param("build", "Building", true, true),
                         param("items", "mindustry.type.ItemStack[]", true, true),
+                    ],
+                ),
+                remote_packet(
+                    112,
+                    116,
+                    "mindustry.gen.RequestItemDecoyCallPacket",
+                    "mindustry.input.InputHandler",
+                    "requestItem",
+                    "both",
+                    "normal",
+                    true,
+                    vec![
+                        param("player", "Player", false, true),
+                        param("build", "Building", true, true),
+                        param("item", "mindustry.type.Item", true, true),
+                        param("amount", "int", true, true),
+                    ],
+                ),
+                remote_packet(
+                    113,
+                    117,
+                    "mindustry.gen.RequestItemCallPacket",
+                    "mindustry.input.InputHandler",
+                    "requestItem",
+                    "both",
+                    "normal",
+                    false,
+                    vec![
+                        param("player", "Player", false, true),
+                        param("build", "Building", true, true),
+                        param("item", "mindustry.type.Item", true, true),
+                        param("amount", "int", true, true),
+                    ],
+                ),
+                remote_packet(
+                    114,
+                    118,
+                    "mindustry.gen.RequestBuildPayloadDecoyCallPacket",
+                    "mindustry.input.InputHandler",
+                    "requestBuildPayload",
+                    "both",
+                    "normal",
+                    true,
+                    vec![
+                        param("player", "Player", false, true),
+                        param("build", "Building", true, true),
+                    ],
+                ),
+                remote_packet(
+                    115,
+                    119,
+                    "mindustry.gen.RequestBuildPayloadCallPacket",
+                    "mindustry.input.InputHandler",
+                    "requestBuildPayload",
+                    "both",
+                    "normal",
+                    false,
+                    vec![
+                        param("player", "Player", false, true),
+                        param("build", "Building", true, true),
+                    ],
+                ),
+                remote_packet(
+                    116,
+                    120,
+                    "mindustry.gen.RequestDropPayloadDecoyCallPacket",
+                    "mindustry.input.InputHandler",
+                    "requestDropPayload",
+                    "both",
+                    "normal",
+                    true,
+                    vec![
+                        param("player", "Player", false, true),
+                        param("x", "float", true, true),
+                        param("y", "float", true, true),
+                    ],
+                ),
+                remote_packet(
+                    117,
+                    121,
+                    "mindustry.gen.RequestDropPayloadCallPacket",
+                    "mindustry.input.InputHandler",
+                    "requestDropPayload",
+                    "both",
+                    "normal",
+                    false,
+                    vec![
+                        param("player", "Player", false, true),
+                        param("x", "float", true, true),
+                        param("y", "float", true, true),
+                    ],
+                ),
+                remote_packet(
+                    118,
+                    122,
+                    "mindustry.gen.RequestUnitPayloadDecoyCallPacket",
+                    "mindustry.input.InputHandler",
+                    "requestUnitPayload",
+                    "both",
+                    "normal",
+                    true,
+                    vec![
+                        param("player", "Player", false, true),
+                        param("target", "Unit", true, true),
+                    ],
+                ),
+                remote_packet(
+                    119,
+                    123,
+                    "mindustry.gen.RequestUnitPayloadCallPacket",
+                    "mindustry.input.InputHandler",
+                    "requestUnitPayload",
+                    "both",
+                    "normal",
+                    false,
+                    vec![
+                        param("player", "Player", false, true),
+                        param("target", "Unit", true, true),
+                    ],
+                ),
+                remote_packet(
+                    120,
+                    124,
+                    "mindustry.gen.DropItemDecoyCallPacket",
+                    "mindustry.input.InputHandler",
+                    "dropItem",
+                    "client",
+                    "normal",
+                    true,
+                    vec![
+                        param("player", "Player", false, false),
+                        param("angle", "float", true, true),
+                    ],
+                ),
+                remote_packet(
+                    121,
+                    125,
+                    "mindustry.gen.DropItemCallPacket",
+                    "mindustry.input.InputHandler",
+                    "dropItem",
+                    "client",
+                    "normal",
+                    false,
+                    vec![
+                        param("player", "Player", false, false),
+                        param("angle", "float", true, true),
+                    ],
+                ),
+                remote_packet(
+                    122,
+                    126,
+                    "mindustry.gen.TransferInventoryDecoyCallPacket",
+                    "mindustry.input.InputHandler",
+                    "transferInventory",
+                    "both",
+                    "normal",
+                    true,
+                    vec![
+                        param("player", "Player", false, true),
+                        param("build", "Building", true, true),
+                    ],
+                ),
+                remote_packet(
+                    123,
+                    127,
+                    "mindustry.gen.TransferInventoryCallPacket",
+                    "mindustry.input.InputHandler",
+                    "transferInventory",
+                    "both",
+                    "normal",
+                    false,
+                    vec![
+                        param("player", "Player", false, true),
+                        param("build", "Building", true, true),
                     ],
                 ),
             ],

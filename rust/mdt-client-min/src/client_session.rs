@@ -807,26 +807,10 @@ impl ClientSession {
             .find(|entry| entry.method == "setPlayerTeamEditor")
             .map(|entry| entry.packet_id);
         let warning_toast_packet_id = well_known_remote.warning_toast_packet_id;
-        let request_item_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "requestItem")
-            .map(|entry| entry.packet_id);
-        let request_build_payload_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "requestBuildPayload")
-            .map(|entry| entry.packet_id);
-        let request_drop_payload_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "requestDropPayload")
-            .map(|entry| entry.packet_id);
-        let request_unit_payload_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "requestUnitPayload")
-            .map(|entry| entry.packet_id);
+        let request_item_packet_id = well_known_remote.request_item_packet_id;
+        let request_build_payload_packet_id = well_known_remote.request_build_payload_packet_id;
+        let request_drop_payload_packet_id = well_known_remote.request_drop_payload_packet_id;
+        let request_unit_payload_packet_id = well_known_remote.request_unit_payload_packet_id;
         let payload_dropped_packet_id = manifest
             .remote_packets
             .iter()
@@ -914,21 +898,13 @@ impl ClientSession {
             .map(|entry| entry.packet_id);
         let clear_items_packet_id = well_known_remote.clear_items_packet_id;
         let clear_liquids_packet_id = well_known_remote.clear_liquids_packet_id;
-        let drop_item_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "dropItem")
-            .map(|entry| entry.packet_id);
+        let drop_item_packet_id = well_known_remote.drop_item_packet_id;
         let rotate_block_packet_id = manifest
             .remote_packets
             .iter()
             .find(|entry| entry.method == "rotateBlock")
             .map(|entry| entry.packet_id);
-        let transfer_inventory_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "transferInventory")
-            .map(|entry| entry.packet_id);
+        let transfer_inventory_packet_id = well_known_remote.transfer_inventory_packet_id;
         let tile_config_packet_id = manifest
             .remote_packets
             .iter()
@@ -51143,6 +51119,30 @@ mod tests {
             expected(WellKnownRemoteMethod::SetItems)
         );
         assert_eq!(
+            session.request_item_packet_id,
+            expected(WellKnownRemoteMethod::RequestItem)
+        );
+        assert_eq!(
+            session.request_build_payload_packet_id,
+            expected(WellKnownRemoteMethod::RequestBuildPayload)
+        );
+        assert_eq!(
+            session.request_drop_payload_packet_id,
+            expected(WellKnownRemoteMethod::RequestDropPayload)
+        );
+        assert_eq!(
+            session.request_unit_payload_packet_id,
+            expected(WellKnownRemoteMethod::RequestUnitPayload)
+        );
+        assert_eq!(
+            session.drop_item_packet_id,
+            expected(WellKnownRemoteMethod::DropItem)
+        );
+        assert_eq!(
+            session.transfer_inventory_packet_id,
+            expected(WellKnownRemoteMethod::TransferInventory)
+        );
+        assert_eq!(
             Some(session.world_data_begin_packet_id),
             expected(WellKnownRemoteMethod::WorldDataBegin)
         );
@@ -52573,6 +52573,224 @@ mod tests {
         );
         assert_eq!(session.set_item_packet_id, Some(expected_set_item_packet_id));
         assert_eq!(session.set_items_packet_id, Some(expected_set_items_packet_id));
+    }
+
+    #[test]
+    fn session_request_and_drop_packet_ids_reject_well_known_method_decoys() {
+        let mut manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let expected_request_item_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "requestItem"
+                    && entry.params.len() == 4
+                    && entry.params[0].java_type == "Player"
+                    && entry.params[1].java_type == "Building"
+                    && entry.params[2].java_type == "mindustry.type.Item"
+                    && entry.params[3].java_type == "int"
+                    && !entry.unreliable
+            })
+            .expect("missing requestItem packet")
+            .packet_id;
+        let expected_request_build_payload_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "requestBuildPayload"
+                    && entry.params.len() == 2
+                    && entry.params[0].java_type == "Player"
+                    && entry.params[1].java_type == "Building"
+                    && !entry.unreliable
+            })
+            .expect("missing requestBuildPayload packet")
+            .packet_id;
+        let expected_request_drop_payload_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "requestDropPayload"
+                    && entry.params.len() == 3
+                    && entry.params[0].java_type == "Player"
+                    && entry.params[1].java_type == "float"
+                    && entry.params[2].java_type == "float"
+                    && !entry.unreliable
+            })
+            .expect("missing requestDropPayload packet")
+            .packet_id;
+        let expected_request_unit_payload_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "requestUnitPayload"
+                    && entry.params.len() == 2
+                    && entry.params[0].java_type == "Player"
+                    && entry.params[1].java_type == "Unit"
+                    && !entry.unreliable
+            })
+            .expect("missing requestUnitPayload packet")
+            .packet_id;
+        let expected_drop_item_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "dropItem"
+                    && entry.params.len() == 2
+                    && entry.params[0].java_type == "Player"
+                    && entry.params[1].java_type == "float"
+                    && !entry.unreliable
+            })
+            .expect("missing dropItem packet")
+            .packet_id;
+        let expected_transfer_inventory_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "transferInventory"
+                    && entry.params.len() == 2
+                    && entry.params[0].java_type == "Player"
+                    && entry.params[1].java_type == "Building"
+                    && !entry.unreliable
+            })
+            .expect("missing transferInventory packet")
+            .packet_id;
+
+        let mut request_item_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "requestItem"
+                    && entry.params.len() == 4
+                    && entry.params[0].java_type == "Player"
+                    && entry.params[1].java_type == "Building"
+                    && entry.params[2].java_type == "mindustry.type.Item"
+                    && entry.params[3].java_type == "int"
+                    && !entry.unreliable
+            })
+            .expect("missing requestItem packet")
+            .clone();
+        request_item_decoy.packet_id = 244;
+        request_item_decoy.packet_class = "mindustry.gen.RequestItemDecoyCallPacket".into();
+        request_item_decoy.unreliable = true;
+
+        let mut request_build_payload_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "requestBuildPayload"
+                    && entry.params.len() == 2
+                    && entry.params[0].java_type == "Player"
+                    && entry.params[1].java_type == "Building"
+                    && !entry.unreliable
+            })
+            .expect("missing requestBuildPayload packet")
+            .clone();
+        request_build_payload_decoy.packet_id = 245;
+        request_build_payload_decoy.packet_class =
+            "mindustry.gen.RequestBuildPayloadDecoyCallPacket".into();
+        request_build_payload_decoy.unreliable = true;
+
+        let mut request_drop_payload_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "requestDropPayload"
+                    && entry.params.len() == 3
+                    && entry.params[0].java_type == "Player"
+                    && entry.params[1].java_type == "float"
+                    && entry.params[2].java_type == "float"
+                    && !entry.unreliable
+            })
+            .expect("missing requestDropPayload packet")
+            .clone();
+        request_drop_payload_decoy.packet_id = 246;
+        request_drop_payload_decoy.packet_class =
+            "mindustry.gen.RequestDropPayloadDecoyCallPacket".into();
+        request_drop_payload_decoy.unreliable = true;
+
+        let mut request_unit_payload_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "requestUnitPayload"
+                    && entry.params.len() == 2
+                    && entry.params[0].java_type == "Player"
+                    && entry.params[1].java_type == "Unit"
+                    && !entry.unreliable
+            })
+            .expect("missing requestUnitPayload packet")
+            .clone();
+        request_unit_payload_decoy.packet_id = 247;
+        request_unit_payload_decoy.packet_class =
+            "mindustry.gen.RequestUnitPayloadDecoyCallPacket".into();
+        request_unit_payload_decoy.unreliable = true;
+
+        let mut drop_item_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "dropItem"
+                    && entry.params.len() == 2
+                    && entry.params[0].java_type == "Player"
+                    && entry.params[1].java_type == "float"
+                    && !entry.unreliable
+            })
+            .expect("missing dropItem packet")
+            .clone();
+        drop_item_decoy.packet_id = 248;
+        drop_item_decoy.packet_class = "mindustry.gen.DropItemDecoyCallPacket".into();
+        drop_item_decoy.unreliable = true;
+
+        let mut transfer_inventory_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "transferInventory"
+                    && entry.params.len() == 2
+                    && entry.params[0].java_type == "Player"
+                    && entry.params[1].java_type == "Building"
+                    && !entry.unreliable
+            })
+            .expect("missing transferInventory packet")
+            .clone();
+        transfer_inventory_decoy.packet_id = 249;
+        transfer_inventory_decoy.packet_class =
+            "mindustry.gen.TransferInventoryDecoyCallPacket".into();
+        transfer_inventory_decoy.unreliable = true;
+
+        manifest.remote_packets.splice(
+            0..0,
+            vec![
+                request_item_decoy,
+                request_build_payload_decoy,
+                request_drop_payload_decoy,
+                request_unit_payload_decoy,
+                drop_item_decoy,
+                transfer_inventory_decoy,
+            ],
+        );
+        for (remote_index, packet) in manifest.remote_packets.iter_mut().enumerate() {
+            packet.remote_index = remote_index;
+        }
+
+        let session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        assert_eq!(session.request_item_packet_id, Some(expected_request_item_packet_id));
+        assert_eq!(
+            session.request_build_payload_packet_id,
+            Some(expected_request_build_payload_packet_id)
+        );
+        assert_eq!(
+            session.request_drop_payload_packet_id,
+            Some(expected_request_drop_payload_packet_id)
+        );
+        assert_eq!(
+            session.request_unit_payload_packet_id,
+            Some(expected_request_unit_payload_packet_id)
+        );
+        assert_eq!(session.drop_item_packet_id, Some(expected_drop_item_packet_id));
+        assert_eq!(
+            session.transfer_inventory_packet_id,
+            Some(expected_transfer_inventory_packet_id)
+        );
     }
 
     #[test]

@@ -5,7 +5,7 @@ pub const REMOTE_MANIFEST_SCHEMA_V1: &str = "mdt.remote.manifest.v1";
 pub const CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT: usize = 10;
 pub const HIGH_FREQUENCY_REMOTE_METHOD_COUNT: usize = 5;
 pub const INBOUND_REMOTE_FAMILY_COUNT: usize = 6;
-pub const WELL_KNOWN_REMOTE_METHOD_COUNT: usize = 58;
+pub const WELL_KNOWN_REMOTE_METHOD_COUNT: usize = 64;
 pub const REMOTE_PACKET_ID_SPACE: usize = u8::MAX as usize + 1;
 pub const REMOTE_WIRE_PACKET_ID_BYTE_U8: &str = "u8";
 pub const REMOTE_WIRE_LENGTH_FIELD_U16BE: &str = "u16be";
@@ -208,6 +208,12 @@ pub enum WellKnownRemoteMethod {
     ClearLiquids,
     SetItem,
     SetItems,
+    RequestItem,
+    RequestBuildPayload,
+    RequestDropPayload,
+    RequestUnitPayload,
+    DropItem,
+    TransferInventory,
     WorldDataBegin,
     KickString,
     KickReason,
@@ -709,6 +715,27 @@ const SET_ITEM_WIRE_PARAM_KINDS: [RemoteParamKind; 3] =
 const SET_ITEMS_PARAM_JAVA_TYPES: [&str; 2] = ["Building", "mindustry.type.ItemStack[]"];
 const SET_ITEMS_WIRE_PARAM_KINDS: [RemoteParamKind; 2] =
     [RemoteParamKind::Opaque, RemoteParamKind::Opaque];
+const REQUEST_ITEM_PARAM_JAVA_TYPES: [&str; 4] = ["Player", "Building", "mindustry.type.Item", "int"];
+const REQUEST_ITEM_WIRE_PARAM_KINDS: [RemoteParamKind; 4] = [
+    RemoteParamKind::Opaque,
+    RemoteParamKind::Opaque,
+    RemoteParamKind::Opaque,
+    RemoteParamKind::Int,
+];
+const REQUEST_BUILD_PAYLOAD_PARAM_JAVA_TYPES: [&str; 2] = ["Player", "Building"];
+const REQUEST_BUILD_PAYLOAD_WIRE_PARAM_KINDS: [RemoteParamKind; 2] =
+    [RemoteParamKind::Opaque, RemoteParamKind::Opaque];
+const REQUEST_DROP_PAYLOAD_PARAM_JAVA_TYPES: [&str; 3] = ["Player", "float", "float"];
+const REQUEST_DROP_PAYLOAD_WIRE_PARAM_KINDS: [RemoteParamKind; 3] =
+    [RemoteParamKind::Opaque, RemoteParamKind::Float, RemoteParamKind::Float];
+const REQUEST_UNIT_PAYLOAD_PARAM_JAVA_TYPES: [&str; 2] = ["Player", "Unit"];
+const REQUEST_UNIT_PAYLOAD_WIRE_PARAM_KINDS: [RemoteParamKind; 2] =
+    [RemoteParamKind::Opaque, RemoteParamKind::Opaque];
+const DROP_ITEM_PARAM_JAVA_TYPES: [&str; 2] = ["Player", "float"];
+const DROP_ITEM_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Float];
+const TRANSFER_INVENTORY_PARAM_JAVA_TYPES: [&str; 2] = ["Player", "Building"];
+const TRANSFER_INVENTORY_WIRE_PARAM_KINDS: [RemoteParamKind; 2] =
+    [RemoteParamKind::Opaque, RemoteParamKind::Opaque];
 const WORLD_DATA_BEGIN_PARAM_JAVA_TYPES: [&str; 0] = [];
 const WORLD_DATA_BEGIN_WIRE_PARAM_KINDS: [RemoteParamKind; 0] = [];
 
@@ -803,6 +830,12 @@ impl WellKnownRemoteMethod {
             Self::ClearLiquids,
             Self::SetItem,
             Self::SetItems,
+            Self::RequestItem,
+            Self::RequestBuildPayload,
+            Self::RequestDropPayload,
+            Self::RequestUnitPayload,
+            Self::DropItem,
+            Self::TransferInventory,
             Self::WorldDataBegin,
             Self::KickString,
             Self::KickReason,
@@ -866,6 +899,12 @@ impl WellKnownRemoteMethod {
             Self::ClearLiquids => "clearLiquids",
             Self::SetItem => "setItem",
             Self::SetItems => "setItems",
+            Self::RequestItem => "requestItem",
+            Self::RequestBuildPayload => "requestBuildPayload",
+            Self::RequestDropPayload => "requestDropPayload",
+            Self::RequestUnitPayload => "requestUnitPayload",
+            Self::DropItem => "dropItem",
+            Self::TransferInventory => "transferInventory",
             Self::WorldDataBegin => "worldDataBegin",
             Self::KickString | Self::KickReason => "kick",
             Self::SendChatMessage => "sendChatMessage",
@@ -887,8 +926,15 @@ impl WellKnownRemoteMethod {
             Self::Ping
             | Self::ClientPlanSnapshot
             | Self::AdminRequest
-            | Self::RequestDebugStatus => RemoteFlow::ClientToServer,
-            Self::PingLocation => RemoteFlow::Bidirectional,
+            | Self::RequestDebugStatus
+            | Self::DropItem
+            => RemoteFlow::ClientToServer,
+            Self::PingLocation
+            | Self::RequestItem
+            | Self::RequestBuildPayload
+            | Self::RequestDropPayload
+            | Self::RequestUnitPayload
+            | Self::TransferInventory => RemoteFlow::Bidirectional,
             Self::ClientPlanSnapshotReceived
             | Self::PingResponse
             | Self::DebugStatusClient
@@ -1005,6 +1051,12 @@ impl WellKnownRemoteMethod {
             Self::ClearLiquids => &CLEAR_LIQUIDS_PARAM_JAVA_TYPES,
             Self::SetItem => &SET_ITEM_PARAM_JAVA_TYPES,
             Self::SetItems => &SET_ITEMS_PARAM_JAVA_TYPES,
+            Self::RequestItem => &REQUEST_ITEM_PARAM_JAVA_TYPES,
+            Self::RequestBuildPayload => &REQUEST_BUILD_PAYLOAD_PARAM_JAVA_TYPES,
+            Self::RequestDropPayload => &REQUEST_DROP_PAYLOAD_PARAM_JAVA_TYPES,
+            Self::RequestUnitPayload => &REQUEST_UNIT_PAYLOAD_PARAM_JAVA_TYPES,
+            Self::DropItem => &DROP_ITEM_PARAM_JAVA_TYPES,
+            Self::TransferInventory => &TRANSFER_INVENTORY_PARAM_JAVA_TYPES,
             Self::WorldDataBegin => &WORLD_DATA_BEGIN_PARAM_JAVA_TYPES,
             Self::KickString => &KICK_STRING_PARAM_JAVA_TYPES,
             Self::KickReason => &KICK_REASON_PARAM_JAVA_TYPES,
@@ -1065,6 +1117,12 @@ impl WellKnownRemoteMethod {
             Self::ClearLiquids => &CLEAR_LIQUIDS_WIRE_PARAM_KINDS,
             Self::SetItem => &SET_ITEM_WIRE_PARAM_KINDS,
             Self::SetItems => &SET_ITEMS_WIRE_PARAM_KINDS,
+            Self::RequestItem => &REQUEST_ITEM_WIRE_PARAM_KINDS,
+            Self::RequestBuildPayload => &REQUEST_BUILD_PAYLOAD_WIRE_PARAM_KINDS,
+            Self::RequestDropPayload => &REQUEST_DROP_PAYLOAD_WIRE_PARAM_KINDS,
+            Self::RequestUnitPayload => &REQUEST_UNIT_PAYLOAD_WIRE_PARAM_KINDS,
+            Self::DropItem => &DROP_ITEM_WIRE_PARAM_KINDS,
+            Self::TransferInventory => &TRANSFER_INVENTORY_WIRE_PARAM_KINDS,
             Self::WorldDataBegin => &WORLD_DATA_BEGIN_WIRE_PARAM_KINDS,
             Self::KickString => &KICK_STRING_WIRE_PARAM_KINDS,
             Self::KickReason => &KICK_REASON_WIRE_PARAM_KINDS,
@@ -4708,6 +4766,16 @@ mod tests {
             baseline.well_known.packet_id(WellKnownRemoteMethod::SetItems)
         );
         assert_eq!(
+            bundle.well_known.packet_id(WellKnownRemoteMethod::RequestItem),
+            baseline.well_known.packet_id(WellKnownRemoteMethod::RequestItem)
+        );
+        assert_eq!(
+            bundle.well_known.packet_id(WellKnownRemoteMethod::TransferInventory),
+            baseline
+                .well_known
+                .packet_id(WellKnownRemoteMethod::TransferInventory)
+        );
+        assert_eq!(
             bundle
                 .well_known
                 .packet_id(WellKnownRemoteMethod::DebugStatusClientUnreliable),
@@ -4773,6 +4841,12 @@ mod tests {
             (WellKnownRemoteMethod::ClearLiquids, Some(111)),
             (WellKnownRemoteMethod::SetItem, Some(113)),
             (WellKnownRemoteMethod::SetItems, Some(115)),
+            (WellKnownRemoteMethod::RequestItem, Some(117)),
+            (WellKnownRemoteMethod::RequestBuildPayload, Some(119)),
+            (WellKnownRemoteMethod::RequestDropPayload, Some(121)),
+            (WellKnownRemoteMethod::RequestUnitPayload, Some(123)),
+            (WellKnownRemoteMethod::DropItem, Some(125)),
+            (WellKnownRemoteMethod::TransferInventory, Some(127)),
             (WellKnownRemoteMethod::WorldDataBegin, Some(23)),
             (WellKnownRemoteMethod::KickString, Some(25)),
             (WellKnownRemoteMethod::KickReason, Some(27)),
@@ -4858,6 +4932,24 @@ mod tests {
         assert_eq!(fixed_table.get(111), Some(WellKnownRemoteMethod::ClearLiquids));
         assert_eq!(fixed_table.get(113), Some(WellKnownRemoteMethod::SetItem));
         assert_eq!(fixed_table.get(115), Some(WellKnownRemoteMethod::SetItems));
+        assert_eq!(fixed_table.get(117), Some(WellKnownRemoteMethod::RequestItem));
+        assert_eq!(
+            fixed_table.get(119),
+            Some(WellKnownRemoteMethod::RequestBuildPayload)
+        );
+        assert_eq!(
+            fixed_table.get(121),
+            Some(WellKnownRemoteMethod::RequestDropPayload)
+        );
+        assert_eq!(
+            fixed_table.get(123),
+            Some(WellKnownRemoteMethod::RequestUnitPayload)
+        );
+        assert_eq!(fixed_table.get(125), Some(WellKnownRemoteMethod::DropItem));
+        assert_eq!(
+            fixed_table.get(127),
+            Some(WellKnownRemoteMethod::TransferInventory)
+        );
         assert_eq!(
             fixed_table.get(17),
             Some(WellKnownRemoteMethod::SetObjectives)
@@ -4936,6 +5028,12 @@ mod tests {
         assert!(fixed_table.contains_packet_id(111));
         assert!(fixed_table.contains_packet_id(113));
         assert!(fixed_table.contains_packet_id(115));
+        assert!(fixed_table.contains_packet_id(117));
+        assert!(fixed_table.contains_packet_id(119));
+        assert!(fixed_table.contains_packet_id(121));
+        assert!(fixed_table.contains_packet_id(123));
+        assert!(fixed_table.contains_packet_id(125));
+        assert!(fixed_table.contains_packet_id(127));
         assert!(!fixed_table.contains_packet_id(250));
     }
 
@@ -5463,6 +5561,42 @@ mod tests {
                 .first_well_known_method(WellKnownRemoteMethod::SetItems)
                 .map(|packet| packet.packet_id),
             Some(115)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::RequestItem)
+                .map(|packet| packet.packet_id),
+            Some(117)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::RequestBuildPayload)
+                .map(|packet| packet.packet_id),
+            Some(119)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::RequestDropPayload)
+                .map(|packet| packet.packet_id),
+            Some(121)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::RequestUnitPayload)
+                .map(|packet| packet.packet_id),
+            Some(123)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::DropItem)
+                .map(|packet| packet.packet_id),
+            Some(125)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::TransferInventory)
+                .map(|packet| packet.packet_id),
+            Some(127)
         );
         assert_eq!(
             registry
@@ -7624,6 +7758,180 @@ mod tests {
                     vec![
                         test_param("build", "Building", true, true),
                         test_param("items", "mindustry.type.ItemStack[]", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    112,
+                    116,
+                    "mindustry.gen.RequestItemDecoyCallPacket",
+                    "mindustry.input.InputHandler",
+                    "requestItem",
+                    "both",
+                    "normal",
+                    true,
+                    vec![
+                        test_param("player", "Player", false, true),
+                        test_param("build", "Building", true, true),
+                        test_param("item", "mindustry.type.Item", true, true),
+                        test_param("amount", "int", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    113,
+                    117,
+                    "mindustry.gen.RequestItemCallPacket",
+                    "mindustry.input.InputHandler",
+                    "requestItem",
+                    "both",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("player", "Player", false, true),
+                        test_param("build", "Building", true, true),
+                        test_param("item", "mindustry.type.Item", true, true),
+                        test_param("amount", "int", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    114,
+                    118,
+                    "mindustry.gen.RequestBuildPayloadDecoyCallPacket",
+                    "mindustry.input.InputHandler",
+                    "requestBuildPayload",
+                    "both",
+                    "normal",
+                    true,
+                    vec![
+                        test_param("player", "Player", false, true),
+                        test_param("build", "Building", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    115,
+                    119,
+                    "mindustry.gen.RequestBuildPayloadCallPacket",
+                    "mindustry.input.InputHandler",
+                    "requestBuildPayload",
+                    "both",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("player", "Player", false, true),
+                        test_param("build", "Building", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    116,
+                    120,
+                    "mindustry.gen.RequestDropPayloadDecoyCallPacket",
+                    "mindustry.input.InputHandler",
+                    "requestDropPayload",
+                    "both",
+                    "normal",
+                    true,
+                    vec![
+                        test_param("player", "Player", false, true),
+                        test_param("x", "float", true, true),
+                        test_param("y", "float", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    117,
+                    121,
+                    "mindustry.gen.RequestDropPayloadCallPacket",
+                    "mindustry.input.InputHandler",
+                    "requestDropPayload",
+                    "both",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("player", "Player", false, true),
+                        test_param("x", "float", true, true),
+                        test_param("y", "float", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    118,
+                    122,
+                    "mindustry.gen.RequestUnitPayloadDecoyCallPacket",
+                    "mindustry.input.InputHandler",
+                    "requestUnitPayload",
+                    "both",
+                    "normal",
+                    true,
+                    vec![
+                        test_param("player", "Player", false, true),
+                        test_param("target", "Unit", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    119,
+                    123,
+                    "mindustry.gen.RequestUnitPayloadCallPacket",
+                    "mindustry.input.InputHandler",
+                    "requestUnitPayload",
+                    "both",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("player", "Player", false, true),
+                        test_param("target", "Unit", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    120,
+                    124,
+                    "mindustry.gen.DropItemDecoyCallPacket",
+                    "mindustry.input.InputHandler",
+                    "dropItem",
+                    "client",
+                    "normal",
+                    true,
+                    vec![
+                        test_param("player", "Player", false, false),
+                        test_param("angle", "float", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    121,
+                    125,
+                    "mindustry.gen.DropItemCallPacket",
+                    "mindustry.input.InputHandler",
+                    "dropItem",
+                    "client",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("player", "Player", false, false),
+                        test_param("angle", "float", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    122,
+                    126,
+                    "mindustry.gen.TransferInventoryDecoyCallPacket",
+                    "mindustry.input.InputHandler",
+                    "transferInventory",
+                    "both",
+                    "normal",
+                    true,
+                    vec![
+                        test_param("player", "Player", false, true),
+                        test_param("build", "Building", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    123,
+                    127,
+                    "mindustry.gen.TransferInventoryCallPacket",
+                    "mindustry.input.InputHandler",
+                    "transferInventory",
+                    "both",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("player", "Player", false, true),
+                        test_param("build", "Building", true, true),
                     ],
                 ),
             ],
