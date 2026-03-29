@@ -292,11 +292,8 @@ pub fn write_strings(out: &mut Vec<u8>, values: &[Option<String>]) {
 }
 
 pub fn write_strings_capped(out: &mut Vec<u8>, values: &[Option<String>], max_len: usize) {
-    let capped_len = values.len().min(max_len);
-    write_byte(
-        out,
-        u8::try_from(capped_len).expect("capped string count exceeds u8"),
-    );
+    let capped_len = values.len().min(max_len).min(u8::MAX as usize);
+    write_byte(out, capped_len as u8);
     for value in values.iter().take(capped_len) {
         write_string(out, value.as_deref());
     }
@@ -1007,6 +1004,7 @@ pub fn read_payload_summary_prefix(
     Ok((value.summary(consumed), consumed))
 }
 
+#[cfg(test)]
 fn write_length_prefixed_json(out: &mut Vec<u8>, value: &str) {
     write_length_prefixed_json_bytes(out, value.as_bytes());
 }
@@ -2190,11 +2188,19 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "capped string count exceeds u8")]
-    fn write_strings_capped_rejects_lengths_outside_u8_range() {
-        let strings = vec![None; u8::MAX as usize + 1];
+    fn write_strings_capped_clamps_lengths_outside_u8_range() {
+        let strings = (0..=u8::MAX)
+            .map(|index| Some(index.to_string()))
+            .collect::<Vec<_>>();
         let mut out = Vec::new();
         write_strings_capped(&mut out, &strings, strings.len());
+
+        assert_eq!(out.first().copied(), Some(u8::MAX));
+
+        let decoded = read_strings(&out).unwrap();
+        assert_eq!(decoded.len(), u8::MAX as usize);
+        assert_eq!(decoded.first(), Some(&Some("0".to_string())));
+        assert_eq!(decoded.last(), Some(&Some((u8::MAX - 1).to_string())));
     }
 
     #[test]
