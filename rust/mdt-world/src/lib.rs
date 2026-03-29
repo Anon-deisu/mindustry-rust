@@ -55872,35 +55872,63 @@ mod tests {
     }
 
     #[test]
-    fn parses_legacy_switch_building_snapshot_when_block_name_is_known() {
-        let snapshot = parse_legacy_save_building_snapshot(
-            Some("switch"),
-            &[1, 0, 10, 0x12, 1, 1],
-        )
-        .unwrap();
+    fn parses_legacy_switch_family_building_snapshots_when_block_name_is_known() {
+        for (block_name, expected_value) in [("switch", true), ("world-switch", false)] {
+            let snapshot = parse_legacy_save_building_snapshot(
+                Some(block_name),
+                &[1, 0, 10, 0x12, 1, expected_value as u8],
+            )
+            .unwrap();
 
-        assert_eq!(
-            snapshot.parsed_tail,
-            ParsedBuildingTail::OneBool(OneBoolTailSnapshot { value: true })
-        );
+            assert_eq!(
+                snapshot.parsed_tail,
+                ParsedBuildingTail::OneBool(OneBoolTailSnapshot {
+                    value: expected_value
+                })
+            );
+        }
     }
 
     #[test]
-    fn parses_legacy_canvas_building_snapshot_when_block_name_is_known() {
-        let snapshot = parse_legacy_save_building_snapshot(
-            Some("canvas"),
-            &[1, 0, 10, 0x12, 0, 0, 0, 0, 3, 1, 2, 3],
-        )
-        .unwrap();
+    fn parses_legacy_canvas_family_building_snapshots_when_block_name_is_known() {
+        let chunk = &[1, 0, 10, 0x12, 0, 0, 0, 0, 3, 1, 2, 3];
+        for block_name in ["canvas", "large-canvas"] {
+            let snapshot = parse_legacy_save_building_snapshot(Some(block_name), chunk).unwrap();
 
-        assert_eq!(
-            snapshot.parsed_tail,
-            ParsedBuildingTail::Canvas(CanvasTailSnapshot {
-                data_len: 3,
-                data_sha256: sha256_hex(&[1, 2, 3]),
-                data_bytes: vec![1, 2, 3],
+            assert_eq!(
+                snapshot.parsed_tail,
+                ParsedBuildingTail::Canvas(CanvasTailSnapshot {
+                    data_len: 3,
+                    data_sha256: sha256_hex(&[1, 2, 3]),
+                    data_bytes: vec![1, 2, 3],
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn parses_legacy_memory_family_building_snapshots_when_block_name_is_known() {
+        let expected_bits = vec![1.5f64.to_bits(), f64::NAN.to_bits()];
+        let legacy_tail = {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&(expected_bits.len() as i32).to_be_bytes());
+            for bits in &expected_bits {
+                bytes.extend_from_slice(&bits.to_be_bytes());
+            }
+            bytes
+        };
+
+        for block_name in ["memory-cell", "memory-bank", "world-cell"] {
+            let expected = parse_building_tail(Some(block_name), 1, &legacy_tail).unwrap();
+            let snapshot = parse_legacy_save_building_snapshot(Some(block_name), &{
+                let mut bytes = vec![1, 0, 10, 0x12, 1];
+                bytes.extend_from_slice(&legacy_tail);
+                bytes
             })
-        );
+            .unwrap();
+
+            assert_eq!(snapshot.parsed_tail, expected);
+        }
     }
 
     #[test]
