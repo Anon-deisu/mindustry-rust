@@ -1331,6 +1331,17 @@ impl SavePostLoadWorldObservation {
         self.runtime_seed_plan().runtime_seed_surface()
     }
 
+    pub fn entity_remap_entry_by_custom_id(
+        &self,
+        custom_id: u16,
+    ) -> Option<&SaveEntityRemapEntry> {
+        unique_match(self.entity_remap_entries.iter(), |entry| entry.custom_id == custom_id)
+    }
+
+    pub fn entity_remap_entry_by_name(&self, name: &str) -> Option<&SaveEntityRemapEntry> {
+        unique_match(self.entity_remap_entries.iter(), |entry| entry.name == name)
+    }
+
     pub fn entity_remap_surfaces(&self) -> Vec<SaveEntityRemapSurface<'_>> {
         self.entity_remap_entries
             .iter()
@@ -1343,6 +1354,18 @@ impl SavePostLoadWorldObservation {
             .iter()
             .map(SaveEntityChunkObservation::surface)
             .collect()
+    }
+}
+
+fn unique_match<'a, T, F>(mut iter: impl Iterator<Item = &'a T>, mut predicate: F) -> Option<&'a T>
+where
+    F: FnMut(&T) -> bool,
+{
+    let first = iter.find(|item| predicate(item))?;
+    if iter.any(|item| predicate(item)) {
+        None
+    } else {
+        Some(first)
     }
 }
 
@@ -1497,6 +1520,14 @@ impl SaveEntityRegionObservation {
             .iter()
             .map(SaveEntityRemapEntry::surface)
             .collect()
+    }
+
+    pub fn remap_entry_by_custom_id(&self, custom_id: u16) -> Option<&SaveEntityRemapEntry> {
+        unique_match(self.remap_entries.iter(), |entry| entry.custom_id == custom_id)
+    }
+
+    pub fn remap_entry_by_name(&self, name: &str) -> Option<&SaveEntityRemapEntry> {
+        unique_match(self.remap_entries.iter(), |entry| entry.name == name)
     }
 
     pub fn entity_chunk_surfaces(&self) -> Vec<SaveEntityChunkSurface<'_>> {
@@ -42428,6 +42459,16 @@ mod tests {
             remap_summary.unresolved_effective_names,
             vec!["mod-alpha".to_string()]
         );
+        assert!(parsed.remap_entry_by_custom_id(99).is_none());
+        assert_eq!(
+            parsed.remap_entry_by_custom_id(120).map(|entry| entry.name.as_str()),
+            Some("mace")
+        );
+        assert!(parsed.remap_entry_by_name("mod-beta").is_none());
+        assert_eq!(
+            parsed.remap_entry_by_name("mace").map(|entry| entry.custom_id),
+            Some(120)
+        );
     }
 
     #[test]
@@ -42464,6 +42505,16 @@ mod tests {
             post_load.entity_remap_summary,
             save.entities.post_load_remap_summary()
         );
+        if let Some(first_remap) = post_load.entity_remap_entries.first() {
+            assert_eq!(
+                post_load.entity_remap_entry_by_custom_id(first_remap.custom_id),
+                Some(first_remap)
+            );
+            assert_eq!(
+                post_load.entity_remap_entry_by_name(&first_remap.name),
+                Some(first_remap)
+            );
+        }
         assert_eq!(post_load.team_plan_groups, save.entities.team_plan_groups);
         assert_eq!(post_load.team_region_bytes, save.entities.team_region_bytes);
         assert_eq!(
