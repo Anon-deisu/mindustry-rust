@@ -317,7 +317,8 @@ impl ArcNetSessionDriver {
             if self.tcp_read_buffer.len() >= MAX_TCP_READ_BUFFER_BYTES {
                 break;
             }
-            let read_len = (MAX_TCP_READ_BUFFER_BYTES - self.tcp_read_buffer.len()).min(chunk.len());
+            let read_len =
+                (MAX_TCP_READ_BUFFER_BYTES - self.tcp_read_buffer.len()).min(chunk.len());
             match self.tcp.read(&mut chunk[..read_len]) {
                 Ok(0) => return Err(ArcNetLoopError::TcpClosed),
                 Ok(len) => self.tcp_read_buffer.extend_from_slice(&chunk[..len]),
@@ -453,8 +454,7 @@ impl ArcNetSessionDriver {
 
     fn flush_pending_tcp_payload(&mut self) -> Result<(), ArcNetLoopError> {
         let completed_packet_ids = self.pending_tcp_write.flush(&mut self.tcp)?;
-        self.completed_tcp_packet_ids
-            .extend(completed_packet_ids);
+        self.completed_tcp_packet_ids.extend(completed_packet_ids);
         Ok(())
     }
 
@@ -468,7 +468,8 @@ impl ArcNetSessionDriver {
         packet_id: u8,
         payload: &[u8],
     ) -> Result<(), ArcNetLoopError> {
-        self.pending_tcp_write.enqueue_frame(payload, Some(packet_id))?;
+        self.pending_tcp_write
+            .enqueue_frame(payload, Some(packet_id))?;
         self.flush_pending_tcp_payload()
     }
 
@@ -1378,7 +1379,10 @@ mod tests {
                         saw_chat = true;
                         break;
                     }
-                    panic!("unexpected TCP packet after world ready: {}", packet.packet_id);
+                    panic!(
+                        "unexpected TCP packet after world ready: {}",
+                        packet.packet_id
+                    );
                 }
                 assert_eq!(
                     decode_framework_message(&frame).unwrap(),
@@ -1395,10 +1399,7 @@ mod tests {
         for tick in 0..100u64 {
             driver.tick(&mut session, tick * 100, 32, 32).unwrap();
             if session.state().connect_confirm_flushed
-                && session
-                    .state()
-                    .last_connect_confirm_flushed_at_ms
-                    .is_some()
+                && session.state().last_connect_confirm_flushed_at_ms.is_some()
             {
                 break;
             }
