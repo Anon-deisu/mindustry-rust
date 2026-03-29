@@ -231,6 +231,9 @@ impl AsciiScenePresenter {
         if let Some(build_text) = compose_build_ui_text(hud) {
             out.push_str(&format!("BUILD: {build_text}\n"));
         }
+        if let Some(build_queue_text) = compose_build_ui_queue_text(hud) {
+            out.push_str(&format!("BUILD-QUEUE: {build_queue_text}\n"));
+        }
         for inspector_line in compose_build_ui_inspector_lines(hud) {
             out.push_str(&format!("BUILD-INSPECTOR: {inspector_line}\n"));
         }
@@ -787,17 +790,38 @@ fn compose_render_rect_status_text(
                 .map(|tiles| (family, layer, left, top, right, bottom, tiles)),
             _ => None,
         })
-        .filter_map(|(family, layer, left, top, right, bottom, (left_tile, top_tile, right_tile, bottom_tile))| {
-            if right_tile < window.origin_x as i32
-                || bottom_tile < window.origin_y as i32
-                || left_tile >= window.origin_x.saturating_add(window.width) as i32
-                || top_tile >= window.origin_y.saturating_add(window.height) as i32
-            {
-                None
-            } else {
-                Some((family, layer, left, top, right, bottom, left_tile, top_tile, right_tile, bottom_tile))
-            }
-        })
+        .filter_map(
+            |(
+                family,
+                layer,
+                left,
+                top,
+                right,
+                bottom,
+                (left_tile, top_tile, right_tile, bottom_tile),
+            )| {
+                if right_tile < window.origin_x as i32
+                    || bottom_tile < window.origin_y as i32
+                    || left_tile >= window.origin_x.saturating_add(window.width) as i32
+                    || top_tile >= window.origin_y.saturating_add(window.height) as i32
+                {
+                    None
+                } else {
+                    Some((
+                        family,
+                        layer,
+                        left,
+                        top,
+                        right,
+                        bottom,
+                        left_tile,
+                        top_tile,
+                        right_tile,
+                        bottom_tile,
+                    ))
+                }
+            },
+        )
         .collect::<Vec<_>>();
 
     if rect_primitives.is_empty() {
@@ -806,7 +830,8 @@ fn compose_render_rect_status_text(
 
     rect_primitives.sort_by_key(|(_, layer, _, _, _, _, _, _, _, _)| *layer);
     let mut parts = vec![format!("count={}", rect_primitives.len())];
-    for (family, layer, left, top, right, bottom, _, _, _, _) in rect_primitives.into_iter().take(2) {
+    for (family, layer, left, top, right, bottom, _, _, _, _) in rect_primitives.into_iter().take(2)
+    {
         parts.push(format!(
             "{family}@{layer}:{}:{}:{}:{}",
             left as i32, top as i32, right as i32, bottom as i32
@@ -830,7 +855,8 @@ fn compose_render_icon_status_text(
                 x,
                 y,
                 ..
-            } => finite_world_tile(x, y).map(|(tile_x, tile_y)| (family, variant, layer, tile_x, tile_y)),
+            } => finite_world_tile(x, y)
+                .map(|(tile_x, tile_y)| (family, variant, layer, tile_x, tile_y)),
             _ => None,
         })
         .filter_map(|(family, variant, layer, tile_x, tile_y)| {
@@ -1929,6 +1955,11 @@ fn compose_build_ui_text(hud: &HudModel) -> Option<String> {
     Some(compose_build_ui_summary_text(build_ui))
 }
 
+fn compose_build_ui_queue_text(hud: &HudModel) -> Option<String> {
+    let build_ui = hud.build_ui.as_ref()?;
+    Some(compose_build_ui_queue_summary_text(build_ui))
+}
+
 fn compose_minimap_panel_text(
     scene: &RenderModel,
     hud: &HudModel,
@@ -2341,17 +2372,23 @@ fn compact_build_inspector_text(value: &str, limit: usize) -> String {
 
 fn compose_build_ui_summary_text(build_ui: &crate::BuildUiObservability) -> String {
     format!(
-        "sel={} rot={} building={} queue={}/{}/{}/{}/{} head={} cfg={}",
+        "sel={} rot={} building={} cfg={}",
         optional_i16_label(build_ui.selected_block_id),
         build_ui.selected_rotation,
         if build_ui.building { 1 } else { 0 },
+        build_ui.inspector_entries.len(),
+    )
+}
+
+fn compose_build_ui_queue_summary_text(build_ui: &crate::BuildUiObservability) -> String {
+    format!(
+        "queue={}/{}/{}/{}/{} head={}",
         build_ui.queued_count,
         build_ui.inflight_count,
         build_ui.finished_count,
         build_ui.removed_count,
         build_ui.orphan_authoritative_count,
         build_queue_head_text(build_ui.head.as_ref()),
-        build_ui.inspector_entries.len(),
     )
 }
 
@@ -3200,12 +3237,13 @@ mod tests {
             RuntimeSessionObservability, RuntimeSessionResetKind, RuntimeSessionTimeoutKind,
             RuntimeWorldReloadObservability,
         },
-        panel_model::PresenterViewWindow, project_scene_models, project_scene_models_with_view_window,
+        panel_model::PresenterViewWindow,
+        project_scene_models, project_scene_models_with_view_window,
         render_model::{RenderIconPrimitiveFamily, RenderObjectSemanticKind, RenderPrimitive},
-        HudModel, RenderModel, RenderObject, RuntimeAdminObservability, RuntimeHudTextObservability,
-        RuntimeMenuObservability, RuntimeRulesObservability, RuntimeTextInputObservability,
-        RuntimeToastObservability, RuntimeUiObservability, RuntimeWorldLabelObservability,
-        ScenePresenter, Viewport,
+        HudModel, RenderModel, RenderObject, RuntimeAdminObservability,
+        RuntimeHudTextObservability, RuntimeMenuObservability, RuntimeRulesObservability,
+        RuntimeTextInputObservability, RuntimeToastObservability, RuntimeUiObservability,
+        RuntimeWorldLabelObservability, ScenePresenter, Viewport,
     };
     use mdt_world::parse_world_bundle;
     use std::collections::BTreeMap;
@@ -4196,7 +4234,10 @@ mod tests {
             "BUILD-INTERACTION: mode=place select=head-diverged queue=mixed pending=3 place-ready=1 cfg=2/2 top=message head=flight@100:99:place:b301:r1 auth=rollback pending=mismatch src=constructFinish tile=23:45 block=power-node orphan=1"
         ));
         assert!(frame.contains(
-            "BUILD: sel=257 rot=2 building=1 queue=1/2/3/4/1 head=flight@100:99:place:b301:r1 cfg=2"
+            "BUILD: sel=257 rot=2 building=1 cfg=2"
+        ));
+        assert!(frame.contains(
+            "BUILD-QUEUE: queue=1/2/3/4/1 head=flight@100:99:place:b301:r1"
         ));
         assert!(frame
             .contains("BUILD-INSPECTOR: family=message tracked=1 sample=18:40:len=5:text=hello"));
@@ -4529,7 +4570,10 @@ mod tests {
         let scene = runtime_stack_test_scene();
         let mut presenter = AsciiScenePresenter::default();
 
-        presenter.present(&scene, &runtime_stack_test_hud(RuntimeUiObservability::default()));
+        presenter.present(
+            &scene,
+            &runtime_stack_test_hud(RuntimeUiObservability::default()),
+        );
         assert!(!presenter.last_frame().contains("RUNTIME-NOTICE-DETAIL:"));
 
         let mut runtime_ui = RuntimeUiObservability::default();
@@ -4806,7 +4850,12 @@ mod tests {
             top: f32::NAN,
             right: f32::NAN,
             bottom: f32::NAN,
-            line_ids: vec!["a".to_string(), "b".to_string(), "c".to_string(), "d".to_string()],
+            line_ids: vec![
+                "a".to_string(),
+                "b".to_string(),
+                "c".to_string(),
+                "d".to_string(),
+            ],
         };
         assert!(ascii_primitive_render_command(&rect_primitive, window).is_none());
 

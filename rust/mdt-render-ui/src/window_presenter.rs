@@ -1576,6 +1576,12 @@ fn compose_frame_panel_lines(
     {
         lines.push(format!("BUILD-FLOW-DETAIL: {build_flow_detail_text}"));
     }
+    if let Some(build_ui) = hud.build_ui.as_ref() {
+        let inspector_text = compose_build_ui_inspector_status_text(build_ui);
+        if !inspector_text.is_empty() {
+            lines.push(format!("BUILD-INSPECTOR: {inspector_text}"));
+        }
+    }
     if let Some(runtime_ui_notice_text) = compose_runtime_ui_notice_panel_status_text(hud) {
         lines.push(format!("RUNTIME-NOTICE: {runtime_ui_notice_text}"));
     }
@@ -2881,7 +2887,7 @@ fn compose_runtime_live_effect_detail_status_text(hud: &HudModel) -> Option<Stri
 }
 
 fn compose_build_ui_status_text(build_ui: &BuildUiObservability) -> String {
-    let mut text = format!(
+    format!(
         "build:sel={}:r{}:b{}:q{}/i{}/f{}/r{}/o{}:h={}:cfg{}",
         optional_i16_label(build_ui.selected_block_id),
         build_ui.selected_rotation,
@@ -2893,13 +2899,7 @@ fn compose_build_ui_status_text(build_ui: &BuildUiObservability) -> String {
         build_ui.orphan_authoritative_count,
         build_queue_head_status_text(build_ui.head.as_ref()),
         build_ui.inspector_entries.len(),
-    );
-    let inspector_text = compose_build_ui_inspector_status_text(build_ui);
-    if !inspector_text.is_empty() {
-        text.push_str(":cfg=");
-        text.push_str(&inspector_text);
-    }
-    text
+    )
 }
 
 fn compose_minimap_window_status_text(
@@ -7831,6 +7831,10 @@ mod tests {
         assert!(frame
             .status_text
             .contains("build:sel=257:r2:b1:q1/i2/f3/r4/o1:h=flight@100:99:place:b301:r1:cfg2"));
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "BUILD-INSPECTOR: message#1@18:40:len=5:text=hello;power-node#1@23:45:links=24:46|25:47",
+        );
         assert!(frame
             .status_text
             .contains("ui:hud=9/10/11@hud_text/hud_rel"));
@@ -8186,6 +8190,10 @@ mod tests {
         assert_frame_line_contains(
             &frame.panel_lines,
             "BUILD-INTERACTION: cfgflow:m=place:s=head-aligned:q=mixed:p=3:pr=1:cfg=3/7:top=gamma:h=queued@10:12:place:b301:r1:auth=rej-miss-build:pm=match:src=tilecfg:t=10:12:b=gamma:o=6",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "BUILD-INSPECTOR: alpha#1@one;gamma#4@four;beta#2@two",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
