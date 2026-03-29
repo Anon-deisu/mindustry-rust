@@ -27338,11 +27338,35 @@ fn parse_legacy_building_tail_snapshot(
         | Some("malign") => parse_turret_tail_snapshot(revision, legacy_tail_bytes)
             .map(ParsedBuildingTail::Turret)
             .unwrap_or(ParsedBuildingTail::Unknown),
+        Some(
+            "duo"
+            | "scatter"
+            | "scorch"
+            | "hail"
+            | "swarmer"
+            | "salvo"
+            | "fuse"
+            | "ripple"
+            | "cyclone"
+            | "foreshadow"
+            | "spectre"
+            | "breach"
+            | "diffuse"
+            | "titan"
+            | "disperse"
+            | "scathe"
+            | "smite",
+        ) => parse_item_turret_tail_snapshot(revision, legacy_tail_bytes)
+            .map(ParsedBuildingTail::ItemTurret)
+            .unwrap_or(ParsedBuildingTail::Unknown),
         Some("lustre") | Some("sublimate") => {
             parse_continuous_turret_tail_snapshot(revision, legacy_tail_bytes)
                 .map(ParsedBuildingTail::ContinuousTurret)
                 .unwrap_or(ParsedBuildingTail::Unknown)
         }
+        Some("build-tower") => parse_build_turret_tail_snapshot(legacy_tail_bytes)
+            .map(ParsedBuildingTail::BuildTurret)
+            .unwrap_or(ParsedBuildingTail::Unknown),
         Some("shield-projector") | Some("large-shield-projector") => {
             parse_one_f32_bool_tail_snapshot(revision, legacy_tail_bytes)
                 .map(ParsedBuildingTail::OneF32Bool)
@@ -56821,6 +56845,70 @@ mod tests {
     }
 
     #[test]
+    fn parses_legacy_item_turret_family_building_snapshots_when_block_name_is_known() {
+        let legacy_tail = {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&0x3e800000u32.to_be_bytes());
+            bytes.extend_from_slice(&0x42700000u32.to_be_bytes());
+            bytes.push(2);
+            bytes.extend_from_slice(&0x0012u16.to_be_bytes());
+            bytes.extend_from_slice(&3i16.to_be_bytes());
+            bytes.extend_from_slice(&0x0034u16.to_be_bytes());
+            bytes.extend_from_slice(&9i16.to_be_bytes());
+            bytes
+        };
+
+        for block_name in [
+            "duo",
+            "scatter",
+            "scorch",
+            "hail",
+            "swarmer",
+            "salvo",
+            "fuse",
+            "ripple",
+            "cyclone",
+            "foreshadow",
+            "spectre",
+            "breach",
+            "diffuse",
+            "titan",
+            "disperse",
+            "scathe",
+            "smite",
+        ] {
+            let expected = parse_building_tail(Some(block_name), 2, &legacy_tail).unwrap();
+            let snapshot = parse_legacy_save_building_snapshot(Some(block_name), &{
+                let mut bytes = vec![2, 0, 10, 0x12, 1];
+                bytes.extend_from_slice(&legacy_tail);
+                bytes
+            })
+            .unwrap();
+
+            assert_eq!(snapshot.parsed_tail, expected);
+        }
+
+        let legacy_tail = {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&0x3f000000u32.to_be_bytes());
+            bytes.extend_from_slice(&0x41f00000u32.to_be_bytes());
+            bytes.push(1);
+            bytes.push(7);
+            bytes.extend_from_slice(&5i16.to_be_bytes());
+            bytes
+        };
+        let expected = parse_building_tail(Some("scorch"), 1, &legacy_tail).unwrap();
+        let snapshot = parse_legacy_save_building_snapshot(Some("scorch"), &{
+            let mut bytes = vec![1, 0, 10, 0x12, 1];
+            bytes.extend_from_slice(&legacy_tail);
+            bytes
+        })
+        .unwrap();
+
+        assert_eq!(snapshot.parsed_tail, expected);
+    }
+
+    #[test]
     fn parses_legacy_cultivator_building_snapshot_when_block_name_is_known() {
         let legacy_tail = {
             let mut bytes = Vec::new();
@@ -56831,6 +56919,40 @@ mod tests {
         };
         let expected = parse_building_tail(Some("cultivator"), 0, &legacy_tail).unwrap();
         let snapshot = parse_legacy_save_building_snapshot(Some("cultivator"), &{
+            let mut bytes = vec![0, 0, 10, 0x12, 1];
+            bytes.extend_from_slice(&legacy_tail);
+            bytes
+        })
+        .unwrap();
+
+        assert_eq!(snapshot.parsed_tail, expected);
+    }
+
+    #[test]
+    fn parses_legacy_build_turret_building_snapshot_when_block_name_is_known() {
+        let config_bytes = {
+            let mut bytes = Vec::new();
+            bytes.push(7);
+            bytes.extend_from_slice(&3i32.to_be_bytes());
+            bytes.extend_from_slice(&4i32.to_be_bytes());
+            bytes
+        };
+        let legacy_tail = {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&90.0f32.to_bits().to_be_bytes());
+            bytes.extend_from_slice(&(2i16).to_be_bytes());
+            bytes.push(0);
+            bytes.extend_from_slice(&pack_packed_point2(1, 2).to_be_bytes());
+            bytes.extend_from_slice(&0x0101u16.to_be_bytes());
+            bytes.push(1);
+            bytes.push(1);
+            bytes.extend_from_slice(&config_bytes);
+            bytes.push(1);
+            bytes.extend_from_slice(&pack_packed_point2(5, 6).to_be_bytes());
+            bytes
+        };
+        let expected = parse_building_tail(Some("build-tower"), 0, &legacy_tail).unwrap();
+        let snapshot = parse_legacy_save_building_snapshot(Some("build-tower"), &{
             let mut bytes = vec![0, 0, 10, 0x12, 1];
             bytes.extend_from_slice(&legacy_tail);
             bytes
