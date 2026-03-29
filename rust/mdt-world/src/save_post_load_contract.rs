@@ -366,7 +366,7 @@ mod tests {
     use super::*;
     use crate::{
         BuildingBaseSnapshot, BuildingCenter, BuildingSnapshot, CustomChunkEntry, MarkerEntry,
-        MarkerModel, ParsedBuildingTail, ParsedCustomChunk, PointMarkerModel,
+        LineMarkerModel, MarkerModel, ParsedBuildingTail, ParsedCustomChunk, PointMarkerModel,
         SaveEntityChunkObservation, SaveEntityClassSummary, SaveEntityPostLoadClassSummary,
         SaveEntityPostLoadKind, SaveEntityPostLoadSummary, SaveEntityRemapSummary,
         SaveMapRegionObservation, SavePostLoadWorldObservation, StaticFogChunk, StaticFogTeam,
@@ -488,6 +488,34 @@ mod tests {
         assert!(contract
             .issues
             .contains(&SavePostLoadWorldIssue::DuplicateMarkerIds));
+    }
+
+    #[test]
+    fn projection_contract_flags_line_marker_end_tile_out_of_bounds() {
+        let mut observation = test_observation();
+        observation.markers[0].marker = MarkerModel::Line(LineMarkerModel {
+            class_tag: "lineMarker".to_string(),
+            world: true,
+            minimap: false,
+            autoscale: false,
+            draw_layer_bits: 120.0f32.to_bits(),
+            x_bits: 8.0f32.to_bits(),
+            y_bits: 8.0f32.to_bits(),
+            end_x_bits: 40.0f32.to_bits(),
+            end_y_bits: 56.0f32.to_bits(),
+            stroke_bits: 1.0f32.to_bits(),
+            outline: true,
+            color1: Some("ffd37f".to_string()),
+            color2: Some("ffd37f".to_string()),
+        });
+
+        let contract = observation.projection_contract();
+
+        assert!(!contract.can_project_world_shell());
+        assert!(!contract.marker_surface_consistent);
+        assert!(contract
+            .issues
+            .contains(&SavePostLoadWorldIssue::MarkerOutOfBounds));
     }
 
     #[test]
