@@ -1093,12 +1093,19 @@ pub fn validate_remote_manifest(manifest: &RemoteManifest) -> Result<(), RemoteM
 
         let flow = remote_flow_from_targets(&packet.targets)?;
         remote_priority_from_str(&packet.priority)?;
+        let mut seen_param_names = HashSet::with_capacity(packet.params.len());
 
         for param in &packet.params {
             if param.name.trim().is_empty() {
                 return Err(RemoteManifestError::InvalidRemotePacketMetadata(format!(
                     "remote packet {} has param with empty name",
                     packet.packet_class
+                )));
+            }
+            if !seen_param_names.insert(param.name.as_str()) {
+                return Err(RemoteManifestError::InvalidRemotePacketMetadata(format!(
+                    "remote packet {} has duplicate param name: {}",
+                    packet.packet_class, param.name
                 )));
             }
             if param.java_type.trim().is_empty() {
@@ -3285,6 +3292,23 @@ mod tests {
             RemoteManifestError::InvalidRemotePacketMetadata(_)
         ));
         assert_eq!(error.to_string(), "unsupported remote variants: many");
+    }
+
+    #[test]
+    fn validate_remote_manifest_rejects_duplicate_param_names() {
+        let mut manifest = parse_remote_manifest(SAMPLE_MANIFEST).unwrap();
+        manifest.remote_packets[0].params[1].name = "player".into();
+
+        let error = validate_remote_manifest(&manifest).unwrap_err();
+
+        assert!(matches!(
+            error,
+            RemoteManifestError::InvalidRemotePacketMetadata(_)
+        ));
+        assert_eq!(
+            error.to_string(),
+            "remote packet mindustry.gen.TestCallPacket has duplicate param name: player"
+        );
     }
 
     #[test]
