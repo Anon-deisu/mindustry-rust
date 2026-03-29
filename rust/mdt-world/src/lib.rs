@@ -42430,6 +42430,23 @@ mod tests {
     }
 
     #[test]
+    fn post_load_world_rejects_missing_required_regions() {
+        let mut missing_content = parse_msav_save(&sample_msav_post_load_save11_bytes()).unwrap();
+        missing_content.regions.retain(|region| region.name != "content");
+        assert_eq!(
+            missing_content.post_load_world().unwrap_err(),
+            "missing .msav content region"
+        );
+
+        let mut missing_map = parse_msav_save(&sample_msav_post_load_save11_bytes()).unwrap();
+        missing_map.regions.retain(|region| region.name != "map");
+        assert_eq!(
+            missing_map.post_load_world().unwrap_err(),
+            "missing .msav map region"
+        );
+    }
+
+    #[test]
     fn msav_post_load_world_executes_runtime_apply_for_save11_regions() {
         let save = parse_msav_save(&sample_msav_post_load_save11_bytes()).unwrap();
         let post_load = save.post_load_world().unwrap();
@@ -57308,6 +57325,19 @@ mod tests {
         let error = parse_save_content_header_region(&bytes).unwrap_err();
 
         assert!(error.contains("unexpected trailing bytes after save content region"));
+    }
+
+    #[test]
+    fn parse_save_content_patches_region_rejects_trailing_bytes_after_region() {
+        let mut bytes = Vec::new();
+        bytes.push(1);
+        bytes.extend_from_slice(&2u32.to_be_bytes());
+        bytes.extend_from_slice(&[0xca, 0xfe]);
+        bytes.extend_from_slice(&[0xde, 0xad]);
+
+        let error = parse_save_content_patches_region(&bytes).unwrap_err();
+
+        assert!(error.contains("unexpected trailing bytes after save patches region"));
     }
 
     #[test]
