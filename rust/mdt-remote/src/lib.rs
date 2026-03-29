@@ -5,7 +5,7 @@ pub const REMOTE_MANIFEST_SCHEMA_V1: &str = "mdt.remote.manifest.v1";
 pub const CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT: usize = 10;
 pub const HIGH_FREQUENCY_REMOTE_METHOD_COUNT: usize = 5;
 pub const INBOUND_REMOTE_FAMILY_COUNT: usize = 6;
-pub const WELL_KNOWN_REMOTE_METHOD_COUNT: usize = 54;
+pub const WELL_KNOWN_REMOTE_METHOD_COUNT: usize = 58;
 pub const REMOTE_PACKET_ID_SPACE: usize = u8::MAX as usize + 1;
 pub const REMOTE_WIRE_PACKET_ID_BYTE_U8: &str = "u8";
 pub const REMOTE_WIRE_LENGTH_FIELD_U16BE: &str = "u16be";
@@ -204,6 +204,10 @@ pub enum WellKnownRemoteMethod {
     SetHudText,
     SetHudTextReliable,
     WarningToast,
+    ClearItems,
+    ClearLiquids,
+    SetItem,
+    SetItems,
     WorldDataBegin,
     KickString,
     KickReason,
@@ -695,6 +699,16 @@ const SET_HUD_TEXT_RELIABLE_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemotePara
 const WARNING_TOAST_PARAM_JAVA_TYPES: [&str; 2] = ["int", "java.lang.String"];
 const WARNING_TOAST_WIRE_PARAM_KINDS: [RemoteParamKind; 2] =
     [RemoteParamKind::Int, RemoteParamKind::Opaque];
+const CLEAR_ITEMS_PARAM_JAVA_TYPES: [&str; 1] = ["Building"];
+const CLEAR_ITEMS_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Opaque];
+const CLEAR_LIQUIDS_PARAM_JAVA_TYPES: [&str; 1] = ["Building"];
+const CLEAR_LIQUIDS_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Opaque];
+const SET_ITEM_PARAM_JAVA_TYPES: [&str; 3] = ["Building", "mindustry.type.Item", "int"];
+const SET_ITEM_WIRE_PARAM_KINDS: [RemoteParamKind; 3] =
+    [RemoteParamKind::Opaque, RemoteParamKind::Opaque, RemoteParamKind::Int];
+const SET_ITEMS_PARAM_JAVA_TYPES: [&str; 2] = ["Building", "mindustry.type.ItemStack[]"];
+const SET_ITEMS_WIRE_PARAM_KINDS: [RemoteParamKind; 2] =
+    [RemoteParamKind::Opaque, RemoteParamKind::Opaque];
 const WORLD_DATA_BEGIN_PARAM_JAVA_TYPES: [&str; 0] = [];
 const WORLD_DATA_BEGIN_WIRE_PARAM_KINDS: [RemoteParamKind; 0] = [];
 
@@ -785,6 +799,10 @@ impl WellKnownRemoteMethod {
             Self::SetHudText,
             Self::SetHudTextReliable,
             Self::WarningToast,
+            Self::ClearItems,
+            Self::ClearLiquids,
+            Self::SetItem,
+            Self::SetItems,
             Self::WorldDataBegin,
             Self::KickString,
             Self::KickReason,
@@ -844,6 +862,10 @@ impl WellKnownRemoteMethod {
             Self::SetHudText => "setHudText",
             Self::SetHudTextReliable => "setHudTextReliable",
             Self::WarningToast => "warningToast",
+            Self::ClearItems => "clearItems",
+            Self::ClearLiquids => "clearLiquids",
+            Self::SetItem => "setItem",
+            Self::SetItems => "setItems",
             Self::WorldDataBegin => "worldDataBegin",
             Self::KickString | Self::KickReason => "kick",
             Self::SendChatMessage => "sendChatMessage",
@@ -894,6 +916,10 @@ impl WellKnownRemoteMethod {
             | Self::SetHudText
             | Self::SetHudTextReliable
             | Self::WarningToast
+            | Self::ClearItems
+            | Self::ClearLiquids
+            | Self::SetItem
+            | Self::SetItems
             | Self::WorldDataBegin
             | Self::KickString
             | Self::KickReason
@@ -927,6 +953,10 @@ impl WellKnownRemoteMethod {
                 | Self::InfoPopup
                 | Self::InfoPopupWithId
                 | Self::SetHudText
+                | Self::ClearItems
+                | Self::ClearLiquids
+                | Self::SetItem
+                | Self::SetItems
                 | Self::Label
                 | Self::LabelWithId
                 | Self::Effect
@@ -971,6 +1001,10 @@ impl WellKnownRemoteMethod {
             Self::SetHudText => &SET_HUD_TEXT_PARAM_JAVA_TYPES,
             Self::SetHudTextReliable => &SET_HUD_TEXT_RELIABLE_PARAM_JAVA_TYPES,
             Self::WarningToast => &WARNING_TOAST_PARAM_JAVA_TYPES,
+            Self::ClearItems => &CLEAR_ITEMS_PARAM_JAVA_TYPES,
+            Self::ClearLiquids => &CLEAR_LIQUIDS_PARAM_JAVA_TYPES,
+            Self::SetItem => &SET_ITEM_PARAM_JAVA_TYPES,
+            Self::SetItems => &SET_ITEMS_PARAM_JAVA_TYPES,
             Self::WorldDataBegin => &WORLD_DATA_BEGIN_PARAM_JAVA_TYPES,
             Self::KickString => &KICK_STRING_PARAM_JAVA_TYPES,
             Self::KickReason => &KICK_REASON_PARAM_JAVA_TYPES,
@@ -1027,6 +1061,10 @@ impl WellKnownRemoteMethod {
             Self::SetHudText => &SET_HUD_TEXT_WIRE_PARAM_KINDS,
             Self::SetHudTextReliable => &SET_HUD_TEXT_RELIABLE_WIRE_PARAM_KINDS,
             Self::WarningToast => &WARNING_TOAST_WIRE_PARAM_KINDS,
+            Self::ClearItems => &CLEAR_ITEMS_WIRE_PARAM_KINDS,
+            Self::ClearLiquids => &CLEAR_LIQUIDS_WIRE_PARAM_KINDS,
+            Self::SetItem => &SET_ITEM_WIRE_PARAM_KINDS,
+            Self::SetItems => &SET_ITEMS_WIRE_PARAM_KINDS,
             Self::WorldDataBegin => &WORLD_DATA_BEGIN_WIRE_PARAM_KINDS,
             Self::KickString => &KICK_STRING_WIRE_PARAM_KINDS,
             Self::KickReason => &KICK_REASON_WIRE_PARAM_KINDS,
@@ -4662,6 +4700,14 @@ mod tests {
             baseline.well_known.packet_id(WellKnownRemoteMethod::WarningToast)
         );
         assert_eq!(
+            bundle.well_known.packet_id(WellKnownRemoteMethod::ClearItems),
+            baseline.well_known.packet_id(WellKnownRemoteMethod::ClearItems)
+        );
+        assert_eq!(
+            bundle.well_known.packet_id(WellKnownRemoteMethod::SetItems),
+            baseline.well_known.packet_id(WellKnownRemoteMethod::SetItems)
+        );
+        assert_eq!(
             bundle
                 .well_known
                 .packet_id(WellKnownRemoteMethod::DebugStatusClientUnreliable),
@@ -4723,6 +4769,10 @@ mod tests {
             (WellKnownRemoteMethod::SetHudText, Some(103)),
             (WellKnownRemoteMethod::SetHudTextReliable, Some(105)),
             (WellKnownRemoteMethod::WarningToast, Some(107)),
+            (WellKnownRemoteMethod::ClearItems, Some(109)),
+            (WellKnownRemoteMethod::ClearLiquids, Some(111)),
+            (WellKnownRemoteMethod::SetItem, Some(113)),
+            (WellKnownRemoteMethod::SetItems, Some(115)),
             (WellKnownRemoteMethod::WorldDataBegin, Some(23)),
             (WellKnownRemoteMethod::KickString, Some(25)),
             (WellKnownRemoteMethod::KickReason, Some(27)),
@@ -4804,6 +4854,10 @@ mod tests {
             Some(WellKnownRemoteMethod::SetHudTextReliable)
         );
         assert_eq!(fixed_table.get(107), Some(WellKnownRemoteMethod::WarningToast));
+        assert_eq!(fixed_table.get(109), Some(WellKnownRemoteMethod::ClearItems));
+        assert_eq!(fixed_table.get(111), Some(WellKnownRemoteMethod::ClearLiquids));
+        assert_eq!(fixed_table.get(113), Some(WellKnownRemoteMethod::SetItem));
+        assert_eq!(fixed_table.get(115), Some(WellKnownRemoteMethod::SetItems));
         assert_eq!(
             fixed_table.get(17),
             Some(WellKnownRemoteMethod::SetObjectives)
@@ -4878,6 +4932,10 @@ mod tests {
         assert!(fixed_table.contains_packet_id(103));
         assert!(fixed_table.contains_packet_id(105));
         assert!(fixed_table.contains_packet_id(107));
+        assert!(fixed_table.contains_packet_id(109));
+        assert!(fixed_table.contains_packet_id(111));
+        assert!(fixed_table.contains_packet_id(113));
+        assert!(fixed_table.contains_packet_id(115));
         assert!(!fixed_table.contains_packet_id(250));
     }
 
@@ -5381,6 +5439,30 @@ mod tests {
                 .first_well_known_method(WellKnownRemoteMethod::WarningToast)
                 .map(|packet| packet.packet_id),
             Some(107)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::ClearItems)
+                .map(|packet| packet.packet_id),
+            Some(109)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::ClearLiquids)
+                .map(|packet| packet.packet_id),
+            Some(111)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::SetItem)
+                .map(|packet| packet.packet_id),
+            Some(113)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::SetItems)
+                .map(|packet| packet.packet_id),
+            Some(115)
         );
         assert_eq!(
             registry
@@ -7440,6 +7522,108 @@ mod tests {
                     vec![
                         test_param("unicode", "int", true, true),
                         test_param("text", "java.lang.String", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    104,
+                    108,
+                    "mindustry.gen.ClearItemsDecoyCallPacket",
+                    "mindustry.input.InputHandler",
+                    "clearItems",
+                    "server",
+                    "normal",
+                    false,
+                    vec![test_param("build", "Building", true, true)],
+                ),
+                test_remote_packet(
+                    105,
+                    109,
+                    "mindustry.gen.ClearItemsCallPacket",
+                    "mindustry.input.InputHandler",
+                    "clearItems",
+                    "server",
+                    "normal",
+                    true,
+                    vec![test_param("build", "Building", true, true)],
+                ),
+                test_remote_packet(
+                    106,
+                    110,
+                    "mindustry.gen.ClearLiquidsDecoyCallPacket",
+                    "mindustry.input.InputHandler",
+                    "clearLiquids",
+                    "server",
+                    "normal",
+                    false,
+                    vec![test_param("build", "Building", true, true)],
+                ),
+                test_remote_packet(
+                    107,
+                    111,
+                    "mindustry.gen.ClearLiquidsCallPacket",
+                    "mindustry.input.InputHandler",
+                    "clearLiquids",
+                    "server",
+                    "normal",
+                    true,
+                    vec![test_param("build", "Building", true, true)],
+                ),
+                test_remote_packet(
+                    108,
+                    112,
+                    "mindustry.gen.SetItemDecoyCallPacket",
+                    "mindustry.input.InputHandler",
+                    "setItem",
+                    "server",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("build", "Building", true, true),
+                        test_param("item", "mindustry.type.Item", true, true),
+                        test_param("amount", "int", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    109,
+                    113,
+                    "mindustry.gen.SetItemCallPacket",
+                    "mindustry.input.InputHandler",
+                    "setItem",
+                    "server",
+                    "normal",
+                    true,
+                    vec![
+                        test_param("build", "Building", true, true),
+                        test_param("item", "mindustry.type.Item", true, true),
+                        test_param("amount", "int", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    110,
+                    114,
+                    "mindustry.gen.SetItemsDecoyCallPacket",
+                    "mindustry.input.InputHandler",
+                    "setItems",
+                    "server",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("build", "Building", true, true),
+                        test_param("items", "mindustry.type.ItemStack[]", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    111,
+                    115,
+                    "mindustry.gen.SetItemsCallPacket",
+                    "mindustry.input.InputHandler",
+                    "setItems",
+                    "server",
+                    "normal",
+                    true,
+                    vec![
+                        test_param("build", "Building", true, true),
+                        test_param("items", "mindustry.type.ItemStack[]", true, true),
                     ],
                 ),
             ],

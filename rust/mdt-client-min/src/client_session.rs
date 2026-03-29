@@ -722,16 +722,8 @@ impl ClientSession {
             .iter()
             .find(|entry| entry.method == "updateMarkerTexture")
             .map(|entry| entry.packet_id);
-        let set_item_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "setItem")
-            .map(|entry| entry.packet_id);
-        let set_items_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "setItems")
-            .map(|entry| entry.packet_id);
+        let set_item_packet_id = well_known_remote.set_item_packet_id;
+        let set_items_packet_id = well_known_remote.set_items_packet_id;
         let set_hud_text_packet_id = well_known_remote.set_hud_text_packet_id;
         let set_hud_text_reliable_packet_id = well_known_remote.set_hud_text_reliable_packet_id;
         let set_floor_packet_id = manifest
@@ -920,16 +912,8 @@ impl ClientSession {
             .iter()
             .find(|entry| entry.method == "buildingControlSelect")
             .map(|entry| entry.packet_id);
-        let clear_items_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "clearItems")
-            .map(|entry| entry.packet_id);
-        let clear_liquids_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "clearLiquids")
-            .map(|entry| entry.packet_id);
+        let clear_items_packet_id = well_known_remote.clear_items_packet_id;
+        let clear_liquids_packet_id = well_known_remote.clear_liquids_packet_id;
         let drop_item_packet_id = manifest
             .remote_packets
             .iter()
@@ -51143,6 +51127,22 @@ mod tests {
             expected(WellKnownRemoteMethod::WarningToast)
         );
         assert_eq!(
+            session.clear_items_packet_id,
+            expected(WellKnownRemoteMethod::ClearItems)
+        );
+        assert_eq!(
+            session.clear_liquids_packet_id,
+            expected(WellKnownRemoteMethod::ClearLiquids)
+        );
+        assert_eq!(
+            session.set_item_packet_id,
+            expected(WellKnownRemoteMethod::SetItem)
+        );
+        assert_eq!(
+            session.set_items_packet_id,
+            expected(WellKnownRemoteMethod::SetItems)
+        );
+        assert_eq!(
             Some(session.world_data_begin_packet_id),
             expected(WellKnownRemoteMethod::WorldDataBegin)
         );
@@ -52438,6 +52438,141 @@ mod tests {
             session.warning_toast_packet_id,
             Some(expected_warning_toast_packet_id)
         );
+    #[test]
+    fn session_inventory_packet_ids_reject_well_known_method_decoys() {
+        let mut manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let expected_clear_items_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "clearItems"
+                    && entry.params.len() == 1
+                    && entry.params[0].java_type == "Building"
+                    && entry.unreliable
+            })
+            .expect("missing clearItems packet")
+            .packet_id;
+        let expected_clear_liquids_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "clearLiquids"
+                    && entry.params.len() == 1
+                    && entry.params[0].java_type == "Building"
+                    && entry.unreliable
+            })
+            .expect("missing clearLiquids packet")
+            .packet_id;
+        let expected_set_item_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "setItem"
+                    && entry.params.len() == 3
+                    && entry.params[0].java_type == "Building"
+                    && entry.params[1].java_type == "mindustry.type.Item"
+                    && entry.params[2].java_type == "int"
+                    && entry.unreliable
+            })
+            .expect("missing setItem packet")
+            .packet_id;
+        let expected_set_items_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "setItems"
+                    && entry.params.len() == 2
+                    && entry.params[0].java_type == "Building"
+                    && entry.params[1].java_type == "mindustry.type.ItemStack[]"
+                    && entry.unreliable
+            })
+            .expect("missing setItems packet")
+            .packet_id;
+
+        let mut clear_items_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "clearItems"
+                    && entry.params.len() == 1
+                    && entry.params[0].java_type == "Building"
+                    && entry.unreliable
+            })
+            .expect("missing clearItems packet")
+            .clone();
+        clear_items_decoy.packet_id = 240;
+        clear_items_decoy.packet_class = "mindustry.gen.ClearItemsDecoyCallPacket".into();
+        clear_items_decoy.unreliable = false;
+
+        let mut clear_liquids_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "clearLiquids"
+                    && entry.params.len() == 1
+                    && entry.params[0].java_type == "Building"
+                    && entry.unreliable
+            })
+            .expect("missing clearLiquids packet")
+            .clone();
+        clear_liquids_decoy.packet_id = 241;
+        clear_liquids_decoy.packet_class = "mindustry.gen.ClearLiquidsDecoyCallPacket".into();
+        clear_liquids_decoy.unreliable = false;
+
+        let mut set_item_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "setItem"
+                    && entry.params.len() == 3
+                    && entry.params[0].java_type == "Building"
+                    && entry.params[1].java_type == "mindustry.type.Item"
+                    && entry.params[2].java_type == "int"
+                    && entry.unreliable
+            })
+            .expect("missing setItem packet")
+            .clone();
+        set_item_decoy.packet_id = 242;
+        set_item_decoy.packet_class = "mindustry.gen.SetItemDecoyCallPacket".into();
+        set_item_decoy.unreliable = false;
+
+        let mut set_items_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "setItems"
+                    && entry.params.len() == 2
+                    && entry.params[0].java_type == "Building"
+                    && entry.params[1].java_type == "mindustry.type.ItemStack[]"
+                    && entry.unreliable
+            })
+            .expect("missing setItems packet")
+            .clone();
+        set_items_decoy.packet_id = 243;
+        set_items_decoy.packet_class = "mindustry.gen.SetItemsDecoyCallPacket".into();
+        set_items_decoy.unreliable = false;
+
+        manifest.remote_packets.splice(
+            0..0,
+            vec![
+                clear_items_decoy,
+                clear_liquids_decoy,
+                set_item_decoy,
+                set_items_decoy,
+            ],
+        );
+        for (remote_index, packet) in manifest.remote_packets.iter_mut().enumerate() {
+            packet.remote_index = remote_index;
+        }
+
+        let session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        assert_eq!(session.clear_items_packet_id, Some(expected_clear_items_packet_id));
+        assert_eq!(
+            session.clear_liquids_packet_id,
+            Some(expected_clear_liquids_packet_id)
+        );
+        assert_eq!(session.set_item_packet_id, Some(expected_set_item_packet_id));
+        assert_eq!(session.set_items_packet_id, Some(expected_set_items_packet_id));
     }
 
     #[test]

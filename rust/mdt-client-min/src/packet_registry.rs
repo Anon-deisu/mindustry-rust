@@ -107,6 +107,10 @@ pub struct WellKnownRemotePacketIds {
     pub set_hud_text_packet_id: Option<u8>,
     pub set_hud_text_reliable_packet_id: Option<u8>,
     pub warning_toast_packet_id: Option<u8>,
+    pub clear_items_packet_id: Option<u8>,
+    pub clear_liquids_packet_id: Option<u8>,
+    pub set_item_packet_id: Option<u8>,
+    pub set_items_packet_id: Option<u8>,
     pub world_data_begin_packet_id: Option<u8>,
 }
 
@@ -393,6 +397,10 @@ impl WellKnownRemotePacketIds {
             set_hud_text_packet_id: packet_id(WellKnownRemoteMethod::SetHudText),
             set_hud_text_reliable_packet_id: packet_id(WellKnownRemoteMethod::SetHudTextReliable),
             warning_toast_packet_id: packet_id(WellKnownRemoteMethod::WarningToast),
+            clear_items_packet_id: packet_id(WellKnownRemoteMethod::ClearItems),
+            clear_liquids_packet_id: packet_id(WellKnownRemoteMethod::ClearLiquids),
+            set_item_packet_id: packet_id(WellKnownRemoteMethod::SetItem),
+            set_items_packet_id: packet_id(WellKnownRemoteMethod::SetItems),
             world_data_begin_packet_id: packet_id(WellKnownRemoteMethod::WorldDataBegin),
         }
     }
@@ -462,6 +470,10 @@ impl WellKnownRemotePacketIds {
             WellKnownRemoteMethod::SetHudText => self.set_hud_text_packet_id,
             WellKnownRemoteMethod::SetHudTextReliable => self.set_hud_text_reliable_packet_id,
             WellKnownRemoteMethod::WarningToast => self.warning_toast_packet_id,
+            WellKnownRemoteMethod::ClearItems => self.clear_items_packet_id,
+            WellKnownRemoteMethod::ClearLiquids => self.clear_liquids_packet_id,
+            WellKnownRemoteMethod::SetItem => self.set_item_packet_id,
+            WellKnownRemoteMethod::SetItems => self.set_items_packet_id,
             WellKnownRemoteMethod::WorldDataBegin => self.world_data_begin_packet_id,
         }
     }
@@ -995,6 +1007,8 @@ mod tests {
             HIDE_FOLLOW_UP_MENU_CALL_PACKET_ID, INFO_TOAST_CALL_PACKET_ID,
             SET_HUD_TEXT_CALL_PACKET_ID, SET_HUD_TEXT_RELIABLE_CALL_PACKET_ID,
             WARNING_TOAST_CALL_PACKET_ID,
+            CLEAR_ITEMS_CALL_PACKET_ID, CLEAR_LIQUIDS_CALL_PACKET_ID,
+            SET_ITEM_CALL_PACKET_ID, SET_ITEMS_CALL_PACKET_ID,
             HIDE_HUD_TEXT_CALL_PACKET_ID, INFO_MESSAGE_CALL_PACKET_ID, OPEN_URICALL_PACKET_ID,
             INFO_POPUP_CALL_PACKET_ID,
             INFO_POPUP_CALL_PACKET2_ID, INFO_POPUP_RELIABLE_CALL_PACKET_ID,
@@ -1067,6 +1081,10 @@ mod tests {
             "setHudTextReliable"
         ));
         assert!(has_generated_spec(WARNING_TOAST_CALL_PACKET_ID, "warningToast"));
+        assert!(has_generated_spec(CLEAR_ITEMS_CALL_PACKET_ID, "clearItems"));
+        assert!(has_generated_spec(CLEAR_LIQUIDS_CALL_PACKET_ID, "clearLiquids"));
+        assert!(has_generated_spec(SET_ITEM_CALL_PACKET_ID, "setItem"));
+        assert!(has_generated_spec(SET_ITEMS_CALL_PACKET_ID, "setItems"));
         assert!(has_generated_spec(TILE_CONFIG_CALL_PACKET_ID, "tileConfig"));
         assert!(has_generated_spec(
             WORLD_DATA_BEGIN_CALL_PACKET_ID,
@@ -1257,6 +1275,22 @@ mod tests {
             Some(WARNING_TOAST_CALL_PACKET_ID)
         );
         assert_eq!(
+            combined.well_known_remote.clear_items_packet_id,
+            Some(CLEAR_ITEMS_CALL_PACKET_ID)
+        );
+        assert_eq!(
+            combined.well_known_remote.clear_liquids_packet_id,
+            Some(CLEAR_LIQUIDS_CALL_PACKET_ID)
+        );
+        assert_eq!(
+            combined.well_known_remote.set_item_packet_id,
+            Some(SET_ITEM_CALL_PACKET_ID)
+        );
+        assert_eq!(
+            combined.well_known_remote.set_items_packet_id,
+            Some(SET_ITEMS_CALL_PACKET_ID)
+        );
+        assert_eq!(
             manifest
                 .remote_packets
                 .iter()
@@ -1348,6 +1382,10 @@ mod tests {
         assert_eq!(well_known.set_hud_text_packet_id, Some(103));
         assert_eq!(well_known.set_hud_text_reliable_packet_id, Some(105));
         assert_eq!(well_known.warning_toast_packet_id, Some(107));
+        assert_eq!(well_known.clear_items_packet_id, Some(109));
+        assert_eq!(well_known.clear_liquids_packet_id, Some(111));
+        assert_eq!(well_known.set_item_packet_id, Some(113));
+        assert_eq!(well_known.set_items_packet_id, Some(115));
         assert_eq!(well_known.world_data_begin_packet_id, Some(23));
         assert_eq!(well_known.method(5), Some(WellKnownRemoteMethod::Ping));
         assert_eq!(well_known.method(6), None);
@@ -1580,6 +1618,22 @@ mod tests {
             (
                 WellKnownRemoteMethod::WarningToast,
                 well_known.warning_toast_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::ClearItems,
+                well_known.clear_items_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::ClearLiquids,
+                well_known.clear_liquids_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::SetItem,
+                well_known.set_item_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::SetItems,
+                well_known.set_items_packet_id,
             ),
             (
                 WellKnownRemoteMethod::WorldDataBegin,
@@ -3332,6 +3386,108 @@ mod tests {
                     vec![
                         param("unicode", "int", true, true),
                         param("text", "java.lang.String", true, true),
+                    ],
+                ),
+                remote_packet(
+                    104,
+                    108,
+                    "mindustry.gen.ClearItemsDecoyCallPacket",
+                    "mindustry.input.InputHandler",
+                    "clearItems",
+                    "server",
+                    "normal",
+                    false,
+                    vec![param("build", "Building", true, true)],
+                ),
+                remote_packet(
+                    105,
+                    109,
+                    "mindustry.gen.ClearItemsCallPacket",
+                    "mindustry.input.InputHandler",
+                    "clearItems",
+                    "server",
+                    "normal",
+                    true,
+                    vec![param("build", "Building", true, true)],
+                ),
+                remote_packet(
+                    106,
+                    110,
+                    "mindustry.gen.ClearLiquidsDecoyCallPacket",
+                    "mindustry.input.InputHandler",
+                    "clearLiquids",
+                    "server",
+                    "normal",
+                    false,
+                    vec![param("build", "Building", true, true)],
+                ),
+                remote_packet(
+                    107,
+                    111,
+                    "mindustry.gen.ClearLiquidsCallPacket",
+                    "mindustry.input.InputHandler",
+                    "clearLiquids",
+                    "server",
+                    "normal",
+                    true,
+                    vec![param("build", "Building", true, true)],
+                ),
+                remote_packet(
+                    108,
+                    112,
+                    "mindustry.gen.SetItemDecoyCallPacket",
+                    "mindustry.input.InputHandler",
+                    "setItem",
+                    "server",
+                    "normal",
+                    false,
+                    vec![
+                        param("build", "Building", true, true),
+                        param("item", "mindustry.type.Item", true, true),
+                        param("amount", "int", true, true),
+                    ],
+                ),
+                remote_packet(
+                    109,
+                    113,
+                    "mindustry.gen.SetItemCallPacket",
+                    "mindustry.input.InputHandler",
+                    "setItem",
+                    "server",
+                    "normal",
+                    true,
+                    vec![
+                        param("build", "Building", true, true),
+                        param("item", "mindustry.type.Item", true, true),
+                        param("amount", "int", true, true),
+                    ],
+                ),
+                remote_packet(
+                    110,
+                    114,
+                    "mindustry.gen.SetItemsDecoyCallPacket",
+                    "mindustry.input.InputHandler",
+                    "setItems",
+                    "server",
+                    "normal",
+                    false,
+                    vec![
+                        param("build", "Building", true, true),
+                        param("items", "mindustry.type.ItemStack[]", true, true),
+                    ],
+                ),
+                remote_packet(
+                    111,
+                    115,
+                    "mindustry.gen.SetItemsCallPacket",
+                    "mindustry.input.InputHandler",
+                    "setItems",
+                    "server",
+                    "normal",
+                    true,
+                    vec![
+                        param("build", "Building", true, true),
+                        param("items", "mindustry.type.ItemStack[]", true, true),
                     ],
                 ),
             ],
