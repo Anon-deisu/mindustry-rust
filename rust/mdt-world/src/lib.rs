@@ -56109,6 +56109,40 @@ mod tests {
     }
 
     #[test]
+    fn legacy_save_building_snapshot_rejects_missing_consume_tail_bytes() {
+        let err = parse_legacy_save_building_snapshot(Some("message"), &[1, 0, 10, 0x12])
+            .unwrap_err();
+
+        assert_eq!(err, "legacy save building chunk is missing consume/tail bytes");
+    }
+
+    #[test]
+    fn legacy_save_building_snapshot_keeps_invalid_consume_flag_unknown() {
+        let snapshot = parse_legacy_save_building_snapshot(
+            Some("message"),
+            &[1, 0, 10, 0x12, 2, 0, 4, b'e', b'c', b'h', b'o'],
+        )
+        .unwrap();
+
+        assert_eq!(snapshot.revision, 1);
+        assert_eq!(snapshot.base.team_id, 1);
+        assert_eq!(snapshot.base.rotation, 2);
+        assert_eq!(snapshot.parsed_tail, ParsedBuildingTail::Unknown);
+    }
+
+    #[test]
+    fn legacy_building_tail_snapshot_rejects_invalid_consume_flag() {
+        assert_eq!(
+            parse_legacy_building_tail_snapshot(
+                Some("message"),
+                1,
+                &[2, 0, 4, b'e', b'c', b'h', b'o']
+            ),
+            ParsedBuildingTail::Unknown
+        );
+    }
+
+    #[test]
     fn parses_legacy_memory_family_building_snapshots_when_block_name_is_known() {
         let expected_bits = vec![1.5f64.to_bits(), f64::NAN.to_bits()];
         let legacy_tail = {
