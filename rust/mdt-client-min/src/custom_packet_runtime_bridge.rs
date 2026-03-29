@@ -543,6 +543,46 @@ mod tests {
     }
 
     #[test]
+    fn bridge_reset_counters_stay_isolated_by_path() {
+        let specs = vec![RuntimeCustomPacketSemanticSpec {
+            key: "custom.status".to_string(),
+            encoding: RuntimeCustomPacketSemanticEncoding::Text,
+            semantic: RuntimeCustomPacketSemanticKind::HudText,
+        }];
+        let mut bridge = RuntimeCustomPacketBridge::from_specs(&specs).unwrap();
+
+        bridge.observe_surface_activity(
+            10,
+            &[String::from(
+                "runtime_custom_packet_surface_reset: reason=\"world_data_begin\" cleared_routes=1",
+            )],
+            &[],
+        );
+        assert_eq!(
+            bridge.summary_lines().last().map(String::as_str),
+            Some("runtime_custom_packet_bridge_state: routes=1 active_routes=0 surface_resets=1 reconnect_resets=0")
+        );
+
+        bridge.note_reconnect_reset(20, "redirect");
+        assert_eq!(
+            bridge.summary_lines().last().map(String::as_str),
+            Some("runtime_custom_packet_bridge_state: routes=1 active_routes=0 surface_resets=1 reconnect_resets=1")
+        );
+
+        bridge.observe_surface_activity(
+            30,
+            &[String::from(
+                "runtime_custom_packet_surface_reset: reason=\"world_data_begin\" cleared_routes=1",
+            )],
+            &[],
+        );
+        assert_eq!(
+            bridge.summary_lines().last().map(String::as_str),
+            Some("runtime_custom_packet_bridge_state: routes=1 active_routes=0 surface_resets=2 reconnect_resets=1")
+        );
+    }
+
+    #[test]
     fn bridge_reports_missing_surface_entry_diagnostic() {
         let specs = vec![RuntimeCustomPacketSemanticSpec {
             key: "logic.pos".to_string(),
