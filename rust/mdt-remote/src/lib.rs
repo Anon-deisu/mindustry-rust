@@ -1092,6 +1092,7 @@ pub fn validate_remote_manifest(manifest: &RemoteManifest) -> Result<(), RemoteM
         remote_variants_from_str(&packet.variants)?;
 
         let flow = remote_flow_from_targets(&packet.targets)?;
+        validate_remote_allow_flags(packet, flow)?;
         remote_priority_from_str(&packet.priority)?;
         let mut seen_param_names = HashSet::with_capacity(packet.params.len());
 
@@ -1750,6 +1751,41 @@ fn remote_flow_from_targets(targets: &str) -> Result<RemoteFlow, RemoteManifestE
         "both" => Ok(RemoteFlow::Bidirectional),
         _ => Err(RemoteManifestError::InvalidRemotePacketMetadata(format!(
             "unsupported remote targets: {targets}"
+        ))),
+    }
+}
+
+fn validate_remote_allow_flags(
+    packet: &RemotePacketEntry,
+    flow: RemoteFlow,
+) -> Result<(), RemoteManifestError> {
+    let expected_allow_on_client =
+        matches!(flow, RemoteFlow::ServerToClient | RemoteFlow::Bidirectional);
+    let expected_allow_on_server =
+        matches!(flow, RemoteFlow::ClientToServer | RemoteFlow::Bidirectional);
+
+    match (packet.allow_on_client, packet.allow_on_server) {
+        (None, None) => Ok(()),
+        (Some(allow_on_client), Some(allow_on_server))
+            if allow_on_client == expected_allow_on_client
+                && allow_on_server == expected_allow_on_server =>
+        {
+            Ok(())
+        }
+        (Some(allow_on_client), Some(allow_on_server)) => {
+            Err(RemoteManifestError::InvalidRemotePacketMetadata(format!(
+                "remote packet {} has allowOnClient/allowOnServer drift for targets {}: expected allowOnClient={}, allowOnServer={}, found allowOnClient={}, allowOnServer={}",
+                packet.packet_class,
+                packet.targets,
+                expected_allow_on_client,
+                expected_allow_on_server,
+                allow_on_client,
+                allow_on_server
+            )))
+        }
+        _ => Err(RemoteManifestError::InvalidRemotePacketMetadata(format!(
+            "remote packet {} must set allowOnClient and allowOnServer together",
+            packet.packet_class
         ))),
     }
 }
@@ -2920,6 +2956,23 @@ mod tests {
             RemoteManifestError::InvalidPacketSequence(_)
         ));
         assert_eq!(error.to_string(), "duplicate remote packetId: 0");
+    }
+
+    #[test]
+    fn validate_remote_manifest_rejects_allow_flag_drift() {
+        let mut manifest = parse_remote_manifest(SAMPLE_MANIFEST).unwrap();
+        manifest.remote_packets[0].allow_on_client = Some(true);
+        manifest.remote_packets[0].allow_on_server = Some(true);
+
+        let error = validate_remote_manifest(&manifest).unwrap_err();
+        assert!(matches!(
+            error,
+            RemoteManifestError::InvalidRemotePacketMetadata(_)
+        ));
+        assert_eq!(
+            error.to_string(),
+            "remote packet mindustry.gen.TestCallPacket has allowOnClient/allowOnServer drift for targets client: expected allowOnClient=false, allowOnServer=true, found allowOnClient=true, allowOnServer=true"
+        );
     }
 
     #[test]

@@ -335,6 +335,7 @@ These are already landed and should not be re-opened as if missing:
 - `mdt-world` consumer/runtime helper layers now treat `DuplicateStaticFogTeamIds` as a real `WorldShell` / `StaticFog` blocker instead of leaving duplicate static-fog teams seedable and world-semantic-ready.
 - `mdt-typeio` JSON writers now enforce the same v156 `rules/objectives/objective-marker` length caps as the readers instead of emitting payloads that the local read side would immediately reject.
 - `mdt-remote` manifest validation now also rejects duplicate parameter names within a single remote packet instead of letting typed metadata/registry generation inherit ambiguous per-packet arg names.
+- `mdt-remote` manifest validation now also fail-closes `allowOnClient/allowOnServer` drift against `targets` flow instead of parsing those access flags and then silently ignoring them.
 
 ## Highest-Confidence Remaining Lanes
 
