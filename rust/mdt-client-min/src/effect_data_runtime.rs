@@ -319,11 +319,12 @@ fn lightning_polyline_hint(object: &TypeIoObject) -> Option<EffectDataBusinessHi
         })
         .and_then(|matched| match matched.value {
             TypeIoObject::Vec2Array(values) => {
+                if values.iter().any(|(x, y)| !x.is_finite() || !y.is_finite()) {
+                    return None;
+                }
                 let points = values
                     .iter()
-                    .filter_map(|(x, y)| {
-                        (x.is_finite() && y.is_finite()).then_some((x.to_bits(), y.to_bits()))
-                    })
+                    .map(|(x, y)| (x.to_bits(), y.to_bits()))
                     .collect::<Vec<_>>();
                 (!points.is_empty()).then_some(EffectDataBusinessHint::Polyline {
                     points,
@@ -994,6 +995,17 @@ mod tests {
             input.data_kind.as_deref(),
             Some("object[len=2]{0=Point2,1=Unit(raw)}")
         );
+    }
+
+    #[test]
+    fn derive_effect_data_business_input_rejects_lightning_polyline_with_non_finite_points() {
+        let object = TypeIoObject::Vec2Array(vec![(1.0, 2.0), (f32::INFINITY, 4.5)]);
+
+        let input =
+            derive_effect_data_business_input(Some(13), Some(&object), Some(17), false, None);
+
+        assert_eq!(input.contract_name, Some("lightning"));
+        assert_eq!(input.primary, None);
     }
 
     #[test]
