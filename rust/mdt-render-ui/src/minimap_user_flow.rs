@@ -75,6 +75,7 @@ pub(crate) struct MinimapUserFlowPanelModel {
     pub focus_offset_x: Option<isize>,
     pub focus_offset_y: Option<isize>,
     pub overlay_target_count: usize,
+    pub visible_tile_count: usize,
     pub visible_map_percent: usize,
     pub unknown_tile_percent: usize,
     pub window_coverage_percent: usize,
@@ -84,7 +85,7 @@ impl MinimapUserFlowPanelModel {
     pub(crate) fn visibility_label(&self) -> &'static str {
         if self.unknown_tile_percent == 100 {
             "unseen"
-        } else if self.visible_map_percent == 0 {
+        } else if self.visible_tile_count == 0 {
             "hidden"
         } else if self.unknown_tile_percent == 0 {
             "mapped"
@@ -143,7 +144,7 @@ pub(crate) fn build_minimap_user_flow_panel(
     };
     let visibility_label = if panel.unknown_tile_percent == 100 {
         "unseen"
-    } else if panel.visible_map_percent() == 0 {
+    } else if panel.visible_tile_count == 0 {
         "hidden"
     } else if panel.unknown_tile_percent == 0 {
         "mapped"
@@ -183,6 +184,7 @@ pub(crate) fn build_minimap_user_flow_panel(
         focus_offset_x: panel.focus_offset_x,
         focus_offset_y: panel.focus_offset_y,
         overlay_target_count: panel.plan_count + panel.marker_count + panel.runtime_count,
+        visible_tile_count: panel.visible_tile_count,
         visible_map_percent: panel.visible_map_percent(),
         unknown_tile_percent: panel.unknown_tile_percent,
         window_coverage_percent: panel.window_coverage_percent,
@@ -553,6 +555,66 @@ mod tests {
         assert_eq!(bottom_right.focus_offset_x, Some(2));
         assert_eq!(bottom_right.focus_offset_y, Some(2));
         assert_eq!(bottom_right.pan_label(), "hold");
+    }
+
+    #[test]
+    fn minimap_user_flow_does_not_treat_rounded_zero_visibility_as_hidden() {
+        let scene = RenderModel {
+            viewport: Viewport {
+                width: 64.0,
+                height: 64.0,
+                zoom: 1.0,
+            },
+            view_window: None,
+            objects: vec![RenderObject {
+                id: "player:1".to_string(),
+                layer: 1,
+                x: 8.0,
+                y: 8.0,
+            }],
+        };
+        let hud = HudModel {
+            summary: Some(HudSummary {
+                player_name: "operator".to_string(),
+                team_id: 2,
+                selected_block: "payload-router".to_string(),
+                plan_count: 0,
+                marker_count: 0,
+                map_width: 100,
+                map_height: 100,
+                overlay_visible: true,
+                fog_enabled: true,
+                visible_tile_count: 1,
+                hidden_tile_count: 9000,
+                minimap: HudMinimapSummary {
+                    focus_tile: Some((1, 1)),
+                    view_window: HudViewWindowSummary {
+                        origin_x: 0,
+                        origin_y: 0,
+                        width: 8,
+                        height: 8,
+                    },
+                },
+            }),
+            ..HudModel::default()
+        };
+
+        let panel = build_minimap_user_flow_panel(
+            &scene,
+            &hud,
+            PresenterViewWindow {
+                origin_x: 0,
+                origin_y: 0,
+                width: 8,
+                height: 8,
+            },
+        )
+        .expect("rounded-zero visibility panel");
+
+        assert_eq!(panel.visible_tile_count, 1);
+        assert_eq!(panel.visible_map_percent, 0);
+        assert_eq!(panel.visibility_label(), "mixed");
+        assert_eq!(panel.next_action, "hold");
     }
 
     fn build_top_left_summary() -> HudSummary {
