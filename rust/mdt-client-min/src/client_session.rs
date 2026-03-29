@@ -640,6 +640,11 @@ impl ClientSession {
         let send_message_with_sender_packet_id =
             well_known_remote.send_message_with_sender_packet_id;
         let send_chat_message_packet_id = well_known_remote.send_chat_message_packet_id;
+        let info_popup_packet_id = well_known_remote.info_popup_packet_id;
+        let info_popup_with_id_packet_id = well_known_remote.info_popup_with_id_packet_id;
+        let info_popup_reliable_packet_id = well_known_remote.info_popup_reliable_packet_id;
+        let info_popup_reliable_with_id_packet_id =
+            well_known_remote.info_popup_reliable_with_id_packet_id;
         let admin_request_packet_id = manifest
             .remote_packets
             .iter()
@@ -715,26 +720,6 @@ impl ClientSession {
             .remote_packets
             .iter()
             .find(|entry| entry.method == "infoMessage")
-            .map(|entry| entry.packet_id);
-        let info_popup_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "infoPopup" && entry.params.len() == 7)
-            .map(|entry| entry.packet_id);
-        let info_popup_with_id_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "infoPopup" && entry.params.len() == 8)
-            .map(|entry| entry.packet_id);
-        let info_popup_reliable_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "infoPopupReliable" && entry.params.len() == 7)
-            .map(|entry| entry.packet_id);
-        let info_popup_reliable_with_id_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "infoPopupReliable" && entry.params.len() == 8)
             .map(|entry| entry.packet_id);
         let info_toast_packet_id = manifest
             .remote_packets
@@ -51150,6 +51135,22 @@ mod tests {
             expected(WellKnownRemoteMethod::SendMessageWithSender)
         );
         assert_eq!(
+            session.info_popup_packet_id,
+            expected(WellKnownRemoteMethod::InfoPopup)
+        );
+        assert_eq!(
+            session.info_popup_with_id_packet_id,
+            expected(WellKnownRemoteMethod::InfoPopupWithId)
+        );
+        assert_eq!(
+            session.info_popup_reliable_packet_id,
+            expected(WellKnownRemoteMethod::InfoPopupReliable)
+        );
+        assert_eq!(
+            session.info_popup_reliable_with_id_packet_id,
+            expected(WellKnownRemoteMethod::InfoPopupReliableWithId)
+        );
+        assert_eq!(
             session.set_rules_packet_id,
             expected(WellKnownRemoteMethod::SetRules)
         );
@@ -51425,6 +51426,113 @@ mod tests {
         assert_eq!(
             session.send_message_with_sender_packet_id,
             Some(expected_send_message_with_sender_packet_id)
+        );
+    }
+
+    #[test]
+    fn session_info_popup_packet_ids_reject_well_known_method_decoys() {
+        let mut manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let expected_info_popup_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "infoPopup" && entry.params.len() == 7 && entry.unreliable)
+            .expect("missing infoPopup packet")
+            .packet_id;
+        let expected_info_popup_with_id_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "infoPopup" && entry.params.len() == 8 && entry.unreliable)
+            .expect("missing infoPopup-with-id packet")
+            .packet_id;
+        let expected_info_popup_reliable_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "infoPopupReliable" && entry.params.len() == 7 && !entry.unreliable
+            })
+            .expect("missing infoPopupReliable packet")
+            .packet_id;
+        let expected_info_popup_reliable_with_id_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "infoPopupReliable" && entry.params.len() == 8 && !entry.unreliable
+            })
+            .expect("missing infoPopupReliable-with-id packet")
+            .packet_id;
+
+        let mut info_popup_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "infoPopup" && entry.params.len() == 7 && entry.unreliable)
+            .expect("missing infoPopup packet")
+            .clone();
+        info_popup_decoy.packet_id = 240;
+        info_popup_decoy.packet_class = "mindustry.gen.InfoPopupDecoyCallPacket".into();
+        info_popup_decoy.unreliable = false;
+
+        let mut info_popup_with_id_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "infoPopup" && entry.params.len() == 8 && entry.unreliable)
+            .expect("missing infoPopup-with-id packet")
+            .clone();
+        info_popup_with_id_decoy.packet_id = 241;
+        info_popup_with_id_decoy.packet_class = "mindustry.gen.InfoPopupDecoyCallPacket2".into();
+        info_popup_with_id_decoy.unreliable = false;
+
+        let mut info_popup_reliable_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "infoPopupReliable" && entry.params.len() == 7 && !entry.unreliable
+            })
+            .expect("missing infoPopupReliable packet")
+            .clone();
+        info_popup_reliable_decoy.packet_id = 242;
+        info_popup_reliable_decoy.packet_class =
+            "mindustry.gen.InfoPopupReliableDecoyCallPacket".into();
+        info_popup_reliable_decoy.unreliable = true;
+
+        let mut info_popup_reliable_with_id_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "infoPopupReliable" && entry.params.len() == 8 && !entry.unreliable
+            })
+            .expect("missing infoPopupReliable-with-id packet")
+            .clone();
+        info_popup_reliable_with_id_decoy.packet_id = 243;
+        info_popup_reliable_with_id_decoy.packet_class =
+            "mindustry.gen.InfoPopupReliableDecoyCallPacket2".into();
+        info_popup_reliable_with_id_decoy.unreliable = true;
+
+        manifest.remote_packets.splice(
+            0..0,
+            vec![
+                info_popup_decoy,
+                info_popup_with_id_decoy,
+                info_popup_reliable_decoy,
+                info_popup_reliable_with_id_decoy,
+            ],
+        );
+        for (remote_index, packet) in manifest.remote_packets.iter_mut().enumerate() {
+            packet.remote_index = remote_index;
+        }
+
+        let session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        assert_eq!(session.info_popup_packet_id, Some(expected_info_popup_packet_id));
+        assert_eq!(
+            session.info_popup_with_id_packet_id,
+            Some(expected_info_popup_with_id_packet_id)
+        );
+        assert_eq!(
+            session.info_popup_reliable_packet_id,
+            Some(expected_info_popup_reliable_packet_id)
+        );
+        assert_eq!(
+            session.info_popup_reliable_with_id_packet_id,
+            Some(expected_info_popup_reliable_with_id_packet_id)
         );
     }
 

@@ -69,6 +69,10 @@ pub struct WellKnownRemotePacketIds {
     pub send_chat_message_packet_id: Option<u8>,
     pub send_message_packet_id: Option<u8>,
     pub send_message_with_sender_packet_id: Option<u8>,
+    pub info_popup_packet_id: Option<u8>,
+    pub info_popup_with_id_packet_id: Option<u8>,
+    pub info_popup_reliable_packet_id: Option<u8>,
+    pub info_popup_reliable_with_id_packet_id: Option<u8>,
     pub set_rules_packet_id: Option<u8>,
     pub set_objectives_packet_id: Option<u8>,
     pub set_rule_packet_id: Option<u8>,
@@ -316,6 +320,12 @@ impl WellKnownRemotePacketIds {
             send_message_with_sender_packet_id: packet_id(
                 WellKnownRemoteMethod::SendMessageWithSender,
             ),
+            info_popup_packet_id: packet_id(WellKnownRemoteMethod::InfoPopup),
+            info_popup_with_id_packet_id: packet_id(WellKnownRemoteMethod::InfoPopupWithId),
+            info_popup_reliable_packet_id: packet_id(WellKnownRemoteMethod::InfoPopupReliable),
+            info_popup_reliable_with_id_packet_id: packet_id(
+                WellKnownRemoteMethod::InfoPopupReliableWithId,
+            ),
             set_rules_packet_id: packet_id(WellKnownRemoteMethod::SetRules),
             set_objectives_packet_id: packet_id(WellKnownRemoteMethod::SetObjectives),
             set_rule_packet_id: packet_id(WellKnownRemoteMethod::SetRule),
@@ -345,6 +355,12 @@ impl WellKnownRemotePacketIds {
             WellKnownRemoteMethod::SendMessage => self.send_message_packet_id,
             WellKnownRemoteMethod::SendMessageWithSender => {
                 self.send_message_with_sender_packet_id
+            }
+            WellKnownRemoteMethod::InfoPopup => self.info_popup_packet_id,
+            WellKnownRemoteMethod::InfoPopupWithId => self.info_popup_with_id_packet_id,
+            WellKnownRemoteMethod::InfoPopupReliable => self.info_popup_reliable_packet_id,
+            WellKnownRemoteMethod::InfoPopupReliableWithId => {
+                self.info_popup_reliable_with_id_packet_id
             }
             WellKnownRemoteMethod::SetRules => self.set_rules_packet_id,
             WellKnownRemoteMethod::SetObjectives => self.set_objectives_packet_id,
@@ -873,7 +889,9 @@ mod tests {
             PING_CALL_PACKET_ID, PLAYER_SPAWN_CALL_PACKET_ID, REMOTE_PACKET_SPECS,
             SEND_CHAT_MESSAGE_CALL_PACKET_ID, SEND_MESSAGE_CALL_PACKET2_ID,
             SEND_MESSAGE_CALL_PACKET_ID, TILE_CONFIG_CALL_PACKET_ID,
-            WORLD_DATA_BEGIN_CALL_PACKET_ID,
+            WORLD_DATA_BEGIN_CALL_PACKET_ID, INFO_POPUP_CALL_PACKET_ID,
+            INFO_POPUP_CALL_PACKET2_ID, INFO_POPUP_RELIABLE_CALL_PACKET_ID,
+            INFO_POPUP_RELIABLE_CALL_PACKET2_ID,
         };
 
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
@@ -940,6 +958,22 @@ mod tests {
             Some(SEND_MESSAGE_CALL_PACKET2_ID)
         );
         assert_eq!(
+            combined.well_known_remote.info_popup_packet_id,
+            Some(INFO_POPUP_CALL_PACKET_ID)
+        );
+        assert_eq!(
+            combined.well_known_remote.info_popup_with_id_packet_id,
+            Some(INFO_POPUP_CALL_PACKET2_ID)
+        );
+        assert_eq!(
+            combined.well_known_remote.info_popup_reliable_packet_id,
+            Some(INFO_POPUP_RELIABLE_CALL_PACKET_ID)
+        );
+        assert_eq!(
+            combined.well_known_remote.info_popup_reliable_with_id_packet_id,
+            Some(INFO_POPUP_RELIABLE_CALL_PACKET2_ID)
+        );
+        assert_eq!(
             manifest
                 .remote_packets
                 .iter()
@@ -993,6 +1027,10 @@ mod tests {
         assert_eq!(well_known.send_chat_message_packet_id, Some(29));
         assert_eq!(well_known.send_message_packet_id, Some(31));
         assert_eq!(well_known.send_message_with_sender_packet_id, Some(33));
+        assert_eq!(well_known.info_popup_packet_id, Some(39));
+        assert_eq!(well_known.info_popup_with_id_packet_id, Some(41));
+        assert_eq!(well_known.info_popup_reliable_packet_id, Some(43));
+        assert_eq!(well_known.info_popup_reliable_with_id_packet_id, Some(45));
         assert_eq!(well_known.set_rules_packet_id, Some(16));
         assert_eq!(well_known.set_objectives_packet_id, Some(17));
         assert_eq!(well_known.set_rule_packet_id, Some(19));
@@ -1076,6 +1114,22 @@ mod tests {
             (
                 WellKnownRemoteMethod::SendMessageWithSender,
                 well_known.send_message_with_sender_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::InfoPopup,
+                well_known.info_popup_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::InfoPopupWithId,
+                well_known.info_popup_with_id_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::InfoPopupReliable,
+                well_known.info_popup_reliable_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::InfoPopupReliableWithId,
+                well_known.info_popup_reliable_with_id_packet_id,
             ),
             (
                 WellKnownRemoteMethod::SetRules,
@@ -1832,6 +1886,162 @@ mod tests {
                     vec![
                         param("tile", "mindustry.world.Tile", true, true),
                         param("player", "Player", true, true),
+                    ],
+                ),
+                remote_packet(
+                    34,
+                    38,
+                    "mindustry.gen.InfoPopupDecoyCallPacket",
+                    "mindustry.ui.Menus",
+                    "infoPopup",
+                    "server",
+                    "none",
+                    false,
+                    vec![
+                        param("message", "java.lang.String", true, true),
+                        param("duration", "float", true, true),
+                        param("align", "int", true, true),
+                        param("top", "int", true, true),
+                        param("left", "int", true, true),
+                        param("bottom", "int", true, true),
+                        param("right", "int", true, true),
+                    ],
+                ),
+                remote_packet(
+                    35,
+                    39,
+                    "mindustry.gen.InfoPopupCallPacket",
+                    "mindustry.ui.Menus",
+                    "infoPopup",
+                    "server",
+                    "none",
+                    true,
+                    vec![
+                        param("message", "java.lang.String", true, true),
+                        param("duration", "float", true, true),
+                        param("align", "int", true, true),
+                        param("top", "int", true, true),
+                        param("left", "int", true, true),
+                        param("bottom", "int", true, true),
+                        param("right", "int", true, true),
+                    ],
+                ),
+                remote_packet(
+                    36,
+                    40,
+                    "mindustry.gen.InfoPopupDecoyCallPacket2",
+                    "mindustry.ui.Menus",
+                    "infoPopup",
+                    "server",
+                    "none",
+                    false,
+                    vec![
+                        param("message", "java.lang.String", true, true),
+                        param("id", "java.lang.String", true, true),
+                        param("duration", "float", true, true),
+                        param("align", "int", true, true),
+                        param("top", "int", true, true),
+                        param("left", "int", true, true),
+                        param("bottom", "int", true, true),
+                        param("right", "int", true, true),
+                    ],
+                ),
+                remote_packet(
+                    37,
+                    41,
+                    "mindustry.gen.InfoPopupCallPacket2",
+                    "mindustry.ui.Menus",
+                    "infoPopup",
+                    "server",
+                    "none",
+                    true,
+                    vec![
+                        param("message", "java.lang.String", true, true),
+                        param("id", "java.lang.String", true, true),
+                        param("duration", "float", true, true),
+                        param("align", "int", true, true),
+                        param("top", "int", true, true),
+                        param("left", "int", true, true),
+                        param("bottom", "int", true, true),
+                        param("right", "int", true, true),
+                    ],
+                ),
+                remote_packet(
+                    38,
+                    42,
+                    "mindustry.gen.InfoPopupReliableDecoyCallPacket",
+                    "mindustry.ui.Menus",
+                    "infoPopupReliable",
+                    "server",
+                    "none",
+                    true,
+                    vec![
+                        param("message", "java.lang.String", true, true),
+                        param("duration", "float", true, true),
+                        param("align", "int", true, true),
+                        param("top", "int", true, true),
+                        param("left", "int", true, true),
+                        param("bottom", "int", true, true),
+                        param("right", "int", true, true),
+                    ],
+                ),
+                remote_packet(
+                    39,
+                    43,
+                    "mindustry.gen.InfoPopupReliableCallPacket",
+                    "mindustry.ui.Menus",
+                    "infoPopupReliable",
+                    "server",
+                    "none",
+                    false,
+                    vec![
+                        param("message", "java.lang.String", true, true),
+                        param("duration", "float", true, true),
+                        param("align", "int", true, true),
+                        param("top", "int", true, true),
+                        param("left", "int", true, true),
+                        param("bottom", "int", true, true),
+                        param("right", "int", true, true),
+                    ],
+                ),
+                remote_packet(
+                    40,
+                    44,
+                    "mindustry.gen.InfoPopupReliableDecoyCallPacket2",
+                    "mindustry.ui.Menus",
+                    "infoPopupReliable",
+                    "server",
+                    "none",
+                    true,
+                    vec![
+                        param("message", "java.lang.String", true, true),
+                        param("id", "java.lang.String", true, true),
+                        param("duration", "float", true, true),
+                        param("align", "int", true, true),
+                        param("top", "int", true, true),
+                        param("left", "int", true, true),
+                        param("bottom", "int", true, true),
+                        param("right", "int", true, true),
+                    ],
+                ),
+                remote_packet(
+                    41,
+                    45,
+                    "mindustry.gen.InfoPopupReliableCallPacket2",
+                    "mindustry.ui.Menus",
+                    "infoPopupReliable",
+                    "server",
+                    "none",
+                    false,
+                    vec![
+                        param("message", "java.lang.String", true, true),
+                        param("id", "java.lang.String", true, true),
+                        param("duration", "float", true, true),
+                        param("align", "int", true, true),
+                        param("top", "int", true, true),
+                        param("left", "int", true, true),
+                        param("bottom", "int", true, true),
+                        param("right", "int", true, true),
                     ],
                 ),
             ],

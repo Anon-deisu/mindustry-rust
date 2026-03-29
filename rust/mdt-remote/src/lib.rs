@@ -5,7 +5,7 @@ pub const REMOTE_MANIFEST_SCHEMA_V1: &str = "mdt.remote.manifest.v1";
 pub const CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT: usize = 10;
 pub const HIGH_FREQUENCY_REMOTE_METHOD_COUNT: usize = 5;
 pub const INBOUND_REMOTE_FAMILY_COUNT: usize = 6;
-pub const WELL_KNOWN_REMOTE_METHOD_COUNT: usize = 19;
+pub const WELL_KNOWN_REMOTE_METHOD_COUNT: usize = 23;
 pub const REMOTE_PACKET_ID_SPACE: usize = u8::MAX as usize + 1;
 pub const REMOTE_WIRE_PACKET_ID_BYTE_U8: &str = "u8";
 pub const REMOTE_WIRE_LENGTH_FIELD_U16BE: &str = "u16be";
@@ -190,6 +190,10 @@ pub enum WellKnownRemoteMethod {
     SendChatMessage,
     SendMessage,
     SendMessageWithSender,
+    InfoPopup,
+    InfoPopupWithId,
+    InfoPopupReliable,
+    InfoPopupReliableWithId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -463,6 +467,44 @@ const SEND_MESSAGE_WITH_SENDER_WIRE_PARAM_KINDS: [RemoteParamKind; 3] = [
     RemoteParamKind::Opaque,
     RemoteParamKind::Opaque,
 ];
+const INFO_POPUP_PARAM_JAVA_TYPES: [&str; 7] = [
+    "java.lang.String",
+    "float",
+    "int",
+    "int",
+    "int",
+    "int",
+    "int",
+];
+const INFO_POPUP_WIRE_PARAM_KINDS: [RemoteParamKind; 7] = [
+    RemoteParamKind::Opaque,
+    RemoteParamKind::Float,
+    RemoteParamKind::Int,
+    RemoteParamKind::Int,
+    RemoteParamKind::Int,
+    RemoteParamKind::Int,
+    RemoteParamKind::Int,
+];
+const INFO_POPUP_WITH_ID_PARAM_JAVA_TYPES: [&str; 8] = [
+    "java.lang.String",
+    "java.lang.String",
+    "float",
+    "int",
+    "int",
+    "int",
+    "int",
+    "int",
+];
+const INFO_POPUP_WITH_ID_WIRE_PARAM_KINDS: [RemoteParamKind; 8] = [
+    RemoteParamKind::Opaque,
+    RemoteParamKind::Opaque,
+    RemoteParamKind::Float,
+    RemoteParamKind::Int,
+    RemoteParamKind::Int,
+    RemoteParamKind::Int,
+    RemoteParamKind::Int,
+    RemoteParamKind::Int,
+];
 const SET_RULES_PARAM_JAVA_TYPES: [&str; 1] = ["mindustry.game.Rules"];
 const SET_RULES_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Opaque];
 const SET_OBJECTIVES_PARAM_JAVA_TYPES: [&str; 1] = ["mindustry.game.MapObjectives"];
@@ -546,6 +588,10 @@ impl WellKnownRemoteMethod {
             Self::SendChatMessage,
             Self::SendMessage,
             Self::SendMessageWithSender,
+            Self::InfoPopup,
+            Self::InfoPopupWithId,
+            Self::InfoPopupReliable,
+            Self::InfoPopupReliableWithId,
         ]
     }
 
@@ -568,6 +614,8 @@ impl WellKnownRemoteMethod {
             Self::KickString | Self::KickReason => "kick",
             Self::SendChatMessage => "sendChatMessage",
             Self::SendMessage | Self::SendMessageWithSender => "sendMessage",
+            Self::InfoPopup | Self::InfoPopupWithId => "infoPopup",
+            Self::InfoPopupReliable | Self::InfoPopupReliableWithId => "infoPopupReliable",
         }
     }
 
@@ -588,7 +636,11 @@ impl WellKnownRemoteMethod {
             | Self::KickString
             | Self::KickReason
             | Self::SendMessage
-            | Self::SendMessageWithSender => RemoteFlow::ServerToClient,
+            | Self::SendMessageWithSender
+            | Self::InfoPopup
+            | Self::InfoPopupWithId
+            | Self::InfoPopupReliable
+            | Self::InfoPopupReliableWithId => RemoteFlow::ServerToClient,
             Self::ConnectConfirm | Self::SendChatMessage => RemoteFlow::ClientToServer,
         }
     }
@@ -599,6 +651,8 @@ impl WellKnownRemoteMethod {
             Self::ClientPlanSnapshot
                 | Self::ClientPlanSnapshotReceived
                 | Self::DebugStatusClientUnreliable
+                | Self::InfoPopup
+                | Self::InfoPopupWithId
         )
     }
 
@@ -623,6 +677,10 @@ impl WellKnownRemoteMethod {
             Self::SendChatMessage => &SEND_CHAT_MESSAGE_PARAM_JAVA_TYPES,
             Self::SendMessage => &SEND_MESSAGE_PARAM_JAVA_TYPES,
             Self::SendMessageWithSender => &SEND_MESSAGE_WITH_SENDER_PARAM_JAVA_TYPES,
+            Self::InfoPopup | Self::InfoPopupReliable => &INFO_POPUP_PARAM_JAVA_TYPES,
+            Self::InfoPopupWithId | Self::InfoPopupReliableWithId => {
+                &INFO_POPUP_WITH_ID_PARAM_JAVA_TYPES
+            }
         }
     }
 
@@ -647,6 +705,10 @@ impl WellKnownRemoteMethod {
             Self::SendChatMessage => &SEND_CHAT_MESSAGE_WIRE_PARAM_KINDS,
             Self::SendMessage => &SEND_MESSAGE_WIRE_PARAM_KINDS,
             Self::SendMessageWithSender => &SEND_MESSAGE_WITH_SENDER_WIRE_PARAM_KINDS,
+            Self::InfoPopup | Self::InfoPopupReliable => &INFO_POPUP_WIRE_PARAM_KINDS,
+            Self::InfoPopupWithId | Self::InfoPopupReliableWithId => {
+                &INFO_POPUP_WITH_ID_WIRE_PARAM_KINDS
+            }
         }
     }
 
@@ -4263,6 +4325,10 @@ mod tests {
             (WellKnownRemoteMethod::SendChatMessage, Some(29)),
             (WellKnownRemoteMethod::SendMessage, Some(31)),
             (WellKnownRemoteMethod::SendMessageWithSender, Some(33)),
+            (WellKnownRemoteMethod::InfoPopup, Some(39)),
+            (WellKnownRemoteMethod::InfoPopupWithId, Some(41)),
+            (WellKnownRemoteMethod::InfoPopupReliable, Some(43)),
+            (WellKnownRemoteMethod::InfoPopupReliableWithId, Some(45)),
         ];
 
         assert_eq!(registry.len(), expected.len());
@@ -4304,12 +4370,23 @@ mod tests {
             fixed_table.get(33),
             Some(WellKnownRemoteMethod::SendMessageWithSender)
         );
+        assert_eq!(fixed_table.get(39), Some(WellKnownRemoteMethod::InfoPopup));
+        assert_eq!(fixed_table.get(41), Some(WellKnownRemoteMethod::InfoPopupWithId));
+        assert_eq!(
+            fixed_table.get(43),
+            Some(WellKnownRemoteMethod::InfoPopupReliable)
+        );
+        assert_eq!(
+            fixed_table.get(45),
+            Some(WellKnownRemoteMethod::InfoPopupReliableWithId)
+        );
         assert_eq!(fixed_table.get(18), None);
         assert!(fixed_table.contains_packet_id(19));
         assert!(fixed_table.contains_packet_id(23));
         assert!(fixed_table.contains_packet_id(27));
         assert!(fixed_table.contains_packet_id(37));
         assert!(fixed_table.contains_packet_id(33));
+        assert!(fixed_table.contains_packet_id(45));
         assert!(!fixed_table.contains_packet_id(250));
     }
 
@@ -4747,6 +4824,30 @@ mod tests {
                 .first_well_known_method(WellKnownRemoteMethod::SendMessageWithSender)
                 .map(|packet| packet.packet_id),
             Some(33)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::InfoPopup)
+                .map(|packet| packet.packet_id),
+            Some(39)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::InfoPopupWithId)
+                .map(|packet| packet.packet_id),
+            Some(41)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::InfoPopupReliable)
+                .map(|packet| packet.packet_id),
+            Some(43)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::InfoPopupReliableWithId)
+                .map(|packet| packet.packet_id),
+            Some(45)
         );
     }
 
@@ -5654,6 +5755,162 @@ mod tests {
                     vec![
                         test_param("tile", "mindustry.world.Tile", true, true),
                         test_param("player", "Player", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    34,
+                    38,
+                    "mindustry.gen.InfoPopupDecoyCallPacket",
+                    "mindustry.ui.Menus",
+                    "infoPopup",
+                    "server",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("message", "java.lang.String", true, true),
+                        test_param("duration", "float", true, true),
+                        test_param("align", "int", true, true),
+                        test_param("top", "int", true, true),
+                        test_param("left", "int", true, true),
+                        test_param("bottom", "int", true, true),
+                        test_param("right", "int", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    35,
+                    39,
+                    "mindustry.gen.InfoPopupCallPacket",
+                    "mindustry.ui.Menus",
+                    "infoPopup",
+                    "server",
+                    "normal",
+                    true,
+                    vec![
+                        test_param("message", "java.lang.String", true, true),
+                        test_param("duration", "float", true, true),
+                        test_param("align", "int", true, true),
+                        test_param("top", "int", true, true),
+                        test_param("left", "int", true, true),
+                        test_param("bottom", "int", true, true),
+                        test_param("right", "int", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    36,
+                    40,
+                    "mindustry.gen.InfoPopupDecoyCallPacket2",
+                    "mindustry.ui.Menus",
+                    "infoPopup",
+                    "server",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("message", "java.lang.String", true, true),
+                        test_param("id", "java.lang.String", true, true),
+                        test_param("duration", "float", true, true),
+                        test_param("align", "int", true, true),
+                        test_param("top", "int", true, true),
+                        test_param("left", "int", true, true),
+                        test_param("bottom", "int", true, true),
+                        test_param("right", "int", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    37,
+                    41,
+                    "mindustry.gen.InfoPopupCallPacket2",
+                    "mindustry.ui.Menus",
+                    "infoPopup",
+                    "server",
+                    "normal",
+                    true,
+                    vec![
+                        test_param("message", "java.lang.String", true, true),
+                        test_param("id", "java.lang.String", true, true),
+                        test_param("duration", "float", true, true),
+                        test_param("align", "int", true, true),
+                        test_param("top", "int", true, true),
+                        test_param("left", "int", true, true),
+                        test_param("bottom", "int", true, true),
+                        test_param("right", "int", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    38,
+                    42,
+                    "mindustry.gen.InfoPopupReliableDecoyCallPacket",
+                    "mindustry.ui.Menus",
+                    "infoPopupReliable",
+                    "server",
+                    "normal",
+                    true,
+                    vec![
+                        test_param("message", "java.lang.String", true, true),
+                        test_param("duration", "float", true, true),
+                        test_param("align", "int", true, true),
+                        test_param("top", "int", true, true),
+                        test_param("left", "int", true, true),
+                        test_param("bottom", "int", true, true),
+                        test_param("right", "int", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    39,
+                    43,
+                    "mindustry.gen.InfoPopupReliableCallPacket",
+                    "mindustry.ui.Menus",
+                    "infoPopupReliable",
+                    "server",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("message", "java.lang.String", true, true),
+                        test_param("duration", "float", true, true),
+                        test_param("align", "int", true, true),
+                        test_param("top", "int", true, true),
+                        test_param("left", "int", true, true),
+                        test_param("bottom", "int", true, true),
+                        test_param("right", "int", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    40,
+                    44,
+                    "mindustry.gen.InfoPopupReliableDecoyCallPacket2",
+                    "mindustry.ui.Menus",
+                    "infoPopupReliable",
+                    "server",
+                    "normal",
+                    true,
+                    vec![
+                        test_param("message", "java.lang.String", true, true),
+                        test_param("id", "java.lang.String", true, true),
+                        test_param("duration", "float", true, true),
+                        test_param("align", "int", true, true),
+                        test_param("top", "int", true, true),
+                        test_param("left", "int", true, true),
+                        test_param("bottom", "int", true, true),
+                        test_param("right", "int", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    41,
+                    45,
+                    "mindustry.gen.InfoPopupReliableCallPacket2",
+                    "mindustry.ui.Menus",
+                    "infoPopupReliable",
+                    "server",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("message", "java.lang.String", true, true),
+                        test_param("id", "java.lang.String", true, true),
+                        test_param("duration", "float", true, true),
+                        test_param("align", "int", true, true),
+                        test_param("top", "int", true, true),
+                        test_param("left", "int", true, true),
+                        test_param("bottom", "int", true, true),
+                        test_param("right", "int", true, true),
                     ],
                 ),
             ],
