@@ -1,4 +1,5 @@
 use mdt_typeio::{unpack_point2, TypeIoObject};
+use std::collections::VecDeque;
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct LogicValueExtraction<T> {
@@ -9,8 +10,10 @@ pub(crate) struct LogicValueExtraction<T> {
 pub(crate) fn extract_logic_string(value: &TypeIoObject) -> Option<String> {
     match value {
         TypeIoObject::String(Some(text)) => Some(text.clone()),
-        TypeIoObject::ObjectArray(_) => value
-            .find_first_dfs(|object| matches!(object, TypeIoObject::String(Some(_))))
+        TypeIoObject::ObjectArray(_) => find_first_nested_logic_match(
+            value,
+            |object| matches!(object, TypeIoObject::String(Some(_))),
+        )
             .and_then(|matched| match matched.value {
                 TypeIoObject::String(Some(text)) => Some(text.clone()),
                 _ => None,
@@ -249,8 +252,7 @@ pub(crate) fn extract_logic_bool(value: &TypeIoObject) -> Option<LogicValueExtra
 
 pub(crate) fn extract_logic_number(value: &TypeIoObject) -> Option<String> {
     logic_number_value(value).or_else(|| {
-        value
-            .find_first_dfs(|object| logic_number_value(object).is_some())
+        find_first_nested_logic_match(value, |object| logic_number_value(object).is_some())
             .and_then(|matched| logic_number_value(matched.value))
     })
 }
@@ -272,10 +274,45 @@ fn extract_logic_value<T>(
     nested: impl Fn(&TypeIoObject) -> Option<LogicValueExtraction<T>>,
 ) -> Option<LogicValueExtraction<T>> {
     direct(value).or_else(|| {
-        value
-            .find_first_dfs(nested_match)
+        find_first_nested_logic_match(value, nested_match)
             .and_then(|matched| nested(matched.value))
     })
+}
+
+fn find_first_nested_logic_match<'a, P>(
+    value: &'a TypeIoObject,
+    predicate: P,
+) -> Option<mdt_typeio::TypeIoObjectMatch<'a>>
+where
+    P: Fn(&TypeIoObject) -> bool,
+{
+    let TypeIoObject::ObjectArray(children) = value else {
+        return None;
+    };
+
+    let mut queue: VecDeque<mdt_typeio::TypeIoObjectMatch<'a>> = children
+        .iter()
+        .enumerate()
+        .map(|(index, child)| mdt_typeio::TypeIoObjectMatch {
+            value: child,
+            path: vec![index],
+        })
+        .collect();
+
+    while let Some(current) = queue.pop_front() {
+        if predicate(current.value) {
+            return Some(current);
+        }
+        if let TypeIoObject::ObjectArray(children) = current.value {
+            for (index, child) in children.iter().enumerate() {
+                let mut path = current.path.clone();
+                path.push(index);
+                queue.push_back(mdt_typeio::TypeIoObjectMatch { value: child, path });
+            }
+        }
+    }
+
+    None
 }
 
 #[cfg(test)]
@@ -343,5 +380,29 @@ mod tests {
         );
 
         let _ = pack_point2(7, 9);
+    }
+
+    #[test]
+    fn logic_extractors_prefer_shallower_nested_matches_over_deeper_branch_matches() {
+        let value = TypeIoObject::ObjectArray(vec![
+            TypeIoObject::ObjectArray(vec![TypeIoObject::ObjectArray(vec![TypeIoObject::Vec2 {
+                x: 1.0,
+                y: 2.0,
+            }])]),
+            TypeIoObject::Vec2 { x: 3.0, y: 4.0 },
+        ]);
+
+        let world_pos = extract_logic_world_pos(&value).expect("expected shallow world pos");
+        assert_eq!(world_pos.value, (3.0, 4.0));
+        assert_eq!(world_pos.source, "vec2_nested");
+
+        let number = TypeIoObject::ObjectArray(vec![
+            TypeIoObject::ObjectArray(vec![TypeIoObject::ObjectArray(vec![TypeIoObject::Float(
+                1.0,
+            )])]),
+            TypeIoObject::Float(2.0),
+        ]);
+
+        assert_eq!(extract_logic_number(&number), Some("2".to_string()));
     }
 }
