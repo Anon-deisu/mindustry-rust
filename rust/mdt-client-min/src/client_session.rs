@@ -846,21 +846,9 @@ impl ClientSession {
             .iter()
             .find(|entry| entry.method == "takeItems")
             .map(|entry| entry.packet_id);
-        let transfer_item_to_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "transferItemTo")
-            .map(|entry| entry.packet_id);
-        let transfer_item_to_unit_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "transferItemToUnit")
-            .map(|entry| entry.packet_id);
-        let transfer_item_effect_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "transferItemEffect")
-            .map(|entry| entry.packet_id);
+        let transfer_item_to_packet_id = well_known_remote.transfer_item_to_packet_id;
+        let transfer_item_to_unit_packet_id = well_known_remote.transfer_item_to_unit_packet_id;
+        let transfer_item_effect_packet_id = well_known_remote.transfer_item_effect_packet_id;
         let unit_despawn_packet_id = manifest
             .remote_packets
             .iter()
@@ -51143,6 +51131,18 @@ mod tests {
             expected(WellKnownRemoteMethod::TransferInventory)
         );
         assert_eq!(
+            session.transfer_item_effect_packet_id,
+            expected(WellKnownRemoteMethod::TransferItemEffect)
+        );
+        assert_eq!(
+            session.transfer_item_to_packet_id,
+            expected(WellKnownRemoteMethod::TransferItemTo)
+        );
+        assert_eq!(
+            session.transfer_item_to_unit_packet_id,
+            expected(WellKnownRemoteMethod::TransferItemToUnit)
+        );
+        assert_eq!(
             Some(session.world_data_begin_packet_id),
             expected(WellKnownRemoteMethod::WorldDataBegin)
         );
@@ -52790,6 +52790,140 @@ mod tests {
         assert_eq!(
             session.transfer_inventory_packet_id,
             Some(expected_transfer_inventory_packet_id)
+        );
+    }
+
+    #[test]
+    fn session_transfer_item_packet_ids_reject_well_known_method_decoys() {
+        let mut manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let expected_transfer_item_effect_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "transferItemEffect"
+                    && entry.params.len() == 4
+                    && entry.params[0].java_type == "mindustry.type.Item"
+                    && entry.params[1].java_type == "float"
+                    && entry.params[2].java_type == "float"
+                    && entry.params[3].java_type == "Itemsc"
+                    && entry.unreliable
+            })
+            .expect("missing transferItemEffect packet")
+            .packet_id;
+        let expected_transfer_item_to_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "transferItemTo"
+                    && entry.params.len() == 6
+                    && entry.params[0].java_type == "Unit"
+                    && entry.params[1].java_type == "mindustry.type.Item"
+                    && entry.params[2].java_type == "int"
+                    && entry.params[3].java_type == "float"
+                    && entry.params[4].java_type == "float"
+                    && entry.params[5].java_type == "Building"
+                    && entry.unreliable
+            })
+            .expect("missing transferItemTo packet")
+            .packet_id;
+        let expected_transfer_item_to_unit_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "transferItemToUnit"
+                    && entry.params.len() == 4
+                    && entry.params[0].java_type == "mindustry.type.Item"
+                    && entry.params[1].java_type == "float"
+                    && entry.params[2].java_type == "float"
+                    && entry.params[3].java_type == "Itemsc"
+                    && entry.unreliable
+            })
+            .expect("missing transferItemToUnit packet")
+            .packet_id;
+
+        let mut transfer_item_effect_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "transferItemEffect"
+                    && entry.params.len() == 4
+                    && entry.params[0].java_type == "mindustry.type.Item"
+                    && entry.params[1].java_type == "float"
+                    && entry.params[2].java_type == "float"
+                    && entry.params[3].java_type == "Itemsc"
+                    && entry.unreliable
+            })
+            .expect("missing transferItemEffect packet")
+            .clone();
+        transfer_item_effect_decoy.packet_id = 253;
+        transfer_item_effect_decoy.packet_class =
+            "mindustry.gen.TransferItemEffectDecoyCallPacket".into();
+        transfer_item_effect_decoy.unreliable = false;
+
+        let mut transfer_item_to_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "transferItemTo"
+                    && entry.params.len() == 6
+                    && entry.params[0].java_type == "Unit"
+                    && entry.params[1].java_type == "mindustry.type.Item"
+                    && entry.params[2].java_type == "int"
+                    && entry.params[3].java_type == "float"
+                    && entry.params[4].java_type == "float"
+                    && entry.params[5].java_type == "Building"
+                    && entry.unreliable
+            })
+            .expect("missing transferItemTo packet")
+            .clone();
+        transfer_item_to_decoy.packet_id = 254;
+        transfer_item_to_decoy.packet_class =
+            "mindustry.gen.TransferItemToDecoyCallPacket".into();
+        transfer_item_to_decoy.unreliable = false;
+
+        let mut transfer_item_to_unit_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "transferItemToUnit"
+                    && entry.params.len() == 4
+                    && entry.params[0].java_type == "mindustry.type.Item"
+                    && entry.params[1].java_type == "float"
+                    && entry.params[2].java_type == "float"
+                    && entry.params[3].java_type == "Itemsc"
+                    && entry.unreliable
+            })
+            .expect("missing transferItemToUnit packet")
+            .clone();
+        transfer_item_to_unit_decoy.packet_id = 255;
+        transfer_item_to_unit_decoy.packet_class =
+            "mindustry.gen.TransferItemToUnitDecoyCallPacket".into();
+        transfer_item_to_unit_decoy.unreliable = false;
+
+        manifest.remote_packets.splice(
+            0..0,
+            vec![
+                transfer_item_effect_decoy,
+                transfer_item_to_decoy,
+                transfer_item_to_unit_decoy,
+            ],
+        );
+        for (remote_index, packet) in manifest.remote_packets.iter_mut().enumerate() {
+            packet.remote_index = remote_index;
+        }
+
+        let session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        assert_eq!(
+            session.transfer_item_effect_packet_id,
+            Some(expected_transfer_item_effect_packet_id)
+        );
+        assert_eq!(
+            session.transfer_item_to_packet_id,
+            Some(expected_transfer_item_to_packet_id)
+        );
+        assert_eq!(
+            session.transfer_item_to_unit_packet_id,
+            Some(expected_transfer_item_to_unit_packet_id)
         );
     }
 
