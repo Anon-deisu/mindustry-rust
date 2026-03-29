@@ -57350,6 +57350,22 @@ mod tests {
     }
 
     #[test]
+    fn rejects_trailing_bytes_after_legacy_save_map_region() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1u16.to_be_bytes());
+        bytes.extend_from_slice(&1u16.to_be_bytes());
+        bytes.extend_from_slice(&0x0011u16.to_be_bytes());
+        bytes.extend_from_slice(&0x0022u16.to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0x0033u16.to_be_bytes());
+        bytes.push(0);
+        bytes.push(0xaa);
+
+        let error = parse_save_map_region(3, &[], &bytes).unwrap_err();
+        assert!(error.contains("unexpected trailing bytes after legacy save map region"));
+    }
+
+    #[test]
     fn rejects_overlong_save_map_floor_run() {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&1u16.to_be_bytes());
