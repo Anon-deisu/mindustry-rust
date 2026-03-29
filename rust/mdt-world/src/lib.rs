@@ -27189,6 +27189,30 @@ fn parse_legacy_building_tail_snapshot(
                 .map(ParsedBuildingTail::OneBool)
                 .unwrap_or(ParsedBuildingTail::Unknown)
         }
+        Some("conveyor") | Some("titanium-conveyor") | Some("armored-conveyor") => {
+            parse_conveyor_tail_snapshot(revision, legacy_tail_bytes)
+                .map(ParsedBuildingTail::Conveyor)
+                .unwrap_or(ParsedBuildingTail::Unknown)
+        }
+        Some("plastanium-conveyor") | Some("surge-conveyor") => {
+            parse_stack_conveyor_tail_snapshot(legacy_tail_bytes)
+                .map(ParsedBuildingTail::StackConveyor)
+                .unwrap_or(ParsedBuildingTail::Unknown)
+        }
+        Some("phase-conveyor") | Some("bridge-conduit") | Some("phase-conduit") => {
+            parse_item_bridge_tail_snapshot(revision, legacy_tail_bytes)
+                .map(ParsedBuildingTail::ItemBridge)
+                .unwrap_or(ParsedBuildingTail::Unknown)
+        }
+        Some("bridge-conveyor") => parse_buffered_item_bridge_tail_snapshot(
+            revision,
+            legacy_tail_bytes,
+        )
+        .map(ParsedBuildingTail::BufferedItemBridge)
+        .unwrap_or(ParsedBuildingTail::Unknown),
+        Some("mass-driver") => parse_mass_driver_tail_snapshot(legacy_tail_bytes)
+            .map(ParsedBuildingTail::MassDriver)
+            .unwrap_or(ParsedBuildingTail::Unknown),
         Some("junction") => parse_junction_tail_snapshot(revision, legacy_tail_bytes)
             .map(ParsedBuildingTail::Junction)
             .unwrap_or(ParsedBuildingTail::Unknown),
@@ -27223,6 +27247,9 @@ fn parse_legacy_building_tail_snapshot(
                 .map(ParsedBuildingTail::OneF32Bool)
                 .unwrap_or(ParsedBuildingTail::Unknown)
         }
+        Some("duct-unloader") => parse_duct_unloader_tail_snapshot(legacy_tail_bytes)
+            .map(ParsedBuildingTail::DuctUnloader)
+            .unwrap_or(ParsedBuildingTail::Unknown),
         _ => ParsedBuildingTail::Unknown,
     }
 }
@@ -55902,6 +55929,164 @@ mod tests {
             Some("duct-router"),
             &[1, 0, 10, 0x12, 1, 0, 5],
         )
+        .unwrap();
+
+        assert_eq!(snapshot.parsed_tail, expected);
+    }
+
+    #[test]
+    fn parses_legacy_conveyor_family_building_snapshot_when_block_name_is_known() {
+        let legacy_tail = {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&2i32.to_be_bytes());
+            bytes.extend_from_slice(&5u16.to_be_bytes());
+            bytes.push((-2i8) as u8);
+            bytes.push(3);
+            bytes.extend_from_slice(&6u16.to_be_bytes());
+            bytes.push(1);
+            bytes.push((-1i8) as u8);
+            bytes
+        };
+        let expected = ParsedBuildingTail::Conveyor(ConveyorTailSnapshot {
+            len: 2,
+            items: vec![
+                ConveyorItemTailSnapshot {
+                    item_id: 5,
+                    x_raw: -2,
+                    y_raw: 3,
+                },
+                ConveyorItemTailSnapshot {
+                    item_id: 6,
+                    x_raw: 1,
+                    y_raw: -1,
+                },
+            ],
+        });
+
+        for block_name in ["conveyor", "titanium-conveyor", "armored-conveyor"] {
+            let snapshot = parse_legacy_save_building_snapshot(Some(block_name), &{
+                let mut bytes = vec![1, 0, 10, 0x12, 1];
+                bytes.extend_from_slice(&legacy_tail);
+                bytes
+            })
+            .unwrap();
+
+            assert_eq!(snapshot.parsed_tail, expected);
+        }
+    }
+
+    #[test]
+    fn parses_legacy_stack_conveyor_family_building_snapshot_when_block_name_is_known() {
+        let legacy_tail = {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&0x11223344i32.to_be_bytes());
+            bytes.extend_from_slice(&0x3f800000u32.to_be_bytes());
+            bytes
+        };
+
+        for block_name in ["plastanium-conveyor", "surge-conveyor"] {
+            let expected = parse_building_tail(Some(block_name), 0, &legacy_tail).unwrap();
+            let snapshot = parse_legacy_save_building_snapshot(Some(block_name), &{
+                let mut bytes = vec![0, 0, 10, 0x12, 1];
+                bytes.extend_from_slice(&legacy_tail);
+                bytes
+            })
+            .unwrap();
+
+            assert_eq!(snapshot.parsed_tail, expected);
+        }
+    }
+
+    #[test]
+    fn parses_legacy_item_bridge_family_building_snapshot_when_block_name_is_known() {
+        let legacy_tail = {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&0x01020304i32.to_be_bytes());
+            bytes.extend_from_slice(&0x3f400000u32.to_be_bytes());
+            bytes.push(2);
+            bytes.extend_from_slice(&0x11121314i32.to_be_bytes());
+            bytes.extend_from_slice(&0x21222324i32.to_be_bytes());
+            bytes.push(1);
+            bytes
+        };
+
+        for block_name in ["phase-conveyor", "bridge-conduit", "phase-conduit"] {
+            let expected = parse_building_tail(Some(block_name), 1, &legacy_tail).unwrap();
+            let snapshot = parse_legacy_save_building_snapshot(Some(block_name), &{
+                let mut bytes = vec![1, 0, 10, 0x12, 1];
+                bytes.extend_from_slice(&legacy_tail);
+                bytes
+            })
+            .unwrap();
+
+            assert_eq!(snapshot.parsed_tail, expected);
+        }
+    }
+
+    #[test]
+    fn parses_legacy_bridge_conveyor_building_snapshot_when_block_name_is_known() {
+        let pack_time_item = |data: i16, item_id: i16, time_bits: u32| {
+            ((time_bits as u64) << 32) | (((item_id as u16) as u64) << 16) | ((data as u16) as u64)
+        };
+        let legacy_tail = {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&0x0a0b0c0di32.to_be_bytes());
+            bytes.extend_from_slice(&0x3f800000u32.to_be_bytes());
+            bytes.push(1);
+            bytes.extend_from_slice(&0x10203040i32.to_be_bytes());
+            bytes.push(0);
+            bytes.push(5);
+            bytes.push(3);
+            bytes.extend_from_slice(&pack_time_item(-1, 2, 0x41200000).to_be_bytes());
+            bytes.extend_from_slice(&pack_time_item(7, 3, 0x41a00000).to_be_bytes());
+            bytes.extend_from_slice(&pack_time_item(9, 4, 0x42200000).to_be_bytes());
+            bytes
+        };
+        let expected = parse_building_tail(Some("bridge-conveyor"), 1, &legacy_tail).unwrap();
+        let snapshot = parse_legacy_save_building_snapshot(Some("bridge-conveyor"), &{
+            let mut bytes = vec![1, 0, 10, 0x12, 1];
+            bytes.extend_from_slice(&legacy_tail);
+            bytes
+        })
+        .unwrap();
+
+        assert_eq!(snapshot.parsed_tail, expected);
+    }
+
+    #[test]
+    fn parses_legacy_mass_driver_building_snapshot_when_block_name_is_known() {
+        let legacy_tail = {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&0x51525354i32.to_be_bytes());
+            bytes.extend_from_slice(&0x41200000u32.to_be_bytes());
+            bytes.push(2);
+            bytes
+        };
+        let expected = parse_building_tail(Some("mass-driver"), 0, &legacy_tail).unwrap();
+        let snapshot = parse_legacy_save_building_snapshot(Some("mass-driver"), &{
+            let mut bytes = vec![0, 0, 10, 0x12, 1];
+            bytes.extend_from_slice(&legacy_tail);
+            bytes
+        })
+        .unwrap();
+
+        assert_eq!(snapshot.parsed_tail, expected);
+    }
+
+    #[test]
+    fn parses_legacy_duct_unloader_building_snapshot_when_block_name_is_known() {
+        let legacy_tail = {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&7i16.to_be_bytes());
+            bytes.extend_from_slice(&11i16.to_be_bytes());
+            bytes
+        };
+        let expected = parse_building_tail(Some("duct-unloader"), 1, &legacy_tail).unwrap();
+        let snapshot = parse_legacy_save_building_snapshot(Some("duct-unloader"), &{
+            let mut bytes = vec![1, 0, 10, 0x12, 1];
+            bytes.extend_from_slice(&legacy_tail);
+            bytes
+        })
         .unwrap();
 
         assert_eq!(snapshot.parsed_tail, expected);
