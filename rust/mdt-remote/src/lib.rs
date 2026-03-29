@@ -970,11 +970,25 @@ pub fn validate_remote_manifest(manifest: &RemoteManifest) -> Result<(), RemoteM
         )));
     }
 
+    let mut seen_base_packet_classes =
+        HashSet::with_capacity(manifest.base_packets.len());
     for (index, packet) in manifest.base_packets.iter().enumerate() {
         if packet.id != index as u8 {
             return Err(RemoteManifestError::InvalidPacketSequence(format!(
                 "base packet {} has id {}, expected {}",
                 packet.class_name, packet.id, index
+            )));
+        }
+        if packet.class_name.trim().is_empty() {
+            return Err(RemoteManifestError::InvalidRemotePacketMetadata(format!(
+                "base packet {} has empty class_name",
+                packet.id
+            )));
+        }
+        if !seen_base_packet_classes.insert(packet.class_name.as_str()) {
+            return Err(RemoteManifestError::InvalidRemotePacketMetadata(format!(
+                "duplicate base packet class_name: {}",
+                packet.class_name
             )));
         }
     }
@@ -2769,6 +2783,79 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "duplicate remote packetClass: mindustry.gen.DuplicateRemotePacket"
+        );
+    }
+
+    #[test]
+    fn validate_remote_manifest_rejects_empty_base_packet_class_name() {
+        let manifest = RemoteManifest {
+            schema: REMOTE_MANIFEST_SCHEMA_V1.into(),
+            generator: RemoteGeneratorInfo {
+                source: "test".into(),
+                call_class: "mindustry.gen.Call".into(),
+            },
+            base_packets: vec![BasePacketEntry {
+                id: 0,
+                class_name: "   ".into(),
+            }],
+            remote_packets: vec![],
+            wire: WireSpec {
+                packet_id_byte: REMOTE_WIRE_PACKET_ID_BYTE_U8.into(),
+                length_field: REMOTE_WIRE_LENGTH_FIELD_U16BE.into(),
+                compression_flag: CompressionFlagSpec {
+                    none: REMOTE_WIRE_COMPRESSION_NONE.into(),
+                    lz4: REMOTE_WIRE_COMPRESSION_LZ4.into(),
+                },
+                compression_threshold: REMOTE_WIRE_COMPRESSION_THRESHOLD,
+            },
+        };
+
+        let error = validate_remote_manifest(&manifest).unwrap_err();
+        assert!(matches!(
+            error,
+            RemoteManifestError::InvalidRemotePacketMetadata(_)
+        ));
+        assert_eq!(error.to_string(), "base packet 0 has empty class_name");
+    }
+
+    #[test]
+    fn validate_remote_manifest_rejects_duplicate_base_packet_class_name() {
+        let manifest = RemoteManifest {
+            schema: REMOTE_MANIFEST_SCHEMA_V1.into(),
+            generator: RemoteGeneratorInfo {
+                source: "test".into(),
+                call_class: "mindustry.gen.Call".into(),
+            },
+            base_packets: vec![
+                BasePacketEntry {
+                    id: 0,
+                    class_name: "mindustry.net.Packets$StreamBegin".into(),
+                },
+                BasePacketEntry {
+                    id: 1,
+                    class_name: "mindustry.net.Packets$StreamBegin".into(),
+                },
+            ],
+            remote_packets: vec![],
+            wire: WireSpec {
+                packet_id_byte: REMOTE_WIRE_PACKET_ID_BYTE_U8.into(),
+                length_field: REMOTE_WIRE_LENGTH_FIELD_U16BE.into(),
+                compression_flag: CompressionFlagSpec {
+                    none: REMOTE_WIRE_COMPRESSION_NONE.into(),
+                    lz4: REMOTE_WIRE_COMPRESSION_LZ4.into(),
+                },
+                compression_threshold: REMOTE_WIRE_COMPRESSION_THRESHOLD,
+            },
+        };
+
+        let error = validate_remote_manifest(&manifest).unwrap_err();
+        assert!(matches!(
+            error,
+            RemoteManifestError::InvalidRemotePacketMetadata(_)
+        ));
+        assert_eq!(
+            error.to_string(),
+            "duplicate base packet class_name: mindustry.net.Packets$StreamBegin"
         );
     }
 
