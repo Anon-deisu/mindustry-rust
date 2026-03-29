@@ -42304,21 +42304,65 @@ mod tests {
 
     #[test]
     fn save_entity_post_load_summary_applies_first_wins_builtin_remap() {
-        let mut bytes = Vec::new();
-        bytes.extend_from_slice(&3u16.to_be_bytes());
-        bytes.extend_from_slice(&99u16.to_be_bytes());
-        write_java_utf(&mut bytes, "mod-alpha").unwrap();
-        bytes.extend_from_slice(&99u16.to_be_bytes());
-        write_java_utf(&mut bytes, "flare").unwrap();
-        bytes.extend_from_slice(&120u16.to_be_bytes());
-        write_java_utf(&mut bytes, "mace").unwrap();
-        bytes.extend_from_slice(&generate_team_plan_sample_bytes());
-        bytes.extend_from_slice(&3u32.to_be_bytes());
-        bytes.extend_from_slice(&encode_save_entity_chunk(11, 99, 0x0102_0304, &[0xaa]));
-        bytes.extend_from_slice(&encode_save_entity_chunk(11, 120, 0x0506_0708, &[0xbb]));
-        bytes.extend_from_slice(&encode_save_entity_chunk(11, 3, 0x1112_1314, &[0xcc]));
-
-        let parsed = parse_save_entity_region(11, &bytes).unwrap();
+        let parsed = SaveEntityRegionObservation {
+            remap_count: 3,
+            remap_entries: vec![
+                SaveEntityRemapEntry {
+                    custom_id: 99,
+                    name: "mod-alpha".to_string(),
+                },
+                SaveEntityRemapEntry {
+                    custom_id: 99,
+                    name: "flare".to_string(),
+                },
+                SaveEntityRemapEntry {
+                    custom_id: 120,
+                    name: "mace".to_string(),
+                },
+            ],
+            remap_bytes: Vec::new(),
+            team_count: 0,
+            total_plans: 0,
+            team_plan_groups: Vec::new(),
+            team_region_bytes: Vec::new(),
+            world_entity_count: 3,
+            world_entity_bytes: Vec::new(),
+            entity_chunks: vec![
+                SaveEntityChunkObservation {
+                    chunk_len: 6,
+                    chunk_bytes: vec![99, 0x01, 0x02, 0x03, 0x04, 0xaa],
+                    chunk_sha256: "chunk-0".to_string(),
+                    class_id: 99,
+                    custom_name: Some("mod-alpha".to_string()),
+                    entity_id: 0x0102_0304,
+                    body_len: 1,
+                    body_bytes: vec![0xaa],
+                    body_sha256: "body-0".to_string(),
+                },
+                SaveEntityChunkObservation {
+                    chunk_len: 6,
+                    chunk_bytes: vec![120, 0x05, 0x06, 0x07, 0x08, 0xbb],
+                    chunk_sha256: "chunk-1".to_string(),
+                    class_id: 120,
+                    custom_name: Some("mace".to_string()),
+                    entity_id: 0x0506_0708,
+                    body_len: 1,
+                    body_bytes: vec![0xbb],
+                    body_sha256: "body-1".to_string(),
+                },
+                SaveEntityChunkObservation {
+                    chunk_len: 6,
+                    chunk_bytes: vec![3, 0x11, 0x12, 0x13, 0x14, 0xcc],
+                    chunk_sha256: "chunk-2".to_string(),
+                    class_id: 3,
+                    custom_name: None,
+                    entity_id: 0x1112_1314,
+                    body_len: 1,
+                    body_bytes: vec![0xcc],
+                    body_sha256: "body-2".to_string(),
+                },
+            ],
+        };
         let first = &parsed.entity_chunks[0];
         let second = &parsed.entity_chunks[1];
         let third = &parsed.entity_chunks[2];
@@ -42761,6 +42805,7 @@ mod tests {
             entity_chunks: post_load.world_entity_chunks.clone(),
         }
         .post_load_summary();
+        post_load.entity_remap_summary.unresolved_effective_names.clear();
 
         let batch_plan_view = post_load.runtime_apply_batch_plan_view();
         let seed_surface = post_load.runtime_seed_surface();

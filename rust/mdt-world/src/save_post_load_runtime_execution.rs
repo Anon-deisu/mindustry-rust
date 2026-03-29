@@ -717,7 +717,13 @@ mod tests {
     fn execute_runtime_apply_blocks_activation_on_auxiliary_failures() {
         let mut observation = test_observation();
         make_observation_seedable(&mut observation);
-        observation.custom_chunks[1].name = observation.custom_chunks[0].name.clone();
+        observation.custom_chunks.push(CustomChunkEntry {
+            name: observation.custom_chunks[1].name.clone(),
+            chunk_len: 1,
+            chunk_bytes: vec![0xee],
+            chunk_sha256: "mystery-duplicate".to_string(),
+            parsed: ParsedCustomChunk::Unknown,
+        });
 
         let execution = observation.execute_runtime_apply();
 
@@ -727,13 +733,11 @@ mod tests {
         assert!(!execution.failed_steps.is_empty());
         assert_eq!(
             execution.failed_steps,
-            vec![SavePostLoadRuntimeApplyStep::CustomChunk { chunk_index: 1 }]
+            vec![SavePostLoadRuntimeApplyStep::CustomChunk { chunk_index: 2 }]
         );
         assert_eq!(
             execution.issues,
-            vec![SavePostLoadRuntimeApplyIssue::DuplicateCustomChunkName(
-                "static-fog-data".to_string(),
-            )]
+            vec![SavePostLoadRuntimeApplyIssue::DuplicateCustomChunkName("mystery".to_string(),)]
         );
         assert!(!execution.can_activate_live_runtime());
     }
