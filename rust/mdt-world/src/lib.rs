@@ -57298,6 +57298,19 @@ mod tests {
     }
 
     #[test]
+    fn parse_save_content_header_region_rejects_trailing_bytes_after_region() {
+        let mut bytes = Vec::new();
+        bytes.push(1);
+        bytes.push(0x01);
+        bytes.extend_from_slice(&0u16.to_be_bytes());
+        bytes.extend_from_slice(&[0xde, 0xad]);
+
+        let error = parse_save_content_header_region(&bytes).unwrap_err();
+
+        assert!(error.contains("unexpected trailing bytes after save content region"));
+    }
+
+    #[test]
     fn parse_markers_rejects_duplicate_ids() {
         let marker = marker_object("Minimap", vec![]);
         let value = UbjsonValue::Object(vec![
