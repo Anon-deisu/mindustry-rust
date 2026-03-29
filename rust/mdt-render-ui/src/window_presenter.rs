@@ -1515,6 +1515,11 @@ fn compose_frame_panel_lines(
     {
         lines.push(format!("MINIMAP-VIS: {minimap_visibility_text}"));
     }
+    if let Some(visibility_minimap_text) =
+        compose_visibility_minimap_status_text(scene, hud, window)
+    {
+        lines.push(format!("VIS-MINIMAP: {visibility_minimap_text}"));
+    }
     if let Some(minimap_flow_text) = compose_minimap_flow_status_text(scene, hud, window) {
         lines.push(format!("MINIMAP-FLOW: {minimap_flow_text}"));
     }
@@ -2952,6 +2957,41 @@ fn compose_minimap_visibility_status_text(
         panel.outside_window_count,
         panel.tracked_object_count,
         panel.outside_object_percent(),
+    ))
+}
+
+fn compose_visibility_minimap_status_text(
+    scene: &RenderModel,
+    hud: &HudModel,
+    window: PresenterViewWindow,
+) -> Option<String> {
+    let visibility = build_hud_visibility_panel(hud)?;
+    let minimap = build_minimap_panel(scene, hud, window)?;
+    Some(format!(
+        "overlay={} fog={} known={}({}%) vis={}({}%/{}%) hid={}({}%/{}%) map={}x{} window={}:{}->{}:{} size={}x{} cover={}/{}({}%) focus={} in-window={}",
+        bool_flag(visibility.overlay_visible),
+        bool_flag(visibility.fog_enabled),
+        visibility.known_tile_count,
+        visibility.known_tile_percent,
+        visibility.visible_tile_count,
+        visibility.visible_known_percent,
+        visibility.visible_map_percent(),
+        visibility.hidden_tile_count,
+        visibility.hidden_known_percent,
+        visibility.hidden_map_percent(),
+        minimap.map_width,
+        minimap.map_height,
+        minimap.window.origin_x,
+        minimap.window.origin_y,
+        minimap.window_last_x,
+        minimap.window_last_y,
+        minimap.window.width,
+        minimap.window.height,
+        minimap.window_tile_count,
+        minimap.map_tile_count,
+        minimap.window_coverage_percent,
+        optional_focus_tile_status_text(minimap.focus_tile),
+        optional_bool_label(minimap.focus_in_window),
     ))
 }
 
@@ -7815,6 +7855,10 @@ mod tests {
         assert_frame_line_contains(
             &frame.panel_lines,
             "MINIMAP-VIS: minivis:ov1:fg1:k144p3:v120p83m2:h24p16m0:u4656p97:d4@4800p0:w4@1p400:o0@4p0",
+        );
+        assert_frame_line_contains(
+            &frame.panel_lines,
+            "VIS-MINIMAP: overlay=1 fog=1 known=144(3%) vis=120(83%/2%) hid=24(16%/0%) map=80x60 window=0:0->0:0 size=1x1 cover=1/4800(0%) focus=0:0 in-window=1",
         );
         assert_frame_line_contains(
             &frame.panel_lines,
