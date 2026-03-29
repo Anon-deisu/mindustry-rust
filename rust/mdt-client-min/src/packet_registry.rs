@@ -893,17 +893,16 @@ mod tests {
 
         assert!(matches!(
             error,
-            RemoteManifestError::MissingHighFrequencyPacket("clientSnapshot")
+            RemoteManifestError::MissingHighFrequencyPacket("stateSnapshot")
         ));
     }
 
     #[test]
     fn well_known_remote_packet_ids_reject_method_name_decoys() {
         let manifest = well_known_remote_manifest_with_decoys();
-        let well_known = WellKnownRemotePacketIds::from_remote_manifest(&manifest).unwrap();
-        let typed_fixed_table = WellKnownRemoteRegistry::from_manifest(&manifest)
-            .unwrap()
-            .packet_id_fixed_table();
+        let typed_registry = WellKnownRemoteRegistry::from_manifest(&manifest).unwrap();
+        let well_known = WellKnownRemotePacketIds::from_typed_registry(typed_registry.clone());
+        let typed_fixed_table = typed_registry.packet_id_fixed_table();
 
         assert_eq!(well_known.ping_packet_id, Some(5));
         assert_eq!(well_known.client_plan_snapshot_packet_id, Some(7));

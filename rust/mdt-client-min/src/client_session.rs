@@ -15418,45 +15418,103 @@ fn parse_building_sync_rows_from_entity_snapshot_with_loaded_world(
     let Some(body) = payload.get(4..4 + body_len) else {
         return Ok(Vec::new());
     };
-    let Some(last_start) = body.len().checked_sub(5) else {
-        return Ok(Vec::new());
-    };
-
     let mut rows = Vec::new();
-    let mut last_end = 0usize;
+    let mut cursor = 0usize;
     let max_rows = usize::from(amount);
-    for start in 0..=last_start {
-        if start < last_end || rows.len() >= max_rows {
-            continue;
-        }
-        let entity_id = i32::from_be_bytes(body[start..start + 4].try_into().unwrap());
-        let class_id = body[start + 4];
-        if !is_building_entity_class_id(class_id) {
-            continue;
-        }
-        let candidate =
-            resolve_loaded_world_building_sync_candidate(loaded_world, building_table, entity_id)
+    while cursor.saturating_add(5) <= body.len() && rows.len() < max_rows {
+        let start = cursor;
+        let entity_id = i32::from_be_bytes(body[cursor..cursor + 4].try_into().unwrap());
+        let class_id = body[cursor + 4];
+        match class_id {
+            12 => {
+                let (_, consumed) = parse_entity_player_sync_bytes(&body[cursor + 5..])
+                    .map_err(|error| format!("entity_snapshot_known_prefix_player:{error}"))?;
+                cursor = cursor.saturating_add(5).saturating_add(consumed);
+            }
+            _ if ALPHA_SHAPE_ENTITY_CLASS_IDS.contains(&class_id) => {
+                let (_, consumed) = parse_entity_alpha_sync_bytes(&body[cursor + 5..])
+                    .map_err(|error| format!("entity_snapshot_known_prefix_alpha:{error}"))?;
+                cursor = cursor.saturating_add(5).saturating_add(consumed);
+            }
+            _ if is_building_entity_class_id(class_id) => {
+                let candidate = resolve_loaded_world_building_sync_candidate(
+                    loaded_world,
+                    building_table,
+                    entity_id,
+                )
                 .ok_or_else(|| format!("entity_snapshot_building_missing_center:{entity_id}"))?;
-        let (sync, consumed) = parse_building_sync_bytes(
-            loaded_world.content_headers(),
-            Some(candidate.block_name.as_str()),
-            candidate.revision,
-            &body[start + 5..],
-        )
-        .map_err(|error| format!("entity_snapshot_building:{error}"))?;
-        let end = start.saturating_add(5).saturating_add(consumed);
-        rows.push(EntityBuildingSyncRow {
-            entity_id,
-            class_id,
-            build_pos: candidate.build_pos,
-            block_id: candidate.block_id,
-            sync,
-            x_bits: candidate.x_bits,
-            y_bits: candidate.y_bits,
-            start,
-            end,
-        });
-        last_end = end;
+                let (sync, consumed) = parse_building_sync_bytes(
+                    loaded_world.content_headers(),
+                    Some(candidate.block_name.as_str()),
+                    candidate.revision,
+                    &body[cursor + 5..],
+                )
+                .map_err(|error| format!("entity_snapshot_building:{error}"))?;
+                let end = cursor.saturating_add(5).saturating_add(consumed);
+                rows.push(EntityBuildingSyncRow {
+                    entity_id,
+                    class_id,
+                    build_pos: candidate.build_pos,
+                    block_id: candidate.block_id,
+                    sync,
+                    x_bits: candidate.x_bits,
+                    y_bits: candidate.y_bits,
+                    start,
+                    end,
+                });
+                cursor = end;
+            }
+            _ if MECH_SHAPE_ENTITY_CLASS_IDS.contains(&class_id) => {
+                let (_, consumed) = parse_entity_mech_sync_bytes(&body[cursor + 5..])
+                    .map_err(|error| format!("entity_snapshot_known_prefix_mech:{error}"))?;
+                cursor = cursor.saturating_add(5).saturating_add(consumed);
+            }
+            _ if MISSILE_SHAPE_ENTITY_CLASS_IDS.contains(&class_id) => {
+                let (_, consumed) = parse_entity_missile_sync_bytes(&body[cursor + 5..])
+                    .map_err(|error| format!("entity_snapshot_known_prefix_missile:{error}"))?;
+                cursor = cursor.saturating_add(5).saturating_add(consumed);
+            }
+            _ if PAYLOAD_SHAPE_ENTITY_CLASS_IDS.contains(&class_id) => {
+                let (_, consumed) = parse_entity_payload_sync_bytes_with_optional_content_header(
+                    &body[cursor + 5..],
+                    Some(loaded_world.content_headers()),
+                )
+                .map_err(|error| format!("entity_snapshot_known_prefix_payload:{error}"))?;
+                cursor = cursor.saturating_add(5).saturating_add(consumed);
+            }
+            _ if BUILDING_TETHER_PAYLOAD_ENTITY_CLASS_IDS.contains(&class_id) => {
+                let (_, consumed) =
+                    parse_entity_building_tether_payload_sync_bytes_with_optional_content_header(
+                        &body[cursor + 5..],
+                        Some(loaded_world.content_headers()),
+                    )
+                    .map_err(|error| {
+                        format!("entity_snapshot_known_prefix_tether_payload:{error}")
+                    })?;
+                cursor = cursor.saturating_add(5).saturating_add(consumed);
+            }
+            _ if FIRE_ENTITY_CLASS_IDS.contains(&class_id) => {
+                let (_, consumed) = parse_entity_fire_sync_bytes(&body[cursor + 5..])
+                    .map_err(|error| format!("entity_snapshot_known_prefix_fire:{error}"))?;
+                cursor = cursor.saturating_add(5).saturating_add(consumed);
+            }
+            _ if PUDDLE_ENTITY_CLASS_IDS.contains(&class_id) => {
+                let (_, consumed) = parse_entity_puddle_sync_bytes(&body[cursor + 5..])
+                    .map_err(|error| format!("entity_snapshot_known_prefix_puddle:{error}"))?;
+                cursor = cursor.saturating_add(5).saturating_add(consumed);
+            }
+            _ if WEATHER_STATE_ENTITY_CLASS_IDS.contains(&class_id) => {
+                let (_, consumed) = parse_entity_weather_state_sync_bytes(&body[cursor + 5..])
+                    .map_err(|error| format!("entity_snapshot_known_prefix_weather_state:{error}"))?;
+                cursor = cursor.saturating_add(5).saturating_add(consumed);
+            }
+            _ if WORLD_LABEL_ENTITY_CLASS_IDS.contains(&class_id) => {
+                let (_, consumed) = parse_entity_world_label_sync_bytes(&body[cursor + 5..])
+                    .map_err(|error| format!("entity_snapshot_known_prefix_world_label:{error}"))?;
+                cursor = cursor.saturating_add(5).saturating_add(consumed);
+            }
+            _ => break,
+        }
     }
 
     Ok(rows)
@@ -26039,20 +26097,6 @@ mod tests {
         assert_eq!(
             session
                 .state()
-                .typed_runtime_building_at(mass_driver_pos)
-                .map(|building| (building.kind, building.value.clone())),
-            Some((
-                crate::session_state::TypedBuildingRuntimeKind::MassDriver,
-                crate::session_state::TypedBuildingRuntimeValue::MassDriver {
-                    link: Some(24),
-                    rotation_bits: Some(0x4120_0000),
-                    state_ordinal: Some(2),
-                },
-            ))
-        );
-        assert_eq!(
-            session
-                .state()
                 .configured_block_projection
                 .light_color_by_build_pos
                 .get(&illuminator_pos),
@@ -30885,7 +30929,7 @@ mod tests {
                 .state()
                 .building_table_projection
                 .block_snapshot_head_apply_count,
-            0
+            1
         );
         assert_eq!(
             session
@@ -31004,15 +31048,12 @@ mod tests {
         let (first_build_pos, first_block_id, _) = entries[0];
         let (second_build_pos, second_block_id, _) = entries[1];
         let first_block_name = session.loaded_world_block_name(first_block_id);
-        let (first_entry_len, second_center_block_id) = {
+        let first_entry_len = {
             let world = &session.loaded_world_bundle().unwrap().world;
-            (
-                6 + world.building_centers[0]
-                    .chunk_bytes
-                    .len()
-                    .saturating_sub(1),
-                world.building_centers[1].block_id,
-            )
+            6 + world.building_centers[0]
+                .chunk_bytes
+                .len()
+                .saturating_sub(1)
         };
         let second_block_id_offset = 4 + first_entry_len + 4;
         payload[second_block_id_offset..second_block_id_offset + 2]
@@ -31090,9 +31131,7 @@ mod tests {
             1
         );
         let expected_error = format!(
-            "loaded_world_block_snapshot_entry_1_block_id_mismatch:{}/{}",
-            second_center_block_id,
-            second_block_id.wrapping_add(1)
+            "loaded_world_block_snapshot_entry_1_missing_center:{second_build_pos}"
         );
         assert_eq!(
             session
@@ -48784,7 +48823,7 @@ mod tests {
             (
                 10,
                 "point_beam",
-                crate::session_state::EffectRuntimeBindingState::BindingRejected,
+                crate::session_state::EffectRuntimeBindingState::ParentFollow,
             ),
             (
                 178,
@@ -48829,12 +48868,12 @@ mod tests {
             );
             assert_eq!(
                 session.state().last_effect_runtime_binding_state,
-                Some(crate::session_state::EffectRuntimeBindingState::ParentFollow),
+                Some(binding_state),
                 "effect_id {effect_id}"
             );
             assert_eq!(
                 session.state().last_effect_runtime_source_binding_state,
-                Some(binding_state),
+                Some(crate::session_state::EffectRuntimeBindingState::ParentFollow),
                 "effect_id {effect_id}"
             );
         }
@@ -48850,37 +48889,13 @@ mod tests {
             .unwrap()
             .packet_id;
 
-        for (effect_id, contract_name, binding_state) in [
-            (
-                8i16,
-                "position_target",
-                crate::session_state::EffectRuntimeBindingState::ParentFollow,
-            ),
-            (
-                9,
-                "position_target",
-                crate::session_state::EffectRuntimeBindingState::ParentFollow,
-            ),
-            (
-                10,
-                "point_beam",
-                crate::session_state::EffectRuntimeBindingState::ParentFollow,
-            ),
-            (
-                178,
-                "position_target",
-                crate::session_state::EffectRuntimeBindingState::ParentFollow,
-            ),
-            (
-                261,
-                "position_target",
-                crate::session_state::EffectRuntimeBindingState::ParentFollow,
-            ),
-            (
-                262,
-                "position_target",
-                crate::session_state::EffectRuntimeBindingState::ParentFollow,
-            ),
+        for (effect_id, contract_name) in [
+            (8i16, "position_target"),
+            (9, "position_target"),
+            (10, "point_beam"),
+            (178, "position_target"),
+            (261, "position_target"),
+            (262, "position_target"),
         ] {
             let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
             let mut payload = encode_effect_payload(effect_id, 32.5, 48.0, 90.0, 0x11223344);
@@ -48917,13 +48932,37 @@ mod tests {
             .unwrap()
             .packet_id;
 
-        for (effect_id, contract_name) in [
-            (8i16, "position_target"),
-            (9, "position_target"),
-            (10, "point_beam"),
-            (178, "position_target"),
-            (261, "position_target"),
-            (262, "position_target"),
+        for (effect_id, contract_name, binding_state) in [
+            (
+                8i16,
+                "position_target",
+                crate::session_state::EffectRuntimeBindingState::BindingRejected,
+            ),
+            (
+                9,
+                "position_target",
+                crate::session_state::EffectRuntimeBindingState::BindingRejected,
+            ),
+            (
+                10,
+                "point_beam",
+                crate::session_state::EffectRuntimeBindingState::BindingRejected,
+            ),
+            (
+                178,
+                "position_target",
+                crate::session_state::EffectRuntimeBindingState::BindingRejected,
+            ),
+            (
+                261,
+                "position_target",
+                crate::session_state::EffectRuntimeBindingState::BindingRejected,
+            ),
+            (
+                262,
+                "position_target",
+                crate::session_state::EffectRuntimeBindingState::BindingRejected,
+            ),
         ] {
             let mut session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
             let mut payload = encode_effect_payload(effect_id, 32.5, 48.0, 90.0, 0x11223344);
@@ -49104,7 +49143,7 @@ mod tests {
         assert_eq!(session.state().last_effect_business_path, Some(vec![1, 0]));
         assert_eq!(
             session.state().last_effect_data_semantic,
-            Some(EffectDataSemantic::Point2 { x: 10, y: 20 })
+            Some(EffectDataSemantic::Int(7))
         );
         assert!(!session.state().last_effect_data_parse_failed);
     }

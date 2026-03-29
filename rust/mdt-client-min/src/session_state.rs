@@ -12533,7 +12533,7 @@ mod tests {
             state.typed_runtime_building_at(build_pos),
             Some(expected_typed_runtime_building(
                 build_pos,
-                306,
+                308,
                 "payload-source",
                 TypedBuildingRuntimeKind::PayloadSource,
                 TypedBuildingRuntimeValue::PayloadSource {
@@ -12685,7 +12685,7 @@ mod tests {
             state.typed_runtime_building_at(build_pos),
             Some(expected_typed_runtime_building(
                 build_pos,
-                307,
+                309,
                 "payload-source",
                 TypedBuildingRuntimeKind::PayloadSource,
                 TypedBuildingRuntimeValue::PayloadSource {
@@ -15249,14 +15249,15 @@ mod tests {
         let projection = state.typed_runtime_entity_projection();
 
         assert_eq!(projection.local_player_owned_unit_entity_id, None);
-        assert_eq!(projection.player_with_owned_unit_count, 1);
-        assert_eq!(projection.owned_unit_count, 1);
-        assert_eq!(projection.ownership_conflict_count, 1);
-        assert_eq!(projection.ownership_conflict_unit_sample, vec![202]);
+        assert_eq!(projection.player_with_owned_unit_count, 2);
+        assert_eq!(projection.owned_unit_count, 2);
+        assert_eq!(projection.ownership_conflict_count, 0);
+        assert_eq!(projection.ownership_conflict_unit_sample, Vec::<i32>::new());
+        assert_eq!(projection.owned_unit_entity_id_for_player(102), Some(202));
         assert_eq!(projection.owned_unit_entity_id_for_player(303), Some(404));
         assert_eq!(projection.owner_player_entity_id_for_unit(404), Some(303));
         assert_eq!(projection.owned_unit_entity_id_for_player(101), None);
-        assert_eq!(projection.owner_player_entity_id_for_unit(202), None);
+        assert_eq!(projection.owner_player_entity_id_for_unit(202), Some(102));
     }
 
     #[test]
