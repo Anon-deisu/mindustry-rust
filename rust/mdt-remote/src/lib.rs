@@ -5,7 +5,7 @@ pub const REMOTE_MANIFEST_SCHEMA_V1: &str = "mdt.remote.manifest.v1";
 pub const CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT: usize = 10;
 pub const HIGH_FREQUENCY_REMOTE_METHOD_COUNT: usize = 5;
 pub const INBOUND_REMOTE_FAMILY_COUNT: usize = 6;
-pub const WELL_KNOWN_REMOTE_METHOD_COUNT: usize = 34;
+pub const WELL_KNOWN_REMOTE_METHOD_COUNT: usize = 38;
 pub const REMOTE_PACKET_ID_SPACE: usize = u8::MAX as usize + 1;
 pub const REMOTE_WIRE_PACKET_ID_BYTE_U8: &str = "u8";
 pub const REMOTE_WIRE_LENGTH_FIELD_U16BE: &str = "u16be";
@@ -176,6 +176,9 @@ pub enum WellKnownRemoteMethod {
     ClientPlanSnapshotReceived,
     PingResponse,
     PingLocation,
+    AdminRequest,
+    RequestDebugStatus,
+    DebugStatusClient,
     DebugStatusClientUnreliable,
     TraceInfo,
     ConnectRedirect,
@@ -184,6 +187,7 @@ pub enum WellKnownRemoteMethod {
     SetRules,
     SetObjectives,
     SetRule,
+    CompleteObjective,
     WorldDataBegin,
     KickString,
     KickReason,
@@ -446,6 +450,25 @@ const PING_LOCATION_WIRE_PARAM_KINDS: [RemoteParamKind; 4] = [
     RemoteParamKind::Float,
     RemoteParamKind::Opaque,
 ];
+const ADMIN_REQUEST_PARAM_JAVA_TYPES: [&str; 4] = [
+    "Player",
+    "Player",
+    "mindustry.net.Packets.AdminAction",
+    "java.lang.Object",
+];
+const ADMIN_REQUEST_WIRE_PARAM_KINDS: [RemoteParamKind; 3] = [
+    RemoteParamKind::Opaque,
+    RemoteParamKind::Opaque,
+    RemoteParamKind::Opaque,
+];
+const REQUEST_DEBUG_STATUS_PARAM_JAVA_TYPES: [&str; 1] = ["Player"];
+const REQUEST_DEBUG_STATUS_WIRE_PARAM_KINDS: [RemoteParamKind; 0] = [];
+const DEBUG_STATUS_CLIENT_PARAM_JAVA_TYPES: [&str; 3] = ["int", "int", "int"];
+const DEBUG_STATUS_CLIENT_WIRE_PARAM_KINDS: [RemoteParamKind; 3] = [
+    RemoteParamKind::Int,
+    RemoteParamKind::Int,
+    RemoteParamKind::Int,
+];
 const DEBUG_STATUS_CLIENT_UNRELIABLE_PARAM_JAVA_TYPES: [&str; 3] = ["int", "int", "int"];
 const DEBUG_STATUS_CLIENT_UNRELIABLE_WIRE_PARAM_KINDS: [RemoteParamKind; 3] = [
     RemoteParamKind::Int,
@@ -619,6 +642,8 @@ const SET_OBJECTIVES_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::
 const SET_RULE_PARAM_JAVA_TYPES: [&str; 2] = ["java.lang.String", "java.lang.String"];
 const SET_RULE_WIRE_PARAM_KINDS: [RemoteParamKind; 2] =
     [RemoteParamKind::Opaque, RemoteParamKind::Opaque];
+const COMPLETE_OBJECTIVE_PARAM_JAVA_TYPES: [&str; 1] = ["int"];
+const COMPLETE_OBJECTIVE_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Int];
 const WORLD_DATA_BEGIN_PARAM_JAVA_TYPES: [&str; 0] = [];
 const WORLD_DATA_BEGIN_WIRE_PARAM_KINDS: [RemoteParamKind; 0] = [];
 
@@ -681,6 +706,9 @@ impl WellKnownRemoteMethod {
             Self::ClientPlanSnapshotReceived,
             Self::PingResponse,
             Self::PingLocation,
+            Self::AdminRequest,
+            Self::RequestDebugStatus,
+            Self::DebugStatusClient,
             Self::DebugStatusClientUnreliable,
             Self::TraceInfo,
             Self::ConnectRedirect,
@@ -689,6 +717,7 @@ impl WellKnownRemoteMethod {
             Self::SetRules,
             Self::SetObjectives,
             Self::SetRule,
+            Self::CompleteObjective,
             Self::WorldDataBegin,
             Self::KickString,
             Self::KickReason,
@@ -720,6 +749,9 @@ impl WellKnownRemoteMethod {
             Self::ClientPlanSnapshotReceived => "clientPlanSnapshotReceived",
             Self::PingResponse => "pingResponse",
             Self::PingLocation => "pingLocation",
+            Self::AdminRequest => "adminRequest",
+            Self::RequestDebugStatus => "requestDebugStatus",
+            Self::DebugStatusClient => "debugStatusClient",
             Self::DebugStatusClientUnreliable => "debugStatusClientUnreliable",
             Self::TraceInfo => "traceInfo",
             Self::ConnectRedirect => "connect",
@@ -728,6 +760,7 @@ impl WellKnownRemoteMethod {
             Self::SetRules => "setRules",
             Self::SetObjectives => "setObjectives",
             Self::SetRule => "setRule",
+            Self::CompleteObjective => "completeObjective",
             Self::WorldDataBegin => "worldDataBegin",
             Self::KickString | Self::KickReason => "kick",
             Self::SendChatMessage => "sendChatMessage",
@@ -746,10 +779,14 @@ impl WellKnownRemoteMethod {
 
     pub fn flow(self) -> RemoteFlow {
         match self {
-            Self::Ping | Self::ClientPlanSnapshot => RemoteFlow::ClientToServer,
+            Self::Ping
+            | Self::ClientPlanSnapshot
+            | Self::AdminRequest
+            | Self::RequestDebugStatus => RemoteFlow::ClientToServer,
             Self::PingLocation => RemoteFlow::Bidirectional,
             Self::ClientPlanSnapshotReceived
             | Self::PingResponse
+            | Self::DebugStatusClient
             | Self::DebugStatusClientUnreliable
             | Self::TraceInfo
             | Self::ConnectRedirect
@@ -757,6 +794,7 @@ impl WellKnownRemoteMethod {
             | Self::SetRules
             | Self::SetObjectives
             | Self::SetRule
+            | Self::CompleteObjective
             | Self::WorldDataBegin
             | Self::KickString
             | Self::KickReason
@@ -805,6 +843,9 @@ impl WellKnownRemoteMethod {
             Self::ClientPlanSnapshotReceived => &CLIENT_PLAN_SNAPSHOT_RECEIVED_PARAM_JAVA_TYPES,
             Self::PingResponse => &PING_RESPONSE_PARAM_JAVA_TYPES,
             Self::PingLocation => &PING_LOCATION_PARAM_JAVA_TYPES,
+            Self::AdminRequest => &ADMIN_REQUEST_PARAM_JAVA_TYPES,
+            Self::RequestDebugStatus => &REQUEST_DEBUG_STATUS_PARAM_JAVA_TYPES,
+            Self::DebugStatusClient => &DEBUG_STATUS_CLIENT_PARAM_JAVA_TYPES,
             Self::DebugStatusClientUnreliable => &DEBUG_STATUS_CLIENT_UNRELIABLE_PARAM_JAVA_TYPES,
             Self::TraceInfo => &TRACE_INFO_PARAM_JAVA_TYPES,
             Self::ConnectRedirect => &CONNECT_REDIRECT_PARAM_JAVA_TYPES,
@@ -813,6 +854,7 @@ impl WellKnownRemoteMethod {
             Self::SetRules => &SET_RULES_PARAM_JAVA_TYPES,
             Self::SetObjectives => &SET_OBJECTIVES_PARAM_JAVA_TYPES,
             Self::SetRule => &SET_RULE_PARAM_JAVA_TYPES,
+            Self::CompleteObjective => &COMPLETE_OBJECTIVE_PARAM_JAVA_TYPES,
             Self::WorldDataBegin => &WORLD_DATA_BEGIN_PARAM_JAVA_TYPES,
             Self::KickString => &KICK_STRING_PARAM_JAVA_TYPES,
             Self::KickReason => &KICK_REASON_PARAM_JAVA_TYPES,
@@ -841,6 +883,9 @@ impl WellKnownRemoteMethod {
             Self::ClientPlanSnapshotReceived => &CLIENT_PLAN_SNAPSHOT_RECEIVED_WIRE_PARAM_KINDS,
             Self::PingResponse => &PING_RESPONSE_WIRE_PARAM_KINDS,
             Self::PingLocation => &PING_LOCATION_WIRE_PARAM_KINDS,
+            Self::AdminRequest => &ADMIN_REQUEST_WIRE_PARAM_KINDS,
+            Self::RequestDebugStatus => &REQUEST_DEBUG_STATUS_WIRE_PARAM_KINDS,
+            Self::DebugStatusClient => &DEBUG_STATUS_CLIENT_WIRE_PARAM_KINDS,
             Self::DebugStatusClientUnreliable => &DEBUG_STATUS_CLIENT_UNRELIABLE_WIRE_PARAM_KINDS,
             Self::TraceInfo => &TRACE_INFO_WIRE_PARAM_KINDS,
             Self::ConnectRedirect => &CONNECT_REDIRECT_WIRE_PARAM_KINDS,
@@ -849,6 +894,7 @@ impl WellKnownRemoteMethod {
             Self::SetRules => &SET_RULES_WIRE_PARAM_KINDS,
             Self::SetObjectives => &SET_OBJECTIVES_WIRE_PARAM_KINDS,
             Self::SetRule => &SET_RULE_WIRE_PARAM_KINDS,
+            Self::CompleteObjective => &COMPLETE_OBJECTIVE_WIRE_PARAM_KINDS,
             Self::WorldDataBegin => &WORLD_DATA_BEGIN_WIRE_PARAM_KINDS,
             Self::KickString => &KICK_STRING_WIRE_PARAM_KINDS,
             Self::KickReason => &KICK_REASON_WIRE_PARAM_KINDS,
@@ -4438,6 +4484,30 @@ mod tests {
         assert_eq!(
             bundle
                 .well_known
+                .packet_id(WellKnownRemoteMethod::AdminRequest),
+            baseline
+                .well_known
+                .packet_id(WellKnownRemoteMethod::AdminRequest)
+        );
+        assert_eq!(
+            bundle
+                .well_known
+                .packet_id(WellKnownRemoteMethod::RequestDebugStatus),
+            baseline
+                .well_known
+                .packet_id(WellKnownRemoteMethod::RequestDebugStatus)
+        );
+        assert_eq!(
+            bundle
+                .well_known
+                .packet_id(WellKnownRemoteMethod::DebugStatusClient),
+            baseline
+                .well_known
+                .packet_id(WellKnownRemoteMethod::DebugStatusClient)
+        );
+        assert_eq!(
+            bundle
+                .well_known
                 .packet_id(WellKnownRemoteMethod::DebugStatusClientUnreliable),
             baseline
                 .well_known
@@ -4469,6 +4539,9 @@ mod tests {
             (WellKnownRemoteMethod::ClientPlanSnapshotReceived, Some(8)),
             (WellKnownRemoteMethod::PingResponse, Some(10)),
             (WellKnownRemoteMethod::PingLocation, Some(11)),
+            (WellKnownRemoteMethod::AdminRequest, Some(69)),
+            (WellKnownRemoteMethod::RequestDebugStatus, Some(71)),
+            (WellKnownRemoteMethod::DebugStatusClient, Some(75)),
             (WellKnownRemoteMethod::DebugStatusClientUnreliable, Some(13)),
             (WellKnownRemoteMethod::TraceInfo, Some(15)),
             (WellKnownRemoteMethod::ConnectRedirect, Some(35)),
@@ -4477,6 +4550,7 @@ mod tests {
             (WellKnownRemoteMethod::SetRules, Some(16)),
             (WellKnownRemoteMethod::SetObjectives, Some(17)),
             (WellKnownRemoteMethod::SetRule, Some(19)),
+            (WellKnownRemoteMethod::CompleteObjective, Some(73)),
             (WellKnownRemoteMethod::WorldDataBegin, Some(23)),
             (WellKnownRemoteMethod::KickString, Some(25)),
             (WellKnownRemoteMethod::KickReason, Some(27)),
@@ -4523,6 +4597,19 @@ mod tests {
         let fixed_table = registry.packet_id_fixed_table();
 
         assert_eq!(fixed_table.get(5), Some(WellKnownRemoteMethod::Ping));
+        assert_eq!(fixed_table.get(69), Some(WellKnownRemoteMethod::AdminRequest));
+        assert_eq!(
+            fixed_table.get(71),
+            Some(WellKnownRemoteMethod::RequestDebugStatus)
+        );
+        assert_eq!(
+            fixed_table.get(73),
+            Some(WellKnownRemoteMethod::CompleteObjective)
+        );
+        assert_eq!(
+            fixed_table.get(75),
+            Some(WellKnownRemoteMethod::DebugStatusClient)
+        );
         assert_eq!(
             fixed_table.get(17),
             Some(WellKnownRemoteMethod::SetObjectives)
@@ -4577,6 +4664,10 @@ mod tests {
         assert!(fixed_table.contains_packet_id(57));
         assert!(fixed_table.contains_packet_id(63));
         assert!(fixed_table.contains_packet_id(67));
+        assert!(fixed_table.contains_packet_id(69));
+        assert!(fixed_table.contains_packet_id(71));
+        assert!(fixed_table.contains_packet_id(73));
+        assert!(fixed_table.contains_packet_id(75));
         assert!(!fixed_table.contains_packet_id(250));
     }
 
@@ -4951,6 +5042,24 @@ mod tests {
         );
         assert_eq!(
             registry
+                .first_well_known_method(WellKnownRemoteMethod::AdminRequest)
+                .map(|packet| packet.packet_id),
+            Some(69)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::RequestDebugStatus)
+                .map(|packet| packet.packet_id),
+            Some(71)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::DebugStatusClient)
+                .map(|packet| packet.packet_id),
+            Some(75)
+        );
+        assert_eq!(
+            registry
                 .first_well_known_method(WellKnownRemoteMethod::DebugStatusClientUnreliable)
                 .map(|packet| packet.packet_id),
             Some(13)
@@ -4960,6 +5069,12 @@ mod tests {
                 .first_well_known_method(WellKnownRemoteMethod::SetRule)
                 .map(|packet| packet.packet_id),
             Some(19)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::CompleteObjective)
+                .map(|packet| packet.packet_id),
+            Some(73)
         );
         assert_eq!(
             registry
@@ -6543,6 +6658,112 @@ mod tests {
                         test_param("y", "float", true, true),
                         test_param("volume", "float", true, true),
                         test_param("pitch", "float", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    64,
+                    68,
+                    "mindustry.gen.AdminRequestDecoyCallPacket",
+                    "mindustry.core.NetServer",
+                    "adminRequest",
+                    "client",
+                    "normal",
+                    true,
+                    vec![
+                        test_param("player", "Player", false, false),
+                        test_param("other", "Player", true, true),
+                        test_param("action", "mindustry.net.Packets.AdminAction", true, true),
+                        test_param("params", "java.lang.Object", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    65,
+                    69,
+                    "mindustry.gen.AdminRequestCallPacket",
+                    "mindustry.core.NetServer",
+                    "adminRequest",
+                    "client",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("player", "Player", false, false),
+                        test_param("other", "Player", true, true),
+                        test_param("action", "mindustry.net.Packets.AdminAction", true, true),
+                        test_param("params", "java.lang.Object", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    66,
+                    70,
+                    "mindustry.gen.RequestDebugStatusDecoyCallPacket",
+                    "mindustry.core.NetServer",
+                    "requestDebugStatus",
+                    "client",
+                    "normal",
+                    true,
+                    vec![test_param("player", "Player", false, false)],
+                ),
+                test_remote_packet(
+                    67,
+                    71,
+                    "mindustry.gen.RequestDebugStatusCallPacket",
+                    "mindustry.core.NetServer",
+                    "requestDebugStatus",
+                    "client",
+                    "normal",
+                    false,
+                    vec![test_param("player", "Player", false, false)],
+                ),
+                test_remote_packet(
+                    68,
+                    72,
+                    "mindustry.gen.CompleteObjectiveDecoyCallPacket",
+                    "mindustry.core.NetClient",
+                    "completeObjective",
+                    "server",
+                    "normal",
+                    true,
+                    vec![test_param("index", "int", true, true)],
+                ),
+                test_remote_packet(
+                    69,
+                    73,
+                    "mindustry.gen.CompleteObjectiveCallPacket",
+                    "mindustry.core.NetClient",
+                    "completeObjective",
+                    "server",
+                    "normal",
+                    false,
+                    vec![test_param("index", "int", true, true)],
+                ),
+                test_remote_packet(
+                    70,
+                    74,
+                    "mindustry.gen.DebugStatusClientDecoyCallPacket",
+                    "mindustry.core.NetServer",
+                    "debugStatusClient",
+                    "server",
+                    "high",
+                    true,
+                    vec![
+                        test_param("value", "int", true, true),
+                        test_param("lastClientSnapshot", "int", true, true),
+                        test_param("snapshotsSent", "int", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    71,
+                    75,
+                    "mindustry.gen.DebugStatusClientCallPacket",
+                    "mindustry.core.NetServer",
+                    "debugStatusClient",
+                    "server",
+                    "high",
+                    false,
+                    vec![
+                        test_param("value", "int", true, true),
+                        test_param("lastClientSnapshot", "int", true, true),
+                        test_param("snapshotsSent", "int", true, true),
                     ],
                 ),
             ],

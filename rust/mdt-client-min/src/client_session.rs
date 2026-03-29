@@ -626,6 +626,9 @@ impl ClientSession {
             well_known_remote.client_plan_snapshot_received_packet_id;
         let ping_response_packet_id = well_known_remote.ping_response_packet_id;
         let ping_location_packet_id = well_known_remote.ping_location_packet_id;
+        let admin_request_packet_id = well_known_remote.admin_request_packet_id;
+        let request_debug_status_packet_id = well_known_remote.request_debug_status_packet_id;
+        let debug_status_client_packet_id = well_known_remote.debug_status_client_packet_id;
         let connect_confirm_packet_id = well_known_remote
             .connect_confirm_packet_id
             .ok_or(ClientSessionError::MissingConnectConfirmPacket)?;
@@ -657,27 +660,6 @@ impl ClientSession {
         let effect_reliable_packet_id = well_known_remote.effect_reliable_packet_id;
         let sound_packet_id = well_known_remote.sound_packet_id;
         let sound_at_packet_id = well_known_remote.sound_at_packet_id;
-        let admin_request_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
-                entry.method == "adminRequest"
-                    && entry.params.len() == 4
-                    && entry.params[0].java_type == "Player"
-                    && entry.params[1].java_type == "Player"
-                    && entry.params[2].java_type.contains("AdminAction")
-                    && entry.params[3].java_type == "java.lang.Object"
-            })
-            .map(|entry| entry.packet_id);
-        let request_debug_status_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
-                entry.method == "requestDebugStatus"
-                    && entry.params.len() == 1
-                    && entry.params[0].java_type == "Player"
-            })
-            .map(|entry| entry.packet_id);
         let game_over_packet_id = manifest
             .remote_packets
             .iter()
@@ -1168,17 +1150,6 @@ impl ClientSession {
             .iter()
             .find(|entry| entry.method == "unitTetherBlockSpawned")
             .map(|entry| entry.packet_id);
-        let debug_status_client_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
-                entry.method == "debugStatusClient"
-                    && entry.params.len() == 3
-                    && entry.params[0].java_type == "int"
-                    && entry.params[1].java_type == "int"
-                    && entry.params[2].java_type == "int"
-            })
-            .map(|entry| entry.packet_id);
         let debug_status_client_unreliable_packet_id =
             well_known_remote.debug_status_client_unreliable_packet_id;
         let trace_info_packet_id = well_known_remote.trace_info_packet_id;
@@ -1206,15 +1177,7 @@ impl ClientSession {
             .iter()
             .find(|entry| entry.method == "clearObjectives")
             .map(|entry| entry.packet_id);
-        let complete_objective_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
-                entry.method == "completeObjective"
-                    && entry.params.len() == 1
-                    && entry.params[0].java_type == "int"
-            })
-            .map(|entry| entry.packet_id);
+        let complete_objective_packet_id = well_known_remote.complete_objective_packet_id;
         let player_disconnect_packet_id = manifest
             .remote_packets
             .iter()
@@ -51052,6 +51015,18 @@ mod tests {
             expected(WellKnownRemoteMethod::PingLocation)
         );
         assert_eq!(
+            session.admin_request_packet_id,
+            expected(WellKnownRemoteMethod::AdminRequest)
+        );
+        assert_eq!(
+            session.request_debug_status_packet_id,
+            expected(WellKnownRemoteMethod::RequestDebugStatus)
+        );
+        assert_eq!(
+            session.debug_status_client_packet_id,
+            expected(WellKnownRemoteMethod::DebugStatusClient)
+        );
+        assert_eq!(
             session.debug_status_client_unreliable_packet_id,
             expected(WellKnownRemoteMethod::DebugStatusClientUnreliable)
         );
@@ -51162,6 +51137,10 @@ mod tests {
         assert_eq!(
             session.set_rule_packet_id,
             expected(WellKnownRemoteMethod::SetRule)
+        );
+        assert_eq!(
+            session.complete_objective_packet_id,
+            expected(WellKnownRemoteMethod::CompleteObjective)
         );
         assert_eq!(
             Some(session.world_data_begin_packet_id),
@@ -51821,6 +51800,159 @@ mod tests {
         let session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
         assert_eq!(session.sound_packet_id, Some(expected_sound_packet_id));
         assert_eq!(session.sound_at_packet_id, Some(expected_sound_at_packet_id));
+    }
+
+    #[test]
+    fn session_admin_and_objective_packet_ids_reject_well_known_method_decoys() {
+        let mut manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let expected_admin_request_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "adminRequest"
+                    && entry.params.len() == 4
+                    && entry.params[0].java_type == "Player"
+                    && entry.params[1].java_type == "Player"
+                    && entry.params[2].java_type == "mindustry.net.Packets.AdminAction"
+                    && entry.params[3].java_type == "java.lang.Object"
+                    && !entry.unreliable
+            })
+            .expect("missing adminRequest packet")
+            .packet_id;
+        let expected_request_debug_status_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "requestDebugStatus"
+                    && entry.params.len() == 1
+                    && entry.params[0].java_type == "Player"
+                    && !entry.unreliable
+            })
+            .expect("missing requestDebugStatus packet")
+            .packet_id;
+        let expected_complete_objective_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "completeObjective"
+                    && entry.params.len() == 1
+                    && entry.params[0].java_type == "int"
+                    && !entry.unreliable
+            })
+            .expect("missing completeObjective packet")
+            .packet_id;
+        let expected_debug_status_client_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "debugStatusClient"
+                    && entry.params.len() == 3
+                    && entry.params[0].java_type == "int"
+                    && entry.params[1].java_type == "int"
+                    && entry.params[2].java_type == "int"
+                    && !entry.unreliable
+            })
+            .expect("missing debugStatusClient packet")
+            .packet_id;
+
+        let mut admin_request_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "adminRequest"
+                    && entry.params.len() == 4
+                    && entry.params[0].java_type == "Player"
+                    && entry.params[1].java_type == "Player"
+                    && entry.params[2].java_type == "mindustry.net.Packets.AdminAction"
+                    && entry.params[3].java_type == "java.lang.Object"
+                    && !entry.unreliable
+            })
+            .expect("missing adminRequest packet")
+            .clone();
+        admin_request_decoy.packet_id = 225;
+        admin_request_decoy.packet_class = "mindustry.gen.AdminRequestDecoyCallPacket".into();
+        admin_request_decoy.unreliable = true;
+
+        let mut request_debug_status_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "requestDebugStatus"
+                    && entry.params.len() == 1
+                    && entry.params[0].java_type == "Player"
+                    && !entry.unreliable
+            })
+            .expect("missing requestDebugStatus packet")
+            .clone();
+        request_debug_status_decoy.packet_id = 226;
+        request_debug_status_decoy.packet_class =
+            "mindustry.gen.RequestDebugStatusDecoyCallPacket".into();
+        request_debug_status_decoy.unreliable = true;
+
+        let mut complete_objective_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "completeObjective"
+                    && entry.params.len() == 1
+                    && entry.params[0].java_type == "int"
+                    && !entry.unreliable
+            })
+            .expect("missing completeObjective packet")
+            .clone();
+        complete_objective_decoy.packet_id = 227;
+        complete_objective_decoy.packet_class =
+            "mindustry.gen.CompleteObjectiveDecoyCallPacket".into();
+        complete_objective_decoy.unreliable = true;
+
+        let mut debug_status_client_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "debugStatusClient"
+                    && entry.params.len() == 3
+                    && entry.params[0].java_type == "int"
+                    && entry.params[1].java_type == "int"
+                    && entry.params[2].java_type == "int"
+                    && !entry.unreliable
+            })
+            .expect("missing debugStatusClient packet")
+            .clone();
+        debug_status_client_decoy.packet_id = 228;
+        debug_status_client_decoy.packet_class =
+            "mindustry.gen.DebugStatusClientDecoyCallPacket".into();
+        debug_status_client_decoy.unreliable = true;
+
+        manifest.remote_packets.splice(
+            0..0,
+            vec![
+                admin_request_decoy,
+                request_debug_status_decoy,
+                complete_objective_decoy,
+                debug_status_client_decoy,
+            ],
+        );
+        for (remote_index, packet) in manifest.remote_packets.iter_mut().enumerate() {
+            packet.remote_index = remote_index;
+        }
+
+        let session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        assert_eq!(
+            session.admin_request_packet_id,
+            Some(expected_admin_request_packet_id)
+        );
+        assert_eq!(
+            session.request_debug_status_packet_id,
+            Some(expected_request_debug_status_packet_id)
+        );
+        assert_eq!(
+            session.complete_objective_packet_id,
+            Some(expected_complete_objective_packet_id)
+        );
+        assert_eq!(
+            session.debug_status_client_packet_id,
+            Some(expected_debug_status_client_packet_id)
+        );
     }
 
     #[test]

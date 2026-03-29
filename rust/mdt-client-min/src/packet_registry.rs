@@ -59,6 +59,9 @@ pub struct WellKnownRemotePacketIds {
     pub client_plan_snapshot_received_packet_id: Option<u8>,
     pub ping_response_packet_id: Option<u8>,
     pub ping_location_packet_id: Option<u8>,
+    pub admin_request_packet_id: Option<u8>,
+    pub request_debug_status_packet_id: Option<u8>,
+    pub debug_status_client_packet_id: Option<u8>,
     pub debug_status_client_unreliable_packet_id: Option<u8>,
     pub trace_info_packet_id: Option<u8>,
     pub connect_redirect_packet_id: Option<u8>,
@@ -87,6 +90,7 @@ pub struct WellKnownRemotePacketIds {
     pub set_rules_packet_id: Option<u8>,
     pub set_objectives_packet_id: Option<u8>,
     pub set_rule_packet_id: Option<u8>,
+    pub complete_objective_packet_id: Option<u8>,
     pub world_data_begin_packet_id: Option<u8>,
 }
 
@@ -317,6 +321,9 @@ impl WellKnownRemotePacketIds {
             ),
             ping_response_packet_id: packet_id(WellKnownRemoteMethod::PingResponse),
             ping_location_packet_id: packet_id(WellKnownRemoteMethod::PingLocation),
+            admin_request_packet_id: packet_id(WellKnownRemoteMethod::AdminRequest),
+            request_debug_status_packet_id: packet_id(WellKnownRemoteMethod::RequestDebugStatus),
+            debug_status_client_packet_id: packet_id(WellKnownRemoteMethod::DebugStatusClient),
             debug_status_client_unreliable_packet_id: packet_id(
                 WellKnownRemoteMethod::DebugStatusClientUnreliable,
             ),
@@ -353,6 +360,7 @@ impl WellKnownRemotePacketIds {
             set_rules_packet_id: packet_id(WellKnownRemoteMethod::SetRules),
             set_objectives_packet_id: packet_id(WellKnownRemoteMethod::SetObjectives),
             set_rule_packet_id: packet_id(WellKnownRemoteMethod::SetRule),
+            complete_objective_packet_id: packet_id(WellKnownRemoteMethod::CompleteObjective),
             world_data_begin_packet_id: packet_id(WellKnownRemoteMethod::WorldDataBegin),
         }
     }
@@ -366,6 +374,9 @@ impl WellKnownRemotePacketIds {
             }
             WellKnownRemoteMethod::PingResponse => self.ping_response_packet_id,
             WellKnownRemoteMethod::PingLocation => self.ping_location_packet_id,
+            WellKnownRemoteMethod::AdminRequest => self.admin_request_packet_id,
+            WellKnownRemoteMethod::RequestDebugStatus => self.request_debug_status_packet_id,
+            WellKnownRemoteMethod::DebugStatusClient => self.debug_status_client_packet_id,
             WellKnownRemoteMethod::DebugStatusClientUnreliable => {
                 self.debug_status_client_unreliable_packet_id
             }
@@ -402,6 +413,7 @@ impl WellKnownRemotePacketIds {
             WellKnownRemoteMethod::SetRules => self.set_rules_packet_id,
             WellKnownRemoteMethod::SetObjectives => self.set_objectives_packet_id,
             WellKnownRemoteMethod::SetRule => self.set_rule_packet_id,
+            WellKnownRemoteMethod::CompleteObjective => self.complete_objective_packet_id,
             WellKnownRemoteMethod::WorldDataBegin => self.world_data_begin_packet_id,
         }
     }
@@ -921,9 +933,11 @@ mod tests {
     fn generated_remote_registry_constants_match_manifest_and_combined_views() {
         use crate::generated::remote_high_frequency_gen::CLIENT_SNAPSHOT_PACKET_ID;
         use crate::generated::remote_registry_gen::{
-            CLIENT_SNAPSHOT_CALL_PACKET_ID, CONNECT_CALL_PACKET_ID,
+            ADMIN_REQUEST_CALL_PACKET_ID, CLIENT_SNAPSHOT_CALL_PACKET_ID,
+            COMPLETE_OBJECTIVE_CALL_PACKET_ID, CONNECT_CALL_PACKET_ID,
             CONNECT_CONFIRM_CALL_PACKET_ID, KICK_CALL_PACKET2_ID, KICK_CALL_PACKET_ID,
-            PING_CALL_PACKET_ID, PLAYER_SPAWN_CALL_PACKET_ID, REMOTE_PACKET_SPECS,
+            DEBUG_STATUS_CLIENT_CALL_PACKET_ID, PING_CALL_PACKET_ID,
+            PLAYER_SPAWN_CALL_PACKET_ID, REMOTE_PACKET_SPECS, REQUEST_DEBUG_STATUS_CALL_PACKET_ID,
             SEND_CHAT_MESSAGE_CALL_PACKET_ID, SEND_MESSAGE_CALL_PACKET2_ID,
             SEND_MESSAGE_CALL_PACKET_ID, TILE_CONFIG_CALL_PACKET_ID,
             WORLD_DATA_BEGIN_CALL_PACKET_ID, INFO_POPUP_CALL_PACKET_ID,
@@ -950,6 +964,22 @@ mod tests {
             "clientSnapshot"
         ));
         assert!(has_generated_spec(PING_CALL_PACKET_ID, "ping"));
+        assert!(has_generated_spec(
+            ADMIN_REQUEST_CALL_PACKET_ID,
+            "adminRequest"
+        ));
+        assert!(has_generated_spec(
+            REQUEST_DEBUG_STATUS_CALL_PACKET_ID,
+            "requestDebugStatus"
+        ));
+        assert!(has_generated_spec(
+            COMPLETE_OBJECTIVE_CALL_PACKET_ID,
+            "completeObjective"
+        ));
+        assert!(has_generated_spec(
+            DEBUG_STATUS_CLIENT_CALL_PACKET_ID,
+            "debugStatusClient"
+        ));
         assert!(has_generated_spec(TILE_CONFIG_CALL_PACKET_ID, "tileConfig"));
         assert!(has_generated_spec(
             WORLD_DATA_BEGIN_CALL_PACKET_ID,
@@ -962,6 +992,18 @@ mod tests {
         assert_eq!(
             combined.well_known_remote.ping_packet_id,
             Some(PING_CALL_PACKET_ID)
+        );
+        assert_eq!(
+            combined.well_known_remote.admin_request_packet_id,
+            Some(ADMIN_REQUEST_CALL_PACKET_ID)
+        );
+        assert_eq!(
+            combined.well_known_remote.request_debug_status_packet_id,
+            Some(REQUEST_DEBUG_STATUS_CALL_PACKET_ID)
+        );
+        assert_eq!(
+            combined.well_known_remote.debug_status_client_packet_id,
+            Some(DEBUG_STATUS_CLIENT_CALL_PACKET_ID)
         );
         assert_eq!(
             combined.well_known_remote.connect_redirect_packet_id,
@@ -1060,6 +1102,10 @@ mod tests {
             Some(SOUND_AT_CALL_PACKET_ID)
         );
         assert_eq!(
+            combined.well_known_remote.complete_objective_packet_id,
+            Some(COMPLETE_OBJECTIVE_CALL_PACKET_ID)
+        );
+        assert_eq!(
             manifest
                 .remote_packets
                 .iter()
@@ -1100,6 +1146,9 @@ mod tests {
         assert_eq!(well_known.client_plan_snapshot_received_packet_id, Some(8));
         assert_eq!(well_known.ping_response_packet_id, Some(10));
         assert_eq!(well_known.ping_location_packet_id, Some(11));
+        assert_eq!(well_known.admin_request_packet_id, Some(69));
+        assert_eq!(well_known.request_debug_status_packet_id, Some(71));
+        assert_eq!(well_known.debug_status_client_packet_id, Some(75));
         assert_eq!(
             well_known.debug_status_client_unreliable_packet_id,
             Some(13)
@@ -1131,6 +1180,7 @@ mod tests {
         assert_eq!(well_known.set_rules_packet_id, Some(16));
         assert_eq!(well_known.set_objectives_packet_id, Some(17));
         assert_eq!(well_known.set_rule_packet_id, Some(19));
+        assert_eq!(well_known.complete_objective_packet_id, Some(73));
         assert_eq!(well_known.world_data_begin_packet_id, Some(23));
         assert_eq!(well_known.method(5), Some(WellKnownRemoteMethod::Ping));
         assert_eq!(well_known.method(6), None);
@@ -1171,6 +1221,18 @@ mod tests {
             (
                 WellKnownRemoteMethod::PingLocation,
                 well_known.ping_location_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::AdminRequest,
+                well_known.admin_request_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::RequestDebugStatus,
+                well_known.request_debug_status_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::DebugStatusClient,
+                well_known.debug_status_client_packet_id,
             ),
             (
                 WellKnownRemoteMethod::DebugStatusClientUnreliable,
@@ -1283,6 +1345,10 @@ mod tests {
             (
                 WellKnownRemoteMethod::SetRule,
                 well_known.set_rule_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::CompleteObjective,
+                well_known.complete_objective_packet_id,
             ),
             (
                 WellKnownRemoteMethod::WorldDataBegin,
@@ -2559,6 +2625,112 @@ mod tests {
                         param("y", "float", true, true),
                         param("volume", "float", true, true),
                         param("pitch", "float", true, true),
+                    ],
+                ),
+                remote_packet(
+                    64,
+                    68,
+                    "mindustry.gen.AdminRequestDecoyCallPacket",
+                    "mindustry.core.NetServer",
+                    "adminRequest",
+                    "client",
+                    "server",
+                    true,
+                    vec![
+                        param("player", "Player", false, false),
+                        param("other", "Player", true, true),
+                        param("action", "mindustry.net.Packets.AdminAction", true, true),
+                        param("params", "java.lang.Object", true, true),
+                    ],
+                ),
+                remote_packet(
+                    65,
+                    69,
+                    "mindustry.gen.AdminRequestCallPacket",
+                    "mindustry.core.NetServer",
+                    "adminRequest",
+                    "client",
+                    "server",
+                    false,
+                    vec![
+                        param("player", "Player", false, false),
+                        param("other", "Player", true, true),
+                        param("action", "mindustry.net.Packets.AdminAction", true, true),
+                        param("params", "java.lang.Object", true, true),
+                    ],
+                ),
+                remote_packet(
+                    66,
+                    70,
+                    "mindustry.gen.RequestDebugStatusDecoyCallPacket",
+                    "mindustry.core.NetServer",
+                    "requestDebugStatus",
+                    "client",
+                    "none",
+                    true,
+                    vec![param("player", "Player", false, false)],
+                ),
+                remote_packet(
+                    67,
+                    71,
+                    "mindustry.gen.RequestDebugStatusCallPacket",
+                    "mindustry.core.NetServer",
+                    "requestDebugStatus",
+                    "client",
+                    "none",
+                    false,
+                    vec![param("player", "Player", false, false)],
+                ),
+                remote_packet(
+                    68,
+                    72,
+                    "mindustry.gen.CompleteObjectiveDecoyCallPacket",
+                    "mindustry.core.NetClient",
+                    "completeObjective",
+                    "server",
+                    "server",
+                    true,
+                    vec![param("index", "int", true, true)],
+                ),
+                remote_packet(
+                    69,
+                    73,
+                    "mindustry.gen.CompleteObjectiveCallPacket",
+                    "mindustry.core.NetClient",
+                    "completeObjective",
+                    "server",
+                    "server",
+                    false,
+                    vec![param("index", "int", true, true)],
+                ),
+                remote_packet(
+                    70,
+                    74,
+                    "mindustry.gen.DebugStatusClientDecoyCallPacket",
+                    "mindustry.core.NetServer",
+                    "debugStatusClient",
+                    "server",
+                    "none",
+                    true,
+                    vec![
+                        param("value", "int", true, true),
+                        param("lastClientSnapshot", "int", true, true),
+                        param("snapshotsSent", "int", true, true),
+                    ],
+                ),
+                remote_packet(
+                    71,
+                    75,
+                    "mindustry.gen.DebugStatusClientCallPacket",
+                    "mindustry.core.NetServer",
+                    "debugStatusClient",
+                    "server",
+                    "none",
+                    false,
+                    vec![
+                        param("value", "int", true, true),
+                        param("lastClientSnapshot", "int", true, true),
+                        param("snapshotsSent", "int", true, true),
                     ],
                 ),
             ],
