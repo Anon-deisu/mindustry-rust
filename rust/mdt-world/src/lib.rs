@@ -57340,6 +57340,22 @@ mod tests {
     }
 
     #[test]
+    fn rejects_overlong_save_map_block_run() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1u16.to_be_bytes());
+        bytes.extend_from_slice(&1u16.to_be_bytes());
+        bytes.extend_from_slice(&0x0011u16.to_be_bytes());
+        bytes.extend_from_slice(&0x0022u16.to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&0x0033u16.to_be_bytes());
+        bytes.push(0);
+        bytes.push(1);
+
+        let error = parse_save_map_region(11, &[], &bytes).unwrap_err();
+        assert!(error.contains("block run overruns map bounds"));
+    }
+
+    #[test]
     fn rejects_large_save_map_building_chunk_len() {
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&1u16.to_be_bytes());
