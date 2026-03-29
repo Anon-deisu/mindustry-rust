@@ -334,6 +334,8 @@ These are already landed and should not be re-opened as if missing:
 - `mdt-remote` manifest validation now also fail-closes unsupported `called` / `variants` enum drift instead of only checking those fields for non-empty strings.
 - `mdt-world` post-load contract now also surfaces `StaticFogCoverageMismatch` when duplicate `static-fog-data` chunks are mixed between valid and damaged payloads instead of letting the first valid chunk hide the damaged tail.
 - `mdt-world` consumer/runtime helper layers now treat `DuplicateStaticFogTeamIds` as a real `WorldShell` / `StaticFog` blocker instead of leaving duplicate static-fog teams seedable and world-semantic-ready.
+- `mdt-world` projection-contract world-shell gating no longer treats auxiliary `DuplicateMarkerIds` / `DuplicateCustomChunkNames` as shell blockers.
+  - those issues still stay on the contract surface for later full-apply/world-semantic failure paths, but `world_shell_ready` now remains aligned with the intended `marker/chunk duplicate != shell blocker` split
 - `mdt-typeio` JSON writers now enforce the same v156 `rules/objectives/objective-marker` length caps as the readers instead of emitting payloads that the local read side would immediately reject.
 - `mdt-remote` manifest validation now also rejects duplicate parameter names within a single remote packet instead of letting typed metadata/registry generation inherit ambiguous per-packet arg names.
 - `mdt-remote` manifest validation now also fail-closes `allowOnClient/allowOnServer` drift against `targets` flow instead of parsing those access flags and then silently ignoring them.

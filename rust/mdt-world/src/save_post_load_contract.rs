@@ -238,7 +238,6 @@ fn marker_surface_consistent(
 
     if has_duplicate_values(observation.markers.iter().map(|entry| entry.id)) {
         push_issue(issues, SavePostLoadWorldIssue::DuplicateMarkerIds);
-        consistent = false;
     }
 
     consistent
@@ -273,7 +272,6 @@ fn static_fog_surface_consistent(
             .map(|chunk| chunk.name.as_str()),
     ) {
         push_issue(issues, SavePostLoadWorldIssue::DuplicateCustomChunkNames);
-        consistent = false;
     }
     let static_fog_chunks = observation
         .custom_chunks
@@ -515,8 +513,8 @@ mod tests {
 
         let contract = observation.projection_contract();
 
-        assert!(!contract.can_project_world_shell());
-        assert!(!contract.marker_surface_consistent);
+        assert!(contract.can_project_world_shell());
+        assert!(contract.marker_surface_consistent);
         assert!(contract
             .issues
             .contains(&SavePostLoadWorldIssue::DuplicateMarkerIds));
@@ -559,8 +557,8 @@ mod tests {
 
         let contract = observation.projection_contract();
 
-        assert!(!contract.can_project_world_shell());
-        assert!(!contract.static_fog_surface_consistent);
+        assert!(contract.can_project_world_shell());
+        assert!(contract.static_fog_surface_consistent);
         assert!(contract
             .issues
             .contains(&SavePostLoadWorldIssue::DuplicateCustomChunkNames));
