@@ -27180,6 +27180,14 @@ fn parse_legacy_building_tail_snapshot(
                 .map(ParsedBuildingTail::Memory)
                 .unwrap_or(ParsedBuildingTail::Unknown)
         }
+        Some("canvas") | Some("large-canvas") => parse_canvas_tail_snapshot(legacy_tail_bytes)
+            .map(ParsedBuildingTail::Canvas)
+            .unwrap_or(ParsedBuildingTail::Unknown),
+        Some("switch") | Some("world-switch") => {
+            parse_one_bool_tail_snapshot(1, legacy_tail_bytes)
+                .map(ParsedBuildingTail::OneBool)
+                .unwrap_or(ParsedBuildingTail::Unknown)
+        }
         _ => ParsedBuildingTail::Unknown,
     }
 }
@@ -55749,6 +55757,38 @@ mod tests {
             center.building.parsed_tail,
             ParsedBuildingTail::Message(MessageTailSnapshot {
                 message: "echo".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn parses_legacy_switch_building_snapshot_when_block_name_is_known() {
+        let snapshot = parse_legacy_save_building_snapshot(
+            Some("switch"),
+            &[1, 0, 10, 0x12, 1, 1],
+        )
+        .unwrap();
+
+        assert_eq!(
+            snapshot.parsed_tail,
+            ParsedBuildingTail::OneBool(OneBoolTailSnapshot { value: true })
+        );
+    }
+
+    #[test]
+    fn parses_legacy_canvas_building_snapshot_when_block_name_is_known() {
+        let snapshot = parse_legacy_save_building_snapshot(
+            Some("canvas"),
+            &[1, 0, 10, 0x12, 0, 0, 0, 0, 3, 1, 2, 3],
+        )
+        .unwrap();
+
+        assert_eq!(
+            snapshot.parsed_tail,
+            ParsedBuildingTail::Canvas(CanvasTailSnapshot {
+                data_len: 3,
+                data_sha256: sha256_hex(&[1, 2, 3]),
+                data_bytes: vec![1, 2, 3],
             })
         );
     }
