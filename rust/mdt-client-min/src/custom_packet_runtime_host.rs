@@ -187,11 +187,10 @@ impl RuntimeCustomPacketHost {
         for action_spec in action_specs {
             let route = route_key_from_host_action_spec(action_spec);
             state.routes.entry(route.clone()).or_default();
-            state
-                .action_bindings
-                .entry(route)
-                .or_default()
-                .push(action_spec.action);
+            let bindings = state.action_bindings.entry(route).or_default();
+            if !bindings.contains(&action_spec.action) {
+                bindings.push(action_spec.action);
+            }
         }
         Some(Self { state })
     }
@@ -841,6 +840,34 @@ mod tests {
                 x: 11.0,
                 y: 13.0,
             }]
+        );
+    }
+
+    #[test]
+    fn runtime_custom_packet_host_deduplicates_repeated_action_specs() {
+        let mut host = RuntimeCustomPacketHost::from_specs_with_actions(
+            &[logic_pos_spec()],
+            &[drop_action_spec(), drop_action_spec()],
+        )
+        .unwrap();
+
+        host.observe_summary_entries(42, &[logic_pos_entry("7,9", 7.0, 9.0)]);
+
+        assert_eq!(
+            host.drain_actions(),
+            vec![RuntimeCustomPacketHostAction::RequestDropPayload {
+                key: "logic.pos".to_string(),
+                x: 7.0,
+                y: 9.0,
+            }]
+        );
+
+        let lines = host.drain_lines();
+        assert_eq!(
+            lines.iter()
+                .filter(|line| line.contains("action=request-drop-payload"))
+                .count(),
+            1
         );
     }
 
