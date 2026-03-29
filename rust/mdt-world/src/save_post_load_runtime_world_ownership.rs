@@ -262,6 +262,34 @@ mod tests {
     };
 
     #[test]
+    fn runtime_world_surface_kind_ignores_entity_remaps_and_custom_chunks() {
+        assert_eq!(
+            SavePostLoadRuntimeWorldSurfaceKind::from_stage_kind(
+                SavePostLoadConsumerStageKind::EntityRemaps,
+            ),
+            None
+        );
+        assert_eq!(
+            SavePostLoadRuntimeWorldSurfaceKind::from_stage_kind(
+                SavePostLoadConsumerStageKind::CustomChunks,
+            ),
+            None
+        );
+        assert_eq!(
+            SavePostLoadRuntimeWorldSurfaceKind::from_step(
+                &SavePostLoadRuntimeApplyStep::EntityRemap { remap_index: 0 }
+            ),
+            None
+        );
+        assert_eq!(
+            SavePostLoadRuntimeWorldSurfaceKind::from_step(
+                &SavePostLoadRuntimeApplyStep::CustomChunk { chunk_index: 0 }
+            ),
+            None
+        );
+    }
+
+    #[test]
     fn runtime_world_ownership_marks_clean_world_surfaces_owned() {
         let mut observation = test_observation();
         make_observation_seedable(&mut observation);
@@ -380,7 +408,10 @@ mod tests {
             .unwrap();
 
         assert!(execution.can_apply_world_semantics());
-        assert_eq!(skipped_surface.status, SavePostLoadRuntimeWorldOwnershipStatus::Deferred);
+        assert_eq!(
+            skipped_surface.status,
+            SavePostLoadRuntimeWorldOwnershipStatus::Deferred
+        );
         assert!(!skipped_surface.is_owned());
         assert_eq!(skipped_surface.required_step_count, 1);
         assert_eq!(skipped_surface.claimed_step_count, 0);
