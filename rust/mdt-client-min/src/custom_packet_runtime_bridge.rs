@@ -223,7 +223,11 @@ fn parse_surface_update(line: &str) -> Option<ParsedSurfaceUpdate> {
     let (encoding, rest) = rest.split_once(" key=")?;
     let (key, rest) = parse_debug_string_prefix(rest)?;
     let rest = rest.strip_prefix(" semantic=")?;
-    let (semantic, _) = rest.split_once(" count=")?;
+    let (semantic, rest) = rest.split_once(" count=")?;
+    let (_, tail) = parse_decimal_prefix(rest)?;
+    if !tail.is_empty() && !tail.starts_with(' ') {
+        return None;
+    }
     Some(ParsedSurfaceUpdate {
         route: RuntimeCustomPacketBridgeRouteKey {
             key,
@@ -238,16 +242,33 @@ fn parse_surface_reset(line: &str) -> Option<ParsedSurfaceReset<'_>> {
     let rest = line.strip_prefix(prefix)?;
     if rest.starts_with('"') {
         let (reason, rest) = parse_debug_string_prefix(rest)?;
-        let _ = rest.strip_prefix(" cleared_routes=")?;
+        let rest = rest.strip_prefix(" cleared_routes=")?;
+        let (_, tail) = parse_decimal_prefix(rest)?;
+        if !tail.is_empty() {
+            return None;
+        }
         return Some(ParsedSurfaceReset {
             reason: std::borrow::Cow::Owned(reason),
         });
     }
 
     let (reason, _) = rest.rsplit_once(" cleared_routes=")?;
+    let (_, tail) = parse_decimal_prefix(rest.rsplit_once(" cleared_routes=")?.1)?;
+    if !tail.is_empty() {
+        return None;
+    }
     Some(ParsedSurfaceReset {
         reason: std::borrow::Cow::Borrowed(reason),
     })
+}
+
+fn parse_decimal_prefix(value: &str) -> Option<(&str, &str)> {
+    let digits = value
+        .as_bytes()
+        .iter()
+        .take_while(|byte| byte.is_ascii_digit())
+        .count();
+    (digits > 0).then_some(value.split_at(digits))
 }
 
 fn parse_debug_string_prefix(value: &str) -> Option<(String, &str)> {
@@ -656,6 +677,86 @@ mod tests {
             )
             .map(|reset| reset.reason),
             Some(std::borrow::Cow::Borrowed("route cleared_routes=ignored"))
+        );
+    }
+
+    #[test]
+    fn parse_surface_reset_rejects_trailing_junk_and_unterminated_quotes() {
+        assert!(
+            parse_surface_reset(
+                "runtime_custom_packet_surface_reset: reason=\"world_data_begin\" cleared_routes=1junk"
+            )
+            .is_none()
+        );
+        assert!(
+            parse_surface_reset(
+                r#"runtime_custom_packet_surface_reset: reason="world_data_begin cleared_routes=1"#
+            )
+            .is_none()
+        );
+
+        let specs = vec![RuntimeCustomPacketSemanticSpec {
+            key: "custom.status".to_string(),
+            encoding: RuntimeCustomPacketSemanticEncoding::Text,
+            semantic: RuntimeCustomPacketSemanticKind::HudText,
+        }];
+        let mut bridge = RuntimeCustomPacketBridge::from_specs(&specs).unwrap();
+        bridge.observe_surface_activity(
+            7,
+            &[String::from(
+                "runtime_custom_packet_surface_reset: reason=\"world_data_begin\" cleared_routes=1junk",
+            )],
+            &[],
+        );
+
+        assert!(bridge.drain_lines().is_empty());
+        assert_eq!(bridge.business_summary_text(4), None);
+        assert_eq!(
+            bridge.summary_lines().last().map(String::as_str),
+            Some("runtime_custom_packet_bridge_state: routes=1 active_routes=0 surface_resets=0 reconnect_resets=0")
+        );
+    }
+
+    #[test]
+    fn parse_surface_update_rejects_trailing_junk_and_unterminated_quotes() {
+        assert!(
+            parse_surface_update(
+                "runtime_custom_packet_surface_update: encoding=text key=\"custom.status\" semantic=hud_text count=1junk message=\"ok\""
+            )
+            .is_none()
+        );
+        assert!(
+            parse_surface_update(
+                r#"runtime_custom_packet_surface_update: encoding=text key="custom.status semantic=hud_text count=1 message="ok""#
+            )
+            .is_none()
+        );
+
+        let specs = vec![RuntimeCustomPacketSemanticSpec {
+            key: "custom.status".to_string(),
+            encoding: RuntimeCustomPacketSemanticEncoding::Text,
+            semantic: RuntimeCustomPacketSemanticKind::HudText,
+        }];
+        let mut bridge = RuntimeCustomPacketBridge::from_specs(&specs).unwrap();
+        bridge.observe_surface_activity(
+            7,
+            &[String::from(
+                "runtime_custom_packet_surface_update: encoding=text key=\"custom.status\" semantic=hud_text count=1junk message=\"ok\"",
+            )],
+            &[RuntimeCustomPacketSurfaceSummaryEntry {
+                key: "custom.status".to_string(),
+                encoding: RuntimeCustomPacketSemanticEncoding::Text,
+                semantic: RuntimeCustomPacketSemanticKind::HudText,
+                stable_value: "ok".to_string(),
+                marker: None,
+            }],
+        );
+
+        assert!(bridge.drain_lines().is_empty());
+        assert_eq!(bridge.business_summary_text(4), None);
+        assert_eq!(
+            bridge.summary_lines().last().map(String::as_str),
+            Some("runtime_custom_packet_bridge_state: routes=1 active_routes=0 surface_resets=0 reconnect_resets=0")
         );
     }
 }
