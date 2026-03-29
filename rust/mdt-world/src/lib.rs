@@ -27273,6 +27273,29 @@ fn parse_legacy_building_tail_snapshot(
                 .map(ParsedBuildingTail::OneF32Bool)
                 .unwrap_or(ParsedBuildingTail::Unknown)
         }
+        Some(
+            "graphite-press"
+            | "multi-press"
+            | "silicon-smelter"
+            | "kiln"
+            | "plastanium-compressor"
+            | "phase-weaver"
+            | "surge-smelter"
+            | "cryofluid-mixer"
+            | "pyratite-mixer"
+            | "blast-mixer"
+            | "melter"
+            | "spore-press"
+            | "pulverizer"
+            | "coal-centrifuge"
+            | "silicon-arc-furnace"
+            | "electrolyzer"
+            | "slag-centrifuge"
+            | "silicon-crucible"
+            | "vent-condenser",
+        ) => parse_two_f32_tail_snapshot_always(legacy_tail_bytes)
+            .map(ParsedBuildingTail::TwoF32)
+            .unwrap_or(ParsedBuildingTail::Unknown),
         Some("separator") | Some("disassembler") => {
             parse_two_f32_i32_tail_snapshot(revision, legacy_tail_bytes)
                 .map(ParsedBuildingTail::TwoF32I32)
@@ -56356,6 +56379,48 @@ mod tests {
             "blast-drill",
             "plasma-bore",
             "large-plasma-bore",
+        ] {
+            let expected = parse_building_tail(Some(block_name), 1, &legacy_tail).unwrap();
+            let snapshot = parse_legacy_save_building_snapshot(Some(block_name), &{
+                let mut bytes = vec![1, 0, 10, 0x12, 1];
+                bytes.extend_from_slice(&legacy_tail);
+                bytes
+            })
+            .unwrap();
+
+            assert_eq!(snapshot.parsed_tail, expected);
+        }
+    }
+
+    #[test]
+    fn parses_legacy_generic_crafter_family_building_snapshots_when_block_name_is_known() {
+        let legacy_tail = {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&0x3f800000u32.to_be_bytes());
+            bytes.extend_from_slice(&0x40000000u32.to_be_bytes());
+            bytes
+        };
+
+        for block_name in [
+            "graphite-press",
+            "multi-press",
+            "silicon-smelter",
+            "kiln",
+            "plastanium-compressor",
+            "phase-weaver",
+            "surge-smelter",
+            "cryofluid-mixer",
+            "pyratite-mixer",
+            "blast-mixer",
+            "melter",
+            "spore-press",
+            "pulverizer",
+            "coal-centrifuge",
+            "silicon-arc-furnace",
+            "electrolyzer",
+            "slag-centrifuge",
+            "silicon-crucible",
+            "vent-condenser",
         ] {
             let expected = parse_building_tail(Some(block_name), 1, &legacy_tail).unwrap();
             let snapshot = parse_legacy_save_building_snapshot(Some(block_name), &{
