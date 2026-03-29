@@ -27013,7 +27013,7 @@ fn parse_legacy_save_map_region_blocks(
             let chunk_len = u16::from_be_bytes([remaining[0], remaining[1]]) as usize;
             if chunk_len >= 5 && remaining.len() >= 2 + chunk_len {
                 let chunk = remaining[2..2 + chunk_len].to_vec();
-                parse_legacy_save_building_snapshot(&chunk)
+                parse_legacy_save_building_snapshot(block_name, &chunk)
                     .ok()
                     .map(|building| (chunk_len, chunk, building))
             } else {
@@ -27109,7 +27109,10 @@ fn parse_legacy_save_map_region_blocks(
     })
 }
 
-fn parse_legacy_save_building_snapshot(chunk: &[u8]) -> Result<BuildingSnapshot, String> {
+fn parse_legacy_save_building_snapshot(
+    block_name: Option<&str>,
+    chunk: &[u8],
+) -> Result<BuildingSnapshot, String> {
     let mut reader = Reader::new(chunk);
     let revision = reader.read_u8()?;
     let health = reader.read_u16()? as f32;
@@ -27124,6 +27127,7 @@ fn parse_legacy_save_building_snapshot(chunk: &[u8]) -> Result<BuildingSnapshot,
     if tail_bytes.is_empty() {
         return Err("legacy save building chunk is missing consume/tail bytes".to_string());
     }
+    let parsed_tail = parse_legacy_building_tail_snapshot(block_name, &tail_bytes);
 
     Ok(BuildingSnapshot {
         revision,
@@ -27150,8 +27154,34 @@ fn parse_legacy_save_building_snapshot(chunk: &[u8]) -> Result<BuildingSnapshot,
         tail_len: tail_bytes.len(),
         tail_sha256: sha256_hex(&tail_bytes),
         tail_bytes,
-        parsed_tail: ParsedBuildingTail::Unknown,
+        parsed_tail,
     })
+}
+
+fn parse_legacy_building_tail_snapshot(
+    block_name: Option<&str>,
+    tail_bytes: &[u8],
+) -> ParsedBuildingTail {
+    let Some((&consume_connected, legacy_tail_bytes)) = tail_bytes.split_first() else {
+        return ParsedBuildingTail::Unknown;
+    };
+    if !matches!(consume_connected, 0 | 1) {
+        return ParsedBuildingTail::Unknown;
+    }
+
+    match block_name {
+        Some("message") | Some("reinforced-message") | Some("world-message") => {
+            parse_message_tail_snapshot(legacy_tail_bytes)
+                .map(ParsedBuildingTail::Message)
+                .unwrap_or(ParsedBuildingTail::Unknown)
+        }
+        Some("memory-cell") | Some("memory-bank") | Some("world-cell") => {
+            parse_memory_tail_snapshot(legacy_tail_bytes)
+                .map(ParsedBuildingTail::Memory)
+                .unwrap_or(ParsedBuildingTail::Unknown)
+        }
+        _ => ParsedBuildingTail::Unknown,
+    }
 }
 
 fn parse_save_custom_chunks_region(bytes: &[u8]) -> Result<Vec<CustomChunkEntry>, String> {
@@ -55683,6 +55713,44 @@ mod tests {
         assert_eq!(center.building.base.rotation, 2);
         assert_eq!(center.building.base.health(), 10.0);
         assert_eq!(center.building.parsed_tail, ParsedBuildingTail::Unknown);
+    }
+
+    #[test]
+    fn parses_legacy_save_message_building_chunks_when_block_name_is_known() {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1u16.to_be_bytes());
+        bytes.extend_from_slice(&1u16.to_be_bytes());
+        bytes.extend_from_slice(&0x0011u16.to_be_bytes());
+        bytes.extend_from_slice(&0x0022u16.to_be_bytes());
+        bytes.push(0);
+        bytes.extend_from_slice(&1u16.to_be_bytes());
+        bytes.extend_from_slice(&11u16.to_be_bytes());
+        bytes.push(1);
+        bytes.extend_from_slice(&10u16.to_be_bytes());
+        bytes.push(0x12);
+        bytes.push(0);
+        bytes.extend_from_slice(&4u16.to_be_bytes());
+        bytes.extend_from_slice(b"echo");
+
+        let parsed = parse_save_map_region(
+            3,
+            &[ContentHeaderEntry {
+                content_type: BLOCK_CONTENT_TYPE,
+                names: vec!["air".to_string(), "message".to_string()],
+            }],
+            &bytes,
+        )
+        .unwrap();
+        let center = parsed.world.building_centers.first().unwrap();
+
+        assert_eq!(parsed.world.blocks, vec![1]);
+        assert_eq!(center.block_id, 1);
+        assert_eq!(
+            center.building.parsed_tail,
+            ParsedBuildingTail::Message(MessageTailSnapshot {
+                message: "echo".to_string(),
+            })
+        );
     }
 
     #[test]
