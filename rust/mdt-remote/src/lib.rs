@@ -3045,6 +3045,20 @@ mod tests {
     }
 
     #[test]
+    fn rejects_manifest_schema_drift() {
+        let manifest = SAMPLE_MANIFEST.replace(
+            "\"schema\": \"mdt.remote.manifest.v1\"",
+            "\"schema\": \"mdt.remote.manifest.v2\"",
+        );
+        let error = parse_remote_manifest(&manifest).unwrap_err();
+        assert!(matches!(error, RemoteManifestError::UnsupportedSchema(_)));
+        assert_eq!(
+            error.to_string(),
+            "unsupported remote manifest schema: mdt.remote.manifest.v2"
+        );
+    }
+
+    #[test]
     fn rejects_wire_length_field_drift() {
         let manifest =
             SAMPLE_MANIFEST.replace("\"lengthField\": \"u16be\"", "\"lengthField\": \"u32be\"");
