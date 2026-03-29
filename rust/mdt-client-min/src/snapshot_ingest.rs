@@ -2928,6 +2928,71 @@ mod tests {
     }
 
     #[test]
+    fn hidden_snapshot_removes_building_tether_payload_rows() {
+        let payload = [
+            0x00, 0x00, 0x00, 0x01, // count
+            0x00, 0x00, 0x02, 0x7A, // 634
+        ];
+        let mut state = SessionState::default();
+        state.entity_table_projection.by_entity_id.insert(
+            634,
+            EntityProjection {
+                class_id: 36,
+                hidden: false,
+                is_local_player: false,
+                unit_kind: 0,
+                unit_value: 0,
+                x_bits: 7.0f32.to_bits(),
+                y_bits: 8.0f32.to_bits(),
+                last_seen_entity_snapshot_count: 1,
+            },
+        );
+        state.entity_semantic_projection.by_entity_id.insert(
+            634,
+            EntitySemanticProjectionEntry {
+                class_id: 36,
+                last_seen_entity_snapshot_count: 1,
+                projection: EntitySemanticProjection::Unit(EntityUnitSemanticProjection {
+                    team_id: 3,
+                    unit_type_id: 4,
+                    health_bits: 5.0f32.to_bits(),
+                    rotation_bits: 6.0f32.to_bits(),
+                    shield_bits: 7.0f32.to_bits(),
+                    mine_tile_pos: 0,
+                    status_count: 0,
+                    payload_count: None,
+                    building_pos: None,
+                    lifetime_bits: None,
+                    time_bits: None,
+                    runtime_sync: None,
+                    controller_type: 0,
+                    controller_value: None,
+                }),
+            },
+        );
+
+        ingest_inbound_snapshot(
+            &mut state,
+            InboundSnapshot::new(HighFrequencyRemoteMethod::HiddenSnapshot, 49, &payload),
+        );
+
+        assert!(!state
+            .entity_table_projection
+            .by_entity_id
+            .contains_key(&634));
+        assert!(!state
+            .entity_semantic_projection
+            .by_entity_id
+            .contains_key(&634));
+        assert_eq!(state.hidden_lifecycle_remove_count, 1);
+        assert_eq!(state.last_hidden_lifecycle_removed_ids_sample, vec![634]);
+        assert!(!state
+            .runtime_typed_entity_projection()
+            .by_entity_id
+            .contains_key(&634));
+    }
+
+    #[test]
     fn hidden_snapshot_keeps_non_unit_rows_when_handle_sync_hidden_is_not_known_remove() {
         let payload = [
             0x00, 0x00, 0x00, 0x01, // count
