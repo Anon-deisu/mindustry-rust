@@ -880,6 +880,9 @@ fn render_text_bool(text: &str) -> Result<RenderedSurfaceValue, &'static str> {
 
 fn render_text_number(text: &str) -> Result<RenderedSurfaceValue, &'static str> {
     let value = parse_text_f64(text).ok_or("invalid_number")?;
+    if !value.is_finite() {
+        return Err("invalid_number");
+    }
     let rendered = value.to_string();
     Ok(RenderedSurfaceValue {
         detail: format!("value={rendered}"),
@@ -1749,6 +1752,12 @@ mod tests {
             }),
             Err("invalid_world_pos")
         );
+    }
+
+    #[test]
+    fn runtime_custom_packet_surface_rejects_non_finite_numbers() {
+        assert_eq!(render_text_number("NaN"), Err("invalid_number"));
+        assert_eq!(render_text_number("inf"), Err("invalid_number"));
     }
 
     #[test]

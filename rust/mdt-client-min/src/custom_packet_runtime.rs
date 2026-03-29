@@ -625,6 +625,9 @@ fn render_text_bool(text: &str) -> Result<RenderedSemantic, &'static str> {
 
 fn render_text_number(text: &str) -> Result<RenderedSemantic, &'static str> {
     let value = parse_text_f64(text).ok_or("invalid_number")?;
+    if !value.is_finite() {
+        return Err("invalid_number");
+    }
     Ok(RenderedSemantic {
         detail: format!("value={value}"),
         stable_value: value.to_string(),
@@ -1055,6 +1058,12 @@ mod tests {
             .stable_value,
             format!("7,{}", i32::MIN)
         );
+    }
+
+    #[test]
+    fn runtime_custom_packet_runtime_rejects_non_finite_numbers() {
+        assert_eq!(render_text_number("NaN"), Err("invalid_number"));
+        assert_eq!(render_text_number("inf"), Err("invalid_number"));
     }
 
     #[test]
