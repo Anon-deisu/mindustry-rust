@@ -27201,6 +27201,17 @@ fn parse_legacy_building_tail_snapshot(
         | Some("underflow-duct") => parse_sorter_legacy_tail_snapshot(legacy_tail_bytes)
             .map(ParsedBuildingTail::SorterLegacy)
             .unwrap_or(ParsedBuildingTail::Unknown),
+        Some("duct-router")
+        | Some("surge-router")
+        | Some("unloader")
+        | Some("directional-unloader")
+        | Some("unit-cargo-unload-point")
+        | Some("item-source")
+        | Some("liquid-source") => {
+            parse_nullable_item_ref_tail_snapshot(block_name, revision, legacy_tail_bytes)
+                .map(ParsedBuildingTail::NullableItemRef)
+                .unwrap_or(ParsedBuildingTail::Unknown)
+        }
         _ => ParsedBuildingTail::Unknown,
     }
 }
@@ -55858,6 +55869,28 @@ mod tests {
             bytes.extend_from_slice(&legacy_tail);
             bytes
         })
+        .unwrap();
+
+        assert_eq!(snapshot.parsed_tail, expected);
+    }
+
+    #[test]
+    fn parses_legacy_unloader_building_snapshot_when_block_name_is_known() {
+        let expected = parse_building_tail(Some("unloader"), 0, &[0xff]).unwrap();
+        let snapshot =
+            parse_legacy_save_building_snapshot(Some("unloader"), &[0, 0, 10, 0x12, 1, 0xff])
+                .unwrap();
+
+        assert_eq!(snapshot.parsed_tail, expected);
+    }
+
+    #[test]
+    fn parses_legacy_duct_router_building_snapshot_when_block_name_is_known() {
+        let expected = parse_building_tail(Some("duct-router"), 1, &(5u16).to_be_bytes()).unwrap();
+        let snapshot = parse_legacy_save_building_snapshot(
+            Some("duct-router"),
+            &[1, 0, 10, 0x12, 1, 0, 5],
+        )
         .unwrap();
 
         assert_eq!(snapshot.parsed_tail, expected);
