@@ -673,17 +673,9 @@ impl ClientSession {
             .find(|entry| entry.method == "followUpMenu")
             .map(|entry| entry.packet_id);
         let hide_hud_text_packet_id = well_known_remote.hide_hud_text_packet_id;
-        let hide_follow_up_menu_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "hideFollowUpMenu")
-            .map(|entry| entry.packet_id);
+        let hide_follow_up_menu_packet_id = well_known_remote.hide_follow_up_menu_packet_id;
         let info_message_packet_id = well_known_remote.info_message_packet_id;
-        let info_toast_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "infoToast")
-            .map(|entry| entry.packet_id);
+        let info_toast_packet_id = well_known_remote.info_toast_packet_id;
         let menu_choose_packet_id = manifest
             .remote_packets
             .iter()
@@ -740,16 +732,8 @@ impl ClientSession {
             .iter()
             .find(|entry| entry.method == "setItems")
             .map(|entry| entry.packet_id);
-        let set_hud_text_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "setHudText")
-            .map(|entry| entry.packet_id);
-        let set_hud_text_reliable_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "setHudTextReliable")
-            .map(|entry| entry.packet_id);
+        let set_hud_text_packet_id = well_known_remote.set_hud_text_packet_id;
+        let set_hud_text_reliable_packet_id = well_known_remote.set_hud_text_reliable_packet_id;
         let set_floor_packet_id = manifest
             .remote_packets
             .iter()
@@ -830,11 +814,7 @@ impl ClientSession {
             .iter()
             .find(|entry| entry.method == "setPlayerTeamEditor")
             .map(|entry| entry.packet_id);
-        let warning_toast_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "warningToast")
-            .map(|entry| entry.packet_id);
+        let warning_toast_packet_id = well_known_remote.warning_toast_packet_id;
         let request_item_packet_id = manifest
             .remote_packets
             .iter()
@@ -51143,6 +51123,26 @@ mod tests {
             expected(WellKnownRemoteMethod::OpenUri)
         );
         assert_eq!(
+            session.hide_follow_up_menu_packet_id,
+            expected(WellKnownRemoteMethod::HideFollowUpMenu)
+        );
+        assert_eq!(
+            session.info_toast_packet_id,
+            expected(WellKnownRemoteMethod::InfoToast)
+        );
+        assert_eq!(
+            session.set_hud_text_packet_id,
+            expected(WellKnownRemoteMethod::SetHudText)
+        );
+        assert_eq!(
+            session.set_hud_text_reliable_packet_id,
+            expected(WellKnownRemoteMethod::SetHudTextReliable)
+        );
+        assert_eq!(
+            session.warning_toast_packet_id,
+            expected(WellKnownRemoteMethod::WarningToast)
+        );
+        assert_eq!(
             Some(session.world_data_begin_packet_id),
             expected(WellKnownRemoteMethod::WorldDataBegin)
         );
@@ -52264,6 +52264,180 @@ mod tests {
             Some(expected_info_message_packet_id)
         );
         assert_eq!(session.open_uri_packet_id, Some(expected_open_uri_packet_id));
+    }
+
+    #[test]
+    fn session_hud_notice_packet_ids_reject_well_known_method_decoys() {
+        let mut manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let expected_hide_follow_up_menu_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "hideFollowUpMenu"
+                    && entry.params.len() == 1
+                    && entry.params[0].java_type == "int"
+                    && !entry.unreliable
+            })
+            .expect("missing hideFollowUpMenu packet")
+            .packet_id;
+        let expected_info_toast_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "infoToast"
+                    && entry.params.len() == 2
+                    && entry.params[0].java_type == "java.lang.String"
+                    && entry.params[1].java_type == "float"
+                    && !entry.unreliable
+            })
+            .expect("missing infoToast packet")
+            .packet_id;
+        let expected_set_hud_text_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "setHudText"
+                    && entry.params.len() == 1
+                    && entry.params[0].java_type == "java.lang.String"
+                    && entry.unreliable
+            })
+            .expect("missing setHudText packet")
+            .packet_id;
+        let expected_set_hud_text_reliable_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "setHudTextReliable"
+                    && entry.params.len() == 1
+                    && entry.params[0].java_type == "java.lang.String"
+                    && !entry.unreliable
+            })
+            .expect("missing setHudTextReliable packet")
+            .packet_id;
+        let expected_warning_toast_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "warningToast"
+                    && entry.params.len() == 2
+                    && entry.params[0].java_type == "int"
+                    && entry.params[1].java_type == "java.lang.String"
+                    && !entry.unreliable
+            })
+            .expect("missing warningToast packet")
+            .packet_id;
+
+        let mut hide_follow_up_menu_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "hideFollowUpMenu"
+                    && entry.params.len() == 1
+                    && entry.params[0].java_type == "int"
+                    && !entry.unreliable
+            })
+            .expect("missing hideFollowUpMenu packet")
+            .clone();
+        hide_follow_up_menu_decoy.packet_id = 235;
+        hide_follow_up_menu_decoy.packet_class =
+            "mindustry.gen.HideFollowUpMenuDecoyCallPacket".into();
+        hide_follow_up_menu_decoy.unreliable = true;
+
+        let mut info_toast_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "infoToast"
+                    && entry.params.len() == 2
+                    && entry.params[0].java_type == "java.lang.String"
+                    && entry.params[1].java_type == "float"
+                    && !entry.unreliable
+            })
+            .expect("missing infoToast packet")
+            .clone();
+        info_toast_decoy.packet_id = 236;
+        info_toast_decoy.packet_class = "mindustry.gen.InfoToastDecoyCallPacket".into();
+        info_toast_decoy.unreliable = true;
+
+        let mut set_hud_text_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "setHudText"
+                    && entry.params.len() == 1
+                    && entry.params[0].java_type == "java.lang.String"
+                    && entry.unreliable
+            })
+            .expect("missing setHudText packet")
+            .clone();
+        set_hud_text_decoy.packet_id = 237;
+        set_hud_text_decoy.packet_class = "mindustry.gen.SetHudTextDecoyCallPacket".into();
+        set_hud_text_decoy.unreliable = false;
+
+        let mut set_hud_text_reliable_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "setHudTextReliable"
+                    && entry.params.len() == 1
+                    && entry.params[0].java_type == "java.lang.String"
+                    && !entry.unreliable
+            })
+            .expect("missing setHudTextReliable packet")
+            .clone();
+        set_hud_text_reliable_decoy.packet_id = 238;
+        set_hud_text_reliable_decoy.packet_class =
+            "mindustry.gen.SetHudTextReliableDecoyCallPacket".into();
+        set_hud_text_reliable_decoy.unreliable = true;
+
+        let mut warning_toast_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "warningToast"
+                    && entry.params.len() == 2
+                    && entry.params[0].java_type == "int"
+                    && entry.params[1].java_type == "java.lang.String"
+                    && !entry.unreliable
+            })
+            .expect("missing warningToast packet")
+            .clone();
+        warning_toast_decoy.packet_id = 239;
+        warning_toast_decoy.packet_class = "mindustry.gen.WarningToastDecoyCallPacket".into();
+        warning_toast_decoy.unreliable = true;
+
+        manifest.remote_packets.splice(
+            0..0,
+            vec![
+                hide_follow_up_menu_decoy,
+                info_toast_decoy,
+                set_hud_text_decoy,
+                set_hud_text_reliable_decoy,
+                warning_toast_decoy,
+            ],
+        );
+        for (remote_index, packet) in manifest.remote_packets.iter_mut().enumerate() {
+            packet.remote_index = remote_index;
+        }
+
+        let session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        assert_eq!(
+            session.hide_follow_up_menu_packet_id,
+            Some(expected_hide_follow_up_menu_packet_id)
+        );
+        assert_eq!(session.info_toast_packet_id, Some(expected_info_toast_packet_id));
+        assert_eq!(
+            session.set_hud_text_packet_id,
+            Some(expected_set_hud_text_packet_id)
+        );
+        assert_eq!(
+            session.set_hud_text_reliable_packet_id,
+            Some(expected_set_hud_text_reliable_packet_id)
+        );
+        assert_eq!(
+            session.warning_toast_packet_id,
+            Some(expected_warning_toast_packet_id)
+        );
     }
 
     #[test]

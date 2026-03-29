@@ -5,7 +5,7 @@ pub const REMOTE_MANIFEST_SCHEMA_V1: &str = "mdt.remote.manifest.v1";
 pub const CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT: usize = 10;
 pub const HIGH_FREQUENCY_REMOTE_METHOD_COUNT: usize = 5;
 pub const INBOUND_REMOTE_FAMILY_COUNT: usize = 6;
-pub const WELL_KNOWN_REMOTE_METHOD_COUNT: usize = 49;
+pub const WELL_KNOWN_REMOTE_METHOD_COUNT: usize = 54;
 pub const REMOTE_PACKET_ID_SPACE: usize = u8::MAX as usize + 1;
 pub const REMOTE_WIRE_PACKET_ID_BYTE_U8: &str = "u8";
 pub const REMOTE_WIRE_LENGTH_FIELD_U16BE: &str = "u16be";
@@ -199,6 +199,11 @@ pub enum WellKnownRemoteMethod {
     HideHudText,
     InfoMessage,
     OpenUri,
+    HideFollowUpMenu,
+    InfoToast,
+    SetHudText,
+    SetHudTextReliable,
+    WarningToast,
     WorldDataBegin,
     KickString,
     KickReason,
@@ -678,6 +683,18 @@ const INFO_MESSAGE_PARAM_JAVA_TYPES: [&str; 1] = ["java.lang.String"];
 const INFO_MESSAGE_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Opaque];
 const OPEN_URI_PARAM_JAVA_TYPES: [&str; 1] = ["java.lang.String"];
 const OPEN_URI_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Opaque];
+const HIDE_FOLLOW_UP_MENU_PARAM_JAVA_TYPES: [&str; 1] = ["int"];
+const HIDE_FOLLOW_UP_MENU_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Int];
+const INFO_TOAST_PARAM_JAVA_TYPES: [&str; 2] = ["java.lang.String", "float"];
+const INFO_TOAST_WIRE_PARAM_KINDS: [RemoteParamKind; 2] =
+    [RemoteParamKind::Opaque, RemoteParamKind::Float];
+const SET_HUD_TEXT_PARAM_JAVA_TYPES: [&str; 1] = ["java.lang.String"];
+const SET_HUD_TEXT_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Opaque];
+const SET_HUD_TEXT_RELIABLE_PARAM_JAVA_TYPES: [&str; 1] = ["java.lang.String"];
+const SET_HUD_TEXT_RELIABLE_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Opaque];
+const WARNING_TOAST_PARAM_JAVA_TYPES: [&str; 2] = ["int", "java.lang.String"];
+const WARNING_TOAST_WIRE_PARAM_KINDS: [RemoteParamKind; 2] =
+    [RemoteParamKind::Int, RemoteParamKind::Opaque];
 const WORLD_DATA_BEGIN_PARAM_JAVA_TYPES: [&str; 0] = [];
 const WORLD_DATA_BEGIN_WIRE_PARAM_KINDS: [RemoteParamKind; 0] = [];
 
@@ -763,6 +780,11 @@ impl WellKnownRemoteMethod {
             Self::HideHudText,
             Self::InfoMessage,
             Self::OpenUri,
+            Self::HideFollowUpMenu,
+            Self::InfoToast,
+            Self::SetHudText,
+            Self::SetHudTextReliable,
+            Self::WarningToast,
             Self::WorldDataBegin,
             Self::KickString,
             Self::KickReason,
@@ -817,6 +839,11 @@ impl WellKnownRemoteMethod {
             Self::HideHudText => "hideHudText",
             Self::InfoMessage => "infoMessage",
             Self::OpenUri => "openURI",
+            Self::HideFollowUpMenu => "hideFollowUpMenu",
+            Self::InfoToast => "infoToast",
+            Self::SetHudText => "setHudText",
+            Self::SetHudTextReliable => "setHudTextReliable",
+            Self::WarningToast => "warningToast",
             Self::WorldDataBegin => "worldDataBegin",
             Self::KickString | Self::KickReason => "kick",
             Self::SendChatMessage => "sendChatMessage",
@@ -862,6 +889,11 @@ impl WellKnownRemoteMethod {
             | Self::HideHudText
             | Self::InfoMessage
             | Self::OpenUri
+            | Self::HideFollowUpMenu
+            | Self::InfoToast
+            | Self::SetHudText
+            | Self::SetHudTextReliable
+            | Self::WarningToast
             | Self::WorldDataBegin
             | Self::KickString
             | Self::KickReason
@@ -894,6 +926,7 @@ impl WellKnownRemoteMethod {
                 | Self::DebugStatusClientUnreliable
                 | Self::InfoPopup
                 | Self::InfoPopupWithId
+                | Self::SetHudText
                 | Self::Label
                 | Self::LabelWithId
                 | Self::Effect
@@ -933,6 +966,11 @@ impl WellKnownRemoteMethod {
             Self::HideHudText => &HIDE_HUD_TEXT_PARAM_JAVA_TYPES,
             Self::InfoMessage => &INFO_MESSAGE_PARAM_JAVA_TYPES,
             Self::OpenUri => &OPEN_URI_PARAM_JAVA_TYPES,
+            Self::HideFollowUpMenu => &HIDE_FOLLOW_UP_MENU_PARAM_JAVA_TYPES,
+            Self::InfoToast => &INFO_TOAST_PARAM_JAVA_TYPES,
+            Self::SetHudText => &SET_HUD_TEXT_PARAM_JAVA_TYPES,
+            Self::SetHudTextReliable => &SET_HUD_TEXT_RELIABLE_PARAM_JAVA_TYPES,
+            Self::WarningToast => &WARNING_TOAST_PARAM_JAVA_TYPES,
             Self::WorldDataBegin => &WORLD_DATA_BEGIN_PARAM_JAVA_TYPES,
             Self::KickString => &KICK_STRING_PARAM_JAVA_TYPES,
             Self::KickReason => &KICK_REASON_PARAM_JAVA_TYPES,
@@ -984,6 +1022,11 @@ impl WellKnownRemoteMethod {
             Self::HideHudText => &HIDE_HUD_TEXT_WIRE_PARAM_KINDS,
             Self::InfoMessage => &INFO_MESSAGE_WIRE_PARAM_KINDS,
             Self::OpenUri => &OPEN_URI_WIRE_PARAM_KINDS,
+            Self::HideFollowUpMenu => &HIDE_FOLLOW_UP_MENU_WIRE_PARAM_KINDS,
+            Self::InfoToast => &INFO_TOAST_WIRE_PARAM_KINDS,
+            Self::SetHudText => &SET_HUD_TEXT_WIRE_PARAM_KINDS,
+            Self::SetHudTextReliable => &SET_HUD_TEXT_RELIABLE_WIRE_PARAM_KINDS,
+            Self::WarningToast => &WARNING_TOAST_WIRE_PARAM_KINDS,
             Self::WorldDataBegin => &WORLD_DATA_BEGIN_WIRE_PARAM_KINDS,
             Self::KickString => &KICK_STRING_WIRE_PARAM_KINDS,
             Self::KickReason => &KICK_REASON_WIRE_PARAM_KINDS,
@@ -4611,6 +4654,14 @@ mod tests {
             baseline.well_known.packet_id(WellKnownRemoteMethod::OpenUri)
         );
         assert_eq!(
+            bundle.well_known.packet_id(WellKnownRemoteMethod::SetHudText),
+            baseline.well_known.packet_id(WellKnownRemoteMethod::SetHudText)
+        );
+        assert_eq!(
+            bundle.well_known.packet_id(WellKnownRemoteMethod::WarningToast),
+            baseline.well_known.packet_id(WellKnownRemoteMethod::WarningToast)
+        );
+        assert_eq!(
             bundle
                 .well_known
                 .packet_id(WellKnownRemoteMethod::DebugStatusClientUnreliable),
@@ -4667,6 +4718,11 @@ mod tests {
             (WellKnownRemoteMethod::HideHudText, Some(93)),
             (WellKnownRemoteMethod::InfoMessage, Some(95)),
             (WellKnownRemoteMethod::OpenUri, Some(97)),
+            (WellKnownRemoteMethod::HideFollowUpMenu, Some(99)),
+            (WellKnownRemoteMethod::InfoToast, Some(101)),
+            (WellKnownRemoteMethod::SetHudText, Some(103)),
+            (WellKnownRemoteMethod::SetHudTextReliable, Some(105)),
+            (WellKnownRemoteMethod::WarningToast, Some(107)),
             (WellKnownRemoteMethod::WorldDataBegin, Some(23)),
             (WellKnownRemoteMethod::KickString, Some(25)),
             (WellKnownRemoteMethod::KickReason, Some(27)),
@@ -4738,6 +4794,17 @@ mod tests {
         assert_eq!(fixed_table.get(95), Some(WellKnownRemoteMethod::InfoMessage));
         assert_eq!(fixed_table.get(97), Some(WellKnownRemoteMethod::OpenUri));
         assert_eq!(
+            fixed_table.get(99),
+            Some(WellKnownRemoteMethod::HideFollowUpMenu)
+        );
+        assert_eq!(fixed_table.get(101), Some(WellKnownRemoteMethod::InfoToast));
+        assert_eq!(fixed_table.get(103), Some(WellKnownRemoteMethod::SetHudText));
+        assert_eq!(
+            fixed_table.get(105),
+            Some(WellKnownRemoteMethod::SetHudTextReliable)
+        );
+        assert_eq!(fixed_table.get(107), Some(WellKnownRemoteMethod::WarningToast));
+        assert_eq!(
             fixed_table.get(17),
             Some(WellKnownRemoteMethod::SetObjectives)
         );
@@ -4806,6 +4873,11 @@ mod tests {
         assert!(fixed_table.contains_packet_id(93));
         assert!(fixed_table.contains_packet_id(95));
         assert!(fixed_table.contains_packet_id(97));
+        assert!(fixed_table.contains_packet_id(99));
+        assert!(fixed_table.contains_packet_id(101));
+        assert!(fixed_table.contains_packet_id(103));
+        assert!(fixed_table.contains_packet_id(105));
+        assert!(fixed_table.contains_packet_id(107));
         assert!(!fixed_table.contains_packet_id(250));
     }
 
@@ -5279,6 +5351,36 @@ mod tests {
                 .first_well_known_method(WellKnownRemoteMethod::OpenUri)
                 .map(|packet| packet.packet_id),
             Some(97)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::HideFollowUpMenu)
+                .map(|packet| packet.packet_id),
+            Some(99)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::InfoToast)
+                .map(|packet| packet.packet_id),
+            Some(101)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::SetHudText)
+                .map(|packet| packet.packet_id),
+            Some(103)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::SetHudTextReliable)
+                .map(|packet| packet.packet_id),
+            Some(105)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::WarningToast)
+                .map(|packet| packet.packet_id),
+            Some(107)
         );
         assert_eq!(
             registry
@@ -7217,6 +7319,128 @@ mod tests {
                     "normal",
                     false,
                     vec![test_param("uri", "java.lang.String", true, true)],
+                ),
+                test_remote_packet(
+                    94,
+                    98,
+                    "mindustry.gen.HideFollowUpMenuDecoyCallPacket",
+                    "mindustry.ui.Menus",
+                    "hideFollowUpMenu",
+                    "server",
+                    "normal",
+                    true,
+                    vec![test_param("menuId", "int", true, true)],
+                ),
+                test_remote_packet(
+                    95,
+                    99,
+                    "mindustry.gen.HideFollowUpMenuCallPacket",
+                    "mindustry.ui.Menus",
+                    "hideFollowUpMenu",
+                    "server",
+                    "normal",
+                    false,
+                    vec![test_param("menuId", "int", true, true)],
+                ),
+                test_remote_packet(
+                    96,
+                    100,
+                    "mindustry.gen.InfoToastDecoyCallPacket",
+                    "mindustry.ui.Menus",
+                    "infoToast",
+                    "server",
+                    "normal",
+                    true,
+                    vec![
+                        test_param("message", "java.lang.String", true, true),
+                        test_param("duration", "float", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    97,
+                    101,
+                    "mindustry.gen.InfoToastCallPacket",
+                    "mindustry.ui.Menus",
+                    "infoToast",
+                    "server",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("message", "java.lang.String", true, true),
+                        test_param("duration", "float", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    98,
+                    102,
+                    "mindustry.gen.SetHudTextDecoyCallPacket",
+                    "mindustry.ui.Menus",
+                    "setHudText",
+                    "server",
+                    "normal",
+                    false,
+                    vec![test_param("message", "java.lang.String", true, true)],
+                ),
+                test_remote_packet(
+                    99,
+                    103,
+                    "mindustry.gen.SetHudTextCallPacket",
+                    "mindustry.ui.Menus",
+                    "setHudText",
+                    "server",
+                    "normal",
+                    true,
+                    vec![test_param("message", "java.lang.String", true, true)],
+                ),
+                test_remote_packet(
+                    100,
+                    104,
+                    "mindustry.gen.SetHudTextReliableDecoyCallPacket",
+                    "mindustry.ui.Menus",
+                    "setHudTextReliable",
+                    "server",
+                    "normal",
+                    true,
+                    vec![test_param("message", "java.lang.String", true, true)],
+                ),
+                test_remote_packet(
+                    101,
+                    105,
+                    "mindustry.gen.SetHudTextReliableCallPacket",
+                    "mindustry.ui.Menus",
+                    "setHudTextReliable",
+                    "server",
+                    "normal",
+                    false,
+                    vec![test_param("message", "java.lang.String", true, true)],
+                ),
+                test_remote_packet(
+                    102,
+                    106,
+                    "mindustry.gen.WarningToastDecoyCallPacket",
+                    "mindustry.ui.Menus",
+                    "warningToast",
+                    "server",
+                    "normal",
+                    true,
+                    vec![
+                        test_param("unicode", "int", true, true),
+                        test_param("text", "java.lang.String", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    103,
+                    107,
+                    "mindustry.gen.WarningToastCallPacket",
+                    "mindustry.ui.Menus",
+                    "warningToast",
+                    "server",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("unicode", "int", true, true),
+                        test_param("text", "java.lang.String", true, true),
+                    ],
                 ),
             ],
             wire: WireSpec {
