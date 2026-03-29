@@ -299,9 +299,25 @@ impl RuntimeCustomPacketSurfaceState {
     fn observe_events(&mut self, events: &[ClientSessionEvent]) {
         if events
             .iter()
-            .any(|event| matches!(event, ClientSessionEvent::WorldDataBegin))
+            .any(|event| {
+                matches!(
+                    event,
+                    ClientSessionEvent::WorldDataBegin
+                        | ClientSessionEvent::ConnectRedirectRequested { .. }
+                )
+            })
         {
-            self.clear_last_values("world_data_begin");
+            let reason = if events.iter().any(|event| {
+                matches!(
+                    event,
+                    ClientSessionEvent::ConnectRedirectRequested { .. }
+                )
+            }) {
+                "connect_redirect"
+            } else {
+                "world_data_begin"
+            };
+            self.clear_last_values(reason);
         }
         for event in events {
             if let Some((key, reliable, text)) = native_text_event(event) {
@@ -1538,6 +1554,31 @@ mod tests {
 
         state.observe_events(&[ClientSessionEvent::WorldDataBegin]);
 
+        assert!(state.overlay_markers(4).is_empty());
+    }
+
+    #[test]
+    fn runtime_custom_packet_surface_overlay_markers_reset_on_connect_redirect() {
+        let mut state = RuntimeCustomPacketSurfaceState::default();
+        state.register(&RuntimeCustomPacketSemanticSpec {
+            key: "text.build".to_string(),
+            encoding: RuntimeCustomPacketSemanticEncoding::Text,
+            semantic: RuntimeCustomPacketSemanticKind::BuildPos,
+        });
+
+        state.record_text_handler("text.build", &pack_point2(4, 6).to_string());
+        assert_eq!(state.overlay_markers(4).len(), 1);
+
+        state.observe_events(&[ClientSessionEvent::ConnectRedirectRequested {
+            ip: "127.0.0.1".to_string(),
+            port: 6568,
+        }]);
+
+        let lines = state.drain_lines();
+        assert!(lines.iter().any(|line| {
+            line.contains("runtime_custom_packet_surface_reset:")
+                && line.contains("reason=\"connect_redirect\"")
+        }));
         assert!(state.overlay_markers(4).is_empty());
     }
 
