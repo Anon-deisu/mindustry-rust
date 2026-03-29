@@ -671,6 +671,57 @@ mod tests {
     }
 
     #[test]
+    fn parse_packet_relay_spec_rejects_empty_fields() {
+        let err = parse_packet_relay_spec("--relay-client-packet", "inbound@@tcp", false)
+            .unwrap_err();
+
+        assert_eq!(
+            err,
+            "invalid --relay-client-packet, expected <inbound@outbound@reliable|unreliable|tcp|udp>"
+        );
+    }
+
+    #[test]
+    fn parse_packet_relay_spec_rejects_extra_at_separator() {
+        let err = parse_packet_relay_spec(
+            "--relay-client-packet",
+            "inbound@outbound@tcp@extra",
+            false,
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            err,
+            "invalid --relay-client-packet, expected <inbound@outbound@reliable|unreliable|tcp|udp>"
+        );
+    }
+
+    #[test]
+    fn parse_packet_relay_spec_rejects_invalid_transport_token() {
+        let packet_err = parse_packet_relay_spec(
+            "--relay-client-packet",
+            "inbound@outbound@serial",
+            false,
+        )
+        .unwrap_err();
+        let logic_err = parse_packet_relay_spec(
+            "--relay-client-logic-data",
+            "inbound@outbound@serial",
+            true,
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            packet_err,
+            "invalid --relay-client-packet transport, expected <reliable|unreliable|tcp|udp>"
+        );
+        assert_eq!(
+            logic_err,
+            "invalid --relay-client-logic-data transport, expected <reliable|unreliable|tcp|udp>"
+        );
+    }
+
+    #[test]
     fn runtime_custom_packet_relay_state_tracks_text_binary_and_logic_actions() {
         let mut state = RuntimeCustomPacketRelayState::default();
         state.register(&RuntimeCustomPacketRelaySpec::Text {
