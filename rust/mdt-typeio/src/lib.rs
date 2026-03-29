@@ -1981,6 +1981,30 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "string too long")]
+    fn write_string_rejects_lengths_outside_u16_range() {
+        let text = "x".repeat(u16::MAX as usize + 1);
+        let mut out = Vec::new();
+        write_string(&mut out, Some(&text));
+    }
+
+    #[test]
+    #[should_panic(expected = "string count exceeds u8")]
+    fn write_strings_rejects_lengths_outside_u8_range() {
+        let strings = vec![None; u8::MAX as usize + 1];
+        let mut out = Vec::new();
+        write_strings(&mut out, &strings);
+    }
+
+    #[test]
+    #[should_panic(expected = "string array row count exceeds u8")]
+    fn write_string_array_rejects_lengths_outside_u8_range() {
+        let rows = vec![Vec::<Option<String>>::new(); u8::MAX as usize + 1];
+        let mut out = Vec::new();
+        write_string_array(&mut out, &rows);
+    }
+
+    #[test]
     #[should_panic(expected = "capped string count exceeds u8")]
     fn write_strings_capped_rejects_lengths_outside_u8_range() {
         let strings = vec![None; u8::MAX as usize + 1];
