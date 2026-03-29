@@ -5,7 +5,7 @@ pub const REMOTE_MANIFEST_SCHEMA_V1: &str = "mdt.remote.manifest.v1";
 pub const CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT: usize = 10;
 pub const HIGH_FREQUENCY_REMOTE_METHOD_COUNT: usize = 5;
 pub const INBOUND_REMOTE_FAMILY_COUNT: usize = 6;
-pub const WELL_KNOWN_REMOTE_METHOD_COUNT: usize = 14;
+pub const WELL_KNOWN_REMOTE_METHOD_COUNT: usize = 17;
 pub const REMOTE_PACKET_ID_SPACE: usize = u8::MAX as usize + 1;
 pub const REMOTE_WIRE_PACKET_ID_BYTE_U8: &str = "u8";
 pub const REMOTE_WIRE_LENGTH_FIELD_U16BE: &str = "u16be";
@@ -185,6 +185,9 @@ pub enum WellKnownRemoteMethod {
     WorldDataBegin,
     KickString,
     KickReason,
+    SendChatMessage,
+    SendMessage,
+    SendMessageWithSender,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -441,6 +444,17 @@ const KICK_STRING_PARAM_JAVA_TYPES: [&str; 1] = ["java.lang.String"];
 const KICK_STRING_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Opaque];
 const KICK_REASON_PARAM_JAVA_TYPES: [&str; 1] = ["mindustry.net.Packets.KickReason"];
 const KICK_REASON_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Opaque];
+const SEND_CHAT_MESSAGE_PARAM_JAVA_TYPES: [&str; 2] = ["Player", "java.lang.String"];
+const SEND_CHAT_MESSAGE_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Opaque];
+const SEND_MESSAGE_PARAM_JAVA_TYPES: [&str; 1] = ["java.lang.String"];
+const SEND_MESSAGE_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Opaque];
+const SEND_MESSAGE_WITH_SENDER_PARAM_JAVA_TYPES: [&str; 3] =
+    ["java.lang.String", "java.lang.String", "Player"];
+const SEND_MESSAGE_WITH_SENDER_WIRE_PARAM_KINDS: [RemoteParamKind; 3] = [
+    RemoteParamKind::Opaque,
+    RemoteParamKind::Opaque,
+    RemoteParamKind::Opaque,
+];
 const SET_RULES_PARAM_JAVA_TYPES: [&str; 1] = ["mindustry.game.Rules"];
 const SET_RULES_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Opaque];
 const SET_OBJECTIVES_PARAM_JAVA_TYPES: [&str; 1] = ["mindustry.game.MapObjectives"];
@@ -519,6 +533,9 @@ impl WellKnownRemoteMethod {
             Self::WorldDataBegin,
             Self::KickString,
             Self::KickReason,
+            Self::SendChatMessage,
+            Self::SendMessage,
+            Self::SendMessageWithSender,
         ]
     }
 
@@ -537,6 +554,8 @@ impl WellKnownRemoteMethod {
             Self::SetRule => "setRule",
             Self::WorldDataBegin => "worldDataBegin",
             Self::KickString | Self::KickReason => "kick",
+            Self::SendChatMessage => "sendChatMessage",
+            Self::SendMessage | Self::SendMessageWithSender => "sendMessage",
         }
     }
 
@@ -553,8 +572,10 @@ impl WellKnownRemoteMethod {
             | Self::SetRule
             | Self::WorldDataBegin
             | Self::KickString
-            | Self::KickReason => RemoteFlow::ServerToClient,
-            Self::ConnectConfirm => RemoteFlow::ClientToServer,
+            | Self::KickReason
+            | Self::SendMessage
+            | Self::SendMessageWithSender => RemoteFlow::ServerToClient,
+            Self::ConnectConfirm | Self::SendChatMessage => RemoteFlow::ClientToServer,
         }
     }
 
@@ -583,6 +604,9 @@ impl WellKnownRemoteMethod {
             Self::WorldDataBegin => &WORLD_DATA_BEGIN_PARAM_JAVA_TYPES,
             Self::KickString => &KICK_STRING_PARAM_JAVA_TYPES,
             Self::KickReason => &KICK_REASON_PARAM_JAVA_TYPES,
+            Self::SendChatMessage => &SEND_CHAT_MESSAGE_PARAM_JAVA_TYPES,
+            Self::SendMessage => &SEND_MESSAGE_PARAM_JAVA_TYPES,
+            Self::SendMessageWithSender => &SEND_MESSAGE_WITH_SENDER_PARAM_JAVA_TYPES,
         }
     }
 
@@ -602,6 +626,9 @@ impl WellKnownRemoteMethod {
             Self::WorldDataBegin => &WORLD_DATA_BEGIN_WIRE_PARAM_KINDS,
             Self::KickString => &KICK_STRING_WIRE_PARAM_KINDS,
             Self::KickReason => &KICK_REASON_WIRE_PARAM_KINDS,
+            Self::SendChatMessage => &SEND_CHAT_MESSAGE_WIRE_PARAM_KINDS,
+            Self::SendMessage => &SEND_MESSAGE_WIRE_PARAM_KINDS,
+            Self::SendMessageWithSender => &SEND_MESSAGE_WITH_SENDER_WIRE_PARAM_KINDS,
         }
     }
 
@@ -4213,6 +4240,9 @@ mod tests {
             (WellKnownRemoteMethod::WorldDataBegin, Some(23)),
             (WellKnownRemoteMethod::KickString, Some(25)),
             (WellKnownRemoteMethod::KickReason, Some(27)),
+            (WellKnownRemoteMethod::SendChatMessage, Some(29)),
+            (WellKnownRemoteMethod::SendMessage, Some(31)),
+            (WellKnownRemoteMethod::SendMessageWithSender, Some(33)),
         ];
 
         assert_eq!(registry.len(), expected.len());
@@ -4246,10 +4276,17 @@ mod tests {
         assert_eq!(fixed_table.get(23), Some(WellKnownRemoteMethod::WorldDataBegin));
         assert_eq!(fixed_table.get(25), Some(WellKnownRemoteMethod::KickString));
         assert_eq!(fixed_table.get(27), Some(WellKnownRemoteMethod::KickReason));
+        assert_eq!(fixed_table.get(29), Some(WellKnownRemoteMethod::SendChatMessage));
+        assert_eq!(fixed_table.get(31), Some(WellKnownRemoteMethod::SendMessage));
+        assert_eq!(
+            fixed_table.get(33),
+            Some(WellKnownRemoteMethod::SendMessageWithSender)
+        );
         assert_eq!(fixed_table.get(18), None);
         assert!(fixed_table.contains_packet_id(19));
         assert!(fixed_table.contains_packet_id(23));
         assert!(fixed_table.contains_packet_id(27));
+        assert!(fixed_table.contains_packet_id(33));
         assert!(!fixed_table.contains_packet_id(250));
     }
 
@@ -4657,6 +4694,24 @@ mod tests {
                 .first_well_known_method(WellKnownRemoteMethod::KickReason)
                 .map(|packet| packet.packet_id),
             Some(27)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::SendChatMessage)
+                .map(|packet| packet.packet_id),
+            Some(29)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::SendMessage)
+                .map(|packet| packet.packet_id),
+            Some(31)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::SendMessageWithSender)
+                .map(|packet| packet.packet_id),
+            Some(33)
         );
     }
 
@@ -5429,6 +5484,86 @@ mod tests {
                         true,
                         true,
                     )],
+                ),
+                test_remote_packet(
+                    24,
+                    28,
+                    "mindustry.gen.SendChatMessageDecoyCallPacket",
+                    "mindustry.core.NetClient",
+                    "sendChatMessage",
+                    "client",
+                    "normal",
+                    true,
+                    vec![
+                        test_param("player", "Player", false, false),
+                        test_param("message", "java.lang.String", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    25,
+                    29,
+                    "mindustry.gen.SendChatMessageCallPacket",
+                    "mindustry.core.NetClient",
+                    "sendChatMessage",
+                    "client",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("player", "Player", false, false),
+                        test_param("message", "java.lang.String", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    26,
+                    30,
+                    "mindustry.gen.SendMessageDecoyCallPacket",
+                    "mindustry.core.NetClient",
+                    "sendMessage",
+                    "server",
+                    "normal",
+                    true,
+                    vec![test_param("message", "java.lang.String", true, true)],
+                ),
+                test_remote_packet(
+                    27,
+                    31,
+                    "mindustry.gen.SendMessageCallPacket",
+                    "mindustry.core.NetClient",
+                    "sendMessage",
+                    "server",
+                    "normal",
+                    false,
+                    vec![test_param("message", "java.lang.String", true, true)],
+                ),
+                test_remote_packet(
+                    28,
+                    32,
+                    "mindustry.gen.SendMessageDecoyCallPacket2",
+                    "mindustry.core.NetClient",
+                    "sendMessage",
+                    "server",
+                    "normal",
+                    true,
+                    vec![
+                        test_param("message", "java.lang.String", true, true),
+                        test_param("unformatted", "java.lang.String", true, true),
+                        test_param("playersender", "Player", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    29,
+                    33,
+                    "mindustry.gen.SendMessageCallPacket2",
+                    "mindustry.core.NetClient",
+                    "sendMessage",
+                    "server",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("message", "java.lang.String", true, true),
+                        test_param("unformatted", "java.lang.String", true, true),
+                        test_param("playersender", "Player", true, true),
+                    ],
                 ),
             ],
             wire: WireSpec {

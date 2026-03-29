@@ -634,6 +634,10 @@ impl ClientSession {
             .ok_or(ClientSessionError::MissingWorldDataBeginPacket)?;
         let kick_string_packet_id = well_known_remote.kick_string_packet_id;
         let kick_reason_packet_id = well_known_remote.kick_reason_packet_id;
+        let send_message_packet_id = well_known_remote.send_message_packet_id;
+        let send_message_with_sender_packet_id =
+            well_known_remote.send_message_with_sender_packet_id;
+        let send_chat_message_packet_id = well_known_remote.send_chat_message_packet_id;
         let connect_redirect_packet_id = manifest
             .remote_packets
             .iter()
@@ -643,21 +647,6 @@ impl ClientSession {
             .remote_packets
             .iter()
             .find(|entry| entry.method == "playerSpawn")
-            .map(|entry| entry.packet_id);
-        let send_message_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "sendMessage" && entry.params.len() == 1)
-            .map(|entry| entry.packet_id);
-        let send_message_with_sender_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "sendMessage" && entry.params.len() == 3)
-            .map(|entry| entry.packet_id);
-        let send_chat_message_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "sendChatMessage")
             .map(|entry| entry.packet_id);
         let admin_request_packet_id = manifest
             .remote_packets
@@ -51149,6 +51138,18 @@ mod tests {
             expected(WellKnownRemoteMethod::KickReason)
         );
         assert_eq!(
+            session.send_chat_message_packet_id,
+            expected(WellKnownRemoteMethod::SendChatMessage)
+        );
+        assert_eq!(
+            session.send_message_packet_id,
+            expected(WellKnownRemoteMethod::SendMessage)
+        );
+        assert_eq!(
+            session.send_message_with_sender_packet_id,
+            expected(WellKnownRemoteMethod::SendMessageWithSender)
+        );
+        assert_eq!(
             session.set_rules_packet_id,
             expected(WellKnownRemoteMethod::SetRules)
         );
@@ -51286,6 +51287,91 @@ mod tests {
         let session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
         assert_eq!(session.kick_string_packet_id, Some(expected_kick_string_packet_id));
         assert_eq!(session.kick_reason_packet_id, Some(expected_kick_reason_packet_id));
+    }
+
+    #[test]
+    fn session_send_message_packet_ids_reject_well_known_method_decoys() {
+        let mut manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let expected_send_chat_message_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "sendChatMessage" && !entry.unreliable)
+            .expect("missing sendChatMessage packet")
+            .packet_id;
+        let expected_send_message_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "sendMessage" && entry.params.len() == 1 && !entry.unreliable
+            })
+            .expect("missing sendMessage packet")
+            .packet_id;
+        let expected_send_message_with_sender_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "sendMessage" && entry.params.len() == 3 && !entry.unreliable
+            })
+            .expect("missing sendMessage-with-sender packet")
+            .packet_id;
+
+        let mut send_chat_message_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "sendChatMessage" && !entry.unreliable)
+            .expect("missing sendChatMessage packet")
+            .clone();
+        send_chat_message_decoy.packet_id = 245;
+        send_chat_message_decoy.packet_class = "mindustry.gen.SendChatMessageDecoyCallPacket".into();
+        send_chat_message_decoy.unreliable = true;
+
+        let mut send_message_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "sendMessage" && entry.params.len() == 1 && !entry.unreliable
+            })
+            .expect("missing sendMessage packet")
+            .clone();
+        send_message_decoy.packet_id = 246;
+        send_message_decoy.packet_class = "mindustry.gen.SendMessageDecoyCallPacket".into();
+        send_message_decoy.unreliable = true;
+
+        let mut send_message_with_sender_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "sendMessage" && entry.params.len() == 3 && !entry.unreliable
+            })
+            .expect("missing sendMessage-with-sender packet")
+            .clone();
+        send_message_with_sender_decoy.packet_id = 247;
+        send_message_with_sender_decoy.packet_class =
+            "mindustry.gen.SendMessageDecoyCallPacket2".into();
+        send_message_with_sender_decoy.unreliable = true;
+
+        manifest.remote_packets.splice(
+            0..0,
+            vec![
+                send_chat_message_decoy,
+                send_message_decoy,
+                send_message_with_sender_decoy,
+            ],
+        );
+        for (remote_index, packet) in manifest.remote_packets.iter_mut().enumerate() {
+            packet.remote_index = remote_index;
+        }
+
+        let session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        assert_eq!(
+            session.send_chat_message_packet_id,
+            Some(expected_send_chat_message_packet_id)
+        );
+        assert_eq!(session.send_message_packet_id, Some(expected_send_message_packet_id));
+        assert_eq!(
+            session.send_message_with_sender_packet_id,
+            Some(expected_send_message_with_sender_packet_id)
+        );
     }
 
     #[test]

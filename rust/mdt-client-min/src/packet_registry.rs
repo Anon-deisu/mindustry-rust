@@ -64,6 +64,9 @@ pub struct WellKnownRemotePacketIds {
     pub connect_confirm_packet_id: Option<u8>,
     pub kick_string_packet_id: Option<u8>,
     pub kick_reason_packet_id: Option<u8>,
+    pub send_chat_message_packet_id: Option<u8>,
+    pub send_message_packet_id: Option<u8>,
+    pub send_message_with_sender_packet_id: Option<u8>,
     pub set_rules_packet_id: Option<u8>,
     pub set_objectives_packet_id: Option<u8>,
     pub set_rule_packet_id: Option<u8>,
@@ -304,6 +307,11 @@ impl WellKnownRemotePacketIds {
             connect_confirm_packet_id: packet_id(WellKnownRemoteMethod::ConnectConfirm),
             kick_string_packet_id: packet_id(WellKnownRemoteMethod::KickString),
             kick_reason_packet_id: packet_id(WellKnownRemoteMethod::KickReason),
+            send_chat_message_packet_id: packet_id(WellKnownRemoteMethod::SendChatMessage),
+            send_message_packet_id: packet_id(WellKnownRemoteMethod::SendMessage),
+            send_message_with_sender_packet_id: packet_id(
+                WellKnownRemoteMethod::SendMessageWithSender,
+            ),
             set_rules_packet_id: packet_id(WellKnownRemoteMethod::SetRules),
             set_objectives_packet_id: packet_id(WellKnownRemoteMethod::SetObjectives),
             set_rule_packet_id: packet_id(WellKnownRemoteMethod::SetRule),
@@ -327,6 +335,11 @@ impl WellKnownRemotePacketIds {
             WellKnownRemoteMethod::ConnectConfirm => self.connect_confirm_packet_id,
             WellKnownRemoteMethod::KickString => self.kick_string_packet_id,
             WellKnownRemoteMethod::KickReason => self.kick_reason_packet_id,
+            WellKnownRemoteMethod::SendChatMessage => self.send_chat_message_packet_id,
+            WellKnownRemoteMethod::SendMessage => self.send_message_packet_id,
+            WellKnownRemoteMethod::SendMessageWithSender => {
+                self.send_message_with_sender_packet_id
+            }
             WellKnownRemoteMethod::SetRules => self.set_rules_packet_id,
             WellKnownRemoteMethod::SetObjectives => self.set_objectives_packet_id,
             WellKnownRemoteMethod::SetRule => self.set_rule_packet_id,
@@ -851,7 +864,9 @@ mod tests {
         use crate::generated::remote_registry_gen::{
             CLIENT_SNAPSHOT_CALL_PACKET_ID, CONNECT_CONFIRM_CALL_PACKET_ID, KICK_CALL_PACKET2_ID,
             KICK_CALL_PACKET_ID, PING_CALL_PACKET_ID, REMOTE_PACKET_SPECS,
-            TILE_CONFIG_CALL_PACKET_ID, WORLD_DATA_BEGIN_CALL_PACKET_ID,
+            SEND_CHAT_MESSAGE_CALL_PACKET_ID, SEND_MESSAGE_CALL_PACKET2_ID,
+            SEND_MESSAGE_CALL_PACKET_ID, TILE_CONFIG_CALL_PACKET_ID,
+            WORLD_DATA_BEGIN_CALL_PACKET_ID,
         };
 
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
@@ -896,6 +911,18 @@ mod tests {
         assert_eq!(
             combined.well_known_remote.kick_reason_packet_id,
             Some(KICK_CALL_PACKET2_ID)
+        );
+        assert_eq!(
+            combined.well_known_remote.send_chat_message_packet_id,
+            Some(SEND_CHAT_MESSAGE_CALL_PACKET_ID)
+        );
+        assert_eq!(
+            combined.well_known_remote.send_message_packet_id,
+            Some(SEND_MESSAGE_CALL_PACKET_ID)
+        );
+        assert_eq!(
+            combined.well_known_remote.send_message_with_sender_packet_id,
+            Some(SEND_MESSAGE_CALL_PACKET2_ID)
         );
         assert_eq!(
             manifest
@@ -946,14 +973,14 @@ mod tests {
         assert_eq!(well_known.connect_confirm_packet_id, Some(21));
         assert_eq!(well_known.kick_string_packet_id, Some(25));
         assert_eq!(well_known.kick_reason_packet_id, Some(27));
+        assert_eq!(well_known.send_chat_message_packet_id, Some(29));
+        assert_eq!(well_known.send_message_packet_id, Some(31));
+        assert_eq!(well_known.send_message_with_sender_packet_id, Some(33));
         assert_eq!(well_known.set_rules_packet_id, Some(16));
         assert_eq!(well_known.set_objectives_packet_id, Some(17));
         assert_eq!(well_known.set_rule_packet_id, Some(19));
         assert_eq!(well_known.world_data_begin_packet_id, Some(23));
-        assert_eq!(
-            well_known.method(5),
-            Some(WellKnownRemoteMethod::Ping)
-        );
+        assert_eq!(well_known.method(5), Some(WellKnownRemoteMethod::Ping));
         assert_eq!(well_known.method(6), None);
         assert!(well_known.contains_packet_id(5));
         assert!(!well_known.contains_packet_id(6));
@@ -1014,6 +1041,18 @@ mod tests {
                 well_known.kick_reason_packet_id,
             ),
             (
+                WellKnownRemoteMethod::SendChatMessage,
+                well_known.send_chat_message_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::SendMessage,
+                well_known.send_message_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::SendMessageWithSender,
+                well_known.send_message_with_sender_packet_id,
+            ),
+            (
                 WellKnownRemoteMethod::SetRules,
                 well_known.set_rules_packet_id,
             ),
@@ -1039,7 +1078,10 @@ mod tests {
                 method.method_name()
             );
         }
-        assert_eq!(well_known.resolved_packet_ids(), typed_registry.resolved_packet_ids());
+        assert_eq!(
+            well_known.resolved_packet_ids(),
+            typed_registry.resolved_packet_ids()
+        );
         let typed_fixed_table = typed_registry.packet_id_fixed_table();
         for packet_id in 0..=u8::MAX {
             assert_eq!(
@@ -1630,6 +1672,86 @@ mod tests {
                         true,
                         true,
                     )],
+                ),
+                remote_packet(
+                    24,
+                    28,
+                    "mindustry.gen.SendChatMessageDecoyCallPacket",
+                    "mindustry.core.NetClient",
+                    "sendChatMessage",
+                    "client",
+                    "none",
+                    true,
+                    vec![
+                        param("player", "Player", false, false),
+                        param("message", "java.lang.String", true, true),
+                    ],
+                ),
+                remote_packet(
+                    25,
+                    29,
+                    "mindustry.gen.SendChatMessageCallPacket",
+                    "mindustry.core.NetClient",
+                    "sendChatMessage",
+                    "client",
+                    "none",
+                    false,
+                    vec![
+                        param("player", "Player", false, false),
+                        param("message", "java.lang.String", true, true),
+                    ],
+                ),
+                remote_packet(
+                    26,
+                    30,
+                    "mindustry.gen.SendMessageDecoyCallPacket",
+                    "mindustry.core.NetClient",
+                    "sendMessage",
+                    "server",
+                    "none",
+                    true,
+                    vec![param("message", "java.lang.String", true, true)],
+                ),
+                remote_packet(
+                    27,
+                    31,
+                    "mindustry.gen.SendMessageCallPacket",
+                    "mindustry.core.NetClient",
+                    "sendMessage",
+                    "server",
+                    "none",
+                    false,
+                    vec![param("message", "java.lang.String", true, true)],
+                ),
+                remote_packet(
+                    28,
+                    32,
+                    "mindustry.gen.SendMessageDecoyCallPacket2",
+                    "mindustry.core.NetClient",
+                    "sendMessage",
+                    "server",
+                    "none",
+                    true,
+                    vec![
+                        param("message", "java.lang.String", true, true),
+                        param("unformatted", "java.lang.String", true, true),
+                        param("playersender", "Player", true, true),
+                    ],
+                ),
+                remote_packet(
+                    29,
+                    33,
+                    "mindustry.gen.SendMessageCallPacket2",
+                    "mindustry.core.NetClient",
+                    "sendMessage",
+                    "server",
+                    "none",
+                    false,
+                    vec![
+                        param("message", "java.lang.String", true, true),
+                        param("unformatted", "java.lang.String", true, true),
+                        param("playersender", "Player", true, true),
+                    ],
                 ),
             ],
             wire: WireSpec {
