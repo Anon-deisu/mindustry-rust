@@ -672,14 +672,30 @@ fn parse_json_string_end(bytes: &[u8], start: usize) -> Option<usize> {
     let mut cursor = start + 1;
     while cursor < bytes.len() {
         match bytes[cursor] {
+            b'"' => return Some(cursor + 1),
             b'\\' => {
                 cursor += 1;
-                if cursor >= bytes.len() {
-                    return None;
+                let escape = *bytes.get(cursor)?;
+                match escape {
+                    b'"' | b'\\' | b'/' | b'b' | b'f' | b'n' | b'r' | b't' => {
+                        cursor += 1;
+                    }
+                    b'u' => {
+                        cursor += 1;
+                        for _ in 0..4 {
+                            if !matches!(
+                                bytes.get(cursor).copied(),
+                                Some(b'0'..=b'9' | b'a'..=b'f' | b'A'..=b'F')
+                            ) {
+                                return None;
+                            }
+                            cursor += 1;
+                        }
+                    }
+                    _ => return None,
                 }
-                cursor += 1;
             }
-            b'"' => return Some(cursor + 1),
+            0x00..=0x1F => return None,
             _ => cursor += 1,
         }
     }
@@ -794,7 +810,7 @@ fn skip_ws(bytes: &[u8], mut cursor: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{ObjectivesProjection, RulesProjection};
+    use super::{parse_json_string_literal, ObjectivesProjection, RulesProjection};
 
     fn apply_mixed_update_sequence(
         rules: &mut RulesProjection,
@@ -1020,6 +1036,14 @@ mod tests {
             projection.last_ignored_set_rule_patch_name.as_deref(),
             Some("buildSpeedMultiplier")
         );
+    }
+
+    #[test]
+    fn parse_json_string_literal_rejects_invalid_escape_sequences() {
+        assert_eq!(parse_json_string_literal(r#""ok\nline""#), Some(r#"ok\nline"#.to_string()));
+        assert_eq!(parse_json_string_literal(r#""bad\x20""#), None);
+        assert_eq!(parse_json_string_literal("\"bad\nline\""), None);
+        assert_eq!(parse_json_string_literal("\"bad\u{0001}line\""), None);
     }
 
     #[test]
