@@ -377,7 +377,7 @@ impl RuntimeCustomPacketSurfaceState {
         }
         if cleared > 0 {
             self.pending_lines.push_back(format!(
-                "runtime_custom_packet_surface_reset: reason={reason} cleared_routes={cleared}"
+                "runtime_custom_packet_surface_reset: reason={reason:?} cleared_routes={cleared}"
             ));
         }
     }
@@ -424,7 +424,7 @@ impl RuntimeCustomPacketSurfaceState {
         }
         if cleared > 0 {
             self.pending_lines.push_back(format!(
-                "runtime_custom_packet_surface_reset: reason={reason} cleared_routes={cleared}"
+                "runtime_custom_packet_surface_reset: reason={reason:?} cleared_routes={cleared}"
             ));
         }
     }

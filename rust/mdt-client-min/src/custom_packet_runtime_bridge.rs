@@ -42,7 +42,7 @@ struct ParsedSurfaceUpdate {
 }
 
 struct ParsedSurfaceReset<'a> {
-    reason: &'a str,
+    reason: std::borrow::Cow<'a, str>,
 }
 
 impl RuntimeCustomPacketBridge {
@@ -212,7 +212,7 @@ impl RuntimeCustomPacketBridgeState {
             route.last_update_serial = 0;
         }
         self.pending_lines.push_back(format!(
-            "runtime_custom_packet_bridge_reset: tick={now_ms}ms reason={reason} cleared_routes={cleared_routes}"
+            "runtime_custom_packet_bridge_reset: tick={now_ms}ms reason={reason:?} cleared_routes={cleared_routes}"
         ));
     }
 }
@@ -236,8 +236,18 @@ fn parse_surface_update(line: &str) -> Option<ParsedSurfaceUpdate> {
 fn parse_surface_reset(line: &str) -> Option<ParsedSurfaceReset<'_>> {
     let prefix = "runtime_custom_packet_surface_reset: reason=";
     let rest = line.strip_prefix(prefix)?;
+    if rest.starts_with('"') {
+        let (reason, rest) = parse_debug_string_prefix(rest)?;
+        let _ = rest.strip_prefix(" cleared_routes=")?;
+        return Some(ParsedSurfaceReset {
+            reason: std::borrow::Cow::Owned(reason),
+        });
+    }
+
     let (reason, _) = rest.rsplit_once(" cleared_routes=")?;
-    Some(ParsedSurfaceReset { reason })
+    Some(ParsedSurfaceReset {
+        reason: std::borrow::Cow::Borrowed(reason),
+    })
 }
 
 fn parse_debug_string_prefix(value: &str) -> Option<(String, &str)> {
@@ -461,7 +471,7 @@ mod tests {
         bridge.observe_surface_activity(
             43,
             &[
-                "runtime_custom_packet_surface_reset: reason=world_data_begin cleared_routes=2"
+                "runtime_custom_packet_surface_reset: reason=\"world_data_begin\" cleared_routes=2"
                     .to_string(),
             ],
             &[],
@@ -470,7 +480,7 @@ mod tests {
         assert_eq!(
             lines,
             vec![
-                "runtime_custom_packet_bridge_reset: tick=43ms reason=surface:world_data_begin cleared_routes=2"
+                "runtime_custom_packet_bridge_reset: tick=43ms reason=\"surface:world_data_begin\" cleared_routes=2"
                     .to_string()
             ]
         );
@@ -504,7 +514,7 @@ mod tests {
         assert_eq!(
             bridge.drain_lines(),
             vec![
-                "runtime_custom_packet_bridge_reset: tick=20ms reason=reconnect:redirect cleared_routes=1"
+                "runtime_custom_packet_bridge_reset: tick=20ms reason=\"reconnect:redirect\" cleared_routes=1"
                     .to_string()
             ]
         );
@@ -563,10 +573,10 @@ mod tests {
         );
         assert_eq!(
             parse_surface_reset(
-                "runtime_custom_packet_surface_reset: reason=route cleared_routes=ignored cleared_routes=3"
+                "runtime_custom_packet_surface_reset: reason=\"route cleared_routes=ignored\" cleared_routes=3"
             )
             .map(|reset| reset.reason),
-            Some("route cleared_routes=ignored")
+            Some(std::borrow::Cow::Borrowed("route cleared_routes=ignored"))
         );
     }
 }
