@@ -5,7 +5,7 @@ pub const REMOTE_MANIFEST_SCHEMA_V1: &str = "mdt.remote.manifest.v1";
 pub const CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT: usize = 10;
 pub const HIGH_FREQUENCY_REMOTE_METHOD_COUNT: usize = 5;
 pub const INBOUND_REMOTE_FAMILY_COUNT: usize = 6;
-pub const WELL_KNOWN_REMOTE_METHOD_COUNT: usize = 29;
+pub const WELL_KNOWN_REMOTE_METHOD_COUNT: usize = 32;
 pub const REMOTE_PACKET_ID_SPACE: usize = u8::MAX as usize + 1;
 pub const REMOTE_WIRE_PACKET_ID_BYTE_U8: &str = "u8";
 pub const REMOTE_WIRE_LENGTH_FIELD_U16BE: &str = "u16be";
@@ -200,6 +200,9 @@ pub enum WellKnownRemoteMethod {
     LabelReliableWithId,
     TextInput,
     TextInputAllowEmpty,
+    Effect,
+    EffectWithData,
+    EffectReliable,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -561,6 +564,36 @@ const TEXT_INPUT_ALLOW_EMPTY_WIRE_PARAM_KINDS: [RemoteParamKind; 7] = [
     RemoteParamKind::Bool,
     RemoteParamKind::Bool,
 ];
+const EFFECT_PARAM_JAVA_TYPES: [&str; 5] = [
+    "mindustry.entities.Effect",
+    "float",
+    "float",
+    "float",
+    "arc.graphics.Color",
+];
+const EFFECT_WIRE_PARAM_KINDS: [RemoteParamKind; 5] = [
+    RemoteParamKind::Opaque,
+    RemoteParamKind::Float,
+    RemoteParamKind::Float,
+    RemoteParamKind::Float,
+    RemoteParamKind::Opaque,
+];
+const EFFECT_WITH_DATA_PARAM_JAVA_TYPES: [&str; 6] = [
+    "mindustry.entities.Effect",
+    "float",
+    "float",
+    "float",
+    "arc.graphics.Color",
+    "java.lang.Object",
+];
+const EFFECT_WITH_DATA_WIRE_PARAM_KINDS: [RemoteParamKind; 6] = [
+    RemoteParamKind::Opaque,
+    RemoteParamKind::Float,
+    RemoteParamKind::Float,
+    RemoteParamKind::Float,
+    RemoteParamKind::Opaque,
+    RemoteParamKind::Opaque,
+];
 const SET_RULES_PARAM_JAVA_TYPES: [&str; 1] = ["mindustry.game.Rules"];
 const SET_RULES_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Opaque];
 const SET_OBJECTIVES_PARAM_JAVA_TYPES: [&str; 1] = ["mindustry.game.MapObjectives"];
@@ -654,6 +687,9 @@ impl WellKnownRemoteMethod {
             Self::LabelReliableWithId,
             Self::TextInput,
             Self::TextInputAllowEmpty,
+            Self::Effect,
+            Self::EffectWithData,
+            Self::EffectReliable,
         ]
     }
 
@@ -681,6 +717,8 @@ impl WellKnownRemoteMethod {
             Self::Label | Self::LabelWithId => "label",
             Self::LabelReliable | Self::LabelReliableWithId => "labelReliable",
             Self::TextInput | Self::TextInputAllowEmpty => "textInput",
+            Self::Effect | Self::EffectWithData => "effect",
+            Self::EffectReliable => "effectReliable",
         }
     }
 
@@ -711,7 +749,10 @@ impl WellKnownRemoteMethod {
             | Self::LabelReliable
             | Self::LabelReliableWithId
             | Self::TextInput
-            | Self::TextInputAllowEmpty => RemoteFlow::ServerToClient,
+            | Self::TextInputAllowEmpty
+            | Self::Effect
+            | Self::EffectWithData
+            | Self::EffectReliable => RemoteFlow::ServerToClient,
             Self::ConnectConfirm | Self::SendChatMessage => RemoteFlow::ClientToServer,
         }
     }
@@ -726,6 +767,8 @@ impl WellKnownRemoteMethod {
                 | Self::InfoPopupWithId
                 | Self::Label
                 | Self::LabelWithId
+                | Self::Effect
+                | Self::EffectWithData
         )
     }
 
@@ -758,6 +801,8 @@ impl WellKnownRemoteMethod {
             Self::LabelWithId | Self::LabelReliableWithId => &LABEL_WITH_ID_PARAM_JAVA_TYPES,
             Self::TextInput => &TEXT_INPUT_PARAM_JAVA_TYPES,
             Self::TextInputAllowEmpty => &TEXT_INPUT_ALLOW_EMPTY_PARAM_JAVA_TYPES,
+            Self::Effect | Self::EffectReliable => &EFFECT_PARAM_JAVA_TYPES,
+            Self::EffectWithData => &EFFECT_WITH_DATA_PARAM_JAVA_TYPES,
         }
     }
 
@@ -790,6 +835,8 @@ impl WellKnownRemoteMethod {
             Self::LabelWithId | Self::LabelReliableWithId => &LABEL_WITH_ID_WIRE_PARAM_KINDS,
             Self::TextInput => &TEXT_INPUT_WIRE_PARAM_KINDS,
             Self::TextInputAllowEmpty => &TEXT_INPUT_ALLOW_EMPTY_WIRE_PARAM_KINDS,
+            Self::Effect | Self::EffectReliable => &EFFECT_WIRE_PARAM_KINDS,
+            Self::EffectWithData => &EFFECT_WITH_DATA_WIRE_PARAM_KINDS,
         }
     }
 
@@ -4416,6 +4463,9 @@ mod tests {
             (WellKnownRemoteMethod::LabelReliableWithId, Some(53)),
             (WellKnownRemoteMethod::TextInput, Some(55)),
             (WellKnownRemoteMethod::TextInputAllowEmpty, Some(57)),
+            (WellKnownRemoteMethod::Effect, Some(59)),
+            (WellKnownRemoteMethod::EffectWithData, Some(61)),
+            (WellKnownRemoteMethod::EffectReliable, Some(63)),
         ];
 
         assert_eq!(registry.len(), expected.len());
@@ -4479,6 +4529,9 @@ mod tests {
             fixed_table.get(57),
             Some(WellKnownRemoteMethod::TextInputAllowEmpty)
         );
+        assert_eq!(fixed_table.get(59), Some(WellKnownRemoteMethod::Effect));
+        assert_eq!(fixed_table.get(61), Some(WellKnownRemoteMethod::EffectWithData));
+        assert_eq!(fixed_table.get(63), Some(WellKnownRemoteMethod::EffectReliable));
         assert_eq!(fixed_table.get(18), None);
         assert!(fixed_table.contains_packet_id(19));
         assert!(fixed_table.contains_packet_id(23));
@@ -4488,6 +4541,7 @@ mod tests {
         assert!(fixed_table.contains_packet_id(45));
         assert!(fixed_table.contains_packet_id(53));
         assert!(fixed_table.contains_packet_id(57));
+        assert!(fixed_table.contains_packet_id(63));
         assert!(!fixed_table.contains_packet_id(250));
     }
 
@@ -4985,6 +5039,24 @@ mod tests {
                 .first_well_known_method(WellKnownRemoteMethod::TextInputAllowEmpty)
                 .map(|packet| packet.packet_id),
             Some(57)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::Effect)
+                .map(|packet| packet.packet_id),
+            Some(59)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::EffectWithData)
+                .map(|packet| packet.packet_id),
+            Some(61)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::EffectReliable)
+                .map(|packet| packet.packet_id),
+            Some(63)
         );
     }
 
@@ -6254,6 +6326,110 @@ mod tests {
                         test_param("def", "java.lang.String", true, true),
                         test_param("numeric", "boolean", true, true),
                         test_param("allowEmpty", "boolean", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    54,
+                    58,
+                    "mindustry.gen.EffectDecoyCallPacket",
+                    "mindustry.ui.Menus",
+                    "effect",
+                    "server",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("effect", "mindustry.entities.Effect", true, true),
+                        test_param("x", "float", true, true),
+                        test_param("y", "float", true, true),
+                        test_param("rotation", "float", true, true),
+                        test_param("color", "arc.graphics.Color", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    55,
+                    59,
+                    "mindustry.gen.EffectCallPacket",
+                    "mindustry.ui.Menus",
+                    "effect",
+                    "server",
+                    "normal",
+                    true,
+                    vec![
+                        test_param("effect", "mindustry.entities.Effect", true, true),
+                        test_param("x", "float", true, true),
+                        test_param("y", "float", true, true),
+                        test_param("rotation", "float", true, true),
+                        test_param("color", "arc.graphics.Color", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    56,
+                    60,
+                    "mindustry.gen.EffectDecoyCallPacket2",
+                    "mindustry.ui.Menus",
+                    "effect",
+                    "server",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("effect", "mindustry.entities.Effect", true, true),
+                        test_param("x", "float", true, true),
+                        test_param("y", "float", true, true),
+                        test_param("rotation", "float", true, true),
+                        test_param("color", "arc.graphics.Color", true, true),
+                        test_param("data", "java.lang.Object", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    57,
+                    61,
+                    "mindustry.gen.EffectCallPacket2",
+                    "mindustry.ui.Menus",
+                    "effect",
+                    "server",
+                    "normal",
+                    true,
+                    vec![
+                        test_param("effect", "mindustry.entities.Effect", true, true),
+                        test_param("x", "float", true, true),
+                        test_param("y", "float", true, true),
+                        test_param("rotation", "float", true, true),
+                        test_param("color", "arc.graphics.Color", true, true),
+                        test_param("data", "java.lang.Object", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    58,
+                    62,
+                    "mindustry.gen.EffectReliableDecoyCallPacket",
+                    "mindustry.ui.Menus",
+                    "effectReliable",
+                    "server",
+                    "normal",
+                    true,
+                    vec![
+                        test_param("effect", "mindustry.entities.Effect", true, true),
+                        test_param("x", "float", true, true),
+                        test_param("y", "float", true, true),
+                        test_param("rotation", "float", true, true),
+                        test_param("color", "arc.graphics.Color", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    59,
+                    63,
+                    "mindustry.gen.EffectReliableCallPacket",
+                    "mindustry.ui.Menus",
+                    "effectReliable",
+                    "server",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("effect", "mindustry.entities.Effect", true, true),
+                        test_param("x", "float", true, true),
+                        test_param("y", "float", true, true),
+                        test_param("rotation", "float", true, true),
+                        test_param("color", "arc.graphics.Color", true, true),
                     ],
                 ),
             ],

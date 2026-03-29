@@ -79,6 +79,9 @@ pub struct WellKnownRemotePacketIds {
     pub label_reliable_with_id_packet_id: Option<u8>,
     pub text_input_packet_id: Option<u8>,
     pub text_input_allow_empty_packet_id: Option<u8>,
+    pub effect_packet_id: Option<u8>,
+    pub effect_with_data_packet_id: Option<u8>,
+    pub effect_reliable_packet_id: Option<u8>,
     pub set_rules_packet_id: Option<u8>,
     pub set_objectives_packet_id: Option<u8>,
     pub set_rule_packet_id: Option<u8>,
@@ -340,6 +343,9 @@ impl WellKnownRemotePacketIds {
             ),
             text_input_packet_id: packet_id(WellKnownRemoteMethod::TextInput),
             text_input_allow_empty_packet_id: packet_id(WellKnownRemoteMethod::TextInputAllowEmpty),
+            effect_packet_id: packet_id(WellKnownRemoteMethod::Effect),
+            effect_with_data_packet_id: packet_id(WellKnownRemoteMethod::EffectWithData),
+            effect_reliable_packet_id: packet_id(WellKnownRemoteMethod::EffectReliable),
             set_rules_packet_id: packet_id(WellKnownRemoteMethod::SetRules),
             set_objectives_packet_id: packet_id(WellKnownRemoteMethod::SetObjectives),
             set_rule_packet_id: packet_id(WellKnownRemoteMethod::SetRule),
@@ -384,6 +390,9 @@ impl WellKnownRemotePacketIds {
             }
             WellKnownRemoteMethod::TextInput => self.text_input_packet_id,
             WellKnownRemoteMethod::TextInputAllowEmpty => self.text_input_allow_empty_packet_id,
+            WellKnownRemoteMethod::Effect => self.effect_packet_id,
+            WellKnownRemoteMethod::EffectWithData => self.effect_with_data_packet_id,
+            WellKnownRemoteMethod::EffectReliable => self.effect_reliable_packet_id,
             WellKnownRemoteMethod::SetRules => self.set_rules_packet_id,
             WellKnownRemoteMethod::SetObjectives => self.set_objectives_packet_id,
             WellKnownRemoteMethod::SetRule => self.set_rule_packet_id,
@@ -916,7 +925,8 @@ mod tests {
             INFO_POPUP_RELIABLE_CALL_PACKET2_ID, LABEL_CALL_PACKET_ID,
             LABEL_CALL_PACKET2_ID, LABEL_RELIABLE_CALL_PACKET_ID,
             LABEL_RELIABLE_CALL_PACKET2_ID, TEXT_INPUT_CALL_PACKET_ID,
-            TEXT_INPUT_CALL_PACKET2_ID,
+            TEXT_INPUT_CALL_PACKET2_ID, EFFECT_CALL_PACKET_ID,
+            EFFECT_CALL_PACKET2_ID, EFFECT_RELIABLE_CALL_PACKET_ID,
         };
 
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
@@ -1023,6 +1033,18 @@ mod tests {
             Some(TEXT_INPUT_CALL_PACKET2_ID)
         );
         assert_eq!(
+            combined.well_known_remote.effect_packet_id,
+            Some(EFFECT_CALL_PACKET_ID)
+        );
+        assert_eq!(
+            combined.well_known_remote.effect_with_data_packet_id,
+            Some(EFFECT_CALL_PACKET2_ID)
+        );
+        assert_eq!(
+            combined.well_known_remote.effect_reliable_packet_id,
+            Some(EFFECT_RELIABLE_CALL_PACKET_ID)
+        );
+        assert_eq!(
             manifest
                 .remote_packets
                 .iter()
@@ -1086,6 +1108,9 @@ mod tests {
         assert_eq!(well_known.label_reliable_with_id_packet_id, Some(53));
         assert_eq!(well_known.text_input_packet_id, Some(55));
         assert_eq!(well_known.text_input_allow_empty_packet_id, Some(57));
+        assert_eq!(well_known.effect_packet_id, Some(59));
+        assert_eq!(well_known.effect_with_data_packet_id, Some(61));
+        assert_eq!(well_known.effect_reliable_packet_id, Some(63));
         assert_eq!(well_known.set_rules_packet_id, Some(16));
         assert_eq!(well_known.set_objectives_packet_id, Some(17));
         assert_eq!(well_known.set_rule_packet_id, Some(19));
@@ -1209,6 +1234,18 @@ mod tests {
             (
                 WellKnownRemoteMethod::TextInputAllowEmpty,
                 well_known.text_input_allow_empty_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::Effect,
+                well_known.effect_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::EffectWithData,
+                well_known.effect_with_data_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::EffectReliable,
+                well_known.effect_reliable_packet_id,
             ),
             (
                 WellKnownRemoteMethod::SetRules,
@@ -2327,6 +2364,110 @@ mod tests {
                         param("def", "java.lang.String", true, true),
                         param("numeric", "boolean", true, true),
                         param("allowEmpty", "boolean", true, true),
+                    ],
+                ),
+                remote_packet(
+                    54,
+                    58,
+                    "mindustry.gen.EffectDecoyCallPacket",
+                    "mindustry.ui.Menus",
+                    "effect",
+                    "server",
+                    "none",
+                    false,
+                    vec![
+                        param("effect", "mindustry.entities.Effect", true, true),
+                        param("x", "float", true, true),
+                        param("y", "float", true, true),
+                        param("rotation", "float", true, true),
+                        param("color", "arc.graphics.Color", true, true),
+                    ],
+                ),
+                remote_packet(
+                    55,
+                    59,
+                    "mindustry.gen.EffectCallPacket",
+                    "mindustry.ui.Menus",
+                    "effect",
+                    "server",
+                    "none",
+                    true,
+                    vec![
+                        param("effect", "mindustry.entities.Effect", true, true),
+                        param("x", "float", true, true),
+                        param("y", "float", true, true),
+                        param("rotation", "float", true, true),
+                        param("color", "arc.graphics.Color", true, true),
+                    ],
+                ),
+                remote_packet(
+                    56,
+                    60,
+                    "mindustry.gen.EffectDecoyCallPacket2",
+                    "mindustry.ui.Menus",
+                    "effect",
+                    "server",
+                    "none",
+                    false,
+                    vec![
+                        param("effect", "mindustry.entities.Effect", true, true),
+                        param("x", "float", true, true),
+                        param("y", "float", true, true),
+                        param("rotation", "float", true, true),
+                        param("color", "arc.graphics.Color", true, true),
+                        param("data", "java.lang.Object", true, true),
+                    ],
+                ),
+                remote_packet(
+                    57,
+                    61,
+                    "mindustry.gen.EffectCallPacket2",
+                    "mindustry.ui.Menus",
+                    "effect",
+                    "server",
+                    "none",
+                    true,
+                    vec![
+                        param("effect", "mindustry.entities.Effect", true, true),
+                        param("x", "float", true, true),
+                        param("y", "float", true, true),
+                        param("rotation", "float", true, true),
+                        param("color", "arc.graphics.Color", true, true),
+                        param("data", "java.lang.Object", true, true),
+                    ],
+                ),
+                remote_packet(
+                    58,
+                    62,
+                    "mindustry.gen.EffectReliableDecoyCallPacket",
+                    "mindustry.ui.Menus",
+                    "effectReliable",
+                    "server",
+                    "none",
+                    true,
+                    vec![
+                        param("effect", "mindustry.entities.Effect", true, true),
+                        param("x", "float", true, true),
+                        param("y", "float", true, true),
+                        param("rotation", "float", true, true),
+                        param("color", "arc.graphics.Color", true, true),
+                    ],
+                ),
+                remote_packet(
+                    59,
+                    63,
+                    "mindustry.gen.EffectReliableCallPacket",
+                    "mindustry.ui.Menus",
+                    "effectReliable",
+                    "server",
+                    "none",
+                    false,
+                    vec![
+                        param("effect", "mindustry.entities.Effect", true, true),
+                        param("x", "float", true, true),
+                        param("y", "float", true, true),
+                        param("rotation", "float", true, true),
+                        param("color", "arc.graphics.Color", true, true),
                     ],
                 ),
             ],

@@ -652,6 +652,9 @@ impl ClientSession {
             well_known_remote.label_reliable_with_id_packet_id;
         let text_input_packet_id = well_known_remote.text_input_packet_id;
         let text_input_allow_empty_packet_id = well_known_remote.text_input_allow_empty_packet_id;
+        let effect_packet_id = well_known_remote.effect_packet_id;
+        let effect_with_data_packet_id = well_known_remote.effect_with_data_packet_id;
+        let effect_reliable_packet_id = well_known_remote.effect_reliable_packet_id;
         let admin_request_packet_id = manifest
             .remote_packets
             .iter()
@@ -1172,21 +1175,6 @@ impl ClientSession {
             .remote_packets
             .iter()
             .find(|entry| entry.method == "soundAt" && entry.params.len() == 5)
-            .map(|entry| entry.packet_id);
-        let effect_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "effect" && entry.params.len() == 5)
-            .map(|entry| entry.packet_id);
-        let effect_with_data_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "effect" && entry.params.len() == 6)
-            .map(|entry| entry.packet_id);
-        let effect_reliable_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "effectReliable" && entry.params.len() == 5)
             .map(|entry| entry.packet_id);
         let debug_status_client_packet_id = manifest
             .remote_packets
@@ -51152,6 +51140,18 @@ mod tests {
             expected(WellKnownRemoteMethod::TextInputAllowEmpty)
         );
         assert_eq!(
+            session.effect_packet_id,
+            expected(WellKnownRemoteMethod::Effect)
+        );
+        assert_eq!(
+            session.effect_with_data_packet_id,
+            expected(WellKnownRemoteMethod::EffectWithData)
+        );
+        assert_eq!(
+            session.effect_reliable_packet_id,
+            expected(WellKnownRemoteMethod::EffectReliable)
+        );
+        assert_eq!(
             session.set_rules_packet_id,
             expected(WellKnownRemoteMethod::SetRules)
         );
@@ -51695,6 +51695,83 @@ mod tests {
         assert_eq!(
             session.text_input_allow_empty_packet_id,
             Some(expected_text_input_allow_empty_packet_id)
+        );
+    }
+
+    #[test]
+    fn session_effect_packet_ids_reject_well_known_method_decoys() {
+        let mut manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let expected_effect_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "effect" && entry.params.len() == 5 && entry.unreliable)
+            .expect("missing effect packet")
+            .packet_id;
+        let expected_effect_with_data_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "effect" && entry.params.len() == 6 && entry.unreliable)
+            .expect("missing effect-with-data packet")
+            .packet_id;
+        let expected_effect_reliable_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "effectReliable" && entry.params.len() == 5 && !entry.unreliable
+            })
+            .expect("missing effectReliable packet")
+            .packet_id;
+
+        let mut effect_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "effect" && entry.params.len() == 5 && entry.unreliable)
+            .expect("missing effect packet")
+            .clone();
+        effect_decoy.packet_id = 231;
+        effect_decoy.packet_class = "mindustry.gen.EffectDecoyCallPacket".into();
+        effect_decoy.unreliable = false;
+
+        let mut effect_with_data_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "effect" && entry.params.len() == 6 && entry.unreliable)
+            .expect("missing effect-with-data packet")
+            .clone();
+        effect_with_data_decoy.packet_id = 232;
+        effect_with_data_decoy.packet_class = "mindustry.gen.EffectDecoyCallPacket2".into();
+        effect_with_data_decoy.unreliable = false;
+
+        let mut effect_reliable_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "effectReliable" && entry.params.len() == 5 && !entry.unreliable
+            })
+            .expect("missing effectReliable packet")
+            .clone();
+        effect_reliable_decoy.packet_id = 233;
+        effect_reliable_decoy.packet_class =
+            "mindustry.gen.EffectReliableDecoyCallPacket".into();
+        effect_reliable_decoy.unreliable = true;
+
+        manifest.remote_packets.splice(
+            0..0,
+            vec![effect_decoy, effect_with_data_decoy, effect_reliable_decoy],
+        );
+        for (remote_index, packet) in manifest.remote_packets.iter_mut().enumerate() {
+            packet.remote_index = remote_index;
+        }
+
+        let session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        assert_eq!(session.effect_packet_id, Some(expected_effect_packet_id));
+        assert_eq!(
+            session.effect_with_data_packet_id,
+            Some(expected_effect_with_data_packet_id)
+        );
+        assert_eq!(
+            session.effect_reliable_packet_id,
+            Some(expected_effect_reliable_packet_id)
         );
     }
 
