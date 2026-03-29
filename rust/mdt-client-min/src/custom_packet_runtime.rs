@@ -639,7 +639,13 @@ fn extract_logic_string(value: &TypeIoObject) -> Option<String> {
 }
 
 fn extract_logic_world_pos(value: &TypeIoObject) -> Result<RenderedSemantic, &'static str> {
-    let extracted = logic_helpers::extract_logic_world_pos(value).ok_or("no_world_pos_payload")?;
+    let extracted = logic_helpers::extract_logic_world_pos(value).ok_or_else(|| {
+        if logic_helpers::has_logic_world_pos_payload(value) {
+            "invalid_world_pos"
+        } else {
+            "no_world_pos_payload"
+        }
+    })?;
     let (x, y, source) = (extracted.value.0, extracted.value.1, extracted.source);
     let (x, y) = finite_world_pos(x, y).ok_or("invalid_world_pos")?;
     Ok(RenderedSemantic {

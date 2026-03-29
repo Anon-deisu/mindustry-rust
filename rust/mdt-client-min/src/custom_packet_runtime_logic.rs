@@ -50,12 +50,7 @@ pub(crate) fn extract_logic_world_pos(
             TypeIoObject::ObjectArray(_) => None,
             _ => None,
         },
-        |object| match object {
-            TypeIoObject::Point2 { .. } | TypeIoObject::Vec2 { .. } => true,
-            TypeIoObject::PackedPoint2Array(values) => !values.is_empty(),
-            TypeIoObject::Vec2Array(values) => !values.is_empty(),
-            _ => false,
-        },
+        is_logic_world_pos_shape,
         |object| match object {
             TypeIoObject::Point2 { x, y } => Some(LogicValueExtraction {
                 value: (*x as f64, *y as f64),
@@ -79,6 +74,11 @@ pub(crate) fn extract_logic_world_pos(
             _ => None,
         },
     )
+}
+
+pub(crate) fn has_logic_world_pos_payload(value: &TypeIoObject) -> bool {
+    is_logic_world_pos_shape(value)
+        || find_first_nested_logic_match(value, is_logic_world_pos_shape).is_some()
 }
 
 pub(crate) fn extract_logic_build_pos(
@@ -315,6 +315,15 @@ where
     None
 }
 
+fn is_logic_world_pos_shape(object: &TypeIoObject) -> bool {
+    match object {
+        TypeIoObject::Point2 { .. } | TypeIoObject::Vec2 { .. } => true,
+        TypeIoObject::PackedPoint2Array(values) => !values.is_empty(),
+        TypeIoObject::Vec2Array(values) => !values.is_empty(),
+        _ => false,
+    }
+}
+
 fn finite_logic_world_pos(
     x: f64,
     y: f64,
@@ -443,5 +452,18 @@ mod tests {
             extract_logic_world_pos(&TypeIoObject::Vec2Array(vec![(7.0, f32::INFINITY)])),
             None
         );
+    }
+
+    #[test]
+    fn logic_world_pos_shape_detects_invalid_vec2_payloads() {
+        assert!(has_logic_world_pos_payload(&TypeIoObject::Vec2 {
+            x: f32::NAN,
+            y: 9.0,
+        }));
+        assert!(has_logic_world_pos_payload(&TypeIoObject::ObjectArray(vec![
+            TypeIoObject::Bool(false),
+            TypeIoObject::Vec2Array(vec![(7.0, f32::INFINITY)]),
+        ])));
+        assert!(!has_logic_world_pos_payload(&TypeIoObject::Bool(false)));
     }
 }
