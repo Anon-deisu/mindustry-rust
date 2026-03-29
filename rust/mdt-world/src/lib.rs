@@ -27348,6 +27348,11 @@ fn parse_legacy_building_tail_snapshot(
                 .map(ParsedBuildingTail::OneF32Bool)
                 .unwrap_or(ParsedBuildingTail::Unknown)
         }
+        Some("cultivator") => parse_two_f32_tail_snapshot_with_optional_legacy_warmup(
+            legacy_tail_bytes,
+        )
+        .map(ParsedBuildingTail::TwoF32)
+        .unwrap_or(ParsedBuildingTail::Unknown),
         Some(
             "graphite-press"
             | "multi-press"
@@ -56813,6 +56818,26 @@ mod tests {
 
             assert_eq!(snapshot.parsed_tail, expected);
         }
+    }
+
+    #[test]
+    fn parses_legacy_cultivator_building_snapshot_when_block_name_is_known() {
+        let legacy_tail = {
+            let mut bytes = Vec::new();
+            bytes.extend_from_slice(&0x41100000u32.to_be_bytes());
+            bytes.extend_from_slice(&0x41400000u32.to_be_bytes());
+            bytes.extend_from_slice(&0x00000000u32.to_be_bytes());
+            bytes
+        };
+        let expected = parse_building_tail(Some("cultivator"), 0, &legacy_tail).unwrap();
+        let snapshot = parse_legacy_save_building_snapshot(Some("cultivator"), &{
+            let mut bytes = vec![0, 0, 10, 0x12, 1];
+            bytes.extend_from_slice(&legacy_tail);
+            bytes
+        })
+        .unwrap();
+
+        assert_eq!(snapshot.parsed_tail, expected);
     }
 
     #[test]
