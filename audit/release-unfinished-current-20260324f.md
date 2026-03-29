@@ -67,6 +67,9 @@ These are already landed and should not be re-opened as if missing:
 - `mdt-remote` typed generation is no longer limited to the high-frequency subset.
   - generated typed registry/dispatch coverage now also includes custom-channel and inbound dispatch families
   - remaining M6 work is deeper live session/business adoption, not re-adding the first broader typed generation layer
+- remote manifest validation already fail-closes the wire-level invariants older audit notes used to call out.
+  - `mdt-remote` now rejects `packetIdByte`, `lengthField`, compression-flag, and compression-threshold drift during manifest parse, with direct regression coverage
+  - remaining remote/codegen work is broader semantic adoption, not re-adding these wire-spec guards
 - minimal command-mode state container is already landed.
   - `mdt-input` now carries `CommandModeState` / `CommandModeProjection` with selected-units, command-buildings, command-rect, control-groups, and last target/command/stance selections
   - `mdt-client-min-online` runtime outbound action sync now updates that container instead of keeping command-mode as packet-observability-only state
