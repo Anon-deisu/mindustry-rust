@@ -26543,15 +26543,17 @@ pub fn parse_save_entity_region(
     save_version: i32,
     bytes: &[u8],
 ) -> Result<SaveEntityRegionObservation, String> {
-    if !(6..=11).contains(&save_version) {
-        return Err(format!(
-            "unsupported .msav save version for passive entity parsing: {}",
-            save_version
-        ));
-    }
-
     let mut reader = Reader::new(bytes);
-    let (remap_count, remap_entries, remap_bytes) = parse_save_entity_remap_table(&mut reader)?;
+    let (remap_count, remap_entries, remap_bytes) = match save_version {
+        4 => (0usize, Vec::new(), Vec::new()),
+        6..=11 => parse_save_entity_remap_table(&mut reader)?,
+        _ => {
+            return Err(format!(
+                "unsupported .msav save version for passive entity parsing: {}",
+                save_version
+            ));
+        }
+    };
     let team_start = reader.position();
     let TeamPlanParseResult {
         team_count,
@@ -26935,7 +26937,7 @@ fn parse_msav_envelope_from_inflated(
 
 fn msav_region_names(save_version: i32) -> Result<&'static [&'static str], String> {
     match save_version {
-        6 => Ok(&["meta", "content", "map", "entities"]),
+        4 | 6 => Ok(&["meta", "content", "map", "entities"]),
         7 => Ok(&["meta", "content", "map", "entities", "custom"]),
         8..=10 => Ok(&["meta", "content", "map", "entities", "markers", "custom"]),
         11 => Ok(&[
@@ -40663,9 +40665,11 @@ mod tests {
 
     fn sample_save_entity_region_bytes(save_version: i32) -> Vec<u8> {
         let mut out = Vec::new();
-        out.extend_from_slice(&1u16.to_be_bytes());
-        out.extend_from_slice(&3u16.to_be_bytes());
-        write_java_utf(&mut out, "mod-unit").unwrap();
+        if save_version != 4 {
+            out.extend_from_slice(&1u16.to_be_bytes());
+            out.extend_from_slice(&3u16.to_be_bytes());
+            write_java_utf(&mut out, "mod-unit").unwrap();
+        }
         out.extend_from_slice(&generate_team_plan_sample_bytes());
         out.extend_from_slice(&2u32.to_be_bytes());
         out.extend_from_slice(&encode_save_entity_chunk(
@@ -40849,7 +40853,7 @@ mod tests {
 
     #[test]
     fn writes_msav_save_round_trips_envelope_and_region_framing() {
-        for save_version in [6, 7, 8, 9, 10, 11] {
+        for save_version in [4, 6, 7, 8, 9, 10, 11] {
             let original = parse_msav_save(&sample_msav_save_bytes(save_version)).unwrap();
             let bytes = write_msav_save(&original).unwrap();
             let reparsed = parse_msav_save(&bytes).unwrap();
@@ -40872,6 +40876,39 @@ mod tests {
                 assert_eq!(lhs.chunk_bytes, rhs.chunk_bytes);
             }
         }
+    }
+
+    #[test]
+    fn parses_save4_entities_region_with_legacy_short_chunks_and_no_remap() {
+        let bytes = sample_msav_save_bytes(4);
+        let save = parse_msav_save(&bytes).unwrap();
+
+        assert_eq!(save.envelope.save_version, 4);
+        assert_eq!(save.region_names(), vec!["meta", "content", "map", "entities"]);
+        assert_eq!(save.entities.remap_count, 0);
+        assert!(save.entities.remap_entries.is_empty());
+        assert!(save.entities.remap_bytes.is_empty());
+        assert_eq!(save.entities.team_count, 1);
+        assert_eq!(save.entities.total_plans, 1);
+        assert_eq!(
+            save.entities.team_region_bytes,
+            generate_team_plan_sample_bytes()
+        );
+        assert_eq!(save.entities.world_entity_count, 2);
+
+        let first = &save.entities.entity_chunks[0];
+        assert_eq!(first.chunk_len, 7);
+        assert_eq!(first.class_id, 3);
+        assert_eq!(first.custom_name, None);
+        assert_eq!(first.entity_id, 0x0102_0304);
+        assert_eq!(first.body_bytes, vec![0xaa, 0xbb]);
+
+        let second = &save.entities.entity_chunks[1];
+        assert_eq!(second.chunk_len, 6);
+        assert_eq!(second.class_id, 7);
+        assert_eq!(second.custom_name, None);
+        assert_eq!(second.entity_id, 0x1122_3344);
+        assert_eq!(second.body_bytes, vec![0xcc]);
     }
 
     #[test]
