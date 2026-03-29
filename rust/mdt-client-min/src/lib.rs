@@ -5,6 +5,7 @@ pub mod connect_packet;
 pub mod custom_packet_runtime;
 pub mod custom_packet_runtime_bridge;
 pub mod custom_packet_runtime_relay;
+pub mod custom_packet_runtime_logic;
 pub mod custom_packet_runtime_surface;
 pub mod effect_data_runtime;
 pub mod effect_runtime;

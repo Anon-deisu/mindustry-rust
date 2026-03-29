@@ -3,6 +3,7 @@ use crate::custom_packet_runtime::{
     RuntimeCustomPacketSemanticEncoding, RuntimeCustomPacketSemanticKind,
     RuntimeCustomPacketSemanticSpec,
 };
+use crate::custom_packet_runtime_logic as logic_helpers;
 use mdt_typeio::{unpack_point2, TypeIoObject};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, VecDeque};
@@ -868,55 +869,12 @@ fn render_text_number(text: &str) -> Result<RenderedSurfaceValue, &'static str> 
 }
 
 fn extract_logic_string(value: &TypeIoObject) -> Option<String> {
-    match value {
-        TypeIoObject::String(Some(text)) => Some(text.clone()),
-        TypeIoObject::ObjectArray(_) => value
-            .find_first_dfs(|object| matches!(object, TypeIoObject::String(Some(_))))
-            .and_then(|matched| match matched.value {
-                TypeIoObject::String(Some(text)) => Some(text.clone()),
-                _ => None,
-            }),
-        _ => None,
-    }
+    logic_helpers::extract_logic_string(value)
 }
 
 fn extract_logic_world_pos(value: &TypeIoObject) -> Result<RenderedSurfaceValue, &'static str> {
-    let direct = match value {
-        TypeIoObject::Point2 { x, y } => Some((*x as f64, *y as f64, "point2")),
-        TypeIoObject::Vec2 { x, y } => Some((*x as f64, *y as f64, "vec2")),
-        TypeIoObject::PackedPoint2Array(values) => values.first().map(|packed| {
-            let (x, y) = unpack_point2(*packed);
-            (x as f64, y as f64, "point2_array_first")
-        }),
-        TypeIoObject::Vec2Array(values) => values
-            .first()
-            .map(|(x, y)| (*x as f64, *y as f64, "vec2_array_first")),
-        TypeIoObject::ObjectArray(_) => None,
-        _ => None,
-    };
-    let (x, y, source) = match direct {
-        Some(value) => value,
-        None => value
-            .find_first_dfs(|object| match object {
-                TypeIoObject::Point2 { .. } | TypeIoObject::Vec2 { .. } => true,
-                TypeIoObject::PackedPoint2Array(values) => !values.is_empty(),
-                TypeIoObject::Vec2Array(values) => !values.is_empty(),
-                _ => false,
-            })
-            .and_then(|matched| match matched.value {
-                TypeIoObject::Point2 { x, y } => Some((*x as f64, *y as f64, "point2_nested")),
-                TypeIoObject::Vec2 { x, y } => Some((*x as f64, *y as f64, "vec2_nested")),
-                TypeIoObject::PackedPoint2Array(values) => values.first().map(|packed| {
-                    let (x, y) = unpack_point2(*packed);
-                    (x as f64, y as f64, "point2_array_first_nested")
-                }),
-                TypeIoObject::Vec2Array(values) => values
-                    .first()
-                    .map(|(x, y)| (*x as f64, *y as f64, "vec2_array_first_nested")),
-                _ => None,
-            })
-            .ok_or("no_world_pos_payload")?,
-    };
+    let extracted = logic_helpers::extract_logic_world_pos(value).ok_or("no_world_pos_payload")?;
+    let (x, y, source) = (extracted.value.0, extracted.value.1, extracted.source);
     let (x, y) = finite_world_pos(x, y).ok_or("invalid_world_pos")?;
     let overlay = format_compact_world_pos(x, y);
     Ok(RenderedSurfaceValue {
@@ -932,34 +890,8 @@ fn extract_logic_world_pos(value: &TypeIoObject) -> Result<RenderedSurfaceValue,
 }
 
 fn extract_logic_build_pos(value: &TypeIoObject) -> Result<RenderedSurfaceValue, &'static str> {
-    let build_pos = match value {
-        TypeIoObject::BuildingPos(build_pos) => Some((*build_pos, "building_pos")),
-        TypeIoObject::Int(build_pos) => Some((*build_pos, "int")),
-        TypeIoObject::Long(build_pos) => {
-            i32::try_from(*build_pos).ok().map(|value| (value, "long"))
-        }
-        TypeIoObject::ObjectArray(_) => None,
-        _ => None,
-    };
-    let (build_pos, source) = match build_pos {
-        Some(value) => value,
-        None => value
-            .find_first_dfs(|object| {
-                matches!(
-                    object,
-                    TypeIoObject::BuildingPos(_) | TypeIoObject::Int(_) | TypeIoObject::Long(_)
-                )
-            })
-            .and_then(|matched| match matched.value {
-                TypeIoObject::BuildingPos(build_pos) => Some((*build_pos, "building_pos_nested")),
-                TypeIoObject::Int(build_pos) => Some((*build_pos, "int_nested")),
-                TypeIoObject::Long(build_pos) => i32::try_from(*build_pos)
-                    .ok()
-                    .map(|value| (value, "long_nested")),
-                _ => None,
-            })
-            .ok_or("no_build_pos_payload")?,
-    };
+    let extracted = logic_helpers::extract_logic_build_pos(value).ok_or("no_build_pos_payload")?;
+    let (build_pos, source) = (extracted.value, extracted.source);
     let (world_x, world_y) = build_pos_world_pos(build_pos);
     Ok(RenderedSurfaceValue {
         detail: format!("build_pos={build_pos} source={source}"),
@@ -978,32 +910,8 @@ fn finite_world_pos(x: f64, y: f64) -> Option<(f64, f64)> {
 }
 
 fn extract_logic_unit_id(value: &TypeIoObject) -> Result<RenderedSurfaceValue, &'static str> {
-    let unit_id = match value {
-        TypeIoObject::UnitId(unit_id) => Some((*unit_id, "unit_id")),
-        TypeIoObject::Int(unit_id) => Some((*unit_id, "int")),
-        TypeIoObject::Long(unit_id) => i32::try_from(*unit_id).ok().map(|value| (value, "long")),
-        TypeIoObject::ObjectArray(_) => None,
-        _ => None,
-    };
-    let (unit_id, source) = match unit_id {
-        Some(value) => value,
-        None => value
-            .find_first_dfs(|object| {
-                matches!(
-                    object,
-                    TypeIoObject::UnitId(_) | TypeIoObject::Int(_) | TypeIoObject::Long(_)
-                )
-            })
-            .and_then(|matched| match matched.value {
-                TypeIoObject::UnitId(unit_id) => Some((*unit_id, "unit_id_nested")),
-                TypeIoObject::Int(unit_id) => Some((*unit_id, "int_nested")),
-                TypeIoObject::Long(unit_id) => i32::try_from(*unit_id)
-                    .ok()
-                    .map(|value| (value, "long_nested")),
-                _ => None,
-            })
-            .ok_or("no_unit_id_payload")?,
-    };
+    let extracted = logic_helpers::extract_logic_unit_id(value).ok_or("no_unit_id_payload")?;
+    let (unit_id, source) = (extracted.value, extracted.source);
     Ok(RenderedSurfaceValue {
         detail: format!("unit_id={unit_id} source={source}"),
         stable_value: unit_id.to_string(),
@@ -1013,34 +921,8 @@ fn extract_logic_unit_id(value: &TypeIoObject) -> Result<RenderedSurfaceValue, &
 }
 
 fn extract_logic_team(value: &TypeIoObject) -> Result<RenderedSurfaceValue, &'static str> {
-    let team = match value {
-        TypeIoObject::Team(team) => Some((*team, "team")),
-        TypeIoObject::Int(team) => u8::try_from(*team).ok().map(|value| (value, "int")),
-        TypeIoObject::Long(team) => u8::try_from(*team).ok().map(|value| (value, "long")),
-        TypeIoObject::ObjectArray(_) => None,
-        _ => None,
-    };
-    let (team, source) = match team {
-        Some(value) => value,
-        None => value
-            .find_first_dfs(|object| {
-                matches!(
-                    object,
-                    TypeIoObject::Team(_) | TypeIoObject::Int(_) | TypeIoObject::Long(_)
-                )
-            })
-            .and_then(|matched| match matched.value {
-                TypeIoObject::Team(team) => Some((*team, "team_nested")),
-                TypeIoObject::Int(team) => {
-                    u8::try_from(*team).ok().map(|value| (value, "int_nested"))
-                }
-                TypeIoObject::Long(team) => {
-                    u8::try_from(*team).ok().map(|value| (value, "long_nested"))
-                }
-                _ => None,
-            })
-            .ok_or("no_team_payload")?,
-    };
+    let extracted = logic_helpers::extract_logic_team(value).ok_or("no_team_payload")?;
+    let (team, source) = (extracted.value, extracted.source);
     Ok(RenderedSurfaceValue {
         detail: format!("team={team} source={source}"),
         stable_value: team.to_string(),
@@ -1050,21 +932,8 @@ fn extract_logic_team(value: &TypeIoObject) -> Result<RenderedSurfaceValue, &'st
 }
 
 fn extract_logic_bool(value: &TypeIoObject) -> Result<RenderedSurfaceValue, &'static str> {
-    let flag = match value {
-        TypeIoObject::Bool(flag) => Some((*flag, "bool")),
-        TypeIoObject::ObjectArray(_) => None,
-        _ => None,
-    };
-    let (flag, source) = match flag {
-        Some(value) => value,
-        None => value
-            .find_first_dfs(|object| matches!(object, TypeIoObject::Bool(_)))
-            .and_then(|matched| match matched.value {
-                TypeIoObject::Bool(flag) => Some((*flag, "bool_nested")),
-                _ => None,
-            })
-            .ok_or("no_bool_payload")?,
-    };
+    let extracted = logic_helpers::extract_logic_bool(value).ok_or("no_bool_payload")?;
+    let (flag, source) = (extracted.value, extracted.source);
     Ok(RenderedSurfaceValue {
         detail: format!("value={flag} source={source}"),
         stable_value: flag.to_string(),
@@ -1074,13 +943,7 @@ fn extract_logic_bool(value: &TypeIoObject) -> Result<RenderedSurfaceValue, &'st
 }
 
 fn extract_logic_number(value: &TypeIoObject) -> Result<RenderedSurfaceValue, &'static str> {
-    let number = logic_number_value(value)
-        .or_else(|| {
-            value
-                .find_first_dfs(|object| logic_number_value(object).is_some())
-                .and_then(|matched| logic_number_value(matched.value))
-        })
-        .ok_or("no_numeric_payload")?;
+    let number = logic_helpers::extract_logic_number(value).ok_or("no_numeric_payload")?;
     Ok(RenderedSurfaceValue {
         detail: format!("value={number}"),
         stable_value: number.clone(),
@@ -1106,16 +969,6 @@ fn position_overlay_marker(
 fn build_pos_world_pos(build_pos: i32) -> (f32, f32) {
     let (tile_x, tile_y) = unpack_point2(build_pos);
     (tile_x as f32 * 8.0, tile_y as f32 * 8.0)
-}
-
-fn logic_number_value(value: &TypeIoObject) -> Option<String> {
-    match value {
-        TypeIoObject::Int(number) => Some(number.to_string()),
-        TypeIoObject::Long(number) => Some(number.to_string()),
-        TypeIoObject::Float(number) => Some(number.to_string()),
-        TypeIoObject::Double(number) => Some(number.to_string()),
-        _ => None,
-    }
 }
 
 fn parse_text_world_pos(text: &str) -> Option<(f64, f64, &'static str)> {
