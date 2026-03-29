@@ -110,7 +110,8 @@ pub fn write_status_entries(out: &mut Vec<u8>, entries: &[StatusEntryRaw], dynam
                 write_byte(out, 0);
             }
         } else {
-            write_status_entry(out, entry);
+            write_short(out, entry.status_id);
+            write_float(out, entry.time);
         }
     }
 }
@@ -717,6 +718,33 @@ mod tests {
         assert_eq!(
             read_status_entries(&bytes, false).unwrap(),
             Vec::<StatusEntryRaw>::new()
+        );
+    }
+
+    #[test]
+    fn status_entries_without_dynamic_fields_do_not_serialize_dynamic_payloads() {
+        let entries = vec![StatusEntryRaw {
+            status_id: 91,
+            time: 12.25,
+            dynamic_fields: Some(StatusDynamicFieldsRaw {
+                damage_multiplier: Some(1.5),
+                speed_multiplier: Some(0.75),
+                armor_override: Some(6.0),
+                ..StatusDynamicFieldsRaw::default()
+            }),
+        }];
+        let mut bytes = Vec::new();
+
+        write_status_entries(&mut bytes, &entries, false);
+
+        assert_eq!(bytes.len(), 7);
+        assert_eq!(
+            read_status_entries(&bytes, false).unwrap(),
+            vec![StatusEntryRaw {
+                status_id: 91,
+                time: 12.25,
+                dynamic_fields: None,
+            }]
         );
     }
 

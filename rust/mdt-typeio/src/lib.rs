@@ -436,7 +436,7 @@ pub fn read_plan(bytes: &[u8]) -> Result<BuildPlanRaw, TypeIoReadError> {
 
 pub fn read_plan_prefix(bytes: &[u8]) -> Result<(BuildPlanRaw, usize), TypeIoReadError> {
     let mut reader = PrimitiveReader::new(bytes);
-    let breaking = reader.read_u8()? != 0;
+    let breaking = read_binary_bool(&mut reader)?;
     let packed_position = reader.read_i32()?;
     let (x, y) = unpack_point2(packed_position);
     let value = if breaking {
@@ -453,7 +453,7 @@ pub fn read_plan_prefix(bytes: &[u8]) -> Result<(BuildPlanRaw, usize), TypeIoRea
     } else {
         let block_id = reader.read_i16()?;
         let rotation = reader.read_u8()?;
-        let has_config = reader.read_u8()? != 0;
+        let has_config = read_binary_bool(&mut reader)?;
         let config = if has_config {
             read_object_safe_from_reader(&mut reader)?
         } else {
@@ -1019,7 +1019,7 @@ fn write_length_prefixed_json_len(out: &mut Vec<u8>, len: usize, bytes: &[u8]) {
 fn read_plan_from_reader(
     reader: &mut PrimitiveReader<'_>,
 ) -> Result<BuildPlanRaw, TypeIoReadError> {
-    let breaking = reader.read_u8()? != 0;
+    let breaking = read_binary_bool(reader)?;
     let packed_position = reader.read_i32()?;
     let (x, y) = unpack_point2(packed_position);
     if breaking {
@@ -1037,7 +1037,7 @@ fn read_plan_from_reader(
 
     let block_id = reader.read_i16()?;
     let rotation = reader.read_u8()?;
-    let has_config = reader.read_u8()? != 0;
+    let has_config = read_binary_bool(reader)?;
     let config = if has_config {
         read_object_safe_from_reader(reader)?
     } else {
@@ -1306,8 +1306,8 @@ fn read_trace_info_from_reader(
         ip: read_string_from_reader(reader)?,
         uuid: read_string_from_reader(reader)?,
         locale: read_string_from_reader(reader)?,
-        modded: reader.read_u8()? != 0,
-        mobile: reader.read_u8()? != 0,
+        modded: read_binary_bool(reader)?,
+        mobile: read_binary_bool(reader)?,
         times_joined: reader.read_i32()?,
         times_kicked: reader.read_i32()?,
         ips: read_capped_strings_from_reader(reader, "trace ips count", 12)?,
@@ -1768,6 +1768,31 @@ mod tests {
     }
 
     #[test]
+    fn plan_reader_rejects_non_binary_boolean_bytes() {
+        let mut bytes = Vec::new();
+        write_plan_break(&mut bytes, 5, 6);
+        bytes[0] = 2;
+        assert_eq!(
+            read_plan(&bytes).unwrap_err(),
+            TypeIoReadError::InvalidBooleanByte {
+                value: 2,
+                position: 0,
+            }
+        );
+
+        bytes.clear();
+        write_plan_place(&mut bytes, 1, 2, 1, CONVEYOR_BLOCK_ID, 3, 4);
+        bytes[8] = 2;
+        assert_eq!(
+            read_plan(&bytes).unwrap_err(),
+            TypeIoReadError::InvalidBooleanByte {
+                value: 2,
+                position: 8,
+            }
+        );
+    }
+
+    #[test]
     fn payload_header_codecs_round_trip_expected_variants() {
         let mut bytes = Vec::new();
         write_payload_null(&mut bytes);
@@ -2012,6 +2037,42 @@ mod tests {
                 length: 13,
                 max: 12,
                 position: 14,
+            }
+        );
+    }
+
+    #[test]
+    fn trace_info_reader_rejects_non_binary_boolean_bytes() {
+        let trace = TraceInfoRaw {
+            ip: None,
+            uuid: None,
+            locale: None,
+            modded: false,
+            mobile: false,
+            times_joined: 0,
+            times_kicked: 0,
+            ips: Vec::new(),
+            names: Vec::new(),
+        };
+        let mut bytes = Vec::new();
+        write_trace_info(&mut bytes, &trace);
+
+        bytes[3] = 2;
+        assert_eq!(
+            read_trace_info(&bytes).unwrap_err(),
+            TypeIoReadError::InvalidBooleanByte {
+                value: 2,
+                position: 3,
+            }
+        );
+
+        bytes[3] = 0;
+        bytes[4] = 2;
+        assert_eq!(
+            read_trace_info(&bytes).unwrap_err(),
+            TypeIoReadError::InvalidBooleanByte {
+                value: 2,
+                position: 4,
             }
         );
     }

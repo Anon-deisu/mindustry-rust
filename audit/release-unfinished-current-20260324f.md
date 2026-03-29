@@ -323,6 +323,13 @@ These are already landed and should not be re-opened as if missing:
 - `static fog` runtime seeding now blocks damaged single-chunk payloads instead of treating them as seedable.
 - `mdt-world` activation now requires `world_shell_ready` and unresolved effective names to be clear; `projection_contract` now flags line-marker end overflow, legacy save-map / legacy entity-group / malformed UBJSON length regressions are pinned, and repeated readiness source regions merge counts/blockers deterministically.
 - `mdt-typeio` string-writer limits and `mdt-typeio::unit_sync` count ceilings now have explicit panic-bound regressions.
+- `rules_objectives_semantics` now normalizes blank/whitespace objective flags, rejects malformed JSON string escapes/raw control chars, and treats decoded objective string literals as real JSON strings instead of preserving wire escapes verbatim.
+- custom-packet text/surface/logic helpers now ignore nested text JSON fields for world-position extraction, reject unknown debug-string escapes, and keep non-finite world-position payloads fail-closed.
+- runtime effect helpers now reject non-finite position hints and malformed lightning geometry instead of partially projecting corrupted effect bindings.
+- snapshot/custom-channel typed registry glue now also rejects `clientSnapshot` packet-id collisions with inbound snapshot ids before fixed-table lookup can shadow the later family.
+- `mdt-world` consumer/runtime ownership helpers now keep zero-step `ApplyNow` stages ready, preserve blocked zero-step ownership surfaces, and require `world_shell_ready` before world semantics can apply.
+- `mdt-world` projection-contract tile validation now also fail-closes stale tile-side `building_center_index` references instead of only checking center-to-tile backreferences.
+- `mdt-typeio` plan/trace readers now reject non-binary bool markers on the remaining plan/trace paths, and non-dynamic status-entry batches no longer serialize stray dynamic-field payloads.
 
 ## Highest-Confidence Remaining Lanes
 

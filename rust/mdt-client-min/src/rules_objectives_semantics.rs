@@ -491,7 +491,100 @@ fn parse_json_string_literal(raw: &str) -> Option<String> {
     if end != bytes.len() {
         return None;
     }
-    Some(trimmed[1..end - 1].to_string())
+    decode_json_string_literal(trimmed, end)
+}
+
+fn decode_json_string_literal(trimmed: &str, end: usize) -> Option<String> {
+    let bytes = trimmed.as_bytes();
+    let mut decoded = String::with_capacity(end.saturating_sub(2));
+    let mut segment_start = 1usize;
+    let mut cursor = 1usize;
+
+    while cursor < end - 1 {
+        if bytes[cursor] != b'\\' {
+            cursor += 1;
+            continue;
+        }
+
+        decoded.push_str(&trimmed[segment_start..cursor]);
+        cursor += 1;
+        let escape = *bytes.get(cursor)?;
+        match escape {
+            b'"' => {
+                decoded.push('"');
+                cursor += 1;
+            }
+            b'\\' => {
+                decoded.push('\\');
+                cursor += 1;
+            }
+            b'/' => {
+                decoded.push('/');
+                cursor += 1;
+            }
+            b'b' => {
+                decoded.push('\u{0008}');
+                cursor += 1;
+            }
+            b'f' => {
+                decoded.push('\u{000c}');
+                cursor += 1;
+            }
+            b'n' => {
+                decoded.push('\n');
+                cursor += 1;
+            }
+            b'r' => {
+                decoded.push('\r');
+                cursor += 1;
+            }
+            b't' => {
+                decoded.push('\t');
+                cursor += 1;
+            }
+            b'u' => {
+                let (ch, next_cursor) = decode_json_unicode_escape(bytes, cursor)?;
+                decoded.push(ch);
+                cursor = next_cursor;
+            }
+            _ => return None,
+        }
+        segment_start = cursor;
+    }
+
+    decoded.push_str(&trimmed[segment_start..end - 1]);
+    Some(decoded)
+}
+
+fn decode_json_unicode_escape(bytes: &[u8], escape_index: usize) -> Option<(char, usize)> {
+    let high = parse_json_unicode_code_unit(bytes, escape_index + 1)?;
+    let mut next_cursor = escape_index + 5;
+
+    if (0xD800..=0xDBFF).contains(&high) {
+        if bytes.get(next_cursor).copied() != Some(b'\\')
+            || bytes.get(next_cursor + 1).copied() != Some(b'u')
+        {
+            return None;
+        }
+        let low = parse_json_unicode_code_unit(bytes, next_cursor + 2)?;
+        if !(0xDC00..=0xDFFF).contains(&low) {
+            return None;
+        }
+        let codepoint = 0x10000 + (((high - 0xD800) as u32) << 10) + (low - 0xDC00) as u32;
+        next_cursor += 6;
+        return Some((char::from_u32(codepoint)?, next_cursor));
+    }
+
+    if (0xDC00..=0xDFFF).contains(&high) {
+        return None;
+    }
+
+    Some((char::from_u32(high as u32)?, next_cursor))
+}
+
+fn parse_json_unicode_code_unit(bytes: &[u8], start: usize) -> Option<u16> {
+    let hex = std::str::from_utf8(bytes.get(start..start + 4)?).ok()?;
+    u16::from_str_radix(hex, 16).ok()
 }
 
 fn object_field_value<'a>(json: &'a str, key: &str) -> Option<&'a str> {
@@ -1040,10 +1133,34 @@ mod tests {
 
     #[test]
     fn parse_json_string_literal_rejects_invalid_escape_sequences() {
-        assert_eq!(parse_json_string_literal(r#""ok\nline""#), Some(r#"ok\nline"#.to_string()));
+        assert_eq!(
+            parse_json_string_literal(r#""ok\nline""#),
+            Some("ok\nline".to_string())
+        );
         assert_eq!(parse_json_string_literal(r#""bad\x20""#), None);
         assert_eq!(parse_json_string_literal("\"bad\nline\""), None);
         assert_eq!(parse_json_string_literal("\"bad\u{0001}line\""), None);
+    }
+
+    #[test]
+    fn objectives_projection_decodes_escaped_string_literals() {
+        let mut projection = ObjectivesProjection::default();
+
+        projection.replace_from_json(
+            r#"[{"type":"Flag","flag":"\u0041\uD83D\uDE00","text":"line\nnext","details":"quote: \"ok\"","completionLogicCode":"path\\to\\logic"}]"#,
+        );
+
+        assert_eq!(projection.objectives.len(), 1);
+        assert_eq!(projection.objectives[0].flag.as_deref(), Some("A\u{1F600}"));
+        assert_eq!(projection.objectives[0].text.as_deref(), Some("line\nnext"));
+        assert_eq!(
+            projection.objectives[0].details.as_deref(),
+            Some("quote: \"ok\"")
+        );
+        assert_eq!(
+            projection.objectives[0].completion_logic_code.as_deref(),
+            Some("path\\to\\logic")
+        );
     }
 
     #[test]
@@ -1154,7 +1271,10 @@ mod tests {
             projection.objectives[0].objective_type.as_deref(),
             Some("Research")
         );
-        assert_eq!(projection.objectives[0].target_name.as_deref(), Some("router"));
+        assert_eq!(
+            projection.objectives[0].target_name.as_deref(),
+            Some("router")
+        );
         assert!(!projection.objectives[0].completed);
         assert!(!projection.objectives[0].hidden);
         assert!(projection.objectives[0].parents.is_empty());

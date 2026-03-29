@@ -134,6 +134,22 @@ fn tile_surface_consistent(
         }
     }
 
+    for tile in &world.tiles {
+        let center_ok = tile
+            .building_center_index
+            .and_then(|center_index| world.building_centers.get(center_index))
+            .map(|center| center.tile_index == tile.tile_index)
+            .unwrap_or_else(|| tile.building_center_index.is_none());
+        if !center_ok {
+            push_issue(
+                issues,
+                SavePostLoadWorldIssue::BuildingCenterReferenceMismatch,
+            );
+            consistent = false;
+            break;
+        }
+    }
+
     consistent
 }
 
@@ -682,6 +698,20 @@ mod tests {
         assert!(contract
             .issues
             .contains(&SavePostLoadWorldIssue::TileSurfaceIndexMismatch));
+        assert!(contract
+            .issues
+            .contains(&SavePostLoadWorldIssue::BuildingCenterReferenceMismatch));
+    }
+
+    #[test]
+    fn projection_contract_flags_stale_building_center_index_on_unreferenced_tile() {
+        let mut observation = test_observation();
+        observation.map.world.tiles[1].building_center_index = Some(0);
+
+        let contract = observation.projection_contract();
+
+        assert!(!contract.can_project_world_shell());
+        assert!(!contract.tile_surface_consistent);
         assert!(contract
             .issues
             .contains(&SavePostLoadWorldIssue::BuildingCenterReferenceMismatch));
