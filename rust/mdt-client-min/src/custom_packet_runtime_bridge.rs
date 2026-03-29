@@ -322,7 +322,7 @@ fn parse_debug_string(value: &str) -> Option<String> {
             'r' => parsed.push('\r'),
             't' => parsed.push('\t'),
             'u' => parsed.push(parse_unicode_escape(&mut chars)?),
-            other => parsed.push(other),
+            _ => return None,
         }
     }
     Some(parsed)
@@ -651,9 +651,9 @@ mod tests {
     }
 
     #[test]
-    fn parse_debug_string_preserves_unknown_escape_characters() {
-        assert_eq!(parse_debug_string(r#""a\qb""#), Some("aqb".to_string()));
-        assert_eq!(parse_debug_string(r#""\q""#), Some("q".to_string()));
+    fn parse_debug_string_rejects_unknown_escape_sequences() {
+        assert_eq!(parse_debug_string(r#""a\qb""#), None);
+        assert_eq!(parse_debug_string(r#""\q""#), None);
     }
 
     #[test]
