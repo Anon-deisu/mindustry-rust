@@ -1573,6 +1573,8 @@ mod tests {
 
         state.record_text_handler("text.build", &pack_point2(4, 6).to_string());
         assert_eq!(state.overlay_markers(4).len(), 1);
+        assert!(state.overlay_summary_text(4).is_some());
+        assert_eq!(state.latest_summary_entries(4).len(), 1);
 
         state.observe_events(&[ClientSessionEvent::ConnectRedirectRequested {
             ip: "127.0.0.1".to_string(),
@@ -1585,6 +1587,8 @@ mod tests {
                 && line.contains("reason=\"connect_redirect\"")
         }));
         assert!(state.overlay_markers(4).is_empty());
+        assert_eq!(state.overlay_summary_text(4), None);
+        assert!(state.latest_summary_entries(4).is_empty());
     }
 
     #[test]
@@ -1598,6 +1602,8 @@ mod tests {
 
         state.record_text_handler("text.build", &pack_point2(4, 6).to_string());
         assert_eq!(state.overlay_markers(4).len(), 1);
+        assert!(state.overlay_summary_text(4).is_some());
+        assert_eq!(state.latest_summary_entries(4).len(), 1);
 
         state.observe_events(&[ClientSessionEvent::WorldStreamStarted {
             stream_id: 3,
@@ -1610,6 +1616,8 @@ mod tests {
                 && line.contains("reason=\"world_stream_started\"")
         }));
         assert!(state.overlay_markers(4).is_empty());
+        assert_eq!(state.overlay_summary_text(4), None);
+        assert!(state.latest_summary_entries(4).is_empty());
     }
 
     #[test]
