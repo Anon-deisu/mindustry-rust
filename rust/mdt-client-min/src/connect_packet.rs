@@ -369,6 +369,28 @@ fn decode_base64(input: &str) -> Result<Vec<u8>, ConnectPacketEncodeError> {
     while effective_len > 0 && cleaned[effective_len - 1] == '=' {
         effective_len -= 1;
     }
+    if effective_len == 0 {
+        if cleaned.len() == 4 {
+            return Ok(Vec::new());
+        }
+        return Err(ConnectPacketEncodeError::InvalidBase64Length(cleaned.len()));
+    }
+    let padding_len = cleaned.len() - effective_len;
+    if padding_len > 2 {
+        return Err(ConnectPacketEncodeError::InvalidBase64Length(cleaned.len()));
+    }
+    match padding_len {
+        0 if effective_len % 4 != 0 => {
+            return Err(ConnectPacketEncodeError::InvalidBase64Length(cleaned.len()));
+        }
+        1 if effective_len % 4 != 3 => {
+            return Err(ConnectPacketEncodeError::InvalidBase64Length(cleaned.len()));
+        }
+        2 if effective_len % 4 != 2 => {
+            return Err(ConnectPacketEncodeError::InvalidBase64Length(cleaned.len()));
+        }
+        _ => {}
+    }
 
     let output_len = (effective_len * 3) / 4;
     let mut output = Vec::with_capacity(output_len);
@@ -538,6 +560,27 @@ mod tests {
         let err = decode_base64("AAAAA").unwrap_err();
 
         assert_eq!(err, ConnectPacketEncodeError::InvalidBase64Length(5));
+    }
+
+    #[test]
+    fn decode_base64_rejects_internal_padding() {
+        let err = decode_base64("AA=A").unwrap_err();
+
+        assert_eq!(
+            err,
+            ConnectPacketEncodeError::InvalidBase64Char {
+                ch: '=',
+                index: 2,
+            }
+        );
+    }
+
+    #[test]
+    fn decode_base64_rejects_invalid_padding_shape() {
+        assert_eq!(
+            decode_base64("A===").unwrap_err(),
+            ConnectPacketEncodeError::InvalidBase64Length(4)
+        );
     }
 
     #[test]
