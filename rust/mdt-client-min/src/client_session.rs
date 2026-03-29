@@ -632,24 +632,8 @@ impl ClientSession {
         let world_data_begin_packet_id = well_known_remote
             .world_data_begin_packet_id
             .ok_or(ClientSessionError::MissingWorldDataBeginPacket)?;
-        let kick_string_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
-                entry.method == "kick"
-                    && entry.params.len() == 1
-                    && entry.params[0].java_type == "java.lang.String"
-            })
-            .map(|entry| entry.packet_id);
-        let kick_reason_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| {
-                entry.method == "kick"
-                    && !entry.params.is_empty()
-                    && entry.params[0].java_type.contains("KickReason")
-            })
-            .map(|entry| entry.packet_id);
+        let kick_string_packet_id = well_known_remote.kick_string_packet_id;
+        let kick_reason_packet_id = well_known_remote.kick_reason_packet_id;
         let connect_redirect_packet_id = manifest
             .remote_packets
             .iter()
@@ -51157,6 +51141,14 @@ mod tests {
             expected(WellKnownRemoteMethod::ConnectConfirm)
         );
         assert_eq!(
+            session.kick_string_packet_id,
+            expected(WellKnownRemoteMethod::KickString)
+        );
+        assert_eq!(
+            session.kick_reason_packet_id,
+            expected(WellKnownRemoteMethod::KickReason)
+        );
+        assert_eq!(
             session.set_rules_packet_id,
             expected(WellKnownRemoteMethod::SetRules)
         );
@@ -51226,6 +51218,74 @@ mod tests {
             session.world_data_begin_packet_id,
             expected_world_data_begin_packet_id
         );
+    }
+
+    #[test]
+    fn session_kick_packet_ids_reject_well_known_method_decoys() {
+        let mut manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let expected_kick_string_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "kick"
+                    && entry.params.len() == 1
+                    && entry.params[0].java_type == "java.lang.String"
+                    && !entry.unreliable
+            })
+            .expect("missing string kick packet")
+            .packet_id;
+        let expected_kick_reason_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "kick"
+                    && entry.params.len() == 1
+                    && entry.params[0].java_type.contains("KickReason")
+                    && !entry.unreliable
+            })
+            .expect("missing kick-reason packet")
+            .packet_id;
+
+        let mut kick_string_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "kick"
+                    && entry.params.len() == 1
+                    && entry.params[0].java_type == "java.lang.String"
+                    && !entry.unreliable
+            })
+            .expect("missing string kick packet")
+            .clone();
+        kick_string_decoy.packet_id = 248;
+        kick_string_decoy.packet_class = "mindustry.gen.KickDecoyCallPacket".into();
+        kick_string_decoy.unreliable = true;
+
+        let mut kick_reason_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "kick"
+                    && entry.params.len() == 1
+                    && entry.params[0].java_type.contains("KickReason")
+                    && !entry.unreliable
+            })
+            .expect("missing kick-reason packet")
+            .clone();
+        kick_reason_decoy.packet_id = 249;
+        kick_reason_decoy.packet_class = "mindustry.gen.KickDecoyCallPacket2".into();
+        kick_reason_decoy.unreliable = true;
+
+        manifest
+            .remote_packets
+            .splice(0..0, vec![kick_string_decoy, kick_reason_decoy]);
+        for (remote_index, packet) in manifest.remote_packets.iter_mut().enumerate() {
+            packet.remote_index = remote_index;
+        }
+
+        let session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        assert_eq!(session.kick_string_packet_id, Some(expected_kick_string_packet_id));
+        assert_eq!(session.kick_reason_packet_id, Some(expected_kick_reason_packet_id));
     }
 
     #[test]

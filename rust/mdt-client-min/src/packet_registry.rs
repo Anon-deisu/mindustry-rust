@@ -62,6 +62,8 @@ pub struct WellKnownRemotePacketIds {
     pub debug_status_client_unreliable_packet_id: Option<u8>,
     pub trace_info_packet_id: Option<u8>,
     pub connect_confirm_packet_id: Option<u8>,
+    pub kick_string_packet_id: Option<u8>,
+    pub kick_reason_packet_id: Option<u8>,
     pub set_rules_packet_id: Option<u8>,
     pub set_objectives_packet_id: Option<u8>,
     pub set_rule_packet_id: Option<u8>,
@@ -300,6 +302,8 @@ impl WellKnownRemotePacketIds {
             ),
             trace_info_packet_id: packet_id(WellKnownRemoteMethod::TraceInfo),
             connect_confirm_packet_id: packet_id(WellKnownRemoteMethod::ConnectConfirm),
+            kick_string_packet_id: packet_id(WellKnownRemoteMethod::KickString),
+            kick_reason_packet_id: packet_id(WellKnownRemoteMethod::KickReason),
             set_rules_packet_id: packet_id(WellKnownRemoteMethod::SetRules),
             set_objectives_packet_id: packet_id(WellKnownRemoteMethod::SetObjectives),
             set_rule_packet_id: packet_id(WellKnownRemoteMethod::SetRule),
@@ -321,6 +325,8 @@ impl WellKnownRemotePacketIds {
             }
             WellKnownRemoteMethod::TraceInfo => self.trace_info_packet_id,
             WellKnownRemoteMethod::ConnectConfirm => self.connect_confirm_packet_id,
+            WellKnownRemoteMethod::KickString => self.kick_string_packet_id,
+            WellKnownRemoteMethod::KickReason => self.kick_reason_packet_id,
             WellKnownRemoteMethod::SetRules => self.set_rules_packet_id,
             WellKnownRemoteMethod::SetObjectives => self.set_objectives_packet_id,
             WellKnownRemoteMethod::SetRule => self.set_rule_packet_id,
@@ -843,8 +849,9 @@ mod tests {
     fn generated_remote_registry_constants_match_manifest_and_combined_views() {
         use crate::generated::remote_high_frequency_gen::CLIENT_SNAPSHOT_PACKET_ID;
         use crate::generated::remote_registry_gen::{
-            CLIENT_SNAPSHOT_CALL_PACKET_ID, CONNECT_CONFIRM_CALL_PACKET_ID, PING_CALL_PACKET_ID,
-            REMOTE_PACKET_SPECS, TILE_CONFIG_CALL_PACKET_ID, WORLD_DATA_BEGIN_CALL_PACKET_ID,
+            CLIENT_SNAPSHOT_CALL_PACKET_ID, CONNECT_CONFIRM_CALL_PACKET_ID, KICK_CALL_PACKET2_ID,
+            KICK_CALL_PACKET_ID, PING_CALL_PACKET_ID, REMOTE_PACKET_SPECS,
+            TILE_CONFIG_CALL_PACKET_ID, WORLD_DATA_BEGIN_CALL_PACKET_ID,
         };
 
         let manifest = read_remote_manifest(real_manifest_path()).unwrap();
@@ -881,6 +888,14 @@ mod tests {
         assert_eq!(
             combined.well_known_remote.world_data_begin_packet_id,
             Some(WORLD_DATA_BEGIN_CALL_PACKET_ID)
+        );
+        assert_eq!(
+            combined.well_known_remote.kick_string_packet_id,
+            Some(KICK_CALL_PACKET_ID)
+        );
+        assert_eq!(
+            combined.well_known_remote.kick_reason_packet_id,
+            Some(KICK_CALL_PACKET2_ID)
         );
         assert_eq!(
             manifest
@@ -929,6 +944,8 @@ mod tests {
         );
         assert_eq!(well_known.trace_info_packet_id, Some(15));
         assert_eq!(well_known.connect_confirm_packet_id, Some(21));
+        assert_eq!(well_known.kick_string_packet_id, Some(25));
+        assert_eq!(well_known.kick_reason_packet_id, Some(27));
         assert_eq!(well_known.set_rules_packet_id, Some(16));
         assert_eq!(well_known.set_objectives_packet_id, Some(17));
         assert_eq!(well_known.set_rule_packet_id, Some(19));
@@ -987,6 +1004,14 @@ mod tests {
             (
                 WellKnownRemoteMethod::ConnectConfirm,
                 well_known.connect_confirm_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::KickString,
+                well_known.kick_string_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::KickReason,
+                well_known.kick_reason_packet_id,
             ),
             (
                 WellKnownRemoteMethod::SetRules,
@@ -1551,6 +1576,60 @@ mod tests {
                     "none",
                     false,
                     vec![],
+                ),
+                remote_packet(
+                    20,
+                    24,
+                    "mindustry.gen.KickDecoyCallPacket",
+                    "mindustry.core.NetClient",
+                    "kick",
+                    "server",
+                    "none",
+                    true,
+                    vec![param("reason", "java.lang.String", true, true)],
+                ),
+                remote_packet(
+                    21,
+                    25,
+                    "mindustry.gen.KickCallPacket",
+                    "mindustry.core.NetClient",
+                    "kick",
+                    "server",
+                    "none",
+                    false,
+                    vec![param("reason", "java.lang.String", true, true)],
+                ),
+                remote_packet(
+                    22,
+                    26,
+                    "mindustry.gen.KickDecoyCallPacket2",
+                    "mindustry.core.NetClient",
+                    "kick",
+                    "server",
+                    "none",
+                    true,
+                    vec![param(
+                        "reason",
+                        "mindustry.net.Packets.KickReason",
+                        true,
+                        true,
+                    )],
+                ),
+                remote_packet(
+                    23,
+                    27,
+                    "mindustry.gen.KickCallPacket2",
+                    "mindustry.core.NetClient",
+                    "kick",
+                    "server",
+                    "none",
+                    false,
+                    vec![param(
+                        "reason",
+                        "mindustry.net.Packets.KickReason",
+                        true,
+                        true,
+                    )],
                 ),
             ],
             wire: WireSpec {

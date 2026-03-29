@@ -5,7 +5,7 @@ pub const REMOTE_MANIFEST_SCHEMA_V1: &str = "mdt.remote.manifest.v1";
 pub const CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT: usize = 10;
 pub const HIGH_FREQUENCY_REMOTE_METHOD_COUNT: usize = 5;
 pub const INBOUND_REMOTE_FAMILY_COUNT: usize = 6;
-pub const WELL_KNOWN_REMOTE_METHOD_COUNT: usize = 12;
+pub const WELL_KNOWN_REMOTE_METHOD_COUNT: usize = 14;
 pub const REMOTE_PACKET_ID_SPACE: usize = u8::MAX as usize + 1;
 pub const REMOTE_WIRE_PACKET_ID_BYTE_U8: &str = "u8";
 pub const REMOTE_WIRE_LENGTH_FIELD_U16BE: &str = "u16be";
@@ -183,6 +183,8 @@ pub enum WellKnownRemoteMethod {
     SetObjectives,
     SetRule,
     WorldDataBegin,
+    KickString,
+    KickReason,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -435,6 +437,10 @@ const TRACE_INFO_WIRE_PARAM_KINDS: [RemoteParamKind; 2] =
     [RemoteParamKind::Opaque, RemoteParamKind::Opaque];
 const CONNECT_CONFIRM_PARAM_JAVA_TYPES: [&str; 1] = ["Player"];
 const CONNECT_CONFIRM_WIRE_PARAM_KINDS: [RemoteParamKind; 0] = [];
+const KICK_STRING_PARAM_JAVA_TYPES: [&str; 1] = ["java.lang.String"];
+const KICK_STRING_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Opaque];
+const KICK_REASON_PARAM_JAVA_TYPES: [&str; 1] = ["mindustry.net.Packets.KickReason"];
+const KICK_REASON_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Opaque];
 const SET_RULES_PARAM_JAVA_TYPES: [&str; 1] = ["mindustry.game.Rules"];
 const SET_RULES_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Opaque];
 const SET_OBJECTIVES_PARAM_JAVA_TYPES: [&str; 1] = ["mindustry.game.MapObjectives"];
@@ -511,6 +517,8 @@ impl WellKnownRemoteMethod {
             Self::SetObjectives,
             Self::SetRule,
             Self::WorldDataBegin,
+            Self::KickString,
+            Self::KickReason,
         ]
     }
 
@@ -528,6 +536,7 @@ impl WellKnownRemoteMethod {
             Self::SetObjectives => "setObjectives",
             Self::SetRule => "setRule",
             Self::WorldDataBegin => "worldDataBegin",
+            Self::KickString | Self::KickReason => "kick",
         }
     }
 
@@ -542,7 +551,9 @@ impl WellKnownRemoteMethod {
             | Self::SetRules
             | Self::SetObjectives
             | Self::SetRule
-            | Self::WorldDataBegin => RemoteFlow::ServerToClient,
+            | Self::WorldDataBegin
+            | Self::KickString
+            | Self::KickReason => RemoteFlow::ServerToClient,
             Self::ConnectConfirm => RemoteFlow::ClientToServer,
         }
     }
@@ -570,6 +581,8 @@ impl WellKnownRemoteMethod {
             Self::SetObjectives => &SET_OBJECTIVES_PARAM_JAVA_TYPES,
             Self::SetRule => &SET_RULE_PARAM_JAVA_TYPES,
             Self::WorldDataBegin => &WORLD_DATA_BEGIN_PARAM_JAVA_TYPES,
+            Self::KickString => &KICK_STRING_PARAM_JAVA_TYPES,
+            Self::KickReason => &KICK_REASON_PARAM_JAVA_TYPES,
         }
     }
 
@@ -587,6 +600,8 @@ impl WellKnownRemoteMethod {
             Self::SetObjectives => &SET_OBJECTIVES_WIRE_PARAM_KINDS,
             Self::SetRule => &SET_RULE_WIRE_PARAM_KINDS,
             Self::WorldDataBegin => &WORLD_DATA_BEGIN_WIRE_PARAM_KINDS,
+            Self::KickString => &KICK_STRING_WIRE_PARAM_KINDS,
+            Self::KickReason => &KICK_REASON_WIRE_PARAM_KINDS,
         }
     }
 
@@ -4196,6 +4211,8 @@ mod tests {
             (WellKnownRemoteMethod::SetObjectives, Some(17)),
             (WellKnownRemoteMethod::SetRule, Some(19)),
             (WellKnownRemoteMethod::WorldDataBegin, Some(23)),
+            (WellKnownRemoteMethod::KickString, Some(25)),
+            (WellKnownRemoteMethod::KickReason, Some(27)),
         ];
 
         assert_eq!(registry.len(), expected.len());
@@ -4227,9 +4244,12 @@ mod tests {
         );
         assert_eq!(fixed_table.get(21), Some(WellKnownRemoteMethod::ConnectConfirm));
         assert_eq!(fixed_table.get(23), Some(WellKnownRemoteMethod::WorldDataBegin));
+        assert_eq!(fixed_table.get(25), Some(WellKnownRemoteMethod::KickString));
+        assert_eq!(fixed_table.get(27), Some(WellKnownRemoteMethod::KickReason));
         assert_eq!(fixed_table.get(18), None);
         assert!(fixed_table.contains_packet_id(19));
         assert!(fixed_table.contains_packet_id(23));
+        assert!(fixed_table.contains_packet_id(27));
         assert!(!fixed_table.contains_packet_id(250));
     }
 
@@ -4625,6 +4645,18 @@ mod tests {
                 .first_well_known_method(WellKnownRemoteMethod::WorldDataBegin)
                 .map(|packet| packet.packet_id),
             Some(23)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::KickString)
+                .map(|packet| packet.packet_id),
+            Some(25)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::KickReason)
+                .map(|packet| packet.packet_id),
+            Some(27)
         );
     }
 
@@ -5343,6 +5375,60 @@ mod tests {
                     "normal",
                     false,
                     vec![],
+                ),
+                test_remote_packet(
+                    20,
+                    24,
+                    "mindustry.gen.KickDecoyCallPacket",
+                    "mindustry.core.NetClient",
+                    "kick",
+                    "server",
+                    "high",
+                    true,
+                    vec![test_param("reason", "java.lang.String", true, true)],
+                ),
+                test_remote_packet(
+                    21,
+                    25,
+                    "mindustry.gen.KickCallPacket",
+                    "mindustry.core.NetClient",
+                    "kick",
+                    "server",
+                    "high",
+                    false,
+                    vec![test_param("reason", "java.lang.String", true, true)],
+                ),
+                test_remote_packet(
+                    22,
+                    26,
+                    "mindustry.gen.KickDecoyCallPacket2",
+                    "mindustry.core.NetClient",
+                    "kick",
+                    "server",
+                    "high",
+                    true,
+                    vec![test_param(
+                        "reason",
+                        "mindustry.net.Packets.KickReason",
+                        true,
+                        true,
+                    )],
+                ),
+                test_remote_packet(
+                    23,
+                    27,
+                    "mindustry.gen.KickCallPacket2",
+                    "mindustry.core.NetClient",
+                    "kick",
+                    "server",
+                    "high",
+                    false,
+                    vec![test_param(
+                        "reason",
+                        "mindustry.net.Packets.KickReason",
+                        true,
+                        true,
+                    )],
                 ),
             ],
             wire: WireSpec {
