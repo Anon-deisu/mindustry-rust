@@ -41884,6 +41884,29 @@ mod tests {
     }
 
     #[test]
+    fn writes_msav_post_load_samples_round_trip_post_load_observation() {
+        for (save_version, bytes) in [
+            (6, sample_msav_post_load_save6_bytes()),
+            (11, sample_msav_post_load_save11_bytes()),
+        ] {
+            let original = parse_msav_save(&bytes).unwrap();
+            let original_post_load = original.post_load_world().unwrap();
+            let rewritten = write_msav_save(&original).unwrap();
+            let reparsed = parse_msav_save(&rewritten).unwrap();
+            let reparsed_post_load = reparsed.post_load_world().unwrap();
+
+            assert_eq!(reparsed.envelope.save_version, save_version);
+            assert_eq!(reparsed.region_names(), original.region_names());
+            assert_eq!(reparsed.regions.len(), original.regions.len());
+            for (lhs, rhs) in reparsed.regions.iter().zip(&original.regions) {
+                assert_eq!(lhs.name, rhs.name);
+                assert_eq!(lhs.chunk_bytes, rhs.chunk_bytes);
+            }
+            assert_eq!(reparsed_post_load, original_post_load);
+        }
+    }
+
+    #[test]
     fn parses_save1_and_save2_entities_region_with_legacy_group_chunks() {
         for save_version in [1, 2] {
             let bytes = sample_msav_save_bytes(save_version);
