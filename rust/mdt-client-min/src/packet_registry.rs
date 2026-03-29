@@ -91,6 +91,11 @@ pub struct WellKnownRemotePacketIds {
     pub set_objectives_packet_id: Option<u8>,
     pub set_rule_packet_id: Option<u8>,
     pub complete_objective_packet_id: Option<u8>,
+    pub game_over_packet_id: Option<u8>,
+    pub researched_packet_id: Option<u8>,
+    pub sector_capture_packet_id: Option<u8>,
+    pub set_flag_packet_id: Option<u8>,
+    pub update_game_over_packet_id: Option<u8>,
     pub world_data_begin_packet_id: Option<u8>,
 }
 
@@ -361,6 +366,11 @@ impl WellKnownRemotePacketIds {
             set_objectives_packet_id: packet_id(WellKnownRemoteMethod::SetObjectives),
             set_rule_packet_id: packet_id(WellKnownRemoteMethod::SetRule),
             complete_objective_packet_id: packet_id(WellKnownRemoteMethod::CompleteObjective),
+            game_over_packet_id: packet_id(WellKnownRemoteMethod::GameOver),
+            researched_packet_id: packet_id(WellKnownRemoteMethod::Researched),
+            sector_capture_packet_id: packet_id(WellKnownRemoteMethod::SectorCapture),
+            set_flag_packet_id: packet_id(WellKnownRemoteMethod::SetFlag),
+            update_game_over_packet_id: packet_id(WellKnownRemoteMethod::UpdateGameOver),
             world_data_begin_packet_id: packet_id(WellKnownRemoteMethod::WorldDataBegin),
         }
     }
@@ -414,6 +424,11 @@ impl WellKnownRemotePacketIds {
             WellKnownRemoteMethod::SetObjectives => self.set_objectives_packet_id,
             WellKnownRemoteMethod::SetRule => self.set_rule_packet_id,
             WellKnownRemoteMethod::CompleteObjective => self.complete_objective_packet_id,
+            WellKnownRemoteMethod::GameOver => self.game_over_packet_id,
+            WellKnownRemoteMethod::Researched => self.researched_packet_id,
+            WellKnownRemoteMethod::SectorCapture => self.sector_capture_packet_id,
+            WellKnownRemoteMethod::SetFlag => self.set_flag_packet_id,
+            WellKnownRemoteMethod::UpdateGameOver => self.update_game_over_packet_id,
             WellKnownRemoteMethod::WorldDataBegin => self.world_data_begin_packet_id,
         }
     }
@@ -936,15 +951,17 @@ mod tests {
             ADMIN_REQUEST_CALL_PACKET_ID, CLIENT_SNAPSHOT_CALL_PACKET_ID,
             COMPLETE_OBJECTIVE_CALL_PACKET_ID, CONNECT_CALL_PACKET_ID,
             CONNECT_CONFIRM_CALL_PACKET_ID, KICK_CALL_PACKET2_ID, KICK_CALL_PACKET_ID,
-            DEBUG_STATUS_CLIENT_CALL_PACKET_ID, PING_CALL_PACKET_ID,
+            DEBUG_STATUS_CLIENT_CALL_PACKET_ID, GAME_OVER_CALL_PACKET_ID, PING_CALL_PACKET_ID,
             PLAYER_SPAWN_CALL_PACKET_ID, REMOTE_PACKET_SPECS, REQUEST_DEBUG_STATUS_CALL_PACKET_ID,
+            RESEARCHED_CALL_PACKET_ID, SECTOR_CAPTURE_CALL_PACKET_ID,
             SEND_CHAT_MESSAGE_CALL_PACKET_ID, SEND_MESSAGE_CALL_PACKET2_ID,
             SEND_MESSAGE_CALL_PACKET_ID, TILE_CONFIG_CALL_PACKET_ID,
-            WORLD_DATA_BEGIN_CALL_PACKET_ID, INFO_POPUP_CALL_PACKET_ID,
+            UPDATE_GAME_OVER_CALL_PACKET_ID, WORLD_DATA_BEGIN_CALL_PACKET_ID,
+            INFO_POPUP_CALL_PACKET_ID,
             INFO_POPUP_CALL_PACKET2_ID, INFO_POPUP_RELIABLE_CALL_PACKET_ID,
             INFO_POPUP_RELIABLE_CALL_PACKET2_ID, LABEL_CALL_PACKET_ID,
             LABEL_CALL_PACKET2_ID, LABEL_RELIABLE_CALL_PACKET_ID,
-            LABEL_RELIABLE_CALL_PACKET2_ID, TEXT_INPUT_CALL_PACKET_ID,
+            LABEL_RELIABLE_CALL_PACKET2_ID, SET_FLAG_CALL_PACKET_ID, TEXT_INPUT_CALL_PACKET_ID,
             TEXT_INPUT_CALL_PACKET2_ID, EFFECT_CALL_PACKET_ID,
             EFFECT_CALL_PACKET2_ID, EFFECT_RELIABLE_CALL_PACKET_ID, SOUND_CALL_PACKET_ID,
             SOUND_AT_CALL_PACKET_ID,
@@ -979,6 +996,14 @@ mod tests {
         assert!(has_generated_spec(
             DEBUG_STATUS_CLIENT_CALL_PACKET_ID,
             "debugStatusClient"
+        ));
+        assert!(has_generated_spec(GAME_OVER_CALL_PACKET_ID, "gameOver"));
+        assert!(has_generated_spec(RESEARCHED_CALL_PACKET_ID, "researched"));
+        assert!(has_generated_spec(SECTOR_CAPTURE_CALL_PACKET_ID, "sectorCapture"));
+        assert!(has_generated_spec(SET_FLAG_CALL_PACKET_ID, "setFlag"));
+        assert!(has_generated_spec(
+            UPDATE_GAME_OVER_CALL_PACKET_ID,
+            "updateGameOver"
         ));
         assert!(has_generated_spec(TILE_CONFIG_CALL_PACKET_ID, "tileConfig"));
         assert!(has_generated_spec(
@@ -1106,6 +1131,26 @@ mod tests {
             Some(COMPLETE_OBJECTIVE_CALL_PACKET_ID)
         );
         assert_eq!(
+            combined.well_known_remote.game_over_packet_id,
+            Some(GAME_OVER_CALL_PACKET_ID)
+        );
+        assert_eq!(
+            combined.well_known_remote.researched_packet_id,
+            Some(RESEARCHED_CALL_PACKET_ID)
+        );
+        assert_eq!(
+            combined.well_known_remote.sector_capture_packet_id,
+            Some(SECTOR_CAPTURE_CALL_PACKET_ID)
+        );
+        assert_eq!(
+            combined.well_known_remote.set_flag_packet_id,
+            Some(SET_FLAG_CALL_PACKET_ID)
+        );
+        assert_eq!(
+            combined.well_known_remote.update_game_over_packet_id,
+            Some(UPDATE_GAME_OVER_CALL_PACKET_ID)
+        );
+        assert_eq!(
             manifest
                 .remote_packets
                 .iter()
@@ -1181,6 +1226,11 @@ mod tests {
         assert_eq!(well_known.set_objectives_packet_id, Some(17));
         assert_eq!(well_known.set_rule_packet_id, Some(19));
         assert_eq!(well_known.complete_objective_packet_id, Some(73));
+        assert_eq!(well_known.game_over_packet_id, Some(77));
+        assert_eq!(well_known.researched_packet_id, Some(79));
+        assert_eq!(well_known.sector_capture_packet_id, Some(81));
+        assert_eq!(well_known.set_flag_packet_id, Some(83));
+        assert_eq!(well_known.update_game_over_packet_id, Some(85));
         assert_eq!(well_known.world_data_begin_packet_id, Some(23));
         assert_eq!(well_known.method(5), Some(WellKnownRemoteMethod::Ping));
         assert_eq!(well_known.method(6), None);
@@ -1349,6 +1399,26 @@ mod tests {
             (
                 WellKnownRemoteMethod::CompleteObjective,
                 well_known.complete_objective_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::GameOver,
+                well_known.game_over_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::Researched,
+                well_known.researched_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::SectorCapture,
+                well_known.sector_capture_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::SetFlag,
+                well_known.set_flag_packet_id,
+            ),
+            (
+                WellKnownRemoteMethod::UpdateGameOver,
+                well_known.update_game_over_packet_id,
             ),
             (
                 WellKnownRemoteMethod::WorldDataBegin,
@@ -2732,6 +2802,122 @@ mod tests {
                         param("lastClientSnapshot", "int", true, true),
                         param("snapshotsSent", "int", true, true),
                     ],
+                ),
+                remote_packet(
+                    72,
+                    76,
+                    "mindustry.gen.GameOverDecoyCallPacket",
+                    "mindustry.core.Logic",
+                    "gameOver",
+                    "server",
+                    "both",
+                    true,
+                    vec![param("winner", "mindustry.game.Team", true, true)],
+                ),
+                remote_packet(
+                    73,
+                    77,
+                    "mindustry.gen.GameOverCallPacket",
+                    "mindustry.core.Logic",
+                    "gameOver",
+                    "server",
+                    "both",
+                    false,
+                    vec![param("winner", "mindustry.game.Team", true, true)],
+                ),
+                remote_packet(
+                    74,
+                    78,
+                    "mindustry.gen.ResearchedDecoyCallPacket",
+                    "mindustry.core.Logic",
+                    "researched",
+                    "server",
+                    "none",
+                    true,
+                    vec![param("content", "mindustry.ctype.Content", true, true)],
+                ),
+                remote_packet(
+                    75,
+                    79,
+                    "mindustry.gen.ResearchedCallPacket",
+                    "mindustry.core.Logic",
+                    "researched",
+                    "server",
+                    "none",
+                    false,
+                    vec![param("content", "mindustry.ctype.Content", true, true)],
+                ),
+                remote_packet(
+                    76,
+                    80,
+                    "mindustry.gen.SectorCaptureDecoyCallPacket",
+                    "mindustry.core.Logic",
+                    "sectorCapture",
+                    "server",
+                    "server",
+                    true,
+                    vec![],
+                ),
+                remote_packet(
+                    77,
+                    81,
+                    "mindustry.gen.SectorCaptureCallPacket",
+                    "mindustry.core.Logic",
+                    "sectorCapture",
+                    "server",
+                    "server",
+                    false,
+                    vec![],
+                ),
+                remote_packet(
+                    78,
+                    82,
+                    "mindustry.gen.SetFlagDecoyCallPacket",
+                    "mindustry.logic.LExecutor",
+                    "setFlag",
+                    "server",
+                    "server",
+                    true,
+                    vec![
+                        param("flag", "java.lang.String", true, true),
+                        param("add", "boolean", true, true),
+                    ],
+                ),
+                remote_packet(
+                    79,
+                    83,
+                    "mindustry.gen.SetFlagCallPacket",
+                    "mindustry.logic.LExecutor",
+                    "setFlag",
+                    "server",
+                    "server",
+                    false,
+                    vec![
+                        param("flag", "java.lang.String", true, true),
+                        param("add", "boolean", true, true),
+                    ],
+                ),
+                remote_packet(
+                    80,
+                    84,
+                    "mindustry.gen.UpdateGameOverDecoyCallPacket",
+                    "mindustry.core.Logic",
+                    "updateGameOver",
+                    "server",
+                    "both",
+                    true,
+                    vec![param("winner", "mindustry.game.Team", true, true)],
+                ),
+                remote_packet(
+                    81,
+                    85,
+                    "mindustry.gen.UpdateGameOverCallPacket",
+                    "mindustry.core.Logic",
+                    "updateGameOver",
+                    "server",
+                    "both",
+                    false,
+                    vec![param("winner", "mindustry.game.Team", true, true)],
                 ),
             ],
             wire: WireSpec {

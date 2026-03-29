@@ -660,31 +660,11 @@ impl ClientSession {
         let effect_reliable_packet_id = well_known_remote.effect_reliable_packet_id;
         let sound_packet_id = well_known_remote.sound_packet_id;
         let sound_at_packet_id = well_known_remote.sound_at_packet_id;
-        let game_over_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "gameOver")
-            .map(|entry| entry.packet_id);
-        let researched_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "researched")
-            .map(|entry| entry.packet_id);
-        let sector_capture_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "sectorCapture")
-            .map(|entry| entry.packet_id);
-        let set_flag_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "setFlag")
-            .map(|entry| entry.packet_id);
-        let update_game_over_packet_id = manifest
-            .remote_packets
-            .iter()
-            .find(|entry| entry.method == "updateGameOver")
-            .map(|entry| entry.packet_id);
+        let game_over_packet_id = well_known_remote.game_over_packet_id;
+        let researched_packet_id = well_known_remote.researched_packet_id;
+        let sector_capture_packet_id = well_known_remote.sector_capture_packet_id;
+        let set_flag_packet_id = well_known_remote.set_flag_packet_id;
+        let update_game_over_packet_id = well_known_remote.update_game_over_packet_id;
         let announce_packet_id = manifest
             .remote_packets
             .iter()
@@ -51143,6 +51123,26 @@ mod tests {
             expected(WellKnownRemoteMethod::CompleteObjective)
         );
         assert_eq!(
+            session.game_over_packet_id,
+            expected(WellKnownRemoteMethod::GameOver)
+        );
+        assert_eq!(
+            session.researched_packet_id,
+            expected(WellKnownRemoteMethod::Researched)
+        );
+        assert_eq!(
+            session.sector_capture_packet_id,
+            expected(WellKnownRemoteMethod::SectorCapture)
+        );
+        assert_eq!(
+            session.set_flag_packet_id,
+            expected(WellKnownRemoteMethod::SetFlag)
+        );
+        assert_eq!(
+            session.update_game_over_packet_id,
+            expected(WellKnownRemoteMethod::UpdateGameOver)
+        );
+        assert_eq!(
             Some(session.world_data_begin_packet_id),
             expected(WellKnownRemoteMethod::WorldDataBegin)
         );
@@ -51952,6 +51952,131 @@ mod tests {
         assert_eq!(
             session.debug_status_client_packet_id,
             Some(expected_debug_status_client_packet_id)
+        );
+    }
+
+    #[test]
+    fn session_game_state_packet_ids_reject_well_known_method_decoys() {
+        let mut manifest = read_remote_manifest(real_manifest_path()).unwrap();
+        let expected_game_over_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "gameOver" && !entry.unreliable)
+            .expect("missing gameOver packet")
+            .packet_id;
+        let expected_researched_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "researched" && !entry.unreliable)
+            .expect("missing researched packet")
+            .packet_id;
+        let expected_sector_capture_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "sectorCapture" && !entry.unreliable)
+            .expect("missing sectorCapture packet")
+            .packet_id;
+        let expected_set_flag_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "setFlag"
+                    && entry.params.len() == 2
+                    && entry.params[0].java_type == "java.lang.String"
+                    && entry.params[1].java_type == "boolean"
+                    && !entry.unreliable
+            })
+            .expect("missing setFlag packet")
+            .packet_id;
+        let expected_update_game_over_packet_id = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "updateGameOver" && !entry.unreliable)
+            .expect("missing updateGameOver packet")
+            .packet_id;
+
+        let mut game_over_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "gameOver" && !entry.unreliable)
+            .expect("missing gameOver packet")
+            .clone();
+        game_over_decoy.packet_id = 220;
+        game_over_decoy.packet_class = "mindustry.gen.GameOverDecoyCallPacket".into();
+        game_over_decoy.unreliable = true;
+
+        let mut researched_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "researched" && !entry.unreliable)
+            .expect("missing researched packet")
+            .clone();
+        researched_decoy.packet_id = 221;
+        researched_decoy.packet_class = "mindustry.gen.ResearchedDecoyCallPacket".into();
+        researched_decoy.unreliable = true;
+
+        let mut sector_capture_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "sectorCapture" && !entry.unreliable)
+            .expect("missing sectorCapture packet")
+            .clone();
+        sector_capture_decoy.packet_id = 222;
+        sector_capture_decoy.packet_class = "mindustry.gen.SectorCaptureDecoyCallPacket".into();
+        sector_capture_decoy.unreliable = true;
+
+        let mut set_flag_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| {
+                entry.method == "setFlag"
+                    && entry.params.len() == 2
+                    && entry.params[0].java_type == "java.lang.String"
+                    && entry.params[1].java_type == "boolean"
+                    && !entry.unreliable
+            })
+            .expect("missing setFlag packet")
+            .clone();
+        set_flag_decoy.packet_id = 223;
+        set_flag_decoy.packet_class = "mindustry.gen.SetFlagDecoyCallPacket".into();
+        set_flag_decoy.unreliable = true;
+
+        let mut update_game_over_decoy = manifest
+            .remote_packets
+            .iter()
+            .find(|entry| entry.method == "updateGameOver" && !entry.unreliable)
+            .expect("missing updateGameOver packet")
+            .clone();
+        update_game_over_decoy.packet_id = 224;
+        update_game_over_decoy.packet_class =
+            "mindustry.gen.UpdateGameOverDecoyCallPacket".into();
+        update_game_over_decoy.unreliable = true;
+
+        manifest.remote_packets.splice(
+            0..0,
+            vec![
+                game_over_decoy,
+                researched_decoy,
+                sector_capture_decoy,
+                set_flag_decoy,
+                update_game_over_decoy,
+            ],
+        );
+        for (remote_index, packet) in manifest.remote_packets.iter_mut().enumerate() {
+            packet.remote_index = remote_index;
+        }
+
+        let session = ClientSession::from_remote_manifest(&manifest, "fr").unwrap();
+        assert_eq!(session.game_over_packet_id, Some(expected_game_over_packet_id));
+        assert_eq!(session.researched_packet_id, Some(expected_researched_packet_id));
+        assert_eq!(
+            session.sector_capture_packet_id,
+            Some(expected_sector_capture_packet_id)
+        );
+        assert_eq!(session.set_flag_packet_id, Some(expected_set_flag_packet_id));
+        assert_eq!(
+            session.update_game_over_packet_id,
+            Some(expected_update_game_over_packet_id)
         );
     }
 

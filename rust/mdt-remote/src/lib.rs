@@ -5,7 +5,7 @@ pub const REMOTE_MANIFEST_SCHEMA_V1: &str = "mdt.remote.manifest.v1";
 pub const CUSTOM_CHANNEL_REMOTE_FAMILY_COUNT: usize = 10;
 pub const HIGH_FREQUENCY_REMOTE_METHOD_COUNT: usize = 5;
 pub const INBOUND_REMOTE_FAMILY_COUNT: usize = 6;
-pub const WELL_KNOWN_REMOTE_METHOD_COUNT: usize = 38;
+pub const WELL_KNOWN_REMOTE_METHOD_COUNT: usize = 43;
 pub const REMOTE_PACKET_ID_SPACE: usize = u8::MAX as usize + 1;
 pub const REMOTE_WIRE_PACKET_ID_BYTE_U8: &str = "u8";
 pub const REMOTE_WIRE_LENGTH_FIELD_U16BE: &str = "u16be";
@@ -188,6 +188,11 @@ pub enum WellKnownRemoteMethod {
     SetObjectives,
     SetRule,
     CompleteObjective,
+    GameOver,
+    Researched,
+    SectorCapture,
+    SetFlag,
+    UpdateGameOver,
     WorldDataBegin,
     KickString,
     KickReason,
@@ -644,6 +649,17 @@ const SET_RULE_WIRE_PARAM_KINDS: [RemoteParamKind; 2] =
     [RemoteParamKind::Opaque, RemoteParamKind::Opaque];
 const COMPLETE_OBJECTIVE_PARAM_JAVA_TYPES: [&str; 1] = ["int"];
 const COMPLETE_OBJECTIVE_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Int];
+const GAME_OVER_PARAM_JAVA_TYPES: [&str; 1] = ["mindustry.game.Team"];
+const GAME_OVER_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Opaque];
+const RESEARCHED_PARAM_JAVA_TYPES: [&str; 1] = ["mindustry.ctype.Content"];
+const RESEARCHED_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Opaque];
+const SECTOR_CAPTURE_PARAM_JAVA_TYPES: [&str; 0] = [];
+const SECTOR_CAPTURE_WIRE_PARAM_KINDS: [RemoteParamKind; 0] = [];
+const SET_FLAG_PARAM_JAVA_TYPES: [&str; 2] = ["java.lang.String", "boolean"];
+const SET_FLAG_WIRE_PARAM_KINDS: [RemoteParamKind; 2] =
+    [RemoteParamKind::Opaque, RemoteParamKind::Bool];
+const UPDATE_GAME_OVER_PARAM_JAVA_TYPES: [&str; 1] = ["mindustry.game.Team"];
+const UPDATE_GAME_OVER_WIRE_PARAM_KINDS: [RemoteParamKind; 1] = [RemoteParamKind::Opaque];
 const WORLD_DATA_BEGIN_PARAM_JAVA_TYPES: [&str; 0] = [];
 const WORLD_DATA_BEGIN_WIRE_PARAM_KINDS: [RemoteParamKind; 0] = [];
 
@@ -718,6 +734,11 @@ impl WellKnownRemoteMethod {
             Self::SetObjectives,
             Self::SetRule,
             Self::CompleteObjective,
+            Self::GameOver,
+            Self::Researched,
+            Self::SectorCapture,
+            Self::SetFlag,
+            Self::UpdateGameOver,
             Self::WorldDataBegin,
             Self::KickString,
             Self::KickReason,
@@ -761,6 +782,11 @@ impl WellKnownRemoteMethod {
             Self::SetObjectives => "setObjectives",
             Self::SetRule => "setRule",
             Self::CompleteObjective => "completeObjective",
+            Self::GameOver => "gameOver",
+            Self::Researched => "researched",
+            Self::SectorCapture => "sectorCapture",
+            Self::SetFlag => "setFlag",
+            Self::UpdateGameOver => "updateGameOver",
             Self::WorldDataBegin => "worldDataBegin",
             Self::KickString | Self::KickReason => "kick",
             Self::SendChatMessage => "sendChatMessage",
@@ -795,6 +821,11 @@ impl WellKnownRemoteMethod {
             | Self::SetObjectives
             | Self::SetRule
             | Self::CompleteObjective
+            | Self::GameOver
+            | Self::Researched
+            | Self::SectorCapture
+            | Self::SetFlag
+            | Self::UpdateGameOver
             | Self::WorldDataBegin
             | Self::KickString
             | Self::KickReason
@@ -855,6 +886,11 @@ impl WellKnownRemoteMethod {
             Self::SetObjectives => &SET_OBJECTIVES_PARAM_JAVA_TYPES,
             Self::SetRule => &SET_RULE_PARAM_JAVA_TYPES,
             Self::CompleteObjective => &COMPLETE_OBJECTIVE_PARAM_JAVA_TYPES,
+            Self::GameOver => &GAME_OVER_PARAM_JAVA_TYPES,
+            Self::Researched => &RESEARCHED_PARAM_JAVA_TYPES,
+            Self::SectorCapture => &SECTOR_CAPTURE_PARAM_JAVA_TYPES,
+            Self::SetFlag => &SET_FLAG_PARAM_JAVA_TYPES,
+            Self::UpdateGameOver => &UPDATE_GAME_OVER_PARAM_JAVA_TYPES,
             Self::WorldDataBegin => &WORLD_DATA_BEGIN_PARAM_JAVA_TYPES,
             Self::KickString => &KICK_STRING_PARAM_JAVA_TYPES,
             Self::KickReason => &KICK_REASON_PARAM_JAVA_TYPES,
@@ -895,6 +931,11 @@ impl WellKnownRemoteMethod {
             Self::SetObjectives => &SET_OBJECTIVES_WIRE_PARAM_KINDS,
             Self::SetRule => &SET_RULE_WIRE_PARAM_KINDS,
             Self::CompleteObjective => &COMPLETE_OBJECTIVE_WIRE_PARAM_KINDS,
+            Self::GameOver => &GAME_OVER_WIRE_PARAM_KINDS,
+            Self::Researched => &RESEARCHED_WIRE_PARAM_KINDS,
+            Self::SectorCapture => &SECTOR_CAPTURE_WIRE_PARAM_KINDS,
+            Self::SetFlag => &SET_FLAG_WIRE_PARAM_KINDS,
+            Self::UpdateGameOver => &UPDATE_GAME_OVER_WIRE_PARAM_KINDS,
             Self::WorldDataBegin => &WORLD_DATA_BEGIN_WIRE_PARAM_KINDS,
             Self::KickString => &KICK_STRING_WIRE_PARAM_KINDS,
             Self::KickReason => &KICK_REASON_WIRE_PARAM_KINDS,
@@ -4506,6 +4547,14 @@ mod tests {
                 .packet_id(WellKnownRemoteMethod::DebugStatusClient)
         );
         assert_eq!(
+            bundle.well_known.packet_id(WellKnownRemoteMethod::GameOver),
+            baseline.well_known.packet_id(WellKnownRemoteMethod::GameOver)
+        );
+        assert_eq!(
+            bundle.well_known.packet_id(WellKnownRemoteMethod::SetFlag),
+            baseline.well_known.packet_id(WellKnownRemoteMethod::SetFlag)
+        );
+        assert_eq!(
             bundle
                 .well_known
                 .packet_id(WellKnownRemoteMethod::DebugStatusClientUnreliable),
@@ -4551,6 +4600,11 @@ mod tests {
             (WellKnownRemoteMethod::SetObjectives, Some(17)),
             (WellKnownRemoteMethod::SetRule, Some(19)),
             (WellKnownRemoteMethod::CompleteObjective, Some(73)),
+            (WellKnownRemoteMethod::GameOver, Some(77)),
+            (WellKnownRemoteMethod::Researched, Some(79)),
+            (WellKnownRemoteMethod::SectorCapture, Some(81)),
+            (WellKnownRemoteMethod::SetFlag, Some(83)),
+            (WellKnownRemoteMethod::UpdateGameOver, Some(85)),
             (WellKnownRemoteMethod::WorldDataBegin, Some(23)),
             (WellKnownRemoteMethod::KickString, Some(25)),
             (WellKnownRemoteMethod::KickReason, Some(27)),
@@ -4610,6 +4664,11 @@ mod tests {
             fixed_table.get(75),
             Some(WellKnownRemoteMethod::DebugStatusClient)
         );
+        assert_eq!(fixed_table.get(77), Some(WellKnownRemoteMethod::GameOver));
+        assert_eq!(fixed_table.get(79), Some(WellKnownRemoteMethod::Researched));
+        assert_eq!(fixed_table.get(81), Some(WellKnownRemoteMethod::SectorCapture));
+        assert_eq!(fixed_table.get(83), Some(WellKnownRemoteMethod::SetFlag));
+        assert_eq!(fixed_table.get(85), Some(WellKnownRemoteMethod::UpdateGameOver));
         assert_eq!(
             fixed_table.get(17),
             Some(WellKnownRemoteMethod::SetObjectives)
@@ -4668,6 +4727,11 @@ mod tests {
         assert!(fixed_table.contains_packet_id(71));
         assert!(fixed_table.contains_packet_id(73));
         assert!(fixed_table.contains_packet_id(75));
+        assert!(fixed_table.contains_packet_id(77));
+        assert!(fixed_table.contains_packet_id(79));
+        assert!(fixed_table.contains_packet_id(81));
+        assert!(fixed_table.contains_packet_id(83));
+        assert!(fixed_table.contains_packet_id(85));
         assert!(!fixed_table.contains_packet_id(250));
     }
 
@@ -5075,6 +5139,36 @@ mod tests {
                 .first_well_known_method(WellKnownRemoteMethod::CompleteObjective)
                 .map(|packet| packet.packet_id),
             Some(73)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::GameOver)
+                .map(|packet| packet.packet_id),
+            Some(77)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::Researched)
+                .map(|packet| packet.packet_id),
+            Some(79)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::SectorCapture)
+                .map(|packet| packet.packet_id),
+            Some(81)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::SetFlag)
+                .map(|packet| packet.packet_id),
+            Some(83)
+        );
+        assert_eq!(
+            registry
+                .first_well_known_method(WellKnownRemoteMethod::UpdateGameOver)
+                .map(|packet| packet.packet_id),
+            Some(85)
         );
         assert_eq!(
             registry
@@ -6765,6 +6859,122 @@ mod tests {
                         test_param("lastClientSnapshot", "int", true, true),
                         test_param("snapshotsSent", "int", true, true),
                     ],
+                ),
+                test_remote_packet(
+                    72,
+                    76,
+                    "mindustry.gen.GameOverDecoyCallPacket",
+                    "mindustry.core.Logic",
+                    "gameOver",
+                    "server",
+                    "normal",
+                    true,
+                    vec![test_param("winner", "mindustry.game.Team", true, true)],
+                ),
+                test_remote_packet(
+                    73,
+                    77,
+                    "mindustry.gen.GameOverCallPacket",
+                    "mindustry.core.Logic",
+                    "gameOver",
+                    "server",
+                    "normal",
+                    false,
+                    vec![test_param("winner", "mindustry.game.Team", true, true)],
+                ),
+                test_remote_packet(
+                    74,
+                    78,
+                    "mindustry.gen.ResearchedDecoyCallPacket",
+                    "mindustry.core.Logic",
+                    "researched",
+                    "server",
+                    "normal",
+                    true,
+                    vec![test_param("content", "mindustry.ctype.Content", true, true)],
+                ),
+                test_remote_packet(
+                    75,
+                    79,
+                    "mindustry.gen.ResearchedCallPacket",
+                    "mindustry.core.Logic",
+                    "researched",
+                    "server",
+                    "normal",
+                    false,
+                    vec![test_param("content", "mindustry.ctype.Content", true, true)],
+                ),
+                test_remote_packet(
+                    76,
+                    80,
+                    "mindustry.gen.SectorCaptureDecoyCallPacket",
+                    "mindustry.core.Logic",
+                    "sectorCapture",
+                    "server",
+                    "normal",
+                    true,
+                    vec![],
+                ),
+                test_remote_packet(
+                    77,
+                    81,
+                    "mindustry.gen.SectorCaptureCallPacket",
+                    "mindustry.core.Logic",
+                    "sectorCapture",
+                    "server",
+                    "normal",
+                    false,
+                    vec![],
+                ),
+                test_remote_packet(
+                    78,
+                    82,
+                    "mindustry.gen.SetFlagDecoyCallPacket",
+                    "mindustry.logic.LExecutor",
+                    "setFlag",
+                    "server",
+                    "normal",
+                    true,
+                    vec![
+                        test_param("flag", "java.lang.String", true, true),
+                        test_param("add", "boolean", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    79,
+                    83,
+                    "mindustry.gen.SetFlagCallPacket",
+                    "mindustry.logic.LExecutor",
+                    "setFlag",
+                    "server",
+                    "normal",
+                    false,
+                    vec![
+                        test_param("flag", "java.lang.String", true, true),
+                        test_param("add", "boolean", true, true),
+                    ],
+                ),
+                test_remote_packet(
+                    80,
+                    84,
+                    "mindustry.gen.UpdateGameOverDecoyCallPacket",
+                    "mindustry.core.Logic",
+                    "updateGameOver",
+                    "server",
+                    "normal",
+                    true,
+                    vec![test_param("winner", "mindustry.game.Team", true, true)],
+                ),
+                test_remote_packet(
+                    81,
+                    85,
+                    "mindustry.gen.UpdateGameOverCallPacket",
+                    "mindustry.core.Logic",
+                    "updateGameOver",
+                    "server",
+                    "normal",
+                    false,
+                    vec![test_param("winner", "mindustry.game.Team", true, true)],
                 ),
             ],
             wire: WireSpec {
