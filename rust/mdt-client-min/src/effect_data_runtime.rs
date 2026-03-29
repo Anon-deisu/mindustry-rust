@@ -451,30 +451,38 @@ fn position_hint_from_value(
                 path,
             })
         }
-        TypeIoObject::Vec2 { x, y } => Some(TypeIoEffectPositionHint::Vec2 {
-            x_bits: x.to_bits(),
-            y_bits: y.to_bits(),
-            path,
+        TypeIoObject::Vec2 { x, y } => finite_vec2_position_bits(*x, *y).map(|(x_bits, y_bits)| {
+            TypeIoEffectPositionHint::Vec2 {
+                x_bits,
+                y_bits,
+                path,
+            }
         }),
         TypeIoObject::Vec2Array(values) => {
             let (x, y) = values.first()?;
             let mut path = path;
             path.push(0);
-            Some(TypeIoEffectPositionHint::Vec2ArrayFirst {
-                x_bits: x.to_bits(),
-                y_bits: y.to_bits(),
-                path,
+            finite_vec2_position_bits(*x, *y).map(|(x_bits, y_bits)| {
+                TypeIoEffectPositionHint::Vec2ArrayFirst {
+                    x_bits,
+                    y_bits,
+                    path,
+                }
             })
         }
         _ => None,
     }
 }
 
+fn finite_vec2_position_bits(x: f32, y: f32) -> Option<(u32, u32)> {
+    (x.is_finite() && y.is_finite()).then_some((x.to_bits(), y.to_bits()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        derive_effect_data_business_input, derive_effect_data_semantic, EffectDataBusinessHint,
-        EffectDataBusinessInput, EffectDataBusinessTargetHint,
+        derive_effect_data_business_input, derive_effect_data_semantic, position_hint_from_value,
+        EffectDataBusinessHint, EffectDataBusinessInput, EffectDataBusinessTargetHint,
     };
     use crate::session_state::{EffectBusinessContentKind, EffectDataSemantic};
     use mdt_typeio::{
@@ -1006,6 +1014,63 @@ mod tests {
 
         assert_eq!(input.contract_name, Some("lightning"));
         assert_eq!(input.primary, None);
+    }
+
+    #[test]
+    fn position_hint_from_value_rejects_non_finite_vec2_coordinates() {
+        assert_eq!(
+            position_hint_from_value(
+                &TypeIoObject::Point2 { x: 7, y: -8 },
+                vec![2],
+            ),
+            Some(TypeIoEffectPositionHint::Point2 {
+                x: 7,
+                y: -8,
+                path: vec![2],
+            })
+        );
+        assert_eq!(
+            position_hint_from_value(
+                &TypeIoObject::Vec2 {
+                    x: 1.5,
+                    y: -2.25,
+                },
+                vec![3],
+            ),
+            Some(TypeIoEffectPositionHint::Vec2 {
+                x_bits: 1.5f32.to_bits(),
+                y_bits: (-2.25f32).to_bits(),
+                path: vec![3],
+            })
+        );
+        assert_eq!(
+            position_hint_from_value(
+                &TypeIoObject::Vec2 {
+                    x: f32::INFINITY,
+                    y: 4.5,
+                },
+                vec![3],
+            ),
+            None
+        );
+        assert_eq!(
+            position_hint_from_value(
+                &TypeIoObject::Vec2Array(vec![(1.5, -2.25)]),
+                vec![4],
+            ),
+            Some(TypeIoEffectPositionHint::Vec2ArrayFirst {
+                x_bits: 1.5f32.to_bits(),
+                y_bits: (-2.25f32).to_bits(),
+                path: vec![4, 0],
+            })
+        );
+        assert_eq!(
+            position_hint_from_value(
+                &TypeIoObject::Vec2Array(vec![(f32::NAN, 4.5)]),
+                vec![4],
+            ),
+            None
+        );
     }
 
     #[test]
