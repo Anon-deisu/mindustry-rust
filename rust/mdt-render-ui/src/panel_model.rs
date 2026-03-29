@@ -255,6 +255,9 @@ pub struct BuildMinimapAssistPanelModel {
     pub config_sample_count: usize,
     pub top_config_family: Option<String>,
     pub authority_state: BuildInteractionAuthorityState,
+    pub head_tile: Option<(i32, i32)>,
+    pub authority_tile: Option<(i32, i32)>,
+    pub authority_source: Option<BuildConfigAuthoritySourceObservability>,
     pub focus_tile: Option<(usize, usize)>,
     pub focus_in_window: Option<bool>,
     pub visible_map_percent: usize,
@@ -1720,6 +1723,9 @@ pub fn build_build_minimap_assist_panel(
         config_sample_count: interaction.config_sample_count,
         top_config_family: interaction.top_config_family,
         authority_state: interaction.authority_state,
+        head_tile: interaction.head.as_ref().map(|head| (head.x, head.y)),
+        authority_tile: interaction.authority_tile,
+        authority_source: interaction.authority_source,
         focus_tile: minimap.focus_tile,
         focus_in_window: minimap.focus_in_window,
         visible_map_percent: minimap.visible_map_percent(),
@@ -3099,6 +3105,12 @@ mod tests {
             panel.authority_state,
             BuildInteractionAuthorityState::RejectedMissingBuilding
         );
+        assert_eq!(panel.head_tile, Some((10, 12)));
+        assert_eq!(panel.authority_tile, Some((10, 12)));
+        assert_eq!(
+            panel.authority_source,
+            Some(BuildConfigAuthoritySourceObservability::TileConfig)
+        );
         assert_eq!(panel.focus_tile, Some((0, 0)));
         assert_eq!(panel.focus_in_window, Some(true));
         assert_eq!(panel.visible_map_percent, 0);
@@ -3126,6 +3138,9 @@ mod tests {
             config_sample_count: 0,
             top_config_family: None,
             authority_state: BuildInteractionAuthorityState::None,
+            head_tile: None,
+            authority_tile: None,
+            authority_source: None,
             focus_tile: Some((4, 6)),
             focus_in_window: Some(true),
             visible_map_percent: 100,
