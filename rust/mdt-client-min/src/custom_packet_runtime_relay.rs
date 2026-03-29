@@ -307,6 +307,7 @@ impl RuntimeCustomPacketRelayState {
                 matches!(
                     event,
                     ClientSessionEvent::WorldDataBegin
+                        | ClientSessionEvent::WorldStreamStarted { .. }
                         | ClientSessionEvent::ConnectRedirectRequested { .. }
                 )
             })
@@ -834,6 +835,37 @@ mod tests {
         state.observe_events(&[ClientSessionEvent::ConnectRedirectRequested {
             ip: "127.0.0.1".to_string(),
             port: 6567,
+        }]);
+
+        assert!(state.pending_entries.is_empty());
+        let summary = state.summary_lines();
+        assert_eq!(summary.len(), 1);
+        assert!(summary[0].contains("count=0"));
+        assert!(summary[0].contains("event_total=0"));
+        assert!(summary[0].contains("last=None"));
+    }
+
+    #[test]
+    fn runtime_custom_packet_relays_clear_state_on_world_stream_started() {
+        let mut state = RuntimeCustomPacketRelayState::default();
+        state.register(&RuntimeCustomPacketRelaySpec::Text {
+            inbound_type: "custom.ping".to_string(),
+            outbound_type: "custom.pong".to_string(),
+            transport: ClientPacketTransport::Tcp,
+        });
+
+        state.record_text_handler("custom.ping", "wave ready");
+        state.observe_events(&[ClientSessionEvent::ServerPacketReliable {
+            packet_type: "custom.ping".to_string(),
+            contents: "wave ready".to_string(),
+        }]);
+
+        assert_eq!(state.pending_entries.len(), 1);
+        assert!(state.summary_lines()[0].contains("count=1"));
+
+        state.observe_events(&[ClientSessionEvent::WorldStreamStarted {
+            stream_id: 3,
+            total_bytes: 1024,
         }]);
 
         assert!(state.pending_entries.is_empty());
