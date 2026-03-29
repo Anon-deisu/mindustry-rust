@@ -88,6 +88,9 @@ pub(crate) fn build_build_user_flow_panel(
     let assist = build_build_minimap_assist_panel(scene, hud, window);
     let minimap = build_minimap_user_flow_panel(scene, hud, window);
     let interaction = build_build_interaction_panel(hud);
+    if assist.is_none() && minimap.is_none() && interaction.is_none() {
+        return None;
+    }
     Some(build_user_flow_from_panel_options(
         assist.as_ref(),
         minimap.as_ref(),
@@ -236,7 +239,10 @@ fn push_route_step(route: &mut Vec<&'static str>, step: &'static str) {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_user_flow_from_panels, BuildUserFlowBlocker, BuildUserFlowPanelModel};
+    use super::{
+        build_build_user_flow_panel, build_user_flow_from_panels, BuildUserFlowBlocker,
+        BuildUserFlowPanelModel,
+    };
     use crate::minimap_user_flow::{
         MinimapPanAxisDirection, MinimapUserFlowPanelModel, MinimapUserFocusState,
         MinimapUserTargetKind,
@@ -244,8 +250,25 @@ mod tests {
     use crate::panel_model::{
         BuildConfigHeadModel, BuildInteractionAuthorityState, BuildInteractionMode,
         BuildInteractionPanelModel, BuildInteractionQueueState, BuildInteractionSelectionState,
-        BuildMinimapAssistPanelModel,
+        BuildMinimapAssistPanelModel, PresenterViewWindow,
     };
+    use crate::{HudModel, RenderModel};
+
+    #[test]
+    fn build_build_user_flow_panel_returns_none_for_empty_default_inputs() {
+        let panel = build_build_user_flow_panel(
+            &RenderModel::default(),
+            &HudModel::default(),
+            PresenterViewWindow {
+                origin_x: 0,
+                origin_y: 0,
+                width: 0,
+                height: 0,
+            },
+        );
+
+        assert!(panel.is_none());
+    }
 
     #[test]
     fn build_user_flow_route_tracks_ordered_place_blockers_and_commit_path() {
