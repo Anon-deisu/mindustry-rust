@@ -77,6 +77,8 @@ pub fn write_status_entry(out: &mut Vec<u8>, entry: &StatusEntryRaw) {
         {
             write_float(out, value);
         }
+    } else {
+        write_byte(out, 0);
     }
 }
 
@@ -650,17 +652,31 @@ mod tests {
     }
 
     #[test]
-    fn status_entry_round_trip_without_dynamic_fields() {
+    fn status_entry_with_missing_dynamic_fields_writes_zero_flag_byte() {
         let entry = StatusEntryRaw {
             status_id: 27,
             time: 45.5,
             dynamic_fields: None,
         };
+        let expected = StatusEntryRaw {
+            status_id: 27,
+            time: 45.5,
+            dynamic_fields: Some(StatusDynamicFieldsRaw::default()),
+        };
         let mut bytes = Vec::new();
 
         write_status_entry(&mut bytes, &entry);
 
-        assert_eq!(read_status_entry(&bytes, false).unwrap(), entry);
+        assert_eq!(
+            bytes,
+            [
+                entry.status_id.to_be_bytes().as_slice(),
+                entry.time.to_bits().to_be_bytes().as_slice(),
+                &[0],
+            ]
+            .concat()
+        );
+        assert_eq!(read_status_entry(&bytes, true).unwrap(), expected);
     }
 
     #[test]
@@ -679,6 +695,18 @@ mod tests {
 
         write_status_entry(&mut bytes, &entry);
 
+        assert_eq!(
+            bytes,
+            [
+                entry.status_id.to_be_bytes().as_slice(),
+                entry.time.to_bits().to_be_bytes().as_slice(),
+                &[0b0100_0101],
+                1.5f32.to_bits().to_be_bytes().as_slice(),
+                0.75f32.to_bits().to_be_bytes().as_slice(),
+                6.0f32.to_bits().to_be_bytes().as_slice(),
+            ]
+            .concat()
+        );
         assert_eq!(read_status_entry(&bytes, true).unwrap(), entry);
     }
 
@@ -820,10 +848,10 @@ mod tests {
         bytes.push(0xff);
 
         assert!(matches!(
-            read_status_entry(&bytes, false),
+            read_status_entry(&bytes, true),
             Err(TypeIoReadError::TrailingBytes {
-                consumed: 6,
-                total: 7,
+                consumed: 7,
+                total: 8,
             })
         ));
     }
