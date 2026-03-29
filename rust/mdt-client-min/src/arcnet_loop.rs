@@ -794,6 +794,11 @@ mod tests {
         driver.connect_sent = true;
         driver.pending_connect = Some(vec![1, 2, 3]);
         driver.tcp_read_buffer.extend_from_slice(&[0, 3, 9, 9, 9]);
+        driver
+            .pending_tcp_write
+            .enqueue_frame(&[0xAA, 0xBB], Some(77))
+            .unwrap();
+        driver.completed_tcp_packet_ids.push_back(77);
 
         let connect = sample_connect_envelope();
         let probe = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -807,6 +812,10 @@ mod tests {
         assert!(!driver.connect_sent);
         assert!(driver.pending_connect.is_none());
         assert!(driver.tcp_read_buffer.is_empty());
+        assert!(driver.pending_tcp_write.bytes.is_empty());
+        assert_eq!(driver.pending_tcp_write.offset, 0);
+        assert!(driver.pending_tcp_write.frames.is_empty());
+        assert!(driver.completed_tcp_packet_ids.is_empty());
     }
 
     #[test]
